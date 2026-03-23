@@ -37,6 +37,7 @@ type Project struct {
 
 	PullRequestReviewerHelixAppID string `json:"pull_request_reviewer_helix_app_id"`
 	PullRequestReviewsEnabled     bool   `json:"pull_request_reviews_enabled"`
+	KoditEnabled                  bool   `json:"kodit_enabled" gorm:"default:true"`
 
 	// Guidelines for AI agents - project-specific style guides, conventions, and instructions
 	// Combined with organization guidelines when constructing prompts
@@ -176,6 +177,7 @@ type ProjectUpdateRequest struct {
 	ProjectManagerHelixAppID      *string          `json:"project_manager_helix_app_id,omitempty"`       // Project manager agent
 	PullRequestReviewerHelixAppID *string          `json:"pull_request_reviewer_helix_app_id,omitempty"` // Pull request reviewer agent
 	PullRequestReviewsEnabled     *bool            `json:"pull_request_reviews_enabled,omitempty"`       // Whether pull request reviews are enabled
+	KoditEnabled                  *bool            `json:"kodit_enabled,omitempty"`                      // Whether Kodit code intelligence is enabled
 	Guidelines                    *string          `json:"guidelines,omitempty"`                         // Project-specific AI agent guidelines
 	Skills                        *AssistantSkills `json:"skills,omitempty"`                             // Project-level skills
 	Metadata                      *ProjectMetadata `json:"metadata,omitempty"`

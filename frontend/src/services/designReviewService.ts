@@ -31,29 +31,31 @@ export interface DesignReview {
 }
 
 export interface DesignReviewComment {
-  id: string
-  review_id: string
-  commented_by: string
-  document_type: 'requirements' | 'technical_design' | 'implementation_plan'
+  id?: string
+  review_id?: string
+  commented_by?: string
+  document_type?: 'requirements' | 'technical_design' | 'implementation_plan' | string
   section_path?: string
   line_number?: number
   quoted_text?: string
   start_offset?: number
   end_offset?: number
-  comment_text: string
+  comment_text?: string
   comment_type?: 'general' | 'question' | 'suggestion' | 'critical' | 'praise' // Made optional
   // Agent integration fields
   request_id?: string // For correlating streaming responses
   agent_response?: string
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  agent_response_entries?: any[]
   agent_response_at?: string
   interaction_id?: string
   // Resolution fields
-  resolved: boolean
+  resolved?: boolean
   resolved_by?: string
   resolved_at?: string
-  resolution_reason?: 'manual' | 'auto_text_removed' | 'agent_updated'
-  created_at: string
-  updated_at: string
+  resolution_reason?: 'manual' | 'auto_text_removed' | 'agent_updated' | string
+  created_at?: string
+  updated_at?: string
   replies?: DesignReviewCommentReply[]
 }
 
@@ -81,14 +83,14 @@ export function useDesignReviews(specTaskId: string) {
   return useQuery({
     queryKey: designReviewKeys.list(specTaskId),
     queryFn: async () => {
-      const response = await apiClient.get(`/api/v1/spec-tasks/${specTaskId}/design-reviews`)
+      const response = await apiClient.v1SpecTasksDesignReviewsDetail(specTaskId)
       return response.data
     },
     enabled: !!specTaskId,
   })
 }
 
-export function useDesignReview(specTaskId: string, reviewId: string, options?: { refetchInterval?: number }) {
+export function useDesignReview(specTaskId: string, reviewId: string, options?: { refetchInterval?: number; enabled?: boolean }) {
   const api = useApi()
   const apiClient = api.getApiClient()
 
@@ -98,7 +100,7 @@ export function useDesignReview(specTaskId: string, reviewId: string, options?: 
       const response = await apiClient.v1SpecTasksDesignReviewsDetail2(specTaskId, reviewId)
       return response.data
     },
-    enabled: !!specTaskId && !!reviewId,
+    enabled: (options?.enabled !== false) && !!specTaskId && !!reviewId,
     // Poll when refetchInterval is set - used when awaiting agent responses
     // The backend updates the review content when agent pushes spec changes
     refetchInterval: options?.refetchInterval,
@@ -154,7 +156,7 @@ export function useSubmitReview(specTaskId: string, reviewId: string) {
 
   return useMutation({
     mutationFn: async (data: { decision: 'approve' | 'request_changes'; overall_comment?: string }) => {
-      const response = await apiClient.v1SpecTasksDesignReviewsSubmitCreate(specTaskId, reviewId, data)
+      const response = await apiClient.v1SpecTasksDesignReviewsSubmitCreate(specTaskId, reviewId, { ...data, review_id: reviewId })
       return response.data
     },
     onSuccess: () => {
@@ -182,7 +184,7 @@ export function useCreateComment(specTaskId: string, reviewId: string) {
       comment_text: string
       comment_type?: 'general' | 'question' | 'suggestion' | 'critical' | 'praise'
     }) => {
-      const response = await apiClient.v1SpecTasksDesignReviewsCommentsCreate(specTaskId, reviewId, data)
+      const response = await apiClient.v1SpecTasksDesignReviewsCommentsCreate(specTaskId, reviewId, { ...data, review_id: reviewId } as any)
       return response.data
     },
     onSuccess: () => {

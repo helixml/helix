@@ -44,6 +44,105 @@ func (s *GitRepositoryService) CreatePullRequest(ctx context.Context, repoID str
 	}
 }
 
+// UpdatePullRequest updates the title and description of an existing pull request.
+func (s *GitRepositoryService) UpdatePullRequest(ctx context.Context, repoID string, prNumber int, title string, description string) error {
+	repo, err := s.GetRepository(ctx, repoID)
+	if err != nil {
+		return fmt.Errorf("repository not found: %w", err)
+	}
+
+	if repo.ExternalURL == "" {
+		return fmt.Errorf("repository is not external")
+	}
+
+	switch repo.ExternalType {
+	case types.ExternalRepositoryTypeGitHub:
+		return s.updateGitHubPullRequest(ctx, repo, prNumber, title, description)
+	case types.ExternalRepositoryTypeADO:
+		return s.updateAzureDevOpsPullRequest(ctx, repo, prNumber, title, description)
+	case types.ExternalRepositoryTypeGitLab:
+		return s.updateGitLabMergeRequest(ctx, repo, prNumber, title, description)
+	case types.ExternalRepositoryTypeBitbucket:
+		return s.updateBitbucketPullRequest(ctx, repo, prNumber, title, description)
+	default:
+		return fmt.Errorf("unsupported external repository type: %s", repo.ExternalType)
+	}
+}
+
+func (s *GitRepositoryService) updateGitHubPullRequest(ctx context.Context, repo *types.GitRepository, prNumber int, title string, description string) error {
+	client, err := s.getGitHubClient(ctx, repo)
+	if err != nil {
+		return err
+	}
+
+	owner, repoName, err := github.ParseGitHubURL(repo.ExternalURL)
+	if err != nil {
+		return fmt.Errorf("failed to parse GitHub URL: %w", err)
+	}
+
+	_, err = client.UpdatePullRequest(ctx, owner, repoName, prNumber, title, description)
+	if err != nil {
+		return fmt.Errorf("failed to update pull request: %w", err)
+	}
+
+	log.Info().Int("pr_number", prNumber).Str("repo", repoName).Msg("Updated pull request title/description")
+	return nil
+}
+
+func (s *GitRepositoryService) updateAzureDevOpsPullRequest(ctx context.Context, repo *types.GitRepository, prNumber int, title string, description string) error {
+	client, err := s.getAzureDevOpsClient(ctx, repo)
+	if err != nil {
+		return err
+	}
+	project, err := s.getAzureDevOpsProject(repo)
+	if err != nil {
+		return fmt.Errorf("failed to get azure devops project: %w", err)
+	}
+	repositoryName, err := s.getAzureDevOpsRepositoryName(repo)
+	if err != nil {
+		return fmt.Errorf("failed to get azure devops repository name: %w", err)
+	}
+	_, err = client.UpdatePullRequest(ctx, repositoryName, project, prNumber, title, description)
+	if err != nil {
+		return fmt.Errorf("failed to update pull request: %w", err)
+	}
+	log.Info().Int("pr_number", prNumber).Str("repo", repositoryName).Msg("Updated ADO pull request")
+	return nil
+}
+
+func (s *GitRepositoryService) updateGitLabMergeRequest(ctx context.Context, repo *types.GitRepository, mrIID int, title string, description string) error {
+	client, err := s.getGitLabClient(ctx, repo)
+	if err != nil {
+		return err
+	}
+	projectID, err := s.getGitLabProjectID(ctx, client, repo)
+	if err != nil {
+		return err
+	}
+	_, err = client.UpdateMergeRequest(ctx, projectID, mrIID, title, description)
+	if err != nil {
+		return fmt.Errorf("failed to update merge request: %w", err)
+	}
+	log.Info().Int("mr_iid", mrIID).Int("project_id", projectID).Msg("Updated GitLab merge request")
+	return nil
+}
+
+func (s *GitRepositoryService) updateBitbucketPullRequest(ctx context.Context, repo *types.GitRepository, prID int, title string, description string) error {
+	client, err := s.getBitbucketClient(ctx, repo)
+	if err != nil {
+		return err
+	}
+	workspace, repoSlug, _, err := bitbucket.ParseBitbucketURL(repo.ExternalURL)
+	if err != nil {
+		return fmt.Errorf("failed to parse Bitbucket URL: %w", err)
+	}
+	if err := client.UpdatePullRequest(ctx, workspace, repoSlug, prID, title, description); err != nil {
+		return fmt.Errorf("failed to update pull request: %w", err)
+	}
+	log.Info().Int("pr_id", prID).Str("repo", repoSlug).Msg("Updated Bitbucket pull request")
+	return nil
+}
+
 func (s *GitRepositoryService) createAzureDevOpsPullRequest(ctx context.Context, repo *types.GitRepository, title string, description string, sourceBranch string, targetBranch string) (string, error) {
 	client, err := s.getAzureDevOpsClient(ctx, repo)
 	if err != nil {

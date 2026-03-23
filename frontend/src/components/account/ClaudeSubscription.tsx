@@ -25,13 +25,14 @@ import useApi from '../../hooks/useApi'
 import useSnackbar from '../../hooks/useSnackbar'
 import useThemeConfig from '../../hooks/useThemeConfig'
 import useAccount from '../../hooks/useAccount'
-import ExternalAgentDesktopViewer, { useSandboxState } from '../external-agent/ExternalAgentDesktopViewer'
-import { getTokenExpiryStatus } from './claudeSubscriptionUtils'
+import { useSandboxState } from '../external-agent/ExternalAgentDesktopViewer'
+import { getTokenExpiryStatus, openExternalUrl } from './claudeSubscriptionUtils'
 
 interface ClaudeSubscriptionData {
   id: string
   created: string
   name: string
+  credential_type?: string
   subscription_type: string
   rate_limit_tier: string
   status: string
@@ -146,7 +147,7 @@ const ClaudeSubscription: FC = () => {
   const handleStartLogin = useCallback(async () => {
     setLoginStarting(true)
     try {
-      const result = await api.post<{ session_id: string }>('/api/v1/claude-subscriptions/start-login', {})
+      const result = await api.post<{}, { session_id: string }>('/api/v1/claude-subscriptions/start-login', {})
       if (result && result.session_id) {
         setLoginSessionId(result.session_id)
         setLoginDialogOpen(true)
@@ -240,7 +241,7 @@ const ClaudeSubscription: FC = () => {
                   onClick={handleStartLogin}
                   disabled={loginStarting}
                 >
-                  {loginStarting ? 'Starting...' : 'Login with Browser'}
+                  {loginStarting ? <><CircularProgress size={14} sx={{ mr: 0.5 }} /> Starting...</> : 'Login with Browser'}
                 </Button>
                 <Button
                   variant="outlined"
@@ -257,7 +258,8 @@ const ClaudeSubscription: FC = () => {
             <Typography variant="body2" color="text.secondary">Loading...</Typography>
           ) : hasSubscription ? (
             subscriptions.map((sub) => {
-              const expiry = getTokenExpiryStatus(sub.access_token_expires_at)
+              const isSetupToken = sub.credential_type === 'setup_token'
+              const expiry = isSetupToken ? null : getTokenExpiryStatus(sub.access_token_expires_at)
               const isExpired = expiry?.isExpired ?? false
               return (
                 <Box
@@ -276,7 +278,7 @@ const ClaudeSubscription: FC = () => {
                   <Box>
                     <Typography variant="subtitle1">{sub.name || 'Claude Subscription'}</Typography>
                     <Box sx={{ display: 'flex', gap: 1, mt: 0.5, alignItems: 'center', flexWrap: 'wrap' }}>
-                      {isExpired ? (
+                      {isExpired && !isSetupToken ? (
                         <Chip
                           icon={<ErrorOutlineIcon />}
                           label="Token Expired"
@@ -289,6 +291,9 @@ const ClaudeSubscription: FC = () => {
                           color={sub.status === 'active' ? 'success' : 'warning'}
                           size="small"
                         />
+                      )}
+                      {isSetupToken && (
+                        <Chip label="Setup Token" size="small" variant="outlined" />
                       )}
                       {sub.subscription_type && (
                         <Chip label={sub.subscription_type} size="small" variant="outlined" />
@@ -307,7 +312,7 @@ const ClaudeSubscription: FC = () => {
                         </Typography>
                       )}
                     </Box>
-                    {isExpired && (
+                    {isExpired && !isSetupToken && (
                       <Alert severity="warning" sx={{ mt: 1, py: 0 }} icon={false}>
                         <Typography variant="caption">
                           Token has expired. Re-login to refresh your credentials for new sessions.
@@ -324,7 +329,7 @@ const ClaudeSubscription: FC = () => {
                       onClick={handleStartLogin}
                       disabled={loginStarting}
                     >
-                      {loginStarting ? 'Starting...' : isExpired ? 'Re-authenticate' : 'Re-login'}
+                      {loginStarting ? <><CircularProgress size={14} sx={{ mr: 0.5 }} /> Starting...</> : isExpired ? 'Re-authenticate' : 'Re-login'}
                     </Button>
                     <IconButton
                       color="error"
@@ -454,6 +459,8 @@ interface ClaudeLoginDialogProps {
   onCredentialsCaptured: () => void
 }
 
+const POLL_TIMEOUT_MS = 5 * 60 * 1000 // 5 minutes
+
 const ClaudeLoginDialog: FC<ClaudeLoginDialogProps> = ({
   sessionId,
   open,
@@ -471,6 +478,9 @@ const ClaudeLoginDialog: FC<ClaudeLoginDialogProps> = ({
   const api = useApi()
   const snackbar = useSnackbar()
   const { isRunning } = useSandboxState(sessionId)
+  const [authUrl, setAuthUrl] = useState<string | null>(null)
+  const [loginError, setLoginError] = useState<string | null>(null)
+  const browserOpenedRef = useRef(false)
 
   // Once the desktop is running, send the `claude auth login` command
   useEffect(() => {
@@ -479,25 +489,27 @@ const ClaudeLoginDialog: FC<ClaudeLoginDialogProps> = ({
     const sendLoginCommand = async () => {
       try {
         const apiClient = api.getApiClient()
+        // The wrapper script handles npm install (with retry for network readiness),
+        // sets BROWSER to the capture script, and runs claude auth login with stdout
+        // redirected to /tmp/claude-auth-stdout.txt for URL parsing.
         await apiClient.v1ExternalAgentsExecCreate(sessionId, {
-          command: ['claude', 'auth', 'login'],
+          command: ['helix-claude-auth-wrapper'],
           background: true,
-          env: {
-            DISPLAY: ':0',
-          },
+          env: {},
         })
         setLoginCommandSent(true)
       } catch (err: any) {
         console.error('Failed to send claude auth login command:', err)
+        setLoginError(err?.message || 'Failed to start Claude login. Please try again.')
       }
     }
 
-    // Small delay to let GNOME initialize
+    // Small delay to let the container initialize
     const timeout = setTimeout(sendLoginCommand, 3000)
     return () => clearTimeout(timeout)
   }, [isRunning, loginCommandSent, sessionId])
 
-  // Once login command is sent, start polling for credentials.
+  // Once login command is sent, start polling for credentials (and OAuth URL).
   // Use a ref guard instead of loginPolling state in deps to prevent the effect cleanup
   // from killing the interval on re-render (state change -> re-render -> cleanup -> no interval).
   const pollingStartedRef = useRef(false)
@@ -505,13 +517,26 @@ const ClaudeLoginDialog: FC<ClaudeLoginDialogProps> = ({
     if (!loginCommandSent || pollingStartedRef.current) return
 
     pollingStartedRef.current = true
+    const pollStartTime = Date.now()
 
     const pollForCredentials = async () => {
+      // Timeout after 5 minutes to avoid spinning forever
+      if (Date.now() - pollStartTime > POLL_TIMEOUT_MS) {
+        if (pollIntervalRef.current) {
+          clearInterval(pollIntervalRef.current)
+          pollIntervalRef.current = null
+        }
+        setLoginError('Authentication timed out. Please try again.')
+        return
+      }
+
       try {
-        const result = await api.get<{ found: boolean; credentials: string }>(
+        const result = await api.get<{ found: boolean; credentials: string; url?: string }>(
           `/api/v1/claude-subscriptions/poll-login/${sessionId}`,
           {}
         )
+
+        // Check for credentials first
         if (result && result.found && result.credentials) {
           let parsed: any
           try {
@@ -532,6 +557,14 @@ const ClaudeLoginDialog: FC<ClaudeLoginDialogProps> = ({
           })
 
           onCredentialsCaptured()
+          return
+        }
+
+        // Check for OAuth URL to open in native browser
+        if (result?.url && !browserOpenedRef.current) {
+          setAuthUrl(result.url)
+          browserOpenedRef.current = true
+          openExternalUrl(result.url)
         }
       } catch {
         // Ignore polling errors
@@ -553,47 +586,53 @@ const ClaudeLoginDialog: FC<ClaudeLoginDialogProps> = ({
     <Dialog
       open={open}
       onClose={onClose}
-      maxWidth="lg"
+      maxWidth="sm"
       fullWidth
-      PaperProps={{
-        sx: { height: '95vh', maxHeight: '95vh' },
-      }}
     >
-      <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Box>
-          <Typography variant="h6">Sign in to Claude</Typography>
-          <Typography variant="body2" color="text.secondary">
-            Complete the login in the browser below. Your credentials will automatically be reused in desktop sessions configured to use Claude Code.
-          </Typography>
-        </Box>
-        {loginCommandSent && (
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <CircularProgress size={16} />
-            <Typography variant="body2" color="text.secondary">
-              Waiting for login...
-            </Typography>
-          </Box>
-        )}
+      <DialogTitle>
+        <Typography variant="h6">Sign in to Claude</Typography>
+        <Typography variant="body2" color="text.secondary">
+          Your credentials will automatically be reused in desktop sessions configured to use Claude Code.
+        </Typography>
       </DialogTitle>
-      <DialogContent sx={{ p: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-        {isRunning && loginCommandSent && (
-          <Alert severity="info" sx={{ mx: 2, mt: 1, flexShrink: 0 }}>
-            Enter your email address in the browser below. Claude will email you a link — click it to get a code, then paste the code back here to authenticate.
+      <DialogContent>
+        {loginError ? (
+          <Alert severity="error" sx={{ my: 2 }}>
+            {loginError}
           </Alert>
-        )}
-        {!isRunning ? (
-          <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', flex: 1, gap: 2 }}>
+        ) : !isRunning || !loginCommandSent ? (
+          <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', py: 4, gap: 2 }}>
             <CircularProgress />
             <Typography variant="body2" color="text.secondary">
-              Starting desktop session...
+              Preparing authentication...
+            </Typography>
+          </Box>
+        ) : !authUrl ? (
+          <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', py: 4, gap: 2 }}>
+            <CircularProgress />
+            <Typography variant="body2" color="text.secondary">
+              Waiting for Claude login page...
             </Typography>
           </Box>
         ) : (
-          <Box sx={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-            <ExternalAgentDesktopViewer
-              sessionId={sessionId}
-              mode="stream"
-            />
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <Alert severity="info">
+              Your browser will open to Claude's sign-in page. Enter your email address &mdash;
+              Claude will email you a magic link. Click the link to get a code, then paste the
+              code back in the browser to complete authentication.
+            </Alert>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <CircularProgress size={16} />
+              <Typography variant="body2" color="text.secondary">
+                Waiting for authentication to complete...
+              </Typography>
+            </Box>
+            <Typography variant="caption" color="text.secondary">
+              {"Didn't open? "}
+              <a href={authUrl} target="_blank" rel="noopener noreferrer" style={{ color: 'inherit' }}>
+                Click here to open the sign-in page
+              </a>
+            </Typography>
           </Box>
         )}
       </DialogContent>

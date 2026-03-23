@@ -38,7 +38,7 @@ func (suite *TypesenseTestSuite) SetupTest() {
 		cfg.Typesense.APIKey = os.Getenv("TYPESENSE_API_KEY")
 	}
 
-	ts, err := NewTypesense(cfg)
+	ts, err := NewTypesense(context.Background(), cfg)
 	suite.Require().NoError(err)
 
 	suite.NotNil(ts)

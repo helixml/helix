@@ -11,6 +11,7 @@ import OrgSettings from './pages/OrgSettings'
 import OrgTeams from './pages/OrgTeams'
 import OrgPeople from './pages/OrgPeople'
 import TeamPeople from './pages/TeamPeople'
+import OrgApiKeys from './pages/OrgApiKeys'
 import OrgBilling from './components/orgs/OrgBilling'
 import App from './pages/App'
 import Create from './pages/Create'
@@ -26,7 +27,6 @@ import SpecTaskDetailPage from './pages/SpecTaskDetailPage'
 import SpecTaskReviewPage from './pages/SpecTaskReviewPage'
 import TeamDesktopPage from './pages/TeamDesktopPage'
 import Projects from './pages/Projects'
-import ProjectSettings from './pages/ProjectSettings'
 import { FilestoreContextProvider } from './contexts/filestore'
 import Files from './pages/Files'
 import QuestionSets from './pages/QuestionSets'
@@ -38,6 +38,7 @@ import DesignDocPage from './pages/DesignDocPage'
 import Onboarding from './pages/Onboarding'
 import Waitlist from './pages/Waitlist'
 import Login from './pages/Login'
+import NotFound from './pages/NotFound'
 import useRouter from './hooks/useRouter'
 
 // extend the base router5 route to add metadata and self rendering
@@ -50,7 +51,7 @@ export const NOT_FOUND_ROUTE: IApplicationRoute = {
   name: 'notfound',
   path: '/notfound',
   meta: {},
-  render: () => <div>Page Not Found</div>,
+  render: () => <NotFound />,
 }
 
 
@@ -204,9 +205,20 @@ const routes: IApplicationRoute[] = [
     drawer: false,
     title: 'Project Settings',
   },
-  render: () => (
-    <ProjectSettings />
-  ),
+  render: () => {
+    // Redirect to kanban board with project settings dialog open
+    const { params } = useRouter()
+    React.useEffect(() => {
+      const url = new URL(window.location.href)
+      // Build the kanban URL with dialog params
+      const kanbanPath = `/orgs/${params.org_id}/projects/${params.id}/specs`
+      url.pathname = kanbanPath
+      url.searchParams.set('dialog', 'project-settings')
+      url.searchParams.set('dialog_project_id', params.id)
+      window.location.replace(url.toString())
+    }, [])
+    return null
+  },
 }, {
   name: 'org_project-session',
   path: '/orgs/:org_id/projects/:id/session/:session_id',
@@ -304,6 +316,16 @@ const routes: IApplicationRoute[] = [
   },
   render: () => (
     <OrgTeams />
+  ),
+}, {
+  name: 'org_api_keys',
+  path: '/orgs/:org_id/api-keys',
+  meta: {
+    drawer: true,
+    menu: 'orgs',
+  },
+  render: () => (
+    <OrgApiKeys />
   ),
 }, {
   name: 'org_billing',
@@ -432,10 +454,16 @@ const getStoredOrg = (): string | undefined => {
 }
 
 const storedOrg = getStoredOrg()
+// Capture path before router.start() changes it (router activates defaultRoute which rewrites URL)
+const initialPath = window.location.pathname
 router.start()
 
 if (storedOrg) {
   router.navigate('org_projects', { org_id: storedOrg }, { replace: true })
+} else if (initialPath === '/' || initialPath === '') {
+  // On mobile, UserOrgSelector may not be mounted (temporary Drawer is closed),
+  // so its auto-select effect won't fire. Redirect to /orgs so users can pick one.
+  router.navigate('orgs', {}, { replace: true })
 }
 
 export function useApplicationRoute(): IApplicationRoute {

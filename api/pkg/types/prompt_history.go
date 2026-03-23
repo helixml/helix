@@ -30,7 +30,8 @@ type PromptHistoryEntry struct {
 
 	// Interrupt indicates this message should interrupt the current conversation
 	// When false, message waits until current conversation completes
-	Interrupt bool `json:"interrupt" gorm:"not null;default:true"`
+	// Default is false: queue mode is the default, interrupt is explicit
+	Interrupt bool `json:"interrupt" gorm:"not null;default:false"`
 
 	// QueuePosition tracks ordering for drag-and-drop reordering
 	// Lower values = earlier in queue. Null for sent messages.

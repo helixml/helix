@@ -1,6 +1,7 @@
 package stripe
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -95,7 +96,7 @@ func (s *Stripe) ListSubscriptions(stripeCustomerID string) ([]*stripe.Subscript
 // SyncSubscription fetches the current subscription state from Stripe and updates the wallet.
 // This ensures the wallet always reflects the latest Stripe state (e.g. cancel_at_period_end)
 // even if a webhook was missed or the field was added after the webhook fired.
-func (s *Stripe) SyncSubscription(wallet *types.Wallet) {
+func (s *Stripe) SyncSubscription(ctx context.Context, wallet *types.Wallet) {
 	if wallet.StripeSubscriptionID == "" {
 		return
 	}
@@ -117,6 +118,14 @@ func (s *Stripe) SyncSubscription(wallet *types.Wallet) {
 	wallet.SubscriptionCurrentPeriodStart = sub.CurrentPeriodStart
 	wallet.SubscriptionCurrentPeriodEnd = sub.CurrentPeriodEnd
 	wallet.SubscriptionCancelAtPeriodEnd = sub.CancelAtPeriodEnd
+
+	_, err = s.store.UpdateWallet(context.Background(), wallet)
+	if err != nil {
+		log.Warn().Err(err).
+			Str("subscription_id", wallet.StripeSubscriptionID).
+			Str("wallet_id", wallet.ID).
+			Msg("failed to persist synced subscription to wallet")
+	}
 }
 
 var eventMap = map[stripe.EventType]types.SubscriptionEventType{

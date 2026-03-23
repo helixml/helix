@@ -118,12 +118,24 @@ func NewProviderManager(cfg *config.ServerConfig, store store.Store, helixInfere
 			Str("base_url", cfg.Providers.Anthropic.BaseURL).
 			Msg("using Anthropic provider for controller inference")
 
+		// The go-openai client sends chat completions to {baseURL}/chat/completions.
+		// ANTHROPIC_BASE_URL is typically set without /v1 (e.g., "https://api.anthropic.com"
+		// or "http://outer-helix:8081") because the Anthropic SDK appends /v1/messages itself.
+		// For the go-openai client path (used by agents), we need /v1 in the base URL.
+		anthropicBaseURL := cfg.Providers.Anthropic.BaseURL
+		if anthropicBaseURL != "" && !strings.HasSuffix(anthropicBaseURL, "/v1") {
+			anthropicBaseURL = strings.TrimSuffix(anthropicBaseURL, "/") + "/v1"
+		}
+
 		anthropicClient := openai.NewWithOptions(
 			cfg.Providers.Anthropic.APIKey,
-			cfg.Providers.Anthropic.BaseURL,
+			anthropicBaseURL,
 			cfg.Stripe.BillingEnabled,
 			tlsOpts,
 			cfg.Providers.Anthropic.Models...)
+
+		// Mark as Anthropic provider so ListModels uses the correct API format
+		anthropicClient.SetIsAnthropic(true)
 
 		loggedClient := logger.Wrap(cfg, types.ProviderAnthropic, anthropicClient, modelInfoProvider, billingLogger, logStores...)
 

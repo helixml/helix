@@ -401,6 +401,9 @@ export class MessageProcessor {
   }
 
   private processThinkingTags(message: string): string {
+    // Normalise <thinking> tags (emitted by Claude Code) to <think>
+    message = message.replace(/<thinking>/g, "<think>").replace(/<\/thinking>/g, "</think>");
+
     // Check for any <think> tags
     if (!message.includes("<think>")) {
       return message;
@@ -759,6 +762,7 @@ export interface InteractionMarkdownProps {
   showBlinker?: boolean;
   isStreaming: boolean;
   onFilterDocument?: (docId: string) => void;
+  compactThinking?: boolean;
 }
 
 // Add this new component for the code block with copy button
@@ -860,6 +864,7 @@ const InteractionMarkdown: FC<InteractionMarkdownProps> = ({
   showBlinker = false,
   isStreaming = false,
   onFilterDocument,
+  compactThinking = false,
 }) => {
   const theme = useTheme();
   const [processedContent, setProcessedContent] = useState<string>("");
@@ -1114,6 +1119,7 @@ const InteractionMarkdown: FC<InteractionMarkdownProps> = ({
           <ThinkingWidget
             text={thinkingWidgetContent}
             isStreaming={isStreaming}
+            compact={compactThinking}
           />
         )}
         {citationData &&
@@ -1145,7 +1151,7 @@ const MemoizedMarkdownRenderer: FC<{ processedContent: string }> = React.memo(
     const markdownComponents = useMemo(
       () => ({
         code(props: any) {
-          const { children, className, node, ...rest } = props;
+          const { children, className, node, ref, ...rest } = props;
           const match = /language-(\w+)/.exec(className || "");
           return match ? (
             <CodeBlockWithCopy language={match[1]}>

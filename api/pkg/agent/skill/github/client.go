@@ -147,6 +147,18 @@ func (c *Client) CreatePullRequest(ctx context.Context, owner, repo, title, body
 	return pullRequest, nil
 }
 
+// UpdatePullRequest updates the title and body of an existing pull request
+func (c *Client) UpdatePullRequest(ctx context.Context, owner, repo string, number int, title, body string) (*github.PullRequest, error) {
+	pr, _, err := c.client.PullRequests.Edit(ctx, owner, repo, number, &github.PullRequest{
+		Title: &title,
+		Body:  &body,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to update pull request: %w", err)
+	}
+	return pr, nil
+}
+
 // GetPullRequest gets a pull request by number
 func (c *Client) GetPullRequest(ctx context.Context, owner, repo string, number int) (*github.PullRequest, error) {
 	pr, _, err := c.client.PullRequests.Get(ctx, owner, repo, number)
@@ -195,6 +207,34 @@ func (c *Client) GetAuthenticatedUser(ctx context.Context) (*github.User, error)
 		return nil, fmt.Errorf("failed to get authenticated user: %w", err)
 	}
 	return user, nil
+}
+
+// GetAuthenticatedUserWithScopes gets the user profile and returns token scopes
+// from the X-OAuth-Scopes response header.
+//
+// Returns:
+//   - scopeHeaderPresent=true, scopes=[] → classic PAT with zero scopes (reject)
+//   - scopeHeaderPresent=true, scopes=[...] → classic PAT with scopes (check them)
+//   - scopeHeaderPresent=false, scopes=[] → fine-grained PAT (no scope info available)
+func (c *Client) GetAuthenticatedUserWithScopes(ctx context.Context) (user *github.User, scopes []string, scopeHeaderPresent bool, err error) {
+	user, resp, err := c.client.Users.Get(ctx, "")
+	if err != nil {
+		return nil, nil, false, fmt.Errorf("failed to get authenticated user: %w", err)
+	}
+	// http.Header.Values returns nil if the header is absent, vs []string{""} if present but empty.
+	// This lets us distinguish fine-grained tokens (header absent) from classic tokens with no scopes
+	// (header present but empty).
+	scopeValues := resp.Header.Values("X-OAuth-Scopes")
+	scopeHeaderPresent = len(scopeValues) > 0
+	for _, scopeHeader := range scopeValues {
+		for _, s := range strings.Split(scopeHeader, ",") {
+			s = strings.TrimSpace(s)
+			if s != "" {
+				scopes = append(scopes, s)
+			}
+		}
+	}
+	return user, scopes, scopeHeaderPresent, nil
 }
 
 // CheckRepositoryPermissions checks if the authenticated user has write/push access to a repository

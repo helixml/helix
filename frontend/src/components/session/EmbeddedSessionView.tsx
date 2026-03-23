@@ -11,6 +11,7 @@ import React, {
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
 import CircularProgress from "@mui/material/CircularProgress";
+import { useQueryClient } from "@tanstack/react-query";
 
 // DEBUG: Set to true to show scroll debug overlay
 const DEBUG_SCROLL = false;
@@ -22,6 +23,7 @@ import useAccount from "../../hooks/useAccount";
 import {
   useGetSession,
   useListSessionSteps,
+  GET_SESSION_QUERY_KEY,
 } from "../../services/sessionService";
 import { useStreaming } from "../../contexts/streaming";
 import { TypesInteractionState } from "../../api/api";
@@ -52,11 +54,15 @@ const EmbeddedSessionView = forwardRef<
   const account = useAccount();
   const lightTheme = useLightTheme();
   const containerRef = useRef<HTMLDivElement>(null);
+  const queryClient = useQueryClient();
   const { NewInference } = useStreaming();
 
   // Simple scroll state: are we currently at the bottom?
   // This is the ONLY state we need for sticky scroll behavior
   const isAtBottomRef = useRef(true);
+  // Guard: when true, scroll events are from programmatic scrollTo, not user interaction.
+  // Prevents the scroll handler from unsetting isAtBottom during auto-scroll.
+  const isProgrammaticScrollRef = useRef(false);
   const SCROLL_THRESHOLD = 50;
 
   // DEBUG: State for debug overlay
@@ -82,6 +88,9 @@ const EmbeddedSessionView = forwardRef<
   const handleScroll = useCallback(() => {
     const container = containerRef.current;
     if (!container) return;
+
+    // Skip if this scroll was triggered by our own programmatic scrollTo
+    if (isProgrammaticScrollRef.current) return;
 
     isAtBottomRef.current = checkIsAtBottom();
 
@@ -116,6 +125,7 @@ const EmbeddedSessionView = forwardRef<
     }
 
     const onNativeScroll = () => {
+      if (isProgrammaticScrollRef.current) return;
       isAtBottomRef.current = checkIsAtBottom();
 
       if (DEBUG_SCROLL) {
@@ -203,8 +213,13 @@ const EmbeddedSessionView = forwardRef<
         }));
       }
 
+      isProgrammaticScrollRef.current = true;
       container.scrollTop = container.scrollHeight;
       isAtBottomRef.current = true;
+      // Clear the guard after the scroll event has fired
+      requestAnimationFrame(() => {
+        isProgrammaticScrollRef.current = false;
+      });
       onScrollToBottom?.();
     },
     [onScrollToBottom],
@@ -248,6 +263,28 @@ const EmbeddedSessionView = forwardRef<
 
   // Scroll to bottom on initial load
   const hasInitiallyScrolled = useRef(false);
+
+  // Reset scroll state and clear stale cache when sessionId changes
+  const prevSessionIdRef = useRef(sessionId);
+  useEffect(() => {
+    if (sessionId !== prevSessionIdRef.current) {
+      const oldSessionId = prevSessionIdRef.current;
+      prevSessionIdRef.current = sessionId;
+
+      // Reset scroll tracking so the new session scrolls to bottom on load
+      hasInitiallyScrolled.current = false;
+      isAtBottomRef.current = true;
+      prevScrollHeightRef.current = 0;
+
+      // Remove old session's React Query cache to prevent flash of stale content
+      if (oldSessionId) {
+        queryClient.removeQueries({
+          queryKey: GET_SESSION_QUERY_KEY(oldSessionId),
+        });
+      }
+    }
+  }, [sessionId, queryClient]);
+
   useEffect(() => {
     if (
       session?.interactions &&
@@ -278,7 +315,11 @@ const EmbeddedSessionView = forwardRef<
     if (currentScrollHeight !== prevScrollHeight && prevScrollHeight > 0) {
       // Check isAtBottomRef BEFORE the scroll - this is the value from before the DOM update
       if (isAtBottomRef.current) {
+        isProgrammaticScrollRef.current = true;
         container.scrollTop = currentScrollHeight;
+        requestAnimationFrame(() => {
+          isProgrammaticScrollRef.current = false;
+        });
       }
     }
 

@@ -22,9 +22,11 @@ import AccountSidebar from "../components/account/AccountSidebar";
 import OrgSidebar from "../components/orgs/OrgSidebar";
 import AppSidebar from "../components/app/AppSidebar";
 import ProjectsSidebar from "../components/project/ProjectsSidebar";
+import ProjectSettingsSidebar from "../components/project/ProjectSettingsSidebar";
 import FullScreenDialog from "../components/dialog/FullScreenDialog";
 import Dashboard from "./Dashboard";
 import Account from "./Account";
+import ProjectSettings from "./ProjectSettings";
 import OAuthConnections from "../components/account/OAuthConnections";
 import { SettingsDialogProvider, useSettingsDialog } from "../contexts/settingsDialog";
 
@@ -56,6 +58,7 @@ const SettingsDialogs: FC = () => {
   const { activeDialog, dialogOptions, closeDialog } = useSettingsDialog()
   const [adminTab, setAdminTab] = useState('llm_calls')
   const [accountTab, setAccountTab] = useState('general')
+  const [projectSettingsTab, setProjectSettingsTab] = useState('general')
 
   // When opening the admin dialog with a specific tab, set it
   React.useEffect(() => {
@@ -64,17 +67,33 @@ const SettingsDialogs: FC = () => {
     }
   }, [activeDialog, dialogOptions.tab])
 
+  // When opening project settings with a specific tab, set it
+  React.useEffect(() => {
+    if (activeDialog === 'project-settings' && dialogOptions.tab) {
+      setProjectSettingsTab(dialogOptions.tab)
+    }
+  }, [activeDialog, dialogOptions.tab])
+
   // Reset tabs when dialog closes
   React.useEffect(() => {
     if (!activeDialog) {
       setAdminTab('llm_calls')
       setAccountTab('general')
+      setProjectSettingsTab('general')
     }
   }, [activeDialog])
 
   // Sync admin tab to URL so refresh preserves the current tab
   const handleAdminTabChange = React.useCallback((tab: string) => {
     setAdminTab(tab)
+    const url = new URL(window.location.href)
+    url.searchParams.set('dialog_tab', tab)
+    window.history.replaceState({}, '', url.toString())
+  }, [])
+
+  // Sync project settings tab to URL
+  const handleProjectSettingsTabChange = React.useCallback((tab: string) => {
+    setProjectSettingsTab(tab)
     const url = new URL(window.location.href)
     url.searchParams.set('dialog_tab', tab)
     window.history.replaceState({}, '', url.toString())
@@ -161,6 +180,64 @@ const SettingsDialogs: FC = () => {
             </Box>
             <Box sx={{ flex: 1, overflow: 'auto' }}>
               <Account tab={accountTab} />
+            </Box>
+          </Box>
+        </DialogContent>
+      </DarkDialog>
+      {/* Project Settings Dialog */}
+      <DarkDialog
+        open={activeDialog === 'project-settings'}
+        onClose={closeDialog}
+        maxWidth="xl"
+        fullWidth
+        PaperProps={{
+          sx: {
+            height: '90vh',
+            maxHeight: '90vh',
+          },
+        }}
+      >
+        <Box
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            px: 3,
+            py: 1.5,
+            flexShrink: 0,
+          }}
+        >
+          <Typography variant="h6" sx={{ fontWeight: 600 }}>
+            Project Settings
+          </Typography>
+          <IconButton
+            onClick={closeDialog}
+            sx={{
+              color: '#A0AEC0',
+              '&:hover': {
+                color: '#F1F1F1',
+                backgroundColor: 'rgba(255, 255, 255, 0.08)',
+              },
+            }}
+          >
+            <CloseIcon />
+          </IconButton>
+        </Box>
+        <DialogContent sx={{ p: 0, display: 'flex', overflow: 'hidden' }}>
+          <Box sx={{ display: 'flex', height: '100%', width: '100%' }}>
+            <Box sx={{
+              width: 240,
+              flexShrink: 0,
+              borderRight: '1px solid rgba(255, 255, 255, 0.1)',
+              overflowY: 'auto',
+              pr: 1,
+            }}>
+              <ProjectSettingsSidebar activeTab={projectSettingsTab as any} onTabChange={handleProjectSettingsTabChange as any} />
+            </Box>
+            <Box sx={{ flex: 1, overflow: 'auto' }}>
+              {dialogOptions.projectId && (
+                <ProjectSettings projectId={dialogOptions.projectId} tab={projectSettingsTab} />
+              )}
             </Box>
           </Box>
         </DialogContent>
@@ -361,6 +438,7 @@ const Layout: FC<{
       case "org_people":
       case "org_teams":
       case "org_billing":
+      case "org_api_keys":
       case "team_people":
         // Organization management pages use the org context sidebar
         return <OrgSidebar />;

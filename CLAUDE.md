@@ -150,6 +150,35 @@ func (s *MySuite) SetupTest() { /* init ctrl, store, server */ }
 - **RBAC**: `authorizeUserToResource()` — unified AccessGrants
 - **Enterprise**: Support internal DNS, proxies, air-gapped, private CAs
 
+## Dev Environment (Helix-in-Helix)
+
+**`helix-4` is a symlink to `helix`** — they are the same directory. Always use `/home/retro/work/helix/`.
+
+When running as a spec task agent, the **inner Helix** at `http://localhost:8080` has the full sandbox running (helix-sandbox-nvidia-1 + Zed agent). You HAVE a complete dev environment — don't give up on testing.
+
+### Test Credentials (inner Helix at localhost:8080)
+- URL: `http://localhost:8080`
+- Email: `test@helix.local` / Password: `testpass123`
+- Or check `.env.usercreds` in the helix directory for real API keys
+
+### Browser Testing Setup (inner Helix)
+The inner Helix starts with **no users**. **You will almost always need to register before you can do anything.** Before testing any UI:
+1. **Always try to register first** — go to `/login`, click "Register here", use `test@helix.local` / `testpass123`. Even if you think the account exists, registration fails gracefully if it does, so just try it.
+2. **Complete onboarding** — after registering you land on `/onboarding`; create an org before you can access any other pages
+3. Check DB to confirm: `docker exec helix-postgres-1 psql -U postgres -d postgres -c "SELECT email FROM users LIMIT 5;"`
+
+### Go Local Tests (CGo fix)
+`go test ./pkg/server/...` requires CGo for tree-sitter. Fix:
+```bash
+sudo apt-get update && sudo apt-get install -y gcc libc6-dev
+CGO_ENABLED=1 go test -v -run TestSuiteName ./pkg/server/ -count=1
+```
+
+### Never Give Up on Testing
+- Always test changes end-to-end in the inner Helix browser (MCP Chrome DevTools available)
+- Check DB state: `docker exec helix-postgres-1 psql -U postgres -d postgres -c "SQL"`
+- Investigate logs yourself — don't tell user to check logs (exception: ask user to verify UI)
+
 ## Verification
 
 ### Testing
@@ -183,14 +212,18 @@ export HELIX_API_KEY=`grep HELIX_API_KEY .env.usercreds | cut -d= -f2-`
 - Design docs: `design/YYYY-MM-DD-name.md`
 
 ## CI (Drone)
-Credentials in `.env` (`DRONE_SERVER_URL`, `DRONE_ACCESS_TOKEN`).
+**ALWAYS use the Drone MCP tools** (`drone_build_info`, `drone_fetch_logs`, `drone_search_logs`, `drone_tail_logs`, `drone_read_logs`) when they are available. Do NOT try to extract credentials from `.env` files or use raw `curl` — the MCP tools handle authentication automatically.
+
+Workflow for investigating CI failures:
+1. `drone_build_info` — get build overview, see which steps failed
+2. `drone_fetch_logs` — download logs for the failing step
+3. `drone_search_logs` — search for `FAIL:`, `panic:`, `error` patterns
+4. `drone_tail_logs` / `drone_read_logs` — read specific sections around failures
+
+Fallback (only if Drone MCP tools are unavailable): credentials are in `.env` (`DRONE_SERVER_URL`, `DRONE_ACCESS_TOKEN`).
 ```bash
-# Check build status
 curl -s -H "Authorization: Bearer $DRONE_ACCESS_TOKEN" \
   "$DRONE_SERVER_URL/api/repos/helixml/helix/builds?branch=BRANCH&limit=3" | jq -r '.[] | "\(.number): \(.status)"'
-# Get failing step logs
-curl -s -H "Authorization: Bearer $DRONE_ACCESS_TOKEN" \
-  "$DRONE_SERVER_URL/api/repos/helixml/helix/builds/BUILD/logs/1/STEP" | jq -r '.[].out' | grep -E "FAIL|Error|panic"
 ```
 
 ## Database
@@ -263,17 +296,48 @@ The WebSocket sync protocol between Helix (Go) and Zed (Rust) has E2E tests that
 ### Architecture
 - **Go test server**: `zed-repo/crates/external_websocket_sync/e2e-test/helix-ws-test-server/main.go`
 - **Imports real code**: `server.NewTestServer()` from `api/pkg/server/test_helpers.go` + `memorystore` (in-memory, no Postgres)
-- **7-phase test**: thread creation → follow-up → new thread → follow-up → completion → UI state query → open_thread + follow-up
+- **9-phase test**: thread creation, follow-up, new thread, follow-up to non-visible thread, simulate user input, UI state query, open_thread + follow-up, mid-stream interrupt, rapid 3-turn cancel
+- **Multi-agent rounds**: Tests run for both `zed-agent` and `claude` (Claude Code). Set `E2E_AGENTS` env var to control which agents are tested.
 - **Screenshots**: Periodic Xvfb screenshots captured in `/test/screenshots/`
 
-### Running Locally
+### Running Locally (from Zed repo)
+
+**Both repos must be checked out as siblings** (`~/pm/helix` and `~/pm/zed`). The Go test server imports Helix server code via a `replace` directive pointing to `../../../../../helix`.
+
 ```bash
-cd ../zed/crates/external_websocket_sync/e2e-test
-# Requires: zed-binary (from ./stack build-zed release), ANTHROPIC_API_KEY
-cp ../../zed-build/zed zed-binary
-./run_docker_e2e.sh  # builds Go test server + Docker image + runs test
-# Screenshots saved to ./screenshots/
+# 1. Build Zed binary (if not already built)
+#    Use 'dev' for faster iteration (~3min), 'release' for CI/production (~12min)
+cd ~/pm/helix && ./stack build-zed dev
+
+# 2. Copy Zed binary to e2e-test dir
+cp ~/pm/helix/zed-build/zed ~/pm/zed/crates/external_websocket_sync/e2e-test/zed-binary
+
+# 3. Run E2E tests (builds Go test server from current checkout + Docker image)
+cd ~/pm/zed/crates/external_websocket_sync/e2e-test
+
+# Single agent (fast, ~2min):
+./run_docker_e2e.sh
+
+# Both agents (zed-agent + claude, ~5min):
+E2E_AGENTS="zed-agent,claude" ./run_docker_e2e.sh
+
+# Skip Go rebuild (use cached binary — only safe if Go code hasn't changed):
+E2E_AGENTS="zed-agent,claude" ./run_docker_e2e.sh --no-build
 ```
+
+**What gets tested**: The Go test server is built from `~/pm/zed/.../helix-ws-test-server/` which imports the Helix Go code from `~/pm/helix/api/` via the `replace` directive. So you're testing the **currently checked out versions of both repos**.
+
+**Rebuild checklist** — if you change code, rebuild the affected component:
+| Changed | Rebuild |
+|---------|---------|
+| Helix Go code (`api/`) | `./run_docker_e2e.sh` (rebuilds Go test server) |
+| E2E test server (`helix-ws-test-server/main.go`) | `./run_docker_e2e.sh` (rebuilds Go test server) |
+| Zed Rust code (`crates/`) | `cd ~/pm/helix && ./stack build-zed dev` then copy binary |
+| Dockerfiles or `run_e2e.sh` | `./run_docker_e2e.sh` (rebuilds Docker image) |
+
+The script prints binary timestamps and checksums — check these to verify you're testing the right code.
+
+**ANTHROPIC_API_KEY**: Auto-sourced from `~/pm/helix/.env` or `~/pm/helix/.env.usercreds`. Must be set for tests to work.
 
 ### Go Unit Tests (server-side)
 ```bash
@@ -285,7 +349,7 @@ The `zed-e2e-test` step in `.drone.yml` runs automatically on the sandbox-build 
 1. Clones Zed at commit pinned in `sandbox-versions.txt` (`ZED_COMMIT=...`)
 2. Builds Zed binary (cached by commit hash)
 3. Multi-stage Docker build: Go test server (with current helix source) + runtime
-4. Runs 7-phase E2E test with `ANTHROPIC_API_KEY` from Drone secrets
+4. Runs 9-phase E2E test for both `zed-agent` and `claude` with `ANTHROPIC_API_KEY` from Drone secrets
 
 **Updating pinned Zed version**: After pushing Zed changes, update `sandbox-versions.txt` with the new commit hash. The Go test server's `go.mod` has a `replace` directive for local dev; CI overrides it to point to `/drone/src`.
 
@@ -296,7 +360,7 @@ The `zed-e2e-test` step in `.drone.yml` runs automatically on the sandbox-build 
 | `api/pkg/server/test_helpers.go` | `NewTestServer`, `QueueCommand`, `SetSyncEventHook` |
 | `api/pkg/store/memorystore/` | In-memory store for tests (no Postgres) |
 | `api/pkg/server/websocket_external_agent_sync_test.go` | 46 Go unit tests for handler paths |
-| `design/2026-02-25-websocket-sync-test-coverage.md` | Coverage analysis and gaps |
+| `design/2026-03-20-multi-agent-e2e-tests.md` | Multi-agent E2E test design and roadmap |
 
 ## CLI Development
 Use the helix CLI for testing, not raw curl. If functionality is missing, add it to `api/pkg/cli/spectask/`.

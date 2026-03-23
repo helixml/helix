@@ -290,3 +290,130 @@ func TestConnectionManager_ContextCancellation(t *testing.T) {
 		t.Fatalf("Expected 0 pending dials after cancellation, got %d", stats.PendingDialsTotal)
 	}
 }
+
+func TestConnectionManager_OnGracePeriodExpiredCallback(t *testing.T) {
+	// Use a short grace period and cleanup interval for faster test
+	gracePeriod := 100 * time.Millisecond
+	m := NewWithGracePeriod(gracePeriod)
+	defer m.Stop()
+
+	// Track callback invocations
+	var callbackKeys []string
+	var callbackMu sync.Mutex
+
+	m.SetOnGracePeriodExpired(func(key string) {
+		callbackMu.Lock()
+		callbackKeys = append(callbackKeys, key)
+		callbackMu.Unlock()
+	})
+
+	key := "hydra-sandbox123"
+
+	// Set and disconnect to enter grace period
+	conn := newMockConn()
+	m.Set(key, conn)
+	m.OnDisconnect(key)
+
+	// Verify in grace period
+	if len(m.ListWithGracePeriod()) != 1 {
+		t.Fatal("Expected key to be in grace period")
+	}
+
+	// Wait for grace period to expire (grace period + cleanup interval + buffer)
+	time.Sleep(gracePeriod + CleanupInterval + 50*time.Millisecond)
+
+	// Verify callback was called with the correct key
+	callbackMu.Lock()
+	defer callbackMu.Unlock()
+
+	if len(callbackKeys) != 1 {
+		t.Fatalf("Expected callback to be called once, got %d calls", len(callbackKeys))
+	}
+
+	if callbackKeys[0] != key {
+		t.Fatalf("Expected callback key %q, got %q", key, callbackKeys[0])
+	}
+
+	// Verify key is no longer in grace period
+	if len(m.ListWithGracePeriod()) != 0 {
+		t.Fatal("Expected grace period to be empty after expiry")
+	}
+}
+
+func TestConnectionManager_OnGracePeriodExpiredCallback_MultipleKeys(t *testing.T) {
+	gracePeriod := 100 * time.Millisecond
+	m := NewWithGracePeriod(gracePeriod)
+	defer m.Stop()
+
+	// Track callback invocations
+	var callbackKeys []string
+	var callbackMu sync.Mutex
+
+	m.SetOnGracePeriodExpired(func(key string) {
+		callbackMu.Lock()
+		callbackKeys = append(callbackKeys, key)
+		callbackMu.Unlock()
+	})
+
+	// Set up multiple connections and disconnect them
+	keys := []string{"hydra-sandbox1", "hydra-sandbox2", "hydra-sandbox3"}
+	for _, key := range keys {
+		conn := newMockConn()
+		m.Set(key, conn)
+		m.OnDisconnect(key)
+	}
+
+	// Wait for grace period to expire
+	time.Sleep(gracePeriod + CleanupInterval + 50*time.Millisecond)
+
+	// Verify all callbacks were called
+	callbackMu.Lock()
+	defer callbackMu.Unlock()
+
+	if len(callbackKeys) != len(keys) {
+		t.Fatalf("Expected %d callbacks, got %d", len(keys), len(callbackKeys))
+	}
+
+	// Verify all keys were called (order may vary)
+	keySet := make(map[string]bool)
+	for _, k := range callbackKeys {
+		keySet[k] = true
+	}
+
+	for _, key := range keys {
+		if !keySet[key] {
+			t.Fatalf("Expected callback for key %q, but it was not called", key)
+		}
+	}
+}
+
+func TestConnectionManager_OnGracePeriodExpiredCallback_ReconnectPreventsCallback(t *testing.T) {
+	gracePeriod := 200 * time.Millisecond
+	m := NewWithGracePeriod(gracePeriod)
+	defer m.Stop()
+
+	callbackCalled := false
+	m.SetOnGracePeriodExpired(func(key string) {
+		callbackCalled = true
+	})
+
+	key := "hydra-sandbox123"
+
+	// Set, disconnect, then reconnect before grace period expires
+	conn1 := newMockConn()
+	m.Set(key, conn1)
+	m.OnDisconnect(key)
+
+	// Reconnect before grace period expires
+	time.Sleep(50 * time.Millisecond)
+	conn2 := newMockConn()
+	m.Set(key, conn2)
+
+	// Wait past original grace period
+	time.Sleep(gracePeriod + CleanupInterval + 50*time.Millisecond)
+
+	// Callback should NOT have been called since we reconnected
+	if callbackCalled {
+		t.Fatal("Callback should not be called when reconnection happens before grace period expires")
+	}
+}

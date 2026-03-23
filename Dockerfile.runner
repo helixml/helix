@@ -94,7 +94,7 @@ RUN if [ -d "/tmp/vllm/examples" ]; then \
 # 4. Update Go runtime files to use miniconda paths (see comments in files)
 # ============================================================================
 
-FROM registry.helixml.tech/helix/runner-base:${TAG}
+FROM ghcr.io/helixml/runner-base:${TAG}
 
 # Pass the CPU flag through to this stage
 ARG DEVELOPMENT_CPU_ONLY=""

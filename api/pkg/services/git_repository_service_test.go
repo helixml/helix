@@ -14,8 +14,9 @@ import (
 // fakeStore embeds store.Store and overrides only the methods we need.
 type fakeStore struct {
 	store.Store
-	repo    *types.GitRepository
-	deleted bool
+	repo               *types.GitRepository
+	deleted            bool
+	koditRepoRefCount  int64
 }
 
 func (f *fakeStore) GetGitRepository(_ context.Context, _ string) (*types.GitRepository, error) {
@@ -30,6 +31,10 @@ func (f *fakeStore) DeleteGitRepository(_ context.Context, _ string) error {
 	return nil
 }
 
+func (f *fakeStore) CountGitRepositoriesByKoditRepoID(_ context.Context, _ int64, _ string) (int64, error) {
+	return f.koditRepoRefCount, nil
+}
+
 // fakeKodit records calls for verification.
 type fakeKodit struct {
 	enabled          bool
@@ -40,7 +45,7 @@ type fakeKodit struct {
 
 func (f *fakeKodit) IsEnabled() bool          { return f.enabled }
 func (f *fakeKodit) MCPDocumentation() string { return "" }
-func (f *fakeKodit) RegisterRepository(_ context.Context, _ string) (int64, bool, error) {
+func (f *fakeKodit) RegisterRepository(_ context.Context, _, _ string) (int64, bool, error) {
 	return 0, false, f.err
 }
 func (f *fakeKodit) DeleteRepository(_ context.Context, id int64) error {
@@ -80,6 +85,35 @@ func (f *fakeKodit) SystemStats(_ context.Context) (KoditSystemStats, error) {
 func (f *fakeKodit) RepositoryTasks(_ context.Context, _ int64) (KoditRepositoryTasks, error) {
 	return KoditRepositoryTasks{}, f.err
 }
+func (f *fakeKodit) ListAllTasks(_ context.Context, _, _ int) ([]KoditPendingTask, int64, error) {
+	return nil, 0, f.err
+}
+func (f *fakeKodit) ActiveTasks(_ context.Context) ([]KoditActiveTask, error) {
+	return nil, f.err
+}
+func (f *fakeKodit) DeleteTask(_ context.Context, _ int64) error { return f.err }
+func (f *fakeKodit) UpdateTaskPriority(_ context.Context, _ int64, _ int) error { return f.err }
+func (f *fakeKodit) GetWikiTree(_ context.Context, _ int64) ([]KoditWikiTreeNode, error) {
+	return nil, f.err
+}
+func (f *fakeKodit) GetWikiPage(_ context.Context, _ int64, _ string) (*KoditWikiPage, error) {
+	return nil, f.err
+}
+func (f *fakeKodit) SemanticSearch(_ context.Context, _ int64, _ string, _ int, _ string) ([]KoditFileResult, error) {
+	return nil, f.err
+}
+func (f *fakeKodit) KeywordSearch(_ context.Context, _ int64, _ string, _ int, _ string) ([]KoditFileResult, error) {
+	return nil, f.err
+}
+func (f *fakeKodit) GrepSearch(_ context.Context, _ int64, _ string, _ string, _ int) ([]KoditGrepResult, error) {
+	return nil, f.err
+}
+func (f *fakeKodit) ListFiles(_ context.Context, _ int64, _ string) ([]KoditFileEntry, error) {
+	return nil, f.err
+}
+func (f *fakeKodit) ReadFile(_ context.Context, _ int64, _ string, _, _ int) (*KoditFileContent, error) {
+	return nil, f.err
+}
 
 func TestDeleteRepository_DeletesFromKodit(t *testing.T) {
 	kodit := &fakeKodit{enabled: true}
@@ -102,6 +136,31 @@ func TestDeleteRepository_DeletesFromKodit(t *testing.T) {
 	}
 	if kodit.deletedRepoID != 42 {
 		t.Errorf("expected kodit repo ID 42, got %d", kodit.deletedRepoID)
+	}
+	if !st.deleted {
+		t.Error("expected store DeleteGitRepository to be called")
+	}
+}
+
+func TestDeleteRepository_SkipsKoditWhenShared(t *testing.T) {
+	kodit := &fakeKodit{enabled: true}
+	st := &fakeStore{
+		repo: &types.GitRepository{
+			ID:            "repo-1",
+			KoditIndexing: true,
+			Metadata:      map[string]any{"kodit_repo_id": int64(42)},
+		},
+		koditRepoRefCount: 1, // another repo shares this kodit index
+	}
+	svc := NewGitRepositoryService(st, t.TempDir(), "http://localhost:8080", "test", "test@test.com")
+	svc.SetKoditService(kodit)
+
+	if err := svc.DeleteRepository(t.Context(), "repo-1"); err != nil {
+		t.Fatalf("DeleteRepository() error: %v", err)
+	}
+
+	if kodit.deleteRepoCalled {
+		t.Error("expected kodit DeleteRepository NOT to be called when other repos share the index")
 	}
 	if !st.deleted {
 		t.Error("expected store DeleteGitRepository to be called")

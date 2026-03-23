@@ -228,7 +228,7 @@ func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *t
 			log.Info().
 				Str("task_id", task.ID).
 				Str("branch", req.WorkingBranch).
-				Str("pr_id", task.PullRequestID).
+				Bool("has_pr", task.HasAnyPR()).
 				Msg("Detected existing PR for branch, task starts in pull_request column")
 		}
 	}
@@ -343,7 +343,14 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 	}
 
 	// Build planning instructions as the message (not system prompt - agent has its own system prompt)
-	planningPrompt := BuildPlanningPrompt(task, guidelines, s.koditService.MCPDocumentation())
+	koditDoc := ""
+	if project != nil && project.KoditEnabled {
+		koditDoc = s.koditService.MCPDocumentation()
+	}
+
+	// Build repository section listing local + Kodit repos for the agent
+	repoSection := s.buildRepositorySectionForTask(ctx, task, project)
+	planningPrompt := BuildPlanningPrompt(task, guidelines, koditDoc, repoSection)
 
 	// Get CodeAgentRuntime from the app config (needed for session resume to select correct agent)
 	codeAgentRuntime := s.getCodeAgentRuntimeForTask(ctx, task)
@@ -352,9 +359,8 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		SystemPrompt:     "",             // Don't override agent's system prompt
 		AgentType:        "zed_external", // Use Zed agent for git access
 		Stream:           false,
-		SpecTaskID:       task.ID,                   // CRITICAL: Set SpecTaskID so session restore uses correct workspace path
-		CodeAgentRuntime: codeAgentRuntime,          // For open_thread on resume
-		DesiredState:     types.DesiredStateRunning, // Session should be running (for reconciler)
+		SpecTaskID:       task.ID,          // CRITICAL: Set SpecTaskID so session restore uses correct workspace path
+		CodeAgentRuntime: codeAgentRuntime, // For open_thread on resume
 	}
 
 	session := &types.Session{
@@ -372,6 +378,17 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		ProjectID:      task.ProjectID, // For project-level skills
 		Metadata:       sessionMetadata,
 		OwnerType:      types.OwnerTypeUser,
+	}
+
+	// Guard against duplicate session creation (issue #10 from ZFS deployment).
+	// Two concurrent requests can both reach this point before either has written
+	// planning_session_id to the DB. Re-read the task to see if a sibling already won the race.
+	if freshTask, readErr := s.store.GetSpecTask(ctx, task.ID); readErr == nil && freshTask.PlanningSessionID != "" {
+		log.Info().
+			Str("task_id", task.ID).
+			Str("existing_session_id", freshTask.PlanningSessionID).
+			Msg("Planning session already created by concurrent request — skipping duplicate creation")
+		return
 	}
 
 	session, err = s.store.CreateSession(ctx, *session)
@@ -721,9 +738,8 @@ func (s *SpecDrivenTaskService) StartJustDoItMode(ctx context.Context, task *typ
 		SystemPrompt:     "",             // Don't override agent's system prompt
 		AgentType:        "zed_external", // Use Zed agent for git access
 		Stream:           false,
-		SpecTaskID:       task.ID,                   // CRITICAL: Set SpecTaskID so session restore uses correct workspace path
-		CodeAgentRuntime: codeAgentRuntimeJDI,       // For open_thread on resume
-		DesiredState:     types.DesiredStateRunning, // Session should be running (for reconciler)
+		SpecTaskID:       task.ID,             // CRITICAL: Set SpecTaskID so session restore uses correct workspace path
+		CodeAgentRuntime: codeAgentRuntimeJDI, // For open_thread on resume
 	}
 
 	session := &types.Session{
@@ -741,6 +757,15 @@ func (s *SpecDrivenTaskService) StartJustDoItMode(ctx context.Context, task *typ
 		ProjectID:      task.ProjectID, // For project-level skills
 		Metadata:       sessionMetadata,
 		OwnerType:      types.OwnerTypeUser,
+	}
+
+	// Guard against duplicate session creation (issue #10 from ZFS deployment).
+	if freshTask, readErr := s.store.GetSpecTask(ctx, task.ID); readErr == nil && freshTask.PlanningSessionID != "" {
+		log.Info().
+			Str("task_id", task.ID).
+			Str("existing_session_id", freshTask.PlanningSessionID).
+			Msg("Planning session already created by concurrent request — skipping duplicate Just Do It creation")
+		return
 	}
 
 	session, err = s.store.CreateSession(ctx, *session)
@@ -822,6 +847,9 @@ Follow these guidelines when making changes:
 - Make your changes
 - Push: `+"`git push origin %s`", branchName, branchName)
 
+	// Build repository section listing local + Kodit repos for the agent
+	repoSection := s.buildRepositorySectionForTask(ctx, task, project)
+
 	promptWithBranch := fmt.Sprintf(`%s
 %s
 ---
@@ -829,13 +857,13 @@ Follow these guidelines when making changes:
 **Working in /home/retro/work/:** All code repositories are in /home/retro/work/. That's where you make changes.
 
 **Primary Project Directory:** /home/retro/work/%s/
-
+%s
 **Shell commands:** Specify is_background (true or false) on all shell commands - it's required. Use true for long-running operations (builds, servers, installs).
 
 %s
 
 **For persistent installs:** Add commands to /home/retro/work/helix-specs/.helix/startup.sh (runs at sandbox startup, must be idempotent). Push directly to helix-specs branch.
-`, userPrompt, guidelinesSection, primaryRepoName, gitInstructions)
+`, userPrompt, guidelinesSection, primaryRepoName, repoSection, gitInstructions)
 
 	interaction := &types.Interaction{
 		ID:            system.GenerateInteractionID(),
@@ -1232,7 +1260,7 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, task *types.Sp
 		if s.SendMessageToAgent != nil && !s.testMode {
 			go func(t *types.SpecTask, comments string) {
 				message := BuildRevisionInstructionPrompt(t, comments)
-				_, err := s.SendMessageToAgent(context.Background(), t, message, "")
+				_, _, err := s.SendMessageToAgent(context.Background(), t, message, "")
 				if err != nil {
 					log.Error().
 						Err(err).
@@ -1260,6 +1288,43 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, task *types.Sp
 	}
 
 	return nil
+}
+
+// buildRepositorySectionForTask fetches project and org repos, then builds the repository section
+func (s *SpecDrivenTaskService) buildRepositorySectionForTask(ctx context.Context, task *types.SpecTask, project *types.Project) string {
+	if task.ProjectID == "" {
+		return ""
+	}
+
+	// Fetch project repos
+	projectRepos, err := s.store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
+		ProjectID: task.ProjectID,
+	})
+	if err != nil {
+		return ""
+	}
+
+	// Fetch Kodit org repos if enabled
+	var koditOrgRepos []*types.GitRepository
+	if project != nil && project.KoditEnabled && project.OrganizationID != "" {
+		orgRepos, err := s.store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
+			OrganizationID: project.OrganizationID,
+		})
+		if err == nil {
+			for _, repo := range orgRepos {
+				if repo.KoditIndexing {
+					koditOrgRepos = append(koditOrgRepos, repo)
+				}
+			}
+		}
+	}
+
+	primaryRepoID := ""
+	if project != nil {
+		primaryRepoID = project.DefaultRepoID
+	}
+
+	return BuildRepositorySection(projectRepos, koditOrgRepos, primaryRepoID)
 }
 
 // Helper functions
@@ -1308,8 +1373,9 @@ func generateTaskNameFromPrompt(prompt string) string {
 	}
 	name = strings.TrimSpace(name)
 
-	if len(name) > 60 {
-		return name[:57] + "..."
+	runes := []rune(name)
+	if len(runes) > 60 {
+		return string(runes[:57]) + "..."
 	}
 	return name
 }
@@ -1369,10 +1435,23 @@ func (s *SpecDrivenTaskService) detectAndLinkExistingPR(ctx context.Context, tas
 				Str("target_branch", pr.TargetBranch).
 				Msg("Found existing PR for branch")
 
-			// Update task with PR info
+			// Get repo details for RepoPullRequests
+			repo, repoErr := s.store.GetGitRepository(ctx, project.DefaultRepoID)
+			repoName := ""
+			if repoErr == nil && repo != nil {
+				repoName = repo.Name
+			}
+
+			// Update task with PR info via RepoPullRequests
 			now := time.Now()
-			task.PullRequestID = pr.ID
-			task.PullRequestURL = pr.URL
+			task.RepoPullRequests = append(task.RepoPullRequests, types.RepoPR{
+				RepositoryID:   project.DefaultRepoID,
+				RepositoryName: repoName,
+				PRID:           pr.ID,
+				PRNumber:       pr.Number,
+				PRURL:          pr.URL,
+				PRState:        string(pr.State),
+			})
 			task.Status = types.TaskStatusPullRequest
 			task.StatusUpdatedAt = &now
 

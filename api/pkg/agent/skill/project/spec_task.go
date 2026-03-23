@@ -7,16 +7,23 @@ import (
 
 // SpecTaskSummary is a summary of a spec task
 type SpecTaskSummary struct {
-	ID             string     `json:"id"`
-	Name           string     `json:"name"`
-	Description    string     `json:"description"`
-	Status         string     `json:"status"`
-	Priority       string     `json:"priority"`
-	BranchName     string     `json:"branch_name,omitempty"`
-	PullRequestID  string     `json:"pull_request_id,omitempty"`
-	PullRequestURL string     `json:"pull_request_url,omitempty"`
-	StartedAt      *time.Time `json:"started_at,omitempty"`
-	CompletedAt    *time.Time `json:"completed_at,omitempty"`
+	ID               string              `json:"id"`
+	Name             string              `json:"name"`
+	Description      string              `json:"description"`
+	Status           string              `json:"status"`
+	Priority         string              `json:"priority"`
+	BranchName       string              `json:"branch_name,omitempty"`
+	RepoPullRequests []RepoPRSummary     `json:"repo_pull_requests,omitempty"`
+	StartedAt        *time.Time          `json:"started_at,omitempty"`
+	CompletedAt      *time.Time          `json:"completed_at,omitempty"`
+}
+
+// RepoPRSummary is a summary of a pull request for a repository
+type RepoPRSummary struct {
+	RepositoryName string `json:"repository_name"`
+	PRID           string `json:"pr_id"`
+	PRURL          string `json:"pr_url,omitempty"`
+	PRState        string `json:"pr_state"`
 }
 
 func (s *SpecTaskSummary) ToString() string {
@@ -30,11 +37,11 @@ func (s *SpecTaskSummary) ToString() string {
 	if s.BranchName != "" {
 		result += fmt.Sprintf("\nBranchName: %s", s.BranchName)
 	}
-	if s.PullRequestID != "" {
-		result += fmt.Sprintf("\nPullRequestID: %s", s.PullRequestID)
-	}
-	if s.PullRequestURL != "" {
-		result += fmt.Sprintf("\nPullRequestURL: %s", s.PullRequestURL)
+	for _, pr := range s.RepoPullRequests {
+		result += fmt.Sprintf("\nPR [%s]: %s (state: %s)", pr.RepositoryName, pr.PRID, pr.PRState)
+		if pr.PRURL != "" {
+			result += fmt.Sprintf(" URL: %s", pr.PRURL)
+		}
 	}
 	if s.StartedAt != nil {
 		result += fmt.Sprintf("\nStartedAt: %s", s.StartedAt.Format(time.RFC3339))

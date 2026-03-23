@@ -117,7 +117,7 @@ func (apiServer *HelixAPIServer) getSessionTOC(_ http.ResponseWriter, req *http.
 			Summary:     summary,
 			Created:     interaction.Created,
 			HasPrompt:   interaction.PromptMessage != "",
-			HasResponse: interaction.ResponseMessage != "",
+			HasResponse: types.TextFromInteraction(interaction) != "",
 		}
 		entries = append(entries, entry)
 
@@ -323,7 +323,7 @@ func (apiServer *HelixAPIServer) searchSessionInteractions(_ http.ResponseWriter
 
 		// Search in prompt, response, and summary
 		matches := strings.Contains(strings.ToLower(interaction.PromptMessage), queryLower) ||
-			strings.Contains(strings.ToLower(interaction.ResponseMessage), queryLower) ||
+			strings.Contains(strings.ToLower(types.TextFromInteraction(interaction)), queryLower) ||
 			strings.Contains(strings.ToLower(interaction.Summary), queryLower)
 
 		if !matches {
@@ -341,7 +341,7 @@ func (apiServer *HelixAPIServer) searchSessionInteractions(_ http.ResponseWriter
 			Summary:     summary,
 			Created:     interaction.Created,
 			HasPrompt:   interaction.PromptMessage != "",
-			HasResponse: interaction.ResponseMessage != "",
+			HasResponse: types.TextFromInteraction(interaction) != "",
 		}
 		entries = append(entries, entry)
 		formattedLines = append(formattedLines, fmt.Sprintf("%d. %s", turn, summary))
@@ -377,8 +377,8 @@ func generateInteractionSummary(interaction *types.Interaction) string {
 	}
 
 	// If prompt is too short or empty, use response
-	if len(summary) < 20 && interaction.ResponseMessage != "" {
-		respSummary := extractFirstLine(interaction.ResponseMessage, 100)
+	if responseText := types.TextFromInteraction(interaction); len(summary) < 20 && responseText != "" {
+		respSummary := extractFirstLine(responseText, 100)
 		if len(respSummary) > len(summary) {
 			summary = respSummary
 		}

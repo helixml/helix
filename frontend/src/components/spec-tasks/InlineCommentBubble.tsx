@@ -11,11 +11,10 @@ import {
 import CloseIcon from "@mui/icons-material/Close";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import ExpandLessIcon from "@mui/icons-material/ExpandLess";
-import InteractionMarkdown from "../session/Markdown";
+import { MessageWithToolCalls, ResponseEntry } from "../session/InteractionInference";
 import { DesignReviewComment } from "../../services/designReviewService";
 import { TypesSession } from "../../api/api";
 
-// Empty session object for markdown rendering (no RAG/citation features needed)
 const EMPTY_SESSION: TypesSession = {};
 
 interface InlineCommentBubbleProps {
@@ -24,6 +23,7 @@ interface InlineCommentBubbleProps {
   onResolve: (commentId: string) => void;
   commentRef?: (el: HTMLDivElement | null) => void;
   streamingResponse?: string; // Live streaming response content
+  streamingEntries?: ResponseEntry[]; // Structured entries for streaming
   isNarrowViewport?: boolean;
 }
 
@@ -36,6 +36,7 @@ export default function InlineCommentBubble({
   onResolve,
   commentRef,
   streamingResponse,
+  streamingEntries,
   isNarrowViewport = false,
 }: InlineCommentBubbleProps) {
   const [isExpanded, setIsExpanded] = useState(false);
@@ -252,12 +253,14 @@ export default function InlineCommentBubble({
               "& code": { fontSize: "0.7rem" },
             }}
           >
-            <InteractionMarkdown
+            <MessageWithToolCalls
               text={isExpanded ? displayResponse : truncatedResponse}
+              responseEntries={streamingEntries ?? comment.agent_response_entries}
               session={EMPTY_SESSION}
               getFileURL={() => "#"}
               isStreaming={isStreaming}
               showBlinker={isStreaming}
+              compactThinking={true}
             />
           </Box>
           {comment.agent_response_at && !isStreaming && (

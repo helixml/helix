@@ -3,11 +3,13 @@ package server
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -41,12 +43,6 @@ func (apiServer *HelixAPIServer) createClaudeSubscription(_ http.ResponseWriter,
 		return nil, system.NewHTTPError400("invalid request body: " + err.Error())
 	}
 
-	// Validate credentials
-	creds := createReq.Credentials.ClaudeAiOauth
-	if creds.AccessToken == "" || creds.RefreshToken == "" {
-		return nil, system.NewHTTPError400("accessToken and refreshToken are required")
-	}
-
 	// Determine owner
 	ownerID := user.ID
 	ownerType := types.OwnerTypeUser
@@ -54,7 +50,6 @@ func (apiServer *HelixAPIServer) createClaudeSubscription(_ http.ResponseWriter,
 		if createReq.OwnerID == "" {
 			return nil, system.NewHTTPError400("owner_id required for org-level subscriptions")
 		}
-		// Verify user is org owner/admin
 		_, err := apiServer.authorizeOrgOwner(req.Context(), user, createReq.OwnerID)
 		if err != nil {
 			return nil, system.NewHTTPError403("not authorized to manage org subscriptions: " + err.Error())
@@ -63,30 +58,55 @@ func (apiServer *HelixAPIServer) createClaudeSubscription(_ http.ResponseWriter,
 		ownerType = types.OwnerTypeOrg
 	}
 
-	// Encrypt credentials
-	credJSON, err := json.Marshal(creds)
-	if err != nil {
-		return nil, system.NewHTTPError500("failed to marshal credentials")
-	}
-
-	encKey, err := crypto.GetEncryptionKey()
-	if err != nil {
-		return nil, system.NewHTTPError500("failed to get encryption key")
-	}
-
-	encrypted, err := crypto.EncryptAES256GCM(credJSON, encKey)
-	if err != nil {
-		return nil, system.NewHTTPError500("failed to encrypt credentials")
-	}
-
-	// Calculate token expiry
+	var encrypted string
+	var credentialType string
 	var expiresAt time.Time
-	if creds.ExpiresAt > 0 {
-		expiresAt = time.UnixMilli(creds.ExpiresAt)
+	var subscriptionType, rateLimitTier string
+	var scopes []string
+
+	if createReq.SetupToken != "" {
+		// Setup token flow: token from `claude setup-token`
+		credJSON, err := json.Marshal(types.ClaudeSetupTokenCredentials{SetupToken: strings.TrimSpace(createReq.SetupToken)})
+		if err != nil {
+			return nil, system.NewHTTPError500("failed to marshal credentials")
+		}
+		encKey, err := crypto.GetEncryptionKey()
+		if err != nil {
+			return nil, system.NewHTTPError500("failed to get encryption key")
+		}
+		encrypted, err = crypto.EncryptAES256GCM(credJSON, encKey)
+		if err != nil {
+			return nil, system.NewHTTPError500("failed to encrypt credentials")
+		}
+		credentialType = "setup_token"
+	} else {
+		// OAuth credentials flow (from in-container browser auth)
+		creds := createReq.Credentials.ClaudeAiOauth
+		if creds.AccessToken == "" || creds.RefreshToken == "" {
+			return nil, system.NewHTTPError400("setup_token or OAuth credentials (accessToken + refreshToken) are required")
+		}
+		credJSON, err := json.Marshal(creds)
+		if err != nil {
+			return nil, system.NewHTTPError500("failed to marshal credentials")
+		}
+		encKey, err := crypto.GetEncryptionKey()
+		if err != nil {
+			return nil, system.NewHTTPError500("failed to get encryption key")
+		}
+		encrypted, err = crypto.EncryptAES256GCM(credJSON, encKey)
+		if err != nil {
+			return nil, system.NewHTTPError500("failed to encrypt credentials")
+		}
+		credentialType = "oauth"
+		subscriptionType = creds.SubscriptionType
+		rateLimitTier = creds.RateLimitTier
+		scopes = creds.Scopes
+		if creds.ExpiresAt > 0 {
+			expiresAt = time.UnixMilli(creds.ExpiresAt)
+		}
 	}
 
 	// Delete any existing subscriptions for this owner before creating a new one.
-	// Re-auth creates a fresh subscription; stale rows would shadow it in queries.
 	existingSubs, _ := apiServer.Store.ListClaudeSubscriptions(req.Context(), ownerID)
 	for _, old := range existingSubs {
 		if old.OwnerType == ownerType {
@@ -100,9 +120,10 @@ func (apiServer *HelixAPIServer) createClaudeSubscription(_ http.ResponseWriter,
 		OwnerType:            ownerType,
 		Name:                 createReq.Name,
 		EncryptedCredentials: encrypted,
-		SubscriptionType:     creds.SubscriptionType,
-		RateLimitTier:        creds.RateLimitTier,
-		Scopes:               creds.Scopes,
+		CredentialType:       credentialType,
+		SubscriptionType:     subscriptionType,
+		RateLimitTier:        rateLimitTier,
+		Scopes:               scopes,
 		AccessTokenExpiresAt: expiresAt,
 		Status:               "active",
 		CreatedBy:            user.ID,
@@ -117,7 +138,7 @@ func (apiServer *HelixAPIServer) createClaudeSubscription(_ http.ResponseWriter,
 		Str("subscription_id", created.ID).
 		Str("owner_id", ownerID).
 		Str("owner_type", string(ownerType)).
-		Str("subscription_type", creds.SubscriptionType).
+		Str("credential_type", credentialType).
 		Msg("Created Claude subscription")
 
 	return created, nil
@@ -275,31 +296,36 @@ func (apiServer *HelixAPIServer) listClaudeModels(_ http.ResponseWriter, req *ht
 	return models, nil
 }
 
+// SessionClaudeCredentialsResponse returns credentials in the appropriate format.
+type SessionClaudeCredentialsResponse struct {
+	CredentialType string                       `json:"credential_type"`            // "oauth" or "setup_token"
+	OAuthCreds     *types.ClaudeOAuthCredentials `json:"oauth_credentials,omitempty"`
+	SetupToken     string                        `json:"setup_token,omitempty"`
+}
+
 // @Summary Get Claude credentials for a session
 // @Description Get decrypted Claude credentials for use inside a desktop container.
 // @Description Only accepts runner/session-scoped tokens.
 // @Tags Claude
 // @Produce json
 // @Param id path string true "Session ID"
-// @Success 200 {object} types.ClaudeOAuthCredentials
+// @Success 200 {object} SessionClaudeCredentialsResponse
 // @Failure 401 {object} system.HTTPError
 // @Failure 403 {object} system.HTTPError
 // @Failure 404 {object} system.HTTPError
 // @Failure 500 {object} system.HTTPError
 // @Security ApiKeyAuth
 // @Router /api/v1/sessions/{id}/claude-credentials [get]
-func (apiServer *HelixAPIServer) getSessionClaudeCredentials(_ http.ResponseWriter, req *http.Request) (*types.ClaudeOAuthCredentials, *system.HTTPError) {
+func (apiServer *HelixAPIServer) getSessionClaudeCredentials(_ http.ResponseWriter, req *http.Request) (*SessionClaudeCredentialsResponse, *system.HTTPError) {
 	ctx := req.Context()
 	vars := mux.Vars(req)
 	sessionID := vars["id"]
 
-	// Get session
 	session, err := apiServer.Store.GetSession(ctx, sessionID)
 	if err != nil {
 		return nil, system.NewHTTPError404("session not found")
 	}
 
-	// Only allow runner token or session owner (same pattern as getZedConfig)
 	user := getRequestUser(req)
 	if user == nil {
 		return nil, system.NewHTTPError403("access denied")
@@ -308,10 +334,7 @@ func (apiServer *HelixAPIServer) getSessionClaudeCredentials(_ http.ResponseWrit
 		return nil, system.NewHTTPError403("access denied")
 	}
 
-	// Use the session's organization (if any)
 	orgID := session.OrganizationID
-
-	// Get effective Claude subscription (user-level first, then org)
 	sub, err := apiServer.Store.GetEffectiveClaudeSubscription(ctx, session.Owner, orgID)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
@@ -320,7 +343,6 @@ func (apiServer *HelixAPIServer) getSessionClaudeCredentials(_ http.ResponseWrit
 		return nil, system.NewHTTPError500(fmt.Sprintf("failed to get Claude subscription: %v", err))
 	}
 
-	// Decrypt credentials
 	encKey, err := crypto.GetEncryptionKey()
 	if err != nil {
 		return nil, system.NewHTTPError500("failed to get encryption key")
@@ -331,12 +353,30 @@ func (apiServer *HelixAPIServer) getSessionClaudeCredentials(_ http.ResponseWrit
 		return nil, system.NewHTTPError500("failed to decrypt credentials")
 	}
 
+	credType := sub.CredentialType
+	if credType == "" {
+		credType = "oauth" // backward compatibility
+	}
+
+	if credType == "setup_token" {
+		var tokenCreds types.ClaudeSetupTokenCredentials
+		if err := json.Unmarshal(plaintext, &tokenCreds); err != nil {
+			return nil, system.NewHTTPError500("failed to parse credentials")
+		}
+		return &SessionClaudeCredentialsResponse{
+			CredentialType: "setup_token",
+			SetupToken:     tokenCreds.SetupToken,
+		}, nil
+	}
+
 	var creds types.ClaudeOAuthCredentials
 	if err := json.Unmarshal(plaintext, &creds); err != nil {
 		return nil, system.NewHTTPError500("failed to parse credentials")
 	}
-
-	return &creds, nil
+	return &SessionClaudeCredentialsResponse{
+		CredentialType: "oauth",
+		OAuthCreds:     &creds,
+	}, nil
 }
 
 // @Summary Update Claude credentials for a session
@@ -476,7 +516,6 @@ func (apiServer *HelixAPIServer) startClaudeLogin(_ http.ResponseWriter, req *ht
 			Stream:       true,
 			AgentType:    "zed_external",
 			SessionRole:  "exploratory",
-			DesiredState: types.DesiredStateRunning,
 		},
 	}
 
@@ -534,6 +573,7 @@ func (apiServer *HelixAPIServer) startClaudeLogin(_ http.ResponseWriter, req *ht
 type ClaudePollLoginResponse struct {
 	Found       bool   `json:"found"`
 	Credentials string `json:"credentials,omitempty"` // Raw credentials JSON
+	URL         string `json:"url,omitempty"`         // OAuth URL for native browser
 }
 
 // @Summary Poll for Claude login credentials
@@ -566,71 +606,106 @@ func (apiServer *HelixAPIServer) pollClaudeLogin(_ http.ResponseWriter, req *htt
 		return nil, system.NewHTTPError403("access denied")
 	}
 
-	// Connect to desktop container via RevDial and read credentials file
 	runnerID := fmt.Sprintf("desktop-%s", sessionID)
-	revDialConn, err := apiServer.connman.Dial(req.Context(), runnerID)
+
+	// Check for credentials first (takes priority over URL)
+	credOutput, credErr := apiServer.execInContainer(req.Context(), runnerID,
+		[]string{"cat", "/home/retro/.claude/.credentials.json"})
+	if credErr == nil && credOutput != "" {
+		var credCheck map[string]interface{}
+		if err := json.Unmarshal([]byte(credOutput), &credCheck); err == nil {
+			// Check for either claudeAiOauth wrapper or direct accessToken
+			if _, ok := credCheck["claudeAiOauth"]; ok {
+				return &ClaudePollLoginResponse{Found: true, Credentials: credOutput}, nil
+			}
+			if _, ok := credCheck["accessToken"]; ok {
+				return &ClaudePollLoginResponse{Found: true, Credentials: credOutput}, nil
+			}
+		}
+	}
+
+	// No credentials yet — check for OAuth URL from claude auth login stdout.
+	// The stdout contains a fallback URL with platform.claude.com/oauth/code/callback
+	// redirect that works from any browser. We parse it from the "If the browser
+	// didn't open, visit:" line. The wrapper script sets NO_COLOR=1 to strip ANSI codes.
+	stdoutOutput, stdoutErr := apiServer.execInContainer(req.Context(), runnerID,
+		[]string{"cat", "/tmp/claude-auth-stdout.txt"})
+	if stdoutErr == nil && stdoutOutput != "" {
+		for _, line := range strings.Split(stdoutOutput, "\n") {
+			line = strings.TrimSpace(line)
+			if strings.HasPrefix(line, "If the browser didn't open, visit:") {
+				url := strings.TrimSpace(strings.TrimPrefix(line, "If the browser didn't open, visit:"))
+				if strings.HasPrefix(url, "https://") {
+					return &ClaudePollLoginResponse{Found: false, URL: url}, nil
+				}
+			}
+			if strings.HasPrefix(line, "https://claude.ai/oauth") {
+				return &ClaudePollLoginResponse{Found: false, URL: line}, nil
+			}
+		}
+	}
+
+	// Fallback: read the URL captured by helix-capture-browser via BROWSER env var.
+	// This URL has a localhost redirect that only works inside the container, but
+	// it's better than nothing if the stdout fallback message is suppressed.
+	urlOutput, urlErr := apiServer.execInContainer(req.Context(), runnerID,
+		[]string{"cat", "/tmp/claude-auth-url.txt"})
+	if urlErr == nil && strings.HasPrefix(strings.TrimSpace(urlOutput), "https://") {
+		return &ClaudePollLoginResponse{Found: false, URL: strings.TrimSpace(urlOutput)}, nil
+	}
+
+	return &ClaudePollLoginResponse{Found: false}, nil
+}
+
+// execInContainer runs a command inside a desktop container via RevDial and
+// returns the stdout output. Returns an error if the command fails or the
+// container is not reachable.
+func (apiServer *HelixAPIServer) execInContainer(ctx context.Context, runnerID string, command []string) (string, error) {
+	revDialConn, err := apiServer.connman.Dial(ctx, runnerID)
 	if err != nil {
-		// Container not ready yet
-		return &ClaudePollLoginResponse{Found: false}, nil
+		return "", fmt.Errorf("container not ready: %w", err)
 	}
 	defer revDialConn.Close()
 
-	// Execute: cat /home/retro/.claude/.credentials.json
 	execReq := map[string]interface{}{
-		"command": []string{"cat", "/home/retro/.claude/.credentials.json"},
+		"command": command,
 		"timeout": 5,
 	}
 	execBody, _ := json.Marshal(execReq)
 
 	httpReq, err := http.NewRequest("POST", "http://localhost:9876/exec", bytes.NewReader(execBody))
 	if err != nil {
-		return nil, system.NewHTTPError500("failed to create exec request")
+		return "", fmt.Errorf("failed to create request: %w", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 
 	if err := httpReq.Write(revDialConn); err != nil {
-		return &ClaudePollLoginResponse{Found: false}, nil
+		return "", fmt.Errorf("failed to write request: %w", err)
 	}
 
 	execResp, err := http.ReadResponse(bufio.NewReader(revDialConn), httpReq)
 	if err != nil {
-		return &ClaudePollLoginResponse{Found: false}, nil
+		return "", fmt.Errorf("failed to read response: %w", err)
 	}
 	defer execResp.Body.Close()
 
 	bodyBytes, err := io.ReadAll(execResp.Body)
 	if err != nil {
-		return &ClaudePollLoginResponse{Found: false}, nil
+		return "", fmt.Errorf("failed to read body: %w", err)
 	}
 
-	var execResult struct {
+	var result struct {
 		Success  bool   `json:"success"`
 		Output   string `json:"output"`
 		ExitCode int    `json:"exit_code"`
 	}
-	if err := json.Unmarshal(bodyBytes, &execResult); err != nil {
-		return &ClaudePollLoginResponse{Found: false}, nil
+	if err := json.Unmarshal(bodyBytes, &result); err != nil {
+		return "", fmt.Errorf("failed to parse response: %w", err)
 	}
 
-	if !execResult.Success || execResult.ExitCode != 0 || execResult.Output == "" {
-		return &ClaudePollLoginResponse{Found: false}, nil
+	if !result.Success || result.ExitCode != 0 {
+		return "", fmt.Errorf("command failed: exit %d", result.ExitCode)
 	}
 
-	// Validate it's valid JSON with expected structure
-	var credCheck map[string]interface{}
-	if err := json.Unmarshal([]byte(execResult.Output), &credCheck); err != nil {
-		return &ClaudePollLoginResponse{Found: false}, nil
-	}
-
-	// Check for either claudeAiOauth wrapper or direct accessToken
-	if _, ok := credCheck["claudeAiOauth"]; !ok {
-		if _, ok := credCheck["accessToken"]; !ok {
-			return &ClaudePollLoginResponse{Found: false}, nil
-		}
-	}
-
-	return &ClaudePollLoginResponse{
-		Found:       true,
-		Credentials: execResult.Output,
-	}, nil
+	return result.Output, nil
 }

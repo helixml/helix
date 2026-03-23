@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/helixml/helix/api/pkg/services"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -123,6 +124,51 @@ type KoditAdminPendingTaskDTO struct {
 	Operation string    `json:"operation"`
 	Priority  int       `json:"priority"`
 	CreatedAt time.Time `json:"created_at"`
+}
+
+// KoditAdminQueueStats holds computed statistics about the queue.
+type KoditAdminQueueStats struct {
+	Total           int64                      `json:"total"`
+	OldestTaskAge   string                     `json:"oldest_task_age,omitempty"`
+	OldestTaskTime  *time.Time                 `json:"oldest_task_time,omitempty"`
+	NewestTaskTime  *time.Time                 `json:"newest_task_time,omitempty"`
+	ByOperation     map[string]int64           `json:"by_operation"`
+	ByPriorityLevel map[string]int64           `json:"by_priority_level"`
+}
+
+// KoditAdminActiveTaskDTO represents a task currently being processed.
+type KoditAdminActiveTaskDTO struct {
+	Operation    string    `json:"operation"`
+	State        string    `json:"state"`
+	Message      string    `json:"message,omitempty"`
+	Current      int       `json:"current"`
+	Total        int       `json:"total"`
+	RepositoryID int64     `json:"repository_id"`
+	RepoName     string    `json:"repo_name,omitempty"`
+	UpdatedAt    time.Time `json:"updated_at"`
+}
+
+// KoditAdminQueueListResponse is the paginated list of all queue tasks.
+type KoditAdminQueueListResponse struct {
+	ActiveTasks []KoditAdminActiveTaskDTO `json:"active_tasks"`
+	Data        []KoditAdminQueueTaskDTO  `json:"data"`
+	Meta        KoditAdminPaginationMeta  `json:"meta"`
+	Stats       KoditAdminQueueStats      `json:"stats"`
+}
+
+// KoditAdminQueueTaskDTO represents a task in the global queue view.
+type KoditAdminQueueTaskDTO struct {
+	ID           int64     `json:"id"`
+	Operation    string    `json:"operation"`
+	Priority     int       `json:"priority"`
+	RepositoryID int64     `json:"repository_id"`
+	RepoName     string    `json:"repo_name,omitempty"`
+	CreatedAt    time.Time `json:"created_at"`
+}
+
+// KoditAdminUpdatePriorityRequest is the request body for updating task priority.
+type KoditAdminUpdatePriorityRequest struct {
+	Priority int `json:"priority"`
 }
 
 // KoditAdminBatchRequest is the request body for batch operations.
@@ -725,6 +771,290 @@ func (apiServer *HelixAPIServer) adminGetKoditStats(w http.ResponseWriter, r *ht
 	})
 }
 
+// adminListKoditQueue lists all pending tasks in the global task queue.
+// @Summary List Kodit task queue (admin)
+// @Description List all pending tasks across all repositories with pagination. Admin only.
+// @Tags admin
+// @Produce json
+// @Param page query int false "Page number (default 1)"
+// @Param per_page query int false "Items per page (default 25, max 100)"
+// @Success 200 {object} KoditAdminQueueListResponse
+// @Failure 500 {object} types.APIError
+// @Router /api/v1/admin/kodit/queue [get]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) adminListKoditQueue(w http.ResponseWriter, r *http.Request) {
+	if apiServer.koditService == nil || !apiServer.koditService.IsEnabled() {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(KoditAdminQueueListResponse{
+			Data: []KoditAdminQueueTaskDTO{},
+			Meta: KoditAdminPaginationMeta{Page: 1, PerPage: 25, Total: 0, TotalPages: 0},
+		})
+		return
+	}
+
+	page, perPage := parsePagination(r, 1, 25, 100)
+	offset := (page - 1) * perPage
+
+	tasks, total, err := apiServer.koditService.ListAllTasks(r.Context(), perPage, offset)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to list Kodit task queue")
+		http.Error(w, fmt.Sprintf("Failed to list task queue: %s", err.Error()), http.StatusInternalServerError)
+		return
+	}
+
+	// Fetch active (in-progress) tasks early so we can resolve their repo names too
+	active, activeErr := apiServer.koditService.ActiveTasks(r.Context())
+	if activeErr != nil {
+		log.Warn().Err(activeErr).Msg("Failed to fetch active Kodit tasks")
+	}
+
+	// Build reverse index: kodit repo ID → helix repo name
+	// Collect unique kodit repo IDs from task payloads and active tasks
+	helixRepos, err := apiServer.Store.ListGitRepositories(r.Context(), &types.ListGitRepositoriesRequest{})
+	if err != nil {
+		log.Warn().Err(err).Msg("Failed to cross-reference Helix repositories for queue")
+	}
+	idx := newHelixRepoIndex(helixRepos)
+
+	koditRepoIDs := make(map[int64]struct{})
+	for _, t := range tasks {
+		if t.RepositoryID > 0 {
+			koditRepoIDs[t.RepositoryID] = struct{}{}
+		}
+	}
+	for _, a := range active {
+		if a.RepositoryID > 0 {
+			koditRepoIDs[a.RepositoryID] = struct{}{}
+		}
+	}
+
+	// For each unique kodit repo ID, try the fast path first (already in idx.byKoditID).
+	// For those not found, fetch the repo summary to get the remote URL for fallback.
+	koditRepoNames := make(map[int64]string)
+	for koditID := range koditRepoIDs {
+		ref := idx.byKoditID[koditID]
+		if ref.name != "" {
+			koditRepoNames[koditID] = ref.name
+			continue
+		}
+		// Fallback: fetch repo summary to get remote URL
+		summary, err := apiServer.koditService.RepositorySummary(r.Context(), koditID)
+		if err != nil {
+			continue
+		}
+		repo := summary.Source().Repository()
+		ref = idx.lookup(koditID, repo.RemoteURL(), apiServer.Store, r)
+		if ref.name != "" {
+			koditRepoNames[koditID] = ref.name
+		}
+	}
+
+	data := make([]KoditAdminQueueTaskDTO, 0, len(tasks))
+	for _, t := range tasks {
+		data = append(data, KoditAdminQueueTaskDTO{
+			ID:           t.ID,
+			Operation:    t.Operation,
+			Priority:     t.Priority,
+			RepositoryID: t.RepositoryID,
+			RepoName:     koditRepoNames[t.RepositoryID],
+			CreatedAt:    t.CreatedAt,
+		})
+	}
+
+	totalPages := int64(math.Ceil(float64(total) / float64(perPage)))
+
+	// Compute queue stats from all tasks (fetch full list if we don't already have it)
+	allTasks := tasks
+	if total > int64(len(tasks)) {
+		allTasks, _, err = apiServer.koditService.ListAllTasks(r.Context(), 500, 0)
+		if err != nil {
+			log.Warn().Err(err).Msg("Failed to fetch full task list for stats")
+			allTasks = tasks // fall back to current page
+		}
+	}
+	queueStats := computeQueueStats(allTasks, total)
+
+	// Build active tasks DTOs from earlier fetch
+	activeTasks := make([]KoditAdminActiveTaskDTO, 0, len(active))
+	for _, a := range active {
+		activeTasks = append(activeTasks, KoditAdminActiveTaskDTO{
+			Operation:    a.Operation,
+			State:        a.State,
+			Message:      a.Message,
+			Current:      a.Current,
+			Total:        a.Total,
+			RepositoryID: a.RepositoryID,
+			RepoName:     koditRepoNames[a.RepositoryID],
+			UpdatedAt:    a.UpdatedAt,
+		})
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(KoditAdminQueueListResponse{
+		ActiveTasks: activeTasks,
+		Data:        data,
+		Meta: KoditAdminPaginationMeta{
+			Page:       page,
+			PerPage:    perPage,
+			Total:      total,
+			TotalPages: totalPages,
+		},
+		Stats: queueStats,
+	})
+}
+
+func computeQueueStats(tasks []services.KoditPendingTask, total int64) KoditAdminQueueStats {
+	stats := KoditAdminQueueStats{
+		Total:           total,
+		ByOperation:     make(map[string]int64),
+		ByPriorityLevel: make(map[string]int64),
+	}
+
+	if len(tasks) == 0 {
+		return stats
+	}
+
+	var oldest, newest time.Time
+	for _, t := range tasks {
+		// Track oldest/newest
+		if oldest.IsZero() || t.CreatedAt.Before(oldest) {
+			oldest = t.CreatedAt
+		}
+		if newest.IsZero() || t.CreatedAt.After(newest) {
+			newest = t.CreatedAt
+		}
+
+		// Count by operation (use the short name)
+		parts := strings.Split(t.Operation, ".")
+		shortOp := parts[len(parts)-1]
+		stats.ByOperation[shortOp]++
+
+		// Count by priority level
+		var level string
+		switch {
+		case t.Priority >= 10000:
+			level = "critical"
+		case t.Priority >= 5000:
+			level = "user_initiated"
+		case t.Priority >= 2000:
+			level = "normal"
+		default:
+			level = "background"
+		}
+		stats.ByPriorityLevel[level]++
+	}
+
+	if !oldest.IsZero() {
+		stats.OldestTaskTime = &oldest
+		stats.NewestTaskTime = &newest
+		age := time.Since(oldest)
+		stats.OldestTaskAge = formatQueueAge(age)
+	}
+
+	return stats
+}
+
+func formatQueueAge(d time.Duration) string {
+	if d < time.Minute {
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	}
+	if d < time.Hour {
+		return fmt.Sprintf("%dm", int(d.Minutes()))
+	}
+	if d < 24*time.Hour {
+		h := int(d.Hours())
+		m := int(d.Minutes()) % 60
+		if m > 0 {
+			return fmt.Sprintf("%dh %dm", h, m)
+		}
+		return fmt.Sprintf("%dh", h)
+	}
+	days := int(d.Hours()) / 24
+	h := int(d.Hours()) % 24
+	if h > 0 {
+		return fmt.Sprintf("%dd %dh", days, h)
+	}
+	return fmt.Sprintf("%dd", days)
+}
+
+// adminDeleteKoditTask deletes a single task from the queue.
+// @Summary Delete Kodit queue task (admin)
+// @Description Delete a specific task from the Kodit task queue by ID. Admin only.
+// @Tags admin
+// @Produce json
+// @Param taskId path int true "Task ID"
+// @Success 200 {object} map[string]string
+// @Failure 400 {object} types.APIError
+// @Failure 404 {object} types.APIError
+// @Failure 500 {object} types.APIError
+// @Router /api/v1/admin/kodit/queue/{taskId} [delete]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) adminDeleteKoditTask(w http.ResponseWriter, r *http.Request) {
+	if apiServer.koditService == nil || !apiServer.koditService.IsEnabled() {
+		http.Error(w, "Kodit service is not enabled", http.StatusNotFound)
+		return
+	}
+
+	taskID, ok := parseKoditTaskID(w, r)
+	if !ok {
+		return
+	}
+
+	if err := apiServer.koditService.DeleteTask(r.Context(), taskID); err != nil {
+		handleKoditError(w, err, "Failed to delete task")
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{
+		"status":  "ok",
+		"message": "Task deleted successfully",
+	})
+}
+
+// adminUpdateKoditTaskPriority updates the priority of a single task.
+// @Summary Update Kodit queue task priority (admin)
+// @Description Update the priority of a specific task in the Kodit task queue. Admin only.
+// @Tags admin
+// @Accept json
+// @Produce json
+// @Param taskId path int true "Task ID"
+// @Param body body KoditAdminUpdatePriorityRequest true "New priority"
+// @Success 200 {object} map[string]string
+// @Failure 400 {object} types.APIError
+// @Failure 404 {object} types.APIError
+// @Failure 500 {object} types.APIError
+// @Router /api/v1/admin/kodit/queue/{taskId}/priority [patch]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) adminUpdateKoditTaskPriority(w http.ResponseWriter, r *http.Request) {
+	if apiServer.koditService == nil || !apiServer.koditService.IsEnabled() {
+		http.Error(w, "Kodit service is not enabled", http.StatusNotFound)
+		return
+	}
+
+	taskID, ok := parseKoditTaskID(w, r)
+	if !ok {
+		return
+	}
+
+	var req KoditAdminUpdatePriorityRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if err := apiServer.koditService.UpdateTaskPriority(r.Context(), taskID, req.Priority); err != nil {
+		handleKoditError(w, err, "Failed to update task priority")
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{
+		"status":  "ok",
+		"message": "Task priority updated successfully",
+	})
+}
+
 // =============================================================================
 // Helpers
 // =============================================================================
@@ -739,6 +1069,21 @@ func parseKoditRepoID(w http.ResponseWriter, r *http.Request) (int64, bool) {
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Invalid Kodit repository ID: %s", idStr), http.StatusBadRequest)
+		return 0, false
+	}
+	return id, true
+}
+
+func parseKoditTaskID(w http.ResponseWriter, r *http.Request) (int64, bool) {
+	vars := mux.Vars(r)
+	idStr := vars["taskId"]
+	if idStr == "" {
+		http.Error(w, "Task ID is required", http.StatusBadRequest)
+		return 0, false
+	}
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Invalid task ID: %s", idStr), http.StatusBadRequest)
 		return 0, false
 	}
 	return id, true

@@ -126,7 +126,24 @@ func (r *Runner) reconcileOllamaHelixModels(ctx context.Context, runtime Runtime
 		}
 	}
 
+	// Build a set of all Ollama model IDs from the pushed model list (not just auto-pull ones)
+	// so we only report status for models the controller knows about
+	pushedOllamaModelIDs := make(map[string]bool)
+	for _, model := range models {
+		if model.Runtime == types.RuntimeOllama {
+			pushedOllamaModelIDs[model.ID] = true
+		}
+	}
+
 	for _, currentModel := range currentModels {
+		// Only report status for models that are in the controller-pushed list.
+		// Without this filter, we'd report status for stale Ollama models that
+		// the controller doesn't know about, causing findRunnerWithModel() to
+		// select this runner but hasModel() to fail on memory estimation requests.
+		if !pushedOllamaModelIDs[currentModel] {
+			log.Debug().Str("model_id", currentModel).Msg("skipping status for model not in pushed list")
+			continue
+		}
 		// Already exists, set the status to downloaded
 		log.Debug().Str("model_id", currentModel).Msg("existing model found")
 		memory := modelMemoryMap[currentModel]

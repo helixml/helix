@@ -307,15 +307,27 @@ func (s *PostgresStore) GetProjectExploratorySession(ctx context.Context, projec
 	return &session, nil
 }
 
-// ListSessionsWithDesiredState returns sessions where metadata.desired_state matches
-// Used by the reconciler to find sessions that should be running
-func (s *PostgresStore) ListSessionsWithDesiredState(ctx context.Context, desiredState string) ([]*types.Session, error) {
+
+// ClearStaleStartingSessions clears external_agent_status and status_message
+// for sessions stuck in "starting" state. Called on API startup — if the API
+// just started, no session can legitimately be mid-startup.
+func (s *PostgresStore) ClearStaleStartingSessions(ctx context.Context) (int64, error) {
+	result := s.gdb.WithContext(ctx).
+		Model(&types.Session{}).
+		Where("config->>'external_agent_status' = ?", "starting").
+		Updates(map[string]interface{}{
+			"config": gorm.Expr(`config || '{"external_agent_status":"","status_message":""}'::jsonb`),
+		})
+	return result.RowsAffected, result.Error
+}
+
+// ListSessionsBySandbox returns all sessions associated with a specific sandbox
+// Used to clean up session metadata when a sandbox disconnects
+func (s *PostgresStore) ListSessionsBySandbox(ctx context.Context, sandboxID string) ([]*types.Session, error) {
 	var sessions []*types.Session
 
-	// PostgreSQL JSONB query for metadata.desired_state
-	// Note: column is named 'config' for backward compatibility but contains SessionMetadata
 	err := s.gdb.WithContext(ctx).
-		Where("config->>'desired_state' = ?", desiredState).
+		Where("sandbox_id = ?", sandboxID).
 		Find(&sessions).Error
 
 	if err != nil {

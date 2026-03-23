@@ -116,3 +116,4 @@ api/settings-sync-daemon
 /drm-test-client
 /scanout-stream-test
 core.*
+nohup.out

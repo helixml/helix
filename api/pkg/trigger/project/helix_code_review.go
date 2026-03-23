@@ -43,8 +43,8 @@ func New(cfg *config.ServerConfig, store store.Store, controller Controller) *He
 }
 
 func (h *HelixCodeReviewTrigger) ProcessGitPushEvent(ctx context.Context, specTask *types.SpecTask, repo *types.GitRepository, commitHash string) error {
-	if specTask.PullRequestID == "" {
-		log.Debug().Str("spec_task_id", specTask.ID).Msg("No pull request ID found for spec task, skipping")
+	if !specTask.HasAnyPR() {
+		log.Debug().Str("spec_task_id", specTask.ID).Msg("No pull requests tracked for spec task, skipping")
 		return nil
 	}
 
@@ -91,7 +91,16 @@ func (h *HelixCodeReviewTrigger) processAzureDevOpsPullRequest(ctx context.Conte
 		return fmt.Errorf("failed to get azure devops repository name: %w", err)
 	}
 
-	prID, err := strconv.Atoi(specTask.PullRequestID)
+	// Get the PR for this specific repo, or fall back to first open PR
+	repoPR := specTask.GetPRForRepo(repo.ID)
+	if repoPR == nil {
+		repoPR = specTask.GetFirstOpenPR()
+	}
+	if repoPR == nil {
+		return fmt.Errorf("no pull request found for spec task %s", specTask.ID)
+	}
+
+	prID, err := strconv.Atoi(repoPR.PRID)
 	if err != nil {
 		return fmt.Errorf("failed to parse pull request ID: %w", err)
 	}
@@ -199,7 +208,7 @@ func (h *HelixCodeReviewTrigger) runReviewSession(ctx context.Context, project *
 	log.Info().
 		Str("app_id", app.ID).
 		Str("spec_task_id", specTask.ID).
-		Str("response", resp.ResponseMessage).
+		Str("response", types.TextFromInteraction(resp)).
 		Msg("Pull request review completed")
 
 	return nil

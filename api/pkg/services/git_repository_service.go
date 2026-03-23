@@ -373,29 +373,32 @@ func (s *GitRepositoryService) CreateRepository(ctx context.Context, request *ty
 
 	// Create repository object
 	gitRepo := &types.GitRepository{
-		ID:                repoID,
-		Name:              request.Name,
-		Description:       request.Description,
-		OwnerID:           request.OwnerID,
-		OrganizationID:    orgID,
-		ProjectID:         request.ProjectID,
-		RepoType:          request.RepoType,
-		Status:            types.GitRepositoryStatusActive,
-		CloneURL:          s.generateCloneURL(repoID),
-		IsExternal:        isExternal,
-		ExternalURL:       request.ExternalURL,
-		ExternalType:      request.ExternalType,
-		Username:          request.Username,
-		Password:          request.Password,
-		LocalPath:         repoPath,
-		DefaultBranch:     defaultBranch,
-		LastActivity:      time.Now(),
-		CreatedAt:         time.Now(),
-		UpdatedAt:         time.Now(),
-		Metadata:          request.Metadata,
-		AzureDevOps:       request.AzureDevOps,
-		KoditIndexing:     request.KoditIndexing,
-		OAuthConnectionID: request.OAuthConnectionID,
+		ID:                      repoID,
+		Name:                    request.Name,
+		Description:             request.Description,
+		OwnerID:                 request.OwnerID,
+		OrganizationID:          orgID,
+		RepoType:                request.RepoType,
+		Status:                  types.GitRepositoryStatusActive,
+		CloneURL:                s.generateCloneURL(repoID),
+		IsExternal:              isExternal,
+		ExternalURL:             request.ExternalURL,
+		ExternalType:            request.ExternalType,
+		Username:                request.Username,
+		Password:                request.Password,
+		LocalPath:               repoPath,
+		DefaultBranch:           defaultBranch,
+		LastActivity:            time.Now(),
+		CreatedAt:               time.Now(),
+		UpdatedAt:               time.Now(),
+		Metadata:                request.Metadata,
+		AzureDevOps:             request.AzureDevOps,
+		GitHub:                  request.GitHub,
+		GitLab:                  request.GitLab,
+		Bitbucket:               request.Bitbucket,
+		KoditIndexing:           request.KoditIndexing,
+		OAuthConnectionID:       request.OAuthConnectionID,
+		GitProviderConnectionID: request.GitProviderConnectionID,
 	}
 
 	if gitRepo.ExternalURL == "" {
@@ -515,7 +518,7 @@ func (s *GitRepositoryService) CreateRepository(ctx context.Context, request *ty
 		if koditCloneURL != "" {
 			// Register repository with Kodit (non-blocking - failures are logged but don't fail repo creation)
 			go func() {
-				koditRepoID, _, err := s.koditService.RegisterRepository(context.Background(), koditCloneURL)
+				koditRepoID, _, err := s.koditService.RegisterRepository(context.Background(), koditCloneURL, request.ExternalURL)
 				if err != nil {
 					log.Error().
 						Err(err).
@@ -864,7 +867,7 @@ func (s *GitRepositoryService) UpdateRepository(
 		}
 		koditCloneURL := s.BuildAuthenticatedCloneURL(repoID, koditAPIKey)
 
-		koditRepoID, _, err := s.koditService.RegisterRepository(ctx, koditCloneURL)
+		koditRepoID, _, err := s.koditService.RegisterRepository(ctx, koditCloneURL, existing.ExternalURL)
 		if err != nil {
 			return nil, fmt.Errorf("failed to register repository with Kodit: %w", err)
 		}
@@ -906,12 +909,19 @@ func (s *GitRepositoryService) DeleteRepository(ctx context.Context, repoID stri
 		// Continue — we still want to clean up the filesystem and DB record.
 	}
 
-	// Delete from Kodit if the repo was indexed there.
+	// Delete from Kodit only if no other git repository shares the same kodit index.
 	if repo != nil && s.koditService != nil && s.koditService.IsEnabled() {
 		koditRepoID := koditRepoIDFromMetadata(repo.Metadata)
 		if koditRepoID != 0 {
-			if err := s.koditService.DeleteRepository(ctx, koditRepoID); err != nil {
-				log.Warn().Err(err).Str("repo_id", repoID).Int64("kodit_repo_id", koditRepoID).Msg("failed to delete repository from Kodit")
+			others, err := s.store.CountGitRepositoriesByKoditRepoID(ctx, koditRepoID, repoID)
+			if err != nil {
+				log.Warn().Err(err).Str("repo_id", repoID).Int64("kodit_repo_id", koditRepoID).Msg("failed to count other repos sharing kodit index")
+			} else if others == 0 {
+				if err := s.koditService.DeleteRepository(ctx, koditRepoID); err != nil {
+					log.Warn().Err(err).Str("repo_id", repoID).Int64("kodit_repo_id", koditRepoID).Msg("failed to delete repository from Kodit")
+				}
+			} else {
+				log.Info().Str("repo_id", repoID).Int64("kodit_repo_id", koditRepoID).Int64("other_repos", others).Msg("skipping Kodit deletion — other repos share this index")
 			}
 		}
 	}

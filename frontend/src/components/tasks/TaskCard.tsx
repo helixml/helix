@@ -18,6 +18,8 @@ import {
   MenuItem,
   ListItemIcon,
   ListItemText,
+  Avatar,
+  Chip,
 } from "@mui/material";
 import {
   Description as SpecIcon,
@@ -34,11 +36,13 @@ import {
   Archive as ArchiveIcon,
   Unarchive as UnarchiveIcon,
   RemoveCircleOutline as RemoveFromQueueIcon,
+  Undo as UndoIcon,
 } from "@mui/icons-material";
-import { EllipsisVertical, Wand2 } from "lucide-react";
+import { EllipsisVertical, Wand2, UserCircle2 } from "lucide-react";
 import {
   useApproveImplementation,
   useStopAgent,
+  useMoveToBacklog,
 } from "../../services/specTaskWorkflowService";
 import {
   useUpdateSpecTask,
@@ -54,6 +58,9 @@ import ExternalAgentDesktopViewer from "../external-agent/ExternalAgentDesktopVi
 import CloneTaskDialog from "../specTask/CloneTaskDialog";
 import CloneGroupProgressFull from "../specTask/CloneGroupProgress";
 import SpecTaskActionButtons from "./SpecTaskActionButtons";
+import AssigneeSelector from "./AssigneeSelector";
+import useAccount from "../../hooks/useAccount";
+import { TypesOrganizationMembership, TypesUser } from "../../api/api";
 
 // Pulse animation for the active task spinner
 const pulseRing = keyframes`
@@ -143,7 +150,7 @@ type SpecTaskPhase =
   | "pull_request"
   | "completed";
 
-interface SpecTaskWithExtras {
+export interface SpecTaskWithExtras {
   id: string;
   name: string;
   status: string;
@@ -164,8 +171,14 @@ interface SpecTaskWithExtras {
   design_docs_pushed_at?: string;
   clone_group_id?: string;
   cloned_from_id?: string;
-  pull_request_id?: string;
-  pull_request_url?: string;
+  repo_pull_requests?: Array<{
+    repository_id?: string;
+    repository_name?: string;
+    pr_id?: string;
+    pr_number?: number;
+    pr_url?: string;
+    pr_state?: string;
+  }>;
   implementation_approved_at?: string;
   // Branch tracking for direct-push detection
   base_branch?: string;
@@ -173,19 +186,26 @@ interface SpecTaskWithExtras {
   // Agent activity tracking
   session_updated_at?: string;
   agent_work_state?: "idle" | "working" | "done"; // Backend-tracked work state
+  // Sandbox state — populated by the listTasks backend handler, avoids per-card session polling
+  sandbox_state?: string; // "absent" | "running" | "starting"
+  sandbox_status_message?: string; // Transient startup message
   // Task number for display
   task_number?: number;
   depends_on?: TaskDependency[];
+  // Assignee tracking
+  assignee_id?: string;
+  labels?: string[];
+  updated_at?: string;
 }
 
-interface TaskDependency {
+export interface TaskDependency {
   id?: string;
   task_number?: number;
   status?: string;
   archived?: boolean;
 }
 
-interface KanbanColumn {
+export interface KanbanColumn {
   id: SpecTaskPhase;
   limit?: number;
   tasks: SpecTaskWithExtras[];
@@ -218,6 +238,8 @@ interface TaskCardProps {
   onDependencyHoverEnd?: () => void;
   /** Whether to focus the Start Planning button (for newly created tasks) */
   focusStartPlanning?: boolean;
+  /** Whether the card is currently visible (for virtualization) */
+  isVisible?: boolean;
 }
 
 // Interface for checklist items from API
@@ -474,7 +496,9 @@ const LiveAgentScreenshot: React.FC<{
   projectId?: string;
   onClick?: () => void;
   startupErrorMessage?: string;
-}> = React.memo(({ sessionId, projectId, onClick, startupErrorMessage }) => {
+  sandboxState?: string;
+  sandboxStatusMessage?: string;
+}> = React.memo(({ sessionId, projectId, onClick, startupErrorMessage, sandboxState, sandboxStatusMessage }) => {
   return (
     <Box
       onClick={(e) => {
@@ -505,6 +529,8 @@ const LiveAgentScreenshot: React.FC<{
           sessionId={sessionId}
           mode="screenshot"
           startupErrorMessage={startupErrorMessage}
+          initialSandboxState={sandboxState}
+          initialSandboxStatusMessage={sandboxStatusMessage}
         />
       </Box>
       <Box
@@ -560,7 +586,41 @@ function TaskCardInner({
   const [showCloneBatchProgress, setShowCloneBatchProgress] = useState(false);
   const [menuAnchorEl, setMenuAnchorEl] = useState<null | HTMLElement>(null);
   const [isRemovingFromQueue, setIsRemovingFromQueue] = useState(false);
+  const [assigneeAnchorEl, setAssigneeAnchorEl] = useState<null | HTMLElement>(null);
   const startPlanningButtonRef = useRef<HTMLButtonElement>(null);
+
+  // Get account context for organization members
+  const account = useAccount();
+  const orgMembers = account.organizationTools.organization?.memberships || [];
+
+  // Find the assigned user from org members
+  const assignedMember = useMemo(() => {
+    if (!task.assignee_id) return null;
+    return orgMembers.find((m) => m.user_id === task.assignee_id);
+  }, [task.assignee_id, orgMembers]);
+
+  const assignedUser = assignedMember?.user as TypesUser | undefined;
+
+  // Get initials for avatar
+  const getAssigneeInitials = (user: TypesUser | undefined): string => {
+    if (!user) return "?";
+    const name = user.full_name || user.username || user.email || "";
+    const parts = name.split(" ");
+    if (parts.length >= 2) {
+      return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+    }
+    return name.slice(0, 2).toUpperCase();
+  };
+
+  // Handle assignee change
+  const handleAssigneeChange = (userId: string | null) => {
+    if (task.id) {
+      updateSpecTask.mutate({
+        taskId: task.id,
+        updates: { assignee_id: userId || "" },
+      });
+    }
+  };
 
   // Focus the Start Planning button when focusStartPlanning is true
   useEffect(() => {
@@ -572,6 +632,7 @@ function TaskCardInner({
   }, [focusStartPlanning, task.status]);
   const approveImplementationMutation = useApproveImplementation(task.id!);
   const stopAgentMutation = useStopAgent(task.id!);
+  const moveToBacklogMutation = useMoveToBacklog(task.id!);
   const updateSpecTask = useUpdateSpecTask();
   const deleteSpecTask = useDeleteSpecTask();
 
@@ -579,10 +640,12 @@ function TaskCardInner({
   const showProgress =
     task.phase === "planning" || task.phase === "implementation";
 
-  // Check agent activity status using backend-tracked work state
+  // Check agent activity status using backend-tracked work state.
+  // Enabled for ANY phase with a running session, not just planning/implementation,
+  // because every phase can have an active agent container.
   const { isActive, needsAttention, markAsSeen } = useAgentActivityCheck(
     task.agent_work_state,
-    showProgress && !!task.planning_session_id,
+    !!task.planning_session_id,
   );
 
   const runningDuration = useRunningDuration(
@@ -602,6 +665,10 @@ function TaskCardInner({
     task.status === "queued_implementation" ||
     task.status === "queued_spec_generation" ||
     task.status === "spec_approved";
+
+  // Can move to backlog from any phase except backlog itself and queued states
+  const canMoveToBacklog =
+    !isQueued && task.phase !== "backlog" && task.status !== "backlog";
 
   const handleRemoveFromQueue = async () => {
     if (!task.id) return;
@@ -818,6 +885,28 @@ function TaskCardInner({
                 </ListItemText>
               </MenuItem>
             )}
+            {canMoveToBacklog && (
+              <MenuItem
+                disabled={moveToBacklogMutation.isPending}
+                onClick={() => {
+                  setMenuAnchorEl(null);
+                  moveToBacklogMutation.mutate();
+                }}
+              >
+                <ListItemIcon>
+                  {moveToBacklogMutation.isPending ? (
+                    <CircularProgress size={16} />
+                  ) : (
+                    <UndoIcon sx={{ fontSize: 16 }} />
+                  )}
+                </ListItemIcon>
+                <ListItemText>
+                  {moveToBacklogMutation.isPending
+                    ? "Moving..."
+                    : "Move to Backlog"}
+                </ListItemText>
+              </MenuItem>
+            )}
             {!hideCloneOption && task.design_docs_pushed_at && (
               <MenuItem
                 onClick={() => {
@@ -882,8 +971,7 @@ function TaskCardInner({
         <Box sx={{ display: "flex", gap: 1.5, alignItems: "center", mb: 1.5 }}>
           <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
             {isActive &&
-            task.planning_session_id &&
-            (task.phase === "planning" || task.phase === "implementation") ? (
+            task.planning_session_id ? (
               <Tooltip title="Agent is working">
                 <Box
                   sx={{
@@ -896,8 +984,7 @@ function TaskCardInner({
                 />
               </Tooltip>
             ) : needsAttention &&
-              task.planning_session_id &&
-              (task.phase === "planning" || task.phase === "implementation") ? (
+              task.planning_session_id ? (
               <Tooltip title="Agent finished - click card to dismiss">
                 <Box
                   sx={{
@@ -956,7 +1043,56 @@ function TaskCardInner({
               </Typography>
             )}
           </Box>
+
+          {/* Assignee avatar */}
+          <Tooltip title={assignedUser ? `Assigned to ${assignedUser.full_name || assignedUser.username || assignedUser.email}` : "Unassigned - click to assign"}>
+            <IconButton
+              size="small"
+              onClick={(e) => {
+                e.stopPropagation();
+                setAssigneeAnchorEl(e.currentTarget);
+              }}
+              sx={{
+                width: 24,
+                height: 24,
+                ml: "auto",
+              }}
+            >
+              {assignedUser ? (
+                <Avatar
+                  sx={{
+                    width: 20,
+                    height: 20,
+                    fontSize: "0.6rem",
+                  }}
+                >
+                  {getAssigneeInitials(assignedUser)}
+                </Avatar>
+              ) : (
+                <UserCircle2 size={18} style={{ opacity: 0.4 }} />
+              )}
+            </IconButton>
+          </Tooltip>
         </Box>
+
+        {/* Assignee selector popover */}
+        <AssigneeSelector
+          assigneeId={task.assignee_id}
+          members={orgMembers}
+          onAssigneeChange={handleAssigneeChange}
+          isLoading={updateSpecTask.isPending}
+          anchorEl={assigneeAnchorEl}
+          onClose={() => setAssigneeAnchorEl(null)}
+        />
+
+        {/* Label chips */}
+        {task.labels && task.labels.length > 0 && (
+          <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5, mb: 1 }}>
+            {task.labels.map((label) => (
+              <Chip key={label} label={label} size="small" variant="outlined" sx={{ height: 18, fontSize: "0.65rem" }} />
+            ))}
+          </Box>
+        )}
 
         {/* Usage pulse chart - shows activity over last 3 days (only for active phases) */}
         {showMetrics &&
@@ -1010,6 +1146,8 @@ function TaskCardInner({
                   ? task.metadata.error
                   : undefined
               }
+              sandboxState={task.sandbox_state}
+              sandboxStatusMessage={task.sandbox_status_message}
               onClick={() => onTaskClick?.(task)}
             />
           )}
@@ -1224,14 +1362,14 @@ function TaskCardInner({
         {/* Pull Request phase - awaiting merge in external repo */}
         {task.phase === "pull_request" && (
           <Box sx={{ mt: 1.5 }}>
-            {task.pull_request_url ? (
+            {task.repo_pull_requests && task.repo_pull_requests.length > 0 ? (
               <>
                 <Box sx={{ mb: 1 }}>
                   <SpecTaskActionButtons
                     task={{
                       id: task.id,
                       status: "pull_request",
-                      pull_request_url: task.pull_request_url,
+                      repo_pull_requests: task.repo_pull_requests,
                       archived: task.archived,
                     }}
                     variant="stacked"
@@ -1401,6 +1539,8 @@ const TaskCard = React.memo(TaskCardInner, (prevProps, nextProps) => {
     prevProps.task.status === nextProps.task.status &&
     prevProps.task.updated_at === nextProps.task.updated_at &&
     prevProps.task.agent_work_state === nextProps.task.agent_work_state &&
+    prevProps.task.sandbox_state === nextProps.task.sandbox_state &&
+    prevProps.task.sandbox_status_message === nextProps.task.sandbox_status_message &&
     prevProps.isArchiving === nextProps.isArchiving &&
     prevProps.isVisible === nextProps.isVisible &&
     prevProps.focusStartPlanning === nextProps.focusStartPlanning

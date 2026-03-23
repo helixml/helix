@@ -111,6 +111,173 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/admin/kodit/queue": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List all pending tasks across all repositories with pagination. Admin only.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "List Kodit task queue (admin)",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Page number (default 1)",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Items per page (default 25, max 100)",
+                        "name": "per_page",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.KoditAdminQueueListResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/admin/kodit/queue/{taskId}": {
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Delete a specific task from the Kodit task queue by ID. Admin only.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Delete Kodit queue task (admin)",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Task ID",
+                        "name": "taskId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/admin/kodit/queue/{taskId}/priority": {
+            "patch": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Update the priority of a specific task in the Kodit task queue. Admin only.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Update Kodit queue task priority (admin)",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Task ID",
+                        "name": "taskId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "New priority",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/server.KoditAdminUpdatePriorityRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/admin/kodit/repositories": {
             "get": {
                 "security": [
@@ -1715,6 +1882,150 @@ const docTemplate = `{
                         "description": "Internal Server Error",
                         "schema": {
                             "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/attention-events": {
+            "get": {
+                "description": "Returns attention events that need human action for the current user. Only returns events that have not been dismissed and are not currently snoozed.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "attention-events"
+                ],
+                "summary": "List active attention events",
+                "parameters": [
+                    {
+                        "type": "boolean",
+                        "description": "Filter to active (non-dismissed, non-snoozed) events only (default: true)",
+                        "name": "active",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.AttentionEvent"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "unauthorized",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "500": {
+                        "description": "internal server error",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/attention-events/dismiss-all": {
+            "post": {
+                "description": "Bulk-dismiss all active (non-dismissed) attention events for the current user.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "attention-events"
+                ],
+                "summary": "Dismiss all active attention events",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "401": {
+                        "description": "unauthorized",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "500": {
+                        "description": "internal server error",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/attention-events/{id}": {
+            "patch": {
+                "description": "Acknowledge, dismiss, or snooze an attention event.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "attention-events"
+                ],
+                "summary": "Update an attention event",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Attention event ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Update request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.AttentionEventUpdateRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "bad request",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "401": {
+                        "description": "unauthorized",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "404": {
+                        "description": "not found",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "500": {
+                        "description": "internal server error",
+                        "schema": {
+                            "type": "string"
                         }
                     }
                 }
@@ -4452,6 +4763,277 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/git/repositories/{id}/file-content": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Read the content of a file from the repository, optionally with line range filtering",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "git-repositories"
+                ],
+                "summary": "Read repository file",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Repository ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "File path within the repository",
+                        "name": "path",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Start line (1-indexed, inclusive)",
+                        "name": "start_line",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "End line (1-indexed, inclusive)",
+                        "name": "end_line",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.KoditFileContentResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/git/repositories/{id}/files": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List files in a repository matching a glob pattern",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "git-repositories"
+                ],
+                "summary": "List repository files",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Repository ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Glob pattern to filter files",
+                        "name": "pattern",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.KoditFilesResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/git/repositories/{id}/grep": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Run pattern matching (grep) against repository files",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "git-repositories"
+                ],
+                "summary": "Grep repository",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Repository ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Search pattern (regex)",
+                        "name": "pattern",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Glob pattern to filter files (e.g. *.go)",
+                        "name": "glob",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Maximum results (default 50, max 200)",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.KoditGrepResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/git/repositories/{id}/keyword-search": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Search repository code using BM25 keyword matching",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "git-repositories"
+                ],
+                "summary": "Keyword search repository",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Repository ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Keywords to search for",
+                        "name": "keywords",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Maximum results (default 10, max 100)",
+                        "name": "limit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by language extension (e.g. .go, .ts)",
+                        "name": "language",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.KoditSearchResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/git/repositories/{id}/kodit-commits": {
             "get": {
                 "security": [
@@ -4999,6 +5581,77 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/git/repositories/{id}/semantic-search": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Search repository code using vector similarity (semantic meaning)",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "git-repositories"
+                ],
+                "summary": "Semantic search repository",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Repository ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Natural language search query",
+                        "name": "query",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Maximum results (default 10, max 100)",
+                        "name": "limit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by language extension (e.g. .go, .ts)",
+                        "name": "language",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.KoditSearchResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/git/repositories/{id}/sync-all": {
             "post": {
                 "security": [
@@ -5100,6 +5753,117 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/types.GitRepositoryTreeResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/git/repositories/{id}/wiki": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get the wiki navigation tree (titles and paths, no content) for a repository. Each node includes a link to fetch the full page content.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "git-repositories"
+                ],
+                "summary": "Get repository wiki tree",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Repository ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.KoditWikiTreeResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/git/repositories/{id}/wiki-page": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get a wiki page by hierarchical path as markdown content",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "git-repositories"
+                ],
+                "summary": "Get wiki page",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Repository ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Wiki page path (e.g. architecture/database-layer.md)",
+                        "name": "path",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.KoditWikiPageResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
                         }
                     },
                     "404": {
@@ -6401,6 +7165,116 @@ const docTemplate = `{
                 "responses": {
                     "200": {
                         "description": "OK"
+                    }
+                }
+            }
+        },
+        "/api/v1/organizations/{id}/api_keys": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List API keys for an organization. Owners see all keys, members see only their own.",
+                "tags": [
+                    "organizations"
+                ],
+                "summary": "List organization API keys",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.ApiKey"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Create a new API key scoped to the organization. Any member can create keys.",
+                "tags": [
+                    "organizations"
+                ],
+                "summary": "Create an organization API key",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Request body with name",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.ApiKey"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/organizations/{id}/api_keys/{key}": {
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Delete an API key. Owners can delete any org key, members only their own.",
+                "tags": [
+                    "organizations"
+                ],
+                "summary": "Delete an organization API key",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "API key to delete",
+                        "name": "key",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "string"
+                        }
                     }
                 }
             }
@@ -7778,6 +8652,108 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/projects/{id}/pin": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Pin a project for the current user so it appears at the top of the projects board",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Projects"
+                ],
+                "summary": "Pin a project",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.PinnedProjectsResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Remove a project from the current user's pinned projects",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Projects"
+                ],
+                "summary": "Unpin a project",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.PinnedProjectsResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/projects/{id}/repositories": {
             "get": {
                 "security": [
@@ -8299,6 +9275,56 @@ const docTemplate = `{
                         "description": "Not Found",
                         "schema": {
                             "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{projectId}/labels": {
+            "get": {
+                "description": "Returns a sorted list of unique labels across all spec tasks in a project",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "spec-driven-tasks"
+                ],
+                "summary": "List all labels used in a project",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "projectId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
                         }
                     }
                 }
@@ -10976,7 +12002,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/types.ClaudeOAuthCredentials"
+                            "$ref": "#/definitions/server.SessionClaudeCredentialsResponse"
                         }
                     },
                     "401": {
@@ -12150,6 +13176,12 @@ const docTemplate = `{
                         "in": "query"
                     },
                     {
+                        "type": "string",
+                        "description": "Filter by labels (comma-separated, AND semantics)",
+                        "name": "labels",
+                        "in": "query"
+                    },
+                    {
                         "type": "integer",
                         "default": 50,
                         "description": "Limit number of results",
@@ -13215,6 +14247,131 @@ const docTemplate = `{
                             "items": {
                                 "$ref": "#/definitions/types.CloneGroup"
                             }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/spec-tasks/{taskId}/labels": {
+            "post": {
+                "description": "Adds a label to a spec task (idempotent - no error if label already exists)",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "spec-driven-tasks"
+                ],
+                "summary": "Add a label to a spec task",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Task ID",
+                        "name": "taskId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Label to add",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/server.addLabelRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.SpecTask"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/spec-tasks/{taskId}/labels/{label}": {
+            "delete": {
+                "description": "Removes a label from a spec task (no-op if label does not exist)",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "spec-driven-tasks"
+                ],
+                "summary": "Remove a label from a spec task",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Task ID",
+                        "name": "taskId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Label to remove",
+                        "name": "label",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.SpecTask"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
                         }
                     }
                 }
@@ -14399,6 +15556,43 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/users/me/pinned-projects": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get the list of project IDs pinned by the current user",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Users"
+                ],
+                "summary": "Get pinned project IDs",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.PinnedProjectsResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/users/search": {
             "get": {
                 "security": [
@@ -14918,6 +16112,11 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
+                "description": "List models from a specific provider, or aggregate from all providers if none specified. If the request includes an anthropic-version header, proxies to the upstream Anthropic provider.",
+                "tags": [
+                    "models"
+                ],
+                "summary": "List models",
                 "parameters": [
                     {
                         "type": "string",
@@ -16353,6 +17552,10 @@ const docTemplate = `{
                 },
                 "found": {
                     "type": "boolean"
+                },
+                "url": {
+                    "description": "OAuth URL for native browser",
+                    "type": "string"
                 }
             }
         },
@@ -16700,6 +17903,35 @@ const docTemplate = `{
                 }
             }
         },
+        "server.KoditAdminActiveTaskDTO": {
+            "type": "object",
+            "properties": {
+                "current": {
+                    "type": "integer"
+                },
+                "message": {
+                    "type": "string"
+                },
+                "operation": {
+                    "type": "string"
+                },
+                "repo_name": {
+                    "type": "string"
+                },
+                "repository_id": {
+                    "type": "integer"
+                },
+                "state": {
+                    "type": "string"
+                },
+                "total": {
+                    "type": "integer"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
         "server.KoditAdminBatchRequest": {
             "type": "object",
             "properties": {
@@ -16758,6 +17990,83 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "priority": {
+                    "type": "integer"
+                }
+            }
+        },
+        "server.KoditAdminQueueListResponse": {
+            "type": "object",
+            "properties": {
+                "active_tasks": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/server.KoditAdminActiveTaskDTO"
+                    }
+                },
+                "data": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/server.KoditAdminQueueTaskDTO"
+                    }
+                },
+                "meta": {
+                    "$ref": "#/definitions/server.KoditAdminPaginationMeta"
+                },
+                "stats": {
+                    "$ref": "#/definitions/server.KoditAdminQueueStats"
+                }
+            }
+        },
+        "server.KoditAdminQueueStats": {
+            "type": "object",
+            "properties": {
+                "by_operation": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "integer",
+                        "format": "int64"
+                    }
+                },
+                "by_priority_level": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "integer",
+                        "format": "int64"
+                    }
+                },
+                "newest_task_time": {
+                    "type": "string"
+                },
+                "oldest_task_age": {
+                    "type": "string"
+                },
+                "oldest_task_time": {
+                    "type": "string"
+                },
+                "total": {
+                    "type": "integer"
+                }
+            }
+        },
+        "server.KoditAdminQueueTaskDTO": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "operation": {
+                    "type": "string"
+                },
+                "priority": {
+                    "type": "integer"
+                },
+                "repo_name": {
+                    "type": "string"
+                },
+                "repository_id": {
                     "type": "integer"
                 }
             }
@@ -16956,6 +18265,14 @@ const docTemplate = `{
                 }
             }
         },
+        "server.KoditAdminUpdatePriorityRequest": {
+            "type": "object",
+            "properties": {
+                "priority": {
+                    "type": "integer"
+                }
+            }
+        },
         "server.KoditBatchError": {
             "type": "object",
             "properties": {
@@ -17046,6 +18363,179 @@ const docTemplate = `{
                 }
             }
         },
+        "server.KoditFileContentDTO": {
+            "type": "object",
+            "properties": {
+                "commit_sha": {
+                    "type": "string"
+                },
+                "content": {
+                    "type": "string"
+                },
+                "path": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.KoditFileContentResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/server.KoditFileContentDTO"
+                },
+                "links": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "server.KoditFileEntryDTO": {
+            "type": "object",
+            "properties": {
+                "links": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "path": {
+                    "type": "string"
+                },
+                "size": {
+                    "type": "integer"
+                }
+            }
+        },
+        "server.KoditFileResultDTO": {
+            "type": "object",
+            "properties": {
+                "language": {
+                    "type": "string"
+                },
+                "lines": {
+                    "type": "string"
+                },
+                "links": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "path": {
+                    "type": "string"
+                },
+                "preview": {
+                    "type": "string"
+                },
+                "score": {
+                    "type": "number"
+                }
+            }
+        },
+        "server.KoditFilesMeta": {
+            "type": "object",
+            "properties": {
+                "count": {
+                    "type": "integer"
+                },
+                "pattern": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.KoditFilesResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/server.KoditFileEntryDTO"
+                    }
+                },
+                "links": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "meta": {
+                    "$ref": "#/definitions/server.KoditFilesMeta"
+                }
+            }
+        },
+        "server.KoditGrepMatchDTO": {
+            "type": "object",
+            "properties": {
+                "content": {
+                    "type": "string"
+                },
+                "line": {
+                    "type": "integer"
+                }
+            }
+        },
+        "server.KoditGrepMeta": {
+            "type": "object",
+            "properties": {
+                "count": {
+                    "type": "integer"
+                },
+                "glob": {
+                    "type": "string"
+                },
+                "limit": {
+                    "type": "integer"
+                },
+                "pattern": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.KoditGrepResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/server.KoditGrepResultDTO"
+                    }
+                },
+                "links": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "meta": {
+                    "$ref": "#/definitions/server.KoditGrepMeta"
+                }
+            }
+        },
+        "server.KoditGrepResultDTO": {
+            "type": "object",
+            "properties": {
+                "language": {
+                    "type": "string"
+                },
+                "links": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "matches": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/server.KoditGrepMatchDTO"
+                    }
+                },
+                "path": {
+                    "type": "string"
+                }
+            }
+        },
         "server.KoditIndexingStatusAttributes": {
             "type": "object",
             "properties": {
@@ -17054,6 +18544,21 @@ const docTemplate = `{
                 },
                 "status": {
                     "type": "string"
+                },
+                "tasks_active": {
+                    "type": "integer"
+                },
+                "tasks_completed": {
+                    "type": "integer"
+                },
+                "tasks_failed": {
+                    "type": "integer"
+                },
+                "tasks_pending": {
+                    "type": "integer"
+                },
+                "tasks_total": {
+                    "type": "integer"
                 },
                 "updated_at": {
                     "type": "string"
@@ -17082,6 +18587,43 @@ const docTemplate = `{
                 }
             }
         },
+        "server.KoditSearchMeta": {
+            "type": "object",
+            "properties": {
+                "count": {
+                    "type": "integer"
+                },
+                "language": {
+                    "type": "string"
+                },
+                "limit": {
+                    "type": "integer"
+                },
+                "query": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.KoditSearchResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/server.KoditFileResultDTO"
+                    }
+                },
+                "links": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "meta": {
+                    "$ref": "#/definitions/server.KoditSearchMeta"
+                }
+            }
+        },
         "server.KoditSearchResultDTO": {
             "type": "object",
             "properties": {
@@ -17096,6 +18638,77 @@ const docTemplate = `{
                 },
                 "type": {
                     "type": "string"
+                }
+            }
+        },
+        "server.KoditWikiPageDTO": {
+            "type": "object",
+            "properties": {
+                "content": {
+                    "type": "string"
+                },
+                "slug": {
+                    "type": "string"
+                },
+                "title": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.KoditWikiPageResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/server.KoditWikiPageDTO"
+                },
+                "links": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "server.KoditWikiTreeNodeDTO": {
+            "type": "object",
+            "properties": {
+                "children": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/server.KoditWikiTreeNodeDTO"
+                    }
+                },
+                "links": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "path": {
+                    "type": "string"
+                },
+                "slug": {
+                    "type": "string"
+                },
+                "title": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.KoditWikiTreeResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/server.KoditWikiTreeNodeDTO"
+                    }
+                },
+                "links": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
                 }
             }
         },
@@ -17204,6 +18817,17 @@ const docTemplate = `{
                 },
                 "status": {
                     "type": "string"
+                }
+            }
+        },
+        "server.PinnedProjectsResponse": {
+            "type": "object",
+            "properties": {
+                "pinned_project_ids": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 }
             }
         },
@@ -17441,6 +19065,21 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "status": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.SessionClaudeCredentialsResponse": {
+            "type": "object",
+            "properties": {
+                "credential_type": {
+                    "description": "\"oauth\" or \"setup_token\"",
+                    "type": "string"
+                },
+                "oauth_credentials": {
+                    "$ref": "#/definitions/types.ClaudeOAuthCredentials"
+                },
+                "setup_token": {
                     "type": "string"
                 }
             }
@@ -17713,6 +19352,14 @@ const docTemplate = `{
                 },
                 "gop_buffer_size": {
                     "type": "integer"
+                }
+            }
+        },
+        "server.addLabelRequest": {
+            "type": "object",
+            "properties": {
+                "label": {
+                    "type": "string"
                 }
             }
         },
@@ -18808,6 +20455,94 @@ const docTemplate = `{
                 }
             }
         },
+        "types.AttentionEvent": {
+            "type": "object",
+            "properties": {
+                "acknowledged_at": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "dismissed_at": {
+                    "type": "string"
+                },
+                "event_type": {
+                    "$ref": "#/definitions/types.AttentionEventType"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "idempotency_key": {
+                    "type": "string"
+                },
+                "metadata": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "organization_id": {
+                    "type": "string"
+                },
+                "project_id": {
+                    "type": "string"
+                },
+                "project_name": {
+                    "description": "Denormalized for display without joins",
+                    "type": "string"
+                },
+                "snoozed_until": {
+                    "type": "string"
+                },
+                "spec_task_id": {
+                    "type": "string"
+                },
+                "spec_task_name": {
+                    "type": "string"
+                },
+                "title": {
+                    "type": "string"
+                },
+                "user_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.AttentionEventType": {
+            "type": "string",
+            "enum": [
+                "specs_pushed",
+                "agent_interaction_completed",
+                "spec_failed",
+                "implementation_failed",
+                "pr_ready"
+            ],
+            "x-enum-varnames": [
+                "AttentionEventSpecsPushed",
+                "AttentionEventAgentInteractionCompleted",
+                "AttentionEventSpecFailed",
+                "AttentionEventImplementationFailed",
+                "AttentionEventPRReady"
+            ]
+        },
+        "types.AttentionEventUpdateRequest": {
+            "type": "object",
+            "properties": {
+                "acknowledge": {
+                    "type": "boolean"
+                },
+                "dismiss": {
+                    "type": "boolean"
+                },
+                "snoozed_until": {
+                    "type": "string"
+                }
+            }
+        },
         "types.AuditEventType": {
             "type": "string",
             "enum": [
@@ -18938,12 +20673,12 @@ const docTemplate = `{
                     "description": "Project information",
                     "type": "string"
                 },
-                "pull_request_id": {
+                "pull_requests": {
                     "description": "Pull request information",
-                    "type": "string"
-                },
-                "pull_request_url": {
-                    "type": "string"
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.RepoPR"
+                    }
                 },
                 "requirements_spec_hash": {
                     "description": "Hash of requirements spec content",
@@ -19297,6 +21032,10 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "created_by": {
+                    "type": "string"
+                },
+                "credential_type": {
+                    "description": "\"oauth\" or \"setup_token\"",
                     "type": "string"
                 },
                 "id": {
@@ -19833,6 +21572,10 @@ const docTemplate = `{
                             "$ref": "#/definitions/types.OwnerType"
                         }
                     ]
+                },
+                "setup_token": {
+                    "description": "From ` + "`" + `claude setup-token` + "`" + ` (alternative to credentials)",
+                    "type": "string"
                 }
             }
         },
@@ -20022,6 +21765,10 @@ const docTemplate = `{
         "types.CronTrigger": {
             "type": "object",
             "properties": {
+                "action": {
+                    "description": "\"session\" (default) or \"spec_task\"",
+                    "type": "string"
+                },
                 "emails": {
                     "type": "array",
                     "items": {
@@ -20032,6 +21779,10 @@ const docTemplate = `{
                     "type": "boolean"
                 },
                 "input": {
+                    "type": "string"
+                },
+                "project_id": {
+                    "description": "Target project for spec_task action",
                     "type": "string"
                 },
                 "schedule": {
@@ -20963,6 +22714,10 @@ const docTemplate = `{
                     "description": "Full URL to external repo (e.g., https://github.com/org/repo)",
                     "type": "string"
                 },
+                "git_provider_connection_id": {
+                    "description": "GitProviderConnectionID - references a GitProviderConnection (saved PAT) for authentication\nWhen set, the encrypted token is decrypted and used for clone/push operations",
+                    "type": "string"
+                },
                 "github": {
                     "$ref": "#/definitions/types.GitHub"
                 },
@@ -21010,10 +22765,6 @@ const docTemplate = `{
                     "description": "Password for the repository",
                     "type": "string"
                 },
-                "project_id": {
-                    "description": "Deprecated: ProjectID is maintained for backward compatibility only.\nUse the project_repositories junction table for many-to-many project-repo relationships.\nThis column is kept in the database for rollback compatibility but reads should use the junction table.",
-                    "type": "string"
-                },
                 "repo_type": {
                     "$ref": "#/definitions/types.GitRepositoryType"
                 },
@@ -21059,6 +22810,10 @@ const docTemplate = `{
                 },
                 "external_url": {
                     "description": "Full URL to external repo (e.g., https://github.com/org/repo)",
+                    "type": "string"
+                },
+                "git_provider_connection_id": {
+                    "description": "GitProviderConnectionID - references a saved PAT connection for authentication",
                     "type": "string"
                 },
                 "github": {
@@ -21440,6 +23195,13 @@ const docTemplate = `{
                     "type": "array",
                     "items": {
                         "$ref": "#/definitions/types.SessionRAGResult"
+                    }
+                },
+                "response_entries": {
+                    "description": "ResponseEntries holds the structured response as an ordered list of typed entries.\nEach entry is either \"text\" (assistant prose) or \"tool_call\" (tool invocation),\npreserving the ordering and boundaries that Zed's internal Vec\u003cAgentThreadEntry\u003e has.\nThis is populated on completion alongside ResponseMessage (flat string, backward compat).\nThe frontend uses this to render entries with the correct component in the correct order.",
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
                     }
                 },
                 "response_format": {
@@ -23081,6 +24843,9 @@ const docTemplate = `{
                 "id": {
                     "type": "string"
                 },
+                "kodit_enabled": {
+                    "type": "boolean"
+                },
                 "metadata": {
                     "$ref": "#/definitions/types.ProjectMetadata"
                 },
@@ -23311,6 +25076,10 @@ const docTemplate = `{
                     "description": "Project-specific AI agent guidelines",
                     "type": "string"
                 },
+                "kodit_enabled": {
+                    "description": "Whether Kodit code intelligence is enabled",
+                    "type": "boolean"
+                },
                 "metadata": {
                     "$ref": "#/definitions/types.ProjectMetadata"
                 },
@@ -23367,7 +25136,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "interrupt": {
-                    "description": "Interrupt indicates this message should interrupt the current conversation\nWhen false, message waits until current conversation completes",
+                    "description": "Interrupt indicates this message should interrupt the current conversation\nWhen false, message waits until current conversation completes\nDefault is false: queue mode is the default, interrupt is explicit",
                     "type": "boolean"
                 },
                 "is_template": {
@@ -23621,6 +25390,20 @@ const docTemplate = `{
                     ]
                 },
                 "updated": {
+                    "type": "string"
+                },
+                "vertex_credentials_file": {
+                    "type": "string"
+                },
+                "vertex_credentials_json": {
+                    "description": "Service account JSON string; takes precedence over file",
+                    "type": "string"
+                },
+                "vertex_project_id": {
+                    "description": "Google Vertex AI fields — when VertexProjectID is set, this endpoint routes through Vertex",
+                    "type": "string"
+                },
+                "vertex_region": {
                     "type": "string"
                 }
             }
@@ -23996,6 +25779,30 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "password_confirm": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.RepoPR": {
+            "type": "object",
+            "properties": {
+                "pr_id": {
+                    "type": "string"
+                },
+                "pr_number": {
+                    "type": "integer"
+                },
+                "pr_state": {
+                    "description": "\"open\", \"closed\", \"merged\"",
+                    "type": "string"
+                },
+                "pr_url": {
+                    "type": "string"
+                },
+                "repository_id": {
+                    "type": "string"
+                },
+                "repository_name": {
                     "type": "string"
                 }
             }
@@ -25210,10 +27017,6 @@ const docTemplate = `{
                     "description": "Container fields (Hydra executor)",
                     "type": "string"
                 },
-                "desired_state": {
-                    "description": "\"running\" = should be running, \"stopped\" = can terminate",
-                    "type": "string"
-                },
                 "dev_container_id": {
                     "description": "Dev container ID for streaming",
                     "type": "string"
@@ -25364,6 +27167,10 @@ const docTemplate = `{
                 },
                 "work_session_id": {
                     "description": "ID of associated WorkSession",
+                    "type": "string"
+                },
+                "zed_agent_name": {
+                    "description": "Agent name used when thread was created (e.g., \"zed-agent\", \"claude\", \"qwen\")",
                     "type": "string"
                 },
                 "zed_instance_id": {
@@ -25700,6 +27507,10 @@ const docTemplate = `{
                     "description": "Archive to hide from main view",
                     "type": "boolean"
                 },
+                "assignee_id": {
+                    "description": "Team member assigned to work on this task",
+                    "type": "string"
+                },
                 "base_branch": {
                     "description": "The base branch this was created from",
                     "type": "string"
@@ -25862,15 +27673,23 @@ const docTemplate = `{
                     "description": "Public sharing",
                     "type": "boolean"
                 },
-                "pull_request_id": {
-                    "type": "string"
-                },
-                "pull_request_url": {
-                    "description": "Computed field, not stored",
-                    "type": "string"
+                "repo_pull_requests": {
+                    "description": "Multi-repo PR tracking: list of PRs across all project repositories",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.RepoPR"
+                    }
                 },
                 "requirements_spec": {
                     "description": "User stories + EARS acceptance criteria (markdown)",
+                    "type": "string"
+                },
+                "sandbox_state": {
+                    "description": "\"absent\", \"running\", \"starting\" — derived from session config in listTasks",
+                    "type": "string"
+                },
+                "sandbox_status_message": {
+                    "description": "Transient startup message e.g. \"Unpacking build cache\"",
                     "type": "string"
                 },
                 "session_updated_at": {
@@ -26018,6 +27837,13 @@ const docTemplate = `{
                 "agent_response_at": {
                     "description": "When agent responded",
                     "type": "string"
+                },
+                "agent_response_entries": {
+                    "description": "Agent's structured entries (for tool call rendering)",
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
                 },
                 "comment_text": {
                     "description": "The actual comment",
@@ -26370,6 +28196,10 @@ const docTemplate = `{
         "types.SpecTaskUpdateRequest": {
             "type": "object",
             "properties": {
+                "assignee_id": {
+                    "description": "Pointer to allow clearing (set to empty string to unassign)",
+                    "type": "string"
+                },
                 "depends_on": {
                     "description": "IDs of tasks this task depends on",
                     "type": "array",
@@ -26421,6 +28251,10 @@ const docTemplate = `{
                 "archived": {
                     "description": "Archive to hide from main view",
                     "type": "boolean"
+                },
+                "assignee_id": {
+                    "description": "Team member assigned to work on this task",
+                    "type": "string"
                 },
                 "base_branch": {
                     "description": "The base branch this was created from",
@@ -26587,15 +28421,23 @@ const docTemplate = `{
                     "description": "Public sharing",
                     "type": "boolean"
                 },
-                "pull_request_id": {
-                    "type": "string"
-                },
-                "pull_request_url": {
-                    "description": "Computed field, not stored",
-                    "type": "string"
+                "repo_pull_requests": {
+                    "description": "Multi-repo PR tracking: list of PRs across all project repositories",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.RepoPR"
+                    }
                 },
                 "requirements_spec": {
                     "description": "User stories + EARS acceptance criteria (markdown)",
+                    "type": "string"
+                },
+                "sandbox_state": {
+                    "description": "\"absent\", \"running\", \"starting\" — derived from session config in listTasks",
+                    "type": "string"
+                },
+                "sandbox_status_message": {
+                    "description": "Transient startup message e.g. \"Unpacking build cache\"",
                     "type": "string"
                 },
                 "session_updated_at": {
@@ -27894,6 +29736,19 @@ const docTemplate = `{
                     }
                 },
                 "name": {
+                    "type": "string"
+                },
+                "vertex_credentials_file": {
+                    "type": "string"
+                },
+                "vertex_credentials_json": {
+                    "type": "string"
+                },
+                "vertex_project_id": {
+                    "description": "Google Vertex AI fields",
+                    "type": "string"
+                },
+                "vertex_region": {
                     "type": "string"
                 }
             }

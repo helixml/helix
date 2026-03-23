@@ -1,4 +1,4 @@
-import React, { FC, forwardRef, useState } from 'react'
+import React, { FC, useState } from 'react'
 import { SxProps } from '@mui/system'
 import JsonWindow from './JsonWindow'
 import ClickLink from './ClickLink'
@@ -11,14 +11,14 @@ interface JsonWindowLinkProps {
   className?: string,
 }
 
-const JsonWindowLink: FC<React.PropsWithChildren<JsonWindowLinkProps>> = forwardRef(({
+const JsonWindowLink: FC<React.PropsWithChildren<JsonWindowLinkProps>> = ({
   data,
   withFancyRendering = true,
   withFancyRenderingControls = true,
   sx = {},
   className,
   children,
-}, ref) => {
+}) => {
 
   const [open, setOpen] = useState(false)
 
@@ -46,6 +46,6 @@ const JsonWindowLink: FC<React.PropsWithChildren<JsonWindowLinkProps>> = forward
       }
     </>
   )
-})
+}
 
 export default JsonWindowLink

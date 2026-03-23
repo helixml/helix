@@ -41,7 +41,7 @@ func NewTestServer(s store.Store, ps pubsub.PubSub) *HelixAPIServer {
 		externalAgentWSManager:      NewExternalAgentWSManager(),
 		externalAgentRunnerManager:  NewExternalAgentRunnerManager(),
 		contextMappings:             make(map[string]string),
-		sessionToWaitingInteraction: make(map[string]string),
+		sessionToWaitingInteraction: make(map[string][]string),
 		requestToSessionMapping:     make(map[string]string),
 		externalAgentSessionMapping: make(map[string]string),
 		externalAgentUserMapping:    make(map[string]string),
@@ -107,6 +107,13 @@ func (s *HelixAPIServer) SetExternalAgentUserMapping(agentSessionID, userID stri
 	s.contextMappingsMutex.Lock()
 	defer s.contextMappingsMutex.Unlock()
 	s.externalAgentUserMapping[agentSessionID] = userID
+}
+
+// ProcessSyncEvent injects a sync event as if it came from a connected agent.
+// Used by E2E tests to simulate events that the Zed binary can't send in
+// headless mode (e.g. user_created_thread which requires UI interaction).
+func (s *HelixAPIServer) ProcessSyncEvent(sessionID string, syncMsg *types.SyncMessage) error {
+	return s.processExternalAgentSyncMessage(sessionID, syncMsg)
 }
 
 // SyncEventHook is a callback invoked after each sync event is processed.

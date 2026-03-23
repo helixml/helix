@@ -45,6 +45,8 @@ import {
   KODIT_SUBTYPE_PHYSICAL,
   KODIT_SUBTYPE_ARCHITECTURE,
   KODIT_SUBTYPE_DATABASE_SCHEMA,
+  getEnrichmentTypeIcon,
+  getEnrichmentTypeName,
 } from '../../services/koditService'
 import MermaidDiagram, { extractMermaidDiagrams, hasMermaidDiagram } from '../widgets/MermaidDiagram'
 import useRouter from '../../hooks/useRouter'
@@ -228,7 +230,7 @@ const CodeTab: FC<CodeTabProps> = ({
   const diagramsLoading = diagramEnrichmentQueries.some(q => q.isLoading) && diagramEnrichmentIds.length > 0
 
   const handleNavigateToCodeIntelligence = () => {
-    router.mergeParams({ tab: 'code-intelligence' })
+    router.mergeParams({ tab: 'wiki' })
   }
 
   const [anchorEl, setAnchorEl] = React.useState<null | HTMLElement>(null)
