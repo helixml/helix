@@ -2,9 +2,9 @@
 
 ## Preparation
 
-- [~] Create branch: `git checkout -b feature/001617-merge-latest-zed`
-- [ ] Update `portingguide.md` with the branch naming convention (the internal git server requires `feature/<task-id>-*` — do not use date-based names)
-- [ ] Add upstream Zed remote: `git remote add upstream https://github.com/zed-industries/zed && git fetch upstream`
+- [x] Create branch: `git checkout -b feature/001617-merge-latest-zed`
+- [x] Update `portingguide.md` with the branch naming convention (the internal git server requires `feature/<task-id>-*` — do not use date-based names)
+- [~] Add upstream Zed remote: `git remote add upstream https://github.com/zed-industries/zed && git fetch upstream`
 - [ ] Record current upstream HEAD SHA and compare with fork's base commit to understand the delta
 
 ## Merge
