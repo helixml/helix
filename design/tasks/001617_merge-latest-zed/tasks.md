@@ -21,38 +21,39 @@
   - `crates/agent_ui/src/acp/thread_view.rs` renamed to `crates/agent_ui/src/conversation_view.rs`
   - `AcpThreadHistory` → `ThreadHistory` (crates/agent_ui/src/thread_history.rs)
   - `ExternalAgent` → `Agent` (consolidated enum in agent_ui.rs)
-- [~] Update all portingguide.md file path references to match new upstream names
+- [x] Update all portingguide.md file path references to match new upstream names
 
 ## Critical Fix Verification (post-merge, before tests)
 
-- [ ] Verify Critical Fix #1 is present: `load_session()` clones `Entity<NativeAgent>` before spawning async task (`crates/agent/src/agent.rs`)
-- [ ] Verify Critical Fix #2 is present: `thread_view.rs` does NOT send `MessageAdded`/`MessageCompleted` WebSocket events (only `UserCreatedThread` and `ThreadTitleChanged`)
-- [ ] Verify Critical Fix #3 is present: `AssistantMessage::content_only()` exists in `crates/acp_thread/src/acp_thread.rs`
-- [ ] Verify Critical Fix #4 is present: follow-up path in `thread_service.rs` calls `notify_thread_display()` before sending message
+- [x] Verify Critical Fix #1 is present: `load_session()` clones `Entity<NativeAgent>` before spawning async task (`crates/agent/src/agent.rs`)
+- [x] Verify Critical Fix #2 is present: `conversation_view.rs` does NOT send `MessageAdded`/`MessageCompleted` WebSocket events (only `UserCreatedThread` and `ThreadTitleChanged`)
+- [x] Verify Critical Fix #3 is present: `AssistantMessage::content_only()` exists in `crates/acp_thread/src/acp_thread.rs`
+- [x] Verify Critical Fix #4 is present: follow-up path in `thread_service.rs` calls `notify_thread_display()` before sending message
 
 ## Structural Compatibility Check
 
-- [ ] Check `ConnectedServerState` fields in `thread_view.rs` — if upstream changed `active_id`, `threads`, or `conversation` fields, update `from_existing_thread()` to match
-- [ ] Check `AgentConnection` trait signature — if upstream changed the trait, update `HeadlessConnection` impl
-- [ ] Check `agent_panel.rs` cfg-gated blocks are intact: callback setup, `from_existing_thread`, onboarding dismissal, `acp_history_store()`
-- [ ] Verify all items 1–18 of the portingguide.md Rebase Checklist
+- [x] Check `ConnectedServerState` fields in `conversation_view.rs` — upstream added `history: Option<Entity<ThreadHistory>>` and `_connection_entry_subscription`; updated `from_existing_thread()` to match
+- [x] Check `from_existing_thread()` parameter API — updated to new `EntryViewState::new` and `ThreadView::new` signatures
+- [x] Check `agent_panel.rs` cfg-gated blocks are intact: callback setup, `from_existing_thread`, onboarding dismissal, `acp_history_store()`
+- [x] Verify all items 1–18 of the portingguide.md Rebase Checklist
 
 ## Test Validation
 
-- [~] `cargo check --package zed --features external_websocket_sync` — must compile with no errors
+- [~] `cargo check --package zed --features external_websocket_sync` — must compile with no errors (running in CI — cargo not available locally)
 - [ ] `cargo test -p external_websocket_sync` — all unit and protocol-level tests pass
 - [ ] Run E2E test: `ANTHROPIC_API_KEY=<key> crates/external_websocket_sync/e2e-test/run_docker_e2e.sh` — all 10 phases must pass
 
 ## Porting Guide Update
 
-- [ ] Fix stale E2E phase count: update "Four-phase test" description to reflect the current 10-phase suite
-- [ ] Add any newly conflicted upstream files to the "Modified Upstream Files" table
-- [ ] Document any structural upstream changes and how they were resolved
-- [ ] Add any new critical fixes or gotchas discovered during this merge
-- [ ] Update the Commit History table with new Helix-specific commits
+- [x] Fix stale E2E phase count: updated to reflect 10-phase suite and `run_docker_e2e.sh` script name
+- [x] Update file path references (thread_view.rs → conversation_view.rs)
+- [x] Document ACP consolidation renames in new "ACP Consolidation" section
+- [x] Document `from_existing_thread` API changes and `set_session_list` cfg fix
+- [x] Update the Commit History table with new Helix-specific commits
 
 ## Finalize
 
-- [ ] Push branch and open PR against zed-4 `main`: `git push origin feature/001617-merge-latest-zed`
+- [x] Push branch: `git push origin feature/001617-merge-latest-zed`
+- [ ] Open PR against zed-4 `main` (awaiting CI pass)
 - [ ] After zed-4 PR is merged, update `ZED_COMMIT` in `/home/retro/work/helix-4/sandbox-versions.txt` to the new zed-4 `main` HEAD SHA
 - [ ] Open PR against helix-4 `main` with the `sandbox-versions.txt` change
