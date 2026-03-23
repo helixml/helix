@@ -40,11 +40,51 @@ The interrupt arrived while the Anthropic API was streaming a response (specific
 
 The E2E test suite has a "mid-stream interrupt" test (phase 8 of the 9-phase test), but this tests the **Go server side** (websocket sync handler). The bug is in the **Zed/ACP-side** — the `claude-agent-acp` npm package that bridges between the `claude` CLI and Zed's ACP protocol. The Go server correctly handles the interrupt; it's the local ACP bridge that drops the ball.
 
+### Detailed Process State at Time of Investigation
+
+**Software versions:**
+- `claude-agent-acp`: v0.22.2 (`@zed-industries/claude-agent-acp`)
+- Node: v24.11.0-linux-x64
+- `claude` CLI: entrypoint `sdk-ts` (env `CLAUDE_CODE_ENTRYPOINT=sdk-ts`)
+- Anthropic API: proxied through `http://api:8080` (env `ANTHROPIC_BASE_URL`)
+
+**Process tree (2 ACP instances, 2 claude CLIs — one per agent: zed-agent + claude):**
+```
+PID 10603: node claude-agent-acp/dist/index.js  (ACP bridge #1)
+PID 10708: node claude-agent-acp/dist/index.js  (ACP bridge #2)
+PID 10942: claude  (CLI #1 — the hung one, 11 threads: 2x ep_poll, 9x futex_do_wait)
+PID 10982: claude  (CLI #2, 11 threads: 2x ep_poll, 9x futex_do_wait)
+```
+
+**Key environment on the ACP/claude processes:**
+```
+SHOW_ACP_DEBUG_LOGS=true
+HELIX_SESSION_ID=ses_01kkrerqd3rs5tps034eqvsqj0
+HELIX_AGENT_INSTANCE_ID=ses_01kkrerqd3rs5tps034eqvsqj0
+CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
+```
+
+**Zed process:** PID 8825, wchan=`do_wait` (normal — waiting for child events)
+
+**Key observation:** There is only ONE `agent stderr` line in the entire Zed.log:
+```
+2026-03-23T08:16:21+00:00 WARN  [agent_servers::acp] agent stderr: Session b573fc87-...: consuming background task result
+```
+No other ACP-level errors, cancellation events, or turn-completion events were logged. The ACP bridge went completely silent after this single stderr line. The `claude` process stderr is redirected to `/dev/null` (`/proc/10942/fd/2 -> /dev/null`), so any claude-side error output is lost.
+
+**What is NOT in the logs (conspicuous absences):**
+- No `turn_complete` or `cancellation_complete` ACP event after the interrupt
+- No error from the ACP bridge about the cancellation failing
+- No websocket-out event of any kind after 08:16:19
+- No `WEBSOCKET-IN` event showing a cancel/stop command from the Go server
+- The Go server logs show zero interaction/prompt/queue activity for this session in the entire last hour
+
 ### Potential Fixes
 
 - The `claude-agent-acp` package needs to guarantee a turn-complete/cancellation-complete event is sent to Zed after any interrupt, even if the underlying CLI process goes silent
 - Zed could add a timeout: if no ACP events are received for N seconds after an interrupt, forcibly transition the UI out of "agent running" state
 - The E2E tests should be extended to cover the Zed-side ACP interrupt flow, not just the Go server side
+- The `claude` CLI stderr should NOT be redirected to `/dev/null` — route it to the Zed log so we can see what happens inside the CLI during cancellation
 
 ---
 
