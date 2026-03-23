@@ -673,12 +673,6 @@ RUN apt-get update && \
 # Placed BEFORE frequently-changing code (Qwen, Go, Rust, Zed) for layer caching.
 # See: https://developer.chrome.com/blog/chrome-devtools-mcp
 
-# Chrome extension to fix Claude Code's OAuth redirect_uri bug.
-# Anthropic's server mangles http://localhost to http:/localhost during the
-# login→authorize redirect. This content script fixes the URL in the browser.
-# See: https://github.com/anthropics/claude-code/issues/36015
-COPY desktop/shared/chrome-oauth-fix /usr/local/share/chrome-oauth-fix
-
 # Chrome installation - use Google Chrome on amd64, Chromium on arm64
 # Google Chrome doesn't provide arm64 Linux packages
 RUN <<_INSTALL_CHROME
@@ -700,7 +694,7 @@ if [ "${TARGETARCH}" = "arm64" ]; then
     # Wrap chromium binary with --password-store=basic to bypass gnome-keyring
     # (prevents "Choose password for new keyring" dialog in containers)
     mv /usr/bin/chromium /usr/bin/chromium.real
-    printf '#!/bin/sh\nexec /usr/bin/chromium.real --password-store=basic --disable-dev-shm-usage --load-extension=/usr/local/share/chrome-oauth-fix "$@"\n' > /usr/bin/chromium
+    printf '#!/bin/sh\nexec /usr/bin/chromium.real --password-store=basic --disable-dev-shm-usage "$@"\n' > /usr/bin/chromium
     chmod +x /usr/bin/chromium
 
     # Create compatibility wrappers pointing to the wrapped /usr/bin/chromium.
@@ -792,7 +786,7 @@ else
 
     # Create wrapper script so --password-store=basic is always used (even from command line)
     mv /usr/bin/google-chrome-stable /usr/bin/google-chrome-stable.real
-    printf '#!/bin/bash\nexec /usr/bin/google-chrome-stable.real --password-store=basic --disable-dev-shm-usage --enable-features=VaapiVideoDecoder,VaapiVideoDecodeLinuxGL --disable-features=UseChromeOSDirectVideoDecoder --load-extension=/usr/local/share/chrome-oauth-fix "$@"' > /usr/bin/google-chrome-stable
+    printf '#!/bin/bash\nexec /usr/bin/google-chrome-stable.real --password-store=basic --disable-dev-shm-usage --enable-features=VaapiVideoDecoder,VaapiVideoDecodeLinuxGL --disable-features=UseChromeOSDirectVideoDecoder "$@"' > /usr/bin/google-chrome-stable
     chmod +x /usr/bin/google-chrome-stable
 
     echo "=== Google Chrome installed for amd64 ==="
@@ -838,8 +832,7 @@ RUN npm install -g chrome-devtools-mcp@latest && fc-cache -f -v
 # for this file and opens the URL in the user's native browser.
 COPY desktop/shared/helix-capture-browser.sh /usr/local/bin/helix-capture-browser
 COPY desktop/shared/helix-claude-auth-wrapper.sh /usr/local/bin/helix-claude-auth-wrapper
-COPY desktop/shared/helix-fix-oauth-url.sh /usr/local/bin/helix-fix-oauth-url
-RUN chmod +x /usr/local/bin/helix-capture-browser /usr/local/bin/helix-claude-auth-wrapper /usr/local/bin/helix-fix-oauth-url
+RUN chmod +x /usr/local/bin/helix-capture-browser /usr/local/bin/helix-claude-auth-wrapper
 
 # Install drone-ci-mcp (Helix's Drone CI MCP server for build log navigation)
 # Build and pack the package, then install globally from the tarball

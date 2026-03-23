@@ -6,12 +6,6 @@
 
 # Set display environment so the browser can open in the desktop session.
 export DISPLAY=:0
-
-# Use our custom BROWSER script to fix Claude Code's malformed redirect_uri.
-# Claude Code has a bug where it constructs http:/localhost (single slash) instead
-# of http://localhost (double slash), causing Anthropic's OAuth to reject it.
-# See: https://github.com/anthropics/claude-code/issues/36015
-export BROWSER=/usr/local/bin/helix-fix-oauth-url
 # Find the DBUS session address from the gnome-shell process.
 GNOME_PID=$(pgrep -f gnome-shell | head -1)
 if [ -n "$GNOME_PID" ]; then
