@@ -747,6 +747,51 @@ func (o *SpecTaskOrchestrator) processExternalPullRequestStatus(ctx context.Cont
 		return o.store.UpdateSpecTask(ctx, task)
 	}
 
+	// If no PRs are tracked (or all PRs are closed), check if the branch has
+	// been merged to main directly. This handles cases where the PR was created
+	// and merged on GitHub before we could link it, or where the branch was
+	// identical to main (no commits between them).
+	if !anyOpen && task.BranchName != "" {
+		project, err := o.store.GetProject(ctx, task.ProjectID)
+		if err != nil {
+			log.Debug().Err(err).Str("task_id", task.ID).Msg("Failed to get project for branch-merge check")
+			return nil
+		}
+		if project.DefaultRepoID == "" {
+			return nil
+		}
+		repo, err := o.store.GetGitRepository(ctx, project.DefaultRepoID)
+		if err != nil {
+			log.Debug().Err(err).Str("task_id", task.ID).Msg("Failed to get repo for branch-merge check")
+			return nil
+		}
+
+		merged, mergeErr := o.gitService.IsBranchMerged(ctx, project.DefaultRepoID, task.BranchName, repo.DefaultBranch)
+		if mergeErr != nil {
+			if task.LastPushCommitHash != "" {
+				merged, mergeErr = o.gitService.IsCommitInBranch(ctx, project.DefaultRepoID, task.LastPushCommitHash, repo.DefaultBranch)
+				if mergeErr != nil {
+					log.Debug().Err(mergeErr).Str("task_id", task.ID).Msg("Failed to check if commit is in main")
+					return nil
+				}
+			} else {
+				log.Debug().Err(mergeErr).Str("task_id", task.ID).Str("branch", task.BranchName).Msg("Failed to check if branch is merged")
+				return nil
+			}
+		}
+
+		if merged {
+			log.Info().Str("task_id", task.ID).Str("branch", task.BranchName).Msg("Detected merged branch, moving task to done")
+			now := time.Now()
+			task.Status = types.TaskStatusDone
+			task.MergedToMain = true
+			task.MergedAt = &now
+			task.CompletedAt = &now
+			task.UpdatedAt = now
+			return o.store.UpdateSpecTask(ctx, task)
+		}
+	}
+
 	return nil
 }
 
@@ -981,6 +1026,12 @@ func (o *SpecTaskOrchestrator) checkTaskForExternalPRActivity(ctx context.Contex
 	// Second: check if branch has been merged to main (handles cases where PR was
 	// squash-merged or branch was deleted after merge)
 	// First try using the branch name
+	log.Info().
+		Str("task_id", task.ID).
+		Str("branch", task.BranchName).
+		Str("target", repo.DefaultBranch).
+		Str("repo_id", project.DefaultRepoID).
+		Msg("Checking if branch is merged into main")
 	merged, err := o.gitService.IsBranchMerged(ctx, project.DefaultRepoID, task.BranchName, repo.DefaultBranch)
 	if err != nil {
 		// Branch might not exist locally - try using LastPushCommitHash if available
