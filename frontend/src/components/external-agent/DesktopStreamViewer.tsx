@@ -245,6 +245,45 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     console.log(`[DesktopStreamViewer] ${msg}`);
     setConnectionLog((prev) => [...prev.slice(-9), { time, msg }]); // Keep last 10 entries
   }, []);
+
+  // Shared retry logic for AlreadyStreaming errors.
+  // Both the stream event handler and catch handler use identical backoff.
+  const scheduleAlreadyStreamingRetry = useCallback((logPrefix: string, onRetry: () => void) => {
+    setIsConnecting(false);
+    retryAttemptRef.current += 1;
+    const nextAttempt = retryAttemptRef.current;
+    const baseDelay = Math.min(Math.pow(2, nextAttempt), 30);
+    const retryDelaySeconds = baseDelay * (0.5 + Math.random() * 0.5);
+
+    console.warn(
+      `[DesktopStreamViewer] ${logPrefix} (attempt ${nextAttempt}), will retry in ${retryDelaySeconds.toFixed(1)} seconds...`,
+    );
+
+    setRetryAttemptDisplay(nextAttempt);
+    setRetryCountdown(retryDelaySeconds);
+
+    if (retryIntervalRef.current) clearInterval(retryIntervalRef.current);
+    if (retryTimeoutRef.current) clearTimeout(retryTimeoutRef.current);
+
+    retryIntervalRef.current = setInterval(() => {
+      setRetryCountdown((prev) => {
+        if (prev === null || prev <= 1) {
+          if (retryIntervalRef.current) clearInterval(retryIntervalRef.current);
+          retryIntervalRef.current = null;
+          return null;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    retryTimeoutRef.current = setTimeout(() => {
+      retryTimeoutRef.current = null;
+      console.log(`[DesktopStreamViewer] ${logPrefix} - retrying now (attempt ${nextAttempt})`);
+      setRetryCountdown(null);
+      onRetry();
+    }, retryDelaySeconds * 1000);
+  }, []);
+
   // Quality mode: video or screenshot-based fallback
   // - 'video': 60fps video over WebSocket (default)
   // - 'screenshot': Screenshot-based polling (for low bandwidth)
@@ -827,47 +866,10 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
             errorMsg.includes("AlreadyStreaming") ||
             errorMsg.includes("already streaming")
           ) {
-            setIsConnecting(false);
-
-            // Exponential backoff with jitter: 2s, 4s, 8s, 16s, 30s cap
-            // Use ref to avoid closure issues with event listeners
-            retryAttemptRef.current += 1;
-            const nextAttempt = retryAttemptRef.current;
-            const baseDelay = Math.min(Math.pow(2, nextAttempt), 30);
-            const retryDelaySeconds = baseDelay * (0.5 + Math.random() * 0.5);
-
-            console.warn(
-              `[DesktopStreamViewer] AlreadyStreaming error from stream (attempt ${nextAttempt}), will retry in ${retryDelaySeconds.toFixed(1)} seconds...`,
+            scheduleAlreadyStreamingRetry(
+              "AlreadyStreaming error from stream",
+              () => reconnectRef.current(1000, "Reconnecting..."),
             );
-
-            setRetryAttemptDisplay(nextAttempt);
-            setRetryCountdown(retryDelaySeconds);
-
-            // Clear any previous retry timers
-            if (retryIntervalRef.current) clearInterval(retryIntervalRef.current);
-            if (retryTimeoutRef.current) clearTimeout(retryTimeoutRef.current);
-
-            // Update countdown every second
-            retryIntervalRef.current = setInterval(() => {
-              setRetryCountdown((prev) => {
-                if (prev === null || prev <= 1) {
-                  if (retryIntervalRef.current) clearInterval(retryIntervalRef.current);
-                  retryIntervalRef.current = null;
-                  return null;
-                }
-                return prev - 1;
-              });
-            }, 1000);
-
-            // Retry after delay
-            retryTimeoutRef.current = setTimeout(() => {
-              retryTimeoutRef.current = null;
-              console.log(
-                `[DesktopStreamViewer] Retrying connection after AlreadyStreaming stream error (attempt ${nextAttempt})`,
-              );
-              setRetryCountdown(null);
-              reconnectRef.current(1000, "Reconnecting...");
-            }, retryDelaySeconds * 1000);
             return;
           }
 
@@ -1130,49 +1132,14 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         errorMsg.includes("AlreadyStreaming") ||
         errorMsg.includes("already streaming")
       ) {
-        setIsConnecting(false);
-
-        // Exponential backoff with jitter: 2s, 4s, 8s, 16s, 30s cap
-        // Use ref to avoid closure issues
-        retryAttemptRef.current += 1;
-        const nextAttempt = retryAttemptRef.current;
-        const baseDelay = Math.min(Math.pow(2, nextAttempt), 30);
-            const retryDelaySeconds = baseDelay * (0.5 + Math.random() * 0.5);
-
-        console.warn(
-          `[DesktopStreamViewer] AlreadyStreaming error detected (attempt ${nextAttempt}), will retry in ${retryDelaySeconds.toFixed(1)} seconds...`,
+        scheduleAlreadyStreamingRetry(
+          "AlreadyStreaming error detected",
+          () => {
+            setStatus("Reconnecting...");
+            setIsConnecting(true);
+            connectRef.current();
+          },
         );
-
-        setRetryAttemptDisplay(nextAttempt);
-        setRetryCountdown(retryDelaySeconds);
-
-        // Clear any previous retry timers
-        if (retryIntervalRef.current) clearInterval(retryIntervalRef.current);
-        if (retryTimeoutRef.current) clearTimeout(retryTimeoutRef.current);
-
-        // Update countdown every second
-        retryIntervalRef.current = setInterval(() => {
-          setRetryCountdown((prev) => {
-            if (prev === null || prev <= 1) {
-              if (retryIntervalRef.current) clearInterval(retryIntervalRef.current);
-              retryIntervalRef.current = null;
-              return null;
-            }
-            return prev - 1;
-          });
-        }, 1000);
-
-        // Retry after delay
-        retryTimeoutRef.current = setTimeout(() => {
-          retryTimeoutRef.current = null;
-          console.log(
-            `[DesktopStreamViewer] Retrying connection after AlreadyStreaming error (attempt ${nextAttempt})`,
-          );
-          setRetryCountdown(null);
-          setStatus("Reconnecting...");
-          setIsConnecting(true);
-          connectRef.current();
-        }, retryDelaySeconds * 1000);
         return;
       }
 
