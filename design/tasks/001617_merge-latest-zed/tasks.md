@@ -11,13 +11,17 @@
 
 ## Merge
 
-- [~] Rebase (or merge) fork onto `upstream/main`: `git merge upstream/main`
-- [ ] Resolve conflicts file by file, keeping all `#[cfg(feature = "external_websocket_sync")]` blocks
+- [x] Rebase (or merge) fork onto `upstream/main`: `git merge upstream/main`
+- [x] Resolve conflicts file by file, keeping all `#[cfg(feature = "external_websocket_sync")]` blocks
 
 ## ACP Consolidation Rename Tracking
 
-- [ ] Identify whether upstream renamed `acp_thread` crate or `crates/agent_ui/src/acp/` path — find the new locations before applying critical fixes
-- [ ] Update all portingguide.md file path references to match new upstream names
+- [x] Identify whether upstream renamed `acp_thread` crate or `crates/agent_ui/src/acp/` path — find the new locations before applying critical fixes
+  - `acp_thread` crate still exists unchanged
+  - `crates/agent_ui/src/acp/thread_view.rs` renamed to `crates/agent_ui/src/conversation_view.rs`
+  - `AcpThreadHistory` → `ThreadHistory` (crates/agent_ui/src/thread_history.rs)
+  - `ExternalAgent` → `Agent` (consolidated enum in agent_ui.rs)
+- [~] Update all portingguide.md file path references to match new upstream names
 
 ## Critical Fix Verification (post-merge, before tests)
 
@@ -35,7 +39,7 @@
 
 ## Test Validation
 
-- [ ] `cargo check --package zed --features external_websocket_sync` — must compile with no errors
+- [~] `cargo check --package zed --features external_websocket_sync` — must compile with no errors
 - [ ] `cargo test -p external_websocket_sync` — all unit and protocol-level tests pass
 - [ ] Run E2E test: `ANTHROPIC_API_KEY=<key> crates/external_websocket_sync/e2e-test/run_docker_e2e.sh` — all 10 phases must pass
 
