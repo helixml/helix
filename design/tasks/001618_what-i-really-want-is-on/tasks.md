@@ -1,8 +1,10 @@
 # Implementation Tasks
 
-- [ ] Create `frontend/src/hooks/useNavigationHistory.ts` — hook that subscribes to router5 route changes, derives a title from route name + params, stores entries in `localStorage` (key: `helix_nav_history`), deduplicates by URL (keep most recent), caps at 30 entries, and returns the current history array
-- [ ] Create `frontend/src/components/tasks/NavigationHistoryButton.tsx` — MUI `IconButton` (`ArrowDropDownIcon`) with `Tooltip` ("Recent pages"), opens a `Menu` listing history entries as `MenuItem`s (icon + title), navigates via `router.navigate(routeName, params)` on click, shows "No history yet" when empty
-- [ ] In `SpecTaskKanbanBoard.tsx`, import and render `<NavigationHistoryButton />` at the right end of the existing filter/search bar row (the row containing the search `TextField` and label `Autocomplete`)
-- [ ] Verify that navigating between a spec task detail page and a design review page records both entries and they appear in the dropdown in correct order
-- [ ] Verify deduplication: visiting the same page twice shows it only once (most recent position)
-- [ ] Verify history survives a page refresh (localStorage persistence)
+- [ ] Create `frontend/src/hooks/useNavigationHistory.ts` — subscribes to router5 route changes, stores `{ url, routeName, params, title, timestamp }` in `localStorage` (`helix_nav_history`), deduplicates by URL (most recent wins), caps at 30 entries, returns history array
+- [ ] In `GlobalNotifications.tsx`, refactor the existing event grouping logic (lines 59-97) to deduplicate alerts by `spec_task_id`, keeping only the most recent event per task (fall back to `idempotency_key` when `spec_task_id` is null)
+- [ ] In `GlobalNotifications.tsx`, call `useNavigationHistory()` and compute the filtered "recently visited" list (exclude pages already covered by active alerts, cap at 10)
+- [ ] In `GlobalNotifications.tsx`, render the "Recently visited" section below the alerts list — section heading + clickable rows with title + `router.navigate(routeName, params)` on click; hide section entirely when list is empty
+- [ ] Verify: visiting Task A then Task B then Task A again → Task A appears once (at top) in recently visited
+- [ ] Verify: a task with an active alert does not also appear in the recently visited section
+- [ ] Verify: history survives page refresh (localStorage)
+- [ ] Verify: alert deduplication — a task with both `specs_pushed` and `agent_interaction_completed` shows only one entry in the alerts section

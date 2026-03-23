@@ -1,23 +1,29 @@
-# Requirements: Navigation History Dropdown on Kanban Board
+# Requirements: Navigation History in Notification Panel
+
+## Context
+
+The existing global notification system (`GlobalNotifications.tsx`) shows a sliding panel (opened via the bell icon in the top-right AppBar) listing "attention events" — things that need the user's action. The user wants two enhancements to this panel:
+
+1. **Deduplicate alerts by page** — show only the most recent attention event per spec task/page rather than multiple events for the same task.
+2. **Recent pages section** — below the alerts, show a list of pages the user has visited recently that are *not* already represented by an active alert, so the user can quickly jump back to them.
 
 ## User Stories
 
-**US-1:** As a user, I want a history dropdown button just above the Kanban board columns (right-hand side) so I can quickly jump to recently visited pages without using the browser's back button.
+**US-1:** As a user, I want the alerts section to show at most one notification per spec task so I'm not overwhelmed when a task has generated multiple events (e.g., both `agent_interaction_completed` and `specs_pushed` for the same task).
 
-**US-2:** As a user, I want the history list de-duplicated by URL (most recent visit wins) so I don't see the same page listed multiple times.
+**US-2:** As a user, I want a "Recently visited" section below the alerts in the notification panel so I can jump back to spec task detail pages and design review pages I've looked at recently — even if they don't have an active alert.
 
-**US-3:** As a user, I want the list sorted most-recent-first so the pages I visited most recently appear at the top.
+**US-3:** As a user, I want the recently visited list to be deduplicated (one entry per page, most recent visit shown at the top) so it stays clean.
 
-**US-4:** As a user, the feature should work entirely client-side (no backend changes needed).
+**US-4:** As a user, pages that already have an active alert should not appear in the "Recently visited" section to avoid duplicating the same page in two places.
 
 ## Acceptance Criteria
 
-- [ ] A small down-arrow icon button (similar in appearance to Chrome's download/history button) appears on the right side of the Kanban board header bar, just above the columns.
-- [ ] Clicking the button opens a dropdown menu listing recently visited pages, most recent first.
-- [ ] Each entry shows a readable page title (e.g., "Task: Add login page", "Design Review: auth-flow").
-- [ ] Duplicate URLs are collapsed — only the most recent visit is shown.
-- [ ] Clicking a history entry navigates to that page using the router.
-- [ ] History is stored in `localStorage` so it persists across page refreshes (but is per-browser).
-- [ ] History tracks at most 30 entries (after dedup).
-- [ ] The feature works for at minimum: spec task detail pages and design review pages.
-- [ ] The dropdown closes when a selection is made or when clicking outside.
+- [ ] The alerts section groups/deduplicates by `spec_task_id` (or URL if no task ID), keeping only the most recent event per page.
+- [ ] The "Recently visited" section appears below the alerts in the same sliding panel, with a clear section heading (e.g., "Recently visited").
+- [ ] Recently visited entries come from client-side navigation history tracked in `localStorage`.
+- [ ] Pages already shown in the alerts section are excluded from "Recently visited".
+- [ ] Each recently visited entry shows a readable title and is clickable to navigate.
+- [ ] The recently visited list shows at most 10 entries (since alerts already take up space).
+- [ ] The recently visited list is hidden when empty.
+- [ ] History persists across page refreshes via `localStorage`.

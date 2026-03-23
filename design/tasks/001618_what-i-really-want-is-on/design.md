@@ -1,64 +1,96 @@
-# Design: Navigation History Dropdown
+# Design: Navigation History in Notification Panel
 
-## Architecture
+## Overview
 
-Purely client-side. No backend changes. Three pieces:
+Enhance the existing notification sliding panel (`GlobalNotifications.tsx`) with two changes:
+1. Deduplicate alerts by spec task
+2. Add a "Recently visited" section below the alerts, populated from client-side navigation history
 
-1. **`useNavigationHistory` hook** — tracks route changes and persists history to `localStorage`
-2. **`NavigationHistoryButton` component** — the icon button + MUI Menu dropdown
-3. **Integration point** — added to the right side of `SpecTaskKanbanBoard.tsx`'s search/filter header bar
+The standalone Kanban board history button idea from the original design is **dropped** — this integrates cleanly into the existing notification UX.
 
-## Key Decisions
+## Existing System
 
-**Where to place it:** Inside `SpecTaskKanbanBoard.tsx` (not `SpecTasksPage.tsx`), in the existing filter/search bar row (the row with the search TextField and label Autocomplete), right-aligned. This puts it visually "just above the columns" as requested.
+- **Component:** `frontend/src/components/system/GlobalNotifications.tsx`
+- **Panel:** 360px right-side sliding panel, triggered by bell icon in the AppBar
+- **Data:** `TypesAttentionEvent` objects polled every 10s from `/api/v1/attention-events?active=true`
+- **Fields relevant to dedup:** `spec_task_id`, `event_type`, `created_at`, `idempotency_key`
+- **Existing grouping:** Already groups `specs_pushed` + `agent_interaction_completed` within a 60s window (lines 59-97). This is similar logic — extend or refactor it.
 
-**Storage:** `localStorage` key `helix_nav_history`. Stores a JSON array of `{ url: string, title: string, timestamp: number }` objects, deduplicated by URL, capped at 30 entries, sorted newest-first.
+## Change 1: Deduplicate Alerts by Spec Task
 
-**History tracking:** Use router5's route subscription (via the existing `useRouter` hook + `router.router.subscribe()`) to record each navigation. The current route's URL is reconstructed from `router.buildUrl(state.name, state.params)` or read from `window.location.pathname + window.location.search`.
+**Where:** Inside `GlobalNotifications.tsx`, the existing event list rendering logic.
 
-**Page titles:** Derive human-readable titles from the route name and params:
-- `org_project-spec-detail` → `"Task: {task title or task ID}"`
-- `org_project-specs` → `"Board: {project name}"`
-- `org_spec-task-review` / similar design-review routes → `"Review: {identifier}"`
-- Fallback: use route name prettified
+**How:** After fetching events, group by `spec_task_id`. Within each group, keep only the event with the latest `created_at`. If `spec_task_id` is null, fall back to grouping by `idempotency_key` or treat each as its own group.
 
-**Icon:** MUI `ArrowDropDownIcon` in an `IconButton`, with a `Tooltip` saying "Recent pages". Matches the style of other icon buttons in the toolbar.
+This is a view-layer transform only — no backend change, no mutation of data. The raw events remain unchanged; we just pick one representative per task to display.
 
-**Dropdown UI:** MUI `Menu` anchored to the button. Each entry is a `MenuItem` with a small icon indicating type (e.g., `AssignmentIcon` for tasks, `RateReviewIcon` for reviews) and truncated title text. Empty state: "No history yet" (disabled `MenuItem`).
+**Decision:** Replace/extend the existing 60s-window grouping with a simpler "one per task" rule. The 60s window was already trying to solve this — the new rule is cleaner.
+
+## Change 2: "Recently Visited" Section
+
+### Navigation History Hook
+
+New hook: `frontend/src/hooks/useNavigationHistory.ts`
+
+- Subscribes to router5 route changes via `router.router.subscribe()`
+- On each navigation, records `{ url, routeName, params, title, timestamp }` to `localStorage` key `helix_nav_history`
+- Deduplicates by `url` (remove older entry, insert new at front)
+- Caps at 30 entries total (before filtering for display)
+- Derives `title` from route name + params (e.g., `"Task: {spec_task_name}"`, `"Review: {task_id}"`, `"Board: {project_name}"`)
+- Returns the history array
+
+### Data Shape
+
+```ts
+interface NavHistoryEntry {
+  url: string;           // dedup key, e.g. "/orgs/x/projects/y/specs/z"
+  routeName: string;     // router5 route name, for clean SPA navigation
+  params: Record<string, string>;
+  title: string;         // human-readable
+  timestamp: number;     // Date.now()
+}
+```
+
+### Panel Integration
+
+In `GlobalNotifications.tsx`, below the existing alerts list:
+
+1. Call `useNavigationHistory()` to get the history array
+2. Get the set of `url`s currently covered by active alerts (derive from alert navigation targets)
+3. Filter history: exclude pages already in alerts, take top 10
+4. If any remain, render a `"Recently visited"` section heading followed by clickable rows
+5. Each row: small page-type icon + truncated title; click calls `router.navigate(routeName, params)`
+6. Section is hidden entirely when the filtered list is empty
+
+### Visual Layout (within panel)
+
+```
+┌─────────────────────────────┐
+│ 🔔 Needs Attention    [X]  │
+├─────────────────────────────┤
+│ ● Task A - spec ready       │
+│ ● Task B - agent finished   │
+│ ● Task C - PR ready         │
+├─────────────────────────────┤
+│ Recently visited            │  ← new section, only if non-empty
+│   Task D detail             │
+│   Design review: auth       │
+│   Task E detail             │
+└─────────────────────────────┘
+```
 
 ## File Changes
 
 | File | Change |
 |------|--------|
-| `frontend/src/hooks/useNavigationHistory.ts` | New hook (create) |
-| `frontend/src/components/tasks/NavigationHistoryButton.tsx` | New component (create) |
-| `frontend/src/components/tasks/SpecTaskKanbanBoard.tsx` | Add `NavigationHistoryButton` to the filter bar row |
+| `frontend/src/hooks/useNavigationHistory.ts` | Create — history tracking hook |
+| `frontend/src/components/system/GlobalNotifications.tsx` | Modify — dedup alerts by task; add "Recently visited" section |
 
-## Data Shape
-
-```ts
-interface NavHistoryEntry {
-  url: string;       // full pathname+search, e.g. "/orgs/123/projects/456/specs/789"
-  title: string;     // human-readable label
-  timestamp: number; // Date.now() at time of visit
-}
-```
+No backend changes. No new API endpoints.
 
 ## Patterns Used in This Codebase
 
-- MUI `IconButton` + `Tooltip` + `Menu`/`MenuItem` for icon dropdowns — see the existing "more" menu in `SpecTasksPage.tsx`
-- `useRouter()` from `src/hooks/useRouter.ts` for router access
-- Route navigation: `router.navigate(routeName, params)` — but for arbitrary URLs, use `window.location.href` or parse stored URLs back to route names. Simplest: store full URL string and navigate via `window.location.href = url` (avoids needing to reverse-parse router5 routes), OR store route name+params for clean SPA navigation.
-- **Recommended:** Store `{ routeName, params }` alongside the URL so navigation uses `router.navigate(routeName, params)` — cleaner and avoids full page reload.
-
-## Revised Data Shape
-
-```ts
-interface NavHistoryEntry {
-  url: string;           // for dedup key and display
-  routeName: string;     // router5 route name
-  params: Record<string, string>; // router5 params
-  title: string;
-  timestamp: number;
-}
-```
+- Notification panel uses Lucide icons (not MUI icons) — use Lucide's `Clock` or `History` for the section icon
+- Router navigation uses `useRouter()` hook → `router.navigate(routeName, params)`
+- Event grouping logic already exists in `GlobalNotifications.tsx` lines 59-97 — extend this rather than duplicating
+- Styling in this file uses inline `style={{}}` objects and Tailwind-like class names (not MUI `sx`) — match that convention
