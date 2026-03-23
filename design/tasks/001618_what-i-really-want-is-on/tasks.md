@@ -1,6 +1,6 @@
 # Implementation Tasks
 
-- [ ] Create `frontend/src/hooks/useNavigationHistory.ts` — subscribes to router5 route changes, stores `{ url, routeName, params, title, timestamp }` in `localStorage` (`helix_nav_history`), deduplicates by URL (most recent wins), caps at 30 entries, returns history array
+- [~] Create `frontend/src/hooks/useNavigationHistory.ts` — subscribes to router5 route changes, stores `{ url, routeName, params, title, timestamp }` in `localStorage` (`helix_nav_history`), deduplicates by URL (most recent wins), caps at 30 entries, returns history array
 - [ ] In `GlobalNotifications.tsx`, refactor the existing event grouping logic (lines 59-97) to deduplicate alerts by `spec_task_id`, keeping only the most recent event per task (fall back to `idempotency_key` when `spec_task_id` is null)
 - [ ] In `GlobalNotifications.tsx`, call `useNavigationHistory()` and compute the filtered "recently visited" list (exclude pages already covered by active alerts, cap at 10)
 - [ ] In `GlobalNotifications.tsx`, render the "Recently visited" section below the alerts list — section heading + clickable rows with title + `router.navigate(routeName, params)` on click; hide section entirely when list is empty
