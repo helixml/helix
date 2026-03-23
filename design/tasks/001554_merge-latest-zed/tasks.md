@@ -29,21 +29,23 @@
 ## Build Verification
 
 - [~] `cargo check --package zed --features external_websocket_sync` — must compile clean
-- [ ] `cargo test -p external_websocket_sync` — unit tests pass
+- [x] `cargo test -p external_websocket_sync` — unit tests pass (37 passed, 2 ignored)
 
 ## Documentation
 
-- [ ] Push the porting guide update commit already on local `main` (commit `059342a545`) — create a PR or include in the upstream merge branch. The spec agent has already drafted all updates.
-- [ ] After merge, update `portingguide.md` — add any new upstream files that conflict with Helix changes during the actual merge
-- [ ] After merge, add the upstream merge commit to the Commit History table
+- [x] Push the porting guide update commit already on local `main` (commit `059342a545`) — included in the upstream merge branch
+- [x] After merge, update `portingguide.md` — documented 2026-03 API changes, file renames, new checklist items (commit `89f88130b1`)
+- [x] After merge, add the upstream merge commit to the Commit History table
 
 ## Push & CI
 
-- [ ] Push branch and open PR against `main`
+- [x] Push Zed branch to local Gitea: `origin/feature/001554-merge-latest-zed` (HEAD: `89f88130b1`)
+- [ ] Push Zed branch to GitHub `helixml/zed` (requires GitHub credentials — not available in this dev environment)
+- [ ] Open PR against `main` on GitHub helixml/zed
 - [ ] Confirm Drone CI `zed-e2e-test` step passes (all 7 E2E phases)
 - [ ] Merge PR to `main`
 
 ## Post-Merge
 
-- [ ] Update `sandbox-versions.txt` in the helix repo: set `ZED_COMMIT` to the new HEAD commit hash
-- [ ] Push helix repo change so CI picks up the new Zed build
+- [x] Update `sandbox-versions.txt` in helix repo: `ZED_COMMIT=89f88130b124b87a35cb2177fe691724cc736a03`
+- [x] Push helix feature branch with sandbox-versions.txt update: `feature/001554-merge-latest-zed` on helix repo
