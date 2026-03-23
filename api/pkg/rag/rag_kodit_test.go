@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"go.uber.org/mock/gomock"
 	"github.com/helixml/kodit/domain/enrichment"
@@ -26,10 +27,11 @@ import (
 // Only the methods exercised by KoditRAG have meaningful implementations;
 // the rest return zero values so the struct satisfies the interface.
 type koditServiceMock struct {
-	registerRepositoryFn func(ctx context.Context, cloneURL, upstreamURL string) (int64, bool, error)
-	semanticSearchFn     func(ctx context.Context, koditRepoID int64, query string, limit int, language string) ([]services.KoditFileResult, error)
-	deleteRepositoryFn   func(ctx context.Context, koditRepoID int64) error
-	rescanCommitFn       func(ctx context.Context, koditRepoID int64, commitSHA string) error
+	registerRepositoryFn   func(ctx context.Context, cloneURL, upstreamURL string) (int64, bool, error)
+	semanticSearchFn       func(ctx context.Context, koditRepoID int64, query string, limit int, language string) ([]services.KoditFileResult, error)
+	deleteRepositoryFn     func(ctx context.Context, koditRepoID int64) error
+	rescanCommitFn         func(ctx context.Context, koditRepoID int64, commitSHA string) error
+	getRepositoryCommitsFn func(ctx context.Context, koditRepoID int64, limit int) ([]repository.Commit, error)
 }
 
 var _ services.KoditServicer = (*koditServiceMock)(nil)
@@ -74,7 +76,10 @@ func (m *koditServiceMock) GetRepositoryEnrichments(context.Context, int64, stri
 func (m *koditServiceMock) GetEnrichment(context.Context, string) (enrichment.Enrichment, error) {
 	return enrichment.Enrichment{}, nil
 }
-func (m *koditServiceMock) GetRepositoryCommits(context.Context, int64, int) ([]repository.Commit, error) {
+func (m *koditServiceMock) GetRepositoryCommits(ctx context.Context, id int64, limit int) ([]repository.Commit, error) {
+	if m.getRepositoryCommitsFn != nil {
+		return m.getRepositoryCommitsFn(ctx, id, limit)
+	}
 	return nil, nil
 }
 func (m *koditServiceMock) SearchSnippets(context.Context, int64, string, int) ([]enrichment.Enrichment, error) {
@@ -190,11 +195,18 @@ func (s *KoditRAGSuite) TestRegisterDirectory_UpdatesExistingDataEntity() {
 		return repoID, false, nil
 	}
 
-	// When repo already exists, RescanCommit should be called with empty SHA.
+	// When repo already exists, fetch latest commit and rescan it.
+	s.mockSvc.getRepositoryCommitsFn = func(_ context.Context, id int64, limit int) ([]repository.Commit, error) {
+		s.Equal(repoID, id)
+		s.Equal(1, limit)
+		commit := repository.ReconstructCommit(1, "abc123", repoID, "", repository.Author{}, repository.Author{}, time.Time{}, time.Time{}, time.Time{}, "")
+		return []repository.Commit{commit}, nil
+	}
+
 	rescanned := false
 	s.mockSvc.rescanCommitFn = func(_ context.Context, id int64, sha string) error {
 		s.Equal(repoID, id)
-		s.Equal("", sha)
+		s.Equal("abc123", sha)
 		rescanned = true
 		return nil
 	}

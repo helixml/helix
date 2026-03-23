@@ -68,16 +68,26 @@ func (k *KoditRAG) RegisterDirectory(ctx context.Context, dataEntityID, localPat
 		return fmt.Errorf("kodit RegisterRepository failed for %s: %w", fileURI, err)
 	}
 
-	// If the repo already existed, trigger a full rescan. SyncRepository only
-	// does a git fetch which is a no-op for local file:// directories.
-	// RescanCommit with empty SHA rescans the entire repository.
+	// If the repo already existed, trigger a rescan of the latest commit.
+	// SyncRepository only does a git fetch which is a no-op for local
+	// file:// directories. This mirrors what the kodit admin UI does.
 	if !isNew {
-		log.Info().
-			Int64("kodit_repo_id", repoID).
-			Str("file_uri", fileURI).
-			Msg("kodit repo already exists, triggering full rescan")
-		if err := k.kodit.RescanCommit(ctx, repoID, ""); err != nil {
-			return fmt.Errorf("kodit rescan failed for repo %d: %w", repoID, err)
+		commits, err := k.kodit.GetRepositoryCommits(ctx, repoID, 1)
+		if err != nil {
+			return fmt.Errorf("failed to get latest commit for rescan: %w", err)
+		}
+		if len(commits) == 0 {
+			log.Warn().Int64("kodit_repo_id", repoID).Msg("no commits found for kodit repo, skipping rescan")
+		} else {
+			commitSHA := commits[0].SHA()
+			log.Info().
+				Int64("kodit_repo_id", repoID).
+				Str("commit_sha", commitSHA).
+				Str("file_uri", fileURI).
+				Msg("kodit repo already exists, triggering rescan of latest commit")
+			if err := k.kodit.RescanCommit(ctx, repoID, commitSHA); err != nil {
+				return fmt.Errorf("kodit rescan failed for repo %d: %w", repoID, err)
+			}
 		}
 	}
 

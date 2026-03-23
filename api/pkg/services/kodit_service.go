@@ -920,10 +920,13 @@ func (s *KoditService) UpdateChunkingConfig(ctx context.Context, koditRepoID int
 }
 
 // RescanCommit triggers a rescan of a specific commit in Kodit.
-// If commitSHA is empty, it rescans the entire repository.
 func (s *KoditService) RescanCommit(ctx context.Context, koditRepoID int64, commitSHA string) error {
 	if !s.enabled {
 		return fmt.Errorf("kodit service not enabled")
+	}
+
+	if commitSHA == "" {
+		return fmt.Errorf("commit SHA is required")
 	}
 
 	err := s.client.Repositories.Rescan(ctx, &service.RescanParams{
@@ -931,9 +934,9 @@ func (s *KoditService) RescanCommit(ctx context.Context, koditRepoID int64, comm
 		CommitSHA:    commitSHA,
 	})
 	if err != nil {
-		return fmt.Errorf("failed to rescan: %w", err)
+		return fmt.Errorf("failed to rescan commit: %w", err)
 	}
 
-	log.Info().Int64("kodit_repo_id", koditRepoID).Str("commit_sha", commitSHA).Msg("Triggered rescan in Kodit")
+	log.Info().Int64("kodit_repo_id", koditRepoID).Str("commit_sha", commitSHA).Msg("Triggered commit rescan in Kodit")
 	return nil
 }
