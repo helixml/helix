@@ -306,14 +306,24 @@ func (s *HelixAPIServer) validateAndFetchUserInfo(ctx context.Context, providerT
 			return nil, fmt.Errorf("GitHub token has no scopes. Helix requires the 'repo' scope for full repository access. Please create a new classic token with the 'repo' scope at https://github.com/settings/tokens")
 		}
 		hasRepo := false
+		hasWorkflow := false
 		for _, s := range scopes {
 			if s == "repo" {
 				hasRepo = true
-				break
+			}
+			if s == "workflow" {
+				hasWorkflow = true
 			}
 		}
+		var missingScopes []string
 		if !hasRepo {
-			return nil, fmt.Errorf("GitHub token is missing required scope 'repo'. Your token has scopes: %s. Please create a new classic token with the 'repo' scope at https://github.com/settings/tokens", strings.Join(scopes, ", "))
+			missingScopes = append(missingScopes, "repo")
+		}
+		if !hasWorkflow {
+			missingScopes = append(missingScopes, "workflow")
+		}
+		if len(missingScopes) > 0 {
+			return nil, fmt.Errorf("GitHub token is missing required scopes: %s. Your token has scopes: %s. Please create a new classic token with the required scopes at https://github.com/settings/tokens", strings.Join(missingScopes, ", "), strings.Join(scopes, ", "))
 		}
 		return &types.OAuthUserInfo{
 			ID:        fmt.Sprintf("%d", user.GetID()),

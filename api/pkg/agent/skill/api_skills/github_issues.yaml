@@ -59,6 +59,7 @@ spec:
     provider: github
     scopes:
       - repo
+      - workflow
       - user:read
       
   api:
