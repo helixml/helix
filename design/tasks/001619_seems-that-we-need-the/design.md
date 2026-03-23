@@ -27,17 +27,7 @@ if len(missing) > 0 {
 ```
 
 ### 2. GitHub Skill YAML files
-**`api/pkg/agent/skill/api_skills/github.yaml`** and **`api/pkg/agent/skill/api_skills/github_issues.yaml`**
-
-Add `workflow` to the `oauth.scopes` list:
-```yaml
-oauth:
-  provider: github
-  scopes:
-    - repo
-    - user:read
-    - workflow
-```
+Not changed. These define OAuth scopes for LLM agent tool use (listing issues, creating PRs etc.) — a separate OAuth connection from the git integration. The git browsing/push flow uses the `OAuthConnection` created via `BrowseProvidersDialog`, not the skill connection.
 
 ### 3. Frontend: BrowseProvidersDialog scopes
 **`frontend/src/components/project/BrowseProvidersDialog.tsx`** (~line 407)

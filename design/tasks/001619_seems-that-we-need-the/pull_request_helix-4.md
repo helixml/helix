@@ -7,7 +7,6 @@ GitHub requires the `workflow` scope to push changes to `.github/workflows/` fil
 ## Changes
 
 - **PAT validation** (`git_provider_connection_handlers.go`): require both `repo` and `workflow` scopes; missing scopes are reported together in one clear error message
-- **GitHub skill YAMLs** (`github.yaml`, `github_issues.yaml`): add `workflow` to `oauth.scopes` so new OAuth connections request it
 - **Repo browser** (`BrowseProvidersDialog.tsx`):
   - Add `workflow` to the GitHub scopes string when starting an OAuth flow
   - Add an inline warning alert when an existing GitHub connection is missing the `workflow` scope, with a prompt to reconnect (starts a new OAuth flow with all required scopes)
