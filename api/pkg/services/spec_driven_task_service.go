@@ -1260,7 +1260,7 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, task *types.Sp
 		if s.SendMessageToAgent != nil && !s.testMode {
 			go func(t *types.SpecTask, comments string) {
 				message := BuildRevisionInstructionPrompt(t, comments)
-				_, err := s.SendMessageToAgent(context.Background(), t, message, "")
+				_, _, err := s.SendMessageToAgent(context.Background(), t, message, "")
 				if err != nil {
 					log.Error().
 						Err(err).

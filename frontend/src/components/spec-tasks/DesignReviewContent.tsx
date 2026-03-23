@@ -556,8 +556,10 @@ export default function DesignReviewContent({
 
       switch (e.key.toLowerCase()) {
         case "c":
-          setShowCommentForm((prev) => !prev);
-          e.preventDefault();
+          if (!e.ctrlKey && !e.metaKey) {
+            setShowCommentForm((prev) => !prev);
+            e.preventDefault();
+          }
           break;
         case "escape":
           if (showCommentForm) {

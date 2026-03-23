@@ -139,7 +139,7 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 				return
 			}
 
-			_, err = s.sendMessageToSpecTaskAgent(context.Background(), specTask, message, "")
+			_, _, err = s.sendMessageToSpecTaskAgent(context.Background(), specTask, message, "")
 			if err != nil {
 				log.Error().
 					Err(err).
@@ -222,7 +222,7 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 				return
 			}
 
-			_, err = s.sendMessageToSpecTaskAgent(context.Background(), specTask, message, "")
+			_, _, err = s.sendMessageToSpecTaskAgent(context.Background(), specTask, message, "")
 			if err != nil {
 				log.Error().
 					Err(err).
