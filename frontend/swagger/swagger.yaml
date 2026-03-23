@@ -7836,6 +7836,11 @@ definitions:
         type: string
       loadedAt:
         type: string
+      mcp:
+        allOf:
+        - $ref: '#/definitions/types.SkillMCPSpec'
+        description: MCP configuration (present when this skill is MCP-backed rather
+          than API-backed)
       name:
         type: string
       oauthProvider:
@@ -7873,6 +7878,15 @@ definitions:
         type: string
       type:
         description: e.g., "material-ui", "custom"
+        type: string
+    type: object
+  types.SkillMCPSpec:
+    properties:
+      autoProvision:
+        description: if true, URL+auth are generated server-side
+        type: boolean
+      transport:
+        description: '"http" or "sse"'
         type: string
     type: object
   types.SkillRequiredParameter:
@@ -10918,6 +10932,31 @@ paths:
       summary: Delete app memory
       tags:
       - memories
+  /api/v1/apps/{id}/skills/{skill}/enable:
+    post:
+      description: Enable a marketplace skill on an app. For autoProvision MCP skills
+        the server generates URL and auth automatically.
+      parameters:
+      - description: App ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Skill name (e.g. code-intelligence)
+        in: path
+        name: skill
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.App'
+      security:
+      - BearerAuth: []
+      summary: Enable a marketplace skill on an app
+      tags:
+      - skills
   /api/v1/apps/{id}/step-info:
     get:
       description: List step info for a specific app and interaction ID, used to build

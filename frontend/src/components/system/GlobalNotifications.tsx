@@ -13,6 +13,8 @@ import useApi from '../../hooks/useApi'
 import useLightTheme from '../../hooks/useLightTheme'
 import { useAttentionEvents, AttentionEvent, AttentionEventType } from '../../hooks/useAttentionEvents'
 import { useBrowserNotifications } from '../../hooks/useBrowserNotifications'
+import { useNavigationHistory, NavHistoryEntry } from '../../hooks/useNavigationHistory'
+import router from '../../router'
 
 interface GlobalNotificationsProps {
   organizationId?: string
@@ -95,6 +97,56 @@ function groupEvents(events: AttentionEvent[]): EventGroup[] {
 
   return groups
 }
+
+// After grouping, keep only the most recent group per spec_task_id.
+// Events are already sorted newest-first from the API, so the first group
+// for each task is the most recent one.
+function deduplicateGroupsByTask(groups: EventGroup[]): EventGroup[] {
+  const seen = new Set<string>()
+  return groups.filter(group => {
+    const taskId = group.kind === 'grouped' ? group.primary.spec_task_id : group.event.spec_task_id
+    if (!taskId) return true
+    if (seen.has(taskId)) return false
+    seen.add(taskId)
+    return true
+  })
+}
+
+const RecentPageItem: React.FC<{
+  entry: NavHistoryEntry
+}> = ({ entry }) => (
+  <Box
+    onClick={() => router.navigate(entry.routeName, entry.params)}
+    sx={{
+      display: 'flex',
+      alignItems: 'center',
+      gap: 1,
+      px: 1.5,
+      py: 0.75,
+      cursor: 'pointer',
+      transition: 'background-color 0.15s ease',
+      '&:hover': {
+        backgroundColor: 'rgba(255,255,255,0.06)',
+      },
+    }}
+  >
+    <Box sx={{ fontSize: '0.75rem', flexShrink: 0, color: 'rgba(255,255,255,0.3)' }}>🕒</Box>
+    <Typography
+      variant="body2"
+      sx={{
+        color: 'rgba(255,255,255,0.6)',
+        overflow: 'hidden',
+        textOverflow: 'ellipsis',
+        whiteSpace: 'nowrap',
+        fontSize: '0.78rem',
+        lineHeight: 1.4,
+        flex: 1,
+      }}
+    >
+      {entry.title}
+    </Typography>
+  </Box>
+)
 
 const BrowserNotificationBanner: React.FC<{
   onEnable: () => void
@@ -248,6 +300,7 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
     events,
     newEvents,
     totalCount,
+    unreadCount,
     hasNew,
     acknowledge,
     dismiss,
@@ -338,7 +391,17 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
     setOptOut(true)
   }, [setOptOut])
 
-  const groups = groupEvents(events)
+  const groups = deduplicateGroupsByTask(groupEvents(events))
+
+  // Build recently visited list: task/review pages not already shown as active alerts
+  const navHistory = useNavigationHistory()
+  const alertTaskIds = new Set(events.map(e => e.spec_task_id).filter(Boolean))
+  const recentPages = navHistory.filter(entry => {
+    if (entry.routeName !== 'org_project-task-detail' && entry.routeName !== 'org_project-task-review') {
+      return false
+    }
+    return !alertTaskIds.has(entry.params.taskId)
+  }).slice(0, 10)
 
   return (
     <>
@@ -355,7 +418,7 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
         }}
       >
         <Badge
-          badgeContent={totalCount}
+          badgeContent={hasNew ? unreadCount : totalCount}
           color={hasNew ? 'error' : 'default'}
           sx={{
             '& .MuiBadge-badge': {
@@ -533,6 +596,30 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
                   />
                 )
               })}
+            </Box>
+          )}
+
+          {/* Recently visited — pages the user has been to that aren't active alerts */}
+          {recentPages.length > 0 && (
+            <Box sx={{ borderTop: '1px solid rgba(255,255,255,0.06)', mt: 0.5, pt: 0.5 }}>
+              <Typography
+                variant="caption"
+                sx={{
+                  display: 'block',
+                  px: 1.5,
+                  py: 0.75,
+                  color: 'rgba(255,255,255,0.3)',
+                  fontSize: '0.65rem',
+                  fontWeight: 600,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.05em',
+                }}
+              >
+                Recently visited
+              </Typography>
+              {recentPages.map(entry => (
+                <RecentPageItem key={entry.url} entry={entry} />
+              ))}
             </Box>
           )}
         </Box>

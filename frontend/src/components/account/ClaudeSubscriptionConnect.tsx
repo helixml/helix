@@ -4,6 +4,8 @@ import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import Typography from '@mui/material/Typography'
 import TextField from '@mui/material/TextField'
+import Grid from '@mui/material/Grid'
+import Chip from '@mui/material/Chip'
 import Dialog from '@mui/material/Dialog'
 import DialogTitle from '@mui/material/DialogTitle'
 import DialogContent from '@mui/material/DialogContent'
@@ -14,17 +16,24 @@ import CheckCircleIcon from '@mui/icons-material/CheckCircle'
 import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline'
 import WarningAmberIcon from '@mui/icons-material/WarningAmber'
 import ContentCopyIcon from '@mui/icons-material/ContentCopy'
+import DeleteIcon from '@mui/icons-material/Delete'
 import IconButton from '@mui/material/IconButton'
+import FormControl from '@mui/material/FormControl'
+import InputLabel from '@mui/material/InputLabel'
+import Select from '@mui/material/Select'
+import MenuItem from '@mui/material/MenuItem'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import useApi from '../../hooks/useApi'
 import useSnackbar from '../../hooks/useSnackbar'
+import useThemeConfig from '../../hooks/useThemeConfig'
+import useAccount from '../../hooks/useAccount'
 import { getTokenExpiryStatus } from './claudeSubscriptionUtils'
 
 interface ClaudeSubscriptionData {
   id: string
   created: string
   name: string
-  credential_type: string
+  credential_type?: string
   subscription_type: string
   rate_limit_tier: string
   status: string
@@ -47,7 +56,7 @@ export function useClaudeSubscriptions() {
 }
 
 interface ClaudeSubscriptionConnectProps {
-  variant?: 'button' | 'inline'
+  variant?: 'button' | 'inline' | 'account'
   onConnected?: () => void
   orgId?: string
 }
@@ -62,12 +71,17 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
   const api = useApi()
   const snackbar = useSnackbar()
   const queryClient = useQueryClient()
+  const themeConfig = useThemeConfig()
+  const account = useAccount()
 
-  const { data: subscriptions } = useClaudeSubscriptions()
+  const organizations = account.organizationTools.organizations || []
+
+  const { data: subscriptions, isLoading } = useClaudeSubscriptions()
   const hasSubscription = subscriptions && subscriptions.length > 0
 
-  // Disconnect state
+  // Disconnect / delete state
   const [disconnectDialogOpen, setDisconnectDialogOpen] = useState(false)
+  const [deleteTarget, setDeleteTarget] = useState<string>('')
   const disconnectMutation = useMutation({
     mutationFn: async (id: string) => {
       return api.delete(`/api/v1/claude-subscriptions/${id}`, {}, {
@@ -77,6 +91,7 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['claude-subscriptions'] })
       setDisconnectDialogOpen(false)
+      setDeleteTarget('')
       snackbar.success('Claude subscription disconnected')
     },
   })
@@ -86,6 +101,10 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
   const [tokenValue, setTokenValue] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
+
+  // Org selector state (used by account variant)
+  const [ownerType, setOwnerType] = useState<'user' | 'org'>('user')
+  const [selectedOrgId, setSelectedOrgId] = useState('')
 
   const handleOpenTokenDialog = () => {
     setTokenValue('')
@@ -103,10 +122,12 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
     setSubmitting(true)
     setSubmitError(null)
     try {
+      // Use orgId prop if provided (button/inline variants), otherwise use internal state (account variant)
+      const effectiveOrgId = orgId || (ownerType === 'org' ? selectedOrgId : undefined)
       await api.post('/api/v1/claude-subscriptions', {
         name: 'My Claude Subscription',
         setup_token: token,
-        ...(orgId ? { owner_type: 'org', owner_id: orgId } : {}),
+        ...(effectiveOrgId ? { owner_type: 'org', owner_id: effectiveOrgId } : {}),
       })
       queryClient.invalidateQueries({ queryKey: ['claude-subscriptions'] })
       snackbar.success('Claude subscription connected')
@@ -124,12 +145,23 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
     snackbar.success('Command copied to clipboard')
   }
 
+  const handleDeleteClick = (id: string) => {
+    setDeleteTarget(id)
+    setDisconnectDialogOpen(true)
+  }
+
+  const handleConfirmDelete = () => {
+    if (deleteTarget) {
+      disconnectMutation.mutate(deleteTarget)
+    }
+  }
+
   const firstSub = subscriptions?.[0]
   const isSetupToken = firstSub?.credential_type === 'setup_token'
   const expiry = firstSub && !isSetupToken ? getTokenExpiryStatus(firstSub.access_token_expires_at) : null
   const isExpired = expiry?.isExpired ?? false
 
-  // Token dialog (shared between both variants)
+  // Token dialog (shared across all variants)
   const tokenDialog = (
     <Dialog open={tokenDialogOpen} onClose={() => setTokenDialogOpen(false)} maxWidth="sm" fullWidth>
       <DialogTitle>Connect Claude Subscription</DialogTitle>
@@ -199,24 +231,20 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
     </Dialog>
   )
 
-  // Disconnect dialog (shared)
+  // Disconnect dialog (shared across all variants)
   const disconnectDialog = (
     <Dialog open={disconnectDialogOpen} onClose={() => setDisconnectDialogOpen(false)}>
       <DialogTitle>Disconnect Claude Subscription</DialogTitle>
       <DialogContent>
         <DialogContentText>
-          Are you sure you want to disconnect your Claude subscription?
-          {isSetupToken && ' You may also want to revoke the token at claude.ai/settings/claude-code.'}
+          Are you sure you want to disconnect this Claude subscription?
+          {' '}You may also want to revoke the token at claude.ai/settings/claude-code.
         </DialogContentText>
       </DialogContent>
       <DialogActions>
         <Button onClick={() => setDisconnectDialogOpen(false)}>Cancel</Button>
         <Button
-          onClick={() => {
-            if (subscriptions?.[0]?.id) {
-              disconnectMutation.mutate(subscriptions[0].id)
-            }
-          }}
+          onClick={handleConfirmDelete}
           color="error"
           variant="contained"
           disabled={disconnectMutation.isPending}
@@ -227,6 +255,161 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
     </Dialog>
   )
 
+  // --- Account variant: full subscription list with org selector ---
+  if (variant === 'account') {
+    return (
+      <>
+        <Grid container spacing={2} sx={{ mt: 2, backgroundColor: themeConfig.darkPanel, p: 2, borderRadius: 2 }}>
+          <Grid item xs={12}>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+              <Box>
+                <Typography variant="h6">Claude Code Subscription</Typography>
+                <Typography variant="body2" color="text.secondary">
+                  Connect your Claude subscription to use Claude Code as the coding agent in Helix desktop sessions.
+                </Typography>
+              </Box>
+              {!hasSubscription && (
+                <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                  {organizations.length > 0 && (
+                    <FormControl size="small" sx={{ minWidth: 200 }}>
+                      <InputLabel>Subscription Owner</InputLabel>
+                      <Select
+                        value={ownerType === 'org' ? selectedOrgId : 'personal'}
+                        label="Subscription Owner"
+                        onChange={(e) => {
+                          const val = e.target.value
+                          if (val === 'personal') {
+                            setOwnerType('user')
+                            setSelectedOrgId('')
+                          } else {
+                            setOwnerType('org')
+                            setSelectedOrgId(val)
+                          }
+                        }}
+                      >
+                        <MenuItem value="personal">Personal (just me)</MenuItem>
+                        {organizations.map((org) => (
+                          <MenuItem key={org.id} value={org.id}>
+                            {org.display_name || org.name}
+                          </MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+                  )}
+                  <Button
+                    variant="contained"
+                    color="secondary"
+                    onClick={handleOpenTokenDialog}
+                  >
+                    Connect with Setup Token
+                  </Button>
+                </Box>
+              )}
+            </Box>
+
+            {isLoading ? (
+              <Typography variant="body2" color="text.secondary">Loading...</Typography>
+            ) : hasSubscription ? (
+              subscriptions.map((sub) => {
+                const subIsSetupToken = sub.credential_type === 'setup_token'
+                const subExpiry = subIsSetupToken ? null : getTokenExpiryStatus(sub.access_token_expires_at)
+                const subIsExpired = subExpiry?.isExpired ?? false
+                return (
+                  <Box
+                    key={sub.id}
+                    sx={{
+                      p: 2,
+                      borderRadius: 1,
+                      border: '1px solid',
+                      borderColor: subIsExpired ? 'error.main' : subExpiry?.isExpiringSoon ? 'warning.main' : 'divider',
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      mb: 1,
+                    }}
+                  >
+                    <Box>
+                      <Typography variant="subtitle1">{sub.name || 'Claude Subscription'}</Typography>
+                      <Box sx={{ display: 'flex', gap: 1, mt: 0.5, alignItems: 'center', flexWrap: 'wrap' }}>
+                        {subIsExpired && !subIsSetupToken ? (
+                          <Chip
+                            icon={<ErrorOutlineIcon />}
+                            label="Token Expired"
+                            color="error"
+                            size="small"
+                          />
+                        ) : (
+                          <Chip
+                            label={sub.status === 'active' ? 'Connected' : sub.status}
+                            color={sub.status === 'active' ? 'success' : 'warning'}
+                            size="small"
+                          />
+                        )}
+                        {subIsSetupToken && (
+                          <Chip label="Setup Token" size="small" variant="outlined" />
+                        )}
+                        {sub.subscription_type && (
+                          <Chip label={sub.subscription_type} size="small" variant="outlined" />
+                        )}
+                        {sub.owner_type === 'org' && (
+                          <Chip label="Organization" size="small" variant="outlined" />
+                        )}
+                        {subExpiry && (
+                          <Typography
+                            variant="caption"
+                            color={`${subExpiry.color}.main`}
+                            sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}
+                          >
+                            {subExpiry.isExpiringSoon && !subIsExpired && <WarningAmberIcon sx={{ fontSize: 14 }} />}
+                            {subExpiry.label}
+                          </Typography>
+                        )}
+                      </Box>
+                      {subIsExpired && !subIsSetupToken && (
+                        <Alert severity="warning" sx={{ mt: 1, py: 0 }} icon={false}>
+                          <Typography variant="caption">
+                            Token has expired. Update your token to refresh credentials for new sessions.
+                          </Typography>
+                        </Alert>
+                      )}
+                    </Box>
+                    <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                      <Button
+                        variant={subIsExpired ? 'contained' : 'outlined'}
+                        color={subIsExpired ? 'warning' : 'secondary'}
+                        size="small"
+                        onClick={handleOpenTokenDialog}
+                      >
+                        {subIsExpired ? 'Re-authenticate' : 'Update Token'}
+                      </Button>
+                      <IconButton
+                        color="error"
+                        size="small"
+                        onClick={() => handleDeleteClick(sub.id)}
+                      >
+                        <DeleteIcon />
+                      </IconButton>
+                    </Box>
+                  </Box>
+                )
+              })
+            ) : (
+              <Box sx={{ p: 2, borderRadius: 1, border: '1px dashed', borderColor: 'divider', textAlign: 'center' }}>
+                <Typography variant="body2" color="text.secondary">
+                  No Claude subscription connected. Click &quot;Connect with Setup Token&quot; to get started.
+                </Typography>
+              </Box>
+            )}
+          </Grid>
+        </Grid>
+
+        {tokenDialog}
+        {disconnectDialog}
+      </>
+    )
+  }
+
+  // --- Button variant ---
   if (variant === 'button') {
     return (
       <>
@@ -247,7 +430,12 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
                 size="small"
                 variant="outlined"
                 color="error"
-                onClick={() => setDisconnectDialogOpen(true)}
+                onClick={() => {
+                  if (subscriptions?.[0]?.id) {
+                    setDeleteTarget(subscriptions[0].id)
+                    setDisconnectDialogOpen(true)
+                  }
+                }}
               >
                 Disconnect
               </Button>
@@ -282,7 +470,7 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
     )
   }
 
-  // inline variant
+  // --- Inline variant ---
   return (
     <>
       <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
