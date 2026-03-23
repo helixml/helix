@@ -28,8 +28,7 @@
 
 - [ ] `cargo check --package zed --features external_websocket_sync` — must compile with no errors
 - [ ] `cargo test -p external_websocket_sync` — all unit and protocol-level tests pass
-- [ ] Build E2E Docker image: `docker build -t zed-ws-e2e -f crates/external_websocket_sync/e2e-test/Dockerfile .`
-- [ ] Run E2E test: `docker run --rm -e ANTHROPIC_API_KEY=<key> -e TEST_TIMEOUT=120 zed-ws-e2e` — all 10 phases must pass
+- [ ] Run E2E test: `ANTHROPIC_API_KEY=<key> crates/external_websocket_sync/e2e-test/run_docker_e2e.sh` — all 10 phases must pass
 
 ## Porting Guide Update
 

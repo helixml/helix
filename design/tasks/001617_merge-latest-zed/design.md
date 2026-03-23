@@ -34,8 +34,7 @@ Run in this order after the merge, stopping on first failure:
 
 1. `cargo check --package zed --features external_websocket_sync` — fast compile check
 2. `cargo test -p external_websocket_sync` — unit + protocol tests (no Docker, fast)
-3. E2E test build: `docker build -t zed-ws-e2e -f crates/external_websocket_sync/e2e-test/Dockerfile .`
-4. E2E test run: `docker run --rm -e ANTHROPIC_API_KEY=<key> -e TEST_TIMEOUT=120 zed-ws-e2e`
+3. E2E test: `ANTHROPIC_API_KEY=<key> crates/external_websocket_sync/e2e-test/run_docker_e2e.sh`
 
 The E2E test requires `ANTHROPIC_API_KEY` (real Claude calls). It validates all 10 phases including multi-thread sync, follow-up to non-visible threads, and UI state queries.
 
