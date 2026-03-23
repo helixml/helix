@@ -29,13 +29,19 @@ type koditServiceMock struct {
 	registerRepositoryFn func(ctx context.Context, cloneURL, upstreamURL string) (int64, bool, error)
 	semanticSearchFn     func(ctx context.Context, koditRepoID int64, query string, limit int, language string) ([]services.KoditFileResult, error)
 	deleteRepositoryFn   func(ctx context.Context, koditRepoID int64) error
+	rescanCommitFn       func(ctx context.Context, koditRepoID int64, commitSHA string) error
 }
 
 var _ services.KoditServicer = (*koditServiceMock)(nil)
 
 func (m *koditServiceMock) IsEnabled() bool                                { return true }
 func (m *koditServiceMock) MCPDocumentation() string                       { return "" }
-func (m *koditServiceMock) RescanCommit(context.Context, int64, string) error { return nil }
+func (m *koditServiceMock) RescanCommit(ctx context.Context, id int64, sha string) error {
+	if m.rescanCommitFn != nil {
+		return m.rescanCommitFn(ctx, id, sha)
+	}
+	return nil
+}
 func (m *koditServiceMock) SyncRepository(context.Context, int64) error    { return nil }
 func (m *koditServiceMock) EnrichmentCount(context.Context, int64) (int64, error) { return 0, nil }
 func (m *koditServiceMock) DeleteTask(context.Context, int64) error        { return nil }
@@ -179,21 +185,17 @@ func (s *KoditRAGSuite) TestRegisterDirectory_CreatesDataEntity() {
 }
 
 func (s *KoditRAGSuite) TestRegisterDirectory_UpdatesExistingDataEntity() {
-	oldRepoID := int64(99)
-	newRepoID := int64(100)
-	callCount := 0
+	repoID := int64(99)
 	s.mockSvc.registerRepositoryFn = func(_ context.Context, _, _ string) (int64, bool, error) {
-		callCount++
-		if callCount == 1 {
-			return oldRepoID, false, nil // first call: repo exists
-		}
-		return newRepoID, true, nil // second call: re-registered after delete
+		return repoID, false, nil
 	}
 
-	deleted := false
-	s.mockSvc.deleteRepositoryFn = func(_ context.Context, id int64) error {
-		s.Equal(oldRepoID, id)
-		deleted = true
+	// When repo already exists, RescanCommit should be called with empty SHA.
+	rescanned := false
+	s.mockSvc.rescanCommitFn = func(_ context.Context, id int64, sha string) error {
+		s.Equal(repoID, id)
+		s.Equal("", sha)
+		rescanned = true
 		return nil
 	}
 
@@ -207,15 +209,14 @@ func (s *KoditRAGSuite) TestRegisterDirectory_UpdatesExistingDataEntity() {
 		UpdateDataEntity(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, e *types.DataEntity) (*types.DataEntity, error) {
 			s.Require().NotNil(e.KoditRepositoryID)
-			s.Equal(newRepoID, *e.KoditRepositoryID)
+			s.Equal(repoID, *e.KoditRepositoryID)
 			s.Equal("/some/path", e.Config.FilestorePath)
 			return e, nil
 		})
 
 	err := s.rag.RegisterDirectory(context.Background(), "de_456", "/some/path", "user_1", "user")
 	s.NoError(err)
-	s.True(deleted)
-	s.Equal(2, callCount)
+	s.True(rescanned)
 }
 
 func (s *KoditRAGSuite) TestQuery_UsesStoredRepoID() {

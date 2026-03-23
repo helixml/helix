@@ -68,20 +68,16 @@ func (k *KoditRAG) RegisterDirectory(ctx context.Context, dataEntityID, localPat
 		return fmt.Errorf("kodit RegisterRepository failed for %s: %w", fileURI, err)
 	}
 
-	// If the repo already existed, delete and re-register to force a full
-	// re-index. Sync is insufficient for local file:// directories because
-	// kodit treats them as git repos and sync only does a git fetch + diff.
+	// If the repo already existed, trigger a full rescan. SyncRepository only
+	// does a git fetch which is a no-op for local file:// directories.
+	// RescanCommit with empty SHA rescans the entire repository.
 	if !isNew {
 		log.Info().
 			Int64("kodit_repo_id", repoID).
 			Str("file_uri", fileURI).
-			Msg("kodit repo already exists, deleting and re-registering for full re-index")
-		if err := k.kodit.DeleteRepository(ctx, repoID); err != nil {
-			log.Warn().Err(err).Int64("kodit_repo_id", repoID).Msg("failed to delete old kodit repo, continuing with re-register")
-		}
-		repoID, _, err = k.kodit.RegisterRepository(ctx, fileURI, "")
-		if err != nil {
-			return fmt.Errorf("kodit re-RegisterRepository failed for %s: %w", fileURI, err)
+			Msg("kodit repo already exists, triggering full rescan")
+		if err := k.kodit.RescanCommit(ctx, repoID, ""); err != nil {
+			return fmt.Errorf("kodit rescan failed for repo %d: %w", repoID, err)
 		}
 	}
 
