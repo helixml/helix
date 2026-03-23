@@ -1093,8 +1093,17 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 
 			// THROTTLED DB WRITE: Only flush to DB if enough time has passed.
 			// The in-memory interaction always has the latest content.
+			//
+			// IMPORTANT: Skip the write when content is empty. Zed fires an initial
+			// NewEntry event with content="" (from the ACP content_block_start event
+			// which initializes with an empty text block before any tokens arrive).
+			// Because lastDBWrite starts at zero, this would immediately write
+			// ResponseMessage="" to the DB, and if message_completed arrives while
+			// dirty=false (after a subsequent throttled write), GetInteraction would
+			// return empty content. By not writing on empty content, lastDBWrite stays
+			// at zero so the NEXT write (with actual content) fires immediately.
 			now := time.Now()
-			if now.Sub(sctx.lastDBWrite) >= dbWriteInterval {
+			if acc.Content != "" && now.Sub(sctx.lastDBWrite) >= dbWriteInterval {
 				_, err := apiServer.Controller.Options.Store.UpdateInteraction(context.Background(), targetInteraction)
 				if err != nil {
 					return fmt.Errorf("failed to update interaction %s: %w", targetInteraction.ID, err)

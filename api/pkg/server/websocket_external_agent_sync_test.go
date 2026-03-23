@@ -1654,6 +1654,69 @@ func (s *WebSocketSyncSuite) TestStreamingThrottle_DBWriteAfterInterval() {
 	sctx.mu.Unlock()
 }
 
+func (s *WebSocketSyncSuite) TestStreamingThrottle_EmptyContentSkipsDBWrite() {
+	// Test that an empty-content message_added (from ACP content_block_start) does not
+	// write to the DB, keeping lastDBWrite at zero so the next non-empty write fires immediately.
+	s.server.contextMappings["thread-empty"] = "ses_empty"
+	s.server.sessionToWaitingInteraction["ses_empty"] = []string{"int-empty"}
+
+	session := &types.Session{
+		ID:    "ses_empty",
+		Owner: "user-1",
+	}
+	existingInteraction := &types.Interaction{
+		ID:              "int-empty",
+		SessionID:       "ses_empty",
+		State:           types.InteractionStateWaiting,
+		ResponseMessage: "",
+	}
+
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_empty").Return(session, nil).Times(1)
+	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(
+		[]*types.Interaction{existingInteraction}, int64(1), nil,
+	).Times(1)
+
+	// Empty content event (ACP content_block_start) — must NOT trigger a DB write.
+	// (No UpdateInteraction expectation here.)
+
+	emptyMsg := &types.SyncMessage{
+		EventType: "message_added",
+		Data: map[string]interface{}{
+			"acp_thread_id": "thread-empty",
+			"message_id":    "msg-1",
+			"content":       "",
+			"role":          "assistant",
+		},
+	}
+	err := s.server.handleMessageAdded("agent-1", emptyMsg)
+	s.NoError(err)
+
+	s.server.streamingContextsMu.RLock()
+	sctx := s.server.streamingContexts["ses_empty"]
+	s.server.streamingContextsMu.RUnlock()
+	sctx.mu.Lock()
+	s.True(sctx.dirty, "should be dirty after empty-content event")
+	s.True(sctx.lastDBWrite.IsZero(), "lastDBWrite should stay at zero after empty-content skip")
+	sctx.mu.Unlock()
+
+	// First non-empty token must write immediately (lastDBWrite is still zero).
+	s.store.EXPECT().UpdateInteraction(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, interaction *types.Interaction) (*types.Interaction, error) {
+			s.Equal("Hello world", interaction.ResponseMessage)
+			return interaction, nil
+		},
+	).Times(1)
+
+	emptyMsg.Data["content"] = "Hello world"
+	err = s.server.handleMessageAdded("agent-1", emptyMsg)
+	s.NoError(err)
+
+	sctx.mu.Lock()
+	s.False(sctx.dirty, "should not be dirty after immediate write triggered by non-empty content")
+	s.False(sctx.lastDBWrite.IsZero(), "lastDBWrite should be set after first non-empty write")
+	sctx.mu.Unlock()
+}
+
 func (s *WebSocketSyncSuite) TestStreamingThrottle_DirtyFlushOnMessageCompleted() {
 	// Test that dirty interaction is flushed to DB when message_completed arrives.
 	s.server.contextMappings["thread-flush"] = "ses_flush"
