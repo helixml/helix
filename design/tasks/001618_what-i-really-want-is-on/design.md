@@ -88,6 +88,14 @@ In `GlobalNotifications.tsx`, below the existing alerts list:
 
 No backend changes. No new API endpoints.
 
+## Implementation Notes
+
+- **Circular dependency trap**: `router.tsx` → page components → `Page.tsx` → `GlobalNotifications.tsx` creates a cycle. Any module imported by `GlobalNotifications` that in turn imports `router.tsx` at module level (not inside a function) will fail with "Cannot access 'router' before initialization" (TDZ error). Fixed by extracting recording logic to `src/lib/navHistory.ts` which has zero local imports — `router.tsx` imports it (no cycle since navHistory has no local deps).
+- **GlobalNotifications is not global**: Despite the name, `GlobalNotifications` is only rendered on the Projects/Kanban page (`notifications={true}` prop on `Page`). Navigation history must be recorded at `router.tsx` module level (in the existing `router.subscribe()` callback) so it works on all pages.
+- **react-router5 `useRoute()`** causes re-renders on every route change — used in `useNavigationHistory` hook to keep the displayed list fresh without any state management.
+- **Alert dedup logic**: added `deduplicateGroupsByTask()` after the existing `groupEvents()` call. Groups are already sorted newest-first from the API, so the first group per `spec_task_id` is kept.
+- **Screenshot**: `screenshots/03-panel-with-recent-pages.png` shows the working feature.
+
 ## Patterns Used in This Codebase
 
 - Notification panel uses Lucide icons (not MUI icons) — use Lucide's `Clock` or `History` for the section icon
