@@ -6,7 +6,7 @@ When Helix pushes a branch to GitHub that includes changes to `.github/workflows
 
 > refusing to allow an OAuth App to create or update workflow `.github/workflows/...` without `workflow` scope
 
-GitHub then rolls back the local ref on the middle git server too. The `workflow` scope is separate from `repo` and must be explicitly requested.
+The Helix middle git server then rolls back the local ref too. The `workflow` scope is separate from `repo` and must be explicitly requested.
 
 ## User Stories
 
