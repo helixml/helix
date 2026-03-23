@@ -50,6 +50,7 @@
 - [x] Document ACP consolidation renames in new "ACP Consolidation" section
 - [x] Document `from_existing_thread` API changes and `set_session_list` cfg fix
 - [x] Update the Commit History table with new Helix-specific commits
+- [x] Document `.github/workflows/` revert requirement (GitHub rejects pushes modifying that dir)
 
 ## Finalize
 
