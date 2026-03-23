@@ -5,6 +5,8 @@ package rag
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"go.uber.org/mock/gomock"
@@ -14,6 +16,7 @@ import (
 	"github.com/stretchr/testify/suite"
 
 	"github.com/helixml/helix/api/pkg/config"
+	"github.com/helixml/helix/api/pkg/data"
 	"github.com/helixml/helix/api/pkg/services"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
@@ -164,6 +167,7 @@ func (s *KoditRAGSuite) TestRegisterDirectory_CreatesDataEntity() {
 			s.Equal("user_1", e.Owner)
 			s.Require().NotNil(e.KoditRepositoryID)
 			s.Equal(repoID, *e.KoditRepositoryID)
+			s.Equal("/srv/files/knowledge", e.Config.FilestorePath)
 			return e, nil
 		})
 
@@ -188,6 +192,7 @@ func (s *KoditRAGSuite) TestRegisterDirectory_UpdatesExistingDataEntity() {
 		DoAndReturn(func(_ context.Context, e *types.DataEntity) (*types.DataEntity, error) {
 			s.Require().NotNil(e.KoditRepositoryID)
 			s.Equal(repoID, *e.KoditRepositoryID)
+			s.Equal("/some/path", e.Config.FilestorePath)
 			return e, nil
 		})
 
@@ -276,6 +281,52 @@ func (s *KoditRAGSuite) TestDelete_NoopWhenEntityNotFound() {
 
 	err := s.rag.Delete(context.Background(), &types.DeleteIndexRequest{DataEntityID: "de_missing"})
 	s.NoError(err)
+}
+
+func (s *KoditRAGSuite) TestQuery_PopulatesDocumentID() {
+	// Create real files on disk so Query can read and hash them.
+	tmpDir := s.T().TempDir()
+	fooContent := []byte("package foo\n\nfunc Foo() {}\n")
+	barContent := []byte("package bar\n\nfunc Bar() {}\n")
+
+	s.Require().NoError(os.MkdirAll(filepath.Join(tmpDir, "pkg"), 0o755))
+	s.Require().NoError(os.WriteFile(filepath.Join(tmpDir, "pkg", "foo.go"), fooContent, 0o644))
+	s.Require().NoError(os.WriteFile(filepath.Join(tmpDir, "pkg", "bar.go"), barContent, 0o644))
+
+	repoID := int64(10)
+	entity := &types.DataEntity{
+		ID:                "de_docid",
+		KoditRepositoryID: &repoID,
+		Config: types.DataEntityConfig{
+			FilestorePath: tmpDir,
+		},
+	}
+
+	s.mockStore.EXPECT().
+		GetDataEntity(gomock.Any(), "de_docid").
+		Return(entity, nil)
+
+	s.mockSvc.semanticSearchFn = func(_ context.Context, _ int64, _ string, _ int, _ string) ([]services.KoditFileResult, error) {
+		return []services.KoditFileResult{
+			{Path: "pkg/foo.go", Preview: "func Foo() {}", Score: 0.95},
+			{Path: "pkg/bar.go", Preview: "func Bar() {}", Score: 0.85},
+		}, nil
+	}
+
+	results, err := s.rag.Query(context.Background(), &types.SessionRAGQuery{
+		DataEntityID: "de_docid",
+		Prompt:       "find functions",
+		MaxResults:   10,
+	})
+	s.NoError(err)
+	s.Len(results, 2)
+
+	// DocumentID must be the content hash of the actual file, not the preview.
+	s.Equal(data.ContentHash(fooContent), results[0].DocumentID)
+	s.Equal(data.ContentHash(barContent), results[1].DocumentID)
+
+	// Different files must produce different IDs.
+	s.NotEqual(results[0].DocumentID, results[1].DocumentID)
 }
 
 func (s *KoditRAGSuite) TestRegisterDirectory_PropagatesKoditError() {

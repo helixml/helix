@@ -6,9 +6,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 
 	"github.com/helixml/helix/api/pkg/config"
+	"github.com/helixml/helix/api/pkg/data"
 	"github.com/helixml/helix/api/pkg/services"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
@@ -96,12 +98,16 @@ func (k *KoditRAG) RegisterDirectory(ctx context.Context, dataEntityID, localPat
 			Owner:             owner,
 			OwnerType:         types.OwnerType(ownerType),
 			KoditRepositoryID: &repoID,
+			Config: types.DataEntityConfig{
+				FilestorePath: localPath,
+			},
 		})
 		if err != nil {
 			return fmt.Errorf("failed to create data entity %s: %w", dataEntityID, err)
 		}
 	} else {
 		entity.KoditRepositoryID = &repoID
+		entity.Config.FilestorePath = localPath
 		_, err = k.store.UpdateDataEntity(ctx, entity)
 		if err != nil {
 			return fmt.Errorf("failed to update data entity %s: %w", dataEntityID, err)
@@ -135,12 +141,27 @@ func (k *KoditRAG) Query(ctx context.Context, q *types.SessionRAGQuery) ([]*type
 
 	ragResults := make([]*types.SessionRAGResult, 0, len(results))
 	for _, r := range results {
-		ragResults = append(ragResults, &types.SessionRAGResult{
+		result := &types.SessionRAGResult{
 			Content:  r.Preview,
 			Source:   r.Path,
 			Filename: r.Path,
 			Distance: 1.0 - r.Score, // kodit uses similarity scores (0-1); RAG uses distance
-		})
+		}
+
+		// Compute DocumentID from the actual file content so the frontend
+		// can resolve citations back to filestore files.
+		if entity.Config.FilestorePath != "" {
+			fullPath := filepath.Join(entity.Config.FilestorePath, r.Path)
+			if fileBytes, err := os.ReadFile(fullPath); err == nil {
+				result.DocumentID = data.ContentHash(fileBytes)
+			} else {
+				log.Warn().Err(err).
+					Str("path", fullPath).
+					Msg("could not read file for document ID hash")
+			}
+		}
+
+		ragResults = append(ragResults, result)
 	}
 
 	return ragResults, nil
