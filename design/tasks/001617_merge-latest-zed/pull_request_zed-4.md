@@ -20,6 +20,30 @@ Merges 736 upstream commits from `zed-industries/zed` main into the Helix fork, 
 3. `AssistantMessage::content_only()` exists (`acp_thread.rs`)
 4. Follow-up path calls `notify_thread_display()` before sending (`thread_service.rs`)
 
+## Streaming content accumulation fix
+
+Fixed a race condition where short AI responses (e.g. a single token) were
+sent to the Go server with empty content, causing `validateStore()` to fail.
+
+**Root cause**: `AcpThreadEvent::EntryUpdated` fires BEFORE
+`buffer_streaming_text` appends the new chunk to `StreamingTextBuffer`.
+For the first (and possibly only) chunk, `throttled_send_message_added`
+captures empty content. `flush_streaming_throttle` on `Stopped` only
+re-sends stored pending messages — it does not re-read the now-complete
+content. So the Go server's `MessageAccumulator` ends up with empty
+`ResponseMessage`/`ResponseEntries`.
+
+**Fix** (`crates/external_websocket_sync/src/thread_service.rs`): in the
+`AcpThreadEvent::Stopped` handler, after `flush_streaming_throttle`, iterate
+all assistant/tool_call entries and send a fresh `message_added` with
+`content_only(cx)` / `to_markdown(cx)`. At `Stopped` time,
+`flush_streaming_text` has already been called, so all content is available.
+The Go server accumulator uses per-messageID overwrite semantics, so these
+final events correctly replace any truncated content sent during streaming.
+
+E2E test (`run_docker_e2e.sh`) passes with both `zed-agent` and `claude`
+agent types — all 10 phases pass including store validation.
+
 Release Notes:
 
 - N/A
