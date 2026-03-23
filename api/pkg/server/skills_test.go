@@ -10,6 +10,7 @@ import (
 	apiskill "github.com/helixml/helix/api/pkg/agent/skill/api_skills"
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/store"
+	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
@@ -72,7 +73,7 @@ func TestEnableSkill_CodeIntelligence(t *testing.T) {
 	req = req.WithContext(setRequestUser(req.Context(), types.User{ID: userID, Type: types.OwnerTypeUser}))
 
 	rr := httptest.NewRecorder()
-	srv.handleEnableSkill(rr, req)
+	system.Wrapper(srv.handleEnableSkill)(rr, req)
 
 	require.Equal(t, http.StatusOK, rr.Code, "body: %s", rr.Body.String())
 
@@ -122,7 +123,7 @@ func TestEnableSkill_NoAPIKey(t *testing.T) {
 	req = req.WithContext(setRequestUser(req.Context(), types.User{ID: userID, Type: types.OwnerTypeUser}))
 
 	rr := httptest.NewRecorder()
-	srv.handleEnableSkill(rr, req)
+	system.Wrapper(srv.handleEnableSkill)(rr, req)
 
 	assert.Equal(t, http.StatusInternalServerError, rr.Code)
 }
@@ -151,7 +152,7 @@ func TestEnableSkill_NotMCPSkill(t *testing.T) {
 	req = req.WithContext(setRequestUser(req.Context(), types.User{ID: userID, Type: types.OwnerTypeUser}))
 
 	rr := httptest.NewRecorder()
-	srv.handleEnableSkill(rr, req)
+	system.Wrapper(srv.handleEnableSkill)(rr, req)
 
 	assert.Equal(t, http.StatusBadRequest, rr.Code)
 }

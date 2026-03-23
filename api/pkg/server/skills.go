@@ -10,6 +10,7 @@ import (
 	"github.com/helixml/helix/api/pkg/agent"
 	"github.com/helixml/helix/api/pkg/agent/skill/mcp"
 	"github.com/helixml/helix/api/pkg/store"
+	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
@@ -205,11 +206,10 @@ func (s *HelixAPIServer) handleValidateMcpSkill(_ http.ResponseWriter, r *http.R
 // @Success 200 {object} types.App
 // @Router /api/v1/apps/{id}/skills/{skill}/enable [post]
 // @Security BearerAuth
-func (s *HelixAPIServer) handleEnableSkill(w http.ResponseWriter, r *http.Request) {
+func (s *HelixAPIServer) handleEnableSkill(_ http.ResponseWriter, r *http.Request) (*types.App, *system.HTTPError) {
 	user := getRequestUser(r)
 	if user == nil {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
-		return
+		return nil, system.NewHTTPError401("unauthorized")
 	}
 
 	vars := mux.Vars(r)
@@ -219,40 +219,36 @@ func (s *HelixAPIServer) handleEnableSkill(w http.ResponseWriter, r *http.Reques
 	// Fetch the app and authorize.
 	app, err := s.Store.GetApp(r.Context(), appID)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("app not found: %s", err), http.StatusNotFound)
-		return
+		return nil, system.NewHTTPError404(fmt.Sprintf("app not found: %s", err))
 	}
 	if authErr := s.authorizeUserToApp(r.Context(), user, app, types.ActionUpdate); authErr != nil {
-		http.Error(w, authErr.Error(), http.StatusForbidden)
-		return
+		return nil, system.NewHTTPError403(authErr.Error())
 	}
 
 	// Look up the skill definition.
 	skillDef, err := s.skillManager.GetSkill(skillName)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("skill not found: %s", err), http.StatusNotFound)
-		return
+		return nil, system.NewHTTPError404(fmt.Sprintf("skill not found: %s", err))
 	}
 
 	// Only autoProvision MCP skills are supported by this endpoint.
 	if skillDef.MCP == nil || !skillDef.MCP.AutoProvision {
-		http.Error(w, fmt.Sprintf("skill %q does not support auto-provisioning via this endpoint", skillName), http.StatusBadRequest)
-		return
+		return nil, system.NewHTTPError400(fmt.Sprintf("skill %q does not support auto-provisioning via this endpoint", skillName))
 	}
 
 	// Get the user's API key (used as the bearer token for Kodit).
+	// ListAPIKeys returns keys ordered by creation date; we use the first (oldest)
+	// to provide a stable, predictable choice when the user has multiple keys.
 	keys, err := s.Store.ListAPIKeys(r.Context(), &store.ListAPIKeysQuery{
 		Owner:     user.ID,
 		OwnerType: user.Type,
 		Type:      types.APIkeytypeAPI,
 	})
 	if err != nil {
-		http.Error(w, fmt.Sprintf("failed to list API keys: %s", err), http.StatusInternalServerError)
-		return
+		return nil, system.NewHTTPError500(fmt.Sprintf("failed to list API keys: %s", err))
 	}
 	if len(keys) == 0 {
-		http.Error(w, "no API key found for user — create one first", http.StatusInternalServerError)
-		return
+		return nil, system.NewHTTPError500("no API key found for user — create one first")
 	}
 	apiKey := keys[0].Key
 
@@ -276,9 +272,7 @@ func (s *HelixAPIServer) handleEnableSkill(w http.ResponseWriter, r *http.Reques
 	// Idempotency: skip if the skill is already configured (same display name).
 	for _, existing := range app.Config.Helix.Assistants[0].MCPs {
 		if existing.Name == mcpEntry.Name {
-			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(app)
-			return
+			return app, nil
 		}
 	}
 
@@ -286,8 +280,7 @@ func (s *HelixAPIServer) handleEnableSkill(w http.ResponseWriter, r *http.Reques
 
 	updated, err := s.Store.UpdateApp(r.Context(), app)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("failed to update app: %s", err), http.StatusInternalServerError)
-		return
+		return nil, system.NewHTTPError500(fmt.Sprintf("failed to update app: %s", err))
 	}
 
 	log.Info().
@@ -297,6 +290,5 @@ func (s *HelixAPIServer) handleEnableSkill(w http.ResponseWriter, r *http.Reques
 		Str("kodit_url", koditURL).
 		Msg("Enabled skill on app")
 
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(updated)
+	return updated, nil
 }

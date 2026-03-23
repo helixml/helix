@@ -21,5 +21,6 @@ export function useEnableSkill() {
   return useCallback(async (appId: string, skillName: string): Promise<TypesApp> => {
     const response = await client.v1AppsSkillsEnableCreate(appId, skillName);
     return response.data;
-  }, [client]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 }

@@ -76,6 +76,8 @@ interface ISkill {
   description: string;
   type: string;
   categories?: string[];
+  backendSkillId?: string;
+  autoProvision?: boolean;
   skill: IAgentSkill;
 }
 
@@ -407,6 +409,7 @@ const Skills: React.FC<SkillsProps> = ({
   const { data: backendSkillsResponse, isLoading: isBackendSkillsLoading } = useSkills();
 
   const [selectedSkill, setSelectedSkill] = useState<IAgentSkill | null>(null);
+  const [selectedBackendSkillId, setSelectedBackendSkillId] = useState<string | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [dialogType, setDialogType] = useState<'api' | 'mcp' | 'local-mcp' | null>(null);
   const [selectedLocalMcp, setSelectedLocalMcp] = useState<TypesAssistantMCP | null>(null);
@@ -966,6 +969,7 @@ const Skills: React.FC<SkillsProps> = ({
       setDialogType('local-mcp');
     } else {
       setSelectedSkill(skill.skill);
+      setSelectedBackendSkillId(skill.backendSkillId || null);
       setSelectedLocalMcp(null);
       setDialogType(null);
     }
@@ -1088,7 +1092,7 @@ const Skills: React.FC<SkillsProps> = ({
       );
     }
 
-    if (selectedSkill.name === 'Code Intelligence') {
+    if (selectedBackendSkillId === 'code-intelligence') {
       return (
         <CodeIntelligenceSkill
           open={isDialogOpen}
@@ -1097,6 +1101,7 @@ const Skills: React.FC<SkillsProps> = ({
           }}
           onClosed={() => {
             setSelectedSkill(null);
+            setSelectedBackendSkillId(null);
             setDialogType(null);
           }}
           app={app}

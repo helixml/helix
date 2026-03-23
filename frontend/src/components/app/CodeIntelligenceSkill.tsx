@@ -75,7 +75,7 @@ const CodeIntelligenceSkill: React.FC<CodeIntelligenceSkillProps> = ({
     try {
       setError(null);
       const updatedMcpTools = (app.mcpTools || []).filter(
-        tool => tool.name !== 'Code Intelligence'
+        tool => !tool.url?.includes('/api/v1/mcp/kodit')
       );
       await onUpdate({ ...app, mcpTools: updatedMcpTools });
       onClose();
