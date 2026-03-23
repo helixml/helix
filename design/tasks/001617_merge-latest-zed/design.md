@@ -9,12 +9,12 @@
 
 ## Merge Strategy
 
-**Branch name**: `merge-upstream-2026-03-23` — based on the prior upstream merge branch `merge-upstream-2026-01-27` visible in the remote.
+**Branch name**: `feature/001617-merge-latest-zed` — the internal git server only accepts pushes to branches matching the `feature/<task-id>-*` pattern, as seen across all existing task branches (e.g. `feature/001608-when-zed-first-starts-up`).
 
 **Rebase onto upstream** (preferred) rather than a merge commit, to keep history linear and diffs against upstream readable. If upstream has diverged significantly and rebase produces too many conflicts, a merge commit is acceptable.
 
 ```
-git checkout -b merge-upstream-2026-03-23
+git checkout -b feature/001617-merge-latest-zed
 git remote add upstream https://github.com/zed-industries/zed
 git fetch upstream
 git rebase upstream/main   # or: git merge upstream/main
