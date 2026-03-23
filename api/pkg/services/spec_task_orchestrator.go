@@ -735,13 +735,10 @@ func (o *SpecTaskOrchestrator) processExternalPullRequestStatus(ctx context.Cont
 	}
 
 	if allClosed && !anyOpen && len(task.RepoPullRequests) > 0 {
-		// All PRs abandoned - archive the task
-		task.Archived = true
-		task.UpdatedAt = time.Now()
+		// All PRs closed — log but don't auto-archive. Let the user decide.
 		log.Info().
 			Str("task_id", task.ID).
-			Msg("All PRs abandoned, archiving task")
-		return o.store.UpdateSpecTask(ctx, task)
+			Msg("All PRs closed, task remains in pull_request status")
 	}
 
 	// Persist any state updates
