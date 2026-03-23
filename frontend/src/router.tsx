@@ -40,6 +40,7 @@ import Waitlist from './pages/Waitlist'
 import Login from './pages/Login'
 import NotFound from './pages/NotFound'
 import useRouter from './hooks/useRouter'
+import { recordNavRoute } from './lib/navHistory'
 
 // extend the base router5 route to add metadata and self rendering
 export interface IApplicationRoute extends Route {
@@ -438,6 +439,9 @@ router.subscribe((state) => {
   const win = (window as any)
   if(win.viewPage) {
     win.viewPage(state)
+  }
+  if (state.route) {
+    recordNavRoute(state.route.name, state.route.params as Record<string, string>)
   }
 })
 
