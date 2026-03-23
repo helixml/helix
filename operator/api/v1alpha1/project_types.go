@@ -78,12 +78,12 @@ type ProjectAgentDisplay struct {
 //   - "gemini_cli"  — Gemini CLI
 //   - "codex_cli"   — OpenAI Codex CLI
 type ProjectAgentSpec struct {
-	Name        string             `json:"name,omitempty"`
-	Runtime     string             `json:"runtime,omitempty"`
-	Model       string             `json:"model,omitempty"`
-	Provider    string             `json:"provider,omitempty"`
-	Credentials string             `json:"credentials,omitempty"`
-	Tools       *ProjectAgentTools `json:"tools,omitempty"`
+	Name        string               `json:"name,omitempty"`
+	Runtime     string               `json:"runtime,omitempty"`
+	Model       string               `json:"model,omitempty"`
+	Provider    string               `json:"provider,omitempty"`
+	Credentials string               `json:"credentials,omitempty"`
+	Tools       *ProjectAgentTools   `json:"tools,omitempty"`
 	Display     *ProjectAgentDisplay `json:"display,omitempty"`
 }
 
