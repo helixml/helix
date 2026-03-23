@@ -2,7 +2,11 @@
 
 ## Background
 
-Helix needs to push files to `.github/workflows/` in repositories. This requires the GitHub `workflow` scope, which is separate from the `repo` scope. Without it, pushes to workflow files fail with a 403.
+When Helix pushes a branch to GitHub that includes changes to `.github/workflows/` files (e.g. from an upstream merge), GitHub rejects the push with:
+
+> refusing to allow an OAuth App to create or update workflow `.github/workflows/...` without `workflow` scope
+
+GitHub then rolls back the local ref on the middle git server too. The `workflow` scope is separate from `repo` and must be explicitly requested.
 
 ## User Stories
 
