@@ -1712,6 +1712,44 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/apps/{id}/skills/{skill}/enable": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Enable a marketplace skill on an app. For autoProvision MCP skills the server generates URL and auth automatically.",
+                "tags": [
+                    "skills"
+                ],
+                "summary": "Enable a marketplace skill on an app",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "App ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Skill name (e.g. code-intelligence)",
+                        "name": "skill",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.App"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/apps/{id}/step-info": {
             "get": {
                 "security": [
@@ -27259,6 +27297,14 @@ const docTemplate = `{
                 "loadedAt": {
                     "type": "string"
                 },
+                "mcp": {
+                    "description": "MCP configuration (present when this skill is MCP-backed rather than API-backed)",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.SkillMCPSpec"
+                        }
+                    ]
+                },
                 "name": {
                     "type": "string"
                 },
@@ -27306,6 +27352,19 @@ const docTemplate = `{
                 },
                 "type": {
                     "description": "e.g., \"material-ui\", \"custom\"",
+                    "type": "string"
+                }
+            }
+        },
+        "types.SkillMCPSpec": {
+            "type": "object",
+            "properties": {
+                "autoProvision": {
+                    "description": "if true, URL+auth are generated server-side",
+                    "type": "boolean"
+                },
+                "transport": {
+                    "description": "\"http\" or \"sse\"",
                     "type": "string"
                 }
             }
