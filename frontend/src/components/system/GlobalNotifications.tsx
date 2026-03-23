@@ -300,6 +300,7 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
     events,
     newEvents,
     totalCount,
+    unreadCount,
     hasNew,
     acknowledge,
     dismiss,
@@ -417,7 +418,7 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
         }}
       >
         <Badge
-          badgeContent={totalCount}
+          badgeContent={hasNew ? unreadCount : totalCount}
           color={hasNew ? 'error' : 'default'}
           sx={{
             '& .MuiBadge-badge': {
