@@ -460,10 +460,11 @@ export class WebSocketStream {
       return
     }
 
-    // Attempt reconnection with exponential backoff (capped at 10 seconds)
+    // Attempt reconnection with exponential backoff + jitter (capped at 30 seconds)
     if (this.reconnectAttempts < this.maxReconnectAttempts) {
       this.reconnectAttempts++
-      const delay = Math.min(this.reconnectDelay * this.reconnectAttempts, 10000)
+      const baseDelay = Math.min(this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1), 30000)
+      const delay = baseDelay * (0.5 + Math.random() * 0.5)
       this.dispatchInfoEvent({ type: "reconnecting", attempt: this.reconnectAttempts })
 
       console.log(`[WebSocketStream] Will reconnect in ${delay}ms (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`)

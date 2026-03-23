@@ -140,7 +140,11 @@ type HelixAPIServer struct {
 	summaryService             *SummaryService
 	goldenBuildService         *services.GoldenBuildService
 	syncEventHook              SyncEventHook // optional test hook, nil in production
-	startTime                  time.Time     // when the server started, for grace periods
+	// streamProxies tracks active stream proxies per session for deduplication.
+	// When a new connection arrives for a session that already has an active proxy,
+	// the old proxy is cancelled to prevent accumulation.
+	streamProxies sync.Map    // sessionID -> *activeStreamProxy
+	startTime     time.Time   // when the server started, for grace periods
 }
 
 func NewServer(
