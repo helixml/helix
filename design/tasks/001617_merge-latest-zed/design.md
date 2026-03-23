@@ -9,15 +9,28 @@
 
 ## Merge Strategy
 
+**Branch name**: `merge-upstream-2026-03-23` — based on the prior upstream merge branch `merge-upstream-2026-01-27` visible in the remote.
+
 **Rebase onto upstream** (preferred) rather than a merge commit, to keep history linear and diffs against upstream readable. If upstream has diverged significantly and rebase produces too many conflicts, a merge commit is acceptable.
 
 ```
+git checkout -b merge-upstream-2026-03-23
 git remote add upstream https://github.com/zed-industries/zed
 git fetch upstream
 git rebase upstream/main   # or: git merge upstream/main
 ```
 
 All Helix-specific commits are grouped at the tip of the fork's history (see `portingguide.md` Commit History table). This makes rebasing tractable — most conflicts occur in the ~18 modified upstream files.
+
+## Sandbox Version Pin
+
+`/home/retro/work/helix-4/sandbox-versions.txt` pins the Zed commit SHA used in the Helix sandbox:
+
+```
+ZED_COMMIT=23412509b7b6568a0af54cb0db8b1f2aa7036a24
+```
+
+After the merge is complete and tests pass, this file must be updated to the new HEAD SHA of the zed-4 `main` branch, and a PR raised against helix-4. This is what causes the sandbox to actually use the updated Zed build.
 
 ## Known Upstream Breaking Change: ACP Consolidation
 

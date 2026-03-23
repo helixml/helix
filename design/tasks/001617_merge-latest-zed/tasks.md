@@ -2,6 +2,7 @@
 
 ## Preparation
 
+- [ ] Create branch: `git checkout -b merge-upstream-2026-03-23`
 - [ ] Add upstream Zed remote: `git remote add upstream https://github.com/zed-industries/zed && git fetch upstream`
 - [ ] Record current upstream HEAD SHA and compare with fork's base commit to understand the delta
 
@@ -45,4 +46,6 @@
 
 ## Finalize
 
-- [ ] Push updated fork to remote: `git push origin main`
+- [ ] Push branch and open PR against zed-4 `main`: `git push origin merge-upstream-2026-03-23`
+- [ ] After zed-4 PR is merged, update `ZED_COMMIT` in `/home/retro/work/helix-4/sandbox-versions.txt` to the new zed-4 `main` HEAD SHA
+- [ ] Open PR against helix-4 `main` with the `sandbox-versions.txt` change
