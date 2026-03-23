@@ -323,16 +323,32 @@ func (r *Reconciler) indexKnowledgeWithKodit(ctx context.Context, ki rag.KoditIn
 		return fmt.Errorf("kodit directory registration failed: %w", err)
 	}
 
-	// Apply app-level chunk settings to the kodit repository if configured.
-	if r.koditService != nil && (k.RAGSettings.ChunkSize > 0 || k.RAGSettings.ChunkOverflow > 0) {
+	// Apply app-level chunk settings to the kodit repository.
+	if r.koditService != nil {
 		entity, err := r.store.GetDataEntity(ctx, dataEntityID)
-		if err == nil && entity.KoditRepositoryID != nil {
+		if err != nil {
+			log.Warn().Err(err).Str("data_entity_id", dataEntityID).Msg("failed to get data entity for chunking config")
+		} else if entity.KoditRepositoryID == nil {
+			log.Warn().Str("data_entity_id", dataEntityID).Msg("data entity has no kodit repo ID, skipping chunking config")
+		} else {
 			chunkSize := k.RAGSettings.ChunkSize
 			if chunkSize <= 0 {
 				chunkSize = 1500 // kodit default
 			}
 			chunkOverlap := k.RAGSettings.ChunkOverflow
+			if chunkOverlap <= 0 {
+				chunkOverlap = 200 // kodit default
+			}
 			minChunkSize := 50 // kodit default, not exposed in Helix RAGSettings
+
+			log.Info().
+				Str("knowledge_id", k.ID).
+				Int64("kodit_repo_id", *entity.KoditRepositoryID).
+				Int("chunk_size", chunkSize).
+				Int("chunk_overlap", chunkOverlap).
+				Int("min_chunk_size", minChunkSize).
+				Msg("applying chunking config to kodit repository")
+
 			if err := r.koditService.UpdateChunkingConfig(ctx, *entity.KoditRepositoryID, chunkSize, chunkOverlap, minChunkSize); err != nil {
 				log.Warn().Err(err).
 					Str("knowledge_id", k.ID).
@@ -340,6 +356,8 @@ func (r *Reconciler) indexKnowledgeWithKodit(ctx context.Context, ki rag.KoditIn
 					Msg("failed to update kodit chunking config, using defaults")
 			}
 		}
+	} else {
+		log.Warn().Msg("kodit service is nil, skipping chunking config")
 	}
 
 	r.resetKnowledgeProgress(k.ID)
