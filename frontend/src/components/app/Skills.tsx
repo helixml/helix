@@ -34,7 +34,11 @@ import useAccount from '../../hooks/useAccount';
 import useRouter from '../../hooks/useRouter';
 import { useSettingsDialog } from '../../contexts/settingsDialog';
 import { useSkills } from '../../hooks/useSkills';
-import { isAutoProvisionMCPSkill } from '../../hooks/useEnableSkill';
+import { TypesSkillDefinition } from '../../api/api';
+
+function isAutoProvisionMCPSkill(skill: TypesSkillDefinition): boolean {
+  return !!(skill.mcp?.autoProvision);
+}
 
 import { alphaVantageTool } from './examples/skillAlphaVantageApi';
 import { airQualityTool } from './examples/skillAirQualityApi';
@@ -43,7 +47,6 @@ import WebSearchSkill from './WebSearchSkill';
 import AzureDevOpsSkill from './AzureDevOpsSkill';
 import DroneCiSkill from './DroneCiSkill';
 import GitHubMcpSkill from './GitHubMcpSkill';
-import CodeIntelligenceSkill from './CodeIntelligenceSkill';
 import RocketLaunchIcon from '@mui/icons-material/RocketLaunch';
 
 import { useListOAuthProviders, useListOAuthConnections } from '../../services/oauthProvidersService';
@@ -409,7 +412,6 @@ const Skills: React.FC<SkillsProps> = ({
   const { data: backendSkillsResponse, isLoading: isBackendSkillsLoading } = useSkills();
 
   const [selectedSkill, setSelectedSkill] = useState<IAgentSkill | null>(null);
-  const [selectedBackendSkillId, setSelectedBackendSkillId] = useState<string | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [dialogType, setDialogType] = useState<'api' | 'mcp' | 'local-mcp' | null>(null);
   const [selectedLocalMcp, setSelectedLocalMcp] = useState<TypesAssistantMCP | null>(null);
@@ -946,6 +948,19 @@ const Skills: React.FC<SkillsProps> = ({
       }
     }
 
+    // autoProvision skills (e.g. code-intelligence) — enable via server endpoint, no dialog.
+    if (skill.autoProvision && skill.backendSkillId && appId) {
+      const client = api.getApiClient();
+      client.v1AppsSkillsEnableCreate(appId, skill.backendSkillId).then((response) => {
+        const updatedApp = response.data;
+        onUpdate({
+          ...app,
+          mcpTools: updatedApp.config?.helix?.assistants?.[0]?.mcps || app.mcpTools,
+        });
+      });
+      return;
+    }
+
     // For custom tiles, don't pass the skill template and set dialog type
     if (skill.id === 'new-custom-api') {
       setSelectedSkill(null);
@@ -969,7 +984,6 @@ const Skills: React.FC<SkillsProps> = ({
       setDialogType('local-mcp');
     } else {
       setSelectedSkill(skill.skill);
-      setSelectedBackendSkillId(skill.backendSkillId || null);
       setSelectedLocalMcp(null);
       setDialogType(null);
     }
@@ -1088,26 +1102,6 @@ const Skills: React.FC<SkillsProps> = ({
           app={app}
           onUpdate={onUpdate}
           isEnabled={isSkillEnabled('Calculator')}
-        />
-      );
-    }
-
-    if (selectedBackendSkillId === 'code-intelligence') {
-      return (
-        <CodeIntelligenceSkill
-          open={isDialogOpen}
-          onClose={() => {
-            setIsDialogOpen(false);
-          }}
-          onClosed={() => {
-            setSelectedSkill(null);
-            setSelectedBackendSkillId(null);
-            setDialogType(null);
-          }}
-          app={app}
-          appId={appId}
-          onUpdate={onUpdate}
-          isEnabled={isSkillEnabled('Code Intelligence')}
         />
       );
     }
