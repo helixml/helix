@@ -16,6 +16,7 @@ import (
 // service between the RAG factory and the API server.
 type KoditResult struct {
 	Service    services.KoditServicer
+	RAGService services.KoditServicer
 	mcpBackend *KoditMCPBackend
 	closer     io.Closer
 }
@@ -25,6 +26,7 @@ func InitKodit(_ *config.ServerConfig, _ *services.GitRepositoryService, _ store
 	log.Info().Msg("Kodit code intelligence service not available (nokodit build)")
 	return &KoditResult{
 		Service:    services.NewDisabledKoditService(),
+		RAGService: services.NewDisabledKoditService(),
 		mcpBackend: newKoditMCPBackend(),
 	}, nil
 }

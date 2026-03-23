@@ -20,8 +20,22 @@ import (
 // service between the RAG factory and the API server.
 type KoditResult struct {
 	Service    services.KoditServicer
+	RAGService services.KoditServicer // RAG-only pipeline (no LLM enrichments)
 	mcpBackend *KoditMCPBackend
 	closer     io.Closer
+}
+
+// multiCloser closes multiple io.Closers in order.
+type multiCloser []io.Closer
+
+func (mc multiCloser) Close() error {
+	var firstErr error
+	for _, c := range mc {
+		if err := c.Close(); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	return firstErr
 }
 
 // InitKodit creates the kodit client, service, and MCP backend.
@@ -31,6 +45,7 @@ func InitKodit(cfg *config.ServerConfig, gitRepoService *services.GitRepositoryS
 		log.Info().Msg("Kodit code intelligence service disabled")
 		return &KoditResult{
 			Service:    services.NewDisabledKoditService(),
+			RAGService: services.NewDisabledKoditService(),
 			mcpBackend: NewKoditMCPBackend(nil, false, store),
 		}, nil
 	}
@@ -81,7 +96,16 @@ func InitKodit(cfg *config.ServerConfig, gitRepoService *services.GitRepositoryS
 		return nil, fmt.Errorf("failed to initialize kodit client: %w", err)
 	}
 
+	// Create a second client for RAG-only indexing: snippets, BM25, embeddings,
+	// and AST API docs — no LLM enrichments. Code intelligence repos use the
+	// full pipeline above; knowledge RAG repos use this one.
+	ragKoditClient, err := kodit.New(append(koditOpts, kodit.WithRAGPipeline())...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize kodit RAG client: %w", err)
+	}
+
 	svc := services.NewKoditService(koditClient)
+	ragSvc := services.NewKoditService(ragKoditClient)
 	gitRepoService.SetKoditService(svc)
 	gitRepoService.SetKoditGitURL(cfg.Kodit.GitURL)
 
@@ -91,7 +115,8 @@ func InitKodit(cfg *config.ServerConfig, gitRepoService *services.GitRepositoryS
 
 	return &KoditResult{
 		Service:    svc,
+		RAGService: ragSvc,
 		mcpBackend: NewKoditMCPBackend(koditClient, true, store),
-		closer:     koditClient,
+		closer:     multiCloser{koditClient, ragKoditClient},
 	}, nil
 }

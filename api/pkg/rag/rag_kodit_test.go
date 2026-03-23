@@ -179,9 +179,22 @@ func (s *KoditRAGSuite) TestRegisterDirectory_CreatesDataEntity() {
 }
 
 func (s *KoditRAGSuite) TestRegisterDirectory_UpdatesExistingDataEntity() {
-	repoID := int64(99)
+	oldRepoID := int64(99)
+	newRepoID := int64(100)
+	callCount := 0
 	s.mockSvc.registerRepositoryFn = func(_ context.Context, _, _ string) (int64, bool, error) {
-		return repoID, false, nil
+		callCount++
+		if callCount == 1 {
+			return oldRepoID, false, nil // first call: repo exists
+		}
+		return newRepoID, true, nil // second call: re-registered after delete
+	}
+
+	deleted := false
+	s.mockSvc.deleteRepositoryFn = func(_ context.Context, id int64) error {
+		s.Equal(oldRepoID, id)
+		deleted = true
+		return nil
 	}
 
 	existing := &types.DataEntity{ID: "de_456", Owner: "user_1"}
@@ -194,13 +207,15 @@ func (s *KoditRAGSuite) TestRegisterDirectory_UpdatesExistingDataEntity() {
 		UpdateDataEntity(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, e *types.DataEntity) (*types.DataEntity, error) {
 			s.Require().NotNil(e.KoditRepositoryID)
-			s.Equal(repoID, *e.KoditRepositoryID)
+			s.Equal(newRepoID, *e.KoditRepositoryID)
 			s.Equal("/some/path", e.Config.FilestorePath)
 			return e, nil
 		})
 
 	err := s.rag.RegisterDirectory(context.Background(), "de_456", "/some/path", "user_1", "user")
 	s.NoError(err)
+	s.True(deleted)
+	s.Equal(2, callCount)
 }
 
 func (s *KoditRAGSuite) TestQuery_UsesStoredRepoID() {

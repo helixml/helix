@@ -68,15 +68,20 @@ func (k *KoditRAG) RegisterDirectory(ctx context.Context, dataEntityID, localPat
 		return fmt.Errorf("kodit RegisterRepository failed for %s: %w", fileURI, err)
 	}
 
-	// If the repo already existed, Kodit won't automatically rescan the
-	// directory. Trigger a sync so it picks up any new or changed files.
+	// If the repo already existed, delete and re-register to force a full
+	// re-index. Sync is insufficient for local file:// directories because
+	// kodit treats them as git repos and sync only does a git fetch + diff.
 	if !isNew {
 		log.Info().
 			Int64("kodit_repo_id", repoID).
 			Str("file_uri", fileURI).
-			Msg("kodit repo already exists, triggering sync to pick up new files")
-		if err := k.kodit.SyncRepository(ctx, repoID); err != nil {
-			return fmt.Errorf("kodit SyncRepository failed for repo %d: %w", repoID, err)
+			Msg("kodit repo already exists, deleting and re-registering for full re-index")
+		if err := k.kodit.DeleteRepository(ctx, repoID); err != nil {
+			log.Warn().Err(err).Int64("kodit_repo_id", repoID).Msg("failed to delete old kodit repo, continuing with re-register")
+		}
+		repoID, _, err = k.kodit.RegisterRepository(ctx, fileURI, "")
+		if err != nil {
+			return fmt.Errorf("kodit re-RegisterRepository failed for %s: %w", fileURI, err)
 		}
 	}
 
