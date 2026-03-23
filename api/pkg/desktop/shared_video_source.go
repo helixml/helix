@@ -12,6 +12,7 @@ package desktop
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"strconv"
 	"sync"
@@ -1160,7 +1161,7 @@ func (s *SharedVideoSource) broadcastFrames() {
 
 			// Disconnect slow/overflow clients (outside of RLock to avoid deadlock)
 			for _, clientID := range slowClients {
-				fmt.Printf("[SHARED_VIDEO] Disconnecting slow client %d (%d consecutive frames dropped)\n", clientID, slowClientThreshold)
+				slog.Warn("[SHARED_VIDEO] Disconnecting slow client", "client_id", clientID, "consecutive_frames_dropped", slowClientThreshold)
 				s.disconnectClient(clientID)
 			}
 			for _, clientID := range pendingOverflow {

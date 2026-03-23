@@ -147,6 +147,8 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   const hiddenInputRef = useRef<HTMLInputElement>(null); // Hidden input for iOS/iPad virtual keyboard
   const streamRef = useRef<WebSocketStream | null>(null); // WebSocket stream instance
   const retryAttemptRef = useRef(0); // Use ref to avoid closure issues
+  const retryTimeoutRef = useRef<NodeJS.Timeout | null>(null); // AlreadyStreaming retry timeout
+  const retryIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null); // AlreadyStreaming countdown interval
   const previousLobbyIdRef = useRef<string | undefined>(undefined); // Track lobby changes
   const isExplicitlyClosingRef = useRef(false); // Track explicit close to prevent spurious "Reconnecting..." state
   const pendingReconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null); // Cancel pending reconnects to prevent duplicate streams
@@ -831,7 +833,8 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
             // Use ref to avoid closure issues with event listeners
             retryAttemptRef.current += 1;
             const nextAttempt = retryAttemptRef.current;
-            const retryDelaySeconds = Math.min(Math.pow(2, nextAttempt), 30) + Math.random();
+            const baseDelay = Math.min(Math.pow(2, nextAttempt), 30);
+            const retryDelaySeconds = baseDelay * (0.5 + Math.random() * 0.5);
 
             console.warn(
               `[DesktopStreamViewer] AlreadyStreaming error from stream (attempt ${nextAttempt}), will retry in ${retryDelaySeconds.toFixed(1)} seconds...`,
@@ -840,11 +843,16 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
             setRetryAttemptDisplay(nextAttempt);
             setRetryCountdown(retryDelaySeconds);
 
+            // Clear any previous retry timers
+            if (retryIntervalRef.current) clearInterval(retryIntervalRef.current);
+            if (retryTimeoutRef.current) clearTimeout(retryTimeoutRef.current);
+
             // Update countdown every second
-            const countdownInterval = setInterval(() => {
+            retryIntervalRef.current = setInterval(() => {
               setRetryCountdown((prev) => {
                 if (prev === null || prev <= 1) {
-                  clearInterval(countdownInterval);
+                  if (retryIntervalRef.current) clearInterval(retryIntervalRef.current);
+                  retryIntervalRef.current = null;
                   return null;
                 }
                 return prev - 1;
@@ -852,7 +860,8 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
             }, 1000);
 
             // Retry after delay
-            setTimeout(() => {
+            retryTimeoutRef.current = setTimeout(() => {
+              retryTimeoutRef.current = null;
               console.log(
                 `[DesktopStreamViewer] Retrying connection after AlreadyStreaming stream error (attempt ${nextAttempt})`,
               );
@@ -1127,7 +1136,8 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         // Use ref to avoid closure issues
         retryAttemptRef.current += 1;
         const nextAttempt = retryAttemptRef.current;
-        const retryDelaySeconds = Math.min(Math.pow(2, nextAttempt), 30) + Math.random();
+        const baseDelay = Math.min(Math.pow(2, nextAttempt), 30);
+            const retryDelaySeconds = baseDelay * (0.5 + Math.random() * 0.5);
 
         console.warn(
           `[DesktopStreamViewer] AlreadyStreaming error detected (attempt ${nextAttempt}), will retry in ${retryDelaySeconds.toFixed(1)} seconds...`,
@@ -1136,11 +1146,16 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         setRetryAttemptDisplay(nextAttempt);
         setRetryCountdown(retryDelaySeconds);
 
+        // Clear any previous retry timers
+        if (retryIntervalRef.current) clearInterval(retryIntervalRef.current);
+        if (retryTimeoutRef.current) clearTimeout(retryTimeoutRef.current);
+
         // Update countdown every second
-        const countdownInterval = setInterval(() => {
+        retryIntervalRef.current = setInterval(() => {
           setRetryCountdown((prev) => {
             if (prev === null || prev <= 1) {
-              clearInterval(countdownInterval);
+              if (retryIntervalRef.current) clearInterval(retryIntervalRef.current);
+              retryIntervalRef.current = null;
               return null;
             }
             return prev - 1;
@@ -1148,7 +1163,8 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         }, 1000);
 
         // Retry after delay
-        setTimeout(() => {
+        retryTimeoutRef.current = setTimeout(() => {
+          retryTimeoutRef.current = null;
           console.log(
             `[DesktopStreamViewer] Retrying connection after AlreadyStreaming error (attempt ${nextAttempt})`,
           );
@@ -1904,6 +1920,9 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       console.log(
         "[DesktopStreamViewer] Component unmounting, calling disconnect()",
       );
+      // Clean up retry timers to prevent state updates on unmounted component
+      if (retryTimeoutRef.current) clearTimeout(retryTimeoutRef.current);
+      if (retryIntervalRef.current) clearInterval(retryIntervalRef.current);
       disconnect();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
