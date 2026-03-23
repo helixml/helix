@@ -126,3 +126,28 @@ type SyncEventHook func(sessionID string, syncMsg *types.SyncMessage)
 func (s *HelixAPIServer) SetSyncEventHook(hook SyncEventHook) {
 	s.syncEventHook = hook
 }
+
+// SessionFIFO returns a copy of the waiting interaction queue for a session.
+// Used by E2E tests to verify interaction routing state.
+func (s *HelixAPIServer) SessionFIFO(helixSessionID string) []string {
+	s.contextMappingsMutex.RLock()
+	defer s.contextMappingsMutex.RUnlock()
+	q := s.sessionToWaitingInteraction[helixSessionID]
+	cp := make([]string, len(q))
+	copy(cp, q)
+	return cp
+}
+
+// StreamingContextInteractionID returns the interaction ID currently targeted
+// by the streaming context for a session. Returns "" if none.
+func (s *HelixAPIServer) StreamingContextInteractionID(helixSessionID string) string {
+	s.streamingContextsMu.RLock()
+	sctx, exists := s.streamingContexts[helixSessionID]
+	s.streamingContextsMu.RUnlock()
+	if !exists || sctx == nil {
+		return ""
+	}
+	sctx.mu.Lock()
+	defer sctx.mu.Unlock()
+	return sctx.interactionID
+}
