@@ -4,12 +4,14 @@
 
 - [x] Create branch: `git checkout -b feature/001617-merge-latest-zed`
 - [x] Update `portingguide.md` with the branch naming convention (the internal git server requires `feature/<task-id>-*` — do not use date-based names)
-- [~] Add upstream Zed remote: `git remote add upstream https://github.com/zed-industries/zed && git fetch upstream`
-- [ ] Record current upstream HEAD SHA and compare with fork's base commit to understand the delta
+- [x] Add upstream Zed remote: `git remote add upstream https://github.com/zed-industries/zed && git fetch upstream`
+- [x] Record current upstream HEAD SHA and compare with fork's base commit to understand the delta
+  - Merge base: `7cca7bc6d6`, 736 commits behind upstream, 87 Helix-specific commits on branch
+  - Using merge commit strategy (same as previous upstream merges in this fork's history)
 
 ## Merge
 
-- [ ] Rebase (or merge) fork onto `upstream/main`: `git rebase upstream/main`
+- [~] Rebase (or merge) fork onto `upstream/main`: `git merge upstream/main`
 - [ ] Resolve conflicts file by file, keeping all `#[cfg(feature = "external_websocket_sync")]` blocks
 
 ## ACP Consolidation Rename Tracking
