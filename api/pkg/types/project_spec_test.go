@@ -90,12 +90,12 @@ func TestResolvedRepositories(t *testing.T) {
 
 	t.Run("singular shorthand is always primary", func(t *testing.T) {
 		spec := ProjectSpec{
-			Repository: &ProjectRepositorySpec{URL: "https://github.com/org/a", Branch: "main"},
+			Repository: &ProjectRepositorySpec{URL: "https://github.com/org/a", DefaultBranch: "main"},
 		}
 		repos := spec.ResolvedRepositories()
 		require.Len(t, repos, 1)
 		assert.Equal(t, "https://github.com/org/a", repos[0].URL)
-		assert.Equal(t, "main", repos[0].Branch)
+		assert.Equal(t, "main", repos[0].DefaultBranch)
 		assert.True(t, repos[0].Primary)
 	})
 

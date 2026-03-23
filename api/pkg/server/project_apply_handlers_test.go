@@ -62,7 +62,6 @@ func (s *ApplyProjectSuite) TestApply_CreatesNewProject() {
 		Name: "brand-new-project",
 		Spec: types.ProjectSpec{
 			Description: "A shiny new project",
-			Technologies: []string{"Go", "React"},
 		},
 	}
 
@@ -76,7 +75,6 @@ func (s *ApplyProjectSuite) TestApply_CreatesNewProject() {
 			s.Equal("brand-new-project", p.Name)
 			s.Equal("A shiny new project", p.Description)
 			s.Equal(s.userID, p.UserID)
-			s.Equal([]string{"Go", "React"}, p.Technologies)
 			return p, nil
 		})
 
@@ -276,8 +274,8 @@ func (s *ApplyProjectSuite) TestApply_RepoCreatedWhenNotFound() {
 		Name: "repo-project",
 		Spec: types.ProjectSpec{
 			Repository: &types.ProjectRepositorySpec{
-				URL:    "https://github.com/org/my-repo",
-				Branch: "main",
+				URL:           "https://github.com/org/my-repo",
+				DefaultBranch: "main",
 			},
 		},
 	}
