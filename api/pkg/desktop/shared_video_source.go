@@ -125,9 +125,9 @@ type sharedVideoClient struct {
 
 // slowClientThreshold is the number of consecutive buffer-full frames before
 // disconnecting a slow client. The effective tolerance is much larger than this
-// threshold alone: the client's channel buffer (default 300 frames / ~5s at
+// threshold alone: the client's channel buffer (default 120 frames / ~2s at
 // 60fps) must fill first, then 30 more consecutive sends must fail (~0.5s).
-// Total tolerance: ~5.5 seconds of sustained slowness at 60fps.
+// Total tolerance: ~2.5 seconds of sustained slowness at 60fps.
 const slowClientThreshold = 30
 
 // pendingStop represents a deferred pipeline shutdown during the grace period.
