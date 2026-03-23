@@ -10,6 +10,11 @@
 - [ ] Rebase (or merge) fork onto `upstream/main`: `git rebase upstream/main`
 - [ ] Resolve conflicts file by file, keeping all `#[cfg(feature = "external_websocket_sync")]` blocks
 
+## ACP Consolidation Rename Tracking
+
+- [ ] Identify whether upstream renamed `acp_thread` crate or `crates/agent_ui/src/acp/` path — find the new locations before applying critical fixes
+- [ ] Update all portingguide.md file path references to match new upstream names
+
 ## Critical Fix Verification (post-merge, before tests)
 
 - [ ] Verify Critical Fix #1 is present: `load_session()` clones `Entity<NativeAgent>` before spawning async task (`crates/agent/src/agent.rs`)

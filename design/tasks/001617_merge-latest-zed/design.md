@@ -19,6 +19,17 @@ git rebase upstream/main   # or: git merge upstream/main
 
 All Helix-specific commits are grouped at the tip of the fork's history (see `portingguide.md` Commit History table). This makes rebasing tractable — most conflicts occur in the ~18 modified upstream files.
 
+## Known Upstream Breaking Change: ACP Consolidation
+
+Upstream Zed has retired the legacy non-ACP native agent and made all agent functionality go through ACP. As part of this, they have removed the `acp` prefix from various types, crates, and file paths (e.g. `acp_thread` may be renamed, `AcpThread` → something else, `crates/agent_ui/src/acp/` directory structure may change).
+
+**What this means for the fork:**
+
+- The fork's Helix WebSocket sync layer still needs ACP — ACP is what backs thread/session storage in the agent. This has not changed. Do not interpret the upstream rename as a reason to remove ACP support.
+- The rename is cosmetic from our perspective: upstream consolidated *to* ACP, so the underlying protocol and thread model are the same. Our `thread_service.rs` and `HeadlessConnection` integration points still map to the same concepts.
+- Concretely, file paths and type names referenced in the portingguide.md may have changed. When resolving conflicts, track down the new names and update portingguide.md references accordingly. Do not assume a missing `acp_thread` crate means the feature is gone — find where it moved.
+- `Critical Fix #3` (`content_only()` on `AssistantMessage` in `crates/acp_thread/`) is particularly at risk: if the crate was renamed, find the equivalent type in its new location and ensure the fix is present there.
+
 ## Conflict Resolution Approach
 
 The portingguide.md `Rebase Checklist` (items 1–18) is the authoritative guide. Key principles:
@@ -52,8 +63,8 @@ During conflict resolution, document in portingguide.md:
 | File | Risk | Reason |
 |------|------|--------|
 | `crates/agent/src/agent.rs` | High | Critical Fix #1 — entity lifetime |
-| `crates/agent_ui/src/acp/thread_view.rs` | High | Critical Fix #2 + `HeadlessConnection`, `from_existing_thread` |
-| `crates/acp_thread/src/acp_thread.rs` | High | Critical Fix #3 — `content_only()` |
+| `crates/agent_ui/src/acp/thread_view.rs` | High | Critical Fix #2 + `HeadlessConnection`, `from_existing_thread` — path may have changed upstream due to ACP consolidation |
+| `crates/acp_thread/src/acp_thread.rs` | High | Critical Fix #3 — `content_only()` — crate may be renamed upstream, find new location |
 | `crates/agent_ui/src/agent_panel.rs` | High | All four callback setups |
 | `crates/external_websocket_sync/src/thread_service.rs` | Medium | Critical Fix #4 |
 | `crates/feature_flags/src/flags.rs` | Low | `enabled_for_all()` override |
