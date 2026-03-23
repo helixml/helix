@@ -18,6 +18,11 @@ import (
 // SpecTaskOrchestrator orchestrates SpecTasks through the complete workflow
 // Pushes agents through design → approval → implementation
 // Manages agent lifecycle and reuses sessions across Helix interactions
+// EnsurePRsFunc is a callback that creates PRs for all project repos that have
+// the task's feature branch. Set by the server so the orchestrator can retry
+// PR creation for repos whose branches weren't ready at initial "Open PR" time.
+type EnsurePRsFunc func(ctx context.Context, task *types.SpecTask, primaryRepoID string) error
+
 type SpecTaskOrchestrator struct {
 	store                 store.Store
 	gitService            *GitRepositoryService
@@ -25,6 +30,7 @@ type SpecTaskOrchestrator struct {
 	containerExecutor     ContainerExecutor // Executor for external agent containers
 	goldenBuildService    *GoldenBuildService
 	attentionService      *AttentionService
+	ensurePRs             EnsurePRsFunc // Callback to create missing PRs (set by server)
 	stopChan              chan struct{}
 	wg                    sync.WaitGroup
 	backlogProjectLocks   sync.Map // map[project_id]*sync.Mutex
@@ -57,6 +63,12 @@ func NewSpecTaskOrchestrator(
 		orchestrationInterval: 10 * time.Second, // Check every 10 seconds
 		testMode:              false,
 	}
+}
+
+// SetEnsurePRsFunc sets the callback used to create PRs for repos that may not
+// have had their feature branch ready when the user first clicked "Open PR".
+func (o *SpecTaskOrchestrator) SetEnsurePRsFunc(fn EnsurePRsFunc) {
+	o.ensurePRs = fn
 }
 
 // SetTestMode enables/disables test mode
@@ -619,6 +631,18 @@ func (o *SpecTaskOrchestrator) handleSpecApproved(ctx context.Context, task *typ
 // handlePullRequest polls external repo for PR merge status
 // Called from the dedicated PR polling loop (runs every 1 minute)
 func (o *SpecTaskOrchestrator) handlePullRequest(ctx context.Context, task *types.SpecTask) error {
+	// Try to create PRs for repos that didn't have the branch ready when the
+	// user first clicked "Open PR". This covers the case where the agent pushes
+	// to a secondary repo after the initial PR creation.
+	if o.ensurePRs != nil {
+		project, err := o.store.GetProject(ctx, task.ProjectID)
+		if err == nil && project.DefaultRepoID != "" {
+			if err := o.ensurePRs(ctx, task, project.DefaultRepoID); err != nil {
+				log.Debug().Err(err).Str("task_id", task.ID).Msg("Failed to ensure PRs for all repos (will retry)")
+			}
+		}
+	}
+
 	if !task.HasAnyPR() {
 		log.Warn().
 			Str("task_id", task.ID).
