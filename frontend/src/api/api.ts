@@ -4735,6 +4735,8 @@ export interface TypesSkillDefinition {
   icon?: TypesSkillIcon;
   id?: string;
   loadedAt?: string;
+  /** MCP configuration (present when this skill is MCP-backed rather than API-backed) */
+  mcp?: TypesSkillMCPSpec;
   name?: string;
   /** OAuth configuration */
   oauthProvider?: string;
@@ -4760,6 +4762,13 @@ export interface TypesSkillIcon {
   name?: string;
   /** e.g., "material-ui", "custom" */
   type?: string;
+}
+
+export interface TypesSkillMCPSpec {
+  /** if true, URL+auth are generated server-side */
+  autoProvision?: boolean;
+  /** "http" or "sse" */
+  transport?: string;
 }
 
 export interface TypesSkillRequiredParameter {
@@ -6866,6 +6875,23 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       this.request<void, any>({
         path: `/api/v1/apps/${id}/memories/${memoryId}`,
         method: "DELETE",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Enable a marketplace skill on an app. For autoProvision MCP skills the server generates URL and auth automatically.
+     *
+     * @tags skills
+     * @name V1AppsSkillsEnableCreate
+     * @summary Enable a marketplace skill on an app
+     * @request POST:/api/v1/apps/{id}/skills/{skill}/enable
+     * @secure
+     */
+    v1AppsSkillsEnableCreate: (id: string, skill: string, params: RequestParams = {}) =>
+      this.request<TypesApp, any>({
+        path: `/api/v1/apps/${id}/skills/${skill}/enable`,
+        method: "POST",
         secure: true,
         ...params,
       }),
