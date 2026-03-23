@@ -647,9 +647,11 @@ func (o *SpecTaskOrchestrator) handlePullRequest(ctx context.Context, task *type
 		log.Warn().
 			Str("task_id", task.ID).
 			Msg("Task in pull_request status but no PRs tracked in RepoPullRequests")
-		return nil
 	}
 
+	// Always call processExternalPullRequestStatus even with no tracked PRs —
+	// it has a fallback that checks if the branch was merged to main directly
+	// (e.g. PR was created and merged on GitHub before we could link it).
 	return o.processExternalPullRequestStatus(ctx, task)
 }
 
