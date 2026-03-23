@@ -156,6 +156,10 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   // Survives component remounts (stored in sessionStorage) but differs across tabs.
   // The backend uses this to deduplicate clients on reconnect — same UUID = same viewer tab.
   const componentInstanceIdRef = useRef<string>(getOrCreateStreamUUID(sessionId));
+  const sessionIdRef = useRef<string>(sessionId);
+  useEffect(() => {
+    sessionIdRef.current = sessionId;
+  }, [sessionId]);
 
   const [isConnecting, setIsConnecting] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
@@ -3782,7 +3786,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         return; // Don't preventDefault, let browser copy the selected text
       }
 
-      if (isCopyKeystroke && sessionId) {
+      if (isCopyKeystroke && sessionIdRef.current) {
         // Send the copy keystroke to remote first (translate Cmd to Ctrl for Linux)
         const input = getInput();
         if (input) {
@@ -3825,7 +3829,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           try {
             const apiClient = helixApi.getApiClient();
             const response =
-              await apiClient.v1ExternalAgentsClipboardDetail(sessionId);
+              await apiClient.v1ExternalAgentsClipboardDetail(sessionIdRef.current);
             const clipboardData: TypesClipboardData = response.data;
 
             if (!clipboardData || !clipboardData.type || !clipboardData.data) {
@@ -3889,7 +3893,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         event.metaKey && event.shiftKey && event.code === "KeyV";
       const isPasteKeystroke = isCtrlV || isCmdV || isCtrlShiftV || isCmdShiftV;
 
-      if (isPasteKeystroke && sessionId) {
+      if (isPasteKeystroke && sessionIdRef.current) {
         event.preventDefault();
         event.stopPropagation();
 
@@ -3993,7 +3997,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         const syncAndPaste = (payload: TypesClipboardData) => {
           const apiClient = helixApi.getApiClient();
           apiClient
-            .v1ExternalAgentsClipboardCreate(sessionId, payload)
+            .v1ExternalAgentsClipboardCreate(sessionIdRef.current, payload)
             .then(() => {
               console.log(`[Clipboard] Synced ${payload.type} to remote`);
               showClipboardToast("Pasted", "success");

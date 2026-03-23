@@ -627,8 +627,6 @@ func (a *App) GetZFSStats() ZFSStats {
 	return a.zfsCollector.GetStats()
 }
 
-
-
 // DesktopQuota represents active and max concurrent desktop sessions
 type DesktopQuota struct {
 	Active int `json:"active"`
@@ -807,7 +805,7 @@ func (a *App) CheckForUpdate() (UpdateInfo, error) {
 
 // ApplyAppUpdate downloads the new DMG, replaces the app, and restarts.
 func (a *App) ApplyAppUpdate() error {
-	return a.updater.ApplyAppUpdate(a.ctx)
+	return a.updater.ApplyAppUpdate(a.ctx, a.downloader)
 }
 
 // DownloadVMUpdate downloads the new VM disk image in the background.
@@ -853,7 +851,7 @@ func (a *App) ApplyCombinedUpdate() error {
 	if !IsVMUpdateStaged() {
 		return fmt.Errorf("VM update not staged — cannot apply combined update")
 	}
-	return a.updater.ApplyAppUpdate(a.ctx)
+	return a.updater.ApplyAppUpdate(a.ctx, a.downloader)
 }
 
 // CancelUpdate cancels any in-progress update download.

@@ -228,7 +228,7 @@ func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *t
 			log.Info().
 				Str("task_id", task.ID).
 				Str("branch", req.WorkingBranch).
-				Str("pr_id", task.PullRequestID).
+				Bool("has_pr", task.HasAnyPR()).
 				Msg("Detected existing PR for branch, task starts in pull_request column")
 		}
 	}
@@ -1260,7 +1260,7 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, task *types.Sp
 		if s.SendMessageToAgent != nil && !s.testMode {
 			go func(t *types.SpecTask, comments string) {
 				message := BuildRevisionInstructionPrompt(t, comments)
-				_, err := s.SendMessageToAgent(context.Background(), t, message, "")
+				_, _, err := s.SendMessageToAgent(context.Background(), t, message, "")
 				if err != nil {
 					log.Error().
 						Err(err).
@@ -1435,10 +1435,23 @@ func (s *SpecDrivenTaskService) detectAndLinkExistingPR(ctx context.Context, tas
 				Str("target_branch", pr.TargetBranch).
 				Msg("Found existing PR for branch")
 
-			// Update task with PR info
+			// Get repo details for RepoPullRequests
+			repo, repoErr := s.store.GetGitRepository(ctx, project.DefaultRepoID)
+			repoName := ""
+			if repoErr == nil && repo != nil {
+				repoName = repo.Name
+			}
+
+			// Update task with PR info via RepoPullRequests
 			now := time.Now()
-			task.PullRequestID = pr.ID
-			task.PullRequestURL = pr.URL
+			task.RepoPullRequests = append(task.RepoPullRequests, types.RepoPR{
+				RepositoryID:   project.DefaultRepoID,
+				RepositoryName: repoName,
+				PRID:           pr.ID,
+				PRNumber:       pr.Number,
+				PRURL:          pr.URL,
+				PRState:        string(pr.State),
+			})
 			task.Status = types.TaskStatusPullRequest
 			task.StatusUpdatedAt = &now
 

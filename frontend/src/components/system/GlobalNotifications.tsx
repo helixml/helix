@@ -13,6 +13,8 @@ import useApi from '../../hooks/useApi'
 import useLightTheme from '../../hooks/useLightTheme'
 import { useAttentionEvents, AttentionEvent, AttentionEventType } from '../../hooks/useAttentionEvents'
 import { useBrowserNotifications } from '../../hooks/useBrowserNotifications'
+import { useNavigationHistory, NavHistoryEntry } from '../../hooks/useNavigationHistory'
+import router from '../../router'
 
 interface GlobalNotificationsProps {
   organizationId?: string
@@ -51,6 +53,100 @@ function timeAgo(dateStr: string): string {
   const days = Math.floor(hours / 24)
   return `${days}d ago`
 }
+
+type EventGroup =
+  | { kind: 'single'; event: AttentionEvent }
+  | { kind: 'grouped'; primary: AttentionEvent; secondary: AttentionEvent }
+
+function groupEvents(events: AttentionEvent[]): EventGroup[] {
+  const WINDOW_MS = 60_000
+  const used = new Set<string>()
+  const groups: EventGroup[] = []
+
+  for (const event of events) {
+    if (used.has(event.id)) continue
+
+    if (event.event_type === 'specs_pushed' || event.event_type === 'agent_interaction_completed') {
+      const partnerType: AttentionEventType = event.event_type === 'specs_pushed'
+        ? 'agent_interaction_completed'
+        : 'specs_pushed'
+
+      const partner = events.find(
+        (e) =>
+          !used.has(e.id) &&
+          e.id !== event.id &&
+          e.spec_task_id === event.spec_task_id &&
+          e.event_type === partnerType &&
+          Math.abs(new Date(e.created_at).getTime() - new Date(event.created_at).getTime()) <= WINDOW_MS,
+      )
+
+      if (partner) {
+        used.add(event.id)
+        used.add(partner.id)
+        // Primary is always specs_pushed (determines navigation behavior)
+        const primary = event.event_type === 'specs_pushed' ? event : partner
+        const secondary = event.event_type === 'specs_pushed' ? partner : event
+        groups.push({ kind: 'grouped', primary, secondary })
+        continue
+      }
+    }
+
+    used.add(event.id)
+    groups.push({ kind: 'single', event })
+  }
+
+  return groups
+}
+
+// After grouping, keep only the most recent group per spec_task_id.
+// Events are already sorted newest-first from the API, so the first group
+// for each task is the most recent one.
+function deduplicateGroupsByTask(groups: EventGroup[]): EventGroup[] {
+  const seen = new Set<string>()
+  return groups.filter(group => {
+    const taskId = group.kind === 'grouped' ? group.primary.spec_task_id : group.event.spec_task_id
+    if (!taskId) return true
+    if (seen.has(taskId)) return false
+    seen.add(taskId)
+    return true
+  })
+}
+
+const RecentPageItem: React.FC<{
+  entry: NavHistoryEntry
+}> = ({ entry }) => (
+  <Box
+    onClick={() => router.navigate(entry.routeName, entry.params)}
+    sx={{
+      display: 'flex',
+      alignItems: 'center',
+      gap: 1,
+      px: 1.5,
+      py: 0.75,
+      cursor: 'pointer',
+      transition: 'background-color 0.15s ease',
+      '&:hover': {
+        backgroundColor: 'rgba(255,255,255,0.06)',
+      },
+    }}
+  >
+    <Box sx={{ fontSize: '0.75rem', flexShrink: 0, color: 'rgba(255,255,255,0.3)' }}>🕒</Box>
+    <Typography
+      variant="body2"
+      sx={{
+        color: 'rgba(255,255,255,0.6)',
+        overflow: 'hidden',
+        textOverflow: 'ellipsis',
+        whiteSpace: 'nowrap',
+        fontSize: '0.78rem',
+        lineHeight: 1.4,
+        flex: 1,
+      }}
+    >
+      {entry.title}
+    </Typography>
+  </Box>
+)
 
 const BrowserNotificationBanner: React.FC<{
   onEnable: () => void
@@ -96,11 +192,12 @@ const BrowserNotificationBanner: React.FC<{
 
 const AttentionEventItem: React.FC<{
   event: AttentionEvent
+  groupedWith?: AttentionEvent
   onNavigate: (event: AttentionEvent) => void
   onDismiss: (eventId: string) => void
-}> = ({ event, onNavigate, onDismiss }) => {
+}> = ({ event, groupedWith, onNavigate, onDismiss }) => {
   const accentColor = eventAccentColor(event.event_type)
-  const isAcknowledged = !!event.acknowledged_at
+  const isAcknowledged = !!event.acknowledged_at && (!groupedWith || !!groupedWith.acknowledged_at)
 
   return (
     <Box
@@ -121,7 +218,7 @@ const AttentionEventItem: React.FC<{
       }}
     >
       <Box sx={{ fontSize: '0.9rem', flexShrink: 0 }}>
-        {eventEmoji(event.event_type)}
+        {groupedWith ? '📋' : eventEmoji(event.event_type)}
       </Box>
       <Box sx={{ minWidth: 0, flex: 1 }}>
         <Typography
@@ -136,7 +233,7 @@ const AttentionEventItem: React.FC<{
             lineHeight: 1.4,
           }}
         >
-          {event.title}
+          {groupedWith ? 'Spec ready & agent finished' : event.title}
         </Typography>
         <Typography
           variant="caption"
@@ -203,6 +300,7 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
     events,
     newEvents,
     totalCount,
+    unreadCount,
     hasNew,
     acknowledge,
     dismiss,
@@ -240,13 +338,8 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
   const handleDrawerOpen = useCallback(() => {
     setDrawerOpen(true)
     onOpenChange?.(true)
-    // Acknowledge all visible events when drawer opens
-    for (const event of events) {
-      if (!event.acknowledged_at) {
-        acknowledge(event.id)
-      }
-    }
-  }, [events, acknowledge, onOpenChange])
+    // No auto-acknowledgment — user must explicitly click a notification to mark it as read
+  }, [onOpenChange])
 
   const handleDrawerClose = useCallback(() => {
     setDrawerOpen(false)
@@ -254,6 +347,9 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
   }, [onOpenChange])
 
   const handleNavigate = useCallback(async (event: AttentionEvent) => {
+    // Mark as read on explicit click
+    acknowledge(event.id)
+
     // Don't close the panel — user wants to keep it open while working
     if (event.event_type === 'specs_pushed') {
       // Navigate to the spec review page — need to fetch the review ID first
@@ -277,13 +373,11 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
       id: event.project_id,
       taskId: event.spec_task_id,
     })
-  }, [account, api])
+  }, [acknowledge, account, api])
 
   const handleDismiss = useCallback((eventId: string) => {
     dismiss(eventId)
   }, [dismiss])
-
-
 
   const handleDismissAll = useCallback(() => {
     dismissAll()
@@ -296,6 +390,18 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
   const handleDismissNotificationBanner = useCallback(() => {
     setOptOut(true)
   }, [setOptOut])
+
+  const groups = deduplicateGroupsByTask(groupEvents(events))
+
+  // Build recently visited list: task/review pages not already shown as active alerts
+  const navHistory = useNavigationHistory()
+  const alertTaskIds = new Set(events.map(e => e.spec_task_id).filter(Boolean))
+  const recentPages = navHistory.filter(entry => {
+    if (entry.routeName !== 'org_project-task-detail' && entry.routeName !== 'org_project-task-review') {
+      return false
+    }
+    return !alertTaskIds.has(entry.params.taskId)
+  }).slice(0, 10)
 
   return (
     <>
@@ -312,7 +418,7 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
         }}
       >
         <Badge
-          badgeContent={totalCount}
+          badgeContent={hasNew ? unreadCount : totalCount}
           color={hasNew ? 'error' : 'default'}
           sx={{
             '& .MuiBadge-badge': {
@@ -379,8 +485,8 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
                 sx={{
                   fontSize: '0.6rem',
                   fontWeight: 600,
-                  color: 'rgba(255,255,255,0.5)',
-                  backgroundColor: 'rgba(255,255,255,0.06)',
+                  color: hasNew ? '#fff' : 'rgba(255,255,255,0.5)',
+                  backgroundColor: hasNew ? '#ef4444' : 'rgba(255,255,255,0.06)',
                   borderRadius: '4px',
                   px: 0.5,
                   py: 0.125,
@@ -444,7 +550,7 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
           />
         )}
 
-        {/* Event list — flat, sorted by date (newest first, from the API) */}
+        {/* Event list — grouped where applicable, sorted newest-first */}
         <Box sx={{ overflowY: 'auto', flex: 1 }}>
           {totalCount === 0 ? (
             <Box sx={{ py: 6, textAlign: 'center' }}>
@@ -463,13 +569,56 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
             </Box>
           ) : (
             <Box sx={{ py: 0.5 }}>
-              {events.map((event) => (
-                <AttentionEventItem
-                  key={event.id}
-                  event={event}
-                  onNavigate={handleNavigate}
-                  onDismiss={handleDismiss}
-                />
+              {groups.map((group) => {
+                if (group.kind === 'grouped') {
+                  return (
+                    <AttentionEventItem
+                      key={group.primary.id}
+                      event={group.primary}
+                      groupedWith={group.secondary}
+                      onNavigate={(ev) => {
+                        acknowledge(group.secondary.id)
+                        handleNavigate(ev)
+                      }}
+                      onDismiss={(id) => {
+                        dismiss(group.secondary.id)
+                        handleDismiss(id)
+                      }}
+                    />
+                  )
+                }
+                return (
+                  <AttentionEventItem
+                    key={group.event.id}
+                    event={group.event}
+                    onNavigate={handleNavigate}
+                    onDismiss={handleDismiss}
+                  />
+                )
+              })}
+            </Box>
+          )}
+
+          {/* Recently visited — pages the user has been to that aren't active alerts */}
+          {recentPages.length > 0 && (
+            <Box sx={{ borderTop: '1px solid rgba(255,255,255,0.06)', mt: 0.5, pt: 0.5 }}>
+              <Typography
+                variant="caption"
+                sx={{
+                  display: 'block',
+                  px: 1.5,
+                  py: 0.75,
+                  color: 'rgba(255,255,255,0.3)',
+                  fontSize: '0.65rem',
+                  fontWeight: 600,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.05em',
+                }}
+              >
+                Recently visited
+              </Typography>
+              {recentPages.map(entry => (
+                <RecentPageItem key={entry.url} entry={entry} />
               ))}
             </Box>
           )}

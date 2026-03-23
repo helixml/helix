@@ -255,6 +255,142 @@ func zfsSnapshotExists(name string) bool {
 	return execCmdRun("zfs", "list", "-H", "-t", "snapshot", "-o", "name", name) == nil
 }
 
+// ZFSTreeNode represents a node in the ZFS snapshot/clone tree.
+type ZFSTreeNode struct {
+	Name      string         `json:"name"`
+	Type      string         `json:"type"` // "golden", "snapshot", "clone"
+	Used      string         `json:"used"`
+	Refer     string         `json:"refer"`
+	Mounted   bool           `json:"mounted,omitempty"`
+	SessionID string         `json:"session_id,omitempty"`
+	Children  []*ZFSTreeNode `json:"children,omitempty"`
+}
+
+// ZFSTree is the full tree for a project's golden cache.
+type ZFSTree struct {
+	Available bool           `json:"available"`
+	PoolRoot  string         `json:"pool_root,omitempty"`
+	Golden    *ZFSTreeNode   `json:"golden,omitempty"`
+	Orphans   []*ZFSTreeNode `json:"orphans,omitempty"` // session zvols not cloned from this golden
+}
+
+// GetZFSTree returns the ZFS snapshot and clone tree for a project's golden cache.
+func GetZFSTree(projectID string) (*ZFSTree, error) {
+	tree := &ZFSTree{
+		Available: ZFSAvailable(),
+		PoolRoot:  zfsParentDataset,
+	}
+	if !tree.Available {
+		return tree, nil
+	}
+
+	goldenName := goldenZvolName(projectID)
+	if !zfsDatasetExists(goldenName) {
+		return tree, nil
+	}
+
+	// Get golden zvol info
+	out, err := execCmdOutput("zfs", "list", "-H", "-o", "name,used,refer", goldenName)
+	if err != nil {
+		return tree, nil
+	}
+	fields := strings.Fields(strings.TrimSpace(string(out)))
+	if len(fields) < 3 {
+		return tree, nil
+	}
+
+	goldenNode := &ZFSTreeNode{
+		Name:  fields[0],
+		Type:  "golden",
+		Used:  fields[1],
+		Refer: fields[2],
+	}
+	tree.Golden = goldenNode
+
+	// Get all snapshots for this golden
+	snapOut, err := execCmdOutput("zfs", "list", "-H", "-t", "snapshot", "-o", "name,used,refer",
+		"-s", "creation", "-r", goldenName)
+	if err != nil {
+		return tree, nil
+	}
+
+	// Build a map of snapshot → clone nodes
+	// First get all volumes with their origin to find clones
+	volOut, _ := execCmdOutput("zfs", "list", "-H", "-o", "name,used,refer,origin", "-t", "volume", "-r", zfsParentDataset)
+
+	type cloneInfo struct {
+		name   string
+		used   string
+		refer  string
+		origin string
+	}
+	var clones []cloneInfo
+	for _, line := range strings.Split(strings.TrimSpace(string(volOut)), "\n") {
+		f := strings.Fields(line)
+		if len(f) < 4 {
+			continue
+		}
+		if f[3] != "-" && strings.HasPrefix(f[0], zfsParentDataset+"/ses-") {
+			clones = append(clones, cloneInfo{name: f[0], used: f[1], refer: f[2], origin: f[3]})
+		}
+	}
+
+	for _, snapLine := range strings.Split(strings.TrimSpace(string(snapOut)), "\n") {
+		sf := strings.Fields(snapLine)
+		if len(sf) < 3 {
+			continue
+		}
+		snapNode := &ZFSTreeNode{
+			Name:  sf[0],
+			Type:  "snapshot",
+			Used:  sf[1],
+			Refer: sf[2],
+		}
+
+		// Find clones of this snapshot
+		for _, c := range clones {
+			if c.origin == sf[0] {
+				sessionID := strings.TrimPrefix(c.name, zfsParentDataset+"/ses-")
+				mountPath := sessionZvolMountPath(sessionID)
+				cloneNode := &ZFSTreeNode{
+					Name:      c.name,
+					Type:      "clone",
+					Used:      c.used,
+					Refer:     c.refer,
+					Mounted:   isMounted(mountPath),
+					SessionID: sessionID,
+				}
+				snapNode.Children = append(snapNode.Children, cloneNode)
+			}
+		}
+
+		goldenNode.Children = append(goldenNode.Children, snapNode)
+	}
+
+	// Find orphan session zvols (no origin, or origin from a different golden)
+	for _, line := range strings.Split(strings.TrimSpace(string(volOut)), "\n") {
+		f := strings.Fields(line)
+		if len(f) < 4 || !strings.HasPrefix(f[0], zfsParentDataset+"/ses-") {
+			continue
+		}
+		if f[3] == "-" {
+			// No origin — fresh zvol, not a clone
+			sessionID := strings.TrimPrefix(f[0], zfsParentDataset+"/ses-")
+			mountPath := sessionZvolMountPath(sessionID)
+			tree.Orphans = append(tree.Orphans, &ZFSTreeNode{
+				Name:      f[0],
+				Type:      "clone",
+				Used:      f[1],
+				Refer:     f[2],
+				Mounted:   isMounted(mountPath),
+				SessionID: sessionID,
+			})
+		}
+	}
+
+	return tree, nil
+}
+
 // latestGoldenSnapshot returns the latest snapshot name for a project's golden zvol,
 // or empty string if none exists.
 func latestGoldenSnapshot(projectID string) string {
@@ -654,6 +790,83 @@ func GCOrphanedZvols(activeSessions map[string]bool) (int, error) {
 	}
 
 	return cleaned, nil
+}
+
+// GCStaleSnapshots destroys golden snapshots older than 7 days that have no
+// remaining clones. Keeps recent snapshots so the user can see cache progression.
+// Snapshots with active session clones can't be destroyed (ZFS refuses) — that's
+// handled gracefully.
+func GCStaleSnapshots() int {
+	if !ZFSAvailable() {
+		return 0
+	}
+
+	// List all golden zvols
+	out, err := execCmdOutput("zfs", "list", "-H", "-o", "name", "-t", "volume", "-r", zfsParentDataset)
+	if err != nil {
+		return 0
+	}
+
+	var cleaned int
+	goldenPrefix := zfsParentDataset + "/golden-"
+	for _, zvol := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if !strings.HasPrefix(zvol, goldenPrefix) {
+			continue
+		}
+
+		// List snapshots with creation time, oldest first
+		snapOut, err := execCmdOutput("zfs", "list", "-H", "-t", "snapshot", "-o", "name,creation",
+			"-s", "creation", "-r", zvol)
+		if err != nil {
+			continue
+		}
+		lines := strings.Split(strings.TrimSpace(string(snapOut)), "\n")
+		if len(lines) <= 1 {
+			continue // only one snapshot (or none), nothing to GC
+		}
+
+		// Always keep the latest snapshot regardless of age
+		for _, line := range lines[:len(lines)-1] {
+			if line == "" {
+				continue
+			}
+			// Parse name and creation time
+			// Format: "pool/helix-zvols/golden-prj_xxx@gen1\tDow Mon DD HH:MM YYYY"
+			parts := strings.SplitN(line, "\t", 2)
+			snap := parts[0]
+			if len(parts) < 2 {
+				continue
+			}
+
+			// Parse ZFS creation timestamp
+			created, err := time.Parse("Mon Jan  2 15:04 2006", strings.TrimSpace(parts[1]))
+			if err != nil {
+				// Try alternate format (some ZFS versions use different format)
+				created, err = time.Parse("Mon Jan 2 15:04 2006", strings.TrimSpace(parts[1]))
+				if err != nil {
+					continue // can't parse, skip
+				}
+			}
+
+			if time.Since(created) < 7*24*time.Hour {
+				continue // less than 7 days old, keep it
+			}
+
+			// zfs destroy will fail if the snapshot has dependent clones — that's fine
+			if err := runCmd("zfs", "destroy", snap); err != nil {
+				log.Debug().
+					Str("snapshot", snap).
+					Msg("Cannot destroy snapshot (likely has dependent clones), will retry next GC")
+			} else {
+				log.Info().
+					Str("snapshot", snap).
+					Msg("Destroyed stale golden snapshot (>7 days old)")
+				cleaned++
+			}
+		}
+	}
+
+	return cleaned
 }
 
 // effectiveGoldenBaseDir returns the golden base directory, respecting test overrides.

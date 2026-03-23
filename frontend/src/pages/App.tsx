@@ -151,6 +151,7 @@ const App: FC = () => {
                         { appTools.flatApp && (
                           <Skills
                             app={appTools.flatApp}
+                            appId={appTools.id}
                             onUpdate={appTools.saveFlatApp}
                           />
                         )}

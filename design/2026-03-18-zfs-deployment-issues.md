@@ -214,6 +214,59 @@ if len(existingSessions) > 0 {
 }
 ```
 
+## 11. Zed multi-thread support broken for zed-agent runtime
+
+**Symptom**: When using zed-agent (not claude), the agent creates new threads manually (Zed doesn't auto-compact — user must create a new thread). The new thread's activity doesn't sync to Helix. Interacting from Helix UI sends messages to the old thread, causing out-of-context errors.
+
+**Root cause (multiple issues)**:
+
+### 11a. `user_created_thread` event never fires
+Zed sends `UserCreatedThread` from `thread_view.rs:999` but only when `entry_count > 0`. For a brand new empty thread, the count is 0 and the event is suppressed. The event also requires `!is_resume` — resumes don't trigger it.
+
+**Files**: `zed/crates/agent_ui/src/acp/thread_view.rs:991-1007`
+
+**Fix**: Remove the `entry_count > 0` guard or send the event after the first message is added to the new thread.
+
+### 11b. New session missing spectask metadata
+`handleUserCreatedThread` (`websocket_external_agent_sync.go:3093-3110`) creates a new Helix session but doesn't copy:
+- `SpecTaskID` — new session isn't associated with the spectask
+- `ProjectID` — needed for project-level operations
+- `CodeAgentRuntime` — needed to know zed-agent vs claude
+- `DevContainerID` — needed for container association
+
+**Fix**:
+```go
+Metadata: types.SessionMetadata{
+    ZedThreadID:         acpThreadID,
+    AgentType:           existingSession.Metadata.AgentType,
+    ExternalAgentConfig: existingSession.Metadata.ExternalAgentConfig,
+    SpecTaskID:          existingSession.Metadata.SpecTaskID,     // ADD
+    CodeAgentRuntime:    existingSession.Metadata.CodeAgentRuntime, // ADD
+    ProjectID:           existingSession.Metadata.ProjectID,       // ADD (if it exists)
+},
+ProjectID: existingSession.ProjectID,  // ADD - top-level project association
+```
+
+### 11c. No UI for multiple sessions per spectask
+The frontend only shows one session per spectask. When a new thread creates a new session, there's no dropdown or tab to switch between them. The user can't see the new thread's activity from Helix.
+
+**Files**: `frontend/src/components/tasks/SpecTaskDetailContent.tsx` — needs a session selector when multiple sessions exist for the same spectask.
+
+### 11d. `open_thread` on reconnect goes to wrong thread
+When the desktop restarts and reconnects, Helix sends `open_thread` with the `ZedThreadID` from the original session. If the user was on a newer thread, Zed jumps back to the old one.
+
+**Files**: `websocket_external_agent_sync.go:2676-2691` — the readiness handler should check which thread is currently active in Zed (or at least use the latest session's thread ID, not the first one's).
+
+### 11e. No E2E test for multi-thread flow
+The E2E test (`zed/crates/external_websocket_sync/e2e-test/`) only tests single-thread flows. Need a test phase for: create thread → send messages → create new thread → verify new session created → send message on new thread → verify it goes to new session.
+
+**Observed data**:
+- Spectask `spt_01kj8pxf9w49ek6zcdgdckvspe` has only 1 session in DB
+- Thread ID `8b975c94-9916-47ca-90ed-511ed8d63dbd` — the original thread
+- zed-agent runtime — uses manual thread creation (no auto-compaction)
+- No `user_created_thread` events in API logs ever
+- User created new thread in Zed UI but Helix never learned about it
+
 ## PR Status
 
 **PR #1947** (`fix/xfs-nouuid-mount`) — OPEN, 8 commits:

@@ -1236,6 +1236,11 @@ func (dm *DevContainerManager) GCOrphanedSessions() {
 		}
 
 		GCMigratedGoldenDirs()
+
+		snapsCleaned := GCStaleSnapshots()
+		if snapsCleaned > 0 {
+			log.Info().Int("removed", snapsCleaned).Msg("Stale snapshot GC completed")
+		}
 	}
 }
 

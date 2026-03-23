@@ -555,13 +555,15 @@ func PurgeContainersFromGolden(projectID string) error {
 	return nil
 }
 
-// GetGoldenSize returns the disk usage of a project's golden cache in bytes.
+// GetGoldenSize returns the size of a project's golden cache in bytes.
+// Uses "refer" (not "used") for ZFS zvols — "used" includes snapshot deltas
+// which inflates the reported size. "refer" is the actual filesystem size.
 // Returns 0 if no golden exists.
 func GetGoldenSize(projectID string) int64 {
 	// Try ZFS zvol size first (golden may be a zvol after migration)
 	if ZFSAvailable() && GoldenZvolExists(projectID) {
 		zvol := goldenZvolName(projectID)
-		out, err := execCmdOutput("zfs", "list", "-H", "-o", "used", "-p", zvol)
+		out, err := execCmdOutput("zfs", "list", "-H", "-o", "refer", "-p", zvol)
 		if err == nil {
 			var size int64
 			fmt.Sscanf(strings.TrimSpace(string(out)), "%d", &size)

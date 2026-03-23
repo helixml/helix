@@ -393,6 +393,7 @@ type SessionMetadata struct {
 	SessionRole             string               `json:"session_role,omitempty"`              // "planning", "implementation", "coordination", "exploratory"
 	ImplementationTaskIndex int                  `json:"implementation_task_index,omitempty"` // Index of implementation task this session handles
 	ZedThreadID             string               `json:"zed_thread_id,omitempty"`             // Associated Zed thread ID
+	ZedAgentName            string               `json:"zed_agent_name,omitempty"`            // Agent name used when thread was created (e.g., "zed-agent", "claude", "qwen")
 	ZedInstanceID           string               `json:"zed_instance_id,omitempty"`           // Associated Zed instance ID
 	ExternalAgentConfig     *ExternalAgentConfig `json:"external_agent_config,omitempty"`     // Configuration for external agents
 	ExternalAgentID         string               `json:"external_agent_id,omitempty"`         // NEW: External agent ID for this session

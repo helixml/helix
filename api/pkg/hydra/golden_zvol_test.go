@@ -1311,17 +1311,20 @@ func (s *GoldenZvolSuite) TestFullLifecycle_MigrationToCloneToRebuild() {
 
 func (s *GoldenZvolSuite) TestGetGoldenSize_ZvolPath() {
 	zfsParentDataset = "prod/helix-zvols"
-	zfsAvailableFlag = true
+	// Force ZFSAvailable() to return true without running detection.
+	// SetupTest already called resetZFSState(). We set the flag and
+	// consume the Once so it won't try to run detection.
+	zfsAvailableOnce.Do(func() { zfsAvailableFlag = true })
 
 	// Golden zvol exists with snapshot
 	s.mock.addDataset("prod/helix-zvols/golden-prj_abc")
 	s.mock.addSnapshot("prod/helix-zvols/golden-prj_abc", "gen1")
 
-	// Mock zfs list -o used to return size in bytes
+	// Mock zfs list -o refer to return size in bytes
 	origOutput := execCmdOutput
 	execCmdOutput = func(name string, args ...string) ([]byte, error) {
 		s.mock.commands = append(s.mock.commands, cmdRecord{name, args})
-		if name == "zfs" && contains(args, "used") && contains(args, "-p") {
+		if name == "zfs" && contains(args, "refer") && contains(args, "-p") {
 			return []byte("32212254720\n"), nil // 30GB in bytes
 		}
 		return origOutput(name, args...)

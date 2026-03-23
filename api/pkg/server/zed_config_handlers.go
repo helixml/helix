@@ -454,9 +454,17 @@ func (apiServer *HelixAPIServer) getMergedZedSettings(_ http.ResponseWriter, req
 	return merged, nil
 }
 
-// getAgentNameForSession determines which code agent to use based on the session's spec task configuration.
-// Returns "zed-agent" as default, or the configured agent name (e.g., "qwen") if a code agent is configured.
+// getAgentNameForSession determines which code agent to use for a session.
+// Priority: 1) stored ZedAgentName on the session (set when thread was created),
+// 2) current app config (fallback for older sessions without stored agent name).
+// This ensures we use the agent that actually created the thread, not whatever
+// the app config happens to be now (which may have changed since the thread was created).
 func (apiServer *HelixAPIServer) getAgentNameForSession(ctx context.Context, session *types.Session) string {
+	// Use the stored agent name if available (set when the thread was first created)
+	if session.Metadata.ZedAgentName != "" {
+		return session.Metadata.ZedAgentName
+	}
+
 	agentName := "zed-agent" // Default to Zed's built-in agent
 
 	if session.Metadata.SpecTaskID == "" {
