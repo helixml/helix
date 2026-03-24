@@ -561,9 +561,13 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		}
 	}
 
-	// Inject declarative startup commands from project YAML.
-	// helix-workspace-setup.sh uses these as a fallback when no .helix/startup.sh
+	// Inject startup script from project YAML (stored in database).
+	// helix-workspace-setup.sh uses this as a fallback when no .helix/startup.sh
 	// exists in the helix-specs branch (typical for externally-applied projects).
+	if project.StartupScriptYAML != "" {
+		envVars = append(envVars, "HELIX_STARTUP_SCRIPT="+project.StartupScriptYAML)
+	}
+	// Legacy: also pass install/start for backward compatibility
 	if project.StartupInstall != "" {
 		envVars = append(envVars, "HELIX_STARTUP_INSTALL="+project.StartupInstall)
 	}
@@ -965,7 +969,11 @@ Follow these guidelines when making changes:
 		}
 	}
 
-	// Inject declarative startup commands (same as planning phase)
+	// Inject startup script from project YAML (same as planning phase)
+	if project.StartupScriptYAML != "" {
+		envVarsJDI = append(envVarsJDI, "HELIX_STARTUP_SCRIPT="+project.StartupScriptYAML)
+	}
+	// Legacy: also pass install/start for backward compatibility
 	if project.StartupInstall != "" {
 		envVarsJDI = append(envVarsJDI, "HELIX_STARTUP_INSTALL="+project.StartupInstall)
 	}

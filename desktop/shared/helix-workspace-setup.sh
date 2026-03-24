@@ -829,10 +829,42 @@ if [ -f "$STARTUP_SCRIPT" ]; then
         echo "You can debug this in the terminal."
     fi
     echo ""
+elif [ -n "$HELIX_STARTUP_SCRIPT" ]; then
+    # Fallback: run startup script from database (set via project YAML)
+    # This is used when no .helix/startup.sh exists in the helix-specs branch
+    echo ""
+    echo "========================================="
+    echo "Running startup script from project YAML (Zed starting in parallel)..."
+    echo "========================================="
+
+    # Change to primary repo directory
+    if [ -n "$HELIX_PRIMARY_REPO_NAME" ] && [ -d "$WORK_DIR/$HELIX_PRIMARY_REPO_NAME" ]; then
+        cd "$WORK_DIR/$HELIX_PRIMARY_REPO_NAME"
+        echo "Working directory: $HELIX_PRIMARY_REPO_NAME"
+    fi
+    echo ""
+
+    # Write script to temp file and execute it
+    TEMP_SCRIPT=$(mktemp /tmp/helix-startup-XXXXXX.sh)
+    echo "$HELIX_STARTUP_SCRIPT" > "$TEMP_SCRIPT"
+    chmod +x "$TEMP_SCRIPT"
+
+    # Run the script
+    if bash -i "$TEMP_SCRIPT" 2>&1 | tee /tmp/helix-startup.log; then
+        echo ""
+        echo "✅ Startup script completed successfully"
+    else
+        STARTUP_EXIT="${PIPESTATUS[0]}"
+        echo ""
+        echo "❌ Startup script failed with exit code $STARTUP_EXIT"
+        echo ""
+        echo "You can debug this in the terminal."
+    fi
+    rm -f "$TEMP_SCRIPT"
+    echo ""
 elif [ -n "$HELIX_STARTUP_INSTALL" ] || [ -n "$HELIX_STARTUP_START" ]; then
-    # Fallback: run declarative startup commands from project YAML
-    # (used when no .helix/startup.sh exists in the helix-specs branch,
-    #  e.g. for externally-applied projects with a public GitHub repo)
+    # Legacy fallback: run declarative startup commands from project YAML
+    # (deprecated - use startup.script instead)
     echo ""
     echo "========================================="
     echo "Running declarative startup commands (Zed starting in parallel)..."

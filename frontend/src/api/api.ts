@@ -3710,7 +3710,10 @@ export interface TypesProject {
    * Useful for project-specific tools like CI integration (e.g., drone-ci-mcp)
    */
   skills?: TypesAssistantSkills;
-  /** Startup commands from declarative project YAML (persisted) */
+  /**
+   * Startup commands from declarative project YAML (persisted) - DEPRECATED
+   * Use StartupScriptYAML instead. Kept for backward compatibility.
+   */
   startup_install?: string;
   /** Transient field - loaded from primary code repo's .helix/startup.sh, never persisted to database */
   startup_script?: string;
@@ -3719,6 +3722,13 @@ export interface TypesProject {
    * When true, the UI should show the script as read-only
    */
   startup_script_from_yaml?: boolean;
+  /**
+   * StartupScriptYAML is the startup script content from project YAML (persisted)
+   * This is the source of truth when StartupScriptFromYAML is true.
+   * At runtime, helix-specs/.helix/startup.sh takes precedence if it exists,
+   * otherwise this field is used as fallback.
+   */
+  startup_script_yaml?: string;
   startup_start?: string;
   /** Computed */
   stats?: TypesProjectStats;

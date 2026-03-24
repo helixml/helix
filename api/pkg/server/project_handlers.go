@@ -223,13 +223,18 @@ func (s *HelixAPIServer) getProject(_ http.ResponseWriter, r *http.Request) (*ty
 		}
 	}
 
-	// If no startup script was found in the git repo, synthesize one from the
-	// declarative startup fields set via `helix apply -f project.yaml`.
-	// When the user edits the script in the UI, it gets saved to the git repo
-	// and will take precedence on subsequent loads.
-	if project.StartupScript == "" && (project.StartupInstall != "" || project.StartupStart != "") {
-		project.StartupScript = synthesizeStartupScript(project.StartupInstall, project.StartupStart)
-		project.StartupScriptFromYAML = true // Synthesized from YAML fields
+	// If no startup script was found in the git repo, use the database fallbacks.
+	// Priority: 1) helix-specs/.helix/startup.sh (already loaded above)
+	//           2) StartupScriptYAML (from YAML apply)
+	//           3) Synthesize from StartupInstall/StartupStart (legacy)
+	if project.StartupScript == "" {
+		if project.StartupScriptYAML != "" {
+			project.StartupScript = project.StartupScriptYAML
+			project.StartupScriptFromYAML = true
+		} else if project.StartupInstall != "" || project.StartupStart != "" {
+			project.StartupScript = synthesizeStartupScript(project.StartupInstall, project.StartupStart)
+			project.StartupScriptFromYAML = true
+		}
 	}
 
 	return project, nil
@@ -2453,12 +2458,27 @@ func (s *HelixAPIServer) applyProject(_ http.ResponseWriter, r *http.Request) (*
 		return nil, system.NewHTTPError400(err.Error())
 	}
 
-	// Resolve org: if provided, verify membership
+	// Resolve org: if provided, verify membership; otherwise auto-resolve to user's only org
 	orgID := req.OrganizationID
 	if orgID != "" {
-		if _, err := s.authorizeOrgMember(r.Context(), user, orgID); err != nil {
+		// Org ID or name was provided - resolve it
+		membership, err := s.authorizeOrgMember(r.Context(), user, orgID)
+		if err != nil {
 			return nil, system.NewHTTPError403(err.Error())
 		}
+		orgID = membership.OrganizationID // Normalize to ID (in case name was provided)
+	} else {
+		// No org specified - auto-resolve to user's only organization
+		memberships, err := s.Store.ListOrganizationMemberships(r.Context(), &store.ListOrganizationMembershipsQuery{UserID: user.ID})
+		if err != nil {
+			return nil, system.NewHTTPError500(fmt.Sprintf("failed to list user organizations: %v", err))
+		}
+		if len(memberships) == 1 {
+			orgID = memberships[0].OrganizationID
+		} else if len(memberships) > 1 {
+			return nil, system.NewHTTPError400("organization_id is required when user belongs to multiple organizations")
+		}
+		// If len(memberships) == 0, orgID stays empty and project is user-scoped
 	}
 
 	// Idempotency: look up existing project by name + org/user
@@ -2505,10 +2525,12 @@ func (s *HelixAPIServer) applyProject(_ http.ResponseWriter, r *http.Request) (*
 	if req.Spec.Startup != nil {
 		// Prefer unified Script field, fall back to Install/Start for backward compatibility
 		if req.Spec.Startup.Script != "" {
-			project.StartupInstall = "" // Clear legacy fields
+			project.StartupScriptYAML = req.Spec.Startup.Script // Store in database
+			project.StartupInstall = ""                         // Clear legacy fields
 			project.StartupStart = ""
-			// The script will be written to helix-specs branch below
-		} else {
+		} else if req.Spec.Startup.Install != "" || req.Spec.Startup.Start != "" {
+			// Synthesize script from legacy fields and store it
+			project.StartupScriptYAML = synthesizeStartupScript(req.Spec.Startup.Install, req.Spec.Startup.Start)
 			project.StartupInstall = req.Spec.Startup.Install
 			project.StartupStart = req.Spec.Startup.Start
 		}

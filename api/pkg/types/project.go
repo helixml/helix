@@ -187,7 +187,14 @@ type Project struct {
 	// Transient field - loaded from primary code repo's .helix/startup.sh, never persisted to database
 	StartupScript string `json:"startup_script" gorm:"-"`
 
-	// Startup commands from declarative project YAML (persisted)
+	// StartupScriptYAML is the startup script content from project YAML (persisted)
+	// This is the source of truth when StartupScriptFromYAML is true.
+	// At runtime, helix-specs/.helix/startup.sh takes precedence if it exists,
+	// otherwise this field is used as fallback.
+	StartupScriptYAML string `json:"startup_script_yaml,omitempty"`
+
+	// Startup commands from declarative project YAML (persisted) - DEPRECATED
+	// Use StartupScriptYAML instead. Kept for backward compatibility.
 	StartupInstall string `json:"startup_install,omitempty"`
 	StartupStart   string `json:"startup_start,omitempty"`
 

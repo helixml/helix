@@ -28361,7 +28361,7 @@
                         ]
                     },
                     "startup_install": {
-                        "description": "Startup commands from declarative project YAML (persisted)",
+                        "description": "Startup commands from declarative project YAML (persisted) - DEPRECATED\nUse StartupScriptYAML instead. Kept for backward compatibility.",
                         "type": "string"
                     },
                     "startup_script": {
@@ -28371,6 +28371,10 @@
                     "startup_script_from_yaml": {
                         "description": "StartupScriptFromYAML indicates the startup script was set via project YAML\nWhen true, the UI should show the script as read-only",
                         "type": "boolean"
+                    },
+                    "startup_script_yaml": {
+                        "description": "StartupScriptYAML is the startup script content from project YAML (persisted)\nThis is the source of truth when StartupScriptFromYAML is true.\nAt runtime, helix-specs/.helix/startup.sh takes precedence if it exists,\notherwise this field is used as fallback.",
+                        "type": "string"
                     },
                     "startup_start": {
                         "type": "string"

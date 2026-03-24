@@ -6097,7 +6097,9 @@ definitions:
           Project-level skills - these overlay on top of agent skills
           Useful for project-specific tools like CI integration (e.g., drone-ci-mcp)
       startup_install:
-        description: Startup commands from declarative project YAML (persisted)
+        description: |-
+          Startup commands from declarative project YAML (persisted) - DEPRECATED
+          Use StartupScriptYAML instead. Kept for backward compatibility.
         type: string
       startup_script:
         description: Transient field - loaded from primary code repo's .helix/startup.sh,
@@ -6108,6 +6110,13 @@ definitions:
           StartupScriptFromYAML indicates the startup script was set via project YAML
           When true, the UI should show the script as read-only
         type: boolean
+      startup_script_yaml:
+        description: |-
+          StartupScriptYAML is the startup script content from project YAML (persisted)
+          This is the source of truth when StartupScriptFromYAML is true.
+          At runtime, helix-specs/.helix/startup.sh takes precedence if it exists,
+          otherwise this field is used as fallback.
+        type: string
       startup_start:
         type: string
       stats:
