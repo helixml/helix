@@ -1443,16 +1443,19 @@ func (apiServer *HelixAPIServer) handleContextTitleChanged(sessionID string, syn
 	return nil
 }
 
-// sendChatMessageToExternalAgent sends a chat message to an external agent session
-// This is the proper way to send messages that trigger agent responses
+// sendChatMessageToExternalAgent sends a chat message to an external agent session.
+// Creates a waiting interaction and queues it so handleMessageCompleted can find it,
+// matching the pattern used by sendMessageToSpecTaskAgent.
 func (apiServer *HelixAPIServer) sendChatMessageToExternalAgent(sessionID, message, requestID string) error {
+	ctx := context.Background()
+
 	// Look up the session to get its ZedThreadID - we want to continue in the existing thread
 	// instead of creating a new one. This maintains the 1:1 mapping between Zed threads and Helix sessions.
 	var acpThreadID interface{} = nil
 	var agentName string
-	session, err := apiServer.Controller.Options.Store.GetSession(context.Background(), sessionID)
+	session, err := apiServer.Controller.Options.Store.GetSession(ctx, sessionID)
 	if err == nil && session != nil {
-		agentName = apiServer.getAgentNameForSession(context.Background(), session)
+		agentName = apiServer.getAgentNameForSession(ctx, session)
 		if session.Metadata.ZedThreadID != "" {
 			acpThreadID = session.Metadata.ZedThreadID
 			log.Info().
@@ -1470,6 +1473,40 @@ func (apiServer *HelixAPIServer) sendChatMessageToExternalAgent(sessionID, messa
 		log.Info().
 			Str("session_id", sessionID).
 			Msg("🆕 [HELIX] No session found, will create new thread")
+	}
+
+	// Create a waiting interaction so each message gets its own interaction.
+	// Without this, follow-up messages on the same thread would reuse the previous
+	// interaction via the sessionToWaitingInteraction queue, losing responses.
+	if session != nil {
+		interaction := &types.Interaction{
+			Created:       time.Now(),
+			Updated:       time.Now(),
+			SessionID:     sessionID,
+			UserID:        session.Owner,
+			GenerationID:  session.GenerationID,
+			Mode:          types.SessionModeInference,
+			PromptMessage: message,
+			State:         types.InteractionStateWaiting,
+		}
+
+		createdInteraction, createErr := apiServer.Controller.Options.Store.CreateInteraction(ctx, interaction)
+		if createErr != nil {
+			log.Warn().Err(createErr).Str("session_id", sessionID).Msg("Failed to create interaction for chat message (continuing without)")
+		} else {
+			apiServer.contextMappingsMutex.Lock()
+			if apiServer.sessionToWaitingInteraction == nil {
+				apiServer.sessionToWaitingInteraction = make(map[string][]string)
+			}
+			apiServer.sessionToWaitingInteraction[sessionID] = append(
+				apiServer.sessionToWaitingInteraction[sessionID], createdInteraction.ID)
+			apiServer.contextMappingsMutex.Unlock()
+
+			log.Info().
+				Str("session_id", sessionID).
+				Str("interaction_id", createdInteraction.ID).
+				Msg("✅ [HELIX] Created waiting interaction for chat message")
+		}
 	}
 
 	command := types.ExternalAgentCommand{
