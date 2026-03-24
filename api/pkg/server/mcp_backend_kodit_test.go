@@ -272,7 +272,7 @@ func TestEnableSkillRouteToKoditBackend(t *testing.T) {
 			WebServer: config.WebServer{URL: serverURL},
 		},
 		skillManager: sm,
-		kodit:        &koditResult{mcpBackend: NewKoditMCPBackend(nil, false, mockStore)},
+		kodit:        &KoditResult{mcpBackend: NewKoditMCPBackend(nil, false, mockStore)},
 	}
 
 	// Step 1: call the enable endpoint and capture the MCP config.
