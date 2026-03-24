@@ -11,8 +11,12 @@ spec:
     url: "https://github.com/binocarlos/robot-hq"
     default_branch: main
   startup:
-    install: "docker compose build"
-    start:   "docker compose up -d"
+    script: |
+      #!/bin/bash
+      set -e
+      docker compose build
+      docker compose up -d
+  autoStartBacklogTasks: true
   kanban:
     wip_limits:
       planning:       5

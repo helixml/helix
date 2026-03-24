@@ -99,6 +99,10 @@ spec:
                         type: boolean
                     type: object
                 type: object
+              autoStartBacklogTasks:
+                description: AutoStartBacklogTasks automatically starts backlog tasks
+                  when capacity is available
+                type: boolean
               description:
                 type: string
               guidelines:
@@ -148,8 +152,13 @@ spec:
                   repository.
                 properties:
                   install:
+                    description: Install is deprecated - use Script instead
+                    type: string
+                  script:
+                    description: Script is the unified startup script content (preferred)
                     type: string
                   start:
+                    description: Start is deprecated - use Script instead
                     type: string
                 type: object
               tasks:

@@ -103,10 +103,12 @@ func (r *ProjectReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	// Map startup
 	if project.Spec.Startup != nil {
 		applyReq.Spec.Startup = &types.ProjectStartup{
+			Script:  project.Spec.Startup.Script,
 			Install: project.Spec.Startup.Install,
 			Start:   project.Spec.Startup.Start,
 		}
 	}
+	applyReq.Spec.AutoStartBacklogTasks = project.Spec.AutoStartBacklogTasks
 
 	// Map kanban
 	if project.Spec.Kanban != nil {

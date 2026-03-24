@@ -29,8 +29,12 @@ type ProjectRepositorySpec struct {
 
 // ProjectStartup describes startup commands for the primary repository.
 type ProjectStartup struct {
+	// Script is the unified startup script content (preferred)
+	Script string `json:"script,omitempty"`
+	// Install is deprecated - use Script instead
 	Install string `json:"install,omitempty"`
-	Start   string `json:"start,omitempty"`
+	// Start is deprecated - use Script instead
+	Start string `json:"start,omitempty"`
 }
 
 // ProjectWIPLimits holds per-column WIP limit values.
@@ -97,6 +101,8 @@ type ProjectSpec struct {
 	Kanban       *ProjectKanban          `json:"kanban,omitempty"`
 	Tasks        []ProjectTaskSpec       `json:"tasks,omitempty"`
 	Agent        *ProjectAgentSpec       `json:"agent,omitempty"`
+	// AutoStartBacklogTasks automatically starts backlog tasks when capacity is available
+	AutoStartBacklogTasks bool `json:"autoStartBacklogTasks,omitempty"`
 }
 
 // ProjectStatus defines the observed state of a Project.

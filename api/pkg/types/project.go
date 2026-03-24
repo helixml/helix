@@ -10,16 +10,17 @@ import (
 
 // ProjectSpec is the declarative specification for a project YAML (helix apply -f / kubectl apply -f).
 type ProjectSpec struct {
-	Name         string               `json:"name,omitempty" yaml:"name,omitempty"`
-	Description  string               `json:"description,omitempty" yaml:"description,omitempty"`
-	Technologies []string             `json:"technologies,omitempty" yaml:"technologies,omitempty"`
-	Guidelines   string               `json:"guidelines,omitempty" yaml:"guidelines,omitempty"`
-	Repository   *ProjectRepositorySpec `json:"repository,omitempty" yaml:"repository,omitempty"`   // Singular shorthand
-	Repositories []ProjectRepositorySpec `json:"repositories,omitempty" yaml:"repositories,omitempty"` // Multi-repo list
-	Startup      *ProjectStartup      `json:"startup,omitempty" yaml:"startup,omitempty"`
-	Kanban       *ProjectKanban       `json:"kanban,omitempty" yaml:"kanban,omitempty"`
-	Tasks        []ProjectTaskSpec    `json:"tasks,omitempty" yaml:"tasks,omitempty"`
-	Agent        *ProjectAgentSpec    `json:"agent,omitempty" yaml:"agent,omitempty"`
+	Name                  string                  `json:"name,omitempty" yaml:"name,omitempty"`
+	Description           string                  `json:"description,omitempty" yaml:"description,omitempty"`
+	Technologies          []string                `json:"technologies,omitempty" yaml:"technologies,omitempty"`
+	Guidelines            string                  `json:"guidelines,omitempty" yaml:"guidelines,omitempty"`
+	Repository            *ProjectRepositorySpec  `json:"repository,omitempty" yaml:"repository,omitempty"`     // Singular shorthand
+	Repositories          []ProjectRepositorySpec `json:"repositories,omitempty" yaml:"repositories,omitempty"` // Multi-repo list
+	Startup               *ProjectStartup         `json:"startup,omitempty" yaml:"startup,omitempty"`
+	Kanban                *ProjectKanban          `json:"kanban,omitempty" yaml:"kanban,omitempty"`
+	Tasks                 []ProjectTaskSpec       `json:"tasks,omitempty" yaml:"tasks,omitempty"`
+	Agent                 *ProjectAgentSpec       `json:"agent,omitempty" yaml:"agent,omitempty"`
+	AutoStartBacklogTasks bool                    `json:"auto_start_backlog_tasks,omitempty" yaml:"auto_start_backlog_tasks,omitempty"`
 }
 
 // ValidateRepositories validates the repository configuration in the spec.
@@ -71,6 +72,10 @@ type ProjectRepositorySpec struct {
 
 // ProjectStartup describes startup commands that run in the primary repository.
 type ProjectStartup struct {
+	// Script is the unified startup script content (preferred)
+	Script string `json:"script,omitempty" yaml:"script,omitempty"`
+	// Install and Start are deprecated - use Script instead
+	// Kept for backward compatibility with existing YAML files
 	Install string `json:"install,omitempty" yaml:"install,omitempty"`
 	Start   string `json:"start,omitempty" yaml:"start,omitempty"`
 }
@@ -138,10 +143,10 @@ type ProjectAgentDisplay struct {
 
 // ProjectCRD is the top-level structure for a project YAML file.
 type ProjectCRD struct {
-	APIVersion string                `json:"apiVersion" yaml:"apiVersion"`
-	Kind       string                `json:"kind" yaml:"kind"`
-	Metadata   ProjectCRDMetadata    `json:"metadata" yaml:"metadata"`
-	Spec       ProjectSpec           `json:"spec" yaml:"spec"`
+	APIVersion string             `json:"apiVersion" yaml:"apiVersion"`
+	Kind       string             `json:"kind" yaml:"kind"`
+	Metadata   ProjectCRDMetadata `json:"metadata" yaml:"metadata"`
+	Spec       ProjectSpec        `json:"spec" yaml:"spec"`
 }
 
 // ProjectCRDMetadata holds metadata for a project CRD.
@@ -188,6 +193,10 @@ type Project struct {
 
 	// Automation settings
 	AutoStartBacklogTasks bool `json:"auto_start_backlog_tasks"` // Automatically move backlog tasks to planning when capacity available
+
+	// StartupScriptFromYAML indicates the startup script was set via project YAML
+	// When true, the UI should show the script as read-only
+	StartupScriptFromYAML bool `json:"startup_script_from_yaml" gorm:"default:false"`
 
 	// Default agent for spec tasks in this project (App ID)
 	// New spec tasks inherit this agent; can be overridden per-task

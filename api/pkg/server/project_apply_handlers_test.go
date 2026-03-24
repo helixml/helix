@@ -155,6 +155,61 @@ func (s *ApplyProjectSuite) TestApply_StartupFieldsMapped() {
 	s.Nil(httpErr)
 }
 
+// TestApply_UnifiedScriptField: startup.script field is preferred over install/start.
+func (s *ApplyProjectSuite) TestApply_UnifiedScriptField() {
+	req := types.ProjectApplyRequest{
+		Name: "unified-script-project",
+		Spec: types.ProjectSpec{
+			Startup: &types.ProjectStartup{
+				Script: "#!/bin/bash\nnpm install\nnpm start",
+			},
+		},
+	}
+
+	s.store.EXPECT().
+		ListProjects(gomock.Any(), gomock.Any()).
+		Return([]*types.Project{}, nil)
+
+	s.store.EXPECT().
+		CreateProject(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, p *types.Project) (*types.Project, error) {
+			// When Script is used, legacy fields should be cleared
+			s.Equal("", p.StartupInstall)
+			s.Equal("", p.StartupStart)
+			s.True(p.StartupScriptFromYAML)
+			return p, nil
+		})
+
+	rec := httptest.NewRecorder()
+	_, httpErr := s.server.applyProject(rec, s.applyRequest(req))
+	s.Nil(httpErr)
+}
+
+// TestApply_AutoStartBacklogTasks: auto_start_backlog_tasks is mapped from spec.
+func (s *ApplyProjectSuite) TestApply_AutoStartBacklogTasks() {
+	req := types.ProjectApplyRequest{
+		Name: "autostart-project",
+		Spec: types.ProjectSpec{
+			AutoStartBacklogTasks: true,
+		},
+	}
+
+	s.store.EXPECT().
+		ListProjects(gomock.Any(), gomock.Any()).
+		Return([]*types.Project{}, nil)
+
+	s.store.EXPECT().
+		CreateProject(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, p *types.Project) (*types.Project, error) {
+			s.True(p.AutoStartBacklogTasks)
+			return p, nil
+		})
+
+	rec := httptest.NewRecorder()
+	_, httpErr := s.server.applyProject(rec, s.applyRequest(req))
+	s.Nil(httpErr)
+}
+
 // ---------------------------------------------------------------------------
 // Kanban WIP limits
 // ---------------------------------------------------------------------------

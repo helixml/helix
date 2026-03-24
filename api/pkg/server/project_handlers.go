@@ -215,6 +215,7 @@ func (s *HelixAPIServer) getProject(_ http.ResponseWriter, r *http.Request) (*ty
 	// and will take precedence on subsequent loads.
 	if project.StartupScript == "" && (project.StartupInstall != "" || project.StartupStart != "") {
 		project.StartupScript = synthesizeStartupScript(project.StartupInstall, project.StartupStart)
+		project.StartupScriptFromYAML = true // Synthesized from YAML fields
 	}
 
 	return project, nil
@@ -563,6 +564,12 @@ func (s *HelixAPIServer) updateProject(_ http.ResponseWriter, r *http.Request) (
 
 	// DON'T update StartupScript in database - Git repo is source of truth
 	// It will be saved to git repo below and loaded from there on next fetch
+
+	// If user is editing the startup script via UI, clear the YAML-controlled flag
+	// since they're now manually managing the script
+	if req.StartupScript != nil {
+		project.StartupScriptFromYAML = false
+	}
 
 	err = s.Store.UpdateProject(r.Context(), project)
 	if err != nil {
@@ -2444,8 +2451,19 @@ func (s *HelixAPIServer) applyProject(_ http.ResponseWriter, r *http.Request) (*
 		project.Guidelines = req.Spec.Guidelines
 	}
 	if req.Spec.Startup != nil {
-		project.StartupInstall = req.Spec.Startup.Install
-		project.StartupStart = req.Spec.Startup.Start
+		// Prefer unified Script field, fall back to Install/Start for backward compatibility
+		if req.Spec.Startup.Script != "" {
+			project.StartupInstall = "" // Clear legacy fields
+			project.StartupStart = ""
+			// The script will be written to helix-specs branch below
+		} else {
+			project.StartupInstall = req.Spec.Startup.Install
+			project.StartupStart = req.Spec.Startup.Start
+		}
+		project.StartupScriptFromYAML = true
+	}
+	if req.Spec.AutoStartBacklogTasks {
+		project.AutoStartBacklogTasks = true
 	}
 	if req.Spec.Kanban != nil && req.Spec.Kanban.WIPLimits != nil {
 		if project.Metadata.BoardSettings == nil {
@@ -2522,26 +2540,33 @@ func (s *HelixAPIServer) applyProject(_ http.ResponseWriter, r *http.Request) (*
 	// For newly-created external repos (LocalPath == ""), trigger an async clone that
 	// calls SaveStartupScriptToHelixSpecs once the clone completes.
 	// For repos already cloned (LocalPath != ""), write the script synchronously.
-	if primaryRepo != nil && req.Spec.Startup != nil && (req.Spec.Startup.Install != "" || req.Spec.Startup.Start != "") {
-		startupScript := synthesizeStartupScript(req.Spec.Startup.Install, req.Spec.Startup.Start)
-		userName := user.FullName
-		userEmail := user.Email
-		repoSvc := s.projectInternalRepoService
+	if primaryRepo != nil && req.Spec.Startup != nil {
+		var startupScript string
+		if req.Spec.Startup.Script != "" {
+			startupScript = req.Spec.Startup.Script
+		} else if req.Spec.Startup.Install != "" || req.Spec.Startup.Start != "" {
+			startupScript = synthesizeStartupScript(req.Spec.Startup.Install, req.Spec.Startup.Start)
+		}
+		if startupScript != "" {
+			userName := user.FullName
+			userEmail := user.Email
+			repoSvc := s.projectInternalRepoService
 
-		if primaryRepo.LocalPath == "" {
-			// Repo not yet cloned — trigger async clone; write startup script after clone succeeds.
-			log.Info().Str("repo_id", primaryRepo.ID).Msg("Triggering async clone to initialize startup script in helix-specs")
-			s.gitRepositoryService.CloneRepositoryAsync(primaryRepo, func(localPath string) {
-				if _, err := repoSvc.SaveStartupScriptToHelixSpecs(localPath, startupScript, userName, userEmail); err != nil {
-					log.Warn().Err(err).Str("repo_id", primaryRepo.ID).Msg("failed to write startup script to helix-specs after clone")
-				} else {
-					log.Info().Str("repo_id", primaryRepo.ID).Msg("Startup script written to helix-specs after async clone")
+			if primaryRepo.LocalPath == "" {
+				// Repo not yet cloned — trigger async clone; write startup script after clone succeeds.
+				log.Info().Str("repo_id", primaryRepo.ID).Msg("Triggering async clone to initialize startup script in helix-specs")
+				s.gitRepositoryService.CloneRepositoryAsync(primaryRepo, func(localPath string) {
+					if _, err := repoSvc.SaveStartupScriptToHelixSpecs(localPath, startupScript, userName, userEmail); err != nil {
+						log.Warn().Err(err).Str("repo_id", primaryRepo.ID).Msg("failed to write startup script to helix-specs after clone")
+					} else {
+						log.Info().Str("repo_id", primaryRepo.ID).Msg("Startup script written to helix-specs after async clone")
+					}
+				})
+			} else {
+				// Repo already cloned — write startup script synchronously.
+				if _, err := repoSvc.SaveStartupScriptToHelixSpecs(primaryRepo.LocalPath, startupScript, userName, userEmail); err != nil {
+					log.Warn().Err(err).Str("repo_id", primaryRepo.ID).Msg("failed to write startup script to helix-specs")
 				}
-			})
-		} else {
-			// Repo already cloned — write startup script synchronously.
-			if _, err := repoSvc.SaveStartupScriptToHelixSpecs(primaryRepo.LocalPath, startupScript, userName, userEmail); err != nil {
-				log.Warn().Err(err).Str("repo_id", primaryRepo.ID).Msg("failed to write startup script to helix-specs")
 			}
 		}
 	}

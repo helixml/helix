@@ -960,6 +960,7 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
                 : undefined
             }
             projectId={projectId}
+            readOnly={project?.startup_script_from_yaml || false}
           />
         </Box>
 

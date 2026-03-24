@@ -22,10 +22,22 @@ spec:
     - url: "https://github.com/org/my-frontend"
       branch: main
 
-  # Startup runs in the primary repository root
+  # Startup script runs in the primary repository root
+  # Preferred: use 'script' for full control over the startup sequence
   startup:
-    install: "go mod download"
-    start: "go run ./cmd/server"
+    script: |
+      #!/bin/bash
+      set -e
+      go mod download
+      go run ./cmd/server
+
+  # Legacy format (deprecated, use 'script' instead):
+  # startup:
+  #   install: "go mod download"
+  #   start: "go run ./cmd/server"
+
+  # Auto-start backlog tasks when capacity is available
+  auto_start_backlog_tasks: true
 
   # Kanban board WIP limits (0 = unlimited)
   kanban:
