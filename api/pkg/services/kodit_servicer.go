@@ -144,6 +144,9 @@ type KoditServicer interface {
 	ListFiles(ctx context.Context, koditRepoID int64, pattern string) ([]KoditFileEntry, error)
 	ReadFile(ctx context.Context, koditRepoID int64, filePath string, startLine, endLine int) (*KoditFileContent, error)
 
+	// Chunking configuration
+	UpdateChunkingConfig(ctx context.Context, koditRepoID int64, chunkSize, chunkOverlap, minChunkSize int) error
+
 	// Global task queue management
 	ListAllTasks(ctx context.Context, limit, offset int) ([]KoditPendingTask, int64, error)
 	ActiveTasks(ctx context.Context) ([]KoditActiveTask, error)
@@ -224,6 +227,9 @@ func (d *disabledKoditService) ListAllTasks(context.Context, int, int) ([]KoditP
 }
 func (d *disabledKoditService) ActiveTasks(context.Context) ([]KoditActiveTask, error) {
 	return nil, errors.New("kodit service not enabled")
+}
+func (d *disabledKoditService) UpdateChunkingConfig(context.Context, int64, int, int, int) error {
+	return errors.New("kodit service not enabled")
 }
 func (d *disabledKoditService) DeleteTask(context.Context, int64) error {
 	return errors.New("kodit service not enabled")

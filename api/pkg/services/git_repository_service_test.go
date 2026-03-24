@@ -114,6 +114,9 @@ func (f *fakeKodit) ListFiles(_ context.Context, _ int64, _ string) ([]KoditFile
 func (f *fakeKodit) ReadFile(_ context.Context, _ int64, _ string, _, _ int) (*KoditFileContent, error) {
 	return nil, f.err
 }
+func (f *fakeKodit) UpdateChunkingConfig(_ context.Context, _ int64, _, _, _ int) error {
+	return f.err
+}
 
 func TestDeleteRepository_DeletesFromKodit(t *testing.T) {
 	kodit := &fakeKodit{enabled: true}
