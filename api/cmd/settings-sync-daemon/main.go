@@ -179,11 +179,15 @@ func (d *SettingsDaemon) generateAgentServerConfig() map[string]interface{} {
 			log.Printf("Using claude_code runtime (subscription mode)")
 		}
 
-		// Only set env — no command/args. Zed uses its built-in
-		// @zed-industries/claude-code-acp npm package which speaks ACP.
-		// The raw `claude` CLI does NOT support --experimental-acp.
+		// Use "claude-acp" (Zed's registry ID) with "type": "registry" so that
+		// is_settings_registry("claude-acp") returns true immediately at startup,
+		// before the AgentRegistryStore finishes its async network fetch. This
+		// also triggers refresh_if_stale() earlier via has_registry_agents().
+		// Helix sends agent_name="claude" over WebSocket; thread_service.rs
+		// maps it to "claude-acp" before calling server.connect().
 		return map[string]interface{}{
-			"claude": map[string]interface{}{
+			"claude-acp": map[string]interface{}{
+				"type":         "registry",
 				"default_mode": "bypassPermissions",
 				"env":          env,
 			},
