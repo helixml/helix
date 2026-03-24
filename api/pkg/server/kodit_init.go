@@ -4,6 +4,7 @@ package server
 
 import (
 	"fmt"
+	"io"
 	"path/filepath"
 
 	"github.com/helixml/helix/api/pkg/config"
@@ -20,7 +21,7 @@ import (
 type KoditResult struct {
 	Service    services.KoditServicer
 	mcpBackend *KoditMCPBackend
-	closer     *kodit.Client
+	closer     io.Closer
 }
 
 // InitKodit creates the kodit client, service, and MCP backend.
