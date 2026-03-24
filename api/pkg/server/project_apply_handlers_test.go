@@ -41,6 +41,12 @@ func (s *ApplyProjectSuite) SetupTest() {
 		Cfg:   &config.ServerConfig{},
 		Store: s.store,
 	}
+	// applyProject auto-resolves the org when none is specified; return empty
+	// so the project is treated as user-scoped (matching all test assertions).
+	s.store.EXPECT().
+		ListOrganizationMemberships(gomock.Any(), &store.ListOrganizationMembershipsQuery{UserID: s.userID}).
+		Return([]*types.OrganizationMembership{}, nil).
+		AnyTimes()
 }
 
 // applyRequest builds a PUT /api/v1/projects/apply request with the given body.
