@@ -258,15 +258,27 @@ func (s *HelixAPIServer) listTasks(w http.ResponseWriter, r *http.Request) {
 			for _, session := range sessions {
 				sessionMap[session.ID] = session
 			}
-			// Populate SessionUpdatedAt and SandboxState on each task
+			// Populate SessionUpdatedAt and SandboxState on each task.
+			// Live-check the executor to avoid stale DB metadata after sandbox restarts
+			// (same pattern as getSession in session_handlers.go).
 			for _, task := range tasks {
 				if session, ok := sessionMap[task.PlanningSessionID]; ok {
 					task.SessionUpdatedAt = &session.Updated
 
-					// Derive sandbox state from session config - same logic as useSandboxState in the frontend.
-					// This avoids per-card GET /api/v1/sessions/{id} polling from the Kanban view.
+					// Live-check container status against the executor, overriding stale DB values.
 					cfg := session.Metadata
-					status := cfg.ExternalAgentStatus // "stopped", "running", "starting"
+					if cfg.ContainerName != "" && s.externalAgentExecutor != nil {
+						_, err := s.externalAgentExecutor.GetSession(session.ID)
+						if err != nil {
+							cfg.ExternalAgentStatus = "stopped"
+						} else {
+							cfg.ExternalAgentStatus = "running"
+						}
+					} else if cfg.ContainerName != "" {
+						cfg.ExternalAgentStatus = "stopped"
+					}
+
+					status := cfg.ExternalAgentStatus
 					hasContainer := cfg.ContainerName != ""
 					switch {
 					case status == "stopped":
