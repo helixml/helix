@@ -2473,10 +2473,8 @@ func (s *HelixAPIServer) applyProject(_ http.ResponseWriter, r *http.Request) (*
 		if err != nil {
 			return nil, system.NewHTTPError500(fmt.Sprintf("failed to list user organizations: %v", err))
 		}
-		if len(memberships) == 1 {
+		if len(memberships) >= 1 {
 			orgID = memberships[0].OrganizationID
-		} else if len(memberships) > 1 {
-			return nil, system.NewHTTPError400("organization_id is required when user belongs to multiple organizations")
 		}
 		// If len(memberships) == 0, orgID stays empty and project is user-scoped
 	}
