@@ -12,6 +12,7 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/services"
+	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
@@ -121,13 +122,12 @@ func (s *HelixAPIServer) getTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Compute PullRequestURL for tasks with PullRequestID (external repos)
-	if task.PullRequestID != "" && task.PullRequestURL == "" {
-		project, err := s.Store.GetProject(ctx, task.ProjectID)
-		if err == nil && project.DefaultRepoID != "" {
-			repo, err := s.Store.GetGitRepository(ctx, project.DefaultRepoID)
+	// Compute PR URLs for RepoPullRequests array
+	for i, repoPR := range task.RepoPullRequests {
+		if repoPR.PRURL == "" && repoPR.PRID != "" {
+			repo, err := s.Store.GetGitRepository(ctx, repoPR.RepositoryID)
 			if err == nil && repo.ExternalURL != "" {
-				task.PullRequestURL = services.GetPullRequestURL(repo, task.PullRequestID)
+				task.RepoPullRequests[i].PRURL = services.GetPullRequestURL(repo, repoPR.PRID)
 			}
 		}
 	}
@@ -208,15 +208,34 @@ func (s *HelixAPIServer) listTasks(w http.ResponseWriter, r *http.Request) {
 		tasks = []*types.SpecTask{}
 	}
 
-	// Compute PullRequestURL for tasks with PullRequestID (external repos)
+	// Compute PR URLs for RepoPullRequests array
 	if projectID != "" {
-		project, err := s.Store.GetProject(ctx, projectID)
-		if err == nil && project.DefaultRepoID != "" {
-			repo, err := s.Store.GetGitRepository(ctx, project.DefaultRepoID)
-			if err == nil && repo.ExternalURL != "" {
-				for _, task := range tasks {
-					if task.PullRequestID != "" && task.PullRequestURL == "" {
-						task.PullRequestURL = services.GetPullRequestURL(repo, task.PullRequestID)
+		// Batch load repos for RepoPullRequests URL computation
+		// Collect all unique repo IDs from all tasks
+		repoIDsMap := make(map[string]bool)
+		for _, task := range tasks {
+			for _, repoPR := range task.RepoPullRequests {
+				if repoPR.PRURL == "" && repoPR.PRID != "" {
+					repoIDsMap[repoPR.RepositoryID] = true
+				}
+			}
+		}
+
+		// Load repos and build lookup map
+		repoMap := make(map[string]*types.GitRepository)
+		for repoID := range repoIDsMap {
+			repo, err := s.Store.GetGitRepository(ctx, repoID)
+			if err == nil {
+				repoMap[repoID] = repo
+			}
+		}
+
+		// Compute URLs for RepoPullRequests
+		for _, task := range tasks {
+			for i, repoPR := range task.RepoPullRequests {
+				if repoPR.PRURL == "" && repoPR.PRID != "" {
+					if repo, ok := repoMap[repoPR.RepositoryID]; ok && repo.ExternalURL != "" {
+						task.RepoPullRequests[i].PRURL = services.GetPullRequestURL(repo, repoPR.PRID)
 					}
 				}
 			}
@@ -239,10 +258,29 @@ func (s *HelixAPIServer) listTasks(w http.ResponseWriter, r *http.Request) {
 			for _, session := range sessions {
 				sessionMap[session.ID] = session
 			}
-			// Populate SessionUpdatedAt on each task
+			// Populate SessionUpdatedAt and SandboxState on each task
 			for _, task := range tasks {
 				if session, ok := sessionMap[task.PlanningSessionID]; ok {
 					task.SessionUpdatedAt = &session.Updated
+
+					// Derive sandbox state from session config - same logic as useSandboxState in the frontend.
+					// This avoids per-card GET /api/v1/sessions/{id} polling from the Kanban view.
+					cfg := session.Metadata
+					status := cfg.ExternalAgentStatus // "stopped", "running", "starting"
+					hasContainer := cfg.ContainerName != ""
+					switch {
+					case status == "stopped":
+						task.SandboxState = "absent"
+					case status == "running":
+						task.SandboxState = "running"
+					case hasContainer:
+						task.SandboxState = "running"
+					case status == "starting":
+						task.SandboxState = "starting"
+					default:
+						task.SandboxState = "absent"
+					}
+					task.SandboxStatusMessage = cfg.StatusMessage
 				}
 			}
 		}
@@ -779,7 +817,7 @@ func (s *HelixAPIServer) updateSpecTask(w http.ResponseWriter, r *http.Request) 
 			task.MergedToMain = false
 			task.MergedAt = nil
 			task.MergeCommitHash = ""
-			task.PullRequestID = ""
+			task.RepoPullRequests = nil
 		}
 	}
 	if updateReq.Priority != "" {
@@ -823,6 +861,29 @@ func (s *HelixAPIServer) updateSpecTask(w http.ResponseWriter, r *http.Request) 
 	// Update public design docs setting (pointer allows explicit false)
 	if updateReq.PublicDesignDocs != nil {
 		task.PublicDesignDocs = *updateReq.PublicDesignDocs
+	}
+	// Update assignee (pointer allows clearing with empty string to unassign)
+	if updateReq.AssigneeID != nil {
+		newAssigneeID := *updateReq.AssigneeID
+		// Only validate if assigning (not when clearing)
+		if newAssigneeID != "" {
+			// Validate that assignee is an organization member
+			_, err := s.Store.GetOrganizationMembership(ctx, &store.GetOrganizationMembershipQuery{
+				OrganizationID: task.OrganizationID,
+				UserID:         newAssigneeID,
+			})
+			if err != nil {
+				log.Warn().
+					Str("task_id", taskID).
+					Str("assignee_id", newAssigneeID).
+					Str("org_id", task.OrganizationID).
+					Err(err).
+					Msg("Assignee is not an organization member")
+				http.Error(w, "assignee must be an organization member", http.StatusBadRequest)
+				return
+			}
+		}
+		task.AssigneeID = newAssigneeID
 	}
 
 	// If depends_on is provided, pass IDs to store via task.DependsOn and let UpdateSpecTask sync associations.

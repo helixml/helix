@@ -1,4 +1,4 @@
-import React, { FC } from 'react'
+import React, { FC, useEffect } from 'react'
 import { useRoute } from 'react-router5'
 import {
   Box,
@@ -17,6 +17,7 @@ import { useSpecTask } from '../services/specTaskService'
 import { useDesignReview } from '../services/designReviewService'
 import { useGetProject } from '../services'
 import useAccount from '../hooks/useAccount'
+import { cacheTaskName } from '../lib/navHistory'
 
 /**
  * SpecTaskReviewPage - Standalone page for spec review
@@ -42,6 +43,10 @@ const SpecTaskReviewPage: FC = () => {
   // Fetch project data for breadcrumb
   const { data: project, isLoading: projectLoading } = useGetProject(projectId, !!projectId)
 
+  useEffect(() => {
+    if (taskId && task?.name) cacheTaskName(taskId, task.name)
+  }, [taskId, task?.name])
+
   // Fetch review data
   const { isLoading: reviewLoading } = useDesignReview(taskId, reviewId, {
     enabled: !!taskId && !!reviewId,
@@ -50,6 +55,11 @@ const SpecTaskReviewPage: FC = () => {
   const handleBack = () => {
     // Navigate back to the task detail page
     account.orgNavigate('project-task-detail', { id: projectId, taskId })
+  }
+
+  const handleApproved = () => {
+    // After approval, navigate to the workspace so the user can see the agent working
+    account.orgNavigate('project-specs', { id: projectId, openTask: taskId })
   }
 
   const handleOpenInWorkspace = () => {
@@ -91,7 +101,7 @@ const SpecTaskReviewPage: FC = () => {
       orgBreadcrumbs={true}
       showDrawerButton={true}
       topbarContent={
-        <Stack direction="row" spacing={2} sx={{ justifyContent: 'flex-end', width: '100%', alignItems: 'center' }}>
+        <Stack direction="row" spacing={1} sx={{ justifyContent: 'flex-end', width: '100%', alignItems: 'center' }}>
           <Tooltip title="Open in Split Screen">
             <IconButton onClick={handleOpenInWorkspace} size="small">
               <TiledIcon />
@@ -106,6 +116,8 @@ const SpecTaskReviewPage: FC = () => {
           specTaskId={taskId}
           reviewId={reviewId}
           onClose={handleBack}
+          onBack={handleBack}
+          onImplementationStarted={handleApproved}
           hideTitle={true}
         />
       </Box>

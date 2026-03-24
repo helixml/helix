@@ -23,6 +23,42 @@ const (
 	BranchModeExisting BranchMode = "existing" // Continue work on existing branch
 )
 
+// RepoPR tracks pull request information for a single repository
+// Used to track PRs across multiple repos attached to a project
+type RepoPR struct {
+	RepositoryID   string `json:"repository_id"`
+	RepositoryName string `json:"repository_name"`
+	PRID           string `json:"pr_id"`
+	PRNumber       int    `json:"pr_number"`
+	PRURL          string `json:"pr_url"`
+	PRState        string `json:"pr_state"` // "open", "closed", "merged"
+}
+
+// GetFirstOpenPR returns the first open PR from RepoPullRequests, or nil if none.
+func (t *SpecTask) GetFirstOpenPR() *RepoPR {
+	for i := range t.RepoPullRequests {
+		if t.RepoPullRequests[i].PRState == "open" {
+			return &t.RepoPullRequests[i]
+		}
+	}
+	return nil
+}
+
+// GetPRForRepo returns the PR for a specific repository, or nil if none.
+func (t *SpecTask) GetPRForRepo(repoID string) *RepoPR {
+	for i := range t.RepoPullRequests {
+		if t.RepoPullRequests[i].RepositoryID == repoID {
+			return &t.RepoPullRequests[i]
+		}
+	}
+	return nil
+}
+
+// HasAnyPR returns true if there are any PRs tracked.
+func (t *SpecTask) HasAnyPR() bool {
+	return len(t.RepoPullRequests) > 0
+}
+
 // StartPlanningOptions contains options for starting spec generation or just-do-it mode
 // These options can be passed via query parameters for testing purposes
 type StartPlanningOptions struct {
@@ -59,9 +95,10 @@ type CreateTaskRequest struct {
 type SpecTask struct {
 	ID             string `json:"id" gorm:"primaryKey"`
 	ProjectID      string `json:"project_id" gorm:"index"`
-	UserID         string `json:"user_id" gorm:"index"`         // Owner user ID for search
-	OrganizationID string `json:"organization_id" gorm:"index"` // Organization scope for search
-	Name           string `json:"name" gorm:"index"`            // Indexed for search prefix matching
+	UserID         string `json:"user_id" gorm:"index"`                        // Owner user ID for search
+	OrganizationID string `json:"organization_id" gorm:"index"`                // Organization scope for search
+	AssigneeID     string `json:"assignee_id,omitempty" gorm:"size:255;index"` // Team member assigned to work on this task
+	Name           string `json:"name" gorm:"index"`                           // Indexed for search prefix matching
 	Description    string `json:"description" gorm:"type:text"`
 
 	DependsOn []SpecTask `json:"depends_on,omitempty" gorm:"many2many:spec_task_dependencies;"`
@@ -106,13 +143,15 @@ type SpecTask struct {
 	TaskNumber    int    `json:"task_number,omitempty" gorm:"default:0"`
 	DesignDocPath string `json:"design_doc_path,omitempty" gorm:"size:255"`
 
-	PullRequestID  string `json:"pull_request_id"`
-	PullRequestURL string `json:"pull_request_url,omitempty"` // Computed field, not stored
+	// Multi-repo PR tracking: list of PRs across all project repositories
+	RepoPullRequests []RepoPR `json:"repo_pull_requests,omitempty" gorm:"type:jsonb;serializer:json"`
 
 	// Agent activity tracking (computed from session/activity data, not stored)
-	SessionUpdatedAt  *time.Time     `json:"session_updated_at,omitempty" gorm:"-"`  // When the session was last updated (for active/idle detection)
-	AgentWorkState    AgentWorkState `json:"agent_work_state,omitempty" gorm:"-"`    // Current agent work state (idle/working/done) from activity tracking
-	LastPromptContent string         `json:"last_prompt_content,omitempty" gorm:"-"` // Last prompt sent to agent (for continue functionality)
+	SessionUpdatedAt     *time.Time     `json:"session_updated_at,omitempty" gorm:"-"`     // When the session was last updated (for active/idle detection)
+	AgentWorkState       AgentWorkState `json:"agent_work_state,omitempty" gorm:"-"`       // Current agent work state (idle/working/done) from activity tracking
+	LastPromptContent    string         `json:"last_prompt_content,omitempty" gorm:"-"`    // Last prompt sent to agent (for continue functionality)
+	SandboxState         string         `json:"sandbox_state,omitempty" gorm:"-"`          // "absent", "running", "starting" — derived from session config in listTasks
+	SandboxStatusMessage string         `json:"sandbox_status_message,omitempty" gorm:"-"` // Transient startup message e.g. "Unpacking build cache"
 
 	// Multi-session support
 	ZedInstanceID   string         `json:"zed_instance_id,omitempty" gorm:"size:255;index"`
@@ -234,6 +273,7 @@ type SpecTaskUpdateRequest struct {
 	UserShortTitle   *string          `json:"user_short_title,omitempty"`   // User override for tab title (pointer to allow clearing with empty string)
 	PublicDesignDocs *bool            `json:"public_design_docs,omitempty"` // Pointer to allow explicit false
 	DependsOn        []string         `json:"depends_on"`                   // IDs of tasks this task depends on
+	AssigneeID       *string          `json:"assignee_id,omitempty"`        // Pointer to allow clearing (set to empty string to unassign)
 }
 
 type SpecTaskStatus string

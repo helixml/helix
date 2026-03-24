@@ -173,7 +173,7 @@ const GitRepoDetail: FC = () => {
 
   // Poll more frequently (3s) when actively indexing to show enrichments flowing in
   // Otherwise use default (30s for latest, no polling for specific commits)
-  const isActivelyIndexing = koditStatus?.status === 'indexing' || koditStatus?.status === 'in_progress'
+  const isActivelyIndexing = koditStatus?.data?.attributes?.status === 'indexing' || koditStatus?.data?.attributes?.status === 'in_progress'
   const enrichmentsRefetchInterval = isActivelyIndexing ? 3000 : undefined
 
   const { data: enrichmentsData } = useKoditEnrichments(repoId || '', commitFromQuery, {

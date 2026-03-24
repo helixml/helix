@@ -355,6 +355,7 @@ const SpecTasksPage: FC = () => {
       return null;
     const sub = claudeSubscriptions?.[0];
     if (!sub) return null;
+    if (sub.credential_type === 'setup_token') return null; // Setup tokens don't expire
     return getTokenExpiryStatus(sub.access_token_expires_at);
   }, [project?.default_helix_app_id, apps.apps, claudeSubscriptions]);
 
@@ -671,7 +672,6 @@ const SpecTasksPage: FC = () => {
           spacing={2}
           sx={{
             justifyContent: "flex-end",
-            width: "100%",
             minWidth: 0,
             alignItems: "center",
           }}

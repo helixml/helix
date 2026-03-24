@@ -147,6 +147,18 @@ func (c *Client) CreatePullRequest(ctx context.Context, owner, repo, title, body
 	return pullRequest, nil
 }
 
+// UpdatePullRequest updates the title and body of an existing pull request
+func (c *Client) UpdatePullRequest(ctx context.Context, owner, repo string, number int, title, body string) (*github.PullRequest, error) {
+	pr, _, err := c.client.PullRequests.Edit(ctx, owner, repo, number, &github.PullRequest{
+		Title: &title,
+		Body:  &body,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to update pull request: %w", err)
+	}
+	return pr, nil
+}
+
 // GetPullRequest gets a pull request by number
 func (c *Client) GetPullRequest(ctx context.Context, owner, repo string, number int) (*github.PullRequest, error) {
 	pr, _, err := c.client.PullRequests.Get(ctx, owner, repo, number)

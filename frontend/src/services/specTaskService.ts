@@ -337,7 +337,7 @@ export function useCloneGroupProgress(groupId: string) {
   });
 }
 
-export function useReposWithoutProjects(orgId?: string) {
+export function useReposWithoutProjects(orgId?: string, enabled: boolean = true) {
   const api = useApi();
 
   return useQuery({
@@ -348,6 +348,7 @@ export function useReposWithoutProjects(orgId?: string) {
         .v1RepositoriesWithoutProjectsList({ organization_id: orgId });
       return response.data;
     },
+    enabled,
   });
 }
 

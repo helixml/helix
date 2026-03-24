@@ -88,13 +88,21 @@ wait_for_claude_credentials() {
         return 0
     fi
 
+    # Setup token mode: CLAUDE_CODE_OAUTH_TOKEN is injected via env var in Zed settings,
+    # no credentials file needed. The daemon writes a separate marker for this.
+    local SETUP_TOKEN_MARKER="/tmp/helix-claude-setup-token-mode"
+    if [ -f "$SETUP_TOKEN_MARKER" ]; then
+        echo "Claude Code setup token mode (no credentials file needed)"
+        return 0
+    fi
+
     echo "Claude Code subscription mode, waiting for credentials file..."
     local WAIT_COUNT=0
     local MAX_WAIT=60
 
     while [ $WAIT_COUNT -lt $MAX_WAIT ]; do
-        if [ -f "$CREDS_FILE" ]; then
-            echo "Claude credentials file ready"
+        if [ -f "$CREDS_FILE" ] || [ -f "$SETUP_TOKEN_MARKER" ]; then
+            echo "Claude credentials ready"
             return 0
         fi
         sleep 1

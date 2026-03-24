@@ -30,7 +30,8 @@ import {
 import DeleteIcon from '@mui/icons-material/Delete';
 import AddIcon from '@mui/icons-material/Add';
 import SettingsIcon from '@mui/icons-material/Settings';
-import { IAgentSkill, IRequiredApiParameter, IAppFlatState, IAssistantApi, ITool, IToolApiAction } from '../../types';
+import { IAgentSkill, IRequiredApiParameter, IAppFlatState, ITool, IToolApiAction } from '../../types';
+import { TypesAssistantAPI } from '../../api/api';
 import { styled } from '@mui/material/styles';
 import DarkDialog from '../dialog/DarkDialog';
 import useLightTheme from '../../hooks/useLightTheme'
@@ -489,9 +490,9 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
         return;
       }
 
-      // Construct the IAssistantApi object, which will be used 
+      // Construct the TypesAssistantAPI object, which will be used 
       // to update the application
-      const assistantApi: IAssistantApi = {
+      const assistantApi: TypesAssistantAPI = {
         name: skill.name,
         description: skill.description,
         system_prompt: skill.systemPrompt,
@@ -567,7 +568,7 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
     setAnchorEl(null);
   };
 
-  const handleExampleSelect = (example: IAssistantApi) => {
+  const handleExampleSelect = (example: TypesAssistantAPI) => {
     setSkill({
       name: example.name,
       description: example.description,

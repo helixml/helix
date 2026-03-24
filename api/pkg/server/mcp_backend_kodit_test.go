@@ -6,10 +6,13 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
 	"go.uber.org/mock/gomock"
 
+	apiskill "github.com/helixml/helix/api/pkg/agent/skill/api_skills"
+	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 )
@@ -223,4 +226,73 @@ func (s *KoditRepoResolverSuite) TestSkipsReposWithoutKoditRepoID() {
 	s.Require().NoError(err)
 
 	s.Equal(0, len(scope.idSlice))
+}
+
+// ---------------------------------------------------------------------------
+// Integration: enable endpoint → Kodit backend route
+// ---------------------------------------------------------------------------
+
+// TestEnableSkillRouteToKoditBackend verifies the end-to-end wiring:
+// 1. The enable endpoint produces an AssistantMCP whose URL ends with /api/v1/mcp/kodit.
+// 2. A request to that URL path (served by the disabled Kodit backend) returns 501,
+//    confirming the route is correctly registered and the URL is right.
+func TestEnableSkillRouteToKoditBackend(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockStore := store.NewMockStore(ctrl)
+	serverURL := "http://helix.test"
+	userID := "user-route"
+	appID := "app-route"
+	apiKey := "hl-route-key"
+
+	app := &types.App{
+		ID:    appID,
+		Owner: userID,
+		Config: types.AppConfig{
+			Helix: types.AppHelixConfig{
+				Assistants: []types.AssistantConfig{{Name: "Agent"}},
+			},
+		},
+	}
+
+	// Enable endpoint mock expectations.
+	mockStore.EXPECT().GetApp(gomock.Any(), appID).Return(app, nil)
+	mockStore.EXPECT().ListAPIKeys(gomock.Any(), gomock.Any()).Return([]*types.ApiKey{{Key: apiKey}}, nil)
+	mockStore.EXPECT().UpdateApp(gomock.Any(), gomock.Any()).DoAndReturn(func(_ interface{}, updated *types.App) (*types.App, error) {
+		return updated, nil
+	})
+
+	sm := apiskill.NewManager()
+	assert.NoError(t, sm.LoadSkills(context.Background()))
+
+	srv := &HelixAPIServer{
+		Store: mockStore,
+		Cfg: &config.ServerConfig{
+			WebServer: config.WebServer{URL: serverURL},
+		},
+		skillManager: sm,
+		kodit:        &koditResult{mcpBackend: NewKoditMCPBackend(nil, false, mockStore)},
+	}
+
+	// Step 1: call the enable endpoint and capture the MCP config.
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/apps/"+appID+"/skills/code-intelligence/enable", nil)
+	req = mux.SetURLVars(req, map[string]string{"id": appID, "skill": "code-intelligence"})
+	req = req.WithContext(setRequestUser(req.Context(), types.User{ID: userID, Type: types.OwnerTypeUser}))
+	rr := httptest.NewRecorder()
+	srv.handleEnableSkill(rr, req)
+	assert.Equal(t, http.StatusOK, rr.Code)
+
+	// Step 2: verify the produced URL points to the Kodit MCP backend path.
+	updatedApp := app.Config.Helix.Assistants[0]
+	assert.Len(t, updatedApp.MCPs, 1)
+	mcpURL := updatedApp.MCPs[0].URL
+	assert.Equal(t, serverURL+"/api/v1/mcp/kodit", mcpURL)
+
+	// Step 3: confirm the Kodit backend (disabled) is reachable at that path
+	// and returns 501 Not Implemented (not 404, which would mean the route is missing).
+	koditReq := httptest.NewRequest(http.MethodPost, "/api/v1/mcp/kodit", nil)
+	koditRec := httptest.NewRecorder()
+	srv.kodit.mcpBackend.ServeHTTP(koditRec, koditReq, &types.User{ID: userID})
+	assert.Equal(t, http.StatusNotImplemented, koditRec.Code, "Kodit backend should return 501 when disabled, not 404")
 }

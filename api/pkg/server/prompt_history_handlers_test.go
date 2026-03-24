@@ -87,18 +87,23 @@ func (s *PromptHistoryHandlersSuite) TestProcessPendingPromptsForIdleSessions_Id
 		ListPromptHistoryBySpecTask(gomock.Any(), "task-123").
 		Return([]*types.PromptHistoryEntry{pendingEntry}, nil)
 
+	// GetSpecTask is called to determine the canonical planning session (fix #10b)
+	s.store.EXPECT().
+		GetSpecTask(gomock.Any(), "task-123").
+		Return(&types.SpecTask{ID: "task-123", PlanningSessionID: sessionID}, nil)
+
 	// GetSession for the session (used to load session + check interactions)
 	session := &types.Session{
 		ID:           sessionID,
 		Owner:        "user-1",
 		GenerationID: 0,
 	}
-	s.store.EXPECT().GetSession(gomock.Any(), sessionID).Return(session, nil)
-
-	// ListInteractions returns empty → session is idle
+	// GetSession + ListInteractions called by both processPendingPromptsForIdleSessions
+	// (to check if session is idle) AND processPromptQueue (to check if session is busy)
+	s.store.EXPECT().GetSession(gomock.Any(), sessionID).Return(session, nil).AnyTimes()
 	s.store.EXPECT().
 		ListInteractions(gomock.Any(), gomock.Any()).
-		Return([]*types.Interaction{}, int64(0), nil)
+		Return([]*types.Interaction{}, int64(0), nil).AnyTimes()
 
 	// processPromptQueue calls GetNextPendingPrompt — return nil to stop further processing
 	s.store.EXPECT().
@@ -126,6 +131,11 @@ func (s *PromptHistoryHandlersSuite) TestProcessPendingPromptsForIdleSessions_Id
 	s.store.EXPECT().
 		ListPromptHistoryBySpecTask(gomock.Any(), "task-456").
 		Return([]*types.PromptHistoryEntry{pendingEntry}, nil)
+
+	// GetSpecTask is called to determine the canonical planning session (fix #10b)
+	s.store.EXPECT().
+		GetSpecTask(gomock.Any(), "task-456").
+		Return(&types.SpecTask{ID: "task-456", PlanningSessionID: sessionID}, nil)
 
 	session := &types.Session{
 		ID:           sessionID,
@@ -163,6 +173,11 @@ func (s *PromptHistoryHandlersSuite) TestProcessPendingPromptsForIdleSessions_Bu
 	s.store.EXPECT().
 		ListPromptHistoryBySpecTask(gomock.Any(), "task-789").
 		Return([]*types.PromptHistoryEntry{pendingEntry}, nil)
+
+	// GetSpecTask is called to determine the canonical planning session (fix #10b)
+	s.store.EXPECT().
+		GetSpecTask(gomock.Any(), "task-789").
+		Return(&types.SpecTask{ID: "task-789", PlanningSessionID: sessionID}, nil)
 
 	session := &types.Session{
 		ID:           sessionID,

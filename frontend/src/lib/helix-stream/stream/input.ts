@@ -31,7 +31,7 @@ function trySendChannel(channel: RTCDataChannel | null, buffer: ByteBuffer) {
     if (readBuffer.length == 0) {
         throw "illegal buffer size"
     }
-    channel.send(readBuffer.buffer)
+    channel.send(readBuffer)
 }
 
 export type MouseScrollMode = "highres" | "normal"
@@ -1056,6 +1056,10 @@ export class StreamInput {
 
         this.tryOpenControllerChannel(id)
         trySendChannel(this.controllerInputs[id], this.buffer)
+    }
+    handleServerMessage(_msgType: number, _data: Uint8Array) {
+        // Handle server-to-client messages (e.g., rumble feedback)
+        // No-op by default; subclasses or future implementations can override
     }
     private tryOpenControllerChannel(id: number) {
         if (!this.controllerInputs[id]) {

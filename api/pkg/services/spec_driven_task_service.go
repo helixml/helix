@@ -228,7 +228,7 @@ func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *t
 			log.Info().
 				Str("task_id", task.ID).
 				Str("branch", req.WorkingBranch).
-				Str("pr_id", task.PullRequestID).
+				Bool("has_pr", task.HasAnyPR()).
 				Msg("Detected existing PR for branch, task starts in pull_request column")
 		}
 	}
@@ -378,6 +378,17 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		ProjectID:      task.ProjectID, // For project-level skills
 		Metadata:       sessionMetadata,
 		OwnerType:      types.OwnerTypeUser,
+	}
+
+	// Guard against duplicate session creation (issue #10 from ZFS deployment).
+	// Two concurrent requests can both reach this point before either has written
+	// planning_session_id to the DB. Re-read the task to see if a sibling already won the race.
+	if freshTask, readErr := s.store.GetSpecTask(ctx, task.ID); readErr == nil && freshTask.PlanningSessionID != "" {
+		log.Info().
+			Str("task_id", task.ID).
+			Str("existing_session_id", freshTask.PlanningSessionID).
+			Msg("Planning session already created by concurrent request — skipping duplicate creation")
+		return
 	}
 
 	session, err = s.store.CreateSession(ctx, *session)
@@ -756,6 +767,15 @@ func (s *SpecDrivenTaskService) StartJustDoItMode(ctx context.Context, task *typ
 		ProjectID:      task.ProjectID, // For project-level skills
 		Metadata:       sessionMetadata,
 		OwnerType:      types.OwnerTypeUser,
+	}
+
+	// Guard against duplicate session creation (issue #10 from ZFS deployment).
+	if freshTask, readErr := s.store.GetSpecTask(ctx, task.ID); readErr == nil && freshTask.PlanningSessionID != "" {
+		log.Info().
+			Str("task_id", task.ID).
+			Str("existing_session_id", freshTask.PlanningSessionID).
+			Msg("Planning session already created by concurrent request — skipping duplicate Just Do It creation")
+		return
 	}
 
 	session, err = s.store.CreateSession(ctx, *session)
@@ -1258,7 +1278,7 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, task *types.Sp
 		if s.SendMessageToAgent != nil && !s.testMode {
 			go func(t *types.SpecTask, comments string) {
 				message := BuildRevisionInstructionPrompt(t, comments)
-				_, err := s.SendMessageToAgent(context.Background(), t, message, "")
+				_, _, err := s.SendMessageToAgent(context.Background(), t, message, "")
 				if err != nil {
 					log.Error().
 						Err(err).
@@ -1433,10 +1453,23 @@ func (s *SpecDrivenTaskService) detectAndLinkExistingPR(ctx context.Context, tas
 				Str("target_branch", pr.TargetBranch).
 				Msg("Found existing PR for branch")
 
-			// Update task with PR info
+			// Get repo details for RepoPullRequests
+			repo, repoErr := s.store.GetGitRepository(ctx, project.DefaultRepoID)
+			repoName := ""
+			if repoErr == nil && repo != nil {
+				repoName = repo.Name
+			}
+
+			// Update task with PR info via RepoPullRequests
 			now := time.Now()
-			task.PullRequestID = pr.ID
-			task.PullRequestURL = pr.URL
+			task.RepoPullRequests = append(task.RepoPullRequests, types.RepoPR{
+				RepositoryID:   project.DefaultRepoID,
+				RepositoryName: repoName,
+				PRID:           pr.ID,
+				PRNumber:       pr.Number,
+				PRURL:          pr.URL,
+				PRState:        string(pr.State),
+			})
 			task.Status = types.TaskStatusPullRequest
 			task.StatusUpdatedAt = &now
 

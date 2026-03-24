@@ -378,7 +378,6 @@ func (s *GitRepositoryService) CreateRepository(ctx context.Context, request *ty
 		Description:             request.Description,
 		OwnerID:                 request.OwnerID,
 		OrganizationID:          orgID,
-		ProjectID:               request.ProjectID,
 		RepoType:                request.RepoType,
 		Status:                  types.GitRepositoryStatusActive,
 		CloneURL:                s.generateCloneURL(repoID),
