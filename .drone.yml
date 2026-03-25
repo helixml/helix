@@ -1825,9 +1825,6 @@ volumes:
   - name: sandbox-build-cache
     host:
       path: /var/cache/drone/sandbox-build
-  - name: cargo-cache
-    host:
-      path: /var/cache/drone/cargo
   - name: npm-cache
     host:
       path: /var/cache/drone/npm
@@ -1861,21 +1858,16 @@ steps:
         if [ "$${QWEN_COMMIT}" != "$${QWEN_HEAD}" ]; then
           echo "⚠️  QWEN_COMMIT is behind upstream HEAD ($${QWEN_HEAD:0:12})"
         fi
-      # Clone Zed only if not cached (flock prevents concurrent clone race)
+      # Always clone Zed source fresh at the pinned commit.
+      # BuildKit handles caching of cargo deps and build artifacts.
       - |
         . /drone/src/sandbox-versions.txt
-        flock /drone/src/cache/zed-source.lock -c "
-          if [ -f '/drone/src/cache/zed-$${ZED_COMMIT}/zed' ] && [ -f '/drone/src/cache/zed-$${ZED_COMMIT}/app-icon.png' ]; then
-            echo '✓ Zed binary+icon cached for $${ZED_COMMIT}'
-          else
-            echo 'Cloning Zed at commit $${ZED_COMMIT}...'
-            cd /
-            rm -rf /drone/src/cache/zed-source
-            git init /drone/src/cache/zed-source
-            git -C /drone/src/cache/zed-source fetch --depth 1 https://github.com/helixml/zed.git $${ZED_COMMIT}
-            git -C /drone/src/cache/zed-source checkout FETCH_HEAD
-          fi
-        "
+        echo "Cloning Zed at commit $${ZED_COMMIT}..."
+        rm -rf /drone/src/cache/zed-source
+        git init /drone/src/cache/zed-source
+        git -C /drone/src/cache/zed-source fetch --depth 1 https://github.com/helixml/zed.git $${ZED_COMMIT}
+        git -C /drone/src/cache/zed-source checkout FETCH_HEAD
+        echo "✓ Zed source at $$(git -C /drone/src/cache/zed-source rev-parse HEAD)"
       # Clone qwen-code only if not cached (flock prevents concurrent clone race)
       - |
         . /drone/src/sandbox-versions.txt
@@ -1947,72 +1939,50 @@ steps:
       - clone-dependencies
 
   # Step 3: Build Zed binary
-  # Uses flock to prevent concurrent builds from racing on shared cache
+  # Builds Zed using the full Dockerfile.zed-build with BuildKit cache mounts.
+  # No shared volumes, no flock — BuildKit handles caching and concurrency.
   - name: build-zed
     image: docker:cli
     environment:
       DOCKER_HOST: unix:///var/run/docker.sock
     commands:
-      - apk add --no-cache flock
       - |
-        ZED_COMMIT=$$(cat /drone/src/zed-commit.txt | head -c 12)
-        CACHE_KEY="zed-$${ZED_COMMIT}"
-        # Use flock for entire build to prevent races on cache
-        flock /drone/src/cache/zed-build.lock -c "
-          # Double-check cache after acquiring lock (another build may have finished)
-          if [ -f '/drone/src/cache/$${CACHE_KEY}/zed' ] && [ -f '/drone/src/cache/$${CACHE_KEY}/app-icon.png' ]; then
-            echo 'Using cached Zed binary + icon for commit $${ZED_COMMIT}'
-            mkdir -p zed-build
-            cp /drone/src/cache/$${CACHE_KEY}/zed zed-build/zed
-            cp /drone/src/cache/$${CACHE_KEY}/app-icon.png zed-build/app-icon.png
-            chmod +x zed-build/zed
-            exit 0
-          fi
+        ZED_SOURCE="/drone/src/cache/zed-source"
 
-          echo 'Building Zed binary (this may take 15-20 minutes on first run)...'
+        # Verify Zed source was cloned by clone-dependencies
+        if [ ! -f "$${ZED_SOURCE}/Cargo.toml" ]; then
+          echo "ERROR: Zed source not found at $${ZED_SOURCE}"
+          exit 1
+        fi
 
-          # Build the Zed builder environment image (deps + rustup, no compilation)
-          # --target builder-env stops before COPY/cargo build (which needs Zed source as context)
-          docker build --pull --target builder-env -t zed-builder:ubuntu25 -f Dockerfile.zed-build .
+        ZED_SHA=$$(git -C "$${ZED_SOURCE}" rev-parse HEAD)
+        if [ -z "$${ZED_SHA}" ]; then
+          echo "ERROR: Could not determine Zed source commit"
+          exit 1
+        fi
+        echo "Building Zed from source commit: $${ZED_SHA}"
 
-          # Run Zed build in container, output directly to cache directory
-          # Note: Zed source is cloned to /drone/src/cache/zed-source (inside Drone container)
-          #       which maps to /var/cache/drone/sandbox-build/zed-source on the HOST.
-          #       Docker-in-Docker mounts use HOST paths, not container paths.
-          mkdir -p /drone/src/cache/$${CACHE_KEY}
-          docker run --rm \\
-            -v '/var/cache/drone/sandbox-build/zed-source:/zed:ro' \\
-            -v '/var/cache/drone/cargo/registry:/root/.cargo/registry' \\
-            -v '/var/cache/drone/cargo/git:/root/.cargo/git' \\
-            -v '/var/cache/drone/cargo/zed-target:/zed-target' \\
-            -v \"/var/cache/drone/sandbox-build/$${CACHE_KEY}:/output\" \\
-            -w /zed \\
-            zed-builder:ubuntu25 \\
-            bash -c '
-              export CARGO_TARGET_DIR=/zed-target
-              export ZED_COMMIT_SHA=`git -C /zed rev-parse HEAD 2>/dev/null || echo unknown`
-              echo Building Zed from commit: $ZED_COMMIT_SHA
-              RUSTFLAGS=\"-C link-arg=-s\" cargo build --locked --release --features external_websocket_sync
-              cp /zed-target/release/zed /output/zed
-              cp /zed/crates/zed/resources/app-icon.png /output/app-icon.png
-            '
+        # Build using the full Dockerfile (Stage 2) with Zed source as context.
+        # BuildKit cache mounts handle cargo registry, git deps, and build artifacts.
+        # --build-arg BUILD_TYPE=release selects release profile.
+        # --output extracts just the /zed binary to zed-build/.
+        mkdir -p zed-build
+        docker build \
+          --build-arg BUILD_TYPE=release \
+          --build-arg ZED_COMMIT_SHA=$${ZED_SHA} \
+          --output type=local,dest=zed-build \
+          -f Dockerfile.zed-build \
+          "$${ZED_SOURCE}"
 
-          ls -la /drone/src/cache/$${CACHE_KEY}/
-
-          # Copy from cache to workspace
-          mkdir -p zed-build
-          cp /drone/src/cache/$${CACHE_KEY}/zed zed-build/zed
-          cp /drone/src/cache/$${CACHE_KEY}/app-icon.png zed-build/app-icon.png
-          chmod +x zed-build/zed
-        "
-      - chmod +x zed-build/zed
+        # Copy app icon from source
+        cp "$${ZED_SOURCE}/crates/zed/resources/app-icon.png" zed-build/app-icon.png
+        chmod +x zed-build/zed
+        ls -la zed-build/
     volumes:
       - name: dockersocket
         path: /var/run/docker.sock
       - name: sandbox-build-cache
         path: /drone/src/cache
-      - name: cargo-cache
-        path: /drone/src/cargo-registry
     depends_on:
       - clone-dependencies
 
@@ -2265,9 +2235,6 @@ volumes:
   - name: sandbox-build-cache
     host:
       path: /Volumes/Big/drone-cache/sandbox-build
-  - name: cargo-cache
-    host:
-      path: /Volumes/Big/drone-cache/cargo
   - name: npm-cache
     host:
       path: /Volumes/Big/drone-cache/npm
@@ -2296,18 +2263,12 @@ steps:
         fi
       - |
         . /drone/src/sandbox-versions.txt
-        flock /drone/src/cache/zed-source.lock -c "
-          if [ -f '/drone/src/cache/zed-$${ZED_COMMIT}/zed' ] && [ -f '/drone/src/cache/zed-$${ZED_COMMIT}/app-icon.png' ]; then
-            echo '✓ Zed binary+icon cached for $${ZED_COMMIT}'
-          else
-            echo 'Cloning Zed at commit $${ZED_COMMIT}...'
-            cd /
-            rm -rf /drone/src/cache/zed-source
-            git init /drone/src/cache/zed-source
-            git -C /drone/src/cache/zed-source fetch --depth 1 https://github.com/helixml/zed.git $${ZED_COMMIT}
-            git -C /drone/src/cache/zed-source checkout FETCH_HEAD
-          fi
-        "
+        echo "Cloning Zed at commit $${ZED_COMMIT}..."
+        rm -rf /drone/src/cache/zed-source
+        git init /drone/src/cache/zed-source
+        git -C /drone/src/cache/zed-source fetch --depth 1 https://github.com/helixml/zed.git $${ZED_COMMIT}
+        git -C /drone/src/cache/zed-source checkout FETCH_HEAD
+        echo "✓ Zed source at $$(git -C /drone/src/cache/zed-source rev-parse HEAD)"
       - |
         . /drone/src/sandbox-versions.txt
         QWEN_SHORT=$${QWEN_COMMIT:0:12}
@@ -2371,62 +2332,44 @@ steps:
       - clone-dependencies
 
   # Step 3: Build Zed binary (DinD with macOS Docker Desktop paths)
+  # Builds Zed using the full Dockerfile.zed-build with BuildKit cache mounts.
   - name: build-zed
     image: docker:cli
     environment:
       DOCKER_HOST: unix:///var/run/docker.sock
     commands:
-      - apk add --no-cache flock
       - |
-        ZED_COMMIT=$$(cat /drone/src/zed-commit.txt | head -c 12)
-        CACHE_KEY="zed-$${ZED_COMMIT}"
-        flock /drone/src/cache/zed-build.lock -c "
-          if [ -f '/drone/src/cache/$${CACHE_KEY}/zed' ] && [ -f '/drone/src/cache/$${CACHE_KEY}/app-icon.png' ]; then
-            echo 'Using cached Zed binary + icon for commit $${ZED_COMMIT}'
-            mkdir -p zed-build
-            cp /drone/src/cache/$${CACHE_KEY}/zed zed-build/zed
-            cp /drone/src/cache/$${CACHE_KEY}/app-icon.png zed-build/app-icon.png
-            chmod +x zed-build/zed
-            exit 0
-          fi
+        ZED_SOURCE="/drone/src/cache/zed-source"
 
-          echo 'Building Zed binary (this may take 15-20 minutes on first run)...'
+        if [ ! -f "$${ZED_SOURCE}/Cargo.toml" ]; then
+          echo "ERROR: Zed source not found at $${ZED_SOURCE}"
+          exit 1
+        fi
 
-          docker build --pull --provenance=false --target builder-env -t zed-builder:ubuntu25 -f Dockerfile.zed-build .
+        ZED_SHA=$$(git -C "$${ZED_SOURCE}" rev-parse HEAD)
+        if [ -z "$${ZED_SHA}" ]; then
+          echo "ERROR: Could not determine Zed source commit"
+          exit 1
+        fi
+        echo "Building Zed from source commit: $${ZED_SHA}"
 
-          mkdir -p /drone/src/cache/$${CACHE_KEY}
-          docker run --rm \\
-            -v '/Volumes/Big/drone-cache/sandbox-build/zed-source:/zed:ro' \\
-            -v '/Volumes/Big/drone-cache/cargo/registry:/root/.cargo/registry' \\
-            -v '/Volumes/Big/drone-cache/cargo/git:/root/.cargo/git' \\
-            -v '/Volumes/Big/drone-cache/cargo/zed-target:/zed-target' \\
-            -v \"/Volumes/Big/drone-cache/sandbox-build/$${CACHE_KEY}:/output\" \\
-            -w /zed \\
-            zed-builder:ubuntu25 \\
-            bash -c '
-              export CARGO_TARGET_DIR=/zed-target
-              export ZED_COMMIT_SHA=`git -C /zed rev-parse HEAD 2>/dev/null || echo unknown`
-              echo Building Zed from commit: $ZED_COMMIT_SHA
-              RUSTFLAGS=\"-C link-arg=-s\" cargo build --locked --release --features external_websocket_sync
-              cp /zed-target/release/zed /output/zed
-              cp /zed/crates/zed/resources/app-icon.png /output/app-icon.png
-            '
+        mkdir -p zed-build
+        docker build \
+          --provenance=false \
+          --build-arg BUILD_TYPE=release \
+          --build-arg ZED_COMMIT_SHA=$${ZED_SHA} \
+          --output type=local,dest=zed-build \
+          -f Dockerfile.zed-build \
+          "$${ZED_SOURCE}"
 
-          ls -la /drone/src/cache/$${CACHE_KEY}/
-
-          mkdir -p zed-build
-          cp /drone/src/cache/$${CACHE_KEY}/zed zed-build/zed
-          cp /drone/src/cache/$${CACHE_KEY}/app-icon.png zed-build/app-icon.png
-          chmod +x zed-build/zed
-        "
-      - chmod +x zed-build/zed
+        cp "$${ZED_SOURCE}/crates/zed/resources/app-icon.png" zed-build/app-icon.png
+        chmod +x zed-build/zed
+        ls -la zed-build/
     volumes:
       - name: dockersocket
         path: /var/run/docker.sock
       - name: sandbox-build-cache
         path: /drone/src/cache
-      - name: cargo-cache
-        path: /drone/src/cargo-registry
     depends_on:
       - clone-dependencies
 

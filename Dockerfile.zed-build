@@ -71,6 +71,7 @@ ENV PATH="/root/.cargo/bin:${PATH}"
 FROM builder-env AS builder
 
 ARG BUILD_TYPE=release
+ARG ZED_COMMIT_SHA=unknown
 
 # Copy source (filtered by .dockerignore — excludes target/, .git/)
 COPY . /zed
@@ -101,6 +102,7 @@ RUN --mount=type=cache,target=/root/.cargo/registry \
         exit 1; \
     fi && \
     CARGO_TARGET_DIR=target-ubuntu25-v3 \
+    ZED_COMMIT_SHA=${ZED_COMMIT_SHA} \
     RUSTFLAGS='-C link-arg=-s' \
     cargo build \
         $(if [ "$BUILD_TYPE" = "release" ]; then echo "--release"; else echo ""; fi) \
