@@ -149,13 +149,13 @@ const GlobalSearchDialog: FC<GlobalSearchDialogProps> = ({
         account.orgNavigate('project-specs', { id: result.id })
         break
       case TypesResource.ResourceApplication:
-        account.orgNavigate('app', { app_id: result.id })
+        account.orgNavigate('agent', { app_id: result.id })
         break
       case TypesResource.ResourceSession:
         account.orgNavigate('session', { session_id: result.id })
         break
       case TypesResource.ResourceKnowledge:
-        account.orgNavigate('apps')
+        account.orgNavigate('agents')
         break
       case TypesResource.ResourceGitRepository:
         account.orgNavigate('git-repo-detail', { repoId: result.id })

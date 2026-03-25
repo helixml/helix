@@ -151,7 +151,7 @@ const TasksTable: FC<{
                 e.preventDefault()
                 e.stopPropagation()
                 // Navigate to the app using the proper navigation method
-                account.orgNavigate('app', { app_id: app.id })
+                account.orgNavigate('agent', { app_id: app.id })
               }}
             >
               {app.config.helix.name || 'Unnamed Agent'}

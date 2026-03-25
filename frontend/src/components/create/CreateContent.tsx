@@ -1,5 +1,7 @@
 import Avatar from '@mui/material/Avatar'
 import Box from '@mui/material/Box'
+import Typography from '@mui/material/Typography'
+import Chip from '@mui/material/Chip'
 import { FC, useState, useMemo, useContext, useEffect } from 'react'
 import AppCreateHeader from '../appstore/CreateHeader'
 import CenterMessage from './CenterMessage'
@@ -28,6 +30,14 @@ import Container from '@mui/material/Container'
 import Stack from '@mui/material/Stack'
 import { invalidateSessionsQuery } from '../../services/sessionService'
 import { useQueryClient } from '@tanstack/react-query'
+import {
+  AutoAwesome as AutoAwesomeIcon,
+  Storage as StorageIcon,
+  Build as BuildIcon,
+  Api as ApiIcon,
+  Search as SearchIcon,
+  Code as CodeIcon,
+} from '@mui/icons-material'
 
 import {
   ISessionMode,
@@ -36,13 +46,15 @@ import {
   SESSION_MODE_INFERENCE,
   SESSION_TYPE_TEXT,
   IApp,
+  IAssistantConfig,
   AGENT_TYPE_ZED_EXTERNAL,
 } from '../../types'
 
 
 import {
   getAssistant,
-  getAssistantAvatar,  
+  getAssistantAvatar,
+  getAppAvatarUrl,
 } from '../../utils/apps'
 
 
@@ -110,38 +122,13 @@ const CreateContent: FC<CreateContentProps> = ({
   // Update session config when app changes and has external agent configuration
   useEffect(() => {
     if (app?.config?.helix?.default_agent_type === AGENT_TYPE_ZED_EXTERNAL) {
-      console.log('🔄 App loaded with external agent type, updating session config:', {
-        appId: app?.id,
-        appName: app?.config?.helix?.name,
-        defaultAgentType: app?.config?.helix?.default_agent_type,
-        hasExternalConfig: !!app?.config?.helix?.external_agent_config,
-        currentSessionAgentType: inputs.sessionConfig.agentType
-      })
-      
-      inputs.setSessionConfig(prevConfig => {
-        const newConfig = {
-          ...prevConfig,
-          agentType: AGENT_TYPE_ZED_EXTERNAL,
-          externalAgentConfig: app.config.helix.external_agent_config || prevConfig.externalAgentConfig,
-        }
-        
-        console.log('✅ Session config updated:', {
-          oldAgentType: prevConfig.agentType,
-          newAgentType: newConfig.agentType,
-          hasExternalConfig: !!newConfig.externalAgentConfig
-        })
-        
-        return newConfig
-      })
-    } else {
-      console.log('ℹ️ App loaded but not external agent type:', {
-        appId: app?.id,
-        appName: app?.config?.helix?.name,
-        defaultAgentType: app?.config?.helix?.default_agent_type,
-        currentSessionAgentType: inputs.sessionConfig.agentType
-      })
+      inputs.setSessionConfig(prevConfig => ({
+        ...prevConfig,
+        agentType: AGENT_TYPE_ZED_EXTERNAL,
+        externalAgentConfig: app.config.helix.external_agent_config || prevConfig.externalAgentConfig,
+      }))
     }
-  }, [app, inputs.setSessionConfig])
+  }, [app?.id])
 
   const onInference = async (prompt?: string) => {
     if (!checkLoginStatus()) return
@@ -302,7 +289,7 @@ const CreateContent: FC<CreateContentProps> = ({
         <AppCreateHeader
           app={app}
           showEditButton={userOwnsApp}
-          onEditClick={() => account.orgNavigate('app', { app_id: app?.id })}
+          onEditClick={() => account.orgNavigate('agent', { app_id: app?.id })}
         />
       </Cell>
     </Row>
@@ -347,13 +334,12 @@ const CreateContent: FC<CreateContentProps> = ({
       {!isEmbedded && topbar}
       {mode == SESSION_MODE_INFERENCE && inferenceHeader}
       {/* Main content area, fills available space */}
-      <Box sx={{ flexGrow: 1, minHeight: 0, overflow: 'auto', width: '100%' }}>        
-        <Container maxWidth="lg" sx={{ height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'flex-start', minHeight: 0, py: 2 }}>
-          {/* This area can be used for additional content if needed */}
-          <Box sx={{ flexGrow: 1 }}>
-            {/* Reserved space for future content */}
-          </Box>
-        </Container>       
+      <Box sx={{ flexGrow: 1, minHeight: 0, overflow: 'auto', width: '100%' }}>
+        <Container maxWidth="sm" sx={{ height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'center', minHeight: 0, py: 4 }}>
+          {app && mode === SESSION_MODE_INFERENCE && (
+            <AgentInfoPanel app={app} assistant={activeAssistant || undefined} />
+          )}
+        </Container>
       </Box>
       {/* 
         Bottom fixed section with conversation starters, input, and disclaimer. This should always
@@ -461,4 +447,96 @@ const CreateContent: FC<CreateContentProps> = ({
   )
 }
 
-export default CreateContent 
+const AgentInfoPanel: FC<{ app: IApp; assistant?: IAssistantConfig }> = ({ app, assistant }) => {
+  const avatar = getAppAvatarUrl(app)
+  const name = app.config.helix.name || 'Agent'
+  const description = app.config.helix.description || assistant?.description || ''
+  const systemPrompt = assistant?.system_prompt || ''
+
+  const capabilities: { icon: React.ReactElement; label: string }[] = []
+
+  const knowledgeCount = assistant?.knowledge?.length || 0
+  if (knowledgeCount > 0) {
+    capabilities.push({ icon: <StorageIcon sx={{ fontSize: 16 }} />, label: `${knowledgeCount} knowledge source${knowledgeCount > 1 ? 's' : ''}` })
+  }
+
+  const toolCount = assistant?.tools?.length || 0
+  if (toolCount > 0) {
+    capabilities.push({ icon: <BuildIcon sx={{ fontSize: 16 }} />, label: `${toolCount} tool${toolCount > 1 ? 's' : ''}` })
+  }
+
+  const apiCount = assistant?.apis?.length || 0
+  if (apiCount > 0) {
+    capabilities.push({ icon: <ApiIcon sx={{ fontSize: 16 }} />, label: `${apiCount} API${apiCount > 1 ? 's' : ''}` })
+  }
+
+  if (assistant?.web_search?.enabled) {
+    capabilities.push({ icon: <SearchIcon sx={{ fontSize: 16 }} />, label: 'Web search' })
+  }
+
+  if (assistant?.agent_type === 'zed_external') {
+    capabilities.push({ icon: <CodeIcon sx={{ fontSize: 16 }} />, label: 'Code editing' })
+  }
+
+  return (
+    <Box sx={{
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      gap: 2,
+      textAlign: 'center',
+    }}>
+      <Avatar
+        src={avatar}
+        sx={{
+          width: 64,
+          height: 64,
+          border: '2px solid rgba(255, 255, 255, 0.15)',
+        }}
+      >
+        {!avatar && <AutoAwesomeIcon sx={{ fontSize: 32 }} />}
+      </Avatar>
+
+      <Typography variant="h5" sx={{ fontWeight: 600 }}>
+        {name}
+      </Typography>
+
+      {description && (
+        <Typography variant="body1" color="text.secondary" sx={{ maxWidth: 480 }}>
+          {description}
+        </Typography>
+      )}
+
+      {systemPrompt && !description && (
+        <Typography variant="body2" color="text.secondary" sx={{
+          maxWidth: 480,
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          display: '-webkit-box',
+          WebkitLineClamp: 3,
+          WebkitBoxOrient: 'vertical',
+          fontStyle: 'italic',
+        }}>
+          {systemPrompt}
+        </Typography>
+      )}
+
+      {capabilities.length > 0 && (
+        <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', justifyContent: 'center', mt: 1 }}>
+          {capabilities.map((cap, i) => (
+            <Chip
+              key={i}
+              icon={cap.icon}
+              label={cap.label}
+              size="small"
+              variant="outlined"
+              sx={{ borderColor: 'rgba(255, 255, 255, 0.15)', color: 'text.secondary' }}
+            />
+          ))}
+        </Box>
+      )}
+    </Box>
+  )
+}
+
+export default CreateContent

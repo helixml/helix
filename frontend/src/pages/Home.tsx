@@ -973,7 +973,7 @@ const Home: FC = () => {
                           textDecoration: 'underline',
                         },
                       }}
-                      onClick={() => account.orgNavigate('apps')}
+                      onClick={() => account.orgNavigate('agents')}
                     >
                       Agents
                     </Typography>

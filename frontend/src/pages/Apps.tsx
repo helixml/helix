@@ -36,7 +36,7 @@ const Apps: FC = () => {
   const [ deletingApp, setDeletingApp ] = useState<IApp>()
 
   const onEditApp = (app: IApp) => {
-    account.orgNavigate('app', {
+    account.orgNavigate('agent', {
       app_id: app.id,
     })
   }

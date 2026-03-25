@@ -44,7 +44,7 @@ export const useCreateBlankAgent = () => {
         throw new Error('Failed to create agent')
       }
 
-      account.orgNavigate('app', { app_id: newAgent.id })
+      account.orgNavigate('agent', { app_id: newAgent.id })
       snackbar.success('Agent created - configure it below')
     } catch (error) {
       console.error('Error creating agent:', error)
