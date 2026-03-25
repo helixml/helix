@@ -768,6 +768,14 @@ func (apiServer *HelixAPIServer) handleThreadCreated(sessionID string, syncMsg *
 	apiServer.contextMappings[contextID] = createdSession.ID
 	apiServer.contextMappingsMutex.Unlock()
 
+	// Register the WebSocket connection for the child session ID so
+	// sendCommandToExternalAgent can route commands to it. The agent
+	// connected under sessionID (the parent/connection ID), but child
+	// sessions need their own routing entry.
+	if wsConn, exists := apiServer.externalAgentWSManager.getConnection(sessionID); exists && wsConn != nil {
+		apiServer.externalAgentWSManager.registerConnection(createdSession.ID, wsConn)
+	}
+
 	// CRITICAL: Create an interaction for this new session
 	// The request_id from thread_created contains the message that triggered this thread
 	log.Info().
@@ -1190,6 +1198,10 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 				Str("role", role).
 				Msg("💬 [HELIX] Created interaction for user message from Zed")
 
+			// Update session timestamp so findConnectedSessionForSpecTask
+			// picks the session with the most recent activity.
+			_ = apiServer.Controller.Options.Store.TouchSession(context.Background(), helixSessionID)
+
 			// CRITICAL: Enqueue this interaction so the AI response goes to it
 			apiServer.contextMappingsMutex.Lock()
 			if apiServer.sessionToWaitingInteraction == nil {
@@ -1443,33 +1455,55 @@ func (apiServer *HelixAPIServer) handleContextTitleChanged(sessionID string, syn
 	return nil
 }
 
-// sendChatMessageToExternalAgent sends a chat message to an external agent session
-// This is the proper way to send messages that trigger agent responses
-func (apiServer *HelixAPIServer) sendChatMessageToExternalAgent(sessionID, message, requestID string) error {
-	// Look up the session to get its ZedThreadID - we want to continue in the existing thread
-	// instead of creating a new one. This maintains the 1:1 mapping between Zed threads and Helix sessions.
+// sendChatMessageToExternalAgent is the canonical function for sending a message
+// to an external agent. It creates a waiting interaction, enqueues it for response
+// routing, and sends the WebSocket command. All callers that need to send a message
+// to an agent should use this function.
+func (apiServer *HelixAPIServer) sendChatMessageToExternalAgent(sessionID, message, requestID string) (interactionID string, err error) {
+	ctx := context.Background()
+
+	// Look up the session to get its ZedThreadID and agent name
 	var acpThreadID interface{} = nil
 	var agentName string
-	session, err := apiServer.Controller.Options.Store.GetSession(context.Background(), sessionID)
+	session, err := apiServer.Controller.Options.Store.GetSession(ctx, sessionID)
 	if err == nil && session != nil {
-		agentName = apiServer.getAgentNameForSession(context.Background(), session)
+		agentName = apiServer.getAgentNameForSession(ctx, session)
 		if session.Metadata.ZedThreadID != "" {
 			acpThreadID = session.Metadata.ZedThreadID
-			log.Info().
-				Str("session_id", sessionID).
-				Str("zed_thread_id", session.Metadata.ZedThreadID).
-				Str("agent_name", agentName).
-				Msg("🔗 [HELIX] Using existing ZedThreadID for chat message")
-		} else {
-			log.Info().
-				Str("session_id", sessionID).
-				Str("agent_name", agentName).
-				Msg("🆕 [HELIX] No ZedThreadID found, will create new thread")
 		}
-	} else {
-		log.Info().
-			Str("session_id", sessionID).
-			Msg("🆕 [HELIX] No session found, will create new thread")
+	}
+
+	// Create a waiting interaction so handleMessageCompleted can find it.
+	// Each message gets its own interaction to properly track the conversation.
+	if session != nil {
+		interaction := &types.Interaction{
+			Created:       time.Now(),
+			Updated:       time.Now(),
+			SessionID:     sessionID,
+			UserID:        session.Owner,
+			GenerationID:  session.GenerationID,
+			Mode:          types.SessionModeInference,
+			PromptMessage: message,
+			State:         types.InteractionStateWaiting,
+		}
+
+		createdInteraction, createErr := apiServer.Controller.Options.Store.CreateInteraction(ctx, interaction)
+		if createErr != nil {
+			log.Warn().Err(createErr).Str("session_id", sessionID).Msg("Failed to create interaction for chat message")
+		} else {
+			interactionID = createdInteraction.ID
+			apiServer.contextMappingsMutex.Lock()
+			if apiServer.sessionToWaitingInteraction == nil {
+				apiServer.sessionToWaitingInteraction = make(map[string][]string)
+			}
+			apiServer.sessionToWaitingInteraction[sessionID] = append(
+				apiServer.sessionToWaitingInteraction[sessionID], interactionID)
+			apiServer.contextMappingsMutex.Unlock()
+		}
+
+		// Update session timestamp so findConnectedSessionForSpecTask
+		// picks the most recently active session.
+		_ = apiServer.Controller.Options.Store.TouchSession(ctx, sessionID)
 	}
 
 	command := types.ExternalAgentCommand{
@@ -1482,7 +1516,8 @@ func (apiServer *HelixAPIServer) sendChatMessageToExternalAgent(sessionID, messa
 		},
 	}
 
-	return apiServer.sendCommandToExternalAgent(sessionID, command)
+	err = apiServer.sendCommandToExternalAgent(sessionID, command)
+	return interactionID, err
 }
 
 // sendCommandToExternalAgent sends a command to the external agent
@@ -2046,6 +2081,10 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 		Int("final_response_length", len(targetInteraction.ResponseMessage)).
 		Str("final_state", string(targetInteraction.State)).
 		Msg("✅ [HELIX] Marked interaction as complete")
+
+	// Update session timestamp so findConnectedSessionForSpecTask
+	// picks the most recently active session.
+	_ = apiServer.Controller.Options.Store.TouchSession(context.Background(), helixSessionID)
 
 	// Update SpecTaskZedThread activity if this is a spectask session
 	if helixSession.Metadata.SpecTaskID != "" {
@@ -3177,6 +3216,12 @@ func (apiServer *HelixAPIServer) handleUserCreatedThread(agentSessionID string, 
 	apiServer.contextMappingsMutex.Lock()
 	apiServer.contextMappings[acpThreadID] = session.ID
 	apiServer.contextMappingsMutex.Unlock()
+
+	// Register the WebSocket connection for the child session so
+	// sendCommandToExternalAgent can route commands to it.
+	if wsConn, exists := apiServer.externalAgentWSManager.getConnection(agentSessionID); exists && wsConn != nil {
+		apiServer.externalAgentWSManager.registerConnection(session.ID, wsConn)
+	}
 
 	log.Info().
 		Str("acp_thread_id", acpThreadID).
