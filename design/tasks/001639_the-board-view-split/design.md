@@ -33,6 +33,13 @@ Row
 
 **`SpecTasksPage.tsx`** — move the view-mode toggle `Stack` (lines 698–835) out of `topbarContent` into `topbarLeftContent`.
 
+## Implementation Notes
+
+- The old `topbarContent` in `SpecTasksPage` was a single outer `<Stack direction="row" spacing={2}>` containing both the invite button AND the toggle Stack AND other buttons. The refactor splits this into two props.
+- `topbarLeftContent` receives a bare `<Stack>` (the toggle group) — no outer wrapper needed.
+- `topbarContent` now holds a new `<Stack direction="row" spacing={2}>` wrapping the invite button and the remaining action buttons — preserving the original layout.
+- Build verified clean with `yarn build` (no TypeScript errors).
+
 ## Key Decisions
 
 - **Minimal surface change**: Only two system components (`AppBar`, `Page`) need new optional props. No structural refactor.
