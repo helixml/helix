@@ -243,8 +243,9 @@ const AppSettings: FC<AppSettingsProps> = ({
   const [memory, setMemory] = useState(app.memory || false)
   const [max_iterations, setMaxIterations] = useState(app.max_iterations ?? DEFAULT_VALUES.max_iterations)
 
-  // Agent type settings
-  const [default_agent_type, setDefaultAgentType] = useState<IAgentType>(app.default_agent_type || AGENT_TYPE_HELIX_AGENT)
+  // Agent type settings — auto-migrate helix_basic to helix_agent
+  const migratedAgentType = (app.default_agent_type === 'helix_basic' || !app.default_agent_type) ? AGENT_TYPE_HELIX_AGENT : app.default_agent_type
+  const [default_agent_type, setDefaultAgentType] = useState<IAgentType>(migratedAgentType)
   const [external_agent_config, setExternalAgentConfig] = useState<IExternalAgentConfig>(app.external_agent_config || {})
   const [reasoning_model, setReasoningModel] = useState(app.reasoning_model || '')
   const [reasoning_model_provider, setReasoningModelProvider] = useState(app.reasoning_model_provider || '')
@@ -334,7 +335,7 @@ const AppSettings: FC<AppSettingsProps> = ({
       setModel(app.model || '')
       // Agent configuration
       setAgentMode(app.agent_mode || false)
-      setDefaultAgentType(app.default_agent_type || AGENT_TYPE_HELIX_AGENT)
+      setDefaultAgentType((app.default_agent_type === 'helix_basic' || !app.default_agent_type) ? AGENT_TYPE_HELIX_AGENT : app.default_agent_type)
       setExternalAgentConfig(app.external_agent_config || {})
       // Reasoning configuration
       setReasoningModel(app.reasoning_model || '')
@@ -374,6 +375,13 @@ const AppSettings: FC<AppSettingsProps> = ({
       isInitialized.current = true
     }
   }, [app]) // Still depend on app, but we'll only use it for initialization
+
+  // Auto-migrate helix_basic agents to helix_agent on first load
+  useEffect(() => {
+    if (app.default_agent_type === 'helix_basic') {
+      onUpdate({ ...app, default_agent_type: AGENT_TYPE_HELIX_AGENT })
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Create debounced version of the update function
   const debouncedUpdate = useDebounce((field: 'contextLimit' | 'frequencyPenalty' | 'maxTokens' | 'presencePenalty' | 'reasoningEffort' | 'temperature' | 'topP' | 'system_prompt' | 'maxIterations', value: number | string) => {
