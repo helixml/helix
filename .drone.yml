@@ -1797,10 +1797,9 @@ volumes:
 #   - Tags: use git tag (e.g., v1.2.3)
 #   - Branches: use commit hash (e.g., abc123f)
 #
-# Concurrency:
-#   Steps use shared host volumes for caching. To prevent race conditions
-#   when multiple builds run concurrently, we use flock for file-based locking.
-#   flock auto-releases on process death (no stale locks).
+# Caching:
+#   Zed and qwen-code builds use Docker BuildKit cache mounts for
+#   cargo/npm dependencies. No shared host volumes for build artifacts.
 #
 # No GPU required - builds work on standard runners.
 # ====================================================================
@@ -1825,21 +1824,15 @@ volumes:
   - name: sandbox-build-cache
     host:
       path: /var/cache/drone/sandbox-build
-  - name: npm-cache
-    host:
-      path: /var/cache/drone/npm
 
 steps:
   # Step 1: Clone external repositories (pinned commits from sandbox-versions.txt)
   # Pinned for reproducibility - update sandbox-versions.txt when upgrading deps
   # Optional: CI warns if pinned version is behind upstream HEAD
   #
-  # CONCURRENCY: Uses flock to prevent race conditions when multiple builds
-  # access shared cache. flock auto-releases on process death (no stale locks).
   - name: clone-dependencies
     image: alpine/git:latest
     commands:
-      - apk add --no-cache flock
       - mkdir -p /drone/src/external /drone/src/cache
       # Read pinned versions
       - |
@@ -1868,22 +1861,15 @@ steps:
         git -C /drone/src/cache/zed-source fetch --depth 1 https://github.com/helixml/zed.git $${ZED_COMMIT}
         git -C /drone/src/cache/zed-source checkout FETCH_HEAD
         echo "✓ Zed source at $$(git -C /drone/src/cache/zed-source rev-parse HEAD)"
-      # Clone qwen-code only if not cached (flock prevents concurrent clone race)
+      # Always clone qwen-code fresh at the pinned commit.
       - |
         . /drone/src/sandbox-versions.txt
-        QWEN_SHORT=$${QWEN_COMMIT:0:12}
-        flock /drone/src/cache/qwen-source.lock -c "
-          if [ -f '/drone/src/cache/qwen-$${QWEN_SHORT}/dist/cli.js' ]; then
-            echo '✓ qwen-code cached for $${QWEN_SHORT}'
-          else
-            echo 'Cloning qwen-code at commit $${QWEN_COMMIT}...'
-            cd /
-            rm -rf /drone/src/cache/qwen-source
-            git init /drone/src/cache/qwen-source
-            git -C /drone/src/cache/qwen-source fetch --depth 1 https://github.com/helixml/qwen-code.git $${QWEN_COMMIT}
-            git -C /drone/src/cache/qwen-source checkout FETCH_HEAD
-          fi
-        "
+        echo "Cloning qwen-code at commit $${QWEN_COMMIT}..."
+        rm -rf /drone/src/cache/qwen-source
+        git init /drone/src/cache/qwen-source
+        git -C /drone/src/cache/qwen-source fetch --depth 1 https://github.com/helixml/qwen-code.git $${QWEN_COMMIT}
+        git -C /drone/src/cache/qwen-source checkout FETCH_HEAD
+        echo "✓ qwen-code source at $$(git -C /drone/src/cache/qwen-source rev-parse HEAD)"
       - echo "=== Dependency versions ==="
       - echo "Zed:" && cat /drone/src/zed-commit.txt
       - echo "qwen-code:" && cat /drone/src/qwen-code-commit.txt
@@ -1892,49 +1878,35 @@ steps:
         path: /drone/src/cache
 
   # Step 2: Build qwen-code (with caching)
-  # Uses flock to prevent concurrent builds from racing on shared cache
+  # Builds qwen-code using Dockerfile.qwen-build with BuildKit cache for npm.
   - name: build-qwen-code
-    image: node:20-slim
+    image: docker:cli
+    environment:
+      DOCKER_HOST: unix:///var/run/docker.sock
     commands:
-      - apt-get update && apt-get install -y git flock && rm -rf /var/lib/apt/lists/*
       - |
-        QWEN_COMMIT=$$(cat /drone/src/qwen-code-commit.txt | head -c 12)
-        # Use flock for entire build to prevent races on qwen-source and cache
-        flock /drone/src/cache/qwen-build.lock -c "
-          # Double-check cache after acquiring lock (another build may have finished)
-          if [ -f '/drone/src/cache/qwen-$${QWEN_COMMIT}/dist/cli.js' ]; then
-            echo 'Using cached qwen-code for commit $${QWEN_COMMIT}'
-            mkdir -p /drone/src/qwen-code-build
-            cp -r /drone/src/cache/qwen-$${QWEN_COMMIT}/* /drone/src/qwen-code-build/
-            exit 0
-          fi
+        QWEN_SOURCE="/drone/src/cache/qwen-source"
 
-          echo 'Building qwen-code for commit $${QWEN_COMMIT}...'
-          mkdir -p /drone/src/qwen-code-build
-          cd /drone/src/cache/qwen-source
-          npm ci --ignore-scripts
-          npm run bundle
+        if [ ! -f "$${QWEN_SOURCE}/package.json" ]; then
+          echo "ERROR: qwen-code source not found at $${QWEN_SOURCE}"
+          exit 1
+        fi
 
-          # Copy everything needed for runtime (matching ./stack build-qwen-code)
-          # node_modules is required because tiktoken has native bindings that can't be bundled
-          cp -r package.json package-lock.json dist/ /drone/src/qwen-code-build/
-          cp -r packages/ /drone/src/qwen-code-build/ 2>/dev/null || true
-          cp -r node_modules/ /drone/src/qwen-code-build/
-          cat /drone/src/qwen-code-commit.txt > /drone/src/qwen-code-build/.git-commit-hash
-          echo 'qwen-code build complete'
-          ls -la /drone/src/qwen-code-build/
+        echo "Building qwen-code from source..."
+        mkdir -p qwen-code-build
+        docker build \
+          --output type=local,dest=qwen-code-build \
+          -f Dockerfile.qwen-build \
+          "$${QWEN_SOURCE}"
 
-          # Cache the build
-          mkdir -p /drone/src/cache/qwen-$${QWEN_COMMIT}
-          cp -r /drone/src/qwen-code-build/* /drone/src/cache/qwen-$${QWEN_COMMIT}/
-        "
-      # Copy from workspace (flock wrote here)
-      - mkdir -p qwen-code-build && cp -r /drone/src/qwen-code-build/* qwen-code-build/ 2>/dev/null || true
+        cat /drone/src/qwen-code-commit.txt > qwen-code-build/.git-commit-hash
+        echo "qwen-code build complete"
+        ls -la qwen-code-build/
     volumes:
+      - name: dockersocket
+        path: /var/run/docker.sock
       - name: sandbox-build-cache
         path: /drone/src/cache
-      - name: npm-cache
-        path: /root/.npm
     depends_on:
       - clone-dependencies
 
@@ -1998,7 +1970,6 @@ steps:
       ANTHROPIC_API_KEY:
         from_secret: anthropic_api_key
     commands:
-      - apk add --no-cache flock
       - |
         ZED_COMMIT=$$(cat /drone/src/zed-commit.txt | head -c 12)
         ZED_SOURCE="/drone/src/cache/zed-source"
@@ -2235,16 +2206,12 @@ volumes:
   - name: sandbox-build-cache
     host:
       path: /Volumes/Big/drone-cache/sandbox-build
-  - name: npm-cache
-    host:
-      path: /Volumes/Big/drone-cache/npm
 
 steps:
   # Step 1: Clone external repositories (same as amd64)
   - name: clone-dependencies
     image: alpine/git:latest
     commands:
-      - apk add --no-cache flock
       - mkdir -p /drone/src/external /drone/src/cache
       - |
         . /drone/src/sandbox-versions.txt
@@ -2271,19 +2238,12 @@ steps:
         echo "✓ Zed source at $$(git -C /drone/src/cache/zed-source rev-parse HEAD)"
       - |
         . /drone/src/sandbox-versions.txt
-        QWEN_SHORT=$${QWEN_COMMIT:0:12}
-        flock /drone/src/cache/qwen-source.lock -c "
-          if [ -f '/drone/src/cache/qwen-$${QWEN_SHORT}/dist/cli.js' ]; then
-            echo '✓ qwen-code cached for $${QWEN_SHORT}'
-          else
-            echo 'Cloning qwen-code at commit $${QWEN_COMMIT}...'
-            cd /
-            rm -rf /drone/src/cache/qwen-source
-            git init /drone/src/cache/qwen-source
-            git -C /drone/src/cache/qwen-source fetch --depth 1 https://github.com/helixml/qwen-code.git $${QWEN_COMMIT}
-            git -C /drone/src/cache/qwen-source checkout FETCH_HEAD
-          fi
-        "
+        echo "Cloning qwen-code at commit $${QWEN_COMMIT}..."
+        rm -rf /drone/src/cache/qwen-source
+        git init /drone/src/cache/qwen-source
+        git -C /drone/src/cache/qwen-source fetch --depth 1 https://github.com/helixml/qwen-code.git $${QWEN_COMMIT}
+        git -C /drone/src/cache/qwen-source checkout FETCH_HEAD
+        echo "✓ qwen-code source at $$(git -C /drone/src/cache/qwen-source rev-parse HEAD)"
       - echo "=== Dependency versions ==="
       - echo "Zed:" && cat /drone/src/zed-commit.txt
       - echo "qwen-code:" && cat /drone/src/qwen-code-commit.txt
@@ -2291,43 +2251,36 @@ steps:
       - name: sandbox-build-cache
         path: /drone/src/cache
 
-  # Step 2: Build qwen-code (same as amd64)
+  # Step 2: Build qwen-code using Dockerfile.qwen-build with BuildKit cache.
   - name: build-qwen-code
-    image: node:20-slim
+    image: docker:cli
+    environment:
+      DOCKER_HOST: unix:///var/run/docker.sock
     commands:
-      - apt-get update && apt-get install -y git flock && rm -rf /var/lib/apt/lists/*
       - |
-        QWEN_COMMIT=$$(cat /drone/src/qwen-code-commit.txt | head -c 12)
-        flock /drone/src/cache/qwen-build.lock -c "
-          if [ -f '/drone/src/cache/qwen-$${QWEN_COMMIT}/dist/cli.js' ]; then
-            echo 'Using cached qwen-code for commit $${QWEN_COMMIT}'
-            mkdir -p /drone/src/qwen-code-build
-            cp -r /drone/src/cache/qwen-$${QWEN_COMMIT}/* /drone/src/qwen-code-build/
-            exit 0
-          fi
+        QWEN_SOURCE="/drone/src/cache/qwen-source"
 
-          echo 'Building qwen-code for commit $${QWEN_COMMIT}...'
-          mkdir -p /drone/src/qwen-code-build
-          cd /drone/src/cache/qwen-source
-          npm ci --ignore-scripts
-          npm run bundle
+        if [ ! -f "$${QWEN_SOURCE}/package.json" ]; then
+          echo "ERROR: qwen-code source not found at $${QWEN_SOURCE}"
+          exit 1
+        fi
 
-          cp -r package.json package-lock.json dist/ /drone/src/qwen-code-build/
-          cp -r packages/ /drone/src/qwen-code-build/ 2>/dev/null || true
-          cp -r node_modules/ /drone/src/qwen-code-build/
-          cat /drone/src/qwen-code-commit.txt > /drone/src/qwen-code-build/.git-commit-hash
-          echo 'qwen-code build complete'
-          ls -la /drone/src/qwen-code-build/
+        echo "Building qwen-code from source..."
+        mkdir -p qwen-code-build
+        docker build \
+          --provenance=false \
+          --output type=local,dest=qwen-code-build \
+          -f Dockerfile.qwen-build \
+          "$${QWEN_SOURCE}"
 
-          mkdir -p /drone/src/cache/qwen-$${QWEN_COMMIT}
-          cp -r /drone/src/qwen-code-build/* /drone/src/cache/qwen-$${QWEN_COMMIT}/
-        "
-      - mkdir -p qwen-code-build && cp -r /drone/src/qwen-code-build/* qwen-code-build/ 2>/dev/null || true
+        cat /drone/src/qwen-code-commit.txt > qwen-code-build/.git-commit-hash
+        echo "qwen-code build complete"
+        ls -la qwen-code-build/
     volumes:
+      - name: dockersocket
+        path: /var/run/docker.sock
       - name: sandbox-build-cache
         path: /drone/src/cache
-      - name: npm-cache
-        path: /root/.npm
     depends_on:
       - clone-dependencies
 
