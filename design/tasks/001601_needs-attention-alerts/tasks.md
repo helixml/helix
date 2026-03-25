@@ -10,8 +10,8 @@
 
 ## Frontend
 
-- [~] Update `useAttentionEvents` hook to accept a `filterMine: boolean` param; append `&filter=mine` to the fetch URL when true; include `filterMine` in the React Query key
-- [~] Add `'mine' | 'all'` state to `GlobalNotifications` component, initialised from `localStorage` key `attention-filter-mode` (default `'all'`)
-- [~] Render a small pill/toggle ("Mine | All") in the panel header between the title and the dismiss-all button
-- [~] Pass the active filter mode into `useAttentionEvents` so data and badge count both reflect it
-- [~] Persist toggle changes to `localStorage`
+- [x] Update `useAttentionEvents` hook to accept a `filterMine: boolean` param; append `&filter=mine` to the fetch URL when true; include `filterMine` in the React Query key
+- [x] Add `'mine' | 'all'` state to `GlobalNotifications` component, initialised from `localStorage` key `attention-filter-mode` (default `'all'`)
+- [x] Render a small pill/toggle ("Mine | All") in the panel header between the title and the dismiss-all button
+- [x] Pass the active filter mode into `useAttentionEvents` so data and badge count both reflect it
+- [x] Persist toggle changes to `localStorage`
