@@ -2,40 +2,40 @@
 
 ## Phase 1: Docker-Only Update Path (Tier 2 — Quick Win)
 
-- [~] Add `docker_only_update` boolean field to `vm-manifest.json` schema and manifest generation in `upload-vm-images.sh`
-- [~] Write a VM-side update agent script (`/usr/local/bin/helix-update-images.sh`) that runs `docker-compose pull && docker-compose up -d` for the Helix services
-- [~] Add `DockerOnlyUpdate()` method to `updater.go` that invokes the update agent via the existing VM exec mechanism
-- [~] Update `CheckForUpdate()` in `updater.go` to branch into `DockerOnlyUpdate()` when `docker_only_update: true`
-- [~] Update the update progress UI to show "Pulling updated services…" with Docker pull progress events
+- [x] Add `docker_only_update` boolean field to `vm-manifest.json` schema and manifest generation in `upload-vm-images.sh`
+- [x] Write a VM-side update agent script (inlined as SSH commands — no separate agent needed): runs `docker compose pull && up -d` via `vm.runSSH()`
+- [x] Add `dockerOnlyUpdate()` method to `updater.go` that SSHes into the VM and pulls/restarts containers
+- [x] Update `DownloadVMUpdate()` in `updater.go` to branch into `dockerOnlyUpdate()` when `docker_only_update: true`
+- [x] Update the update progress UI to show "Pulling updated services…" via `pulling_vm` phase events
 - [ ] Test: trigger a docker-only update from a running VM and verify services restart with new images
 
 ## Phase 2: Delta Patch Infrastructure (Tier 1)
 
-- [~] Extend `vm-manifest.json` with a `patches` array field (from_version, name, size, sha256, applies_to_sha256, result_sha256)
-- [~] Add patch generation step to `upload-vm-images.sh`:
-  - Fetch previous version's `disk.qcow2.zst` from CDN
-  - Decompress both old and new disks
-  - Generate `xdelta3 -e -s old.qcow2 new.qcow2 patch.xdelta3`
-  - Compress patch with zstd
-  - Upload to `vm/{FROM}_{TO}/patch.xdelta3.zst`
-  - Write patch metadata into manifest
-- [~] Add patch pruning logic to `upload-vm-images.sh` (keep patches for last 3 versions, delete older)
+- [x] Extend `VMManifest` in `download.go` with `Patches []VMManifestPatch` (from_version, name, size, sha256, applies_to_sha256, result_sha256)
+- [x] Add patch generation step to `upload-vm-images.sh`:
+  - Downloads previous version's `disk.qcow2.zst` from CDN
+  - Decompresses both old and new disks
+  - Generates `xdelta3 -e -s old.qcow2 new.qcow2 patch.xdelta3`
+  - Compresses patch with zstd
+  - Uploads to `vm/{FROM}_to_{TO}/patch.xdelta3.zst`
+  - Writes patch metadata into manifest
+- [x] Add patch pruning logic to `upload-vm-images.sh` (keep patches for last N versions, configurable via `PATCH_VERSIONS`)
 - [ ] Add xdelta3 to CI build environment and document dependency
 
 ## Phase 3: Client-Side Patch Download & Apply
 
-- [~] Add `DownloadAndApplyPatch()` method to `updater.go`:
-  - Download `patch.xdelta3.zst` using existing parallel range download + resume logic from `download.go`
-  - Verify SHA256 of downloaded patch
-  - Decompress patch with zstd
-  - Verify local `disk.qcow2` SHA256 matches `applies_to_sha256` before applying
-  - Apply patch: `xdelta3 -d -s disk.qcow2 patch.xdelta3 disk.qcow2.staged`
-  - Verify SHA256 of resulting `disk.qcow2.staged` matches `result_sha256`
-  - If any step fails: delete staged files, fall back to full disk download
-- [~] Update `CheckForUpdate()` to implement the full decision tree (docker-only → patch → full fallback)
-- [~] Update disk space preflight check to account for temporary space needed during patch apply (old decompressed + patch output)
-- [~] Update update progress UI to show actual patch download size before starting (e.g., "Update: 450 MB" instead of "7.8 GB")
-- [~] Add `update:patch-progress` Wails event for patch-specific progress (or reuse `update:vm-progress`)
+- [x] Add `downloadAndApplyPatch()` method to `updater.go`:
+  - Downloads `patch.xdelta3.zst` via existing `downloadFile()` + progress events
+  - Verifies SHA256 of downloaded patch
+  - Decompresses patch with `decompressZstdFile()` (new ctx-aware helper)
+  - Verifies local `disk.qcow2` SHA256 matches `applies_to_sha256` before applying
+  - Applies patch: `xdelta3 -d -s disk.qcow2 patch.xdelta3 disk.qcow2.staged`
+  - Verifies SHA256 of `disk.qcow2.staged` matches `result_sha256`
+  - On any failure: deletes staged files, returns error → caller falls back to full disk download
+- [x] Update `DownloadVMUpdate()` to implement the full decision tree (docker-only → patch → full fallback)
+- [x] Update disk space preflight check to account for temporary space needed during patch apply (patch file + output disk + 2 GB headroom)
+- [x] Patch download size is reported in `BytesTotal` of `downloading_vm` progress events (same channel as full download)
+- [x] Reuses existing `update:vm-progress` Wails event with new `applying_patch` phase value
 
 ## Phase 4: Testing & Hardening
 

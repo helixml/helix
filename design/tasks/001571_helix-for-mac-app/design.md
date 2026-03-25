@@ -165,6 +165,33 @@ Patch apply requires enough free space to hold decompressed old disk + patch out
 ## Key Implementation Notes
 
 - All existing resume, retry, SHA256 verification logic in `download.go` is reusable
-- `xdelta3` has a Go binding (`github.com/nicowillis/go-xdelta`) or can be invoked as a subprocess
-- The update UI (Wails frontend events) only needs a new event type for patch progress; the existing `update:vm-progress` events can be reused
-- Rollback: keep `disk.qcow2.old` logic unchanged; if patch apply fails, the old disk is untouched
+- `xdelta3` is invoked as a subprocess (`exec.CommandContext`); no Go binding needed. Client must have `xdelta3` in PATH (brew install xdelta) or bundled in the app. The code falls back to full download if xdelta3 is not available.
+- The update UI (Wails frontend events) reuses `update:vm-progress` with a new `applying_patch` phase value — no frontend changes needed for basic support
+- Rollback: keep `disk.qcow2.old` logic unchanged; if patch apply fails before `os.Rename`, the old disk is untouched
+
+## Implementation Notes (from coding)
+
+### Files changed
+
+- `for-mac/download.go`: Added `VMManifestPatch` struct; extended `VMManifest` with `DockerOnlyUpdate bool` and `Patches []VMManifestPatch`
+- `for-mac/updater.go`: Added `vm *VMManager` field + `SetVMManager()` (mirrors `SetAppContext` pattern); added `dockerOnlyUpdate()`, `downloadAndApplyPatch()`, `findXdelta3()`, `verifyFileSHA256()`, `decompressZstdFile()` private methods; updated `DownloadVMUpdate()` with decision tree
+- `for-mac/app.go`: Added `a.updater.SetVMManager(a.vm)` in `startup()`
+- `for-mac/vm-manifest.json`: Added `docker_only_update: false` and `patches: []`
+- `for-mac/scripts/upload-vm-images.sh`: Added `DOCKER_ONLY_UPDATE`, `SKIP_PATCH`, `PATCH_VERSIONS` env vars; docker-only manifest path (exits early); patch generation loop; patch pruning
+- `for-mac/updater_test.go`: Added `TestVMManifestNewFields`, `TestVerifyFileSHA256`, `TestDecompressZstdFile`, `TestDecompressZstdFileCancelled`
+
+### Design decisions during implementation
+
+- **VM-side agent script**: Decided to SSH the docker-compose commands inline rather than baking a separate agent script into the VM image. This is simpler and the VM exec mechanism (`vm.runSSH`) already handles this perfectly.
+- **decompressZstdFile**: Added a standalone zstd decompressor (no VMDownloader dependency) because `decompressZstd` is tightly coupled to `VMDownloader.cancel` channel. The new function uses `context.Context` for cancellation, which is cleaner.
+- **Patch URL convention**: `{BaseURL}/{FROM}_to_{TO}/{Name}` — simple, self-documenting, no extra manifest field needed for the patch CDN path.
+- **Disk space check**: Added `patch.Size + disk.Size + 2GB headroom` check before downloading any patch, to fail fast before wasting time on a large download.
+- **xdelta3 binary**: Uses `exec.LookPath` + app bundle check. No brew dependency added to the Go module — xdelta3 is a system tool. Future: ship it bundled in the .app.
+- **`applying_patch` phase**: Added as a new `UpdateProgress.Phase` value so the frontend can display "Applying update..." during xdelta3 execution (which can take minutes for 20 GB disks).
+
+### Gotchas
+
+- `decompressZstd` in `download.go` uses `d.cancel` (a `chan struct{}` on VMDownloader), not `context.Context`, making it non-reusable from `updater.go`. Hence the new `decompressZstdFile(ctx, ...)` helper.
+- The `GOOS=darwin` build requires macOS for systray CGo — can't test-compile on Linux. Syntax verified with `gofmt`.
+- `DownloadVMUpdate` decision tree: `force=true` skips both docker-only and patch paths (used by `RedownloadVMImage` to force a full disk download).
+- Patch generation in `upload-vm-images.sh` is guarded by `command -v xdelta3` — gracefully skipped if xdelta3 is not installed on the CI machine.
