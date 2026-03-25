@@ -1856,6 +1856,7 @@ steps:
       - |
         . /drone/src/sandbox-versions.txt
         echo "Cloning Zed at commit $${ZED_COMMIT}..."
+        cd /
         rm -rf /drone/src/cache/zed-source
         git init /drone/src/cache/zed-source
         git -C /drone/src/cache/zed-source fetch --depth 1 https://github.com/helixml/zed.git $${ZED_COMMIT}
@@ -1865,6 +1866,7 @@ steps:
       - |
         . /drone/src/sandbox-versions.txt
         echo "Cloning qwen-code at commit $${QWEN_COMMIT}..."
+        cd /
         rm -rf /drone/src/cache/qwen-source
         git init /drone/src/cache/qwen-source
         git -C /drone/src/cache/qwen-source fetch --depth 1 https://github.com/helixml/qwen-code.git $${QWEN_COMMIT}
@@ -1921,7 +1923,6 @@ steps:
       - |
         ZED_SOURCE="/drone/src/cache/zed-source"
 
-        # Verify Zed source was cloned by clone-dependencies
         if [ ! -f "$${ZED_SOURCE}/Cargo.toml" ]; then
           echo "ERROR: Zed source not found at $${ZED_SOURCE}"
           exit 1
@@ -1932,23 +1933,34 @@ steps:
           echo "ERROR: Could not determine Zed source commit"
           exit 1
         fi
-        echo "Building Zed from source commit: $${ZED_SHA}"
 
-        # Build using the full Dockerfile (Stage 2) with Zed source as context.
-        # BuildKit cache mounts handle cargo registry, git deps, and build artifacts.
-        # --build-arg BUILD_TYPE=release selects release profile.
-        # --output extracts just the /zed binary to zed-build/.
-        mkdir -p zed-build
-        docker build \
-          --build-arg BUILD_TYPE=release \
-          --build-arg ZED_COMMIT_SHA=$${ZED_SHA} \
-          --output type=local,dest=zed-build \
-          -f Dockerfile.zed-build \
-          "$${ZED_SOURCE}"
+        # Check binary cache (keyed by full commit hash)
+        CACHE_DIR="/drone/src/cache/zed-bin-$${ZED_SHA}"
+        if [ -f "$${CACHE_DIR}/zed" ]; then
+          echo "✓ Using cached Zed binary for $${ZED_SHA}"
+          mkdir -p zed-build
+          cp "$${CACHE_DIR}/zed" zed-build/zed
+          cp "$${CACHE_DIR}/app-icon.png" zed-build/app-icon.png
+          chmod +x zed-build/zed
+        else
+          echo "Building Zed from source commit: $${ZED_SHA}"
+          mkdir -p zed-build
+          docker build \
+            --build-arg BUILD_TYPE=release \
+            --build-arg ZED_COMMIT_SHA=$${ZED_SHA} \
+            --output type=local,dest=zed-build \
+            -f Dockerfile.zed-build \
+            "$${ZED_SOURCE}"
 
-        # Copy app icon from source
-        cp "$${ZED_SOURCE}/crates/zed/resources/app-icon.png" zed-build/app-icon.png
-        chmod +x zed-build/zed
+          cp "$${ZED_SOURCE}/crates/zed/resources/app-icon.png" zed-build/app-icon.png
+          chmod +x zed-build/zed
+
+          # Cache the binary for future builds with same commit
+          mkdir -p "$${CACHE_DIR}"
+          cp zed-build/zed "$${CACHE_DIR}/zed"
+          cp zed-build/app-icon.png "$${CACHE_DIR}/app-icon.png"
+          echo "✓ Cached Zed binary at $${CACHE_DIR}"
+        fi
         ls -la zed-build/
     volumes:
       - name: dockersocket
@@ -2231,6 +2243,7 @@ steps:
       - |
         . /drone/src/sandbox-versions.txt
         echo "Cloning Zed at commit $${ZED_COMMIT}..."
+        cd /
         rm -rf /drone/src/cache/zed-source
         git init /drone/src/cache/zed-source
         git -C /drone/src/cache/zed-source fetch --depth 1 https://github.com/helixml/zed.git $${ZED_COMMIT}
@@ -2239,6 +2252,7 @@ steps:
       - |
         . /drone/src/sandbox-versions.txt
         echo "Cloning qwen-code at commit $${QWEN_COMMIT}..."
+        cd /
         rm -rf /drone/src/cache/qwen-source
         git init /drone/src/cache/qwen-source
         git -C /drone/src/cache/qwen-source fetch --depth 1 https://github.com/helixml/qwen-code.git $${QWEN_COMMIT}
@@ -2304,19 +2318,33 @@ steps:
           echo "ERROR: Could not determine Zed source commit"
           exit 1
         fi
-        echo "Building Zed from source commit: $${ZED_SHA}"
 
-        mkdir -p zed-build
-        docker build \
-          --provenance=false \
-          --build-arg BUILD_TYPE=release \
-          --build-arg ZED_COMMIT_SHA=$${ZED_SHA} \
-          --output type=local,dest=zed-build \
-          -f Dockerfile.zed-build \
-          "$${ZED_SOURCE}"
+        CACHE_DIR="/drone/src/cache/zed-bin-$${ZED_SHA}"
+        if [ -f "$${CACHE_DIR}/zed" ]; then
+          echo "✓ Using cached Zed binary for $${ZED_SHA}"
+          mkdir -p zed-build
+          cp "$${CACHE_DIR}/zed" zed-build/zed
+          cp "$${CACHE_DIR}/app-icon.png" zed-build/app-icon.png
+          chmod +x zed-build/zed
+        else
+          echo "Building Zed from source commit: $${ZED_SHA}"
+          mkdir -p zed-build
+          docker build \
+            --provenance=false \
+            --build-arg BUILD_TYPE=release \
+            --build-arg ZED_COMMIT_SHA=$${ZED_SHA} \
+            --output type=local,dest=zed-build \
+            -f Dockerfile.zed-build \
+            "$${ZED_SOURCE}"
 
-        cp "$${ZED_SOURCE}/crates/zed/resources/app-icon.png" zed-build/app-icon.png
-        chmod +x zed-build/zed
+          cp "$${ZED_SOURCE}/crates/zed/resources/app-icon.png" zed-build/app-icon.png
+          chmod +x zed-build/zed
+
+          mkdir -p "$${CACHE_DIR}"
+          cp zed-build/zed "$${CACHE_DIR}/zed"
+          cp zed-build/app-icon.png "$${CACHE_DIR}/app-icon.png"
+          echo "✓ Cached Zed binary at $${CACHE_DIR}"
+        fi
         ls -la zed-build/
     volumes:
       - name: dockersocket
