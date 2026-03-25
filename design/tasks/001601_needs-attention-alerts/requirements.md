@@ -9,7 +9,7 @@
 ## Acceptance Criteria
 
 1. The "Needs Attention" panel header includes a toggle to switch between **"Mine"** and **"All"** views.
-2. **"Mine"** shows only alerts for spec tasks where the current user is the creator (`created_by`).
+2. **"Mine"** shows only alerts for spec tasks where the current user is the assignee (when set) or the creator (`created_by`) as fallback.
 3. **"All"** shows all alerts for the current user (existing behaviour — no change).
 4. The toggle selection persists across sessions (localStorage).
 5. Default is **"All"** (preserves existing behaviour on first load).
