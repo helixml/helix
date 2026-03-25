@@ -93,7 +93,7 @@ steps:
     when:
       event:
         - push
-    depends_on: []
+    depends_on: [helm-lint]
 
   - name: shell-script-tests
     image: alpine:3.21
