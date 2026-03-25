@@ -151,7 +151,7 @@ const JS_APP_FEATURE: IFeature = {
     title: 'Apps',
     color: 'secondary',
     variant: 'outlined',
-    handler: (navigate) => {navigate('apps')},
+    handler: (navigate) => {navigate('agents')},
     id: 'apps-button'
     
     
@@ -172,7 +172,7 @@ const API_FEATURE: IFeature = {
     title: 'API Tools',
     color: 'secondary',
     variant: 'outlined',
-    handler: (navigate) => {navigate('apps')},
+    handler: (navigate) => {navigate('agents')},
   }, {
     title: 'Docs (coming soon)',
     color: 'primary',
@@ -190,7 +190,7 @@ const GPTSCRIPT_FEATURE: IFeature = {
     title: 'GPTScript Tools',
     color: 'secondary',
     variant: 'outlined',
-    handler: (navigate) => {navigate('apps')},
+    handler: (navigate) => {navigate('agents')},
   }, {
     title: 'Docs',
     color: 'primary',

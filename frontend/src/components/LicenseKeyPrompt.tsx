@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Box, Button, TextField, Typography, Link, Alert } from "@mui/material";
 import { useAccount } from "../hooks/useAccount";
 import useApi from "../hooks/useApi";
@@ -46,10 +46,12 @@ export const LicenseKeyPrompt: React.FC<LicenseKeyPromptProps> = ({
   );
 
   // Auto-submit pending license key after login
+  const submittedRef = useRef(false);
   useEffect(() => {
-    if (!isLoggedIn) return;
+    if (!isLoggedIn || submittedRef.current) return;
     const pending = localStorage.getItem(PENDING_LICENSE_KEY);
     if (pending) {
+      submittedRef.current = true;
       submitLicenseKey(pending);
     }
   }, [isLoggedIn, submitLicenseKey]);

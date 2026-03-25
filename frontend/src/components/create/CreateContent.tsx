@@ -140,12 +140,9 @@ const CreateContent: FC<CreateContentProps> = ({
     let useModel = urlParams.get('model') || ''
     let orgId = ''
 
-    console.log('🔍 Initial model from URL params:', useModel)
-
     // For external agents, override model to use external_agent identifier
     if (inputs.sessionConfig.agentType === AGENT_TYPE_ZED_EXTERNAL) {
       useModel = 'external_agent'
-      console.log('🔧 Overriding model for external agent:', useModel)
     }
 
     // if we have an app but no assistant ID let's default to the first one
@@ -158,15 +155,6 @@ const CreateContent: FC<CreateContentProps> = ({
     }
 
     prompt = prompt || inputs.inputValue
-
-    console.log('🚀 Creating session with:', {
-      agentType: inputs.sessionConfig.agentType,
-      modelName: useModel,
-      appId: appID,
-      assistantId: assistantID,
-      type: type,
-      hasExternalConfig: !!inputs.sessionConfig.externalAgentConfig
-    })
 
     let actualPrompt = prompt;
     Object.entries(filterMap).forEach(([displayText, fullCommand]) => {
@@ -451,8 +439,6 @@ const AgentInfoPanel: FC<{ app: IApp; assistant?: IAssistantConfig }> = ({ app, 
   const avatar = getAppAvatarUrl(app)
   const name = app.config.helix.name || 'Agent'
   const description = app.config.helix.description || assistant?.description || ''
-  const systemPrompt = assistant?.system_prompt || ''
-
   const capabilities: { icon: React.ReactElement; label: string }[] = []
 
   const knowledgeCount = assistant?.knowledge?.length || 0
@@ -504,20 +490,6 @@ const AgentInfoPanel: FC<{ app: IApp; assistant?: IAssistantConfig }> = ({ app, 
       {description && (
         <Typography variant="body1" color="text.secondary" sx={{ maxWidth: 480 }}>
           {description}
-        </Typography>
-      )}
-
-      {systemPrompt && !description && (
-        <Typography variant="body2" color="text.secondary" sx={{
-          maxWidth: 480,
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-          display: '-webkit-box',
-          WebkitLineClamp: 3,
-          WebkitBoxOrient: 'vertical',
-          fontStyle: 'italic',
-        }}>
-          {systemPrompt}
         </Typography>
       )}
 

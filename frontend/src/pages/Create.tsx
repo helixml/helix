@@ -32,6 +32,7 @@ const Create: FC = () => {
     if (!orgId) return // Wait for org to load
     setIsLoadingApp(true)
     apps.loadApp(appID).finally(() => setIsLoadingApp(false))
+    return () => apps.setApp(undefined)
   }, [appID, orgId])
 
   if (appID && (isLoadingApp || !apps.app)) {
