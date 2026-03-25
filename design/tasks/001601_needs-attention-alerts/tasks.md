@@ -2,10 +2,10 @@
 
 ## Backend
 
-- [ ] Add `AttentionEventFilters` struct to `api/pkg/types/attention_event.go` with a `CreatedBy string` field
-- [ ] Update `ListAttentionEvents` in `api/pkg/store/store_attention_events.go` to accept `AttentionEventFilters`; when `CreatedBy` is non-empty, JOIN `spec_tasks` and filter by `spec_tasks.created_by = createdBy`
-- [ ] Update the `Store` interface to match the new `ListAttentionEvents` signature
-- [ ] Update `listAttentionEvents` handler in `api/pkg/server/attention_event_handlers.go` to read `?filter=mine` query param and pass `AttentionEventFilters{CreatedBy: user.ID}` when set
+- [~] Add `AttentionEventFilters` struct to `api/pkg/types/attention_event.go` with a `CreatedBy string` field
+- [~] Update `ListAttentionEvents` in `api/pkg/store/store_attention_events.go` to accept `AttentionEventFilters`; when `CreatedBy` is non-empty, JOIN `spec_tasks` and filter by `spec_tasks.created_by = createdBy`
+- [~] Update the `Store` interface to match the new `ListAttentionEvents` signature
+- [~] Update `listAttentionEvents` handler in `api/pkg/server/attention_event_handlers.go` to read `?filter=mine` query param and pass `AttentionEventFilters{CreatedBy: user.ID}` when set
 - [ ] Update `dismissAllAttentionEvents` handler — no filter needed there, dismiss-all always acts on the user's full set
 
 ## Frontend
