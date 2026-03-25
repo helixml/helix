@@ -761,31 +761,41 @@ func (s *HelixAPIServer) findConnectedSessionForSpecTask(ctx context.Context, sp
 		}
 	}
 
-	// PlanningSessionID not connected - search for any connected session with this spec task ID
+	// PlanningSessionID not connected - search for the most recently updated
+	// connected session with this spec task ID. A spectask can have multiple
+	// Zed threads (sessions), so we pick the most recent to route messages
+	// to the thread the agent is most likely actively working in.
 	log.Info().
 		Str("spec_task_id", specTask.ID).
 		Str("planning_session_id", specTask.PlanningSessionID).
 		Msg("PlanningSessionID not connected, searching for alternate connected session")
 
-	// Get all connected session IDs
 	connectedSessions := s.externalAgentWSManager.listConnections()
 
+	var bestSession *types.Session
+	var bestSessionConnID string
 	for _, conn := range connectedSessions {
-		// Look up the session to check its SpecTaskID
 		session, err := s.Store.GetSession(ctx, conn.SessionID)
 		if err != nil {
-			continue // Session not found or error, skip
+			continue
 		}
+		if session.Metadata.SpecTaskID != specTask.ID {
+			continue
+		}
+		if bestSession == nil || session.Updated.After(bestSession.Updated) {
+			bestSession = session
+			bestSessionConnID = conn.SessionID
+		}
+	}
 
-		// Check if this session is for our spec task
-		if session.Metadata.SpecTaskID == specTask.ID {
-			log.Info().
-				Str("spec_task_id", specTask.ID).
-				Str("found_session_id", conn.SessionID).
-				Str("original_planning_session_id", specTask.PlanningSessionID).
-				Msg("✅ Found alternate connected session for spec task")
-			return conn.SessionID, nil
-		}
+	if bestSession != nil {
+		log.Info().
+			Str("spec_task_id", specTask.ID).
+			Str("found_session_id", bestSessionConnID).
+			Str("original_planning_session_id", specTask.PlanningSessionID).
+			Time("session_updated", bestSession.Updated).
+			Msg("✅ Found most recently updated connected session for spec task")
+		return bestSessionConnID, nil
 	}
 
 	return "", fmt.Errorf("no WebSocket connection found for spec task %s (tried planning session %s and %d other connected sessions)",
