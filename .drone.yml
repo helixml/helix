@@ -2088,33 +2088,18 @@ steps:
         rm -f "$${E2E_DIR}/zed-binary" "$${E2E_DIR}/helix-go.mod" "$${E2E_DIR}/helix-go.sum" || true
         rm -rf "$${E2E_DIR}/helix-api" || true
 
-        # Run zed-agent first (must pass) — validates all 9 phases including
-        # mid-stream interrupt and rapid cancel. No Anthropic API dependency.
-        echo "Running E2E test: zed-agent (all 9 phases)..."
+        # Run both agents in a single invocation (all 10 phases each).
+        # Both zed-agent and claude rounds must pass to gate the build.
+        # The cancel drop fix in acp_thread.rs ensures Phase 8 (mid-stream
+        # interrupt) works with Claude Code despite agent-side cancel bugs.
+        echo "Running E2E test: zed-agent + claude (all 10 phases each)..."
         docker run --rm \
           -e ANTHROPIC_API_KEY="$${ANTHROPIC_API_KEY}" \
-          -e E2E_AGENTS="zed-agent" \
+          -e E2E_AGENTS="zed-agent,claude" \
           -e TEST_TIMEOUT=600 \
           zed-ws-e2e:$${ZED_COMMIT}
-        echo "✅ zed-agent E2E test passed"
 
-        # Run claude agent separately (non-blocking).
-        # Phase 8 (mid-stream interrupt) consistently times out because Claude Code
-        # doesn't emit message_completed after interrupt. See: Phase 8 Claude Code interrupt bug
-        # We still run it to catch agent_name routing bugs (like PR #1967) but don't
-        # block the build if it fails — the zed-agent round already covers protocol correctness.
-        echo "Running E2E test: claude (non-blocking — Phase 8 may timeout)..."
-        if docker run --rm \
-          -e ANTHROPIC_API_KEY="$${ANTHROPIC_API_KEY}" \
-          -e E2E_AGENTS="claude" \
-          -e TEST_TIMEOUT=600 \
-          zed-ws-e2e:$${ZED_COMMIT}; then
-          echo "✅ claude E2E test passed"
-        else
-          echo "⚠️  claude E2E test failed (non-blocking — see Phase 8 Claude Code interrupt bug)"
-        fi
-
-        echo "Zed WebSocket E2E test passed"
+        echo "Zed WebSocket E2E test passed (both agents)"
     volumes:
       - name: dockersocket
         path: /var/run/docker.sock
