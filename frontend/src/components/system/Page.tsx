@@ -21,6 +21,7 @@ import {
 
 const Page: React.FC<{
   topbarContent?: ReactNode,
+  topbarLeftContent?: ReactNode,
   // in case there is no title or topbar content, but we still want to show the topbar
   showTopbar?: boolean,
   // if this is provided then we render a "Home : {title}" text in the topbar
@@ -47,6 +48,7 @@ const Page: React.FC<{
   children?: ReactNode,
 }> = ({
   topbarContent = null,
+  topbarLeftContent = null,
   showTopbar = false,
   breadcrumbTitle,
   breadcrumbShowHome = true,
@@ -225,6 +227,7 @@ const Page: React.FC<{
           >
             <AppBar
               title={ useTopbarTitle }
+              leftContent={ topbarLeftContent }
               px={ px }
               onOpenDrawer={ showDrawerButton ? () => account.setMobileMenuOpen(true) : undefined }
             >
