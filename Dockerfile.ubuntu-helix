@@ -102,7 +102,7 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Rust
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.85.0
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.87.0
 ENV PATH="/root/.cargo/bin:${PATH}"
 
 # Copy all plugin sources (needed for both architectures)
@@ -127,7 +127,7 @@ if [ "${TARGETARCH}" = "arm64" ]; then
 
     # Build pipewirezerocopysrc (DMA-BUF passthrough for virtio-gpu)
     cd /build/gst-pipewire-zerocopy && \
-        cargo build --release && \
+        cargo build --locked --release && \
         cp target/release/libgstpipewirezerocopy.so /libgstpipewirezerocopy.so
     echo "pipewirezerocopysrc built"
 else
@@ -141,7 +141,7 @@ else
     # Build pipewirezerocopysrc with CUDA support
     cd /build/gst-pipewire-zerocopy && \
         cargo clean && \
-        cargo build --release && \
+        cargo build --locked --release && \
         cp target/release/libgstpipewirezerocopy.so /libgstpipewirezerocopy.so
     echo "pipewirezerocopysrc built (amd64)"
 
