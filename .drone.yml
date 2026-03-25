@@ -2694,6 +2694,9 @@ steps:
           exit 1
         fi
         echo "R2 credentials verified (endpoint: $R2_ENDPOINT)"
+      # Ensure xdelta3 is available for delta patch generation in upload-vm-images.sh.
+      # If already installed this is a no-op (brew install is idempotent).
+      - brew install xdelta || true
       # Run provisioning with upload
       # Uses /Volumes/Big for VM disk (fast SSD on the runner)
       - |
