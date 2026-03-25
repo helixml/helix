@@ -1198,6 +1198,11 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 				Str("role", role).
 				Msg("💬 [HELIX] Created interaction for user message from Zed")
 
+			// Update session timestamp so findConnectedSessionForSpecTask
+			// picks the session with the most recent activity.
+			helixSession.Updated = time.Now()
+			_, _ = apiServer.Controller.Options.Store.UpdateSession(context.Background(), *helixSession)
+
 			// CRITICAL: Enqueue this interaction so the AI response goes to it
 			apiServer.contextMappingsMutex.Lock()
 			if apiServer.sessionToWaitingInteraction == nil {
