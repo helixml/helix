@@ -10,6 +10,7 @@ import (
 	"time"
 
 	azuredevops "github.com/helixml/helix/api/pkg/agent/skill/azure_devops"
+	"github.com/helixml/helix/api/pkg/agent/skill/github"
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/data"
@@ -61,6 +62,8 @@ func (h *HelixCodeReviewTrigger) ProcessGitPushEvent(ctx context.Context, specTa
 	switch repo.ExternalType {
 	case types.ExternalRepositoryTypeADO:
 		return h.processAzureDevOpsPullRequest(ctx, specTask, project, repo, commitHash)
+	case types.ExternalRepositoryTypeGitHub:
+		return h.processGitHubPullRequest(ctx, specTask, project, repo, commitHash)
 	default:
 		return fmt.Errorf("unsupported external repository type: %s", repo.ExternalType)
 	}
@@ -136,6 +139,101 @@ func (h *HelixCodeReviewTrigger) processAzureDevOpsPullRequest(ctx context.Conte
 	})
 
 	return h.runReviewSession(ctx, project, specTask, commitHash)
+}
+
+func (h *HelixCodeReviewTrigger) processGitHubPullRequest(ctx context.Context, specTask *types.SpecTask, project *types.Project, repo *types.GitRepository, commitHash string) error {
+	log.Info().
+		Str("spec_task_id", specTask.ID).
+		Str("commit_hash", commitHash).
+		Msg("Processing GitHub pull request")
+
+	client, err := h.getGitHubClient(ctx, repo)
+	if err != nil {
+		return fmt.Errorf("failed to create github client: %w", err)
+	}
+
+	owner, repoName, err := github.ParseGitHubURL(repo.ExternalURL)
+	if err != nil {
+		return fmt.Errorf("failed to parse github URL: %w", err)
+	}
+
+	// Get the PR for this specific repo, or fall back to first open PR
+	repoPR := specTask.GetPRForRepo(repo.ID)
+	if repoPR == nil {
+		repoPR = specTask.GetFirstOpenPR()
+	}
+	if repoPR == nil {
+		return fmt.Errorf("no pull request found for spec task %s", specTask.ID)
+	}
+
+	prID, err := strconv.Atoi(repoPR.PRID)
+	if err != nil {
+		return fmt.Errorf("failed to parse pull request ID: %w", err)
+	}
+
+	pr, err := client.GetPullRequest(ctx, owner, repoName, prID)
+	if err != nil {
+		return fmt.Errorf("failed to get pull request: %w", err)
+	}
+
+	var headSHA, baseSHA, headBranch, baseBranch string
+	if pr.Head != nil {
+		headSHA = pr.Head.GetSHA()
+		headBranch = pr.Head.GetRef()
+	}
+	if pr.Base != nil {
+		baseSHA = pr.Base.GetSHA()
+		baseBranch = pr.Base.GetRef()
+	}
+
+	ctx = types.SetGitHubRepositoryContext(ctx, types.GitHubRepositoryContext{
+		RemoteURL:      repo.ExternalURL,
+		Owner:          owner,
+		RepositoryName: repoName,
+		PullRequestID:  prID,
+		HeadSHA:        headSHA,
+		BaseSHA:        baseSHA,
+		HeadBranch:     headBranch,
+		BaseBranch:     baseBranch,
+	})
+
+	return h.runReviewSession(ctx, project, specTask, commitHash)
+}
+
+func (h *HelixCodeReviewTrigger) getGitHubClient(ctx context.Context, repo *types.GitRepository) (*github.Client, error) {
+	var baseURL string
+	if repo.GitHub != nil {
+		baseURL = repo.GitHub.BaseURL
+	}
+
+	// GitHub App takes priority (service-to-service)
+	if repo.GitHub != nil && repo.GitHub.AppID != 0 && repo.GitHub.InstallationID != 0 && repo.GitHub.PrivateKey != "" {
+		client, err := github.NewClientWithGitHubApp(repo.GitHub.AppID, repo.GitHub.InstallationID, repo.GitHub.PrivateKey, baseURL)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create GitHub App client: %w", err)
+		}
+		return client, nil
+	}
+
+	// OAuth connection
+	if repo.OAuthConnectionID != "" {
+		conn, err := h.store.GetOAuthConnection(ctx, repo.OAuthConnectionID)
+		if err == nil && conn.AccessToken != "" {
+			return github.NewClientWithOAuthAndBaseURL(conn.AccessToken, baseURL), nil
+		}
+	}
+
+	// GitHub-specific PAT
+	if repo.GitHub != nil && repo.GitHub.PersonalAccessToken != "" {
+		return github.NewClientWithPATAndBaseURL(repo.GitHub.PersonalAccessToken, baseURL), nil
+	}
+
+	// Password field (typically a PAT)
+	if repo.Password != "" {
+		return github.NewClientWithPATAndBaseURL(repo.Password, baseURL), nil
+	}
+
+	return nil, fmt.Errorf("no GitHub authentication configured - provide a Personal Access Token, GitHub App, or connect via OAuth")
 }
 
 func (h *HelixCodeReviewTrigger) runReviewSession(ctx context.Context, project *types.Project, specTask *types.SpecTask, commitHash string) error {
