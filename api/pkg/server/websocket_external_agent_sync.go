@@ -768,6 +768,14 @@ func (apiServer *HelixAPIServer) handleThreadCreated(sessionID string, syncMsg *
 	apiServer.contextMappings[contextID] = createdSession.ID
 	apiServer.contextMappingsMutex.Unlock()
 
+	// Register the WebSocket connection for the child session ID so
+	// sendCommandToExternalAgent can route commands to it. The agent
+	// connected under sessionID (the parent/connection ID), but child
+	// sessions need their own routing entry.
+	if wsConn, exists := apiServer.externalAgentWSManager.getConnection(sessionID); exists && wsConn != nil {
+		apiServer.externalAgentWSManager.registerConnection(createdSession.ID, wsConn)
+	}
+
 	// CRITICAL: Create an interaction for this new session
 	// The request_id from thread_created contains the message that triggered this thread
 	log.Info().
@@ -3214,6 +3222,12 @@ func (apiServer *HelixAPIServer) handleUserCreatedThread(agentSessionID string, 
 	apiServer.contextMappingsMutex.Lock()
 	apiServer.contextMappings[acpThreadID] = session.ID
 	apiServer.contextMappingsMutex.Unlock()
+
+	// Register the WebSocket connection for the child session so
+	// sendCommandToExternalAgent can route commands to it.
+	if wsConn, exists := apiServer.externalAgentWSManager.getConnection(agentSessionID); exists && wsConn != nil {
+		apiServer.externalAgentWSManager.registerConnection(session.ID, wsConn)
+	}
 
 	log.Info().
 		Str("acp_thread_id", acpThreadID).
