@@ -1,6 +1,5 @@
 import React, { FC, useEffect, useState } from 'react'
 import Box from '@mui/material/Box'
-import Button from '@mui/material/Button'
 import Container from '@mui/material/Container'
 import Grid from '@mui/material/Grid'
 
@@ -59,17 +58,6 @@ const App: FC = () => {
   // Get tab from URL params instead of local state
   const tabValue = params.tab || 'appearance';
 
-  /**
-   * Launches the app - we assume the app has been saving we it's been edited
-   */
-  const handleLaunch = async () => {
-    if (!appTools.app) {
-      snackbar.error('We have no app to launch')
-      return
-    }
-    account.orgNavigate('new', { app_id: appTools.id, resource_type: 'apps' })
-  }
-
   useEffect(() => {
     const checkAccess = async () => {
       try {
@@ -101,24 +89,12 @@ const App: FC = () => {
       breadcrumbs={[
         {
           title: 'Agents',
-          routeName: 'apps'
+          routeName: 'agents'
         },
         {
           title: appTools.flatApp?.name || 'Agent',
         }
       ]}
-      topbarContent={(
-        <Box sx={{ textAlign: 'right' }}>
-          <Button
-            type="button"
-            color="secondary"
-            variant="outlined"
-            onClick={handleLaunch}
-          >
-            Launch
-          </Button>
-        </Box>
-      )}
     >
       <Container
         maxWidth="xl"

@@ -278,7 +278,7 @@ export const SessionToolbar: FC<{
                     href="#"
                     onClick={(e) => {
                       e.preventDefault()
-                      account.orgNavigate('app', {
+                      account.orgNavigate('agent', {
                         app_id: app.id,
                       })
                     }}

@@ -11,19 +11,17 @@ import {
   Tooltip,
 } from '@mui/material';
 import {
-  Chat as ChatIcon,
   Code as CodeIcon,
   Computer as ComputerIcon,
   AutoAwesome as AutoAwesomeIcon,
   Info as InfoIcon,
 } from '@mui/icons-material';
-import { 
-  IAgentType, 
+import {
+  IAgentType,
   IExternalAgentConfig,
-  AGENT_TYPE_HELIX_BASIC,
   AGENT_TYPE_HELIX_AGENT,
   AGENT_TYPE_ZED_EXTERNAL,
-  AGENT_TYPE_OPTIONS 
+  AGENT_TYPE_OPTIONS
 } from '../../types';
 
 interface AgentTypeSelectorProps {
@@ -49,8 +47,6 @@ const AgentTypeSelector: React.FC<AgentTypeSelectorProps> = ({
 
   const getAgentIcon = (agentType: IAgentType) => {
     switch (agentType) {
-      case AGENT_TYPE_HELIX_BASIC:
-        return <ChatIcon />;
       case AGENT_TYPE_HELIX_AGENT:
         return <AutoAwesomeIcon />;
       case AGENT_TYPE_ZED_EXTERNAL:

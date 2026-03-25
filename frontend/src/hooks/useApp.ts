@@ -113,7 +113,7 @@ export const useApp = (appId: string) => {
       system_prompt: '',
       type: 'text',
       agent_mode: false,
-      agent_type: 'helix_basic',
+      agent_type: 'helix_agent',
       knowledge: [],
       apis: [],
       zapier: [],

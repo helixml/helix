@@ -1029,7 +1029,7 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
                             size="small"
                             onClick={(e) => {
                               e.stopPropagation()
-                              account.orgNavigate('app', { app_id: app.id })
+                              account.orgNavigate('agent', { app_id: app.id })
                             }}
                             sx={{ ml: 'auto' }}
                           >

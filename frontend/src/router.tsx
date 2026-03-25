@@ -88,14 +88,26 @@ const routes: IApplicationRoute[] = [
     <Create />
   ),
 }, {
-  name: 'org_apps',
-  path: '/orgs/:org_id/apps',
+  name: 'org_agents',
+  path: '/orgs/:org_id/agents',
   meta: {
     drawer: false,
   },
   render: () => (
     <Apps />
   ),
+}, {
+  // Backward compat: redirect /apps to /agents
+  name: 'org_apps',
+  path: '/orgs/:org_id/apps',
+  meta: { drawer: false },
+  render: () => {
+    const { navigateReplace, params } = useRouter()
+    React.useEffect(() => {
+      navigateReplace('org_agents', { org_id: params.org_id })
+    }, [])
+    return null
+  },
 }, {
   name: 'org_git-repos',
   path: '/orgs/:org_id/git-repos',
@@ -232,14 +244,26 @@ const routes: IApplicationRoute[] = [
     <Session />
   ),
 }, {
-  name: 'org_app',
-  path: '/orgs/:org_id/app/:app_id',
+  name: 'org_agent',
+  path: '/orgs/:org_id/agent/:app_id',
   meta: {
     drawer: true,
   },
   render: () => (
     <App />
   ),
+}, {
+  // Backward compat: redirect /app/:app_id to /agent/:app_id
+  name: 'org_app',
+  path: '/orgs/:org_id/app/:app_id',
+  meta: { drawer: true },
+  render: () => {
+    const { navigateReplace, params } = useRouter()
+    React.useEffect(() => {
+      navigateReplace('org_agent', { org_id: params.org_id, app_id: params.app_id })
+    }, [])
+    return null
+  },
 }, {
   name: 'org_new-agent',
   path: '/orgs/:org_id/new-agent',
