@@ -34,6 +34,11 @@ func (s *WebSocketSyncSuite) SetupTest() {
 	s.ctrl = gomock.NewController(s.T())
 	s.store = store.NewMockStore(s.ctrl)
 
+	// TouchSession is called as a fire-and-forget side effect in
+	// handleMessageCompleted and handleMessageAdded (user messages).
+	// Allow it anywhere without specific ordering.
+	s.store.EXPECT().TouchSession(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+
 	s.server = &HelixAPIServer{
 		Cfg: &config.ServerConfig{
 			WebServer: config.WebServer{
