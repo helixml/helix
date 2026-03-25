@@ -1864,10 +1864,9 @@ steps:
       # Clone Zed only if not cached (flock prevents concurrent clone race)
       - |
         . /drone/src/sandbox-versions.txt
-        ZED_SHORT=$${ZED_COMMIT:0:12}
         flock /drone/src/cache/zed-source.lock -c "
-          if [ -f '/drone/src/cache/zed-$${ZED_SHORT}/zed' ] && [ -f '/drone/src/cache/zed-$${ZED_SHORT}/app-icon.png' ]; then
-            echo '✓ Zed binary+icon cached for $${ZED_SHORT}'
+          if [ -f '/drone/src/cache/zed-$${ZED_COMMIT}/zed' ] && [ -f '/drone/src/cache/zed-$${ZED_COMMIT}/app-icon.png' ]; then
+            echo '✓ Zed binary+icon cached for $${ZED_COMMIT}'
           else
             echo 'Cloning Zed at commit $${ZED_COMMIT}...'
             cd /
@@ -1991,8 +1990,8 @@ steps:
             zed-builder:ubuntu25 \\
             bash -c '
               export CARGO_TARGET_DIR=/zed-target
-              export ZED_COMMIT_SHA=$(git -C /zed rev-parse HEAD 2>/dev/null || echo unknown)
-              echo "Building Zed from commit: $ZED_COMMIT_SHA"
+              export ZED_COMMIT_SHA=`git -C /zed rev-parse HEAD 2>/dev/null || echo unknown`
+              echo Building Zed from commit: $ZED_COMMIT_SHA
               RUSTFLAGS=\"-C link-arg=-s\" cargo build --locked --release --features external_websocket_sync
               cp /zed-target/release/zed /output/zed
               cp /zed/crates/zed/resources/app-icon.png /output/app-icon.png
@@ -2297,10 +2296,9 @@ steps:
         fi
       - |
         . /drone/src/sandbox-versions.txt
-        ZED_SHORT=$${ZED_COMMIT:0:12}
         flock /drone/src/cache/zed-source.lock -c "
-          if [ -f '/drone/src/cache/zed-$${ZED_SHORT}/zed' ] && [ -f '/drone/src/cache/zed-$${ZED_SHORT}/app-icon.png' ]; then
-            echo '✓ Zed binary+icon cached for $${ZED_SHORT}'
+          if [ -f '/drone/src/cache/zed-$${ZED_COMMIT}/zed' ] && [ -f '/drone/src/cache/zed-$${ZED_COMMIT}/app-icon.png' ]; then
+            echo '✓ Zed binary+icon cached for $${ZED_COMMIT}'
           else
             echo 'Cloning Zed at commit $${ZED_COMMIT}...'
             cd /
@@ -2407,8 +2405,8 @@ steps:
             zed-builder:ubuntu25 \\
             bash -c '
               export CARGO_TARGET_DIR=/zed-target
-              export ZED_COMMIT_SHA=$(git -C /zed rev-parse HEAD 2>/dev/null || echo unknown)
-              echo "Building Zed from commit: $ZED_COMMIT_SHA"
+              export ZED_COMMIT_SHA=`git -C /zed rev-parse HEAD 2>/dev/null || echo unknown`
+              echo Building Zed from commit: $ZED_COMMIT_SHA
               RUSTFLAGS=\"-C link-arg=-s\" cargo build --locked --release --features external_websocket_sync
               cp /zed-target/release/zed /output/zed
               cp /zed/crates/zed/resources/app-icon.png /output/app-icon.png
