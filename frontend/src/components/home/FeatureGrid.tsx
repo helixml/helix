@@ -148,11 +148,11 @@ const JS_APP_FEATURE: IFeature = {
   icon: <WebIcon sx={{color: '#ef2ec6'}} />,
   // image: '/img/servers.png',
   actions: [{
-    title: 'Apps',
+    title: 'Agents',
     color: 'secondary',
     variant: 'outlined',
     handler: (navigate) => {navigate('agents')},
-    id: 'apps-button'
+    id: 'agents-button'
     
     
   }, {
