@@ -108,8 +108,9 @@ func (a *App) startup(ctx context.Context) {
 	a.tray = NewTrayManager(a)
 	a.tray.Start()
 
-	// Set up updater with app context
+	// Set up updater with app context and VM manager (for docker-only updates)
 	a.updater.SetAppContext(ctx)
+	a.updater.SetVMManager(a.vm)
 
 	// Check for combined update sentinel synchronously BEFORE auto-starting
 	// the VM. If a combined update was staged, auto-apply the VM disk swap

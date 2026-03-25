@@ -10,5 +10,7 @@
       "decompressed_name": "disk.qcow2",
       "decompressed_size": 19857211392
     }
-  ]
+  ],
+  "docker_only_update": false,
+  "patches": []
 }

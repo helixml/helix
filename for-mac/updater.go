@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -16,6 +18,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/klauspost/compress/zstd"
 	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
@@ -141,6 +144,7 @@ type Updater struct {
 	appCancelFunc   context.CancelFunc // cancel for app update download
 	vmCancelFunc    context.CancelFunc // cancel for VM update download
 	appCtx          context.Context    // Wails app context for event emission
+	vm              *VMManager         // used by docker-only updates to SSH into the VM
 	vmDownloading      bool               // true while DownloadVMUpdate is running
 	combinedRunning    bool               // true while StartCombinedUpdate is running
 	vmProgressOverride func(UpdateProgress) // optional override for VM progress emission (used by combined flow)
@@ -156,6 +160,14 @@ func (u *Updater) SetAppContext(ctx context.Context) {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	u.appCtx = ctx
+}
+
+// SetVMManager stores a reference to the VM manager so docker-only updates
+// can SSH into the running VM to pull and restart containers.
+func (u *Updater) SetVMManager(vm *VMManager) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	u.vm = vm
 }
 
 // isDevMode returns true if this is a dev build that should skip update checks.
@@ -589,13 +601,40 @@ func (u *Updater) DownloadVMUpdate(settings *SettingsManager, downloader *VMDown
 		return nil
 	}
 
-	vmDir := filepath.Join(getHelixDataDir(), "vm", "helix-desktop")
-
 	ctx, cancel := context.WithCancel(context.Background())
 	u.mu.Lock()
 	u.vmCancelFunc = cancel
 	u.mu.Unlock()
 	defer cancel()
+
+	// --- Decision tree for incremental updates ---
+
+	// Tier 2: Docker-only update — only Helix service images changed, no disk swap needed.
+	if manifest.DockerOnlyUpdate && !force {
+		log.Printf("Manifest flags docker_only_update=true — pulling updated containers in VM")
+		return u.dockerOnlyUpdate(ctx, manifest, settings)
+	}
+
+	// Tier 1: Delta patch — apply a binary diff to the existing disk image.
+	if !force && len(manifest.Patches) > 0 {
+		installed := s.InstalledVMVersion
+		for _, patch := range manifest.Patches {
+			if patch.FromVersion == installed {
+				log.Printf("Patch available: %s → %s (%.1f MB), trying patch path...",
+					patch.FromVersion, manifest.Version, float64(patch.Size)/1024/1024)
+				err := u.downloadAndApplyPatch(ctx, patch, manifest, settings, downloader)
+				if err == nil {
+					return nil
+				}
+				log.Printf("Patch apply failed, falling back to full disk download: %v", err)
+				break
+			}
+		}
+	}
+
+	// Tier 0 (fallback): Full disk download — new install or no patch available.
+
+	vmDir := filepath.Join(getHelixDataDir(), "vm", "helix-desktop")
 
 	// Download each file in the manifest to a .staged path
 	for _, f := range manifest.Files {
@@ -651,6 +690,271 @@ func (u *Updater) DownloadVMUpdate(settings *SettingsManager, downloader *VMDown
 	}
 
 	return nil
+}
+
+// dockerOnlyUpdate pulls updated Helix Docker images inside the running VM and
+// restarts the services. No disk file is replaced; this only works when the VM
+// is already running and reachable via SSH.
+//
+// Progress events use the existing "update:vm-progress" channel with a
+// "pulling_vm" phase so the frontend can display an appropriate message.
+func (u *Updater) dockerOnlyUpdate(ctx context.Context, manifest VMManifest, settings *SettingsManager) error {
+	u.mu.Lock()
+	vm := u.vm
+	u.mu.Unlock()
+
+	if vm == nil {
+		return fmt.Errorf("VM manager not set — cannot perform docker-only update")
+	}
+
+	composeFile := "docker-compose.yaml"
+	if os.Getenv("HELIX_DEV_IMAGE") != "" {
+		composeFile = "docker-compose.dev.yaml"
+	}
+
+	u.emitVMProgress(UpdateProgress{
+		Phase:   "pulling_vm",
+		Percent: 0,
+	})
+
+	// Pull updated images. This is the slow part; output streams to VM console logs.
+	log.Printf("Docker-only update: pulling images (compose file: %s)...", composeFile)
+	pullScript := fmt.Sprintf("cd ~/helix && docker compose -f %s pull 2>&1", composeFile)
+	if _, err := vm.runSSH("Update: pull images", pullScript); err != nil {
+		return fmt.Errorf("docker compose pull failed: %w", err)
+	}
+
+	// Check context wasn't cancelled while pulling (pull can take minutes).
+	select {
+	case <-ctx.Done():
+		return fmt.Errorf("docker-only update cancelled")
+	default:
+	}
+
+	u.emitVMProgress(UpdateProgress{
+		Phase:   "pulling_vm",
+		Percent: 80,
+	})
+
+	// Restart services with new images.
+	log.Printf("Docker-only update: restarting services...")
+	upScript := fmt.Sprintf("cd ~/helix && docker compose -f %s up -d 2>&1", composeFile)
+	if _, err := vm.runSSH("Update: restart services", upScript); err != nil {
+		return fmt.Errorf("docker compose up -d failed: %w", err)
+	}
+
+	// Record the new version.
+	s := settings.Get()
+	s.InstalledVMVersion = manifest.Version
+	if err := settings.Save(s); err != nil {
+		log.Printf("Warning: failed to save installed VM version after docker-only update: %v", err)
+	}
+
+	log.Printf("Docker-only update complete: services now at version %s", manifest.Version)
+	u.emitVMProgress(UpdateProgress{Phase: "ready", Percent: 100})
+
+	u.mu.Lock()
+	appCtx := u.appCtx
+	u.mu.Unlock()
+	if appCtx != nil {
+		wailsRuntime.EventsEmit(appCtx, "update:vm-ready")
+	}
+	return nil
+}
+
+// downloadAndApplyPatch downloads a compressed xdelta3 patch, verifies it,
+// applies it to the current disk.qcow2, and writes disk.qcow2.staged.
+// Falls back to full disk download if any step fails — the caller should call
+// the full download path when this returns an error.
+func (u *Updater) downloadAndApplyPatch(ctx context.Context, patch VMManifestPatch, manifest VMManifest, settings *SettingsManager, downloader *VMDownloader) error {
+	vmDir := filepath.Join(getHelixDataDir(), "vm", "helix-desktop")
+	diskPath := filepath.Join(vmDir, "disk.qcow2")
+	stagedPath := filepath.Join(vmDir, "disk.qcow2.staged")
+
+	// Verify xdelta3 is available before doing any downloading.
+	xdelta3Bin, err := findXdelta3()
+	if err != nil {
+		return fmt.Errorf("xdelta3 unavailable: %w", err)
+	}
+
+	// Disk space check: patch apply needs space for the patch file + output disk.
+	// The output disk is approximately the same size as the current disk.
+	diskInfo, err := os.Stat(diskPath)
+	if err != nil {
+		return fmt.Errorf("cannot stat current disk: %w", err)
+	}
+	requiredBytes := uint64(patch.Size) + uint64(diskInfo.Size()) + 2*1024*1024*1024 // +2GB headroom
+	if err := checkDiskSpace(vmDir, requiredBytes); err != nil {
+		return fmt.Errorf("insufficient disk space for patch apply: %w", err)
+	}
+
+	// Download the compressed patch.
+	patchURL := fmt.Sprintf("%s/%s_to_%s/%s", manifest.BaseURL, patch.FromVersion, manifest.Version, patch.Name)
+	patchZstPath := filepath.Join(vmDir, "patch.xdelta3.zst")
+	log.Printf("Downloading patch: %s (%.1f MB compressed)", patch.Name, float64(patch.Size)/1024/1024)
+
+	u.emitVMProgress(UpdateProgress{
+		Phase:      "downloading_vm",
+		Percent:    0,
+		BytesTotal: patch.Size,
+	})
+
+	if err := u.downloadFile(ctx, patchURL, patchZstPath, "downloading_vm", u.emitVMProgress); err != nil {
+		os.Remove(patchZstPath)
+		return fmt.Errorf("patch download failed: %w", err)
+	}
+
+	// Verify compressed patch SHA256.
+	log.Printf("Verifying patch SHA256...")
+	if err := verifyFileSHA256(patchZstPath, patch.SHA256); err != nil {
+		os.Remove(patchZstPath)
+		return fmt.Errorf("patch SHA256 mismatch: %w", err)
+	}
+
+	// Verify source disk SHA256 matches what the patch expects.
+	// This guards against applying the patch to a corrupted or wrong-version disk.
+	u.emitVMProgress(UpdateProgress{Phase: "verifying_vm", Percent: 50})
+	log.Printf("Verifying source disk SHA256 (this may take a minute)...")
+	if err := verifyFileSHA256(diskPath, patch.AppliesToSHA256); err != nil {
+		os.Remove(patchZstPath)
+		return fmt.Errorf("source disk SHA256 mismatch (cannot apply patch safely): %w", err)
+	}
+
+	// Decompress patch with zstd.
+	patchPath := filepath.Join(vmDir, "patch.xdelta3")
+	u.emitVMProgress(UpdateProgress{Phase: "decompressing_vm", Percent: 60})
+	log.Printf("Decompressing patch...")
+	if err := decompressZstdFile(ctx, patchZstPath, patchPath); err != nil {
+		os.Remove(patchZstPath)
+		os.Remove(patchPath)
+		return fmt.Errorf("patch decompression failed: %w", err)
+	}
+	os.Remove(patchZstPath)
+
+	// Apply the patch.
+	u.emitVMProgress(UpdateProgress{Phase: "applying_patch", Percent: 75})
+	log.Printf("Applying xdelta3 patch: %s + %s → %s", diskPath, patchPath, stagedPath)
+	cmd := exec.CommandContext(ctx, xdelta3Bin, "-d", "-s", diskPath, patchPath, stagedPath)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		os.Remove(patchPath)
+		os.Remove(stagedPath)
+		return fmt.Errorf("xdelta3 apply failed: %w (output: %s)", err, strings.TrimSpace(string(out)))
+	}
+	os.Remove(patchPath)
+
+	// Verify the patched disk.
+	u.emitVMProgress(UpdateProgress{Phase: "verifying_vm", Percent: 90})
+	log.Printf("Verifying patched disk SHA256 (this may take a minute)...")
+	if err := verifyFileSHA256(stagedPath, patch.ResultSHA256); err != nil {
+		os.Remove(stagedPath)
+		return fmt.Errorf("patched disk SHA256 mismatch: %w", err)
+	}
+
+	// Write the staged version marker (same as full download path).
+	stagedVersionPath := filepath.Join(vmDir, ".staged-version")
+	if err := os.WriteFile(stagedVersionPath, []byte(manifest.Version), 0644); err != nil {
+		os.Remove(stagedPath)
+		return fmt.Errorf("failed to write staged version file: %w", err)
+	}
+
+	log.Printf("Patch applied successfully: disk is now at version %s", manifest.Version)
+	u.emitVMProgress(UpdateProgress{Phase: "ready", Percent: 100})
+
+	u.mu.Lock()
+	appCtx := u.appCtx
+	u.mu.Unlock()
+	if appCtx != nil {
+		wailsRuntime.EventsEmit(appCtx, "update:vm-ready")
+	}
+	return nil
+}
+
+// findXdelta3 locates the xdelta3 binary. Checks PATH (brew-installed) first,
+// then the app bundle (if we ship it bundled in the future).
+func findXdelta3() (string, error) {
+	if path, err := exec.LookPath("xdelta3"); err == nil {
+		return path, nil
+	}
+	// Future: check app bundle Contents/MacOS/xdelta3
+	bundlePath := filepath.Join(getAppBundlePath(), "Contents", "MacOS", "xdelta3")
+	if _, err := os.Stat(bundlePath); err == nil {
+		return bundlePath, nil
+	}
+	return "", fmt.Errorf("not found in PATH or app bundle; install with: brew install xdelta")
+}
+
+// verifyFileSHA256 reads a file and checks its SHA256 hex digest.
+// If expectedHex is empty, verification is skipped (no checksum available).
+func verifyFileSHA256(path, expectedHex string) error {
+	if expectedHex == "" {
+		return nil
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return fmt.Errorf("open: %w", err)
+	}
+	defer f.Close()
+
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return fmt.Errorf("read: %w", err)
+	}
+	actual := hex.EncodeToString(h.Sum(nil))
+	if actual != expectedHex {
+		return fmt.Errorf("expected %s, got %s", expectedHex, actual)
+	}
+	return nil
+}
+
+// decompressZstdFile decompresses a .zst file to dstPath, respecting ctx cancellation.
+// Used for patch decompression; does not require the VMDownloader state machine.
+func decompressZstdFile(ctx context.Context, srcPath, dstPath string) error {
+	src, err := os.Open(srcPath)
+	if err != nil {
+		return fmt.Errorf("open source: %w", err)
+	}
+	defer src.Close()
+
+	decoder, err := zstd.NewReader(src)
+	if err != nil {
+		return fmt.Errorf("create decoder: %w", err)
+	}
+	defer decoder.Close()
+
+	tmpPath := dstPath + ".tmp"
+	dst, err := os.OpenFile(tmpPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+	if err != nil {
+		return fmt.Errorf("create dest: %w", err)
+	}
+
+	buf := make([]byte, 4*1024*1024)
+	for {
+		select {
+		case <-ctx.Done():
+			dst.Close()
+			os.Remove(tmpPath)
+			return fmt.Errorf("decompression cancelled")
+		default:
+		}
+		n, readErr := decoder.Read(buf)
+		if n > 0 {
+			if _, writeErr := dst.Write(buf[:n]); writeErr != nil {
+				dst.Close()
+				os.Remove(tmpPath)
+				return fmt.Errorf("write: %w", writeErr)
+			}
+		}
+		if readErr == io.EOF {
+			break
+		}
+		if readErr != nil {
+			dst.Close()
+			os.Remove(tmpPath)
+			return fmt.Errorf("decompress: %w", readErr)
+		}
+	}
+	dst.Close()
+	return os.Rename(tmpPath, dstPath)
 }
 
 // updateEmitter adapts the VMDownloader's emitter interface for update progress.

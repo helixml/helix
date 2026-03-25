@@ -25,6 +25,20 @@ type VMManifest struct {
 	Version string           `json:"version"`
 	BaseURL string           `json:"base_url"`
 	Files   []VMManifestFile `json:"files"`
+
+	// Incremental update fields (see design/incremental-updates)
+	//
+	// DockerOnlyUpdate: when true, only Helix Docker images changed; no disk
+	// replacement is needed. The Mac app pulls updated images inside the
+	// running VM via docker-compose pull + up -d.
+	DockerOnlyUpdate bool `json:"docker_only_update,omitempty"`
+
+	// Patches: binary delta patches from previous disk versions to this one.
+	// The client walks this list looking for a patch whose FromVersion matches
+	// the currently installed version, then applies it instead of downloading
+	// the full disk. Falls back to full disk download if no patch matches or
+	// if patch apply fails.
+	Patches []VMManifestPatch `json:"patches,omitempty"`
 }
 
 // VMManifestFile describes a single file in the manifest
@@ -37,6 +51,21 @@ type VMManifestFile struct {
 	Compression      string `json:"compression,omitempty"`       // "zstd" or empty
 	DecompressedName string `json:"decompressed_name,omitempty"` // final filename after decompression
 	DecompressedSize int64  `json:"decompressed_size,omitempty"` // size after decompression
+}
+
+// VMManifestPatch describes an incremental binary patch from one VM disk version
+// to the current one. Patches are generated server-side with xdelta3 and compressed
+// with zstd. The client verifies source SHA256 before applying, and result SHA256
+// after applying.
+//
+// CDN path: {BaseURL}/{FromVersion}_to_{Version}/{Name}
+type VMManifestPatch struct {
+	FromVersion     string `json:"from_version"`       // version this patch upgrades from
+	Name            string `json:"name"`               // filename, e.g. "patch.xdelta3.zst"
+	Size            int64  `json:"size"`               // compressed patch size in bytes
+	SHA256          string `json:"sha256"`             // SHA256 of the compressed patch file
+	AppliesToSHA256 string `json:"applies_to_sha256"`  // required SHA256 of source disk.qcow2
+	ResultSHA256    string `json:"result_sha256"`      // expected SHA256 of patched disk.qcow2
 }
 
 // DownloadProgress reports download status to the frontend

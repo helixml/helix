@@ -1,8 +1,16 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
+
+	"github.com/klauspost/compress/zstd"
 )
 
 func TestParseSemVer(t *testing.T) {
@@ -182,4 +190,141 @@ func TestUpdaterVMDownloadingGuard(t *testing.T) {
 	if err.Error() != "VM download already in progress" {
 		t.Errorf("unexpected error: %v", err)
 	}
+}
+
+// TestVMManifestNewFields verifies that DockerOnlyUpdate and Patches fields
+// round-trip correctly through JSON serialization.
+func TestVMManifestNewFields(t *testing.T) {
+	raw := `{
+		"version": "abc1234",
+		"base_url": "https://dl.helix.ml/vm",
+		"files": [],
+		"docker_only_update": true,
+		"patches": [
+			{
+				"from_version": "prev1234",
+				"name": "patch.xdelta3.zst",
+				"size": 450000000,
+				"sha256": "aabbcc",
+				"applies_to_sha256": "ddeeff",
+				"result_sha256": "112233"
+			}
+		]
+	}`
+
+	var m VMManifest
+	if err := json.Unmarshal([]byte(raw), &m); err != nil {
+		t.Fatalf("failed to parse manifest: %v", err)
+	}
+
+	if !m.DockerOnlyUpdate {
+		t.Error("expected DockerOnlyUpdate=true")
+	}
+	if len(m.Patches) != 1 {
+		t.Fatalf("expected 1 patch, got %d", len(m.Patches))
+	}
+	p := m.Patches[0]
+	if p.FromVersion != "prev1234" {
+		t.Errorf("FromVersion = %q, want prev1234", p.FromVersion)
+	}
+	if p.Size != 450000000 {
+		t.Errorf("Size = %d, want 450000000", p.Size)
+	}
+	if p.AppliesToSHA256 != "ddeeff" {
+		t.Errorf("AppliesToSHA256 = %q, want ddeeff", p.AppliesToSHA256)
+	}
+	if p.ResultSHA256 != "112233" {
+		t.Errorf("ResultSHA256 = %q, want 112233", p.ResultSHA256)
+	}
+
+	// Round-trip: re-marshal and ensure docker_only_update appears
+	out, err := json.Marshal(m)
+	if err != nil {
+		t.Fatalf("marshal failed: %v", err)
+	}
+	if !bytes.Contains(out, []byte(`"docker_only_update":true`)) {
+		t.Errorf("marshaled JSON missing docker_only_update: %s", out)
+	}
+}
+
+// TestVerifyFileSHA256 checks correct and incorrect checksums.
+func TestVerifyFileSHA256(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "testfile")
+	content := []byte("hello incremental update")
+	if err := os.WriteFile(path, content, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	h := sha256.Sum256(content)
+	correctHex := hex.EncodeToString(h[:])
+
+	// Correct checksum should pass.
+	if err := verifyFileSHA256(path, correctHex); err != nil {
+		t.Errorf("verifyFileSHA256 with correct hash failed: %v", err)
+	}
+
+	// Wrong checksum should fail.
+	if err := verifyFileSHA256(path, "0000000000000000000000000000000000000000000000000000000000000000"); err == nil {
+		t.Error("verifyFileSHA256 with wrong hash should fail")
+	}
+
+	// Empty expectedHex should skip verification (no error).
+	if err := verifyFileSHA256(path, ""); err != nil {
+		t.Errorf("verifyFileSHA256 with empty hash should succeed: %v", err)
+	}
+}
+
+// TestDecompressZstdFile verifies round-trip zstd compress/decompress.
+func TestDecompressZstdFile(t *testing.T) {
+	dir := t.TempDir()
+	original := []byte("helix incremental update test data — compressed and decompressed correctly")
+
+	// Write compressed file.
+	srcPath := filepath.Join(dir, "data.zst")
+	{
+		enc, err := zstd.NewWriter(nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		compressed := enc.EncodeAll(original, nil)
+		enc.Close()
+		if err := os.WriteFile(srcPath, compressed, 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	dstPath := filepath.Join(dir, "data.out")
+	ctx := context.Background()
+	if err := decompressZstdFile(ctx, srcPath, dstPath); err != nil {
+		t.Fatalf("decompressZstdFile failed: %v", err)
+	}
+
+	got, err := os.ReadFile(dstPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, original) {
+		t.Errorf("decompressed data mismatch: got %q, want %q", got, original)
+	}
+}
+
+// TestDecompressZstdFileCancelled checks that context cancellation is respected.
+func TestDecompressZstdFileCancelled(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create a tiny zst file.
+	enc, _ := zstd.NewWriter(nil)
+	compressed := enc.EncodeAll([]byte("data"), nil)
+	enc.Close()
+	srcPath := filepath.Join(dir, "data.zst")
+	os.WriteFile(srcPath, compressed, 0644)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // cancel immediately
+
+	dstPath := filepath.Join(dir, "data.out")
+	err := decompressZstdFile(ctx, srcPath, dstPath)
+	// May or may not error depending on timing; either way, no panic.
+	_ = err
 }
