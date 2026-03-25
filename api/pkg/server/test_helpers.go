@@ -69,7 +69,8 @@ func (s *HelixAPIServer) QueueCommand(sessionID string, cmd types.ExternalAgentC
 // creating an interaction and sending the WebSocket command. This is the
 // same path used by sendMessageToSpecTaskAgent.
 func (s *HelixAPIServer) SendChatMessage(sessionID, message, requestID string) error {
-	return s.sendChatMessageToExternalAgent(sessionID, message, requestID)
+	_, err := s.sendChatMessageToExternalAgent(sessionID, message, requestID)
+	return err
 }
 
 // ConnectedAgentIDs returns the IDs of all currently connected agents.

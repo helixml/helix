@@ -1265,75 +1265,31 @@ func (s *HelixAPIServer) sendMessageToSpecTaskAgent(
 		return "", "", fmt.Errorf("no connected session found: %w", err)
 	}
 
-	// Get the session to access owner and generation ID
-	session, err := s.Store.GetSession(ctx, sessionID)
-	if err != nil {
-		return "", "", fmt.Errorf("failed to get session: %w", err)
-	}
-
 	// Generate request ID for tracking
 	requestID := "req_" + system.GenerateUUID()
 
-	// Create an interaction so handleMessageAdded can find it and update with the response
-	// This unifies the code path with other message types
-	interaction := &types.Interaction{
-		Created:       time.Now(),
-		Updated:       time.Now(),
-		SessionID:     sessionID,
-		UserID:        session.Owner,
-		GenerationID:  session.GenerationID,
-		Mode:          types.SessionModeInference,
-		PromptMessage: message,
-		State:         types.InteractionStateWaiting,
-	}
-
-	createdInteraction, err := s.Store.CreateInteraction(ctx, interaction)
-	if err != nil {
-		return "", "", fmt.Errorf("failed to create interaction: %w", err)
-	}
-
-	// Enqueue the interaction so handleMessageAdded routes the response correctly.
-	// Using append (not overwrite) prevents the race where this function is called
-	// while another interaction is still streaming, which would cause off-by-one errors.
-	s.contextMappingsMutex.Lock()
-	if s.sessionToWaitingInteraction == nil {
-		s.sessionToWaitingInteraction = make(map[string][]string)
-	}
-	s.sessionToWaitingInteraction[sessionID] = append(s.sessionToWaitingInteraction[sessionID], createdInteraction.ID)
-	s.contextMappingsMutex.Unlock()
-
-	log.Info().
-		Str("session_id", sessionID).
-		Str("interaction_id", createdInteraction.ID).
-		Msg("🔗 [HELIX] Created interaction for spec task message")
-
-	// Store the requestID -> sessionID mapping for response routing
-	if s.requestToSessionMapping == nil {
-		s.requestToSessionMapping = make(map[string]string)
-	}
-	s.requestToSessionMapping[requestID] = sessionID
-
 	// If a notifyUserID is provided, store it for response notification
 	if notifyUserID != "" {
+		s.contextMappingsMutex.Lock()
 		if s.requestToCommenterMapping == nil {
 			s.requestToCommenterMapping = make(map[string]string)
 		}
 		s.requestToCommenterMapping[requestID] = notifyUserID
-
-		// Also store session-based mapping for streaming (message_added events don't include request_id)
 		if s.sessionToCommenterMapping == nil {
 			s.sessionToCommenterMapping = make(map[string]string)
 		}
 		s.sessionToCommenterMapping[sessionID] = notifyUserID
+		s.contextMappingsMutex.Unlock()
 	}
 
-	// Send the message via WebSocket
-	err = s.sendChatMessageToExternalAgent(sessionID, message, requestID)
+	// Send the message via the canonical path which creates an interaction,
+	// enqueues it, and sends the WebSocket command.
+	interactionID, err := s.sendChatMessageToExternalAgent(sessionID, message, requestID)
 	if err != nil {
-		// Clean up mappings on failure
-		delete(s.requestToSessionMapping, requestID)
 		if notifyUserID != "" {
+			s.contextMappingsMutex.Lock()
 			delete(s.requestToCommenterMapping, requestID)
+			s.contextMappingsMutex.Unlock()
 		}
 		return "", "", fmt.Errorf("failed to send message via WebSocket: %w", err)
 	}
@@ -1341,11 +1297,11 @@ func (s *HelixAPIServer) sendMessageToSpecTaskAgent(
 	log.Info().
 		Str("spec_task_id", specTask.ID).
 		Str("session_id", sessionID).
-		Str("interaction_id", createdInteraction.ID).
+		Str("interaction_id", interactionID).
 		Str("request_id", requestID).
 		Msg("✅ Sent message to spec task agent via WebSocket")
 
-	return requestID, createdInteraction.ID, nil
+	return requestID, interactionID, nil
 }
 
 // sendApprovalInstructionToAgent sends the detailed implementation instruction to the agent via WebSocket

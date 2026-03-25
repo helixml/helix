@@ -1451,14 +1451,14 @@ func (apiServer *HelixAPIServer) handleContextTitleChanged(sessionID string, syn
 	return nil
 }
 
-// sendChatMessageToExternalAgent sends a chat message to an external agent session.
-// Creates a waiting interaction and queues it so handleMessageCompleted can find it,
-// matching the pattern used by sendMessageToSpecTaskAgent.
-func (apiServer *HelixAPIServer) sendChatMessageToExternalAgent(sessionID, message, requestID string) error {
+// sendChatMessageToExternalAgent is the canonical function for sending a message
+// to an external agent. It creates a waiting interaction, enqueues it for response
+// routing, and sends the WebSocket command. All callers that need to send a message
+// to an agent should use this function.
+func (apiServer *HelixAPIServer) sendChatMessageToExternalAgent(sessionID, message, requestID string) (interactionID string, err error) {
 	ctx := context.Background()
 
-	// Look up the session to get its ZedThreadID - we want to continue in the existing thread
-	// instead of creating a new one. This maintains the 1:1 mapping between Zed threads and Helix sessions.
+	// Look up the session to get its ZedThreadID and agent name
 	var acpThreadID interface{} = nil
 	var agentName string
 	session, err := apiServer.Controller.Options.Store.GetSession(ctx, sessionID)
@@ -1466,26 +1466,11 @@ func (apiServer *HelixAPIServer) sendChatMessageToExternalAgent(sessionID, messa
 		agentName = apiServer.getAgentNameForSession(ctx, session)
 		if session.Metadata.ZedThreadID != "" {
 			acpThreadID = session.Metadata.ZedThreadID
-			log.Info().
-				Str("session_id", sessionID).
-				Str("zed_thread_id", session.Metadata.ZedThreadID).
-				Str("agent_name", agentName).
-				Msg("🔗 [HELIX] Using existing ZedThreadID for chat message")
-		} else {
-			log.Info().
-				Str("session_id", sessionID).
-				Str("agent_name", agentName).
-				Msg("🆕 [HELIX] No ZedThreadID found, will create new thread")
 		}
-	} else {
-		log.Info().
-			Str("session_id", sessionID).
-			Msg("🆕 [HELIX] No session found, will create new thread")
 	}
 
-	// Create a waiting interaction so each message gets its own interaction.
-	// Without this, follow-up messages on the same thread would reuse the previous
-	// interaction via the sessionToWaitingInteraction queue, losing responses.
+	// Create a waiting interaction so handleMessageCompleted can find it.
+	// Each message gets its own interaction to properly track the conversation.
 	if session != nil {
 		interaction := &types.Interaction{
 			Created:       time.Now(),
@@ -1500,20 +1485,16 @@ func (apiServer *HelixAPIServer) sendChatMessageToExternalAgent(sessionID, messa
 
 		createdInteraction, createErr := apiServer.Controller.Options.Store.CreateInteraction(ctx, interaction)
 		if createErr != nil {
-			log.Warn().Err(createErr).Str("session_id", sessionID).Msg("Failed to create interaction for chat message (continuing without)")
+			log.Warn().Err(createErr).Str("session_id", sessionID).Msg("Failed to create interaction for chat message")
 		} else {
+			interactionID = createdInteraction.ID
 			apiServer.contextMappingsMutex.Lock()
 			if apiServer.sessionToWaitingInteraction == nil {
 				apiServer.sessionToWaitingInteraction = make(map[string][]string)
 			}
 			apiServer.sessionToWaitingInteraction[sessionID] = append(
-				apiServer.sessionToWaitingInteraction[sessionID], createdInteraction.ID)
+				apiServer.sessionToWaitingInteraction[sessionID], interactionID)
 			apiServer.contextMappingsMutex.Unlock()
-
-			log.Info().
-				Str("session_id", sessionID).
-				Str("interaction_id", createdInteraction.ID).
-				Msg("✅ [HELIX] Created waiting interaction for chat message")
 		}
 	}
 
@@ -1527,7 +1508,8 @@ func (apiServer *HelixAPIServer) sendChatMessageToExternalAgent(sessionID, messa
 		},
 	}
 
-	return apiServer.sendCommandToExternalAgent(sessionID, command)
+	err = apiServer.sendCommandToExternalAgent(sessionID, command)
+	return interactionID, err
 }
 
 // sendCommandToExternalAgent sends a command to the external agent
