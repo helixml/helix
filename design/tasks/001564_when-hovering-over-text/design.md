@@ -2,9 +2,13 @@
 
 ## Context
 
-The spec view is implemented in `DesignReviewContent.tsx` (~1427 lines). It renders markdown documents via `ReactMarkdown` inside a `Box` with a `markdownRef`. Text selection is detected via `onMouseUp`/`onTouchEnd` → `handleTextSelection()` which calls `window.getSelection()` and sets `showCommentForm(true)`.
+The spec view is implemented in `frontend/src/components/spec-tasks/DesignReviewContent.tsx` (~1427 lines). It renders markdown documents via `ReactMarkdown` inside a `Box` with a `markdownRef` (the inner markdown container) nested inside a scrollable `Box` with a `documentRef` (the outer document panel).
 
-The comment form (`InlineCommentForm`) is absolutely positioned to the right of the document on wide viewports and as a bottom sheet on narrow viewports.
+Text selection is detected via `onMouseUp`/`onTouchEnd` → `handleTextSelection()` (line 777) which calls `window.getSelection()`, validates the selection is within `markdownRef.current`, calculates a `yPosition` relative to `documentRef.current`, then sets `selectedText`, `commentFormPosition`, and `showCommentForm(true)`.
+
+The `InlineCommentForm` (`InlineCommentForm.tsx`) is absolutely positioned to the right (`left: 670px`) on wide viewports (>1000px) and as a fixed bottom sheet on narrow viewports. It has `zIndex: 20`. It auto-focuses its TextField on render, which is the proximate cause of the selection-loss bug.
+
+Viewport width check: `isNarrowViewport = containerWidth > 0 && containerWidth < 1000` (approximate — check exact usage in `DesignReviewContent`).
 
 ---
 
@@ -43,27 +47,24 @@ const x = rect.right - containerRect.left; // pin to right edge of text
 
 ### Root Cause
 
-When `setShowCommentForm(true)` triggers a React re-render, the new DOM elements cause the browser to clear its native text selection. The blue highlight disappears even though `selectedText` state still holds the string.
+When `setShowCommentForm(true)` triggers a React re-render and `InlineCommentForm` mounts, its `TextField` auto-focuses (MUI default). This focus shift causes the browser to immediately clear the native text selection. The highlight disappears even though `selectedText` state still holds the string.
 
-### Fix: Manual Highlight via DOM Range
+### Fix: Persist Highlight via DOM `<mark>` Injection
 
-Before clearing/losing the selection, save the `Range` object. After the form renders, apply a synthetic highlight using a `<mark>` wrapper or the CSS Custom Highlight API.
+The native selection is ephemeral and tied to focus. Replace it with a persistent DOM highlight using a `<mark>` element.
 
-**Recommended approach — wrap with `<mark>`:**
+**Flow:**
 
-1. In `handleTextSelection`, after capturing `text` and `rect`, also save `range.cloneRange()` into a ref (`savedRangeRef`).
+1. In `handleTextSelection` (line 777), after capturing `text` and calculating `rect`, save `range.cloneRange()` into a `savedRangeRef` **before** calling `setShowCommentForm(true)`.
 
-2. After `setShowCommentForm(true)` (in a `useEffect` that watches `showCommentForm`), call a helper `applyHighlight(savedRangeRef.current)`:
-   - Create a `<mark>` element with a CSS class (e.g., `comment-highlight`) styled with `background: #b3d7ff; color: #000;`
-   - Use `range.surroundContents(mark)` — but this can fail if the range spans multiple elements, so use `range.extractContents()` + `mark.appendChild(fragment)` + `range.insertNode(mark)` instead.
+2. In a `useEffect` that fires when `showCommentForm` becomes `true`, call `applyHighlight(savedRangeRef.current)`:
+   - Create `<mark class="comment-highlight">`
+   - Use `range.extractContents()` → append to mark → `range.insertNode(mark)` (not `surroundContents` — it throws on cross-element ranges)
+   - Store the mark element in `highlightMarkRef`
 
-3. When the comment form is cancelled or submitted, remove the `<mark>` element and restore the original text nodes (`mark.replaceWith(...mark.childNodes)`). Store the mark element in a ref (`highlightMarkRef`).
+3. On cancel, submit success, or Escape: call `removeHighlight()` which does `mark.replaceWith(...mark.childNodes)` and clears `highlightMarkRef`.
 
-**Alternative — CSS Custom Highlight API** (Chrome 105+, Firefox 119+): Use `CSS.highlights` for zero-DOM-mutation highlighting. This is cleaner but has less browser support. Given the primary users are likely on modern Chromium, this is viable.
-
-**Chosen approach:** `<mark>` wrapping — wider browser support, straightforward implementation, consistent with existing ReactMarkdown output manipulation patterns used for comment position calculation.
-
-**CSS:**
+**CSS (add via MUI `GlobalStyles` inside `DesignReviewContent`):**
 ```css
 .comment-highlight {
   background-color: #b3d7ff;
@@ -72,17 +73,22 @@ Before clearing/losing the selection, save the `Range` object. After the form re
 }
 ```
 
-Add the class to the global stylesheet or via a MUI `GlobalStyles` component in `DesignReviewContent`.
-
-### Caveats
-- `surroundContents` throws if the range boundary is in the middle of a tag. Use `extractContents`/`insertNode` pattern instead, and wrap in try/catch with fallback to no highlight.
-- The `<mark>` is injected into ReactMarkdown-rendered DOM. React doesn't know about it, so cleanup must be imperative (ref-based), not declarative.
-- Call cleanup (`removeHighlight`) in the same places where `selectedText` is cleared: cancel, submit success, Escape key handler.
+**Caveats:**
+- Wrap `applyHighlight` in try/catch — fall back to no highlight if DOM manipulation fails
+- The `<mark>` exists outside React's virtual DOM; cleanup must be imperative (ref-based), not declarative
+- Cleanup (`removeHighlight`) must be called everywhere `selectedText` is cleared: cancel handler, submit success, and Escape key handler (search for `setShowCommentForm(false)` and `setSelectedText("")` call sites)
 
 ---
 
 ## Key Files to Modify
 
-- `frontend/src/components/spec-tasks/DesignReviewContent.tsx` — all changes live here
+- `frontend/src/components/spec-tasks/DesignReviewContent.tsx` — all changes live here (line refs: `handleTextSelection` ~777, hover styles ~1260, form render ~1344)
 - `frontend/src/components/spec-tasks/InlineCommentForm.tsx` — no changes needed
-- Possibly add a small CSS class via MUI `GlobalStyles` within `DesignReviewContent`
+- Add `.comment-highlight` CSS class via MUI `GlobalStyles` component inside `DesignReviewContent`
+
+## Patterns Found in Codebase
+
+- Hover button should use MUI `IconButton` + `Tooltip` pattern — already used throughout the file (e.g., `CommentIcon` tooltip at line ~1158)
+- `documentRef` is the scrollable outer container; `markdownRef` is the inner markdown Box — use `documentRef` for scroll offset math, `markdownRef` for element containment checks
+- `isNarrowViewport` prop is already threaded through to `InlineCommentForm` — reuse this for hiding the hover button on mobile
+- Block elements to target for hover: `p, li, h1, h2, h3, h4, blockquote, pre` — matches the existing hover style selectors at ~line 1260
