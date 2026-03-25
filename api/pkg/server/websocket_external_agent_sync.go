@@ -1496,6 +1496,11 @@ func (apiServer *HelixAPIServer) sendChatMessageToExternalAgent(sessionID, messa
 				apiServer.sessionToWaitingInteraction[sessionID], interactionID)
 			apiServer.contextMappingsMutex.Unlock()
 		}
+
+		// Update session timestamp so findConnectedSessionForSpecTask
+		// picks the most recently active session.
+		session.Updated = time.Now()
+		_, _ = apiServer.Controller.Options.Store.UpdateSession(ctx, *session)
 	}
 
 	command := types.ExternalAgentCommand{
@@ -2073,6 +2078,11 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 		Int("final_response_length", len(targetInteraction.ResponseMessage)).
 		Str("final_state", string(targetInteraction.State)).
 		Msg("✅ [HELIX] Marked interaction as complete")
+
+	// Update session timestamp so findConnectedSessionForSpecTask
+	// picks the most recently active session.
+	helixSession.Updated = time.Now()
+	_, _ = apiServer.Controller.Options.Store.UpdateSession(context.Background(), *helixSession)
 
 	// Update SpecTaskZedThread activity if this is a spectask session
 	if helixSession.Metadata.SpecTaskID != "" {
