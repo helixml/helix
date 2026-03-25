@@ -20,7 +20,7 @@
   - Uploads to `vm/{FROM}_to_{TO}/patch.xdelta3.zst`
   - Writes patch metadata into manifest
 - [x] Add patch pruning logic to `upload-vm-images.sh` (keep patches for last N versions, configurable via `PATCH_VERSIONS`)
-- [ ] Add xdelta3 to CI build environment and document dependency
+- [x] Add xdelta3 to CI build environment (`brew install xdelta` in provision-vm drone step) and document dependency in `upload-vm-images.sh` header
 
 ## Phase 3: Client-Side Patch Download & Apply
 
