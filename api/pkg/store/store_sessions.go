@@ -266,6 +266,11 @@ func (s *PostgresStore) UpdateSessionMetadata(ctx context.Context, sessionID str
 	return nil
 }
 
+// TouchSession updates only the Updated timestamp on a session.
+func (s *PostgresStore) TouchSession(ctx context.Context, sessionID string) error {
+	return s.gdb.WithContext(ctx).Model(&types.Session{}).Where("id = ?", sessionID).Update("updated", time.Now()).Error
+}
+
 func (s *PostgresStore) DeleteSession(ctx context.Context, sessionID string) (*types.Session, error) {
 	existing, err := s.GetSession(ctx, sessionID)
 	if err != nil {

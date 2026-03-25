@@ -1200,8 +1200,7 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 
 			// Update session timestamp so findConnectedSessionForSpecTask
 			// picks the session with the most recent activity.
-			helixSession.Updated = time.Now()
-			_, _ = apiServer.Controller.Options.Store.UpdateSession(context.Background(), *helixSession)
+			_ = apiServer.Controller.Options.Store.TouchSession(context.Background(), helixSessionID)
 
 			// CRITICAL: Enqueue this interaction so the AI response goes to it
 			apiServer.contextMappingsMutex.Lock()
@@ -1504,8 +1503,7 @@ func (apiServer *HelixAPIServer) sendChatMessageToExternalAgent(sessionID, messa
 
 		// Update session timestamp so findConnectedSessionForSpecTask
 		// picks the most recently active session.
-		session.Updated = time.Now()
-		_, _ = apiServer.Controller.Options.Store.UpdateSession(ctx, *session)
+		_ = apiServer.Controller.Options.Store.TouchSession(ctx, sessionID)
 	}
 
 	command := types.ExternalAgentCommand{
@@ -2086,8 +2084,7 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 
 	// Update session timestamp so findConnectedSessionForSpecTask
 	// picks the most recently active session.
-	helixSession.Updated = time.Now()
-	_, _ = apiServer.Controller.Options.Store.UpdateSession(context.Background(), *helixSession)
+	_ = apiServer.Controller.Options.Store.TouchSession(context.Background(), helixSessionID)
 
 	// Update SpecTaskZedThread activity if this is a spectask session
 	if helixSession.Metadata.SpecTaskID != "" {
