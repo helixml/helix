@@ -62,22 +62,30 @@ func (s *PostgresStore) CreateAttentionEvent(ctx context.Context, event *types.A
 }
 
 // ListAttentionEvents returns active (not dismissed, not snoozed) events for a user.
-func (s *PostgresStore) ListAttentionEvents(ctx context.Context, userID, organizationID string) ([]*types.AttentionEvent, error) {
+func (s *PostgresStore) ListAttentionEvents(ctx context.Context, userID, organizationID string, filters types.AttentionEventFilters) ([]*types.AttentionEvent, error) {
 	if userID == "" {
 		return nil, fmt.Errorf("user ID is required")
 	}
 
 	var events []*types.AttentionEvent
 	query := s.gdb.WithContext(ctx).
-		Where("user_id = ?", userID).
-		Where("dismissed_at IS NULL").
-		Where("snoozed_until IS NULL OR snoozed_until < ?", time.Now())
+		Where("attention_events.user_id = ?", userID).
+		Where("attention_events.dismissed_at IS NULL").
+		Where("attention_events.snoozed_until IS NULL OR attention_events.snoozed_until < ?", time.Now())
 
 	if organizationID != "" {
-		query = query.Where("organization_id = ?", organizationID)
+		query = query.Where("attention_events.organization_id = ?", organizationID)
 	}
 
-	result := query.Order("created_at DESC").Find(&events)
+	if filters.MineOnly {
+		// Join spec_tasks to filter by task ownership.
+		// Assignee takes priority; fall back to created_by when no assignee is set.
+		query = query.
+			Joins("JOIN spec_tasks ON spec_tasks.id = attention_events.spec_task_id").
+			Where("spec_tasks.assignee_id = ? OR (spec_tasks.assignee_id IS NULL OR spec_tasks.assignee_id = '') AND spec_tasks.created_by = ?", userID, userID)
+	}
+
+	result := query.Order("attention_events.created_at DESC").Find(&events)
 	if result.Error != nil {
 		return nil, fmt.Errorf("failed to list attention events: %w", result.Error)
 	}

@@ -560,7 +560,7 @@ type Store interface {
 
 	// Attention Event methods
 	CreateAttentionEvent(ctx context.Context, event *types.AttentionEvent) (*types.AttentionEvent, error)
-	ListAttentionEvents(ctx context.Context, userID, organizationID string) ([]*types.AttentionEvent, error)
+	ListAttentionEvents(ctx context.Context, userID, organizationID string, filters types.AttentionEventFilters) ([]*types.AttentionEvent, error)
 	GetAttentionEvent(ctx context.Context, id string) (*types.AttentionEvent, error)
 	UpdateAttentionEvent(ctx context.Context, id string, update *types.AttentionEventUpdateRequest) error
 	BulkDismissAttentionEvents(ctx context.Context, userID, organizationID string) (int64, error)

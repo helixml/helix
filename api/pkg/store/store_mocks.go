@@ -3650,18 +3650,18 @@ func (mr *MockStoreMockRecorder) ListApps(ctx, q any) *gomock.Call {
 }
 
 // ListAttentionEvents mocks base method.
-func (m *MockStore) ListAttentionEvents(ctx context.Context, userID, organizationID string) ([]*types.AttentionEvent, error) {
+func (m *MockStore) ListAttentionEvents(ctx context.Context, userID, organizationID string, filters types.AttentionEventFilters) ([]*types.AttentionEvent, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListAttentionEvents", ctx, userID, organizationID)
+	ret := m.ctrl.Call(m, "ListAttentionEvents", ctx, userID, organizationID, filters)
 	ret0, _ := ret[0].([]*types.AttentionEvent)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // ListAttentionEvents indicates an expected call of ListAttentionEvents.
-func (mr *MockStoreMockRecorder) ListAttentionEvents(ctx, userID, organizationID any) *gomock.Call {
+func (mr *MockStoreMockRecorder) ListAttentionEvents(ctx, userID, organizationID, filters any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListAttentionEvents", reflect.TypeOf((*MockStore)(nil).ListAttentionEvents), ctx, userID, organizationID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListAttentionEvents", reflect.TypeOf((*MockStore)(nil).ListAttentionEvents), ctx, userID, organizationID, filters)
 }
 
 // ListClaudeSubscriptions mocks base method.
