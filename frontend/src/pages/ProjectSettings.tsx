@@ -1113,7 +1113,7 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
                         {sbState.status === "building" && "Building..."}
                         {sbState.status === "failed" && "Failed"}
                         {sbState.status === "none" && "No cache"}
-                        {(sbState.size_bytes ?? 0) > 0 && (
+                        {sbState.status === "building" && (sbState.size_bytes ?? 0) > 0 && (
                           <> &middot; {((sbState.size_bytes ?? 0) / 1e9).toFixed(1)} GB</>
                         )}
                         {sbState.last_ready_at && (
