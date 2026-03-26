@@ -1200,7 +1200,7 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
 
         {/* Golden build viewer */}
         {showGoldenBuildViewer && goldenBuildSessionId && (
-          <Box sx={{ flex: "2 1 auto" }}>
+          <Box sx={{ flex: "2 1 0%" }}>
             <Box>
               <Box sx={{ display: "flex", alignItems: "center", mb: 1 }}>
                 <Typography variant="h6" sx={{ flex: 1 }}>
@@ -1221,6 +1221,7 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
               {goldenBuildSession && goldenBuildSandboxState.isRunning ? (
                 <Box
                   sx={{
+                    width: "100%",
                     aspectRatio: "16 / 9",
                     backgroundColor: "#000",
                   }}
