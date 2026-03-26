@@ -766,19 +766,39 @@ func GCOrphanedZvols(activeSessions map[string]bool) (int, error) {
 		}
 		sessionID := strings.TrimPrefix(name, prefix)
 		if activeSessions[sessionID] {
+			// Refresh the external marker so that if Hydra crashes or the
+			// session runs for weeks, the marker stays fresh and GC won't
+			// destroy the zvol after the next restart.
+			externalDir := filepath.Join(sessionsBaseDir, "docker-data-"+sessionID)
+			_ = os.MkdirAll(externalDir, 0755)
+			TouchSessionLastActive(externalDir)
 			continue
 		}
 
-		// Check .last-active marker on the mounted filesystem
-		mountPath := sessionZvolMountPath(sessionID)
-		if isMounted(mountPath) {
-			marker := filepath.Join(mountPath, ".last-active")
-			data, err := os.ReadFile(marker)
-			if err == nil {
-				t, err := time.Parse(time.RFC3339, string(data))
-				if err == nil && time.Since(t) < 7*24*time.Hour {
-					continue // still recent, keep it
+		// Check .last-active marker on the external filesystem (not inside
+		// the zvol). The marker lives at /container-docker/sessions/docker-data-{sessionID}/
+		// which is on the parent ZFS dataset, readable without mounting the XFS zvol.
+		externalDir := filepath.Join(sessionsBaseDir, "docker-data-"+sessionID)
+		age := sessionLastActiveAge(externalDir)
+		if age > 0 && age < 7*24*time.Hour {
+			continue // recently active, keep it
+		}
+		if age == 0 {
+			// No marker — session predates marker feature or was never
+			// cleanly stopped. Check inside the zvol as a fallback.
+			mountPath := sessionZvolMountPath(sessionID)
+			if isMounted(mountPath) {
+				innerAge := sessionLastActiveAge(mountPath)
+				if innerAge > 0 && innerAge < 7*24*time.Hour {
+					continue
 				}
+				if innerAge == 0 {
+					// No marker anywhere — don't GC, it'll get one next stop.
+					continue
+				}
+			} else {
+				// Not mounted, no external marker — don't GC.
+				continue
 			}
 		}
 
@@ -1006,6 +1026,9 @@ func purgeContainerDirs(dockerDir string) {
 		os.RemoveAll(filepath.Join(dockerDir, dir))
 	}
 	os.Remove(filepath.Join(dockerDir, ".golden-build-result"))
+
+	// Prune unreferenced overlay2 layers left behind by previous image builds.
+	pruneUnreferencedOverlay2Layers(dockerDir)
 }
 
 const seedCompleteMarker = ".zvol-seed-complete"
