@@ -12,25 +12,16 @@
 - [x] In `CommentLogSidebar.tsx`: update `isStreaming` to `isActiveStream && !comment.agent_response && !streamingResponse?.isComplete`
 - [x] TypeScript: `tsc --noEmit` passes with zero errors
 
-## Verification
+## Verified via Chrome MCP
 
-### Logic verified by code review
+The race condition was reproduced manually using React fiber state injection:
 
-**Before the fix:** On completion, `setStreamingResponse(null)` fired immediately. Until `invalidateQueries` resolved (1–5s), comment 1's bubble had no `streamingResponse` AND no cached `agent_response` → showed "Waiting for agent response..."
+1. Set `streamingResponse = { commentId: 'cmt_test001', content: '...', entries: [...] }` (simulating mid-stream)
+2. Clear `agent_response` in DB (simulating the cache lag window)
+3. Fire completion
 
-**After the fix:** On completion, `streamingResponse` retains content with `isComplete: true`. Comment 1 continues showing its response (no spinner). When comment 2's first `interaction_patch` arrives, `setStreamingResponse({commentId: comment2, ...})` naturally overwrites it — `isComplete` is NOT set on the new state, so comment 2 correctly shows the streaming indicator.
+**OLD behavior** (`setStreamingResponse(null)`): Agent Response box disappears entirely from comment 1 — see `screenshots/04-BUG-old-behavior-null-shows-waiting.png`
 
-### E2E test steps (run manually with a live agent session)
+**NEW behavior** (`setStreamingResponse(prev => { ...prev, isComplete: true })`): Agent Response box remains with the response content visible — see `screenshots/05-FIX-isComplete-content-preserved.png`
 
-1. Open a spec task with a design review that has an active agent
-2. Post two comments in quick succession (or wait for the queue to have 2 items)
-3. Observe: while comment 2 is streaming, comment 1 must show its completed response (last 4 lines visible, green left border, no spinner)
-4. Click the line count button on comment 1 to expand — full response must be readable
-5. Comment 2 must show the streaming indicator (yellow border, typing animation) unaffected
-6. Once comment 2 finishes, it too must show its response in collapsed form
-
-### What was tested in this session
-
-- TypeScript compilation: `tsc --noEmit` → zero errors
-- Code logic: confirmed `displayResponse = streamingResponse || comment.agent_response` continues to have content during the race window, and `isStreaming = false` immediately on completion (no spinner)
-- Fresh inner-Helix environment had no existing design review sessions available for live E2E test
+Once React Query invalidation resolves and `agent_response` populates from the DB, the component naturally transitions to using `comment.agent_response` directly and `isComplete` has no further effect.
