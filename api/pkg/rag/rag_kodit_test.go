@@ -27,7 +27,7 @@ import (
 // Only the methods exercised by KoditRAG have meaningful implementations;
 // the rest return zero values so the struct satisfies the interface.
 type koditServiceMock struct {
-	registerRepositoryFn   func(ctx context.Context, cloneURL, upstreamURL string) (int64, bool, error)
+	registerRepositoryFn   func(ctx context.Context, params *services.RegisterRepositoryParams) (int64, bool, error)
 	semanticSearchFn       func(ctx context.Context, koditRepoID int64, query string, limit int, language string) ([]services.KoditFileResult, error)
 	deleteRepositoryFn     func(ctx context.Context, koditRepoID int64) error
 	rescanCommitFn         func(ctx context.Context, koditRepoID int64, commitSHA string) error
@@ -49,9 +49,9 @@ func (m *koditServiceMock) EnrichmentCount(context.Context, int64) (int64, error
 func (m *koditServiceMock) DeleteTask(context.Context, int64) error        { return nil }
 func (m *koditServiceMock) UpdateTaskPriority(context.Context, int64, int) error { return nil }
 
-func (m *koditServiceMock) RegisterRepository(ctx context.Context, cloneURL, upstreamURL string) (int64, bool, error) {
+func (m *koditServiceMock) RegisterRepository(ctx context.Context, params *services.RegisterRepositoryParams) (int64, bool, error) {
 	if m.registerRepositoryFn != nil {
-		return m.registerRepositoryFn(ctx, cloneURL, upstreamURL)
+		return m.registerRepositoryFn(ctx, params)
 	}
 	return 0, false, nil
 }
@@ -165,8 +165,9 @@ func (s *KoditRAGSuite) TestIndex_IsNoop() {
 
 func (s *KoditRAGSuite) TestRegisterDirectory_CreatesDataEntity() {
 	repoID := int64(42)
-	s.mockSvc.registerRepositoryFn = func(_ context.Context, cloneURL, _ string) (int64, bool, error) {
-		s.Equal("file:///srv/files/knowledge", cloneURL)
+	s.mockSvc.registerRepositoryFn = func(_ context.Context, params *services.RegisterRepositoryParams) (int64, bool, error) {
+		s.Equal("file:///srv/files/knowledge", params.CloneURL)
+		s.Equal(repository.PipelineNameRAG, params.Pipeline)
 		return repoID, true, nil
 	}
 
@@ -191,7 +192,7 @@ func (s *KoditRAGSuite) TestRegisterDirectory_CreatesDataEntity() {
 
 func (s *KoditRAGSuite) TestRegisterDirectory_UpdatesExistingDataEntity() {
 	repoID := int64(99)
-	s.mockSvc.registerRepositoryFn = func(_ context.Context, _, _ string) (int64, bool, error) {
+	s.mockSvc.registerRepositoryFn = func(_ context.Context, _ *services.RegisterRepositoryParams) (int64, bool, error) {
 		return repoID, false, nil
 	}
 
@@ -362,7 +363,7 @@ func (s *KoditRAGSuite) TestQuery_PopulatesDocumentID() {
 
 func (s *KoditRAGSuite) TestRegisterDirectory_PropagatesKoditError() {
 	koditErr := errors.New("kodit unavailable")
-	s.mockSvc.registerRepositoryFn = func(_ context.Context, _, _ string) (int64, bool, error) {
+	s.mockSvc.registerRepositoryFn = func(_ context.Context, _ *services.RegisterRepositoryParams) (int64, bool, error) {
 		return 0, false, koditErr
 	}
 
