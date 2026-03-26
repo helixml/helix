@@ -2282,9 +2282,16 @@ func (s *HelixAPIServer) deleteDockerCache(_ http.ResponseWriter, r *http.Reques
 	return map[string]string{"message": fmt.Sprintf("cache cleared on %d sandbox(es)", deleted)}, nil
 }
 
-// getDockerCacheZFSTree returns the ZFS snapshot/clone tree for a project's docker cache.
-// Proxies to Hydra on the first online sandbox.
-func (s *HelixAPIServer) getDockerCacheZFSTree(_ http.ResponseWriter, r *http.Request) (interface{}, *system.HTTPError) {
+// getDockerCacheZFSTree godoc
+// @Summary Get ZFS snapshot/clone tree for project's Docker cache
+// @Description Returns the ZFS snapshot and clone tree showing golden cache, snapshots, and active session clones.
+// @Tags    projects
+// @Produce json
+// @Param   id path string true "Project ID"
+// @Success 200 {object} types.ZFSTree
+// @Router  /api/v1/projects/{id}/docker-cache/zfs-tree [get]
+// @Security BearerAuth
+func (s *HelixAPIServer) getDockerCacheZFSTree(_ http.ResponseWriter, r *http.Request) (*types.ZFSTree, *system.HTTPError) {
 	user := getRequestUser(r)
 	projectID := getID(r)
 
@@ -2318,7 +2325,7 @@ func (s *HelixAPIServer) getDockerCacheZFSTree(_ http.ResponseWriter, r *http.Re
 	}
 
 	// No sandbox available — return empty tree
-	return &hydra.ZFSTree{Available: false}, nil
+	return &types.ZFSTree{Available: false}, nil
 }
 
 // PinnedProjectsResponse is the response body for pin/unpin endpoints

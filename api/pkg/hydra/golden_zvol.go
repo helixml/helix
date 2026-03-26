@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
 
@@ -255,24 +256,10 @@ func zfsSnapshotExists(name string) bool {
 	return execCmdRun("zfs", "list", "-H", "-t", "snapshot", "-o", "name", name) == nil
 }
 
-// ZFSTreeNode represents a node in the ZFS snapshot/clone tree.
-type ZFSTreeNode struct {
-	Name      string         `json:"name"`
-	Type      string         `json:"type"` // "golden", "snapshot", "clone"
-	Used      string         `json:"used"`
-	Refer     string         `json:"refer"`
-	Mounted   bool           `json:"mounted,omitempty"`
-	SessionID string         `json:"session_id,omitempty"`
-	Children  []*ZFSTreeNode `json:"children,omitempty"`
-}
-
-// ZFSTree is the full tree for a project's golden cache.
-type ZFSTree struct {
-	Available bool           `json:"available"`
-	PoolRoot  string         `json:"pool_root,omitempty"`
-	Golden    *ZFSTreeNode   `json:"golden,omitempty"`
-	Orphans   []*ZFSTreeNode `json:"orphans,omitempty"` // session zvols not cloned from this golden
-}
+// ZFSTree and ZFSTreeNode are defined in types package.
+// Aliases for backward compatibility within hydra package.
+type ZFSTree = types.ZFSTree
+type ZFSTreeNode = types.ZFSTreeNode
 
 // GetZFSTree returns the ZFS snapshot and clone tree for a project's golden cache.
 func GetZFSTree(projectID string) (*ZFSTree, error) {

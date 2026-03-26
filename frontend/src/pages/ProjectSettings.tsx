@@ -50,7 +50,7 @@ import HubIcon from "@mui/icons-material/Hub";
 import EditIcon from "@mui/icons-material/Edit";
 
 import Skills from "../components/app/Skills";
-import { TypesAssistantSkills, TypesProject } from "../api/api";
+import { TypesAssistantSkills, TypesProject, TypesZFSTree, TypesZFSTreeNode } from "../api/api";
 import SavingToast from "../components/widgets/SavingToast";
 import StartupScriptEditor from "../components/project/StartupScriptEditor";
 import CodingAgentForm from "../components/agent/CodingAgentForm";
@@ -212,7 +212,8 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
   const { data: zfsTree } = useQuery({
     queryKey: ["zfs-tree", projectId],
     queryFn: async () => {
-      return api.get(`/projects/${projectId}/docker-cache/zfs-tree`);
+      const response = await api.getApiClient().v1ProjectsDockerCacheZfsTreeDetail(projectId);
+      return response.data;
     },
     enabled: !!projectId && (autoWarmDockerCache || sandboxEntries.length > 0),
     refetchInterval: 30000,
@@ -1208,7 +1209,7 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
                 <Chip label={zfsTree.golden.refer} size="small" sx={{ height: 18, fontSize: "0.65rem", fontFamily: "monospace" }} />
               </Box>
               {/* Snapshots */}
-              {zfsTree.golden.children?.map((snap: { name: string; used: string; refer: string; children?: { name: string; used: string; refer: string; mounted: boolean; session_id: string }[] }, si: number) => (
+              {zfsTree.golden.children?.map((snap: TypesZFSTreeNode, si: number) => (
                 <Box key={snap.name} sx={{ ml: 2 }}>
                   <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
                     <Box sx={{ color: "text.secondary" }}>{si === (zfsTree.golden.children?.length ?? 0) - 1 ? "└─" : "├─"}</Box>
@@ -1226,7 +1227,7 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
                     )}
                   </Box>
                   {/* Clones */}
-                  {snap.children?.map((clone: { name: string; used: string; refer: string; mounted: boolean; session_id: string }, ci: number) => (
+                  {snap.children?.map((clone: TypesZFSTreeNode, ci: number) => (
                     <Box key={clone.name} sx={{ ml: 3, display: "flex", alignItems: "center", gap: 0.5 }}>
                       <Box sx={{ color: "text.secondary" }}>{ci === (snap.children?.length ?? 0) - 1 ? "└─" : "├─"}</Box>
                       <Box sx={{ color: clone.mounted ? "success.main" : "text.disabled" }}>
@@ -1251,7 +1252,7 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
               {zfsTree.orphans?.length > 0 && (
                 <Box sx={{ mt: 1, opacity: 0.6 }}>
                   <Typography variant="caption" color="text.secondary">orphaned zvols (no golden parent):</Typography>
-                  {zfsTree.orphans.map((o: { name: string; used: string; session_id: string; mounted: boolean }) => (
+                  {zfsTree.orphans.map((o: TypesZFSTreeNode) => (
                     <Box key={o.name} sx={{ ml: 2, display: "flex", alignItems: "center", gap: 0.5 }}>
                       <Box>{o.mounted ? "🟢" : "⚪"}</Box>
                       <Box sx={{ fontSize: "0.7rem" }}>{o.session_id ? `ses_${o.session_id.substring(4, 12)}…` : o.name.split("/").pop()}</Box>

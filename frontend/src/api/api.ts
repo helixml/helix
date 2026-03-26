@@ -5891,6 +5891,23 @@ export interface TypesWorkloadSummary {
   updated?: string;
 }
 
+export interface TypesZFSTree {
+  available?: boolean;
+  golden?: TypesZFSTreeNode;
+  orphans?: TypesZFSTreeNode[];
+  pool_root?: string;
+}
+
+export interface TypesZFSTreeNode {
+  children?: TypesZFSTreeNode[];
+  mounted?: boolean;
+  name?: string;
+  refer?: string;
+  session_id?: string;
+  type?: string;
+  used?: string;
+}
+
 export interface TypesZedConfigResponse {
   agent?: Record<string, any>;
   assistant?: Record<string, any>;
@@ -10028,6 +10045,24 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       this.request<Record<string, string>, SystemHTTPError>({
         path: `/api/v1/projects/${id}/docker-cache/cancel`,
         method: "POST",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Returns the ZFS snapshot and clone tree showing golden cache, snapshots, and active session clones.
+     *
+     * @tags projects
+     * @name V1ProjectsDockerCacheZfsTreeDetail
+     * @summary Get ZFS snapshot/clone tree for project's Docker cache
+     * @request GET:/api/v1/projects/{id}/docker-cache/zfs-tree
+     * @secure
+     */
+    v1ProjectsDockerCacheZfsTreeDetail: (id: string, params: RequestParams = {}) =>
+      this.request<TypesZFSTree, any>({
+        path: `/api/v1/projects/${id}/docker-cache/zfs-tree`,
+        method: "GET",
         secure: true,
         format: "json",
         ...params,
