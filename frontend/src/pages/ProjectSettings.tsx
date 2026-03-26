@@ -1051,7 +1051,7 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
 
       {/* Docker Cache */}
       <Box sx={{ display: "flex", gap: 3, alignItems: "flex-start", flexWrap: "wrap" }}>
-        <Box sx={{ flex: "1 1 300px", minWidth: 300, maxWidth: showGoldenBuildViewer ? 400 : undefined }}>
+        <Box sx={{ flex: "1 1 auto" }}>
           <Box sx={{ display: "flex", alignItems: "center", mb: 1 }}>
             <Typography variant="h6">Docker Cache</Typography>
           </Box>
@@ -1200,7 +1200,7 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
 
         {/* Golden build viewer */}
         {showGoldenBuildViewer && goldenBuildSessionId && (
-          <Box sx={{ flex: "2 1 500px", minWidth: 400 }}>
+          <Box sx={{ flex: "2 1 auto" }}>
             <Box>
               <Box sx={{ display: "flex", alignItems: "center", mb: 1 }}>
                 <Typography variant="h6" sx={{ flex: 1 }}>
@@ -1244,8 +1244,10 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
       </Box>
 
       {/* ZFS Snapshot/Clone Tree — below the Docker Cache flex row */}
-      {zfsTree?.available && zfsTree?.golden && (
-        <Box sx={{ mt: 2, mb: 4, p: 2, bgcolor: "background.paper", borderRadius: 1, border: "1px solid", borderColor: "divider" }}>
+      {zfsTree?.available && zfsTree?.golden && zfsTree.golden.children?.some(
+        (snap: TypesZFSTreeNode) => snap.children && snap.children.length > 0
+      ) && (
+        <Box sx={{ mt: 1, mb: 4, p: 2, bgcolor: "background.paper", borderRadius: 1, border: "1px solid", borderColor: "divider" }}>
           <Typography variant="subtitle2" sx={{ mb: 1, display: "flex", alignItems: "center", gap: 0.5 }}>
             <HubIcon fontSize="small" sx={{ color: "primary.main" }} />
             ZFS Clone Tree
