@@ -1051,7 +1051,7 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
 
       {/* Docker Cache */}
       <Box sx={{ display: "flex", gap: 2, alignItems: "flex-start" }}>
-        <Box sx={{ flex: showGoldenBuildViewer ? 2 : 1 }}>
+        <Box sx={{ flex: 1 }}>
           <Box sx={{ display: "flex", alignItems: "center", mb: 1 }}>
             <Typography variant="h6">Docker Cache</Typography>
           </Box>
@@ -1200,7 +1200,7 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
 
         {/* Golden build viewer */}
         {showGoldenBuildViewer && goldenBuildSessionId && (
-          <Box sx={{ flex: 1 }}>
+          <Box sx={{ flex: 2 }}>
             <Box>
               <Box sx={{ display: "flex", alignItems: "center", mb: 1 }}>
                 <Typography variant="h6" sx={{ flex: 1 }}>
