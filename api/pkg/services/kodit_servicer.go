@@ -109,11 +109,18 @@ type KoditRepositoryTasks struct {
 	PendingTasks []KoditPendingTask
 }
 
+// RegisterRepositoryParams configures a RegisterRepository call.
+type RegisterRepositoryParams struct {
+	CloneURL    string
+	UpstreamURL string
+	Pipeline    string
+}
+
 // KoditServicer is the interface for Kodit code intelligence operations.
 // Used by handlers and other services; allows faking in tests.
 type KoditServicer interface {
 	IsEnabled() bool
-	RegisterRepository(ctx context.Context, cloneURL, upstreamURL string) (int64, bool, error)
+	RegisterRepository(ctx context.Context, params *RegisterRepositoryParams) (int64, bool, error)
 	GetRepositoryEnrichments(ctx context.Context, koditRepoID int64, enrichmentType, commitSHA string) ([]enrichment.Enrichment, error)
 	GetEnrichment(ctx context.Context, enrichmentID string) (enrichment.Enrichment, error)
 	GetRepositoryCommits(ctx context.Context, koditRepoID int64, limit int) ([]repository.Commit, error)
@@ -159,7 +166,7 @@ type disabledKoditService struct{}
 
 func (d *disabledKoditService) IsEnabled() bool          { return false }
 func (d *disabledKoditService) MCPDocumentation() string { return "" }
-func (d *disabledKoditService) RegisterRepository(context.Context, string, string) (int64, bool, error) {
+func (d *disabledKoditService) RegisterRepository(context.Context, *RegisterRepositoryParams) (int64, bool, error) {
 	return 0, false, errors.New("kodit service not enabled")
 }
 func (d *disabledKoditService) GetRepositoryEnrichments(context.Context, int64, string, string) ([]enrichment.Enrichment, error) {

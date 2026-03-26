@@ -14,6 +14,7 @@ import (
 	"github.com/helixml/helix/api/pkg/services"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/helixml/kodit/domain/repository"
 	"github.com/rs/zerolog/log"
 )
 
@@ -63,7 +64,10 @@ func (k *KoditRAG) RegisterDirectory(ctx context.Context, dataEntityID, localPat
 		Str("file_uri", fileURI).
 		Msg("registering directory with kodit")
 
-	repoID, isNew, err := k.kodit.RegisterRepository(ctx, fileURI, "")
+	repoID, isNew, err := k.kodit.RegisterRepository(ctx, &services.RegisterRepositoryParams{
+		CloneURL: fileURI,
+		Pipeline: repository.PipelineNameRAG,
+	})
 	if err != nil {
 		return fmt.Errorf("kodit RegisterRepository failed for %s: %w", fileURI, err)
 	}
