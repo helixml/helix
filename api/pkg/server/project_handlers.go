@@ -180,14 +180,37 @@ func (s *HelixAPIServer) getProject(_ http.ResponseWriter, r *http.Request) (*ty
 			if s.externalAgentExecutor.HasRunningContainer(r.Context(), sbState.BuildSessionID) {
 				continue
 			}
-			log.Info().
-				Str("project_id", projectID).
-				Str("sandbox_id", sbID).
-				Str("session_id", sbState.BuildSessionID).
-				Msg("Recovering stale golden build: monitoring goroutine dead and container not running")
-			sbState.Status = "none"
-			sbState.BuildSessionID = ""
-			sbState.Error = ""
+			// Check if the golden cache actually exists on the sandbox before
+			// resetting to "none" — the build may have completed and promoted
+			// while the API was down. Query the ZFS tree to find out.
+			cacheExists := false
+			hydraClient := hydra.NewRevDialClient(s.connman, fmt.Sprintf("hydra-%s", sbID))
+			ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+			tree, err := hydraClient.GetZFSTree(ctx, project.ID)
+			cancel()
+			if err == nil && tree != nil && tree.Available && tree.Golden != nil && len(tree.Golden.Children) > 0 {
+				cacheExists = true
+			}
+
+			if cacheExists {
+				log.Info().
+					Str("project_id", projectID).
+					Str("sandbox_id", sbID).
+					Str("session_id", sbState.BuildSessionID).
+					Msg("Recovering stale golden build: build completed while API was down, setting ready")
+				sbState.Status = "ready"
+				sbState.BuildSessionID = ""
+				sbState.Error = ""
+			} else {
+				log.Info().
+					Str("project_id", projectID).
+					Str("sandbox_id", sbID).
+					Str("session_id", sbState.BuildSessionID).
+					Msg("Recovering stale golden build: no cache found, resetting to none")
+				sbState.Status = "none"
+				sbState.BuildSessionID = ""
+				sbState.Error = ""
+			}
 			staleRecovered = true
 		}
 		if staleRecovered {
