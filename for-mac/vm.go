@@ -1119,6 +1119,12 @@ func (vm *VMManager) waitForReady(ctx context.Context) {
 			}
 
 			if sandboxReady {
+				// Auto-detect Ollama running on the host and register it as a
+				// global provider so users see their models without any config.
+				if probeOllama() {
+					log.Printf("Ollama detected on host — registering provider endpoint")
+					vm.upsertOllamaEndpoint()
+				}
 				return
 			}
 		}
@@ -1195,6 +1201,90 @@ func (vm *VMManager) checkSandboxReady() bool {
 		}
 	}
 	return false
+}
+
+// probeOllama checks if Ollama is running on the host at port 11434.
+// Returns true if Ollama responds with a valid model list.
+func probeOllama() bool {
+	client := &http.Client{Timeout: 2 * time.Second}
+	resp, err := client.Get("http://localhost:11434/v1/models")
+	if err != nil {
+		return false
+	}
+	resp.Body.Close()
+	return resp.StatusCode == http.StatusOK
+}
+
+// upsertOllamaEndpoint creates or updates the "Ollama (local)" global provider
+// endpoint in the Helix API. This makes locally-running Ollama models visible
+// to users without any manual configuration.
+func (vm *VMManager) upsertOllamaEndpoint() {
+	apiBase := fmt.Sprintf("http://localhost:%d/api/v1", vm.config.APIPort)
+	client := &http.Client{Timeout: 5 * time.Second}
+
+	// List existing endpoints to check if one already exists.
+	// WithGlobal is implicit (the API always includes global endpoints for authenticated users).
+	req, err := http.NewRequest("GET", apiBase+"/provider-endpoints", nil)
+	if err != nil {
+		log.Printf("Ollama upsert: failed to create list request: %v", err)
+		return
+	}
+	req.Header.Set("Authorization", "Bearer "+vm.runnerToken)
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Printf("Ollama upsert: failed to list provider endpoints: %v", err)
+		return
+	}
+	defer resp.Body.Close()
+
+	var endpoints []struct {
+		ID      string `json:"id"`
+		Name    string `json:"name"`
+		BaseURL string `json:"base_url"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&endpoints); err != nil {
+		log.Printf("Ollama upsert: failed to decode endpoint list: %v", err)
+		return
+	}
+
+	const ollamaName = "Ollama (local)"
+	const ollamaBaseURL = "http://10.0.2.2:11434/v1"
+
+	for _, ep := range endpoints {
+		if ep.Name == ollamaName {
+			// Already exists — nothing to do
+			log.Printf("Ollama endpoint already registered (id=%s)", ep.ID)
+			return
+		}
+	}
+
+	// Create the endpoint
+	payload, _ := json.Marshal(map[string]interface{}{
+		"name":          ollamaName,
+		"description":   "Local Ollama instance (auto-detected)",
+		"base_url":      ollamaBaseURL,
+		"endpoint_type": "global",
+		"owner_type":    "system",
+	})
+	req, err = http.NewRequest("POST", apiBase+"/provider-endpoints", bytes.NewReader(payload))
+	if err != nil {
+		log.Printf("Ollama upsert: failed to create POST request: %v", err)
+		return
+	}
+	req.Header.Set("Authorization", "Bearer "+vm.runnerToken)
+	req.Header.Set("Content-Type", "application/json")
+	resp2, err := client.Do(req)
+	if err != nil {
+		log.Printf("Ollama upsert: POST failed: %v", err)
+		return
+	}
+	defer resp2.Body.Close()
+	if resp2.StatusCode >= 300 {
+		body, _ := io.ReadAll(resp2.Body)
+		log.Printf("Ollama upsert: POST returned %d: %s", resp2.StatusCode, string(body))
+		return
+	}
+	log.Printf("Ollama (local) endpoint registered at %s", ollamaBaseURL)
 }
 
 // sshCommand creates an SSH exec.Cmd to the VM with standard options.
@@ -1393,6 +1483,13 @@ fi
 # Identify this as the Mac Desktop edition for Launchpad telemetry
 if ! grep -q '^HELIX_EDITION=' "$ENV_FILE" 2>/dev/null; then
     echo 'HELIX_EDITION=mac-desktop' >> "$ENV_FILE"
+    CHANGED=1
+fi
+
+# Rewrite localhost provider URLs so user-configured "http://localhost:11434/v1"
+# routes to the host machine (10.0.2.2) from inside the QEMU VM.
+if ! grep -q '^PROVIDER_LOCALHOST_REWRITE=' "$ENV_FILE" 2>/dev/null; then
+    echo 'PROVIDER_LOCALHOST_REWRITE=10.0.2.2' >> "$ENV_FILE"
     CHANGED=1
 fi
 

@@ -392,17 +392,26 @@ func (m *MultiClientManager) initializeClient(endpoint *types.ProviderEndpoint) 
 		apiKey = strings.TrimSpace(string(bts))
 	}
 
+	// Rewrite localhost/127.0.0.1 in the base URL if PROVIDER_LOCALHOST_REWRITE is set.
+	// The macOS desktop app sets this to "10.0.2.2" so that user-configured
+	// "http://localhost:11434/v1" URLs reach the host from inside the QEMU VM.
+	baseURL := endpoint.BaseURL
+	if rewriteTo := m.cfg.Providers.LocalhostRewrite; rewriteTo != "" {
+		baseURL = strings.ReplaceAll(baseURL, "localhost", rewriteTo)
+		baseURL = strings.ReplaceAll(baseURL, "127.0.0.1", rewriteTo)
+	}
+
 	// Log TLS configuration for database-configured providers (user/org endpoints)
 	// This helps debug enterprise TLS issues with providers configured via web UI
 	log.Info().
 		Str("provider_id", endpoint.ID).
 		Str("provider_name", endpoint.Name).
-		Str("base_url", endpoint.BaseURL).
+		Str("base_url", baseURL).
 		Str("endpoint_type", string(endpoint.EndpointType)).
 		Bool("tls_skip_verify", m.cfg.Tools.TLSSkipVerify).
 		Msg("Initializing client for database-configured provider with TLS config")
 
-	openaiClient := openai.NewWithOptions(apiKey, endpoint.BaseURL, endpoint.BillingEnabled, openai.ClientOptions{
+	openaiClient := openai.NewWithOptions(apiKey, baseURL, endpoint.BillingEnabled, openai.ClientOptions{
 		TLSSkipVerify: m.cfg.Tools.TLSSkipVerify,
 	}, endpoint.Models...)
 
