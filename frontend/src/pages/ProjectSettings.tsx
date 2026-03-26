@@ -1050,8 +1050,8 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
       </Box>
 
       {/* Docker Cache */}
-      <Box sx={{ display: "flex", gap: 3, alignItems: "flex-start" }}>
-        <Box sx={{ flex: showGoldenBuildViewer ? undefined : 1, width: showGoldenBuildViewer ? 350 : undefined, flexShrink: 0 }}>
+      <Box sx={{ display: "flex", gap: 3, alignItems: "flex-start", flexWrap: "wrap" }}>
+        <Box sx={{ flex: "1 1 300px", minWidth: 300, maxWidth: showGoldenBuildViewer ? 400 : undefined }}>
           <Box sx={{ display: "flex", alignItems: "center", mb: 1 }}>
             <Typography variant="h6">Docker Cache</Typography>
           </Box>
@@ -1176,17 +1176,23 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
                     {cancelBuildMutation.isPending ? "Cancelling..." : "Cancel Build"}
                   </Button>
                 )}
-                {(anyReady || anyFailed) && (
-                  <Button
-                    size="small"
-                    variant="outlined"
-                    color="error"
-                    disabled={clearCacheMutation.isPending}
-                    onClick={() => clearCacheMutation.mutate()}
-                  >
-                    {clearCacheMutation.isPending ? "Clearing..." : "Clear Cache"}
-                  </Button>
-                )}
+                {(anyReady || anyFailed) && (() => {
+                  const hasActiveClones = zfsTree?.golden?.children?.some(
+                    (snap: TypesZFSTreeNode) => snap.children && snap.children.length > 0
+                  );
+                  return (
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      color="error"
+                      disabled={clearCacheMutation.isPending || !!hasActiveClones}
+                      onClick={() => clearCacheMutation.mutate()}
+                      title={hasActiveClones ? "Stop all sessions first" : ""}
+                    >
+                      {clearCacheMutation.isPending ? "Clearing..." : hasActiveClones ? "Clear Cache (sessions active)" : "Clear Cache"}
+                    </Button>
+                  );
+                })()}
               </Box>
             </Box>
           )}
@@ -1194,7 +1200,7 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
 
         {/* Golden build viewer */}
         {showGoldenBuildViewer && goldenBuildSessionId && (
-          <Box sx={{ flex: 1, minWidth: 0 }}>
+          <Box sx={{ flex: "2 1 500px", minWidth: 400 }}>
             <Box>
               <Box sx={{ display: "flex", alignItems: "center", mb: 1 }}>
                 <Typography variant="h6" sx={{ flex: 1 }}>
