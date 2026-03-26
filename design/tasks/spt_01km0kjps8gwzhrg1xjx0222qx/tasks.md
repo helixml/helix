@@ -2,12 +2,12 @@
 
 ## Go Backend (`for-mac/app.go`)
 
-- [ ] Add `DiagnosticReport` struct with fields: `SystemInfo`, `AppVersion`, `VMVersion`, `VMState`, `ConsoleLogs`, `SSHLogs`, `ContainerLogs`
-- [ ] Implement `collectSystemInfo() string` helper using `sw_vers` and `sysctl` shell commands
-- [ ] Implement `CollectDiagnostics() (DiagnosticReport, error)` method on `App` struct
-- [ ] In `CollectDiagnostics`, fetch container logs via SSH (`docker logs helix-api-1 --tail 100` and `helix-worker-1`) with 10s timeout, gracefully handle VM-not-running case
-- [ ] Truncate console and SSH log buffers to last 200 lines before including in report
-- [ ] Run `wails generate bindings` to regenerate `frontend/wailsjs/go/main/App.d.ts` and `models.ts`
+- [~] Add `DiagnosticReport` struct with fields: `SystemInfo`, `AppVersion`, `VMVersion`, `VMState`, `ConsoleLogs`, `SSHLogs`, `ContainerLogs`
+- [~] Implement `collectSystemInfo() string` helper using `sw_vers` and `sysctl` shell commands
+- [~] Implement `CollectDiagnostics() (DiagnosticReport, error)` method on `App` struct
+- [~] In `CollectDiagnostics`, fetch container logs via SSH (`docker logs helix-api-1 --tail 100` and `helix-worker-1`) with 10s timeout, gracefully handle VM-not-running case
+- [~] Truncate console and SSH log buffers to last 200 lines before including in report
+- [~] Run `wails generate bindings` to regenerate `frontend/wailsjs/go/main/App.d.ts` and `models.ts`
 
 ## React Frontend (`for-mac/frontend/src/components/SettingsPanel.tsx`)
 
