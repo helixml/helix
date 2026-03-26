@@ -1192,79 +1192,6 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
           )}
         </Box>
 
-        {/* ZFS Snapshot/Clone Tree */}
-        {zfsTree?.available && zfsTree?.golden && (
-          <Box sx={{ mt: 2, p: 2, bgcolor: "background.paper", borderRadius: 1, border: "1px solid", borderColor: "divider" }}>
-            <Typography variant="subtitle2" sx={{ mb: 1, display: "flex", alignItems: "center", gap: 0.5 }}>
-              <HubIcon fontSize="small" sx={{ color: "primary.main" }} />
-              ZFS Clone Tree
-            </Typography>
-            <Box sx={{ fontFamily: "monospace", fontSize: "0.75rem", lineHeight: 1.8 }}>
-              {/* Golden zvol */}
-              <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
-                <Box sx={{ color: "warning.main", fontWeight: "bold" }}>⬢</Box>
-                <Box sx={{ color: "text.primary", fontWeight: "bold" }}>
-                  {zfsTree.golden.name.split("/").pop()}
-                </Box>
-                <Chip label={zfsTree.golden.refer} size="small" sx={{ height: 18, fontSize: "0.65rem", fontFamily: "monospace" }} />
-              </Box>
-              {/* Snapshots */}
-              {zfsTree.golden.children?.map((snap: TypesZFSTreeNode, si: number) => (
-                <Box key={snap.name} sx={{ ml: 2 }}>
-                  <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
-                    <Box sx={{ color: "text.secondary" }}>{si === (zfsTree.golden.children?.length ?? 0) - 1 ? "└─" : "├─"}</Box>
-                    <Box sx={{ color: "info.main" }}>📸</Box>
-                    <Box sx={{ color: "info.main", fontWeight: si === (zfsTree.golden.children?.length ?? 0) - 1 ? "bold" : "normal" }}>
-                      @{snap.name.split("@")[1]}
-                    </Box>
-                    <Chip
-                      label={`Δ ${snap.used}`}
-                      size="small"
-                      sx={{ height: 18, fontSize: "0.65rem", fontFamily: "monospace", bgcolor: si === (zfsTree.golden.children?.length ?? 0) - 1 ? "success.main" : "action.hover", color: si === (zfsTree.golden.children?.length ?? 0) - 1 ? "success.contrastText" : "text.secondary" }}
-                    />
-                    {si === (zfsTree.golden.children?.length ?? 0) - 1 && (
-                      <Chip label="latest" size="small" color="success" variant="outlined" sx={{ height: 18, fontSize: "0.6rem" }} />
-                    )}
-                  </Box>
-                  {/* Clones */}
-                  {snap.children?.map((clone: TypesZFSTreeNode, ci: number) => (
-                    <Box key={clone.name} sx={{ ml: 3, display: "flex", alignItems: "center", gap: 0.5 }}>
-                      <Box sx={{ color: "text.secondary" }}>{ci === (snap.children?.length ?? 0) - 1 ? "└─" : "├─"}</Box>
-                      <Box sx={{ color: clone.mounted ? "success.main" : "text.disabled" }}>
-                        {clone.mounted ? "🟢" : "⚪"}
-                      </Box>
-                      <Box sx={{ color: clone.mounted ? "text.primary" : "text.disabled", fontSize: "0.7rem" }}>
-                        {clone.session_id ? `ses_${clone.session_id.substring(4, 12)}…` : clone.name.split("/").pop()}
-                      </Box>
-                      <Chip
-                        label={clone.used}
-                        size="small"
-                        sx={{ height: 16, fontSize: "0.6rem", fontFamily: "monospace" }}
-                      />
-                      {clone.mounted && (
-                        <Chip label="active" size="small" color="success" variant="outlined" sx={{ height: 16, fontSize: "0.55rem" }} />
-                      )}
-                    </Box>
-                  ))}
-                </Box>
-              ))}
-              {/* Orphans */}
-              {zfsTree.orphans?.length > 0 && (
-                <Box sx={{ mt: 1, opacity: 0.6 }}>
-                  <Typography variant="caption" color="text.secondary">orphaned zvols (no golden parent):</Typography>
-                  {zfsTree.orphans.map((o: TypesZFSTreeNode) => (
-                    <Box key={o.name} sx={{ ml: 2, display: "flex", alignItems: "center", gap: 0.5 }}>
-                      <Box>{o.mounted ? "🟢" : "⚪"}</Box>
-                      <Box sx={{ fontSize: "0.7rem" }}>{o.session_id ? `ses_${o.session_id.substring(4, 12)}…` : o.name.split("/").pop()}</Box>
-                      <Chip label={o.used} size="small" sx={{ height: 16, fontSize: "0.6rem", fontFamily: "monospace" }} />
-                    </Box>
-                  ))}
-                </Box>
-              )}
-            </Box>
-          </Box>
-        )}
-
         {/* Golden build viewer */}
         {showGoldenBuildViewer && goldenBuildSessionId && (
           <Box sx={{ flex: 1, minWidth: 0 }}>
@@ -1309,6 +1236,79 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
           </Box>
         )}
       </Box>
+
+      {/* ZFS Snapshot/Clone Tree — below the Docker Cache flex row */}
+      {zfsTree?.available && zfsTree?.golden && (
+        <Box sx={{ mt: 2, p: 2, bgcolor: "background.paper", borderRadius: 1, border: "1px solid", borderColor: "divider" }}>
+          <Typography variant="subtitle2" sx={{ mb: 1, display: "flex", alignItems: "center", gap: 0.5 }}>
+            <HubIcon fontSize="small" sx={{ color: "primary.main" }} />
+            ZFS Clone Tree
+          </Typography>
+          <Box sx={{ fontFamily: "monospace", fontSize: "0.75rem", lineHeight: 1.8 }}>
+            {/* Golden zvol */}
+            <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+              <Box sx={{ color: "warning.main", fontWeight: "bold" }}>⬢</Box>
+              <Box sx={{ color: "text.primary", fontWeight: "bold" }}>
+                {zfsTree.golden.name?.split("/").pop()}
+              </Box>
+              <Chip label={zfsTree.golden.refer} size="small" sx={{ height: 18, fontSize: "0.65rem", fontFamily: "monospace" }} />
+            </Box>
+            {/* Snapshots */}
+            {zfsTree.golden.children?.map((snap: TypesZFSTreeNode, si: number) => (
+              <Box key={snap.name} sx={{ ml: 2 }}>
+                <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                  <Box sx={{ color: "text.secondary" }}>{si === (zfsTree.golden.children?.length ?? 0) - 1 ? "└─" : "├─"}</Box>
+                  <Box sx={{ color: "info.main" }}>📸</Box>
+                  <Box sx={{ color: "info.main", fontWeight: si === (zfsTree.golden.children?.length ?? 0) - 1 ? "bold" : "normal" }}>
+                    @{snap.name?.split("@")[1]}
+                  </Box>
+                  <Chip
+                    label={`Δ ${snap.used}`}
+                    size="small"
+                    sx={{ height: 18, fontSize: "0.65rem", fontFamily: "monospace", bgcolor: si === (zfsTree.golden.children?.length ?? 0) - 1 ? "success.main" : "action.hover", color: si === (zfsTree.golden.children?.length ?? 0) - 1 ? "success.contrastText" : "text.secondary" }}
+                  />
+                  {si === (zfsTree.golden.children?.length ?? 0) - 1 && (
+                    <Chip label="latest" size="small" color="success" variant="outlined" sx={{ height: 18, fontSize: "0.6rem" }} />
+                  )}
+                </Box>
+                {/* Clones */}
+                {snap.children?.map((clone: TypesZFSTreeNode, ci: number) => (
+                  <Box key={clone.name} sx={{ ml: 3, display: "flex", alignItems: "center", gap: 0.5 }}>
+                    <Box sx={{ color: "text.secondary" }}>{ci === (snap.children?.length ?? 0) - 1 ? "└─" : "├─"}</Box>
+                    <Box sx={{ color: clone.mounted ? "success.main" : "text.disabled" }}>
+                      {clone.mounted ? "🟢" : "⚪"}
+                    </Box>
+                    <Box sx={{ color: clone.mounted ? "text.primary" : "text.disabled", fontSize: "0.7rem" }}>
+                      {clone.session_id ? `ses_${clone.session_id.substring(4, 12)}…` : clone.name?.split("/").pop()}
+                    </Box>
+                    <Chip
+                      label={clone.used}
+                      size="small"
+                      sx={{ height: 16, fontSize: "0.6rem", fontFamily: "monospace" }}
+                    />
+                    {clone.mounted && (
+                      <Chip label="active" size="small" color="success" variant="outlined" sx={{ height: 16, fontSize: "0.55rem" }} />
+                    )}
+                  </Box>
+                ))}
+              </Box>
+            ))}
+            {/* Orphans */}
+            {zfsTree.orphans && zfsTree.orphans.length > 0 && (
+              <Box sx={{ mt: 1, opacity: 0.6 }}>
+                <Typography variant="caption" color="text.secondary">orphaned zvols (no golden parent):</Typography>
+                {zfsTree.orphans.map((o: TypesZFSTreeNode) => (
+                  <Box key={o.name} sx={{ ml: 2, display: "flex", alignItems: "center", gap: 0.5 }}>
+                    <Box>{o.mounted ? "🟢" : "⚪"}</Box>
+                    <Box sx={{ fontSize: "0.7rem" }}>{o.session_id ? `ses_${o.session_id.substring(4, 12)}…` : o.name?.split("/").pop()}</Box>
+                    <Chip label={o.used} size="small" sx={{ height: 16, fontSize: "0.6rem", fontFamily: "monospace" }} />
+                  </Box>
+                ))}
+              </Box>
+            )}
+          </Box>
+        </Box>
+      )}
     </Box>
   );
 
