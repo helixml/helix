@@ -3,6 +3,7 @@ package anthropic
 import (
 	"bufio"
 	"bytes"
+	"compress/gzip"
 	"context"
 	"crypto/tls"
 	"encoding/json"
@@ -358,6 +359,19 @@ func (s *Proxy) anthropicAPIProxyModifyResponse(response *http.Response) error {
 			}
 		}()
 		return nil
+	}
+
+	if response.Header.Get("Content-Encoding") == "gzip" {
+		gr, err := gzip.NewReader(response.Body)
+		if err != nil {
+			log.Error().Err(err).Msg("failed to create gzip reader for response")
+			return err
+		}
+		defer gr.Close()
+		response.Body = io.NopCloser(gr)
+		response.Header.Del("Content-Encoding")
+		response.Header.Del("Content-Length")
+		response.ContentLength = -1
 	}
 
 	buf, err := io.ReadAll(response.Body)
