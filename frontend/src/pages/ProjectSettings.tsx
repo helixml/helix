@@ -1051,7 +1051,7 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
 
       {/* Docker Cache */}
       <Box sx={{ display: "flex", gap: 3, alignItems: "flex-start" }}>
-        <Box sx={{ flex: showGoldenBuildViewer ? undefined : 1, width: showGoldenBuildViewer ? 600 : undefined, flexShrink: 0 }}>
+        <Box sx={{ flex: showGoldenBuildViewer ? undefined : 1, width: showGoldenBuildViewer ? 350 : undefined, flexShrink: 0 }}>
           <Box sx={{ display: "flex", alignItems: "center", mb: 1 }}>
             <Typography variant="h6">Docker Cache</Typography>
           </Box>
@@ -1239,7 +1239,7 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
 
       {/* ZFS Snapshot/Clone Tree — below the Docker Cache flex row */}
       {zfsTree?.available && zfsTree?.golden && (
-        <Box sx={{ mt: 2, p: 2, bgcolor: "background.paper", borderRadius: 1, border: "1px solid", borderColor: "divider" }}>
+        <Box sx={{ mt: 2, mb: 4, p: 2, bgcolor: "background.paper", borderRadius: 1, border: "1px solid", borderColor: "divider" }}>
           <Typography variant="subtitle2" sx={{ mb: 1, display: "flex", alignItems: "center", gap: 0.5 }}>
             <HubIcon fontSize="small" sx={{ color: "primary.main" }} />
             ZFS Clone Tree
