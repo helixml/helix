@@ -245,7 +245,7 @@ func (s *KoditRAGSuite) TestQuery_UsesStoredRepoID() {
 		s.Equal("test query", query)
 		s.Equal(5, limit)
 		return []services.KoditFileResult{
-			{Path: "pkg/foo.go", Preview: "some content", Score: 0.9},
+			{Path: "pkg/foo.go", Preview: "some content", Content: "some content", Score: 0.9},
 		}, nil
 	}
 
