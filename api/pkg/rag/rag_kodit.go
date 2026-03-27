@@ -157,7 +157,7 @@ func (k *KoditRAG) Query(ctx context.Context, q *types.SessionRAGQuery) ([]*type
 	ragResults := make([]*types.SessionRAGResult, 0, len(results))
 	for _, r := range results {
 		result := &types.SessionRAGResult{
-			Content:  r.Preview,
+			Content:  r.Content,
 			Source:   r.Path,
 			Filename: r.Path,
 			Distance: 1.0 - r.Score, // kodit uses similarity scores (0-1); RAG uses distance

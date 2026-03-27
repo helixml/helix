@@ -32,8 +32,9 @@ func TestNewKnowledgeSkill(t *testing.T) {
 
 	t.Run("BasicProperties", func(t *testing.T) {
 		assert.Equal(t, "Knowledge_Test_Knowledge", skill.Name)
-		assert.Equal(t, "Contains expert knowledge on topics: 'Test knowledge base for testing'", skill.Description)
-		assert.Equal(t, knowledgeBaseMainPrompt, skill.SystemPrompt)
+		assert.Equal(t, "Test knowledge base for testing", skill.Description)
+		assert.True(t, skill.Direct)
+		assert.Equal(t, knowledgeSkillParameters, skill.Parameters)
 	})
 
 	t.Run("ToolCount", func(t *testing.T) {
@@ -43,7 +44,7 @@ func TestNewKnowledgeSkill(t *testing.T) {
 	t.Run("ToolProperties", func(t *testing.T) {
 		tool := skill.Tools[0].(*KnowledgeQueryTool)
 		assert.Equal(t, "KnowledgeQuery", tool.Name())
-		assert.Equal(t, "Contains expert knowledge on topics: 'Test knowledge base for testing'", tool.Description())
+		assert.Equal(t, "Test knowledge base for testing", tool.Description())
 		assert.Equal(t, "SchoolIcon", tool.Icon())
 		assert.Equal(t, "Searching the knowledge base", tool.StatusMessage())
 	})

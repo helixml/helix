@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	agent "github.com/helixml/helix/api/pkg/agent"
@@ -217,6 +218,21 @@ func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*agent
 
 			knowledgeMemory.AddBlock("knowledge", knowledgeBlock)
 		}
+	}
+
+	// If knowledge skills were added, append instructions to the system prompt
+	// so the LLM knows to always search them
+	var knowledgeNames []string
+	for _, s := range skills {
+		if strings.HasPrefix(s.Name, "Knowledge_") {
+			knowledgeNames = append(knowledgeNames, s.Name)
+		}
+	}
+	if len(knowledgeNames) > 0 {
+		enriched += "\n\n# Knowledge Bases\n\nYou have access to the following knowledge bases: " +
+			strings.Join(knowledgeNames, ", ") +
+			".\nYou MUST search these knowledge bases before responding to every user message. " +
+			"Do not answer from your own knowledge without searching first."
 	}
 
 	helixAgent := agent.NewAgent(
