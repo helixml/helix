@@ -7,10 +7,10 @@
 # Developers can switch between desktops without version differences.
 # See: design/2025-12-28-kde-vs-sway-compositor-architecture.md
 #
-# BASE IMAGE DIGESTS: Pinned for stable layer caching (2026-01-27).
+# BASE IMAGE DIGESTS: Pinned for stable layer caching (2026-03-27).
 # Update digests when intentionally upgrading base images.
 # - ubuntu:25.10 -> sha256:4a9232cc47bf99defcc8860ef6222c99773330367fcecbf21ba2edb0b810a31e
-# - golang:1.25  -> sha256:ce63a16e0f7063787ebb4eb28e72d477b00b4726f79874b3205a965ffd797ab2
+# - golang:1.25  -> sha256:dfae680962532eeea67ab297f1166c2c4e686edb9a8f05f9d02d96fc9191833e
 
 # Global ARG: must be before the first FROM to be visible to --build-arg
 # amd64 (default): uses nvidia/cuda to extract CUDA runtime libs
@@ -24,7 +24,7 @@ ARG CUDA_BASE_IMAGE=nvidia/cuda:12.6.3-runtime-ubuntu24.04
 # desktop-bridge requires go-gst bindings (CGO) for in-process GStreamer.
 # Pin to specific digest for stable layer caching (golang:1.25 as of 2026-01-27)
 # Update digest when intentionally upgrading Go version
-FROM golang:1.25@sha256:ce63a16e0f7063787ebb4eb28e72d477b00b4726f79874b3205a965ffd797ab2 AS go-build-env
+FROM golang:1.25@sha256:dfae680962532eeea67ab297f1166c2c4e686edb9a8f05f9d02d96fc9191833e AS go-build-env
 
 # Install GStreamer development libraries for go-gst bindings
 # These are required for CGO compilation of desktop-bridge
@@ -44,7 +44,9 @@ WORKDIR /app
 COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod go mod download
 
-# Copy Go source AFTER dependencies are downloaded for better caching
+# Copy Go source AFTER dependencies are downloaded for better caching.
+# Note: any Go file change invalidates this layer, but the go build cache
+# mount below ensures only changed packages are recompiled.
 COPY api ./api
 WORKDIR /app/api
 RUN --mount=type=cache,target=/go/pkg/mod \
@@ -113,7 +115,9 @@ COPY desktop/gst-pipewire-zerocopy ./gst-pipewire-zerocopy/
 # Build plugins conditionally based on architecture.
 # On amd64: build pipewirezerocopysrc with CUDA linkage, create vsockenc placeholder
 # On arm64: build vsockenc + pipewirezerocopysrc without CUDA
-RUN <<_BUILD_PLUGINS
+RUN --mount=type=cache,target=/root/.cargo/registry \
+    --mount=type=cache,target=/root/.cargo/git \
+    --mount=type=cache,target=/build/gst-pipewire-zerocopy/target <<_BUILD_PLUGINS
 set -e
 if [ "${TARGETARCH}" = "arm64" ]; then
     echo "=== Building ARM64 plugins ==="
@@ -140,7 +144,6 @@ else
 
     # Build pipewirezerocopysrc with CUDA support
     cd /build/gst-pipewire-zerocopy && \
-        cargo clean && \
         cargo build --locked --release && \
         cp target/release/libgstpipewirezerocopy.so /libgstpipewirezerocopy.so
     echo "pipewirezerocopysrc built (amd64)"
