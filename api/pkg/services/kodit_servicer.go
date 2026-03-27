@@ -32,6 +32,7 @@ type KoditFileResult struct {
 	Lines    string  `json:"lines,omitempty"`
 	Score    float64 `json:"score"`
 	Preview  string  `json:"preview"`
+	Content  string  `json:"content"` // Full enrichment content (not truncated)
 }
 
 // KoditGrepResult represents a grep match grouped by file.
