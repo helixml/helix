@@ -878,7 +878,8 @@ func (s *KoditService) resolveFileResults(ctx context.Context, enrichments []enr
 			lines = fmt.Sprintf("L%d-L%d", lr.StartLine(), lr.EndLine())
 		}
 
-		preview := e.Content()
+		content := e.Content()
+		preview := content
 		runes := []rune(preview)
 		if len(runes) > 300 {
 			preview = string(runes[:300]) + "..."
@@ -890,6 +891,7 @@ func (s *KoditService) resolveFileResults(ctx context.Context, enrichments []enr
 			Lines:    lines,
 			Score:    scores[idStr],
 			Preview:  preview,
+			Content:  content,
 		})
 	}
 
