@@ -101,14 +101,15 @@ func wrapNotFound(err error) error {
 
 // RegisterRepository registers a repository with Kodit for indexing.
 // Returns the source ID (int64), whether it was newly created, and any error.
-func (s *KoditService) RegisterRepository(ctx context.Context, cloneURL, upstreamURL string) (int64, bool, error) {
+func (s *KoditService) RegisterRepository(ctx context.Context, params *RegisterRepositoryParams) (int64, bool, error) {
 	if !s.enabled {
 		return 0, false, fmt.Errorf("kodit service not enabled")
 	}
 
 	source, isNew, err := s.client.Repositories.Add(ctx, &service.RepositoryAddParams{
-		URL:         cloneURL,
-		UpstreamURL: upstreamURL,
+		URL:         params.CloneURL,
+		UpstreamURL: params.UpstreamURL,
+		Pipeline:    params.Pipeline,
 	})
 	if err != nil {
 		return 0, false, fmt.Errorf("failed to register repository: %w", err)
@@ -116,7 +117,7 @@ func (s *KoditService) RegisterRepository(ctx context.Context, cloneURL, upstrea
 
 	if source.ID() == 0 {
 		log.Error().
-			Str("clone_url", cloneURL).
+			Str("clone_url", params.CloneURL).
 			Bool("is_new", isNew).
 			Str("remote_url", source.RemoteURL()).
 			Str("status", source.Status().String()).
@@ -127,7 +128,7 @@ func (s *KoditService) RegisterRepository(ctx context.Context, cloneURL, upstrea
 		return 0, false, fmt.Errorf("kodit returned zero source ID for clone URL (is_new=%v, status=%s)", isNew, source.Status())
 	}
 
-	log.Info().Str("clone_url", cloneURL).Int64("kodit_repo_id", source.ID()).Bool("is_new", isNew).Msg("Registered repository with Kodit")
+	log.Info().Str("clone_url", params.CloneURL).Int64("kodit_repo_id", source.ID()).Bool("is_new", isNew).Msg("Registered repository with Kodit")
 	return source.ID(), isNew, nil
 }
 
