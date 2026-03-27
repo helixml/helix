@@ -9,7 +9,9 @@
 # Stage 1: Build Go binaries (hydra, sandbox-heartbeat)
 # Note: revdial-client is built into Hydra daemon
 # ====================================================================
-FROM golang:1.25 AS go-builder
+# Pin to specific digest for stable layer caching.
+# Update digest when intentionally upgrading Go version.
+FROM golang:1.25@sha256:dfae680962532eeea67ab297f1166c2c4e686edb9a8f05f9d02d96fc9191833e AS go-builder
 WORKDIR /build
 COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod \
@@ -27,7 +29,9 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 # ====================================================================
 # Stage 2: Final sandbox image (based on GOW base pattern)
 # ====================================================================
-FROM ubuntu:25.04 AS sandbox
+# Pin to specific digest for stable layer caching.
+# Update digest when intentionally upgrading Ubuntu version.
+FROM ubuntu:25.04@sha256:27771fb7b40a58237c98e8d3e6b9ecdd9289cec69a857fccfb85ff36294dac20 AS sandbox
 
 # Configure default user and set env (from GOW base)
 ENV \
