@@ -26,6 +26,10 @@ export function CheckForUpdate() {
   return window['go']['main']['App']['CheckForUpdate']();
 }
 
+export function CollectDiagnostics() {
+  return window['go']['main']['App']['CollectDiagnostics']();
+}
+
 export function DownloadVMImages() {
   return window['go']['main']['App']['DownloadVMImages']();
 }

@@ -14,6 +14,8 @@ export function CancelUpdate():Promise<void>;
 
 export function CheckForUpdate():Promise<main.UpdateInfo>;
 
+export function CollectDiagnostics():Promise<main.DiagnosticReport>;
+
 export function DownloadVMImages():Promise<void>;
 
 export function DownloadVMUpdate():Promise<void>;
