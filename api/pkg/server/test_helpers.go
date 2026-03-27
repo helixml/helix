@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"net/http"
 	"time"
 
@@ -65,6 +66,14 @@ func (s *HelixAPIServer) QueueCommand(sessionID string, cmd types.ExternalAgentC
 	return s.externalAgentWSManager.queueOrSend(sessionID, cmd)
 }
 
+// SendChatMessage sends a chat message through the production code path,
+// creating an interaction and sending the WebSocket command. This is the
+// same path used by sendMessageToSpecTaskAgent.
+func (s *HelixAPIServer) SendChatMessage(sessionID, message, requestID string) error {
+	_, err := s.sendChatMessageToExternalAgent(sessionID, message, requestID)
+	return err
+}
+
 // ConnectedAgentIDs returns the IDs of all currently connected agents.
 func (s *HelixAPIServer) ConnectedAgentIDs() []string {
 	s.externalAgentWSManager.mu.RLock()
@@ -107,6 +116,20 @@ func (s *HelixAPIServer) SetExternalAgentUserMapping(agentSessionID, userID stri
 	s.contextMappingsMutex.Lock()
 	defer s.contextMappingsMutex.Unlock()
 	s.externalAgentUserMapping[agentSessionID] = userID
+}
+
+// ProcessSyncEvent injects a sync event as if it came from a connected agent.
+// Used by E2E tests to simulate events that the Zed binary can't send in
+// headless mode (e.g. user_created_thread which requires UI interaction).
+func (s *HelixAPIServer) ProcessSyncEvent(sessionID string, syncMsg *types.SyncMessage) error {
+	return s.processExternalAgentSyncMessage(sessionID, syncMsg)
+}
+
+// FindConnectedSessionForSpecTask exposes the production routing logic
+// for tests. Returns the session ID that would be used to send a message
+// to the given spectask.
+func (s *HelixAPIServer) FindConnectedSessionForSpecTask(ctx context.Context, specTask *types.SpecTask) (string, error) {
+	return s.findConnectedSessionForSpecTask(ctx, specTask)
 }
 
 // SyncEventHook is a callback invoked after each sync event is processed.

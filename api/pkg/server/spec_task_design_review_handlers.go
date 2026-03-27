@@ -281,7 +281,7 @@ func (s *HelixAPIServer) submitDesignReview(w http.ResponseWriter, r *http.Reque
 
 		// Notify agent of requested changes via WebSocket
 		message := services.BuildRevisionInstructionPrompt(specTask, req.OverallComment)
-		_, err = s.sendMessageToSpecTaskAgent(ctx, specTask, message, user.ID)
+		_, _, err = s.sendMessageToSpecTaskAgent(ctx, specTask, message, user.ID)
 		if err != nil {
 			log.Error().
 				Err(err).
@@ -761,31 +761,41 @@ func (s *HelixAPIServer) findConnectedSessionForSpecTask(ctx context.Context, sp
 		}
 	}
 
-	// PlanningSessionID not connected - search for any connected session with this spec task ID
+	// PlanningSessionID not connected - search for the most recently updated
+	// connected session with this spec task ID. A spectask can have multiple
+	// Zed threads (sessions), so we pick the most recent to route messages
+	// to the thread the agent is most likely actively working in.
 	log.Info().
 		Str("spec_task_id", specTask.ID).
 		Str("planning_session_id", specTask.PlanningSessionID).
 		Msg("PlanningSessionID not connected, searching for alternate connected session")
 
-	// Get all connected session IDs
 	connectedSessions := s.externalAgentWSManager.listConnections()
 
+	var bestSession *types.Session
+	var bestSessionConnID string
 	for _, conn := range connectedSessions {
-		// Look up the session to check its SpecTaskID
 		session, err := s.Store.GetSession(ctx, conn.SessionID)
 		if err != nil {
-			continue // Session not found or error, skip
+			continue
 		}
+		if session.Metadata.SpecTaskID != specTask.ID {
+			continue
+		}
+		if bestSession == nil || session.Updated.After(bestSession.Updated) {
+			bestSession = session
+			bestSessionConnID = conn.SessionID
+		}
+	}
 
-		// Check if this session is for our spec task
-		if session.Metadata.SpecTaskID == specTask.ID {
-			log.Info().
-				Str("spec_task_id", specTask.ID).
-				Str("found_session_id", conn.SessionID).
-				Str("original_planning_session_id", specTask.PlanningSessionID).
-				Msg("✅ Found alternate connected session for spec task")
-			return conn.SessionID, nil
-		}
+	if bestSession != nil {
+		log.Info().
+			Str("spec_task_id", specTask.ID).
+			Str("found_session_id", bestSessionConnID).
+			Str("original_planning_session_id", specTask.PlanningSessionID).
+			Time("session_updated", bestSession.Updated).
+			Msg("✅ Found most recently updated connected session for spec task")
+		return bestSessionConnID, nil
 	}
 
 	return "", fmt.Errorf("no WebSocket connection found for spec task %s (tried planning session %s and %d other connected sessions)",
@@ -801,8 +811,11 @@ func (s *HelixAPIServer) sendCommentToAgentNow(
 	// Build prompt for agent using the shared helper
 	promptText := services.BuildCommentPrompt(specTask, comment)
 
-	// Send via the unified helper, notifying the commenter of responses
-	requestID, err := s.sendMessageToSpecTaskAgent(ctx, specTask, promptText, comment.CommentedBy)
+	// Send via the unified helper, notifying the commenter of responses.
+	// interactionID is returned directly — avoids the fragile session-based queue
+	// lookup that breaks when the connected session differs from PlanningSessionID
+	// (e.g. after Zed thread compaction creates a new work session).
+	requestID, interactionID, err := s.sendMessageToSpecTaskAgent(ctx, specTask, promptText, comment.CommentedBy)
 	if err != nil {
 		log.Error().
 			Err(err).
@@ -812,17 +825,10 @@ func (s *HelixAPIServer) sendCommentToAgentNow(
 		return err
 	}
 
-	// Store the requestID on the comment in the database for persistent linking.
-	// Also capture the interaction ID so we can copy the response at finalization time.
+	// Store both IDs on the comment: requestID links to message_completed for finalization,
+	// interactionID lets finalizeCommentResponse copy the streamed response at completion time.
 	comment.RequestID = requestID
-
-	// Look up the interaction that was just created for this session (peek front of FIFO queue)
-	sessionID := specTask.PlanningSessionID
-	s.contextMappingsMutex.Lock()
-	if q := s.sessionToWaitingInteraction[sessionID]; len(q) > 0 {
-		comment.InteractionID = q[len(q)-1]
-	}
-	s.contextMappingsMutex.Unlock()
+	comment.InteractionID = interactionID
 
 	if err := s.Store.UpdateSpecTaskDesignReviewComment(ctx, comment); err != nil {
 		log.Error().
@@ -1256,100 +1262,56 @@ func sanitizeBranchName(name string) string {
 
 // sendMessageToSpecTaskAgent is the unified helper for sending messages to spec task agents via WebSocket
 // It handles: finding connected session, generating request ID, setting up response routing, and sending
-// Returns the generated requestID for callers that need to track responses
+// Returns (requestID, interactionID, error). Both IDs are needed by callers that track comment responses.
 func (s *HelixAPIServer) sendMessageToSpecTaskAgent(
 	ctx context.Context,
 	specTask *types.SpecTask,
 	message string,
 	notifyUserID string, // Optional: user to notify of responses (e.g., commenter). Empty = no extra notification
-) (string, error) {
+) (string, string, error) {
 	// Find a connected session for this spec task
 	sessionID, err := s.findConnectedSessionForSpecTask(ctx, specTask)
 	if err != nil {
-		return "", fmt.Errorf("no connected session found: %w", err)
-	}
-
-	// Get the session to access owner and generation ID
-	session, err := s.Store.GetSession(ctx, sessionID)
-	if err != nil {
-		return "", fmt.Errorf("failed to get session: %w", err)
+		return "", "", fmt.Errorf("no connected session found: %w", err)
 	}
 
 	// Generate request ID for tracking
 	requestID := "req_" + system.GenerateUUID()
 
-	// Create an interaction so handleMessageAdded can find it and update with the response
-	// This unifies the code path with other message types
-	interaction := &types.Interaction{
-		Created:       time.Now(),
-		Updated:       time.Now(),
-		SessionID:     sessionID,
-		UserID:        session.Owner,
-		GenerationID:  session.GenerationID,
-		Mode:          types.SessionModeInference,
-		PromptMessage: message,
-		State:         types.InteractionStateWaiting,
-	}
-
-	createdInteraction, err := s.Store.CreateInteraction(ctx, interaction)
-	if err != nil {
-		return "", fmt.Errorf("failed to create interaction: %w", err)
-	}
-
-	// Enqueue the interaction so handleMessageAdded routes the response correctly.
-	// Using append (not overwrite) prevents the race where this function is called
-	// while another interaction is still streaming, which would cause off-by-one errors.
-	s.contextMappingsMutex.Lock()
-	if s.sessionToWaitingInteraction == nil {
-		s.sessionToWaitingInteraction = make(map[string][]string)
-	}
-	s.sessionToWaitingInteraction[sessionID] = append(s.sessionToWaitingInteraction[sessionID], createdInteraction.ID)
-	s.contextMappingsMutex.Unlock()
-
-	log.Info().
-		Str("session_id", sessionID).
-		Str("interaction_id", createdInteraction.ID).
-		Msg("🔗 [HELIX] Created interaction for spec task message")
-
-	// Store the requestID -> sessionID mapping for response routing
-	if s.requestToSessionMapping == nil {
-		s.requestToSessionMapping = make(map[string]string)
-	}
-	s.requestToSessionMapping[requestID] = sessionID
-
 	// If a notifyUserID is provided, store it for response notification
 	if notifyUserID != "" {
+		s.contextMappingsMutex.Lock()
 		if s.requestToCommenterMapping == nil {
 			s.requestToCommenterMapping = make(map[string]string)
 		}
 		s.requestToCommenterMapping[requestID] = notifyUserID
-
-		// Also store session-based mapping for streaming (message_added events don't include request_id)
 		if s.sessionToCommenterMapping == nil {
 			s.sessionToCommenterMapping = make(map[string]string)
 		}
 		s.sessionToCommenterMapping[sessionID] = notifyUserID
+		s.contextMappingsMutex.Unlock()
 	}
 
-	// Send the message via WebSocket
-	err = s.sendChatMessageToExternalAgent(sessionID, message, requestID)
+	// Send the message via the canonical path which creates an interaction,
+	// enqueues it, and sends the WebSocket command.
+	interactionID, err := s.sendChatMessageToExternalAgent(sessionID, message, requestID)
 	if err != nil {
-		// Clean up mappings on failure
-		delete(s.requestToSessionMapping, requestID)
 		if notifyUserID != "" {
+			s.contextMappingsMutex.Lock()
 			delete(s.requestToCommenterMapping, requestID)
+			s.contextMappingsMutex.Unlock()
 		}
-		return "", fmt.Errorf("failed to send message via WebSocket: %w", err)
+		return "", "", fmt.Errorf("failed to send message via WebSocket: %w", err)
 	}
 
 	log.Info().
 		Str("spec_task_id", specTask.ID).
 		Str("session_id", sessionID).
-		Str("interaction_id", createdInteraction.ID).
+		Str("interaction_id", interactionID).
 		Str("request_id", requestID).
 		Msg("✅ Sent message to spec task agent via WebSocket")
 
-	return requestID, nil
+	return requestID, interactionID, nil
 }
 
 // sendApprovalInstructionToAgent sends the detailed implementation instruction to the agent via WebSocket
@@ -1371,10 +1333,25 @@ func (s *HelixAPIServer) sendApprovalInstructionToAgent(
 	// Build repository section listing local + Kodit repos for the agent
 	repoSection := s.buildRepositorySectionForSpecTask(ctx, specTask, project)
 
-	// Build the prompt using the shared function from services package
-	message := services.BuildApprovalInstructionPrompt(specTask, branchName, baseBranch, guidelines, primaryRepoName, koditDoc, repoSection)
+	// Gather non-primary repo names for per-repo PR descriptions
+	var nonPrimaryRepoNames []string
+	if specTask.ProjectID != "" {
+		projectRepos, err := s.Store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
+			ProjectID: specTask.ProjectID,
+		})
+		if err == nil {
+			for _, repo := range projectRepos {
+				if repo.Name != primaryRepoName && repo.ExternalURL != "" {
+					nonPrimaryRepoNames = append(nonPrimaryRepoNames, repo.Name)
+				}
+			}
+		}
+	}
 
-	_, err := s.sendMessageToSpecTaskAgent(ctx, specTask, message, "")
+	// Build the prompt using the shared function from services package
+	message := services.BuildApprovalInstructionPrompt(specTask, branchName, baseBranch, guidelines, primaryRepoName, koditDoc, repoSection, nonPrimaryRepoNames)
+
+	_, _, err := s.sendMessageToSpecTaskAgent(ctx, specTask, message, "")
 	if err != nil {
 		return err
 	}

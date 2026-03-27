@@ -99,6 +99,30 @@ detect_render_node() {
         done
     fi
 
+    # Fallback: sysfs driver symlinks not visible (e.g., Docker-in-Docker on K8s)
+    # but /dev/dri/renderD* devices exist. Trust GPU_VENDOR env var.
+    # NOTE: This picks the first render node. On multi-GPU systems without sysfs,
+    # we cannot distinguish GPUs. Set HELIX_RENDER_NODE explicitly if needed.
+    if [ -z "$detected_node" ] && [ -n "$target_driver" ]; then
+        for render_node in /dev/dri/renderD*; do
+            if [ -e "$render_node" ]; then
+                detected_node="$render_node"
+                echo "[render-node] WARNING: sysfs driver not visible for $gpu_vendor, but $render_node exists"
+                echo "[render-node] Trusting GPU_VENDOR=$gpu_vendor (DinD/container environment)"
+                # Find corresponding card device by convention: renderD128 → card0, etc.
+                card_num="${render_node#/dev/dri/renderD}"
+                card_num=$((card_num - 128))
+                if [ -e "/dev/dri/card${card_num}" ]; then
+                    detected_card="/dev/dri/card${card_num}"
+                    echo "[render-node] Found corresponding card device: /dev/dri/card${card_num}"
+                else
+                    echo "[render-node] WARNING: Expected card device /dev/dri/card${card_num} not found (WLR_DRM_DEVICES will not be set)"
+                fi
+                break
+            fi
+        done
+    fi
+
     if [ -z "$detected_node" ]; then
         echo "[render-node] WARNING: Could not find $target_driver driver for GPU_VENDOR=$gpu_vendor, falling back to software rendering"
         export HELIX_RENDER_NODE="SOFTWARE"

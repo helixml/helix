@@ -20,7 +20,6 @@
     "esModuleInterop": true,
     "resolveJsonModule": true,
     "allowJs": true,
-    "suppressImplicitAnyIndexErrors": true,
     "noUnusedLocals": false,
     "noUnusedParameters": false,
     "noPropertyAccessFromIndexSignature": false,

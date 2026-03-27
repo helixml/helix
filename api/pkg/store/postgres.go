@@ -219,6 +219,7 @@ func (s *PostgresStore) runMigrations() error {
 		&types.GlobalCounter{},
 		&types.CloneGroup{},
 		&types.ClaudeSubscription{},
+		&types.AttentionEvent{},
 	)
 	if err != nil {
 		return err
@@ -303,12 +304,6 @@ func (s *PostgresStore) runMigrations() error {
 	}
 	if err := createFK(s.gdb, types.ProjectRepository{}, types.GitRepository{}, "repository_id", "id", "CASCADE", "CASCADE"); err != nil {
 		log.Err(err).Msg("failed to add DB FK for project_repositories -> git_repositories")
-	}
-
-	// Migrate existing project_id values to junction table
-	if err := s.migrateProjectRepositories(context.Background()); err != nil {
-		log.Err(err).Msg("failed to migrate project repositories to junction table")
-		// Don't return error - this is a one-time migration, data will be migrated on next startup
 	}
 
 	// Ensure default project exists for spec tasks

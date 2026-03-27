@@ -108,6 +108,15 @@ func (m *MemoryStore) UpdateSession(_ context.Context, session types.Session) (*
 	return &cp, nil
 }
 
+func (m *MemoryStore) TouchSession(_ context.Context, sessionID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if s, ok := m.sessions[sessionID]; ok {
+		s.Updated = time.Now()
+	}
+	return nil
+}
+
 func (m *MemoryStore) ListSessions(_ context.Context, query store.ListSessionsQuery) ([]*types.Session, int64, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -246,6 +255,9 @@ func (m *MemoryStore) GetNextInterruptPrompt(_ context.Context, _ string) (*type
 func (m *MemoryStore) MarkPromptAsPending(_ context.Context, _ string) error { return nil }
 func (m *MemoryStore) MarkPromptAsSent(_ context.Context, _ string) error    { return nil }
 func (m *MemoryStore) MarkPromptAsFailed(_ context.Context, _ string) error  { return nil }
+func (m *MemoryStore) ClaimPromptForSending(_ context.Context, _ string) (bool, error) {
+	return true, nil // In-memory: always succeed (no concurrency in tests)
+}
 
 // SpecTask methods — always return "not found" (no spectasks in test)
 func (m *MemoryStore) GetSpecTask(_ context.Context, _ string) (*types.SpecTask, error) {

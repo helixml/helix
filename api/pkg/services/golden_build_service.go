@@ -102,6 +102,9 @@ func (g *GoldenBuildService) updateSandboxCacheStatus(ctx context.Context, proje
 // RecoverStaleBuilds scans for projects with "building" status in the DB and
 // re-attaches monitoring goroutines. Called on API startup to recover from
 // restarts that killed the monitoring goroutines mid-build.
+//
+// Waits up to 60s for the sandbox to reconnect via RevDial before giving up,
+// because the API typically restarts faster than the sandbox can reconnect.
 func (g *GoldenBuildService) RecoverStaleBuilds(ctx context.Context) {
 	projects, err := g.store.ListProjectsWithActiveGoldenBuild(ctx)
 	if err != nil {
@@ -127,9 +130,27 @@ func (g *GoldenBuildService) RecoverStaleBuilds(ctx context.Context) {
 			sessionID := sbState.BuildSessionID
 			key := buildKey(project.ID, sbID)
 
-			// Check if the container is still running
-			if g.containerExecutor.HasRunningContainer(ctx, sessionID) {
-				// Container still alive — re-attach the monitoring goroutine
+			// Wait for sandbox to reconnect — API restarts faster than
+			// RevDial reconnects, so HasRunningContainer may return false
+			// even though the container is still running.
+			found := false
+			for attempt := 0; attempt < 12; attempt++ {
+				if g.containerExecutor.HasRunningContainer(ctx, sessionID) {
+					found = true
+					break
+				}
+				if attempt < 11 {
+					log.Info().
+						Str("project_id", project.ID).
+						Str("sandbox_id", sbID).
+						Str("session_id", sessionID).
+						Int("attempt", attempt+1).
+						Msg("Golden build recovery: container not found yet, waiting for sandbox reconnect")
+					time.Sleep(5 * time.Second)
+				}
+			}
+
+			if found {
 				log.Info().
 					Str("project_id", project.ID).
 					Str("sandbox_id", sbID).
@@ -142,18 +163,35 @@ func (g *GoldenBuildService) RecoverStaleBuilds(ctx context.Context) {
 
 				go g.waitForGoldenBuildCompletion(ctx, project.ID, sbID, sessionID)
 			} else {
-				// Container gone — reset the status
-				log.Info().
-					Str("project_id", project.ID).
-					Str("sandbox_id", sbID).
-					Str("session_id", sessionID).
-					Msg("Golden build recovery: container gone, resetting status")
-
-				g.updateSandboxCacheStatus(ctx, project.ID, sbID, func(s *types.SandboxCacheState) {
-					s.Status = "none"
-					s.BuildSessionID = ""
-					s.Error = "Build interrupted by API restart"
-				})
+				// Container gone after 60s — check if the build completed
+				// before the API restarted by querying Hydra for the result.
+				result, err := g.containerExecutor.GetGoldenBuildResult(ctx, sbID, project.ID)
+				if err == nil && result != nil && result.Success {
+					log.Info().
+						Str("project_id", project.ID).
+						Str("sandbox_id", sbID).
+						Str("session_id", sessionID).
+						Msg("Golden build recovery: build completed while API was down, setting ready")
+					g.updateSandboxCacheStatus(ctx, project.ID, sbID, func(s *types.SandboxCacheState) {
+						now := time.Now()
+						s.Status = "ready"
+						s.LastReadyAt = &now
+						s.BuildSessionID = ""
+						s.Error = ""
+						s.SizeBytes = result.CacheSizeBytes
+					})
+				} else {
+					log.Info().
+						Str("project_id", project.ID).
+						Str("sandbox_id", sbID).
+						Str("session_id", sessionID).
+						Msg("Golden build recovery: container gone and no successful result, resetting status")
+					g.updateSandboxCacheStatus(ctx, project.ID, sbID, func(s *types.SandboxCacheState) {
+						s.Status = "none"
+						s.BuildSessionID = ""
+						s.Error = "Build interrupted by API restart"
+					})
+				}
 			}
 		}
 	}

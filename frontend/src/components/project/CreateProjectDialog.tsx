@@ -137,7 +137,7 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
   }, [oauthProviders])
 
   // Fetch GitHub repos when connected with repo scope
-  const { data: githubReposData, isLoading: githubReposLoading, error: githubReposError } =
+  const { data: githubReposData, isLoading: githubReposLoading, isFetching: githubReposFetching, error: githubReposError } =
     useListOAuthConnectionRepositories(
       githubHasRepoScope && externalType === TypesExternalRepositoryType.ExternalRepositoryTypeGitHub
         ? (githubConnection?.id || '')
@@ -219,21 +219,14 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
   }, [name, userModifiedRepoName, repoMode])
 
   // Sort apps: zed_external first, then others
+  // Only show external agents — helix_agent types don't support project workflows
   const sortedApps = useMemo(() => {
     if (!apps) return []
-    const zedExternalApps: IApp[] = []
-    const otherApps: IApp[] = []
-    apps.forEach((app) => {
-      const hasZedExternal = app.config?.helix?.assistants?.some(
+    return apps.filter((app) =>
+      app.config?.helix?.assistants?.some(
         (assistant) => assistant.agent_type === AGENT_TYPE_ZED_EXTERNAL
       ) || app.config?.helix?.default_agent_type === AGENT_TYPE_ZED_EXTERNAL
-      if (hasZedExternal) {
-        zedExternalApps.push(app)
-      } else {
-        otherApps.push(app)
-      }
-    })
-    return [...zedExternalApps, ...otherApps]
+    )
   }, [apps])
 
   // Filter out internal repos - they're deprecated
@@ -670,21 +663,33 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
                     {/* CASE 1: GitHub + OAuth with repo scope - Inline repo browser */}
                     {externalType === TypesExternalRepositoryType.ExternalRepositoryTypeGitHub && githubHasRepoScope && (
                       <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                        {/* Search field */}
-                        <TextField
-                          fullWidth
-                          size="small"
-                          placeholder="Search your repositories..."
-                          value={repoSearchQuery}
-                          onChange={(e) => setRepoSearchQuery(e.target.value)}
-                          InputProps={{
-                            startAdornment: (
-                              <InputAdornment position="start">
-                                <Search size={18} />
-                              </InputAdornment>
-                            ),
-                          }}
-                        />
+                        {/* Search field with refresh */}
+                        <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                          <TextField
+                            fullWidth
+                            size="small"
+                            placeholder="Search your repositories..."
+                            value={repoSearchQuery}
+                            onChange={(e) => setRepoSearchQuery(e.target.value)}
+                            InputProps={{
+                              startAdornment: (
+                                <InputAdornment position="start">
+                                  <Search size={18} />
+                                </InputAdornment>
+                              ),
+                            }}
+                          />
+                          <Tooltip title="Refresh repository list">
+                            <IconButton
+                              size="small"
+                              onClick={() => queryClient.invalidateQueries({ queryKey: ["oauth-connection-repositories"] })}
+                              disabled={githubReposFetching}
+                              sx={githubReposFetching ? { animation: 'spin 1s linear infinite', '@keyframes spin': { '100%': { transform: 'rotate(360deg)' } } } : {}}
+                            >
+                              <RefreshCw size={18} />
+                            </IconButton>
+                          </Tooltip>
+                        </Box>
 
                         {/* Error state */}
                         {githubReposError && (
@@ -721,7 +726,7 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
                               const isSelected = selectedOAuthRepo?.full_name === repo.full_name
 
                               return (
-                                <ListItem key={repo.id || repo.full_name || index} disablePadding>
+                                <ListItem key={repo.full_name || index} disablePadding>
                                   <ListItemButton
                                     selected={isSelected}
                                     onClick={() => handleSelectGitHubRepo(repo)}
@@ -1017,7 +1022,7 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
                             size="small"
                             onClick={(e) => {
                               e.stopPropagation()
-                              account.orgNavigate('app', { app_id: app.id })
+                              account.orgNavigate('agent', { app_id: app.id })
                             }}
                             sx={{ ml: 'auto' }}
                           >

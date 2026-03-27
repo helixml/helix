@@ -44,7 +44,7 @@ export const useSandboxState = (sessionId: string, enabled: boolean = true) => {
         if (response.data) {
           // Check external agent status from session metadata
           const status = response.data.config?.external_agent_status || "";
-          const desiredState = response.data.config?.desired_state || "";
+          const desiredState = (response.data.config as (typeof response.data.config & { desired_state?: string }))?.desired_state || "";
           const hasContainer = !!response.data.config?.container_name;
 
           // Pickup transient status message (e.g., "Unpacking build cache (2.1/7.0 GB)")
@@ -117,6 +117,9 @@ interface ExternalAgentDesktopViewerProps {
   apiClient?: Api<unknown>["api"]; // For prompt history sync
   defaultPanelOpen?: boolean; // Default state of the session panel (default: false)
   startupErrorMessage?: string;
+  // Pre-computed sandbox state from the task list (avoids per-card session polling on Kanban)
+  initialSandboxState?: string;
+  initialSandboxStatusMessage?: string;
 }
 
 const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
@@ -134,12 +137,21 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
   apiClient,
   defaultPanelOpen = false,
   startupErrorMessage,
+  initialSandboxState,
+  initialSandboxStatusMessage,
 }) => {
   const api = useApi();
   const snackbar = useSnackbar();
   const queryClient = useQueryClient();
   const { NewInference, setCurrentSessionId } = useStreaming();
-  const { isRunning, isPaused, isStarting, statusMessage } = useSandboxState(sessionId);
+  // When initialSandboxState is provided (Kanban screenshot mode), skip polling — state comes from the task list.
+  const pollingEnabled = initialSandboxState === undefined;
+  const polled = useSandboxState(sessionId, pollingEnabled);
+  const sandboxStateValue = initialSandboxState ?? polled.sandboxState;
+  const statusMessage = initialSandboxStatusMessage ?? polled.statusMessage;
+  const isRunning = sandboxStateValue === "running" || sandboxStateValue === "resumable";
+  const isStarting = sandboxStateValue === "starting" || sandboxStateValue === "loading";
+  const isPaused = sandboxStateValue === "absent";
   const [isResuming, setIsResuming] = useState(false);
   // Track if we've ever been running - once running, keep stream mounted to avoid fullscreen exit
   const [hasEverBeenRunning, setHasEverBeenRunning] = useState(false);
@@ -154,6 +166,43 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
     startupErrorMessage && startupErrorMessage.toLowerCase().startsWith('desktop limit reached')
       ? startupErrorMessage
       : undefined;
+
+  // Track how long we've been in "starting" state so we can show a recovery UI
+  // if the desktop fails to start within 2 minutes (issue #5 from ZFS deployment).
+  const startingStartTimeRef = useRef<number | null>(null);
+  const [startingTooLong, setStartingTooLong] = useState(false);
+  const [isStopping, setIsStopping] = useState(false);
+
+  useEffect(() => {
+    if (isStarting) {
+      if (startingStartTimeRef.current === null) {
+        startingStartTimeRef.current = Date.now();
+        setStartingTooLong(false);
+      }
+      const check = setInterval(() => {
+        if (startingStartTimeRef.current !== null && Date.now() - startingStartTimeRef.current > 120_000) {
+          setStartingTooLong(true);
+        }
+      }, 5000);
+      return () => clearInterval(check);
+    } else {
+      startingStartTimeRef.current = null;
+      setStartingTooLong(false);
+    }
+  }, [isStarting]);
+
+  const handleStopFromStarting = async (e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    setIsStopping(true);
+    try {
+      await api.getApiClient().v1SessionsStopExternalAgentDelete(sessionId);
+    } catch (error: any) {
+      console.error("Failed to stop session:", error);
+      snackbar.error(error?.message || "Failed to stop desktop");
+    } finally {
+      setIsStopping(false);
+    }
+  };
 
   // NOTE: WebSocket subscription is handled by parent components (SpecTaskDetailContent, etc.)
   // based on whether the chat panel is visible. This component no longer subscribes directly
@@ -296,8 +345,17 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
             <>
               <CircularProgress size={32} sx={{ color: 'primary.main' }} />
               <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.7)', fontWeight: 500 }}>
-                {statusMessage || "Starting Desktop..."}
+                {startingTooLong ? "Desktop may have failed to start" : (statusMessage || "Starting Desktop...")}
               </Typography>
+              <Button
+                variant="outlined"
+                size="small"
+                onClick={handleStopFromStarting}
+                disabled={isStopping}
+                sx={{ color: 'rgba(255,255,255,0.6)', borderColor: 'rgba(255,255,255,0.3)', mt: 1 }}
+              >
+                {isStopping ? "Stopping..." : "Stop"}
+              </Button>
             </>
           )}
         </Box>
@@ -305,7 +363,8 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
     }
 
     if (isPaused) {
-      const screenshotUrl = `/api/v1/external-agents/${sessionId}/screenshot?t=${Date.now()}`;
+      // Don't fetch screenshot when we know sandbox is absent — just show the paused UI.
+      // (The screenshotUrl used to be loaded here, but it's an unnecessary download.)
       return (
         <Box
           sx={{
@@ -317,57 +376,31 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
             borderRadius: 1,
             overflow: "hidden",
             backgroundColor: "#1a1a1a",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 2,
           }}
         >
-          <Box
-            component="img"
-            src={screenshotUrl}
-            alt="Paused Desktop"
-            sx={{
-              width: "100%",
-              height: "100%",
-              objectFit: "contain",
-              filter: "grayscale(0.5) brightness(0.7) blur(1px)",
-              opacity: 0.6,
-            }}
-            onError={(e) => {
-              e.currentTarget.style.display = "none";
-            }}
-          />
-          <Box
-            sx={{
-              position: "absolute",
-              top: 0,
-              left: 0,
-              right: 0,
-              bottom: 0,
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: 2,
-              backgroundColor: "rgba(0,0,0,0.3)",
-            }}
+          <Typography
+            variant="body1"
+            sx={{ color: "rgba(255,255,255,0.9)", fontWeight: 500 }}
           >
-            <Typography
-              variant="body1"
-              sx={{ color: "rgba(255,255,255,0.9)", fontWeight: 500 }}
-            >
-              Desktop Paused
-            </Typography>
-            <Button
-              variant="contained"
-              color="primary"
-              size="large"
-              startIcon={
-                isResuming ? <CircularProgress size={20} /> : <PlayArrow />
-              }
-              onClick={handleResume}
-              disabled={isResuming}
-            >
-              {isResuming ? "Starting..." : "Start Desktop"}
-            </Button>
-          </Box>
+            Desktop Paused
+          </Typography>
+          <Button
+            variant="contained"
+            color="primary"
+            size="large"
+            startIcon={
+              isResuming ? <CircularProgress size={20} /> : <PlayArrow />
+            }
+            onClick={handleResume}
+            disabled={isResuming}
+          >
+            {isResuming ? "Starting..." : "Start Desktop"}
+          </Button>
         </Box>
       );
     }
@@ -425,8 +458,17 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
           <>
             <CircularProgress size={32} sx={{ color: 'primary.main' }} />
             <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.7)', fontWeight: 500 }}>
-              {statusMessage || "Starting Desktop..."}
+              {startingTooLong ? "Desktop may have failed to start — click Stop to retry" : (statusMessage || "Starting Desktop...")}
             </Typography>
+            <Button
+              variant="outlined"
+              size="small"
+              onClick={handleStopFromStarting}
+              disabled={isStopping}
+              sx={{ color: 'rgba(255,255,255,0.6)', borderColor: 'rgba(255,255,255,0.3)', mt: 1 }}
+            >
+              {isStopping ? "Stopping..." : "Stop"}
+            </Button>
           </>
         )}
       </Box>

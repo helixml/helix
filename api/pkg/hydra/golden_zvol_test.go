@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -462,10 +463,8 @@ func (s *GoldenZvolSuite) TestSetupGoldenClone_Success() {
 
 	// Should have cloned
 	assert.True(s.T(), s.mock.hasCommand("zfs clone prod/helix-zvols/golden-prj_abc@gen3 prod/helix-zvols/ses-ses_001"))
-	// Should have regenerated XFS UUID (prevents duplicate UUID mount failures)
-	assert.True(s.T(), s.mock.hasCommand("xfs_admin -U generate"))
-	// Should have mounted
-	assert.True(s.T(), s.mock.hasCommand("mount /dev/zvol/prod/helix-zvols/ses-ses_001"))
+	// Should have mounted with nouuid (XFS duplicate UUID workaround)
+	assert.True(s.T(), s.mock.hasCommand("mount -o nouuid"))
 	// Clone dataset should exist
 	assert.True(s.T(), s.mock.datasets["prod/helix-zvols/ses-ses_001"])
 }
@@ -537,7 +536,7 @@ func (s *GoldenZvolSuite) TestSetupGoldenClone_MountFailsCleansUp() {
 	assert.True(s.T(), s.mock.hasCommand("zfs destroy prod/helix-zvols/ses-ses_001"))
 }
 
-func (s *GoldenZvolSuite) TestSetupGoldenClone_XfsUuidGeneratedBeforeMount() {
+func (s *GoldenZvolSuite) TestSetupGoldenClone_MountsWithNouuid() {
 	zfsParentDataset = "prod/helix-zvols"
 	s.mock.addDataset("prod/helix-zvols/golden-prj_abc")
 	s.mock.addSnapshot("prod/helix-zvols/golden-prj_abc", "gen1")
@@ -545,38 +544,12 @@ func (s *GoldenZvolSuite) TestSetupGoldenClone_XfsUuidGeneratedBeforeMount() {
 	_, err := SetupGoldenClone("prj_abc", "ses_001")
 	require.NoError(s.T(), err)
 
-	// Verify ordering: clone → xfs_admin → mount
-	cloneIdx, uuidIdx, mountIdx := -1, -1, -1
-	for i, c := range s.mock.commands {
-		cmd := c.String()
-		if strings.HasPrefix(cmd, "zfs clone") {
-			cloneIdx = i
-		}
-		if strings.HasPrefix(cmd, "xfs_admin -U generate") {
-			uuidIdx = i
-		}
-		if strings.HasPrefix(cmd, "mount") {
-			mountIdx = i
-		}
-	}
-	assert.Greater(s.T(), uuidIdx, cloneIdx, "xfs_admin must run after zfs clone")
-	assert.Greater(s.T(), mountIdx, uuidIdx, "mount must run after xfs_admin UUID change")
-}
+	// Verify clone is mounted with -o nouuid (XFS duplicate UUID workaround)
+	nouuidCmds := s.mock.commandsMatching("mount -o nouuid")
+	assert.Len(s.T(), nouuidCmds, 1, "clone should be mounted with nouuid option")
 
-func (s *GoldenZvolSuite) TestSetupGoldenClone_XfsUuidFailsCleansUp() {
-	zfsParentDataset = "prod/helix-zvols"
-	s.mock.addDataset("prod/helix-zvols/golden-prj_abc")
-	s.mock.addSnapshot("prod/helix-zvols/golden-prj_abc", "gen1")
-	s.mock.failOn("xfs_admin", fmt.Errorf("xfs_admin failed"))
-
-	_, err := SetupGoldenClone("prj_abc", "ses_001")
-	assert.Error(s.T(), err)
-	assert.Contains(s.T(), err.Error(), "xfs_admin UUID change failed")
-
-	// Clone should be destroyed on xfs_admin failure
-	assert.True(s.T(), s.mock.hasCommand("zfs destroy prod/helix-zvols/ses-ses_001"))
-	// Mount should NOT have been attempted
-	assert.False(s.T(), s.mock.hasCommand("mount"))
+	// xfs_admin should NOT be called (we use nouuid instead)
+	assert.False(s.T(), s.mock.hasCommand("xfs_admin"))
 }
 
 func (s *GoldenZvolSuite) TestSetupGoldenClone_PicksLatestSnapshot() {
@@ -839,13 +812,21 @@ func (s *GoldenZvolSuite) TestSeedZvol_GoldenDirNotFound() {
 
 func (s *GoldenZvolSuite) TestGCOrphanedZvols_CleansOrphans() {
 	zfsParentDataset = "prod/helix-zvols"
-	// Reset ZFS available state for GC (it checks ZFSAvailable())
 	zfsAvailableFlag = true
+
+	// Override sessionsBaseDir to use temp dir for external markers
+	oldSessionsBaseDir := sessionsBaseDir
+	sessionsBaseDir = filepath.Join(s.tmpDir, "sessions")
+	defer func() { sessionsBaseDir = oldSessionsBaseDir }()
 
 	// Active session
 	s.mock.addDataset("prod/helix-zvols/ses-ses_active")
-	// Orphaned session
+	// Orphaned session with stale external marker (>7 days old)
 	s.mock.addDataset("prod/helix-zvols/ses-ses_orphan")
+	orphanMarkerDir := filepath.Join(sessionsBaseDir, "docker-data-ses_orphan")
+	require.NoError(s.T(), os.MkdirAll(orphanMarkerDir, 0755))
+	staleTime := time.Now().Add(-8 * 24 * time.Hour).Format(time.RFC3339)
+	require.NoError(s.T(), os.WriteFile(filepath.Join(orphanMarkerDir, ".last-active"), []byte(staleTime), 0644))
 	// Golden (should not be touched)
 	s.mock.addDataset("prod/helix-zvols/golden-prj_abc")
 
@@ -1339,17 +1320,20 @@ func (s *GoldenZvolSuite) TestFullLifecycle_MigrationToCloneToRebuild() {
 
 func (s *GoldenZvolSuite) TestGetGoldenSize_ZvolPath() {
 	zfsParentDataset = "prod/helix-zvols"
-	zfsAvailableFlag = true
+	// Force ZFSAvailable() to return true without running detection.
+	// SetupTest already called resetZFSState(). We set the flag and
+	// consume the Once so it won't try to run detection.
+	zfsAvailableOnce.Do(func() { zfsAvailableFlag = true })
 
 	// Golden zvol exists with snapshot
 	s.mock.addDataset("prod/helix-zvols/golden-prj_abc")
 	s.mock.addSnapshot("prod/helix-zvols/golden-prj_abc", "gen1")
 
-	// Mock zfs list -o used to return size in bytes
+	// Mock zfs list -o refer to return size in bytes
 	origOutput := execCmdOutput
 	execCmdOutput = func(name string, args ...string) ([]byte, error) {
 		s.mock.commands = append(s.mock.commands, cmdRecord{name, args})
-		if name == "zfs" && contains(args, "used") && contains(args, "-p") {
+		if name == "zfs" && contains(args, "refer") && contains(args, "-p") {
 			return []byte("32212254720\n"), nil // 30GB in bytes
 		}
 		return origOutput(name, args...)

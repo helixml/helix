@@ -43,16 +43,17 @@ func getTaskDirName(task *types.SpecTask) string {
 
 // ApprovalPromptData contains all data for the approval/implementation prompt
 type ApprovalPromptData struct {
-	Guidelines            string // Formatted guidelines section
-	KoditSection          string // Dynamic MCP tool documentation from kodit (empty when disabled)
-	RepositorySection     string // Available repositories section (local + Kodit repos)
-	PrimaryRepoName       string // Name of the primary repository (e.g., "my-app")
-	TaskDirName           string // Design doc directory name
-	BranchName            string // Feature branch name
-	BaseBranch            string // Base branch (e.g., "main")
-	TaskName              string // Human-readable task name
-	OriginalPromptSection string // Formatted original request section (different for cloned vs normal)
-	ClonedTaskPreamble    string // Extra instructions for cloned tasks (empty if not cloned)
+	Guidelines            string   // Formatted guidelines section
+	KoditSection          string   // Dynamic MCP tool documentation from kodit (empty when disabled)
+	RepositorySection     string   // Available repositories section (local + Kodit repos)
+	PrimaryRepoName       string   // Name of the primary repository (e.g., "my-app")
+	NonPrimaryRepoNames   []string // Names of non-primary repositories (for per-repo PR descriptions)
+	TaskDirName           string   // Design doc directory name
+	BranchName            string   // Feature branch name
+	BaseBranch            string   // Base branch (e.g., "main")
+	TaskName              string   // Human-readable task name
+	OriginalPromptSection string   // Formatted original request section (different for cloned vs normal)
+	ClonedTaskPreamble    string   // Extra instructions for cloned tasks (empty if not cloned)
 }
 
 // CommentPromptData contains data for design review comment prompts
@@ -232,6 +233,69 @@ Example addition to design.md:
 
 Don't treat the original plan as fixed - update it based on what you learn.
 
+## Pull Request Description (IMPORTANT)
+
+Before you finish, create PR description files in your task directory. These will be used as the PR title and description when pull requests are created.
+{{if .NonPrimaryRepoNames}}
+**This is a multi-repo project.** Create a separate PR description for EACH repository, describing only the changes in that repo:
+
+- ` + "`pull_request_{{.PrimaryRepoName}}.md`" + ` — for the primary repo
+{{- range .NonPrimaryRepoNames}}
+- ` + "`pull_request_{{.}}.md`" + ` — for {{.}}
+{{- end}}
+
+You may also create a generic ` + "`pull_request.md`" + ` as a fallback for any repo without its own file.
+
+` + "```bash" + `
+# Example: write per-repo PR descriptions
+cat > /home/retro/work/helix-specs/design/tasks/{{.TaskDirName}}/pull_request_{{.PrimaryRepoName}}.md << 'EOF'
+# PR title for {{.PrimaryRepoName}}
+
+## Summary
+What changed in {{.PrimaryRepoName}} and why.
+
+## Changes
+- Key change 1
+- Key change 2
+EOF
+{{range .NonPrimaryRepoNames}}
+cat > /home/retro/work/helix-specs/design/tasks/{{$.TaskDirName}}/pull_request_{{.}}.md << 'EOF'
+# PR title for {{.}}
+
+## Summary
+What changed in {{.}} and why.
+
+## Changes
+- Key change 1
+- Key change 2
+EOF
+{{end}}
+cd /home/retro/work/helix-specs && git add -A && git commit -m "Add PR descriptions" && git push origin helix-specs
+` + "```" + `
+{{else}}
+` + "```bash" + `
+cat > /home/retro/work/helix-specs/design/tasks/{{.TaskDirName}}/pull_request.md << 'EOF'
+# Clear, concise PR title (50 chars or less)
+
+## Summary
+Brief description of what this PR does and why.
+
+## Changes
+- Key change 1
+- Key change 2
+
+## Testing
+How this was tested (if applicable).
+EOF
+cd /home/retro/work/helix-specs && git add -A && git commit -m "Add PR description" && git push origin helix-specs
+` + "```" + `
+{{end}}
+**Tips for good PR descriptions:**
+- Title should be imperative ("Add feature" not "Added feature")
+- Summary explains the "what" and "why"
+- Changes list the key modifications
+- Keep it concise - reviewers appreciate brevity
+
 ---
 
 **Task:** {{.TaskName}}
@@ -313,7 +377,7 @@ git checkout {{.BaseBranch}} && git pull origin {{.BaseBranch}} && git merge {{.
 // guidelines contains concatenated organization + project guidelines (can be empty)
 // primaryRepoName is the name of the primary project repository (e.g., "my-app")
 // repoSection is the pre-built repository access section (from BuildRepositorySection)
-func BuildApprovalInstructionPrompt(task *types.SpecTask, branchName, baseBranch, guidelines, primaryRepoName, koditSection, repoSection string) string {
+func BuildApprovalInstructionPrompt(task *types.SpecTask, branchName, baseBranch, guidelines, primaryRepoName, koditSection, repoSection string, nonPrimaryRepoNames []string) string {
 	taskDirName := getTaskDirName(task)
 
 	// Build guidelines section if provided
@@ -369,6 +433,7 @@ The whole point of cloning is to SKIP re-asking questions that were already answ
 		KoditSection:          koditSection,
 		RepositorySection:     repoSection,
 		PrimaryRepoName:       primaryRepoName,
+		NonPrimaryRepoNames:   nonPrimaryRepoNames,
 		TaskDirName:           taskDirName,
 		BranchName:            branchName,
 		BaseBranch:            baseBranch,
@@ -490,7 +555,23 @@ func (s *AgentInstructionService) SendApprovalInstruction(
 
 	// Build repository section
 	repoSection := s.buildRepositorySectionForTask(ctx, task, project)
-	message := BuildApprovalInstructionPrompt(task, branchName, baseBranch, guidelines, primaryRepoName, koditDoc, repoSection)
+
+	// Gather non-primary repo names for per-repo PR descriptions
+	var nonPrimaryRepoNames []string
+	if task.ProjectID != "" {
+		projectRepos, err := s.store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
+			ProjectID: task.ProjectID,
+		})
+		if err == nil {
+			for _, repo := range projectRepos {
+				if repo.Name != primaryRepoName && repo.ExternalURL != "" {
+					nonPrimaryRepoNames = append(nonPrimaryRepoNames, repo.Name)
+				}
+			}
+		}
+	}
+
+	message := BuildApprovalInstructionPrompt(task, branchName, baseBranch, guidelines, primaryRepoName, koditDoc, repoSection, nonPrimaryRepoNames)
 
 	log.Info().
 		Str("session_id", sessionID).
@@ -504,7 +585,7 @@ func (s *AgentInstructionService) SendApprovalInstruction(
 	// NOTE: We do NOT call sendMessage here - that would create a duplicate interaction
 	// and overwrite the sessionToWaitingInteraction mapping, causing responses to go
 	// to the wrong (empty) interaction.
-	_, err := s.messageSender(ctx, task, message, userID)
+	_, _, err := s.messageSender(ctx, task, message, userID)
 	if err != nil {
 		return fmt.Errorf("failed to send approval instruction to agent: %w", err)
 	}

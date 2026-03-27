@@ -457,15 +457,13 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
       // Strip any unique key suffix (format: "text#123")
       const textToPrepend = appendText.replace(/#\d+$/, '')
       // Prepend to draft with proper spacing
-      setDraft(prev => {
-        const needsSpace = prev.length > 0 && !prev.startsWith(' ') && !prev.startsWith('\n')
-        return textToPrepend + (needsSpace ? ' ' : '') + prev
-      })
+      const needsSpace = draft.length > 0 && !draft.startsWith(' ') && !draft.startsWith('\n')
+      setDraft(textToPrepend + (needsSpace ? ' ' : '') + draft)
       prevAppendTextRef.current = appendText
       // Focus the textarea
       textareaRef.current?.focus()
     }
-  }, [appendText, setDraft])
+  }, [appendText, setDraft, draft])
 
   // DnD sensors
   const sensors = useSensors(
@@ -842,14 +840,13 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
       const file = new File([pastedText], `pasted-text-${timestamp}.txt`, { type: 'text/plain' })
       await uploadAndAddAttachment(file)
       // Add a note to the draft about the attached file
-      setDraft(prev => {
-        const note = '[Large text pasted as attachment]'
-        if (prev.includes(note)) return prev
-        const needsSpace = prev.length > 0 && !prev.startsWith(' ') && !prev.startsWith('\n')
-        return note + (needsSpace ? ' ' : '') + prev
-      })
+      const note = '[Large text pasted as attachment]'
+      if (!draft.includes(note)) {
+        const needsSpace = draft.length > 0 && !draft.startsWith(' ') && !draft.startsWith('\n')
+        setDraft(note + (needsSpace ? ' ' : '') + draft)
+      }
     }
-  }, [handleFileUploadCallback, uploadAndAddAttachment, setDraft])
+  }, [handleFileUploadCallback, uploadAndAddAttachment, setDraft, draft])
 
   // Track drag state for visual feedback
   const [isDraggingOver, setIsDraggingOver] = useState(false)

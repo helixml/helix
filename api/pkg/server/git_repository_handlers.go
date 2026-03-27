@@ -330,8 +330,10 @@ func (s *HelixAPIServer) listGitRepositories(w http.ResponseWriter, r *http.Requ
 
 	user := getRequestUser(r)
 
+	var orgMembership *types.OrganizationMembership
 	if orgID != "" {
-		_, err := s.authorizeOrgMember(ctx, user, orgID)
+		var err error
+		orgMembership, err = s.authorizeOrgMember(ctx, user, orgID)
 		if err != nil {
 			writeErrResponse(w, err, http.StatusForbidden)
 			return
@@ -340,20 +342,8 @@ func (s *HelixAPIServer) listGitRepositories(w http.ResponseWriter, r *http.Requ
 
 	// If filtering by project, verify user has access to the project
 	if projectID != "" {
-		project, err := s.Store.GetProject(ctx, projectID)
-		if err != nil {
-			http.Error(w, "Project not found", http.StatusNotFound)
-			return
-		}
-		// Check user has access to this project (owner or org member)
-		if project.UserID != user.ID && project.OrganizationID != "" {
-			_, err := s.authorizeOrgMember(ctx, user, project.OrganizationID)
-			if err != nil {
-				writeErrResponse(w, err, http.StatusForbidden)
-				return
-			}
-		} else if project.UserID != user.ID {
-			http.Error(w, "Access denied", http.StatusForbidden)
+		if err := s.authorizeUserToProjectByID(ctx, user, projectID, types.ActionGet); err != nil {
+			writeErrResponse(w, err, http.StatusForbidden)
 			return
 		}
 	}
@@ -378,6 +368,19 @@ func (s *HelixAPIServer) listGitRepositories(w http.ResponseWriter, r *http.Requ
 			}
 		}
 		repositories = filtered
+	}
+
+	// For org-scoped queries, filter repositories by authorization
+	// Org owners see all, others only see repos they have access to
+	if orgID != "" && orgMembership != nil && orgMembership.Role != types.OrganizationRoleOwner {
+		var authorizedRepos []*types.GitRepository
+		for _, repo := range repositories {
+			if err := s.authorizeUserToRepository(ctx, user, repo, types.ActionGet); err != nil {
+				continue
+			}
+			authorizedRepos = append(authorizedRepos, repo)
+		}
+		repositories = authorizedRepos
 	}
 
 	w.Header().Set("Content-Type", "application/json")

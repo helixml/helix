@@ -300,6 +300,25 @@ type SandboxCacheState struct {
 	Error          string     `json:"error,omitempty"`
 }
 
+// ZFSTree is the full ZFS snapshot/clone tree for a project's golden cache.
+type ZFSTree struct {
+	Available bool           `json:"available"`
+	PoolRoot  string         `json:"pool_root,omitempty"`
+	Golden    *ZFSTreeNode   `json:"golden,omitempty"`
+	Orphans   []*ZFSTreeNode `json:"orphans,omitempty"`
+}
+
+// ZFSTreeNode represents a node in the ZFS snapshot/clone tree.
+type ZFSTreeNode struct {
+	Name      string         `json:"name"`
+	Type      string         `json:"type"`
+	Used      string         `json:"used"`
+	Refer     string         `json:"refer"`
+	Mounted   bool           `json:"mounted,omitempty"`
+	SessionID string         `json:"session_id,omitempty"`
+	Children  []*ZFSTreeNode `json:"children,omitempty"`
+}
+
 // BoardSettings represents the Kanban board settings for a project
 type BoardSettings struct {
 	WIPLimits WIPLimits `json:"wip_limits"`

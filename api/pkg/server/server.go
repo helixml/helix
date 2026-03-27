@@ -91,12 +91,12 @@ type HelixAPIServer struct {
 	externalAgentExecutor       external_agent.Executor
 	externalAgentWSManager      *ExternalAgentWSManager
 	externalAgentRunnerManager  *ExternalAgentRunnerManager
-	contextMappings             map[string]string // Zed context_id -> Helix session_id mapping
-	contextMappingsMutex        sync.RWMutex      // Mutex for contextMappings (and related mappings below)
+	contextMappings             map[string]string   // Zed context_id -> Helix session_id mapping
+	contextMappingsMutex        sync.RWMutex        // Mutex for contextMappings (and related mappings below)
 	sessionToWaitingInteraction map[string][]string // Helix session_id -> FIFO queue of waiting interaction IDs
-	requestToSessionMapping     map[string]string // request_id -> Helix session_id mapping (for chat_message routing)
-	externalAgentSessionMapping map[string]string // External agent session_id -> Helix session_id mapping
-	externalAgentUserMapping    map[string]string // External agent session_id -> user_id mapping
+	requestToSessionMapping     map[string]string   // request_id -> Helix session_id mapping (for chat_message routing)
+	externalAgentSessionMapping map[string]string   // External agent session_id -> Helix session_id mapping
+	externalAgentUserMapping    map[string]string   // External agent session_id -> user_id mapping
 	// Comment processing timeouts - uses database for queue state (QueuedAt/RequestID fields)
 	sessionCommentTimeout     map[string]*time.Timer // planning_session_id -> timeout timer for current comment
 	sessionCommentMutex       sync.RWMutex           // Mutex for timeout operations
@@ -120,7 +120,7 @@ type HelixAPIServer struct {
 	sampleProjectCodeService  *services.SampleProjectCodeService
 	gitRepositoryService      *services.GitRepositoryService
 	koditService              services.KoditServicer
-	kodit                     *koditResult
+	kodit                     *KoditResult
 	mcpGateway                *MCPGateway
 	gitHTTPServer             *services.GitHTTPServer
 	// Streaming context cache - avoids redundant DB queries during token streaming
@@ -130,6 +130,7 @@ type HelixAPIServer struct {
 	streamingRateLimiter       map[string]time.Time // session_id -> last connection time
 	streamingRateLimiterMutex  sync.RWMutex
 	specTaskOrchestrator       *services.SpecTaskOrchestrator
+	attentionService           *services.AttentionService
 	projectInternalRepoService *services.ProjectInternalRepoService
 	anthropicProxy             *anthropic.Proxy
 	auditLogService            *services.AuditLogService
@@ -139,6 +140,7 @@ type HelixAPIServer struct {
 	summaryService             *SummaryService
 	goldenBuildService         *services.GoldenBuildService
 	syncEventHook              SyncEventHook // optional test hook, nil in production
+	startTime     time.Time   // when the server started, for grace periods
 }
 
 func NewServer(
@@ -160,6 +162,7 @@ func NewServer(
 	trigger *trigger.Manager,
 	anthropicProxy *anthropic.Proxy,
 	gitRepositoryService *services.GitRepositoryService,
+	preInitKodit *KoditResult,
 ) (*HelixAPIServer, error) {
 	if cfg.WebServer.URL == "" {
 		return nil, fmt.Errorf("server url is required")
@@ -292,6 +295,7 @@ func NewServer(
 		Cfg:                         cfg,
 		Store:                       store,
 		Stripe:                      stripe,
+		startTime:                   time.Now(),
 		quotaManager:                quotaManager,
 		Controller:                  appController,
 		Janitor:                     janitor,
@@ -383,14 +387,26 @@ func NewServer(
 		}
 	}
 
-	// Initialize Kodit code intelligence library (in-process)
-	kr, err := initKodit(cfg, apiServer.gitRepositoryService, apiServer.Store)
-	if err != nil {
-		return nil, err
+	// Initialize Kodit code intelligence library (in-process).
+	// If a pre-initialized KoditResult is provided (e.g. when using the kodit RAG provider),
+	// reuse it to avoid creating a second kodit client with duplicate workers/embedding models.
+	var kr *KoditResult
+	if preInitKodit != nil {
+		kr = preInitKodit
+		// gitRepositoryService needs the kodit service set on it even when reusing a pre-init result.
+		if apiServer.gitRepositoryService != nil && kr.Service != nil {
+			apiServer.gitRepositoryService.SetKoditService(kr.Service)
+		}
+	} else {
+		var initErr error
+		kr, initErr = InitKodit(cfg, apiServer.gitRepositoryService, apiServer.Store)
+		if initErr != nil {
+			return nil, initErr
+		}
 	}
 	apiServer.kodit = kr
-	apiServer.koditService = kr.service
-	apiServer.specDrivenTaskService.SetKoditService(kr.service)
+	apiServer.koditService = kr.Service
+	apiServer.specDrivenTaskService.SetKoditService(kr.Service)
 
 	// Initialize MCP Gateway for authenticated MCP proxying
 	apiServer.mcpGateway = NewMCPGateway()
@@ -399,7 +415,7 @@ func NewServer(
 	apiServer.initExposedPortManager()
 
 	// Register Kodit MCP backend (code intelligence)
-	apiServer.mcpGateway.RegisterBackend("kodit", kr.mcpBackend)
+	apiServer.mcpGateway.RegisterBackend("kodit", kr.mcpBackend) //nolint:staticcheck // mcpBackend is package-private but accessible within this package
 
 	// Register Helix native MCP backend (APIs, Knowledge, Zapier)
 	apiServer.mcpGateway.RegisterBackend("helix", NewHelixMCPBackend(store, appController))
@@ -433,10 +449,10 @@ func NewServer(
 		store,
 		apiServer.gitRepositoryService,
 		*gitHTTPConfig, // Dereference the pointer
-		apiServer.authorizeUserToResource,
+		apiServer.authorizeUserToRepository,
 		apiServer.trigger,
 	)
-	log.Info().Msg("Initialized Git HTTP server (native git via gitea/gitcmd)")
+	log.Info().Msg("Initialized Git HTTP server (native git via gitcmd)")
 
 	// Initialize Project Repository Service (startup scripts stored in code repos at .helix/startup.sh)
 	projectsBasePath := filepath.Join(cfg.FileStore.LocalFSPath, "projects")
@@ -455,6 +471,10 @@ func NewServer(
 	// Set the project secrets callback for injecting secrets as env vars into desktop containers
 	apiServer.specDrivenTaskService.GetProjectSecrets = apiServer.GetProjectSecretsAsEnvVars
 
+	// Initialize Attention Service for human-needed event notifications
+	apiServer.attentionService = services.NewAttentionService(store, cfg)
+	apiServer.gitHTTPServer.SetAttentionService(apiServer.attentionService)
+
 	// Initialize SpecTask Orchestrator components
 	apiServer.specTaskOrchestrator = services.NewSpecTaskOrchestrator(
 		store,
@@ -470,6 +490,8 @@ func NewServer(
 		apiServer.specDrivenTaskService,
 	)
 	apiServer.specTaskOrchestrator.SetGoldenBuildService(apiServer.goldenBuildService)
+	apiServer.specTaskOrchestrator.SetEnsurePRsFunc(apiServer.ensurePullRequestsForAllRepos)
+	apiServer.specTaskOrchestrator.SetAttentionService(apiServer.attentionService)
 
 	// Recover golden builds that were in progress when the API last restarted.
 	// Re-attaches monitoring goroutines for still-running builds, resets stale ones.
@@ -858,6 +880,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/skills/{id}", system.DefaultWrapper(apiServer.handleGetSkill)).Methods("GET")
 	authRouter.HandleFunc("/skills/reload", system.DefaultWrapper(apiServer.handleReloadSkills)).Methods("POST")
 	authRouter.HandleFunc("/skills/validate", system.DefaultWrapper(apiServer.handleValidateMcpSkill)).Methods("POST")
+	authRouter.HandleFunc("/apps/{id}/skills/{skill}/enable", system.Wrapper(apiServer.handleEnableSkill)).Methods("POST")
 
 	// External agent routes - desktop streaming and Zed agent communication
 	// Note: Session start/stop/resume use /sessions endpoints, not /external-agents
@@ -1155,6 +1178,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/projects/{id}/docker-cache/build", system.Wrapper(apiServer.triggerGoldenBuild)).Methods(http.MethodPost)
 	authRouter.HandleFunc("/projects/{id}/docker-cache/cancel", system.Wrapper(apiServer.cancelGoldenBuild)).Methods(http.MethodPost)
 	authRouter.HandleFunc("/projects/{id}/docker-cache", system.Wrapper(apiServer.deleteDockerCache)).Methods(http.MethodDelete)
+	authRouter.HandleFunc("/projects/{id}/docker-cache/zfs-tree", system.Wrapper(apiServer.getDockerCacheZFSTree)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/projects/{id}/tasks-progress", apiServer.getBatchTaskProgress).Methods(http.MethodGet)
 	authRouter.HandleFunc("/projects/{id}/tasks-usage", apiServer.getBatchTaskUsage).Methods(http.MethodGet)
 	authRouter.HandleFunc("/projects/{projectId}/labels", apiServer.listProjectLabels).Methods(http.MethodGet)
@@ -1178,6 +1202,11 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/sample-projects/simple/fork", system.Wrapper(apiServer.forkSimpleProject)).Methods(http.MethodPost)
 	authRouter.HandleFunc("/sample-projects/simple/check-access", system.Wrapper(apiServer.checkSampleProjectAccess)).Methods(http.MethodPost)
 	authRouter.HandleFunc("/sample-projects/simple/fork-repos", system.Wrapper(apiServer.forkSampleProjectRepositories)).Methods(http.MethodPost)
+
+	// Attention event routes
+	authRouter.HandleFunc("/attention-events", apiServer.listAttentionEvents).Methods(http.MethodGet)
+	authRouter.HandleFunc("/attention-events/dismiss-all", apiServer.dismissAllAttentionEvents).Methods(http.MethodPost)
+	authRouter.HandleFunc("/attention-events/{id}", apiServer.updateAttentionEvent).Methods(http.MethodPut)
 
 	// Spec-driven task routes
 	authRouter.HandleFunc("/spec-tasks/from-prompt", apiServer.createTaskFromPrompt).Methods(http.MethodPost)

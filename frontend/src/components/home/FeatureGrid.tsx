@@ -148,11 +148,11 @@ const JS_APP_FEATURE: IFeature = {
   icon: <WebIcon sx={{color: '#ef2ec6'}} />,
   // image: '/img/servers.png',
   actions: [{
-    title: 'Apps',
+    title: 'Agents',
     color: 'secondary',
     variant: 'outlined',
-    handler: (navigate) => {navigate('apps')},
-    id: 'apps-button'
+    handler: (navigate) => {navigate('agents')},
+    id: 'agents-button'
     
     
   }, {
@@ -172,7 +172,7 @@ const API_FEATURE: IFeature = {
     title: 'API Tools',
     color: 'secondary',
     variant: 'outlined',
-    handler: (navigate) => {navigate('apps')},
+    handler: (navigate) => {navigate('agents')},
   }, {
     title: 'Docs (coming soon)',
     color: 'primary',
@@ -190,7 +190,7 @@ const GPTSCRIPT_FEATURE: IFeature = {
     title: 'GPTScript Tools',
     color: 'secondary',
     variant: 'outlined',
-    handler: (navigate) => {navigate('apps')},
+    handler: (navigate) => {navigate('agents')},
   }, {
     title: 'Docs',
     color: 'primary',

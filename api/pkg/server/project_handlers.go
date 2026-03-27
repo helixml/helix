@@ -73,7 +73,7 @@ func (s *HelixAPIServer) listOrganizationProjects(ctx context.Context, user *typ
 		return nil, system.NewHTTPError500(fmt.Sprintf("failed to lookup org: %s", err))
 	}
 
-	_, err = s.authorizeOrgMember(ctx, user, org.ID)
+	orgMembership, err := s.authorizeOrgMember(ctx, user, org.ID)
 	if err != nil {
 		return nil, system.NewHTTPError403(err.Error())
 	}
@@ -86,7 +86,21 @@ func (s *HelixAPIServer) listOrganizationProjects(ctx context.Context, user *typ
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
-	return projects, nil
+	// Org owners see all projects
+	if orgMembership.Role == types.OrganizationRoleOwner {
+		return projects, nil
+	}
+
+	// Non-owners only see projects they have access to
+	var authorizedProjects []*types.Project
+	for _, project := range projects {
+		if err := s.authorizeUserToProject(ctx, user, project, types.ActionGet); err != nil {
+			continue
+		}
+		authorizedProjects = append(authorizedProjects, project)
+	}
+
+	return authorizedProjects, nil
 }
 
 // getProject godoc
@@ -149,31 +163,54 @@ func (s *HelixAPIServer) getProject(_ http.ResponseWriter, r *http.Request) (*ty
 	// After an API restart, the monitoring goroutine is dead but DB still says
 	// "building". If the build isn't tracked in memory AND the container isn't
 	// running, reset the status so the UI doesn't get stuck.
-	if project.Metadata.DockerCacheStatus != nil {
+	//
+	// Skip during the first 90s after startup — RecoverStaleBuilds needs up
+	// to 60s to wait for sandbox reconnect and re-attach monitoring goroutines.
+	// Without this grace period, a page load during startup races with recovery
+	// and resets status to "none" before the sandbox can reconnect.
+	if project.Metadata.DockerCacheStatus != nil && time.Since(s.startTime) > 90*time.Second {
 		staleRecovered := false
 		for sbID, sbState := range project.Metadata.DockerCacheStatus.Sandboxes {
 			if sbState.Status != "building" || sbState.BuildSessionID == "" {
 				continue
 			}
-			// Two conditions must BOTH be false for recovery:
-			// 1. Monitoring goroutine alive (in-memory tracking)
-			// 2. Container still running on sandbox
-			// During normal operation, condition 1 is true → no recovery.
-			// After API restart, both are false → recovery triggers.
 			if s.goldenBuildService.IsTracking(project.ID, sbID) {
 				continue
 			}
 			if s.externalAgentExecutor.HasRunningContainer(r.Context(), sbState.BuildSessionID) {
 				continue
 			}
-			log.Info().
-				Str("project_id", projectID).
-				Str("sandbox_id", sbID).
-				Str("session_id", sbState.BuildSessionID).
-				Msg("Recovering stale golden build: monitoring goroutine dead and container not running")
-			sbState.Status = "none"
-			sbState.BuildSessionID = ""
-			sbState.Error = ""
+			// Check if the golden cache actually exists on the sandbox before
+			// resetting to "none" — the build may have completed and promoted
+			// while the API was down. Query the ZFS tree to find out.
+			cacheExists := false
+			hydraClient := hydra.NewRevDialClient(s.connman, fmt.Sprintf("hydra-%s", sbID))
+			ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+			tree, err := hydraClient.GetZFSTree(ctx, project.ID)
+			cancel()
+			if err == nil && tree != nil && tree.Available && tree.Golden != nil && len(tree.Golden.Children) > 0 {
+				cacheExists = true
+			}
+
+			if cacheExists {
+				log.Info().
+					Str("project_id", projectID).
+					Str("sandbox_id", sbID).
+					Str("session_id", sbState.BuildSessionID).
+					Msg("Recovering stale golden build: build completed while API was down, setting ready")
+				sbState.Status = "ready"
+				sbState.BuildSessionID = ""
+				sbState.Error = ""
+			} else {
+				log.Info().
+					Str("project_id", projectID).
+					Str("sandbox_id", sbID).
+					Str("session_id", sbState.BuildSessionID).
+					Msg("Recovering stale golden build: no cache found, resetting to none")
+				sbState.Status = "none"
+				sbState.BuildSessionID = ""
+				sbState.Error = ""
+			}
 			staleRecovered = true
 		}
 		if staleRecovered {
@@ -320,7 +357,6 @@ func (s *HelixAPIServer) createProject(_ http.ResponseWriter, r *http.Request) (
 	}
 
 	// Attach the primary repository to the project
-	// This sets the project_id on the repository so it shows up in the project's repo list
 	if err := s.Store.AttachRepositoryToProject(r.Context(), created.ID, req.DefaultRepoID); err != nil {
 		log.Warn().
 			Err(err).
@@ -2267,6 +2303,52 @@ func (s *HelixAPIServer) deleteDockerCache(_ http.ResponseWriter, r *http.Reques
 	}
 
 	return map[string]string{"message": fmt.Sprintf("cache cleared on %d sandbox(es)", deleted)}, nil
+}
+
+// getDockerCacheZFSTree godoc
+// @Summary Get ZFS snapshot/clone tree for project's Docker cache
+// @Description Returns the ZFS snapshot and clone tree showing golden cache, snapshots, and active session clones.
+// @Tags    projects
+// @Produce json
+// @Param   id path string true "Project ID"
+// @Success 200 {object} types.ZFSTree
+// @Router  /api/v1/projects/{id}/docker-cache/zfs-tree [get]
+// @Security BearerAuth
+func (s *HelixAPIServer) getDockerCacheZFSTree(_ http.ResponseWriter, r *http.Request) (*types.ZFSTree, *system.HTTPError) {
+	user := getRequestUser(r)
+	projectID := getID(r)
+
+	project, err := s.Store.GetProject(r.Context(), projectID)
+	if err != nil {
+		return nil, system.NewHTTPError404("project not found")
+	}
+
+	err = s.authorizeUserToProject(r.Context(), user, project, types.ActionGet)
+	if err != nil {
+		return nil, system.NewHTTPError403(err.Error())
+	}
+
+	sandboxes, err := s.Store.ListSandboxes(r.Context())
+	if err != nil {
+		return nil, system.NewHTTPError500(fmt.Sprintf("failed to list sandboxes: %v", err))
+	}
+
+	for _, sb := range sandboxes {
+		if sb.Status != "online" {
+			continue
+		}
+		hydraClient := hydra.NewRevDialClient(s.connman, fmt.Sprintf("hydra-%s", sb.ID))
+		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+		tree, err := hydraClient.GetZFSTree(ctx, projectID)
+		cancel()
+		if err != nil {
+			continue // try next sandbox
+		}
+		return tree, nil
+	}
+
+	// No sandbox available — return empty tree
+	return &types.ZFSTree{Available: false}, nil
 }
 
 // PinnedProjectsResponse is the response body for pin/unpin endpoints

@@ -22,6 +22,7 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 )
 
+
 // addUserAPITokenToAgent adds a session-scoped ephemeral API token to agent environment.
 // The token is minted when the desktop starts and revoked when it shuts down.
 // This ensures RBAC is enforced - agent can only access repos the user can access.
@@ -1306,6 +1307,12 @@ func (apiServer *HelixAPIServer) proxyStreamWebSocket(res http.ResponseWriter, r
 
 	log.Info().Str("session_id", sessionID).Msg("Stream WebSocket connection established, starting resilient proxy")
 
+	// Use req.Context() directly — proxy lifetime is tied to the client connection.
+	// No single-stream-per-session enforcement: multiple viewers can connect to
+	// the same session simultaneously (spectating). The desktop-bridge handles
+	// multi-client multiplexing internally.
+	proxyCtx := req.Context()
+
 	// Generate a unique proxy session ID
 	proxySessionID := generateProxySessionID()
 
@@ -1329,7 +1336,7 @@ func (apiServer *HelixAPIServer) proxyStreamWebSocket(res http.ResponseWriter, r
 	defer resilientProxy.Close()
 
 	// Run the proxy (blocks until connection closes or error)
-	if err := resilientProxy.Run(req.Context()); err != nil {
+	if err := resilientProxy.Run(proxyCtx); err != nil {
 		log.Warn().
 			Str("session_id", sessionID).
 			Str("proxy_session_id", proxySessionID).

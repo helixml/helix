@@ -65,12 +65,12 @@ const useLiveInteraction = (
         setInteraction(
           (prevInteraction: TypesInteraction | null): TypesInteraction => {
             if (prevInteraction === null) {
-              return currentResponse as TypesInteraction;
+              return currentResponse as unknown as TypesInteraction;
             }
             return {
               ...prevInteraction,
               ...currentResponse,
-            };
+            } as unknown as TypesInteraction;
           },
         );
         // Preserve message when we get updates

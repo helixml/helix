@@ -1039,6 +1039,9 @@ definitions:
         type: string
       found:
         type: boolean
+      url:
+        description: OAuth URL for native browser
+        type: string
     type: object
   server.ClientBufferStats:
     properties:
@@ -2029,6 +2032,16 @@ definitions:
       status:
         type: string
     type: object
+  server.SessionClaudeCredentialsResponse:
+    properties:
+      credential_type:
+        description: '"oauth" or "setup_token"'
+        type: string
+      oauth_credentials:
+        $ref: '#/definitions/types.ClaudeOAuthCredentials'
+      setup_token:
+        type: string
+    type: object
   server.SessionSandboxStateResponse:
     properties:
       container_id:
@@ -3002,6 +3015,67 @@ definitions:
       name:
         type: string
     type: object
+  types.AttentionEvent:
+    properties:
+      acknowledged_at:
+        type: string
+      created_at:
+        type: string
+      description:
+        type: string
+      dismissed_at:
+        type: string
+      event_type:
+        $ref: '#/definitions/types.AttentionEventType'
+      id:
+        type: string
+      idempotency_key:
+        type: string
+      metadata:
+        items:
+          type: integer
+        type: array
+      organization_id:
+        type: string
+      project_id:
+        type: string
+      project_name:
+        description: Denormalized for display without joins
+        type: string
+      snoozed_until:
+        type: string
+      spec_task_id:
+        type: string
+      spec_task_name:
+        type: string
+      title:
+        type: string
+      user_id:
+        type: string
+    type: object
+  types.AttentionEventType:
+    enum:
+    - specs_pushed
+    - agent_interaction_completed
+    - spec_failed
+    - implementation_failed
+    - pr_ready
+    type: string
+    x-enum-varnames:
+    - AttentionEventSpecsPushed
+    - AttentionEventAgentInteractionCompleted
+    - AttentionEventSpecFailed
+    - AttentionEventImplementationFailed
+    - AttentionEventPRReady
+  types.AttentionEventUpdateRequest:
+    properties:
+      acknowledge:
+        type: boolean
+      dismiss:
+        type: boolean
+      snoozed_until:
+        type: string
+    type: object
   types.AuditEventType:
     enum:
     - task_created
@@ -3094,11 +3168,11 @@ definitions:
       project_name:
         description: Project information
         type: string
-      pull_request_id:
+      pull_requests:
         description: Pull request information
-        type: string
-      pull_request_url:
-        type: string
+        items:
+          $ref: '#/definitions/types.RepoPR'
+        type: array
       requirements_spec_hash:
         description: Hash of requirements spec content
         type: string
@@ -3336,6 +3410,9 @@ definitions:
       created:
         type: string
       created_by:
+        type: string
+      credential_type:
+        description: '"oauth" or "setup_token"'
         type: string
       id:
         type: string
@@ -3706,6 +3783,9 @@ definitions:
         allOf:
         - $ref: '#/definitions/types.OwnerType'
         description: '"user" or "org"'
+      setup_token:
+        description: From `claude setup-token` (alternative to credentials)
+        type: string
     type: object
   types.CreatePullRequestRequest:
     properties:
@@ -4523,12 +4603,6 @@ definitions:
         type: string
       password:
         description: Password for the repository
-        type: string
-      project_id:
-        description: |-
-          Deprecated: ProjectID is maintained for backward compatibility only.
-          Use the project_repositories junction table for many-to-many project-repo relationships.
-          This column is kept in the database for rollback compatibility but reads should use the junction table.
         type: string
       repo_type:
         $ref: '#/definitions/types.GitRepositoryType'
@@ -6657,6 +6731,22 @@ definitions:
       password_confirm:
         type: string
     type: object
+  types.RepoPR:
+    properties:
+      pr_id:
+        type: string
+      pr_number:
+        type: integer
+      pr_state:
+        description: '"open", "closed", "merged"'
+        type: string
+      pr_url:
+        type: string
+      repository_id:
+        type: string
+      repository_name:
+        type: string
+    type: object
   types.RepositoryAccessCheck:
     properties:
       can_fork:
@@ -7622,6 +7712,10 @@ definitions:
       work_session_id:
         description: ID of associated WorkSession
         type: string
+      zed_agent_name:
+        description: Agent name used when thread was created (e.g., "zed-agent", "claude",
+          "qwen")
+        type: string
       zed_instance_id:
         description: Associated Zed instance ID
         type: string
@@ -7742,6 +7836,11 @@ definitions:
         type: string
       loadedAt:
         type: string
+      mcp:
+        allOf:
+        - $ref: '#/definitions/types.SkillMCPSpec'
+        description: MCP configuration (present when this skill is MCP-backed rather
+          than API-backed)
       name:
         type: string
       oauthProvider:
@@ -7779,6 +7878,15 @@ definitions:
         type: string
       type:
         description: e.g., "material-ui", "custom"
+        type: string
+    type: object
+  types.SkillMCPSpec:
+    properties:
+      autoProvision:
+        description: if true, URL+auth are generated server-side
+        type: boolean
+      transport:
+        description: '"http" or "sse"'
         type: string
     type: object
   types.SkillRequiredParameter:
@@ -7848,6 +7956,9 @@ definitions:
       archived:
         description: Archive to hide from main view
         type: boolean
+      assignee_id:
+        description: Team member assigned to work on this task
+        type: string
       base_branch:
         description: The base branch this was created from
         type: string
@@ -7965,13 +8076,20 @@ definitions:
       public_design_docs:
         description: Public sharing
         type: boolean
-      pull_request_id:
-        type: string
-      pull_request_url:
-        description: Computed field, not stored
-        type: string
+      repo_pull_requests:
+        description: 'Multi-repo PR tracking: list of PRs across all project repositories'
+        items:
+          $ref: '#/definitions/types.RepoPR'
+        type: array
       requirements_spec:
         description: User stories + EARS acceptance criteria (markdown)
+        type: string
+      sandbox_state:
+        description: '"absent", "running", "starting" — derived from session config
+          in listTasks'
+        type: string
+      sandbox_status_message:
+        description: Transient startup message e.g. "Unpacking build cache"
         type: string
       session_updated_at:
         description: Agent activity tracking (computed from session/activity data,
@@ -8332,6 +8450,9 @@ definitions:
     - TaskStatusImplementationFailed
   types.SpecTaskUpdateRequest:
     properties:
+      assignee_id:
+        description: Pointer to allow clearing (set to empty string to unassign)
+        type: string
       depends_on:
         description: IDs of tasks this task depends on
         items:
@@ -8368,6 +8489,9 @@ definitions:
       archived:
         description: Archive to hide from main view
         type: boolean
+      assignee_id:
+        description: Team member assigned to work on this task
+        type: string
       base_branch:
         description: The base branch this was created from
         type: string
@@ -8487,13 +8611,20 @@ definitions:
       public_design_docs:
         description: Public sharing
         type: boolean
-      pull_request_id:
-        type: string
-      pull_request_url:
-        description: Computed field, not stored
-        type: string
+      repo_pull_requests:
+        description: 'Multi-repo PR tracking: list of PRs across all project repositories'
+        items:
+          $ref: '#/definitions/types.RepoPR'
+        type: array
       requirements_spec:
         description: User stories + EARS acceptance criteria (markdown)
+        type: string
+      sandbox_state:
+        description: '"absent", "running", "starting" — derived from session config
+          in listTasks'
+        type: string
+      sandbox_status_message:
+        description: Transient startup message e.g. "Unpacking build cache"
         type: string
       session_updated_at:
         description: Agent activity tracking (computed from session/activity data,
@@ -9649,6 +9780,38 @@ definitions:
       updated:
         type: string
     type: object
+  types.ZFSTree:
+    properties:
+      available:
+        type: boolean
+      golden:
+        $ref: '#/definitions/types.ZFSTreeNode'
+      orphans:
+        items:
+          $ref: '#/definitions/types.ZFSTreeNode'
+        type: array
+      pool_root:
+        type: string
+    type: object
+  types.ZFSTreeNode:
+    properties:
+      children:
+        items:
+          $ref: '#/definitions/types.ZFSTreeNode'
+        type: array
+      mounted:
+        type: boolean
+      name:
+        type: string
+      refer:
+        type: string
+      session_id:
+        type: string
+      type:
+        type: string
+      used:
+        type: string
+    type: object
   types.ZedConfigResponse:
     properties:
       agent:
@@ -10801,6 +10964,31 @@ paths:
       summary: Delete app memory
       tags:
       - memories
+  /api/v1/apps/{id}/skills/{skill}/enable:
+    post:
+      description: Enable a marketplace skill on an app. For autoProvision MCP skills
+        the server generates URL and auth automatically.
+      parameters:
+      - description: App ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Skill name (e.g. code-intelligence)
+        in: path
+        name: skill
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.App'
+      security:
+      - BearerAuth: []
+      summary: Enable a marketplace skill on an app
+      tags:
+      - skills
   /api/v1/apps/{id}/step-info:
     get:
       description: List step info for a specific app and interaction ID, used to build
@@ -10912,6 +11100,105 @@ paths:
       summary: Get app users daily usage
       tags:
       - apps
+  /api/v1/attention-events:
+    get:
+      description: Returns attention events that need human action for the current
+        user. Only returns events that have not been dismissed and are not currently
+        snoozed.
+      parameters:
+      - description: 'Filter to active (non-dismissed, non-snoozed) events only (default:
+          true)'
+        in: query
+        name: active
+        type: boolean
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.AttentionEvent'
+            type: array
+        "401":
+          description: unauthorized
+          schema:
+            type: string
+        "500":
+          description: internal server error
+          schema:
+            type: string
+      summary: List active attention events
+      tags:
+      - attention-events
+  /api/v1/attention-events/{id}:
+    patch:
+      consumes:
+      - application/json
+      description: Acknowledge, dismiss, or snooze an attention event.
+      parameters:
+      - description: Attention event ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Update request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.AttentionEventUpdateRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: bad request
+          schema:
+            type: string
+        "401":
+          description: unauthorized
+          schema:
+            type: string
+        "404":
+          description: not found
+          schema:
+            type: string
+        "500":
+          description: internal server error
+          schema:
+            type: string
+      summary: Update an attention event
+      tags:
+      - attention-events
+  /api/v1/attention-events/dismiss-all:
+    post:
+      description: Bulk-dismiss all active (non-dismissed) attention events for the
+        current user.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: unauthorized
+          schema:
+            type: string
+        "500":
+          description: internal server error
+          schema:
+            type: string
+      summary: Dismiss all active attention events
+      tags:
+      - attention-events
   /api/v1/auth/authenticated:
     get:
       description: Check if the user is authenticated
@@ -14906,6 +15193,28 @@ paths:
       summary: Cancel running golden Docker cache builds
       tags:
       - Projects
+  /api/v1/projects/{id}/docker-cache/zfs-tree:
+    get:
+      description: Returns the ZFS snapshot and clone tree showing golden cache, snapshots,
+        and active session clones.
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.ZFSTree'
+      security:
+      - BearerAuth: []
+      summary: Get ZFS snapshot/clone tree for project's Docker cache
+      tags:
+      - projects
   /api/v1/projects/{id}/exploratory-session:
     delete:
       description: Stop the running exploratory session for a project (stops sandbox
@@ -17283,7 +17592,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/types.ClaudeOAuthCredentials'
+            $ref: '#/definitions/server.SessionClaudeCredentialsResponse'
         "401":
           description: Unauthorized
           schema:

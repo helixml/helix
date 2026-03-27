@@ -85,6 +85,16 @@ func (apiServer *HelixAPIServer) processPendingPromptsForIdleSessions(ctx contex
 		return
 	}
 
+	// Determine the canonical planning session for this spec task.
+	// We only deliver prompts to the session that is the authoritative planning session
+	// (task.PlanningSessionID). If a duplicate orphan session was created by a race
+	// condition (issue #10), we must not deliver prompts to it — that causes duplicate
+	// message sends (issue #2) and confuses the agent (issue #9).
+	var canonicalSessionID string
+	if specTask, taskErr := apiServer.Store.GetSpecTask(ctx, specTaskID); taskErr == nil && specTask != nil {
+		canonicalSessionID = specTask.PlanningSessionID
+	}
+
 	// Collect pending prompts per session
 	type sessionPending struct {
 		interruptCount int
@@ -97,6 +107,16 @@ func (apiServer *HelixAPIServer) processPendingPromptsForIdleSessions(ctx contex
 			continue
 		}
 		if entry.SessionID == "" {
+			continue
+		}
+		// Skip sessions that are not the canonical planning session (issue #10b).
+		// If we couldn't determine the canonical session, fall through to the old behaviour.
+		if canonicalSessionID != "" && entry.SessionID != canonicalSessionID {
+			log.Debug().
+				Str("spec_task_id", specTaskID).
+				Str("canonical_session_id", canonicalSessionID).
+				Str("skipped_session_id", entry.SessionID).
+				Msg("🔍 [QUEUE] Skipping prompt for non-canonical session (duplicate race session)")
 			continue
 		}
 
@@ -208,11 +228,16 @@ func (apiServer *HelixAPIServer) processInterruptPrompt(ctx context.Context, ses
 		Bool("is_retry", isRetry).
 		Msg("📤 [INTERRUPT] Processing interrupt prompt")
 
-	// CRITICAL: Mark as 'sent' IMMEDIATELY to prevent race conditions.
-	// Once we start processing, mark it done so no other process picks it up.
-	if err := apiServer.Store.MarkPromptAsSent(ctx, nextPrompt.ID); err != nil {
-		log.Error().Err(err).Str("prompt_id", nextPrompt.ID).Msg("Failed to mark prompt as sent")
-		// Continue anyway - better to risk duplicate than lose the message
+	// Atomically claim this prompt to prevent duplicate delivery (issue #2).
+	// If another goroutine already claimed it, skip — they will send it.
+	claimed, err := apiServer.Store.ClaimPromptForSending(ctx, nextPrompt.ID)
+	if err != nil {
+		log.Error().Err(err).Str("prompt_id", nextPrompt.ID).Msg("Failed to claim prompt for sending")
+		return
+	}
+	if !claimed {
+		log.Info().Str("prompt_id", nextPrompt.ID).Msg("📤 [INTERRUPT] Prompt already claimed by another goroutine — skipping duplicate send")
+		return
 	}
 
 	// Send the prompt to the session (creates interaction and sends to agent)

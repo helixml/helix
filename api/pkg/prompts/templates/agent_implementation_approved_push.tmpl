@@ -3,9 +3,16 @@ Your implementation has been approved!
 Please commit and push any remaining uncommitted changes:
 
 ```bash
-git add -A
-git commit -m "Complete implementation"
+# First, push any pending design doc changes (including PR descriptions)
+cd /home/retro/work/helix-specs && git add -A && git diff --cached --quiet || (git commit -m "Final updates" && git push origin helix-specs)
+
+# Then push the feature branch in all repos that have changes
+cd /home/retro/work/{{ .PrimaryRepoName }} && git add -A && git diff --cached --quiet || git commit -m "Complete implementation"
 git push origin {{ .BranchName }}
+{{- range .NonPrimaryRepoNames }}
+cd /home/retro/work/{{ . }} && git add -A && git diff --cached --quiet || git commit -m "Complete implementation"
+git push origin {{ $.BranchName }}
+{{- end }}
 ```
 
 If all your changes are already committed and pushed, no action is needed - the Pull Request has been opened automatically.

@@ -378,7 +378,6 @@ func (s *GitRepositoryService) CreateRepository(ctx context.Context, request *ty
 		Description:             request.Description,
 		OwnerID:                 request.OwnerID,
 		OrganizationID:          orgID,
-		ProjectID:               request.ProjectID,
 		RepoType:                request.RepoType,
 		Status:                  types.GitRepositoryStatusActive,
 		CloneURL:                s.generateCloneURL(repoID),
@@ -519,7 +518,10 @@ func (s *GitRepositoryService) CreateRepository(ctx context.Context, request *ty
 		if koditCloneURL != "" {
 			// Register repository with Kodit (non-blocking - failures are logged but don't fail repo creation)
 			go func() {
-				koditRepoID, _, err := s.koditService.RegisterRepository(context.Background(), koditCloneURL, request.ExternalURL)
+				koditRepoID, _, err := s.koditService.RegisterRepository(context.Background(), &RegisterRepositoryParams{
+					CloneURL:    koditCloneURL,
+					UpstreamURL: request.ExternalURL,
+				})
 				if err != nil {
 					log.Error().
 						Err(err).
@@ -868,7 +870,10 @@ func (s *GitRepositoryService) UpdateRepository(
 		}
 		koditCloneURL := s.BuildAuthenticatedCloneURL(repoID, koditAPIKey)
 
-		koditRepoID, _, err := s.koditService.RegisterRepository(ctx, koditCloneURL, existing.ExternalURL)
+		koditRepoID, _, err := s.koditService.RegisterRepository(ctx, &RegisterRepositoryParams{
+			CloneURL:    koditCloneURL,
+			UpstreamURL: existing.ExternalURL,
+		})
 		if err != nil {
 			return nil, fmt.Errorf("failed to register repository with Kodit: %w", err)
 		}

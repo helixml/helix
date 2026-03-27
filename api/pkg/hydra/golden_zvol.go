@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
 
@@ -255,6 +256,128 @@ func zfsSnapshotExists(name string) bool {
 	return execCmdRun("zfs", "list", "-H", "-t", "snapshot", "-o", "name", name) == nil
 }
 
+// ZFSTree and ZFSTreeNode are defined in types package.
+// Aliases for backward compatibility within hydra package.
+type ZFSTree = types.ZFSTree
+type ZFSTreeNode = types.ZFSTreeNode
+
+// GetZFSTree returns the ZFS snapshot and clone tree for a project's golden cache.
+func GetZFSTree(projectID string) (*ZFSTree, error) {
+	tree := &ZFSTree{
+		Available: ZFSAvailable(),
+		PoolRoot:  zfsParentDataset,
+	}
+	if !tree.Available {
+		return tree, nil
+	}
+
+	goldenName := goldenZvolName(projectID)
+	if !zfsDatasetExists(goldenName) {
+		return tree, nil
+	}
+
+	// Get golden zvol info
+	out, err := execCmdOutput("zfs", "list", "-H", "-o", "name,used,refer", goldenName)
+	if err != nil {
+		return tree, nil
+	}
+	fields := strings.Fields(strings.TrimSpace(string(out)))
+	if len(fields) < 3 {
+		return tree, nil
+	}
+
+	goldenNode := &ZFSTreeNode{
+		Name:  fields[0],
+		Type:  "golden",
+		Used:  fields[1],
+		Refer: fields[2],
+	}
+	tree.Golden = goldenNode
+
+	// Get all snapshots for this golden
+	snapOut, err := execCmdOutput("zfs", "list", "-H", "-t", "snapshot", "-o", "name,used,refer",
+		"-s", "creation", "-r", goldenName)
+	if err != nil {
+		return tree, nil
+	}
+
+	// Build a map of snapshot → clone nodes
+	// First get all volumes with their origin to find clones
+	volOut, _ := execCmdOutput("zfs", "list", "-H", "-o", "name,used,refer,origin", "-t", "volume", "-r", zfsParentDataset)
+
+	type cloneInfo struct {
+		name   string
+		used   string
+		refer  string
+		origin string
+	}
+	var clones []cloneInfo
+	for _, line := range strings.Split(strings.TrimSpace(string(volOut)), "\n") {
+		f := strings.Fields(line)
+		if len(f) < 4 {
+			continue
+		}
+		if f[3] != "-" && strings.HasPrefix(f[0], zfsParentDataset+"/ses-") {
+			clones = append(clones, cloneInfo{name: f[0], used: f[1], refer: f[2], origin: f[3]})
+		}
+	}
+
+	for _, snapLine := range strings.Split(strings.TrimSpace(string(snapOut)), "\n") {
+		sf := strings.Fields(snapLine)
+		if len(sf) < 3 {
+			continue
+		}
+		snapNode := &ZFSTreeNode{
+			Name:  sf[0],
+			Type:  "snapshot",
+			Used:  sf[1],
+			Refer: sf[2],
+		}
+
+		// Find clones of this snapshot
+		for _, c := range clones {
+			if c.origin == sf[0] {
+				sessionID := strings.TrimPrefix(c.name, zfsParentDataset+"/ses-")
+				mountPath := sessionZvolMountPath(sessionID)
+				cloneNode := &ZFSTreeNode{
+					Name:      c.name,
+					Type:      "clone",
+					Used:      c.used,
+					Refer:     c.refer,
+					Mounted:   isMounted(mountPath),
+					SessionID: sessionID,
+				}
+				snapNode.Children = append(snapNode.Children, cloneNode)
+			}
+		}
+
+		goldenNode.Children = append(goldenNode.Children, snapNode)
+	}
+
+	// Find orphan session zvols (no origin, or origin from a different golden)
+	for _, line := range strings.Split(strings.TrimSpace(string(volOut)), "\n") {
+		f := strings.Fields(line)
+		if len(f) < 4 || !strings.HasPrefix(f[0], zfsParentDataset+"/ses-") {
+			continue
+		}
+		if f[3] == "-" {
+			// No origin — fresh zvol, not a clone
+			sessionID := strings.TrimPrefix(f[0], zfsParentDataset+"/ses-")
+			mountPath := sessionZvolMountPath(sessionID)
+			tree.Orphans = append(tree.Orphans, &ZFSTreeNode{
+				Name:      f[0],
+				Type:      "clone",
+				Used:      f[1],
+				Refer:     f[2],
+				Mounted:   isMounted(mountPath),
+				SessionID: sessionID,
+			})
+		}
+	}
+
+	return tree, nil
+}
+
 // latestGoldenSnapshot returns the latest snapshot name for a project's golden zvol,
 // or empty string if none exists.
 func latestGoldenSnapshot(projectID string) string {
@@ -325,15 +448,13 @@ func SetupGoldenClone(projectID, sessionID string) (string, error) {
 		time.Sleep(100 * time.Millisecond)
 	}
 
-	// XFS refuses to mount two filesystems with the same UUID. The clone
-	// inherits the golden's UUID, so we must generate a new one before mounting.
-	if err := runCmd("xfs_admin", "-U", "generate", devPath); err != nil {
-		_ = runCmd("zfs", "destroy", cloneName)
-		return "", fmt.Errorf("xfs_admin UUID change failed on %s: %w", devPath, err)
-	}
-
-	// Mount the clone
-	if err := mountZvol(cloneName, mountPath); err != nil {
+	// Mount the clone with -o nouuid. XFS refuses to mount two filesystems
+	// with the same UUID, and clones inherit the golden's UUID. We can't use
+	// xfs_admin -U generate because the clone's XFS log may have unplayed
+	// entries from the golden build, which xfs_admin refuses to modify.
+	// nouuid skips the UUID check entirely — safe because each clone is on
+	// its own separate block device (zvol).
+	if err := mountZvolWithOptions(cloneName, mountPath, "nouuid"); err != nil {
 		// Cleanup the clone on mount failure
 		_ = runCmd("zfs", "destroy", cloneName)
 		return "", fmt.Errorf("failed to mount clone %s at %s: %w", cloneName, mountPath, err)
@@ -482,15 +603,25 @@ func PromoteSessionToGoldenZvol(projectID, sessionID string) error {
 	data, _ := json.MarshalIndent(info, "", "  ")
 	_ = os.WriteFile(filepath.Join(goldenMount, "golden-version.json"), data, 0644)
 
-	// Unmount
-	_ = runCmd("umount", goldenMount)
-	_ = os.Remove(goldenMount)
+	// Flush XFS journal before snapshot — ensures clones mount instantly
+	// (no journal replay needed). Without this, every clone pays ~2.3s
+	// of journal replay on mount.
+	_ = runCmd("sync")
+	_ = runCmd("xfs_freeze", "-f", goldenMount)
 
-	// Take snapshot for future clones
+	// Take snapshot while filesystem is frozen (clean journal)
 	snapName := fmt.Sprintf("%s@gen%d", goldenName, nextGeneration)
 	if err := runCmd("zfs", "snapshot", snapName); err != nil {
+		_ = runCmd("xfs_freeze", "-u", goldenMount)
+		_ = runCmd("umount", goldenMount)
+		_ = os.Remove(goldenMount)
 		return fmt.Errorf("zfs snapshot %s failed: %w", snapName, err)
 	}
+
+	// Thaw and unmount
+	_ = runCmd("xfs_freeze", "-u", goldenMount)
+	_ = runCmd("umount", goldenMount)
+	_ = os.Remove(goldenMount)
 
 	log.Info().
 		Str("project_id", projectID).
@@ -622,19 +753,39 @@ func GCOrphanedZvols(activeSessions map[string]bool) (int, error) {
 		}
 		sessionID := strings.TrimPrefix(name, prefix)
 		if activeSessions[sessionID] {
+			// Refresh the external marker so that if Hydra crashes or the
+			// session runs for weeks, the marker stays fresh and GC won't
+			// destroy the zvol after the next restart.
+			externalDir := filepath.Join(sessionsBaseDir, "docker-data-"+sessionID)
+			_ = os.MkdirAll(externalDir, 0755)
+			TouchSessionLastActive(externalDir)
 			continue
 		}
 
-		// Check .last-active marker on the mounted filesystem
-		mountPath := sessionZvolMountPath(sessionID)
-		if isMounted(mountPath) {
-			marker := filepath.Join(mountPath, ".last-active")
-			data, err := os.ReadFile(marker)
-			if err == nil {
-				t, err := time.Parse(time.RFC3339, string(data))
-				if err == nil && time.Since(t) < 7*24*time.Hour {
-					continue // still recent, keep it
+		// Check .last-active marker on the external filesystem (not inside
+		// the zvol). The marker lives at /container-docker/sessions/docker-data-{sessionID}/
+		// which is on the parent ZFS dataset, readable without mounting the XFS zvol.
+		externalDir := filepath.Join(sessionsBaseDir, "docker-data-"+sessionID)
+		age := sessionLastActiveAge(externalDir)
+		if age > 0 && age < 7*24*time.Hour {
+			continue // recently active, keep it
+		}
+		if age == 0 {
+			// No marker — session predates marker feature or was never
+			// cleanly stopped. Check inside the zvol as a fallback.
+			mountPath := sessionZvolMountPath(sessionID)
+			if isMounted(mountPath) {
+				innerAge := sessionLastActiveAge(mountPath)
+				if innerAge > 0 && innerAge < 7*24*time.Hour {
+					continue
 				}
+				if innerAge == 0 {
+					// No marker anywhere — don't GC, it'll get one next stop.
+					continue
+				}
+			} else {
+				// Not mounted, no external marker — don't GC.
+				continue
 			}
 		}
 
@@ -646,6 +797,83 @@ func GCOrphanedZvols(activeSessions map[string]bool) (int, error) {
 	}
 
 	return cleaned, nil
+}
+
+// GCStaleSnapshots destroys golden snapshots older than 7 days that have no
+// remaining clones. Keeps recent snapshots so the user can see cache progression.
+// Snapshots with active session clones can't be destroyed (ZFS refuses) — that's
+// handled gracefully.
+func GCStaleSnapshots() int {
+	if !ZFSAvailable() {
+		return 0
+	}
+
+	// List all golden zvols
+	out, err := execCmdOutput("zfs", "list", "-H", "-o", "name", "-t", "volume", "-r", zfsParentDataset)
+	if err != nil {
+		return 0
+	}
+
+	var cleaned int
+	goldenPrefix := zfsParentDataset + "/golden-"
+	for _, zvol := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if !strings.HasPrefix(zvol, goldenPrefix) {
+			continue
+		}
+
+		// List snapshots with creation time, oldest first
+		snapOut, err := execCmdOutput("zfs", "list", "-H", "-t", "snapshot", "-o", "name,creation",
+			"-s", "creation", "-r", zvol)
+		if err != nil {
+			continue
+		}
+		lines := strings.Split(strings.TrimSpace(string(snapOut)), "\n")
+		if len(lines) <= 1 {
+			continue // only one snapshot (or none), nothing to GC
+		}
+
+		// Always keep the latest snapshot regardless of age
+		for _, line := range lines[:len(lines)-1] {
+			if line == "" {
+				continue
+			}
+			// Parse name and creation time
+			// Format: "pool/helix-zvols/golden-prj_xxx@gen1\tDow Mon DD HH:MM YYYY"
+			parts := strings.SplitN(line, "\t", 2)
+			snap := parts[0]
+			if len(parts) < 2 {
+				continue
+			}
+
+			// Parse ZFS creation timestamp
+			created, err := time.Parse("Mon Jan  2 15:04 2006", strings.TrimSpace(parts[1]))
+			if err != nil {
+				// Try alternate format (some ZFS versions use different format)
+				created, err = time.Parse("Mon Jan 2 15:04 2006", strings.TrimSpace(parts[1]))
+				if err != nil {
+					continue // can't parse, skip
+				}
+			}
+
+			if time.Since(created) < 7*24*time.Hour {
+				continue // less than 7 days old, keep it
+			}
+
+			// zfs destroy will fail if the snapshot has dependent clones — that's fine
+			if err := runCmd("zfs", "destroy", snap); err != nil {
+				log.Debug().
+					Str("snapshot", snap).
+					Msg("Cannot destroy snapshot (likely has dependent clones), will retry next GC")
+			} else {
+				log.Info().
+					Str("snapshot", snap).
+					Msg("Destroyed stale golden snapshot (>7 days old)")
+				cleaned++
+			}
+		}
+	}
+
+	return cleaned
 }
 
 // effectiveGoldenBaseDir returns the golden base directory, respecting test overrides.
@@ -718,17 +946,25 @@ func MigrateGoldenToZvol(projectID string) error {
 		return fmt.Errorf("seed failed: %w", err)
 	}
 
-	// Unmount
+	// Flush XFS journal before snapshot — ensures clones mount instantly
+	_ = runCmd("sync")
+	_ = runCmd("xfs_freeze", "-f", mountPath)
+
+	// Take snapshot while filesystem is frozen (clean journal)
+	snapName := fmt.Sprintf("%s@gen1", goldenName)
+	if err := runCmd("zfs", "snapshot", snapName); err != nil {
+		_ = runCmd("xfs_freeze", "-u", mountPath)
+		_ = runCmd("umount", mountPath)
+		_ = os.Remove(mountPath)
+		return fmt.Errorf("zfs snapshot failed: %w", err)
+	}
+
+	// Thaw and unmount
+	_ = runCmd("xfs_freeze", "-u", mountPath)
 	if err := runCmd("umount", mountPath); err != nil {
 		return fmt.Errorf("umount after seed failed: %w", err)
 	}
 	_ = os.Remove(mountPath)
-
-	// Snapshot
-	snapName := fmt.Sprintf("%s@gen1", goldenName)
-	if err := runCmd("zfs", "snapshot", snapName); err != nil {
-		return fmt.Errorf("zfs snapshot failed: %w", err)
-	}
 
 	log.Info().
 		Str("project_id", projectID).
@@ -777,6 +1013,9 @@ func purgeContainerDirs(dockerDir string) {
 		os.RemoveAll(filepath.Join(dockerDir, dir))
 	}
 	os.Remove(filepath.Join(dockerDir, ".golden-build-result"))
+
+	// Prune unreferenced overlay2 layers left behind by previous image builds.
+	pruneUnreferencedOverlay2Layers(dockerDir)
 }
 
 const seedCompleteMarker = ".zvol-seed-complete"
@@ -844,10 +1083,18 @@ func seedZvolFromGoldenDir(projectID, zvolMountPath string) error {
 
 // mountZvol mounts a zvol at the given path.
 func mountZvol(zvolName, mountPath string) error {
+	return mountZvolWithOptions(zvolName, mountPath, "")
+}
+
+// mountZvolWithOptions mounts a zvol with optional mount options (e.g. "nouuid" for XFS).
+func mountZvolWithOptions(zvolName, mountPath, options string) error {
 	if err := osMkdirAll(mountPath, 0755); err != nil {
 		return fmt.Errorf("failed to create mount point %s: %w", mountPath, err)
 	}
 	devPath := zvolDevPath(zvolName)
+	if options != "" {
+		return runCmd("mount", "-o", options, devPath, mountPath)
+	}
 	return runCmd("mount", devPath, mountPath)
 }
 

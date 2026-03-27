@@ -652,8 +652,13 @@ func (apiServer *HelixAPIServer) handleThreadCreated(sessionID string, syncMsg *
 			return fmt.Errorf("failed to get Helix session %s: %w", helixSessionID, err)
 		}
 
-		// Store the zed_context_id on the session metadata
+		// Store the zed_context_id and agent name on the session metadata.
+		// The agent name is persisted so we use the correct agent for this thread
+		// even if the project's default agent changes later.
 		helixSession.Metadata.ZedThreadID = contextID
+		if helixSession.Metadata.ZedAgentName == "" {
+			helixSession.Metadata.ZedAgentName = apiServer.getAgentNameForSession(context.Background(), helixSession)
+		}
 		helixSession.Updated = time.Now()
 
 		// Update the session in the database
@@ -680,8 +685,29 @@ func (apiServer *HelixAPIServer) handleThreadCreated(sessionID string, syncMsg *
 		return nil
 	}
 
-	// If no helixSessionID provided, this is a NEW context created by user inside Zed
-	// Only in this case should we create a new Helix session
+	// PRIORITY 3: Check if a session already exists with this ZedThreadID.
+	// This prevents creating duplicate sessions when the same thread is reported again
+	// (e.g., after Zed reconnects and re-reports an existing thread).
+	existingSession, err := apiServer.findSessionByZedThreadID(context.Background(), contextID)
+	if err == nil && existingSession != nil {
+		log.Info().
+			Str("agent_session_id", sessionID).
+			Str("existing_session_id", existingSession.ID).
+			Str("zed_thread_id", contextID).
+			Msg("✅ [HELIX] Found existing session by ZedThreadID, reusing instead of creating duplicate")
+
+		apiServer.contextMappingsMutex.Lock()
+		apiServer.contextMappings[contextID] = existingSession.ID
+		apiServer.contextMappingsMutex.Unlock()
+
+		if existingSession.Metadata.SpecTaskID != "" {
+			go apiServer.trackSpecTaskZedThread(context.Background(), existingSession, acpThreadID, title)
+		}
+
+		return nil
+	}
+
+	// If no helixSessionID provided and no existing session found, this is a genuinely NEW context
 	log.Info().
 		Str("agent_session_id", sessionID).
 		Str("context_id", contextID).
@@ -742,6 +768,14 @@ func (apiServer *HelixAPIServer) handleThreadCreated(sessionID string, syncMsg *
 	apiServer.contextMappings[contextID] = createdSession.ID
 	apiServer.contextMappingsMutex.Unlock()
 
+	// Register the WebSocket connection for the child session ID so
+	// sendCommandToExternalAgent can route commands to it. The agent
+	// connected under sessionID (the parent/connection ID), but child
+	// sessions need their own routing entry.
+	if wsConn, exists := apiServer.externalAgentWSManager.getConnection(sessionID); exists && wsConn != nil {
+		apiServer.externalAgentWSManager.registerConnection(createdSession.ID, wsConn)
+	}
+
 	// CRITICAL: Create an interaction for this new session
 	// The request_id from thread_created contains the message that triggered this thread
 	log.Info().
@@ -795,6 +829,7 @@ func (apiServer *HelixAPIServer) handleThreadCreated(sessionID string, syncMsg *
 			// Set the SpecTaskID on the new session too
 			createdSession.Metadata.SpecTaskID = originalSession.Metadata.SpecTaskID
 			createdSession.Metadata.ZedThreadID = contextID
+			createdSession.Metadata.ZedAgentName = apiServer.getAgentNameForSession(context.Background(), originalSession)
 			_, _ = apiServer.Controller.Options.Store.UpdateSession(context.Background(), *createdSession)
 
 			go apiServer.trackSpecTaskZedThread(context.Background(), createdSession, acpThreadID, title)
@@ -816,6 +851,7 @@ func (apiServer *HelixAPIServer) handleThreadCreated(sessionID string, syncMsg *
 			if err == nil && originalSession != nil && originalSession.Metadata.SpecTaskID != "" {
 				createdSession.Metadata.SpecTaskID = originalSession.Metadata.SpecTaskID
 				createdSession.Metadata.ZedThreadID = contextID
+				createdSession.Metadata.ZedAgentName = apiServer.getAgentNameForSession(context.Background(), originalSession)
 				_, _ = apiServer.Controller.Options.Store.UpdateSession(context.Background(), *createdSession)
 
 				go apiServer.trackSpecTaskZedThread(context.Background(), createdSession, acpThreadID, title)
@@ -1162,6 +1198,10 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 				Str("role", role).
 				Msg("💬 [HELIX] Created interaction for user message from Zed")
 
+			// Update session timestamp so findConnectedSessionForSpecTask
+			// picks the session with the most recent activity.
+			_ = apiServer.Controller.Options.Store.TouchSession(context.Background(), helixSessionID)
+
 			// CRITICAL: Enqueue this interaction so the AI response goes to it
 			apiServer.contextMappingsMutex.Lock()
 			if apiServer.sessionToWaitingInteraction == nil {
@@ -1415,23 +1455,55 @@ func (apiServer *HelixAPIServer) handleContextTitleChanged(sessionID string, syn
 	return nil
 }
 
-// sendChatMessageToExternalAgent sends a chat message to an external agent session
-// This is the proper way to send messages that trigger agent responses
-func (apiServer *HelixAPIServer) sendChatMessageToExternalAgent(sessionID, message, requestID string) error {
-	// Look up the session to get its ZedThreadID - we want to continue in the existing thread
-	// instead of creating a new one. This maintains the 1:1 mapping between Zed threads and Helix sessions.
+// sendChatMessageToExternalAgent is the canonical function for sending a message
+// to an external agent. It creates a waiting interaction, enqueues it for response
+// routing, and sends the WebSocket command. All callers that need to send a message
+// to an agent should use this function.
+func (apiServer *HelixAPIServer) sendChatMessageToExternalAgent(sessionID, message, requestID string) (interactionID string, err error) {
+	ctx := context.Background()
+
+	// Look up the session to get its ZedThreadID and agent name
 	var acpThreadID interface{} = nil
-	session, err := apiServer.Controller.Options.Store.GetSession(context.Background(), sessionID)
-	if err == nil && session != nil && session.Metadata.ZedThreadID != "" {
-		acpThreadID = session.Metadata.ZedThreadID
-		log.Info().
-			Str("session_id", sessionID).
-			Str("zed_thread_id", session.Metadata.ZedThreadID).
-			Msg("🔗 [HELIX] Using existing ZedThreadID for chat message")
-	} else {
-		log.Info().
-			Str("session_id", sessionID).
-			Msg("🆕 [HELIX] No ZedThreadID found, will create new thread")
+	var agentName string
+	session, err := apiServer.Controller.Options.Store.GetSession(ctx, sessionID)
+	if err == nil && session != nil {
+		agentName = apiServer.getAgentNameForSession(ctx, session)
+		if session.Metadata.ZedThreadID != "" {
+			acpThreadID = session.Metadata.ZedThreadID
+		}
+	}
+
+	// Create a waiting interaction so handleMessageCompleted can find it.
+	// Each message gets its own interaction to properly track the conversation.
+	if session != nil {
+		interaction := &types.Interaction{
+			Created:       time.Now(),
+			Updated:       time.Now(),
+			SessionID:     sessionID,
+			UserID:        session.Owner,
+			GenerationID:  session.GenerationID,
+			Mode:          types.SessionModeInference,
+			PromptMessage: message,
+			State:         types.InteractionStateWaiting,
+		}
+
+		createdInteraction, createErr := apiServer.Controller.Options.Store.CreateInteraction(ctx, interaction)
+		if createErr != nil {
+			log.Warn().Err(createErr).Str("session_id", sessionID).Msg("Failed to create interaction for chat message")
+		} else {
+			interactionID = createdInteraction.ID
+			apiServer.contextMappingsMutex.Lock()
+			if apiServer.sessionToWaitingInteraction == nil {
+				apiServer.sessionToWaitingInteraction = make(map[string][]string)
+			}
+			apiServer.sessionToWaitingInteraction[sessionID] = append(
+				apiServer.sessionToWaitingInteraction[sessionID], interactionID)
+			apiServer.contextMappingsMutex.Unlock()
+		}
+
+		// Update session timestamp so findConnectedSessionForSpecTask
+		// picks the most recently active session.
+		_ = apiServer.Controller.Options.Store.TouchSession(ctx, sessionID)
 	}
 
 	command := types.ExternalAgentCommand{
@@ -1440,10 +1512,12 @@ func (apiServer *HelixAPIServer) sendChatMessageToExternalAgent(sessionID, messa
 			"message":       message,
 			"request_id":    requestID,
 			"acp_thread_id": acpThreadID, // Use existing thread if available, nil = create new
+			"agent_name":    agentName,   // Which agent to use (e.g., "claude", "qwen", "zed-agent")
 		},
 	}
 
-	return apiServer.sendCommandToExternalAgent(sessionID, command)
+	err = apiServer.sendCommandToExternalAgent(sessionID, command)
+	return interactionID, err
 }
 
 // sendCommandToExternalAgent sends a command to the external agent
@@ -2008,14 +2082,111 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 		Str("final_state", string(targetInteraction.State)).
 		Msg("✅ [HELIX] Marked interaction as complete")
 
+	// Update session timestamp so findConnectedSessionForSpecTask
+	// picks the most recently active session.
+	_ = apiServer.Controller.Options.Store.TouchSession(context.Background(), helixSessionID)
+
 	// Update SpecTaskZedThread activity if this is a spectask session
 	if helixSession.Metadata.SpecTaskID != "" {
 		go apiServer.updateSpecTaskZedThreadActivity(context.Background(), acpThreadID)
+
+		// Emit attention event: agent interaction completed
+		if apiServer.attentionService != nil {
+			go func() {
+				task, err := apiServer.Controller.Options.Store.GetSpecTask(context.Background(), helixSession.Metadata.SpecTaskID)
+				if err != nil {
+					log.Warn().Err(err).
+						Str("spec_task_id", helixSession.Metadata.SpecTaskID).
+						Msg("Failed to load spectask for attention event")
+					return
+				}
+				_, err = apiServer.attentionService.EmitEvent(
+					context.Background(),
+					types.AttentionEventAgentInteractionCompleted,
+					task,
+					targetInteraction.ID, // qualifier = interaction ID for idempotency
+					map[string]interface{}{
+						"interaction_id": targetInteraction.ID,
+						"session_id":     helixSessionID,
+					},
+				)
+				if err != nil {
+					log.Warn().Err(err).
+						Str("spec_task_id", task.ID).
+						Msg("Failed to emit agent_interaction_completed attention event")
+				}
+			}()
+		}
 	}
 
 	// Extract request_id from message data for commenter notification
 	// This needs to be done before publishing so we can pass it to publishSessionUpdateToFrontend
 	messageRequestID, _ := syncMsg.Data["request_id"].(string)
+
+	// FINALIZE COMMENT RESPONSE before notifying the frontend.
+	// Running this synchronously (not in a goroutine) ensures comment.agent_response is
+	// written to the DB before the frontend receives the completion event and refetches
+	// the comment list. Previously this ran in a goroutine after the publish, causing a
+	// race where the frontend refetch could beat finalization and see an empty
+	// agent_response — eventually triggering the 2-minute timeout error message.
+	if messageRequestID != "" {
+		log.Info().
+			Str("request_id", messageRequestID).
+			Str("helix_session_id", helixSessionID).
+			Msg("🎯 [HELIX] Using request_id from message_completed data to finalize comment")
+
+		if err := apiServer.finalizeCommentResponse(context.Background(), messageRequestID); err != nil {
+			log.Debug().
+				Err(err).
+				Str("request_id", messageRequestID).
+				Msg("No comment found for request_id (this is normal for non-comment interactions)")
+		} else {
+			log.Info().
+				Str("request_id", messageRequestID).
+				Msg("✅ [HELIX] Finalized comment response via request_id from message data")
+		}
+
+		// Clean up requestToCommenterMapping now that response is complete
+		if apiServer.requestToCommenterMapping != nil {
+			delete(apiServer.requestToCommenterMapping, messageRequestID)
+			log.Debug().Str("request_id", messageRequestID).Msg("🧹 [HELIX] Cleaned up requestToCommenterMapping")
+		}
+	} else {
+		// FALLBACK: Session-based lookup (for agents that don't echo request_id)
+		// This may fail if helixSessionID != planning_session_id, but we try anyway
+		log.Debug().
+			Str("helix_session_id", helixSessionID).
+			Msg("No request_id in message_completed data, falling back to session-based lookup")
+
+		pendingComment, err := apiServer.Store.GetPendingCommentByPlanningSessionID(context.Background(), helixSessionID)
+		if err == nil && pendingComment != nil {
+			requestID := pendingComment.RequestID
+			commentID := pendingComment.ID
+
+			if err := apiServer.finalizeCommentResponse(context.Background(), requestID); err != nil {
+				log.Error().
+					Err(err).
+					Str("comment_id", commentID).
+					Str("request_id", requestID).
+					Msg("Failed to finalize comment response")
+			} else {
+				log.Info().
+					Str("comment_id", commentID).
+					Str("request_id", requestID).
+					Msg("✅ [HELIX] Finalized comment response via session-based lookup (fallback)")
+			}
+
+			// Clean up requestToCommenterMapping now that response is complete
+			if apiServer.requestToCommenterMapping != nil {
+				delete(apiServer.requestToCommenterMapping, requestID)
+				log.Debug().Str("request_id", requestID).Msg("🧹 [HELIX] Cleaned up requestToCommenterMapping (fallback path)")
+			}
+		} else {
+			log.Debug().
+				Str("session_id", helixSessionID).
+				Msg("No pending design review comment to finalize for session (this is normal for non-comment interactions)")
+		}
+	}
 
 	// CRITICAL: Publish completion through BOTH event channels:
 	// 1. interaction_update — same channel used during streaming, ensures useLiveInteraction sees state=complete
@@ -2077,90 +2248,6 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 		}
 	}
 
-	// FINALIZE COMMENT RESPONSE
-	// PRIMARY APPROACH: Use request_id from message data (echoed back by agent)
-	// This is the definitive link to the comment and doesn't rely on session ID matching
-	// FALLBACK: Session-based lookup (for backwards compatibility with agents that don't echo request_id)
-	// NOTE: messageRequestID was already extracted above for publishSessionUpdateToFrontend
-
-	if messageRequestID != "" {
-		// PRIMARY: Use request_id from message data directly
-		log.Info().
-			Str("request_id", messageRequestID).
-			Str("helix_session_id", helixSessionID).
-			Msg("🎯 [HELIX] Using request_id from message_completed data to finalize comment")
-
-		go func(sessionID, requestID string) {
-			if err := apiServer.finalizeCommentResponse(context.Background(), requestID); err != nil {
-				log.Debug().
-					Err(err).
-					Str("request_id", requestID).
-					Msg("No comment found for request_id (this is normal for non-comment interactions)")
-				return
-			}
-
-			log.Info().
-				Str("session_id", sessionID).
-				Str("request_id", requestID).
-				Msg("✅ [HELIX] Finalized comment response via request_id from message data")
-
-			// Clean up requestToCommenterMapping now that response is complete
-			if apiServer.requestToCommenterMapping != nil {
-				delete(apiServer.requestToCommenterMapping, requestID)
-				log.Debug().Str("request_id", requestID).Msg("🧹 [HELIX] Cleaned up requestToCommenterMapping")
-			}
-		}(helixSessionID, messageRequestID)
-	} else {
-		// FALLBACK: Session-based lookup (for agents that don't echo request_id)
-		// This may fail if helixSessionID != planning_session_id, but we try anyway
-		log.Debug().
-			Str("helix_session_id", helixSessionID).
-			Msg("No request_id in message_completed data, falling back to session-based lookup")
-
-		pendingComment, err := apiServer.Store.GetPendingCommentByPlanningSessionID(context.Background(), helixSessionID)
-		if err == nil && pendingComment != nil {
-			requestID := pendingComment.RequestID
-			commentID := pendingComment.ID
-
-			go func(sessionID, commentID, requestID string) {
-				if err := apiServer.finalizeCommentResponse(context.Background(), requestID); err != nil {
-					log.Error().
-						Err(err).
-						Str("comment_id", commentID).
-						Str("request_id", requestID).
-						Msg("Failed to finalize comment response")
-					return
-				}
-
-				log.Info().
-					Str("comment_id", commentID).
-					Str("session_id", sessionID).
-					Str("request_id", requestID).
-					Msg("✅ [HELIX] Finalized comment response via session-based lookup (fallback)")
-
-				_, doneChan, _, exists := apiServer.getResponseChannel(sessionID, requestID)
-				if exists {
-					select {
-					case doneChan <- true:
-						log.Debug().Str("request_id", requestID).Msg("Sent done signal to channel")
-					default:
-						log.Debug().Msg("Done channel full")
-					}
-				}
-
-				// Clean up requestToCommenterMapping now that response is complete
-				if apiServer.requestToCommenterMapping != nil {
-					delete(apiServer.requestToCommenterMapping, requestID)
-					log.Debug().Str("request_id", requestID).Msg("🧹 [HELIX] Cleaned up requestToCommenterMapping (fallback path)")
-				}
-			}(helixSessionID, commentID, requestID)
-		} else {
-			log.Debug().
-				Str("session_id", helixSessionID).
-				Msg("No pending design review comment to finalize for session (this is normal for non-comment interactions)")
-		}
-	}
-
 	// Process next non-interrupt prompt from queue (if any)
 	go apiServer.processPromptQueue(context.Background(), helixSessionID)
 
@@ -2170,6 +2257,34 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 // processPromptQueue checks for pending non-interrupt prompts and sends the next one
 // This is called after a message is completed to process queued non-interrupt messages
 func (apiServer *HelixAPIServer) processPromptQueue(ctx context.Context, sessionID string) {
+	// Check if the session is busy (last interaction is waiting for a response).
+	// This prevents sending a queue-mode prompt while Zed is already processing
+	// a locally-submitted message. The check uses DB state which is race-free:
+	// handleMessageAdded creates the interaction synchronously before returning.
+	session, err := apiServer.Store.GetSession(ctx, sessionID)
+	if err != nil {
+		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to get session for queue processing")
+		return
+	}
+	if session != nil {
+		interactions, _, err := apiServer.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
+			SessionID:    sessionID,
+			GenerationID: session.GenerationID,
+			PerPage:      1,
+		})
+		if err != nil {
+			log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to list interactions for queue processing")
+			return
+		}
+		if len(interactions) > 0 && interactions[len(interactions)-1].State == types.InteractionStateWaiting {
+			log.Info().
+				Str("session_id", sessionID).
+				Str("interaction_id", interactions[len(interactions)-1].ID).
+				Msg("Session is busy (last interaction waiting), deferring queue-mode prompt")
+			return
+		}
+	}
+
 	// Get the next pending non-interrupt prompt for this session
 	nextPrompt, err := apiServer.Store.GetNextPendingPrompt(ctx, sessionID)
 	if err != nil {
@@ -2190,12 +2305,8 @@ func (apiServer *HelixAPIServer) processPromptQueue(ctx context.Context, session
 		Bool("is_retry", isRetry).
 		Msg("📤 [QUEUE] Processing next non-interrupt prompt from queue")
 
-	// Mark as pending before sending (in case it was 'failed', this prevents race conditions)
-	if err := apiServer.Store.MarkPromptAsPending(ctx, nextPrompt.ID); err != nil {
-		log.Error().Err(err).Str("prompt_id", nextPrompt.ID).Msg("Failed to mark prompt as pending before send")
-	}
-
-	// Send the prompt to the session
+	// The prompt was atomically claimed by GetNextPendingPrompt (status set to 'sending').
+	// Send it to the session.
 	err = apiServer.sendQueuedPromptToSession(ctx, sessionID, nextPrompt)
 	if err != nil {
 		log.Error().
@@ -2246,11 +2357,17 @@ func (apiServer *HelixAPIServer) processAnyPendingPrompt(ctx context.Context, se
 		Bool("is_retry", isRetry).
 		Msg("📤 [QUEUE] Processing pending prompt")
 
-	// CRITICAL: Mark as 'sent' IMMEDIATELY to prevent race conditions.
-	// Once we start processing, mark it done so no other process picks it up.
-	if err := apiServer.Store.MarkPromptAsSent(ctx, nextPrompt.ID); err != nil {
-		log.Error().Err(err).Str("prompt_id", nextPrompt.ID).Msg("Failed to mark prompt as sent")
-		// Continue anyway - better to risk duplicate than lose the message
+	// Atomically claim this prompt to prevent duplicate delivery (issue #2).
+	// Uses a conditional DB UPDATE (status IN ('pending','failed') → 'sending').
+	// If RowsAffected == 0, another goroutine already claimed it — skip.
+	claimed, claimErr := apiServer.Store.ClaimPromptForSending(ctx, nextPrompt.ID)
+	if claimErr != nil {
+		log.Error().Err(claimErr).Str("prompt_id", nextPrompt.ID).Msg("Failed to claim prompt for sending")
+		return
+	}
+	if !claimed {
+		log.Info().Str("prompt_id", nextPrompt.ID).Msg("📤 [QUEUE] Prompt already claimed by another goroutine — skipping duplicate send")
+		return
 	}
 
 	// Send the prompt to the session (creates interaction and sends to agent)
@@ -2265,6 +2382,11 @@ func (apiServer *HelixAPIServer) processAnyPendingPrompt(ctx context.Context, se
 			log.Error().Err(markErr).Str("prompt_id", nextPrompt.ID).Msg("Failed to mark prompt as failed after interaction creation error")
 		}
 		return
+	}
+
+	// Mark as fully sent after successful delivery
+	if markErr := apiServer.Store.MarkPromptAsSent(ctx, nextPrompt.ID); markErr != nil {
+		log.Warn().Err(markErr).Str("prompt_id", nextPrompt.ID).Msg("Failed to mark prompt as sent after delivery (non-fatal)")
 	}
 
 	log.Info().
@@ -2576,13 +2698,25 @@ func (apiServer *HelixAPIServer) handleAgentReady(sessionID string, syncMsg *typ
 	if threadID == "" && connExists {
 		helixSession, err := apiServer.Controller.Options.Store.GetSession(context.Background(), sessionID)
 		if err == nil && helixSession != nil && helixSession.Metadata.ZedThreadID != "" {
+			// Use the latest thread for this spectask (not necessarily the one stored
+			// on this session). When the user creates new threads in Zed, the latest
+			// thread is the one they're working in — reopening the original thread
+			// would jump them back to stale context.
+			targetThreadID := helixSession.Metadata.ZedThreadID
+			if helixSession.Metadata.SpecTaskID != "" {
+				latestThreadID := apiServer.findLatestZedThreadForSpecTask(context.Background(), helixSession.Metadata.SpecTaskID)
+				if latestThreadID != "" {
+					targetThreadID = latestThreadID
+				}
+			}
+
 			agentNameForOpen := apiServer.getAgentNameForSession(context.Background(), helixSession)
 			log.Info().
 				Str("session_id", sessionID).
-				Str("zed_thread_id", helixSession.Metadata.ZedThreadID).
+				Str("zed_thread_id", targetThreadID).
 				Str("agent_name", agentNameForOpen).
 				Msg("🔄 [READINESS] Sending open_thread to re-establish Zed subscription after reconnect")
-			if err := apiServer.sendOpenThreadCommand(sessionID, helixSession.Metadata.ZedThreadID, agentNameForOpen); err != nil {
+			if err := apiServer.sendOpenThreadCommand(sessionID, targetThreadID, agentNameForOpen); err != nil {
 				log.Warn().
 					Str("session_id", sessionID).
 					Err(err).
@@ -2596,6 +2730,31 @@ func (apiServer *HelixAPIServer) handleAgentReady(sessionID string, syncMsg *typ
 	go apiServer.processAnyPendingPrompt(context.Background(), sessionID)
 
 	return nil
+}
+
+// findLatestZedThreadForSpecTask returns the most recently active Zed thread ID
+// for a spectask. Used on reconnect to open the user's current thread rather than
+// the original one.
+func (apiServer *HelixAPIServer) findLatestZedThreadForSpecTask(ctx context.Context, specTaskID string) string {
+	workSessions, err := apiServer.Controller.Options.Store.ListSpecTaskWorkSessions(ctx, specTaskID)
+	if err != nil || len(workSessions) == 0 {
+		return ""
+	}
+
+	// Find the work session with the most recent activity
+	var latestThread string
+	var latestTime time.Time
+	for _, ws := range workSessions {
+		session, err := apiServer.Controller.Options.Store.GetSession(ctx, ws.HelixSessionID)
+		if err != nil || session == nil {
+			continue
+		}
+		if session.Metadata.ZedThreadID != "" && session.Updated.After(latestTime) {
+			latestTime = session.Updated
+			latestThread = session.Metadata.ZedThreadID
+		}
+	}
+	return latestThread
 }
 
 // findSessionByZedThreadID finds a session by its ZedThreadID metadata
@@ -2986,8 +3145,9 @@ func (apiServer *HelixAPIServer) handleUserCreatedThread(agentSessionID string, 
 		return fmt.Errorf("failed to load existing session: %w", err)
 	}
 
-	// Create new Helix session for this user-created thread
-	// CRITICAL: Copy config from existing session so it has same parent_app, agent_type, etc.
+	// Create new Helix session for this user-created thread.
+	// Copy ALL metadata from existing session so the new session is properly
+	// associated with the spectask, project, and agent runtime.
 	session := &types.Session{
 		ID:             system.GenerateSessionID(),
 		Created:        time.Now(),
@@ -2995,14 +3155,17 @@ func (apiServer *HelixAPIServer) handleUserCreatedThread(agentSessionID string, 
 		Mode:           types.SessionModeInference,
 		Type:           existingSession.Type,
 		ModelName:      existingSession.ModelName,
-		ParentApp:      existingSession.ParentApp, // Copy parent_app for screenshot view
+		ParentApp:      existingSession.ParentApp,
 		OrganizationID: existingSession.OrganizationID,
+		ProjectID:      existingSession.ProjectID,
 		Owner:          existingSession.Owner,
 		OwnerType:      existingSession.OwnerType,
 		Metadata: types.SessionMetadata{
 			ZedThreadID:         acpThreadID,
 			AgentType:           existingSession.Metadata.AgentType,
 			ExternalAgentConfig: existingSession.Metadata.ExternalAgentConfig,
+			SpecTaskID:          existingSession.Metadata.SpecTaskID,
+			CodeAgentRuntime:    existingSession.Metadata.CodeAgentRuntime,
 		},
 		Name: title,
 	}
@@ -3013,16 +3176,59 @@ func (apiServer *HelixAPIServer) handleUserCreatedThread(agentSessionID string, 
 		return fmt.Errorf("failed to create session: %w", err)
 	}
 
+	// Create SpecTaskWorkSession + SpecTaskZedThread if this is a spectask session.
+	// This wires the new thread into the multi-session model so it appears in
+	// the session dropdown and gets proper lifecycle management.
+	specTaskID := existingSession.Metadata.SpecTaskID
+	if specTaskID != "" {
+		// Determine phase from existing work session
+		phase := types.SpecTaskPhaseImplementation
+		existingWorkSession, wsErr := apiServer.Controller.Options.Store.GetSpecTaskWorkSessionByHelixSession(ctx, agentSessionID)
+		if wsErr == nil && existingWorkSession != nil {
+			phase = existingWorkSession.Phase
+		}
+
+		workSession := &types.SpecTaskWorkSession{
+			SpecTaskID:     specTaskID,
+			HelixSessionID: session.ID,
+			Name:           title,
+			Phase:          phase,
+			Status:         types.SpecTaskWorkSessionStatusActive,
+		}
+		if wsErr := apiServer.Controller.Options.Store.CreateSpecTaskWorkSession(ctx, workSession); wsErr != nil {
+			log.Warn().Err(wsErr).Msg("Failed to create work session for user-created thread (session still created)")
+		} else {
+			now := time.Now()
+			zedThread := &types.SpecTaskZedThread{
+				WorkSessionID:  workSession.ID,
+				SpecTaskID:     specTaskID,
+				ZedThreadID:    acpThreadID,
+				Status:         types.SpecTaskZedStatusActive,
+				LastActivityAt: &now,
+			}
+			if ztErr := apiServer.Controller.Options.Store.CreateSpecTaskZedThread(ctx, zedThread); ztErr != nil {
+				log.Warn().Err(ztErr).Msg("Failed to create zed thread record (work session still created)")
+			}
+		}
+	}
+
 	// Map Zed thread to Helix session (same as handleThreadCreated)
 	apiServer.contextMappingsMutex.Lock()
 	apiServer.contextMappings[acpThreadID] = session.ID
 	apiServer.contextMappingsMutex.Unlock()
 
+	// Register the WebSocket connection for the child session so
+	// sendCommandToExternalAgent can route commands to it.
+	if wsConn, exists := apiServer.externalAgentWSManager.getConnection(agentSessionID); exists && wsConn != nil {
+		apiServer.externalAgentWSManager.registerConnection(session.ID, wsConn)
+	}
+
 	log.Info().
 		Str("acp_thread_id", acpThreadID).
 		Str("helix_session_id", session.ID).
+		Str("spec_task_id", specTaskID).
 		Str("title", title).
-		Msg("✅ [HELIX] Created new session for user-created Zed thread")
+		Msg("✅ [HELIX] Created new session + work session for user-created Zed thread")
 
 	return nil
 }

@@ -231,6 +231,29 @@ func (c *Client) GetGoldenBuildResult(ctx context.Context, projectID string) (*G
 	return &result, nil
 }
 
+// GetZFSTree returns the ZFS snapshot/clone tree for a project via Unix socket
+func (c *Client) GetZFSTree(ctx context.Context, projectID string) (*ZFSTree, error) {
+	url := fmt.Sprintf("%s/api/v1/golden-cache/%s/zfs-tree", c.baseURL, projectID)
+	httpReq, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("hydra API error (status %d): %s", resp.StatusCode, string(body))
+	}
+	var tree ZFSTree
+	if err := json.NewDecoder(resp.Body).Decode(&tree); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+	return &tree, nil
+}
+
 // DeleteGoldenCache removes the golden Docker cache for a project via Unix socket
 func (c *Client) DeleteGoldenCache(ctx context.Context, projectID string) error {
 	url := fmt.Sprintf("%s/api/v1/golden-cache/%s", c.baseURL, projectID)
@@ -445,6 +468,20 @@ func (c *RevDialClient) GetGoldenBuildResult(ctx context.Context, projectID stri
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
 	return &result, nil
+}
+
+// GetZFSTree returns the ZFS snapshot/clone tree for a project via RevDial.
+func (c *RevDialClient) GetZFSTree(ctx context.Context, projectID string) (*ZFSTree, error) {
+	path := fmt.Sprintf("/api/v1/golden-cache/%s/zfs-tree", projectID)
+	respBody, err := c.doRequest(ctx, "GET", path, nil)
+	if err != nil {
+		return nil, err
+	}
+	var tree ZFSTree
+	if err := json.Unmarshal(respBody, &tree); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+	return &tree, nil
 }
 
 // GetContainerBlkioStats returns cumulative blkio write/read bytes for a container via RevDial.
