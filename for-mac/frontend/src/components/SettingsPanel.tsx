@@ -204,11 +204,13 @@ export function SettingsPanel({
   }
 
   async function handleSubmitReport() {
-    const header = userDescription ? `## Description\n${userDescription}\n\n` : '';
-    const fullReport = `${header}## Diagnostics\n\`\`\`\n${diagnosticsReport}\n\`\`\``;
+    const header = userDescription ? `Description:\n${userDescription}\n\n` : '';
+    const fullReport = `${header}Diagnostics:\n${diagnosticsReport}`;
     await ClipboardSetText(fullReport);
-    await BrowserOpenURL('https://github.com/helixml/helix/issues/new');
-    showToast('Diagnostics copied to clipboard — paste into the GitHub issue form');
+    const subject = encodeURIComponent('Helix Mac App - Bug Report');
+    const body = encodeURIComponent('(Diagnostics have been copied to your clipboard — paste them here)\n\n');
+    await BrowserOpenURL(`mailto:founders@helix.ml?subject=${subject}&body=${body}`);
+    showToast('Diagnostics copied to clipboard — paste into the email');
     setReportDialogOpen(false);
   }
 
@@ -300,11 +302,12 @@ export function SettingsPanel({
                   />
                 </div>
                 <div style={{ fontSize: 11, color: 'var(--text-faded)' }}>
-                  Clicking "Submit on GitHub" will copy the above to your clipboard and open a new GitHub issue.
+                  Please review the diagnostic data above — it may contain sensitive information.
+                  Clicking "Send via Email" will copy it to your clipboard and open your email client.
                 </div>
                 <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
                   <button className="btn btn-secondary" onClick={() => setReportDialogOpen(false)}>Cancel</button>
-                  <button className="btn btn-primary" onClick={handleSubmitReport}>Submit on GitHub</button>
+                  <button className="btn btn-primary" onClick={handleSubmitReport}>Send via Email</button>
                 </div>
               </>
             )}
@@ -1013,7 +1016,7 @@ export function SettingsPanel({
             <div className="panel-section-title">Support</div>
             <div className="form-group">
               <div className="form-hint" style={{ marginBottom: 12 }}>
-                Collect diagnostic information and open a GitHub issue to report a bug.
+                Collect diagnostic information and email it to the Helix team to report a bug.
               </div>
               <button className="btn btn-secondary" onClick={handleReportIssue}>
                 Report Issue
