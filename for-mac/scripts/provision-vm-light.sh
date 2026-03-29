@@ -511,7 +511,7 @@ run_ssh() { $SSH_CMD "$@"; }
 # =============================================================================
 
 if ! step_done "install_zfs"; then
-    log "Installing ZFS 2.4.0 from arter97 PPA..."
+    log "Installing ZFS 2.4.1+ from arter97 PPA..."
     run_ssh "sudo add-apt-repository -y ppa:arter97/zfs && sudo apt-get update && sudo apt-get install -y zfsutils-linux" || {
         log "ZFS install may need a reboot for DKMS. Continuing..."
     }

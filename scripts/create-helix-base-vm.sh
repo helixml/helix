@@ -5,7 +5,7 @@
 # This script creates a UTM VM with:
 # - Ubuntu 25.10 Server ARM64 (automated installation)
 # - ext4 root partition (200GB, for system + Docker)
-# - ZFS 2.4.0+ pool with dedup (remaining space, for workspaces)
+# - ZFS 2.4.1+ pool with dedup (remaining space, for workspaces)
 # - GPU drivers for virtio-gpu-gl-pci
 # - Docker, Go, Node.js, and development tools
 #
@@ -213,11 +213,11 @@ autoinstall:
     - libglx-mesa0
     - libglapi-mesa
     - libgbm1
-    # Will install ZFS 2.4.0 in late-commands
+    # Will install ZFS 2.4.1+ in late-commands
 
   # Commands to run after installation
   late-commands:
-    # Add arter97 ZFS PPA and install ZFS 2.4.0
+    # Add arter97 ZFS PPA and install ZFS 2.4.1+
     - curtin in-target --target=/target -- add-apt-repository -y ppa:arter97/zfs
     - curtin in-target --target=/target -- apt-get update
     - curtin in-target --target=/target -- apt-get install -y zfsutils-linux zfs-dkms

@@ -13,7 +13,7 @@ set -euo pipefail
 #   2. Creates qcow2 disk + cloud-init seed
 #   3. Boots headless VM with QEMU for provisioning
 #   4. Waits for cloud-init, then SSHs in to run setup
-#   5. Installs: Docker, Go 1.25, ZFS 2.4.0, helix-drm-manager
+#   5. Installs: Docker, Go 1.25, ZFS 2.4.1+, helix-drm-manager
 #   6. Clones helix repo, builds desktop Docker image
 #   7. Sets up docker-compose for Helix control plane
 #   8. Primes the stack (pull/build/start/verify/stop)
@@ -777,7 +777,7 @@ run_ssh() {
 }
 
 if ! step_done "install_zfs"; then
-    log "Installing ZFS 2.4.0 from arter97 PPA..."
+    log "Installing ZFS 2.4.1+ from arter97 PPA..."
     run_ssh "sudo add-apt-repository -y ppa:arter97/zfs && sudo apt-get update && sudo apt-get install -y zfsutils-linux" || {
         log "ZFS install may need a reboot for DKMS. Continuing..."
     }
