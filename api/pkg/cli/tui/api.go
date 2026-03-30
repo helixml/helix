@@ -61,6 +61,15 @@ func (a *APIClient) ListInteractions(ctx context.Context, sessionID string) ([]*
 	return interactions, nil
 }
 
+func (a *APIClient) GetSpecTask(ctx context.Context, taskID string) (*types.SpecTask, error) {
+	var task types.SpecTask
+	err := a.client.MakeRequest(ctx, http.MethodGet, "/spec-tasks/"+taskID, nil, &task)
+	if err != nil {
+		return nil, err
+	}
+	return &task, nil
+}
+
 func (a *APIClient) ChatSession(ctx context.Context, req *types.SessionChatRequest) (string, error) {
 	return a.client.ChatSession(ctx, req)
 }
