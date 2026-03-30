@@ -125,23 +125,9 @@ steps:
         - push
     depends_on: [clone]
 
-  # Run database migrations once before parallel test steps.
-  # This prevents race conditions where multiple test steps try to create
-  # ENUM types simultaneously, causing "duplicate key" constraint errors.
-  - name: run-migrations
-    image: golang:1.25-alpine
-    environment:
-      POSTGRES_HOST: postgres
-      POSTGRES_PORT: "5432"
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DATABASE: postgres
-    commands:
-      - ./helix-bin serve --migrate-only
-    when:
-      event:
-        - push
-    depends_on: [build-api-binary]
+  # NOTE: run-migrations step was removed because Drone has a log routing bug
+  # where depends_on causes log streams to bleed between steps, making test
+  # output invisible. Each test step now runs its own migration inline.
 
   - name: unit-test
     image: golang:1.25-alpine
