@@ -708,12 +708,9 @@ func (a *App) renderStatusBar() string {
 		} else if a.isOnKanbanTab() {
 			help = "h/l: column  j/k: task  enter: open  n: new task  r: refresh  q: quit"
 		} else {
-			paneInfo := ""
-			tab := a.tabs.ActiveTab()
-			if tab != nil && tab.Panes != nil && tab.Panes.PaneCount() > 1 {
-				paneInfo = fmt.Sprintf(" [%d panes]", tab.Panes.PaneCount())
-			}
-			help = fmt.Sprintf("%s: cmds  esc: stop/clear%s", prefix, paneInfo)
+			p := prefix
+			help = fmt.Sprintf("%s+n/p: tabs  %s+c: new  %s+%s/%s: split  esc: stop/clear",
+				p, p, p, a.tmux.SplitV, a.tmux.SplitH)
 		}
 	}
 

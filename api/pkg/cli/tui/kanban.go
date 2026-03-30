@@ -283,17 +283,16 @@ func (k *KanbanModel) renderColumn(col KanbanColumn, width, height int) string {
 
 func (k *KanbanModel) renderCard(t *types.SpecTask, width int, selected bool) string {
 	name := taskDisplayName(t)
-	if len(name) > width-6 {
-		name = name[:width-9] + "..."
+	if len(name) > width-4 {
+		name = name[:width-7] + "..."
 	}
 
-	prio := priorityStyle(string(t.Priority))
 	prefix := "  "
 	if selected {
 		prefix = lipgloss.NewStyle().Foreground(colorPrimary).Render("> ")
 	}
 
-	line := fmt.Sprintf("%s%s %s", prefix, prio, name)
+	line := fmt.Sprintf("%s%s", prefix, name)
 
 	style := styleNormal.Width(width)
 	if selected {
