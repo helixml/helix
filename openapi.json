@@ -1268,6 +1268,606 @@
                 }
             }
         },
+        "/api/v1/apps/{app_id}/evaluation-runs/{run_id}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get evaluation run details",
+                "tags": [
+                    "evaluations"
+                ],
+                "summary": "Get an evaluation run",
+                "parameters": [
+                    {
+                        "description": "App ID",
+                        "name": "app_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Run ID",
+                        "name": "run_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.EvaluationRun"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Delete an evaluation run",
+                "tags": [
+                    "evaluations"
+                ],
+                "summary": "Delete an evaluation run",
+                "parameters": [
+                    {
+                        "description": "App ID",
+                        "name": "app_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Run ID",
+                        "name": "run_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {
+                                        "type": "string"
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/apps/{app_id}/evaluation-suites": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List all evaluation suites for an app",
+                "tags": [
+                    "evaluations"
+                ],
+                "summary": "List evaluation suites for an app",
+                "parameters": [
+                    {
+                        "description": "App ID",
+                        "name": "app_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/types.EvaluationSuite"
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Create a new evaluation suite for an agent",
+                "tags": [
+                    "evaluations"
+                ],
+                "summary": "Create an evaluation suite",
+                "parameters": [
+                    {
+                        "description": "App ID",
+                        "name": "app_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/types.EvaluationSuite"
+                            }
+                        }
+                    },
+                    "description": "Evaluation suite to create",
+                    "required": true
+                },
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.EvaluationSuite"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/apps/{app_id}/evaluation-suites/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get an evaluation suite by ID",
+                "tags": [
+                    "evaluations"
+                ],
+                "summary": "Get an evaluation suite",
+                "parameters": [
+                    {
+                        "description": "App ID",
+                        "name": "app_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Suite ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.EvaluationSuite"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Update an evaluation suite",
+                "tags": [
+                    "evaluations"
+                ],
+                "summary": "Update an evaluation suite",
+                "parameters": [
+                    {
+                        "description": "App ID",
+                        "name": "app_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Suite ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/types.EvaluationSuite"
+                            }
+                        }
+                    },
+                    "description": "Updated suite",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.EvaluationSuite"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Delete an evaluation suite",
+                "tags": [
+                    "evaluations"
+                ],
+                "summary": "Delete an evaluation suite",
+                "parameters": [
+                    {
+                        "description": "App ID",
+                        "name": "app_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Suite ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {
+                                        "type": "string"
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/apps/{app_id}/evaluation-suites/{id}/runs": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List evaluation runs for a suite",
+                "tags": [
+                    "evaluations"
+                ],
+                "summary": "List evaluation runs",
+                "parameters": [
+                    {
+                        "description": "App ID",
+                        "name": "app_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Suite ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/types.EvaluationRun"
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Start running an evaluation suite against an agent",
+                "tags": [
+                    "evaluations"
+                ],
+                "summary": "Start an evaluation run",
+                "parameters": [
+                    {
+                        "description": "App ID",
+                        "name": "app_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Suite ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.EvaluationRun"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/apps/{app_id}/triggers": {
             "get": {
                 "security": [
@@ -25466,6 +26066,246 @@
                     "EffectAllow",
                     "EffectDeny"
                 ]
+            },
+            "types.EvaluationAssertion": {
+                "type": "object",
+                "properties": {
+                    "llm_judge_prompt": {
+                        "description": "Custom prompt for LLM judge mode",
+                        "type": "string"
+                    },
+                    "type": {
+                        "$ref": "#/components/schemas/types.EvaluationAssertionType"
+                    },
+                    "value": {
+                        "description": "Expected string, regex pattern, or skill name",
+                        "type": "string"
+                    }
+                }
+            },
+            "types.EvaluationAssertionResult": {
+                "type": "object",
+                "properties": {
+                    "assertion_type": {
+                        "$ref": "#/components/schemas/types.EvaluationAssertionType"
+                    },
+                    "assertion_value": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "description": "e.g. LLM judge reasoning",
+                        "type": "string"
+                    },
+                    "passed": {
+                        "type": "boolean"
+                    }
+                }
+            },
+            "types.EvaluationAssertionType": {
+                "type": "string",
+                "enum": [
+                    "contains",
+                    "not_contains",
+                    "regex",
+                    "llm_judge",
+                    "skill_used"
+                ],
+                "x-enum-varnames": [
+                    "EvaluationAssertionTypeContains",
+                    "EvaluationAssertionTypeNotContains",
+                    "EvaluationAssertionTypeRegex",
+                    "EvaluationAssertionTypeLLMJudge",
+                    "EvaluationAssertionTypeSkillUsed"
+                ]
+            },
+            "types.EvaluationQuestion": {
+                "type": "object",
+                "properties": {
+                    "assertions": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/types.EvaluationAssertion"
+                        }
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "question": {
+                        "type": "string"
+                    }
+                }
+            },
+            "types.EvaluationQuestionResult": {
+                "type": "object",
+                "properties": {
+                    "assertion_results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/types.EvaluationAssertionResult"
+                        }
+                    },
+                    "cost": {
+                        "type": "number"
+                    },
+                    "duration_ms": {
+                        "type": "integer"
+                    },
+                    "error": {
+                        "type": "string"
+                    },
+                    "interaction_id": {
+                        "type": "string"
+                    },
+                    "passed": {
+                        "type": "boolean"
+                    },
+                    "question": {
+                        "type": "string"
+                    },
+                    "question_id": {
+                        "type": "string"
+                    },
+                    "response": {
+                        "type": "string"
+                    },
+                    "session_id": {
+                        "type": "string"
+                    },
+                    "skills_used": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "tokens_used": {
+                        "$ref": "#/components/schemas/types.Usage"
+                    }
+                }
+            },
+            "types.EvaluationRun": {
+                "type": "object",
+                "properties": {
+                    "app_config_snapshot": {
+                        "$ref": "#/components/schemas/types.AppConfig"
+                    },
+                    "app_id": {
+                        "type": "string"
+                    },
+                    "created": {
+                        "type": "string"
+                    },
+                    "error": {
+                        "type": "string"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "organization_id": {
+                        "type": "string"
+                    },
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/types.EvaluationQuestionResult"
+                        }
+                    },
+                    "status": {
+                        "$ref": "#/components/schemas/types.EvaluationRunStatus"
+                    },
+                    "suite_id": {
+                        "type": "string"
+                    },
+                    "summary": {
+                        "$ref": "#/components/schemas/types.EvaluationRunSummary"
+                    },
+                    "updated": {
+                        "type": "string"
+                    },
+                    "user_id": {
+                        "type": "string"
+                    }
+                }
+            },
+            "types.EvaluationRunStatus": {
+                "type": "string",
+                "enum": [
+                    "pending",
+                    "running",
+                    "completed",
+                    "failed",
+                    "cancelled"
+                ],
+                "x-enum-varnames": [
+                    "EvaluationRunStatusPending",
+                    "EvaluationRunStatusRunning",
+                    "EvaluationRunStatusCompleted",
+                    "EvaluationRunStatusFailed",
+                    "EvaluationRunStatusCancelled"
+                ]
+            },
+            "types.EvaluationRunSummary": {
+                "type": "object",
+                "properties": {
+                    "failed": {
+                        "type": "integer"
+                    },
+                    "passed": {
+                        "type": "integer"
+                    },
+                    "skills_used": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "total_cost": {
+                        "type": "number"
+                    },
+                    "total_duration_ms": {
+                        "type": "integer"
+                    },
+                    "total_questions": {
+                        "type": "integer"
+                    },
+                    "total_tokens": {
+                        "type": "integer"
+                    }
+                }
+            },
+            "types.EvaluationSuite": {
+                "type": "object",
+                "properties": {
+                    "app_id": {
+                        "type": "string"
+                    },
+                    "created": {
+                        "type": "string"
+                    },
+                    "description": {
+                        "type": "string"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "organization_id": {
+                        "type": "string"
+                    },
+                    "questions": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/types.EvaluationQuestion"
+                        }
+                    },
+                    "updated": {
+                        "type": "string"
+                    },
+                    "user_id": {
+                        "type": "string"
+                    }
+                }
             },
             "types.ExecuteQuestionSetRequest": {
                 "type": "object",
