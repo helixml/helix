@@ -3031,10 +3031,15 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           // Initialize cursor at center of stream if this is first touch
           if (!hasMouseMoved && containerRef.current) {
             const containerRect = containerRef.current.getBoundingClientRect();
-            setCursorPosition({
-              x: rect.x - containerRect.x + rect.width / 2,
-              y: rect.y - containerRect.y + rect.height / 2,
-            });
+            const centerX = rect.x - containerRect.x + rect.width / 2;
+            const centerY = rect.y - containerRect.y + rect.height / 2;
+            setCursorPosition({ x: centerX, y: centerY });
+            // Also sync the ref so sendCursorPositionToRemote() uses the correct
+            // position on first tap (before any drag has updated the ref)
+            cursorPositionRef.current = { x: centerX, y: centerY };
+            if (trackpadCursorRef.current) {
+              trackpadCursorRef.current.style.transform = `translate(${centerX}px, ${centerY}px)`;
+            }
             setHasMouseMoved(true);
           }
 
