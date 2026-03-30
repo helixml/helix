@@ -183,6 +183,7 @@ steps:
 
     commands:
       - apk add --no-cache gcc g++ musl-dev git
+      - ./helix-bin serve --migrate-only
       - git config --global user.email "ci@helix.ml"
       - git config --global user.name "CI"
       - chmod +x ./scripts/run-tests-with-timeout.sh
@@ -191,7 +192,7 @@ steps:
     when:
       event:
         - push
-    depends_on: [run-migrations]
+    depends_on: [build-api-binary]
 
   - name: unit-test-nocgo
     image: golang:1.25-alpine
@@ -253,6 +254,7 @@ steps:
 
     commands:
       - apk add --no-cache gcc g++ musl-dev git
+      - ./helix-bin serve --migrate-only
       - git config --global user.email "ci@helix.ml"
       - git config --global user.name "CI"
       - chmod +x ./scripts/run-tests-with-timeout.sh
@@ -266,7 +268,7 @@ steps:
     when:
       event:
         - push
-    depends_on: [run-migrations]
+    depends_on: [build-api-binary]
 
   # - name: oauth-github-integration-test
   #   image: golang:1.25
