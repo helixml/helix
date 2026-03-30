@@ -28,6 +28,7 @@ import useRouter from '../hooks/useRouter'
 import useSnackbar from '../hooks/useSnackbar'
 import useThemeConfig from '../hooks/useThemeConfig'
 import AppUsage from '../components/app/AppUsage'
+import EvaluationTab from '../components/app/EvaluationTab'
 import IdeIntegrationSection from '../components/app/IdeIntegrationSection'
 import useLightTheme from '../hooks/useLightTheme'
 import Skills from '../components/app/Skills'
@@ -143,6 +144,12 @@ const App: FC = () => {
                             appId={appTools.id}
                           />
                         )}
+                      </Box>
+                    </Grid>
+                  ) : tabValue === 'evaluation' ? (
+                    <Grid item xs={12} sx={{ overflow: 'auto', pb: 8, ...lightTheme.scrollbar }}>
+                      <Box sx={{ mt: "-1px", borderTop: '1px solid #303047', p: 0 }}>
+                        <EvaluationTab appId={appTools.id} />
                       </Box>
                     </Grid>
                   ) : tabValue === 'memories' ? (
