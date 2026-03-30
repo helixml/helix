@@ -118,3 +118,4 @@ api/settings-sync-daemon
 core.*
 nohup.out
 # CI test Mon Mar 30 14:49:48 BST 2026
+# Mon Mar 30 15:25:04 BST 2026
