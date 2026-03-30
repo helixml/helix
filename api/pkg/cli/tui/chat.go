@@ -25,6 +25,7 @@ type ChatModel struct {
 	spinner      *Spinner
 	toolRenderer *ToolCallRenderer
 	slashReg     *SlashCommandRegistry
+	outbox       *Outbox
 
 	scrollOffset int
 	loading      bool
@@ -63,6 +64,7 @@ func NewChatModel(api *APIClient, task *types.SpecTask) *ChatModel {
 		appID:        task.HelixAppID,
 		input:        input,
 		slashReg:     NewSlashCommandRegistry(),
+		outbox:       NewOutbox(),
 		loading:      true,
 		focused:      true,
 	}
@@ -180,7 +182,14 @@ func (c *ChatModel) Update(msg tea.Msg) tea.Cmd {
 					return c.handleSlashCommand(cmd, args)
 				}
 
-				return c.sendMessage()
+				// Enter = queue (doesn't interrupt current agent work)
+				return c.sendPrompt(false)
+			}
+
+		case "ctrl+enter":
+			if !c.input.IsEmpty() {
+				// Ctrl+Enter = interrupt current agent work
+				return c.sendPrompt(true)
 			}
 
 		case "shift+enter":
@@ -235,36 +244,59 @@ func (c *ChatModel) Update(msg tea.Msg) tea.Cmd {
 	return nil
 }
 
-func (c *ChatModel) sendMessage() tea.Cmd {
+// sendPrompt queues a prompt via the prompt history sync API.
+// If interrupt is true, it interrupts the current agent work (enter key).
+// If false, it queues behind any in-flight work (ctrl+enter).
+// Prompts are stored locally in the outbox and synced to the server.
+func (c *ChatModel) sendPrompt(interrupt bool) tea.Cmd {
 	message := c.input.Value()
 	c.input.Clear()
 	c.sending = true
 	c.input.SetSending(true)
 
-	appID := c.appID
+	task := c.task
 	sessionID := c.sessionID
 
-	return func() tea.Msg {
-		req := &types.SessionChatRequest{
-			AppID:     appID,
+	// Generate a client-side ID for dedup
+	promptID := fmt.Sprintf("tui_%d", time.Now().UnixNano())
+
+	// Queue in the local outbox (survives disconnects)
+	if c.outbox != nil {
+		c.outbox.Enqueue(&types.SessionChatRequest{
 			SessionID: sessionID,
-			Messages: []*types.Message{
+			Messages: []*types.Message{{
+				Role:    "user",
+				Content: types.MessageContent{ContentType: types.MessageContentTypeText, Parts: []any{message}},
+			}},
+		})
+	}
+
+	return func() tea.Msg {
+		interruptPtr := &interrupt
+
+		syncReq := &types.PromptHistorySyncRequest{
+			ProjectID:  task.ProjectID,
+			SpecTaskID: task.ID,
+			Entries: []types.PromptHistoryEntrySync{
 				{
-					Role: "user",
-					Content: types.MessageContent{
-						ContentType: types.MessageContentTypeText,
-						Parts:       []any{message},
-					},
+					ID:        promptID,
+					SessionID: sessionID,
+					Content:   message,
+					Status:    "pending",
+					Timestamp: time.Now().UnixMilli(),
+					Interrupt: interruptPtr,
 				},
 			},
-			Type: types.SessionTypeText,
 		}
 
-		resp, err := c.api.ChatSession(apiCtx(), req)
+		_, err := c.api.SyncPromptHistory(apiCtx(), syncReq)
 		if err != nil {
-			return errMsg{err}
+			// Prompt is still in local outbox — will retry on next tick
+			return errMsg{fmt.Errorf("queued locally (sync failed: %v)", err)}
 		}
-		return chatResponseMsg{sessionID: sessionID, response: resp}
+
+		c.outbox.MarkSent(promptID)
+		return chatResponseMsg{sessionID: sessionID, response: ""}
 	}
 }
 

@@ -74,6 +74,22 @@ func (a *APIClient) ChatSession(ctx context.Context, req *types.SessionChatReque
 	return a.client.ChatSession(ctx, req)
 }
 
+// SyncPromptHistory syncs prompt entries to the backend queue.
+// This is the reliable prompt delivery mechanism — prompts are stored
+// server-side and processed even if the TUI disconnects.
+func (a *APIClient) SyncPromptHistory(ctx context.Context, req *types.PromptHistorySyncRequest) (*types.PromptHistorySyncResponse, error) {
+	reqBody, err := json.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
+	}
+	var resp types.PromptHistorySyncResponse
+	err = a.client.MakeRequest(ctx, http.MethodPost, "/prompt-history/sync", strings.NewReader(string(reqBody)), &resp)
+	if err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
 func (a *APIClient) CreateTaskFromPrompt(ctx context.Context, req *types.CreateTaskRequest) (*types.SpecTask, error) {
 	reqBody, err := json.Marshal(req)
 	if err != nil {

@@ -224,7 +224,7 @@ func (m *InputModel) View() string {
 
 	// Status line below
 	var statusParts []string
-	statusParts = append(statusParts, "⏵⏵ bypass permissions is always on (you're in a sandbox)")
+	statusParts = append(statusParts, "enter: send  ctrl+enter: interrupt")
 	if m.agentBusy {
 		statusParts = append(statusParts, "esc to interrupt")
 	}
