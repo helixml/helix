@@ -1506,6 +1506,18 @@ func (apiServer *HelixAPIServer) sendChatMessageToExternalAgent(sessionID, messa
 		_ = apiServer.Controller.Options.Store.TouchSession(ctx, sessionID)
 	}
 
+	// Store request_id->session mapping so thread_created can find this session.
+	// Without this, handleThreadCreated can't correlate the response thread
+	// back to this session and creates a spurious child session.
+	if acpThreadID == nil {
+		apiServer.contextMappingsMutex.Lock()
+		if apiServer.requestToSessionMapping == nil {
+			apiServer.requestToSessionMapping = make(map[string]string)
+		}
+		apiServer.requestToSessionMapping[requestID] = sessionID
+		apiServer.contextMappingsMutex.Unlock()
+	}
+
 	command := types.ExternalAgentCommand{
 		Type: "chat_message",
 		Data: map[string]interface{}{

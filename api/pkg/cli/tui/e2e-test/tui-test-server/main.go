@@ -33,6 +33,10 @@ type testState struct {
 	events      []types.SyncMessage
 	completions map[string]int // threadID -> completion count
 	threadIDs   []string
+
+	// activeSessionID is the child session where the Zed thread lives.
+	// After thread_created, this is the session the TUI should query.
+	activeSessionID string
 }
 
 func main() {
