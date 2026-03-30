@@ -1,4 +1,4 @@
-# Design: Background Model Cache Refresh for User-Created Providers
+# Design: Background Model Cache for User-Created Providers
 
 ## Root Cause
 
@@ -19,31 +19,20 @@ User-created providers have `owner = <user_id>` and `endpoint_type = 'user'` —
 - With 100s of user providers polled sequentially: 100 × 3s = 300s per cycle — longer than the interval itself
 - Most user providers (personal Ollama instances) are idle most of the time; polling them continuously wastes their resources and Helix's
 
-## Correct Approach: On-Demand Caching for User Providers
+## On-Demand Caching Already Works for User Providers
 
-`getProviderModels()` already implements cache-then-fetch with TTL (`ModelsCacheTTL`). When a user calls any endpoint that needs model listings, the result is cached automatically. This is sufficient for user-created providers:
+Investigation confirmed (`provider_handlers.go:103-128`): the list endpoint queries with `Owner: user.ID` + `WithGlobal: true`, which correctly returns user-created providers. When `?with_models=true` is set, `getProviderModels` is called for all of them concurrently (lines 219-244), and the cache write at line 317 fires with TTL. The on-demand path is correct.
 
-- First request: slow (live fetch + cache write)
-- Subsequent requests within TTL: instant (cache hit, no HTTP)
-- After TTL expires with no activity: cache evicted; next request re-fetches — acceptable, since an idle provider has no waiting users
+## Fix Implemented
 
-Background refresh exists for a specific reason (comment in `StartModelCacheRefresh`): ensuring model names are pre-parsed for routing logic (e.g., HuggingFace IDs like `Qwen/Qwen3-Coder`). This is a system-level concern that only applies to providers Helix routes jobs to automatically. User-created providers aren't part of that routing path.
+**Warm on create**: after `CreateProviderEndpoint` succeeds, spin up a goroutine that calls `getProviderModels` with a 10-second detached context. This pre-populates the cache so the first `?with_models=true` after creating a provider is served from cache. Errors are logged at debug level — the provider may not be reachable at the moment of creation.
 
-## Fix
-
-**Keep background refresh scoped to system/global providers** — the current query scope is actually correct for background polling. The real fix is to ensure `getProviderModels` is called on-demand for user providers at the right points in the request path, and that those results are cached with TTL.
-
-Investigate where model listings for user providers are consumed (e.g., `GET /api/v1/provider-endpoints?with_models=true`) and confirm that the on-demand caching path is working correctly there. If the cache is being populated on first user request and served from cache on subsequent ones, the behavior is correct.
-
-If there is a specific code path where user provider models are needed before any user request has occurred (unlikely), a targeted fix would be: after a user *creates* a provider endpoint, immediately trigger a single background cache warm for that endpoint only — not a recurring poll.
-
-## Decision
-
-Do NOT use `All: true` in the background refresh loop. The current refresh scope (system/global only) is intentional. Fix any specific on-demand caching gaps instead.
+**Background refresh scope is unchanged** — system/global only, intentional for scale reasons.
 
 ## Codebase Notes
 
-- `getProviderModels()` at `provider_handlers.go:251` handles cache check + TTL write
-- Cache TTL set via `s.Cfg.WebServer.ModelsCacheTTL`; refresh interval matches this value
-- `ListProviderEndpointsQuery.All` at `store.go:96` — exists but not appropriate here
-- On-demand model fetch for user providers happens at `provider_handlers.go:224` (inside list endpoint handler)
+- `getProviderModels()` at `provider_handlers.go:251`: cache key = `"<name>:<owner>"`, checks cache first, then fetches live with 3s timeout, writes with TTL
+- `refreshAllProviderModels()` at `provider_handlers.go:854`: intentionally scoped to system/global providers
+- `ListProviderEndpointsQuery.All` at `store.go:96`: returns all endpoints, NOT appropriate for background polling
+- On-demand fetch for user providers: `provider_handlers.go:219-244` (parallel goroutines, one per endpoint)
+- Cache warm on create: `provider_handlers.go:403-411` (added in this implementation)
