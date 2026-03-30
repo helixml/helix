@@ -2,46 +2,48 @@
 
 ## Root Cause
 
-`refreshAllProviderModels()` (`provider_handlers.go:854`) makes two passes:
+`refreshAllProviderModels()` (`provider_handlers.go:854`) only queries:
 
-1. **Global env-var providers** — iterates `providerManager.ListProviders()` (system-owned). Correct.
-2. **Database providers** — calls `store.ListProviderEndpoints` with `{Owner: "system", WithGlobal: true}`.
-
-The `ListProviderEndpoints` SQL for that query is:
 ```sql
 (owner = 'system' AND endpoint_type = 'user') OR endpoint_type = 'global'
 ```
 
-User-created providers have `owner = <user_id>` and `endpoint_type = 'user'` — neither condition matches, so they are silently excluded.
+User-created providers have `owner = <user_id>` and `endpoint_type = 'user'` — excluded.
+
+## Scaling Concern: Don't Naively Refresh All
+
+`ListProviderEndpointsQuery` has an `All: true` flag, but using it indiscriminately is wrong at scale.
+
+- Refresh interval = `ModelsCacheTTL` (default 1 minute)
+- Each provider HTTP call has a 3-second timeout
+- With 100s of user providers polled sequentially: 100 × 3s = 300s per cycle — longer than the interval itself
+- Most user providers (personal Ollama instances) are idle most of the time; polling them continuously wastes their resources and Helix's
+
+## Correct Approach: On-Demand Caching for User Providers
+
+`getProviderModels()` already implements cache-then-fetch with TTL (`ModelsCacheTTL`). When a user calls any endpoint that needs model listings, the result is cached automatically. This is sufficient for user-created providers:
+
+- First request: slow (live fetch + cache write)
+- Subsequent requests within TTL: instant (cache hit, no HTTP)
+- After TTL expires with no activity: cache evicted; next request re-fetches — acceptable, since an idle provider has no waiting users
+
+Background refresh exists for a specific reason (comment in `StartModelCacheRefresh`): ensuring model names are pre-parsed for routing logic (e.g., HuggingFace IDs like `Qwen/Qwen3-Coder`). This is a system-level concern that only applies to providers Helix routes jobs to automatically. User-created providers aren't part of that routing path.
 
 ## Fix
 
-`ListProviderEndpointsQuery` already has an `All bool` field. When `All: true`, the store returns every endpoint with no WHERE clause (`query.Find(&providerEndpoints)`).
+**Keep background refresh scoped to system/global providers** — the current query scope is actually correct for background polling. The real fix is to ensure `getProviderModels` is called on-demand for user providers at the right points in the request path, and that those results are cached with TTL.
 
-Change the DB query in `refreshAllProviderModels()` from:
-```go
-s.Store.ListProviderEndpoints(ctx, &store.ListProviderEndpointsQuery{
-    Owner:      string(types.OwnerTypeSystem),
-    WithGlobal: true,
-})
-```
-to:
-```go
-s.Store.ListProviderEndpoints(ctx, &store.ListProviderEndpointsQuery{
-    All: true,
-})
-```
+Investigate where model listings for user providers are consumed (e.g., `GET /api/v1/provider-endpoints?with_models=true`) and confirm that the on-demand caching path is working correctly there. If the cache is being populated on first user request and served from cache on subsequent ones, the behavior is correct.
 
-This is safe for a background refresh: the function already tolerates errors per-provider. Caching more providers adds load only on the provider endpoints themselves (Ollama etc.), not on Helix internals.
+If there is a specific code path where user provider models are needed before any user request has occurred (unlikely), a targeted fix would be: after a user *creates* a provider endpoint, immediately trigger a single background cache warm for that endpoint only — not a recurring poll.
 
-## Considered Alternatives
+## Decision
 
-- **Per-user refresh**: query distinct owners, iterate. More complex, no benefit since `All: true` exists.
-- **Change WithGlobal logic**: would require changing store semantics, affects other callers.
+Do NOT use `All: true` in the background refresh loop. The current refresh scope (system/global only) is intentional. Fix any specific on-demand caching gaps instead.
 
 ## Codebase Notes
 
-- `ListProviderEndpointsQuery.All` is defined in `api/pkg/store/store.go:93`.
-- The store implementation is in `api/pkg/store/store_provider_endpoints.go:88`.
-- The background refresh loop is in `provider_handlers.go:823–916`.
-- `getProviderModels()` is already designed to handle any `*types.ProviderEndpoint` owner.
+- `getProviderModels()` at `provider_handlers.go:251` handles cache check + TTL write
+- Cache TTL set via `s.Cfg.WebServer.ModelsCacheTTL`; refresh interval matches this value
+- `ListProviderEndpointsQuery.All` at `store.go:96` — exists but not appropriate here
+- On-demand model fetch for user providers happens at `provider_handlers.go:224` (inside list endpoint handler)

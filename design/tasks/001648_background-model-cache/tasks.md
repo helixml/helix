@@ -1,5 +1,6 @@
 # Implementation Tasks
 
-- [ ] In `refreshAllProviderModels()` (`api/pkg/server/provider_handlers.go`), change the `ListProviderEndpoints` call to use `All: true` instead of `Owner: "system", WithGlobal: true`
-- [ ] Verify with `go build ./pkg/server/` that no compilation errors are introduced
-- [ ] Manually confirm (or write a test) that user-created provider endpoints are now included in the refresh by checking that `getProviderModels` is called for a user-owned endpoint
+- [ ] Read `provider_handlers.go:210-250` (the list endpoint handler) and confirm that `getProviderModels` is called for user-created providers when `?with_models=true` is used, and that the TTL cache write at line 317 fires correctly for them
+- [ ] If the on-demand path is broken (e.g., user providers are skipped or their cache key collides), fix that specific gap — do NOT use `All: true` in `refreshAllProviderModels`
+- [ ] If a "warm on create" behavior is wanted: after `CreateProviderEndpoint` succeeds, trigger a single async `getProviderModels` call for the new endpoint to pre-populate the cache
+- [ ] Do NOT change the background refresh query scope — system/global-only polling is correct for scale reasons

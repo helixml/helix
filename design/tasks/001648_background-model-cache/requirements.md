@@ -1,18 +1,22 @@
-# Requirements: Background Model Cache Refresh for User-Created Providers
+# Requirements: Background Model Cache for User-Created Providers
 
 ## Problem
 
-`refreshAllProviderModels()` in `api/pkg/server/provider_handlers.go:854` only queries providers with `owner=system` or `endpoint_type=global`. User-created provider endpoints (e.g., personal Ollama instances) are owned by a user ID and have `endpoint_type=user`, so they are never included in the background cache refresh.
+User-created provider endpoints (e.g., personal Ollama instances) are not included in the background model cache refresh. The initial bug report suggested querying all providers, but at scale (100s of users each with their own provider) this would create a polling loop that polls idle endpoints every minute — excessive load on both Helix and user infrastructure.
 
-As a result, model listings for user-created providers are never pre-cached, causing slower or missing model availability for those endpoints.
+## Correct Goal
+
+User-created providers should have their model lists cached so that API calls are fast, without Helix continuously polling all of them in the background.
+
+The existing `getProviderModels()` function already caches results with a TTL on first request. This on-demand caching is the right mechanism for user providers. Background polling is only appropriate for system/global providers (small, known set) that Helix routes workloads to automatically.
 
 ## User Story
 
-As a user who has added a custom Ollama provider endpoint, my provider's models should be cached in the background refresh cycle so that model lookups are fast and available without on-demand fetching.
+As a user who has added a custom Ollama provider, my provider's models should be cached after I first use the endpoint, so subsequent requests are fast — without Helix polling my endpoint every minute even when I'm not using it.
 
 ## Acceptance Criteria
 
-- [ ] `refreshAllProviderModels()` fetches and caches models for all provider endpoints in the database, including user-created ones (`endpoint_type=user` with any owner).
-- [ ] Errors for individual providers are still logged and skipped without stopping the refresh for other providers.
-- [ ] No regression for system/global providers — they continue to be cached as before.
-- [ ] The existing global (env-var) provider refresh logic is unchanged.
+- [ ] When a user requests model listings for their provider endpoint (e.g., via `?with_models=true`), the result is cached with TTL and returned from cache on subsequent requests within that TTL.
+- [ ] User providers are NOT polled in the background refresh loop (prevents overload with many users).
+- [ ] Optionally: when a user creates a new provider endpoint, a single cache warm is triggered immediately so the first `?with_models=true` request is fast.
+- [ ] System/global provider background refresh is unchanged.
