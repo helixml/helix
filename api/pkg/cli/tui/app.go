@@ -13,8 +13,9 @@ import (
 type AppMode int
 
 const (
-	ModePicker AppMode = iota
-	ModeMain          // kanban + tabs + panes
+	ModeOrgPicker AppMode = iota
+	ModePicker                    // project picker
+	ModeMain                     // kanban + tabs + panes
 )
 
 // App is the top-level bubbletea model.
@@ -28,9 +29,11 @@ type App struct {
 	height     int
 	prefixNext bool // true when prefix key was just pressed
 
-	picker *PickerModel
-	kanban *KanbanModel
-	tabs   *TabBar
+	orgPicker *OrgPickerModel
+	picker    *PickerModel
+	kanban    *KanbanModel
+	tabs      *TabBar
+	orgID     string // selected organization
 
 	// Modal overlays (only one active at a time)
 	taskPicker    *TaskPickerModel
@@ -72,17 +75,16 @@ func NewApp(api *APIClient, projectID string) *App {
 	if projectID != "" {
 		app.mode = ModeMain
 		app.kanban = NewKanbanModel(api, projectID)
-	} else {
-		if state := LoadState(); state != nil && state.ProjectID != "" {
-			app.mode = ModeMain
-			app.kanban = NewKanbanModel(api, state.ProjectID)
-			if state.Panes != nil {
-				app.pendingRestore = state
-			}
-		} else {
-			app.mode = ModePicker
-			app.picker = NewPickerModel(api)
+	} else if state := LoadState(); state != nil && state.ProjectID != "" {
+		app.mode = ModeMain
+		app.kanban = NewKanbanModel(api, state.ProjectID)
+		if state.Panes != nil {
+			app.pendingRestore = state
 		}
+	} else {
+		// Start with org picker
+		app.mode = ModeOrgPicker
+		app.orgPicker = NewOrgPickerModel(api)
 	}
 
 	return app
@@ -92,6 +94,8 @@ func (a *App) Init() tea.Cmd {
 	cmds := []tea.Cmd{a.tickCmd()}
 
 	switch a.mode {
+	case ModeOrgPicker:
+		cmds = append(cmds, a.orgPicker.Init())
 	case ModePicker:
 		cmds = append(cmds, a.picker.Init())
 	case ModeMain:
@@ -125,6 +129,19 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, a.kanban.fetchTasks())
 		}
 		return a, tea.Batch(cmds...)
+
+	case orgsLoadedMsg:
+		if a.orgPicker != nil {
+			a.orgPicker.Update(msg)
+		}
+		return a, nil
+
+	case orgSelectedMsg:
+		a.orgID = msg.org.ID
+		a.mode = ModePicker
+		a.picker = NewPickerModel(a.api, a.orgID)
+		a.updateSizes()
+		return a, a.picker.Init()
 
 	case projectSelectedMsg:
 		a.mode = ModeMain
@@ -256,6 +273,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	switch a.mode {
+	case ModeOrgPicker:
+		cmd = a.orgPicker.Update(msg)
 	case ModePicker:
 		cmd = a.picker.Update(msg)
 	case ModeMain:
@@ -326,7 +345,7 @@ func (a *App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Mode-specific quit
 	if key == "q" {
 		switch a.mode {
-		case ModePicker:
+		case ModeOrgPicker, ModePicker:
 			return a, tea.Quit
 		case ModeMain:
 			if a.isOnKanbanTab() {
@@ -340,6 +359,8 @@ func (a *App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Delegate
 	var cmd tea.Cmd
 	switch a.mode {
+	case ModeOrgPicker:
+		cmd = a.orgPicker.Update(msg)
 	case ModePicker:
 		cmd = a.picker.Update(msg)
 	case ModeMain:
@@ -560,6 +581,9 @@ func (a *App) contentHeight() int {
 
 func (a *App) updateSizes() {
 	ch := a.contentHeight()
+	if a.orgPicker != nil {
+		a.orgPicker.SetSize(a.width, ch)
+	}
 	if a.picker != nil {
 		a.picker.SetSize(a.width, ch)
 	}
@@ -652,6 +676,8 @@ func (a *App) View() string {
 		content = a.newTask.View()
 	} else {
 		switch a.mode {
+		case ModeOrgPicker:
+			content = a.orgPicker.View()
 		case ModePicker:
 			content = a.picker.View()
 		case ModeMain:
@@ -699,6 +725,8 @@ func (a *App) renderStatusBar() string {
 
 	var help string
 	switch a.mode {
+	case ModeOrgPicker:
+		help = "j/k: navigate  enter: select  q: quit"
 	case ModePicker:
 		help = "j/k: navigate  enter: select  q: quit"
 	case ModeMain:

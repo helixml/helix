@@ -270,7 +270,7 @@ func TestIntegration_ListProjects(t *testing.T) {
 	h := newTUITestHarness(t)
 	defer h.Close()
 
-	projects, err := h.apiClient.ListProjects(context.Background())
+	projects, err := h.apiClient.ListProjects(context.Background(), "")
 	if err != nil {
 		t.Fatal(err)
 	}

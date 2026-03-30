@@ -12,6 +12,7 @@ import (
 // PickerModel is a project picker shown on startup.
 type PickerModel struct {
 	api      *APIClient
+	orgID    string // selected organization
 	projects []*types.Project
 	pinned   map[string]bool // set of pinned project IDs
 	cursor   int
@@ -31,17 +32,18 @@ type projectSelectedMsg struct {
 	project *types.Project
 }
 
-func NewPickerModel(api *APIClient) *PickerModel {
+func NewPickerModel(api *APIClient, orgID string) *PickerModel {
 	return &PickerModel{
-		api:    api,
-		pinned: make(map[string]bool),
+		api:     api,
+		orgID:   orgID,
+		pinned:  make(map[string]bool),
 		loading: true,
 	}
 }
 
 func (p *PickerModel) Init() tea.Cmd {
 	return func() tea.Msg {
-		projects, err := p.api.ListProjects(apiCtx())
+		projects, err := p.api.ListProjects(apiCtx(), p.orgID)
 		if err != nil {
 			return errMsg{err}
 		}

@@ -129,6 +129,22 @@ func entriesToJSON(v interface{}) datatypes.JSON {
 func (ds *demoServer) handler() http.Handler {
 	mux := http.NewServeMux()
 
+	mux.HandleFunc("/api/v1/organizations", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode([]*types.Organization{
+			{ID: "org_demo", Name: "Acme Corp"},
+		})
+	})
+	mux.HandleFunc("/api/v1/status", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(types.UserStatus{
+			User: "demo-user",
+			Config: types.UserConfig{
+				PinnedProjectIDs: []string{"proj_demo"},
+			},
+		})
+	})
+	mux.HandleFunc("/api/v1/users/", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(&types.User{ID: "demo-user", Email: "demo@helix.ml"})
+	})
 	mux.HandleFunc("/api/v1/projects", ds.handleProjects)
 	mux.HandleFunc("/api/v1/spec-tasks", ds.handleSpecTasks)
 	mux.HandleFunc("/api/v1/spec-tasks/", ds.handleSpecTask)
