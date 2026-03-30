@@ -13,22 +13,21 @@ import (
 var projectID string
 
 var rootCmd = &cobra.Command{
-	Use:     "tui",
-	Short:   "Terminal UI for Helix (hmux)",
-	Aliases: []string{"ui"},
-	Long: `Launch an interactive terminal UI for Helix.
+	Use:     "hmux",
+	Short:   "Helix terminal multiplexer",
+	Aliases: []string{"tui", "ui"},
+	Long: `hmux — the Helix terminal multiplexer.
 
-View the kanban board, chat with spec task agents, and split panes
-to work on multiple tasks — all from your terminal.
-
-Works great over SSH, mosh, and slow connections.
+Kanban board, split-pane chat, spec review, and more — all from
+your terminal. Works great over SSH, mosh, and slow connections.
 
 Keybindings are parsed from your ~/.tmux.conf automatically.
 
 Examples:
-  helix tui                     # start with project picker
-  helix tui --project proj_x    # skip picker, go to kanban
-  helix tui attach              # reattach to previous session`,
+  helix hmux                    # start with project picker
+  helix hmux --project proj_x   # skip picker, go to kanban
+  helix hmux attach             # reattach to previous session
+  helix hmux demo               # explore with mock data`,
 	RunE: runTUI,
 }
 
