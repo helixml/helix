@@ -143,7 +143,5 @@ func (p *PickerModel) View() string {
 		b.WriteString("\n")
 	}
 
-	b.WriteString("\n  " + styleDim.Render("j/k: navigate  enter: select  q: quit"))
-
 	return b.String()
 }
