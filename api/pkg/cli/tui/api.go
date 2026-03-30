@@ -33,6 +33,24 @@ func (a *APIClient) WebURL(projectID, taskID string) string {
 	return fmt.Sprintf("%s/projects/%s/tasks/%s", a.baseURL, projectID, taskID)
 }
 
+func (a *APIClient) GetUserStatus(ctx context.Context) (*types.UserStatus, error) {
+	var status types.UserStatus
+	err := a.client.MakeRequest(ctx, http.MethodGet, "/status", nil, &status)
+	if err != nil {
+		return nil, err
+	}
+	return &status, nil
+}
+
+func (a *APIClient) ListOrganizations(ctx context.Context) ([]*types.Organization, error) {
+	var orgs []*types.Organization
+	err := a.client.MakeRequest(ctx, http.MethodGet, "/organizations", nil, &orgs)
+	if err != nil {
+		return nil, err
+	}
+	return orgs, nil
+}
+
 func (a *APIClient) ListProjects(ctx context.Context) ([]*types.Project, error) {
 	var projects []*types.Project
 	err := a.client.MakeRequest(ctx, http.MethodGet, "/projects", nil, &projects)

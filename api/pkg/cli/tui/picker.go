@@ -13,7 +13,9 @@ import (
 type PickerModel struct {
 	api      *APIClient
 	projects []*types.Project
+	pinned   map[string]bool // set of pinned project IDs
 	cursor   int
+	offset   int // scroll offset
 	loading  bool
 	err      error
 	width    int
@@ -22,6 +24,7 @@ type PickerModel struct {
 
 type projectsLoadedMsg struct {
 	projects []*types.Project
+	pinned   []string
 }
 
 type projectSelectedMsg struct {
@@ -30,7 +33,8 @@ type projectSelectedMsg struct {
 
 func NewPickerModel(api *APIClient) *PickerModel {
 	return &PickerModel{
-		api:     api,
+		api:    api,
+		pinned: make(map[string]bool),
 		loading: true,
 	}
 }
@@ -41,7 +45,15 @@ func (p *PickerModel) Init() tea.Cmd {
 		if err != nil {
 			return errMsg{err}
 		}
-		return projectsLoadedMsg{projects: projects}
+
+		// Fetch pinned project IDs from user status
+		var pinnedIDs []string
+		status, err := p.api.GetUserStatus(apiCtx())
+		if err == nil && status != nil {
+			pinnedIDs = status.Config.PinnedProjectIDs
+		}
+
+		return projectsLoadedMsg{projects: projects, pinned: pinnedIDs}
 	}
 }
 
@@ -53,9 +65,24 @@ func (p *PickerModel) SetSize(w, h int) {
 func (p *PickerModel) Update(msg tea.Msg) tea.Cmd {
 	switch msg := msg.(type) {
 	case projectsLoadedMsg:
-		p.projects = msg.projects
+		p.pinned = make(map[string]bool)
+		for _, id := range msg.pinned {
+			p.pinned[id] = true
+		}
+
+		// Sort: pinned first, then by name
+		pinned := make([]*types.Project, 0)
+		unpinned := make([]*types.Project, 0)
+		for _, proj := range msg.projects {
+			if p.pinned[proj.ID] {
+				pinned = append(pinned, proj)
+			} else {
+				unpinned = append(unpinned, proj)
+			}
+		}
+		p.projects = append(pinned, unpinned...)
 		p.loading = false
-		// If only one project, auto-select it
+
 		if len(p.projects) == 1 {
 			return func() tea.Msg {
 				return projectSelectedMsg{project: p.projects[0]}
@@ -73,11 +100,21 @@ func (p *PickerModel) Update(msg tea.Msg) tea.Cmd {
 		case "j", "down":
 			if p.cursor < len(p.projects)-1 {
 				p.cursor++
+				p.ensureVisible()
 			}
 		case "k", "up":
 			if p.cursor > 0 {
 				p.cursor--
+				p.ensureVisible()
 			}
+		case "G":
+			if len(p.projects) > 0 {
+				p.cursor = len(p.projects) - 1
+				p.ensureVisible()
+			}
+		case "g":
+			p.cursor = 0
+			p.offset = 0
 		case "enter":
 			if len(p.projects) > 0 && p.cursor < len(p.projects) {
 				proj := p.projects[p.cursor]
@@ -88,6 +125,24 @@ func (p *PickerModel) Update(msg tea.Msg) tea.Cmd {
 		}
 	}
 	return nil
+}
+
+func (p *PickerModel) ensureVisible() {
+	visibleRows := p.visibleRows()
+	if p.cursor < p.offset {
+		p.offset = p.cursor
+	}
+	if p.cursor >= p.offset+visibleRows {
+		p.offset = p.cursor - visibleRows + 1
+	}
+}
+
+func (p *PickerModel) visibleRows() int {
+	rows := p.height - 5 // title + margins
+	if rows < 3 {
+		rows = 3
+	}
+	return rows
 }
 
 func (p *PickerModel) View() string {
@@ -106,13 +161,29 @@ func (p *PickerModel) View() string {
 	title := styleHeader.Render("Select a project")
 	b.WriteString("\n  " + title + "\n\n")
 
-	for i, proj := range p.projects {
+	visible := p.visibleRows()
+	end := p.offset + visible
+	if end > len(p.projects) {
+		end = len(p.projects)
+	}
+
+	lastWasPinned := false
+	for i := p.offset; i < end; i++ {
+		proj := p.projects[i]
+		isPinned := p.pinned[proj.ID]
+
+		// Show separator between pinned and unpinned
+		if lastWasPinned && !isPinned {
+			b.WriteString(styleDim.Render("  ────────────") + "\n")
+		}
+		lastWasPinned = isPinned
+
 		name := proj.Name
 		if name == "" {
 			name = proj.ID
 		}
 
-		desc := truncate(proj.Description, 60)
+		desc := truncate(proj.Description, 50)
 		stats := ""
 		if proj.Stats.TotalTasks > 0 {
 			stats = fmt.Sprintf("%d tasks", proj.Stats.TotalTasks)
@@ -121,7 +192,12 @@ func (p *PickerModel) View() string {
 			}
 		}
 
-		line := fmt.Sprintf("  %s", name)
+		pin := ""
+		if isPinned {
+			pin = lipgloss.NewStyle().Foreground(colorWarning).Render("* ")
+		}
+
+		line := fmt.Sprintf("  %s%s", pin, name)
 		if desc != "" {
 			line += styleDim.Render("  " + desc)
 		}
@@ -141,6 +217,15 @@ func (p *PickerModel) View() string {
 			b.WriteString(styleNormal.Render(line))
 		}
 		b.WriteString("\n")
+	}
+
+	// Scroll indicators
+	if p.offset > 0 {
+		b.WriteString(styleDim.Render(fmt.Sprintf("  ↑ %d more above", p.offset)) + "\n")
+	}
+	remaining := len(p.projects) - end
+	if remaining > 0 {
+		b.WriteString(styleDim.Render(fmt.Sprintf("  ↓ %d more below", remaining)) + "\n")
 	}
 
 	return b.String()
