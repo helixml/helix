@@ -15,7 +15,7 @@ var projectID string
 var rootCmd = &cobra.Command{
 	Use:     "hmux",
 	Short:   "Helix terminal multiplexer",
-	Aliases: []string{"tui", "ui"},
+	Aliases: []string{"tui"},
 	Long: `hmux — the Helix terminal multiplexer.
 
 Kanban board, split-pane chat, spec review, and more — all from
