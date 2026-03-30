@@ -20,7 +20,7 @@ type ProgressCallback func(progress types.EvaluationRunProgress)
 // RunnerConfig holds the dependencies for running evaluations
 type RunnerConfig struct {
 	Store      store.Store
-	Controller *controller.Controller
+	Controller SessionController
 	Judge      LLMJudge // optional, needed for llm_judge assertions
 }
 

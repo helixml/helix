@@ -12,27 +12,27 @@ import (
 
 // controllerLLMJudge implements LLMJudge using the controller's ChatCompletion
 type controllerLLMJudge struct {
-	controller *controller.Controller
-	user       *types.User
-	model      string
-	provider   string
-	orgID      string
+	completer ChatCompleter
+	user      *types.User
+	model     string
+	provider  string
+	orgID     string
 }
 
 // NewControllerLLMJudge creates an LLM judge that uses the controller's chat completion
 // with the specified model from the agent config
-func NewControllerLLMJudge(ctrl *controller.Controller, user *types.User, app *types.App) LLMJudge {
+func NewControllerLLMJudge(ctrl ChatCompleter, user *types.User, app *types.App) LLMJudge {
 	model, provider := pickJudgeModel(app)
 	if model == "" {
 		return nil
 	}
 
 	return &controllerLLMJudge{
-		controller: ctrl,
-		user:       user,
-		model:      model,
-		provider:   provider,
-		orgID:      app.OrganizationID,
+		completer: ctrl,
+		user:      user,
+		model:     model,
+		provider:  provider,
+		orgID:     app.OrganizationID,
 	}
 }
 
@@ -83,7 +83,7 @@ Answer with exactly "PASS" or "FAIL" on the first line, followed by a brief expl
 		Provider:       j.provider,
 	}
 
-	resp, _, err := j.controller.ChatCompletion(ctx, j.user, req, opts)
+	resp, _, err := j.completer.ChatCompletion(ctx, j.user, req, opts)
 	if err != nil {
 		return false, "", fmt.Errorf("LLM judge call failed: %w", err)
 	}
