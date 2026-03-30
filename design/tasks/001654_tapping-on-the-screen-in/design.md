@@ -1,69 +1,43 @@
 # Design: Fix Virtual Trackpad Tap Position
 
-## Root Cause
+## Root Cause (Two Bugs)
 
-**File:** `frontend/src/components/external-agent/DesktopStreamViewer.tsx`
+### Bug 1: First tap before any drag (DesktopStreamViewer.tsx)
 
-The bug is a **ref/state desync** in the virtual cursor initialization path.
+`cursorPositionRef` is initialized to `{x:0, y:0}` (line 175). On first touch, `handleTouchStart` calls `setCursorPosition` (React state) to set cursor to stream center, but does NOT update `cursorPositionRef.current`. `sendCursorPositionToRemote()` reads the ref synchronously, so first tap sends click to `(0,0)`.
 
-### How virtual trackpad cursor tracking works
+**Fix:** In the `!hasMouseMoved` initialization block, also update `cursorPositionRef.current` and the trackpad DOM element alongside `setCursorPosition`.
 
-- `cursorPositionRef` (line 175) — a ref holding the virtual cursor's container-relative `{x, y}`. Used synchronously in tap handlers.
-- `setCursorPosition` — React state version of the same value. Used for rendering.
-- Both are kept in sync during `handleTouchMove` (lines 3229-3239): the ref is updated first for immediate use, state is updated for rendering.
+### Bug 2: Tap after move — throttle race condition (websocket-stream.ts) ← MAIN BUG
 
-### The bug: initialization only updates React state, not the ref
+`sendMousePosition` is **throttled**. When called from `sendCursorPositionToRemote()` (before a tap), if the throttle window hasn't elapsed, the position is stored in `pendingMousePosition` and scheduled to send later.
 
-In `handleTouchStart` (lines 3031-3039), when `!hasMouseMoved`, the cursor is initialized to stream center:
+`sendMouseButton` is **not throttled** — it sends immediately via `sendInputMessage`.
 
-```typescript
-if (!hasMouseMoved && containerRef.current) {
-  setCursorPosition({
-    x: rect.x - containerRect.x + rect.width / 2,
-    y: rect.y - containerRect.y + rect.height / 2,
-  });
-  setHasMouseMoved(true);
-}
-```
+So the remote receives events in this order:
+1. `sendMouseButton` (click) — arrives immediately
+2. `sendMousePosition` (position) — arrives after throttle delay
 
-**Problem:** `setCursorPosition` (React state) is updated, but `cursorPositionRef.current` (the ref) is NOT. `cursorPositionRef.current` stays at its initial value of `{x: 0, y: 0}`.
+The remote clicks at wherever the cursor already was, not where the virtual cursor shows.
 
-### Where taps go wrong
+This affects all taps (single, right-click, middle-click). For single-tap there's a `DOUBLE_TAP_THRESHOLD_MS` delay before the click, so the throttle may have flushed, but it's timing-dependent. For multi-finger taps (right-click, middle-click) there's no delay at all.
 
-When a tap is detected in `handleTouchEnd`, `sendCursorPositionToRemote()` (lines 3467-3478) reads `cursorPositionRef.current` to get the click position:
+**Fix:** In `sendMouseButton`, flush any `pendingMousePosition` synchronously (cancelling the scheduled timeout) before sending the button event. This guarantees position arrives before click.
 
-```typescript
-const currentPos = cursorPositionRef.current;  // still {x:0, y:0} on first tap!
-const streamRelativeX = currentPos.x - streamOffsetX;
-const streamRelativeY = currentPos.y - streamOffsetY;
-handler.sendMousePosition?.(streamX, streamY, width, height);
-```
+## Key Files Modified
 
-On first tap (before any drag), `cursorPositionRef.current` is `{x:0, y:0}`. `streamOffsetX` and `streamOffsetY` are the stream's offset within the container (e.g., ~100px if centered). This produces a negative or near-zero `streamRelativeX/Y`, causing the click to land at the top-left corner of the remote screen instead of the center where the cursor is visually shown.
-
-### Fix
-
-In the `handleTouchStart` initialization block, update `cursorPositionRef.current` to match what's being set in React state:
-
-```typescript
-if (!hasMouseMoved && containerRef.current) {
-  const containerRect = containerRef.current.getBoundingClientRect();
-  const centerX = rect.x - containerRect.x + rect.width / 2;
-  const centerY = rect.y - containerRect.y + rect.height / 2;
-  setCursorPosition({ x: centerX, y: centerY });
-  cursorPositionRef.current = { x: centerX, y: centerY };  // ADD THIS
-  setHasMouseMoved(true);
-}
-```
-
-This is the same pattern already used elsewhere in the codebase (e.g., line 1601 where `cursorPositionRef.current` is explicitly set alongside `setCursorPosition`).
+- `frontend/src/components/external-agent/DesktopStreamViewer.tsx` — Bug 1 fix (first-tap ref init)
+- `frontend/src/lib/helix-stream/stream/websocket-stream.ts` — Bug 2 fix (flush pending position before button)
 
 ## Codebase Patterns Found
 
-- This project uses `useRef` alongside `useState` for cursor position to avoid stale closure issues in event handlers — the ref gives synchronous read of current position.
-- The `trackpadCursorRef` DOM element is also updated directly (bypassing React) for 60fps cursor movement (line 3233-3235). For consistency, the DOM update should also happen in the initialization block if the cursor element exists.
-- `sendCursorPositionToRemote` is defined inside `handleTouchEnd` as a closure — it captures `rect` from `getStreamRect()` at that point, which is correct.
+- `cursorPositionRef` + `setCursorPosition` are kept in sync during `handleTouchMove` but the initialization path missed the ref update.
+- `sendMousePosition` uses adaptive throttling to avoid flooding the WebSocket during drag.
+- `sendMouseButton` has no throttling because clicks are infrequent.
+- The flush pattern (cancel timeout + send immediate + reset lastMouseSendTime) matches what `scheduleMouseFlush` does internally.
 
-## Scope
+## Implementation Notes
 
-Only `DesktopStreamViewer.tsx` needs to change. One-line fix + containerRect extraction already partially done in the surrounding code. No backend changes needed.
+- "Tap after move" is the main user-reported bug — caused by the throttle race in websocket-stream.ts
+- "First tap before move" is a secondary bug — caused by the ref/state desync in DesktopStreamViewer.tsx
+- Both bugs were present simultaneously; both are fixed
