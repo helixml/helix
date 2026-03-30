@@ -1,10 +1,14 @@
 package tui
 
 import (
+	"encoding/json"
+	"fmt"
 	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+	"github.com/helixml/helix/api/pkg/server/wsprotocol"
 	"github.com/helixml/helix/api/pkg/types"
 )
 
@@ -416,34 +420,88 @@ func (c *ChatModel) renderInteraction(ix *types.Interaction, width int) []string
 		}
 	}
 
-	// Tool calls
-	if c.toolRenderer != nil {
-		for _, tc := range ix.ToolCalls {
+	// Render from ResponseEntries (structured entries from Zed WebSocket sync)
+	if len(ix.ResponseEntries) > 0 {
+		var entries []wsprotocol.ResponseEntry
+		if err := json.Unmarshal(ix.ResponseEntries, &entries); err == nil && len(entries) > 0 {
 			lines = append(lines, "")
-			toolLines := c.toolRenderer.RenderToolCall(tc)
-			lines = append(lines, toolLines...)
+			lines = append(lines, "  "+styleRoleAssistant.Render("Assistant"))
+			for _, entry := range entries {
+				lines = append(lines, c.renderResponseEntry(entry, contentWidth)...)
+			}
 		}
 	}
 
-	// Assistant response
-	resp := ix.ResponseMessage
-	if ix.DisplayMessage != "" {
-		resp = ix.DisplayMessage
-	}
-	if resp != "" {
-		lines = append(lines, "")
-		lines = append(lines, "  "+styleRoleAssistant.Render("Assistant"))
-		for _, line := range wrapText(resp, contentWidth) {
-			lines = append(lines, "  "+line)
-		}
-	}
-
-	// Error
 	if ix.Error != "" {
 		lines = append(lines, "")
 		lines = append(lines, "  "+styleError.Render("Error: "+ix.Error))
 	}
 
+	return lines
+}
+
+func (c *ChatModel) renderResponseEntry(entry wsprotocol.ResponseEntry, width int) []string {
+	switch entry.Type {
+	case "tool_call":
+		return c.renderToolCallEntry(entry, width)
+	case "text":
+		var lines []string
+		for _, line := range wrapText(entry.Content, width) {
+			lines = append(lines, "  "+line)
+		}
+		return lines
+	default:
+		return []string{"  " + styleDim.Render(entry.Content)}
+	}
+}
+
+func (c *ChatModel) renderToolCallEntry(entry wsprotocol.ResponseEntry, width int) []string {
+	var lines []string
+
+	// Tool call header with status
+	icon := lipgloss.NewStyle().Foreground(colorPrimary).Render("✽")
+	name := entry.ToolName
+	if name == "" {
+		name = "Tool Call"
+	}
+
+	statusStyle := styleDim
+	statusIcon := ""
+	switch entry.ToolStatus {
+	case "Completed":
+		statusStyle = lipgloss.NewStyle().Foreground(colorSuccess)
+		statusIcon = " ✓"
+	case "Running", "In Progress":
+		statusStyle = lipgloss.NewStyle().Foreground(colorWarning)
+		statusIcon = " ⟳"
+	case "Error", "Failed":
+		statusStyle = lipgloss.NewStyle().Foreground(colorError)
+		statusIcon = " ✗"
+	}
+
+	header := fmt.Sprintf("  %s %s%s", icon, name, statusStyle.Render(statusIcon))
+	lines = append(lines, header)
+
+	// Tool call content
+	if entry.Content != "" {
+		contentLines := strings.Split(entry.Content, "\n")
+		for _, cl := range contentLines {
+			// Detect diff lines within tool call content
+			if strings.HasPrefix(cl, "+") && !strings.HasPrefix(cl, "+++") {
+				lines = append(lines, "  "+diffAddStyle.Render("  "+truncate(cl, width-6)))
+			} else if strings.HasPrefix(cl, "-") && !strings.HasPrefix(cl, "---") {
+				lines = append(lines, "  "+diffRemoveStyle.Render("  "+truncate(cl, width-6)))
+			} else if strings.HasPrefix(cl, "$") {
+				// Command
+				cmdStyle := lipgloss.NewStyle().Foreground(colorText)
+				lines = append(lines, "  "+styleDim.Render("  ⎿  ")+cmdStyle.Render(truncate(cl, width-10)))
+			} else {
+				lines = append(lines, "  "+styleDim.Render("  ⎿  "+truncate(cl, width-10)))
+			}
+		}
+	}
+
+	lines = append(lines, "") // blank line after tool call
 	return lines
 }
 

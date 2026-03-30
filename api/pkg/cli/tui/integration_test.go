@@ -12,8 +12,10 @@ import (
 	"github.com/helixml/helix/api/pkg/client"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/server"
+	"github.com/helixml/helix/api/pkg/server/wsprotocol"
 	"github.com/helixml/helix/api/pkg/store/memorystore"
 	"github.com/helixml/helix/api/pkg/types"
+	"gorm.io/datatypes"
 )
 
 // tuiTestHarness sets up a test HTTP server backed by real HelixAPIServer
@@ -78,26 +80,33 @@ func seedTestData(t *testing.T, ms *memorystore.MemoryStore) {
 		t.Fatal(err)
 	}
 
-	// Create interactions
+	// Create interactions with ResponseEntries (matching Zed's wire format)
+	entries1, _ := json.Marshal([]wsprotocol.ResponseEntry{
+		{Type: "text", Content: "I've identified the issue. The email validation regex has catastrophic backtracking.", MessageID: "msg_t1"},
+	})
 	ix1 := types.Interaction{
-		ID:            "int_1",
-		SessionID:     "ses_test1",
-		Created:       time.Now().Add(-30 * time.Minute),
-		PromptMessage: "The login page crashes on long emails",
-		ResponseMessage: "I've identified the issue. The email validation regex has catastrophic backtracking.",
-		State:         types.InteractionStateComplete,
+		ID:              "int_1",
+		SessionID:       "ses_test1",
+		Created:         time.Now().Add(-30 * time.Minute),
+		PromptMessage:   "The login page crashes on long emails",
+		ResponseEntries: datatypes.JSON(entries1),
+		State:           types.InteractionStateComplete,
 	}
 	if _, err := ms.CreateInteraction(ctx, &ix1); err != nil {
 		t.Fatal(err)
 	}
 
+	entries2, _ := json.Marshal([]wsprotocol.ResponseEntry{
+		{Type: "tool_call", Content: "src/auth/validate.go\n- old code\n+ new code", MessageID: "msg_t2a", ToolName: "Edit file", ToolStatus: "Completed"},
+		{Type: "text", Content: "Done. Pushed fix to branch fix/login-1.", MessageID: "msg_t2b"},
+	})
 	ix2 := types.Interaction{
-		ID:            "int_2",
-		SessionID:     "ses_test1",
-		Created:       time.Now().Add(-10 * time.Minute),
-		PromptMessage: "Go ahead and fix it",
-		ResponseMessage: "Done. Pushed fix to branch fix/login-1.",
-		State:         types.InteractionStateComplete,
+		ID:              "int_2",
+		SessionID:       "ses_test1",
+		Created:         time.Now().Add(-10 * time.Minute),
+		PromptMessage:   "Go ahead and fix it",
+		ResponseEntries: datatypes.JSON(entries2),
+		State:           types.InteractionStateComplete,
 	}
 	if _, err := ms.CreateInteraction(ctx, &ix2); err != nil {
 		t.Fatal(err)
