@@ -117,3 +117,4 @@ api/settings-sync-daemon
 /scanout-stream-test
 core.*
 nohup.out
+
