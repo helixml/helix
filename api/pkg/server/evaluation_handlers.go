@@ -348,6 +348,7 @@ func (s *HelixAPIServer) startEvaluationRun(_ http.ResponseWriter, req *http.Req
 		runnerCfg := &evaluation.RunnerConfig{
 			Store:      s.Store,
 			Controller: s.Controller,
+			Judge:      evaluation.NewControllerLLMJudge(s.Controller, user, app),
 		}
 
 		evaluation.RunEvaluation(runCtx, runnerCfg, createdRun, suite, app, user, func(progress types.EvaluationRunProgress) {
