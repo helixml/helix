@@ -63,14 +63,16 @@ func StartSSHServer(cfg *SSHServerConfig) error {
 		wish.WithAddress(addr),
 		wish.WithHostKeyPath(hostKeyPath),
 		wish.WithPasswordAuth(func(ctx ssh.Context, password string) bool {
-			// Password is treated as the Helix API key
-			// Store it in the context for the handler to use
+			// User must be "helix", password is the API key
+			if ctx.User() != "helix" {
+				return false
+			}
 			ctx.SetValue("helix_api_key", password)
 			return password != ""
 		}),
 		wish.WithPublicKeyAuth(func(ctx ssh.Context, key ssh.PublicKey) bool {
 			// Accept all public keys for now
-			// TODO: map SSH keys to Helix users
+			// TODO: map SSH keys to Helix users/API keys
 			ctx.SetValue("helix_api_key", "")
 			return true
 		}),
@@ -114,21 +116,10 @@ type sshSessionModel struct {
 }
 
 func newSSHSessionModel(s ssh.Session, cfg *SSHServerConfig) *sshSessionModel {
-	// Get API key from SSH auth context
+	// Get API key from SSH auth — user is "helix", password is the API key
 	apiKey := ""
 	if key, ok := s.Context().Value("helix_api_key").(string); ok {
 		apiKey = key
-	}
-
-	// Also check username — format "apikey:hlx_xxx" passes API key as username
-	user := s.User()
-	if len(user) > 7 && user[:7] == "apikey:" {
-		apiKey = user[7:]
-	}
-
-	// If no API key from auth, check environment
-	if apiKey == "" {
-		apiKey = os.Getenv("HELIX_API_KEY")
 	}
 
 	m := &sshSessionModel{
@@ -137,14 +128,14 @@ func newSSHSessionModel(s ssh.Session, cfg *SSHServerConfig) *sshSessionModel {
 	}
 
 	if apiKey == "" {
-		m.err = fmt.Errorf("no API key provided. Use: ssh -o 'User=apikey:hlx_xxx' host")
+		m.err = fmt.Errorf("no API key provided. Use: ssh helix@host -p %d (password = your API key)", cfg.Port)
 		return m
 	}
 
-	// Create Helix client
+	// Connect to the local Helix API (SSH server runs inside the Helix server process)
 	helixURL := cfg.HelixURL
 	if helixURL == "" {
-		helixURL = "https://app.helix.ml"
+		helixURL = "http://localhost:8080"
 	}
 
 	helixClient, err := client.NewClient(helixURL, apiKey, false)
@@ -155,6 +146,7 @@ func newSSHSessionModel(s ssh.Session, cfg *SSHServerConfig) *sshSessionModel {
 
 	api := NewAPIClient(helixClient)
 	m.app = NewApp(api, "")
+	m.app.conn.isSSHSession = true
 
 	return m
 }

@@ -18,12 +18,15 @@ const (
 )
 
 // ConnectionManager tracks API connection health.
+// The disconnect bar only renders in CLI mode (mode 3). When running
+// inside SSH/mosh server mode, the transport handles reconnection.
 type ConnectionManager struct {
 	mu            sync.Mutex
 	state         ConnState
 	lastContact   time.Time
 	failCount     int
 	lastError     error
+	isSSHSession  bool // true when running inside helix tui serve (SSH/mosh)
 }
 
 func NewConnectionManager() *ConnectionManager {
@@ -77,7 +80,7 @@ func (cm *ConnectionManager) RenderBar(width int) string {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 
-	if cm.state == ConnConnected {
+	if cm.state == ConnConnected || cm.isSSHSession {
 		return ""
 	}
 
