@@ -94,6 +94,8 @@ type openTaskChatMsg struct {
 	task *types.SpecTask
 }
 
+type openNewTaskMsg struct{}
+
 func NewKanbanModel(api *APIClient, projectID string) *KanbanModel {
 	return &KanbanModel{
 		api:       api,
@@ -190,8 +192,7 @@ func (k *KanbanModel) Update(msg tea.Msg) tea.Cmd {
 			k.loading = true
 			return k.fetchTasks()
 		case "n":
-			// TODO: new task input
-			return nil
+			return func() tea.Msg { return openNewTaskMsg{} }
 		}
 	}
 	return nil

@@ -1,8 +1,6 @@
 package tui
 
 import (
-	"strings"
-
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -319,17 +317,3 @@ func (pm *PaneManager) allLeaves(node *PaneTree) []*PaneTree {
 	return append(left, right...)
 }
 
-// padOrTruncate ensures a string is exactly the given width.
-func padOrTruncate(s string, w int) string {
-	lines := strings.Split(s, "\n")
-	var result []string
-	for _, line := range lines {
-		runes := []rune(line)
-		if len(runes) > w {
-			result = append(result, string(runes[:w]))
-		} else {
-			result = append(result, line+strings.Repeat(" ", w-len(runes)))
-		}
-	}
-	return strings.Join(result, "\n")
-}

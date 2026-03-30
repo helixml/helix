@@ -262,20 +262,29 @@ $ hmux at -t 1                  # attach to specific session
 $ hmux kill -t 0                # kill specific session
 ```
 
-**Implementation:**
-- On startup, the TUI forks a daemon process that owns the bubbletea model
-  and the Helix API client connection
-- The daemon listens on a Unix socket at `~/.helix/tui/{session-id}.sock`
-- The foreground process connects to the socket, forwarding terminal I/O
-- The daemon maintains: API client, pane tree layout (which tasks are open,
-  split directions, focused pane), scroll positions, selected project
-- On detach (`{prefix}+d`), the foreground process disconnects and exits;
-  the daemon keeps polling the API for updates (task status changes, new
-  messages) so state is fresh on reattach
-- On reattach, a new foreground process connects to the existing socket;
-  the daemon replays the current view — no API round-trips needed
-- The daemon handles `SIGWINCH` forwarding for terminal resize
-- Daemon auto-exits after configurable idle timeout (default: 24h)
+**Implementation — no daemon needed:**
+- On detach (`{prefix}+d`), serialize pane layout state to
+  `~/.helix/tui/state.json`: which project, which tasks are open in
+  which panes, split directions, focused pane ID
+- On `hmux at` / `helix tui`, check for state file. If found, restore
+  pane layout and re-fetch data from API for each open task
+- State file format:
+  ```json
+  {
+    "project_id": "proj_xxx",
+    "panes": {
+      "dir": "vertical",
+      "left": {"task_id": "spt_aaa"},
+      "right": {"dir": "horizontal",
+        "left": {"task_id": "spt_bbb"},
+        "right": {"task_id": "spt_ccc"}}
+    },
+    "focused_task_id": "spt_aaa"
+  }
+  ```
+- Clean, simple, no background process. Data is always fresh from the API.
+  The only thing being persisted is "which panes were open and how they
+  were arranged"
 
 **Key binding:**
 | Key | Action |
@@ -294,8 +303,7 @@ Same layout as kanban but single-column list. Enter opens chat.
 
 ```
 cmd.go          CLI entry point (hmux, helix tui, subcommands: attach/list/kill)
-daemon.go       Daemon process: owns bubbletea model, API client, Unix socket
-client.go       Foreground process: connects to daemon socket, proxies terminal I/O
+state.go        Serialize/restore pane layout to ~/.helix/tui/state.json
 app.go          Top-level bubbletea model: project picker → kanban ↔ pane mode
 kanban.go       Kanban board view
 chat.go         Single chat pane (messages + input)
@@ -372,11 +380,10 @@ All resolved:
 10. Register in `api/cmd/helix/root.go`, add bubbletea deps to go.mod
 11. Build and test
 
-### Phase 2: Daemon + Terminal
-12. `daemon.go` — daemon process with Unix socket server
-13. `client.go` — foreground attach/detach client
-14. `cmd.go` — add subcommands: `attach`, `list`, `kill`
-15. `terminal.go` — embedded terminal pane for sandbox shell
+### Phase 2: State + Terminal
+12. `state.go` — serialize/restore pane layout to disk
+13. `cmd.go` — add `attach` subcommand (restore from state file)
+14. `terminal.go` — embedded terminal pane for sandbox shell
 
 ### Phase 3: Polish
 16. Background polling for kanban/chat updates

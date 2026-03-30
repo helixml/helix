@@ -8,16 +8,29 @@ import (
 	"strings"
 
 	"github.com/helixml/helix/api/pkg/client"
+	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/types"
 )
 
 // APIClient wraps the helix client with TUI-specific methods.
 type APIClient struct {
-	client *client.HelixClient
+	client  *client.HelixClient
+	baseURL string // HELIX_URL without /api/v1
 }
 
 func NewAPIClient(c *client.HelixClient) *APIClient {
-	return &APIClient{client: c}
+	// Load base URL for web links
+	cfg, _ := config.LoadCliConfig()
+	baseURL := cfg.URL
+	if baseURL == "" {
+		baseURL = "https://app.helix.ml"
+	}
+	return &APIClient{client: c, baseURL: baseURL}
+}
+
+// WebURL returns the browser URL for a spec task.
+func (a *APIClient) WebURL(projectID, taskID string) string {
+	return fmt.Sprintf("%s/projects/%s/tasks/%s", a.baseURL, projectID, taskID)
 }
 
 func (a *APIClient) ListProjects(ctx context.Context) ([]*types.Project, error) {
