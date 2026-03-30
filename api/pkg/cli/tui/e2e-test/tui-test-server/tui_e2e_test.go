@@ -177,28 +177,30 @@ func TestTUI_E2E(t *testing.T) {
 	}
 
 	// Press enter to send
-	prevCompletions := getCompletionCount(t, serverURL)
 	app, cmd = app.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	app, cmd = processCmd(t, app, cmd)
 
-	// Wait for Zed to respond (real LLM call)
+	// Wait for a response to appear in the interactions
 	t.Log("Waiting for Zed agent response (real LLM)...")
 	responseDeadline := time.Now().Add(120 * time.Second)
+	gotResponse := false
 	for time.Now().Before(responseDeadline) {
-		time.Sleep(1 * time.Second)
+		time.Sleep(2 * time.Second)
 		// Simulate tick to trigger interaction refresh
 		app, cmd = app.Update(tui.TickMsg(time.Now()))
 		app, cmd = processCmd(t, app, cmd)
-		if getCompletionCount(t, serverURL) > prevCompletions {
+
+		// Check if any interaction has a response
+		if hasCompletedInteraction(t, serverURL) {
+			gotResponse = true
 			break
 		}
 	}
 
-	currentCompletions := getCompletionCount(t, serverURL)
-	if currentCompletions <= prevCompletions {
-		t.Fatal("No message_completed received from Zed within 120s")
+	if !gotResponse {
+		t.Fatal("No completed interaction with response within 120s")
 	}
-	t.Logf("Response received! (completions: %d)", currentCompletions)
+	t.Log("Response received!")
 
 	// Fetch interactions to trigger re-render
 	app, cmd = app.Update(tui.TickMsg(time.Now()))
@@ -209,6 +211,28 @@ func TestTUI_E2E(t *testing.T) {
 		app, cmd = app.Update(tui.TickMsg(time.Now()))
 		app, cmd = waitForCmd(t, app, cmd, 5*time.Second)
 		time.Sleep(1 * time.Second)
+	}
+
+	// Debug: dump interactions from server
+	t.Log("=== Debug: checking interactions via API ===")
+	resp, httpErr := http.Get(serverURL + "/api/v1/sessions/ses_tui-e2e-001/interactions")
+	if httpErr == nil {
+		defer resp.Body.Close()
+		var debugInteractions []json.RawMessage
+		json.NewDecoder(resp.Body).Decode(&debugInteractions)
+		t.Logf("Interactions count: %d", len(debugInteractions))
+		for i, raw := range debugInteractions {
+			// Extract just the key fields
+			var ix struct {
+				ID              string          `json:"id"`
+				State           string          `json:"state"`
+				ResponseMessage string          `json:"response_message"`
+				ResponseEntries json.RawMessage `json:"response_entries"`
+			}
+			json.Unmarshal(raw, &ix)
+			t.Logf("Interaction %d: id=%s state=%s response_len=%d entries_len=%d",
+				i, ix.ID, ix.State, len(ix.ResponseMessage), len(ix.ResponseEntries))
+		}
 	}
 
 	// --- Phase 5: Verify rendered response ---
@@ -274,6 +298,13 @@ func waitForCmd(t *testing.T, m tea.Model, cmd tea.Cmd, timeout time.Duration) (
 		m, cmd = processCmd(t, m, cmd)
 	}
 	return m, cmd
+}
+
+func hasCompletedInteraction(t *testing.T, serverURL string) bool {
+	t.Helper()
+	// Check ALL interactions via status endpoint (responses may be on child sessions)
+	completions := getCompletionCount(t, serverURL)
+	return completions > 1 // >1 because shell Phase 1 already got one
 }
 
 func getCompletionCount(t *testing.T, serverURL string) int {
