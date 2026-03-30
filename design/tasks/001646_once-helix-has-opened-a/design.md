@@ -10,7 +10,7 @@ When a user closes a Helix-created PR:
 3. The task stays in `pull_request` status (the orchestrator logs "All PRs closed, task remains in pull_request status" at line 738–742 but takes no action to stop `ensurePRs`).
 4. `handlePullRequest` in the orchestrator calls `ensurePRs` every 30 seconds → creates a new PR every cycle.
 
-The rename scenario (close + reopen with new title) hits the same path: the close creates the duplicate before the reopen is detected.
+The rename scenario's exact trigger is unclear — a simple title rename on GitHub keeps the PR open with the same branch, so the deduplication check should still match it. The bug may involve a race condition between concurrent `ensurePRs` calls, or a provider-specific edge case. Reproduction steps are needed to confirm. The fix below is robust against the rename case regardless of the specific trigger, because it uses `task.RepoPullRequests` as the authoritative record rather than relying only on the live API result.
 
 ## Key Files
 

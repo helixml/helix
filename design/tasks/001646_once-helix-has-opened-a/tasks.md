@@ -5,3 +5,4 @@
 - [ ] Write a unit test: task with one closed RepoPR entry → `ensurePullRequestForRepo` returns existing PR, does not call `CreatePullRequest`
 - [ ] Write a unit test: orchestrator polling with all PRs closed → `ensurePRs` is not called
 - [ ] Manually verify: close a Helix PR on GitHub, wait 60 seconds, confirm no duplicate PR is opened
+- [ ] Manually verify: rename a Helix PR title on GitHub (simple title edit, PR stays open), wait 60 seconds, confirm no duplicate PR is opened; document the reproduction steps if a duplicate is still observed
