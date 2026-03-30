@@ -1,391 +1,504 @@
-# Helix TUI Client
+# Helix TUI Client (hmux)
 
 **Date:** 2026-03-30
 **Branch:** `feature/tui-client`
-**Status:** Design
+**Status:** Design + Phase 1 built
 
 ## Problem
 
-The Helix web UI requires a browser with reasonable bandwidth. Over satellite internet, SSH/mosh connections, or air-gapped environments, the browser UI is unusable. We need a terminal-native way to:
+The Helix web UI requires a browser with reasonable bandwidth. Over satellite
+internet, SSH/mosh connections, or air-gapped environments, the browser UI is
+unusable. We need a full terminal-native Helix client — not just a viewer, but
+a complete interface for managing spec tasks, reviewing specs, chatting with
+agents, and interacting with dev containers.
 
-1. View and navigate the kanban board
-2. Chat with spec task agents
-3. View multiple spec task conversations simultaneously
-4. Create new tasks
+**Design goals:**
+- Works great over high-latency, low-bandwidth connections (satellite, mosh)
+- TUI users and web users coexist — same backend, same data
+- No flickering, no missed keystrokes, no polling-induced input lag
+- Individually testable components for long-term sustainability
+- Eventually embeddable in the web interface as a terminal component
 
-## Design
+## UX Philosophy
 
-### Technology
+### Mirror Claude Code exactly
+Copy Claude Code's look and feel as closely as possible: colors, borders,
+spacing, spinner, input prompt, diff rendering. Users should feel at home
+immediately.
 
-- **Bubble Tea** (charmbracelet/bubbletea) — the standard Go TUI framework
-- **Lip Gloss** (charmbracelet/lipgloss) — styling
-- **Bubbles** (charmbracelet/bubbles) — text input, viewport, spinner components
-- Lives in `api/pkg/cli/tui/`, invoked via `helix tui` (alias: `helix ui`)
-
-### UX Philosophy
-
-Mirror Claude Code's look and feel as closely as possible:
-- Muted color palette, clean borders, information-dense
-- Vim-style navigation (j/k/h/l)
-- **esc** stops the running agent (same as Claude Code), does NOT navigate
-- Input prompt at the bottom of chat panes
-- Compact, no wasted space
-
-### Views
-
-#### 1. Kanban Board (home view)
-
-Full-screen kanban board showing spec tasks in columns by status.
+### Spinner with British humor
+The "thinking" spinner uses hilariously British verbs instead of generic
+"Thinking...":
 
 ```
-╭─ helix tui ─────────────────────────────────────────────────────────╮
-│ myproject                                                      r:⟳ │
-│─────────────────────────────────────────────────────────────────────│
-│ Backlog (3)    │ Planning (1)   │ In Progress (1)│ Review (1) │Done│
-│────────────────│────────────────│────────────────│────────────│────│
-│▸ Add auth    ▲ │  Refactor DB   │  Fix login     │ Update API │ M  │
-│  Fix CSS       │                │                │            │ A  │
-│  New search    │                │                │            │    │
-│                │                │                │            │    │
-│                │                │                │            │    │
-│                │                │                │            │    │
-│                │                │                │            │    │
-│                │                │                │            │    │
-╰─────────────────────────────────────────────────────────────────────╯
- h/l:column  j/k:task  enter:open  n:new task  s:sessions  r:refresh
+✽ Waiting for kettle… (12s · ↑ 1.3k tokens)
+✽ Taking afternoon tea… (34s · ↑ 2.1k tokens)
+✽ Complaining about the weather… (59s · ↑ 4.2k tokens)
+✽ Raise your pinky finger… (1m23s · ↑ 6.0k tokens)
+✽ Going for a walk… (2m01s · ↑ 8.4k tokens)
+✽ Watching the football… (3m12s · ↑ 12k tokens)
+✽ Going to the pub… (4m44s · ↑ 15k tokens)
+✽ Going for lunch… (6m02s · ↑ 18k tokens)
+✽ Sunday roast anyone?… (8m15s · ↑ 22k tokens)
+✽ Fancy a cuppa?… (10m30s · ↑ 25k tokens)
 ```
 
-Columns map to SpecTask statuses:
-- **Backlog**: `backlog`
-- **Planning**: `queued_spec_generation`, `spec_generation`, `spec_review`, `spec_revision`, `spec_approved`
-- **In Progress**: `queued_implementation`, `implementation_queued`, `implementation`
-- **Review**: `implementation_review`, `pull_request`
-- **Done**: `done`
-
-Each card shows: task name, priority indicator, type badge, agent work state.
-
-#### 2. Chat View (spec task detail)
-
-Entering a task from kanban opens its chat history. Shows the spec task's
-planning session interactions as a conversation.
-
+Below spinner, show tip like Claude Code:
 ```
-╭─ Fix login bug (#3) ─────────────────────── impl ─ high ─ fix/login-3 ╮
-│                                                                        │
-│  You                                                                   │
-│  The login page crashes when you enter a long email address             │
-│                                                                        │
-│  Assistant                                                             │
-│  I've identified the issue. The email validation regex has a           │
-│  catastrophic backtracking pattern. Here's my plan:                    │
-│    1. Replace the regex with a simpler check                           │
-│    2. Add max-length validation on the input                           │
-│                                                                        │
-│  You                                                                   │
-│  Looks good, go ahead                                                  │
-│                                                                        │
-│  Assistant                                                             │
-│  Done. I've pushed the fix to fix/login-3.                             │
-│                                                                        │
-╰────────────────────────────────────────────────────────────────────────╯
- > █
+  ⎿  Tip: Use /btw to ask a quick side question without interrupting the agent
 ```
 
-#### 3. Split Panes (tmux-style)
-
-From any chat view, split to open another task alongside. Panes are
-arranged in a binary tree (each split creates two children).
+### Input area — exact Claude Code clone
 
 ```
-╭─ Fix login (#3) ──────────────────╮╭─ Refactor DB (#5) ───────────────╮
-│                                    ││                                   │
-│  Assistant                        ││  You                              │
-│  Done. PR ready for review.       ││  Refactor the ORM layer           │
-│                                    ││                                   │
-│                                    ││  Assistant                       │
-│                                    ││  I'll analyze the query patterns  │
-│                                    ││  and create a design doc.         │
-│                                    ││                                   │
-╰────────────────────────────────────╯╰───────────────────────────────────╯
- > █                                   (unfocused)
-───────────────────────────────────────────────────────────────────────────
- ctrl+b |:split-v  ctrl+b -:split-h  ctrl+b n:next  ctrl+b x:close
+────────────────────────────────────────────────────────────────────────
+❯
+────────────────────────────────────────────────────────────────────────
+  ⏵⏵ bypass permissions is always on (you're in a sandbox) · esc to interrupt
 ```
 
-The focused pane has a highlighted border. The input prompt only appears
-in the focused pane.
+### No flickering, no missed keystrokes
 
-### Key Bindings
+**Problem:** Claude Code re-renders the entire conversation on every update,
+causing flickering and dropped keystrokes when rendering is slow.
 
-#### Global
+**Solution:**
+- Use bubbletea's `tea.WithoutRenderer()` for the input area — manage it
+  separately with direct terminal writes so input is always responsive
+- Only re-render the message viewport when new content arrives, not on every
+  keystroke
+- Use a ring buffer for visible messages, not full re-render
+- Input buffer is completely independent of render cycle — keystrokes go
+  straight into a local buffer, rendered independently
+- Test: input latency must be <16ms (one frame) even during heavy re-render
+
+## Views
+
+### 1. Kanban Board (home view)
+
+Full-screen kanban board. See Phase 1 implementation (already built).
+
+### 2. Chat View (spec task detail)
+
+Shows the conversation with the agent. Renders tool calls visually:
+
+#### Tool call rendering
+
+Must render the same tool calls that Zed sends over the wire. Key renders:
+
+**File edits (red/green diff):**
+```
+  Assistant
+  ✽ Editing src/auth/login.go
+
+  ┌─ src/auth/login.go ──────────────────────────────────────────────┐
+  │  - func validateEmail(email string) bool {                       │
+  │  -     return regexp.MustCompile(`^[a-zA-Z0-9._%+-]+@...`).     │
+  │  -         MatchString(email)                                    │
+  │  + func validateEmail(email string) bool {                       │
+  │  +     if len(email) > 254 {                                     │
+  │  +         return false                                          │
+  │  +     }                                                         │
+  │  +     parts := strings.SplitN(email, "@", 2)                    │
+  │  +     return len(parts) == 2 && parts[0] != "" && parts[1] != ""│
+  │  }                                                               │
+  └──────────────────────────────────────────────────────────────────┘
+```
+
+Red background for removed lines, green for added (same colors as Claude Code).
+
+**File reads:**
+```
+  ✽ Read src/auth/login.go (lines 1-45)
+```
+
+**Terminal commands:**
+```
+  ✽ Running: go test ./auth/...
+  ⎿  ok  github.com/example/auth  0.234s
+```
+
+**Search results:**
+```
+  ✽ Searched for "validateEmail" in 42 files
+  ⎿  Found 3 matches
+```
+
+### 3. Split Panes (tmux-style)
+
+Already designed and built in Phase 1.
+
+### 4. Tabs (tmux-style, bottom bar)
+
+Tabs at the bottom of the screen, like tmux's window list. Each tab is a
+spec task (or special view like kanban).
+
+```
+╭─ Fix login (#3) ───────────────────────────────────────────────────╮
+│  ...conversation...                                                │
+╰────────────────────────────────────────────────────────────────────╯
+❯ █
+────────────────────────────────────────────────────────────────────────
+ 0:kanban  1:Fix login*  2:Refactor DB  3:Add auth
+```
+
+- `{prefix} c` — create new tab (shows picker: create task or select existing)
+- `{prefix} n` / `{prefix} p` — next/prev tab
+- `{prefix} 0-9` — jump to tab by number
+- `{prefix} ,` — rename tab
+- `{prefix} &` — close tab
+- Tab `0` is always kanban
+
+Tabs and panes are independent — each tab can have its own pane splits.
+
+### 5. Embedded Terminal (sandbox shell)
+
+Resumable remote terminal sessions into the dev container. When you detach
+and reattach, the terminal session survives.
+
+**Option A: Use tmux under the hood**
+- The TUI starts a tmux session inside the sandbox container
+- Terminal panes connect to that tmux session
+- Detach/reattach is free — tmux handles it
+- Predictive local echo for interactive use (like mosh)
+
+**Option B: Lightweight implementation**
+- PTY allocation via exec API into container
+- Session state stored in container-side process
+- Reconnect re-attaches to same PTY
+- Simpler but no session survival across container restarts
+
+Recommendation: **Option A** — tmux is already available in the sandbox
+containers, and reinventing session persistence is not worth it.
+
+### 6. Spec Review UI
+
+For tasks in `spec_review` status, the TUI provides a review interface:
+
+```
+╭─ Review: Add auth (#1) ───────────────────────────────────────────╮
+│                                                                    │
+│  ## Requirements Specification                                     │
+│                                                                    │
+│  ### User Stories                                                  │
+│  1. As a user, I want to log in with OAuth2 so that I can use     │
+│     my existing Google/GitHub account                              │
+│                                                                    │
+│  ### Acceptance Criteria                                           │
+│  - [ ] OAuth2 flow works with Google provider                     │
+│  - [ ] OAuth2 flow works with GitHub provider                     │
+│  - [ ] Session tokens are stored securely                         │
+│                                                                    │
+│  ## Technical Design                                               │
+│  ...                                                               │
+│                                                                    │
+│  ┌─ Comment on lines 5-7 ─────────────────────────────────────┐   │
+│  │ Should we also support Microsoft Entra ID? Enterprise       │   │
+│  │ customers will need it.                                     │   │
+│  └─────────────────────────────────────────────────────────────┘   │
+│                                                                    │
+╰────────────────────────────────────────────────────────────────────╯
+ shift+V: select lines  c: comment  a: approve  r: request changes
+```
+
+- **shift+V**: enter visual line selection mode (vim-style), select range
+  of spec text to comment on
+- **c**: add comment on selected text (opens input)
+- **a**: approve specs → moves task to implementation
+- **r**: request changes → sends revision request with comment
+- Comments stream back from the agent as it responds
+
+Emacs equivalent for visual select: TBD (C-SPC for mark, movement for
+region selection).
+
+### 7. Slash Commands
+
+Clone Claude Code's slash command UX. Type `/` in the input to see available
+commands:
+
+```
+❯ /
+  /mcp         Configure MCP servers for this project/agent
+  /model       Switch the model for this task
+  /approve     Approve the current spec/implementation
+  /reject      Request changes to spec/implementation
+  /branch      Show/change the working branch
+  /pr          Show pull request status
+  /logs        Show agent logs
+  /web         Open in web browser
+  /btw         Ask a side question without interrupting
+  /status      Show task status details
+  /help        Show all commands
+```
+
+**MCP configuration** (clone Claude Code's UX exactly, same colors):
+```
+❯ /mcp
+  MCP Servers for "myproject"
+
+  ✓ drone-ci       Connected (4 tools)
+  ✓ github         Connected (12 tools)
+  ✗ slack          Disconnected
+
+  a: add server  r: remove  e: edit config  esc: back
+```
+
+Adding an MCP server calls the Helix API to update project/agent settings.
+
+### 8. Mosh-style Connection Management
+
+#### Disconnection bar
+When the connection to the Helix API is lost (timeout, network change),
+show a mosh-style bar at the top:
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│ helix: Last contact 2:08 ago. [To quit: Ctrl-^ .]                 │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+The bar appears/disappears automatically. While disconnected:
+- Input continues to work (queued locally)
+- Typing is shown with predictive local echo
+- Queued messages are sent when connection resumes
+- Notifications are fetched on reconnect (already queued on backend)
+
+#### Predictive write-ahead
+For users running hmux locally (not over SSH), implement mosh-style
+predictive local echo:
+- Keystrokes are rendered immediately in the input buffer
+- A background goroutine sends them to the API
+- If the prediction was wrong (API rejects), roll back
+- Visual indicator: predicted text shown in slightly dimmer color until
+  confirmed
+
+#### Reliable prompt entry
+Reuse the same infrastructure the web frontend uses:
+- Messages are queued in a local outbox
+- Each message gets a client-side ID
+- On send, message goes to outbox → API call → on success, remove from outbox
+- On failure, retry with exponential backoff
+- On reconnect, flush the outbox
+- User sees their message immediately (optimistic rendering) with a
+  "sending..." indicator until confirmed
+
+### 9. Notifications
+
+Backend already queues notifications. The TUI:
+- Polls for new notifications on the tick interval
+- Shows unread count in the tab bar: `1:Fix login* (2)`
+- `{prefix} !` opens notification list
+- Notifications include: spec ready for review, implementation complete,
+  PR created, agent error, etc.
+
+## Key Bindings (complete)
+
+### Global
 | Key | Action |
 |-----|--------|
 | `ctrl+c` | Quit |
-| `esc` | Stop running agent (in chat) / clear input |
-| `q` | Quit (kanban only, not in chat input) |
+| `esc` | Stop agent / clear input / back (progressive) |
 
-#### Kanban View
+### Kanban
 | Key | Action |
 |-----|--------|
-| `h` / `l` | Move between columns |
-| `j` / `k` | Move between tasks in column |
-| `enter` | Open task chat view |
-| `n` | New task (opens prompt input) |
-| `s` | Switch to sessions list |
-| `r` | Refresh board |
-| `/` | Search/filter tasks |
+| `h/l` | Column left/right |
+| `j/k` | Task up/down |
+| `enter` | Open task in new tab |
+| `n` | New task |
+| `r` | Refresh |
+| `/` | Search/filter |
 | `1-5` | Jump to column |
 
-#### Chat View (single pane or focused pane)
+### Chat (tab/pane)
 | Key | Action |
 |-----|--------|
 | `enter` | Send message |
-| `shift+enter` | Newline in input |
-| `up` / `down` | Scroll conversation |
-| `{prefix}` then `%` | Split vertical (tmux default) |
-| `{prefix}` then `"` | Split horizontal (tmux default) |
-| `{prefix}` then `o` | Focus next pane (tmux default) |
-| `{prefix}` then `;` | Focus previous pane (tmux default) |
-| `{prefix}` then `x` | Close focused pane (tmux default) |
-| `{prefix}` then `t` | Open terminal (shell into sandbox) |
-| `{prefix}` then `d` | Detach (daemon keeps running) |
-| `{prefix}` then `q` | Close all panes, back to kanban |
-| `w` | Open task in web browser (prints URL) |
-| `esc` | Stop agent if running / clear input if text / back to kanban if empty |
+| `shift+enter` | Newline |
+| `up/down` | Scroll |
+| `/` | Slash command |
 
-`{prefix}` defaults to `ctrl+b` (tmux default). Overridden by user's
-tmux.conf — e.g. `set -g prefix C-a` makes it `ctrl+a`. Split and
-navigation bindings are also parsed: e.g. `bind | split-window -h`
-replaces `%` with `|`, `bind - split-window -v` replaces `"` with `-`,
-`bind h/j/k/l select-pane` adds vim-style pane navigation.
+### Prefix commands (parsed from tmux.conf)
+| Key | tmux default | Action |
+|-----|--------------|--------|
+| `{prefix} c` | `c` | New tab (create/select task) |
+| `{prefix} n` | `n` | Next tab |
+| `{prefix} p` | `p` | Previous tab |
+| `{prefix} 0-9` | `0-9` | Jump to tab |
+| `{prefix} %` | `%` | Split vertical |
+| `{prefix} "` | `"` | Split horizontal |
+| `{prefix} o` | `o` | Next pane |
+| `{prefix} ;` | `;` | Previous pane |
+| `{prefix} h/j/k/l` | (user-defined) | Directional pane focus |
+| `{prefix} x` | `x` | Close pane |
+| `{prefix} &` | `&` | Close tab |
+| `{prefix} d` | `d` | Detach |
+| `{prefix} t` | `t` | Terminal into sandbox |
+| `{prefix} !` | (custom) | Notifications |
+| `{prefix} w` | (custom) | Open in web browser |
 
-#### Tmux Keybinding Detection
-
-On startup, parse the user's `~/.tmux.conf` (and `~/.config/tmux/tmux.conf`)
-to detect their actual tmux configuration. At minimum, extract:
-
-| tmux.conf directive | What we use it for | tmux default |
-|---------------------|--------------------|--------------|
-| `set -g prefix C-x` | Our prefix key | `ctrl+b` |
-| `bind X split-window -h` | Vertical split key | `%` |
-| `bind X split-window -v` | Horizontal split key | `"` |
-| `bind X select-pane -L/D/U/R` | Pane navigation keys | `o` (next), `;` (prev) |
-| `bind X kill-pane` | Close pane key | `x` |
-
-**Parsing approach:**
-- Read the file line by line
-- Match `set(-option)? -g prefix (C-\w|...)` for prefix
-- Match `bind(-key)? ... split-window` for split bindings
-- Match `bind(-key)? ... select-pane` for navigation
-- Ignore comments (`#`), `if-shell` blocks (too complex)
-- Fall back to tmux defaults for anything we can't parse
-
-This means if a user has `set -g prefix C-a`, our TUI will use `ctrl+a`
-as the prefix automatically. Their muscle memory just works.
-
-**Edge cases:**
-- No tmux.conf → use tmux defaults (`ctrl+b` prefix)
-- Nested tmux (TUI is running inside tmux) → detect `$TMUX` env var and
-  warn or suggest using a different prefix via `--prefix` flag
-- `source-file` directives → follow one level deep only (don't recurse)
-
-#### 4. Embedded Terminal (sandbox shell)
-
-From a chat view, open a shell directly into the task's sandbox container.
-Uses the existing RDP/exec infrastructure to get a shell.
-
-```
-╭─ Fix login (#3) ──────────────────╮╭─ shell: Fix login (#3) ──────────╮
-│                                    ││                                   │
-│  Assistant                        ││ ubuntu@sandbox:~/project$ ls      │
-│  Done. PR ready for review.       ││ src/ tests/ README.md             │
-│                                    ││ ubuntu@sandbox:~/project$ git log │
-│                                    ││ abc1234 Fix email validation      │
-│                                    ││ ubuntu@sandbox:~/project$ █       │
-│                                    ││                                   │
-╰────────────────────────────────────╯╰───────────────────────────────────╯
-```
-
-Key binding: `ctrl+b` then `t` opens a terminal pane connected to the
-task's sandbox. The terminal pane behaves like a normal terminal emulator
-(passes all input through, pty allocation). Uses the session's sandbox
-connection to exec into the container.
-
-API: `GET /sessions/{id}/rdp-connection` to get connection info, then
-establish a WebSocket/exec channel to the sandbox container.
-
-#### 5. Web UI Link
-
-From any spec task view, press `o` to print/copy the web URL for that task.
-The URL format is: `{HELIX_URL}/projects/{project_id}/tasks/{task_id}`
-
-This lets users jump to the browser for desktop streaming, visual review,
-or anything that needs a GUI.
-
-```
-╭─ Fix login (#3) ───────────────────────────────────────────────────────╮
-│                                                                        │
-│  ℹ Open in browser: https://app.helix.ml/projects/proj_x/tasks/spt_y  │
-│                                                                        │
-╰────────────────────────────────────────────────────────────────────────╯
-```
-
-#### 6. Detach / Reattach (hmux)
-
-The TUI supports tmux-style detach/reattach. The command is `helix tui`
-but we alias it as `hmux` (helix-mux) for convenience.
-
-The key value: the daemon preserves your workspace — which panes you
-had open, how they're split, which spec tasks are in each pane, scroll
-positions. On reattach, you're right back where you left off without
-having to re-open everything. Data (kanban, chat history) is re-fetched
-from the Helix API as needed — the state being preserved is the layout.
-
-**Detach:** `{prefix}` then `d` — detaches the terminal. The TUI process
-continues running as a daemon, maintaining API connection, cached data,
-open panes, scroll positions, polling state, etc.
-
-**Reattach:** `hmux at` (or `helix tui attach`) — reconnects to the
-running daemon. All state is preserved, instant restore.
-
-**List sessions:** `hmux ls` (or `helix tui list`)
-
-**Kill session:** `hmux kill` (or `helix tui kill`)
-
-```
-$ hmux                          # start new session (or attach if one exists)
-$ hmux at                       # reattach to most recent session
-$ hmux ls                       # list running sessions
-  0: myproject (2 panes, attached)
-  1: otherproject (1 pane, detached 5m ago)
-$ hmux at -t 1                  # attach to specific session
-$ hmux kill -t 0                # kill specific session
-```
-
-**Implementation — no daemon needed:**
-- On detach (`{prefix}+d`), serialize pane layout state to
-  `~/.helix/tui/state.json`: which project, which tasks are open in
-  which panes, split directions, focused pane ID
-- On `hmux at` / `helix tui`, check for state file. If found, restore
-  pane layout and re-fetch data from API for each open task
-- State file format:
-  ```json
-  {
-    "project_id": "proj_xxx",
-    "panes": {
-      "dir": "vertical",
-      "left": {"task_id": "spt_aaa"},
-      "right": {"dir": "horizontal",
-        "left": {"task_id": "spt_bbb"},
-        "right": {"task_id": "spt_ccc"}}
-    },
-    "focused_task_id": "spt_aaa"
-  }
-  ```
-- Clean, simple, no background process. Data is always fresh from the API.
-  The only thing being persisted is "which panes were open and how they
-  were arranged"
-
-**Key binding:**
+### Spec Review
 | Key | Action |
 |-----|--------|
-| `{prefix}` then `d` | Detach (tmux default) |
+| `shift+V` | Visual line select |
+| `c` | Comment on selection |
+| `a` | Approve |
+| `r` | Request changes |
 
-This is parsed from tmux.conf like all other bindings.
+## Architecture
 
-### Sessions View (secondary)
-
-Accessible via `s` from kanban. Lists recent chat sessions (non-spec-task).
-Same layout as kanban but single-column list. Enter opens chat.
-`s` or `tab` switches back to kanban.
-
-### Architecture
+### File structure
 
 ```
-cmd.go          CLI entry point (hmux, helix tui, subcommands: attach/list/kill)
-state.go        Serialize/restore pane layout to ~/.helix/tui/state.json
-app.go          Top-level bubbletea model: project picker → kanban ↔ pane mode
-kanban.go       Kanban board view
-chat.go         Single chat pane (messages + input)
-pane.go         Binary tree pane manager (splits, focus, render)
-terminal.go     Embedded terminal pane (pty to sandbox shell)
-tmux.go         Parse ~/.tmux.conf for prefix key + pane bindings
-picker.go       Project picker (startup screen)
-api.go          API client wrapper (reuses types from api/pkg/types)
-styles.go       Shared lipgloss styles (Claude Code aesthetic)
+api/pkg/cli/tui/
+├── cmd.go              CLI entry (helix tui, subcommands)
+├── app.go              Top-level model: tabs → panes → views
+├── api.go              API client wrapper (reuses api/pkg/types)
+├── state.go            Serialize/restore layout to disk
+│
+├── kanban.go           Kanban board view
+├── chat.go             Chat conversation renderer
+├── chat_input.go       Input area (independent of render cycle)
+├── chat_spinner.go     British spinner + token counter
+├── chat_tools.go       Tool call rendering (diffs, file reads, etc.)
+├── review.go           Spec review UI (visual select, comments)
+├── newtask.go          New task creation modal
+├── picker.go           Project picker
+├── taskpicker.go       Task picker for splits/tabs
+├── slash.go            Slash command handler
+├── mcp.go              MCP server management UI
+├── notifications.go    Notification list + badge
+│
+├── pane.go             Binary tree pane manager
+├── tabs.go             Tab bar (bottom, tmux-style)
+├── terminal.go         Embedded terminal (tmux-in-sandbox)
+│
+├── connection.go       Connection state, retry, mosh-style bar
+├── outbox.go           Reliable message queue (send-on-connect)
+├── predict.go          Predictive local echo
+│
+├── tmux.go             Parse ~/.tmux.conf for keybindings
+├── styles.go           Claude Code aesthetic (colors, borders)
+├── diff.go             Red/green diff renderer
+├── markdown.go         Terminal markdown renderer
+├── utils.go            Shared helpers (truncate, timeAgo, etc.)
+│
+└── *_test.go           Tests for each component
 ```
+
+### Testability
+
+Each component is designed to be independently testable:
+
+| Component | Test approach |
+|-----------|--------------|
+| `tmux.go` | Unit test: parse sample configs, verify bindings |
+| `pane.go` | Unit test: split, focus, close, serialize |
+| `tabs.go` | Unit test: create, switch, close, render |
+| `diff.go` | Unit test: parse unified diff, render with colors |
+| `markdown.go` | Unit test: render markdown subsets |
+| `outbox.go` | Unit test: queue, retry, flush, dedup |
+| `connection.go` | Unit test: state machine (connected/disconnected/reconnecting) |
+| `predict.go` | Unit test: predict, confirm, rollback |
+| `kanban.go` | Integration test: mock API, verify column sorting |
+| `chat.go` | Integration test: mock API, verify message rendering |
+| `review.go` | Integration test: visual select, comment flow |
+| `app.go` | E2E test: full flow with mock API server |
+
+### Connection state machine
+
+```
+                    ┌──────────┐
+           ┌──────►│ Connected │◄────────────┐
+           │       └─────┬─────┘             │
+           │             │ timeout/error      │ API responds
+           │             ▼                    │
+           │       ┌──────────────┐          │
+           │       │ Disconnected │──────────┘
+           │       │ (show bar)   │  retry
+           │       └──────┬───────┘
+           │              │ user quits
+           │              ▼
+           │        ┌──────────┐
+           └────────│  Exited  │
+                    └──────────┘
+```
+
+While disconnected:
+- Input works (local buffer + outbox)
+- Spinner shows "reconnecting..." instead of British verbs
+- Bar shows elapsed time since last contact
+- On reconnect: flush outbox, fetch notifications, refresh active views
 
 ### API Endpoints Used
 
-All via the existing `api/pkg/client.HelixClient` + new `MakeRequest` export:
-
 | Endpoint | Purpose |
 |----------|---------|
-| `GET /projects` | List projects for picker |
-| `GET /spec-tasks?project_id=X` | Load kanban board |
+| `GET /projects` | Project picker |
+| `GET /spec-tasks?project_id=X` | Kanban board |
 | `GET /spec-tasks/{id}` | Task detail |
-| `GET /sessions` | List chat sessions |
-| `GET /sessions/{id}` | Session detail |
-| `GET /sessions/{id}/interactions` | Load chat history |
-| `POST /sessions/chat` | Send chat message |
-| `POST /spec-tasks/from-prompt` | Create new task |
+| `GET /sessions/{id}/interactions` | Chat history |
+| `POST /sessions/chat` | Send message |
+| `POST /spec-tasks/from-prompt` | Create task |
 | `POST /spec-tasks/{id}/start-planning` | Start planning |
 | `POST /spec-tasks/{id}/approve-specs` | Approve specs |
+| `GET /spec-tasks/{id}/design-reviews` | List reviews |
+| `POST /spec-tasks/{id}/design-reviews/{id}/comments` | Add comment |
+| `GET /sessions/{id}/rdp-connection` | Terminal connection |
+| `GET /projects/{id}/tasks-progress` | Batch progress |
+| Backend notification endpoint | Poll for notifications |
 
-### Data Flow
+### Data model (types reuse)
 
-1. On startup, fetch projects list. If `--project` flag set, skip to kanban.
-   Otherwise show a project picker (list with j/k navigation, enter to select).
-2. Fetch spec tasks for the project → populate kanban columns.
-3. On enter, fetch interactions for the task's `planning_session_id` → render chat.
-4. On send message, POST to `/sessions/chat` with the session ID → append response.
-5. Background polling: refresh task statuses every 5s while kanban is visible.
-
-### Types Reuse
-
-All data types come directly from `api/pkg/types`:
-- `types.SpecTask` — kanban cards
-- `types.Session` / `types.SessionSummary` — session list
+All from `api/pkg/types` — no duplication:
+- `types.SpecTask` — kanban cards, tabs
 - `types.Interaction` — chat messages
 - `types.SessionChatRequest` — sending messages
 - `types.CreateTaskRequest` — new tasks
 - `types.Project` — project picker
-
-No type duplication. The TUI `api.go` is a thin wrapper adding methods
-the base client doesn't have yet (list projects, list spec tasks, etc).
-
-## Open Questions
-
-All resolved:
-
-1. ~~**Prefix key**~~: Parse user's tmux.conf. Fall back to exact tmux defaults.
-   Detect `$TMUX` to warn about nesting conflicts.
-2. ~~**Streaming**~~: Poll for v1. No WebSocket/SSE streaming in v1.
-3. ~~**Project picker**~~: Show project picker on startup (list with j/k + enter).
-   `--project` flag skips the picker.
-4. ~~**Sessions view**~~: Deferred to v2. Kanban + spec task chat is the focus.
+- `types.DesignReview` / `types.DesignReviewComment` — spec review
 
 ## Implementation Plan
 
-### Phase 1: Core (MVP)
-1. `styles.go` — shared styles matching Claude Code aesthetic
-2. `tmux.go` — parse tmux.conf for prefix key + bindings
-3. `api.go` — API wrapper (reuses `api/pkg/client` + `api/pkg/types`)
-4. `picker.go` — project picker on startup
-5. `kanban.go` — kanban board with column navigation
-6. `chat.go` — chat pane with message rendering + input
-7. `pane.go` — binary tree pane manager
-8. `app.go` — top-level model: picker → kanban ↔ panes
-9. `cmd.go` — cobra command (`helix tui` / `hmux`)
-10. Register in `api/cmd/helix/root.go`, add bubbletea deps to go.mod
-11. Build and test
+### Phase 1: Core (DONE)
+1. ✅ `styles.go`, `tmux.go`, `api.go`, `picker.go`
+2. ✅ `kanban.go`, `chat.go`, `pane.go`, `app.go`, `cmd.go`
+3. ✅ `state.go`, `newtask.go`, `taskpicker.go`, `utils.go`
+4. ✅ Registered in root.go, bubbletea deps in go.mod
+5. ✅ Compiles and builds successfully
 
-### Phase 2: State + Terminal
-12. `state.go` — serialize/restore pane layout to disk
-13. `cmd.go` — add `attach` subcommand (restore from state file)
-14. `terminal.go` — embedded terminal pane for sandbox shell
+### Phase 2: Claude Code UX clone
+6. `chat_input.go` — independent input renderer (no flicker)
+7. `chat_spinner.go` — British verb spinner with token counter
+8. `chat_tools.go` — tool call rendering (diffs, reads, commands)
+9. `diff.go` — red/green unified diff renderer
+10. `markdown.go` — terminal markdown renderer
 
-### Phase 3: Polish
-16. Background polling for kanban/chat updates
-17. `w` key to show web URL for task
-18. Nested tmux detection and `--prefix` override flag
+### Phase 3: Tabs + Review
+11. `tabs.go` — bottom tab bar
+12. `review.go` — spec review with visual select + comments
+13. `slash.go` — slash command handler
+14. Integrate tabs into app.go
+
+### Phase 4: Connection resilience
+15. `connection.go` — connection state machine + mosh bar
+16. `outbox.go` — reliable message queue
+17. `predict.go` — predictive local echo
+
+### Phase 5: Terminal + MCP
+18. `terminal.go` — embedded terminal via tmux-in-sandbox
+19. `mcp.go` — MCP server management UI
+20. `notifications.go` — notification polling + badge
+
+### Phase 6: Web integration
+21. Embed TUI as a terminal component in the web interface
+22. Shared rendering protocol between TUI and web xterm.js
+
+## Web interface embedding
+
+The TUI can also be embedded in the web interface via xterm.js. This means:
+- Users can choose TUI or GUI on the same page
+- The terminal component renders the same output as the standalone TUI
+- Implementation: the TUI process runs server-side, connected via WebSocket
+  to xterm.js in the browser
+- Same code, same rendering, different transport
