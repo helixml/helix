@@ -709,7 +709,7 @@ func (a *App) renderStatusBar() string {
 			help = "h/l: column  j/k: task  enter: open  n: new task  r: refresh  q: quit"
 		} else {
 			p := prefix
-			help = fmt.Sprintf("%s+n/p: tabs  %s+c: new  %s+%s/%s: split  esc: stop/clear",
+			help = fmt.Sprintf("%s n/p: tabs  %s c: new  %s %s/%s: split  esc: stop/clear",
 				p, p, p, a.tmux.SplitV, a.tmux.SplitH)
 		}
 	}
