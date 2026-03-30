@@ -130,7 +130,7 @@ steps:
   # output invisible. Each test step now runs its own migration inline.
 
   - name: unit-test
-    image: golang:1.25-alpine
+    image: golang:1.25.4-alpine
     volumes:
       - name: go-build-cache
         path: /root/.cache/go-build
