@@ -13,9 +13,9 @@
 # - golang:1.25-bookworm -> sha256:e39bda82b10817cc38b3c8d3ebd64285b44e6d7df09b759ad96a6d75d61cbcac
 
 # Global ARG: must be before the first FROM to be visible to --build-arg
-# amd64 (default): uses nvidia/cuda to extract CUDA runtime libs
-# arm64: pipeline passes --build-arg CUDA_BASE_IMAGE=ubuntu:25.10
-ARG CUDA_BASE_IMAGE=nvidia/cuda:12.6.3-runtime-ubuntu24.04
+# amd64 (default): pinned nvidia/cuda digest — cache-stable, no silent updates
+# arm64: pipeline passes --build-arg CUDA_BASE_IMAGE=ubuntu:25.10@sha256:91e7ac4c041dd191af1b9012fadbf489280894699c3f31e180969c4478781b7b
+ARG CUDA_BASE_IMAGE=nvidia/cuda:12.6.3-runtime-ubuntu24.04@sha256:2c8193530ecc423e0f123d0c85b68a15d1395adcddabfc943e2523dbfde172e1
 
 # ====================================================================
 # Go build stage for Helix binaries
@@ -157,11 +157,9 @@ _BUILD_PLUGINS
 # CUDA libraries stage - extract libnvrtc for GStreamer cudascale
 # ====================================================================
 # amd64: uses nvidia/cuda image (default) to get real CUDA runtime libs
-# arm64: pipeline passes --build-arg CUDA_BASE_IMAGE=ubuntu:25.10
+# arm64: pipeline passes --build-arg CUDA_BASE_IMAGE=ubuntu:25.10@sha256:91e7ac4c...
 #        which creates empty placeholders (no CUDA on ARM, encoding on macOS host)
-# Not SHA-pinned: CUDA_BASE_IMAGE is a platform-selected build arg — amd64 uses
-# nvidia/cuda:12.6.3-runtime-ubuntu24.04 and arm64 uses ubuntu:25.10 (already
-# pinned above). A single digest cannot span both images.
+# Both variants are SHA-pinned: amd64 via the ARG default, arm64 via --build-arg.
 ARG CUDA_BASE_IMAGE
 FROM ${CUDA_BASE_IMAGE} AS cuda-libs
 # On amd64 (nvidia/cuda base): libnvrtc is in /usr/local/cuda/lib64/
