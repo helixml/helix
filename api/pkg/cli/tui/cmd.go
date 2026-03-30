@@ -14,12 +14,13 @@ var projectID string
 
 var rootCmd = &cobra.Command{
 	Use:     "hmux",
-	Short:   "Helix terminal multiplexer",
+	Short:   "Helix agent multiplexer",
 	Aliases: []string{"tui"},
-	Long: `hmux — the Helix terminal multiplexer.
+	Long: `hmux — the Helix agent multiplexer.
 
-Kanban board, split-pane chat, spec review, and more — all from
-your terminal. Works great over SSH, mosh, and slow connections.
+Manage multiple AI agents from your terminal. Kanban board, split-pane
+chat, spec review, and more. Works great over SSH, mosh, and slow
+connections.
 
 Keybindings are parsed from your ~/.tmux.conf automatically.
 
