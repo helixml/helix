@@ -28,9 +28,9 @@ ENV_FILE="/tmp/tui_test_env"
 
 cleanup() {
     echo "[cleanup] Shutting down..."
-    [ -n "${ZED_PID:-}" ] && kill "$ZED_PID" 2>/dev/null || true
-    [ -n "${SERVER_PID:-}" ] && kill "$SERVER_PID" 2>/dev/null || true
-    [ -n "${XVFB_PID:-}" ] && kill "$XVFB_PID" 2>/dev/null || true
+    [ -n "${ZED_PID:-}" ] && kill "$ZED_PID" 2>/dev/null; true
+    [ -n "${SERVER_PID:-}" ] && kill "$SERVER_PID" 2>/dev/null; true
+    [ -n "${XVFB_PID:-}" ] && kill "$XVFB_PID" 2>/dev/null; true
     rm -f "$PORT_FILE" "$ENV_FILE"
 
     if [ -f "${ZED_LOG:-}" ]; then

@@ -13,7 +13,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # Navigate to helix root (e2e-test → tui → cli → pkg → api → helix)
-HELIX_DIR="$(cd "$SCRIPT_DIR/../../../../../.." && pwd)"
+HELIX_DIR="$(cd "$SCRIPT_DIR/../../../../.." && pwd)"
 
 echo "=== Helix TUI E2E Test ==="
 echo "  Script dir: $SCRIPT_DIR"
