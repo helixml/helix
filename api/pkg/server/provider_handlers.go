@@ -404,6 +404,16 @@ func (s *HelixAPIServer) createProviderEndpoint(rw http.ResponseWriter, r *http.
 		return
 	}
 
+	// Warm the model cache asynchronously so the first ?with_models=true request is instant.
+	// Use a detached context so the HTTP request completing doesn't cancel the fetch.
+	go func() {
+		warmCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if _, err := s.getProviderModels(warmCtx, createdEndpoint); err != nil {
+			log.Debug().Err(err).Str("provider", createdEndpoint.Name).Msg("model cache warm failed after provider create (provider may not be reachable yet)")
+		}
+	}()
+
 	// Mask API key in response
 	createdEndpoint.APIKey = "*****"
 
