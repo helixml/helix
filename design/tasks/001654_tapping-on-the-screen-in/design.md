@@ -1,43 +1,45 @@
 # Design: Fix Virtual Trackpad Tap Position
 
-## Root Cause (Two Bugs)
+## Root Cause (Three Bugs)
 
-### Bug 1: First tap before any drag (DesktopStreamViewer.tsx)
+### Bug 1 (Main): Synthetic mouse events override trackpad cursor on tap
 
-`cursorPositionRef` is initialized to `{x:0, y:0}` (line 175). On first touch, `handleTouchStart` calls `setCursorPosition` (React state) to set cursor to stream center, but does NOT update `cursorPositionRef.current`. `sendCursorPositionToRemote()` reads the ref synchronously, so first tap sends click to `(0,0)`.
+**File:** `DesktopStreamViewer.tsx`, `handleMouseMove`
 
-**Fix:** In the `!hasMouseMoved` initialization block, also update `cursorPositionRef.current` and the trackpad DOM element alongside `setCursorPosition`.
+When a user taps on a touchscreen, the browser fires synthetic mouse events after the touch events (`mousemove`, `mousedown`, `mouseup`, `click`). These carry the physical tap coordinates (`clientX/clientY`).
 
-### Bug 2: Tap after move — throttle race condition (websocket-stream.ts) ← MAIN BUG
+`handleMouseMove` had no guard for `touchMode === "trackpad"`, so on every tap:
+1. `setCursorPosition({ x: tapX, y: tapY })` — the local cursor overlay **jumps** to the tap position
+2. `handler.onMouseMove(event.nativeEvent, rect)` — in "follow" mouseMode, sends `sendMousePositionClientCoordinates(tapX, tapY)` — the **remote cursor jumps** to the tap position
 
-`sendMousePosition` is **throttled**. When called from `sendCursorPositionToRemote()` (before a tap), if the throttle window hasn't elapsed, the position is stored in `pendingMousePosition` and scheduled to send later.
+This is the bug the user saw: "tapping would jump the virtual mouse cursor to the tap position."
 
-`sendMouseButton` is **not throttled** — it sends immediately via `sendInputMessage`.
+**Fix:** Add `if (touchMode === "trackpad") return;` at the top of `handleMouseMove`. Trackpad cursor position is owned exclusively by the touch handlers.
 
-So the remote receives events in this order:
-1. `sendMouseButton` (click) — arrives immediately
-2. `sendMousePosition` (position) — arrives after throttle delay
+### Bug 2: First tap before any drag clicks at (0,0)
 
-The remote clicks at wherever the cursor already was, not where the virtual cursor shows.
+**File:** `DesktopStreamViewer.tsx`, `handleTouchStart`
 
-This affects all taps (single, right-click, middle-click). For single-tap there's a `DOUBLE_TAP_THRESHOLD_MS` delay before the click, so the throttle may have flushed, but it's timing-dependent. For multi-finger taps (right-click, middle-click) there's no delay at all.
+On first touch, only `setCursorPosition` (React state) was updated to stream center — `cursorPositionRef.current` stayed at `{x:0,y:0}`. Since `sendCursorPositionToRemote()` reads the ref synchronously, first tap before any drag sent click to top-left.
 
-**Fix:** In `sendMouseButton`, flush any `pendingMousePosition` synchronously (cancelling the scheduled timeout) before sending the button event. This guarantees position arrives before click.
+**Fix:** Also update `cursorPositionRef.current` and the trackpad DOM element in the `!hasMouseMoved` initialization block.
+
+### Bug 3: Throttle race causes click to arrive before position
+
+**File:** `websocket-stream.ts`, `sendMouseButton`
+
+`sendMousePosition` is throttled; within the throttle window, the position goes into `pendingMousePosition` to be sent later. `sendMouseButton` sends immediately. So the remote can receive: click → then position. Remote clicks at old cursor location.
+
+**Fix:** In `sendMouseButton`, flush any `pendingMousePosition` synchronously before sending the button event.
 
 ## Key Files Modified
 
-- `frontend/src/components/external-agent/DesktopStreamViewer.tsx` — Bug 1 fix (first-tap ref init)
-- `frontend/src/lib/helix-stream/stream/websocket-stream.ts` — Bug 2 fix (flush pending position before button)
+- `frontend/src/components/external-agent/DesktopStreamViewer.tsx` — Bug 1 (main) + Bug 2
+- `frontend/src/lib/helix-stream/stream/websocket-stream.ts` — Bug 3
 
 ## Codebase Patterns Found
 
-- `cursorPositionRef` + `setCursorPosition` are kept in sync during `handleTouchMove` but the initialization path missed the ref update.
-- `sendMousePosition` uses adaptive throttling to avoid flooding the WebSocket during drag.
-- `sendMouseButton` has no throttling because clicks are infrequent.
-- The flush pattern (cancel timeout + send immediate + reset lastMouseSendTime) matches what `scheduleMouseFlush` does internally.
-
-## Implementation Notes
-
-- "Tap after move" is the main user-reported bug — caused by the throttle race in websocket-stream.ts
-- "First tap before move" is a secondary bug — caused by the ref/state desync in DesktopStreamViewer.tsx
-- Both bugs were present simultaneously; both are fixed
+- Touchscreens fire synthetic mouse events after touch events — React components must guard against this when custom touch handling is in place.
+- The input handler's `touchMode` type (`"touch" | "mouseRelative" | "pointAndDrag"`) does not include `"trackpad"` — `"trackpad"` is handled entirely in `DesktopStreamViewer` before delegating to the input handler.
+- The default `mouseMode` is `"follow"`, which sends absolute position on every `onMouseMove` call.
+- `cursorPositionRef` is the synchronous source of truth for cursor position in tap handlers; `setCursorPosition` is the async React state for rendering.
