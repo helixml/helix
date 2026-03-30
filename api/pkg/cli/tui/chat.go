@@ -455,6 +455,7 @@ func (c *ChatModel) renderInteraction(ix *types.Interaction, width int) []string
 	}
 
 	// Render from ResponseEntries (structured entries from Zed WebSocket sync)
+	hasResponse := false
 	if len(ix.ResponseEntries) > 0 {
 		var entries []wsprotocol.ResponseEntry
 		if err := json.Unmarshal(ix.ResponseEntries, &entries); err == nil && len(entries) > 0 {
@@ -463,6 +464,16 @@ func (c *ChatModel) renderInteraction(ix *types.Interaction, width int) []string
 			for _, entry := range entries {
 				lines = append(lines, c.renderResponseEntry(entry, contentWidth)...)
 			}
+			hasResponse = true
+		}
+	}
+
+	// Fallback: ResponseMessage (for interactions without structured entries)
+	if !hasResponse && ix.ResponseMessage != "" {
+		lines = append(lines, "")
+		lines = append(lines, "  "+styleRoleAssistant.Render("Assistant"))
+		for _, line := range wrapText(ix.ResponseMessage, contentWidth) {
+			lines = append(lines, "  "+line)
 		}
 	}
 

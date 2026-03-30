@@ -42,58 +42,59 @@ func TestTUI_E2E(t *testing.T) {
 		t.Skip("Set TUI_E2E=1 to run (requires running Zed binary)")
 	}
 
-	// --- Start test server ---
-	ms := memorystore.New()
-	ps := pubsub.NewNoop()
-	srv := server.NewTestServer(ms, ps)
+	// If TUI_E2E_SERVER_URL is set, connect to an existing test server
+	// (started by run_e2e.sh with Zed already connected).
+	// Otherwise, start our own server and wait for Zed.
+	serverURL := os.Getenv("TUI_E2E_SERVER_URL")
 
-	seedSessionID := "ses_tui-e2e-001"
-	ms.CreateSession(nil, types.Session{
-		ID: seedSessionID, Name: "TUI E2E", Owner: "tui-e2e-user",
-		Created: time.Now(), Updated: time.Now(),
-		Mode: types.SessionModeInference, Type: types.SessionTypeText,
-	})
+	if serverURL != "" {
+		t.Logf("Connecting to existing test server at %s", serverURL)
+	} else {
+		// --- Start our own test server ---
+		ms := memorystore.New()
+		ps := pubsub.NewNoop()
+		srv := server.NewTestServer(ms, ps)
 
-	// Track events
-	var agentConnected bool
-	var completionCount int
-	srv.SetSyncEventHook(func(sessionID string, syncMsg *types.SyncMessage) {
-		switch syncMsg.EventType {
-		case "agent_ready":
-			agentConnected = true
-		case "message_completed":
-			completionCount++
+		seedSessionID := "ses_tui-e2e-001"
+		ms.CreateSession(nil, types.Session{
+			ID: seedSessionID, Name: "TUI E2E", Owner: "tui-e2e-user",
+			Created: time.Now(), Updated: time.Now(),
+			Mode: types.SessionModeInference, Type: types.SessionTypeText,
+		})
+
+		var agentConnected bool
+		srv.SetSyncEventHook(func(sessionID string, syncMsg *types.SyncMessage) {
+			if syncMsg.EventType == "agent_ready" {
+				agentConnected = true
+			}
+		})
+
+		mux := buildTestMux(ms, srv, seedSessionID)
+		listener, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
 		}
-	})
+		go http.Serve(listener, mux)
+		defer listener.Close()
 
-	mux := buildTestMux(ms, srv, seedSessionID)
+		port := listener.Addr().(*net.TCPAddr).Port
+		serverURL = fmt.Sprintf("http://127.0.0.1:%d", port)
+		t.Logf("Test server listening on %s", serverURL)
 
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
+		os.WriteFile("/tmp/tui_test_server_port", []byte(fmt.Sprintf("%d", port)), 0644)
+		defer os.Remove("/tmp/tui_test_server_port")
+
+		t.Log("Waiting for Zed agent to connect...")
+		deadline := time.Now().Add(60 * time.Second)
+		for !agentConnected && time.Now().Before(deadline) {
+			time.Sleep(500 * time.Millisecond)
+		}
+		if !agentConnected {
+			t.Fatal("Zed agent did not connect within 60s")
+		}
+		t.Log("Zed agent connected!")
+		time.Sleep(3 * time.Second)
 	}
-	go http.Serve(listener, mux)
-	defer listener.Close()
-
-	port := listener.Addr().(*net.TCPAddr).Port
-	serverURL := fmt.Sprintf("http://127.0.0.1:%d", port)
-	t.Logf("Test server listening on %s", serverURL)
-
-	// Write port file for Zed
-	os.WriteFile("/tmp/tui_test_server_port", []byte(fmt.Sprintf("%d", port)), 0644)
-	defer os.Remove("/tmp/tui_test_server_port")
-
-	// --- Wait for Zed agent to connect ---
-	t.Log("Waiting for Zed agent to connect...")
-	deadline := time.Now().Add(60 * time.Second)
-	for !agentConnected && time.Now().Before(deadline) {
-		time.Sleep(500 * time.Millisecond)
-	}
-	if !agentConnected {
-		t.Fatal("Zed agent did not connect within 60s")
-	}
-	t.Log("Zed agent connected!")
-	time.Sleep(3 * time.Second) // let agent stabilize
 
 	// --- Create TUI App model ---
 	helixClient, err := client.NewClient(serverURL, "test-api-key", false)
@@ -143,9 +144,14 @@ func TestTUI_E2E(t *testing.T) {
 	// --- Phase 3: Open task chat ---
 	t.Log("=== Phase 3: Open task chat ===")
 
+	// Need to navigate to the right column first — task is in "In Progress" (column 2)
+	// Press 'l' twice to get to In Progress, or press '3' to jump
+	app, _ = app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'3'}})
+
 	// Press enter to open the task
 	app, cmd = app.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	app, cmd = waitForCmd(t, app, cmd, 5*time.Second)
+	// Process the openTaskChatMsg → creates tab + fetches interactions
+	app, cmd = waitForCmd(t, app, cmd, 10*time.Second)
 
 	view = app.View()
 	dumpView(t, "CHAT (initial)", view)
@@ -171,28 +177,39 @@ func TestTUI_E2E(t *testing.T) {
 	}
 
 	// Press enter to send
-	prevCompletions := completionCount
+	prevCompletions := getCompletionCount(t, serverURL)
 	app, cmd = app.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	app, cmd = processCmd(t, app, cmd)
 
 	// Wait for Zed to respond (real LLM call)
 	t.Log("Waiting for Zed agent response (real LLM)...")
 	responseDeadline := time.Now().Add(120 * time.Second)
-	for completionCount <= prevCompletions && time.Now().Before(responseDeadline) {
+	for time.Now().Before(responseDeadline) {
 		time.Sleep(1 * time.Second)
 		// Simulate tick to trigger interaction refresh
 		app, cmd = app.Update(tui.TickMsg(time.Now()))
 		app, cmd = processCmd(t, app, cmd)
+		if getCompletionCount(t, serverURL) > prevCompletions {
+			break
+		}
 	}
 
-	if completionCount <= prevCompletions {
+	currentCompletions := getCompletionCount(t, serverURL)
+	if currentCompletions <= prevCompletions {
 		t.Fatal("No message_completed received from Zed within 120s")
 	}
-	t.Logf("Response received! (completions: %d)", completionCount)
+	t.Logf("Response received! (completions: %d)", currentCompletions)
 
 	// Fetch interactions to trigger re-render
 	app, cmd = app.Update(tui.TickMsg(time.Now()))
 	app, cmd = waitForCmd(t, app, cmd, 10*time.Second)
+
+	// Poll a few more times to ensure interactions are fully loaded
+	for i := 0; i < 5; i++ {
+		app, cmd = app.Update(tui.TickMsg(time.Now()))
+		app, cmd = waitForCmd(t, app, cmd, 5*time.Second)
+		time.Sleep(1 * time.Second)
+	}
 
 	// --- Phase 5: Verify rendered response ---
 	t.Log("=== Phase 5: Verify TUI rendering ===")
@@ -213,34 +230,19 @@ func TestTUI_E2E(t *testing.T) {
 		t.Log("[PASS] User role label rendered")
 	}
 
-	// Check that ResponseEntries are being used (tool calls would show ✽)
-	interactions := ms.GetAllInteractions()
-	hasEntries := false
-	for _, ix := range interactions {
-		if len(ix.ResponseEntries) > 0 {
-			hasEntries = true
-			t.Logf("Interaction %s has %d bytes of ResponseEntries", ix.ID, len(ix.ResponseEntries))
-		}
-	}
-	if hasEntries {
-		t.Log("[PASS] ResponseEntries populated (Zed wire format)")
-	} else {
-		t.Log("[WARN] No ResponseEntries found (simple text response)")
-	}
-
 	// --- Summary ---
 	t.Log("")
 	t.Log("============================================")
 	t.Log("  TUI E2E TEST PASSED")
 	t.Log("  Real Zed agent + real LLM + real TUI rendering")
-	t.Logf("  Interactions: %d", len(interactions))
-	t.Logf("  Completions: %d", completionCount)
+	t.Logf("  Completions: %d", getCompletionCount(t, serverURL))
 	t.Log("============================================")
 }
 
 // --- helpers ---
 
-// processCmd executes a tea.Cmd and feeds the result back to the model.
+// processCmd executes a tea.Cmd (which may be async — makes HTTP calls etc.)
+// and feeds the result back to the model. Handles tea.BatchMsg for batched commands.
 func processCmd(t *testing.T, m tea.Model, cmd tea.Cmd) (tea.Model, tea.Cmd) {
 	if cmd == nil {
 		return m, nil
@@ -249,18 +251,43 @@ func processCmd(t *testing.T, m tea.Model, cmd tea.Cmd) (tea.Model, tea.Cmd) {
 	if msg == nil {
 		return m, nil
 	}
+
+	// Handle batch messages (tea.Batch returns these)
+	if batch, ok := msg.(tea.BatchMsg); ok {
+		var finalCmd tea.Cmd
+		for _, batchCmd := range batch {
+			m, finalCmd = processCmd(t, m, batchCmd)
+		}
+		return m, finalCmd
+	}
+
 	var nextCmd tea.Cmd
 	m, nextCmd = m.Update(msg)
 	return m, nextCmd
 }
 
 // waitForCmd processes commands in a loop until none remain or timeout.
+// This properly handles async HTTP calls by executing the command functions.
 func waitForCmd(t *testing.T, m tea.Model, cmd tea.Cmd, timeout time.Duration) (tea.Model, tea.Cmd) {
 	deadline := time.Now().Add(timeout)
 	for cmd != nil && time.Now().Before(deadline) {
 		m, cmd = processCmd(t, m, cmd)
 	}
 	return m, cmd
+}
+
+func getCompletionCount(t *testing.T, serverURL string) int {
+	t.Helper()
+	resp, err := http.Get(serverURL + "/api/v1/status")
+	if err != nil {
+		return 0
+	}
+	defer resp.Body.Close()
+	var status struct {
+		Completions int `json:"completions"`
+	}
+	json.NewDecoder(resp.Body).Decode(&status)
+	return status.Completions
 }
 
 func dumpView(t *testing.T, label string, view string) {

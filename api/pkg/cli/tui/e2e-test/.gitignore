@@ -2,3 +2,4 @@ zed-binary
 helix-binary
 tui-test-server/tui-test-server
 tui-test-server/go.sum
+tui-e2e-test

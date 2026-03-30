@@ -34,7 +34,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY zed-binary /usr/local/bin/zed
 COPY tui-test-server/tui-test-server /usr/local/bin/tui-test-server
 COPY helix-binary /usr/local/bin/helix
-RUN chmod +x /usr/local/bin/zed /usr/local/bin/tui-test-server /usr/local/bin/helix
+COPY tui-e2e-test /usr/local/bin/tui-e2e-test
+RUN chmod +x /usr/local/bin/zed /usr/local/bin/tui-test-server /usr/local/bin/helix /usr/local/bin/tui-e2e-test
 
 # Copy test script
 COPY run_e2e.sh /test/run_e2e.sh

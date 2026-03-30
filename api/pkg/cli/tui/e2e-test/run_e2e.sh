@@ -204,6 +204,29 @@ else
     echo "[WARN] Phase 4: No completions yet (response may still be streaming)"
 fi
 
+# === Phase 5: Run Go TUI E2E test (drives actual App model) ===
+echo ""
+echo "=== Phase 5: Go TUI E2E test (App model + real Zed) ==="
+
+if [ -f /usr/local/bin/tui-e2e-test ]; then
+    # The Go test connects to the already-running test server
+    TUI_E2E=1 \
+    TUI_E2E_SERVER_URL="http://127.0.0.1:${SERVER_PORT}" \
+    /usr/local/bin/tui-e2e-test \
+        -test.v \
+        -test.timeout 300s \
+        -test.run TestTUI_E2E 2>&1
+
+    if [ $? -eq 0 ]; then
+        echo "[PASS] Phase 5: TUI App model E2E test passed"
+    else
+        echo "[FAIL] Phase 5: TUI App model E2E test failed"
+        exit 1
+    fi
+else
+    echo "[SKIP] Phase 5: tui-e2e-test binary not found"
+fi
+
 echo ""
 echo "============================================"
 echo "  TUI E2E TEST PASSED"

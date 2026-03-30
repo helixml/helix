@@ -64,6 +64,12 @@ if [ "${1:-}" != "--no-build" ]; then
     CGO_ENABLED=0 go build -o "$SCRIPT_DIR/helix-binary" ./api/
     echo "Built: helix-binary"
     echo ""
+
+    echo "=== Building TUI E2E test binary ==="
+    cd "$SCRIPT_DIR/tui-test-server"
+    CGO_ENABLED=0 go test -c -o "$SCRIPT_DIR/tui-e2e-test" .
+    echo "Built: tui-e2e-test"
+    echo ""
 fi
 
 # Print binary info
