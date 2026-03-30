@@ -490,9 +490,38 @@ All from `api/pkg/types` — no duplication:
 19. `mcp.go` — MCP server management UI
 20. `notifications.go` — notification polling + badge
 
-### Phase 6: Web integration
-21. Embed TUI as a terminal component in the web interface
-22. Shared rendering protocol between TUI and web xterm.js
+### Phase 6: SSH server + Web integration
+21. `ssh.go` — SSH server mode (charmbracelet/wish)
+22. SSH key → Helix user mapping
+23. Embed TUI as a terminal component in the web interface
+24. Shared rendering protocol between TUI and web xterm.js
+
+## SSH server mode
+
+The TUI can be exposed directly over SSH on the Helix server, so users
+can `ssh helix.example.com` and get the TUI without installing anything.
+
+```bash
+$ ssh -t helix.example.com        # launches TUI directly
+$ ssh helix.example.com tui       # explicit command
+```
+
+**Implementation:**
+- Use `gliderlabs/ssh` (or `charmbracelet/wish`) to run an SSH server
+  as part of the Helix API process (or a sidecar)
+- On SSH connection, authenticate via SSH key → map to Helix user
+- Spawn a bubbletea program for the connected user's terminal
+- Each SSH session gets its own TUI instance with the user's API context
+- Supports terminal resize (`SIGWINCH` forwarded via SSH protocol)
+- Configurable SSH port (default: 2222) via `HELIX_SSH_PORT`
+
+**Authentication options:**
+1. SSH key → linked to Helix user account (like GitHub)
+2. Password auth → Helix username/password
+3. API key auth → `ssh -o "User=apikey:hlx_xxx" helix.example.com`
+
+This means the TUI is accessible from any device with an SSH client —
+no Go binary needed. Combined with mosh for unstable connections.
 
 ## Web interface embedding
 
