@@ -158,6 +158,12 @@ func NewClient(url, apiKey string, tlsSkipVerify bool) (*HelixClient, error) {
 	}, nil
 }
 
+// MakeRequest is the exported version of makeRequest for use by packages
+// that need to call API endpoints not yet wrapped by dedicated methods.
+func (c *HelixClient) MakeRequest(ctx context.Context, method, path string, body io.Reader, v interface{}) error {
+	return c.makeRequest(ctx, method, path, body, v)
+}
+
 func (c *HelixClient) makeRequest(ctx context.Context, method, path string, body io.Reader, v interface{}) error {
 	return retry.Do(func() error {
 		reqCtx, cancel := context.WithTimeout(ctx, 10*time.Second)

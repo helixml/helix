@@ -22,6 +22,7 @@ import (
 	"github.com/helixml/helix/api/pkg/cli/spectask"
 	"github.com/helixml/helix/api/pkg/cli/system"
 	"github.com/helixml/helix/api/pkg/cli/team"
+	"github.com/helixml/helix/api/pkg/cli/tui"
 	"github.com/helixml/helix/api/pkg/cli/user"
 )
 
@@ -56,6 +57,7 @@ func NewRootCmd() *cobra.Command {
 	RootCmd.AddCommand(system.New())
 	RootCmd.AddCommand(team.New())
 	RootCmd.AddCommand(member.New())
+	RootCmd.AddCommand(tui.New())
 	RootCmd.AddCommand(user.New())
 
 	// Commands available on all platforms
