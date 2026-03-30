@@ -155,7 +155,7 @@ func (c *ChatModel) Update(msg tea.Msg) tea.Cmd {
 			c.input.HistoryDown()
 			return nil
 
-		case "pgup":
+		case "pgup", "shift+up", "alt+up":
 			if c.scrollOffset > 0 {
 				c.scrollOffset -= 10
 				if c.scrollOffset < 0 {
@@ -164,7 +164,7 @@ func (c *ChatModel) Update(msg tea.Msg) tea.Cmd {
 			}
 			return nil
 
-		case "pgdown":
+		case "pgdown", "shift+down", "alt+down":
 			c.scrollOffset += 10
 			c.clampScroll()
 			return nil
