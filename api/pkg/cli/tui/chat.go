@@ -2,9 +2,9 @@ package tui
 
 import (
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 	"github.com/helixml/helix/api/pkg/types"
 )
 
@@ -17,14 +17,22 @@ type ChatModel struct {
 	appID       string
 
 	interactions []*types.Interaction
-	input        string
+	input        *InputModel
+	spinner      *Spinner
+	toolRenderer *ToolCallRenderer
+	slashReg     *SlashCommandRegistry
+
 	scrollOffset int
 	loading      bool
 	sending      bool
+	agentBusy    bool
 	err          error
 	width        int
 	height       int
 	focused      bool
+
+	// Spinner tick
+	spinnerTick int
 }
 
 type interactionsLoadedMsg struct {
@@ -37,17 +45,22 @@ type chatResponseMsg struct {
 	response  string
 }
 
+type spinnerTickMsg struct{}
+
 func NewChatModel(api *APIClient, task *types.SpecTask) *ChatModel {
 	sessionID := task.PlanningSessionID
 	name := taskDisplayName(task)
+	input := NewInputModel()
 	return &ChatModel{
-		api:         api,
-		task:        task,
-		sessionID:   sessionID,
-		sessionName: name,
-		appID:       task.HelixAppID,
-		loading:     true,
-		focused:     true,
+		api:          api,
+		task:         task,
+		sessionID:    sessionID,
+		sessionName:  name,
+		appID:        task.HelixAppID,
+		input:        input,
+		slashReg:     NewSlashCommandRegistry(),
+		loading:      true,
+		focused:      true,
 	}
 }
 
@@ -62,10 +75,13 @@ func (c *ChatModel) Init() tea.Cmd {
 func (c *ChatModel) SetSize(w, h int) {
 	c.width = w
 	c.height = h
+	c.input.SetWidth(w)
+	c.toolRenderer = NewToolCallRenderer(w)
 }
 
 func (c *ChatModel) SetFocused(f bool) {
 	c.focused = f
+	c.input.SetFocused(f)
 }
 
 func (c *ChatModel) fetchInteractions() tea.Cmd {
@@ -85,20 +101,40 @@ func (c *ChatModel) Update(msg tea.Msg) tea.Cmd {
 		if msg.sessionID == c.sessionID {
 			c.interactions = msg.interactions
 			c.loading = false
-			// Scroll to bottom
 			c.scrollToBottom()
+
+			// Check if agent is still working
+			if len(c.interactions) > 0 {
+				last := c.interactions[len(c.interactions)-1]
+				if last.State == types.InteractionStateWaiting {
+					c.agentBusy = true
+					c.spinner = NewSpinner()
+					c.input.SetAgentBusy(true)
+					return c.spinnerTickCmd()
+				}
+			}
+			c.agentBusy = false
+			c.input.SetAgentBusy(false)
 		}
 		return nil
 
 	case chatResponseMsg:
 		c.sending = false
-		// Refresh interactions to show the response
+		c.input.SetSending(false)
 		return c.fetchInteractions()
+
+	case spinnerTickMsg:
+		if c.spinner != nil && c.agentBusy {
+			c.spinner.Tick()
+			return c.spinnerTickCmd()
+		}
+		return nil
 
 	case errMsg:
 		c.err = msg.err
 		c.loading = false
 		c.sending = false
+		c.input.SetSending(false)
 		return nil
 
 	case tea.KeyMsg:
@@ -108,36 +144,74 @@ func (c *ChatModel) Update(msg tea.Msg) tea.Cmd {
 
 		switch msg.String() {
 		case "up":
-			if c.scrollOffset > 0 {
-				c.scrollOffset--
+			if c.input.IsEmpty() {
+				if c.scrollOffset > 0 {
+					c.scrollOffset--
+				}
+				return nil
 			}
+			c.input.HistoryUp()
+			return nil
+
 		case "down":
-			c.scrollOffset++
+			if c.input.IsEmpty() {
+				c.scrollOffset++
+				return nil
+			}
+			c.input.HistoryDown()
+			return nil
 
 		case "enter":
-			if c.input != "" {
+			if !c.input.IsEmpty() {
+				value := c.input.Value()
+
+				// Handle slash commands
+				if IsSlashCommand(value) {
+					cmd, args := ParseSlashCommand(value)
+					c.input.Clear()
+					return c.handleSlashCommand(cmd, args)
+				}
+
 				return c.sendMessage()
 			}
 
+		case "shift+enter":
+			c.input.InsertNewline()
+
 		case "backspace":
-			if len(c.input) > 0 {
-				c.input = c.input[:len(c.input)-1]
-			}
+			c.input.Backspace()
+
+		case "delete":
+			c.input.Delete()
+
+		case "left":
+			c.input.MoveLeft()
+
+		case "right":
+			c.input.MoveRight()
+
+		case "home", "ctrl+a":
+			c.input.MoveHome()
+
+		case "end", "ctrl+e":
+			c.input.MoveEnd()
 
 		case "esc":
-			if c.input != "" {
-				c.input = ""
+			if !c.input.IsEmpty() {
+				c.input.Clear()
 				return nil
 			}
-			// TODO: stop agent if running
+			if c.agentBusy {
+				// TODO: stop agent
+				return nil
+			}
 			return nil
 
 		default:
-			// Append printable characters to input
 			if msg.Type == tea.KeyRunes {
-				c.input += msg.String()
+				c.input.InsertRunes([]rune(msg.String()))
 			} else if msg.String() == " " {
-				c.input += " "
+				c.input.InsertRunes([]rune{' '})
 			}
 		}
 	}
@@ -145,9 +219,10 @@ func (c *ChatModel) Update(msg tea.Msg) tea.Cmd {
 }
 
 func (c *ChatModel) sendMessage() tea.Cmd {
-	message := c.input
-	c.input = ""
+	message := c.input.Value()
+	c.input.Clear()
 	c.sending = true
+	c.input.SetSending(true)
 
 	appID := c.appID
 	sessionID := c.sessionID
@@ -176,9 +251,36 @@ func (c *ChatModel) sendMessage() tea.Cmd {
 	}
 }
 
+func (c *ChatModel) handleSlashCommand(cmd, args string) tea.Cmd {
+	// TODO: implement individual slash commands
+	_ = args
+	switch cmd {
+	case "web":
+		if c.task != nil {
+			return func() tea.Msg {
+				url := c.api.WebURL(c.task.ProjectID, c.task.ID)
+				return statusMsg("Open: " + url)
+			}
+		}
+	case "status":
+		if c.task != nil {
+			return func() tea.Msg {
+				return statusMsg("Status: " + string(c.task.Status) + " | Branch: " + c.task.BranchName)
+			}
+		}
+	}
+	return nil
+}
+
+func (c *ChatModel) spinnerTickCmd() tea.Cmd {
+	return tea.Tick(150*time.Millisecond, func(t time.Time) tea.Msg {
+		return spinnerTickMsg{}
+	})
+}
+
 func (c *ChatModel) scrollToBottom() {
 	totalLines := c.countContentLines()
-	viewHeight := c.height - 3 // header + input
+	viewHeight := c.height - c.input.ViewHeight() - 2 // header
 	if totalLines > viewHeight {
 		c.scrollOffset = totalLines - viewHeight
 	} else {
@@ -189,66 +291,75 @@ func (c *ChatModel) scrollToBottom() {
 func (c *ChatModel) countContentLines() int {
 	count := 0
 	for _, ix := range c.interactions {
-		count += c.interactionLineCount(ix)
+		count += len(c.renderInteraction(ix, c.width))
 	}
-	return count
-}
-
-func (c *ChatModel) interactionLineCount(ix *types.Interaction) int {
-	count := 0
-	// User message
-	prompt := c.getPromptText(ix)
-	if prompt != "" {
-		count += 2 + lineCount(prompt, c.width-4) // role label + blank + content
-	}
-	// Assistant response
-	if ix.ResponseMessage != "" {
-		count += 2 + lineCount(ix.ResponseMessage, c.width-4)
-	}
-	count++ // blank line between interactions
 	return count
 }
 
 func (c *ChatModel) View() string {
 	contentWidth := c.width
 	if contentWidth < 10 {
-		contentWidth = 10
+		contentWidth = 80
 	}
 
 	// Header
 	header := c.renderHeader(contentWidth)
 
+	// Input area height
+	inputHeight := c.input.ViewHeight()
+
 	// Messages area
-	messagesHeight := c.height - 3 // header + input line + border
+	messagesHeight := c.height - inputHeight - 1 // header
 	if messagesHeight < 1 {
 		messagesHeight = 1
 	}
 	messages := c.renderMessages(contentWidth, messagesHeight)
 
-	// Input
-	input := c.renderInput(contentWidth)
+	// Slash command completions
+	slashCompletions := ""
+	if c.focused && IsSlashCommand(c.input.Value()) {
+		_, prefix := ParseSlashCommand(c.input.Value())
+		_ = prefix
+		completions := c.slashReg.RenderCompletions(strings.TrimPrefix(c.input.Value(), "/"), contentWidth)
+		if completions != "" {
+			slashCompletions = completions
+		}
+	}
 
-	return header + "\n" + messages + "\n" + input
+	// Input
+	input := c.input.View()
+
+	parts := []string{header, messages}
+	if c.spinner != nil && c.agentBusy {
+		parts = append(parts, c.spinner.View())
+	}
+	if slashCompletions != "" {
+		parts = append(parts, slashCompletions)
+	}
+	parts = append(parts, input)
+
+	return strings.Join(parts, "\n")
 }
 
 func (c *ChatModel) renderHeader(width int) string {
-	name := c.sessionName
-	if c.task != nil {
-		status := string(c.task.Status)
-		prio := string(c.task.Priority)
-		branch := c.task.BranchName
-
-		parts := []string{styleHeader.Render(name)}
-		parts = append(parts, styleDim.Render(status))
-		if prio != "" {
-			parts = append(parts, priorityStyle(prio))
-		}
-		if branch != "" {
-			parts = append(parts, styleDim.Render(branch))
-		}
-		return strings.Join(parts, styleDim.Render(" · "))
+	if c.task == nil {
+		return styleHeader.Render(c.sessionName)
 	}
-	return styleHeader.Render(name)
+
+	name := c.sessionName
+	status := string(c.task.Status)
+	prio := string(c.task.Priority)
+	branch := c.task.BranchName
+
+	parts := []string{styleHeader.Render(name)}
+	parts = append(parts, styleDim.Render(status))
+	if prio != "" {
+		parts = append(parts, priorityStyle(prio))
+	}
+	if branch != "" {
+		parts = append(parts, styleDim.Render(branch))
+	}
+	return strings.Join(parts, styleDim.Render(" · "))
 }
 
 func (c *ChatModel) renderMessages(width, height int) string {
@@ -266,11 +377,6 @@ func (c *ChatModel) renderMessages(width, height int) string {
 	var allLines []string
 	for _, ix := range c.interactions {
 		allLines = append(allLines, c.renderInteraction(ix, width)...)
-	}
-
-	if c.sending {
-		allLines = append(allLines, "")
-		allLines = append(allLines, styleDim.Render("  Waiting for response..."))
 	}
 
 	// Apply scroll
@@ -310,6 +416,15 @@ func (c *ChatModel) renderInteraction(ix *types.Interaction, width int) []string
 		}
 	}
 
+	// Tool calls
+	if c.toolRenderer != nil {
+		for _, tc := range ix.ToolCalls {
+			lines = append(lines, "")
+			toolLines := c.toolRenderer.RenderToolCall(tc)
+			lines = append(lines, toolLines...)
+		}
+	}
+
 	// Assistant response
 	resp := ix.ResponseMessage
 	if ix.DisplayMessage != "" {
@@ -323,6 +438,12 @@ func (c *ChatModel) renderInteraction(ix *types.Interaction, width int) []string
 		}
 	}
 
+	// Error
+	if ix.Error != "" {
+		lines = append(lines, "")
+		lines = append(lines, "  "+styleError.Render("Error: "+ix.Error))
+	}
+
 	return lines
 }
 
@@ -330,29 +451,12 @@ func (c *ChatModel) getPromptText(ix *types.Interaction) string {
 	if ix.PromptMessage != "" {
 		return ix.PromptMessage
 	}
-	// Try multi-part content
 	for _, part := range ix.PromptMessageContent.Parts {
 		if s, ok := part.(string); ok {
 			return s
 		}
 	}
 	return ""
-}
-
-func (c *ChatModel) renderInput(width int) string {
-	if !c.focused {
-		return ""
-	}
-
-	promptStyle := lipgloss.NewStyle().Foreground(colorPrimary)
-	prompt := promptStyle.Render("> ")
-
-	inputText := c.input + "█"
-	if c.sending {
-		inputText = styleDim.Render("sending...")
-	}
-
-	return prompt + inputText
 }
 
 // wrapText wraps text to fit within a given width.
@@ -368,7 +472,6 @@ func wrapText(text string, width int) []string {
 			continue
 		}
 		for len(paragraph) > width {
-			// Find last space before width
 			breakAt := width
 			for i := width; i > width/2; i-- {
 				if paragraph[i] == ' ' {

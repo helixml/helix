@@ -490,11 +490,12 @@ All from `api/pkg/types` — no duplication:
 19. `mcp.go` — MCP server management UI
 20. `notifications.go` — notification polling + badge
 
-### Phase 6: SSH server + Web integration
+### Phase 6: SSH/mosh server + Web integration
 21. `ssh.go` — SSH server mode (charmbracelet/wish)
 22. SSH key → Helix user mapping
-23. Embed TUI as a terminal component in the web interface
-24. Shared rendering protocol between TUI and web xterm.js
+23. mosh-server integration (Option A: standard mosh-server package)
+24. Embed TUI as a terminal component in the web interface
+25. Shared rendering protocol between TUI and web xterm.js
 
 ## SSH server mode
 
@@ -521,7 +522,40 @@ $ ssh helix.example.com tui       # explicit command
 3. API key auth → `ssh -o "User=apikey:hlx_xxx" helix.example.com`
 
 This means the TUI is accessible from any device with an SSH client —
-no Go binary needed. Combined with mosh for unstable connections.
+no Go binary needed.
+
+### Mosh server mode
+
+For satellite internet, mobile connections, and other high-latency/lossy
+networks, Helix can also expose a mosh server. Users connect via
+`mosh helix.example.com` and get the TUI with mosh's predictive local
+echo and roaming built in.
+
+**Implementation options:**
+
+**Option A: Standard mosh-server binary**
+- Install `mosh-server` on the Helix host
+- SSH server bootstraps the mosh connection (standard mosh flow)
+- `mosh helix.example.com -- helix tui` works out of the box
+- Simplest approach — just need SSH server + mosh-server package
+
+**Option B: Native Go mosh protocol**
+- Implement the mosh protocol (SSP — State Synchronization Protocol) in Go
+- UDP-based, handles roaming and latency natively
+- No dependency on mosh-server binary
+- More work but fully self-contained
+
+**Option C: Hybrid — predictive echo in our SSH server**
+- Keep SSH server, but add mosh-like predictive local echo at the
+  application layer (in the TUI itself, not the transport)
+- Keystrokes render instantly in the input buffer
+- Predictions shown in dim color until confirmed by server
+- Works over standard SSH without mosh installed
+- This is what we're already building in `predict.go`
+
+Recommendation: **Option A** for external access (just works), plus
+**Option C** for the built-in predictive echo regardless of transport.
+Option B is a stretch goal for full self-containment.
 
 ## Web interface embedding
 

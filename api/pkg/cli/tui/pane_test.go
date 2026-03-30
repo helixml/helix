@@ -8,7 +8,9 @@ import (
 
 func newTestChat(taskID string) *ChatModel {
 	return &ChatModel{
-		task: &types.SpecTask{ID: taskID, Name: "Test " + taskID},
+		task:     &types.SpecTask{ID: taskID, Name: "Test " + taskID},
+		input:    NewInputModel(),
+		slashReg: NewSlashCommandRegistry(),
 	}
 }
 
