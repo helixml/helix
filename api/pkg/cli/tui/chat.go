@@ -148,21 +148,25 @@ func (c *ChatModel) Update(msg tea.Msg) tea.Cmd {
 
 		switch msg.String() {
 		case "up":
-			if c.input.IsEmpty() {
-				if c.scrollOffset > 0 {
-					c.scrollOffset--
-				}
-				return nil
-			}
 			c.input.HistoryUp()
 			return nil
 
 		case "down":
-			if c.input.IsEmpty() {
-				c.scrollOffset++
-				return nil
-			}
 			c.input.HistoryDown()
+			return nil
+
+		case "pgup":
+			if c.scrollOffset > 0 {
+				c.scrollOffset -= 10
+				if c.scrollOffset < 0 {
+					c.scrollOffset = 0
+				}
+			}
+			return nil
+
+		case "pgdown":
+			c.scrollOffset += 10
+			c.clampScroll()
 			return nil
 
 		case "enter":
@@ -292,13 +296,27 @@ func (c *ChatModel) spinnerTickCmd() tea.Cmd {
 }
 
 func (c *ChatModel) scrollToBottom() {
+	c.scrollOffset = c.maxScroll()
+}
+
+// clampScroll ensures scrollOffset doesn't go past the end of content.
+func (c *ChatModel) clampScroll() {
+	max := c.maxScroll()
+	if c.scrollOffset > max {
+		c.scrollOffset = max
+	}
+	if c.scrollOffset < 0 {
+		c.scrollOffset = 0
+	}
+}
+
+func (c *ChatModel) maxScroll() int {
 	totalLines := c.countContentLines()
 	viewHeight := c.height - c.input.ViewHeight() - 2 // header
 	if totalLines > viewHeight {
-		c.scrollOffset = totalLines - viewHeight
-	} else {
-		c.scrollOffset = 0
+		return totalLines - viewHeight
 	}
+	return 0
 }
 
 func (c *ChatModel) countContentLines() int {
@@ -392,14 +410,19 @@ func (c *ChatModel) renderMessages(width, height int) string {
 		allLines = append(allLines, c.renderInteraction(ix, width)...)
 	}
 
-	// Apply scroll
+	// Clamp scroll — never show whitespace past the end
+	maxScroll := len(allLines) - height
+	if maxScroll < 0 {
+		maxScroll = 0
+	}
+	if c.scrollOffset > maxScroll {
+		c.scrollOffset = maxScroll
+	}
+	if c.scrollOffset < 0 {
+		c.scrollOffset = 0
+	}
+
 	start := c.scrollOffset
-	if start < 0 {
-		start = 0
-	}
-	if start > len(allLines) {
-		start = len(allLines)
-	}
 	end := start + height
 	if end > len(allLines) {
 		end = len(allLines)
@@ -407,9 +430,11 @@ func (c *ChatModel) renderMessages(width, height int) string {
 
 	visible := allLines[start:end]
 
-	// Pad to fill height
-	for len(visible) < height {
-		visible = append(visible, "")
+	// Only pad if content is shorter than viewport (no scrolling needed)
+	if len(allLines) < height {
+		for len(visible) < height {
+			visible = append(visible, "")
+		}
 	}
 
 	return strings.Join(visible, "\n")
