@@ -356,6 +356,36 @@ func (mr *MockStoreMockRecorder) CreateDynamicModelInfo(ctx, modelInfo any) *gom
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateDynamicModelInfo", reflect.TypeOf((*MockStore)(nil).CreateDynamicModelInfo), ctx, modelInfo)
 }
 
+// CreateEvaluationRun mocks base method.
+func (m *MockStore) CreateEvaluationRun(ctx context.Context, run *types.EvaluationRun) (*types.EvaluationRun, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateEvaluationRun", ctx, run)
+	ret0, _ := ret[0].(*types.EvaluationRun)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CreateEvaluationRun indicates an expected call of CreateEvaluationRun.
+func (mr *MockStoreMockRecorder) CreateEvaluationRun(ctx, run any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateEvaluationRun", reflect.TypeOf((*MockStore)(nil).CreateEvaluationRun), ctx, run)
+}
+
+// CreateEvaluationSuite mocks base method.
+func (m *MockStore) CreateEvaluationSuite(ctx context.Context, suite *types.EvaluationSuite) (*types.EvaluationSuite, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateEvaluationSuite", ctx, suite)
+	ret0, _ := ret[0].(*types.EvaluationSuite)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CreateEvaluationSuite indicates an expected call of CreateEvaluationSuite.
+func (mr *MockStoreMockRecorder) CreateEvaluationSuite(ctx, suite any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateEvaluationSuite", reflect.TypeOf((*MockStore)(nil).CreateEvaluationSuite), ctx, suite)
+}
+
 // CreateGitProviderConnection mocks base method.
 func (m *MockStore) CreateGitProviderConnection(ctx context.Context, connection *types.GitProviderConnection) error {
 	m.ctrl.T.Helper()
@@ -1218,6 +1248,34 @@ func (m *MockStore) DeleteDynamicModelInfo(ctx context.Context, id string) error
 func (mr *MockStoreMockRecorder) DeleteDynamicModelInfo(ctx, id any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteDynamicModelInfo", reflect.TypeOf((*MockStore)(nil).DeleteDynamicModelInfo), ctx, id)
+}
+
+// DeleteEvaluationRun mocks base method.
+func (m *MockStore) DeleteEvaluationRun(ctx context.Context, id string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteEvaluationRun", ctx, id)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteEvaluationRun indicates an expected call of DeleteEvaluationRun.
+func (mr *MockStoreMockRecorder) DeleteEvaluationRun(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteEvaluationRun", reflect.TypeOf((*MockStore)(nil).DeleteEvaluationRun), ctx, id)
+}
+
+// DeleteEvaluationSuite mocks base method.
+func (m *MockStore) DeleteEvaluationSuite(ctx context.Context, id string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteEvaluationSuite", ctx, id)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteEvaluationSuite indicates an expected call of DeleteEvaluationSuite.
+func (mr *MockStoreMockRecorder) DeleteEvaluationSuite(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteEvaluationSuite", reflect.TypeOf((*MockStore)(nil).DeleteEvaluationSuite), ctx, id)
 }
 
 // DeleteExpiredUserSessions mocks base method.
@@ -2283,6 +2341,36 @@ func (m *MockStore) GetEffectiveSystemSettings(ctx context.Context) (*types.Syst
 func (mr *MockStoreMockRecorder) GetEffectiveSystemSettings(ctx any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetEffectiveSystemSettings", reflect.TypeOf((*MockStore)(nil).GetEffectiveSystemSettings), ctx)
+}
+
+// GetEvaluationRun mocks base method.
+func (m *MockStore) GetEvaluationRun(ctx context.Context, id string) (*types.EvaluationRun, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetEvaluationRun", ctx, id)
+	ret0, _ := ret[0].(*types.EvaluationRun)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetEvaluationRun indicates an expected call of GetEvaluationRun.
+func (mr *MockStoreMockRecorder) GetEvaluationRun(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetEvaluationRun", reflect.TypeOf((*MockStore)(nil).GetEvaluationRun), ctx, id)
+}
+
+// GetEvaluationSuite mocks base method.
+func (m *MockStore) GetEvaluationSuite(ctx context.Context, id string) (*types.EvaluationSuite, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetEvaluationSuite", ctx, id)
+	ret0, _ := ret[0].(*types.EvaluationSuite)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetEvaluationSuite indicates an expected call of GetEvaluationSuite.
+func (mr *MockStoreMockRecorder) GetEvaluationSuite(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetEvaluationSuite", reflect.TypeOf((*MockStore)(nil).GetEvaluationSuite), ctx, id)
 }
 
 // GetGitProviderConnection mocks base method.
@@ -3724,6 +3812,36 @@ func (mr *MockStoreMockRecorder) ListDynamicModelInfos(ctx, q any) *gomock.Call 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListDynamicModelInfos", reflect.TypeOf((*MockStore)(nil).ListDynamicModelInfos), ctx, q)
 }
 
+// ListEvaluationRuns mocks base method.
+func (m *MockStore) ListEvaluationRuns(ctx context.Context, req *types.ListEvaluationRunsRequest) ([]*types.EvaluationRun, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListEvaluationRuns", ctx, req)
+	ret0, _ := ret[0].([]*types.EvaluationRun)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListEvaluationRuns indicates an expected call of ListEvaluationRuns.
+func (mr *MockStoreMockRecorder) ListEvaluationRuns(ctx, req any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListEvaluationRuns", reflect.TypeOf((*MockStore)(nil).ListEvaluationRuns), ctx, req)
+}
+
+// ListEvaluationSuites mocks base method.
+func (m *MockStore) ListEvaluationSuites(ctx context.Context, req *types.ListEvaluationSuitesRequest) ([]*types.EvaluationSuite, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListEvaluationSuites", ctx, req)
+	ret0, _ := ret[0].([]*types.EvaluationSuite)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListEvaluationSuites indicates an expected call of ListEvaluationSuites.
+func (mr *MockStoreMockRecorder) ListEvaluationSuites(ctx, req any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListEvaluationSuites", reflect.TypeOf((*MockStore)(nil).ListEvaluationSuites), ctx, req)
+}
+
 // ListGitProviderConnections mocks base method.
 func (m *MockStore) ListGitProviderConnections(ctx context.Context, userID string) ([]*types.GitProviderConnection, error) {
 	m.ctrl.T.Helper()
@@ -5030,6 +5148,36 @@ func (m *MockStore) UpdateDynamicModelInfo(ctx context.Context, modelInfo *types
 func (mr *MockStoreMockRecorder) UpdateDynamicModelInfo(ctx, modelInfo any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateDynamicModelInfo", reflect.TypeOf((*MockStore)(nil).UpdateDynamicModelInfo), ctx, modelInfo)
+}
+
+// UpdateEvaluationRun mocks base method.
+func (m *MockStore) UpdateEvaluationRun(ctx context.Context, run *types.EvaluationRun) (*types.EvaluationRun, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateEvaluationRun", ctx, run)
+	ret0, _ := ret[0].(*types.EvaluationRun)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UpdateEvaluationRun indicates an expected call of UpdateEvaluationRun.
+func (mr *MockStoreMockRecorder) UpdateEvaluationRun(ctx, run any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateEvaluationRun", reflect.TypeOf((*MockStore)(nil).UpdateEvaluationRun), ctx, run)
+}
+
+// UpdateEvaluationSuite mocks base method.
+func (m *MockStore) UpdateEvaluationSuite(ctx context.Context, suite *types.EvaluationSuite) (*types.EvaluationSuite, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateEvaluationSuite", ctx, suite)
+	ret0, _ := ret[0].(*types.EvaluationSuite)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UpdateEvaluationSuite indicates an expected call of UpdateEvaluationSuite.
+func (mr *MockStoreMockRecorder) UpdateEvaluationSuite(ctx, suite any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateEvaluationSuite", reflect.TypeOf((*MockStore)(nil).UpdateEvaluationSuite), ctx, suite)
 }
 
 // UpdateGitRepository mocks base method.

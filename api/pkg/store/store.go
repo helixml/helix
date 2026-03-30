@@ -649,6 +649,20 @@ type Store interface {
 	UpdateQuestionSetExecution(ctx context.Context, execution *types.QuestionSetExecution) (*types.QuestionSetExecution, error)
 	ListQuestionSetExecutions(ctx context.Context, q *ListQuestionSetExecutionsQuery) ([]*types.QuestionSetExecution, error)
 
+	// Evaluation suite methods
+	CreateEvaluationSuite(ctx context.Context, suite *types.EvaluationSuite) (*types.EvaluationSuite, error)
+	GetEvaluationSuite(ctx context.Context, id string) (*types.EvaluationSuite, error)
+	UpdateEvaluationSuite(ctx context.Context, suite *types.EvaluationSuite) (*types.EvaluationSuite, error)
+	ListEvaluationSuites(ctx context.Context, req *types.ListEvaluationSuitesRequest) ([]*types.EvaluationSuite, error)
+	DeleteEvaluationSuite(ctx context.Context, id string) error
+
+	// Evaluation run methods
+	CreateEvaluationRun(ctx context.Context, run *types.EvaluationRun) (*types.EvaluationRun, error)
+	GetEvaluationRun(ctx context.Context, id string) (*types.EvaluationRun, error)
+	UpdateEvaluationRun(ctx context.Context, run *types.EvaluationRun) (*types.EvaluationRun, error)
+	ListEvaluationRuns(ctx context.Context, req *types.ListEvaluationRunsRequest) ([]*types.EvaluationRun, error)
+	DeleteEvaluationRun(ctx context.Context, id string) error
+
 	// Sandbox instance methods
 	RegisterSandbox(ctx context.Context, instance *types.SandboxInstance) error
 	UpdateSandboxHeartbeat(ctx context.Context, id string, req *types.SandboxHeartbeatRequest) error
