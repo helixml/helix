@@ -1,14 +1,13 @@
 #syntax=docker/dockerfile:1.4
 
 ARG TAG=latest-small
-ARG UV_VERSION="0.5.4"
 # Add arg for CPU/GPU mode
 ARG DEVELOPMENT_CPU_ONLY=""
 # Set vLLM version consistently - 0.11.2 (latest) works with PyTorch 2.9.x
 ARG VLLM_VERSION="0.11.2"
 
 # Temporarily disable diffusers build to save space - uncomment to re-enable
-# FROM ghcr.io/astral-sh/uv:${UV_VERSION}-bookworm-slim AS diffusers-build-env
+# FROM ghcr.io/astral-sh/uv:0.5.4@sha256:49934a7a2d0a2ddfda9ddb566d6ac2449cdf31c7ebfb56fe599e04057fddca58 AS diffusers-build-env
 # ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_PYTHON_INSTALL_DIR=/workspace/helix/runner/helix-diffusers/.python
 # WORKDIR /workspace/helix/runner/helix-diffusers
 # RUN --mount=type=cache,target=/root/.cache/uv \
@@ -20,7 +19,7 @@ ARG VLLM_VERSION="0.11.2"
 # RUN --mount=type=cache,target=/root/.cache/uv \
 #     uv sync --frozen --no-dev
 
-FROM ghcr.io/astral-sh/uv:${UV_VERSION} AS uv
+FROM ghcr.io/astral-sh/uv:0.5.4@sha256:49934a7a2d0a2ddfda9ddb566d6ac2449cdf31c7ebfb56fe599e04057fddca58 AS uv
 
 ### BUILD
 
@@ -98,6 +97,8 @@ RUN if [ -d "/tmp/vllm/examples" ]; then \
 # 4. Update Go runtime files to use miniconda paths (see comments in files)
 # ============================================================================
 
+# Not SHA-pinned: TAG is an explicit --build-arg (latest-empty / latest-small / version tags)
+# that selects the base image variant at build time; pinning would prevent this selection.
 FROM ghcr.io/helixml/runner-base:${TAG}
 
 # Pass the CPU flag through to this stage
