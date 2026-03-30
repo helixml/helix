@@ -760,9 +760,15 @@ fi
 
 echo "=== Installing zerocopy plugin for ${TARGETARCH} ==="
 
-# Install zerocopy plugin
-cp /tmp/zerocopy.so ${LIB_DIR}/gstreamer-1.0/libgstpipewirezerocopy.so
-chmod 644 ${LIB_DIR}/gstreamer-1.0/libgstpipewirezerocopy.so
+# Install zerocopy plugin (only if it's a real .so, not a placeholder)
+mkdir -p ${LIB_DIR}/gstreamer-1.0
+if file /tmp/zerocopy.so | grep -q "shared object"; then
+    cp /tmp/zerocopy.so ${LIB_DIR}/gstreamer-1.0/libgstpipewirezerocopy.so
+    chmod 644 ${LIB_DIR}/gstreamer-1.0/libgstpipewirezerocopy.so
+    echo "zerocopy plugin installed"
+else
+    echo "WARNING: zerocopy plugin is placeholder or missing, skipping"
+fi
 
 # Download and install CUDA runtime libs (for NVIDIA GPUs)
 # On ARM64: Uses sbsa (Server Base System Architecture) repository for Grace Hopper
