@@ -290,7 +290,7 @@ func (c *ChatModel) handleSlashCommand(cmd, args string) tea.Cmd {
 }
 
 func (c *ChatModel) spinnerTickCmd() tea.Cmd {
-	return tea.Tick(150*time.Millisecond, func(t time.Time) tea.Msg {
+	return tea.Tick(800*time.Millisecond, func(t time.Time) tea.Msg {
 		return spinnerTickMsg{}
 	})
 }
