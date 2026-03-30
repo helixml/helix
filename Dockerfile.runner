@@ -26,7 +26,7 @@ FROM ghcr.io/astral-sh/uv:${UV_VERSION} AS uv
 
 # Pin to specific digest for stable layer caching.
 # Update digest when intentionally upgrading Go version.
-FROM golang:1.25-bookworm@sha256:7fb09d8804035fbde8a84ed59ca9f46dd68c6f160f9d193e98d795d8d9e002ec AS go-build-env
+FROM golang:1.25-bookworm@sha256:e39bda82b10817cc38b3c8d3ebd64285b44e6d7df09b759ad96a6d75d61cbcac AS go-build-env
 WORKDIR /workspace/helix
 
 # <- COPY go.mod and go.sum files to the workspace
@@ -59,7 +59,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build --mount=type=cache,target=/g
 # Stage for downloading vLLM templates
 # Pin to specific digest for stable layer caching.
 # Update digest when intentionally upgrading Alpine version.
-FROM alpine:3.21@sha256:25109184c71bdad752c8312a8623239686a9a2071e8825f20acb8f2198c3f659 as vllm-templates
+FROM alpine:3.21@sha256:22e0ec13c0db6b3e1ba3280e831fc50ba7bffe58e81f31670a64b1afede247bc as vllm-templates
 ARG VLLM_VERSION
 
 # Install git to clone the repository

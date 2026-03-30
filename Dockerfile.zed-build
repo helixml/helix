@@ -12,7 +12,7 @@
 # ====================================================================
 
 # --- Stage 1: Build environment (deps + rustup, no source or compilation) ---
-FROM ubuntu:25.10@sha256:4a9232cc47bf99defcc8860ef6222c99773330367fcecbf21ba2edb0b810a31e AS builder-env
+FROM ubuntu:25.10@sha256:91e7ac4c041dd191af1b9012fadbf489280894699c3f31e180969c4478781b7b AS builder-env
 
 ENV DEBIAN_FRONTEND=noninteractive
 
