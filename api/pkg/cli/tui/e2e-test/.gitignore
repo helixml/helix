@@ -1,4 +1,4 @@
-tui-test-server/tui-test-server
-helix-binary
 zed-binary
+helix-binary
+tui-test-server/tui-test-server
 tui-test-server/go.sum

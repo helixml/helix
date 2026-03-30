@@ -48,7 +48,8 @@ type App struct {
 // Messages
 type errMsg struct{ err error }
 type statusMsg string
-type tickMsg time.Time
+// TickMsg triggers background polling. Exported for E2E tests.
+type TickMsg time.Time
 type restorePanesMsg struct {
 	state *TUIState
 	tasks []*types.SpecTask
@@ -102,7 +103,7 @@ func (a *App) Init() tea.Cmd {
 
 func (a *App) tickCmd() tea.Cmd {
 	return tea.Tick(pollInterval, func(t time.Time) tea.Msg {
-		return tickMsg(t)
+		return TickMsg(t)
 	})
 }
 
@@ -117,7 +118,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		return a.handleKey(msg)
 
-	case tickMsg:
+	case TickMsg:
 		cmds := []tea.Cmd{a.tickCmd()}
 		// Refresh kanban if on kanban tab
 		if a.mode == ModeMain && a.kanban != nil && a.isOnKanbanTab() {
