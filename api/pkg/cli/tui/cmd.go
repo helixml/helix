@@ -32,6 +32,29 @@ Examples:
 	RunE: runTUI,
 }
 
+var serveCmd = &cobra.Command{
+	Use:   "serve",
+	Short: "Start TUI SSH server",
+	Long: `Start an SSH server that serves the Helix TUI to connecting clients.
+
+Users can connect with:
+  ssh -p 2222 apikey:hlx_xxx@your-helix-host
+  mosh your-helix-host -- helix tui`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		cfg := DefaultSSHServerConfig()
+		if sshPort > 0 {
+			cfg.Port = sshPort
+		}
+		if sshHost != "" {
+			cfg.Host = sshHost
+		}
+		return StartSSHServer(cfg)
+	},
+}
+
+var sshPort int
+var sshHost string
+
 var attachCmd = &cobra.Command{
 	Use:     "attach",
 	Short:   "Reattach to previous TUI session",
@@ -67,7 +90,12 @@ func runTUI(cmd *cobra.Command, args []string) error {
 
 func init() {
 	rootCmd.Flags().StringVarP(&projectID, "project", "p", "", "Project ID (skip project picker)")
+
+	serveCmd.Flags().IntVar(&sshPort, "port", 2222, "SSH server port")
+	serveCmd.Flags().StringVar(&sshHost, "host", "0.0.0.0", "SSH server listen address")
+
 	rootCmd.AddCommand(attachCmd)
+	rootCmd.AddCommand(serveCmd)
 }
 
 func New() *cobra.Command {

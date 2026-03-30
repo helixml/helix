@@ -33,8 +33,11 @@ type App struct {
 	tabs   *TabBar
 
 	// Modal overlays (only one active at a time)
-	taskPicker *TaskPickerModel
-	newTask    *NewTaskModel
+	taskPicker    *TaskPickerModel
+	newTask       *NewTaskModel
+	mcpModel      *MCPModel
+	notifications *NotificationManager
+	slashReg      *SlashCommandRegistry
 
 	pendingRestore *TUIState
 
@@ -57,10 +60,12 @@ func NewApp(api *APIClient, projectID string) *App {
 	tmuxCfg := LoadTmuxConfig()
 
 	app := &App{
-		api:  api,
-		tmux: tmuxCfg,
-		conn: NewConnectionManager(),
-		tabs: NewTabBar(),
+		api:           api,
+		tmux:          tmuxCfg,
+		conn:          NewConnectionManager(),
+		tabs:          NewTabBar(),
+		notifications: NewNotificationManager(),
+		slashReg:      NewSlashCommandRegistry(),
 	}
 
 	if projectID != "" {
@@ -183,6 +188,16 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return a, a.applyRestoredPanes(msg.state, taskMap)
 
+	case mcpCancelMsg:
+		a.mcpModel = nil
+		return a, nil
+
+	case mcpServersLoadedMsg:
+		if a.mcpModel != nil {
+			a.mcpModel.Update(msg)
+		}
+		return a, nil
+
 	case specApprovedMsg:
 		a.status = "Specs approved! Task moving to implementation."
 		if a.kanban != nil {
@@ -212,6 +227,24 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 
 	// Modal overlays take priority
+	if a.notifications.IsVisible() {
+		// Handle notification list keys
+		if kmsg, ok := msg.(tea.KeyMsg); ok {
+			switch kmsg.String() {
+			case "esc", "q":
+				a.notifications.Toggle()
+				return a, nil
+			case "m":
+				a.notifications.MarkAllRead()
+				return a, nil
+			}
+		}
+		return a, nil
+	}
+	if a.mcpModel != nil {
+		cmd = a.mcpModel.Update(msg)
+		return a, cmd
+	}
 	if a.taskPicker != nil {
 		cmd = a.taskPicker.Update(msg)
 		return a, cmd
@@ -243,6 +276,14 @@ func (a *App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	// Modal overlays
+	if a.notifications.IsVisible() {
+		// Keys handled in Update
+		return a, nil
+	}
+	if a.mcpModel != nil {
+		cmd := a.mcpModel.Update(msg)
+		return a, cmd
+	}
 	if a.taskPicker != nil {
 		cmd := a.taskPicker.Update(msg)
 		return a, cmd
@@ -378,9 +419,17 @@ func (a *App) handlePrefixedKey(key string) (tea.Model, tea.Cmd) {
 		a.saveState()
 		return a, tea.Quit
 
+	// Notifications
+	case "!":
+		a.notifications.Toggle()
+		return a, nil
+
 	// Terminal
 	case "t":
-		a.status = "Terminal: not yet implemented"
+		if chat := a.focusedChat(); chat != nil && chat.task != nil {
+			// TODO: open terminal pane for task's sandbox
+			a.status = "Terminal: connecting to sandbox..."
+		}
 		return a, nil
 
 	// Web URL
@@ -565,7 +614,11 @@ func (a *App) View() string {
 	var content string
 
 	// Modal overlays
-	if a.taskPicker != nil {
+	if a.notifications.IsVisible() {
+		content = a.notifications.Render(a.width, a.contentHeight())
+	} else if a.mcpModel != nil {
+		content = a.mcpModel.View()
+	} else if a.taskPicker != nil {
 		content = a.taskPicker.View()
 	} else if a.newTask != nil {
 		content = a.newTask.View()
