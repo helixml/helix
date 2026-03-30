@@ -60,24 +60,35 @@ print_failure_summary() {
 #   --signal=QUIT  → sends SIGQUIT first (Go dumps goroutines)
 #   --kill-after=10 → sends SIGKILL 10s later if still alive
 #
-# Pipeline: go test -json | tee (capture JSON) | sed (human-readable output)
-# We need the exit code from `timeout go test`, not from sed/tee.
+# Pipeline: go test -json | tee (capture JSON) | filter (human-readable output)
+# We need the exit code from `timeout go test`, not from the filter.
 # So we write the exit code to a file from inside the subshell.
+#
+# The filter passes through non-JSON lines verbatim (compile errors, panics)
+# and extracts the Output field from JSON lines with Action=output.
 EXIT_CODE=0
 (
     timeout -s QUIT -k 10 "${TIMEOUT}" go test -json "$@" 2>&1 || echo $? > "${JSON_OUTPUT_FILE}.exit"
-) | tee "$JSON_OUTPUT_FILE" | sed -n '
-    /"Action":"output"/!d
-    s/.*"Output":"//
-    s/"}$//
-    s/\\n/\
+) | tee "$JSON_OUTPUT_FILE" | while IFS= read -r line; do
+    if echo "$line" | grep -q '^{.*"Action"'; then
+        # JSON line from go test -json — extract output lines
+        if echo "$line" | grep -q '"Action":"output"'; then
+            echo "$line" | sed '
+                s/.*"Output":"//
+                s/"}$//
+                s/\\n/\
 /g
-    s/\\t/	/g
-    s/\\r//g
-    s/\\"/"/g
-    s/\\\\/\\/g
-    p
-' || true
+                s/\\t/	/g
+                s/\\r//g
+                s/\\"/"/g
+                s/\\\\/\\/g
+            '
+        fi
+    else
+        # Non-JSON line — pass through verbatim (compile errors, panics, etc)
+        echo "$line"
+    fi
+done || true
 
 # Read exit code: timeout writes it, or 0 if tests passed (file won't exist)
 if [ -f "${JSON_OUTPUT_FILE}.exit" ]; then
