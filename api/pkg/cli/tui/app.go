@@ -14,27 +14,29 @@ type AppMode int
 
 const (
 	ModePicker AppMode = iota
-	ModeKanban
-	ModePanes
+	ModeMain          // kanban + tabs + panes
 )
 
 // App is the top-level bubbletea model.
 type App struct {
 	api  *APIClient
 	tmux *TmuxConfig
+	conn *ConnectionManager
 
 	mode       AppMode
 	width      int
 	height     int
 	prefixNext bool // true when prefix key was just pressed
 
-	picker     *PickerModel
-	kanban     *KanbanModel
-	panes      *PaneManager
-	taskPicker *TaskPickerModel // non-nil when picking a task for split
-	newTask    *NewTaskModel    // non-nil when creating a new task
+	picker *PickerModel
+	kanban *KanbanModel
+	tabs   *TabBar
 
-	pendingRestore *TUIState // non-nil if we need to restore panes after tasks load
+	// Modal overlays (only one active at a time)
+	taskPicker *TaskPickerModel
+	newTask    *NewTaskModel
+
+	pendingRestore *TUIState
 
 	err    error
 	status string
@@ -55,19 +57,18 @@ func NewApp(api *APIClient, projectID string) *App {
 	tmuxCfg := LoadTmuxConfig()
 
 	app := &App{
-		api:   api,
-		tmux:  tmuxCfg,
-		panes: NewPaneManager(),
+		api:  api,
+		tmux: tmuxCfg,
+		conn: NewConnectionManager(),
+		tabs: NewTabBar(),
 	}
 
 	if projectID != "" {
-		// Skip picker, go straight to kanban
-		app.mode = ModeKanban
+		app.mode = ModeMain
 		app.kanban = NewKanbanModel(api, projectID)
 	} else {
-		// Check for saved state to reattach
 		if state := LoadState(); state != nil && state.ProjectID != "" {
-			app.mode = ModeKanban
+			app.mode = ModeMain
 			app.kanban = NewKanbanModel(api, state.ProjectID)
 			if state.Panes != nil {
 				app.pendingRestore = state
@@ -87,7 +88,7 @@ func (a *App) Init() tea.Cmd {
 	switch a.mode {
 	case ModePicker:
 		cmds = append(cmds, a.picker.Init())
-	case ModeKanban:
+	case ModeMain:
 		cmds = append(cmds, a.kanban.Init())
 	}
 
@@ -105,37 +106,32 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		a.width = msg.Width
 		a.height = msg.Height
-		contentH := a.height - 2 // status bar
-		if a.picker != nil {
-			a.picker.SetSize(a.width, contentH)
-		}
-		if a.kanban != nil {
-			a.kanban.SetSize(a.width, contentH)
-		}
-		if a.panes != nil {
-			a.panes.SetSize(a.width, contentH)
-		}
-		if a.taskPicker != nil {
-			a.taskPicker.SetSize(a.width, contentH)
-		}
+		a.updateSizes()
 		return a, nil
 
 	case tea.KeyMsg:
 		return a.handleKey(msg)
 
+	case tickMsg:
+		cmds := []tea.Cmd{a.tickCmd()}
+		// Refresh kanban if on kanban tab
+		if a.mode == ModeMain && a.kanban != nil && a.isOnKanbanTab() {
+			cmds = append(cmds, a.kanban.fetchTasks())
+		}
+		return a, tea.Batch(cmds...)
+
 	case projectSelectedMsg:
-		a.mode = ModeKanban
+		a.mode = ModeMain
 		a.kanban = NewKanbanModel(a.api, msg.project.ID)
 		a.kanban.SetProject(msg.project)
-		a.kanban.SetSize(a.width, a.height-2)
+		a.updateSizes()
 		return a, a.kanban.Init()
 
 	case tasksLoadedMsg:
-		// Let kanban handle the message first
+		a.conn.RecordSuccess()
 		if a.kanban != nil {
 			a.kanban.Update(msg)
 		}
-		// Check if we need to restore panes from saved state
 		if a.pendingRestore != nil && a.pendingRestore.Panes != nil {
 			cmd := a.restorePanes(a.pendingRestore)
 			a.pendingRestore = nil
@@ -144,18 +140,18 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, nil
 
 	case openTaskChatMsg:
-		chat := NewChatModel(a.api, msg.task)
-		a.mode = ModePanes
-		a.panes.SetSize(a.width, a.height-2)
-		a.panes.OpenPane(chat)
-		return a, chat.Init()
+		return a, a.openTaskInTab(msg.task)
 
 	case taskPickerDoneMsg:
 		a.taskPicker = nil
-		chat := NewChatModel(a.api, msg.task)
-		a.panes.SplitFocused(msg.splitDir, chat)
-		a.syncPaneFocus()
-		return a, chat.Init()
+		tab := a.tabs.ActiveTab()
+		if tab != nil && tab.Panes != nil {
+			chat := NewChatModel(a.api, msg.task)
+			tab.Panes.SplitFocused(msg.splitDir, chat)
+			a.syncPaneFocus()
+			return a, chat.Init()
+		}
+		return a, nil
 
 	case taskPickerCancelMsg:
 		a.taskPicker = nil
@@ -164,7 +160,6 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case newTaskCreatedMsg:
 		a.newTask = nil
 		a.status = "Task created: " + taskDisplayName(msg.task)
-		// Refresh kanban
 		if a.kanban != nil {
 			return a, a.kanban.fetchTasks()
 		}
@@ -174,6 +169,13 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.newTask = nil
 		return a, nil
 
+	case openNewTaskMsg:
+		if a.kanban != nil {
+			a.newTask = NewNewTaskModel(a.api, a.kanban.projectID)
+			a.newTask.SetSize(a.width, a.contentHeight())
+		}
+		return a, nil
+
 	case restorePanesMsg:
 		taskMap := make(map[string]*types.SpecTask)
 		for _, t := range msg.tasks {
@@ -181,27 +183,28 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return a, a.applyRestoredPanes(msg.state, taskMap)
 
-	case openNewTaskMsg:
+	case specApprovedMsg:
+		a.status = "Specs approved! Task moving to implementation."
 		if a.kanban != nil {
-			a.newTask = NewNewTaskModel(a.api, a.kanban.projectID)
-			a.newTask.SetSize(a.width, a.height-2)
+			return a, a.kanban.fetchTasks()
 		}
 		return a, nil
 
-	case tickMsg:
-		// Background polling: refresh kanban when visible
-		cmds := []tea.Cmd{a.tickCmd()}
-		if a.mode == ModeKanban && a.kanban != nil {
-			cmds = append(cmds, a.kanban.fetchTasks())
-		}
-		return a, tea.Batch(cmds...)
-
 	case errMsg:
 		a.err = msg.err
+		a.conn.RecordFailure(msg.err)
 		return a, nil
 
 	case statusMsg:
 		a.status = string(msg)
+		return a, nil
+
+	case spinnerTickMsg:
+		// Forward to focused chat
+		if chat := a.focusedChat(); chat != nil {
+			cmd := chat.Update(msg)
+			return a, cmd
+		}
 		return a, nil
 	}
 
@@ -221,10 +224,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch a.mode {
 	case ModePicker:
 		cmd = a.picker.Update(msg)
-	case ModeKanban:
-		cmd = a.kanban.Update(msg)
-	case ModePanes:
-		if chat := a.panes.FocusedChat(); chat != nil {
+	case ModeMain:
+		if a.isOnKanbanTab() {
+			cmd = a.kanban.Update(msg)
+		} else if chat := a.focusedChat(); chat != nil {
 			cmd = chat.Update(msg)
 		}
 	}
@@ -234,13 +237,12 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (a *App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
 
-	// Global: quit
 	if key == "ctrl+c" {
 		a.saveState()
 		return a, tea.Quit
 	}
 
-	// Modal overlays take all input
+	// Modal overlays
 	if a.taskPicker != nil {
 		cmd := a.taskPicker.Update(msg)
 		return a, cmd
@@ -250,8 +252,20 @@ func (a *App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return a, cmd
 	}
 
-	// Prefix key handling for pane operations
-	if a.mode == ModePanes {
+	// Prefix key handling
+	if a.mode == ModeMain && !a.isOnKanbanTab() {
+		if a.prefixNext {
+			a.prefixNext = false
+			return a.handlePrefixedKey(key)
+		}
+		if key == a.tmux.Prefix {
+			a.prefixNext = true
+			return a, nil
+		}
+	}
+
+	// Kanban-mode prefix (for tab switching from kanban)
+	if a.mode == ModeMain && a.isOnKanbanTab() {
 		if a.prefixNext {
 			a.prefixNext = false
 			return a.handlePrefixedKey(key)
@@ -267,23 +281,24 @@ func (a *App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		switch a.mode {
 		case ModePicker:
 			return a, tea.Quit
-		case ModeKanban:
-			a.saveState()
-			return a, tea.Quit
-		case ModePanes:
-			// 'q' goes to input in chat, don't quit
+		case ModeMain:
+			if a.isOnKanbanTab() {
+				a.saveState()
+				return a, tea.Quit
+			}
+			// In chat tab, 'q' goes to input
 		}
 	}
 
-	// Delegate to active view
+	// Delegate
 	var cmd tea.Cmd
 	switch a.mode {
 	case ModePicker:
 		cmd = a.picker.Update(msg)
-	case ModeKanban:
-		cmd = a.kanban.Update(msg)
-	case ModePanes:
-		if chat := a.panes.FocusedChat(); chat != nil {
+	case ModeMain:
+		if a.isOnKanbanTab() {
+			cmd = a.kanban.Update(msg)
+		} else if chat := a.focusedChat(); chat != nil {
 			cmd = chat.Update(msg)
 		}
 	}
@@ -297,80 +312,68 @@ func (a *App) handlePrefixedKey(key string) (tea.Model, tea.Cmd) {
 	}
 
 	switch key {
-	// Split vertical
-	case a.tmux.SplitV:
+	// Create new tab
+	case "c":
 		if projectID != "" {
 			a.taskPicker = NewTaskPickerModel(a.api, projectID, SplitVertical)
-			a.taskPicker.SetSize(a.width, a.height-2)
+			a.taskPicker.SetSize(a.width, a.contentHeight())
+			// Reuse task picker but treat selection as "open in new tab"
 			return a, a.taskPicker.Init()
 		}
+
+	// Split panes
+	case a.tmux.SplitV:
+		if projectID != "" && !a.isOnKanbanTab() {
+			a.taskPicker = NewTaskPickerModel(a.api, projectID, SplitVertical)
+			a.taskPicker.SetSize(a.width, a.contentHeight())
+			return a, a.taskPicker.Init()
+		}
+
+	case a.tmux.SplitH:
+		if projectID != "" && !a.isOnKanbanTab() {
+			a.taskPicker = NewTaskPickerModel(a.api, projectID, SplitHorizontal)
+			a.taskPicker.SetSize(a.width, a.contentHeight())
+			return a, a.taskPicker.Init()
+		}
+
+	// Tab navigation
+	case "n":
+		a.tabs.NextTab()
+		return a, nil
+	case "p":
+		a.tabs.PrevTab()
+		return a, nil
+	case "0", "1", "2", "3", "4", "5", "6", "7", "8", "9":
+		idx := int(key[0] - '0')
+		a.tabs.GoToTab(idx)
 		return a, nil
 
-	// Split horizontal
-	case a.tmux.SplitH:
-		if projectID != "" {
-			a.taskPicker = NewTaskPickerModel(a.api, projectID, SplitHorizontal)
-			a.taskPicker.SetSize(a.width, a.height-2)
-			return a, a.taskPicker.Init()
-		}
+	// Close tab
+	case "&":
+		a.tabs.CloseTab()
 		return a, nil
 
 	// Pane navigation
 	case a.tmux.PaneNext:
-		a.updatePaneFocus()
-		a.panes.FocusNext()
-		a.syncPaneFocus()
+		a.cyclePaneFocus(true)
 		return a, nil
-
 	case a.tmux.PanePrev:
-		a.updatePaneFocus()
-		a.panes.FocusPrev()
-		a.syncPaneFocus()
+		a.cyclePaneFocus(false)
 		return a, nil
-	}
 
-	// Directional pane navigation (vim-style if configured)
-	if a.tmux.PaneLeft != "" && key == a.tmux.PaneLeft {
-		a.updatePaneFocus()
-		a.panes.FocusPrev()
-		a.syncPaneFocus()
-		return a, nil
-	}
-	if a.tmux.PaneRight != "" && key == a.tmux.PaneRight {
-		a.updatePaneFocus()
-		a.panes.FocusNext()
-		a.syncPaneFocus()
-		return a, nil
-	}
-	if a.tmux.PaneDown != "" && key == a.tmux.PaneDown {
-		a.updatePaneFocus()
-		a.panes.FocusNext()
-		a.syncPaneFocus()
-		return a, nil
-	}
-	if a.tmux.PaneUp != "" && key == a.tmux.PaneUp {
-		a.updatePaneFocus()
-		a.panes.FocusPrev()
-		a.syncPaneFocus()
-		return a, nil
-	}
-
-	switch key {
 	// Close pane
 	case a.tmux.ClosePane:
-		if !a.panes.CloseFocused() {
-			a.mode = ModeKanban
+		tab := a.tabs.ActiveTab()
+		if tab != nil && tab.Panes != nil {
+			if !tab.Panes.CloseFocused() {
+				// Last pane closed, close the tab
+				a.tabs.CloseTab()
+			}
+			a.syncPaneFocus()
 		}
-		a.syncPaneFocus()
 		return a, nil
 
-	// Close all panes, back to kanban
-	case "q":
-		a.panes = NewPaneManager()
-		a.mode = ModeKanban
-		return a, nil
-
-	// Detach (save state and quit)
+	// Detach
 	case a.tmux.Detach:
 		a.saveState()
 		return a, tea.Quit
@@ -382,140 +385,164 @@ func (a *App) handlePrefixedKey(key string) (tea.Model, tea.Cmd) {
 
 	// Web URL
 	case "w":
-		if chat := a.panes.FocusedChat(); chat != nil && chat.task != nil {
+		if chat := a.focusedChat(); chat != nil && chat.task != nil {
 			url := a.api.WebURL(chat.task.ProjectID, chat.task.ID)
 			a.status = "Open: " + url
 		}
 		return a, nil
 	}
 
+	// Directional pane nav
+	if a.tmux.PaneLeft != "" && key == a.tmux.PaneLeft {
+		a.cyclePaneFocus(false)
+		return a, nil
+	}
+	if a.tmux.PaneRight != "" && key == a.tmux.PaneRight {
+		a.cyclePaneFocus(true)
+		return a, nil
+	}
+	if a.tmux.PaneDown != "" && key == a.tmux.PaneDown {
+		a.cyclePaneFocus(true)
+		return a, nil
+	}
+	if a.tmux.PaneUp != "" && key == a.tmux.PaneUp {
+		a.cyclePaneFocus(false)
+		return a, nil
+	}
+
 	return a, nil
 }
 
-func (a *App) updatePaneFocus() {
-	if chat := a.panes.FocusedChat(); chat != nil {
+// --- Tab/pane helpers ---
+
+func (a *App) isOnKanbanTab() bool {
+	return a.tabs.ActiveIndex() == 0
+}
+
+func (a *App) openTaskInTab(task *types.SpecTask) tea.Cmd {
+	// Check if task already has a tab
+	existing := a.tabs.FindTabByTask(task.ID)
+	if existing != nil {
+		for i, t := range a.tabs.tabs {
+			if t == existing {
+				a.tabs.GoToTab(i)
+				return nil
+			}
+		}
+	}
+
+	// Create new tab
+	tab := a.tabs.AddTab(task)
+	tab.Panes = NewPaneManager()
+	tab.Panes.SetSize(a.width, a.contentHeight()-1) // -1 for tab bar
+
+	chat := NewChatModel(a.api, task)
+	tab.Panes.OpenPane(chat)
+	a.syncPaneFocus()
+
+	return chat.Init()
+}
+
+func (a *App) focusedChat() *ChatModel {
+	tab := a.tabs.ActiveTab()
+	if tab == nil || tab.Panes == nil {
+		return nil
+	}
+	return tab.Panes.FocusedChat()
+}
+
+func (a *App) cyclePaneFocus(forward bool) {
+	tab := a.tabs.ActiveTab()
+	if tab == nil || tab.Panes == nil {
+		return
+	}
+	if chat := tab.Panes.FocusedChat(); chat != nil {
 		chat.SetFocused(false)
 	}
+	if forward {
+		tab.Panes.FocusNext()
+	} else {
+		tab.Panes.FocusPrev()
+	}
+	a.syncPaneFocus()
 }
 
 func (a *App) syncPaneFocus() {
-	if chat := a.panes.FocusedChat(); chat != nil {
+	tab := a.tabs.ActiveTab()
+	if tab == nil || tab.Panes == nil {
+		return
+	}
+	if chat := tab.Panes.FocusedChat(); chat != nil {
 		chat.SetFocused(true)
 	}
 }
 
+func (a *App) contentHeight() int {
+	return a.height - 2 // status bar + tab bar
+}
+
+func (a *App) updateSizes() {
+	ch := a.contentHeight()
+	if a.picker != nil {
+		a.picker.SetSize(a.width, ch)
+	}
+	if a.kanban != nil {
+		a.kanban.SetSize(a.width, ch-1)
+	}
+	if a.taskPicker != nil {
+		a.taskPicker.SetSize(a.width, ch)
+	}
+	a.tabs.SetWidth(a.width)
+	// Update active tab's pane sizes
+	tab := a.tabs.ActiveTab()
+	if tab != nil && tab.Panes != nil {
+		tab.Panes.SetSize(a.width, ch-1) // -1 for tab bar
+	}
+}
+
+// --- State persistence ---
+
 func (a *App) restorePanes(state *TUIState) tea.Cmd {
-	// Collect all task IDs from the saved pane state
 	taskIDs := collectTaskIDs(state.Panes)
 	if len(taskIDs) == 0 {
 		return nil
 	}
 
-	// Fetch tasks to populate panes
 	return func() tea.Msg {
 		var tasks []*types.SpecTask
 		for _, id := range taskIDs {
 			task, err := a.api.GetSpecTask(apiCtx(), id)
 			if err != nil {
-				continue // skip tasks we can't load
+				continue
 			}
 			tasks = append(tasks, task)
 		}
 		if len(tasks) == 0 {
 			return statusMsg("Could not restore any panes")
 		}
-
 		return restorePanesMsg{state: state, tasks: tasks}
 	}
 }
 
 func (a *App) applyRestoredPanes(state *TUIState, taskMap map[string]*types.SpecTask) tea.Cmd {
-	a.mode = ModePanes
-	a.panes = NewPaneManager()
-	a.panes.SetSize(a.width, a.height-2)
-
 	var cmds []tea.Cmd
-	a.buildPaneTree(state.Panes, taskMap, &cmds)
 
-	if a.panes.IsEmpty() {
-		a.mode = ModeKanban
-		return nil
-	}
-
-	// Focus the task from saved state
-	if state.FocusedTaskID != "" {
-		leaves := a.panes.allLeaves(a.panes.Root)
-		for _, leaf := range leaves {
-			if leaf.Chat != nil && leaf.Chat.task != nil && leaf.Chat.task.ID == state.FocusedTaskID {
-				a.panes.focused = leaf.ID
-				leaf.Chat.SetFocused(true)
-				break
-			}
-		}
-	}
-
-	a.status = fmt.Sprintf("Restored %d pane(s)", a.panes.PaneCount())
-	return tea.Batch(cmds...)
-}
-
-func (a *App) buildPaneTree(ps *PaneState, taskMap map[string]*types.SpecTask, cmds *[]tea.Cmd) {
-	if ps == nil {
-		return
-	}
-
-	if ps.TaskID != "" {
-		task, ok := taskMap[ps.TaskID]
+	// Open each task in a tab
+	for _, id := range collectTaskIDs(state.Panes) {
+		task, ok := taskMap[id]
 		if !ok {
-			return
+			continue
 		}
-		chat := NewChatModel(a.api, task)
-		a.panes.OpenPane(chat)
-		*cmds = append(*cmds, chat.Init())
-		return
-	}
-
-	// Split node — build children first, then split
-	if ps.Left != nil {
-		a.buildPaneTree(ps.Left, taskMap, cmds)
-	}
-	if ps.Right != nil {
-		task := firstTaskInState(ps.Right, taskMap)
-		if task != nil {
-			dir := SplitVertical
-			if ps.Dir == "horizontal" {
-				dir = SplitHorizontal
-			}
-			chat := NewChatModel(a.api, task)
-			a.panes.SplitFocused(dir, chat)
-			*cmds = append(*cmds, chat.Init())
+		cmd := a.openTaskInTab(task)
+		if cmd != nil {
+			cmds = append(cmds, cmd)
 		}
 	}
-}
 
-func firstTaskInState(ps *PaneState, taskMap map[string]*types.SpecTask) *types.SpecTask {
-	if ps == nil {
-		return nil
+	if len(cmds) > 0 {
+		a.status = fmt.Sprintf("Restored %d tab(s)", len(cmds))
 	}
-	if ps.TaskID != "" {
-		return taskMap[ps.TaskID]
-	}
-	if t := firstTaskInState(ps.Left, taskMap); t != nil {
-		return t
-	}
-	return firstTaskInState(ps.Right, taskMap)
-}
-
-func collectTaskIDs(ps *PaneState) []string {
-	if ps == nil {
-		return nil
-	}
-	if ps.TaskID != "" {
-		return []string{ps.TaskID}
-	}
-	var ids []string
-	ids = append(ids, collectTaskIDs(ps.Left)...)
-	ids = append(ids, collectTaskIDs(ps.Right)...)
-	return ids
+	return tea.Batch(cmds...)
 }
 
 func (a *App) saveState() {
@@ -525,10 +552,15 @@ func (a *App) saveState() {
 	}
 }
 
+// --- View ---
+
 func (a *App) View() string {
 	if a.width == 0 {
 		return "Loading..."
 	}
+
+	// Connection bar (mosh-style)
+	connBar := a.conn.RenderBar(a.width)
 
 	var content string
 
@@ -541,15 +573,44 @@ func (a *App) View() string {
 		switch a.mode {
 		case ModePicker:
 			content = a.picker.View()
-		case ModeKanban:
-			content = a.kanban.View()
-		case ModePanes:
-			content = a.panes.Render()
+		case ModeMain:
+			if a.isOnKanbanTab() {
+				content = a.kanban.View()
+			} else {
+				tab := a.tabs.ActiveTab()
+				if tab != nil && tab.Panes != nil {
+					content = tab.Panes.Render()
+				}
+			}
 		}
 	}
 
+	// Tab bar (only in main mode)
+	tabBar := ""
+	if a.mode == ModeMain && a.tabs.TabCount() > 1 {
+		tabBar = a.tabs.View()
+	}
+
 	statusBar := a.renderStatusBar()
-	return content + "\n" + statusBar
+
+	parts := []string{}
+	if connBar != "" {
+		parts = append(parts, connBar)
+	}
+	parts = append(parts, content)
+	if tabBar != "" {
+		parts = append(parts, tabBar)
+	}
+	parts = append(parts, statusBar)
+
+	result := ""
+	for i, p := range parts {
+		if i > 0 {
+			result += "\n"
+		}
+		result += p
+	}
+	return result
 }
 
 func (a *App) renderStatusBar() string {
@@ -559,18 +620,19 @@ func (a *App) renderStatusBar() string {
 	switch a.mode {
 	case ModePicker:
 		help = "j/k: navigate  enter: select  q: quit"
-	case ModeKanban:
-		help = "h/l: column  j/k: task  enter: open  n: new task  r: refresh  q: quit"
-	case ModePanes:
+	case ModeMain:
 		prefix := a.tmux.Prefix
 		if a.prefixNext {
 			help = fmt.Sprintf("[%s] waiting for command...", prefix)
+		} else if a.isOnKanbanTab() {
+			help = "h/l: column  j/k: task  enter: open  n: new task  r: refresh  q: quit"
 		} else {
 			paneInfo := ""
-			if a.panes.PaneCount() > 1 {
-				paneInfo = fmt.Sprintf(" [%d panes]", a.panes.PaneCount())
+			tab := a.tabs.ActiveTab()
+			if tab != nil && tab.Panes != nil && tab.Panes.PaneCount() > 1 {
+				paneInfo = fmt.Sprintf(" [%d panes]", tab.Panes.PaneCount())
 			}
-			help = fmt.Sprintf("%s: pane cmds  esc: stop/clear%s", prefix, paneInfo)
+			help = fmt.Sprintf("%s: cmds  esc: stop/clear%s", prefix, paneInfo)
 		}
 	}
 

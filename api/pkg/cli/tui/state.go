@@ -70,6 +70,20 @@ func ClearState() {
 	os.Remove(statePath())
 }
 
+// collectTaskIDs extracts all task IDs from a pane state tree.
+func collectTaskIDs(ps *PaneState) []string {
+	if ps == nil {
+		return nil
+	}
+	if ps.TaskID != "" {
+		return []string{ps.TaskID}
+	}
+	var ids []string
+	ids = append(ids, collectTaskIDs(ps.Left)...)
+	ids = append(ids, collectTaskIDs(ps.Right)...)
+	return ids
+}
+
 // SerializePaneTree converts the in-memory pane tree to serializable state.
 func SerializePaneTree(node *PaneTree) *PaneState {
 	if node == nil {
@@ -104,9 +118,28 @@ func BuildStateFromApp(a *App) *TUIState {
 		state.ProjectID = a.kanban.projectID
 	}
 
-	if a.panes != nil && a.panes.Root != nil {
-		state.Panes = SerializePaneTree(a.panes.Root)
-		if chat := a.panes.FocusedChat(); chat != nil && chat.task != nil {
+	// Serialize all open tabs as a flat list of task IDs in pane state
+	// For now, just capture which tasks are open across all tabs
+	if a.tabs != nil {
+		var taskIDs []string
+		for _, tab := range a.tabs.tabs {
+			if tab.TaskID != "" {
+				taskIDs = append(taskIDs, tab.TaskID)
+			}
+		}
+		if len(taskIDs) > 0 {
+			// Build a simple pane tree from the task list
+			root := &PaneState{TaskID: taskIDs[0]}
+			for i := 1; i < len(taskIDs); i++ {
+				root = &PaneState{
+					Dir:   "vertical",
+					Left:  root,
+					Right: &PaneState{TaskID: taskIDs[i]},
+				}
+			}
+			state.Panes = root
+		}
+		if chat := a.focusedChat(); chat != nil && chat.task != nil {
 			state.FocusedTaskID = chat.task.ID
 		}
 	}
