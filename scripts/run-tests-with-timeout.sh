@@ -44,7 +44,7 @@ echo ""
 EXIT_CODE=0
 timeout -s QUIT -k 10 "${TIMEOUT}" go test -json $ARGS 2>&1 \
     | tee "$JSON_OUTPUT_FILE" \
-    | sed -u '
+    | sed -un '
         /^{.*"Action":"output"/{
             s/.*"Output":"//
             s/"}$//
@@ -55,9 +55,9 @@ timeout -s QUIT -k 10 "${TIMEOUT}" go test -json $ARGS 2>&1 \
             s/\\"/"/g
             s/\\\\/\\/g
             p
-            d
+            b
         }
-        /^{.*"Action"/d
+        /^{.*"Action"/b
         p
     ' \
     || EXIT_CODE=$?
