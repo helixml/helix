@@ -55,6 +55,30 @@ Users can connect with:
 var sshPort int
 var sshHost string
 
+var demoCmd = &cobra.Command{
+	Use:   "demo",
+	Short: "Run TUI with mock data (no Helix instance needed)",
+	Long: `Launch the TUI against a built-in mock server with realistic
+fake data. Great for exploring the interface, testing keybindings,
+and demoing without a real Helix deployment.
+
+The mock server simulates:
+  - 2 projects with 7 spec tasks across all kanban columns
+  - Chat history with realistic agent conversations
+  - Fake LLM responses when you send messages`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		fmt.Println("Starting demo mode with mock Helix server...")
+
+		api, cleanup := startDemoServer()
+		defer cleanup()
+
+		m := NewApp(api, "")
+		p := tea.NewProgram(m, tea.WithAltScreen())
+		_, err := p.Run()
+		return err
+	},
+}
+
 var attachCmd = &cobra.Command{
 	Use:     "attach",
 	Short:   "Reattach to previous TUI session",
@@ -95,6 +119,7 @@ func init() {
 	serveCmd.Flags().StringVar(&sshHost, "host", "0.0.0.0", "SSH server listen address")
 
 	rootCmd.AddCommand(attachCmd)
+	rootCmd.AddCommand(demoCmd)
 	rootCmd.AddCommand(serveCmd)
 }
 
