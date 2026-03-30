@@ -280,6 +280,12 @@ func (ds *demoServer) handleSpecTask(w http.ResponseWriter, r *http.Request) {
 func (ds *demoServer) handleSession(w http.ResponseWriter, r *http.Request) {
 	path := strings.TrimPrefix(r.URL.Path, "/api/v1/sessions/")
 
+	// ServeMux routes /sessions/chat here too since /sessions/ is a prefix match
+	if path == "chat" {
+		ds.handleChat(w, r)
+		return
+	}
+
 	if strings.HasSuffix(path, "/interactions") {
 		sessionID := strings.TrimSuffix(path, "/interactions")
 		ds.mu.Lock()

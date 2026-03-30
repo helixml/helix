@@ -293,6 +293,11 @@ func (a *App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return a, cmd
 	}
 
+	// Direct pane navigation (no prefix needed)
+	if m, cmd, handled := a.handleDirectPaneNav(key); handled {
+		return m, cmd
+	}
+
 	// Prefix key handling
 	if a.mode == ModeMain && !a.isOnKanbanTab() {
 		if a.prefixNext {
@@ -441,7 +446,7 @@ func (a *App) handlePrefixedKey(key string) (tea.Model, tea.Cmd) {
 		return a, nil
 	}
 
-	// Directional pane nav
+	// Directional pane nav (from tmux.conf)
 	if a.tmux.PaneLeft != "" && key == a.tmux.PaneLeft {
 		a.cyclePaneFocus(false)
 		return a, nil
@@ -460,6 +465,28 @@ func (a *App) handlePrefixedKey(key string) (tea.Model, tea.Cmd) {
 	}
 
 	return a, nil
+}
+
+// handleDirectPaneNav handles ctrl+left/right for pane switching
+// without requiring the prefix key. Called from handleKey.
+func (a *App) handleDirectPaneNav(key string) (tea.Model, tea.Cmd, bool) {
+	if a.mode != ModeMain || a.isOnKanbanTab() {
+		return a, nil, false
+	}
+	tab := a.tabs.ActiveTab()
+	if tab == nil || tab.Panes == nil || tab.Panes.PaneCount() <= 1 {
+		return a, nil, false
+	}
+
+	switch key {
+	case "ctrl+left":
+		a.cyclePaneFocus(false)
+		return a, nil, true
+	case "ctrl+right":
+		a.cyclePaneFocus(true)
+		return a, nil, true
+	}
+	return a, nil, false
 }
 
 // --- Tab/pane helpers ---

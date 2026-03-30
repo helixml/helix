@@ -200,6 +200,15 @@ func (c *ChatModel) Update(msg tea.Msg) tea.Cmd {
 		case "end", "ctrl+e":
 			c.input.MoveEnd()
 
+		case "ctrl+u":
+			c.input.DeleteToStart()
+
+		case "ctrl+k":
+			c.input.DeleteToEnd()
+
+		case "ctrl+w":
+			c.input.DeleteWord()
+
 		case "esc":
 			if !c.input.IsEmpty() {
 				c.input.Clear()

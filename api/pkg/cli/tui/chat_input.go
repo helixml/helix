@@ -123,6 +123,35 @@ func (m *InputModel) MoveEnd() {
 	m.cursor = len(m.value)
 }
 
+// DeleteToStart deletes from cursor to the start of the line (ctrl+u).
+func (m *InputModel) DeleteToStart() {
+	m.value = m.value[m.cursor:]
+	m.cursor = 0
+}
+
+// DeleteToEnd deletes from cursor to the end of the line (ctrl+k).
+func (m *InputModel) DeleteToEnd() {
+	m.value = m.value[:m.cursor]
+}
+
+// DeleteWord deletes the word before the cursor (ctrl+w).
+func (m *InputModel) DeleteWord() {
+	if m.cursor == 0 {
+		return
+	}
+	// Skip trailing spaces
+	i := m.cursor - 1
+	for i > 0 && m.value[i] == ' ' {
+		i--
+	}
+	// Skip word chars
+	for i > 0 && m.value[i-1] != ' ' {
+		i--
+	}
+	m.value = append(m.value[:i], m.value[m.cursor:]...)
+	m.cursor = i
+}
+
 // HistoryUp navigates to the previous history entry.
 func (m *InputModel) HistoryUp() {
 	if len(m.history) == 0 {
@@ -164,7 +193,11 @@ func (m *InputModel) View() string {
 		width = 80
 	}
 
-	separator := styleDim.Render(strings.Repeat("─", width))
+	sepWidth := width - 2
+	if sepWidth < 10 {
+		sepWidth = 10
+	}
+	separator := styleDim.Render(strings.Repeat("─", sepWidth))
 
 	var inputLine string
 	if m.sending {
