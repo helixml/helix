@@ -2,34 +2,91 @@
 set -eu
 
 # Script to run tests with goroutine dump on timeout and failure summary
-# Usage: ./run-tests-with-timeout.sh [timeout_seconds] [test_args...]
+# Usage: ./run-tests-with-timeout.sh [test_args...]
 #
 # Uses BusyBox/coreutils `timeout` to handle the timeout reliably:
-#   1. SIGQUIT after ${TIMEOUT}s → Go prints goroutine dumps
+#   1. SIGQUIT after timeout → Go prints goroutine dumps
 #   2. SIGKILL 10s later if still alive
-#   3. Exit code 143 on timeout (SIGQUIT), propagated correctly
 
-# Parse arguments - if first arg is a number, use it as timeout, otherwise use default
-if [ -n "${1:-}" ] && echo "$1" | grep -q '^[0-9][0-9]*$'; then
-    TIMEOUT=$1
-    shift
-else
-    TIMEOUT=300  # Default 5 minutes (shorter than Go's 10min timeout)
-fi
+# go test -json sends JSON to stdout and errors (compile failures, panics) to stderr.
+# We capture JSON to a file for the failure summary, and let stderr flow to the console.
+# Then we pretty-print the JSON output.
 
 JSON_OUTPUT_FILE=$(mktemp)
+STDERR_FILE=$(mktemp)
 
-# Cleanup on exit
 cleanup() {
-    rm -f "$JSON_OUTPUT_FILE" "${JSON_OUTPUT_FILE}.exit"
+    rm -f "$JSON_OUTPUT_FILE" "$STDERR_FILE"
 }
 trap cleanup EXIT
 
-echo "Running tests with ${TIMEOUT}s timeout: go test -json $@"
+# Extract timeout from args if present (e.g. -timeout 8m)
+TIMEOUT=480  # default 8 minutes in seconds
+ARGS=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -timeout)
+            shift
+            # Convert Go duration to seconds
+            RAW="$1"
+            case "$RAW" in
+                *m) TIMEOUT=$(echo "${RAW%m} * 60" | bc) ;;
+                *s) TIMEOUT="${RAW%s}" ;;
+                *h) TIMEOUT=$(echo "${RAW%h} * 3600" | bc) ;;
+                *)  TIMEOUT="$RAW" ;;
+            esac
+            ARGS="$ARGS -timeout $RAW"
+            shift
+            ;;
+        *)
+            ARGS="$ARGS $1"
+            shift
+            ;;
+    esac
+done
+
+echo "Running tests with ${TIMEOUT}s timeout: go test -json $ARGS"
 echo ""
 
-# Function to print failure summary from JSON output
-print_failure_summary() {
+# Run tests:
+#   - stdout (JSON) → captured to file
+#   - stderr (compile errors, panics) → displayed immediately
+#   - timeout sends SIGQUIT (goroutine dump) then SIGKILL
+EXIT_CODE=0
+timeout -s QUIT -k 10 "${TIMEOUT}" go test -json $ARGS \
+    > "$JSON_OUTPUT_FILE" \
+    2> "$STDERR_FILE" \
+    || EXIT_CODE=$?
+
+# Show stderr immediately if there was any (compile errors, panics)
+if [ -s "$STDERR_FILE" ]; then
+    cat "$STDERR_FILE" >&2
+fi
+
+# Pretty-print the JSON test output (extract Output field from action=output lines)
+if [ -s "$JSON_OUTPUT_FILE" ]; then
+    sed -n '
+        /"Action":"output"/!d
+        s/.*"Output":"//
+        s/"}$//
+        s/\\n/\
+/g
+        s/\\t/	/g
+        s/\\r//g
+        s/\\"/"/g
+        s/\\\\/\\/g
+        p
+    ' "$JSON_OUTPUT_FILE"
+fi
+
+# Timeout detection
+if [ "$EXIT_CODE" = "131" ] || [ "$EXIT_CODE" = "137" ] || [ "$EXIT_CODE" = "124" ]; then
+    echo ""
+    echo "ERROR: Test suite timed out after ${TIMEOUT} seconds (exit code: ${EXIT_CODE})"
+fi
+
+# Failure summary from JSON
+if [ "$EXIT_CODE" != "0" ]; then
     echo ""
     echo "==========================================="
     echo "            FAILURE SUMMARY"
@@ -50,62 +107,10 @@ print_failure_summary() {
     else
         echo "Test run failed but no specific test failures found in JSON output."
         echo "This may indicate a build error, panic, or timeout."
+        echo "Check STDERR OUTPUT above for details."
     fi
 
     echo "==========================================="
-    echo ""
-}
-
-# Run tests under `timeout`:
-#   --signal=QUIT  → sends SIGQUIT first (Go dumps goroutines)
-#   --kill-after=10 → sends SIGKILL 10s later if still alive
-#
-# Pipeline: go test -json | tee (capture JSON) | filter (human-readable output)
-# We need the exit code from `timeout go test`, not from the filter.
-# So we write the exit code to a file from inside the subshell.
-#
-# The filter passes through non-JSON lines verbatim (compile errors, panics)
-# and extracts the Output field from JSON lines with Action=output.
-EXIT_CODE=0
-(
-    timeout -s QUIT -k 10 "${TIMEOUT}" go test -json "$@" 2>&1 || echo $? > "${JSON_OUTPUT_FILE}.exit"
-) | tee "$JSON_OUTPUT_FILE" | while IFS= read -r line; do
-    if echo "$line" | grep -q '^{.*"Action"'; then
-        # JSON line from go test -json — extract output lines
-        if echo "$line" | grep -q '"Action":"output"'; then
-            echo "$line" | sed '
-                s/.*"Output":"//
-                s/"}$//
-                s/\\n/\
-/g
-                s/\\t/	/g
-                s/\\r//g
-                s/\\"/"/g
-                s/\\\\/\\/g
-            '
-        fi
-    else
-        # Non-JSON line — pass through verbatim (compile errors, panics, etc)
-        echo "$line"
-    fi
-done || true
-
-# Read exit code: timeout writes it, or 0 if tests passed (file won't exist)
-if [ -f "${JSON_OUTPUT_FILE}.exit" ]; then
-    EXIT_CODE=$(cat "${JSON_OUTPUT_FILE}.exit")
-    rm -f "${JSON_OUTPUT_FILE}.exit"
-fi
-
-# timeout returns 124+signal when it kills the process
-# SIGQUIT=3, so timeout returns 131 (128+3) when it sends SIGQUIT
-# After --kill-after SIGKILL, it returns 137 (128+9)
-if [ "$EXIT_CODE" = "131" ] || [ "$EXIT_CODE" = "137" ] || [ "$EXIT_CODE" = "124" ]; then
-    echo ""
-    echo "ERROR: Test suite timed out after ${TIMEOUT} seconds (exit code: ${EXIT_CODE})"
-fi
-
-if [ "$EXIT_CODE" != "0" ]; then
-    print_failure_summary
 fi
 
 exit "$EXIT_CODE"
