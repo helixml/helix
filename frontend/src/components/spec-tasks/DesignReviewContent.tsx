@@ -30,6 +30,7 @@ import {
   useMediaQuery,
   ToggleButtonGroup,
   ToggleButton,
+  GlobalStyles,
 } from "@mui/material";
 import { useTheme } from "@mui/material/styles";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
@@ -38,6 +39,7 @@ import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import Description from "@mui/icons-material/Description";
 import { GitBranch } from "lucide-react";
 import CommentIcon from "@mui/icons-material/Comment";
+import AddCommentIcon from "@mui/icons-material/AddComment";
 import ShareIcon from "@mui/icons-material/Share";
 import CheckIcon from "@mui/icons-material/Check";
 import ReactMarkdown from "react-markdown";
@@ -68,6 +70,8 @@ import ReviewSubmitDialog from "./ReviewSubmitDialog";
 import RejectDesignDialog from "./RejectDesignDialog";
 import { useSpecTask } from "../../services/specTaskService";
 import { TypesSpecTaskStatus } from "../../api/api";
+import { useSandboxState } from "../external-agent/ExternalAgentDesktopViewer";
+import { GET_SESSION_QUERY_KEY } from "../../services/sessionService";
 
 type DocumentType = "requirements" | "technical_design" | "implementation_plan";
 
@@ -138,6 +142,16 @@ export default function DesignReviewContent({
   const markdownRef = useRef<HTMLDivElement>(null);
   const commentRefs = useRef<Map<string, HTMLDivElement>>(new Map());
 
+  // Refs and state for highlight preservation and hover button
+  const savedRangeRef = useRef<Range | null>(null);
+  const highlightMarkRef = useRef<HTMLElement | null>(null);
+  const hoveredElementRef = useRef<Element | null>(null);
+  const [hoverButtonPosition, setHoverButtonPosition] = useState<{
+    x: number;
+    y: number;
+    elementText: string;
+  } | null>(null);
+
   const { data: task } = useSpecTask(specTaskId, {
     enabled: !!specTaskId,
   });
@@ -195,6 +209,15 @@ export default function DesignReviewContent({
     }
   }, [awaitingCommentResponse, hasAwaitingComments, commentsData]);
 
+  // Apply DOM highlight when comment form opens, to preserve the visual selection
+  // (browser clears native selection when the form's TextField auto-focuses)
+  useEffect(() => {
+    if (showCommentForm && savedRangeRef.current) {
+      applyHighlight(savedRangeRef.current);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showCommentForm]);
+
   // Track streaming agent response
   const [streamingResponse, setStreamingResponse] = useState<{
     commentId: string;
@@ -219,6 +242,10 @@ export default function DesignReviewContent({
 
   // Get planning session ID from spec task (more reliable than waiting for queue status)
   const planningSessionId = task?.planning_session_id;
+
+  // Track desktop state so we can auto-resume it when the user sends a comment
+  const { sandboxState } = useSandboxState(planningSessionId || "", !!planningSessionId);
+
   const activeDocComments = useMemo(
     () => allComments.filter((c) => c.document_type === activeTab),
     [allComments, activeTab],
@@ -563,6 +590,7 @@ export default function DesignReviewContent({
           break;
         case "escape":
           if (showCommentForm) {
+            removeHighlight();
             setShowCommentForm(false);
             e.preventDefault();
           } else if (showSubmitDialog) {
@@ -774,6 +802,27 @@ export default function DesignReviewContent({
     return null;
   };
 
+  const applyHighlight = (range: Range) => {
+    try {
+      const mark = document.createElement("mark");
+      mark.className = "comment-highlight";
+      const fragment = range.extractContents();
+      mark.appendChild(fragment);
+      range.insertNode(mark);
+      highlightMarkRef.current = mark;
+    } catch {
+      // Fallback: if DOM manipulation fails, skip highlight silently
+    }
+  };
+
+  const removeHighlight = () => {
+    const mark = highlightMarkRef.current;
+    if (mark && mark.parentNode) {
+      mark.replaceWith(...Array.from(mark.childNodes));
+      highlightMarkRef.current = null;
+    }
+  };
+
   const handleTextSelection = (isTouch: boolean = false) => {
     const processSelection = () => {
       const selection = window.getSelection();
@@ -803,6 +852,7 @@ export default function DesignReviewContent({
           const scrollTop = documentRef.current?.scrollTop || 0;
           const yPosition = rect.top - containerRect.top + scrollTop;
 
+          savedRangeRef.current = range.cloneRange();
           setSelectedText(text);
           setCommentFormPosition({ x: 0, y: yPosition });
           setShowCommentForm(true);
@@ -825,6 +875,17 @@ export default function DesignReviewContent({
       return;
     }
 
+    // Auto-resume the desktop if it's stopped so the agent can respond
+    if (planningSessionId && sandboxState === "absent") {
+      snackbar.info("Starting desktop so the agent can respond...");
+      api.getApiClient().v1SessionsResumeCreate(planningSessionId).then(() => {
+        queryClient.invalidateQueries({ queryKey: GET_SESSION_QUERY_KEY(planningSessionId) });
+      }).catch((err: any) => {
+        console.error("Failed to start desktop:", err);
+        snackbar.error("Could not start the desktop — the agent may not respond");
+      });
+    }
+
     try {
       await createCommentMutation.mutateAsync({
         document_type: activeTab,
@@ -833,6 +894,7 @@ export default function DesignReviewContent({
       });
 
       snackbar.success("Comment added successfully");
+      removeHighlight();
       setCommentText("");
       setSelectedText("");
       setShowCommentForm(false);
@@ -963,6 +1025,7 @@ export default function DesignReviewContent({
 
   return (
     <Box sx={{ display: "flex", flexDirection: "column", height: "100%" }}>
+      <GlobalStyles styles={{ ".comment-highlight": { backgroundColor: "#b3d7ff", color: "#000", borderRadius: "2px" } }} />
       {/* Main Content Area */}
       <Box display="flex" flex={1} overflow="hidden">
         {/* Document Viewer */}
@@ -1167,15 +1230,70 @@ export default function DesignReviewContent({
             flex={1}
             overflow="auto"
             p={2}
+            onMouseLeave={() => {
+              hoveredElementRef.current = null;
+              setHoverButtonPosition(null);
+            }}
             sx={{
               bgcolor: "background.default",
               position: "relative",
             }}
           >
+            {/* Hover button for adding comment without text selection */}
+            {hoverButtonPosition && !showCommentForm && !isNarrowViewport && (
+              <Tooltip title="Add comment" placement="top">
+                <IconButton
+                  size="small"
+                  onClick={() => {
+                    setSelectedText(hoverButtonPosition.elementText);
+                    setCommentFormPosition({ x: 0, y: hoverButtonPosition.y });
+                    setHoverButtonPosition(null);
+                    setShowCommentForm(true);
+                  }}
+                  sx={{
+                    position: "absolute",
+                    top: hoverButtonPosition.y,
+                    left: "calc(50% + 400px + 4px)",
+                    zIndex: 15,
+                    bgcolor: "#1976d2",
+                    color: "#fff",
+                    width: 28,
+                    height: 28,
+                    "&:hover": { bgcolor: "#1565c0" },
+                  }}
+                >
+                  <AddCommentIcon sx={{ fontSize: 14 }} />
+                </IconButton>
+              </Tooltip>
+            )}
+
             {/* Document content */}
             <Box
+              onMouseDown={() => removeHighlight()}
               onMouseUp={() => handleTextSelection(false)}
               onTouchEnd={() => handleTextSelection(true)}
+              onMouseMove={(e) => {
+                if (showCommentForm || isNarrowViewport) return;
+                const target = e.target as Node;
+                const blockTags = new Set(["P", "LI", "H1", "H2", "H3", "H4", "BLOCKQUOTE", "PRE"]);
+                let node: Node | null = target;
+                while (node && node !== markdownRef.current) {
+                  if (node.nodeType === Node.ELEMENT_NODE && blockTags.has((node as Element).tagName)) {
+                    const el = node as Element;
+                    if (el === hoveredElementRef.current) return;
+                    hoveredElementRef.current = el;
+                    const rect = el.getBoundingClientRect();
+                    const containerRect = documentRef.current?.getBoundingClientRect();
+                    if (containerRect) {
+                      const scrollTop = documentRef.current?.scrollTop || 0;
+                      const y = rect.top - containerRect.top + scrollTop;
+                      setHoverButtonPosition({ x: 0, y, elementText: (el as HTMLElement).innerText.trim() });
+                    }
+                    return;
+                  }
+                  node = node.parentNode;
+                }
+              }}
               sx={{
                 maxWidth: "800px",
                 minWidth: "400px",
@@ -1349,6 +1467,7 @@ export default function DesignReviewContent({
                 onCommentChange={setCommentText}
                 onCreate={handleCreateComment}
                 onCancel={() => {
+                  removeHighlight();
                   setShowCommentForm(false);
                   setCommentText("");
                   setSelectedText("");

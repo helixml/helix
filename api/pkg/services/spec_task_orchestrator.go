@@ -690,7 +690,7 @@ func (o *SpecTaskOrchestrator) processExternalPullRequestStatus(ctx context.Cont
 			anyOpen = true
 			allMerged = false
 			allClosed = false
-			log.Debug().
+			log.Trace().
 				Str("task_id", task.ID).
 				Str("repo_id", repoPR.RepositoryID).
 				Str("pr_id", repoPR.PRID).
@@ -1026,7 +1026,7 @@ func (o *SpecTaskOrchestrator) checkTaskForExternalPRActivity(ctx context.Contex
 	// Second: check if branch has been merged to main (handles cases where PR was
 	// squash-merged or branch was deleted after merge)
 	// First try using the branch name
-	log.Info().
+	log.Trace().
 		Str("task_id", task.ID).
 		Str("branch", task.BranchName).
 		Str("target", repo.DefaultBranch).

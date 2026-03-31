@@ -505,6 +505,13 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     isStarting: isDesktopStarting,
   } = useSandboxState(activeSessionId || "");
 
+  // When the task is queued for planning, the backend hasn't created the session yet (or the
+  // planning_session_id still points to a previously-stopped session). In either case, suppress
+  // the "paused/stopped" UI and treat the desktop as starting so the user sees "Starting Desktop"
+  // immediately after clicking "Start Planning" rather than a confusing flash of the stopped state.
+  const isQueuedForPlanning = task?.status === "queued_spec_generation";
+  const effectiveIsDesktopPaused = isDesktopPaused && !isQueuedForPlanning;
+
   // Subscribe to WebSocket updates for the active session when chat is visible
   // On big screens: chat is visible unless collapsed
   // On mobile: chat is visible when currentView === 'chat'
@@ -1857,6 +1864,9 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                     projectId={task.project_id}
                     apiClient={api.getApiClient()}
                     onSend={async (message: string, interrupt?: boolean) => {
+                      if (isDesktopPaused) {
+                        handleStartSession();
+                      }
                       await streaming.NewInference({
                         type: SESSION_TYPE_TEXT,
                         message,
@@ -2075,7 +2085,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                           </Tooltip>
                         )}
                         {/* Show Start button when desktop is paused */}
-                        {isDesktopPaused && (
+                        {effectiveIsDesktopPaused && (
                           <Tooltip title="Start desktop">
                             <IconButton
                               size="small"
@@ -2226,6 +2236,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                       displayHeight={displaySettings.height}
                       displayFps={displaySettings.fps}
                       startupErrorMessage={taskMetadataError}
+                      initialSandboxState={isQueuedForPlanning ? "starting" : undefined}
                     />
                   ))}
                 {currentView === "changes" && (
@@ -2457,7 +2468,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                       </Tooltip>
                     )}
                     {/* Show Start button when desktop is paused */}
-                    {activeSessionId && isDesktopPaused && (
+                    {activeSessionId && effectiveIsDesktopPaused && (
                       <Tooltip title="Start desktop">
                         <IconButton
                           size="small"
@@ -2619,6 +2630,9 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                       projectId={task.project_id}
                       apiClient={api.getApiClient()}
                       onSend={async (message: string, interrupt?: boolean) => {
+                        if (isDesktopPaused) {
+                          handleStartSession();
+                        }
                         await streaming.NewInference({
                           type: SESSION_TYPE_TEXT,
                           message,
@@ -2713,6 +2727,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                     displayHeight={displaySettings.height}
                     displayFps={displaySettings.fps}
                     startupErrorMessage={taskMetadataError}
+                    initialSandboxState={isQueuedForPlanning ? "starting" : undefined}
                   />
                 )}
               </Box>

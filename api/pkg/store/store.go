@@ -239,6 +239,7 @@ type Store interface {
 	ListSessionsBySandbox(ctx context.Context, sandboxID string) ([]*types.Session, error) // For cleanup on sandbox disconnect
 
 	// interactions
+	GetInteractionsSummary(ctx context.Context, sessionID string, generationID int) (count int64, maxUpdated time.Time, err error)
 	ListInteractions(ctx context.Context, query *types.ListInteractionsQuery) ([]*types.Interaction, int64, error)
 	CreateInteraction(ctx context.Context, interaction *types.Interaction) (*types.Interaction, error)
 	CreateInteractions(ctx context.Context, interactions ...*types.Interaction) error
@@ -538,6 +539,7 @@ type Store interface {
 	// git repositories
 	CreateGitRepository(ctx context.Context, repo *types.GitRepository) error
 	GetGitRepository(ctx context.Context, id string) (*types.GitRepository, error)
+	GetGitRepositoryByExternalURL(ctx context.Context, orgID, externalURL string) (*types.GitRepository, error)
 	UpdateGitRepository(ctx context.Context, repo *types.GitRepository) error
 	DeleteGitRepository(ctx context.Context, id string) error
 	ListGitRepositories(ctx context.Context, request *types.ListGitRepositoriesRequest) ([]*types.GitRepository, error)
@@ -687,6 +689,7 @@ type Store interface {
 	ListPinnedPrompts(ctx context.Context, userID, specTaskID string) ([]*types.PromptHistoryEntry, error)
 	IncrementPromptUsage(ctx context.Context, promptID string) error
 	SearchPrompts(ctx context.Context, userID, query string, limit int) ([]*types.PromptHistoryEntry, error)
+	DeletePromptHistoryEntry(ctx context.Context, id string) error
 	UnifiedSearch(ctx context.Context, userID string, req *types.UnifiedSearchRequest) (*types.UnifiedSearchResponse, error)
 
 	// ResourceSearch - fast concurrent search across multiple resource types

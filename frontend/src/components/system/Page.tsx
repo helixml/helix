@@ -1,6 +1,7 @@
 import React, { ReactNode, useState, useEffect, useCallback } from 'react'
 import Box from '@mui/material/Box'
 import Link from '@mui/material/Link'
+import Tooltip from '@mui/material/Tooltip'
 import TextField from '@mui/material/TextField'
 import InputAdornment from '@mui/material/InputAdornment'
 import { SxProps } from '@mui/system'
@@ -21,6 +22,7 @@ import {
 
 const Page: React.FC<{
   topbarContent?: ReactNode,
+  topbarLeftContent?: ReactNode,
   // in case there is no title or topbar content, but we still want to show the topbar
   showTopbar?: boolean,
   // if this is provided then we render a "Home : {title}" text in the topbar
@@ -47,6 +49,7 @@ const Page: React.FC<{
   children?: ReactNode,
 }> = ({
   topbarContent = null,
+  topbarLeftContent = null,
   showTopbar = false,
   breadcrumbTitle,
   breadcrumbShowHome = true,
@@ -124,8 +127,53 @@ const Page: React.FC<{
           // On narrow screens, truncate earlier breadcrumbs more aggressively
           // Last item gets more space, middle items less
           const maxWidth = isLast
-            ? { xs: '120px', sm: '200px', md: 'none' }
+            ? { xs: '120px', sm: '360px', md: 'none' }
             : { xs: '60px', sm: '100px', md: '150px', lg: 'none' }
+          const inner = breadcrumb.routeName ? (
+            <Link
+              component="a"
+              sx={{
+                cursor: 'pointer',
+                color: 'inherit',
+                textDecoration: 'none',
+                transition: 'color 0.2s ease',
+                '&:hover': {
+                  color: lightTheme.textColor,
+                },
+                maxWidth,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+                display: 'block',
+              }}
+              onClick={ () => {
+                // Check if this specific breadcrumb overrides the page's orgBreadcrumbs setting
+                const shouldUseOrgRouter = breadcrumb.useOrgRouter !== undefined
+                  ? breadcrumb.useOrgRouter
+                  : orgBreadcrumbs
+                if(shouldUseOrgRouter) {
+                  account.orgNavigate(breadcrumb.routeName || '', breadcrumb.params || {})
+                } else {
+                  router.navigate(breadcrumb.routeName || '', breadcrumb.params || {})
+                }
+              }}
+            >
+              { breadcrumb.title }
+            </Link>
+          ) : (
+            <Box
+              component="span"
+              sx={{
+                maxWidth,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+                display: 'block',
+              }}
+            >
+              { breadcrumb.title }
+            </Box>
+          )
           return (
             <Box
               component="span"
@@ -141,51 +189,16 @@ const Page: React.FC<{
               }}
             >
               {
-                breadcrumb.routeName ? (
-                  <Link
-                    component="a"
-                    sx={{
-                      cursor: 'pointer',
-                      color: 'inherit',
-                      textDecoration: 'none',
-                      transition: 'color 0.2s ease',
-                      '&:hover': {
-                        color: lightTheme.textColor,
-                      },
-                      maxWidth,
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                      display: 'block',
-                    }}
-                    onClick={ () => {
-                      // Check if this specific breadcrumb overrides the page's orgBreadcrumbs setting
-                      const shouldUseOrgRouter = breadcrumb.useOrgRouter !== undefined
-                        ? breadcrumb.useOrgRouter
-                        : orgBreadcrumbs
-                      if(shouldUseOrgRouter) {
-                        account.orgNavigate(breadcrumb.routeName || '', breadcrumb.params || {})
-                      } else {
-                        router.navigate(breadcrumb.routeName || '', breadcrumb.params || {})
-                      }
-                    }}
+                breadcrumb.tooltip ? (
+                  <Tooltip
+                    title={<span style={{ whiteSpace: 'pre-wrap' }}>{breadcrumb.tooltip}</span>}
+                    placement="bottom-start"
+                    enterDelay={500}
+                    arrow
                   >
-                    { breadcrumb.title }
-                  </Link>
-                ) : (
-                  <Box
-                    component="span"
-                    sx={{
-                      maxWidth,
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                      display: 'block',
-                    }}
-                  >
-                    { breadcrumb.title }
-                  </Box>
-                )
+                    { inner }
+                  </Tooltip>
+                ) : inner
               }
               { index < useBreadcrumbTitles.length - 1 ? (
                 <Box
@@ -225,6 +238,7 @@ const Page: React.FC<{
           >
             <AppBar
               title={ useTopbarTitle }
+              leftContent={ topbarLeftContent }
               px={ px }
               onOpenDrawer={ showDrawerButton ? () => account.setMobileMenuOpen(true) : undefined }
             >

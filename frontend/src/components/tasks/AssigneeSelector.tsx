@@ -21,6 +21,8 @@ interface AssigneeSelectorProps {
   assigneeId?: string
   /** List of organization members to choose from */
   members: TypesOrganizationMembership[]
+  /** The logged-in user's ID — will be sorted to the top of the list */
+  currentUserId?: string
   /** Callback when assignee is changed */
   onAssigneeChange: (userId: string | null) => void
   /** Whether the mutation is in progress */
@@ -39,6 +41,7 @@ interface AssigneeSelectorProps {
 const AssigneeSelector: FC<AssigneeSelectorProps> = ({
   assigneeId,
   members,
+  currentUserId,
   onAssigneeChange,
   isLoading = false,
   anchorEl,
@@ -46,24 +49,26 @@ const AssigneeSelector: FC<AssigneeSelectorProps> = ({
 }) => {
   const [searchQuery, setSearchQuery] = useState('')
 
-  // Filter members based on search query
+  // Filter members based on search query, then sort current user to the top
   const filteredMembers = useMemo(() => {
-    if (!searchQuery.trim()) return members
-    
-    const query = searchQuery.toLowerCase()
-    return members.filter((member) => {
-      const user = member.user as TypesUser | undefined
-      if (!user) return false
-      
-      const name = user.full_name || user.username || ''
-      const email = user.email || ''
-      
-      return (
-        name.toLowerCase().includes(query) ||
-        email.toLowerCase().includes(query)
-      )
+    const query = searchQuery.trim().toLowerCase()
+    const filtered = query
+      ? members.filter((member) => {
+          const user = member.user as TypesUser | undefined
+          if (!user) return false
+          const name = user.full_name || user.username || ''
+          const email = user.email || ''
+          return name.toLowerCase().includes(query) || email.toLowerCase().includes(query)
+        })
+      : members
+
+    if (!currentUserId) return filtered
+    return [...filtered].sort((a, b) => {
+      if (a.user_id === currentUserId) return -1
+      if (b.user_id === currentUserId) return 1
+      return 0
     })
-  }, [members, searchQuery])
+  }, [members, searchQuery, currentUserId])
 
   // Get display name for a user
   const getDisplayName = (user: TypesUser | undefined): string => {

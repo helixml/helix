@@ -1,7 +1,5 @@
-ARG UV_VERSION="0.10.2"
-
-FROM ghcr.io/astral-sh/uv:${UV_VERSION} AS uv
-FROM ghcr.io/astral-sh/uv:${UV_VERSION}-debian-slim AS diffusers-build-env
+FROM ghcr.io/astral-sh/uv:0.10.2@sha256:ebc9854fed97b35f72357d51a85dba91798c2e905dffa9efd1580aa920088aae AS uv
+FROM ghcr.io/astral-sh/uv:0.10.2-debian-slim@sha256:7d4dfe13abd6baff9f45998469aac1f45943994cbbef8dfbb88c543b92342bd8 AS diffusers-build-env
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy
 
 # Need to install certifi to avoid SSL errors during the NLTK download
@@ -29,7 +27,7 @@ RUN --mount=type=cache,id=uv-cache-v2,target=/root/.cache/uv \
 RUN ls -la /usr/share/nltk_data/tokenizers/ || echo "Tokenizers directory not found or empty"
 RUN ls -la /usr/share/nltk_data/taggers/ || echo "Taggers directory not found or empty"
 
-FROM python:3.11-slim
+FROM python:3.11-slim@sha256:16cb75beff0e104520a4bc4e98b08987b6978b82e37b81b87d786504e17579e7
 
 # Install system dependencies for unstructured
 RUN apt-get update && apt-get install -y \
