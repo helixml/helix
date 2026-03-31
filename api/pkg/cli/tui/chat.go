@@ -272,8 +272,28 @@ func (c *ChatModel) sendPrompt(interrupt bool) tea.Cmd {
 	}
 
 	return func() tea.Msg {
-		interruptPtr := &interrupt
+		// If no task ID, this is a new chat — create the spec task first
+		if task.ID == "" {
+			newTask, err := c.api.CreateTaskFromPrompt(apiCtx(), &types.CreateTaskRequest{
+				ProjectID: task.ProjectID,
+				Prompt:    message,
+				Type:      "task",
+				Priority:  types.SpecTaskPriorityMedium,
+			})
+			if err != nil {
+				return errMsg{fmt.Errorf("failed to create task: %w", err)}
+			}
 
+			// Update the chat model with the real task
+			c.task = newTask
+			c.sessionID = newTask.PlanningSessionID
+			c.sessionName = taskDisplayName(newTask)
+			c.appID = newTask.HelixAppID
+
+			return chatResponseMsg{sessionID: newTask.PlanningSessionID, response: ""}
+		}
+
+		interruptPtr := &interrupt
 		syncReq := &types.PromptHistorySyncRequest{
 			ProjectID:  task.ProjectID,
 			SpecTaskID: task.ID,
@@ -291,7 +311,6 @@ func (c *ChatModel) sendPrompt(interrupt bool) tea.Cmd {
 
 		_, err := c.api.SyncPromptHistory(apiCtx(), syncReq)
 		if err != nil {
-			// Prompt is still in local outbox — will retry on next tick
 			return errMsg{fmt.Errorf("queued locally (sync failed: %v)", err)}
 		}
 

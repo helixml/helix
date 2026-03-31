@@ -152,6 +152,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tasksLoadedMsg:
 		a.conn.RecordSuccess()
+		if a.taskPicker != nil {
+			a.taskPicker.Update(msg)
+		}
 		if a.kanban != nil {
 			a.kanban.Update(msg)
 		}
@@ -380,13 +383,10 @@ func (a *App) handlePrefixedKey(key string) (tea.Model, tea.Cmd) {
 	}
 
 	switch key {
-	// Create new tab
+	// Create new tab — opens a blank chat; first message creates the spec task
 	case "c":
 		if projectID != "" {
-			a.taskPicker = NewTaskPickerModel(a.api, projectID, SplitVertical)
-			a.taskPicker.SetSize(a.width, a.contentHeight())
-			// Reuse task picker but treat selection as "open in new tab"
-			return a, a.taskPicker.Init()
+			return a, a.openNewChatTab(projectID)
 		}
 
 	// Split panes
@@ -515,6 +515,28 @@ func (a *App) handleDirectPaneNav(key string) (tea.Model, tea.Cmd, bool) {
 
 func (a *App) isOnKanbanTab() bool {
 	return a.tabs.ActiveIndex() == 0
+}
+
+// openNewChatTab creates a blank chat tab. The first message sent will
+// create a new spec task with that message as the prompt.
+func (a *App) openNewChatTab(projectID string) tea.Cmd {
+	// Create a placeholder task — the real one gets created on first send
+	placeholder := &types.SpecTask{
+		ProjectID: projectID,
+		Name:      "New task",
+	}
+
+	tab := a.tabs.AddTab(placeholder)
+	tab.Name = "new"
+	tab.Panes = NewPaneManager()
+	tab.Panes.SetSize(a.width, a.contentHeight()-1)
+
+	chat := NewChatModel(a.api, placeholder)
+	chat.sessionName = "New task — type your first message"
+	tab.Panes.OpenPane(chat)
+	a.syncPaneFocus()
+
+	return nil
 }
 
 func (a *App) openTaskInTab(task *types.SpecTask) tea.Cmd {
@@ -737,8 +759,8 @@ func (a *App) renderStatusBar() string {
 			help = "h/l: column  j/k: task  enter: open  n: new task  r: refresh  q: quit"
 		} else {
 			p := prefix
-			help = fmt.Sprintf("%s n/p: tabs  %s c: new  %s %s/%s: split  esc: stop/clear",
-				p, p, p, a.tmux.SplitV, a.tmux.SplitH)
+			help = fmt.Sprintf("%s n/p: tabs  %s c: new  %s %s/%s: split  %s %s: close  esc: stop/clear",
+				p, p, p, a.tmux.SplitV, a.tmux.SplitH, p, a.tmux.ClosePane)
 		}
 	}
 
