@@ -19,6 +19,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/rs/zerolog/log"
 	"gocloud.dev/blob"
+	"golang.org/x/sync/singleflight"
 
 	api_skill "github.com/helixml/helix/api/pkg/agent/skill/api_skills"
 	"github.com/helixml/helix/api/pkg/agent/skill/mcp"
@@ -140,7 +141,8 @@ type HelixAPIServer struct {
 	summaryService             *SummaryService
 	goldenBuildService         *services.GoldenBuildService
 	syncEventHook              SyncEventHook // optional test hook, nil in production
-	startTime     time.Time   // when the server started, for grace periods
+	startTime          time.Time              // when the server started, for grace periods
+	modelFetchGroup    singleflight.Group     // deduplicates concurrent getProviderModels calls per cache key
 }
 
 func NewServer(
