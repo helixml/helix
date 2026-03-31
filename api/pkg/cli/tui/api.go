@@ -51,6 +51,15 @@ func (a *APIClient) ListOrganizations(ctx context.Context) ([]*types.Organizatio
 	return orgs, nil
 }
 
+func (a *APIClient) GetProject(ctx context.Context, projectID string) (*types.Project, error) {
+	var project types.Project
+	err := a.client.MakeRequest(ctx, http.MethodGet, "/projects/"+projectID, nil, &project)
+	if err != nil {
+		return nil, err
+	}
+	return &project, nil
+}
+
 func (a *APIClient) ListProjects(ctx context.Context, orgID string) ([]*types.Project, error) {
 	var projects []*types.Project
 	path := "/projects"

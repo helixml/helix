@@ -121,6 +121,14 @@ func (k *KanbanModel) SetProject(p *types.Project) {
 
 func (k *KanbanModel) fetchTasks() tea.Cmd {
 	return func() tea.Msg {
+		// Fetch project details if we don't have them yet
+		if k.project == nil && k.projectID != "" {
+			p, err := k.api.GetProject(apiCtx(), k.projectID)
+			if err == nil {
+				k.project = p
+			}
+		}
+
 		tasks, err := k.api.ListSpecTasks(apiCtx(), k.projectID)
 		if err != nil {
 			return errMsg{err}
