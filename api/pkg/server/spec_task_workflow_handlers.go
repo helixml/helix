@@ -26,7 +26,6 @@ import (
 // @Router /api/v1/spec-tasks/{spec_task_id}/approve-implementation [post]
 // @Security BearerAuth
 func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
 	user := getRequestUser(r)
 	vars := mux.Vars(r)
 	specTaskID := vars["spec_task_id"]
@@ -35,6 +34,10 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 		http.Error(w, "spec_task_id is required", http.StatusBadRequest)
 		return
 	}
+
+	// Detach from request context so DB mutations complete even if client disconnects
+	ctx, cancel := detachContext(r.Context(), 60*time.Second)
+	defer cancel()
 
 	// Get spec task
 	specTask, err := s.Store.GetSpecTask(ctx, specTaskID)
@@ -61,9 +64,42 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	// Verify status - allow approval from implementation or implementation_review
-	if specTask.Status != types.TaskStatusImplementation && specTask.Status != types.TaskStatusImplementationReview {
-		http.Error(w, fmt.Sprintf("Task must be in implementation or implementation_review status, currently: %s", specTask.Status), http.StatusBadRequest)
+	// If the task is stuck in an earlier state (e.g., spec_review after a
+	// failed approval), nudge it forward by approving specs first.
+	// This prevents tasks from getting permanently stuck when a previous
+	// operation was interrupted (context cancelled, DB down, etc.).
+	switch specTask.Status {
+	case types.TaskStatusImplementation, types.TaskStatusImplementationReview:
+		// Expected states — proceed normally
+	case types.TaskStatusSpecReview, types.TaskStatusSpecApproved:
+		// Stuck in spec phase — auto-approve specs to unstick
+		log.Warn().
+			Str("task_id", specTaskID).
+			Str("status", string(specTask.Status)).
+			Msg("Task not in implementation status, auto-approving specs to unstick")
+		now := time.Now()
+		specTask.Status = types.TaskStatusSpecApproved
+		specTask.SpecApprovedBy = user.ID
+		specTask.SpecApprovedAt = &now
+		specTask.StatusUpdatedAt = &now
+		if err := s.Store.UpdateSpecTask(ctx, specTask); err != nil {
+			http.Error(w, fmt.Sprintf("Failed to auto-approve specs: %v", err), http.StatusInternalServerError)
+			return
+		}
+		// Trigger implementation in background
+		s.wg.Add(1)
+		go func() {
+			defer s.wg.Done()
+			if err := s.specDrivenTaskService.ApproveSpecs(context.Background(), specTask); err != nil {
+				log.Error().Err(err).Str("task_id", specTaskID).Msg("Failed to process auto-approval")
+			}
+		}()
+		// Return the updated task — implementation will start asynchronously
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(specTask)
+		return
+	default:
+		http.Error(w, fmt.Sprintf("Task in unexpected status: %s", specTask.Status), http.StatusBadRequest)
 		return
 	}
 
