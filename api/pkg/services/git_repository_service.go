@@ -177,10 +177,11 @@ func (s *GitRepositoryService) Initialize(ctx context.Context) error {
 		log.Info().Str("repos_dir", s.gitRepoBase).Msg("Pre-receive hooks installed/verified on all repos")
 	}
 
-	// Recover incomplete pushes from before a crash.
+	// Recover incomplete pushes from before a crash in the background.
 	// If we crashed between receive-pack and upstream push, the commit is in the
 	// middle repo but not upstream. Push any such commits now to prevent data loss.
-	s.recoverIncompletePushes(ctx)
+	// Runs async so it doesn't block API startup (fetching every branch can take minutes).
+	go s.recoverIncompletePushes(context.Background())
 
 	log.Info().
 		Str("git_repo_base", s.gitRepoBase).

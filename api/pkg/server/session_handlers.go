@@ -89,11 +89,11 @@ func (apiServer *HelixAPIServer) getSession(rw http.ResponseWriter, req *http.Re
 	)
 
 	rw.Header().Set("ETag", etag)
-	// "no-cache" means "cache it, but always revalidate with the server" —
-	// tells the browser to store the response and send If-None-Match on
-	// subsequent XHR requests. Without this, browsers may skip caching for
-	// programmatic requests entirely.
-	rw.Header().Set("Cache-Control", "no-cache")
+	// must-revalidate: cache the response but always revalidate with the server.
+	// private: only the browser cache (not shared proxies like Caddy) may cache it.
+	// must-revalidate is required (not just no-cache) because responses to requests
+	// with Authorization headers are not cacheable otherwise per RFC 7234 §3.2.
+	rw.Header().Set("Cache-Control", "private, no-cache, must-revalidate")
 
 	if match := req.Header.Get("If-None-Match"); match == etag {
 		rw.WriteHeader(http.StatusNotModified)
