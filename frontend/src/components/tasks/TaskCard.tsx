@@ -191,6 +191,7 @@ export interface SpecTaskWithExtras {
   sandbox_status_message?: string; // Transient startup message
   // Task number for display
   task_number?: number;
+  description?: string;
   depends_on?: TaskDependency[];
   // Assignee tracking
   assignee_id?: string;
@@ -781,19 +782,30 @@ function TaskCardInner({
             minWidth: 0,
           }}
         >
-          <Typography
-            variant="body2"
-            sx={{
-              fontWeight: 500,
-              flex: 1,
-              minWidth: 0,
-              lineHeight: 1.4,
-              color: "text.primary",
-              wordBreak: "break-word",
-            }}
+          <Tooltip
+            title={
+              <span style={{ whiteSpace: "pre-wrap" }}>
+                {task.description || task.name}
+              </span>
+            }
+            placement="top"
+            enterDelay={500}
+            arrow
           >
-            {task.name}
-          </Typography>
+            <Typography
+              variant="body2"
+              sx={{
+                fontWeight: 500,
+                flex: 1,
+                minWidth: 0,
+                lineHeight: 1.4,
+                color: "text.primary",
+                wordBreak: "break-word",
+              }}
+            >
+              {task.name}
+            </Typography>
+          </Tooltip>
           <IconButton
             size="small"
             onClick={(e) => {

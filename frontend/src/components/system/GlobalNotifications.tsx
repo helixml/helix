@@ -233,38 +233,51 @@ const AttentionEventItem: React.FC<{
           : eventIcon(event.event_type, accentColor)
         }
       </Box>
-      <Box sx={{ minWidth: 0, flex: 1 }}>
-        <Typography
-          variant="body2"
-          sx={{
-            fontWeight: isAcknowledged ? 400 : 600,
-            color: '#fff',
-            overflow: 'hidden',
-            display: '-webkit-box',
-            WebkitLineClamp: 2,
-            WebkitBoxOrient: 'vertical',
-            fontSize: '0.8rem',
-            lineHeight: 1.4,
-          }}
-        >
-          {event.spec_task_name || event.spec_task_id}
-        </Typography>
-        <Typography
-          variant="caption"
-          sx={{
-            color: 'rgba(255,255,255,0.65)',
-            display: 'block',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
-            fontSize: '0.72rem',
-            lineHeight: 1.3,
-            mt: 0.25,
-          }}
-        >
-          {groupedWith ? 'Spec ready & agent finished' : event.title} · {event.project_name || event.project_id}
-        </Typography>
-      </Box>
+      <Tooltip
+        title={
+          <span style={{ whiteSpace: 'pre-wrap' }}>
+            {event.spec_task_name || event.spec_task_id || ''}
+            {'\n'}
+            {groupedWith ? 'Spec ready & agent finished' : event.title}
+          </span>
+        }
+        placement="left"
+        enterDelay={500}
+        arrow
+      >
+        <Box sx={{ minWidth: 0, flex: 1 }}>
+          <Typography
+            variant="body2"
+            sx={{
+              fontWeight: isAcknowledged ? 400 : 600,
+              color: '#fff',
+              overflow: 'hidden',
+              display: '-webkit-box',
+              WebkitLineClamp: 2,
+              WebkitBoxOrient: 'vertical',
+              fontSize: '0.8rem',
+              lineHeight: 1.4,
+            }}
+          >
+            {event.spec_task_name || event.spec_task_id}
+          </Typography>
+          <Typography
+            variant="caption"
+            sx={{
+              color: 'rgba(255,255,255,0.65)',
+              display: 'block',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+              fontSize: '0.72rem',
+              lineHeight: 1.3,
+              mt: 0.25,
+            }}
+          >
+            {groupedWith ? 'Spec ready & agent finished' : event.title} · {event.project_name || event.project_id}
+          </Typography>
+        </Box>
+      </Tooltip>
       <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.65rem', whiteSpace: 'nowrap', flexShrink: 0 }}>
         {timeAgo(event.created_at)}
       </Typography>

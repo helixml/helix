@@ -1068,6 +1068,7 @@ export interface IDataEntity {
 
 export interface IPageBreadcrumb {
   title: string,
+  tooltip?: string,
   routeName?: string,
   params?: Record<string, any>,
   // Override the page's orgBreadcrumbs setting for this specific breadcrumb
