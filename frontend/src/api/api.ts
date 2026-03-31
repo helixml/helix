@@ -1,6 +1,5 @@
 /* eslint-disable */
 /* tslint:disable */
-// @ts-nocheck
 /*
  * ---------------------------------------------------------------
  * ## THIS FILE WAS GENERATED VIA SWAGGER-TYPESCRIPT-API        ##
@@ -9,530 +8,6 @@
  * ## SOURCE: https://github.com/acacode/swagger-typescript-api ##
  * ---------------------------------------------------------------
  */
-
-export enum TypesTriggerType {
-  TriggerTypeSlack = "slack",
-  TriggerTypeTeams = "teams",
-  TriggerTypeCrisp = "crisp",
-  TriggerTypeAzureDevOps = "azure_devops",
-  TriggerTypeCron = "cron",
-}
-
-export enum TypesTriggerExecutionStatus {
-  TriggerExecutionStatusPending = "pending",
-  TriggerExecutionStatusRunning = "running",
-  TriggerExecutionStatusSuccess = "success",
-  TriggerExecutionStatusError = "error",
-}
-
-export enum TypesToolType {
-  ToolTypeAPI = "api",
-  ToolTypeBrowser = "browser",
-  ToolTypeZapier = "zapier",
-  ToolTypeCalculator = "calculator",
-  ToolTypeEmail = "email",
-  ToolTypeWebSearch = "web_search",
-  ToolTypeAzureDevOps = "azure_devops",
-  ToolTypeMCP = "mcp",
-  ToolTypeProjectManager = "project_manager",
-}
-
-export enum TypesTokenType {
-  TokenTypeNone = "",
-  TokenTypeRunner = "runner",
-  TokenTypeOIDC = "oidc",
-  TokenTypeAPIKey = "api_key",
-  TokenTypeSocket = "socket",
-  /** BFF session for regular (email/password) auth */
-  TokenTypeSession = "session",
-}
-
-export enum TypesTextSplitterType {
-  TextSplitterTypeMarkdown = "markdown",
-  TextSplitterTypeText = "text",
-}
-
-export enum TypesSpecTaskZedStatus {
-  SpecTaskZedStatusPending = "pending",
-  SpecTaskZedStatusActive = "active",
-  SpecTaskZedStatusDisconnected = "disconnected",
-  SpecTaskZedStatusCompleted = "completed",
-  SpecTaskZedStatusFailed = "failed",
-}
-
-export enum TypesSpecTaskWorkSessionStatus {
-  SpecTaskWorkSessionStatusPending = "pending",
-  SpecTaskWorkSessionStatusActive = "active",
-  SpecTaskWorkSessionStatusCompleted = "completed",
-  SpecTaskWorkSessionStatusFailed = "failed",
-  SpecTaskWorkSessionStatusCancelled = "cancelled",
-  SpecTaskWorkSessionStatusBlocked = "blocked",
-}
-
-export enum TypesSpecTaskStatus {
-  /** Initial state, waiting for spec generation */
-  TaskStatusBacklog = "backlog",
-  /** Transitional state, waiting for the orchestrator to pick it up */
-  TaskStatusQueuedImplementation = "queued_implementation",
-  /** Transitional state, waiting for the orchestrator to pick it up */
-  TaskStatusQueuedSpecGeneration = "queued_spec_generation",
-  /** Helix agent generating specs */
-  TaskStatusSpecGeneration = "spec_generation",
-  /** Human reviewing generated specs */
-  TaskStatusSpecReview = "spec_review",
-  /** Human requested spec changes */
-  TaskStatusSpecRevision = "spec_revision",
-  /** Specs approved, ready for implementation */
-  TaskStatusSpecApproved = "spec_approved",
-  /** Waiting for Zed agent pickup */
-  TaskStatusImplementationQueued = "implementation_queued",
-  /** Zed agent coding */
-  TaskStatusImplementation = "implementation",
-  /** Code review (PR created) */
-  TaskStatusImplementationReview = "implementation_review",
-  /** External repo: PR opened, awaiting merge */
-  TaskStatusPullRequest = "pull_request",
-  /** Task completed */
-  TaskStatusDone = "done",
-  /** Spec generation failed */
-  TaskStatusSpecFailed = "spec_failed",
-  /** Implementation failed */
-  TaskStatusImplementationFailed = "implementation_failed",
-}
-
-export enum TypesSpecTaskPriority {
-  SpecTaskPriorityLow = "low",
-  SpecTaskPriorityMedium = "medium",
-  SpecTaskPriorityHigh = "high",
-  SpecTaskPriorityCritical = "critical",
-}
-
-export enum TypesSpecTaskPhase {
-  SpecTaskPhasePlanning = "planning",
-  SpecTaskPhaseImplementation = "implementation",
-  SpecTaskPhaseValidation = "validation",
-}
-
-export enum TypesSpecTaskDesignReviewStatus {
-  /** Waiting for reviewer */
-  SpecTaskDesignReviewStatusPending = "pending",
-  /** Reviewer is actively reviewing */
-  SpecTaskDesignReviewStatusInReview = "in_review",
-  /** Reviewer requested changes */
-  SpecTaskDesignReviewStatusChangesRequested = "changes_requested",
-  /** Approved, ready for implementation */
-  SpecTaskDesignReviewStatusApproved = "approved",
-  /** Newer review exists (agent pushed updates) */
-  SpecTaskDesignReviewStatusSuperseded = "superseded",
-}
-
-export enum TypesSpecTaskDesignReviewCommentType {
-  /** General comment */
-  SpecTaskDesignReviewCommentTypeGeneral = "general",
-  /** Question needing clarification */
-  SpecTaskDesignReviewCommentTypeQuestion = "question",
-  /** Suggested improvement */
-  SpecTaskDesignReviewCommentTypeSuggestion = "suggestion",
-  /** Critical issue must be fixed */
-  SpecTaskDesignReviewCommentTypeCritical = "critical",
-  /** Positive feedback */
-  SpecTaskDesignReviewCommentTypePraise = "praise",
-}
-
-export enum TypesSessionType {
-  SessionTypeNone = "",
-  SessionTypeText = "text",
-  SessionTypeImage = "image",
-}
-
-export enum TypesSessionMode {
-  SessionModeNone = "",
-  SessionModeInference = "inference",
-  SessionModeFinetune = "finetune",
-  /** Running tool actions (e.g. API, function calls) */
-  SessionModeAction = "action",
-}
-
-export enum TypesServiceConnectionType {
-  ServiceConnectionTypeGitHubApp = "github_app",
-  ServiceConnectionTypeADOServicePrincipal = "ado_service_principal",
-}
-
-export enum TypesSchedulingDecisionType {
-  /** Added to queue */
-  SchedulingDecisionTypeQueued = "queued",
-  /** Reused existing warm model instance */
-  SchedulingDecisionTypeReuseWarmSlot = "reuse_warm_slot",
-  /** Started new model instance */
-  SchedulingDecisionTypeCreateNewSlot = "create_new_slot",
-  /** Evicted stale slot to free memory */
-  SchedulingDecisionTypeEvictStaleSlot = "evict_stale_slot",
-  /** Rejected (insufficient resources, etc.) */
-  SchedulingDecisionTypeRejected = "rejected",
-  /** Error during scheduling */
-  SchedulingDecisionTypeError = "error",
-  /** Cannot be scheduled (no warm slots available) */
-  SchedulingDecisionTypeUnschedulable = "unschedulable",
-}
-
-export enum TypesResponseFormatType {
-  ResponseFormatTypeJSONObject = "json_object",
-  ResponseFormatTypeText = "text",
-}
-
-export enum TypesResource {
-  ResourceTeam = "Team",
-  ResourceOrganization = "Organization",
-  ResourceRole = "Role",
-  ResourceMembership = "Membership",
-  ResourceMembershipRoleBinding = "MembershipRoleBinding",
-  ResourceApplication = "Application",
-  ResourceAccessGrants = "AccessGrants",
-  ResourceKnowledge = "Knowledge",
-  ResourceUser = "User",
-  ResourceAny = "*",
-  ResourceTypeDataset = "Dataset",
-  ResourceProject = "Project",
-  ResourceGitRepository = "GitRepository",
-  ResourceSpecTask = "SpecTask",
-  ResourceSession = "Session",
-  ResourcePrompt = "Prompt",
-  ResourceDesktop = "Desktop",
-}
-
-export enum TypesQuestionSetExecutionStatus {
-  QuestionSetExecutionStatusPending = "pending",
-  QuestionSetExecutionStatusRunning = "running",
-  QuestionSetExecutionStatusSuccess = "success",
-  QuestionSetExecutionStatusError = "error",
-}
-
-export enum TypesPullRequestState {
-  PullRequestStateOpen = "open",
-  PullRequestStateClosed = "closed",
-  PullRequestStateMerged = "merged",
-  PullRequestStateUnknown = "unknown",
-}
-
-export enum TypesProviderEndpointType {
-  ProviderEndpointTypeGlobal = "global",
-  ProviderEndpointTypeUser = "user",
-  ProviderEndpointTypeOrg = "org",
-  ProviderEndpointTypeTeam = "team",
-}
-
-export enum TypesProviderEndpointStatus {
-  ProviderEndpointStatusOK = "ok",
-  ProviderEndpointStatusError = "error",
-  ProviderEndpointStatusLoading = "loading",
-  ProviderEndpointStatusDisabled = "disabled",
-}
-
-export enum TypesProvider {
-  ProviderOpenAI = "openai",
-  ProviderTogetherAI = "togetherai",
-  ProviderAnthropic = "anthropic",
-  ProviderHelix = "helix",
-  ProviderVLLM = "vllm",
-}
-
-export enum TypesOwnerType {
-  OwnerTypeUser = "user",
-  OwnerTypeRunner = "runner",
-  OwnerTypeSystem = "system",
-  OwnerTypeSocket = "socket",
-  OwnerTypeOrg = "org",
-}
-
-export enum TypesOrganizationRole {
-  /** Has full administrative access to the entire organization. */
-  OrganizationRoleOwner = "owner",
-  /** Can see every member and team in the organization and can create new apps */
-  OrganizationRoleMember = "member",
-}
-
-export enum TypesOAuthProviderType {
-  OAuthProviderTypeUnknown = "",
-  OAuthProviderTypeAtlassian = "atlassian",
-  OAuthProviderTypeGoogle = "google",
-  OAuthProviderTypeMicrosoft = "microsoft",
-  OAuthProviderTypeGitHub = "github",
-  OAuthProviderTypeGitLab = "gitlab",
-  OAuthProviderTypeAzureDevOps = "azure_devops",
-  OAuthProviderTypeSlack = "slack",
-  OAuthProviderTypeLinkedIn = "linkedin",
-  OAuthProviderTypeHubSpot = "hubspot",
-  OAuthProviderTypeCustom = "custom",
-}
-
-export enum TypesModelType {
-  ModelTypeChat = "chat",
-  ModelTypeImage = "image",
-  ModelTypeEmbed = "embed",
-}
-
-export enum TypesModality {
-  ModalityText = "text",
-  ModalityImage = "image",
-  ModalityFile = "file",
-}
-
-export enum TypesMessageContentType {
-  MessageContentTypeText = "text",
-}
-
-export enum TypesLLMCallStep {
-  LLMCallStepDefault = "default",
-  LLMCallStepIsActionable = "is_actionable",
-  LLMCallStepPrepareAPIRequest = "prepare_api_request",
-  LLMCallStepInterpretResponse = "interpret_response",
-  LLMCallStepGenerateTitle = "generate_title",
-  LLMCallStepSummarizeConversation = "summarize_conversation",
-}
-
-export enum TypesKnowledgeState {
-  KnowledgeStatePreparing = "preparing",
-  KnowledgeStatePending = "pending",
-  KnowledgeStateIndexing = "indexing",
-  KnowledgeStateReady = "ready",
-  KnowledgeStateError = "error",
-}
-
-export enum TypesInteractionState {
-  InteractionStateNone = "",
-  InteractionStateWaiting = "waiting",
-  InteractionStateEditing = "editing",
-  InteractionStateComplete = "complete",
-  InteractionStateError = "error",
-}
-
-export enum TypesImageURLDetail {
-  ImageURLDetailHigh = "high",
-  ImageURLDetailLow = "low",
-  ImageURLDetailAuto = "auto",
-}
-
-export enum TypesGitRepositoryType {
-  /** Internal project config repository */
-  GitRepositoryTypeInternal = "internal",
-  /** Code repository (user projects, samples, external repos) */
-  GitRepositoryTypeCode = "code",
-}
-
-export enum TypesGitRepositoryStatus {
-  GitRepositoryStatusActive = "active",
-  /** Clone in progress */
-  GitRepositoryStatusCloning = "cloning",
-  /** Clone or sync failed */
-  GitRepositoryStatusError = "error",
-  GitRepositoryStatusArchived = "archived",
-  GitRepositoryStatusDeleted = "deleted",
-}
-
-export enum TypesFeedback {
-  FeedbackLike = "like",
-  FeedbackDislike = "dislike",
-}
-
-export enum TypesExternalRepositoryType {
-  ExternalRepositoryTypeGitHub = "github",
-  ExternalRepositoryTypeGitLab = "gitlab",
-  ExternalRepositoryTypeADO = "ado",
-  ExternalRepositoryTypeBitbucket = "bitbucket",
-}
-
-export enum TypesEffect {
-  EffectAllow = "allow",
-  EffectDeny = "deny",
-}
-
-export enum TypesCodeAgentRuntime {
-  CodeAgentRuntimeZedAgent = "zed_agent",
-  CodeAgentRuntimeQwenCode = "qwen_code",
-  CodeAgentRuntimeClaudeCode = "claude_code",
-  CodeAgentRuntimeGeminiCLI = "gemini_cli",
-  CodeAgentRuntimeCodexCLI = "codex_cli",
-}
-
-export enum TypesCodeAgentCredentialType {
-  CodeAgentCredentialTypeAPIKey = "api_key",
-  CodeAgentCredentialTypeSubscription = "subscription",
-}
-
-export enum TypesChatMessagePartType {
-  ChatMessagePartTypeText = "text",
-  ChatMessagePartTypeImageURL = "image_url",
-}
-
-export enum TypesBranchMode {
-  /** Create new branch from base */
-  BranchModeNew = "new",
-  /** Continue work on existing branch */
-  BranchModeExisting = "existing",
-}
-
-export enum TypesAuthProvider {
-  /** Embedded in Helix, no external dependencies */
-  AuthProviderRegular = "regular",
-  AuthProviderOIDC = "oidc",
-}
-
-export enum TypesAuditEventType {
-  AuditEventTaskCreated = "task_created",
-  /** Task cloned from another task */
-  AuditEventTaskCloned = "task_cloned",
-  AuditEventTaskApproved = "task_approved",
-  AuditEventTaskCompleted = "task_completed",
-  AuditEventTaskArchived = "task_archived",
-  AuditEventTaskUnarchived = "task_unarchived",
-  /** Prompt sent from Helix UI to agent */
-  AuditEventAgentPrompt = "agent_prompt",
-  /** Message sent by user inside agent (via WebSocket) */
-  AuditEventUserMessage = "user_message",
-  /** Agent session started */
-  AuditEventAgentStarted = "agent_started",
-  /** Spec was generated */
-  AuditEventSpecGenerated = "spec_generated",
-  /** Spec was modified */
-  AuditEventSpecUpdated = "spec_updated",
-  /** Comment added to design review */
-  AuditEventReviewComment = "review_comment",
-  /** Reply to a comment */
-  AuditEventReviewCommentReply = "review_comment_reply",
-  /** Pull request created */
-  AuditEventPRCreated = "pr_created",
-  /** Pull request merged */
-  AuditEventPRMerged = "pr_merged",
-  /** Git push detected */
-  AuditEventGitPush = "git_push",
-  /** Project was created */
-  AuditEventProjectCreated = "project_created",
-  /** Project was deleted */
-  AuditEventProjectDeleted = "project_deleted",
-  /** Project settings were modified */
-  AuditEventProjectSettingsUpdated = "project_settings_updated",
-  /** Project guidelines were modified */
-  AuditEventProjectGuidelinesUpdated = "project_guidelines_updated",
-}
-
-export enum TypesAttentionEventType {
-  AttentionEventSpecsPushed = "specs_pushed",
-  AttentionEventAgentInteractionCompleted = "agent_interaction_completed",
-  AttentionEventSpecFailed = "spec_failed",
-  AttentionEventImplementationFailed = "implementation_failed",
-  AttentionEventPRReady = "pr_ready",
-}
-
-export enum TypesAgentWorkState {
-  /** Agent connected but not actively working */
-  AgentWorkStateIdle = "idle",
-  /** Agent actively processing a prompt */
-  AgentWorkStateWorking = "working",
-  /** Agent finished its assigned task */
-  AgentWorkStateDone = "done",
-}
-
-export enum TypesAgentType {
-  /** Basic Helix agent */
-  AgentTypeHelixBasic = "helix_basic",
-  /** Standard Helix agent with skills */
-  AgentTypeHelixAgent = "helix_agent",
-  /** Zed-integrated agent */
-  AgentTypeZedExternal = "zed_external",
-}
-
-export enum TypesAction {
-  ActionGet = "Get",
-  ActionList = "List",
-  ActionDelete = "Delete",
-  ActionUpdate = "Update",
-  ActionCreate = "Create",
-  /** For example "use app" */
-  ActionUseAction = "UseAction",
-}
-
-export enum TypesAPIKeyType {
-  APIkeytypeNone = "",
-  APIkeytypeAPI = "api",
-  APIkeytypeApp = "app",
-}
-
-export enum StripeSubscriptionStatus {
-  SubscriptionStatusActive = "active",
-  SubscriptionStatusCanceled = "canceled",
-  SubscriptionStatusIncomplete = "incomplete",
-  SubscriptionStatusIncompleteExpired = "incomplete_expired",
-  SubscriptionStatusPastDue = "past_due",
-  SubscriptionStatusPaused = "paused",
-  SubscriptionStatusTrialing = "trialing",
-  SubscriptionStatusUnpaid = "unpaid",
-}
-
-export enum OpenaiToolType {
-  ToolTypeFunction = "function",
-}
-
-export enum OpenaiServiceTier {
-  ServiceTierAuto = "auto",
-  ServiceTierDefault = "default",
-  ServiceTierFlex = "flex",
-  ServiceTierPriority = "priority",
-}
-
-export enum OpenaiImageURLDetail {
-  ImageURLDetailHigh = "high",
-  ImageURLDetailLow = "low",
-  ImageURLDetailAuto = "auto",
-}
-
-export enum OpenaiFinishReason {
-  FinishReasonStop = "stop",
-  FinishReasonLength = "length",
-  FinishReasonFunctionCall = "function_call",
-  FinishReasonToolCalls = "tool_calls",
-  FinishReasonContentFilter = "content_filter",
-  FinishReasonNull = "null",
-}
-
-export enum OpenaiChatMessagePartType {
-  ChatMessagePartTypeText = "text",
-  ChatMessagePartTypeImageURL = "image_url",
-}
-
-export enum OpenaiChatCompletionResponseFormatType {
-  ChatCompletionResponseFormatTypeJSONObject = "json_object",
-  ChatCompletionResponseFormatTypeJSONSchema = "json_schema",
-  ChatCompletionResponseFormatTypeText = "text",
-}
-
-export enum McpTaskSupport {
-  TaskSupportForbidden = "forbidden",
-  TaskSupportOptional = "optional",
-  TaskSupportRequired = "required",
-}
-
-export enum HydraDevContainerType {
-  /** Sway compositor with Zed */
-  DevContainerTypeSway = "sway",
-  /** GNOME with Zed */
-  DevContainerTypeUbuntu = "ubuntu",
-  /** No GUI, just agent (future) */
-  DevContainerTypeHeadless = "headless",
-}
-
-export enum HydraDevContainerStatus {
-  DevContainerStatusStarting = "starting",
-  DevContainerStatusRunning = "running",
-  DevContainerStatusStopped = "stopped",
-  DevContainerStatusError = "error",
-}
-
-export enum GithubComHelixmlHelixApiPkgTypesRuntime {
-  RuntimeOllama = "ollama",
-  RuntimeDiffusers = "diffusers",
-  RuntimeAxolotl = "axolotl",
-  RuntimeVLLM = "vllm",
-}
 
 export interface ControllerMemoryEstimationResponse {
   cached?: boolean;
@@ -594,6 +69,13 @@ export interface GithubComHelixmlHelixApiPkgTypesConfig {
   rules?: TypesRule[];
 }
 
+export enum GithubComHelixmlHelixApiPkgTypesRuntime {
+  RuntimeOllama = "ollama",
+  RuntimeDiffusers = "diffusers",
+  RuntimeAxolotl = "axolotl",
+  RuntimeVLLM = "vllm",
+}
+
 export interface GormDeletedAt {
   time?: string;
   /** Valid is true if Time is not NULL */
@@ -604,6 +86,19 @@ export interface HydraContainerBlkioStats {
   read_bytes?: number;
   session_id?: string;
   write_bytes?: number;
+}
+
+export enum HydraDevContainerStatus {
+  DevContainerStatusStarting = "starting",
+  DevContainerStatusRunning = "running",
+  DevContainerStatusStopped = "stopped",
+  DevContainerStatusError = "error",
+}
+
+export enum HydraDevContainerType {
+  DevContainerTypeSway = "sway",
+  DevContainerTypeUbuntu = "ubuntu",
+  DevContainerTypeHeadless = "headless",
 }
 
 export interface HydraGPUInfo {
@@ -643,6 +138,12 @@ export interface McpMeta {
    * notifications.
    */
   progressToken?: any;
+}
+
+export enum McpTaskSupport {
+  TaskSupportForbidden = "forbidden",
+  TaskSupportOptional = "optional",
+  TaskSupportRequired = "required",
 }
 
 export interface McpTool {
@@ -947,6 +448,12 @@ export interface OpenaiChatCompletionResponseFormatJSONSchema {
   strict?: boolean;
 }
 
+export enum OpenaiChatCompletionResponseFormatType {
+  ChatCompletionResponseFormatTypeJSONObject = "json_object",
+  ChatCompletionResponseFormatTypeJSONSchema = "json_schema",
+  ChatCompletionResponseFormatTypeText = "text",
+}
+
 export interface OpenaiChatMessageImageURL {
   detail?: OpenaiImageURLDetail;
   url?: string;
@@ -956,6 +463,11 @@ export interface OpenaiChatMessagePart {
   image_url?: OpenaiChatMessageImageURL;
   text?: string;
   type?: OpenaiChatMessagePartType;
+}
+
+export enum OpenaiChatMessagePartType {
+  ChatMessagePartTypeText = "text",
+  ChatMessagePartTypeImageURL = "image_url",
 }
 
 export interface OpenaiCompletionTokensDetails {
@@ -972,6 +484,15 @@ export interface OpenaiContentFilterResults {
   self_harm?: OpenaiSelfHarm;
   sexual?: OpenaiSexual;
   violence?: OpenaiViolence;
+}
+
+export enum OpenaiFinishReason {
+  FinishReasonStop = "stop",
+  FinishReasonLength = "length",
+  FinishReasonFunctionCall = "function_call",
+  FinishReasonToolCalls = "tool_calls",
+  FinishReasonContentFilter = "content_filter",
+  FinishReasonNull = "null",
 }
 
 export interface OpenaiFunctionCall {
@@ -997,6 +518,12 @@ export interface OpenaiFunctionDefinition {
 export interface OpenaiHate {
   filtered?: boolean;
   severity?: string;
+}
+
+export enum OpenaiImageURLDetail {
+  ImageURLDetailHigh = "high",
+  ImageURLDetailLow = "low",
+  ImageURLDetailAuto = "auto",
 }
 
 export interface OpenaiJailBreak {
@@ -1046,6 +573,13 @@ export interface OpenaiSelfHarm {
   severity?: string;
 }
 
+export enum OpenaiServiceTier {
+  ServiceTierAuto = "auto",
+  ServiceTierDefault = "default",
+  ServiceTierFlex = "flex",
+  ServiceTierPriority = "priority",
+}
+
 export interface OpenaiSexual {
   filtered?: boolean;
   severity?: string;
@@ -1072,6 +606,10 @@ export interface OpenaiToolCall {
   /** Index is not nil only in chat completion chunk object */
   index?: number;
   type?: OpenaiToolType;
+}
+
+export enum OpenaiToolType {
+  ToolTypeFunction = "function",
 }
 
 export interface OpenaiTopLogProbs {
@@ -1894,6 +1432,17 @@ export interface SqlNullString {
   valid?: boolean;
 }
 
+export enum StripeSubscriptionStatus {
+  SubscriptionStatusActive = "active",
+  SubscriptionStatusCanceled = "canceled",
+  SubscriptionStatusIncomplete = "incomplete",
+  SubscriptionStatusIncompleteExpired = "incomplete_expired",
+  SubscriptionStatusPastDue = "past_due",
+  SubscriptionStatusPaused = "paused",
+  SubscriptionStatusTrialing = "trialing",
+  SubscriptionStatusUnpaid = "unpaid",
+}
+
 export interface SystemHTTPError {
   message?: string;
   statusCode?: number;
@@ -1904,6 +1453,12 @@ export interface TypesAPIError {
   message?: string;
   param?: string;
   type?: string;
+}
+
+export enum TypesAPIKeyType {
+  APIkeytypeNone = "",
+  APIkeytypeAPI = "api",
+  APIkeytypeApp = "app",
 }
 
 export interface TypesAccessGrant {
@@ -1925,6 +1480,15 @@ export interface TypesAccessGrant {
 
 export interface TypesAccountUpdateRequest {
   full_name?: string;
+}
+
+export enum TypesAction {
+  ActionGet = "Get",
+  ActionList = "List",
+  ActionDelete = "Delete",
+  ActionUpdate = "Update",
+  ActionCreate = "Create",
+  ActionUseAction = "UseAction",
 }
 
 export interface TypesAddOrganizationMemberRequest {
@@ -1952,6 +1516,18 @@ export interface TypesAdminResetPasswordRequest {
 export interface TypesAffectedProjectInfo {
   id?: string;
   name?: string;
+}
+
+export enum TypesAgentType {
+  AgentTypeHelixBasic = "helix_basic",
+  AgentTypeHelixAgent = "helix_agent",
+  AgentTypeZedExternal = "zed_external",
+}
+
+export enum TypesAgentWorkState {
+  AgentWorkStateIdle = "idle",
+  AgentWorkStateWorking = "working",
+  AgentWorkStateDone = "done",
 }
 
 export interface TypesAggregatedUsageMetric {
@@ -2312,10 +1888,41 @@ export interface TypesAttentionEvent {
   user_id?: string;
 }
 
+export enum TypesAttentionEventType {
+  AttentionEventSpecsPushed = "specs_pushed",
+  AttentionEventAgentInteractionCompleted = "agent_interaction_completed",
+  AttentionEventSpecFailed = "spec_failed",
+  AttentionEventImplementationFailed = "implementation_failed",
+  AttentionEventPRReady = "pr_ready",
+}
+
 export interface TypesAttentionEventUpdateRequest {
   acknowledge?: boolean;
   dismiss?: boolean;
   snoozed_until?: string;
+}
+
+export enum TypesAuditEventType {
+  AuditEventTaskCreated = "task_created",
+  AuditEventTaskCloned = "task_cloned",
+  AuditEventTaskApproved = "task_approved",
+  AuditEventTaskCompleted = "task_completed",
+  AuditEventTaskArchived = "task_archived",
+  AuditEventTaskUnarchived = "task_unarchived",
+  AuditEventAgentPrompt = "agent_prompt",
+  AuditEventUserMessage = "user_message",
+  AuditEventAgentStarted = "agent_started",
+  AuditEventSpecGenerated = "spec_generated",
+  AuditEventSpecUpdated = "spec_updated",
+  AuditEventReviewComment = "review_comment",
+  AuditEventReviewCommentReply = "review_comment_reply",
+  AuditEventPRCreated = "pr_created",
+  AuditEventPRMerged = "pr_merged",
+  AuditEventGitPush = "git_push",
+  AuditEventProjectCreated = "project_created",
+  AuditEventProjectDeleted = "project_deleted",
+  AuditEventProjectSettingsUpdated = "project_settings_updated",
+  AuditEventProjectGuidelinesUpdated = "project_guidelines_updated",
 }
 
 export interface TypesAuditMetadata {
@@ -2353,6 +1960,11 @@ export interface TypesAuditMetadata {
   technical_design_hash?: string;
 }
 
+export enum TypesAuthProvider {
+  AuthProviderRegular = "regular",
+  AuthProviderOIDC = "oidc",
+}
+
 export interface TypesAuthenticatedResponse {
   authenticated?: boolean;
 }
@@ -2388,6 +2000,11 @@ export interface TypesBoardSettings {
   wip_limits?: TypesWIPLimits;
 }
 
+export enum TypesBranchMode {
+  BranchModeNew = "new",
+  BranchModeExisting = "existing",
+}
+
 export interface TypesBrowseRemoteRepositoriesRequest {
   /** Base URL for self-hosted instances (for GitHub Enterprise, GitLab Enterprise, or Bitbucket Server) */
   base_url?: string;
@@ -2421,6 +2038,11 @@ export interface TypesChatMessagePart {
   image_url?: TypesChatMessageImageURL;
   text?: string;
   type?: TypesChatMessagePartType;
+}
+
+export enum TypesChatMessagePartType {
+  ChatMessagePartTypeText = "text",
+  ChatMessagePartTypeImageURL = "image_url",
 }
 
 export interface TypesCheckSampleProjectAccessRequest {
@@ -2616,6 +2238,19 @@ export interface TypesCodeAgentConfig {
   provider?: string;
   /** Runtime specifies which code agent runtime to use: "zed_agent" or "qwen_code" */
   runtime?: TypesCodeAgentRuntime;
+}
+
+export enum TypesCodeAgentCredentialType {
+  CodeAgentCredentialTypeAPIKey = "api_key",
+  CodeAgentCredentialTypeSubscription = "subscription",
+}
+
+export enum TypesCodeAgentRuntime {
+  CodeAgentRuntimeZedAgent = "zed_agent",
+  CodeAgentRuntimeQwenCode = "qwen_code",
+  CodeAgentRuntimeClaudeCode = "claude_code",
+  CodeAgentRuntimeGeminiCLI = "gemini_cli",
+  CodeAgentRuntimeCodexCLI = "codex_cli",
 }
 
 export interface TypesCommentQueueStatusResponse {
@@ -2853,6 +2488,11 @@ export interface TypesDynamicModelInfo {
   updated?: string;
 }
 
+export enum TypesEffect {
+  EffectAllow = "allow",
+  EffectDeny = "deny",
+}
+
 export interface TypesExecuteQuestionSetRequest {
   app_id?: string;
   question_set_id?: string;
@@ -2879,9 +2519,21 @@ export interface TypesExternalAgentConfig {
   zoom_level?: number;
 }
 
+export enum TypesExternalRepositoryType {
+  ExternalRepositoryTypeGitHub = "github",
+  ExternalRepositoryTypeGitLab = "gitlab",
+  ExternalRepositoryTypeADO = "ado",
+  ExternalRepositoryTypeBitbucket = "bitbucket",
+}
+
 export interface TypesExternalStatus {
   commits_ahead?: number;
   commits_behind?: number;
+}
+
+export enum TypesFeedback {
+  FeedbackLike = "like",
+  FeedbackDislike = "dislike",
 }
 
 export interface TypesFeedbackRequest {
@@ -3222,9 +2874,22 @@ export interface TypesGitRepositoryFileResponse {
   path?: string;
 }
 
+export enum TypesGitRepositoryStatus {
+  GitRepositoryStatusActive = "active",
+  GitRepositoryStatusCloning = "cloning",
+  GitRepositoryStatusError = "error",
+  GitRepositoryStatusArchived = "archived",
+  GitRepositoryStatusDeleted = "deleted",
+}
+
 export interface TypesGitRepositoryTreeResponse {
   entries?: TypesTreeEntry[];
   path?: string;
+}
+
+export enum TypesGitRepositoryType {
+  GitRepositoryTypeInternal = "internal",
+  GitRepositoryTypeCode = "code",
 }
 
 export interface TypesGitRepositoryUpdateRequest {
@@ -3294,6 +2959,12 @@ export interface TypesGuidelinesHistory {
   /** Set for user-level (personal workspace) guidelines */
   user_id?: string;
   version?: number;
+}
+
+export enum TypesImageURLDetail {
+  ImageURLDetailHigh = "high",
+  ImageURLDetailLow = "low",
+  ImageURLDetailAuto = "auto",
 }
 
 export interface TypesInteraction {
@@ -3373,6 +3044,14 @@ export interface TypesInteraction {
   updated?: string;
   usage?: TypesUsage;
   user_id?: string;
+}
+
+export enum TypesInteractionState {
+  InteractionStateNone = "",
+  InteractionStateWaiting = "waiting",
+  InteractionStateEditing = "editing",
+  InteractionStateComplete = "complete",
+  InteractionStateError = "error",
 }
 
 export interface TypesItem {
@@ -3506,6 +3185,14 @@ export interface TypesKnowledgeSourceWebAuth {
   username?: string;
 }
 
+export enum TypesKnowledgeState {
+  KnowledgeStatePreparing = "preparing",
+  KnowledgeStatePending = "pending",
+  KnowledgeStateIndexing = "indexing",
+  KnowledgeStateReady = "ready",
+  KnowledgeStateError = "error",
+}
+
 export interface TypesKnowledgeVersion {
   crawled_sources?: TypesCrawledSources;
   created?: string;
@@ -3549,6 +3236,15 @@ export interface TypesLLMCall {
   total_tokens?: number;
   updated?: string;
   user_id?: string;
+}
+
+export enum TypesLLMCallStep {
+  LLMCallStepDefault = "default",
+  LLMCallStepIsActionable = "is_actionable",
+  LLMCallStepPrepareAPIRequest = "prepare_api_request",
+  LLMCallStepInterpretResponse = "interpret_response",
+  LLMCallStepGenerateTitle = "generate_title",
+  LLMCallStepSummarizeConversation = "summarize_conversation",
 }
 
 export interface TypesListCommitsResponse {
@@ -3611,6 +3307,16 @@ export interface TypesMessageContent {
   parts?: any[];
 }
 
+export enum TypesMessageContentType {
+  MessageContentTypeText = "text",
+}
+
+export enum TypesModality {
+  ModalityText = "text",
+  ModalityImage = "image",
+  ModalityFile = "file",
+}
+
 export interface TypesModel {
   allocated_gpu_count?: number;
   /** EXPORTED ALLOCATION FIELDS: Set by NewModelForGPUAllocation based on scheduler's GPU allocation decision */
@@ -3661,6 +3367,12 @@ export interface TypesModelInfo {
   slug?: string;
   supported_parameters?: string[];
   supports_reasoning?: boolean;
+}
+
+export enum TypesModelType {
+  ModelTypeChat = "chat",
+  ModelTypeImage = "image",
+  ModelTypeEmbed = "embed",
 }
 
 export interface TypesMoveProjectPreviewItem {
@@ -3742,6 +3454,20 @@ export interface TypesOAuthProvider {
   type?: TypesOAuthProviderType;
   updated_at?: string;
   user_info_url?: string;
+}
+
+export enum TypesOAuthProviderType {
+  OAuthProviderTypeUnknown = "",
+  OAuthProviderTypeAtlassian = "atlassian",
+  OAuthProviderTypeGoogle = "google",
+  OAuthProviderTypeMicrosoft = "microsoft",
+  OAuthProviderTypeGitHub = "github",
+  OAuthProviderTypeGitLab = "gitlab",
+  OAuthProviderTypeAzureDevOps = "azure_devops",
+  OAuthProviderTypeSlack = "slack",
+  OAuthProviderTypeLinkedIn = "linkedin",
+  OAuthProviderTypeHubSpot = "hubspot",
+  OAuthProviderTypeCustom = "custom",
 }
 
 export interface TypesOAuthUserInfo {
@@ -3870,6 +3596,19 @@ export interface TypesOrganizationMembership {
   user?: TypesUser;
   /** composite key */
   user_id?: string;
+}
+
+export enum TypesOrganizationRole {
+  OrganizationRoleOwner = "owner",
+  OrganizationRoleMember = "member",
+}
+
+export enum TypesOwnerType {
+  OwnerTypeUser = "user",
+  OwnerTypeRunner = "runner",
+  OwnerTypeSystem = "system",
+  OwnerTypeSocket = "socket",
+  OwnerTypeOrg = "org",
 }
 
 export interface TypesPaginatedInteractions {
@@ -4258,6 +3997,14 @@ export interface TypesPromptHistorySyncResponse {
   synced?: number;
 }
 
+export enum TypesProvider {
+  ProviderOpenAI = "openai",
+  ProviderTogetherAI = "togetherai",
+  ProviderAnthropic = "anthropic",
+  ProviderHelix = "helix",
+  ProviderVLLM = "vllm",
+}
+
 export interface TypesProviderEndpoint {
   api_key?: string;
   /** Must be mounted to the container */
@@ -4292,6 +4039,20 @@ export interface TypesProviderEndpoint {
   vertex_region?: string;
 }
 
+export enum TypesProviderEndpointStatus {
+  ProviderEndpointStatusOK = "ok",
+  ProviderEndpointStatusError = "error",
+  ProviderEndpointStatusLoading = "loading",
+  ProviderEndpointStatusDisabled = "disabled",
+}
+
+export enum TypesProviderEndpointType {
+  ProviderEndpointTypeGlobal = "global",
+  ProviderEndpointTypeUser = "user",
+  ProviderEndpointTypeOrg = "org",
+  ProviderEndpointTypeTeam = "team",
+}
+
 export interface TypesPullRequest {
   author?: string;
   created_at?: string;
@@ -4304,6 +4065,13 @@ export interface TypesPullRequest {
   title?: string;
   updated_at?: string;
   url?: string;
+}
+
+export enum TypesPullRequestState {
+  PullRequestStateOpen = "open",
+  PullRequestStateClosed = "closed",
+  PullRequestStateMerged = "merged",
+  PullRequestStateUnknown = "unknown",
 }
 
 export interface TypesPullResponse {
@@ -4365,6 +4133,13 @@ export interface TypesQuestionSetExecution {
   results?: TypesQuestionResponse[];
   status?: TypesQuestionSetExecutionStatus;
   updated?: string;
+}
+
+export enum TypesQuestionSetExecutionStatus {
+  QuestionSetExecutionStatusPending = "pending",
+  QuestionSetExecutionStatusRunning = "running",
+  QuestionSetExecutionStatusSuccess = "success",
+  QuestionSetExecutionStatusError = "error",
 }
 
 export interface TypesQuotaResponse {
@@ -4457,6 +4232,26 @@ export interface TypesRepositoryInfo {
   private?: boolean;
 }
 
+export enum TypesResource {
+  ResourceTeam = "Team",
+  ResourceOrganization = "Organization",
+  ResourceRole = "Role",
+  ResourceMembership = "Membership",
+  ResourceMembershipRoleBinding = "MembershipRoleBinding",
+  ResourceApplication = "Application",
+  ResourceAccessGrants = "AccessGrants",
+  ResourceKnowledge = "Knowledge",
+  ResourceUser = "User",
+  ResourceAny = "*",
+  ResourceTypeDataset = "Dataset",
+  ResourceProject = "Project",
+  ResourceGitRepository = "GitRepository",
+  ResourceSpecTask = "SpecTask",
+  ResourceSession = "Session",
+  ResourcePrompt = "Prompt",
+  ResourceDesktop = "Desktop",
+}
+
 export interface TypesResourceSearchRequest {
   limit?: number;
   organization_id?: string;
@@ -4482,6 +4277,11 @@ export interface TypesResourceSearchResult {
 export interface TypesResponseFormat {
   schema?: OpenaiChatCompletionResponseFormatJSONSchema;
   type?: TypesResponseFormatType;
+}
+
+export enum TypesResponseFormatType {
+  ResponseFormatTypeJSONObject = "json_object",
+  ResponseFormatTypeText = "text",
 }
 
 export interface TypesRole {
@@ -4647,6 +4447,16 @@ export interface TypesSchedulingDecision {
   workload_id?: string;
 }
 
+export enum TypesSchedulingDecisionType {
+  SchedulingDecisionTypeQueued = "queued",
+  SchedulingDecisionTypeReuseWarmSlot = "reuse_warm_slot",
+  SchedulingDecisionTypeCreateNewSlot = "create_new_slot",
+  SchedulingDecisionTypeEvictStaleSlot = "evict_stale_slot",
+  SchedulingDecisionTypeRejected = "rejected",
+  SchedulingDecisionTypeError = "error",
+  SchedulingDecisionTypeUnschedulable = "unschedulable",
+}
+
 export interface TypesSchedulingEvent {
   description?: string;
   /** "slot_created", "slot_deleted", "eviction", "stabilization_start", "stabilization_end" */
@@ -4749,6 +4559,11 @@ export interface TypesServiceConnectionResponse {
   provider_type?: TypesExternalRepositoryType;
   type?: TypesServiceConnectionType;
   updated_at?: string;
+}
+
+export enum TypesServiceConnectionType {
+  ServiceConnectionTypeGitHubApp = "github_app",
+  ServiceConnectionTypeADOServicePrincipal = "ado_service_principal",
 }
 
 export interface TypesServiceConnectionUpdateRequest {
@@ -4972,6 +4787,13 @@ export interface TypesSessionMetadata {
   zed_thread_id?: string;
 }
 
+export enum TypesSessionMode {
+  SessionModeNone = "",
+  SessionModeInference = "inference",
+  SessionModeFinetune = "finetune",
+  SessionModeAction = "action",
+}
+
 export interface TypesSessionRAGResult {
   content?: string;
   content_offset?: number;
@@ -5005,6 +4827,12 @@ export interface TypesSessionSummary {
   summary?: string;
   type?: TypesSessionType;
   updated?: string;
+}
+
+export enum TypesSessionType {
+  SessionTypeNone = "",
+  SessionTypeText = "text",
+  SessionTypeImage = "image",
 }
 
 export interface TypesSkillDefinition {
@@ -5305,6 +5133,14 @@ export interface TypesSpecTaskDesignReviewCommentListResponse {
   total?: number;
 }
 
+export enum TypesSpecTaskDesignReviewCommentType {
+  SpecTaskDesignReviewCommentTypeGeneral = "general",
+  SpecTaskDesignReviewCommentTypeQuestion = "question",
+  SpecTaskDesignReviewCommentTypeSuggestion = "suggestion",
+  SpecTaskDesignReviewCommentTypeCritical = "critical",
+  SpecTaskDesignReviewCommentTypePraise = "praise",
+}
+
 export interface TypesSpecTaskDesignReviewDetailResponse {
   comments?: TypesSpecTaskDesignReviewComment[];
   review?: TypesSpecTaskDesignReview;
@@ -5316,11 +5152,49 @@ export interface TypesSpecTaskDesignReviewListResponse {
   total?: number;
 }
 
+export enum TypesSpecTaskDesignReviewStatus {
+  SpecTaskDesignReviewStatusPending = "pending",
+  SpecTaskDesignReviewStatusInReview = "in_review",
+  SpecTaskDesignReviewStatusChangesRequested = "changes_requested",
+  SpecTaskDesignReviewStatusApproved = "approved",
+  SpecTaskDesignReviewStatusSuperseded = "superseded",
+}
+
 export interface TypesSpecTaskDesignReviewSubmitRequest {
   /** "approve" or "request_changes" */
   decision: "approve" | "request_changes";
   overall_comment?: string;
   review_id: string;
+}
+
+export enum TypesSpecTaskPhase {
+  SpecTaskPhasePlanning = "planning",
+  SpecTaskPhaseImplementation = "implementation",
+  SpecTaskPhaseValidation = "validation",
+}
+
+export enum TypesSpecTaskPriority {
+  SpecTaskPriorityLow = "low",
+  SpecTaskPriorityMedium = "medium",
+  SpecTaskPriorityHigh = "high",
+  SpecTaskPriorityCritical = "critical",
+}
+
+export enum TypesSpecTaskStatus {
+  TaskStatusBacklog = "backlog",
+  TaskStatusQueuedImplementation = "queued_implementation",
+  TaskStatusQueuedSpecGeneration = "queued_spec_generation",
+  TaskStatusSpecGeneration = "spec_generation",
+  TaskStatusSpecReview = "spec_review",
+  TaskStatusSpecRevision = "spec_revision",
+  TaskStatusSpecApproved = "spec_approved",
+  TaskStatusImplementationQueued = "implementation_queued",
+  TaskStatusImplementation = "implementation",
+  TaskStatusImplementationReview = "implementation_review",
+  TaskStatusPullRequest = "pull_request",
+  TaskStatusDone = "done",
+  TaskStatusSpecFailed = "spec_failed",
+  TaskStatusImplementationFailed = "implementation_failed",
 }
 
 export interface TypesSpecTaskUpdateRequest {
@@ -5493,6 +5367,23 @@ export interface TypesSpecTaskWorkSession {
   updated_at?: string;
 }
 
+export enum TypesSpecTaskWorkSessionStatus {
+  SpecTaskWorkSessionStatusPending = "pending",
+  SpecTaskWorkSessionStatusActive = "active",
+  SpecTaskWorkSessionStatusCompleted = "completed",
+  SpecTaskWorkSessionStatusFailed = "failed",
+  SpecTaskWorkSessionStatusCancelled = "cancelled",
+  SpecTaskWorkSessionStatusBlocked = "blocked",
+}
+
+export enum TypesSpecTaskZedStatus {
+  SpecTaskZedStatusPending = "pending",
+  SpecTaskZedStatusActive = "active",
+  SpecTaskZedStatusDisconnected = "disconnected",
+  SpecTaskZedStatusCompleted = "completed",
+  SpecTaskZedStatusFailed = "failed",
+}
+
 export interface TypesSpecTaskZedThread {
   created_at?: string;
   id?: string;
@@ -5658,6 +5549,11 @@ export interface TypesTestStep {
   prompt?: string;
 }
 
+export enum TypesTextSplitterType {
+  TextSplitterTypeMarkdown = "markdown",
+  TextSplitterTypeText = "text",
+}
+
 export interface TypesTitleHistoryEntry {
   /** When the title was changed */
   changed_at?: string;
@@ -5667,6 +5563,15 @@ export interface TypesTitleHistoryEntry {
   title?: string;
   /** Turn number that triggered the change (1-indexed) */
   turn?: number;
+}
+
+export enum TypesTokenType {
+  TokenTypeNone = "",
+  TokenTypeRunner = "runner",
+  TokenTypeOIDC = "oidc",
+  TokenTypeAPIKey = "api_key",
+  TokenTypeSocket = "socket",
+  TokenTypeSession = "session",
 }
 
 export interface TypesTool {
@@ -5783,6 +5688,18 @@ export interface TypesToolProjectManagerConfig {
   project_id?: string;
 }
 
+export enum TypesToolType {
+  ToolTypeAPI = "api",
+  ToolTypeBrowser = "browser",
+  ToolTypeZapier = "zapier",
+  ToolTypeCalculator = "calculator",
+  ToolTypeEmail = "email",
+  ToolTypeWebSearch = "web_search",
+  ToolTypeAzureDevOps = "azure_devops",
+  ToolTypeMCP = "mcp",
+  ToolTypeProjectManager = "project_manager",
+}
+
 export interface TypesToolWebSearchConfig {
   enabled?: boolean;
   max_results?: number;
@@ -5853,10 +5770,25 @@ export interface TypesTriggerExecution {
   updated?: string;
 }
 
+export enum TypesTriggerExecutionStatus {
+  TriggerExecutionStatusPending = "pending",
+  TriggerExecutionStatusRunning = "running",
+  TriggerExecutionStatusSuccess = "success",
+  TriggerExecutionStatusError = "error",
+}
+
 export interface TypesTriggerStatus {
   message?: string;
   ok?: boolean;
   type?: TypesTriggerType;
+}
+
+export enum TypesTriggerType {
+  TriggerTypeSlack = "slack",
+  TriggerTypeTeams = "teams",
+  TriggerTypeCrisp = "crisp",
+  TriggerTypeAzureDevOps = "azure_devops",
+  TriggerTypeCron = "cron",
 }
 
 export interface TypesUnifiedSearchResponse {
@@ -6123,10 +6055,12 @@ export interface TypesZedInstanceStatus {
   zed_instance_id?: string;
 }
 
-export type QueryParamsType = Record<string | number, any>;
-export type ResponseFormat = keyof Omit<Body, "body" | "bodyUsed">;
+import type { AxiosInstance, AxiosRequestConfig, AxiosResponse, HeadersDefaults, ResponseType } from "axios";
+import axios from "axios";
 
-export interface FullRequestParams extends Omit<RequestInit, "body"> {
+export type QueryParamsType = Record<string | number, any>;
+
+export interface FullRequestParams extends Omit<AxiosRequestConfig, "data" | "params" | "url" | "responseType"> {
   /** set parameter to `true` for call `securityWorker` for this request */
   secure?: boolean;
   /** request path */
@@ -6136,244 +6070,121 @@ export interface FullRequestParams extends Omit<RequestInit, "body"> {
   /** query params */
   query?: QueryParamsType;
   /** format of response (i.e. response.json() -> format: "json") */
-  format?: ResponseFormat;
+  format?: ResponseType;
   /** request body */
   body?: unknown;
-  /** base url */
-  baseUrl?: string;
-  /** request cancellation token */
-  cancelToken?: CancelToken;
 }
 
-export type RequestParams = Omit<
-  FullRequestParams,
-  "body" | "method" | "query" | "path"
->;
+export type RequestParams = Omit<FullRequestParams, "body" | "method" | "query" | "path">;
 
-export interface ApiConfig<SecurityDataType = unknown> {
-  baseUrl?: string;
-  baseApiParams?: Omit<RequestParams, "baseUrl" | "cancelToken" | "signal">;
+export interface ApiConfig<SecurityDataType = unknown> extends Omit<AxiosRequestConfig, "data" | "cancelToken"> {
   securityWorker?: (
     securityData: SecurityDataType | null,
-  ) => Promise<RequestParams | void> | RequestParams | void;
-  customFetch?: typeof fetch;
+  ) => Promise<AxiosRequestConfig | void> | AxiosRequestConfig | void;
+  secure?: boolean;
+  format?: ResponseType;
 }
-
-export interface HttpResponse<D extends unknown, E extends unknown = unknown>
-  extends Response {
-  data: D;
-  error: E;
-}
-
-type CancelToken = Symbol | string | number;
 
 export enum ContentType {
   Json = "application/json",
-  JsonApi = "application/vnd.api+json",
   FormData = "multipart/form-data",
   UrlEncoded = "application/x-www-form-urlencoded",
   Text = "text/plain",
 }
 
 export class HttpClient<SecurityDataType = unknown> {
-  public baseUrl: string = "https://app.helix.ml";
+  public instance: AxiosInstance;
   private securityData: SecurityDataType | null = null;
   private securityWorker?: ApiConfig<SecurityDataType>["securityWorker"];
-  private abortControllers = new Map<CancelToken, AbortController>();
-  private customFetch = (...fetchParams: Parameters<typeof fetch>) =>
-    fetch(...fetchParams);
+  private secure?: boolean;
+  private format?: ResponseType;
 
-  private baseApiParams: RequestParams = {
-    credentials: "same-origin",
-    headers: {},
-    redirect: "follow",
-    referrerPolicy: "no-referrer",
-  };
-
-  constructor(apiConfig: ApiConfig<SecurityDataType> = {}) {
-    Object.assign(this, apiConfig);
+  constructor({ securityWorker, secure, format, ...axiosConfig }: ApiConfig<SecurityDataType> = {}) {
+    this.instance = axios.create({ ...axiosConfig, baseURL: axiosConfig.baseURL || "https://app.helix.ml" });
+    this.secure = secure;
+    this.format = format;
+    this.securityWorker = securityWorker;
   }
 
   public setSecurityData = (data: SecurityDataType | null) => {
     this.securityData = data;
   };
 
-  protected encodeQueryParam(key: string, value: any) {
-    const encodedKey = encodeURIComponent(key);
-    return `${encodedKey}=${encodeURIComponent(typeof value === "number" ? value : `${value}`)}`;
-  }
+  protected mergeRequestParams(params1: AxiosRequestConfig, params2?: AxiosRequestConfig): AxiosRequestConfig {
+    const method = params1.method || (params2 && params2.method);
 
-  protected addQueryParam(query: QueryParamsType, key: string) {
-    return this.encodeQueryParam(key, query[key]);
-  }
-
-  protected addArrayQueryParam(query: QueryParamsType, key: string) {
-    const value = query[key];
-    return value.map((v: any) => this.encodeQueryParam(key, v)).join("&");
-  }
-
-  protected toQueryString(rawQuery?: QueryParamsType): string {
-    const query = rawQuery || {};
-    const keys = Object.keys(query).filter(
-      (key) => "undefined" !== typeof query[key],
-    );
-    return keys
-      .map((key) =>
-        Array.isArray(query[key])
-          ? this.addArrayQueryParam(query, key)
-          : this.addQueryParam(query, key),
-      )
-      .join("&");
-  }
-
-  protected addQueryParams(rawQuery?: QueryParamsType): string {
-    const queryString = this.toQueryString(rawQuery);
-    return queryString ? `?${queryString}` : "";
-  }
-
-  private contentFormatters: Record<ContentType, (input: any) => any> = {
-    [ContentType.Json]: (input: any) =>
-      input !== null && (typeof input === "object" || typeof input === "string")
-        ? JSON.stringify(input)
-        : input,
-    [ContentType.JsonApi]: (input: any) =>
-      input !== null && (typeof input === "object" || typeof input === "string")
-        ? JSON.stringify(input)
-        : input,
-    [ContentType.Text]: (input: any) =>
-      input !== null && typeof input !== "string"
-        ? JSON.stringify(input)
-        : input,
-    [ContentType.FormData]: (input: any) => {
-      if (input instanceof FormData) {
-        return input;
-      }
-
-      return Object.keys(input || {}).reduce((formData, key) => {
-        const property = input[key];
-        formData.append(
-          key,
-          property instanceof Blob
-            ? property
-            : typeof property === "object" && property !== null
-              ? JSON.stringify(property)
-              : `${property}`,
-        );
-        return formData;
-      }, new FormData());
-    },
-    [ContentType.UrlEncoded]: (input: any) => this.toQueryString(input),
-  };
-
-  protected mergeRequestParams(
-    params1: RequestParams,
-    params2?: RequestParams,
-  ): RequestParams {
     return {
-      ...this.baseApiParams,
+      ...this.instance.defaults,
       ...params1,
       ...(params2 || {}),
       headers: {
-        ...(this.baseApiParams.headers || {}),
+        ...((method && this.instance.defaults.headers[method.toLowerCase() as keyof HeadersDefaults]) || {}),
         ...(params1.headers || {}),
         ...((params2 && params2.headers) || {}),
       },
     };
   }
 
-  protected createAbortSignal = (
-    cancelToken: CancelToken,
-  ): AbortSignal | undefined => {
-    if (this.abortControllers.has(cancelToken)) {
-      const abortController = this.abortControllers.get(cancelToken);
-      if (abortController) {
-        return abortController.signal;
+  protected stringifyFormItem(formItem: unknown) {
+    if (typeof formItem === "object" && formItem !== null) {
+      return JSON.stringify(formItem);
+    } else {
+      return `${formItem}`;
+    }
+  }
+
+  protected createFormData(input: Record<string, unknown>): FormData {
+    if (input instanceof FormData) {
+      return input;
+    }
+    return Object.keys(input || {}).reduce((formData, key) => {
+      const property = input[key];
+      const propertyContent: any[] = property instanceof Array ? property : [property];
+
+      for (const formItem of propertyContent) {
+        const isFileType = formItem instanceof Blob || formItem instanceof File;
+        formData.append(key, isFileType ? formItem : this.stringifyFormItem(formItem));
       }
-      return void 0;
-    }
 
-    const abortController = new AbortController();
-    this.abortControllers.set(cancelToken, abortController);
-    return abortController.signal;
-  };
+      return formData;
+    }, new FormData());
+  }
 
-  public abortRequest = (cancelToken: CancelToken) => {
-    const abortController = this.abortControllers.get(cancelToken);
-
-    if (abortController) {
-      abortController.abort();
-      this.abortControllers.delete(cancelToken);
-    }
-  };
-
-  public request = async <T = any, E = any>({
-    body,
+  public request = async <T = any, _E = any>({
     secure,
     path,
     type,
     query,
     format,
-    baseUrl,
-    cancelToken,
+    body,
     ...params
-  }: FullRequestParams): Promise<HttpResponse<T, E>> => {
+  }: FullRequestParams): Promise<AxiosResponse<T>> => {
     const secureParams =
-      ((typeof secure === "boolean" ? secure : this.baseApiParams.secure) &&
+      ((typeof secure === "boolean" ? secure : this.secure) &&
         this.securityWorker &&
         (await this.securityWorker(this.securityData))) ||
       {};
     const requestParams = this.mergeRequestParams(params, secureParams);
-    const queryString = query && this.toQueryString(query);
-    const payloadFormatter = this.contentFormatters[type || ContentType.Json];
-    const responseFormat = format || requestParams.format;
+    const responseFormat = format || this.format || undefined;
 
-    return this.customFetch(
-      `${baseUrl || this.baseUrl || ""}${path}${queryString ? `?${queryString}` : ""}`,
-      {
-        ...requestParams,
-        headers: {
-          ...(requestParams.headers || {}),
-          ...(type && type !== ContentType.FormData
-            ? { "Content-Type": type }
-            : {}),
-        },
-        signal:
-          (cancelToken
-            ? this.createAbortSignal(cancelToken)
-            : requestParams.signal) || null,
-        body:
-          typeof body === "undefined" || body === null
-            ? null
-            : payloadFormatter(body),
+    if (type === ContentType.FormData && body && body !== null && typeof body === "object") {
+      body = this.createFormData(body as Record<string, unknown>);
+    }
+
+    if (type === ContentType.Text && body && body !== null && typeof body !== "string") {
+      body = JSON.stringify(body);
+    }
+
+    return this.instance.request({
+      ...requestParams,
+      headers: {
+        ...(requestParams.headers || {}),
+        ...(type ? { "Content-Type": type } : {}),
       },
-    ).then(async (response) => {
-      const r = response as HttpResponse<T, E>;
-      r.data = null as unknown as T;
-      r.error = null as unknown as E;
-
-      const responseToParse = responseFormat ? response.clone() : response;
-      const data = !responseFormat
-        ? r
-        : await responseToParse[responseFormat]()
-            .then((data) => {
-              if (r.ok) {
-                r.data = data;
-              } else {
-                r.error = data;
-              }
-              return r;
-            })
-            .catch((e) => {
-              r.error = e;
-              return r;
-            });
-
-      if (cancelToken) {
-        this.abortControllers.delete(cancelToken);
-      }
-
-      if (!response.ok) throw data;
-      return data;
+      params: query,
+      responseType: responseFormat,
+      data: body,
+      url: path,
     });
   };
 }
@@ -6386,9 +6197,7 @@ export class HttpClient<SecurityDataType = unknown> {
  *
  * This is the HelixML API.
  */
-export class Api<
-  SecurityDataType extends unknown,
-> extends HttpClient<SecurityDataType> {
+export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDataType> {
   api = {
     /**
      * @description Retrieves debug data for agent sandboxes (Hydra-based) including GPU stats, dev containers, and connected clients
@@ -6531,6 +6340,96 @@ export class Api<
       }),
 
     /**
+     * @description Queue a Kodit repository for deletion. Admin only.
+     *
+     * @tags admin
+     * @name V1AdminKoditRepositoriesDelete
+     * @summary Delete Kodit repository (admin)
+     * @request DELETE:/api/v1/admin/kodit/repositories/{koditRepoId}
+     * @secure
+     */
+    v1AdminKoditRepositoriesDelete: (koditRepoId: number, params: RequestParams = {}) =>
+      this.request<Record<string, string>, TypesAPIError>({
+        path: `/api/v1/admin/kodit/repositories/${koditRepoId}`,
+        method: "DELETE",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Get detailed information about a Kodit repository including summary stats. Admin only.
+     *
+     * @tags admin
+     * @name V1AdminKoditRepositoriesDetail
+     * @summary Get Kodit repository detail (admin)
+     * @request GET:/api/v1/admin/kodit/repositories/{koditRepoId}
+     * @secure
+     */
+    v1AdminKoditRepositoriesDetail: (koditRepoId: number, params: RequestParams = {}) =>
+      this.request<ServerKoditAdminRepoDetailResponse, TypesAPIError>({
+        path: `/api/v1/admin/kodit/repositories/${koditRepoId}`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Trigger a rescan of the HEAD commit for a Kodit repository. Admin only.
+     *
+     * @tags admin
+     * @name V1AdminKoditRepositoriesRescanCreate
+     * @summary Rescan Kodit repository HEAD (admin)
+     * @request POST:/api/v1/admin/kodit/repositories/{koditRepoId}/rescan
+     * @secure
+     */
+    v1AdminKoditRepositoriesRescanCreate: (koditRepoId: number, params: RequestParams = {}) =>
+      this.request<Record<string, string>, TypesAPIError>({
+        path: `/api/v1/admin/kodit/repositories/${koditRepoId}/rescan`,
+        method: "POST",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Trigger a full sync (git fetch + branch scan + re-index) for a Kodit repository. Admin only.
+     *
+     * @tags admin
+     * @name V1AdminKoditRepositoriesSyncCreate
+     * @summary Sync Kodit repository (admin)
+     * @request POST:/api/v1/admin/kodit/repositories/{koditRepoId}/sync
+     * @secure
+     */
+    v1AdminKoditRepositoriesSyncCreate: (koditRepoId: number, params: RequestParams = {}) =>
+      this.request<Record<string, string>, TypesAPIError>({
+        path: `/api/v1/admin/kodit/repositories/${koditRepoId}/sync`,
+        method: "POST",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Returns tracking statuses and pending queue tasks for a Kodit repository. Admin only.
+     *
+     * @tags admin
+     * @name V1AdminKoditRepositoriesTasksDetail
+     * @summary Get Kodit repository tasks (admin)
+     * @request GET:/api/v1/admin/kodit/repositories/{koditRepoId}/tasks
+     * @secure
+     */
+    v1AdminKoditRepositoriesTasksDetail: (koditRepoId: number, params: RequestParams = {}) =>
+      this.request<ServerKoditAdminRepositoryTasksResponse, TypesAPIError>({
+        path: `/api/v1/admin/kodit/repositories/${koditRepoId}/tasks`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Queue multiple Kodit repositories for deletion. Admin only.
      *
      * @tags admin
@@ -6539,10 +6438,7 @@ export class Api<
      * @request POST:/api/v1/admin/kodit/repositories/batch/delete
      * @secure
      */
-    v1AdminKoditRepositoriesBatchDeleteCreate: (
-      body: ServerKoditAdminBatchRequest,
-      params: RequestParams = {},
-    ) =>
+    v1AdminKoditRepositoriesBatchDeleteCreate: (body: ServerKoditAdminBatchRequest, params: RequestParams = {}) =>
       this.request<ServerKoditAdminBatchResponse, TypesAPIError>({
         path: `/api/v1/admin/kodit/repositories/batch/delete`,
         method: "POST",
@@ -6562,121 +6458,13 @@ export class Api<
      * @request POST:/api/v1/admin/kodit/repositories/batch/rescan
      * @secure
      */
-    v1AdminKoditRepositoriesBatchRescanCreate: (
-      body: ServerKoditAdminBatchRequest,
-      params: RequestParams = {},
-    ) =>
+    v1AdminKoditRepositoriesBatchRescanCreate: (body: ServerKoditAdminBatchRequest, params: RequestParams = {}) =>
       this.request<ServerKoditAdminBatchResponse, TypesAPIError>({
         path: `/api/v1/admin/kodit/repositories/batch/rescan`,
         method: "POST",
         body: body,
         secure: true,
         type: ContentType.Json,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Get detailed information about a Kodit repository including summary stats. Admin only.
-     *
-     * @tags admin
-     * @name V1AdminKoditRepositoriesDetail
-     * @summary Get Kodit repository detail (admin)
-     * @request GET:/api/v1/admin/kodit/repositories/{koditRepoId}
-     * @secure
-     */
-    v1AdminKoditRepositoriesDetail: (
-      koditRepoId: number,
-      params: RequestParams = {},
-    ) =>
-      this.request<ServerKoditAdminRepoDetailResponse, TypesAPIError>({
-        path: `/api/v1/admin/kodit/repositories/${koditRepoId}`,
-        method: "GET",
-        secure: true,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Queue a Kodit repository for deletion. Admin only.
-     *
-     * @tags admin
-     * @name V1AdminKoditRepositoriesDelete
-     * @summary Delete Kodit repository (admin)
-     * @request DELETE:/api/v1/admin/kodit/repositories/{koditRepoId}
-     * @secure
-     */
-    v1AdminKoditRepositoriesDelete: (
-      koditRepoId: number,
-      params: RequestParams = {},
-    ) =>
-      this.request<Record<string, string>, TypesAPIError>({
-        path: `/api/v1/admin/kodit/repositories/${koditRepoId}`,
-        method: "DELETE",
-        secure: true,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Trigger a rescan of the HEAD commit for a Kodit repository. Admin only.
-     *
-     * @tags admin
-     * @name V1AdminKoditRepositoriesRescanCreate
-     * @summary Rescan Kodit repository HEAD (admin)
-     * @request POST:/api/v1/admin/kodit/repositories/{koditRepoId}/rescan
-     * @secure
-     */
-    v1AdminKoditRepositoriesRescanCreate: (
-      koditRepoId: number,
-      params: RequestParams = {},
-    ) =>
-      this.request<Record<string, string>, TypesAPIError>({
-        path: `/api/v1/admin/kodit/repositories/${koditRepoId}/rescan`,
-        method: "POST",
-        secure: true,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Trigger a full sync (git fetch + branch scan + re-index) for a Kodit repository. Admin only.
-     *
-     * @tags admin
-     * @name V1AdminKoditRepositoriesSyncCreate
-     * @summary Sync Kodit repository (admin)
-     * @request POST:/api/v1/admin/kodit/repositories/{koditRepoId}/sync
-     * @secure
-     */
-    v1AdminKoditRepositoriesSyncCreate: (
-      koditRepoId: number,
-      params: RequestParams = {},
-    ) =>
-      this.request<Record<string, string>, TypesAPIError>({
-        path: `/api/v1/admin/kodit/repositories/${koditRepoId}/sync`,
-        method: "POST",
-        secure: true,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Returns tracking statuses and pending queue tasks for a Kodit repository. Admin only.
-     *
-     * @tags admin
-     * @name V1AdminKoditRepositoriesTasksList
-     * @summary Get Kodit repository tasks (admin)
-     * @request GET:/api/v1/admin/kodit/repositories/{koditRepoId}/tasks
-     * @secure
-     */
-    v1AdminKoditRepositoriesTasksList: (
-      koditRepoId: number,
-      params: RequestParams = {},
-    ) =>
-      this.request<ServerKoditAdminRepositoryTasksResponse, TypesAPIError>({
-        path: `/api/v1/admin/kodit/repositories/${koditRepoId}/tasks`,
-        method: "GET",
-        secure: true,
         format: "json",
         ...params,
       }),
@@ -6778,11 +6566,7 @@ export class Api<
      * @request PUT:/api/v1/admin/users/{id}/password
      * @secure
      */
-    v1AdminUsersPasswordUpdate: (
-      id: string,
-      request: TypesAdminResetPasswordRequest,
-      params: RequestParams = {},
-    ) =>
+    v1AdminUsersPasswordUpdate: (id: string, request: TypesAdminResetPasswordRequest, params: RequestParams = {}) =>
       this.request<TypesUser, SystemHTTPError>({
         path: `/api/v1/admin/users/${id}/password`,
         method: "PUT",
@@ -6790,6 +6574,28 @@ export class Api<
         secure: true,
         type: ContentType.Json,
         format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Delete an API key
+     *
+     * @tags api-keys
+     * @name V1ApiKeysDelete
+     * @summary Delete an API key
+     * @request DELETE:/api/v1/api_keys
+     */
+    v1ApiKeysDelete: (
+      query: {
+        /** API key to delete */
+        key: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<string, any>({
+        path: `/api/v1/api_keys`,
+        method: "DELETE",
+        query: query,
         ...params,
       }),
 
@@ -6827,37 +6633,12 @@ export class Api<
      * @summary Create a new API key
      * @request POST:/api/v1/api_keys
      */
-    v1ApiKeysCreate: (
-      request: Record<string, any>,
-      params: RequestParams = {},
-    ) =>
+    v1ApiKeysCreate: (request: Record<string, any>, params: RequestParams = {}) =>
       this.request<string, any>({
         path: `/api/v1/api_keys`,
         method: "POST",
         body: request,
         type: ContentType.Json,
-        ...params,
-      }),
-
-    /**
-     * @description Delete an API key
-     *
-     * @tags api-keys
-     * @name V1ApiKeysDelete
-     * @summary Delete an API key
-     * @request DELETE:/api/v1/api_keys
-     */
-    v1ApiKeysDelete: (
-      query: {
-        /** API key to delete */
-        key: string;
-      },
-      params: RequestParams = {},
-    ) =>
-      this.request<string, any>({
-        path: `/api/v1/api_keys`,
-        method: "DELETE",
-        query: query,
         ...params,
       }),
 
@@ -6906,15 +6687,30 @@ export class Api<
      * @description List triggers for the app
      *
      * @tags apps
-     * @name V1AppsTriggersList
+     * @name V1AppsTriggersDetail
      * @summary List app triggers
      * @request GET:/api/v1/apps/{app_id}/triggers
      * @secure
      */
-    v1AppsTriggersList: (appId: string, params: RequestParams = {}) =>
+    v1AppsTriggersDetail: (appId: string, params: RequestParams = {}) =>
       this.request<TypesTriggerConfiguration[], any>({
         path: `/api/v1/apps/${appId}/triggers`,
         method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @name V1AppsDelete
+     * @request DELETE:/api/v1/apps/{id}
+     * @secure
+     */
+    v1AppsDelete: (id: string, params: RequestParams = {}) =>
+      this.request<void, any>({
+        path: `/api/v1/apps/${id}`,
+        method: "DELETE",
         secure: true,
         ...params,
       }),
@@ -6952,30 +6748,15 @@ export class Api<
       }),
 
     /**
-     * No description
-     *
-     * @name V1AppsDelete
-     * @request DELETE:/api/v1/apps/{id}
-     * @secure
-     */
-    v1AppsDelete: (id: string, params: RequestParams = {}) =>
-      this.request<void, any>({
-        path: `/api/v1/apps/${id}`,
-        method: "DELETE",
-        secure: true,
-        ...params,
-      }),
-
-    /**
      * @description List access grants for an app (organization owners and members can list access grants)
      *
      * @tags apps
-     * @name V1AppsAccessGrantsList
+     * @name V1AppsAccessGrantsDetail
      * @summary List app access grants
      * @request GET:/api/v1/apps/{id}/access-grants
      * @secure
      */
-    v1AppsAccessGrantsList: (id: string, params: RequestParams = {}) =>
+    v1AppsAccessGrantsDetail: (id: string, params: RequestParams = {}) =>
       this.request<TypesAccessGrant[], any>({
         path: `/api/v1/apps/${id}/access-grants`,
         method: "GET",
@@ -6992,11 +6773,7 @@ export class Api<
      * @request POST:/api/v1/apps/{id}/access-grants
      * @secure
      */
-    v1AppsAccessGrantsCreate: (
-      id: string,
-      request: TypesCreateAccessGrantRequest,
-      params: RequestParams = {},
-    ) =>
+    v1AppsAccessGrantsCreate: (id: string, request: TypesCreateAccessGrantRequest, params: RequestParams = {}) =>
       this.request<TypesAccessGrant, any>({
         path: `/api/v1/apps/${id}/access-grants`,
         method: "POST",
@@ -7014,11 +6791,7 @@ export class Api<
      * @request POST:/api/v1/apps/{id}/api-actions
      * @secure
      */
-    v1AppsApiActionsCreate: (
-      id: string,
-      request: TypesRunAPIActionRequest,
-      params: RequestParams = {},
-    ) =>
+    v1AppsApiActionsCreate: (id: string, request: TypesRunAPIActionRequest, params: RequestParams = {}) =>
       this.request<TypesRunAPIActionResponse, SystemHTTPError>({
         path: `/api/v1/apps/${id}/api-actions`,
         method: "POST",
@@ -7026,47 +6799,6 @@ export class Api<
         secure: true,
         type: ContentType.Json,
         format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Get the app's avatar image
-     *
-     * @tags apps
-     * @name V1AppsAvatarList
-     * @summary Get app avatar
-     * @request GET:/api/v1/apps/{id}/avatar
-     * @secure
-     */
-    v1AppsAvatarList: (id: string, params: RequestParams = {}) =>
-      this.request<Blob, SystemHTTPError>({
-        path: `/api/v1/apps/${id}/avatar`,
-        method: "GET",
-        secure: true,
-        format: "blob",
-        ...params,
-      }),
-
-    /**
-     * @description Upload a base64 encoded image as the app's avatar
-     *
-     * @tags apps
-     * @name V1AppsAvatarCreate
-     * @summary Upload app avatar
-     * @request POST:/api/v1/apps/{id}/avatar
-     * @secure
-     */
-    v1AppsAvatarCreate: (
-      id: string,
-      image: string,
-      params: RequestParams = {},
-    ) =>
-      this.request<void, SystemHTTPError>({
-        path: `/api/v1/apps/${id}/avatar`,
-        method: "POST",
-        body: image,
-        secure: true,
-        type: ContentType.Text,
         ...params,
       }),
 
@@ -7088,15 +6820,52 @@ export class Api<
       }),
 
     /**
+     * @description Get the app's avatar image
+     *
+     * @tags apps
+     * @name V1AppsAvatarDetail
+     * @summary Get app avatar
+     * @request GET:/api/v1/apps/{id}/avatar
+     * @secure
+     */
+    v1AppsAvatarDetail: (id: string, params: RequestParams = {}) =>
+      this.request<File, SystemHTTPError>({
+        path: `/api/v1/apps/${id}/avatar`,
+        method: "GET",
+        secure: true,
+        format: "blob",
+        ...params,
+      }),
+
+    /**
+     * @description Upload a base64 encoded image as the app's avatar
+     *
+     * @tags apps
+     * @name V1AppsAvatarCreate
+     * @summary Upload app avatar
+     * @request POST:/api/v1/apps/{id}/avatar
+     * @secure
+     */
+    v1AppsAvatarCreate: (id: string, image: string, params: RequestParams = {}) =>
+      this.request<void, SystemHTTPError>({
+        path: `/api/v1/apps/${id}/avatar`,
+        method: "POST",
+        body: image,
+        secure: true,
+        type: ContentType.Text,
+        ...params,
+      }),
+
+    /**
      * @description Get app daily usage
      *
      * @tags apps
-     * @name V1AppsDailyUsageList
+     * @name V1AppsDailyUsageDetail
      * @summary Get app usage
      * @request GET:/api/v1/apps/{id}/daily-usage
      * @secure
      */
-    v1AppsDailyUsageList: (
+    v1AppsDailyUsageDetail: (
       id: string,
       query?: {
         /** Start date */
@@ -7143,12 +6912,12 @@ export class Api<
      * @description List interactions with pagination and optional session filtering for a specific app
      *
      * @tags interactions
-     * @name V1AppsInteractionsList
+     * @name V1AppsInteractionsDetail
      * @summary List interactions
      * @request GET:/api/v1/apps/{id}/interactions
      * @secure
      */
-    v1AppsInteractionsList: (
+    v1AppsInteractionsDetail: (
       id: string,
       query?: {
         /** Page number */
@@ -7177,12 +6946,12 @@ export class Api<
      * @description List user's LLM calls with pagination and optional session filtering for a specific app
      *
      * @tags llm_calls
-     * @name V1AppsLlmCallsList
+     * @name V1AppsLlmCallsDetail
      * @summary List LLM calls
      * @request GET:/api/v1/apps/{id}/llm-calls
      * @secure
      */
-    v1AppsLlmCallsList: (
+    v1AppsLlmCallsDetail: (
       id: string,
       query?: {
         /** Page number */
@@ -7209,12 +6978,12 @@ export class Api<
      * @description List memories for a specific app and user
      *
      * @tags memories
-     * @name V1AppsMemoriesList
+     * @name V1AppsMemoriesDetail
      * @summary List app memories
      * @request GET:/api/v1/apps/{id}/memories
      * @secure
      */
-    v1AppsMemoriesList: (id: string, params: RequestParams = {}) =>
+    v1AppsMemoriesDetail: (id: string, params: RequestParams = {}) =>
       this.request<TypesMemory[], any>({
         path: `/api/v1/apps/${id}/memories`,
         method: "GET",
@@ -7232,11 +7001,7 @@ export class Api<
      * @request DELETE:/api/v1/apps/{id}/memories/{memory_id}
      * @secure
      */
-    v1AppsMemoriesDelete: (
-      id: string,
-      memoryId: string,
-      params: RequestParams = {},
-    ) =>
+    v1AppsMemoriesDelete: (id: string, memoryId: string, params: RequestParams = {}) =>
       this.request<void, any>({
         path: `/api/v1/apps/${id}/memories/${memoryId}`,
         method: "DELETE",
@@ -7253,11 +7018,7 @@ export class Api<
      * @request POST:/api/v1/apps/{id}/skills/{skill}/enable
      * @secure
      */
-    v1AppsSkillsEnableCreate: (
-      id: string,
-      skill: string,
-      params: RequestParams = {},
-    ) =>
+    v1AppsSkillsEnableCreate: (id: string, skill: string, params: RequestParams = {}) =>
       this.request<TypesApp, any>({
         path: `/api/v1/apps/${id}/skills/${skill}/enable`,
         method: "POST",
@@ -7269,12 +7030,12 @@ export class Api<
      * @description List step info for a specific app and interaction ID, used to build the timeline of events
      *
      * @tags step_info
-     * @name V1AppsStepInfoList
+     * @name V1AppsStepInfoDetail
      * @summary List step info
      * @request GET:/api/v1/apps/{id}/step-info
      * @secure
      */
-    v1AppsStepInfoList: (
+    v1AppsStepInfoDetail: (
       id: string,
       query?: {
         /** Interaction ID */
@@ -7295,12 +7056,12 @@ export class Api<
      * @description Get the status of a specific trigger type for an app
      *
      * @tags apps
-     * @name V1AppsTriggerStatusList
+     * @name V1AppsTriggerStatusDetail
      * @summary Get app trigger status
      * @request GET:/api/v1/apps/{id}/trigger-status
      * @secure
      */
-    v1AppsTriggerStatusList: (
+    v1AppsTriggerStatusDetail: (
       id: string,
       query: {
         /** Trigger type (e.g., slack) */
@@ -7320,12 +7081,12 @@ export class Api<
      * @description Returns the access rights the current user has for this app
      *
      * @tags apps
-     * @name V1AppsUserAccessList
+     * @name V1AppsUserAccessDetail
      * @summary Get current user's access level for an app
      * @request GET:/api/v1/apps/{id}/user-access
      * @secure
      */
-    v1AppsUserAccessList: (id: string, params: RequestParams = {}) =>
+    v1AppsUserAccessDetail: (id: string, params: RequestParams = {}) =>
       this.request<TypesUserAppAccessResponse, any>({
         path: `/api/v1/apps/${id}/user-access`,
         method: "GET",
@@ -7337,12 +7098,12 @@ export class Api<
      * @description Get app users daily usage
      *
      * @tags apps
-     * @name V1AppsUsersDailyUsageList
+     * @name V1AppsUsersDailyUsageDetail
      * @summary Get app users daily usage
      * @request GET:/api/v1/apps/{id}/users-daily-usage
      * @secure
      */
-    v1AppsUsersDailyUsageList: (
+    v1AppsUsersDailyUsageDetail: (
       id: string,
       query?: {
         /** Start date */
@@ -7386,22 +7147,6 @@ export class Api<
       }),
 
     /**
-     * @description Bulk-dismiss all active (non-dismissed) attention events for the current user.
-     *
-     * @tags attention-events
-     * @name V1AttentionEventsDismissAllCreate
-     * @summary Dismiss all active attention events
-     * @request POST:/api/v1/attention-events/dismiss-all
-     */
-    v1AttentionEventsDismissAllCreate: (params: RequestParams = {}) =>
-      this.request<Record<string, any>, string>({
-        path: `/api/v1/attention-events/dismiss-all`,
-        method: "POST",
-        format: "json",
-        ...params,
-      }),
-
-    /**
      * @description Acknowledge, dismiss, or snooze an attention event.
      *
      * @tags attention-events
@@ -7419,6 +7164,22 @@ export class Api<
         method: "PATCH",
         body: request,
         type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Bulk-dismiss all active (non-dismissed) attention events for the current user.
+     *
+     * @tags attention-events
+     * @name V1AttentionEventsDismissAllCreate
+     * @summary Dismiss all active attention events
+     * @request POST:/api/v1/attention-events/dismiss-all
+     */
+    v1AttentionEventsDismissAllCreate: (params: RequestParams = {}) =>
+      this.request<Record<string, any>, string>({
+        path: `/api/v1/attention-events/dismiss-all`,
+        method: "POST",
         format: "json",
         ...params,
       }),
@@ -7470,10 +7231,7 @@ export class Api<
      * @summary Login
      * @request POST:/api/v1/auth/login
      */
-    v1AuthLoginCreate: (
-      request: TypesLoginRequest,
-      params: RequestParams = {},
-    ) =>
+    v1AuthLoginCreate: (request: TypesLoginRequest, params: RequestParams = {}) =>
       this.request<void, any>({
         path: `/api/v1/auth/login`,
         method: "POST",
@@ -7505,10 +7263,7 @@ export class Api<
      * @summary Password Reset
      * @request POST:/api/v1/auth/password-reset
      */
-    v1AuthPasswordResetCreate: (
-      request: TypesPasswordResetRequest,
-      params: RequestParams = {},
-    ) =>
+    v1AuthPasswordResetCreate: (request: TypesPasswordResetRequest, params: RequestParams = {}) =>
       this.request<void, any>({
         path: `/api/v1/auth/password-reset`,
         method: "POST",
@@ -7525,10 +7280,7 @@ export class Api<
      * @summary Complete Password Reset
      * @request POST:/api/v1/auth/password-reset-complete
      */
-    v1AuthPasswordResetCompleteCreate: (
-      request: TypesPasswordResetCompleteRequest,
-      params: RequestParams = {},
-    ) =>
+    v1AuthPasswordResetCompleteCreate: (request: TypesPasswordResetCompleteRequest, params: RequestParams = {}) =>
       this.request<void, any>({
         path: `/api/v1/auth/password-reset-complete`,
         method: "POST",
@@ -7546,10 +7298,7 @@ export class Api<
      * @request POST:/api/v1/auth/password-update
      * @secure
      */
-    v1AuthPasswordUpdateCreate: (
-      request: TypesPasswordUpdateRequest,
-      params: RequestParams = {},
-    ) =>
+    v1AuthPasswordUpdateCreate: (request: TypesPasswordUpdateRequest, params: RequestParams = {}) =>
       this.request<void, any>({
         path: `/api/v1/auth/password-update`,
         method: "POST",
@@ -7582,10 +7331,7 @@ export class Api<
      * @summary Register
      * @request POST:/api/v1/auth/register
      */
-    v1AuthRegisterCreate: (
-      request: TypesRegisterRequest,
-      params: RequestParams = {},
-    ) =>
+    v1AuthRegisterCreate: (request: TypesRegisterRequest, params: RequestParams = {}) =>
       this.request<void, any>({
         path: `/api/v1/auth/register`,
         method: "POST",
@@ -7618,10 +7364,7 @@ export class Api<
      * @request POST:/api/v1/auth/update
      * @secure
      */
-    v1AuthUpdateCreate: (
-      request: TypesAccountUpdateRequest,
-      params: RequestParams = {},
-    ) =>
+    v1AuthUpdateCreate: (request: TypesAccountUpdateRequest, params: RequestParams = {}) =>
       this.request<TypesUserResponse, any>({
         path: `/api/v1/auth/update`,
         method: "POST",
@@ -7662,7 +7405,7 @@ export class Api<
       },
       params: RequestParams = {},
     ) =>
-      this.request<Blob, SystemHTTPError>({
+      this.request<File, SystemHTTPError>({
         path: `/api/v1/bandwidth-probe`,
         method: "GET",
         query: query,
@@ -7697,16 +7440,48 @@ export class Api<
      * @request POST:/api/v1/claude-subscriptions
      * @secure
      */
-    v1ClaudeSubscriptionsCreate: (
-      body: TypesCreateClaudeSubscriptionRequest,
-      params: RequestParams = {},
-    ) =>
+    v1ClaudeSubscriptionsCreate: (body: TypesCreateClaudeSubscriptionRequest, params: RequestParams = {}) =>
       this.request<TypesClaudeSubscription, SystemHTTPError>({
         path: `/api/v1/claude-subscriptions`,
         method: "POST",
         body: body,
         secure: true,
         type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Disconnect a Claude subscription
+     *
+     * @tags Claude
+     * @name V1ClaudeSubscriptionsDelete
+     * @summary Delete a Claude subscription
+     * @request DELETE:/api/v1/claude-subscriptions/{id}
+     * @secure
+     */
+    v1ClaudeSubscriptionsDelete: (id: string, params: RequestParams = {}) =>
+      this.request<Record<string, string>, SystemHTTPError>({
+        path: `/api/v1/claude-subscriptions/${id}`,
+        method: "DELETE",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Get details of a specific Claude subscription (no secrets)
+     *
+     * @tags Claude
+     * @name V1ClaudeSubscriptionsDetail
+     * @summary Get a Claude subscription
+     * @request GET:/api/v1/claude-subscriptions/{id}
+     * @secure
+     */
+    v1ClaudeSubscriptionsDetail: (id: string, params: RequestParams = {}) =>
+      this.request<TypesClaudeSubscription, SystemHTTPError>({
+        path: `/api/v1/claude-subscriptions/${id}`,
+        method: "GET",
+        secure: true,
         format: "json",
         ...params,
       }),
@@ -7738,10 +7513,7 @@ export class Api<
      * @request GET:/api/v1/claude-subscriptions/poll-login/{sessionId}
      * @secure
      */
-    v1ClaudeSubscriptionsPollLoginDetail: (
-      sessionId: string,
-      params: RequestParams = {},
-    ) =>
+    v1ClaudeSubscriptionsPollLoginDetail: (sessionId: string, params: RequestParams = {}) =>
       this.request<ServerClaudePollLoginResponse, SystemHTTPError>({
         path: `/api/v1/claude-subscriptions/poll-login/${sessionId}`,
         method: "GET",
@@ -7769,50 +7541,15 @@ export class Api<
       }),
 
     /**
-     * @description Get details of a specific Claude subscription (no secrets)
-     *
-     * @tags Claude
-     * @name V1ClaudeSubscriptionsDetail
-     * @summary Get a Claude subscription
-     * @request GET:/api/v1/claude-subscriptions/{id}
-     * @secure
-     */
-    v1ClaudeSubscriptionsDetail: (id: string, params: RequestParams = {}) =>
-      this.request<TypesClaudeSubscription, SystemHTTPError>({
-        path: `/api/v1/claude-subscriptions/${id}`,
-        method: "GET",
-        secure: true,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Disconnect a Claude subscription
-     *
-     * @tags Claude
-     * @name V1ClaudeSubscriptionsDelete
-     * @summary Delete a Claude subscription
-     * @request DELETE:/api/v1/claude-subscriptions/{id}
-     * @secure
-     */
-    v1ClaudeSubscriptionsDelete: (id: string, params: RequestParams = {}) =>
-      this.request<Record<string, string>, SystemHTTPError>({
-        path: `/api/v1/claude-subscriptions/${id}`,
-        method: "DELETE",
-        secure: true,
-        ...params,
-      }),
-
-    /**
      * @description Get status breakdown and progress of all cloned tasks
      *
      * @tags CloneGroups
-     * @name V1CloneGroupsProgressList
+     * @name V1CloneGroupsProgressDetail
      * @summary Get progress of all tasks in a clone group
      * @request GET:/api/v1/clone-groups/{groupId}/progress
      * @secure
      */
-    v1CloneGroupsProgressList: (groupId: string, params: RequestParams = {}) =>
+    v1CloneGroupsProgressDetail: (groupId: string, params: RequestParams = {}) =>
       this.request<TypesCloneGroupProgress, TypesAPIError>({
         path: `/api/v1/clone-groups/${groupId}/progress`,
         method: "GET",
@@ -7881,15 +7618,12 @@ export class Api<
      * @description Fetch current clipboard content from remote desktop
      *
      * @tags ExternalAgents
-     * @name V1ExternalAgentsClipboardList
+     * @name V1ExternalAgentsClipboardDetail
      * @summary Get session clipboard content
      * @request GET:/api/v1/external-agents/{sessionID}/clipboard
      * @secure
      */
-    v1ExternalAgentsClipboardList: (
-      sessionId: string,
-      params: RequestParams = {},
-    ) =>
+    v1ExternalAgentsClipboardDetail: (sessionId: string, params: RequestParams = {}) =>
       this.request<TypesClipboardData, SystemHTTPError>({
         path: `/api/v1/external-agents/${sessionId}/clipboard`,
         method: "GET",
@@ -7907,11 +7641,7 @@ export class Api<
      * @request POST:/api/v1/external-agents/{sessionID}/clipboard
      * @secure
      */
-    v1ExternalAgentsClipboardCreate: (
-      sessionId: string,
-      clipboard: TypesClipboardData,
-      params: RequestParams = {},
-    ) =>
+    v1ExternalAgentsClipboardCreate: (sessionId: string, clipboard: TypesClipboardData, params: RequestParams = {}) =>
       this.request<void, SystemHTTPError>({
         path: `/api/v1/external-agents/${sessionId}/clipboard`,
         method: "POST",
@@ -7949,12 +7679,12 @@ export class Api<
      * @description Returns git diff information from the running desktop container. Shows changes between the current working directory and base branch, including uncommitted changes.
      *
      * @tags ExternalAgents
-     * @name V1ExternalAgentsDiffList
+     * @name V1ExternalAgentsDiffDetail
      * @summary Get file diff from container
      * @request GET:/api/v1/external-agents/{sessionID}/diff
      * @secure
      */
-    v1ExternalAgentsDiffList: (
+    v1ExternalAgentsDiffDetail: (
       sessionId: string,
       query?: {
         /** Base branch to compare against (default: main) */
@@ -7988,11 +7718,7 @@ export class Api<
      * @request POST:/api/v1/external-agents/{sessionID}/exec
      * @secure
      */
-    v1ExternalAgentsExecCreate: (
-      sessionId: string,
-      body: object,
-      params: RequestParams = {},
-    ) =>
+    v1ExternalAgentsExecCreate: (sessionId: string, body: object, params: RequestParams = {}) =>
       this.request<object, SystemHTTPError>({
         path: `/api/v1/external-agents/${sessionId}/exec`,
         method: "POST",
@@ -8012,11 +7738,7 @@ export class Api<
      * @request POST:/api/v1/external-agents/{sessionID}/input
      * @secure
      */
-    v1ExternalAgentsInputCreate: (
-      sessionId: string,
-      input: object,
-      params: RequestParams = {},
-    ) =>
+    v1ExternalAgentsInputCreate: (sessionId: string, input: object, params: RequestParams = {}) =>
       this.request<object, SystemHTTPError>({
         path: `/api/v1/external-agents/${sessionId}/input`,
         method: "POST",
@@ -8063,15 +7785,12 @@ export class Api<
      * @description Returns a list of git workspaces (repositories) in the container. Each workspace includes the repo name, path, current branch, and whether it has a helix-specs branch.
      *
      * @tags ExternalAgents
-     * @name V1ExternalAgentsWorkspacesList
+     * @name V1ExternalAgentsWorkspacesDetail
      * @summary Get workspaces from container
      * @request GET:/api/v1/external-agents/{sessionID}/workspaces
      * @secure
      */
-    v1ExternalAgentsWorkspacesList: (
-      sessionId: string,
-      params: RequestParams = {},
-    ) =>
+    v1ExternalAgentsWorkspacesDetail: (sessionId: string, params: RequestParams = {}) =>
       this.request<object, SystemHTTPError>({
         path: `/api/v1/external-agents/${sessionId}/workspaces`,
         method: "GET",
@@ -8084,15 +7803,12 @@ export class Api<
      * @description Provides a WebSocket connection for sending input events directly to the screenshot-server
      *
      * @tags ExternalAgents
-     * @name V1ExternalAgentsWsInputList
+     * @name V1ExternalAgentsWsInputDetail
      * @summary Direct WebSocket input for PipeWire/GNOME sessions
      * @request GET:/api/v1/external-agents/{sessionID}/ws/input
      * @secure
      */
-    v1ExternalAgentsWsInputList: (
-      sessionId: string,
-      params: RequestParams = {},
-    ) =>
+    v1ExternalAgentsWsInputDetail: (sessionId: string, params: RequestParams = {}) =>
       this.request<any, void | SystemHTTPError>({
         path: `/api/v1/external-agents/${sessionId}/ws/input`,
         method: "GET",
@@ -8104,15 +7820,12 @@ export class Api<
      * @description Provides a WebSocket connection for receiving H.264 video frames directly from the
      *
      * @tags ExternalAgents
-     * @name V1ExternalAgentsWsStreamList
+     * @name V1ExternalAgentsWsStreamDetail
      * @summary Direct WebSocket video streaming for PipeWire/GNOME sessions
      * @request GET:/api/v1/external-agents/{sessionID}/ws/stream
      * @secure
      */
-    v1ExternalAgentsWsStreamList: (
-      sessionId: string,
-      params: RequestParams = {},
-    ) =>
+    v1ExternalAgentsWsStreamDetail: (sessionId: string, params: RequestParams = {}) =>
       this.request<any, void | SystemHTTPError>({
         path: `/api/v1/external-agents/${sessionId}/ws/stream`,
         method: "GET",
@@ -8330,7 +8043,7 @@ export class Api<
       },
       params: RequestParams = {},
     ) =>
-      this.request<Blob, any>({
+      this.request<File, any>({
         path: `/api/v1/filestore/viewer/${path}`,
         method: "GET",
         query: query,
@@ -8366,10 +8079,7 @@ export class Api<
      * @request POST:/api/v1/git-provider-connections
      * @secure
      */
-    v1GitProviderConnectionsCreate: (
-      request: TypesGitProviderConnectionCreateRequest,
-      params: RequestParams = {},
-    ) =>
+    v1GitProviderConnectionsCreate: (request: TypesGitProviderConnectionCreateRequest, params: RequestParams = {}) =>
       this.request<TypesGitProviderConnection, TypesAPIError>({
         path: `/api/v1/git-provider-connections`,
         method: "POST",
@@ -8401,15 +8111,12 @@ export class Api<
      * @description List repositories from a saved PAT-based git provider connection
      *
      * @tags git-provider-connections
-     * @name V1GitProviderConnectionsRepositoriesList
+     * @name V1GitProviderConnectionsRepositoriesDetail
      * @summary Browse repositories from saved connection
      * @request GET:/api/v1/git-provider-connections/{id}/repositories
      * @secure
      */
-    v1GitProviderConnectionsRepositoriesList: (
-      id: string,
-      params: RequestParams = {},
-    ) =>
+    v1GitProviderConnectionsRepositoriesDetail: (id: string, params: RequestParams = {}) =>
       this.request<TypesListOAuthRepositoriesResponse, TypesAPIError>({
         path: `/api/v1/git-provider-connections/${id}/repositories`,
         method: "GET",
@@ -8427,10 +8134,7 @@ export class Api<
      * @request POST:/api/v1/git/browse-remote
      * @secure
      */
-    v1GitBrowseRemoteCreate: (
-      request: TypesBrowseRemoteRepositoriesRequest,
-      params: RequestParams = {},
-    ) =>
+    v1GitBrowseRemoteCreate: (request: TypesBrowseRemoteRepositoriesRequest, params: RequestParams = {}) =>
       this.request<TypesListOAuthRepositoriesResponse, TypesAPIError>({
         path: `/api/v1/git/browse-remote`,
         method: "POST",
@@ -8481,10 +8185,7 @@ export class Api<
      * @request POST:/api/v1/git/repositories
      * @secure
      */
-    v1GitRepositoriesCreate: (
-      repository: TypesGitRepositoryCreateRequest,
-      params: RequestParams = {},
-    ) =>
+    v1GitRepositoriesCreate: (repository: TypesGitRepositoryCreateRequest, params: RequestParams = {}) =>
       this.request<TypesGitRepository, TypesAPIError>({
         path: `/api/v1/git/repositories`,
         method: "POST",
@@ -8492,6 +8193,23 @@ export class Api<
         secure: true,
         type: ContentType.Json,
         format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Delete a git repository and its metadata
+     *
+     * @tags git-repositories
+     * @name V1GitRepositoriesDelete
+     * @summary Delete git repository
+     * @request DELETE:/api/v1/git/repositories/{id}
+     * @secure
+     */
+    v1GitRepositoriesDelete: (id: string, params: RequestParams = {}) =>
+      this.request<void, TypesAPIError>({
+        path: `/api/v1/git/repositories/${id}`,
+        method: "DELETE",
+        secure: true,
         ...params,
       }),
 
@@ -8522,11 +8240,7 @@ export class Api<
      * @request PUT:/api/v1/git/repositories/{id}
      * @secure
      */
-    v1GitRepositoriesUpdate: (
-      id: string,
-      repository: TypesGitRepositoryUpdateRequest,
-      params: RequestParams = {},
-    ) =>
+    v1GitRepositoriesUpdate: (id: string, repository: TypesGitRepositoryUpdateRequest, params: RequestParams = {}) =>
       this.request<TypesGitRepository, TypesAPIError>({
         path: `/api/v1/git/repositories/${id}`,
         method: "PUT",
@@ -8538,35 +8252,15 @@ export class Api<
       }),
 
     /**
-     * @description Delete a git repository and its metadata
-     *
-     * @tags git-repositories
-     * @name V1GitRepositoriesDelete
-     * @summary Delete git repository
-     * @request DELETE:/api/v1/git/repositories/{id}
-     * @secure
-     */
-    v1GitRepositoriesDelete: (id: string, params: RequestParams = {}) =>
-      this.request<void, TypesAPIError>({
-        path: `/api/v1/git/repositories/${id}`,
-        method: "DELETE",
-        secure: true,
-        ...params,
-      }),
-
-    /**
      * @description List access grants for a git repository (repository owners can list access grants)
      *
      * @tags gitrepositories
-     * @name V1GitRepositoriesAccessGrantsList
+     * @name V1GitRepositoriesAccessGrantsDetail
      * @summary List repository access grants
      * @request GET:/api/v1/git/repositories/{id}/access-grants
      * @secure
      */
-    v1GitRepositoriesAccessGrantsList: (
-      id: string,
-      params: RequestParams = {},
-    ) =>
+    v1GitRepositoriesAccessGrantsDetail: (id: string, params: RequestParams = {}) =>
       this.request<TypesAccessGrant[], any>({
         path: `/api/v1/git/repositories/${id}/access-grants`,
         method: "GET",
@@ -8624,11 +8318,7 @@ export class Api<
      * @request POST:/api/v1/git/repositories/{id}/branches
      * @secure
      */
-    createGitRepositoryBranch: (
-      id: string,
-      request: TypesCreateBranchRequest,
-      params: RequestParams = {},
-    ) =>
+    createGitRepositoryBranch: (id: string, request: TypesCreateBranchRequest, params: RequestParams = {}) =>
       this.request<TypesCreateBranchResponse, TypesAPIError>({
         path: `/api/v1/git/repositories/${id}/branches`,
         method: "POST",
@@ -8643,12 +8333,12 @@ export class Api<
      * @description Get the git clone command for a repository with authentication
      *
      * @tags git-repositories
-     * @name V1GitRepositoriesCloneCommandList
+     * @name V1GitRepositoriesCloneCommandDetail
      * @summary Get clone command
      * @request GET:/api/v1/git/repositories/{id}/clone-command
      * @secure
      */
-    v1GitRepositoriesCloneCommandList: (
+    v1GitRepositoriesCloneCommandDetail: (
       id: string,
       query?: {
         /** Target directory for clone */
@@ -8755,12 +8445,12 @@ export class Api<
      * @description Get code intelligence enrichments for a repository from Kodit
      *
      * @tags git-repositories
-     * @name V1GitRepositoriesEnrichmentsList
+     * @name V1GitRepositoriesEnrichmentsDetail
      * @summary Get repository enrichments
      * @request GET:/api/v1/git/repositories/{id}/enrichments
      * @secure
      */
-    v1GitRepositoriesEnrichmentsList: (
+    v1GitRepositoriesEnrichmentsDetail: (
       id: string,
       query?: {
         /** Filter by enrichment type (usage, developer, living_documentation) */
@@ -8783,16 +8473,14 @@ export class Api<
      * @description Get a specific code intelligence enrichment by ID from Kodit
      *
      * @tags git-repositories
-     * @name V1GitRepositoriesEnrichmentsDetail
+     * @name V1GitRepositoriesEnrichmentsDetail2
      * @summary Get enrichment by ID
      * @request GET:/api/v1/git/repositories/{id}/enrichments/{enrichmentId}
+     * @originalName v1GitRepositoriesEnrichmentsDetail
+     * @duplicate
      * @secure
      */
-    v1GitRepositoriesEnrichmentsDetail: (
-      id: string,
-      enrichmentId: string,
-      params: RequestParams = {},
-    ) =>
+    v1GitRepositoriesEnrichmentsDetail2: (id: string, enrichmentId: string, params: RequestParams = {}) =>
       this.request<ServerKoditEnrichmentDTO, TypesAPIError>({
         path: `/api/v1/git/repositories/${id}/enrichments/${enrichmentId}`,
         method: "GET",
@@ -8805,12 +8493,12 @@ export class Api<
      * @description Read the content of a file from the repository, optionally with line range filtering
      *
      * @tags git-repositories
-     * @name V1GitRepositoriesFileContentList
+     * @name V1GitRepositoriesFileContentDetail
      * @summary Read repository file
      * @request GET:/api/v1/git/repositories/{id}/file-content
      * @secure
      */
-    v1GitRepositoriesFileContentList: (
+    v1GitRepositoriesFileContentDetail: (
       id: string,
       query: {
         /** File path within the repository */
@@ -8835,12 +8523,12 @@ export class Api<
      * @description List files in a repository matching a glob pattern
      *
      * @tags git-repositories
-     * @name V1GitRepositoriesFilesList
+     * @name V1GitRepositoriesFilesDetail
      * @summary List repository files
      * @request GET:/api/v1/git/repositories/{id}/files
      * @secure
      */
-    v1GitRepositoriesFilesList: (
+    v1GitRepositoriesFilesDetail: (
       id: string,
       query?: {
         /** Glob pattern to filter files */
@@ -8861,12 +8549,12 @@ export class Api<
      * @description Run pattern matching (grep) against repository files
      *
      * @tags git-repositories
-     * @name V1GitRepositoriesGrepList
+     * @name V1GitRepositoriesGrepDetail
      * @summary Grep repository
      * @request GET:/api/v1/git/repositories/{id}/grep
      * @secure
      */
-    v1GitRepositoriesGrepList: (
+    v1GitRepositoriesGrepDetail: (
       id: string,
       query: {
         /** Search pattern (regex) */
@@ -8891,12 +8579,12 @@ export class Api<
      * @description Search repository code using BM25 keyword matching
      *
      * @tags git-repositories
-     * @name V1GitRepositoriesKeywordSearchList
+     * @name V1GitRepositoriesKeywordSearchDetail
      * @summary Keyword search repository
      * @request GET:/api/v1/git/repositories/{id}/keyword-search
      * @secure
      */
-    v1GitRepositoriesKeywordSearchList: (
+    v1GitRepositoriesKeywordSearchDetail: (
       id: string,
       query: {
         /** Keywords to search for */
@@ -8921,12 +8609,12 @@ export class Api<
      * @description Get commits for a repository from Kodit (used for enrichment filtering)
      *
      * @tags git-repositories
-     * @name V1GitRepositoriesKoditCommitsList
+     * @name V1GitRepositoriesKoditCommitsDetail
      * @summary Get repository commits from Kodit
      * @request GET:/api/v1/git/repositories/{id}/kodit-commits
      * @secure
      */
-    v1GitRepositoriesKoditCommitsList: (
+    v1GitRepositoriesKoditCommitsDetail: (
       id: string,
       query?: {
         /** Limit number of commits (default 100) */
@@ -8973,15 +8661,12 @@ export class Api<
      * @description Get indexing status for a repository from Kodit
      *
      * @tags git-repositories
-     * @name V1GitRepositoriesKoditStatusList
+     * @name V1GitRepositoriesKoditStatusDetail
      * @summary Get repository indexing status
      * @request GET:/api/v1/git/repositories/{id}/kodit-status
      * @secure
      */
-    v1GitRepositoriesKoditStatusList: (
-      id: string,
-      params: RequestParams = {},
-    ) =>
+    v1GitRepositoriesKoditStatusDetail: (id: string, params: RequestParams = {}) =>
       this.request<ServerKoditIndexingStatusDTO, TypesAPIError>({
         path: `/api/v1/git/repositories/${id}/kodit-status`,
         method: "GET",
@@ -9045,11 +8730,7 @@ export class Api<
      * @request POST:/api/v1/git/repositories/{id}/pull-requests
      * @secure
      */
-    createGitRepositoryPullRequest: (
-      id: string,
-      request: TypesCreatePullRequestRequest,
-      params: RequestParams = {},
-    ) =>
+    createGitRepositoryPullRequest: (id: string, request: TypesCreatePullRequestRequest, params: RequestParams = {}) =>
       this.request<TypesCreatePullRequestResponse, TypesAPIError>({
         path: `/api/v1/git/repositories/${id}/pull-requests`,
         method: "POST",
@@ -9116,12 +8797,12 @@ export class Api<
      * @description Search for code snippets in a repository from Kodit
      *
      * @tags git-repositories
-     * @name V1GitRepositoriesSearchSnippetsList
+     * @name V1GitRepositoriesSearchSnippetsDetail
      * @summary Search repository snippets
      * @request GET:/api/v1/git/repositories/{id}/search-snippets
      * @secure
      */
-    v1GitRepositoriesSearchSnippetsList: (
+    v1GitRepositoriesSearchSnippetsDetail: (
       id: string,
       query: {
         /** Search query */
@@ -9144,12 +8825,12 @@ export class Api<
      * @description Search repository code using vector similarity (semantic meaning)
      *
      * @tags git-repositories
-     * @name V1GitRepositoriesSemanticSearchList
+     * @name V1GitRepositoriesSemanticSearchDetail
      * @summary Semantic search repository
      * @request GET:/api/v1/git/repositories/{id}/semantic-search
      * @secure
      */
-    v1GitRepositoriesSemanticSearchList: (
+    v1GitRepositoriesSemanticSearchDetail: (
       id: string,
       query: {
         /** Natural language search query */
@@ -9228,12 +8909,12 @@ export class Api<
      * @description Get the wiki navigation tree (titles and paths, no content) for a repository. Each node includes a link to fetch the full page content.
      *
      * @tags git-repositories
-     * @name V1GitRepositoriesWikiList
+     * @name V1GitRepositoriesWikiDetail
      * @summary Get repository wiki tree
      * @request GET:/api/v1/git/repositories/{id}/wiki
      * @secure
      */
-    v1GitRepositoriesWikiList: (id: string, params: RequestParams = {}) =>
+    v1GitRepositoriesWikiDetail: (id: string, params: RequestParams = {}) =>
       this.request<ServerKoditWikiTreeResponse, TypesAPIError>({
         path: `/api/v1/git/repositories/${id}/wiki`,
         method: "GET",
@@ -9246,12 +8927,12 @@ export class Api<
      * @description Get a wiki page by hierarchical path as markdown content
      *
      * @tags git-repositories
-     * @name V1GitRepositoriesWikiPageList
+     * @name V1GitRepositoriesWikiPageDetail
      * @summary Get wiki page
      * @request GET:/api/v1/git/repositories/{id}/wiki-page
      * @secure
      */
-    v1GitRepositoriesWikiPageList: (
+    v1GitRepositoriesWikiPageDetail: (
       id: string,
       query: {
         /** Wiki page path (e.g. architecture/database-layer.md) */
@@ -9309,6 +8990,42 @@ export class Api<
       this.request<TypesModel, string>({
         path: `/api/v1/helix-models`,
         method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * @description Delete a Helix model configuration. Requires admin privileges.
+     *
+     * @tags models
+     * @name V1HelixModelsDelete
+     * @summary Delete a Helix model
+     * @request DELETE:/api/v1/helix-models/{id}
+     * @secure
+     */
+    v1HelixModelsDelete: (id: string, params: RequestParams = {}) =>
+      this.request<string, string>({
+        path: `/api/v1/helix-models/${id}`,
+        method: "DELETE",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Update an existing Helix model configuration. Requires admin privileges.
+     *
+     * @tags models
+     * @name V1HelixModelsUpdate
+     * @summary Update an existing Helix model
+     * @request PUT:/api/v1/helix-models/{id}
+     * @secure
+     */
+    v1HelixModelsUpdate: (id: string, request: TypesModel, params: RequestParams = {}) =>
+      this.request<TypesModel, string>({
+        path: `/api/v1/helix-models/${id}`,
+        method: "PUT",
         body: request,
         secure: true,
         type: ContentType.Json,
@@ -9374,46 +9091,6 @@ export class Api<
       }),
 
     /**
-     * @description Update an existing Helix model configuration. Requires admin privileges.
-     *
-     * @tags models
-     * @name V1HelixModelsUpdate
-     * @summary Update an existing Helix model
-     * @request PUT:/api/v1/helix-models/{id}
-     * @secure
-     */
-    v1HelixModelsUpdate: (
-      id: string,
-      request: TypesModel,
-      params: RequestParams = {},
-    ) =>
-      this.request<TypesModel, string>({
-        path: `/api/v1/helix-models/${id}`,
-        method: "PUT",
-        body: request,
-        secure: true,
-        type: ContentType.Json,
-        ...params,
-      }),
-
-    /**
-     * @description Delete a Helix model configuration. Requires admin privileges.
-     *
-     * @tags models
-     * @name V1HelixModelsDelete
-     * @summary Delete a Helix model
-     * @request DELETE:/api/v1/helix-models/{id}
-     * @secure
-     */
-    v1HelixModelsDelete: (id: string, params: RequestParams = {}) =>
-      this.request<string, string>({
-        path: `/api/v1/helix-models/${id}`,
-        method: "DELETE",
-        secure: true,
-        ...params,
-      }),
-
-    /**
      * No description
      *
      * @name V1KnowledgeList
@@ -9425,19 +9102,6 @@ export class Api<
         path: `/api/v1/knowledge`,
         method: "GET",
         secure: true,
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
-     * @name V1KnowledgeDetail
-     * @request GET:/api/v1/knowledge/{id}
-     */
-    v1KnowledgeDetail: (id: string, params: RequestParams = {}) =>
-      this.request<TypesKnowledge, any>({
-        path: `/api/v1/knowledge/${id}`,
-        method: "GET",
         ...params,
       }),
 
@@ -9455,6 +9119,19 @@ export class Api<
         path: `/api/v1/knowledge/${id}`,
         method: "DELETE",
         secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @name V1KnowledgeDetail
+     * @request GET:/api/v1/knowledge/{id}
+     */
+    v1KnowledgeDetail: (id: string, params: RequestParams = {}) =>
+      this.request<TypesKnowledge, any>({
+        path: `/api/v1/knowledge/${id}`,
+        method: "GET",
         ...params,
       }),
 
@@ -9479,13 +9156,13 @@ export class Api<
      * @description Download all files from a filestore-backed knowledge as a zip file
      *
      * @tags knowledge
-     * @name V1KnowledgeDownloadList
+     * @name V1KnowledgeDownloadDetail
      * @summary Download knowledge files as zip
      * @request GET:/api/v1/knowledge/{id}/download
      * @secure
      */
-    v1KnowledgeDownloadList: (id: string, params: RequestParams = {}) =>
-      this.request<Blob, any>({
+    v1KnowledgeDownloadDetail: (id: string, params: RequestParams = {}) =>
+      this.request<File, any>({
         path: `/api/v1/knowledge/${id}/download`,
         method: "GET",
         secure: true,
@@ -9513,12 +9190,12 @@ export class Api<
      * @description List knowledge versions
      *
      * @tags knowledge
-     * @name V1KnowledgeVersionsList
+     * @name V1KnowledgeVersionsDetail
      * @summary List knowledge versions
      * @request GET:/api/v1/knowledge/{id}/versions
      * @secure
      */
-    v1KnowledgeVersionsList: (id: string, params: RequestParams = {}) =>
+    v1KnowledgeVersionsDetail: (id: string, params: RequestParams = {}) =>
       this.request<TypesKnowledgeVersion[], any>({
         path: `/api/v1/knowledge/${id}/versions`,
         method: "GET",
@@ -9658,16 +9335,30 @@ export class Api<
      * @request POST:/api/v1/model-info
      * @secure
      */
-    v1ModelInfoCreate: (
-      request: TypesDynamicModelInfo,
-      params: RequestParams = {},
-    ) =>
+    v1ModelInfoCreate: (request: TypesDynamicModelInfo, params: RequestParams = {}) =>
       this.request<TypesDynamicModelInfo, string>({
         path: `/api/v1/model-info`,
         method: "POST",
         body: request,
         secure: true,
         type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * @description Delete a dynamic model info configuration. Requires admin privileges.
+     *
+     * @tags model-info
+     * @name V1ModelInfoDelete
+     * @summary Delete a dynamic model info
+     * @request DELETE:/api/v1/model-info/{id}
+     * @secure
+     */
+    v1ModelInfoDelete: (id: string, params: RequestParams = {}) =>
+      this.request<string, string>({
+        path: `/api/v1/model-info/${id}`,
+        method: "DELETE",
+        secure: true,
         ...params,
       }),
 
@@ -9697,34 +9388,13 @@ export class Api<
      * @request PUT:/api/v1/model-info/{id}
      * @secure
      */
-    v1ModelInfoUpdate: (
-      id: string,
-      request: TypesDynamicModelInfo,
-      params: RequestParams = {},
-    ) =>
+    v1ModelInfoUpdate: (id: string, request: TypesDynamicModelInfo, params: RequestParams = {}) =>
       this.request<TypesDynamicModelInfo, string>({
         path: `/api/v1/model-info/${id}`,
         method: "PUT",
         body: request,
         secure: true,
         type: ContentType.Json,
-        ...params,
-      }),
-
-    /**
-     * @description Delete a dynamic model info configuration. Requires admin privileges.
-     *
-     * @tags model-info
-     * @name V1ModelInfoDelete
-     * @summary Delete a dynamic model info
-     * @request DELETE:/api/v1/model-info/{id}
-     * @secure
-     */
-    v1ModelInfoDelete: (id: string, params: RequestParams = {}) =>
-      this.request<string, string>({
-        path: `/api/v1/model-info/${id}`,
-        method: "DELETE",
-        secure: true,
         ...params,
       }),
 
@@ -9746,23 +9416,6 @@ export class Api<
       }),
 
     /**
-     * @description Get a specific OAuth connection by ID. Users can only access their own connections unless they are admin.
-     *
-     * @tags oauth
-     * @name V1OauthConnectionsDetail
-     * @summary Get an OAuth connection
-     * @request GET:/api/v1/oauth/connections/{id}
-     * @secure
-     */
-    v1OauthConnectionsDetail: (id: string, params: RequestParams = {}) =>
-      this.request<TypesOAuthConnection, any>({
-        path: `/api/v1/oauth/connections/${id}`,
-        method: "GET",
-        secure: true,
-        ...params,
-      }),
-
-    /**
      * @description Delete an OAuth connection. Users can only delete their own connections unless they are admin.
      *
      * @tags oauth
@@ -9775,6 +9428,23 @@ export class Api<
       this.request<void, any>({
         path: `/api/v1/oauth/connections/${id}`,
         method: "DELETE",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Get a specific OAuth connection by ID. Users can only access their own connections unless they are admin.
+     *
+     * @tags oauth
+     * @name V1OauthConnectionsDetail
+     * @summary Get an OAuth connection
+     * @request GET:/api/v1/oauth/connections/{id}
+     * @secure
+     */
+    v1OauthConnectionsDetail: (id: string, params: RequestParams = {}) =>
+      this.request<TypesOAuthConnection, any>({
+        path: `/api/v1/oauth/connections/${id}`,
+        method: "GET",
         secure: true,
         ...params,
       }),
@@ -9801,15 +9471,12 @@ export class Api<
      * @description List repositories accessible via an OAuth connection (GitHub repos, GitLab projects, etc.)
      *
      * @tags oauth
-     * @name V1OauthConnectionsRepositoriesList
+     * @name V1OauthConnectionsRepositoriesDetail
      * @summary List repositories from an OAuth connection
      * @request GET:/api/v1/oauth/connections/{id}/repositories
      * @secure
      */
-    v1OauthConnectionsRepositoriesList: (
-      id: string,
-      params: RequestParams = {},
-    ) =>
+    v1OauthConnectionsRepositoriesDetail: (id: string, params: RequestParams = {}) =>
       this.request<TypesListOAuthRepositoriesResponse, any>({
         path: `/api/v1/oauth/connections/${id}/repositories`,
         method: "GET",
@@ -9844,10 +9511,7 @@ export class Api<
      * @request POST:/api/v1/oauth/providers
      * @secure
      */
-    v1OauthProvidersCreate: (
-      request: TypesOAuthProvider,
-      params: RequestParams = {},
-    ) =>
+    v1OauthProvidersCreate: (request: TypesOAuthProvider, params: RequestParams = {}) =>
       this.request<TypesOAuthProvider, any>({
         path: `/api/v1/oauth/providers`,
         method: "POST",
@@ -9883,10 +9547,7 @@ export class Api<
      * @request POST:/api/v1/oauth/sharepoint/resolve-site
      * @secure
      */
-    v1OauthSharepointResolveSiteCreate: (
-      request: ServerSharePointSiteResolveRequest,
-      params: RequestParams = {},
-    ) =>
+    v1OauthSharepointResolveSiteCreate: (request: ServerSharePointSiteResolveRequest, params: RequestParams = {}) =>
       this.request<ServerSharePointSiteResolveResponse, any>({
         path: `/api/v1/oauth/sharepoint/resolve-site`,
         method: "POST",
@@ -9921,16 +9582,27 @@ export class Api<
      * @request POST:/api/v1/organizations
      * @secure
      */
-    v1OrganizationsCreate: (
-      request: TypesOrganization,
-      params: RequestParams = {},
-    ) =>
+    v1OrganizationsCreate: (request: TypesOrganization, params: RequestParams = {}) =>
       this.request<TypesOrganization, any>({
         path: `/api/v1/organizations`,
         method: "POST",
         body: request,
         secure: true,
-        type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @name V1OrganizationsDelete
+     * @request DELETE:/api/v1/organizations/{id}
+     * @secure
+     */
+    v1OrganizationsDelete: (id: string, params: RequestParams = {}) =>
+      this.request<void, any>({
+        path: `/api/v1/organizations/${id}`,
+        method: "DELETE",
+        secure: true,
         ...params,
       }),
 
@@ -9956,31 +9628,11 @@ export class Api<
      * @request PUT:/api/v1/organizations/{id}
      * @secure
      */
-    v1OrganizationsUpdate: (
-      id: string,
-      request: TypesOrganization,
-      params: RequestParams = {},
-    ) =>
+    v1OrganizationsUpdate: (id: string, request: TypesOrganization, params: RequestParams = {}) =>
       this.request<TypesOrganization, any>({
         path: `/api/v1/organizations/${id}`,
         method: "PUT",
         body: request,
-        secure: true,
-        type: ContentType.Json,
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
-     * @name V1OrganizationsDelete
-     * @request DELETE:/api/v1/organizations/{id}
-     * @secure
-     */
-    v1OrganizationsDelete: (id: string, params: RequestParams = {}) =>
-      this.request<void, any>({
-        path: `/api/v1/organizations/${id}`,
-        method: "DELETE",
         secure: true,
         ...params,
       }),
@@ -9989,12 +9641,12 @@ export class Api<
      * @description List API keys for an organization. Owners see all keys, members see only their own.
      *
      * @tags organizations
-     * @name V1OrganizationsApiKeysList
+     * @name V1OrganizationsApiKeysDetail
      * @summary List organization API keys
      * @request GET:/api/v1/organizations/{id}/api_keys
      * @secure
      */
-    v1OrganizationsApiKeysList: (id: string, params: RequestParams = {}) =>
+    v1OrganizationsApiKeysDetail: (id: string, params: RequestParams = {}) =>
       this.request<TypesApiKey[], any>({
         path: `/api/v1/organizations/${id}/api_keys`,
         method: "GET",
@@ -10011,11 +9663,7 @@ export class Api<
      * @request POST:/api/v1/organizations/{id}/api_keys
      * @secure
      */
-    v1OrganizationsApiKeysCreate: (
-      id: string,
-      request: object,
-      params: RequestParams = {},
-    ) =>
+    v1OrganizationsApiKeysCreate: (id: string, request: object, params: RequestParams = {}) =>
       this.request<TypesApiKey, any>({
         path: `/api/v1/organizations/${id}/api_keys`,
         method: "POST",
@@ -10034,11 +9682,7 @@ export class Api<
      * @request DELETE:/api/v1/organizations/{id}/api_keys/{key}
      * @secure
      */
-    v1OrganizationsApiKeysDelete: (
-      id: string,
-      key: string,
-      params: RequestParams = {},
-    ) =>
+    v1OrganizationsApiKeysDelete: (id: string, key: string, params: RequestParams = {}) =>
       this.request<string, any>({
         path: `/api/v1/organizations/${id}/api_keys/${key}`,
         method: "DELETE",
@@ -10050,15 +9694,12 @@ export class Api<
      * @description Get the version history of guidelines for an organization
      *
      * @tags Organizations
-     * @name V1OrganizationsGuidelinesHistoryList
+     * @name V1OrganizationsGuidelinesHistoryDetail
      * @summary Get organization guidelines history
      * @request GET:/api/v1/organizations/{id}/guidelines-history
      * @secure
      */
-    v1OrganizationsGuidelinesHistoryList: (
-      id: string,
-      params: RequestParams = {},
-    ) =>
+    v1OrganizationsGuidelinesHistoryDetail: (id: string, params: RequestParams = {}) =>
       this.request<TypesGuidelinesHistory[], SystemHTTPError>({
         path: `/api/v1/organizations/${id}/guidelines-history`,
         method: "GET",
@@ -10072,12 +9713,12 @@ export class Api<
      * @description List members of an organization
      *
      * @tags organizations
-     * @name V1OrganizationsMembersList
+     * @name V1OrganizationsMembersDetail
      * @summary List organization members
      * @request GET:/api/v1/organizations/{id}/members
      * @secure
      */
-    v1OrganizationsMembersList: (id: string, params: RequestParams = {}) =>
+    v1OrganizationsMembersDetail: (id: string, params: RequestParams = {}) =>
       this.request<TypesOrganizationMembership[], any>({
         path: `/api/v1/organizations/${id}/members`,
         method: "GET",
@@ -10109,6 +9750,23 @@ export class Api<
       }),
 
     /**
+     * @description Remove a member from an organization
+     *
+     * @tags organizations
+     * @name V1OrganizationsMembersDelete
+     * @summary Remove an organization member
+     * @request DELETE:/api/v1/organizations/{id}/members/{user_id}
+     * @secure
+     */
+    v1OrganizationsMembersDelete: (id: string, userId: string, params: RequestParams = {}) =>
+      this.request<void, any>({
+        path: `/api/v1/organizations/${id}/members/${userId}`,
+        method: "DELETE",
+        secure: true,
+        ...params,
+      }),
+
+    /**
      * @description Update a member's role in an organization
      *
      * @tags organizations
@@ -10133,36 +9791,15 @@ export class Api<
       }),
 
     /**
-     * @description Remove a member from an organization
-     *
-     * @tags organizations
-     * @name V1OrganizationsMembersDelete
-     * @summary Remove an organization member
-     * @request DELETE:/api/v1/organizations/{id}/members/{user_id}
-     * @secure
-     */
-    v1OrganizationsMembersDelete: (
-      id: string,
-      userId: string,
-      params: RequestParams = {},
-    ) =>
-      this.request<void, any>({
-        path: `/api/v1/organizations/${id}/members/${userId}`,
-        method: "DELETE",
-        secure: true,
-        ...params,
-      }),
-
-    /**
      * @description List all roles in an organization. Organization members can list roles.
      *
      * @tags organizations
-     * @name V1OrganizationsRolesList
+     * @name V1OrganizationsRolesDetail
      * @summary List roles in an organization
      * @request GET:/api/v1/organizations/{id}/roles
      * @secure
      */
-    v1OrganizationsRolesList: (id: string, params: RequestParams = {}) =>
+    v1OrganizationsRolesDetail: (id: string, params: RequestParams = {}) =>
       this.request<TypesRole[], any>({
         path: `/api/v1/organizations/${id}/roles`,
         method: "GET",
@@ -10174,12 +9811,12 @@ export class Api<
      * @description List all teams in an organization. Organization members can list teams.
      *
      * @tags organizations
-     * @name V1OrganizationsTeamsList
+     * @name V1OrganizationsTeamsDetail
      * @summary List teams in an organization
      * @request GET:/api/v1/organizations/{id}/teams
      * @secure
      */
-    v1OrganizationsTeamsList: (id: string, params: RequestParams = {}) =>
+    v1OrganizationsTeamsDetail: (id: string, params: RequestParams = {}) =>
       this.request<TypesTeam[], any>({
         path: `/api/v1/organizations/${id}/teams`,
         method: "GET",
@@ -10196,11 +9833,7 @@ export class Api<
      * @request POST:/api/v1/organizations/{id}/teams
      * @secure
      */
-    v1OrganizationsTeamsCreate: (
-      id: string,
-      request: TypesCreateTeamRequest,
-      params: RequestParams = {},
-    ) =>
+    v1OrganizationsTeamsCreate: (id: string, request: TypesCreateTeamRequest, params: RequestParams = {}) =>
       this.request<TypesTeam, any>({
         path: `/api/v1/organizations/${id}/teams`,
         method: "POST",
@@ -10208,6 +9841,23 @@ export class Api<
         secure: true,
         type: ContentType.Json,
         format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Delete a team from an organization. Only organization owners can delete teams.
+     *
+     * @tags organizations
+     * @name V1OrganizationsTeamsDelete
+     * @summary Delete a team
+     * @request DELETE:/api/v1/organizations/{id}/teams/{team_id}
+     * @secure
+     */
+    v1OrganizationsTeamsDelete: (id: string, teamId: string, params: RequestParams = {}) =>
+      this.request<void, any>({
+        path: `/api/v1/organizations/${id}/teams/${teamId}`,
+        method: "DELETE",
+        secure: true,
         ...params,
       }),
 
@@ -10237,40 +9887,15 @@ export class Api<
       }),
 
     /**
-     * @description Delete a team from an organization. Only organization owners can delete teams.
-     *
-     * @tags organizations
-     * @name V1OrganizationsTeamsDelete
-     * @summary Delete a team
-     * @request DELETE:/api/v1/organizations/{id}/teams/{team_id}
-     * @secure
-     */
-    v1OrganizationsTeamsDelete: (
-      id: string,
-      teamId: string,
-      params: RequestParams = {},
-    ) =>
-      this.request<void, any>({
-        path: `/api/v1/organizations/${id}/teams/${teamId}`,
-        method: "DELETE",
-        secure: true,
-        ...params,
-      }),
-
-    /**
      * @description List all members of a team.
      *
      * @tags organizations
-     * @name V1OrganizationsTeamsMembersList
+     * @name V1OrganizationsTeamsMembersDetail
      * @summary List members of a team
      * @request GET:/api/v1/organizations/{id}/teams/{team_id}/members
      * @secure
      */
-    v1OrganizationsTeamsMembersList: (
-      id: string,
-      teamId: string,
-      params: RequestParams = {},
-    ) =>
+    v1OrganizationsTeamsMembersDetail: (id: string, teamId: string, params: RequestParams = {}) =>
       this.request<TypesTeamMembership[], any>({
         path: `/api/v1/organizations/${id}/teams/${teamId}/members`,
         method: "GET",
@@ -10338,10 +9963,7 @@ export class Api<
      * @request POST:/api/v1/projects
      * @secure
      */
-    v1ProjectsCreate: (
-      request: TypesProjectCreateRequest,
-      params: RequestParams = {},
-    ) =>
+    v1ProjectsCreate: (request: TypesProjectCreateRequest, params: RequestParams = {}) =>
       this.request<TypesProject, SystemHTTPError>({
         path: `/api/v1/projects`,
         method: "POST",
@@ -10353,45 +9975,18 @@ export class Api<
       }),
 
     /**
-     * @description Idempotent upsert of a project from a declarative YAML spec
+     * @description Delete a project by ID
      *
      * @tags Projects
-     * @name V1ProjectsApplyUpdate
-     * @summary Apply a project YAML
-     * @request PUT:/api/v1/projects/apply
+     * @name V1ProjectsDelete
+     * @summary Delete project
+     * @request DELETE:/api/v1/projects/{id}
      * @secure
      */
-    v1ProjectsApplyUpdate: (
-      request: TypesProjectApplyRequest,
-      params: RequestParams = {},
-    ) =>
-      this.request<TypesProjectApplyResponse, SystemHTTPError>({
-        path: `/api/v1/projects/apply`,
-        method: "PUT",
-        body: request,
-        secure: true,
-        type: ContentType.Json,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Create a minimal project for a repository that doesn't have one
-     *
-     * @tags Projects
-     * @name V1ProjectsQuickCreateCreate
-     * @summary Quick-create a project for a repository
-     * @request POST:/api/v1/projects/quick-create
-     * @secure
-     */
-    v1ProjectsQuickCreateCreate: (
-      request: ServerQuickCreateProjectRequest,
-      params: RequestParams = {},
-    ) =>
-      this.request<TypesProject, TypesAPIError>({
-        path: `/api/v1/projects/quick-create`,
-        method: "POST",
-        body: request,
+    v1ProjectsDelete: (id: string, params: RequestParams = {}) =>
+      this.request<Record<string, string>, SystemHTTPError>({
+        path: `/api/v1/projects/${id}`,
+        method: "DELETE",
         secure: true,
         type: ContentType.Json,
         format: "json",
@@ -10426,11 +10021,7 @@ export class Api<
      * @request PUT:/api/v1/projects/{id}
      * @secure
      */
-    v1ProjectsUpdate: (
-      id: string,
-      request: TypesProjectUpdateRequest,
-      params: RequestParams = {},
-    ) =>
+    v1ProjectsUpdate: (id: string, request: TypesProjectUpdateRequest, params: RequestParams = {}) =>
       this.request<TypesProject, SystemHTTPError>({
         path: `/api/v1/projects/${id}`,
         method: "PUT",
@@ -10442,34 +10033,15 @@ export class Api<
       }),
 
     /**
-     * @description Delete a project by ID
-     *
-     * @tags Projects
-     * @name V1ProjectsDelete
-     * @summary Delete project
-     * @request DELETE:/api/v1/projects/{id}
-     * @secure
-     */
-    v1ProjectsDelete: (id: string, params: RequestParams = {}) =>
-      this.request<Record<string, string>, SystemHTTPError>({
-        path: `/api/v1/projects/${id}`,
-        method: "DELETE",
-        secure: true,
-        type: ContentType.Json,
-        format: "json",
-        ...params,
-      }),
-
-    /**
      * @description List access grants for a project (project owners and org owners can list access grants)
      *
      * @tags projects
-     * @name V1ProjectsAccessGrantsList
+     * @name V1ProjectsAccessGrantsDetail
      * @summary List project access grants
      * @request GET:/api/v1/projects/{id}/access-grants
      * @secure
      */
-    v1ProjectsAccessGrantsList: (id: string, params: RequestParams = {}) =>
+    v1ProjectsAccessGrantsDetail: (id: string, params: RequestParams = {}) =>
       this.request<TypesAccessGrant[], any>({
         path: `/api/v1/projects/${id}/access-grants`,
         method: "GET",
@@ -10486,11 +10058,7 @@ export class Api<
      * @request POST:/api/v1/projects/{id}/access-grants
      * @secure
      */
-    v1ProjectsAccessGrantsCreate: (
-      id: string,
-      request: TypesCreateAccessGrantRequest,
-      params: RequestParams = {},
-    ) =>
+    v1ProjectsAccessGrantsCreate: (id: string, request: TypesCreateAccessGrantRequest, params: RequestParams = {}) =>
       this.request<TypesAccessGrant, any>({
         path: `/api/v1/projects/${id}/access-grants`,
         method: "POST",
@@ -10504,12 +10072,12 @@ export class Api<
      * @description Get paginated audit logs for a project
      *
      * @tags Projects
-     * @name V1ProjectsAuditLogsList
+     * @name V1ProjectsAuditLogsDetail
      * @summary List project audit logs
      * @request GET:/api/v1/projects/{id}/audit-logs
      * @secure
      */
-    v1ProjectsAuditLogsList: (
+    v1ProjectsAuditLogsDetail: (
       id: string,
       query?: {
         /** Filter by event type */
@@ -10568,10 +10136,7 @@ export class Api<
      * @request POST:/api/v1/projects/{id}/docker-cache/build
      * @secure
      */
-    v1ProjectsDockerCacheBuildCreate: (
-      id: string,
-      params: RequestParams = {},
-    ) =>
+    v1ProjectsDockerCacheBuildCreate: (id: string, params: RequestParams = {}) =>
       this.request<Record<string, string>, SystemHTTPError>({
         path: `/api/v1/projects/${id}/docker-cache/build`,
         method: "POST",
@@ -10589,10 +10154,7 @@ export class Api<
      * @request POST:/api/v1/projects/{id}/docker-cache/cancel
      * @secure
      */
-    v1ProjectsDockerCacheCancelCreate: (
-      id: string,
-      params: RequestParams = {},
-    ) =>
+    v1ProjectsDockerCacheCancelCreate: (id: string, params: RequestParams = {}) =>
       this.request<Record<string, string>, SystemHTTPError>({
         path: `/api/v1/projects/${id}/docker-cache/cancel`,
         method: "POST",
@@ -10605,15 +10167,12 @@ export class Api<
      * @description Returns the ZFS snapshot and clone tree showing golden cache, snapshots, and active session clones.
      *
      * @tags projects
-     * @name V1ProjectsDockerCacheZfsTreeList
+     * @name V1ProjectsDockerCacheZfsTreeDetail
      * @summary Get ZFS snapshot/clone tree for project's Docker cache
      * @request GET:/api/v1/projects/{id}/docker-cache/zfs-tree
      * @secure
      */
-    v1ProjectsDockerCacheZfsTreeList: (
-      id: string,
-      params: RequestParams = {},
-    ) =>
+    v1ProjectsDockerCacheZfsTreeDetail: (id: string, params: RequestParams = {}) =>
       this.request<TypesZFSTree, any>({
         path: `/api/v1/projects/${id}/docker-cache/zfs-tree`,
         method: "GET",
@@ -10623,18 +10182,33 @@ export class Api<
       }),
 
     /**
+     * @description Stop the running exploratory session for a project (stops sandbox container, keeps session record)
+     *
+     * @tags Projects
+     * @name V1ProjectsExploratorySessionDelete
+     * @summary Stop project exploratory session
+     * @request DELETE:/api/v1/projects/{id}/exploratory-session
+     * @secure
+     */
+    v1ProjectsExploratorySessionDelete: (id: string, params: RequestParams = {}) =>
+      this.request<Record<string, string>, SystemHTTPError>({
+        path: `/api/v1/projects/${id}/exploratory-session`,
+        method: "DELETE",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Get the active exploratory session for a project (returns null if none exists)
      *
      * @tags Projects
-     * @name V1ProjectsExploratorySessionList
+     * @name V1ProjectsExploratorySessionDetail
      * @summary Get project exploratory session
      * @request GET:/api/v1/projects/{id}/exploratory-session
      * @secure
      */
-    v1ProjectsExploratorySessionList: (
-      id: string,
-      params: RequestParams = {},
-    ) =>
+    v1ProjectsExploratorySessionDetail: (id: string, params: RequestParams = {}) =>
       this.request<TypesSession, SystemHTTPError>({
         path: `/api/v1/projects/${id}/exploratory-session`,
         method: "GET",
@@ -10652,10 +10226,7 @@ export class Api<
      * @request POST:/api/v1/projects/{id}/exploratory-session
      * @secure
      */
-    v1ProjectsExploratorySessionCreate: (
-      id: string,
-      params: RequestParams = {},
-    ) =>
+    v1ProjectsExploratorySessionCreate: (id: string, params: RequestParams = {}) =>
       this.request<TypesSession, SystemHTTPError>({
         path: `/api/v1/projects/${id}/exploratory-session`,
         method: "POST",
@@ -10665,36 +10236,15 @@ export class Api<
       }),
 
     /**
-     * @description Stop the running exploratory session for a project (stops sandbox container, keeps session record)
-     *
-     * @tags Projects
-     * @name V1ProjectsExploratorySessionDelete
-     * @summary Stop project exploratory session
-     * @request DELETE:/api/v1/projects/{id}/exploratory-session
-     * @secure
-     */
-    v1ProjectsExploratorySessionDelete: (
-      id: string,
-      params: RequestParams = {},
-    ) =>
-      this.request<Record<string, string>, SystemHTTPError>({
-        path: `/api/v1/projects/${id}/exploratory-session`,
-        method: "DELETE",
-        secure: true,
-        format: "json",
-        ...params,
-      }),
-
-    /**
      * @description Get the version history of guidelines for a project
      *
      * @tags Projects
-     * @name V1ProjectsGuidelinesHistoryList
+     * @name V1ProjectsGuidelinesHistoryDetail
      * @summary Get project guidelines history
      * @request GET:/api/v1/projects/{id}/guidelines-history
      * @secure
      */
-    v1ProjectsGuidelinesHistoryList: (id: string, params: RequestParams = {}) =>
+    v1ProjectsGuidelinesHistoryDetail: (id: string, params: RequestParams = {}) =>
       this.request<TypesGuidelinesHistory[], SystemHTTPError>({
         path: `/api/v1/projects/${id}/guidelines-history`,
         method: "GET",
@@ -10713,11 +10263,7 @@ export class Api<
      * @request POST:/api/v1/projects/{id}/move
      * @secure
      */
-    v1ProjectsMoveCreate: (
-      id: string,
-      request: TypesMoveProjectRequest,
-      params: RequestParams = {},
-    ) =>
+    v1ProjectsMoveCreate: (id: string, request: TypesMoveProjectRequest, params: RequestParams = {}) =>
       this.request<TypesProject, SystemHTTPError>({
         path: `/api/v1/projects/${id}/move`,
         method: "POST",
@@ -10737,34 +10283,11 @@ export class Api<
      * @request POST:/api/v1/projects/{id}/move/preview
      * @secure
      */
-    v1ProjectsMovePreviewCreate: (
-      id: string,
-      request: TypesMoveProjectRequest,
-      params: RequestParams = {},
-    ) =>
+    v1ProjectsMovePreviewCreate: (id: string, request: TypesMoveProjectRequest, params: RequestParams = {}) =>
       this.request<TypesMoveProjectPreviewResponse, SystemHTTPError>({
         path: `/api/v1/projects/${id}/move/preview`,
         method: "POST",
         body: request,
-        secure: true,
-        type: ContentType.Json,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Pin a project for the current user so it appears at the top of the projects board
-     *
-     * @tags Projects
-     * @name V1ProjectsPinCreate
-     * @summary Pin a project
-     * @request POST:/api/v1/projects/{id}/pin
-     * @secure
-     */
-    v1ProjectsPinCreate: (id: string, params: RequestParams = {}) =>
-      this.request<ServerPinnedProjectsResponse, SystemHTTPError>({
-        path: `/api/v1/projects/${id}/pin`,
-        method: "POST",
         secure: true,
         type: ContentType.Json,
         format: "json",
@@ -10784,6 +10307,25 @@ export class Api<
       this.request<ServerPinnedProjectsResponse, SystemHTTPError>({
         path: `/api/v1/projects/${id}/pin`,
         method: "DELETE",
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Pin a project for the current user so it appears at the top of the projects board
+     *
+     * @tags Projects
+     * @name V1ProjectsPinCreate
+     * @summary Pin a project
+     * @request POST:/api/v1/projects/{id}/pin
+     * @secure
+     */
+    v1ProjectsPinCreate: (id: string, params: RequestParams = {}) =>
+      this.request<ServerPinnedProjectsResponse, SystemHTTPError>({
+        path: `/api/v1/projects/${id}/pin`,
+        method: "POST",
         secure: true,
         type: ContentType.Json,
         format: "json",
@@ -10818,11 +10360,7 @@ export class Api<
      * @request PUT:/api/v1/projects/{id}/repositories/{repo_id}/attach
      * @secure
      */
-    v1ProjectsRepositoriesAttachUpdate: (
-      id: string,
-      repoId: string,
-      params: RequestParams = {},
-    ) =>
+    v1ProjectsRepositoriesAttachUpdate: (id: string, repoId: string, params: RequestParams = {}) =>
       this.request<Record<string, string>, SystemHTTPError>({
         path: `/api/v1/projects/${id}/repositories/${repoId}/attach`,
         method: "PUT",
@@ -10841,11 +10379,7 @@ export class Api<
      * @request PUT:/api/v1/projects/{id}/repositories/{repo_id}/detach
      * @secure
      */
-    v1ProjectsRepositoriesDetachUpdate: (
-      id: string,
-      repoId: string,
-      params: RequestParams = {},
-    ) =>
+    v1ProjectsRepositoriesDetachUpdate: (id: string, repoId: string, params: RequestParams = {}) =>
       this.request<Record<string, string>, SystemHTTPError>({
         path: `/api/v1/projects/${id}/repositories/${repoId}/detach`,
         method: "PUT",
@@ -10864,11 +10398,7 @@ export class Api<
      * @request PUT:/api/v1/projects/{id}/repositories/{repo_id}/primary
      * @secure
      */
-    v1ProjectsRepositoriesPrimaryUpdate: (
-      id: string,
-      repoId: string,
-      params: RequestParams = {},
-    ) =>
+    v1ProjectsRepositoriesPrimaryUpdate: (id: string, repoId: string, params: RequestParams = {}) =>
       this.request<Record<string, string>, SystemHTTPError>({
         path: `/api/v1/projects/${id}/repositories/${repoId}/primary`,
         method: "PUT",
@@ -10882,12 +10412,12 @@ export class Api<
      * @description List all secrets associated with a specific project.
      *
      * @tags secrets
-     * @name V1ProjectsSecretsList
+     * @name V1ProjectsSecretsDetail
      * @summary List secrets for a project
      * @request GET:/api/v1/projects/{id}/secrets
      * @secure
      */
-    v1ProjectsSecretsList: (id: string, params: RequestParams = {}) =>
+    v1ProjectsSecretsDetail: (id: string, params: RequestParams = {}) =>
       this.request<TypesSecret[], any>({
         path: `/api/v1/projects/${id}/secrets`,
         method: "GET",
@@ -10904,11 +10434,7 @@ export class Api<
      * @request POST:/api/v1/projects/{id}/secrets
      * @secure
      */
-    v1ProjectsSecretsCreate: (
-      id: string,
-      request: TypesCreateSecretRequest,
-      params: RequestParams = {},
-    ) =>
+    v1ProjectsSecretsCreate: (id: string, request: TypesCreateSecretRequest, params: RequestParams = {}) =>
       this.request<TypesSecret, any>({
         path: `/api/v1/projects/${id}/secrets`,
         method: "POST",
@@ -10922,15 +10448,12 @@ export class Api<
      * @description Get git commit history for project startup script
      *
      * @tags Projects
-     * @name V1ProjectsStartupScriptHistoryList
+     * @name V1ProjectsStartupScriptHistoryDetail
      * @summary Get startup script version history
      * @request GET:/api/v1/projects/{id}/startup-script/history
      * @secure
      */
-    v1ProjectsStartupScriptHistoryList: (
-      id: string,
-      params: RequestParams = {},
-    ) =>
+    v1ProjectsStartupScriptHistoryDetail: (id: string, params: RequestParams = {}) =>
       this.request<ServicesStartupScriptVersion[], any>({
         path: `/api/v1/projects/${id}/startup-script/history`,
         method: "GET",
@@ -10942,11 +10465,11 @@ export class Api<
      * @description Get progress information for all spec-driven tasks in a project in a single request. This is more efficient than calling the individual progress endpoint for each task.
      *
      * @tags spec-driven-tasks
-     * @name V1ProjectsTasksProgressList
+     * @name V1ProjectsTasksProgressDetail
      * @summary Get progress for all tasks in a project
      * @request GET:/api/v1/projects/{id}/tasks-progress
      */
-    v1ProjectsTasksProgressList: (
+    v1ProjectsTasksProgressDetail: (
       id: string,
       query?: {
         /**
@@ -10969,11 +10492,11 @@ export class Api<
      * @description Get usage metrics for all spec-driven tasks in a project in a single request. This is more efficient than calling the individual usage endpoint for each task.
      *
      * @tags spec-driven-tasks
-     * @name V1ProjectsTasksUsageList
+     * @name V1ProjectsTasksUsageDetail
      * @summary Get usage for all tasks in a project
      * @request GET:/api/v1/projects/{id}/tasks-usage
      */
-    v1ProjectsTasksUsageList: (id: string, params: RequestParams = {}) =>
+    v1ProjectsTasksUsageDetail: (id: string, params: RequestParams = {}) =>
       this.request<ServerBatchTaskUsageResponse, TypesAPIError>({
         path: `/api/v1/projects/${id}/tasks-usage`,
         method: "GET",
@@ -10985,12 +10508,12 @@ export class Api<
      * @description Get token usage metrics for a project (combined across all tasks)
      *
      * @tags Projects
-     * @name V1ProjectsUsageList
+     * @name V1ProjectsUsageDetail
      * @summary Get project token usage
      * @request GET:/api/v1/projects/{id}/usage
      * @secure
      */
-    v1ProjectsUsageList: (
+    v1ProjectsUsageDetail: (
       id: string,
       query?: {
         /**
@@ -11019,14 +10542,54 @@ export class Api<
      * @description Returns a sorted list of unique labels across all spec tasks in a project
      *
      * @tags spec-driven-tasks
-     * @name V1ProjectsLabelsList
+     * @name V1ProjectsLabelsDetail
      * @summary List all labels used in a project
      * @request GET:/api/v1/projects/{projectId}/labels
      */
-    v1ProjectsLabelsList: (projectId: string, params: RequestParams = {}) =>
+    v1ProjectsLabelsDetail: (projectId: string, params: RequestParams = {}) =>
       this.request<string[], TypesAPIError>({
         path: `/api/v1/projects/${projectId}/labels`,
         method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Idempotent upsert of a project from a declarative YAML spec
+     *
+     * @tags Projects
+     * @name V1ProjectsApplyUpdate
+     * @summary Apply a project YAML
+     * @request PUT:/api/v1/projects/apply
+     * @secure
+     */
+    v1ProjectsApplyUpdate: (request: TypesProjectApplyRequest, params: RequestParams = {}) =>
+      this.request<TypesProjectApplyResponse, SystemHTTPError>({
+        path: `/api/v1/projects/apply`,
+        method: "PUT",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Create a minimal project for a repository that doesn't have one
+     *
+     * @tags Projects
+     * @name V1ProjectsQuickCreateCreate
+     * @summary Quick-create a project for a repository
+     * @request POST:/api/v1/projects/quick-create
+     * @secure
+     */
+    v1ProjectsQuickCreateCreate: (request: ServerQuickCreateProjectRequest, params: RequestParams = {}) =>
+      this.request<TypesProject, TypesAPIError>({
+        path: `/api/v1/projects/quick-create`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
         format: "json",
         ...params,
       }),
@@ -11059,6 +10622,65 @@ export class Api<
         path: `/api/v1/prompt-history`,
         method: "GET",
         query: query,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Pin or unpin a prompt for quick access
+     *
+     * @tags PromptHistory
+     * @name V1PromptHistoryPinUpdate
+     * @summary Update prompt pin status
+     * @request PUT:/api/v1/prompt-history/{id}/pin
+     * @secure
+     */
+    v1PromptHistoryPinUpdate: (id: string, request: ServerPromptPinRequest, params: RequestParams = {}) =>
+      this.request<Record<string, boolean>, SystemHTTPError>({
+        path: `/api/v1/prompt-history/${id}/pin`,
+        method: "PUT",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Update tags for a prompt
+     *
+     * @tags PromptHistory
+     * @name V1PromptHistoryTagsUpdate
+     * @summary Update prompt tags
+     * @request PUT:/api/v1/prompt-history/{id}/tags
+     * @secure
+     */
+    v1PromptHistoryTagsUpdate: (id: string, request: ServerPromptTagsRequest, params: RequestParams = {}) =>
+      this.request<Record<string, string>, SystemHTTPError>({
+        path: `/api/v1/prompt-history/${id}/tags`,
+        method: "PUT",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Increment usage count when a prompt is reused
+     *
+     * @tags PromptHistory
+     * @name V1PromptHistoryUseCreate
+     * @summary Increment prompt usage
+     * @request POST:/api/v1/prompt-history/{id}/use
+     * @secure
+     */
+    v1PromptHistoryUseCreate: (id: string, params: RequestParams = {}) =>
+      this.request<Record<string, boolean>, SystemHTTPError>({
+        path: `/api/v1/prompt-history/${id}/use`,
+        method: "POST",
         secure: true,
         type: ContentType.Json,
         format: "json",
@@ -11128,81 +10750,11 @@ export class Api<
      * @request POST:/api/v1/prompt-history/sync
      * @secure
      */
-    v1PromptHistorySyncCreate: (
-      request: TypesPromptHistorySyncRequest,
-      params: RequestParams = {},
-    ) =>
+    v1PromptHistorySyncCreate: (request: TypesPromptHistorySyncRequest, params: RequestParams = {}) =>
       this.request<TypesPromptHistorySyncResponse, SystemHTTPError>({
         path: `/api/v1/prompt-history/sync`,
         method: "POST",
         body: request,
-        secure: true,
-        type: ContentType.Json,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Pin or unpin a prompt for quick access
-     *
-     * @tags PromptHistory
-     * @name V1PromptHistoryPinUpdate
-     * @summary Update prompt pin status
-     * @request PUT:/api/v1/prompt-history/{id}/pin
-     * @secure
-     */
-    v1PromptHistoryPinUpdate: (
-      id: string,
-      request: ServerPromptPinRequest,
-      params: RequestParams = {},
-    ) =>
-      this.request<Record<string, boolean>, SystemHTTPError>({
-        path: `/api/v1/prompt-history/${id}/pin`,
-        method: "PUT",
-        body: request,
-        secure: true,
-        type: ContentType.Json,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Update tags for a prompt
-     *
-     * @tags PromptHistory
-     * @name V1PromptHistoryTagsUpdate
-     * @summary Update prompt tags
-     * @request PUT:/api/v1/prompt-history/{id}/tags
-     * @secure
-     */
-    v1PromptHistoryTagsUpdate: (
-      id: string,
-      request: ServerPromptTagsRequest,
-      params: RequestParams = {},
-    ) =>
-      this.request<Record<string, string>, SystemHTTPError>({
-        path: `/api/v1/prompt-history/${id}/tags`,
-        method: "PUT",
-        body: request,
-        secure: true,
-        type: ContentType.Json,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Increment usage count when a prompt is reused
-     *
-     * @tags PromptHistory
-     * @name V1PromptHistoryUseCreate
-     * @summary Increment prompt usage
-     * @request POST:/api/v1/prompt-history/{id}/use
-     * @secure
-     */
-    v1PromptHistoryUseCreate: (id: string, params: RequestParams = {}) =>
-      this.request<Record<string, boolean>, SystemHTTPError>({
-        path: `/api/v1/prompt-history/${id}/use`,
-        method: "POST",
         secure: true,
         type: ContentType.Json,
         format: "json",
@@ -11253,21 +10805,6 @@ export class Api<
     /**
      * No description
      *
-     * @name V1ProviderEndpointsUpdate
-     * @request PUT:/api/v1/provider-endpoints/{id}
-     * @secure
-     */
-    v1ProviderEndpointsUpdate: (id: string, params: RequestParams = {}) =>
-      this.request<TypesUpdateProviderEndpoint, any>({
-        path: `/api/v1/provider-endpoints/${id}`,
-        method: "PUT",
-        secure: true,
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
      * @name V1ProviderEndpointsDelete
      * @request DELETE:/api/v1/provider-endpoints/{id}
      * @secure
@@ -11281,15 +10818,30 @@ export class Api<
       }),
 
     /**
+     * No description
+     *
+     * @name V1ProviderEndpointsUpdate
+     * @request PUT:/api/v1/provider-endpoints/{id}
+     * @secure
+     */
+    v1ProviderEndpointsUpdate: (id: string, params: RequestParams = {}) =>
+      this.request<TypesUpdateProviderEndpoint, any>({
+        path: `/api/v1/provider-endpoints/${id}`,
+        method: "PUT",
+        secure: true,
+        ...params,
+      }),
+
+    /**
      * @description Get provider daily usage
      *
      * @tags providers
-     * @name V1ProviderEndpointsDailyUsageList
+     * @name V1ProviderEndpointsDailyUsageDetail
      * @summary Get provider daily usage
      * @request GET:/api/v1/provider-endpoints/{id}/daily-usage
      * @secure
      */
-    v1ProviderEndpointsDailyUsageList: (
+    v1ProviderEndpointsDailyUsageDetail: (
       id: string,
       query?: {
         /** Start date */
@@ -11313,12 +10865,12 @@ export class Api<
      * @description Get provider daily usage per user
      *
      * @tags providers
-     * @name V1ProviderEndpointsUsersDailyUsageList
+     * @name V1ProviderEndpointsUsersDailyUsageDetail
      * @summary Get provider daily usage per user
      * @request GET:/api/v1/provider-endpoints/{id}/users-daily-usage
      * @secure
      */
-    v1ProviderEndpointsUsersDailyUsageList: (
+    v1ProviderEndpointsUsersDailyUsageDetail: (
       id: string,
       query?: {
         /** Start date */
@@ -11387,10 +10939,7 @@ export class Api<
      * @request POST:/api/v1/question-sets
      * @secure
      */
-    v1QuestionSetsCreate: (
-      questionSet: TypesQuestionSet,
-      params: RequestParams = {},
-    ) =>
+    v1QuestionSetsCreate: (questionSet: TypesQuestionSet, params: RequestParams = {}) =>
       this.request<TypesQuestionSet, SystemHTTPError>({
         path: `/api/v1/question-sets`,
         method: "POST",
@@ -11398,6 +10947,23 @@ export class Api<
         secure: true,
         type: ContentType.Json,
         format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Delete a question set
+     *
+     * @tags question-sets
+     * @name V1QuestionSetsDelete
+     * @summary Delete a question set
+     * @request DELETE:/api/v1/question-sets/{id}
+     * @secure
+     */
+    v1QuestionSetsDelete: (id: string, params: RequestParams = {}) =>
+      this.request<void, SystemHTTPError>({
+        path: `/api/v1/question-sets/${id}`,
+        method: "DELETE",
+        secure: true,
         ...params,
       }),
 
@@ -11428,11 +10994,7 @@ export class Api<
      * @request PUT:/api/v1/question-sets/{id}
      * @secure
      */
-    v1QuestionSetsUpdate: (
-      id: string,
-      questionSet: TypesQuestionSet,
-      params: RequestParams = {},
-    ) =>
+    v1QuestionSetsUpdate: (id: string, questionSet: TypesQuestionSet, params: RequestParams = {}) =>
       this.request<TypesQuestionSet, SystemHTTPError>({
         path: `/api/v1/question-sets/${id}`,
         method: "PUT",
@@ -11444,32 +11006,15 @@ export class Api<
       }),
 
     /**
-     * @description Delete a question set
-     *
-     * @tags question-sets
-     * @name V1QuestionSetsDelete
-     * @summary Delete a question set
-     * @request DELETE:/api/v1/question-sets/{id}
-     * @secure
-     */
-    v1QuestionSetsDelete: (id: string, params: RequestParams = {}) =>
-      this.request<void, SystemHTTPError>({
-        path: `/api/v1/question-sets/${id}`,
-        method: "DELETE",
-        secure: true,
-        ...params,
-      }),
-
-    /**
      * @description List executions for the question set
      *
      * @tags question-sets
-     * @name V1QuestionSetsExecutionsList
+     * @name V1QuestionSetsExecutionsDetail
      * @summary List question set executions
      * @request GET:/api/v1/question-sets/{id}/executions
      * @secure
      */
-    v1QuestionSetsExecutionsList: (
+    v1QuestionSetsExecutionsDetail: (
       id: string,
       query?: {
         /** Offset */
@@ -11515,12 +11060,14 @@ export class Api<
      * @description Get results for a question set execution
      *
      * @tags question-sets
-     * @name V1QuestionSetsExecutionsDetail
+     * @name V1QuestionSetsExecutionsDetail2
      * @summary Get question set execution results
      * @request GET:/api/v1/question-sets/{question_set_id}/executions/{id}
+     * @originalName v1QuestionSetsExecutionsDetail
+     * @duplicate
      * @secure
      */
-    v1QuestionSetsExecutionsDetail: (
+    v1QuestionSetsExecutionsDetail2: (
       id: string,
       questionSetId: string,
       query?: {
@@ -11595,10 +11142,7 @@ export class Api<
      * @request POST:/api/v1/resource-search
      * @secure
      */
-    v1ResourceSearchCreate: (
-      request: TypesResourceSearchRequest,
-      params: RequestParams = {},
-    ) =>
+    v1ResourceSearchCreate: (request: TypesResourceSearchRequest, params: RequestParams = {}) =>
       this.request<TypesResourceSearchResponse, any>({
         path: `/api/v1/resource-search`,
         method: "POST",
@@ -11627,6 +11171,55 @@ export class Api<
       }),
 
     /**
+     * @description Get details of a specific sample project by ID
+     *
+     * @tags sample-projects
+     * @name V1SampleProjectsDetail
+     * @summary Get a specific sample project
+     * @request GET:/api/v1/sample-projects/{project_id}
+     * @secure
+     */
+    v1SampleProjectsDetail: (projectId: string, params: RequestParams = {}) =>
+      this.request<ServerSampleProject, any>({
+        path: `/api/v1/sample-projects/${projectId}`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Get all files for a sample project as a flat map (for container initialization)
+     *
+     * @tags sample-projects
+     * @name V1SampleProjectsArchiveDetail
+     * @summary Get sample project code as archive
+     * @request GET:/api/v1/sample-projects/{projectId}/archive
+     */
+    v1SampleProjectsArchiveDetail: (projectId: string, params: RequestParams = {}) =>
+      this.request<Record<string, string>, TypesAPIError>({
+        path: `/api/v1/sample-projects/${projectId}/archive`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Get the starter code and file structure for a sample project
+     *
+     * @tags sample-projects
+     * @name V1SampleProjectsCodeDetail
+     * @summary Get sample project starter code
+     * @request GET:/api/v1/sample-projects/{projectId}/code
+     */
+    v1SampleProjectsCodeDetail: (projectId: string, params: RequestParams = {}) =>
+      this.request<ServicesSampleProjectCode, TypesAPIError>({
+        path: `/api/v1/sample-projects/${projectId}/code`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Fork a sample project to the user's GitHub account and create a new Helix project
      *
      * @tags sample-projects
@@ -11635,10 +11228,7 @@ export class Api<
      * @request POST:/api/v1/sample-projects/fork
      * @secure
      */
-    v1SampleProjectsForkCreate: (
-      request: ServerForkSampleProjectRequest,
-      params: RequestParams = {},
-    ) =>
+    v1SampleProjectsForkCreate: (request: ServerForkSampleProjectRequest, params: RequestParams = {}) =>
       this.request<ServerForkSampleProjectResponse, any>({
         path: `/api/v1/sample-projects/fork`,
         method: "POST",
@@ -11697,10 +11287,7 @@ export class Api<
      * @request POST:/api/v1/sample-projects/simple/fork
      * @secure
      */
-    v1SampleProjectsSimpleForkCreate: (
-      request: TypesForkSimpleProjectRequest,
-      params: RequestParams = {},
-    ) =>
+    v1SampleProjectsSimpleForkCreate: (request: TypesForkSimpleProjectRequest, params: RequestParams = {}) =>
       this.request<TypesForkSimpleProjectResponse, any>({
         path: `/api/v1/sample-projects/simple/fork`,
         method: "POST",
@@ -11719,10 +11306,7 @@ export class Api<
      * @request POST:/api/v1/sample-projects/simple/fork-repos
      * @secure
      */
-    v1SampleProjectsSimpleForkReposCreate: (
-      request: TypesForkRepositoriesRequest,
-      params: RequestParams = {},
-    ) =>
+    v1SampleProjectsSimpleForkReposCreate: (request: TypesForkRepositoriesRequest, params: RequestParams = {}) =>
       this.request<TypesForkRepositoriesResponse, SystemHTTPError>({
         path: `/api/v1/sample-projects/simple/fork-repos`,
         method: "POST",
@@ -11730,58 +11314,6 @@ export class Api<
         secure: true,
         type: ContentType.Json,
         format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Get all files for a sample project as a flat map (for container initialization)
-     *
-     * @tags sample-projects
-     * @name V1SampleProjectsArchiveList
-     * @summary Get sample project code as archive
-     * @request GET:/api/v1/sample-projects/{projectId}/archive
-     */
-    v1SampleProjectsArchiveList: (
-      projectId: string,
-      params: RequestParams = {},
-    ) =>
-      this.request<Record<string, string>, TypesAPIError>({
-        path: `/api/v1/sample-projects/${projectId}/archive`,
-        method: "GET",
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Get the starter code and file structure for a sample project
-     *
-     * @tags sample-projects
-     * @name V1SampleProjectsCodeList
-     * @summary Get sample project starter code
-     * @request GET:/api/v1/sample-projects/{projectId}/code
-     */
-    v1SampleProjectsCodeList: (projectId: string, params: RequestParams = {}) =>
-      this.request<ServicesSampleProjectCode, TypesAPIError>({
-        path: `/api/v1/sample-projects/${projectId}/code`,
-        method: "GET",
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Get details of a specific sample project by ID
-     *
-     * @tags sample-projects
-     * @name V1SampleProjectsDetail
-     * @summary Get a specific sample project
-     * @request GET:/api/v1/sample-projects/{project_id}
-     * @secure
-     */
-    v1SampleProjectsDetail: (projectId: string, params: RequestParams = {}) =>
-      this.request<ServerSampleProject, any>({
-        path: `/api/v1/sample-projects/${projectId}`,
-        method: "GET",
-        secure: true,
         ...params,
       }),
 
@@ -11794,10 +11326,7 @@ export class Api<
      * @request POST:/api/v1/samples/initialize
      * @secure
      */
-    v1SamplesInitializeCreate: (
-      request: ServerInitializeSampleRepositoriesRequest,
-      params: RequestParams = {},
-    ) =>
+    v1SamplesInitializeCreate: (request: ServerInitializeSampleRepositoriesRequest, params: RequestParams = {}) =>
       this.request<ServerInitializeSampleRepositoriesResponse, TypesAPIError>({
         path: `/api/v1/samples/initialize`,
         method: "POST",
@@ -11817,10 +11346,7 @@ export class Api<
      * @request POST:/api/v1/samples/repositories
      * @secure
      */
-    v1SamplesRepositoriesCreate: (
-      request: TypesCreateSampleRepositoryRequest,
-      params: RequestParams = {},
-    ) =>
+    v1SamplesRepositoriesCreate: (request: TypesCreateSampleRepositoryRequest, params: RequestParams = {}) =>
       this.request<TypesGitRepository, TypesAPIError>({
         path: `/api/v1/samples/repositories`,
         method: "POST",
@@ -11848,27 +11374,6 @@ export class Api<
       }),
 
     /**
-     * @description Register a new sandbox or update an existing one
-     *
-     * @tags sandbox
-     * @name V1SandboxesRegisterCreate
-     * @summary Register a sandbox instance
-     * @request POST:/api/v1/sandboxes/register
-     */
-    v1SandboxesRegisterCreate: (
-      sandbox: TypesSandboxInstance,
-      params: RequestParams = {},
-    ) =>
-      this.request<TypesSandboxInstance, any>({
-        path: `/api/v1/sandboxes/register`,
-        method: "POST",
-        body: sandbox,
-        type: ContentType.Json,
-        format: "json",
-        ...params,
-      }),
-
-    /**
      * @description Remove a sandbox from the registry
      *
      * @tags sandbox
@@ -11887,15 +11392,11 @@ export class Api<
      * @description Get per-container disk I/O stats (write_bytes, read_bytes) from cgroup blkio counters
      *
      * @tags sandbox
-     * @name V1SandboxesContainersBlkioList
+     * @name V1SandboxesContainersBlkioDetail
      * @summary Get container blkio stats
      * @request GET:/api/v1/sandboxes/{id}/containers/{session_id}/blkio
      */
-    v1SandboxesContainersBlkioList: (
-      id: string,
-      sessionId: string,
-      params: RequestParams = {},
-    ) =>
+    v1SandboxesContainersBlkioDetail: (id: string, sessionId: string, params: RequestParams = {}) =>
       this.request<HydraContainerBlkioStats, any>({
         path: `/api/v1/sandboxes/${id}/containers/${sessionId}/blkio`,
         method: "GET",
@@ -11907,11 +11408,11 @@ export class Api<
      * @description Get disk usage history for trending and alerts
      *
      * @tags sandbox
-     * @name V1SandboxesDiskHistoryList
+     * @name V1SandboxesDiskHistoryDetail
      * @summary Get disk usage history
      * @request GET:/api/v1/sandboxes/{id}/disk-history
      */
-    v1SandboxesDiskHistoryList: (
+    v1SandboxesDiskHistoryDetail: (
       id: string,
       query?: {
         /** Since timestamp (RFC3339) */
@@ -11935,15 +11436,29 @@ export class Api<
      * @summary Update sandbox heartbeat
      * @request POST:/api/v1/sandboxes/{id}/heartbeat
      */
-    v1SandboxesHeartbeatCreate: (
-      id: string,
-      heartbeat: TypesSandboxHeartbeatRequest,
-      params: RequestParams = {},
-    ) =>
+    v1SandboxesHeartbeatCreate: (id: string, heartbeat: TypesSandboxHeartbeatRequest, params: RequestParams = {}) =>
       this.request<Record<string, string>, any>({
         path: `/api/v1/sandboxes/${id}/heartbeat`,
         method: "POST",
         body: heartbeat,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Register a new sandbox or update an existing one
+     *
+     * @tags sandbox
+     * @name V1SandboxesRegisterCreate
+     * @summary Register a sandbox instance
+     * @request POST:/api/v1/sandboxes/register
+     */
+    v1SandboxesRegisterCreate: (sandbox: TypesSandboxInstance, params: RequestParams = {}) =>
+      this.request<TypesSandboxInstance, any>({
+        path: `/api/v1/sandboxes/register`,
+        method: "POST",
+        body: sandbox,
         type: ContentType.Json,
         format: "json",
         ...params,
@@ -12035,29 +11550,6 @@ export class Api<
       }),
 
     /**
-     * @description Update an existing secret for the user.
-     *
-     * @tags secrets
-     * @name V1SecretsUpdate
-     * @summary Update an existing secret
-     * @request PUT:/api/v1/secrets/{id}
-     * @secure
-     */
-    v1SecretsUpdate: (
-      id: string,
-      request: TypesSecret,
-      params: RequestParams = {},
-    ) =>
-      this.request<TypesSecret, any>({
-        path: `/api/v1/secrets/${id}`,
-        method: "PUT",
-        body: request,
-        secure: true,
-        type: ContentType.Json,
-        ...params,
-      }),
-
-    /**
      * @description Delete a secret for the user.
      *
      * @tags secrets
@@ -12071,6 +11563,25 @@ export class Api<
         path: `/api/v1/secrets/${id}`,
         method: "DELETE",
         secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Update an existing secret for the user.
+     *
+     * @tags secrets
+     * @name V1SecretsUpdate
+     * @summary Update an existing secret
+     * @request PUT:/api/v1/secrets/{id}
+     * @secure
+     */
+    v1SecretsUpdate: (id: string, request: TypesSecret, params: RequestParams = {}) =>
+      this.request<TypesSecret, any>({
+        path: `/api/v1/secrets/${id}`,
+        method: "PUT",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
         ...params,
       }),
 
@@ -12108,10 +11619,7 @@ export class Api<
      * @request POST:/api/v1/service-connections
      * @secure
      */
-    v1ServiceConnectionsCreate: (
-      request: TypesServiceConnectionCreateRequest,
-      params: RequestParams = {},
-    ) =>
+    v1ServiceConnectionsCreate: (request: TypesServiceConnectionCreateRequest, params: RequestParams = {}) =>
       this.request<TypesServiceConnectionResponse, TypesAPIError>({
         path: `/api/v1/service-connections`,
         method: "POST",
@@ -12119,6 +11627,23 @@ export class Api<
         secure: true,
         type: ContentType.Json,
         format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Delete a service connection
+     *
+     * @tags service-connections
+     * @name V1ServiceConnectionsDelete
+     * @summary Delete service connection
+     * @request DELETE:/api/v1/service-connections/{id}
+     * @secure
+     */
+    v1ServiceConnectionsDelete: (id: string, params: RequestParams = {}) =>
+      this.request<void, TypesAPIError>({
+        path: `/api/v1/service-connections/${id}`,
+        method: "DELETE",
+        secure: true,
         ...params,
       }),
 
@@ -12161,23 +11686,6 @@ export class Api<
         secure: true,
         type: ContentType.Json,
         format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Delete a service connection
-     *
-     * @tags service-connections
-     * @name V1ServiceConnectionsDelete
-     * @summary Delete service connection
-     * @request DELETE:/api/v1/service-connections/{id}
-     * @secure
-     */
-    v1ServiceConnectionsDelete: (id: string, params: RequestParams = {}) =>
-      this.request<void, TypesAPIError>({
-        path: `/api/v1/service-connections/${id}`,
-        method: "DELETE",
-        secure: true,
         ...params,
       }),
 
@@ -12237,22 +11745,19 @@ export class Api<
       }),
 
     /**
-     * No description
+     * @description Delete a session by ID
      *
-     * @name V1SessionsChatCreate
-     * @request POST:/api/v1/sessions/chat
+     * @tags sessions
+     * @name V1SessionsDelete
+     * @summary Delete a session by ID
+     * @request DELETE:/api/v1/sessions/{id}
      * @secure
      */
-    v1SessionsChatCreate: (
-      request: TypesSessionChatRequest,
-      params: RequestParams = {},
-    ) =>
-      this.request<TypesOpenAIResponse, any>({
-        path: `/api/v1/sessions/chat`,
-        method: "POST",
-        body: request,
+    v1SessionsDelete: (id: string, params: RequestParams = {}) =>
+      this.request<TypesSession, any>({
+        path: `/api/v1/sessions/${id}`,
+        method: "DELETE",
         secure: true,
-        type: ContentType.Json,
         ...params,
       }),
 
@@ -12282,11 +11787,7 @@ export class Api<
      * @request PUT:/api/v1/sessions/{id}
      * @secure
      */
-    v1SessionsUpdate: (
-      id: string,
-      request: TypesSession,
-      params: RequestParams = {},
-    ) =>
+    v1SessionsUpdate: (id: string, request: TypesSession, params: RequestParams = {}) =>
       this.request<TypesSession, any>({
         path: `/api/v1/sessions/${id}`,
         method: "PUT",
@@ -12297,32 +11798,15 @@ export class Api<
       }),
 
     /**
-     * @description Delete a session by ID
-     *
-     * @tags sessions
-     * @name V1SessionsDelete
-     * @summary Delete a session by ID
-     * @request DELETE:/api/v1/sessions/{id}
-     * @secure
-     */
-    v1SessionsDelete: (id: string, params: RequestParams = {}) =>
-      this.request<TypesSession, any>({
-        path: `/api/v1/sessions/${id}`,
-        method: "DELETE",
-        secure: true,
-        ...params,
-      }),
-
-    /**
      * @description Get decrypted Claude credentials for use inside a desktop container. Only accepts runner/session-scoped tokens.
      *
      * @tags Claude
-     * @name V1SessionsClaudeCredentialsList
+     * @name V1SessionsClaudeCredentialsDetail
      * @summary Get Claude credentials for a session
      * @request GET:/api/v1/sessions/{id}/claude-credentials
      * @secure
      */
-    v1SessionsClaudeCredentialsList: (id: string, params: RequestParams = {}) =>
+    v1SessionsClaudeCredentialsDetail: (id: string, params: RequestParams = {}) =>
       this.request<ServerSessionClaudeCredentialsResponse, SystemHTTPError>({
         path: `/api/v1/sessions/${id}/claude-credentials`,
         method: "GET",
@@ -12340,11 +11824,7 @@ export class Api<
      * @request PUT:/api/v1/sessions/{id}/claude-credentials
      * @secure
      */
-    v1SessionsClaudeCredentialsUpdate: (
-      id: string,
-      body: TypesClaudeOAuthCredentials,
-      params: RequestParams = {},
-    ) =>
+    v1SessionsClaudeCredentialsUpdate: (id: string, body: TypesClaudeOAuthCredentials, params: RequestParams = {}) =>
       this.request<Record<string, string>, SystemHTTPError>({
         path: `/api/v1/sessions/${id}/claude-credentials`,
         method: "PUT",
@@ -12359,11 +11839,11 @@ export class Api<
      * @description Returns all ports currently exposed from the session's dev container
      *
      * @tags sessions
-     * @name V1SessionsExposeList
+     * @name V1SessionsExposeDetail
      * @summary List exposed ports for a session
      * @request GET:/api/v1/sessions/{id}/expose
      */
-    v1SessionsExposeList: (id: string, params: RequestParams = {}) =>
+    v1SessionsExposeDetail: (id: string, params: RequestParams = {}) =>
       this.request<ServerListExposedPortsResponse, string>({
         path: `/api/v1/sessions/${id}/expose`,
         method: "GET",
@@ -12379,11 +11859,7 @@ export class Api<
      * @summary Expose a port from the session's dev container
      * @request POST:/api/v1/sessions/{id}/expose
      */
-    v1SessionsExposeCreate: (
-      id: string,
-      request: ServerExposePortRequest,
-      params: RequestParams = {},
-    ) =>
+    v1SessionsExposeCreate: (id: string, request: ServerExposePortRequest, params: RequestParams = {}) =>
       this.request<ServerExposePortResponse, string>({
         path: `/api/v1/sessions/${id}/expose`,
         method: "POST",
@@ -12401,11 +11877,7 @@ export class Api<
      * @summary Unexpose a port from the session's dev container
      * @request DELETE:/api/v1/sessions/{id}/expose/{port}
      */
-    v1SessionsExposeDelete: (
-      id: string,
-      port: number,
-      params: RequestParams = {},
-    ) =>
+    v1SessionsExposeDelete: (id: string, port: number, params: RequestParams = {}) =>
       this.request<Record<string, string>, string>({
         path: `/api/v1/sessions/${id}/expose/${port}`,
         method: "DELETE",
@@ -12417,12 +11889,12 @@ export class Api<
      * @description List interactions for a session
      *
      * @tags interactions
-     * @name V1SessionsInteractionsList
+     * @name V1SessionsInteractionsDetail
      * @summary List interactions for a session
      * @request GET:/api/v1/sessions/{id}/interactions
      * @secure
      */
-    v1SessionsInteractionsList: (
+    v1SessionsInteractionsDetail: (
       id: string,
       query?: {
         /** Page number */
@@ -12445,16 +11917,14 @@ export class Api<
      * @description Get an interaction by ID
      *
      * @tags interactions
-     * @name V1SessionsInteractionsDetail
+     * @name V1SessionsInteractionsDetail2
      * @summary Get an interaction by ID
      * @request GET:/api/v1/sessions/{id}/interactions/{interaction_id}
+     * @originalName v1SessionsInteractionsDetail
+     * @duplicate
      * @secure
      */
-    v1SessionsInteractionsDetail: (
-      id: string,
-      interactionId: string,
-      params: RequestParams = {},
-    ) =>
+    v1SessionsInteractionsDetail2: (id: string, interactionId: string, params: RequestParams = {}) =>
       this.request<TypesInteraction, any>({
         path: `/api/v1/sessions/${id}/interactions/${interactionId}`,
         method: "GET",
@@ -12492,12 +11962,12 @@ export class Api<
      * @description Get streaming connection details for accessing a session
      *
      * @tags sessions
-     * @name V1SessionsRdpConnectionList
+     * @name V1SessionsRdpConnectionDetail
      * @summary Get streaming connection info for a session
      * @request GET:/api/v1/sessions/{id}/rdp-connection
      * @secure
      */
-    v1SessionsRdpConnectionList: (id: string, params: RequestParams = {}) =>
+    v1SessionsRdpConnectionDetail: (id: string, params: RequestParams = {}) =>
       this.request<Record<string, any>, any>({
         path: `/api/v1/sessions/${id}/rdp-connection`,
         method: "GET",
@@ -12526,12 +11996,12 @@ export class Api<
      * @description Returns the current sandbox state for an external agent session (absent/running/starting)
      *
      * @tags Sessions
-     * @name V1SessionsSandboxStateList
+     * @name V1SessionsSandboxStateDetail
      * @summary Get sandbox state for a session
      * @request GET:/api/v1/sessions/{id}/sandbox-state
      * @secure
      */
-    v1SessionsSandboxStateList: (id: string, params: RequestParams = {}) =>
+    v1SessionsSandboxStateDetail: (id: string, params: RequestParams = {}) =>
       this.request<ServerSessionSandboxStateResponse, SystemHTTPError>({
         path: `/api/v1/sessions/${id}/sandbox-state`,
         method: "GET",
@@ -12545,12 +12015,12 @@ export class Api<
      * @description Search for interactions within a session by content
      *
      * @tags Sessions
-     * @name V1SessionsSearchList
+     * @name V1SessionsSearchDetail
      * @summary Search session interactions
      * @request GET:/api/v1/sessions/{id}/search
      * @secure
      */
-    v1SessionsSearchList: (
+    v1SessionsSearchDetail: (
       id: string,
       query: {
         /** Search query */
@@ -12573,11 +12043,11 @@ export class Api<
     /**
      * No description
      *
-     * @name V1SessionsStepInfoList
+     * @name V1SessionsStepInfoDetail
      * @request GET:/api/v1/sessions/{id}/step-info
      * @secure
      */
-    v1SessionsStepInfoList: (id: string, params: RequestParams = {}) =>
+    v1SessionsStepInfoDetail: (id: string, params: RequestParams = {}) =>
       this.request<TypesStepInfo[], any>({
         path: `/api/v1/sessions/${id}/step-info`,
         method: "GET",
@@ -12594,10 +12064,7 @@ export class Api<
      * @request DELETE:/api/v1/sessions/{id}/stop-external-agent
      * @secure
      */
-    v1SessionsStopExternalAgentDelete: (
-      id: string,
-      params: RequestParams = {},
-    ) =>
+    v1SessionsStopExternalAgentDelete: (id: string, params: RequestParams = {}) =>
       this.request<Record<string, string>, SystemHTTPError>({
         path: `/api/v1/sessions/${id}/stop-external-agent`,
         method: "DELETE",
@@ -12610,12 +12077,12 @@ export class Api<
      * @description Returns a numbered list of interaction summaries for a session
      *
      * @tags Sessions
-     * @name V1SessionsTocList
+     * @name V1SessionsTocDetail
      * @summary Get session table of contents
      * @request GET:/api/v1/sessions/{id}/toc
      * @secure
      */
-    v1SessionsTocList: (id: string, params: RequestParams = {}) =>
+    v1SessionsTocDetail: (id: string, params: RequestParams = {}) =>
       this.request<ServerSessionTOCResponse, SystemHTTPError>({
         path: `/api/v1/sessions/${id}/toc`,
         method: "GET",
@@ -12634,11 +12101,7 @@ export class Api<
      * @request GET:/api/v1/sessions/{id}/turns/{turn}
      * @secure
      */
-    v1SessionsTurnsDetail: (
-      id: string,
-      turn: number,
-      params: RequestParams = {},
-    ) =>
+    v1SessionsTurnsDetail: (id: string, turn: number, params: RequestParams = {}) =>
       this.request<ServerInteractionWithContext, SystemHTTPError>({
         path: `/api/v1/sessions/${id}/turns/${turn}`,
         method: "GET",
@@ -12652,12 +12115,12 @@ export class Api<
      * @description Get Helix-managed Zed MCP configuration for a session
      *
      * @tags Zed
-     * @name V1SessionsZedConfigList
+     * @name V1SessionsZedConfigDetail
      * @summary Get Zed configuration
      * @request GET:/api/v1/sessions/{id}/zed-config
      * @secure
      */
-    v1SessionsZedConfigList: (id: string, params: RequestParams = {}) =>
+    v1SessionsZedConfigDetail: (id: string, params: RequestParams = {}) =>
       this.request<TypesZedConfigResponse, SystemHTTPError>({
         path: `/api/v1/sessions/${id}/zed-config`,
         method: "GET",
@@ -12676,11 +12139,7 @@ export class Api<
      * @request POST:/api/v1/sessions/{id}/zed-config/user
      * @secure
      */
-    v1SessionsZedConfigUserCreate: (
-      id: string,
-      overrides: Record<string, any>,
-      params: RequestParams = {},
-    ) =>
+    v1SessionsZedConfigUserCreate: (id: string, overrides: Record<string, any>, params: RequestParams = {}) =>
       this.request<Record<string, string>, SystemHTTPError>({
         path: `/api/v1/sessions/${id}/zed-config/user`,
         method: "POST",
@@ -12695,18 +12154,35 @@ export class Api<
      * @description Get merged Helix + user Zed settings for a session
      *
      * @tags Zed
-     * @name V1SessionsZedSettingsList
+     * @name V1SessionsZedSettingsDetail
      * @summary Get merged Zed settings
      * @request GET:/api/v1/sessions/{id}/zed-settings
      * @secure
      */
-    v1SessionsZedSettingsList: (id: string, params: RequestParams = {}) =>
+    v1SessionsZedSettingsDetail: (id: string, params: RequestParams = {}) =>
       this.request<Record<string, any>, SystemHTTPError>({
         path: `/api/v1/sessions/${id}/zed-settings`,
         method: "GET",
         secure: true,
         type: ContentType.Json,
         format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @name V1SessionsChatCreate
+     * @request POST:/api/v1/sessions/chat
+     * @secure
+     */
+    v1SessionsChatCreate: (request: TypesSessionChatRequest, params: RequestParams = {}) =>
+      this.request<TypesOpenAIResponse, any>({
+        path: `/api/v1/sessions/chat`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
         ...params,
       }),
 
@@ -12737,6 +12213,23 @@ export class Api<
       }),
 
     /**
+     * @description Get details of a specific YAML skill
+     *
+     * @tags skills
+     * @name V1SkillsDetail
+     * @summary Get a skill by ID
+     * @request GET:/api/v1/skills/{id}
+     * @secure
+     */
+    v1SkillsDetail: (id: string, params: RequestParams = {}) =>
+      this.request<TypesSkillDefinition, any>({
+        path: `/api/v1/skills/${id}`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
      * @description Reload all YAML skills from the filesystem
      *
      * @tags skills
@@ -12762,33 +12255,13 @@ export class Api<
      * @request POST:/api/v1/skills/validate
      * @secure
      */
-    v1SkillsValidateCreate: (
-      request: TypesAssistantMCP,
-      params: RequestParams = {},
-    ) =>
+    v1SkillsValidateCreate: (request: TypesAssistantMCP, params: RequestParams = {}) =>
       this.request<TypesToolMCPClientConfig, any>({
         path: `/api/v1/skills/validate`,
         method: "POST",
         body: request,
         secure: true,
         type: ContentType.Json,
-        ...params,
-      }),
-
-    /**
-     * @description Get details of a specific YAML skill
-     *
-     * @tags skills
-     * @name V1SkillsDetail
-     * @summary Get a skill by ID
-     * @request GET:/api/v1/skills/{id}
-     * @secure
-     */
-    v1SkillsDetail: (id: string, params: RequestParams = {}) =>
-      this.request<TypesSkillDefinition, any>({
-        path: `/api/v1/skills/${id}`,
-        method: "GET",
-        secure: true,
         ...params,
       }),
 
@@ -12859,77 +12332,15 @@ export class Api<
       }),
 
     /**
-     * @description Get the Kanban board settings (WIP limits) for the default project
-     *
-     * @tags spec-driven-tasks
-     * @name V1SpecTasksBoardSettingsList
-     * @summary Get board settings for spec tasks
-     * @request GET:/api/v1/spec-tasks/board-settings
-     * @secure
-     */
-    v1SpecTasksBoardSettingsList: (params: RequestParams = {}) =>
-      this.request<TypesBoardSettings, TypesAPIError>({
-        path: `/api/v1/spec-tasks/board-settings`,
-        method: "GET",
-        secure: true,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Update the Kanban board settings (WIP limits) for the default project
-     *
-     * @tags spec-driven-tasks
-     * @name V1SpecTasksBoardSettingsUpdate
-     * @summary Update board settings for spec tasks
-     * @request PUT:/api/v1/spec-tasks/board-settings
-     * @secure
-     */
-    v1SpecTasksBoardSettingsUpdate: (
-      request: TypesBoardSettings,
-      params: RequestParams = {},
-    ) =>
-      this.request<TypesBoardSettings, TypesAPIError>({
-        path: `/api/v1/spec-tasks/board-settings`,
-        method: "PUT",
-        body: request,
-        secure: true,
-        type: ContentType.Json,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Create a new task from a simple description and start spec generation
-     *
-     * @tags spec-driven-tasks
-     * @name V1SpecTasksFromPromptCreate
-     * @summary Create spec-driven task from simple prompt
-     * @request POST:/api/v1/spec-tasks/from-prompt
-     */
-    v1SpecTasksFromPromptCreate: (
-      request: TypesCreateTaskRequest,
-      params: RequestParams = {},
-    ) =>
-      this.request<TypesSpecTask, TypesAPIError>({
-        path: `/api/v1/spec-tasks/from-prompt`,
-        method: "POST",
-        body: request,
-        type: ContentType.Json,
-        format: "json",
-        ...params,
-      }),
-
-    /**
      * @description Get the design documents from helix-specs worktree
      *
      * @tags SpecTasks
-     * @name V1SpecTasksDesignDocsList
+     * @name V1SpecTasksDesignDocsDetail
      * @summary Get design docs for SpecTask
      * @request GET:/api/v1/spec-tasks/{id}/design-docs
      * @secure
      */
-    v1SpecTasksDesignDocsList: (id: string, params: RequestParams = {}) =>
+    v1SpecTasksDesignDocsDetail: (id: string, params: RequestParams = {}) =>
       this.request<ServerDesignDocsResponse, SystemHTTPError>({
         path: `/api/v1/spec-tasks/${id}/design-docs`,
         method: "GET",
@@ -12947,10 +12358,7 @@ export class Api<
      * @request POST:/api/v1/spec-tasks/{spec_task_id}/approve-implementation
      * @secure
      */
-    v1SpecTasksApproveImplementationCreate: (
-      specTaskId: string,
-      params: RequestParams = {},
-    ) =>
+    v1SpecTasksApproveImplementationCreate: (specTaskId: string, params: RequestParams = {}) =>
       this.request<TypesSpecTask, any>({
         path: `/api/v1/spec-tasks/${specTaskId}/approve-implementation`,
         method: "POST",
@@ -12962,15 +12370,12 @@ export class Api<
      * @description List all design reviews for a spec task
      *
      * @tags spec-tasks
-     * @name V1SpecTasksDesignReviewsList
+     * @name V1SpecTasksDesignReviewsDetail
      * @summary List design reviews
      * @request GET:/api/v1/spec-tasks/{spec_task_id}/design-reviews
      * @secure
      */
-    v1SpecTasksDesignReviewsList: (
-      specTaskId: string,
-      params: RequestParams = {},
-    ) =>
+    v1SpecTasksDesignReviewsDetail: (specTaskId: string, params: RequestParams = {}) =>
       this.request<TypesSpecTaskDesignReviewListResponse, TypesAPIError>({
         path: `/api/v1/spec-tasks/${specTaskId}/design-reviews`,
         method: "GET",
@@ -12983,16 +12388,14 @@ export class Api<
      * @description Get a specific design review for a spec task with comments and spec task details
      *
      * @tags SpecTasks
-     * @name V1SpecTasksDesignReviewsDetail
+     * @name V1SpecTasksDesignReviewsDetail2
      * @summary Get design review details
      * @request GET:/api/v1/spec-tasks/{spec_task_id}/design-reviews/{review_id}
+     * @originalName v1SpecTasksDesignReviewsDetail
+     * @duplicate
      * @secure
      */
-    v1SpecTasksDesignReviewsDetail: (
-      specTaskId: string,
-      reviewId: string,
-      params: RequestParams = {},
-    ) =>
+    v1SpecTasksDesignReviewsDetail2: (specTaskId: string, reviewId: string, params: RequestParams = {}) =>
       this.request<TypesSpecTaskDesignReviewDetailResponse, SystemHTTPError>({
         path: `/api/v1/spec-tasks/${specTaskId}/design-reviews/${reviewId}`,
         method: "GET",
@@ -13006,12 +12409,12 @@ export class Api<
      * @description Get the current comment being processed and the queue of pending comments for a review
      *
      * @tags SpecTasks
-     * @name V1SpecTasksDesignReviewsCommentQueueStatusList
+     * @name V1SpecTasksDesignReviewsCommentQueueStatusDetail
      * @summary Get comment queue status
      * @request GET:/api/v1/spec-tasks/{spec_task_id}/design-reviews/{review_id}/comment-queue-status
      * @secure
      */
-    v1SpecTasksDesignReviewsCommentQueueStatusList: (
+    v1SpecTasksDesignReviewsCommentQueueStatusDetail: (
       specTaskId: string,
       reviewId: string,
       params: RequestParams = {},
@@ -13029,20 +12432,13 @@ export class Api<
      * @description Get all comments for a specific design review
      *
      * @tags SpecTasks
-     * @name V1SpecTasksDesignReviewsCommentsList
+     * @name V1SpecTasksDesignReviewsCommentsDetail
      * @summary List design review comments
      * @request GET:/api/v1/spec-tasks/{spec_task_id}/design-reviews/{review_id}/comments
      * @secure
      */
-    v1SpecTasksDesignReviewsCommentsList: (
-      specTaskId: string,
-      reviewId: string,
-      params: RequestParams = {},
-    ) =>
-      this.request<
-        TypesSpecTaskDesignReviewCommentListResponse,
-        SystemHTTPError
-      >({
+    v1SpecTasksDesignReviewsCommentsDetail: (specTaskId: string, reviewId: string, params: RequestParams = {}) =>
+      this.request<TypesSpecTaskDesignReviewCommentListResponse, SystemHTTPError>({
         path: `/api/v1/spec-tasks/${specTaskId}/design-reviews/${reviewId}/comments`,
         method: "GET",
         secure: true,
@@ -13134,14 +12530,30 @@ export class Api<
      * @request POST:/api/v1/spec-tasks/{spec_task_id}/stop-agent
      * @secure
      */
-    v1SpecTasksStopAgentCreate: (
-      specTaskId: string,
-      params: RequestParams = {},
-    ) =>
+    v1SpecTasksStopAgentCreate: (specTaskId: string, params: RequestParams = {}) =>
       this.request<TypesSpecTask, any>({
         path: `/api/v1/spec-tasks/${specTaskId}/stop-agent`,
         method: "POST",
         secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Delete a spec task
+     *
+     * @tags spec-driven-tasks
+     * @name V1SpecTasksDelete
+     * @summary Delete a spec task
+     * @request DELETE:/api/v1/spec-tasks/{taskId}
+     * @secure
+     */
+    v1SpecTasksDelete: (taskId: string, params: RequestParams = {}) =>
+      this.request<TypesSpecTask, TypesAPIError>({
+        path: `/api/v1/spec-tasks/${taskId}`,
+        method: "DELETE",
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
         ...params,
       }),
 
@@ -13170,34 +12582,11 @@ export class Api<
      * @request PUT:/api/v1/spec-tasks/{taskId}
      * @secure
      */
-    v1SpecTasksUpdate: (
-      taskId: string,
-      request: TypesSpecTaskUpdateRequest,
-      params: RequestParams = {},
-    ) =>
+    v1SpecTasksUpdate: (taskId: string, request: TypesSpecTaskUpdateRequest, params: RequestParams = {}) =>
       this.request<TypesSpecTask, TypesAPIError>({
         path: `/api/v1/spec-tasks/${taskId}`,
         method: "PUT",
         body: request,
-        secure: true,
-        type: ContentType.Json,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Delete a spec task
-     *
-     * @tags spec-driven-tasks
-     * @name V1SpecTasksDelete
-     * @summary Delete a spec task
-     * @request DELETE:/api/v1/spec-tasks/{taskId}
-     * @secure
-     */
-    v1SpecTasksDelete: (taskId: string, params: RequestParams = {}) =>
-      this.request<TypesSpecTask, TypesAPIError>({
-        path: `/api/v1/spec-tasks/${taskId}`,
-        method: "DELETE",
         secure: true,
         type: ContentType.Json,
         format: "json",
@@ -13212,11 +12601,7 @@ export class Api<
      * @summary Approve or reject generated specifications
      * @request POST:/api/v1/spec-tasks/{taskId}/approve-specs
      */
-    v1SpecTasksApproveSpecsCreate: (
-      taskId: string,
-      request: TypesSpecApprovalResponse,
-      params: RequestParams = {},
-    ) =>
+    v1SpecTasksApproveSpecsCreate: (taskId: string, request: TypesSpecApprovalResponse, params: RequestParams = {}) =>
       this.request<TypesSpecTask, TypesAPIError>({
         path: `/api/v1/spec-tasks/${taskId}/approve-specs`,
         method: "POST",
@@ -13259,11 +12644,7 @@ export class Api<
      * @request POST:/api/v1/spec-tasks/{taskId}/clone
      * @secure
      */
-    v1SpecTasksCloneCreate: (
-      taskId: string,
-      request: TypesCloneTaskRequest,
-      params: RequestParams = {},
-    ) =>
+    v1SpecTasksCloneCreate: (taskId: string, request: TypesCloneTaskRequest, params: RequestParams = {}) =>
       this.request<TypesCloneTaskResponse, TypesAPIError>({
         path: `/api/v1/spec-tasks/${taskId}/clone`,
         method: "POST",
@@ -13278,12 +12659,12 @@ export class Api<
      * @description Get all clone groups where this task was the source
      *
      * @tags SpecTasks
-     * @name V1SpecTasksCloneGroupsList
+     * @name V1SpecTasksCloneGroupsDetail
      * @summary List clone groups for a task
      * @request GET:/api/v1/spec-tasks/{taskId}/clone-groups
      * @secure
      */
-    v1SpecTasksCloneGroupsList: (taskId: string, params: RequestParams = {}) =>
+    v1SpecTasksCloneGroupsDetail: (taskId: string, params: RequestParams = {}) =>
       this.request<TypesCloneGroup[], any>({
         path: `/api/v1/spec-tasks/${taskId}/clone-groups`,
         method: "GET",
@@ -13300,11 +12681,7 @@ export class Api<
      * @summary Add a label to a spec task
      * @request POST:/api/v1/spec-tasks/{taskId}/labels
      */
-    v1SpecTasksLabelsCreate: (
-      taskId: string,
-      request: ServerAddLabelRequest,
-      params: RequestParams = {},
-    ) =>
+    v1SpecTasksLabelsCreate: (taskId: string, request: ServerAddLabelRequest, params: RequestParams = {}) =>
       this.request<TypesSpecTask, TypesAPIError>({
         path: `/api/v1/spec-tasks/${taskId}/labels`,
         method: "POST",
@@ -13322,11 +12699,7 @@ export class Api<
      * @summary Remove a label from a spec task
      * @request DELETE:/api/v1/spec-tasks/{taskId}/labels/{label}
      */
-    v1SpecTasksLabelsDelete: (
-      taskId: string,
-      label: string,
-      params: RequestParams = {},
-    ) =>
+    v1SpecTasksLabelsDelete: (taskId: string, label: string, params: RequestParams = {}) =>
       this.request<TypesSpecTask, TypesAPIError>({
         path: `/api/v1/spec-tasks/${taskId}/labels/${label}`,
         method: "DELETE",
@@ -13338,11 +12711,11 @@ export class Api<
      * @description Get detailed progress information for a spec-driven task including specification and implementation phases
      *
      * @tags spec-driven-tasks
-     * @name V1SpecTasksProgressList
+     * @name V1SpecTasksProgressDetail
      * @summary Get spec-driven task progress
      * @request GET:/api/v1/spec-tasks/{taskId}/progress
      */
-    v1SpecTasksProgressList: (taskId: string, params: RequestParams = {}) =>
+    v1SpecTasksProgressDetail: (taskId: string, params: RequestParams = {}) =>
       this.request<ServerTaskProgressResponse, TypesAPIError>({
         path: `/api/v1/spec-tasks/${taskId}/progress`,
         method: "GET",
@@ -13354,11 +12727,11 @@ export class Api<
      * @description Get the generated specifications for human review
      *
      * @tags spec-driven-tasks
-     * @name V1SpecTasksSpecsList
+     * @name V1SpecTasksSpecsDetail
      * @summary Get task specifications for review
      * @request GET:/api/v1/spec-tasks/{taskId}/specs
      */
-    v1SpecTasksSpecsList: (taskId: string, params: RequestParams = {}) =>
+    v1SpecTasksSpecsDetail: (taskId: string, params: RequestParams = {}) =>
       this.request<ServerTaskSpecsResponse, TypesAPIError>({
         path: `/api/v1/spec-tasks/${taskId}/specs`,
         method: "GET",
@@ -13399,12 +12772,12 @@ export class Api<
      * @description Get spec task usage
      *
      * @tags spec-tasks
-     * @name V1SpecTasksUsageList
+     * @name V1SpecTasksUsageDetail
      * @summary Get spec task usage
      * @request GET:/api/v1/spec-tasks/{taskId}/usage
      * @secure
      */
-    v1SpecTasksUsageList: (
+    v1SpecTasksUsageDetail: (
       taskId: string,
       query?: {
         /** Start date */
@@ -13427,24 +12800,6 @@ export class Api<
       }),
 
     /**
-     * @description Get the current status and information about a Zed instance associated with a SpecTask
-     *
-     * @tags zed-integration
-     * @name V1SpecTasksZedInstanceList
-     * @summary Get Zed instance status for a SpecTask
-     * @request GET:/api/v1/spec-tasks/{taskId}/zed-instance
-     * @secure
-     */
-    v1SpecTasksZedInstanceList: (taskId: string, params: RequestParams = {}) =>
-      this.request<TypesZedInstanceStatus, TypesAPIError>({
-        path: `/api/v1/spec-tasks/${taskId}/zed-instance`,
-        method: "GET",
-        secure: true,
-        format: "json",
-        ...params,
-      }),
-
-    /**
      * @description Manually shutdown a Zed instance and all its threads for a SpecTask
      *
      * @tags zed-integration
@@ -13453,10 +12808,7 @@ export class Api<
      * @request DELETE:/api/v1/spec-tasks/{taskId}/zed-instance
      * @secure
      */
-    v1SpecTasksZedInstanceDelete: (
-      taskId: string,
-      params: RequestParams = {},
-    ) =>
+    v1SpecTasksZedInstanceDelete: (taskId: string, params: RequestParams = {}) =>
       this.request<Record<string, any>, TypesAPIError>({
         path: `/api/v1/spec-tasks/${taskId}/zed-instance`,
         method: "DELETE",
@@ -13467,19 +12819,93 @@ export class Api<
       }),
 
     /**
+     * @description Get the current status and information about a Zed instance associated with a SpecTask
+     *
+     * @tags zed-integration
+     * @name V1SpecTasksZedInstanceDetail
+     * @summary Get Zed instance status for a SpecTask
+     * @request GET:/api/v1/spec-tasks/{taskId}/zed-instance
+     * @secure
+     */
+    v1SpecTasksZedInstanceDetail: (taskId: string, params: RequestParams = {}) =>
+      this.request<TypesZedInstanceStatus, TypesAPIError>({
+        path: `/api/v1/spec-tasks/${taskId}/zed-instance`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Get all Zed threads associated with a SpecTask
      *
      * @tags zed-integration
-     * @name V1SpecTasksZedThreadsList
+     * @name V1SpecTasksZedThreadsDetail
      * @summary List Zed threads for a SpecTask
      * @request GET:/api/v1/spec-tasks/{taskId}/zed-threads
      * @secure
      */
-    v1SpecTasksZedThreadsList: (taskId: string, params: RequestParams = {}) =>
+    v1SpecTasksZedThreadsDetail: (taskId: string, params: RequestParams = {}) =>
       this.request<TypesSpecTaskZedThreadListResponse, TypesAPIError>({
         path: `/api/v1/spec-tasks/${taskId}/zed-threads`,
         method: "GET",
         secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Get the Kanban board settings (WIP limits) for the default project
+     *
+     * @tags spec-driven-tasks
+     * @name V1SpecTasksBoardSettingsList
+     * @summary Get board settings for spec tasks
+     * @request GET:/api/v1/spec-tasks/board-settings
+     * @secure
+     */
+    v1SpecTasksBoardSettingsList: (params: RequestParams = {}) =>
+      this.request<TypesBoardSettings, TypesAPIError>({
+        path: `/api/v1/spec-tasks/board-settings`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Update the Kanban board settings (WIP limits) for the default project
+     *
+     * @tags spec-driven-tasks
+     * @name V1SpecTasksBoardSettingsUpdate
+     * @summary Update board settings for spec tasks
+     * @request PUT:/api/v1/spec-tasks/board-settings
+     * @secure
+     */
+    v1SpecTasksBoardSettingsUpdate: (request: TypesBoardSettings, params: RequestParams = {}) =>
+      this.request<TypesBoardSettings, TypesAPIError>({
+        path: `/api/v1/spec-tasks/board-settings`,
+        method: "PUT",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Create a new task from a simple description and start spec generation
+     *
+     * @tags spec-driven-tasks
+     * @name V1SpecTasksFromPromptCreate
+     * @summary Create spec-driven task from simple prompt
+     * @request POST:/api/v1/spec-tasks/from-prompt
+     */
+    v1SpecTasksFromPromptCreate: (request: TypesCreateTaskRequest, params: RequestParams = {}) =>
+      this.request<TypesSpecTask, TypesAPIError>({
+        path: `/api/v1/spec-tasks/from-prompt`,
+        method: "POST",
+        body: request,
+        type: ContentType.Json,
         format: "json",
         ...params,
       }),
@@ -13578,10 +13004,7 @@ export class Api<
      * @request PUT:/api/v1/system/settings
      * @secure
      */
-    v1SystemSettingsUpdate: (
-      request: TypesSystemSettingsRequest,
-      params: RequestParams = {},
-    ) =>
+    v1SystemSettingsUpdate: (request: TypesSystemSettingsRequest, params: RequestParams = {}) =>
       this.request<TypesSystemSettingsResponse, string>({
         path: `/api/v1/system/settings`,
         method: "PUT",
@@ -13617,10 +13040,7 @@ export class Api<
      * @request POST:/api/v1/top-ups/new
      * @secure
      */
-    v1TopUpsNewCreate: (
-      request: ServerCreateTopUpRequest,
-      params: RequestParams = {},
-    ) =>
+    v1TopUpsNewCreate: (request: ServerCreateTopUpRequest, params: RequestParams = {}) =>
       this.request<string, any>({
         path: `/api/v1/top-ups/new`,
         method: "POST",
@@ -13665,39 +13085,12 @@ export class Api<
      * @request POST:/api/v1/triggers
      * @secure
      */
-    v1TriggersCreate: (
-      request: TypesTriggerConfiguration,
-      params: RequestParams = {},
-    ) =>
+    v1TriggersCreate: (request: TypesTriggerConfiguration, params: RequestParams = {}) =>
       this.request<TypesTriggerConfiguration, any>({
         path: `/api/v1/triggers`,
         method: "POST",
         body: request,
         secure: true,
-        type: ContentType.Json,
-        ...params,
-      }),
-
-    /**
-     * @description Update triggers for the app, for example to change the cron schedule or enable/disable the trigger
-     *
-     * @tags apps
-     * @name V1TriggersUpdate
-     * @summary Update app triggers
-     * @request PUT:/api/v1/triggers/{trigger_id}
-     * @secure
-     */
-    v1TriggersUpdate: (
-      triggerId: string,
-      request: TypesTriggerConfiguration,
-      params: RequestParams = {},
-    ) =>
-      this.request<TypesTriggerConfiguration, any>({
-        path: `/api/v1/triggers/${triggerId}`,
-        method: "PUT",
-        body: request,
-        secure: true,
-        type: ContentType.Json,
         ...params,
       }),
 
@@ -13714,6 +13107,24 @@ export class Api<
       this.request<TypesTriggerConfiguration, any>({
         path: `/api/v1/triggers/${triggerId}`,
         method: "DELETE",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Update triggers for the app, for example to change the cron schedule or enable/disable the trigger
+     *
+     * @tags apps
+     * @name V1TriggersUpdate
+     * @summary Update app triggers
+     * @request PUT:/api/v1/triggers/{trigger_id}
+     * @secure
+     */
+    v1TriggersUpdate: (triggerId: string, request: TypesTriggerConfiguration, params: RequestParams = {}) =>
+      this.request<TypesTriggerConfiguration, any>({
+        path: `/api/v1/triggers/${triggerId}`,
+        method: "PUT",
+        body: request,
         secure: true,
         ...params,
       }),
@@ -13739,12 +13150,12 @@ export class Api<
      * @description List executions for the trigger
      *
      * @tags apps
-     * @name V1TriggersExecutionsList
+     * @name V1TriggersExecutionsDetail
      * @summary List trigger executions
      * @request GET:/api/v1/triggers/{trigger_id}/executions
      * @secure
      */
-    v1TriggersExecutionsList: (
+    v1TriggersExecutionsDetail: (
       triggerId: string,
       query?: {
         /** Offset */
@@ -13845,10 +13256,7 @@ export class Api<
      * @request POST:/api/v1/users
      * @secure
      */
-    v1UsersCreate: (
-      request: TypesAdminCreateUserRequest,
-      params: RequestParams = {},
-    ) =>
+    v1UsersCreate: (request: TypesAdminCreateUserRequest, params: RequestParams = {}) =>
       this.request<TypesUser, any>({
         path: `/api/v1/users`,
         method: "POST",
@@ -13856,6 +13264,23 @@ export class Api<
         secure: true,
         type: ContentType.Json,
         format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Get user by ID
+     *
+     * @tags users
+     * @name V1UsersDetail
+     * @summary Get user details
+     * @request GET:/api/v1/users/{id}
+     * @secure
+     */
+    v1UsersDetail: (id: string, params: RequestParams = {}) =>
+      this.request<TypesUser, any>({
+        path: `/api/v1/users/${id}`,
+        method: "GET",
+        secure: true,
         ...params,
       }),
 
@@ -13886,10 +13311,7 @@ export class Api<
      * @request PUT:/api/v1/users/me/guidelines
      * @secure
      */
-    v1UsersMeGuidelinesUpdate: (
-      request: TypesUpdateUserGuidelinesRequest,
-      params: RequestParams = {},
-    ) =>
+    v1UsersMeGuidelinesUpdate: (request: TypesUpdateUserGuidelinesRequest, params: RequestParams = {}) =>
       this.request<TypesUserGuidelinesResponse, SystemHTTPError>({
         path: `/api/v1/users/me/guidelines`,
         method: "PUT",
@@ -14002,23 +13424,6 @@ export class Api<
       }),
 
     /**
-     * @description Get user by ID
-     *
-     * @tags users
-     * @name V1UsersDetail
-     * @summary Get user details
-     * @request GET:/api/v1/users/{id}
-     * @secure
-     */
-    v1UsersDetail: (id: string, params: RequestParams = {}) =>
-      this.request<TypesUser, any>({
-        path: `/api/v1/users/${id}`,
-        method: "GET",
-        secure: true,
-        ...params,
-      }),
-
-    /**
      * @description Get a wallet
      *
      * @tags wallets
@@ -14075,10 +13480,7 @@ export class Api<
      * @request POST:/api/v1/zed/events
      * @secure
      */
-    v1ZedEventsCreate: (
-      request: TypesZedInstanceEvent,
-      params: RequestParams = {},
-    ) =>
+    v1ZedEventsCreate: (request: TypesZedInstanceEvent, params: RequestParams = {}) =>
       this.request<Record<string, any>, TypesAPIError>({
         path: `/api/v1/zed/events`,
         method: "POST",
@@ -14098,11 +13500,7 @@ export class Api<
      * @request POST:/api/v1/zed/instances/{instanceId}/heartbeat
      * @secure
      */
-    v1ZedInstancesHeartbeatCreate: (
-      instanceId: string,
-      request: Record<string, any>,
-      params: RequestParams = {},
-    ) =>
+    v1ZedInstancesHeartbeatCreate: (instanceId: string, request: Record<string, any>, params: RequestParams = {}) =>
       this.request<Record<string, any>, TypesAPIError>({
         path: `/api/v1/zed/instances/${instanceId}/heartbeat`,
         method: "POST",
@@ -14147,11 +13545,7 @@ export class Api<
      * @request POST:/api/v1/zed/threads/{threadId}/activity
      * @secure
      */
-    v1ZedThreadsActivityCreate: (
-      threadId: string,
-      request: Record<string, any>,
-      params: RequestParams = {},
-    ) =>
+    v1ZedThreadsActivityCreate: (threadId: string, request: Record<string, any>, params: RequestParams = {}) =>
       this.request<TypesSpecTaskZedThread, TypesAPIError>({
         path: `/api/v1/zed/threads/${threadId}/activity`,
         method: "POST",
@@ -14172,10 +13566,7 @@ export class Api<
      * @request POST:/v1/chat/completions
      * @secure
      */
-    chatCompletionsCreate: (
-      request: OpenaiChatCompletionRequest,
-      params: RequestParams = {},
-    ) =>
+    chatCompletionsCreate: (request: OpenaiChatCompletionRequest, params: RequestParams = {}) =>
       this.request<OpenaiChatCompletionResponse, any>({
         path: `/v1/chat/completions`,
         method: "POST",
@@ -14194,10 +13585,7 @@ export class Api<
      * @request POST:/v1/embeddings
      * @secure
      */
-    embeddingsCreate: (
-      request: TypesFlexibleEmbeddingRequest,
-      params: RequestParams = {},
-    ) =>
+    embeddingsCreate: (request: TypesFlexibleEmbeddingRequest, params: RequestParams = {}) =>
       this.request<TypesFlexibleEmbeddingResponse, any>({
         path: `/v1/embeddings`,
         method: "POST",
