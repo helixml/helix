@@ -1006,6 +1006,13 @@ definitions:
         description: keyed by task_id
         type: object
     type: object
+  server.BatchTaskUsageMetric:
+    properties:
+      date:
+        type: string
+      total_tokens:
+        type: integer
+    type: object
   server.BatchTaskUsageResponse:
     properties:
       project_id:
@@ -1013,7 +1020,7 @@ definitions:
       tasks:
         additionalProperties:
           items:
-            $ref: '#/definitions/types.AggregatedUsageMetric'
+            $ref: '#/definitions/server.BatchTaskUsageMetric'
           type: array
         description: keyed by task_id
         type: object

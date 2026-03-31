@@ -17627,6 +17627,17 @@ const docTemplate = `{
                 }
             }
         },
+        "server.BatchTaskUsageMetric": {
+            "type": "object",
+            "properties": {
+                "date": {
+                    "type": "string"
+                },
+                "total_tokens": {
+                    "type": "integer"
+                }
+            }
+        },
         "server.BatchTaskUsageResponse": {
             "type": "object",
             "properties": {
@@ -17639,7 +17650,7 @@ const docTemplate = `{
                     "additionalProperties": {
                         "type": "array",
                         "items": {
-                            "$ref": "#/definitions/types.AggregatedUsageMetric"
+                            "$ref": "#/definitions/server.BatchTaskUsageMetric"
                         }
                     }
                 }

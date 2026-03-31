@@ -17623,6 +17623,17 @@
                 }
             }
         },
+        "server.BatchTaskUsageMetric": {
+            "type": "object",
+            "properties": {
+                "date": {
+                    "type": "string"
+                },
+                "total_tokens": {
+                    "type": "integer"
+                }
+            }
+        },
         "server.BatchTaskUsageResponse": {
             "type": "object",
             "properties": {
@@ -17635,7 +17646,7 @@
                     "additionalProperties": {
                         "type": "array",
                         "items": {
-                            "$ref": "#/definitions/types.AggregatedUsageMetric"
+                            "$ref": "#/definitions/server.BatchTaskUsageMetric"
                         }
                     }
                 }
