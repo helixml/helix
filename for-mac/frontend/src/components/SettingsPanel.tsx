@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { main } from '../../wailsjs/go/models';
 import { SaveSettings, GetSettings, ResizeDataDisk, GetAutoLoginURL, FactoryReset as FactoryResetGo, GetLANAddress, ValidateLicenseKey, GetLicenseStatus, CheckForUpdate, ApplyAppUpdate, ApplyVMUpdate, RedownloadVMImage, DownloadVMUpdate, StartCombinedUpdate, ApplyCombinedUpdate, CancelUpdate, CollectDiagnostics } from '../../wailsjs/go/main/App';
-import { BrowserOpenURL, ClipboardSetText } from '../../wailsjs/runtime/runtime';
+import { BrowserOpenURL } from '../../wailsjs/runtime/runtime';
 import { formatBytes } from '../lib/helpers';
 
 interface SettingsPanelProps {
@@ -203,14 +203,23 @@ export function SettingsPanel({
     }
   }
 
-  async function handleSubmitReport() {
-    const header = userDescription ? `Description:\n${userDescription}\n\n` : '';
-    const fullReport = `${header}Diagnostics:\n${diagnosticsReport}`;
-    await ClipboardSetText(fullReport);
-    const subject = encodeURIComponent('Helix Mac App - Bug Report');
-    const body = encodeURIComponent('(Diagnostics have been copied to your clipboard — paste them here)\n\n');
-    await BrowserOpenURL(`mailto:founders@helix.ml?subject=${subject}&body=${body}`);
-    showToast('Diagnostics copied to clipboard — paste into the email');
+  function openCrispWithDiagnostics() {
+    const win = window as any;
+    if (!win.$crisp || !win.CRISP_WEBSITE_ID) {
+      showToast('Live chat is not available - check your internet connection');
+      return;
+    }
+    const description = userDescription ? `Issue: ${userDescription}\n\n` : '';
+    // Crisp has a ~10k char limit per message; truncate diagnostics if needed
+    const maxLen = 9000 - description.length;
+    const truncatedDiag = diagnosticsReport.length > maxLen
+      ? diagnosticsReport.slice(0, maxLen) + '\n\n[truncated]'
+      : diagnosticsReport;
+    const message = `${description}Diagnostics:\n${truncatedDiag}`;
+    win.$crisp.push(['do', 'chat:show']);
+    win.$crisp.push(['do', 'chat:open']);
+    win.$crisp.push(['do', 'message:send', ['text', message]]);
+    showToast('Report sent - continue the conversation in the chat window');
     setReportDialogOpen(false);
   }
 
@@ -302,12 +311,12 @@ export function SettingsPanel({
                   />
                 </div>
                 <div style={{ fontSize: 11, color: 'var(--text-faded)' }}>
-                  Please review the diagnostic data above — it may contain sensitive information.
-                  Clicking "Send via Email" will copy it to your clipboard and open your email client.
+                  Please review the diagnostic data above -- it may contain sensitive information.
+                  Clicking "Send Report" will open a live chat with the Helix team and send the diagnostics.
                 </div>
                 <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
                   <button className="btn btn-secondary" onClick={() => setReportDialogOpen(false)}>Cancel</button>
-                  <button className="btn btn-primary" onClick={handleSubmitReport}>Send via Email</button>
+                  <button className="btn btn-primary" onClick={openCrispWithDiagnostics}>Send Report</button>
                 </div>
               </>
             )}
@@ -1016,7 +1025,7 @@ export function SettingsPanel({
             <div className="panel-section-title">Support</div>
             <div className="form-group">
               <div className="form-hint" style={{ marginBottom: 12 }}>
-                Collect diagnostic information and email it to the Helix team to report a bug.
+                Collect diagnostic information and send it to the Helix team via live chat.
               </div>
               <button className="btn btn-secondary" onClick={handleReportIssue}>
                 Report Issue
