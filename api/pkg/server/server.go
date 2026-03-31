@@ -76,6 +76,14 @@ type Options struct {
 	LocalFilestorePath string
 }
 
+// activeStreamProxy tracks a single active WebSocket proxy for deduplication.
+// When the same browser tab reconnects (same session + client_id), the previous
+// proxy is cancelled to prevent cascading duplicate connections.
+type activeStreamProxy struct {
+	proxySessionID string
+	cancel         context.CancelFunc
+}
+
 type HelixAPIServer struct {
 	Cfg                         *config.ServerConfig
 	Store                       store.Store
@@ -143,6 +151,9 @@ type HelixAPIServer struct {
 	syncEventHook              SyncEventHook // optional test hook, nil in production
 	startTime          time.Time              // when the server started, for grace periods
 	modelFetchGroup    singleflight.Group     // deduplicates concurrent getProviderModels calls per cache key
+	// WebSocket proxy deduplication - cancels superseded proxies for same session+client
+	activeStreamProxies   map[string]*activeStreamProxy
+	activeStreamProxiesMu sync.Mutex
 }
 
 func NewServer(
@@ -314,6 +325,7 @@ func NewServer(
 		requestToCommenterMapping:   make(map[string]string),
 		streamingContexts:           make(map[string]*streamingContext),
 		streamingRateLimiter:        make(map[string]time.Time),
+		activeStreamProxies:         make(map[string]*activeStreamProxy),
 		inferenceServer:             inferenceServer,
 		sessionManager:              auth.NewSessionManager(store, oidcClient, cfg),
 		providerManager:             providerManager,

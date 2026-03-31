@@ -50,6 +50,7 @@ func NewTestServer(s store.Store, ps pubsub.PubSub) *HelixAPIServer {
 		requestToCommenterMapping:   make(map[string]string),
 		streamingContexts:          make(map[string]*streamingContext),
 		streamingRateLimiter:        make(map[string]time.Time),
+		activeStreamProxies:         make(map[string]*activeStreamProxy),
 	}
 }
 
