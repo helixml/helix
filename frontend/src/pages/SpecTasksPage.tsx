@@ -666,36 +666,9 @@ const SpecTasksPage: FC = () => {
       orgBreadcrumbs={true}
       showDrawerButton={true}
       disableContentScroll={true}
-      topbarContent={
-        <Stack
-          direction="row"
-          spacing={2}
-          sx={{
-            justifyContent: "flex-end",
-            minWidth: 0,
-            alignItems: "center",
-          }}
-        >
-          {/* Invite / Share button */}
-          <Box
-            sx={{ display: { xs: "none", md: "flex" }, alignItems: "center" }}
-          >
-            <ProjectMembersBar
-              currentUser={account.user}
-              projectOwnerId={project?.user_id}
-              projectId={projectId || ""}
-              organizationId={project?.organization_id}
-              accessGrants={accessGrants}
-              inviteOpen={inviteOpen}
-              onOpenInvite={handleOpenInvite}
-              onCloseInvite={handleCloseInvite}
-              onCreateGrant={handleCreateAccessGrant}
-              onDeleteGrant={handleDeleteAccessGrant}
-            />
-          </Box>
-
-          {/* View mode toggle: Board vs Workspace vs Audit Trail */}
-          <Stack direction="row" spacing={0.5} sx={{ borderRadius: 1, p: 0.5 }}>
+      topbarLeftContent={
+        /* View mode toggle: Board vs Workspace vs Audit Trail */
+        <Stack direction="row" spacing={0.5} sx={{ borderRadius: 1.5, pl: 1.5, pr: 0.5, py: 0.5, bgcolor: 'rgba(255,255,255,0.06)' }}>
             <Tooltip
               title={
                 <Box sx={{ p: 0.5 }}>
@@ -833,6 +806,30 @@ const SpecTasksPage: FC = () => {
               </IconButton>
             </Tooltip>
           </Stack>
+      }
+      topbarContent={
+        <Stack
+          direction="row"
+          spacing={2}
+          sx={{ justifyContent: "flex-end", minWidth: 0, alignItems: "center" }}
+        >
+          {/* Invite / Share button */}
+          <Box
+            sx={{ display: { xs: "none", md: "flex" }, alignItems: "center" }}
+          >
+            <ProjectMembersBar
+              currentUser={account.user}
+              projectOwnerId={project?.user_id}
+              projectId={projectId || ""}
+              organizationId={project?.organization_id}
+              accessGrants={accessGrants}
+              inviteOpen={inviteOpen}
+              onOpenInvite={handleOpenInvite}
+              onCloseInvite={handleCloseInvite}
+              onCreateGrant={handleCreateAccessGrant}
+              onDeleteGrant={handleDeleteAccessGrant}
+            />
+          </Box>
 
           {/* Hide these buttons on mobile - they'll be in the floating menu */}
           <Box
