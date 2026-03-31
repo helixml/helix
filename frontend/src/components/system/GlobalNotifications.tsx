@@ -317,21 +317,40 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
     fireNotification,
   } = useBrowserNotifications()
 
-  // Fire browser notifications for genuinely new events
+  // Fire browser notifications for genuinely new events, grouped the same way
+  // the panel UI groups them — so specs_pushed + agent_interaction_completed
+  // for the same task produce a single notification, not two.
   useEffect(() => {
     if (!browserNotifEnabled || newEvents.length === 0) return
-    for (const event of newEvents) {
-      fireNotification(
-        event.id,
-        `Helix: ${event.title}`,
-        `${event.spec_task_name || ''} · ${event.project_name || ''}`,
-        () => {
-          account.orgNavigate('project-task-detail', {
-            id: event.project_id,
-            taskId: event.spec_task_id,
-          })
-        },
-      )
+    const groups = deduplicateGroupsByTask(groupEvents(newEvents))
+    for (const group of groups) {
+      if (group.kind === 'grouped') {
+        const { primary } = group
+        fireNotification(
+          primary.id,
+          'Helix: Spec ready & agent finished',
+          `${primary.spec_task_name || ''} · ${primary.project_name || ''}`,
+          () => {
+            account.orgNavigate('project-task-detail', {
+              id: primary.project_id,
+              taskId: primary.spec_task_id,
+            })
+          },
+        )
+      } else {
+        const { event } = group
+        fireNotification(
+          event.id,
+          `Helix: ${event.title}`,
+          `${event.spec_task_name || ''} · ${event.project_name || ''}`,
+          () => {
+            account.orgNavigate('project-task-detail', {
+              id: event.project_id,
+              taskId: event.spec_task_id,
+            })
+          },
+        )
+      }
     }
   }, [newEvents, browserNotifEnabled, fireNotification, account])
 
