@@ -156,6 +156,20 @@ func (c *ChatModel) Update(msg tea.Msg) tea.Cmd {
 		c.input.SetSending(false)
 		return nil
 
+	case tea.MouseMsg:
+		if msg.Button == tea.MouseButtonWheelUp {
+			if c.scrollOffset > 0 {
+				c.scrollOffset -= 3
+				if c.scrollOffset < 0 {
+					c.scrollOffset = 0
+				}
+			}
+		} else if msg.Button == tea.MouseButtonWheelDown {
+			c.scrollOffset += 3
+			c.clampScroll()
+		}
+		return nil
+
 	case tea.KeyMsg:
 		if !c.focused {
 			return nil
@@ -479,6 +493,7 @@ func (c *ChatModel) View() string {
 
 	parts := []string{header, messages}
 	if c.spinner != nil && c.agentBusy {
+		parts = append(parts, "")
 		parts = append(parts, c.spinner.View())
 	}
 	if slashCompletions != "" {
@@ -607,14 +622,37 @@ func (c *ChatModel) renderResponseEntry(entry wsprotocol.ResponseEntry, width in
 	case "tool_call":
 		return c.renderToolCallEntry(entry, width)
 	case "text":
+		content := collapseThinkingTags(entry.Content)
 		var lines []string
-		for _, line := range wrapText(entry.Content, width) {
+		for _, line := range wrapText(content, width) {
 			lines = append(lines, "  "+line)
 		}
 		return lines
 	default:
 		return []string{"  " + styleDim.Render(entry.Content)}
 	}
+}
+
+// collapseThinkingTags removes <think>...</think> and <thinking>...</thinking>
+// blocks from response text, replacing with a compact indicator.
+func collapseThinkingTags(text string) string {
+	for _, tag := range []string{"thinking", "think"} {
+		for {
+			open := strings.Index(text, "<"+tag+">")
+			if open < 0 {
+				break
+			}
+			close := strings.Index(text, "</"+tag+">")
+			if close < 0 {
+				// Unclosed tag — strip from open to end
+				text = text[:open]
+				break
+			}
+			closeEnd := close + len("</"+tag+">")
+			text = text[:open] + text[closeEnd:]
+		}
+	}
+	return strings.TrimSpace(text)
 }
 
 func (c *ChatModel) renderToolCallEntry(entry wsprotocol.ResponseEntry, width int) []string {

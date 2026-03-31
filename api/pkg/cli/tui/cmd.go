@@ -73,7 +73,7 @@ The mock server simulates:
 		defer cleanup()
 
 		m := NewApp(api, "")
-		p := tea.NewProgram(m, tea.WithAltScreen())
+		p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())
 		_, err := p.Run()
 		return err
 	},
@@ -107,7 +107,7 @@ func runTUI(cmd *cobra.Command, args []string) error {
 
 	api := NewAPIClient(apiClient)
 	m := NewApp(api, projectID)
-	p := tea.NewProgram(m, tea.WithAltScreen())
+	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())
 	_, err = p.Run()
 	return err
 }

@@ -543,7 +543,21 @@ func (a *App) handlePrefixedKey(key string) (tea.Model, tea.Cmd) {
 		return a, nil
 	}
 
-	// Directional pane nav (from tmux.conf)
+	// Directional pane nav (from tmux.conf + arrow keys)
+	switch key {
+	case "left":
+		a.cyclePaneFocus(false)
+		return a, nil
+	case "right":
+		a.cyclePaneFocus(true)
+		return a, nil
+	case "up":
+		a.cyclePaneFocus(false)
+		return a, nil
+	case "down":
+		a.cyclePaneFocus(true)
+		return a, nil
+	}
 	if a.tmux.PaneLeft != "" && key == a.tmux.PaneLeft {
 		a.cyclePaneFocus(false)
 		return a, nil
