@@ -96,6 +96,7 @@ type openTaskChatMsg struct {
 }
 
 type openNewTaskMsg struct{}
+type backToProjectsMsg struct{}
 
 func NewKanbanModel(api *APIClient, projectID string) *KanbanModel {
 	return &KanbanModel{
@@ -236,6 +237,8 @@ func (k *KanbanModel) Update(msg tea.Msg) tea.Cmd {
 			return k.fetchTasks()
 		case "n":
 			return func() tea.Msg { return openNewTaskMsg{} }
+		case "esc":
+			return func() tea.Msg { return backToProjectsMsg{} }
 		}
 	}
 	return nil
@@ -305,62 +308,72 @@ func (k *KanbanModel) renderColumn(col KanbanColumn, totalWidth, innerWidth, car
 	tasks := k.columns[col]
 	isFocusedCol := col == k.colIdx
 
-	// Column header
+	// Column header (rendered inside the box as first line)
 	headerColor := statusColor(col)
 	title := fmt.Sprintf("%s (%d)", col.Title(), len(tasks))
+	headerStyle := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(headerColor).
+		Width(innerWidth).
+		Align(lipgloss.Center)
+
+	var lines []string
+	lines = append(lines, headerStyle.Render(title))
+	lines = append(lines, styleDim.Render(strings.Repeat("─", innerWidth)))
 
 	// Build card content with scroll offset
 	offset := k.scrollOff[col]
-	var lines []string
+	visibleSlots := cardHeight - 2 // header + separator already take 2 lines
+	if visibleSlots < 1 {
+		visibleSlots = 1
+	}
 
-	end := offset + cardHeight
+	end := offset + visibleSlots
 	if end > len(tasks) {
 		end = len(tasks)
 	}
 
-	for i := offset; i < end; i++ {
+	// Scroll indicator (top)
+	if offset > 0 {
+		lines = append(lines, styleDim.Render(fmt.Sprintf("  ↑ %d above", offset)))
+		visibleSlots-- // takes a slot
+	}
+
+	for i := offset; i < end && len(lines) < cardHeight; i++ {
 		t := tasks[i]
 		isSelected := isFocusedCol && i == k.rowIdx[col]
 		lines = append(lines, k.renderCard(t, innerWidth, isSelected))
 	}
 
-	// Scroll indicators
-	if offset > 0 {
-		lines = append([]string{styleDim.Render(fmt.Sprintf("↑ %d above", offset))}, lines...)
-	}
+	// Scroll indicator (bottom)
 	remaining := len(tasks) - end
 	if remaining > 0 {
-		lines = append(lines, styleDim.Render(fmt.Sprintf("↓ %d below", remaining)))
+		lines = append(lines, styleDim.Render(fmt.Sprintf("  ↓ %d below", remaining)))
 	}
 
 	// Pad to fill height
 	for len(lines) < cardHeight {
 		lines = append(lines, "")
 	}
+	// Trim to exact height
+	if len(lines) > cardHeight {
+		lines = lines[:cardHeight]
+	}
 
 	content := strings.Join(lines, "\n")
 
-	// Render as bordered box with column header as title
+	// Render as bordered box
 	borderColor := colorBorder
 	if isFocusedCol {
 		borderColor = colorBorderFoc
 	}
 
-	box := lipgloss.NewStyle().
+	return lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(borderColor).
 		Width(innerWidth).
 		Height(cardHeight).
 		Render(content)
-
-	// Column header above the box
-	headerStyle := lipgloss.NewStyle().
-		Bold(isFocusedCol).
-		Foreground(headerColor).
-		Width(totalWidth).
-		Align(lipgloss.Center)
-
-	return headerStyle.Render(title) + "\n" + box
 }
 
 func (k *KanbanModel) renderCard(t *types.SpecTask, width int, selected bool) string {

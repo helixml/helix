@@ -201,6 +201,18 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.newTask = nil
 		return a, nil
 
+	case backToOrgsMsg:
+		a.mode = ModeOrgPicker
+		a.orgPicker = NewOrgPickerModel(a.api)
+		a.updateSizes()
+		return a, a.orgPicker.Init()
+
+	case backToProjectsMsg:
+		a.mode = ModePicker
+		a.picker = NewPickerModel(a.api, a.orgID)
+		a.updateSizes()
+		return a, a.picker.Init()
+
 	case openNewTaskMsg:
 		if a.kanban != nil {
 			a.newTask = NewNewTaskModel(a.api, a.kanban.projectID)
@@ -773,13 +785,13 @@ func (a *App) renderStatusBar() string {
 	case ModeOrgPicker:
 		help = "j/k: navigate  enter: select  q: quit"
 	case ModePicker:
-		help = "j/k: navigate  enter: select  q: quit"
+		help = "j/k: navigate  enter: select  esc: back  q: quit"
 	case ModeMain:
 		prefix := a.tmux.Prefix
 		if a.prefixNext {
 			help = fmt.Sprintf("[%s] waiting for command...", prefix)
 		} else if a.isOnKanbanTab() {
-			help = "h/l: column  j/k: task  enter: open  n: new task  r: refresh  q: quit"
+			help = "h/l: column  j/k: task  enter: open  n: new  r: refresh  esc: back  q: quit"
 		} else {
 			p := prefix
 			help = fmt.Sprintf("%s n/p: tabs  %s c: new  %s %s/%s: split  %s %s: close  esc: stop/clear",

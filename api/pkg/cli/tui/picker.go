@@ -28,6 +28,8 @@ type projectsLoadedMsg struct {
 	pinned   []string
 }
 
+type backToOrgsMsg struct{}
+
 type projectSelectedMsg struct {
 	project *types.Project
 }
@@ -124,6 +126,8 @@ func (p *PickerModel) Update(msg tea.Msg) tea.Cmd {
 					return projectSelectedMsg{project: proj}
 				}
 			}
+		case "esc":
+			return func() tea.Msg { return backToOrgsMsg{} }
 		}
 	}
 	return nil
