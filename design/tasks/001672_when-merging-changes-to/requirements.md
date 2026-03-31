@@ -10,6 +10,7 @@ As a developer merging changes to `zed` or `qwen-code`, I want a clear reminder 
 
 ## Acceptance Criteria
 
-- CLAUDE.md in the Helix repo contains an explicit reminder to update `sandbox-versions.txt` after merging changes to `zed` or `qwen-code` main branches.
+- CLAUDE.md in the Helix repo contains an explicit reminder: before merging a Zed or Qwen PR, first open a Helix PR to bump `sandbox-versions.txt`.
+- The reminder makes clear the required order: **open the Helix PR first**, then merge the Zed/Qwen PR, then merge the Helix PR.
+- The reason for this order is documented: if the Zed PR is merged first, the spec task system may mark the task done before the hash is actually bumped in Helix.
 - The reminder includes the correct format: `ZED_COMMIT=<hash>` / `QWEN_COMMIT=<hash>`.
-- The reminder is placed in a visible, logical location (e.g., the Build Pipeline or CI section).
