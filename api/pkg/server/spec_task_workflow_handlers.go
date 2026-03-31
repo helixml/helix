@@ -499,6 +499,19 @@ func (s *HelixAPIServer) ensurePullRequestForRepo(ctx context.Context, repo *typ
 				PRState:        string(pr.State),
 			}, nil
 		}
+		// If a PR was closed (not merged) on this branch, don't recreate it.
+		// The user closed it intentionally.
+		if branchMatches && pr.State == types.PullRequestStateClosed {
+			log.Info().Str("pr_id", pr.ID).Str("branch", branch).Str("repo_name", repo.Name).Msg("Pull request was closed, not recreating")
+			return &types.RepoPR{
+				RepositoryID:   repo.ID,
+				RepositoryName: repo.Name,
+				PRID:           pr.ID,
+				PRNumber:       pr.Number,
+				PRURL:          pr.URL,
+				PRState:        string(pr.State),
+			}, nil
+		}
 	}
 
 	// Try to get custom PR content from pull_request_<repo-name>.md or pull_request.md

@@ -1225,6 +1225,18 @@ func (s *GitHTTPServer) ensurePullRequest(ctx context.Context, repo *types.GitRe
 				Msg("Found and updated existing pull request")
 			return nil
 		}
+		// If a PR was closed (not merged) on this branch, don't recreate it.
+		// The user closed it intentionally.
+		if branchMatches && pr.State == types.PullRequestStateClosed {
+			s.updateRepoPullRequests(task, repo, pr.ID, pr.Number, pr.URL, string(pr.State))
+			task.UpdatedAt = time.Now()
+			s.store.UpdateSpecTask(ctx, task)
+			log.Info().
+				Str("pr_id", pr.ID).
+				Str("repo_id", repo.ID).
+				Msg("PR was closed on this branch, not recreating")
+			return nil
+		}
 	}
 
 	// No existing PR — create one
