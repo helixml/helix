@@ -28,7 +28,7 @@ The change is **frontend-only**. The backend comment queue is already designed t
 3. **Check desktop state** via `sandboxState` from `useSandboxState` (or session config):
    - If `running`: no change (step 4 as normal)
    - If `absent` + `planning_session_id` exists → call `v1SessionsResumeCreate(sessionId)` in parallel with comment creation
-   - If `absent` + no `planning_session_id` → call start-planning API in parallel with comment creation
+   - If no `planning_session_id`: no auto-start (a session must already exist to have a plan)
 4. `useCreateComment` mutation fires → comment stored in DB queue
 5. UI shows "Starting desktop..." toast/indicator alongside comment submission feedback
 6. Agent connects when desktop is ready → picks up queued comment
@@ -55,15 +55,11 @@ Option A is cleaner since the parent already owns this state. The parent passes 
 const handleEnsureDesktopRunning = async () => {
   if (sandboxState === "running" || sandboxState === "resumable") return; // already up
 
-  if (task.planning_session_id) {
-    // Resume stopped session
-    await api.getApiClient().v1SessionsResumeCreate(task.planning_session_id);
-    queryClient.invalidateQueries({ queryKey: GET_SESSION_QUERY_KEY(task.planning_session_id) });
-  } else {
-    // Start new planning session
-    await fetch(`/api/v1/spec-tasks/${task.id}/start-planning`, { method: "POST", ... });
-    queryClient.invalidateQueries({ queryKey: GET_SPEC_TASK_QUERY_KEY(task.id) });
-  }
+  if (!task.planning_session_id) return; // no session to resume
+
+  // Resume stopped session
+  await api.getApiClient().v1SessionsResumeCreate(task.planning_session_id);
+  queryClient.invalidateQueries({ queryKey: GET_SESSION_QUERY_KEY(task.planning_session_id) });
 };
 ```
 
