@@ -29,6 +29,7 @@ type ChatModel struct {
 	tmuxPrefix   string
 	projectName  string
 	showDetails  bool // ctrl+o toggles expanded tool call details
+	userStopped  bool // true after user pressed esc to stop — don't re-enable spinner
 
 	scrollOffset int
 	loading      bool
@@ -114,7 +115,7 @@ func (c *ChatModel) Update(msg tea.Msg) tea.Cmd {
 			c.scrollToBottom()
 
 			// Check if agent is still working
-			if len(c.interactions) > 0 {
+			if len(c.interactions) > 0 && !c.userStopped {
 				last := c.interactions[len(c.interactions)-1]
 				if last.State == types.InteractionStateWaiting {
 					c.agentBusy = true
@@ -126,6 +127,7 @@ func (c *ChatModel) Update(msg tea.Msg) tea.Cmd {
 			c.agentBusy = false
 			c.input.SetAgentBusy(false)
 			c.spinner = nil
+			c.userStopped = false // reset for next interaction
 		} else if c.agentBusy {
 			// Still waiting — keep polling
 			return c.pollInteractions()
@@ -279,6 +281,7 @@ func (c *ChatModel) Update(msg tea.Msg) tea.Cmd {
 				c.agentBusy = false
 				c.spinner = nil
 				c.input.SetAgentBusy(false)
+				c.userStopped = true
 				return c.stopAgent()
 			}
 			// Agent idle, input empty — signal to go back to kanban
@@ -304,6 +307,7 @@ func (c *ChatModel) sendPrompt(interrupt bool) tea.Cmd {
 	c.input.Clear()
 	c.sending = true
 	c.input.SetSending(true)
+	c.userStopped = false
 
 	task := c.task
 	sessionID := c.sessionID
