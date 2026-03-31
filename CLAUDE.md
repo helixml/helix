@@ -41,7 +41,7 @@
 
 ### Hot Reloading
 - **API**: Air auto-rebuilds Go changes
-- **Frontend**: Vite HMR (dev mode) or `yarn build` + refresh (prod mode)
+- **Frontend**: Vite HMR (dev mode) or `yarn build` + refresh (prod mode). The `helix-frontend-1` container runs Vite dev server on **port 8081** — changes to `frontend/src/` are live immediately, no rebuild needed. The main app at port 8080 proxies to it.
 - **Settings-sync-daemon**: does NOT hot reload — requires `./stack build-ubuntu` + new session
 
 ### Production Frontend Mode

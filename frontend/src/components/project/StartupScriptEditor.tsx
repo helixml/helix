@@ -17,6 +17,7 @@ import {
   DialogContent,
   DialogActions,
   CircularProgress,
+  Alert,
 } from '@mui/material'
 import {
   History as HistoryIcon,
@@ -24,6 +25,7 @@ import {
   PlayArrow as TestIcon,
   Close as CloseIcon,
   CompareArrows as DiffIcon,
+  Lock as LockIcon,
 } from '@mui/icons-material'
 import MonacoEditor from '../widgets/MonacoEditor'
 import { useGetStartupScriptHistory } from '../../services/projectService'
@@ -46,6 +48,7 @@ interface StartupScriptEditorProps {
   testLoading?: boolean // Show loading spinner on Test Script button
   testTooltip?: string // Optional tooltip for Test Script button
   projectId: string
+  readOnly?: boolean // When true, script is controlled by YAML and cannot be edited
 }
 
 const StartupScriptEditor: FC<StartupScriptEditorProps> = ({
@@ -57,6 +60,7 @@ const StartupScriptEditor: FC<StartupScriptEditorProps> = ({
   testLoading,
   testTooltip,
   projectId,
+  readOnly = false,
 }) => {
   const [showHistory, setShowHistory] = useState(false)
   const [selectedVersion, setSelectedVersion] = useState<StartupScriptVersion | null>(null)
@@ -97,6 +101,18 @@ const StartupScriptEditor: FC<StartupScriptEditorProps> = ({
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      {/* Read-only notice when controlled by YAML */}
+      {readOnly && (
+        <Alert 
+          severity="info" 
+          icon={<LockIcon />}
+          sx={{ mb: 2 }}
+        >
+          This startup script is controlled by the project YAML file and cannot be edited here.
+          To modify it, update the <code>startup.script</code> field in your project YAML and run <code>helix apply</code>.
+        </Alert>
+      )}
+
       {/* Toolbar - stays at top, doesn't move */}
       <Box sx={{
         display: 'flex',
@@ -154,15 +170,16 @@ const StartupScriptEditor: FC<StartupScriptEditorProps> = ({
         <Box sx={{ flex: 1, minWidth: 0 }}>
           <MonacoEditor
             value={value}
-            onChange={onChange}
+            onChange={readOnly ? () => {} : onChange}
             language="shell"
             height={400}
             minHeight={300}
             maxHeight={600}
             autoHeight={true}
-            onSave={onSave}
+            onSave={readOnly ? undefined : onSave}
             onTest={onTest}
-            onBlur={onSave}
+            onBlur={readOnly ? undefined : onSave}
+            readOnly={readOnly}
           />
         </Box>
 
@@ -217,15 +234,17 @@ const StartupScriptEditor: FC<StartupScriptEditorProps> = ({
                             <DiffIcon fontSize="small" />
                           </IconButton>
                         </Tooltip>
-                        <Tooltip title="Restore this version">
-                          <IconButton
-                            edge="end"
-                            size="small"
-                            onClick={() => handleRestoreVersion(version)}
-                          >
-                            <RestoreIcon fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
+                        {!readOnly && (
+                          <Tooltip title="Restore this version">
+                            <IconButton
+                              edge="end"
+                              size="small"
+                              onClick={() => handleRestoreVersion(version)}
+                            >
+                              <RestoreIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                        )}
                       </Box>
                     )
                   }
@@ -318,16 +337,18 @@ const StartupScriptEditor: FC<StartupScriptEditorProps> = ({
           </DialogContent>
           <DialogActions>
             <Button onClick={() => setDiffDialogOpen(false)}>Close</Button>
-            <Button
-              variant="contained"
-              startIcon={<RestoreIcon />}
-              onClick={() => {
-                handleRestoreVersion(selectedVersion)
-                setDiffDialogOpen(false)
-              }}
-            >
-              Restore This Version
-            </Button>
+            {!readOnly && (
+              <Button
+                variant="contained"
+                startIcon={<RestoreIcon />}
+                onClick={() => {
+                  handleRestoreVersion(selectedVersion)
+                  setDiffDialogOpen(false)
+                }}
+              >
+                Restore This Version
+              </Button>
+            )}
           </DialogActions>
         </Dialog>
       )}

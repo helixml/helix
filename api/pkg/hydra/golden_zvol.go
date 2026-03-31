@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
 
@@ -255,24 +256,10 @@ func zfsSnapshotExists(name string) bool {
 	return execCmdRun("zfs", "list", "-H", "-t", "snapshot", "-o", "name", name) == nil
 }
 
-// ZFSTreeNode represents a node in the ZFS snapshot/clone tree.
-type ZFSTreeNode struct {
-	Name      string         `json:"name"`
-	Type      string         `json:"type"` // "golden", "snapshot", "clone"
-	Used      string         `json:"used"`
-	Refer     string         `json:"refer"`
-	Mounted   bool           `json:"mounted,omitempty"`
-	SessionID string         `json:"session_id,omitempty"`
-	Children  []*ZFSTreeNode `json:"children,omitempty"`
-}
-
-// ZFSTree is the full tree for a project's golden cache.
-type ZFSTree struct {
-	Available bool           `json:"available"`
-	PoolRoot  string         `json:"pool_root,omitempty"`
-	Golden    *ZFSTreeNode   `json:"golden,omitempty"`
-	Orphans   []*ZFSTreeNode `json:"orphans,omitempty"` // session zvols not cloned from this golden
-}
+// ZFSTree and ZFSTreeNode are defined in types package.
+// Aliases for backward compatibility within hydra package.
+type ZFSTree = types.ZFSTree
+type ZFSTreeNode = types.ZFSTreeNode
 
 // GetZFSTree returns the ZFS snapshot and clone tree for a project's golden cache.
 func GetZFSTree(projectID string) (*ZFSTree, error) {
@@ -434,8 +421,9 @@ func SetupGoldenClone(projectID, sessionID string) (string, error) {
 				Msg("Reusing existing ZFS clone (session restart)")
 			return mountPath, nil
 		}
-		// Clone exists but not mounted — mount it
-		if err := mountZvol(cloneName, mountPath); err != nil {
+		// Clone exists but not mounted (e.g. after reboot) — mount with nouuid
+		// because the clone shares the golden's XFS UUID.
+		if err := mountZvolWithOptions(cloneName, mountPath, "nouuid"); err != nil {
 			return "", fmt.Errorf("failed to mount existing clone %s: %w", cloneName, err)
 		}
 		log.Info().
@@ -766,19 +754,39 @@ func GCOrphanedZvols(activeSessions map[string]bool) (int, error) {
 		}
 		sessionID := strings.TrimPrefix(name, prefix)
 		if activeSessions[sessionID] {
+			// Refresh the external marker so that if Hydra crashes or the
+			// session runs for weeks, the marker stays fresh and GC won't
+			// destroy the zvol after the next restart.
+			externalDir := filepath.Join(sessionsBaseDir, "docker-data-"+sessionID)
+			_ = os.MkdirAll(externalDir, 0755)
+			TouchSessionLastActive(externalDir)
 			continue
 		}
 
-		// Check .last-active marker on the mounted filesystem
-		mountPath := sessionZvolMountPath(sessionID)
-		if isMounted(mountPath) {
-			marker := filepath.Join(mountPath, ".last-active")
-			data, err := os.ReadFile(marker)
-			if err == nil {
-				t, err := time.Parse(time.RFC3339, string(data))
-				if err == nil && time.Since(t) < 7*24*time.Hour {
-					continue // still recent, keep it
+		// Check .last-active marker on the external filesystem (not inside
+		// the zvol). The marker lives at /container-docker/sessions/docker-data-{sessionID}/
+		// which is on the parent ZFS dataset, readable without mounting the XFS zvol.
+		externalDir := filepath.Join(sessionsBaseDir, "docker-data-"+sessionID)
+		age := sessionLastActiveAge(externalDir)
+		if age > 0 && age < 7*24*time.Hour {
+			continue // recently active, keep it
+		}
+		if age == 0 {
+			// No marker — session predates marker feature or was never
+			// cleanly stopped. Check inside the zvol as a fallback.
+			mountPath := sessionZvolMountPath(sessionID)
+			if isMounted(mountPath) {
+				innerAge := sessionLastActiveAge(mountPath)
+				if innerAge > 0 && innerAge < 7*24*time.Hour {
+					continue
 				}
+				if innerAge == 0 {
+					// No marker anywhere — don't GC, it'll get one next stop.
+					continue
+				}
+			} else {
+				// Not mounted, no external marker — don't GC.
+				continue
 			}
 		}
 
@@ -1006,6 +1014,9 @@ func purgeContainerDirs(dockerDir string) {
 		os.RemoveAll(filepath.Join(dockerDir, dir))
 	}
 	os.Remove(filepath.Join(dockerDir, ".golden-build-result"))
+
+	// Prune unreferenced overlay2 layers left behind by previous image builds.
+	pruneUnreferencedOverlay2Layers(dockerDir)
 }
 
 const seedCompleteMarker = ".zvol-seed-complete"

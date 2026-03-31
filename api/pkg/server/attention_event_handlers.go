@@ -2,6 +2,8 @@ package server
 
 import (
 	"encoding/json"
+	"fmt"
+	"hash/fnv"
 	"net/http"
 
 	"github.com/gorilla/mux"
@@ -39,8 +41,26 @@ func (s *HelixAPIServer) listAttentionEvents(w http.ResponseWriter, r *http.Requ
 		events = []*types.AttentionEvent{}
 	}
 
+	jsonBytes, err := json.Marshal(events)
+	if err != nil {
+		http.Error(w, "failed to encode response", http.StatusInternalServerError)
+		return
+	}
+
+	h := fnv.New64a()
+	h.Write(jsonBytes)
+	etag := fmt.Sprintf(`"%x"`, h.Sum64())
+
+	w.Header().Set("ETag", etag)
+	w.Header().Set("Cache-Control", "private, no-cache, must-revalidate")
+
+	if match := r.Header.Get("If-None-Match"); match == etag {
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(events)
+	w.Write(jsonBytes) //nolint:errcheck
 }
 
 // updateAttentionEvent godoc

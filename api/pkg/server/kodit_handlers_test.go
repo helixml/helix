@@ -34,7 +34,7 @@ type fakeKoditService struct {
 
 func (f *fakeKoditService) IsEnabled() bool          { return f.enabled }
 func (f *fakeKoditService) MCPDocumentation() string { return "" }
-func (f *fakeKoditService) RegisterRepository(_ context.Context, _, _ string) (int64, bool, error) {
+func (f *fakeKoditService) RegisterRepository(_ context.Context, _ *services.RegisterRepositoryParams) (int64, bool, error) {
 	return f.repoID, f.isNew, f.err
 }
 func (f *fakeKoditService) GetRepositoryEnrichments(_ context.Context, _ int64, _, _ string) ([]enrichment.Enrichment, error) {

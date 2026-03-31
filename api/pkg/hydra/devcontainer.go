@@ -1161,6 +1161,7 @@ func (dm *DevContainerManager) DeleteDevContainer(ctx context.Context, sessionID
 				}
 			}
 			sessionDir := filepath.Join("/container-docker/sessions", dockerDataVolume)
+			_ = os.MkdirAll(sessionDir, 0755)
 			TouchSessionLastActive(sessionDir)
 			log.Info().
 				Str("session_id", sessionID).
