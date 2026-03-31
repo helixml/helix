@@ -1,8 +1,8 @@
 # Implementation Tasks
 
-- [ ] In `ensurePullRequestForRepo`, before calling `ListPullRequests`, check `task.RepoPullRequests` for an existing entry matching this `repoID`; if found, fetch the PR state by ID and return it without creating a new PR
-- [ ] In `handlePullRequest` (orchestrator), skip the `o.ensurePRs(...)` call if all entries in `task.RepoPullRequests` have `PRState == "closed"`
-- [ ] Write a unit test: task with one closed RepoPR entry → `ensurePullRequestForRepo` returns existing PR, does not call `CreatePullRequest`
-- [ ] Write a unit test: orchestrator polling with all PRs closed → `ensurePRs` is not called
-- [ ] Manually verify: close a Helix PR on GitHub, wait 60 seconds, confirm no duplicate PR is opened
-- [ ] Manually verify: rename a Helix PR title on GitHub (simple title edit, PR stays open), wait 60 seconds, confirm no duplicate PR is opened; document the reproduction steps if a duplicate is still observed
+- [ ] In `ensurePullRequestForRepo` (spec_task_workflow_handlers.go), before `ListPullRequests`, check `task.GetPRForRepo(repo.ID)`; if a PR is already tracked, fetch it by PR ID and return it without creating a new one
+- [ ] In `ensurePullRequestForRepo`, add 422 "already exists" error handling after `CreatePullRequest` fails: re-list PRs and return the found PR instead of propagating the error (matching the behaviour in git_http_server.go's `ensurePullRequest`)
+- [ ] In `ensurePullRequest` (git_http_server.go), skip the `UpdatePullRequest` title-overwrite call so user-renamed PR titles are preserved
+- [ ] Write a unit test: task with a tracked RepoPR for a repo → `ensurePullRequestForRepo` returns that PR without calling `ListPullRequests` or `CreatePullRequest`
+- [ ] Write a unit test: `ensurePullRequestForRepo` receives 422 "already exists" from `CreatePullRequest` → recovers and returns the existing PR (no error)
+- [ ] Manually verify: rename a Helix PR title on GitHub, wait 60 seconds, confirm no duplicate PR is opened

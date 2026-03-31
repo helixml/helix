@@ -1,23 +1,17 @@
-# Requirements: Prevent Duplicate PR Creation
+# Requirements: Prevent Duplicate PR on Rename
 
 ## Problem
 
-Helix opens duplicate PRs when a user manually changes the PR externally:
+Once Helix has opened a PR, **manually renaming the PR title on GitHub** causes Helix to open a duplicate PR.
 
-1. **Rename a PR title** — a simple title rename on GitHub causes Helix to open a second PR.
-2. **Close a PR** — closing the PR causes Helix to open a new duplicate PR on the next polling cycle (every 30 seconds).
+The close-PR scenario is addressed in a separate PR. This spec covers only the rename case.
 
-The exact mechanism for the rename case needs reproduction to confirm, but the close case has a clear root cause: the GitHub `ListPullRequests` call only fetches open PRs, so a closed PR is invisible to Helix's deduplication check, and the polling loop creates a new one.
+## User Story
 
-## User Stories
-
-- **As a user**, when I close a Helix-created PR on GitHub, I expect Helix to respect that decision and not open a new duplicate PR.
-- **As a user**, when I rename a Helix-created PR on GitHub, I expect Helix to not open a second PR.
+- **As a user**, when I rename a Helix-created PR title on GitHub, I expect Helix not to open a second PR.
 
 ## Acceptance Criteria
 
-- [ ] Closing a Helix PR on GitHub does not cause Helix to open a new PR automatically.
-- [ ] After closing a PR, if Helix is instructed to open a PR again (e.g., by explicit user action), it may do so — but not silently via polling.
-- [ ] Renaming a PR title on GitHub does not result in a duplicate PR from Helix.
-- [ ] Tasks in `pull_request` status with all PRs closed continue to be tracked but do not produce new PRs.
-- [ ] No regression for the normal flow: when Helix first creates a PR for a task, deduplication still works correctly (no duplicate on first creation).
+- [ ] Renaming a PR title on GitHub (PR stays open, same branch) does not cause Helix to open a duplicate PR.
+- [ ] If the push-triggered path (`ensurePullRequest` in git_http_server.go) encounters an already-tracked PR for the same repo, it does not overwrite the user's chosen title back to Helix's version.
+- [ ] No regression: when Helix first creates a PR for a task that has no existing PR, it still creates the PR correctly.
