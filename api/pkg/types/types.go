@@ -490,7 +490,10 @@ type ExternalAgentConfig struct {
 	DisplayHeight      int    `json:"display_height,omitempty"`       // Explicit height (default: 1080)
 	DisplayRefreshRate int    `json:"display_refresh_rate,omitempty"` // Refresh rate (default: 60)
 
-	// Desktop environment
+	// Interface mode
+	InterfaceMode string `json:"interface_mode,omitempty"` // "desktop" (default) or "terminal"
+
+	// Desktop environment (only used when InterfaceMode is "desktop")
 	DesktopType string `json:"desktop_type,omitempty"` // "ubuntu" (default) or "sway"
 	ZoomLevel   int    `json:"zoom_level,omitempty"`   // GNOME zoom percentage (100 default, 200 for 4k/5k)
 

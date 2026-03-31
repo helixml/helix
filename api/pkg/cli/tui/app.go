@@ -49,6 +49,7 @@ type App struct {
 	status        string
 	statusExpiry  time.Time // when to clear status message
 	lastCtrlC     time.Time // for double ctrl+c to quit
+	zoomed        bool      // prefix+z: fullscreen the focused pane
 }
 
 // Messages
@@ -688,6 +689,11 @@ func (a *App) handlePrefixedKey(key string) (tea.Model, tea.Cmd) {
 		a.notifications.Toggle()
 		return a, nil
 
+	// Zoom — fullscreen the focused pane (toggle)
+	case "z":
+		a.zoomed = !a.zoomed
+		return a, nil
+
 	// Terminal — open shell pane to sandbox
 	case "t":
 		chat := a.focusedChat()
@@ -944,7 +950,15 @@ func (a *App) View() string {
 			} else {
 				tab := a.tabs.ActiveTab()
 				if tab != nil && tab.Panes != nil {
-					content = tab.Panes.Render()
+					if a.zoomed {
+						// Render only the focused pane at full size
+						if view := tab.Panes.FocusedView(); view != nil {
+							view.SetSize(a.width, a.contentHeight()-1)
+							content = view.View()
+						}
+					} else {
+						content = tab.Panes.Render()
+					}
 				}
 			}
 		}
@@ -1004,8 +1018,12 @@ func (a *App) renderStatusBar() string {
 			help = "h/l: column  j/k: task  enter: open  n: new  x: archive  r: refresh  esc: back  q: quit"
 		} else {
 			p := prefix
-			help = fmt.Sprintf("%s n/p: tabs  %s c: new  %s %s/%s: split  %s %s: close  esc: stop/clear",
-				p, p, p, a.tmux.SplitV, a.tmux.SplitH, p, a.tmux.ClosePane)
+			zoom := ""
+			if a.zoomed {
+				zoom = " [zoomed]"
+			}
+			help = fmt.Sprintf("%s n/p: tabs  %s c: new  %s %s/%s: split  %s z: zoom  %s %s: close  esc: stop/clear%s",
+				p, p, p, a.tmux.SplitV, a.tmux.SplitH, p, p, a.tmux.ClosePane, zoom)
 		}
 	}
 

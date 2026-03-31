@@ -825,10 +825,45 @@ const AppSettings: FC<AppSettingsProps> = ({
 
           <Divider sx={{ my: 2 }} />
 
-          {/* Display Settings - side by side */}
+          {/* Interface Settings */}
           <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1.5 }}>
-            Display
+            Interface
           </Typography>
+
+          {/* Desktop / Terminal toggle */}
+          <FormControl size="small" sx={{ mb: 2 }}>
+            <Select
+              value={external_agent_config?.interface_mode || 'desktop'}
+              onChange={(e) => {
+                const newMode = e.target.value as 'desktop' | 'terminal';
+                const updatedConfig = { ...external_agent_config, interface_mode: newMode };
+                setExternalAgentConfig(updatedConfig);
+                onUpdate({ ...app, external_agent_config: updatedConfig });
+              }}
+              disabled={readOnly}
+              renderValue={(value) => value === 'terminal' ? 'Terminal' : 'Desktop'}
+            >
+              <MenuItem value="desktop">
+                <Box>
+                  <Typography variant="body2">Desktop</Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    Full graphical desktop with browser, IDE, and streaming video
+                  </Typography>
+                </Box>
+              </MenuItem>
+              <MenuItem value="terminal">
+                <Box>
+                  <Typography variant="body2">Terminal</Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    Terminal-only interface with shell access
+                  </Typography>
+                </Box>
+              </MenuItem>
+            </Select>
+          </FormControl>
+
+          {/* Display settings — only shown in Desktop mode */}
+          {(external_agent_config?.interface_mode || 'desktop') === 'desktop' && (
           <Stack direction="row" spacing={2} sx={{ mb: 2 }}>
             <FormControl size="small" sx={{ minWidth: 160 }}>
               <Select
@@ -1004,7 +1039,7 @@ const AppSettings: FC<AppSettingsProps> = ({
               />
             </Box>
         </Box>
-      )}
+          )}
 
         {/* Multi-Turn Agent Configuration */}
         {default_agent_type === AGENT_TYPE_HELIX_AGENT && (
