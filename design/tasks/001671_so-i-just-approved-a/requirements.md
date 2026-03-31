@@ -2,13 +2,13 @@
 
 ## Problem
 
-When a user approves a design review, the task stays in `spec_review` status because the `approve` handler branch never updates the task status. The agent (still alive, watching for status changes or re-triggered by the orchestrator) interprets `spec_review` as "keep generating specs" and restarts spec writing.
+When a user approves a design review, the task stays in `spec_review` status because the `approve` handler never updates the task status. The orchestrator's `handleSpecReview` is a no-op (returns nil, waits for human action), so the task sits in `spec_review` indefinitely and the UI stays on the design review screen. Implementation never starts.
 
 The `request_changes` path works correctly: it sets `TaskStatusSpecRevision`, saves the task, and notifies the agent. The `approve` path does none of these things.
 
 ## User Stories
 
-**As a user approving a design**, I expect the task to advance to implementation after I click Approve — not loop back to spec generation.
+**As a user approving a design**, I expect the task to advance to implementation after I click Approve — not stay on the design review screen.
 
 ## Acceptance Criteria
 
