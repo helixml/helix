@@ -336,9 +336,16 @@ func (a *App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return a, cmd
 	}
 
-	// Direct pane navigation (no prefix needed)
-	if m, cmd, handled := a.handleDirectPaneNav(key); handled {
-		return m, cmd
+	// Direct tab/pane navigation (no prefix needed)
+	if a.mode == ModeMain {
+		switch key {
+		case "ctrl+left":
+			a.tabs.PrevTab()
+			return a, nil
+		case "ctrl+right":
+			a.tabs.NextTab()
+			return a, nil
+		}
 	}
 
 	// Prefix key handling
@@ -509,27 +516,7 @@ func (a *App) handlePrefixedKey(key string) (tea.Model, tea.Cmd) {
 	return a, nil
 }
 
-// handleDirectPaneNav handles ctrl+left/right for pane switching
-// without requiring the prefix key. Called from handleKey.
-func (a *App) handleDirectPaneNav(key string) (tea.Model, tea.Cmd, bool) {
-	if a.mode != ModeMain || a.isOnKanbanTab() {
-		return a, nil, false
-	}
-	tab := a.tabs.ActiveTab()
-	if tab == nil || tab.Panes == nil || tab.Panes.PaneCount() <= 1 {
-		return a, nil, false
-	}
-
-	switch key {
-	case "ctrl+left":
-		a.cyclePaneFocus(false)
-		return a, nil, true
-	case "ctrl+right":
-		a.cyclePaneFocus(true)
-		return a, nil, true
-	}
-	return a, nil, false
-}
+// (ctrl+left/right now switches tabs directly in handleKey)
 
 // --- Tab/pane helpers ---
 
