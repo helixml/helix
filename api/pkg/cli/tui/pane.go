@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"strings"
+
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -190,55 +192,66 @@ func (pm *PaneManager) Render() string {
 func (pm *PaneManager) renderNode(node *PaneTree, w, h int) string {
 	if node.Chat != nil {
 		// Leaf node — render the chat
-		node.Chat.SetSize(w, h)
-		isFocused := node.ID == pm.focused
+		isSinglePane := pm.PaneCount() <= 1
 
-		content := node.Chat.View()
-
-		if isFocused {
-			borderStyle := lipgloss.NewStyle().
-				Border(lipgloss.RoundedBorder()).
-				BorderForeground(lipgloss.Color("63")).
-				Width(w - 2).
-				Height(h - 2)
-			return borderStyle.Render(content)
+		if isSinglePane {
+			// No border for single pane (like Claude Code without tmux splits)
+			node.Chat.SetSize(w, h)
+			return node.Chat.View()
 		}
 
-		borderStyle := lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("238")).
-			Width(w - 2).
-			Height(h - 2)
-		return borderStyle.Render(content)
+		// Multiple panes — no border, just render content
+		// Divider lines are drawn by the split node renderer
+		node.Chat.SetSize(w, h)
+		return node.Chat.View()
 	}
 
-	// Split node
+	// Split node — draw divider line between panes
 	switch node.Dir {
 	case SplitVertical:
-		leftW := int(float64(w) * node.Ratio)
-		rightW := w - leftW
+		// Vertical split: left | divider | right
+		dividerW := 1
+		leftW := int(float64(w-dividerW) * node.Ratio)
+		rightW := w - leftW - dividerW
 		if leftW < 4 {
 			leftW = 4
 		}
 		if rightW < 4 {
 			rightW = 4
 		}
+
 		left := pm.renderNode(node.Left, leftW, h)
 		right := pm.renderNode(node.Right, rightW, h)
-		return lipgloss.JoinHorizontal(lipgloss.Top, left, right)
+
+		// Draw vertical divider
+		dividerStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("238"))
+		var dividerLines []string
+		for i := 0; i < h; i++ {
+			dividerLines = append(dividerLines, dividerStyle.Render("│"))
+		}
+		divider := strings.Join(dividerLines, "\n")
+
+		return lipgloss.JoinHorizontal(lipgloss.Top, left, divider, right)
 
 	case SplitHorizontal:
-		topH := int(float64(h) * node.Ratio)
-		bottomH := h - topH
+		// Horizontal split: top / divider / bottom
+		dividerH := 1
+		topH := int(float64(h-dividerH) * node.Ratio)
+		bottomH := h - topH - dividerH
 		if topH < 3 {
 			topH = 3
 		}
 		if bottomH < 3 {
 			bottomH = 3
 		}
+
 		top := pm.renderNode(node.Left, w, topH)
 		bottom := pm.renderNode(node.Right, w, bottomH)
-		return top + "\n" + bottom
+
+		// Draw horizontal divider
+		divider := lipgloss.NewStyle().Foreground(lipgloss.Color("238")).Render(strings.Repeat("─", w))
+
+		return top + "\n" + divider + "\n" + bottom
 
 	default:
 		return ""

@@ -44,8 +44,9 @@ type App struct {
 
 	pendingRestore *TUIState
 
-	err    error
-	status string
+	err           error
+	status        string
+	lastCtrlC     time.Time // for double ctrl+c to quit
 }
 
 // Messages
@@ -294,8 +295,27 @@ func (a *App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
 
 	if key == "ctrl+c" {
-		a.saveState()
-		return a, tea.Quit
+		now := time.Now()
+		if now.Sub(a.lastCtrlC) < 1*time.Second {
+			a.saveState()
+			return a, tea.Quit
+		}
+		a.lastCtrlC = now
+
+		// First ctrl+c: cancel current interaction or clear input
+		if chat := a.focusedChat(); chat != nil {
+			if chat.agentBusy {
+				a.status = "Stopping agent... (ctrl+c again to quit)"
+				return a, nil
+			}
+			if !chat.input.IsEmpty() {
+				chat.input.Clear()
+				a.status = "Cleared (ctrl+c again to quit)"
+				return a, nil
+			}
+		}
+		a.status = "Press ctrl+c again to quit"
+		return a, nil
 	}
 
 	// Modal overlays
