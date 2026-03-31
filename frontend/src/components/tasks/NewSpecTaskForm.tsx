@@ -351,6 +351,9 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
         .v1SpecTasksFromPromptCreate(createTaskRequest);
 
       if (response.data) {
+        // Invalidate immediately so the task appears in the list without waiting for polling
+        queryClient.invalidateQueries({ queryKey: ["spec-tasks"] });
+
         // Persist labels to localStorage for next task
         localStorage.setItem(LAST_LABELS_KEY, JSON.stringify(taskLabels));
 
