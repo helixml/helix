@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	agent "github.com/helixml/helix/api/pkg/agent"
@@ -24,6 +25,26 @@ import (
 	openai "github.com/sashabaranov/go-openai"
 )
 
+// ragResultsAccumulator collects RAG results from knowledge skill queries
+// in a thread-safe manner. Results are later used to update session metadata
+// for citation rendering in the frontend.
+type ragResultsAccumulator struct {
+	mu      sync.Mutex
+	results []*types.SessionRAGResult
+}
+
+func (a *ragResultsAccumulator) collect(results []*types.SessionRAGResult) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.results = append(a.results, results...)
+}
+
+func (a *ragResultsAccumulator) getResults() []*types.SessionRAGResult {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.results
+}
+
 type runAgentRequest struct {
 	OrganizationID string
 	Assistant      *types.AssistantConfig
@@ -32,7 +53,7 @@ type runAgentRequest struct {
 	Options        *ChatCompletionOptions
 }
 
-func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*agent.Session, error) {
+func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*agent.Session, *ragResultsAccumulator, error) {
 	vals, ok := oai.GetContextValues(ctx)
 	if !ok {
 		vals = &oai.ContextValues{}
@@ -40,7 +61,7 @@ func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*agent
 
 	appID, ok := oai.GetContextAppID(ctx)
 	if !ok {
-		return nil, fmt.Errorf("appID not set in context, use 'openai.SetContextAppID()' before calling this method")
+		return nil, nil, fmt.Errorf("appID not set in context, use 'openai.SetContextAppID()' before calling this method")
 	}
 
 	ownerID := req.User.ID
@@ -65,7 +86,7 @@ func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*agent
 		withFallbackProvider(req.Assistant.ReasoningModelProvider, req.Assistant), // Defaults to top level assistant provider
 		req.Assistant.ReasoningModel)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get reasoning model config: %w", err)
+		return nil, nil, fmt.Errorf("failed to get reasoning model config: %w", err)
 	}
 	reasoningModel.ReasoningEffort = req.Assistant.ReasoningModelEffort
 
@@ -80,7 +101,7 @@ func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*agent
 		withFallbackProvider(req.Assistant.GenerationModelProvider, req.Assistant), // Defaults to top level assistant provider
 		req.Assistant.GenerationModel)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get generation model config: %w", err)
+		return nil, nil, fmt.Errorf("failed to get generation model config: %w", err)
 	}
 
 	log.Debug().
@@ -94,7 +115,7 @@ func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*agent
 		withFallbackProvider(req.Assistant.SmallReasoningModelProvider, req.Assistant), // Defaults to top level assistant provider
 		req.Assistant.SmallReasoningModel)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get small reasoning model config: %w", err)
+		return nil, nil, fmt.Errorf("failed to get small reasoning model config: %w", err)
 	}
 	smallReasoningModel.ReasoningEffort = req.Assistant.SmallReasoningModelEffort
 
@@ -103,7 +124,7 @@ func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*agent
 		withFallbackProvider(req.Assistant.SmallGenerationModelProvider, req.Assistant), // Defaults to top level assistant provider
 		req.Assistant.SmallGenerationModel)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get small generation model config: %w", err)
+		return nil, nil, fmt.Errorf("failed to get small generation model config: %w", err)
 	}
 
 	llm := agent.NewLLM(
@@ -179,7 +200,7 @@ func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*agent
 	})
 	if err != nil {
 		log.Error().Err(err).Msgf("error listing knowledges for app %s", appID)
-		return nil, fmt.Errorf("failed to list knowledges for app %s: %w", appID, err)
+		return nil, nil, fmt.Errorf("failed to list knowledges for app %s: %w", appID, err)
 	}
 
 	log.Info().
@@ -188,6 +209,8 @@ func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*agent
 		Msg("Listed knowledges for app")
 
 	knowledgeMemory := agent.NewMemoryBlock()
+
+	ragAccumulator := &ragResultsAccumulator{}
 
 	// Only get from the last message the filter. If users want to filter by specific document they just
 	// need to filter again
@@ -205,9 +228,9 @@ func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*agent
 			ragClient, err := c.GetRagClient(ctx, knowledge)
 			if err != nil {
 				log.Error().Err(err).Msgf("error getting RAG client for knowledge %s", knowledge.ID)
-				return nil, fmt.Errorf("failed to get RAG client for knowledge %s: %w", knowledge.ID, err)
+				return nil, nil, fmt.Errorf("failed to get RAG client for knowledge %s: %w", knowledge.ID, err)
 			}
-			skills = append(skills, skill.NewKnowledgeSkill(ragClient, knowledge, filterDocumentIDs))
+			skills = append(skills, skill.NewKnowledgeSkill(ragClient, knowledge, filterDocumentIDs, ragAccumulator.collect))
 		case knowledge.Source.Text != nil:
 			// knowledgeBlocks = append(knowledgeBlocks, *knowledge.Source.Text)
 
@@ -232,7 +255,12 @@ func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*agent
 		enriched += "\n\n# Knowledge Bases\n\nYou have access to the following knowledge bases: " +
 			strings.Join(knowledgeNames, ", ") +
 			".\nYou MUST search these knowledge bases before responding to every user message. " +
-			"Do not answer from your own knowledge without searching first."
+			"Do not answer from your own knowledge without searching first." +
+			"\n\nProvide references in your answer in the format `[DOC_ID:DocumentID]`. " +
+			"For example, \"According to [DOC_ID:f6962c8007], the answer is 42.\"" +
+			"\n\nAfter your answer, write an excerpts block with an exact quote from each cited document:\n" +
+			"<excerpts>\n  <excerpt>\n    <document_id>DocumentID</document_id>\n    <snippet>An exact quote from this document</snippet>\n  </excerpt>\n</excerpts>\n" +
+			"Each document_id must appear at most once. No header before the excerpts block."
 	}
 
 	helixAgent := agent.NewAgent(
@@ -272,7 +300,7 @@ func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*agent
 	// Get user message, could be in the part or content
 	session.In(lastUserMessage)
 
-	return session, nil
+	return session, ragAccumulator, nil
 }
 
 func withFallbackProvider(provider string, assistant *types.AssistantConfig) string {
@@ -298,7 +326,7 @@ func (c *Controller) getLLMModelConfig(ctx context.Context, owner, provider, mod
 }
 
 func (c *Controller) runAgentBlocking(ctx context.Context, req *runAgentRequest) (*openai.ChatCompletionResponse, error) {
-	session, err := c.runAgent(ctx, req)
+	session, ragAccumulator, err := c.runAgent(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -312,6 +340,13 @@ func (c *Controller) runAgentBlocking(ctx context.Context, req *runAgentRequest)
 		}
 		if out.Type == agent.ResponseTypeEnd {
 			break
+		}
+	}
+
+	// Update session metadata with accumulated RAG results for citation rendering
+	if collectedResults := ragAccumulator.getResults(); len(collectedResults) > 0 {
+		if err := c.UpdateSessionWithKnowledgeResults(ctx, nil, collectedResults); err != nil {
+			log.Error().Err(err).Msg("failed to update session with knowledge results from agent")
 		}
 	}
 
@@ -337,7 +372,7 @@ func (c *Controller) runAgentBlocking(ctx context.Context, req *runAgentRequest)
 
 func (c *Controller) runAgentStream(ctx context.Context, req *runAgentRequest) (*openai.ChatCompletionStream, error) {
 	req.Options.Conversational = true
-	session, err := c.runAgent(ctx, req)
+	session, ragAccumulator, err := c.runAgent(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -433,6 +468,13 @@ func (c *Controller) runAgentStream(ctx context.Context, req *runAgentRequest) (
 				writer.CloseWithError(fmt.Errorf("agent error: %s", out.Content))
 
 			case agent.ResponseTypeEnd:
+				// Update session metadata with accumulated RAG results for citation rendering
+				if collectedResults := ragAccumulator.getResults(); len(collectedResults) > 0 {
+					if err := c.UpdateSessionWithKnowledgeResults(ctx, nil, collectedResults); err != nil {
+						log.Error().Err(err).Msg("failed to update session with knowledge results from agent")
+					}
+				}
+
 				// Write the final chunk with reason stop
 				_ = transport.WriteChatCompletionStream(writer, &openai.ChatCompletionStreamResponse{
 					Choices: []openai.ChatCompletionStreamChoice{
