@@ -317,6 +317,7 @@ const (
 	RAGProviderTypesense  RAGProvider = "typesense"
 	RAGProviderLlamaindex RAGProvider = "llamaindex"
 	RAGProviderHaystack   RAGProvider = "haystack"
+	RAGProviderKodit      RAGProvider = "kodit"
 )
 
 type RAG struct {

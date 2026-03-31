@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"hash/fnv"
 	"net"
 	"net/http"
 	"os"
@@ -19,6 +20,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/rs/zerolog/log"
 	"gocloud.dev/blob"
+	"golang.org/x/sync/singleflight"
 
 	api_skill "github.com/helixml/helix/api/pkg/agent/skill/api_skills"
 	"github.com/helixml/helix/api/pkg/agent/skill/mcp"
@@ -120,7 +122,7 @@ type HelixAPIServer struct {
 	sampleProjectCodeService  *services.SampleProjectCodeService
 	gitRepositoryService      *services.GitRepositoryService
 	koditService              services.KoditServicer
-	kodit                     *koditResult
+	kodit                     *KoditResult
 	mcpGateway                *MCPGateway
 	gitHTTPServer             *services.GitHTTPServer
 	// Streaming context cache - avoids redundant DB queries during token streaming
@@ -140,7 +142,8 @@ type HelixAPIServer struct {
 	summaryService             *SummaryService
 	goldenBuildService         *services.GoldenBuildService
 	syncEventHook              SyncEventHook // optional test hook, nil in production
-	startTime                  time.Time     // when the server started, for grace periods
+	startTime          time.Time              // when the server started, for grace periods
+	modelFetchGroup    singleflight.Group     // deduplicates concurrent getProviderModels calls per cache key
 }
 
 func NewServer(
@@ -162,6 +165,7 @@ func NewServer(
 	trigger *trigger.Manager,
 	anthropicProxy *anthropic.Proxy,
 	gitRepositoryService *services.GitRepositoryService,
+	preInitKodit *KoditResult,
 ) (*HelixAPIServer, error) {
 	if cfg.WebServer.URL == "" {
 		return nil, fmt.Errorf("server url is required")
@@ -386,14 +390,26 @@ func NewServer(
 		}
 	}
 
-	// Initialize Kodit code intelligence library (in-process)
-	kr, err := initKodit(cfg, apiServer.gitRepositoryService, apiServer.Store)
-	if err != nil {
-		return nil, err
+	// Initialize Kodit code intelligence library (in-process).
+	// If a pre-initialized KoditResult is provided (e.g. when using the kodit RAG provider),
+	// reuse it to avoid creating a second kodit client with duplicate workers/embedding models.
+	var kr *KoditResult
+	if preInitKodit != nil {
+		kr = preInitKodit
+		// gitRepositoryService needs the kodit service set on it even when reusing a pre-init result.
+		if apiServer.gitRepositoryService != nil && kr.Service != nil {
+			apiServer.gitRepositoryService.SetKoditService(kr.Service)
+		}
+	} else {
+		var initErr error
+		kr, initErr = InitKodit(cfg, apiServer.gitRepositoryService, apiServer.Store)
+		if initErr != nil {
+			return nil, initErr
+		}
 	}
 	apiServer.kodit = kr
-	apiServer.koditService = kr.service
-	apiServer.specDrivenTaskService.SetKoditService(kr.service)
+	apiServer.koditService = kr.Service
+	apiServer.specDrivenTaskService.SetKoditService(kr.Service)
 
 	// Initialize MCP Gateway for authenticated MCP proxying
 	apiServer.mcpGateway = NewMCPGateway()
@@ -402,7 +418,7 @@ func NewServer(
 	apiServer.initExposedPortManager()
 
 	// Register Kodit MCP backend (code intelligence)
-	apiServer.mcpGateway.RegisterBackend("kodit", kr.mcpBackend)
+	apiServer.mcpGateway.RegisterBackend("kodit", kr.mcpBackend) //nolint:staticcheck // mcpBackend is package-private but accessible within this package
 
 	// Register Helix native MCP backend (APIs, Knowledge, Zapier)
 	apiServer.mcpGateway.RegisterBackend("helix", NewHelixMCPBackend(store, appController))
@@ -477,6 +493,7 @@ func NewServer(
 		apiServer.specDrivenTaskService,
 	)
 	apiServer.specTaskOrchestrator.SetGoldenBuildService(apiServer.goldenBuildService)
+	apiServer.specTaskOrchestrator.SetEnsurePRsFunc(apiServer.ensurePullRequestsForAllRepos)
 	apiServer.specTaskOrchestrator.SetAttentionService(apiServer.attentionService)
 
 	// Recover golden builds that were in progress when the API last restarted.
@@ -742,7 +759,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/sessions/chat", apiServer.startChatSessionHandler).Methods(http.MethodPost)
 
 	authRouter.HandleFunc("/sessions", system.DefaultWrapper(apiServer.listSessions)).Methods(http.MethodGet)
-	subRouter.HandleFunc("/sessions/{id}", system.Wrapper(apiServer.getSession)).Methods(http.MethodGet)
+	subRouter.HandleFunc("/sessions/{id}", apiServer.getSession).Methods(http.MethodGet)
 	authRouter.HandleFunc("/sessions/{id}", system.Wrapper(apiServer.deleteSession)).Methods(http.MethodDelete)
 	authRouter.HandleFunc("/sessions/{id}", system.Wrapper(apiServer.updateSession)).Methods(http.MethodPut)
 	authRouter.HandleFunc("/sessions/{id}/interactions", system.Wrapper(apiServer.listInteractions)).Methods(http.MethodGet)
@@ -809,7 +826,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/sessions/{id}/claude-credentials", system.Wrapper(apiServer.getSessionClaudeCredentials)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/sessions/{id}/claude-credentials", system.Wrapper(apiServer.updateSessionClaudeCredentials)).Methods(http.MethodPut)
 
-	authRouter.HandleFunc("/apps", system.Wrapper(apiServer.listApps)).Methods(http.MethodGet)
+	authRouter.HandleFunc("/apps", wrapWithETag[[]*types.App](apiServer.listApps)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/apps", system.Wrapper(apiServer.createApp)).Methods(http.MethodPost)
 	authRouter.HandleFunc("/apps/{id}", system.Wrapper(apiServer.getApp)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/apps/{id}", system.Wrapper(apiServer.updateApp)).Methods(http.MethodPut)
@@ -866,6 +883,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/skills/{id}", system.DefaultWrapper(apiServer.handleGetSkill)).Methods("GET")
 	authRouter.HandleFunc("/skills/reload", system.DefaultWrapper(apiServer.handleReloadSkills)).Methods("POST")
 	authRouter.HandleFunc("/skills/validate", system.DefaultWrapper(apiServer.handleValidateMcpSkill)).Methods("POST")
+	authRouter.HandleFunc("/apps/{id}/skills/{skill}/enable", system.Wrapper(apiServer.handleEnableSkill)).Methods("POST")
 
 	// External agent routes - desktop streaming and Zed agent communication
 	// Note: Session start/stop/resume use /sessions endpoints, not /external-agents
@@ -1145,6 +1163,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	// Project routes
 	authRouter.HandleFunc("/projects", system.Wrapper(apiServer.listProjects)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/projects", system.Wrapper(apiServer.createProject)).Methods(http.MethodPost)
+	authRouter.HandleFunc("/projects/apply", system.Wrapper(apiServer.applyProject)).Methods(http.MethodPut)
 	authRouter.HandleFunc("/projects/{id}", system.Wrapper(apiServer.getProject)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/projects/{id}", system.Wrapper(apiServer.updateProject)).Methods(http.MethodPut)
 	authRouter.HandleFunc("/projects/{id}", system.Wrapper(apiServer.deleteProject)).Methods(http.MethodDelete)
@@ -1155,7 +1174,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/projects/{id}/exploratory-session", system.Wrapper(apiServer.getProjectExploratorySession)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/projects/{id}/exploratory-session", system.Wrapper(apiServer.startExploratorySession)).Methods(http.MethodPost)
 	authRouter.HandleFunc("/projects/{id}/exploratory-session", system.Wrapper(apiServer.stopExploratorySession)).Methods(http.MethodDelete)
-	authRouter.HandleFunc("/projects/{id}/startup-script/history", system.Wrapper(apiServer.getProjectStartupScriptHistory)).Methods(http.MethodGet)
+	authRouter.HandleFunc("/projects/{id}/startup-script/history", wrapWithETag[[]services.StartupScriptVersion](apiServer.getProjectStartupScriptHistory)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/projects/{id}/guidelines-history", system.Wrapper(apiServer.getProjectGuidelinesHistory)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/projects/{id}/move", system.Wrapper(apiServer.moveProject)).Methods(http.MethodPost)
 	authRouter.HandleFunc("/projects/{id}/usage", system.Wrapper(apiServer.getProjectUsage)).Methods(http.MethodGet)
@@ -1349,6 +1368,48 @@ func (apiServer *HelixAPIServer) registerDefaultHandler(router *mux.Router) {
 		fileSystem := http.Dir(frontendURL)
 		router.PathPrefix("/").Handler(spa.NewSPAFileServer(fileSystem))
 	}
+}
+
+// wrapWithETag adapts a system.Wrapper-style handler to use ETag responses.
+func wrapWithETag[T any](handler func(http.ResponseWriter, *http.Request) (T, *system.HTTPError)) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		data, httpErr := handler(w, r)
+		if httpErr != nil {
+			statusCode := httpErr.StatusCode
+			if statusCode == 0 {
+				statusCode = http.StatusInternalServerError
+			}
+			http.Error(w, httpErr.Error(), statusCode)
+			return
+		}
+		writeResponseWithETag(w, r, data)
+	}
+}
+
+// writeResponseWithETag serializes data to JSON, computes an ETag, and returns
+// 304 Not Modified if the client already has the current version. Use this for
+// polling endpoints where the response rarely changes between requests.
+func writeResponseWithETag(w http.ResponseWriter, r *http.Request, data interface{}) {
+	jsonBytes, err := json.Marshal(data)
+	if err != nil {
+		http.Error(w, "failed to encode response", http.StatusInternalServerError)
+		return
+	}
+
+	h := fnv.New64a()
+	h.Write(jsonBytes)
+	etag := fmt.Sprintf(`"%x"`, h.Sum64())
+
+	w.Header().Set("ETag", etag)
+	w.Header().Set("Cache-Control", "private, no-cache, must-revalidate")
+
+	if match := r.Header.Get("If-None-Match"); match == etag {
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(jsonBytes) //nolint:errcheck
 }
 
 func writeResponse(rw http.ResponseWriter, data interface{}, statusCode int) {
@@ -2088,13 +2149,13 @@ func (apiServer *HelixAPIServer) handleRevDial() http.Handler {
 				return
 			}
 
-			log.Info().
+			log.Trace().
 				Str("user_id", user.ID).
 				Str("session_id", sessionID).
 				Msg("User token validated for RevDial connection")
 		}
 
-		log.Info().
+		log.Trace().
 			Str("remote_addr", r.RemoteAddr).
 			Str("runner_id", runnerID).
 			Str("token_type", string(user.TokenType)).
@@ -2112,13 +2173,13 @@ func (apiServer *HelixAPIServer) handleRevDial() http.Handler {
 			apiServer.ensureSandboxRegistered(r.Context(), sandboxID, r.RemoteAddr)
 		}
 
-		log.Info().Str("runner_id", runnerID).Msg("Establishing reverse dial connection")
+		log.Trace().Str("runner_id", runnerID).Msg("Establishing reverse dial connection")
 
 		// Handle WebSocket control connection vs non-WebSocket control connection
 		var conn net.Conn
 		if websocket.IsWebSocketUpgrade(r) {
 			// Upgrade WebSocket for control connection
-			log.Debug().Msg("Upgrading WebSocket for RevDial control connection")
+			log.Trace().Msg("Upgrading WebSocket for RevDial control connection")
 			wsConn, err := upgrader.Upgrade(w, r, nil)
 			if err != nil {
 				log.Error().Err(err).Str("runner_id", runnerID).Msg("Failed to upgrade WebSocket")
@@ -2145,7 +2206,7 @@ func (apiServer *HelixAPIServer) handleRevDial() http.Handler {
 
 			// Wrap WebSocket as net.Conn using wsconnadapter
 			conn = wsconnadapter.New(wsConn)
-			log.Debug().Str("runner_id", runnerID).Msg("WebSocket control connection established")
+			log.Trace().Str("runner_id", runnerID).Msg("WebSocket control connection established")
 		} else {
 			// HTTP hijack for non-WebSocket control connection
 			hijacker, ok := w.(http.Hijacker)
@@ -2170,7 +2231,7 @@ func (apiServer *HelixAPIServer) handleRevDial() http.Handler {
 
 		// Register the reverse dial connection in connman
 		apiServer.connman.Set(runnerID, conn)
-		log.Info().Str("runner_id", runnerID).Msg("Registered reverse dial connection in connman")
+		log.Trace().Str("runner_id", runnerID).Msg("Registered reverse dial connection in connman")
 
 		// If this is a Hydra connection (hydra-{sandbox_id}), discover running containers.
 		// This reconciles container state when the API restarts but containers

@@ -2,12 +2,12 @@ import React, { useMemo, useId } from "react";
 import { Box, Tooltip } from "@mui/material";
 import useTheme from "@mui/material/styles/useTheme";
 import { LineChart } from "@mui/x-charts";
-import { TypesAggregatedUsageMetric } from "../../api/api";
+import { ServerBatchTaskUsageMetric } from "../../api/api";
 
 interface UsagePulseChartProps {
   accentColor: string;
   /** Usage data from batch endpoint - required */
-  usageData?: TypesAggregatedUsageMetric[];
+  usageData?: ServerBatchTaskUsageMetric[];
 }
 
 const UsagePulseChart: React.FC<UsagePulseChartProps> = ({
@@ -24,9 +24,9 @@ const UsagePulseChart: React.FC<UsagePulseChartProps> = ({
         new Date(a.date || "").getTime() - new Date(b.date || "").getTime(),
     );
     const data = sortedData.map(
-      (d: TypesAggregatedUsageMetric) => d.total_tokens || 0,
+      (d: ServerBatchTaskUsageMetric) => d.total_tokens || 0,
     );
-    const labels = sortedData.map((d: TypesAggregatedUsageMetric) => {
+    const labels = sortedData.map((d: ServerBatchTaskUsageMetric) => {
       const date = new Date(d.date || "");
       const month = String(date.getMonth() + 1).padStart(2, "0");
       const day = String(date.getDate()).padStart(2, "0");
@@ -101,7 +101,7 @@ const UsagePulseChart: React.FC<UsagePulseChartProps> = ({
           }}
           grid={{ horizontal: false, vertical: false }}
           disableAxisListener
-          margin={{ top: 0, bottom: 0, left: 0, right: 0 }}
+          margin={{ top: 5, bottom: 5, left: 0, right: 0 }}
         >
           <defs>
             <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">

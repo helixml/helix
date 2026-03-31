@@ -1006,6 +1006,13 @@ definitions:
         description: keyed by task_id
         type: object
     type: object
+  server.BatchTaskUsageMetric:
+    properties:
+      date:
+        type: string
+      total_tokens:
+        type: integer
+    type: object
   server.BatchTaskUsageResponse:
     properties:
       project_id:
@@ -1013,7 +1020,7 @@ definitions:
       tasks:
         additionalProperties:
           items:
-            $ref: '#/definitions/types.AggregatedUsageMetric'
+            $ref: '#/definitions/server.BatchTaskUsageMetric'
           type: array
         description: keyed by task_id
         type: object
@@ -6096,9 +6103,28 @@ definitions:
         description: |-
           Project-level skills - these overlay on top of agent skills
           Useful for project-specific tools like CI integration (e.g., drone-ci-mcp)
+      startup_install:
+        description: |-
+          Startup commands from declarative project YAML (persisted) - DEPRECATED
+          Use StartupScriptYAML instead. Kept for backward compatibility.
+        type: string
       startup_script:
         description: Transient field - loaded from primary code repo's .helix/startup.sh,
           never persisted to database
+        type: string
+      startup_script_from_yaml:
+        description: |-
+          StartupScriptFromYAML indicates the startup script was set via project YAML
+          When true, the UI should show the script as read-only
+        type: boolean
+      startup_script_yaml:
+        description: |-
+          StartupScriptYAML is the startup script content from project YAML (persisted)
+          This is the source of truth when StartupScriptFromYAML is true.
+          At runtime, helix-specs/.helix/startup.sh takes precedence if it exists,
+          otherwise this field is used as fallback.
+        type: string
+      startup_start:
         type: string
       stats:
         allOf:
@@ -6114,6 +6140,63 @@ definitions:
       updated_at:
         type: string
       user_id:
+        type: string
+    type: object
+  types.ProjectAgentDisplay:
+    properties:
+      desktop_type:
+        description: 'Desktop environment: "ubuntu" (default GNOME) or "sway"'
+        type: string
+      fps:
+        description: Display refresh rate in Hz (default 60)
+        type: integer
+      resolution:
+        description: 'Resolution preset: "1080p" (default), "4k", or "5k"'
+        type: string
+    type: object
+  types.ProjectAgentSpec:
+    properties:
+      credentials:
+        type: string
+      display:
+        $ref: '#/definitions/types.ProjectAgentDisplay'
+      model:
+        type: string
+      name:
+        type: string
+      provider:
+        type: string
+      runtime:
+        type: string
+      tools:
+        $ref: '#/definitions/types.ProjectAgentTools'
+    type: object
+  types.ProjectAgentTools:
+    properties:
+      browser:
+        type: boolean
+      calculator:
+        type: boolean
+      web_search:
+        type: boolean
+    type: object
+  types.ProjectApplyRequest:
+    properties:
+      name:
+        type: string
+      organization_id:
+        type: string
+      spec:
+        $ref: '#/definitions/types.ProjectSpec'
+    type: object
+  types.ProjectApplyResponse:
+    properties:
+      agent_app_id:
+        type: string
+      created:
+        description: true if created, false if updated
+        type: boolean
+      project_id:
         type: string
     type: object
   types.ProjectAuditLog:
@@ -6181,6 +6264,11 @@ definitions:
           type: string
         type: array
     type: object
+  types.ProjectKanban:
+    properties:
+      wip_limits:
+        $ref: '#/definitions/types.ProjectWIPLimits'
+    type: object
   types.ProjectMetadata:
     properties:
       auto_warm_docker_cache:
@@ -6189,6 +6277,62 @@ definitions:
         $ref: '#/definitions/types.BoardSettings'
       docker_cache_status:
         $ref: '#/definitions/types.DockerCacheState'
+    type: object
+  types.ProjectRepositorySpec:
+    properties:
+      default_branch:
+        type: string
+      primary:
+        type: boolean
+      url:
+        type: string
+    type: object
+  types.ProjectSpec:
+    properties:
+      agent:
+        $ref: '#/definitions/types.ProjectAgentSpec'
+      auto_start_backlog_tasks:
+        type: boolean
+      description:
+        type: string
+      guidelines:
+        type: string
+      kanban:
+        $ref: '#/definitions/types.ProjectKanban'
+      name:
+        type: string
+      repositories:
+        description: Multi-repo list
+        items:
+          $ref: '#/definitions/types.ProjectRepositorySpec'
+        type: array
+      repository:
+        allOf:
+        - $ref: '#/definitions/types.ProjectRepositorySpec'
+        description: Singular shorthand
+      startup:
+        $ref: '#/definitions/types.ProjectStartup'
+      tasks:
+        items:
+          $ref: '#/definitions/types.ProjectTaskSpec'
+        type: array
+      technologies:
+        items:
+          type: string
+        type: array
+    type: object
+  types.ProjectStartup:
+    properties:
+      install:
+        description: |-
+          Install and Start are deprecated - use Script instead
+          Kept for backward compatibility with existing YAML files
+        type: string
+      script:
+        description: Script is the unified startup script content (preferred)
+        type: string
+      start:
+        type: string
     type: object
   types.ProjectStats:
     properties:
@@ -6208,6 +6352,13 @@ definitions:
         type: integer
       total_tasks:
         type: integer
+    type: object
+  types.ProjectTaskSpec:
+    properties:
+      description:
+        type: string
+      title:
+        type: string
     type: object
   types.ProjectUpdateRequest:
     properties:
@@ -6255,6 +6406,15 @@ definitions:
         items:
           type: string
         type: array
+    type: object
+  types.ProjectWIPLimits:
+    properties:
+      implementation:
+        type: integer
+      planning:
+        type: integer
+      review:
+        type: integer
     type: object
   types.PromptHistoryEntry:
     properties:
@@ -7836,6 +7996,11 @@ definitions:
         type: string
       loadedAt:
         type: string
+      mcp:
+        allOf:
+        - $ref: '#/definitions/types.SkillMCPSpec'
+        description: MCP configuration (present when this skill is MCP-backed rather
+          than API-backed)
       name:
         type: string
       oauthProvider:
@@ -7873,6 +8038,15 @@ definitions:
         type: string
       type:
         description: e.g., "material-ui", "custom"
+        type: string
+    type: object
+  types.SkillMCPSpec:
+    properties:
+      autoProvision:
+        description: if true, URL+auth are generated server-side
+        type: boolean
+      transport:
+        description: '"http" or "sse"'
         type: string
     type: object
   types.SkillRequiredParameter:
@@ -9766,6 +9940,38 @@ definitions:
       updated:
         type: string
     type: object
+  types.ZFSTree:
+    properties:
+      available:
+        type: boolean
+      golden:
+        $ref: '#/definitions/types.ZFSTreeNode'
+      orphans:
+        items:
+          $ref: '#/definitions/types.ZFSTreeNode'
+        type: array
+      pool_root:
+        type: string
+    type: object
+  types.ZFSTreeNode:
+    properties:
+      children:
+        items:
+          $ref: '#/definitions/types.ZFSTreeNode'
+        type: array
+      mounted:
+        type: boolean
+      name:
+        type: string
+      refer:
+        type: string
+      session_id:
+        type: string
+      type:
+        type: string
+      used:
+        type: string
+    type: object
   types.ZedConfigResponse:
     properties:
       agent:
@@ -10918,6 +11124,31 @@ paths:
       summary: Delete app memory
       tags:
       - memories
+  /api/v1/apps/{id}/skills/{skill}/enable:
+    post:
+      description: Enable a marketplace skill on an app. For autoProvision MCP skills
+        the server generates URL and auth automatically.
+      parameters:
+      - description: App ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Skill name (e.g. code-intelligence)
+        in: path
+        name: skill
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.App'
+      security:
+      - BearerAuth: []
+      summary: Enable a marketplace skill on an app
+      tags:
+      - skills
   /api/v1/apps/{id}/step-info:
     get:
       description: List step info for a specific app and interaction ID, used to build
@@ -15122,6 +15353,28 @@ paths:
       summary: Cancel running golden Docker cache builds
       tags:
       - Projects
+  /api/v1/projects/{id}/docker-cache/zfs-tree:
+    get:
+      description: Returns the ZFS snapshot and clone tree showing golden cache, snapshots,
+        and active session clones.
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.ZFSTree'
+      security:
+      - BearerAuth: []
+      summary: Get ZFS snapshot/clone tree for project's Docker cache
+      tags:
+      - projects
   /api/v1/projects/{id}/exploratory-session:
     delete:
       description: Stop the running exploratory session for a project (stops sandbox
@@ -15788,6 +16041,42 @@ paths:
       summary: List all labels used in a project
       tags:
       - spec-driven-tasks
+  /api/v1/projects/apply:
+    put:
+      consumes:
+      - application/json
+      description: Idempotent upsert of a project from a declarative YAML spec
+      parameters:
+      - description: Project apply request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.ProjectApplyRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.ProjectApplyResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Apply a project YAML
+      tags:
+      - Projects
   /api/v1/projects/quick-create:
     post:
       consumes:

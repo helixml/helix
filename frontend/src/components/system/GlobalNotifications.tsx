@@ -6,28 +6,35 @@ import Badge from '@mui/material/Badge'
 import Typography from '@mui/material/Typography'
 import Button from '@mui/material/Button'
 import Tooltip from '@mui/material/Tooltip'
-import { Bell, X, BellOff, BellRing } from 'lucide-react'
+import { Bell, X, BellOff, BellRing, Sparkles, Hand, AlertCircle, GitMerge } from 'lucide-react'
 
 import useAccount from '../../hooks/useAccount'
 import useApi from '../../hooks/useApi'
 import useLightTheme from '../../hooks/useLightTheme'
 import { useAttentionEvents, AttentionEvent, AttentionEventType } from '../../hooks/useAttentionEvents'
 import { useBrowserNotifications } from '../../hooks/useBrowserNotifications'
+import { useNavigationHistory, NavHistoryEntry } from '../../hooks/useNavigationHistory'
+import router from '../../router'
 
 interface GlobalNotificationsProps {
   organizationId?: string
   onOpenChange?: (open: boolean) => void
 }
 
-function eventEmoji(eventType: AttentionEventType): string {
+function eventIcon(eventType: AttentionEventType, color: string): React.ReactElement {
+  const props = { size: 14, color }
   switch (eventType) {
-    case 'specs_pushed': return '📋'
-    case 'agent_interaction_completed': return '🛑'
+    case 'specs_pushed': return <Sparkles {...props} />
+    case 'agent_interaction_completed': return <Hand {...props} />
     case 'spec_failed':
-    case 'implementation_failed': return '❌'
-    case 'pr_ready': return '🔀'
-    default: return '🔔'
+    case 'implementation_failed': return <AlertCircle {...props} />
+    case 'pr_ready': return <GitMerge {...props} />
+    default: return <Bell {...props} />
   }
+}
+
+function timeAgoMs(ms: number): string {
+  return timeAgo(new Date(ms).toISOString())
 }
 
 function eventAccentColor(eventType: AttentionEventType): string {
@@ -95,6 +102,61 @@ function groupEvents(events: AttentionEvent[]): EventGroup[] {
 
   return groups
 }
+
+// After grouping, keep only the most recent group per spec_task_id.
+// Events are already sorted newest-first from the API, so the first group
+// for each task is the most recent one.
+function deduplicateGroupsByTask(groups: EventGroup[]): EventGroup[] {
+  const seen = new Set<string>()
+  return groups.filter(group => {
+    const taskId = group.kind === 'grouped' ? group.primary.spec_task_id : group.event.spec_task_id
+    if (!taskId) return true
+    if (seen.has(taskId)) return false
+    seen.add(taskId)
+    return true
+  })
+}
+
+const RecentPageItem: React.FC<{
+  entry: NavHistoryEntry
+}> = ({ entry }) => (
+  <Box
+    onClick={() => router.navigate(entry.routeName, entry.params)}
+    sx={{
+      display: 'flex',
+      alignItems: 'center',
+      gap: 1,
+      px: 1.5,
+      py: 0.75,
+      cursor: 'pointer',
+      transition: 'background-color 0.15s ease',
+      '&:hover': {
+        backgroundColor: 'rgba(255,255,255,0.06)',
+      },
+    }}
+  >
+    <Box sx={{ display: 'flex', flexShrink: 0, color: 'rgba(255,255,255,0.3)' }}>
+      <Bell size={12} />
+    </Box>
+    <Typography
+      variant="body2"
+      sx={{
+        color: 'rgba(255,255,255,0.6)',
+        overflow: 'hidden',
+        textOverflow: 'ellipsis',
+        whiteSpace: 'nowrap',
+        fontSize: '0.78rem',
+        lineHeight: 1.4,
+        flex: 1,
+      }}
+    >
+      {entry.title}
+    </Typography>
+    <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.3)', fontSize: '0.65rem', whiteSpace: 'nowrap', flexShrink: 0 }}>
+      {timeAgoMs(entry.timestamp)}
+    </Typography>
+  </Box>
+)
 
 const BrowserNotificationBanner: React.FC<{
   onEnable: () => void
@@ -165,8 +227,11 @@ const AttentionEventItem: React.FC<{
         ...(isAcknowledged ? { opacity: 0.65 } : {}),
       }}
     >
-      <Box sx={{ fontSize: '0.9rem', flexShrink: 0 }}>
-        {groupedWith ? '📋' : eventEmoji(event.event_type)}
+      <Box sx={{ display: 'flex', flexShrink: 0, mt: 0.25 }}>
+        {groupedWith
+          ? <Sparkles size={14} color={eventAccentColor('specs_pushed')} />
+          : eventIcon(event.event_type, accentColor)
+        }
       </Box>
       <Box sx={{ minWidth: 0, flex: 1 }}>
         <Typography
@@ -175,13 +240,14 @@ const AttentionEventItem: React.FC<{
             fontWeight: isAcknowledged ? 400 : 600,
             color: '#fff',
             overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
+            display: '-webkit-box',
+            WebkitLineClamp: 2,
+            WebkitBoxOrient: 'vertical',
             fontSize: '0.8rem',
             lineHeight: 1.4,
           }}
         >
-          {groupedWith ? 'Spec ready & agent finished' : event.title}
+          {event.spec_task_name || event.spec_task_id}
         </Typography>
         <Typography
           variant="caption"
@@ -196,7 +262,7 @@ const AttentionEventItem: React.FC<{
             mt: 0.25,
           }}
         >
-          {event.spec_task_name || event.spec_task_id} · {event.project_name || event.project_id}
+          {groupedWith ? 'Spec ready & agent finished' : event.title} · {event.project_name || event.project_id}
         </Typography>
       </Box>
       <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.65rem', whiteSpace: 'nowrap', flexShrink: 0 }}>
@@ -248,6 +314,7 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
     events,
     newEvents,
     totalCount,
+    unreadCount,
     hasNew,
     acknowledge,
     dismiss,
@@ -264,21 +331,40 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
     fireNotification,
   } = useBrowserNotifications()
 
-  // Fire browser notifications for genuinely new events
+  // Fire browser notifications for genuinely new events, grouped the same way
+  // the panel UI groups them — so specs_pushed + agent_interaction_completed
+  // for the same task produce a single notification, not two.
   useEffect(() => {
     if (!browserNotifEnabled || newEvents.length === 0) return
-    for (const event of newEvents) {
-      fireNotification(
-        event.id,
-        `Helix: ${event.title}`,
-        `${event.spec_task_name || ''} · ${event.project_name || ''}`,
-        () => {
-          account.orgNavigate('project-task-detail', {
-            id: event.project_id,
-            taskId: event.spec_task_id,
-          })
-        },
-      )
+    const groups = deduplicateGroupsByTask(groupEvents(newEvents))
+    for (const group of groups) {
+      if (group.kind === 'grouped') {
+        const { primary } = group
+        fireNotification(
+          primary.id,
+          'Helix: Spec ready & agent finished',
+          `${primary.spec_task_name || ''} · ${primary.project_name || ''}`,
+          () => {
+            account.orgNavigate('project-task-detail', {
+              id: primary.project_id,
+              taskId: primary.spec_task_id,
+            })
+          },
+        )
+      } else {
+        const { event } = group
+        fireNotification(
+          event.id,
+          `Helix: ${event.title}`,
+          `${event.spec_task_name || ''} · ${event.project_name || ''}`,
+          () => {
+            account.orgNavigate('project-task-detail', {
+              id: event.project_id,
+              taskId: event.spec_task_id,
+            })
+          },
+        )
+      }
     }
   }, [newEvents, browserNotifEnabled, fireNotification, account])
 
@@ -338,7 +424,21 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
     setOptOut(true)
   }, [setOptOut])
 
-  const groups = groupEvents(events)
+  const groups = deduplicateGroupsByTask(groupEvents(events))
+
+  // Build recently visited list: task/review pages not already shown as active alerts
+  const navHistory = useNavigationHistory()
+  const alertTaskIds = new Set(events.map(e => e.spec_task_id).filter(Boolean))
+  const seenTaskIds = new Set<string>()
+  const recentPages = navHistory.filter(entry => {
+    if (entry.routeName !== 'org_project-task-detail' && entry.routeName !== 'org_project-task-review') {
+      return false
+    }
+    if (alertTaskIds.has(entry.params.taskId)) return false
+    if (entry.params.taskId && seenTaskIds.has(entry.params.taskId)) return false
+    if (entry.params.taskId) seenTaskIds.add(entry.params.taskId)
+    return true
+  }).slice(0, 10)
 
   return (
     <>
@@ -355,7 +455,7 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
         }}
       >
         <Badge
-          badgeContent={totalCount}
+          badgeContent={hasNew ? unreadCount : totalCount}
           color={hasNew ? 'error' : 'default'}
           sx={{
             '& .MuiBadge-badge': {
@@ -533,6 +633,30 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
                   />
                 )
               })}
+            </Box>
+          )}
+
+          {/* Recently visited — pages the user has been to that aren't active alerts */}
+          {recentPages.length > 0 && (
+            <Box sx={{ borderTop: '1px solid rgba(255,255,255,0.06)', mt: 0.5, pt: 0.5 }}>
+              <Typography
+                variant="caption"
+                sx={{
+                  display: 'block',
+                  px: 1.5,
+                  py: 0.75,
+                  color: 'rgba(255,255,255,0.3)',
+                  fontSize: '0.65rem',
+                  fontWeight: 600,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.05em',
+                }}
+              >
+                Recently visited
+              </Typography>
+              {recentPages.map(entry => (
+                <RecentPageItem key={entry.url} entry={entry} />
+              ))}
             </Box>
           )}
         </Box>

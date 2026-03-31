@@ -22,16 +22,18 @@ const Create: FC = () => {
   const model = router.params.model || ''
 
   const [isLoadingApp, setIsLoadingApp] = useState(false)
+  const orgId = account.organizationTools.organization?.id
 
   useEffect(() => {
     if (!appID) {
       account.orgNavigate('chat')
       return
     }
+    if (!orgId) return // Wait for org to load
     setIsLoadingApp(true)
     apps.loadApp(appID).finally(() => setIsLoadingApp(false))
     return () => apps.setApp(undefined)
-  }, [appID, router])
+  }, [appID, orgId])
 
   if (appID && (isLoadingApp || !apps.app)) {
     return null

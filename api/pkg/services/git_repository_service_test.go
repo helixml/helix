@@ -45,7 +45,7 @@ type fakeKodit struct {
 
 func (f *fakeKodit) IsEnabled() bool          { return f.enabled }
 func (f *fakeKodit) MCPDocumentation() string { return "" }
-func (f *fakeKodit) RegisterRepository(_ context.Context, _, _ string) (int64, bool, error) {
+func (f *fakeKodit) RegisterRepository(_ context.Context, _ *RegisterRepositoryParams) (int64, bool, error) {
 	return 0, false, f.err
 }
 func (f *fakeKodit) DeleteRepository(_ context.Context, id int64) error {
@@ -113,6 +113,9 @@ func (f *fakeKodit) ListFiles(_ context.Context, _ int64, _ string) ([]KoditFile
 }
 func (f *fakeKodit) ReadFile(_ context.Context, _ int64, _ string, _, _ int) (*KoditFileContent, error) {
 	return nil, f.err
+}
+func (f *fakeKodit) UpdateChunkingConfig(_ context.Context, _ int64, _, _, _ int) error {
+	return f.err
 }
 
 func TestDeleteRepository_DeletesFromKodit(t *testing.T) {

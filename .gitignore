@@ -13,6 +13,7 @@ dist
 api/runs
 kubeconfig
 .vscode
+.claude
 integration-test/frontend/screenshots
 instructions.txt
 build-errors.log
@@ -117,3 +118,4 @@ api/settings-sync-daemon
 /scanout-stream-test
 core.*
 nohup.out
+# CI validation Mon Mar 30 17:38:01 BST 2026

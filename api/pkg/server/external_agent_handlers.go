@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"hash/fnv"
 	"io"
 	"net"
 	"net/http"
@@ -21,6 +22,7 @@ import (
 	"github.com/helixml/helix/api/pkg/proxy"
 	"github.com/helixml/helix/api/pkg/types"
 )
+
 
 // addUserAPITokenToAgent adds a session-scoped ephemeral API token to agent environment.
 // The token is minted when the desktop starts and revoked when it shuts down.
@@ -177,11 +179,14 @@ func (apiServer *HelixAPIServer) getExternalAgentScreenshot(res http.ResponseWri
 	defer revDialConn.Close()
 
 	// Send HTTP request over RevDial tunnel
-	// Forward query parameters (format, quality, include_cursor) to the desktop container
+	// Forward query parameters to the desktop container, defaulting to low-quality
+	// JPEG for polling screenshots (quality 40 keeps text readable at ~5x smaller)
 	screenshotURL := "http://localhost:9876/screenshot"
-	if req.URL.RawQuery != "" {
-		screenshotURL += "?" + req.URL.RawQuery
+	query := req.URL.Query()
+	if query.Get("quality") == "" {
+		query.Set("quality", "40")
 	}
+	screenshotURL += "?" + query.Encode()
 	httpReq, err := http.NewRequest("GET", screenshotURL, nil)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to create screenshot request")
@@ -218,17 +223,36 @@ func (apiServer *HelixAPIServer) getExternalAgentScreenshot(res http.ResponseWri
 		return
 	}
 
-	// Return PNG image directly
-	res.Header().Set("Content-Type", "image/png")
-	res.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
-	res.WriteHeader(http.StatusOK)
-
-	// Stream the PNG data from screenshot server to response
-	_, err = io.Copy(res, screenshotResp.Body)
+	// Buffer the screenshot so we can compute an ETag before sending.
+	// Screenshots are large (hundreds of KB) but idle desktops return identical
+	// images, so ETags eliminate most of the bandwidth on slow connections.
+	imageData, err := io.ReadAll(screenshotResp.Body)
 	if err != nil {
-		log.Error().Err(err).Msg("Failed to stream screenshot data")
+		log.Error().Err(err).Msg("Failed to read screenshot data")
+		http.Error(res, "Failed to read screenshot data", http.StatusInternalServerError)
 		return
 	}
+
+	h := fnv.New64a()
+	h.Write(imageData)
+	etag := fmt.Sprintf(`"%x"`, h.Sum64())
+
+	res.Header().Set("ETag", etag)
+	res.Header().Set("Cache-Control", "private, no-cache, must-revalidate")
+
+	if match := req.Header.Get("If-None-Match"); match == etag {
+		res.WriteHeader(http.StatusNotModified)
+		return
+	}
+
+	// Forward the Content-Type from the container's screenshot server
+	// (defaults to image/jpeg at quality 70, supports format=png via query param)
+	contentType := screenshotResp.Header.Get("Content-Type")
+	if contentType == "" {
+		contentType = "image/jpeg"
+	}
+	res.Header().Set("Content-Type", contentType)
+	res.Write(imageData) //nolint:errcheck
 
 }
 
@@ -1306,6 +1330,12 @@ func (apiServer *HelixAPIServer) proxyStreamWebSocket(res http.ResponseWriter, r
 
 	log.Info().Str("session_id", sessionID).Msg("Stream WebSocket connection established, starting resilient proxy")
 
+	// Use req.Context() directly — proxy lifetime is tied to the client connection.
+	// No single-stream-per-session enforcement: multiple viewers can connect to
+	// the same session simultaneously (spectating). The desktop-bridge handles
+	// multi-client multiplexing internally.
+	proxyCtx := req.Context()
+
 	// Generate a unique proxy session ID
 	proxySessionID := generateProxySessionID()
 
@@ -1329,7 +1359,7 @@ func (apiServer *HelixAPIServer) proxyStreamWebSocket(res http.ResponseWriter, r
 	defer resilientProxy.Close()
 
 	// Run the proxy (blocks until connection closes or error)
-	if err := resilientProxy.Run(req.Context()); err != nil {
+	if err := resilientProxy.Run(proxyCtx); err != nil {
 		log.Warn().
 			Str("session_id", sessionID).
 			Str("proxy_session_id", proxySessionID).

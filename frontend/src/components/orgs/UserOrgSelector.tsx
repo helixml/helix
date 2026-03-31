@@ -381,8 +381,8 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
       {
         icon: <Bot size={NAV_BUTTON_SIZE} />,
         tooltip: "View agents",
-        isActive: isActive(['apps', 'app']),
-        onClick: () => orgNavigateTo('apps'),
+        isActive: isActive(['agents', 'agent']),
+        onClick: () => orgNavigateTo('agents'),
         label: "Agents",
       },
       {

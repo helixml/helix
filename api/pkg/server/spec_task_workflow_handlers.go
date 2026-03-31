@@ -465,7 +465,7 @@ func (s *HelixAPIServer) ensurePullRequestForRepo(ctx context.Context, repo *typ
 		}
 	}
 	if !branchExists {
-		log.Debug().Str("repo_id", repo.ID).Str("repo_name", repo.Name).Str("branch", branch).Msg("Branch does not exist in repo, skipping PR creation")
+		log.Trace().Str("repo_id", repo.ID).Str("repo_name", repo.Name).Str("branch", branch).Msg("Branch does not exist in repo, skipping PR creation")
 		return nil, nil
 	}
 
@@ -490,6 +490,19 @@ func (s *HelixAPIServer) ensurePullRequestForRepo(ctx context.Context, repo *typ
 		branchMatches := pr.SourceBranch == sourceBranchRef || pr.SourceBranch == branch
 		if branchMatches && pr.State == types.PullRequestStateOpen {
 			log.Info().Str("pr_id", pr.ID).Str("branch", branch).Str("repo_name", repo.Name).Msg("Pull request already exists")
+			return &types.RepoPR{
+				RepositoryID:   repo.ID,
+				RepositoryName: repo.Name,
+				PRID:           pr.ID,
+				PRNumber:       pr.Number,
+				PRURL:          pr.URL,
+				PRState:        string(pr.State),
+			}, nil
+		}
+		// If a PR was closed (not merged) on this branch, don't recreate it.
+		// The user closed it intentionally.
+		if branchMatches && pr.State == types.PullRequestStateClosed {
+			log.Info().Str("pr_id", pr.ID).Str("branch", branch).Str("repo_name", repo.Name).Msg("Pull request was closed, not recreating")
 			return &types.RepoPR{
 				RepositoryID:   repo.ID,
 				RepositoryName: repo.Name,
@@ -597,9 +610,24 @@ func (s *HelixAPIServer) ensurePullRequestsForAllRepos(ctx context.Context, task
 		}
 	}
 
-	// Update task with all PRs
+	// Only update if the PR list actually changed — avoids bumping updated_at
+	// on every orchestrator cycle, which breaks ETag caching for the task list.
+	changed := len(repoPRs) != len(task.RepoPullRequests)
+	if !changed {
+		for i, pr := range repoPRs {
+			old := task.RepoPullRequests[i]
+			if pr.RepositoryID != old.RepositoryID || pr.PRID != old.PRID || pr.PRState != old.PRState || pr.PRURL != old.PRURL {
+				changed = true
+				break
+			}
+		}
+	}
+
+	if !changed {
+		return nil
+	}
+
 	task.RepoPullRequests = repoPRs
-	task.UpdatedAt = time.Now()
 
 	if err := s.Store.UpdateSpecTask(ctx, task); err != nil {
 		return fmt.Errorf("failed to update task with PRs: %w", err)

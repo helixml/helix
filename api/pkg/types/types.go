@@ -2136,6 +2136,9 @@ type DataEntity struct {
 	// of a lora dataset.
 	ParentDataEntity string           `json:"parent_entity"`
 	Config           DataEntityConfig `json:"config" gorm:"jsonb"`
+	// KoditRepositoryID is the Kodit repository ID associated with this data entity's
+	// filestore path. Null when no Kodit repository has been registered for this entity.
+	KoditRepositoryID *int64 `json:"kodit_repository_id,omitempty" gorm:"column:kodit_repository_id"`
 }
 
 type ScriptRunType string

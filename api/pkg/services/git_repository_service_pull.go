@@ -467,15 +467,45 @@ func (s *GitRepositoryService) SyncAllBranches(ctx context.Context, repoID strin
 		Bool("force", force).
 		Msg("Syncing ALL branches from external repository")
 
+	// Check if helix-specs branch exists before fetching (we need to preserve it)
+	hasHelixSpecs := false
+	if branches, err := ListBranches(ctx, gitRepo.LocalPath); err == nil {
+		for _, b := range branches {
+			if b == "helix-specs" {
+				hasHelixSpecs = true
+				break
+			}
+		}
+	}
+
 	err = Fetch(ctx, gitRepo.LocalPath, FetchOptions{
 		Remote:   fetchURL,
 		RefSpecs: []string{refSpec},
 		Force:    force,
-		Prune:    true, // Remove local branches that no longer exist on remote
+		Prune:    false, // Don't prune - preserves local-only branches like helix-specs
 		Timeout:  5 * time.Minute,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to fetch from remote: %w", err)
+	}
+
+	// Restore helix-specs branch if it was pruned (it's a local-only branch for design docs)
+	// The prune operation removes branches not on the remote, but helix-specs is intentionally local.
+	if hasHelixSpecs {
+		if branches, err := ListBranches(ctx, gitRepo.LocalPath); err == nil {
+			helixSpecsStillExists := false
+			for _, b := range branches {
+				if b == "helix-specs" {
+					helixSpecsStillExists = true
+					break
+				}
+			}
+			if !helixSpecsStillExists {
+				log.Warn().
+					Str("repo_id", gitRepo.ID).
+					Msg("helix-specs branch was pruned during sync - this should not happen, branch needs to be recreated")
+			}
+		}
 	}
 
 	// Update the repository's branch list using gitea's git module

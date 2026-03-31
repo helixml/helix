@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"hash/fnv"
 	"net/http"
 	"strings"
 	"sync"
@@ -258,15 +259,27 @@ func (s *HelixAPIServer) listTasks(w http.ResponseWriter, r *http.Request) {
 			for _, session := range sessions {
 				sessionMap[session.ID] = session
 			}
-			// Populate SessionUpdatedAt and SandboxState on each task
+			// Populate SessionUpdatedAt and SandboxState on each task.
+			// Live-check the executor to avoid stale DB metadata after sandbox restarts
+			// (same pattern as getSession in session_handlers.go).
 			for _, task := range tasks {
 				if session, ok := sessionMap[task.PlanningSessionID]; ok {
 					task.SessionUpdatedAt = &session.Updated
 
-					// Derive sandbox state from session config - same logic as useSandboxState in the frontend.
-					// This avoids per-card GET /api/v1/sessions/{id} polling from the Kanban view.
+					// Live-check container status against the executor, overriding stale DB values.
 					cfg := session.Metadata
-					status := cfg.ExternalAgentStatus // "stopped", "running", "starting"
+					if cfg.ContainerName != "" && s.externalAgentExecutor != nil {
+						_, err := s.externalAgentExecutor.GetSession(session.ID)
+						if err != nil {
+							cfg.ExternalAgentStatus = "stopped"
+						} else {
+							cfg.ExternalAgentStatus = "running"
+						}
+					} else if cfg.ContainerName != "" {
+						cfg.ExternalAgentStatus = "stopped"
+					}
+
+					status := cfg.ExternalAgentStatus
 					hasContainer := cfg.ContainerName != ""
 					switch {
 					case status == "stopped":
@@ -286,8 +299,27 @@ func (s *HelixAPIServer) listTasks(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// ETag support: hash the response to avoid sending unchanged data
+	jsonBytes, err := json.Marshal(tasks)
+	if err != nil {
+		http.Error(w, "failed to encode response", http.StatusInternalServerError)
+		return
+	}
+
+	h := fnv.New64a()
+	h.Write(jsonBytes)
+	etag := fmt.Sprintf(`"%x"`, h.Sum64())
+
+	w.Header().Set("ETag", etag)
+	w.Header().Set("Cache-Control", "private, no-cache, must-revalidate")
+
+	if match := r.Header.Get("If-None-Match"); match == etag {
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(tasks)
+	w.Write(jsonBytes) //nolint:errcheck
 }
 
 // approveSpecs godoc
@@ -611,6 +643,15 @@ func (s *HelixAPIServer) getBatchTaskProgress(w http.ResponseWriter, r *http.Req
 		semaphore := make(chan struct{}, 10)
 
 		for _, task := range tasks {
+			// Skip checklist parsing for finished tasks — the UI doesn't show
+			// checklists for done/pull_request/failed tasks, and parsing git
+			// files for 169+ completed tasks is expensive and wasteful.
+			switch task.Status {
+			case types.TaskStatusDone, types.TaskStatusPullRequest,
+				types.TaskStatusSpecFailed, types.TaskStatusImplementationFailed:
+				continue
+			}
+
 			wg.Add(1)
 			go func(t *types.SpecTask) {
 				defer wg.Done()
@@ -634,8 +675,7 @@ func (s *HelixAPIServer) getBatchTaskProgress(w http.ResponseWriter, r *http.Req
 		wg.Wait()
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	writeResponseWithETag(w, r, response)
 }
 
 // Helper functions

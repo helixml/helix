@@ -430,7 +430,7 @@ const Layout: FC<{
       case "org_projects":
         return <ProjectsSidebar />;
 
-      case "org_app":
+      case "org_agent":
         // Individual app pages use the new context sidebar for agent navigation
         return <AppSidebar />;
 

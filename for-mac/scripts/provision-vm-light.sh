@@ -577,7 +577,8 @@ if ! step_done "run_install_sh"; then
     if [ "${COMPOSE_SIZE:-0}" -lt 100 ]; then
         log "docker-compose.yaml is missing or empty — copying from local repo checkout..."
         scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-            -P "$SSH_PORT" "$REPO_ROOT/docker-compose.yaml" "${VM_USER}@localhost:/opt/HelixML/docker-compose.yaml"
+            -P "$SSH_PORT" "$REPO_ROOT/docker-compose.yaml" "${VM_USER}@localhost:/tmp/docker-compose.yaml"
+        run_ssh "sudo cp /tmp/docker-compose.yaml /opt/HelixML/docker-compose.yaml && rm /tmp/docker-compose.yaml"
         # Replace ${HELIX_VERSION:-latest} with the actual version (same as release-backend does)
         run_ssh "cd /opt/HelixML && sed -i 's/\${HELIX_VERSION:-latest}/${HELIX_VERSION}/g' docker-compose.yaml"
         COMPOSE_SIZE=$(run_ssh "wc -c < /opt/HelixML/docker-compose.yaml 2>/dev/null || echo 0")

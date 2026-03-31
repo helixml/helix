@@ -219,21 +219,14 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
   }, [name, userModifiedRepoName, repoMode])
 
   // Sort apps: zed_external first, then others
+  // Only show external agents — helix_agent types don't support project workflows
   const sortedApps = useMemo(() => {
     if (!apps) return []
-    const zedExternalApps: IApp[] = []
-    const otherApps: IApp[] = []
-    apps.forEach((app) => {
-      const hasZedExternal = app.config?.helix?.assistants?.some(
+    return apps.filter((app) =>
+      app.config?.helix?.assistants?.some(
         (assistant) => assistant.agent_type === AGENT_TYPE_ZED_EXTERNAL
       ) || app.config?.helix?.default_agent_type === AGENT_TYPE_ZED_EXTERNAL
-      if (hasZedExternal) {
-        zedExternalApps.push(app)
-      } else {
-        otherApps.push(app)
-      }
-    })
-    return [...zedExternalApps, ...otherApps]
+    )
   }, [apps])
 
   // Filter out internal repos - they're deprecated
@@ -1029,7 +1022,7 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
                             size="small"
                             onClick={(e) => {
                               e.stopPropagation()
-                              account.orgNavigate('app', { app_id: app.id })
+                              account.orgNavigate('agent', { app_id: app.id })
                             }}
                             sx={{ ml: 'auto' }}
                           >

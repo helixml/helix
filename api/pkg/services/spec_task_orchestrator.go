@@ -18,6 +18,11 @@ import (
 // SpecTaskOrchestrator orchestrates SpecTasks through the complete workflow
 // Pushes agents through design → approval → implementation
 // Manages agent lifecycle and reuses sessions across Helix interactions
+// EnsurePRsFunc is a callback that creates PRs for all project repos that have
+// the task's feature branch. Set by the server so the orchestrator can retry
+// PR creation for repos whose branches weren't ready at initial "Open PR" time.
+type EnsurePRsFunc func(ctx context.Context, task *types.SpecTask, primaryRepoID string) error
+
 type SpecTaskOrchestrator struct {
 	store                 store.Store
 	gitService            *GitRepositoryService
@@ -25,6 +30,7 @@ type SpecTaskOrchestrator struct {
 	containerExecutor     ContainerExecutor // Executor for external agent containers
 	goldenBuildService    *GoldenBuildService
 	attentionService      *AttentionService
+	ensurePRs             EnsurePRsFunc // Callback to create missing PRs (set by server)
 	stopChan              chan struct{}
 	wg                    sync.WaitGroup
 	backlogProjectLocks   sync.Map // map[project_id]*sync.Mutex
@@ -57,6 +63,12 @@ func NewSpecTaskOrchestrator(
 		orchestrationInterval: 10 * time.Second, // Check every 10 seconds
 		testMode:              false,
 	}
+}
+
+// SetEnsurePRsFunc sets the callback used to create PRs for repos that may not
+// have had their feature branch ready when the user first clicked "Open PR".
+func (o *SpecTaskOrchestrator) SetEnsurePRsFunc(fn EnsurePRsFunc) {
+	o.ensurePRs = fn
 }
 
 // SetTestMode enables/disables test mode
@@ -619,13 +631,27 @@ func (o *SpecTaskOrchestrator) handleSpecApproved(ctx context.Context, task *typ
 // handlePullRequest polls external repo for PR merge status
 // Called from the dedicated PR polling loop (runs every 1 minute)
 func (o *SpecTaskOrchestrator) handlePullRequest(ctx context.Context, task *types.SpecTask) error {
+	// Try to create PRs for repos that didn't have the branch ready when the
+	// user first clicked "Open PR". This covers the case where the agent pushes
+	// to a secondary repo after the initial PR creation.
+	if o.ensurePRs != nil {
+		project, err := o.store.GetProject(ctx, task.ProjectID)
+		if err == nil && project.DefaultRepoID != "" {
+			if err := o.ensurePRs(ctx, task, project.DefaultRepoID); err != nil {
+				log.Debug().Err(err).Str("task_id", task.ID).Msg("Failed to ensure PRs for all repos (will retry)")
+			}
+		}
+	}
+
 	if !task.HasAnyPR() {
 		log.Warn().
 			Str("task_id", task.ID).
 			Msg("Task in pull_request status but no PRs tracked in RepoPullRequests")
-		return nil
 	}
 
+	// Always call processExternalPullRequestStatus even with no tracked PRs —
+	// it has a fallback that checks if the branch was merged to main directly
+	// (e.g. PR was created and merged on GitHub before we could link it).
 	return o.processExternalPullRequestStatus(ctx, task)
 }
 
@@ -664,7 +690,7 @@ func (o *SpecTaskOrchestrator) processExternalPullRequestStatus(ctx context.Cont
 			anyOpen = true
 			allMerged = false
 			allClosed = false
-			log.Debug().
+			log.Trace().
 				Str("task_id", task.ID).
 				Str("repo_id", repoPR.RepositoryID).
 				Str("pr_id", repoPR.PRID).
@@ -708,20 +734,62 @@ func (o *SpecTaskOrchestrator) processExternalPullRequestStatus(ctx context.Cont
 		return o.store.UpdateSpecTask(ctx, task)
 	}
 
-	if allClosed && !anyOpen {
-		// All PRs abandoned - archive the task
-		task.Archived = true
-		task.UpdatedAt = time.Now()
+	if allClosed && !anyOpen && len(task.RepoPullRequests) > 0 {
+		// All PRs closed — log but don't auto-archive. Let the user decide.
 		log.Info().
 			Str("task_id", task.ID).
-			Msg("All PRs abandoned, archiving task")
-		return o.store.UpdateSpecTask(ctx, task)
+			Msg("All PRs closed, task remains in pull_request status")
 	}
 
 	// Persist any state updates
 	if updated {
 		task.UpdatedAt = time.Now()
 		return o.store.UpdateSpecTask(ctx, task)
+	}
+
+	// If no PRs are tracked (or all PRs are closed), check if the branch has
+	// been merged to main directly. This handles cases where the PR was created
+	// and merged on GitHub before we could link it, or where the branch was
+	// identical to main (no commits between them).
+	if !anyOpen && task.BranchName != "" {
+		project, err := o.store.GetProject(ctx, task.ProjectID)
+		if err != nil {
+			log.Debug().Err(err).Str("task_id", task.ID).Msg("Failed to get project for branch-merge check")
+			return nil
+		}
+		if project.DefaultRepoID == "" {
+			return nil
+		}
+		repo, err := o.store.GetGitRepository(ctx, project.DefaultRepoID)
+		if err != nil {
+			log.Debug().Err(err).Str("task_id", task.ID).Msg("Failed to get repo for branch-merge check")
+			return nil
+		}
+
+		merged, mergeErr := o.gitService.IsBranchMerged(ctx, project.DefaultRepoID, task.BranchName, repo.DefaultBranch)
+		if mergeErr != nil {
+			if task.LastPushCommitHash != "" {
+				merged, mergeErr = o.gitService.IsCommitInBranch(ctx, project.DefaultRepoID, task.LastPushCommitHash, repo.DefaultBranch)
+				if mergeErr != nil {
+					log.Debug().Err(mergeErr).Str("task_id", task.ID).Msg("Failed to check if commit is in main")
+					return nil
+				}
+			} else {
+				log.Debug().Err(mergeErr).Str("task_id", task.ID).Str("branch", task.BranchName).Msg("Failed to check if branch is merged")
+				return nil
+			}
+		}
+
+		if merged {
+			log.Info().Str("task_id", task.ID).Str("branch", task.BranchName).Msg("Detected merged branch, moving task to done")
+			now := time.Now()
+			task.Status = types.TaskStatusDone
+			task.MergedToMain = true
+			task.MergedAt = &now
+			task.CompletedAt = &now
+			task.UpdatedAt = now
+			return o.store.UpdateSpecTask(ctx, task)
+		}
 	}
 
 	return nil
@@ -958,6 +1026,12 @@ func (o *SpecTaskOrchestrator) checkTaskForExternalPRActivity(ctx context.Contex
 	// Second: check if branch has been merged to main (handles cases where PR was
 	// squash-merged or branch was deleted after merge)
 	// First try using the branch name
+	log.Trace().
+		Str("task_id", task.ID).
+		Str("branch", task.BranchName).
+		Str("target", repo.DefaultBranch).
+		Str("repo_id", project.DefaultRepoID).
+		Msg("Checking if branch is merged into main")
 	merged, err := o.gitService.IsBranchMerged(ctx, project.DefaultRepoID, task.BranchName, repo.DefaultBranch)
 	if err != nil {
 		// Branch might not exist locally - try using LastPushCommitHash if available

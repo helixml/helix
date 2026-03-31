@@ -22,14 +22,9 @@ You can use skill functions to help answer the user's question effectively.
 
 {{ formatSkillFunctions .SkillFunctions }}
 
-Skill functions handle multiple queries and receive context externally, requiring no arguments passed by you (IF THERE ARE NO ARGUMENTS DEFINED ON THE SKILL). They are designed to understand human language and execute complex actions based on instructions.
+Use the tools provided to help answer the user's question. Always check the tool's parameter schema — if it defines parameters, you MUST pass them. If it has no parameters, call it without arguments.
 
 - **Dependence:** If multiple skills are needed, call them in parallel only if they are independent. Usually, skills are interdependent, so refrain from calling a skill if it relies on another's result.
-
-# Notes
-
-- Remember not to pass any arguments to skill functions if the skill function does not have them, the context will be managed externally in those cases.
-- Focus on understanding the interdependencies between skills to optimize the response process effectively.
 - Remember to use the "stop" tool when you are done with the task.
 
 # Performance Instructions
@@ -79,7 +74,14 @@ func SkillSelectionPrompt(data SkillSelectionPromptData) (string, error) {
 	return generateFromTemplate(SkillSelectionPromptTemplate, data)
 }
 
-// formatSkillFunctions formats the skill functions as a comma-separated string.
+// formatSkillFunctions formats the skill functions as a bulleted list.
 func formatSkillFunctions(skillFunctions []string) string {
-	return strings.Join(skillFunctions, ", ")
+	if len(skillFunctions) == 0 {
+		return ""
+	}
+	lines := make([]string, len(skillFunctions))
+	for i, f := range skillFunctions {
+		lines[i] = "- " + f
+	}
+	return strings.Join(lines, "\n")
 }

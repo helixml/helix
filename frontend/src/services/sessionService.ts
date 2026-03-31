@@ -46,6 +46,11 @@ export function useGetSession(sessionId: string, options?: { enabled?: boolean; 
     queryFn: () => apiClient.v1SessionsDetail(sessionId),
     enabled: options?.enabled ?? true,
     refetchInterval: options?.refetchInterval,
+    // Prevent immediate refetches when multiple consumers share this query.
+    // E.g. useSandboxState (3s) and EmbeddedSessionView (5s) both poll the same
+    // session — without staleTime, mounting a new consumer would trigger an
+    // immediate redundant fetch even if data was fetched <1s ago.
+    staleTime: 2000,
   })
 }
 

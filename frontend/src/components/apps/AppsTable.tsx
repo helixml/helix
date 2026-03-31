@@ -106,12 +106,12 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
 
   // Handle navigation to app details with skills tab
   const handleSkillClick = (app: IApp) => {
-    account.orgNavigate('app', { app_id: app.id }, { tab: 'skills' });
+    account.orgNavigate('agent', { app_id: app.id }, { tab: 'skills' });
   };
 
   // Handle usage click
   const handleUsageClick = (app: IApp) => {
-    account.orgNavigate('app', { app_id: app.id }, { tab: 'usage' });
+    account.orgNavigate('agent', { app_id: app.id }, { tab: 'usage' });
   };
 
   // Fetch usage data for all apps

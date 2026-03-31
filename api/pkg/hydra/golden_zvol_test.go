@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -811,13 +812,21 @@ func (s *GoldenZvolSuite) TestSeedZvol_GoldenDirNotFound() {
 
 func (s *GoldenZvolSuite) TestGCOrphanedZvols_CleansOrphans() {
 	zfsParentDataset = "prod/helix-zvols"
-	// Reset ZFS available state for GC (it checks ZFSAvailable())
 	zfsAvailableFlag = true
+
+	// Override sessionsBaseDir to use temp dir for external markers
+	oldSessionsBaseDir := sessionsBaseDir
+	sessionsBaseDir = filepath.Join(s.tmpDir, "sessions")
+	defer func() { sessionsBaseDir = oldSessionsBaseDir }()
 
 	// Active session
 	s.mock.addDataset("prod/helix-zvols/ses-ses_active")
-	// Orphaned session
+	// Orphaned session with stale external marker (>7 days old)
 	s.mock.addDataset("prod/helix-zvols/ses-ses_orphan")
+	orphanMarkerDir := filepath.Join(sessionsBaseDir, "docker-data-ses_orphan")
+	require.NoError(s.T(), os.MkdirAll(orphanMarkerDir, 0755))
+	staleTime := time.Now().Add(-8 * 24 * time.Hour).Format(time.RFC3339)
+	require.NoError(s.T(), os.WriteFile(filepath.Join(orphanMarkerDir, ".last-active"), []byte(staleTime), 0644))
 	// Golden (should not be touched)
 	s.mock.addDataset("prod/helix-zvols/golden-prj_abc")
 

@@ -430,12 +430,12 @@ func (c *RetryableClient) listOpenAIModels(ctx context.Context) ([]types.OpenAIM
 			transportType = fmt.Sprintf("%T", c.httpClient.Transport)
 		}
 	}
-	log.Debug().
+	log.Trace().
 		Str("url", url).
 		Str("base_url", c.baseURL).
 		Str("transport_type", transportType).
 		Bool("tls_skip_verify", tlsSkipVerify).
-		Msg("listOpenAIModels: Transport config for direct httpClient.Do request")
+		Msg("listOpenAIModels: transport config for direct httpClient.Do request")
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
