@@ -597,9 +597,24 @@ func (s *HelixAPIServer) ensurePullRequestsForAllRepos(ctx context.Context, task
 		}
 	}
 
-	// Update task with all PRs
+	// Only update if the PR list actually changed — avoids bumping updated_at
+	// on every orchestrator cycle, which breaks ETag caching for the task list.
+	changed := len(repoPRs) != len(task.RepoPullRequests)
+	if !changed {
+		for i, pr := range repoPRs {
+			old := task.RepoPullRequests[i]
+			if pr.RepositoryID != old.RepositoryID || pr.PRID != old.PRID || pr.PRState != old.PRState || pr.PRURL != old.PRURL {
+				changed = true
+				break
+			}
+		}
+	}
+
+	if !changed {
+		return nil
+	}
+
 	task.RepoPullRequests = repoPRs
-	task.UpdatedAt = time.Now()
 
 	if err := s.Store.UpdateSpecTask(ctx, task); err != nil {
 		return fmt.Errorf("failed to update task with PRs: %w", err)
