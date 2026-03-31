@@ -255,6 +255,20 @@ export namespace main {
 	        this.vm_manifest_url = source["vm_manifest_url"];
 	    }
 	}
+	export class UserIdentity {
+	    name: string;
+	    email: string;
+
+	    static createFrom(source: any = {}) {
+	        return new UserIdentity(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.email = source["email"];
+	    }
+	}
 	export class VMConfig {
 	    name: string;
 	    cpus: number;

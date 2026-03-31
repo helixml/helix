@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { main } from '../../wailsjs/go/models';
-import { SaveSettings, GetSettings, ResizeDataDisk, GetAutoLoginURL, FactoryReset as FactoryResetGo, GetLANAddress, ValidateLicenseKey, GetLicenseStatus, CheckForUpdate, ApplyAppUpdate, ApplyVMUpdate, RedownloadVMImage, DownloadVMUpdate, StartCombinedUpdate, ApplyCombinedUpdate, CancelUpdate, CollectDiagnostics } from '../../wailsjs/go/main/App';
+import { SaveSettings, GetSettings, ResizeDataDisk, GetAutoLoginURL, FactoryReset as FactoryResetGo, GetLANAddress, ValidateLicenseKey, GetLicenseStatus, CheckForUpdate, ApplyAppUpdate, ApplyVMUpdate, RedownloadVMImage, DownloadVMUpdate, StartCombinedUpdate, ApplyCombinedUpdate, CancelUpdate, CollectDiagnostics, GetUserIdentity } from '../../wailsjs/go/main/App';
 import { BrowserOpenURL } from '../../wailsjs/runtime/runtime';
 import { formatBytes } from '../lib/helpers';
 
@@ -203,11 +203,23 @@ export function SettingsPanel({
     }
   }
 
-  function openCrispWithDiagnostics() {
+  async function openCrispWithDiagnostics() {
     const win = window as any;
     if (!win.$crisp || !win.CRISP_WEBSITE_ID) {
       showToast('Live chat is not available - check your internet connection');
       return;
+    }
+    // Push user identity so the Helix team can contact them back
+    try {
+      const identity = await GetUserIdentity();
+      if (identity.email) {
+        win.$crisp.push(['set', 'user:email', identity.email]);
+      }
+      if (identity.name) {
+        win.$crisp.push(['set', 'user:nickname', identity.name]);
+      }
+    } catch (err) {
+      console.error('Failed to get user identity:', err);
     }
     const description = userDescription ? `Issue: ${userDescription}\n\n` : '';
     // Crisp has a ~10k char limit per message; truncate diagnostics if needed

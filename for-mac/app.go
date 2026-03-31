@@ -782,6 +782,23 @@ func getMacOSUserFullName() string {
 	return u.Username
 }
 
+// UserIdentity holds the user's name and email for support chat identification.
+type UserIdentity struct {
+	Name  string `json:"name"`
+	Email string `json:"email"`
+}
+
+// GetUserIdentity returns the macOS user's display name and licensee email (if available).
+func (a *App) GetUserIdentity() UserIdentity {
+	id := UserIdentity{
+		Name: getMacOSUserFullName(),
+	}
+	if a.licenseValidator != nil {
+		id.Email = a.licenseValidator.GetLicenseeEmail(a.settings.Get())
+	}
+	return id
+}
+
 // GetAppVersion returns the current app version string.
 func (a *App) GetAppVersion() string {
 	return Version

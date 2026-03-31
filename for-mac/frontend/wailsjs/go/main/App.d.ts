@@ -54,6 +54,8 @@ export function GetSystemInfo():Promise<Record<string, any>>;
 
 export function GetUpdateInfo():Promise<main.UpdateInfo>;
 
+export function GetUserIdentity():Promise<main.UserIdentity>;
+
 export function GetVMConfig():Promise<main.VMConfig>;
 
 export function GetVMStatus():Promise<main.VMStatus>;
