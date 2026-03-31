@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"hash/fnv"
 	"net"
 	"net/http"
 	"os"
@@ -1367,6 +1368,32 @@ func (apiServer *HelixAPIServer) registerDefaultHandler(router *mux.Router) {
 		fileSystem := http.Dir(frontendURL)
 		router.PathPrefix("/").Handler(spa.NewSPAFileServer(fileSystem))
 	}
+}
+
+// writeResponseWithETag serializes data to JSON, computes an ETag, and returns
+// 304 Not Modified if the client already has the current version. Use this for
+// polling endpoints where the response rarely changes between requests.
+func writeResponseWithETag(w http.ResponseWriter, r *http.Request, data interface{}) {
+	jsonBytes, err := json.Marshal(data)
+	if err != nil {
+		http.Error(w, "failed to encode response", http.StatusInternalServerError)
+		return
+	}
+
+	h := fnv.New64a()
+	h.Write(jsonBytes)
+	etag := fmt.Sprintf(`"%x"`, h.Sum64())
+
+	w.Header().Set("ETag", etag)
+	w.Header().Set("Cache-Control", "private, no-cache, must-revalidate")
+
+	if match := r.Header.Get("If-None-Match"); match == etag {
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(jsonBytes) //nolint:errcheck
 }
 
 func writeResponse(rw http.ResponseWriter, data interface{}, statusCode int) {

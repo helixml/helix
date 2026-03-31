@@ -666,8 +666,7 @@ func (s *HelixAPIServer) getBatchTaskProgress(w http.ResponseWriter, r *http.Req
 		wg.Wait()
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	writeResponseWithETag(w, r, response)
 }
 
 // Helper functions

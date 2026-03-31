@@ -1,7 +1,6 @@
 package server
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"sync"
@@ -319,6 +318,5 @@ func (s *HelixAPIServer) getBatchTaskUsage(w http.ResponseWriter, r *http.Reques
 
 	wg.Wait()
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	writeResponseWithETag(w, r, response)
 }
