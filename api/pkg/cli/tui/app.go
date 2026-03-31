@@ -279,17 +279,21 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case archiveTaskMsg:
 		task := msg.task
+		a.status = "Archiving..."
+		a.statusExpiry = time.Now().Add(3 * time.Second)
 		return a, func() tea.Msg {
 			err := a.api.ArchiveTask(apiCtx(), task.ID)
 			if err != nil {
 				return errMsg{err}
 			}
 			// Refetch tasks to remove archived one from kanban
-			tasks, err := a.api.ListSpecTasks(apiCtx(), task.ProjectID)
-			if err != nil {
-				return statusMsg("Archived: " + taskDisplayName(task))
+			if a.kanban != nil {
+				tasks, err := a.api.ListSpecTasks(apiCtx(), a.kanban.projectID)
+				if err == nil {
+					return tasksLoadedMsg{tasks: tasks}
+				}
 			}
-			return tasksLoadedMsg{tasks: tasks}
+			return statusMsg("Archived: " + taskDisplayName(task))
 		}
 
 	case openNewTaskMsg:

@@ -158,6 +158,15 @@ func (k *KanbanModel) Update(msg tea.Msg) tea.Cmd {
 			col := statusToColumn(t.Status)
 			k.columns[col] = append(k.columns[col], t)
 		}
+		// Clamp cursors to valid range (e.g. after archive)
+		for i := KanbanColumn(0); i < ColCount; i++ {
+			if k.rowIdx[i] >= len(k.columns[i]) {
+				k.rowIdx[i] = len(k.columns[i]) - 1
+			}
+			if k.rowIdx[i] < 0 {
+				k.rowIdx[i] = 0
+			}
+		}
 		return nil
 
 	case errMsg:
