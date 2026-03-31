@@ -863,7 +863,7 @@ const AppSettings: FC<AppSettingsProps> = ({
           </FormControl>
 
           {/* Display settings — only shown in Desktop mode */}
-          {(external_agent_config?.interface_mode || 'desktop') === 'desktop' && (
+          {(external_agent_config?.interface_mode || 'desktop') === 'desktop' && (<>
           <Stack direction="row" spacing={2} sx={{ mb: 2 }}>
             <FormControl size="small" sx={{ minWidth: 160 }}>
               <Select
@@ -1038,8 +1038,9 @@ const AppSettings: FC<AppSettingsProps> = ({
                 }}
               />
             </Box>
+          </>)}
         </Box>
-          )}
+      )}
 
         {/* Multi-Turn Agent Configuration */}
         {default_agent_type === AGENT_TYPE_HELIX_AGENT && (
