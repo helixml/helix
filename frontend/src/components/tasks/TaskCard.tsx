@@ -51,7 +51,7 @@ import {
 import {
   ServerTaskProgressResponse,
   TypesSpecTaskStatus,
-  TypesAggregatedUsageMetric,
+  ServerBatchTaskUsageMetric,
 } from "../../api/api";
 import UsagePulseChart from "./UsagePulseChart";
 import ExternalAgentDesktopViewer from "../external-agent/ExternalAgentDesktopViewer";
@@ -232,7 +232,7 @@ interface TaskCardProps {
   /** Pre-fetched progress data from batch endpoint - required */
   progressData?: ServerTaskProgressResponse;
   /** Pre-fetched usage data from batch endpoint - required */
-  usageData?: TypesAggregatedUsageMetric[];
+  usageData?: ServerBatchTaskUsageMetric[];
   highlightedTaskIds?: string[] | null;
   onDependencyHoverStart?: (taskIds: string[]) => void;
   onDependencyHoverEnd?: () => void;
@@ -1099,11 +1099,17 @@ function TaskCardInner({
           (task.phase === "planning" ||
             task.phase === "review" ||
             task.phase === "implementation" ||
-            task.phase === "pull_request") && (
-            <UsagePulseChart accentColor={accentColor} usageData={usageData} />
-          )}
+            task.phase === "pull_request") && (() => {
+            if (!usageData) console.log(`[TaskCard ${task.id}] usageData is undefined, phase=${task.phase}`);
+            else if (usageData.length === 0) console.log(`[TaskCard ${task.id}] usageData is empty array`);
+            return <UsagePulseChart accentColor={accentColor} usageData={usageData} />;
+          })()}
 
         {/* Gorgeous checklist progress for active tasks */}
+        {(() => {
+          if (progressData && !progressData.checklist) console.log(`[TaskCard ${task.id}] progressData exists but no checklist, status=${task.status}`);
+          return null;
+        })()}
         {progressData?.checklist && progressData.checklist.total_tasks > 0 && (
           <TaskProgressDisplay
             checklist={progressData.checklist as ChecklistProgress}

@@ -660,10 +660,15 @@ export interface ServerBatchTaskProgressResponse {
   tasks?: Record<string, ServerTaskProgressResponse>;
 }
 
+export interface ServerBatchTaskUsageMetric {
+  date?: string;
+  total_tokens?: number;
+}
+
 export interface ServerBatchTaskUsageResponse {
   project_id?: string;
   /** keyed by task_id */
-  tasks?: Record<string, TypesAggregatedUsageMetric[]>;
+  tasks?: Record<string, ServerBatchTaskUsageMetric[]>;
 }
 
 export interface ServerClaudeLoginSessionResponse {

@@ -84,7 +84,7 @@ import {
 } from "../../services/specTaskService";
 import {
   ServerTaskProgressResponse,
-  TypesAggregatedUsageMetric,
+  ServerBatchTaskUsageMetric,
 } from "../../api/api";
 import { useGetProject, useUpdateProject } from "../../services/projectService";
 import useSnackbar from "../../hooks/useSnackbar";
@@ -268,7 +268,7 @@ const DroppableColumn: React.FC<{
   /** Batch progress data keyed by task ID - avoids per-card polling */
   batchProgressData?: Record<string, ServerTaskProgressResponse>;
   /** Batch usage data keyed by task ID - avoids per-card polling */
-  batchUsageData?: Record<string, TypesAggregatedUsageMetric[]>;
+  batchUsageData?: Record<string, ServerBatchTaskUsageMetric[]>;
   autoStartBacklogTasks?: boolean;
   onToggleAutoStart?: () => void;
   highlightedTaskIds?: string[] | null;
@@ -704,6 +704,21 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
     refetchInterval: 60000, // Poll every 60 seconds for usage (less frequent than progress)
   });
   const batchUsageData = batchUsageResponse?.tasks;
+
+  // DEBUG: Log batch data to diagnose missing sparklines/checklists
+  React.useEffect(() => {
+    if (batchProgressData) {
+      const withChecklist = Object.values(batchProgressData).filter((t: any) => t?.checklist?.total_tasks > 0).length;
+      console.log('[KanbanDebug] batchProgressData:', Object.keys(batchProgressData).length, 'tasks,', withChecklist, 'with checklists');
+    } else {
+      console.log('[KanbanDebug] batchProgressData is', batchProgressData);
+    }
+    if (batchUsageData) {
+      console.log('[KanbanDebug] batchUsageData:', Object.keys(batchUsageData).length, 'tasks with usage');
+    } else {
+      console.log('[KanbanDebug] batchUsageData is', batchUsageData);
+    }
+  }, [batchProgressData, batchUsageData]);
 
   // Planning form state
   const [newTaskRequirements, setNewTaskRequirements] = useState("");
