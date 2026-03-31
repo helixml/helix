@@ -445,6 +445,15 @@ Each SSH session spawns an independent `App` model with its own `APIClient`. The
 
 Graceful shutdown on SIGINT/SIGTERM with 5-second timeout.
 
+### Exposing the SSH port
+
+The SSH server plays nicely with Helix's existing port expose feature. Helix supports both name-based and port-based expose:
+
+- **Port-based**: Expose port 2222 on the Helix host → users SSH directly
+- **Name-based**: Expose as `hmux.your-org.helix.example.com` → SSH via hostname
+
+This means hmux can be made accessible alongside the web UI without any extra infrastructure — just expose the SSH port in the session/sandbox configuration.
+
 ## E2E Test Infrastructure
 
 ### Architecture
