@@ -219,22 +219,6 @@ func (k *KanbanModel) View() string {
 		return fmt.Sprintf("\n  %s %v\n  Press r to retry.", styleError.Render("Error:"), k.err)
 	}
 
-	colWidth := k.width / int(ColCount)
-	if colWidth < 15 {
-		colWidth = 15
-	}
-	contentHeight := k.height - 3 // header + status bar
-	if contentHeight < 5 {
-		contentHeight = 5
-	}
-
-	var cols []string
-	for i := KanbanColumn(0); i < ColCount; i++ {
-		cols = append(cols, k.renderColumn(i, colWidth, contentHeight))
-	}
-
-	board := lipgloss.JoinHorizontal(lipgloss.Top, cols...)
-
 	// Project header
 	projectName := k.projectID
 	if k.project != nil && k.project.Name != "" {
@@ -248,52 +232,74 @@ func (k *KanbanModel) View() string {
 	}
 	header += styleDim.Render(fmt.Sprintf("  %d tasks", totalTasks))
 
+	// Render each column as a bordered box
+	colWidth := k.width / int(ColCount)
+	if colWidth < 16 {
+		colWidth = 16
+	}
+	innerWidth := colWidth - 4 // border + padding
+	cardHeight := k.height - 6 // project header + column header + borders
+	if cardHeight < 3 {
+		cardHeight = 3
+	}
+
+	var cols []string
+	for i := KanbanColumn(0); i < ColCount; i++ {
+		cols = append(cols, k.renderColumn(i, colWidth, innerWidth, cardHeight))
+	}
+
+	board := lipgloss.JoinHorizontal(lipgloss.Top, cols...)
 	return header + "\n" + board
 }
 
-func (k *KanbanModel) renderColumn(col KanbanColumn, width, height int) string {
+func (k *KanbanModel) renderColumn(col KanbanColumn, totalWidth, innerWidth, cardHeight int) string {
 	tasks := k.columns[col]
 	isFocusedCol := col == k.colIdx
 
 	// Column header
 	headerColor := statusColor(col)
+	title := fmt.Sprintf("%s (%d)", col.Title(), len(tasks))
+
+	// Build card content
+	var lines []string
+	for i := 0; i < cardHeight && i < len(tasks); i++ {
+		t := tasks[i]
+		isSelected := isFocusedCol && i == k.rowIdx[col]
+		lines = append(lines, k.renderCard(t, innerWidth, isSelected))
+	}
+
+	if len(tasks) > cardHeight {
+		lines = append(lines, styleDim.Render(fmt.Sprintf("+%d more", len(tasks)-cardHeight)))
+	}
+
+	// Pad to fill height
+	for len(lines) < cardHeight {
+		lines = append(lines, "")
+	}
+
+	content := strings.Join(lines, "\n")
+
+	// Render as bordered box with column header as title
+	borderColor := colorBorder
+	if isFocusedCol {
+		borderColor = colorBorderFoc
+	}
+
+	box := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(borderColor).
+		Width(innerWidth).
+		Height(cardHeight).
+		Render(content)
+
+	// Column header above the box
 	headerStyle := lipgloss.NewStyle().
 		Bold(isFocusedCol).
 		Foreground(headerColor).
-		Width(width - 1).
-		Padding(0, 1)
+		Width(totalWidth).
+		Align(lipgloss.Center)
 
-	title := fmt.Sprintf("%s (%d)", col.Title(), len(tasks))
-	header := headerStyle.Render(title)
-
-	// Separator
-	sep := styleDim.Render(strings.Repeat("─", width-1))
-
-	// Task cards
-	var cards []string
-	visibleCards := height - 2 // header + sep
-	if visibleCards < 1 {
-		visibleCards = 1
-	}
-
-	for i := 0; i < visibleCards && i < len(tasks); i++ {
-		t := tasks[i]
-		isSelected := isFocusedCol && i == k.rowIdx[col]
-		cards = append(cards, k.renderCard(t, width-1, isSelected))
-	}
-
-	if len(tasks) > visibleCards {
-		more := styleDim.Render(fmt.Sprintf("  +%d more", len(tasks)-visibleCards))
-		cards = append(cards, more)
-	}
-
-	// Pad to fill column height (required for JoinHorizontal alignment)
-	for len(cards) < visibleCards {
-		cards = append(cards, strings.Repeat(" ", width-1))
-	}
-
-	content := strings.Join(cards, "\n")
-	return header + "\n" + sep + "\n" + content
+	return headerStyle.Render(title) + "\n" + box
 }
 
 func (k *KanbanModel) renderCard(t *types.SpecTask, width int, selected bool) string {
