@@ -95,7 +95,7 @@ export default function InlineCommentBubble({
 
   const wideStyles = {
     position: "absolute" as const,
-    left: "670px",
+    left: "820px",
     top: `${yPos}px`,
     width: "300px",
     mt: 0,
