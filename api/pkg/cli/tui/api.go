@@ -113,6 +113,12 @@ func (a *APIClient) ListInteractions(ctx context.Context, sessionID string) ([]*
 	return interactions, nil
 }
 
+// StopAgent sends a stop request for the agent session on a spec task.
+// Uses POST /spec-tasks/{id}/stop-agent.
+func (a *APIClient) StopAgent(ctx context.Context, specTaskID string) error {
+	return a.client.MakeRequest(ctx, http.MethodPost, "/spec-tasks/"+specTaskID+"/stop-agent", nil, nil)
+}
+
 func (a *APIClient) GetSpecTask(ctx context.Context, taskID string) (*types.SpecTask, error) {
 	var task types.SpecTask
 	err := a.client.MakeRequest(ctx, http.MethodGet, "/spec-tasks/"+taskID, nil, &task)

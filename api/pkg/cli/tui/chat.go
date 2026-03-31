@@ -53,6 +53,7 @@ type chatResponseMsg struct {
 }
 
 type spinnerTickMsg struct{}
+type escFromChatMsg struct{}
 
 func NewChatModel(api *APIClient, task *types.SpecTask) *ChatModel {
 	sessionID := task.PlanningSessionID
@@ -246,10 +247,14 @@ func (c *ChatModel) Update(msg tea.Msg) tea.Cmd {
 				return nil
 			}
 			if c.agentBusy {
-				// TODO: stop agent
-				return nil
+				// Stop the agent
+				c.agentBusy = false
+				c.spinner = nil
+				c.input.SetAgentBusy(false)
+				return c.stopAgent()
 			}
-			return nil
+			// Agent idle, input empty — signal to go back to kanban
+			return func() tea.Msg { return escFromChatMsg{} }
 
 		default:
 			if msg.Type == tea.KeyRunes {
@@ -356,6 +361,19 @@ func (c *ChatModel) handleSlashCommand(cmd, args string) tea.Cmd {
 		}
 	}
 	return nil
+}
+
+func (c *ChatModel) stopAgent() tea.Cmd {
+	task := c.task
+	if task == nil || task.ID == "" {
+		return nil
+	}
+	return func() tea.Msg {
+		_ = c.api.StopAgent(apiCtx(), task.ID)
+		// Also mark the latest interaction as complete locally
+		// (the server will handle the actual stop)
+		return statusMsg("Agent stopped")
+	}
 }
 
 func (c *ChatModel) spinnerTickCmd() tea.Cmd {

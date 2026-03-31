@@ -212,6 +212,11 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return a, nil
 
+	case escFromChatMsg:
+		// Go back to kanban (tab 0) without closing the current tab
+		a.tabs.GoToTab(0)
+		return a, nil
+
 	case backToOrgsMsg:
 		a.mode = ModeOrgPicker
 		a.orgPicker = NewOrgPickerModel(a.api)
