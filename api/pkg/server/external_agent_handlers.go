@@ -1245,9 +1245,51 @@ func (apiServer *HelixAPIServer) proxyStreamWebSocket(res http.ResponseWriter, r
 	// Get RevDial connection to desktop container (registered as "desktop-{session_id}")
 	runnerID := fmt.Sprintf("desktop-%s", sessionID)
 
+	// Proxy deduplication: when the same browser tab reconnects (same client_id),
+	// cancel the previous proxy to prevent cascading duplicate connections.
+	// Different browser tabs have different client IDs and can coexist (spectating).
+	clientID := req.URL.Query().Get("client_id")
+	proxyCtx, proxyCancel := context.WithCancel(req.Context())
+	defer proxyCancel()
+
+	proxySessionID := generateProxySessionID()
+
+	if clientID != "" {
+		dedupeKey := "stream:" + sessionID + ":" + clientID
+
+		// Look up and replace any existing proxy for this session+client.
+		// Cancel outside the lock to avoid holding it during teardown.
+		apiServer.activeStreamProxiesMu.Lock()
+		prev := apiServer.activeStreamProxies[dedupeKey]
+		apiServer.activeStreamProxies[dedupeKey] = &activeStreamProxy{
+			proxySessionID: proxySessionID,
+			cancel:         proxyCancel,
+		}
+		apiServer.activeStreamProxiesMu.Unlock()
+
+		if prev != nil {
+			log.Info().
+				Str("session_id", sessionID).
+				Str("client_id", clientID).
+				Str("old_proxy", prev.proxySessionID).
+				Str("new_proxy", proxySessionID).
+				Msg("Superseding previous stream proxy for same client")
+			prev.cancel()
+		}
+
+		defer func() {
+			apiServer.activeStreamProxiesMu.Lock()
+			if cur, ok := apiServer.activeStreamProxies[dedupeKey]; ok && cur.proxySessionID == proxySessionID {
+				delete(apiServer.activeStreamProxies, dedupeKey)
+			}
+			apiServer.activeStreamProxiesMu.Unlock()
+		}()
+	}
+
 	log.Info().
 		Str("session_id", sessionID).
 		Str("runner_id", runnerID).
+		Str("proxy_session_id", proxySessionID).
 		Msg("Proxying stream WebSocket to screenshot-server via RevDial")
 
 	// Hijack the HTTP connection to get the underlying net.Conn
@@ -1267,7 +1309,7 @@ func (apiServer *HelixAPIServer) proxyStreamWebSocket(res http.ResponseWriter, r
 	defer clientConn.Close()
 
 	// Get RevDial connection to the screenshot-server
-	ctx, cancel := context.WithTimeout(req.Context(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(proxyCtx, 30*time.Second)
 	defer cancel()
 
 	serverConn, err := apiServer.connman.Dial(ctx, runnerID)
@@ -1329,15 +1371,6 @@ func (apiServer *HelixAPIServer) proxyStreamWebSocket(res http.ResponseWriter, r
 	}
 
 	log.Info().Str("session_id", sessionID).Msg("Stream WebSocket connection established, starting resilient proxy")
-
-	// Use req.Context() directly — proxy lifetime is tied to the client connection.
-	// No single-stream-per-session enforcement: multiple viewers can connect to
-	// the same session simultaneously (spectating). The desktop-bridge handles
-	// multi-client multiplexing internally.
-	proxyCtx := req.Context()
-
-	// Generate a unique proxy session ID
-	proxySessionID := generateProxySessionID()
 
 	// Create dial function that uses connman with grace period support
 	dialFunc := func(ctx context.Context) (net.Conn, error) {
