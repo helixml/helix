@@ -13,6 +13,7 @@ dist
 api/runs
 kubeconfig
 .vscode
+.claude
 integration-test/frontend/screenshots
 instructions.txt
 build-errors.log
