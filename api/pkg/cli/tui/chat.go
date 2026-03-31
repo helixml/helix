@@ -26,6 +26,7 @@ type ChatModel struct {
 	toolRenderer *ToolCallRenderer
 	slashReg     *SlashCommandRegistry
 	outbox       *Outbox
+	tmuxPrefix   string
 
 	scrollOffset int
 	loading      bool
@@ -114,7 +115,7 @@ func (c *ChatModel) Update(msg tea.Msg) tea.Cmd {
 				last := c.interactions[len(c.interactions)-1]
 				if last.State == types.InteractionStateWaiting {
 					c.agentBusy = true
-					c.spinner = NewSpinner()
+					c.spinner = NewSpinner(c.tmuxPrefix)
 					c.input.SetAgentBusy(true)
 					return c.spinnerTickCmd()
 				}
@@ -159,7 +160,7 @@ func (c *ChatModel) Update(msg tea.Msg) tea.Cmd {
 
 		case "pgup", "shift+up", "alt+up":
 			if c.scrollOffset > 0 {
-				c.scrollOffset -= 10
+				c.scrollOffset -= c.height / 2
 				if c.scrollOffset < 0 {
 					c.scrollOffset = 0
 				}
@@ -167,7 +168,13 @@ func (c *ChatModel) Update(msg tea.Msg) tea.Cmd {
 			return nil
 
 		case "pgdown", "shift+down", "alt+down":
-			c.scrollOffset += 10
+			c.scrollOffset += c.height / 2
+			c.clampScroll()
+			return nil
+
+		case "ctrl+d":
+			// Page down (vim half-page)
+			c.scrollOffset += c.height / 2
 			c.clampScroll()
 			return nil
 
@@ -214,6 +221,16 @@ func (c *ChatModel) Update(msg tea.Msg) tea.Cmd {
 			c.input.MoveEnd()
 
 		case "ctrl+u":
+			if c.input.IsEmpty() {
+				// Page up (vim half-page) when not typing
+				if c.scrollOffset > 0 {
+					c.scrollOffset -= c.height / 2
+					if c.scrollOffset < 0 {
+						c.scrollOffset = 0
+					}
+				}
+				return nil
+			}
 			c.input.DeleteToStart()
 
 		case "ctrl+k":

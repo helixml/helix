@@ -185,6 +185,25 @@ func (k *KanbanModel) Update(msg tea.Msg) tea.Cmd {
 				k.rowIdx[col]--
 				k.ensureVisible(col)
 			}
+		case "ctrl+d":
+			col := k.colIdx
+			half := k.cardHeight() / 2
+			k.rowIdx[col] += half
+			if k.rowIdx[col] >= len(k.columns[col]) {
+				k.rowIdx[col] = len(k.columns[col]) - 1
+			}
+			if k.rowIdx[col] < 0 {
+				k.rowIdx[col] = 0
+			}
+			k.ensureVisible(col)
+		case "ctrl+u":
+			col := k.colIdx
+			half := k.cardHeight() / 2
+			k.rowIdx[col] -= half
+			if k.rowIdx[col] < 0 {
+				k.rowIdx[col] = 0
+			}
+			k.ensureVisible(col)
 		case "1":
 			k.colIdx = ColBacklog
 		case "2":

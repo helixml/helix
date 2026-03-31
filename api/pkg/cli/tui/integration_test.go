@@ -400,7 +400,7 @@ func TestIntegration_KanbanRender(t *testing.T) {
 }
 
 func TestIntegration_SpinnerBritishVerbs(t *testing.T) {
-	spinner := NewSpinner()
+	spinner := NewSpinner("ctrl+b")
 	view := spinner.View()
 
 	// Should contain one of the British verbs

@@ -175,6 +175,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		tab := a.tabs.ActiveTab()
 		if tab != nil && tab.Panes != nil {
 			chat := NewChatModel(a.api, msg.task)
+			chat.tmuxPrefix = a.tmux.Prefix
 			tab.Panes.SplitFocused(msg.splitDir, chat)
 			a.syncPaneFocus()
 			return a, chat.Init()
@@ -540,6 +541,7 @@ func (a *App) openNewChatTab(projectID string) tea.Cmd {
 	tab.Panes.SetSize(a.width, a.contentHeight()-1)
 
 	chat := NewChatModel(a.api, placeholder)
+	chat.tmuxPrefix = a.tmux.Prefix
 	chat.sessionName = "New task — type your first message"
 	tab.Panes.OpenPane(chat)
 	a.syncPaneFocus()
@@ -565,6 +567,7 @@ func (a *App) openTaskInTab(task *types.SpecTask) tea.Cmd {
 	tab.Panes.SetSize(a.width, a.contentHeight()-1) // -1 for tab bar
 
 	chat := NewChatModel(a.api, task)
+	chat.tmuxPrefix = a.tmux.Prefix
 	tab.Panes.OpenPane(chat)
 	a.syncPaneFocus()
 

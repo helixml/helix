@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"math/rand"
+	"strings"
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
@@ -48,14 +49,18 @@ type Spinner struct {
 	frame     int
 	tokens    int
 	tip       string
+	prefix    string // actual tmux prefix for tip rendering
 }
 
-func NewSpinner() *Spinner {
+func NewSpinner(prefix string) *Spinner {
+	tip := tips[rand.Intn(len(tips))]
+	tip = strings.ReplaceAll(tip, "{prefix}", prefix)
 	return &Spinner{
 		verb:      britishVerbs[rand.Intn(len(britishVerbs))],
 		startTime: time.Now(),
 		frame:     0,
-		tip:       tips[rand.Intn(len(tips))],
+		tip:       tip,
+		prefix:    prefix,
 	}
 }
 
