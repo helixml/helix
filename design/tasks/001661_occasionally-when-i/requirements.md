@@ -15,12 +15,12 @@ The guard works correctly when the user reaches the review via `handleReviewSpec
 
 ## User Stories
 
-- As a user on the spec review page, when I click "Back", I want to land on the task detail page and stay there — not be redirected back to the review.
+- As a user on the spec review page, when I navigate away via breadcrumbs (or any other navigation), I want to land on the task detail page and stay there — not be redirected back to the review.
 - As a user, I want to be able to view the task detail page for a task in `spec_review` status without being forced into the review every time.
 
 ## Acceptance Criteria
 
-1. After clicking "Back" from the spec review page, the user stays on the task detail page.
+1. After navigating away from the spec review page (e.g. via breadcrumbs), the user stays on the destination page.
 2. The auto-open behaviour still works on the **first** visit to the task detail page after the task transitions to `spec_review` status.
 3. The fix works regardless of how the user reached the spec review page (direct URL, auto-open from task detail, or notification link).
 4. The fix does not break the workspace split-screen path (`onOpenReview` callback).
