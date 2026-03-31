@@ -170,7 +170,7 @@ func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *t
 		ProjectID:      req.ProjectID,
 		UserID:         req.UserID,
 		OrganizationID: organizationID,
-		Name:           generateTaskNameFromPrompt(req.Prompt),
+		Name:           GenerateTaskNameFromPrompt(req.Prompt),
 		Description:    req.Prompt,
 		Type:           req.Type,
 		Priority:       req.Priority,
@@ -559,6 +559,20 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 			envVars = append(envVars, projectSecrets...)
 			log.Info().Int("secret_count", len(projectSecrets)).Str("project_id", task.ProjectID).Msg("Injected project secrets into desktop env")
 		}
+	}
+
+	// Inject startup script from project YAML (stored in database).
+	// helix-workspace-setup.sh uses this as a fallback when no .helix/startup.sh
+	// exists in the helix-specs branch (typical for externally-applied projects).
+	if project.StartupScriptYAML != "" {
+		envVars = append(envVars, "HELIX_STARTUP_SCRIPT="+project.StartupScriptYAML)
+	}
+	// Legacy: also pass install/start for backward compatibility
+	if project.StartupInstall != "" {
+		envVars = append(envVars, "HELIX_STARTUP_INSTALL="+project.StartupInstall)
+	}
+	if project.StartupStart != "" {
+		envVars = append(envVars, "HELIX_STARTUP_START="+project.StartupStart)
 	}
 
 	zedAgent := &types.DesktopAgent{
@@ -953,6 +967,18 @@ Follow these guidelines when making changes:
 			envVarsJDI = append(envVarsJDI, projectSecrets...)
 			log.Info().Int("secret_count", len(projectSecrets)).Str("project_id", task.ProjectID).Msg("Just Do It: Injected project secrets into desktop env")
 		}
+	}
+
+	// Inject startup script from project YAML (same as planning phase)
+	if project.StartupScriptYAML != "" {
+		envVarsJDI = append(envVarsJDI, "HELIX_STARTUP_SCRIPT="+project.StartupScriptYAML)
+	}
+	// Legacy: also pass install/start for backward compatibility
+	if project.StartupInstall != "" {
+		envVarsJDI = append(envVarsJDI, "HELIX_STARTUP_INSTALL="+project.StartupInstall)
+	}
+	if project.StartupStart != "" {
+		envVarsJDI = append(envVarsJDI, "HELIX_STARTUP_START="+project.StartupStart)
 	}
 
 	// Create ZedAgent struct with session info for Wolf executor
@@ -1361,7 +1387,7 @@ func generateTaskID() string {
 	return system.GenerateSpecTaskID()
 }
 
-func generateTaskNameFromPrompt(prompt string) string {
+func GenerateTaskNameFromPrompt(prompt string) string {
 	// Replace newlines and other whitespace with spaces to create clean task names
 	// (prompts can contain newlines from multi-line input)
 	name := strings.ReplaceAll(prompt, "\n", " ")

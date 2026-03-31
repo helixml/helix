@@ -130,6 +130,26 @@ func (d *Dialer) close() {
 
 // Dial creates a new connection back to the Listener.
 func (d *Dialer) Dial(ctx context.Context) (net.Conn, error) {
+	// Drain any stale connections left over from previous timed-out Dial calls.
+	// When a Dial() times out, the sandbox may still dial back and deliver a
+	// connection via matchConn. Without draining, the next Dial() would pick up
+	// this stale (likely dead) connection instead of requesting a fresh one,
+	// causing cascading failures.
+	drained := 0
+	for {
+		select {
+		case c := <-d.incomingConn:
+			c.Close()
+			drained++
+		default:
+			goto doneDraining
+		}
+	}
+doneDraining:
+	if drained > 0 {
+		log.Printf("revdial.Dialer: drained %d stale connection(s)", drained)
+	}
+
 	// First, tell serve that we want a connection:
 	select {
 	case d.connReady <- true:
@@ -152,10 +172,19 @@ func (d *Dialer) Dial(ctx context.Context) (net.Conn, error) {
 	}
 }
 
+// matchConnTimeout is the maximum time matchConn will wait for a Dial() call
+// to pick up a data connection. If no Dial() is waiting (e.g., the caller
+// timed out), the connection is closed to prevent phantom goroutine leaks.
+const matchConnTimeout = 30 * time.Second
+
 func (d *Dialer) matchConn(c net.Conn) {
 	select {
 	case d.incomingConn <- c:
 	case <-d.donec:
+		c.Close()
+	case <-time.After(matchConnTimeout):
+		c.Close()
+		log.Printf("revdial.Dialer: matchConn timed out after %v, closed orphaned data connection", matchConnTimeout)
 	}
 }
 

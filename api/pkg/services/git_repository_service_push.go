@@ -19,7 +19,7 @@ import (
 func (s *GitRepositoryService) PushBranchToRemote(ctx context.Context, repoID, branchName string, force bool) error {
 	startTime := time.Now()
 
-	log.Debug().
+	log.Trace().
 		Str("repo_id", repoID).
 		Str("branch", branchName).
 		Bool("force", force).
@@ -31,7 +31,7 @@ func (s *GitRepositoryService) PushBranchToRemote(ctx context.Context, repoID, b
 		return fmt.Errorf("repository not found: %w", err)
 	}
 
-	log.Debug().
+	log.Trace().
 		Str("repo_id", repoID).
 		Str("external_url", gitRepo.ExternalURL).
 		Str("external_type", string(gitRepo.ExternalType)).
@@ -57,7 +57,7 @@ func (s *GitRepositoryService) PushBranchToRemote(ctx context.Context, repoID, b
 	authType := "none"
 	if password != "" {
 		authType = fmt.Sprintf("basic:%s", username)
-		log.Debug().
+		log.Trace().
 			Str("repo_id", repoID).
 			Str("auth_type", authType).
 			Int("token_length", len(password)).
@@ -122,7 +122,7 @@ func pushBranchNative(ctx context.Context, repoPath, remoteURL, branch string, f
 	default:
 	}
 
-	log.Debug().
+	log.Trace().
 		Str("branch", branch).
 		Str("repo_path", repoPath).
 		Bool("force", force).
@@ -147,7 +147,7 @@ func pushBranchNative(ctx context.Context, repoPath, remoteURL, branch string, f
 		errStr := err.Error()
 		if strings.Contains(errStr, "Everything up-to-date") ||
 			strings.Contains(errStr, "up to date") {
-			log.Debug().
+			log.Trace().
 				Str("branch", branch).
 				Msg("[GitPush] Push completed - already up to date")
 			return nil
@@ -155,7 +155,7 @@ func pushBranchNative(ctx context.Context, repoPath, remoteURL, branch string, f
 		return err
 	}
 
-	log.Debug().
+	log.Trace().
 		Str("branch", branch).
 		Msg("[GitPush] Push completed successfully")
 

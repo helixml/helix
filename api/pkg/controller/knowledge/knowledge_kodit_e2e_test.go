@@ -24,14 +24,14 @@ import (
 
 // koditSvcE2E is a minimal KoditServicer for E2E tests.
 type koditSvcE2E struct {
-	registerFn func(ctx context.Context, cloneURL, upstreamURL string) (int64, bool, error)
+	registerFn func(ctx context.Context, params *services.RegisterRepositoryParams) (int64, bool, error)
 }
 
 var _ services.KoditServicer = (*koditSvcE2E)(nil)
 
-func (k *koditSvcE2E) RegisterRepository(ctx context.Context, cloneURL, upstreamURL string) (int64, bool, error) {
+func (k *koditSvcE2E) RegisterRepository(ctx context.Context, params *services.RegisterRepositoryParams) (int64, bool, error) {
 	if k.registerFn != nil {
-		return k.registerFn(ctx, cloneURL, upstreamURL)
+		return k.registerFn(ctx, params)
 	}
 	return 0, false, nil
 }
@@ -164,8 +164,8 @@ func (s *KoditE2ESuite) TestKoditIndexing_RegistersDirectoryAndSetsRepoID() {
 
 	// kodit should be called with the correct file:// URI
 	registerCalled := false
-	s.koditSvc.registerFn = func(_ context.Context, cloneURL, _ string) (int64, bool, error) {
-		s.Equal(expectedFileURI, cloneURL)
+	s.koditSvc.registerFn = func(_ context.Context, params *services.RegisterRepositoryParams) (int64, bool, error) {
+		s.Equal(expectedFileURI, params.CloneURL)
 		registerCalled = true
 		return repoID, true, nil
 	}
@@ -226,7 +226,7 @@ func (s *KoditE2ESuite) TestKoditIndexing_FallsBackToNormalPipelineForWebSource(
 
 	// The kodit RegisterRepository should NOT be called since it's a web source.
 	registerCalled := false
-	s.koditSvc.registerFn = func(_ context.Context, _, _ string) (int64, bool, error) {
+	s.koditSvc.registerFn = func(_ context.Context, _ *services.RegisterRepositoryParams) (int64, bool, error) {
 		registerCalled = true
 		return 0, false, nil
 	}

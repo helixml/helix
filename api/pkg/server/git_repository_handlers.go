@@ -383,8 +383,7 @@ func (s *HelixAPIServer) listGitRepositories(w http.ResponseWriter, r *http.Requ
 		repositories = authorizedRepos
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(repositories)
+	writeResponseWithETag(w, r, repositories)
 }
 
 // createSampleRepository creates a sample/demo repository

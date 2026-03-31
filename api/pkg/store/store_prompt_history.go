@@ -82,10 +82,10 @@ func (s *PostgresStore) SyncPromptHistory(ctx context.Context, userID string, re
 		}
 	}
 
-	// Return all entries for this user+spec_task so client can merge
+	// Return all non-deleted entries for this user+spec_task so client can merge
 	var allEntries []types.PromptHistoryEntry
 	err := s.gdb.WithContext(ctx).
-		Where("user_id = ? AND spec_task_id = ?", userID, req.SpecTaskID).
+		Where("user_id = ? AND spec_task_id = ? AND deleted_at IS NULL", userID, req.SpecTaskID).
 		Order("created_at DESC").
 		Limit(100). // Reasonable limit
 		Find(&allEntries).Error
@@ -127,7 +127,7 @@ func (s *PostgresStore) GetNextPendingPrompt(ctx context.Context, sessionID stri
 		UPDATE prompt_history_entries SET status = 'sending', updated_at = NOW()
 		WHERE id = (
 			SELECT id FROM prompt_history_entries
-			WHERE session_id = ? AND interrupt = false
+			WHERE session_id = ? AND interrupt = false AND deleted_at IS NULL
 			AND (status = 'pending' OR (status = 'failed' AND (next_retry_at IS NULL OR next_retry_at <= ?)))
 			ORDER BY COALESCE(queue_position, 999999) ASC, created_at ASC
 			LIMIT 1
@@ -158,7 +158,7 @@ func (s *PostgresStore) GetAnyPendingPrompt(ctx context.Context, sessionID strin
 		UPDATE prompt_history_entries SET status = 'sending', updated_at = NOW()
 		WHERE id = (
 			SELECT id FROM prompt_history_entries
-			WHERE session_id = ?
+			WHERE session_id = ? AND deleted_at IS NULL
 			AND (status = 'pending' OR (status = 'failed' AND (next_retry_at IS NULL OR next_retry_at <= ?)))
 			ORDER BY interrupt DESC, COALESCE(queue_position, 999999) ASC, created_at ASC
 			LIMIT 1
@@ -189,7 +189,7 @@ func (s *PostgresStore) GetNextInterruptPrompt(ctx context.Context, sessionID st
 		UPDATE prompt_history_entries SET status = 'sending', updated_at = NOW()
 		WHERE id = (
 			SELECT id FROM prompt_history_entries
-			WHERE session_id = ? AND interrupt = true
+			WHERE session_id = ? AND interrupt = true AND deleted_at IS NULL
 			AND (status = 'pending' OR (status = 'failed' AND (next_retry_at IS NULL OR next_retry_at <= ?)))
 			ORDER BY COALESCE(queue_position, 999999) ASC, created_at ASC
 			LIMIT 1
@@ -208,12 +208,12 @@ func (s *PostgresStore) GetNextInterruptPrompt(ctx context.Context, sessionID st
 	return &entry, nil
 }
 
-// ListPromptHistoryBySpecTask returns all prompt history entries for a spec task
+// ListPromptHistoryBySpecTask returns all non-deleted prompt history entries for a spec task
 // Used by the queue processor to find pending prompts across all sessions
 func (s *PostgresStore) ListPromptHistoryBySpecTask(ctx context.Context, specTaskID string) ([]*types.PromptHistoryEntry, error) {
 	var entries []*types.PromptHistoryEntry
 	err := s.gdb.WithContext(ctx).
-		Where("spec_task_id = ?", specTaskID).
+		Where("spec_task_id = ? AND deleted_at IS NULL", specTaskID).
 		Order("created_at ASC").
 		Find(&entries).Error
 
@@ -386,6 +386,17 @@ func (s *PostgresStore) IncrementPromptUsage(ctx context.Context, promptID strin
 			"usage_count":  s.gdb.Raw("usage_count + 1"),
 			"last_used_at": now,
 		}).
+		Error
+}
+
+// DeletePromptHistoryEntry soft-deletes a prompt history entry by setting deleted_at.
+// Deleted entries are excluded from queue processing and sync responses.
+func (s *PostgresStore) DeletePromptHistoryEntry(ctx context.Context, id string) error {
+	now := time.Now()
+	return s.gdb.WithContext(ctx).
+		Model(&types.PromptHistoryEntry{}).
+		Where("id = ?", id).
+		Update("deleted_at", now).
 		Error
 }
 

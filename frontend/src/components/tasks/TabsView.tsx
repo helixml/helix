@@ -394,11 +394,17 @@ const PanelTab: React.FC<PanelTabProps> = ({
       return tab.desktopTitle || "Human Desktop";
     }
     if (!hasSession) {
-      return displayTask?.name || displayTask?.description || "Task details";
+      return (
+        <span style={{ whiteSpace: "pre-wrap" }}>
+          {displayTask?.description || displayTask?.name || "Task details"}
+        </span>
+      );
     }
     if (titleHistory.length === 0) {
       return (
-        displayTask?.name || displayTask?.description || "No title history yet"
+        <span style={{ whiteSpace: "pre-wrap" }}>
+          {displayTask?.description || displayTask?.name || "No title history yet"}
+        </span>
       );
     }
     return (

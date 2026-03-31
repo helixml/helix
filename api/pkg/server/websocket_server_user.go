@@ -35,7 +35,7 @@ func (apiServer *HelixAPIServer) startUserWebSocketServer(
 		user, err := apiServer.authMiddleware.getUserFromSession(r.Context(), r)
 		if err != nil {
 			// Session auth failed, fall back to token-based auth (API keys, runner tokens)
-			log.Debug().Err(err).Str("path", path).Msg("WebSocket session auth failed, trying token auth")
+			log.Trace().Err(err).Str("path", path).Msg("WebSocket session auth failed, trying token auth")
 			user, err = apiServer.authMiddleware.getUserFromToken(r.Context(), getRequestToken(r))
 			if err != nil {
 				log.Error().Err(err).Msg("WebSocket auth failed")

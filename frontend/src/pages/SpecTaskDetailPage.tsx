@@ -87,6 +87,7 @@ const SpecTaskDetailPage: FC = () => {
         },
         {
           title: task?.name || "Task",
+          tooltip: task?.description || task?.name,
         },
       ]}
       orgBreadcrumbs={true}

@@ -41,7 +41,8 @@ spec:
             properties:
               assistants:
                 items:
-                  description: Create a local version of AssistantConfig
+                  description: AssistantConfig is a local version of the Helix assistant
+                    configuration.
                   properties:
                     apis:
                       description: The list of API tools this assistant will use
@@ -250,12 +251,12 @@ spec:
                             description: ToolConfig represents tool configuration
                             properties:
                               api:
-                                description: ToolApiConfig represents API tool configuration
+                                description: ToolAPIConfig represents API tool configuration.
                                 properties:
                                   actions:
                                     items:
-                                      description: ToolApiAction represents an API
-                                        action configuration
+                                      description: ToolAPIAction represents an API
+                                        action configuration.
                                       properties:
                                         description:
                                           type: string

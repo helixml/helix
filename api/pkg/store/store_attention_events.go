@@ -67,17 +67,28 @@ func (s *PostgresStore) ListAttentionEvents(ctx context.Context, userID, organiz
 		return nil, fmt.Errorf("user ID is required")
 	}
 
+	// Deduplicate server-side: keep only the most recent event per spec_task_id.
+	// The frontend groups by task and only shows the latest anyway, so returning
+	// multiple events per task is wasted bandwidth (235 events → ~30 unique tasks).
 	var events []*types.AttentionEvent
-	query := s.gdb.WithContext(ctx).
-		Where("user_id = ?", userID).
-		Where("dismissed_at IS NULL").
-		Where("snoozed_until IS NULL OR snoozed_until < ?", time.Now())
 
+	orgFilter := ""
+	args := []interface{}{userID, time.Now()}
 	if organizationID != "" {
-		query = query.Where("organization_id = ?", organizationID)
+		orgFilter = "AND organization_id = ?"
+		args = append(args, organizationID)
 	}
 
-	result := query.Order("created_at DESC").Find(&events)
+	result := s.gdb.WithContext(ctx).Raw(`
+		SELECT DISTINCT ON (spec_task_id) *
+		FROM attention_events
+		WHERE user_id = ?
+		  AND dismissed_at IS NULL
+		  AND (snoozed_until IS NULL OR snoozed_until < ?)
+		  `+orgFilter+`
+		ORDER BY spec_task_id, created_at DESC
+	`, args...).Scan(&events)
+
 	if result.Error != nil {
 		return nil, fmt.Errorf("failed to list attention events: %w", result.Error)
 	}
@@ -106,12 +117,34 @@ func (s *PostgresStore) UpdateAttentionEvent(ctx context.Context, id string, upd
 		now := time.Now()
 		updates["acknowledged_at"] = &now
 	}
-	if update.Dismiss {
-		now := time.Now()
-		updates["dismissed_at"] = &now
-	}
 	if update.SnoozedUntil != nil {
 		updates["snoozed_until"] = update.SnoozedUntil
+	}
+
+	// Dismissal is handled separately: dismiss all events for the same task so
+	// that deduplicated older events don't resurface after the cache invalidates.
+	if update.Dismiss {
+		var event types.AttentionEvent
+		if err := s.gdb.WithContext(ctx).
+			Select("spec_task_id", "user_id").
+			Where("id = ?", id).
+			First(&event).Error; err != nil {
+			if err == gorm.ErrRecordNotFound {
+				return fmt.Errorf("attention event not found: %s", id)
+			}
+			return fmt.Errorf("failed to fetch attention event for dismiss: %w", err)
+		}
+		now := time.Now()
+		result := s.gdb.WithContext(ctx).
+			Model(&types.AttentionEvent{}).
+			Where("spec_task_id = ? AND user_id = ?", event.SpecTaskID, event.UserID).
+			Update("dismissed_at", &now)
+		if result.Error != nil {
+			return fmt.Errorf("failed to dismiss attention events: %w", result.Error)
+		}
+		if len(updates) == 0 {
+			return nil
+		}
 	}
 
 	if len(updates) == 0 {

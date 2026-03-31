@@ -63,13 +63,15 @@ func run(cmd *cobra.Command, args []string) {
 	// Use pretty logging for console output
 	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr})
 
+	log.Info().Msg("========================================")
+	log.Info().Msg("  Hydra daemon starting")
 	log.Info().
 		Str("socket", socketPath).
 		Str("socket_dir", socketDir).
 		Str("data_dir", dataDir).
 		Str("log_level", logLevel).
 		Bool("privileged_mode", os.Getenv("HYDRA_PRIVILEGED_MODE_ENABLED") == "true").
-		Msg("Starting Hydra daemon")
+		Msg("========================================")
 
 	// Create manager and server
 	manager := hydra.NewManager(socketDir, dataDir)

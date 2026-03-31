@@ -51,7 +51,7 @@ import {
 import {
   ServerTaskProgressResponse,
   TypesSpecTaskStatus,
-  TypesAggregatedUsageMetric,
+  ServerBatchTaskUsageMetric,
 } from "../../api/api";
 import UsagePulseChart from "./UsagePulseChart";
 import ExternalAgentDesktopViewer from "../external-agent/ExternalAgentDesktopViewer";
@@ -191,6 +191,7 @@ export interface SpecTaskWithExtras {
   sandbox_status_message?: string; // Transient startup message
   // Task number for display
   task_number?: number;
+  description?: string;
   depends_on?: TaskDependency[];
   // Assignee tracking
   assignee_id?: string;
@@ -232,7 +233,7 @@ interface TaskCardProps {
   /** Pre-fetched progress data from batch endpoint - required */
   progressData?: ServerTaskProgressResponse;
   /** Pre-fetched usage data from batch endpoint - required */
-  usageData?: TypesAggregatedUsageMetric[];
+  usageData?: ServerBatchTaskUsageMetric[];
   highlightedTaskIds?: string[] | null;
   onDependencyHoverStart?: (taskIds: string[]) => void;
   onDependencyHoverEnd?: () => void;
@@ -781,19 +782,30 @@ function TaskCardInner({
             minWidth: 0,
           }}
         >
-          <Typography
-            variant="body2"
-            sx={{
-              fontWeight: 500,
-              flex: 1,
-              minWidth: 0,
-              lineHeight: 1.4,
-              color: "text.primary",
-              wordBreak: "break-word",
-            }}
+          <Tooltip
+            title={
+              <span style={{ whiteSpace: "pre-wrap" }}>
+                {task.description || task.name}
+              </span>
+            }
+            placement="top"
+            enterDelay={500}
+            arrow
           >
-            {task.name}
-          </Typography>
+            <Typography
+              variant="body2"
+              sx={{
+                fontWeight: 500,
+                flex: 1,
+                minWidth: 0,
+                lineHeight: 1.4,
+                color: "text.primary",
+                wordBreak: "break-word",
+              }}
+            >
+              {task.name}
+            </Typography>
+          </Tooltip>
           <IconButton
             size="small"
             onClick={(e) => {
@@ -1079,6 +1091,7 @@ function TaskCardInner({
         <AssigneeSelector
           assigneeId={task.assignee_id}
           members={orgMembers}
+          currentUserId={account.user?.id}
           onAssigneeChange={handleAssigneeChange}
           isLoading={updateSpecTask.isPending}
           anchorEl={assigneeAnchorEl}
@@ -1543,7 +1556,9 @@ const TaskCard = React.memo(TaskCardInner, (prevProps, nextProps) => {
     prevProps.task.sandbox_status_message === nextProps.task.sandbox_status_message &&
     prevProps.isArchiving === nextProps.isArchiving &&
     prevProps.isVisible === nextProps.isVisible &&
-    prevProps.focusStartPlanning === nextProps.focusStartPlanning
+    prevProps.focusStartPlanning === nextProps.focusStartPlanning &&
+    prevProps.usageData === nextProps.usageData &&
+    prevProps.progressData === nextProps.progressData
   );
 });
 

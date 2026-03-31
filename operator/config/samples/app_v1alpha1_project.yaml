@@ -1,0 +1,37 @@
+apiVersion: app.aispec.org/v1alpha1
+kind: Project
+metadata:
+  name: robot-hq
+  namespace: default
+spec:
+  description: "Full-stack web application"
+  guidelines: |
+    Use conventional commits. All PRs require tests.
+  repository:
+    url: "https://github.com/binocarlos/robot-hq"
+    default_branch: main
+  startup:
+    script: |
+      #!/bin/bash
+      set -e
+      docker compose build
+      docker compose up -d
+  autoStartBacklogTasks: true
+  kanban:
+    wip_limits:
+      planning:       5
+      implementation: 3
+      review:         3
+  tasks:
+    - title: "Add a second real-time graph to the home page"
+      description: "On the home screen there is currently a single real-time graph which shows telemetry for our robots. Can we have a second real-time telemetry graph that shows the current emotional breakdown distribution?"
+    - title: "Add tests for the API"
+      description: "We currently don't test the API at all - please add a test suite and hook up github actions to run those tests on every push"
+  agent:
+    name: "Project Assistant"
+    runtime: claude_code
+    model: claude-opus-4-6
+    provider: anthropic
+    tools:
+      web_search: true
+      browser: true

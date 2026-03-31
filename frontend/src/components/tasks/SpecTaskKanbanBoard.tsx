@@ -84,7 +84,7 @@ import {
 } from "../../services/specTaskService";
 import {
   ServerTaskProgressResponse,
-  TypesAggregatedUsageMetric,
+  ServerBatchTaskUsageMetric,
 } from "../../api/api";
 import { useGetProject, useUpdateProject } from "../../services/projectService";
 import useSnackbar from "../../hooks/useSnackbar";
@@ -268,7 +268,7 @@ const DroppableColumn: React.FC<{
   /** Batch progress data keyed by task ID - avoids per-card polling */
   batchProgressData?: Record<string, ServerTaskProgressResponse>;
   /** Batch usage data keyed by task ID - avoids per-card polling */
-  batchUsageData?: Record<string, TypesAggregatedUsageMetric[]>;
+  batchUsageData?: Record<string, ServerBatchTaskUsageMetric[]>;
   autoStartBacklogTasks?: boolean;
   onToggleAutoStart?: () => void;
   highlightedTaskIds?: string[] | null;
@@ -656,6 +656,26 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
     }
   }, [labelFilter, labelStorageKey]);
 
+  // Assignee filter state — persisted to localStorage per project
+  const assigneeStorageKey = projectId ? `helix-assignee-filter-${projectId}` : null;
+  const [assigneeFilter, setAssigneeFilter] = useState<string[]>(() => {
+    if (!assigneeStorageKey) return [];
+    try {
+      const stored = localStorage.getItem(assigneeStorageKey);
+      return stored ? JSON.parse(stored) : [];
+    } catch {
+      return [];
+    }
+  });
+  useEffect(() => {
+    if (!assigneeStorageKey) return;
+    if (assigneeFilter.length === 0) {
+      localStorage.removeItem(assigneeStorageKey);
+    } else {
+      localStorage.setItem(assigneeStorageKey, JSON.stringify(assigneeFilter));
+    }
+  }, [assigneeFilter, assigneeStorageKey]);
+
   // Backlog table view state
   const [backlogExpanded, setBacklogExpanded] = useState(false);
 
@@ -704,6 +724,9 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
     refetchInterval: 60000, // Poll every 60 seconds for usage (less frequent than progress)
   });
   const batchUsageData = batchUsageResponse?.tasks;
+
+
+
 
   // Planning form state
   const [newTaskRequirements, setNewTaskRequirements] = useState("");
@@ -808,7 +831,17 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
     return Array.from(labelSet).sort();
   }, [tasks]);
 
-  // Apply search + label filters to tasks
+  // Derive available assignee IDs from all loaded tasks (including "__unassigned__")
+  const availableAssigneeIds = useMemo(() => {
+    const ids = new Set<string>();
+    tasks.forEach((task) => ids.add(task.assignee_id || "__unassigned__"));
+    return Array.from(ids);
+  }, [tasks]);
+
+  // Org members for resolving assignee names/avatars
+  const orgMembers = account.organizationTools.organization?.memberships || [];
+
+  // Apply search + label + assignee filters to tasks
   const filteredTasks = useMemo(() => {
     let result = filterTasks(tasks, searchFilter);
     if (labelFilter.length > 0) {
@@ -816,8 +849,13 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
         labelFilter.every((l) => (task.labels || []).includes(l)),
       );
     }
+    if (assigneeFilter.length > 0) {
+      result = result.filter((task) =>
+        assigneeFilter.includes(task.assignee_id || "__unassigned__"),
+      );
+    }
     return result;
-  }, [tasks, searchFilter, labelFilter]);
+  }, [tasks, searchFilter, labelFilter, assigneeFilter]);
 
   // Kanban columns configuration - Linear color scheme
   // Pull Request column only shown for external repos (ADO)
@@ -1449,6 +1487,72 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
                     sx={{ height: 20, fontSize: "0.7rem" }}
                   />
                 ))
+              }
+              sx={{ width: 200 }}
+            />
+          )}
+          {/* Assignee filter */}
+          {availableAssigneeIds.length > 1 && (
+            <Autocomplete
+              multiple
+              size="small"
+              options={availableAssigneeIds}
+              value={assigneeFilter}
+              onChange={(_, value) => setAssigneeFilter(value)}
+              getOptionLabel={(id) => {
+                if (id === "__unassigned__") return "Unassigned";
+                const member = orgMembers.find((m: any) => m.user_id === id);
+                const user = member?.user as any;
+                return user?.full_name || user?.username || user?.email || id;
+              }}
+              renderOption={(props, id) => {
+                if (id === "__unassigned__") {
+                  return (
+                    <li {...props} key={id}>
+                      <Avatar sx={{ width: 24, height: 24, mr: 1, fontSize: "0.7rem", bgcolor: "grey.400" }}>?</Avatar>
+                      Unassigned
+                    </li>
+                  );
+                }
+                const member = orgMembers.find((m: any) => m.user_id === id);
+                const user = member?.user as any;
+                const name = user?.full_name || user?.username || user?.email || id;
+                const initials = name.slice(0, 2).toUpperCase();
+                return (
+                  <li {...props} key={id}>
+                    <Avatar sx={{ width: 24, height: 24, mr: 1, fontSize: "0.7rem" }}>{initials}</Avatar>
+                    {name}
+                  </li>
+                );
+              }}
+              renderInput={(params) => (
+                <TextField
+                  {...params}
+                  placeholder={assigneeFilter.length === 0 ? "Filter assignee..." : ""}
+                  sx={{
+                    "& .MuiOutlinedInput-root": { height: "auto", minHeight: 36 },
+                  }}
+                />
+              )}
+              renderTags={(value, getTagProps) =>
+                value.map((id, index) => {
+                  const label = id === "__unassigned__"
+                    ? "Unassigned"
+                    : (() => {
+                        const member = orgMembers.find((m: any) => m.user_id === id);
+                        const user = member?.user as any;
+                        return user?.full_name || user?.username || user?.email || id;
+                      })();
+                  return (
+                    <Chip
+                      {...getTagProps({ index })}
+                      key={id}
+                      label={label}
+                      size="small"
+                      sx={{ height: 20, fontSize: "0.7rem" }}
+                    />
+                  );
+                })
               }
               sx={{ width: 200 }}
             />

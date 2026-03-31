@@ -62,7 +62,7 @@ func (g *MCPGateway) ServeHTTP(w http.ResponseWriter, r *http.Request, user *typ
 		return
 	}
 
-	log.Debug().
+	log.Trace().
 		Str("server", serverName).
 		Str("user_id", user.ID).
 		Str("method", r.Method).
