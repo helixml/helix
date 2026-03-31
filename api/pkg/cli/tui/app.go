@@ -147,8 +147,13 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case projectSelectedMsg:
 		a.mode = ModeMain
+		// Preserve org context from the selected project
+		if msg.project.OrganizationID != "" {
+			a.orgID = msg.project.OrganizationID
+		}
 		a.kanban = NewKanbanModel(a.api, msg.project.ID)
 		a.kanban.SetProject(msg.project)
+		a.tabs = NewTabBar() // reset tabs for new project
 		a.updateSizes()
 		return a, a.kanban.Init()
 
@@ -208,8 +213,13 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, a.orgPicker.Init()
 
 	case backToProjectsMsg:
+		// Preserve orgID when going back — don't lose org context
+		orgID := a.orgID
+		if orgID == "" && a.kanban != nil && a.kanban.project != nil {
+			orgID = a.kanban.project.OrganizationID
+		}
 		a.mode = ModePicker
-		a.picker = NewPickerModel(a.api, a.orgID)
+		a.picker = NewPickerModel(a.api, orgID)
 		a.updateSizes()
 		return a, a.picker.Init()
 
