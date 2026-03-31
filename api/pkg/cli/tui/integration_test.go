@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -396,6 +397,48 @@ func TestIntegration_KanbanRender(t *testing.T) {
 	}
 	if !strings.Contains(view, "Fix login") {
 		t.Error("expected 'Fix login' task name")
+	}
+}
+
+func TestIntegration_ArchiveTask(t *testing.T) {
+	// Set up a mock server that tracks archive calls
+	var archiveCalledWith string
+	var archiveBody string
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/spec-tasks/", func(w http.ResponseWriter, r *http.Request) {
+		path := strings.TrimPrefix(r.URL.Path, "/api/v1/spec-tasks/")
+		if strings.HasSuffix(path, "/archive") && r.Method == http.MethodPatch {
+			taskID := strings.TrimSuffix(path, "/archive")
+			archiveCalledWith = taskID
+			body, _ := io.ReadAll(r.Body)
+			archiveBody = string(body)
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		json.NewEncoder(w).Encode(&types.SpecTask{ID: "spt_1"})
+	})
+	mux.HandleFunc("/api/v1/", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	})
+
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	helixClient, _ := client.NewClient(srv.URL, "test-key", false)
+	api := NewAPIClient(helixClient)
+
+	err := api.ArchiveTask(context.Background(), "spt_test123")
+	if err != nil {
+		t.Fatalf("ArchiveTask failed: %v", err)
+	}
+
+	if archiveCalledWith != "spt_test123" {
+		t.Errorf("expected archive called with spt_test123, got %q", archiveCalledWith)
+	}
+
+	if !strings.Contains(archiveBody, `"archived":true`) {
+		t.Errorf("expected body to contain archived:true, got %q", archiveBody)
 	}
 }
 
