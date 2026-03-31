@@ -1,33 +1,36 @@
-# Design: Tooltip for Truncated Task Titles
+# Design: Tooltip for Truncated Task Titles + Canonical Prompt Field
 
-## Approach
+## Decision: `description` is the canonical prompt field
 
-Use MUI `<Tooltip>` (the standard in this codebase) in three files. All changes are small and self-contained. Multi-line support via `whiteSpace: "pre-wrap"` on the tooltip text node.
+The agent already uses `description` as primary (falling back to `original_prompt` only when empty). All display and editing code should do the same. `original_prompt` remains in the DB as an immutable audit trail but is not a display or edit source.
 
-## Key Files
-
-- `frontend/src/components/tasks/TaskCard.tsx` — Kanban card title
-- `frontend/src/components/tasks/TabsView.tsx` — PanelTab split-screen tab headings
-- `frontend/src/components/system/GlobalNotifications.tsx` — Notifications panel rows
+All tooltip content and fallback chains use `task.description || task.name` (the `|| task.name` covers the theoretical edge case of a very old task with no `description`; in practice both are always set at creation).
 
 ---
 
-## Change 1: Kanban card (TaskCard.tsx)
+## Change 1: Fix backlog inline editor (BacklogTableView.tsx)
 
-### Problem
-`task.name` is rendered in a `<Typography>` (~line 784) with `wordBreak: "break-word"` and no tooltip. The `SpecTaskWithExtras` interface does not include `original_prompt` or `description`.
+### Problem (bug)
+`handlePromptClick` (line 140) initializes the editor with `task.original_prompt`:
+```ts
+setEditingPrompt(task.original_prompt || "");
+```
+But `handlePromptSave` saves to `description`. So if the user edits from the detail panel, that edit is lost the next time they open the inline editor from the backlog.
 
-### Solution
-1. Add `original_prompt?: string` and `description?: string` to the `SpecTaskWithExtras` interface (~line 153). These fields already exist on `BoardTask` (which extends `SpecTaskWithExtras` in `SpecTaskKanbanBoard.tsx`) so no data plumbing is needed — they flow through at runtime.
+### Fix
+```ts
+setEditingPrompt(task.description || task.original_prompt || "");
+```
+Prefer `description`; fall back to `original_prompt` only for old tasks that predate the field split.
 
-2. Wrap the task name `<Typography>` with:
+---
+
+## Change 2: Kanban card tooltip (TaskCard.tsx)
+
+Wrap the task name `<Typography>` in a MUI `<Tooltip>`:
 ```tsx
 <Tooltip
-  title={
-    <span style={{ whiteSpace: "pre-wrap" }}>
-      {task.description || task.original_prompt || task.name}
-    </span>
-  }
+  title={<span style={{ whiteSpace: "pre-wrap" }}>{task.description || task.name}</span>}
   placement="top"
   enterDelay={500}
   arrow
@@ -36,39 +39,31 @@ Use MUI `<Tooltip>` (the standard in this codebase) in three files. All changes 
 </Tooltip>
 ```
 
+`task.description` and `task.original_prompt` are not currently in the `SpecTaskWithExtras` interface in `TaskCard.tsx`. Add `description?: string` to that interface so it flows through from the API response.
+
 ---
 
-## Change 2: Tab title (TabsView.tsx — PanelTab)
+## Change 3: Tab heading tooltip (TabsView.tsx — PanelTab)
 
-### Problem
-The `PanelTab` component already wraps each tab in a MUI `Tooltip` (~line 518). Its `tooltipContent` shows "Topic Evolution" (planning session title history) when a session exists, or `displayTask?.name || displayTask?.description` when no session. The full `original_prompt` is never shown.
+The existing `tooltipContent` memo has a branch for tasks with no planning session / no title history. Update that branch to show `description`:
 
-### Solution
-Update the `tooltipContent` memo so the no-session / no-title-history branch uses `description || original_prompt || name`, wrapped with `whiteSpace: "pre-wrap"`:
 ```tsx
-// no-session branch:
+// no-session/no-history branch:
 <span style={{ whiteSpace: "pre-wrap" }}>
-  {displayTask?.description || displayTask?.original_prompt || displayTask?.name || "Task details"}
+  {displayTask?.description || displayTask?.name || "Task details"}
 </span>
 ```
 
-The existing tooltip styling (maxWidth 350, styled paper background) handles multi-line content fine. The "Topic Evolution" branch for tasks with planning sessions is unchanged.
+The "Topic Evolution" branch (tasks with a planning session) is unchanged.
 
-`displayTask` comes from `useTask` which already returns `description` and `original_prompt` from the API.
+`displayTask` comes from `useTask`, which already returns `description` from the API.
 
 ---
 
-## Change 3: Notifications panel (GlobalNotifications.tsx)
+## Change 4: Notifications panel tooltip (GlobalNotifications.tsx)
 
-### Problem
-Each notification row (~line 220) has two text lines truncated with `textOverflow: "ellipsis"` and `whiteSpace: "nowrap"`, with no tooltip:
-- Bold title line: `event.title`
-- Caption subtitle: `event.spec_task_name || event.spec_task_id`
+Wrap the text content `<Box>` (containing both truncated lines) in a single `<Tooltip>`:
 
-A `<Tooltip title="Dismiss">` exists on the dismiss button, but nothing on the row text.
-
-### Solution
-Wrap the `<Box sx={{ minWidth: 0, flex: 1 }}>` that contains both text lines in a `<Tooltip>` showing the full title and task name:
 ```tsx
 <Tooltip
   title={
@@ -82,7 +77,7 @@ Wrap the `<Box sx={{ minWidth: 0, flex: 1 }}>` that contains both text lines in 
   arrow
 >
   <Box sx={{ minWidth: 0, flex: 1 }}>
-    {/* existing title + subtitle Typography */}
+    {/* existing title + subtitle Typography — unchanged */}
   </Box>
 </Tooltip>
 ```
@@ -93,14 +88,15 @@ Wrap the `<Box sx={{ minWidth: 0, flex: 1 }}>` that contains both text lines in 
 
 ## What NOT to change
 
-- `SpecTaskDetailContent.tsx` — Description section already shows full prompt untruncated with `whiteSpace: "pre-wrap"`.
+- `original_prompt` backend field — keep as-is (immutable audit trail, agent fallback).
+- `SpecTaskDetailContent.tsx` description display — already shows full untruncated text.
 - Tab "Topic Evolution" tooltip content — keep for tasks with planning sessions.
-- Tab context menu items in TabsView (lines ~1345-1386) — these are interactive menus, not static text; the user can scroll or the menu expands naturally.
+- The `description || original_prompt` fallback in `spec_driven_task_service.go` — already correct.
 
 ## Codebase Patterns Noted
 
 - All tooltips use `import { Tooltip } from "@mui/material"` — no custom tooltip component.
-- Multi-line tooltip content: wrap text in `<span style={{ whiteSpace: "pre-wrap" }}>` inside the `title` prop.
-- Standard enter delay: `enterDelay={500}` (matches PanelTab's existing tooltip).
-- `SpecTaskWithExtras` is defined in `TaskCard.tsx` and imported elsewhere; adding optional fields is safe.
-- `GlobalNotifications.tsx` uses dark background (`rgba(255,255,255,...)` colors) — default MUI tooltip styling is fine since it uses its own background.
+- Multi-line tooltip text: wrap in `<span style={{ whiteSpace: "pre-wrap" }}>` inside the `title` prop.
+- Standard enter delay is `enterDelay={500}`.
+- At task creation, `description` and `original_prompt` are set to the same value; they only diverge after the user edits `description`.
+- `BacklogTableView.tsx` uses `task.original_prompt` as the initial editor value (bug); fix to use `task.description`.
