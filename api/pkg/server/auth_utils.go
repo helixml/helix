@@ -84,7 +84,7 @@ func getRequestToken(r *http.Request) string {
 	// in the x-api-key header (since that's what Anthropic's API expects)
 	token = r.Header.Get("x-api-key")
 	if token != "" {
-		log.Debug().Str("source", "x-api-key").Str("path", r.URL.Path).Msg("token from x-api-key header")
+		log.Trace().Str("source", "x-api-key").Str("path", r.URL.Path).Msg("token from x-api-key header")
 		return token
 	}
 

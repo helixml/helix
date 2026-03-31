@@ -177,10 +177,11 @@ func (s *GitRepositoryService) Initialize(ctx context.Context) error {
 		log.Info().Str("repos_dir", s.gitRepoBase).Msg("Pre-receive hooks installed/verified on all repos")
 	}
 
-	// Recover incomplete pushes from before a crash.
+	// Recover incomplete pushes from before a crash in the background.
 	// If we crashed between receive-pack and upstream push, the commit is in the
 	// middle repo but not upstream. Push any such commits now to prevent data loss.
-	s.recoverIncompletePushes(ctx)
+	// Runs async so it doesn't block API startup (fetching every branch can take minutes).
+	go s.recoverIncompletePushes(context.Background())
 
 	log.Info().
 		Str("git_repo_base", s.gitRepoBase).
@@ -279,6 +280,21 @@ func (s *GitRepositoryService) listLocalBranches(ctx context.Context, repoPath s
 
 // isBranchAheadOfRemote checks if a local branch has commits not in the remote
 func (s *GitRepositoryService) isBranchAheadOfRemote(ctx context.Context, repoPath, branch string) (bool, error) {
+	// Fetch the latest remote state so origin/<branch> reflects reality, not
+	// a stale ref from before a crash. Without this, a local branch that is
+	// strictly *behind* the remote looks "ahead" of the outdated tracking ref,
+	// causing spurious push attempts that always fail with PushRejected.
+	_, _, fetchErr := gitcmd.NewCommand("fetch", "origin").
+		AddDynamicArguments(branch).
+		RunStdString(ctx, &gitcmd.RunOpts{Dir: repoPath})
+	if fetchErr != nil {
+		// Can't reach remote (no network, no auth, etc.) — skip rather than
+		// incorrectly concluding the branch is ahead.
+		log.Debug().Err(fetchErr).Str("branch", branch).Str("repo_path", repoPath).
+			Msg("Failed to fetch remote before ahead check, skipping branch")
+		return false, nil
+	}
+
 	// Check if remote tracking ref exists
 	remoteRef := "refs/remotes/origin/" + branch
 	_, _, err := gitcmd.NewCommand("rev-parse").
