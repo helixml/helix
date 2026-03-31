@@ -306,7 +306,7 @@ func (s *HelixAPIServer) getBatchTaskUsage(w http.ResponseWriter, r *http.Reques
 			to := time.Now()
 
 			metrics, err := s.Store.GetAggregatedUsageMetrics(ctx, &store.GetAggregatedUsageMetricsQuery{
-				AggregationLevel: store.AggregationLevelDaily,
+				AggregationLevel: store.AggregationLevelHourly,
 				UserID:           user.ID,
 				ProjectID:        projectID,
 				SpecTaskID:       t.ID,
