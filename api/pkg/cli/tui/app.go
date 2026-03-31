@@ -47,6 +47,7 @@ type App struct {
 
 	err           error
 	status        string
+	statusExpiry  time.Time // when to clear status message
 	lastCtrlC     time.Time // for double ctrl+c to quit
 }
 
@@ -314,6 +315,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case statusMsg:
 		a.status = string(msg)
+		a.statusExpiry = time.Now().Add(3 * time.Second)
 		return a, nil
 
 	case spinnerTickMsg:
@@ -906,7 +908,11 @@ func (a *App) renderStatusBar() string {
 		help = styleError.Render(fmt.Sprintf("Error: %v", a.err)) + "  " + help
 	}
 	if a.status != "" {
-		help = styleDim.Render(a.status) + "  " + help
+		if !a.statusExpiry.IsZero() && time.Now().After(a.statusExpiry) {
+			a.status = ""
+		} else {
+			help = styleDim.Render(a.status) + "  " + help
+		}
 	}
 
 	return style.Render(help)
