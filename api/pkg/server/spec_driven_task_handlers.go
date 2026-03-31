@@ -870,6 +870,7 @@ func (s *HelixAPIServer) updateSpecTask(w http.ResponseWriter, r *http.Request) 
 			task.MergedAt = nil
 			task.MergeCommitHash = ""
 			task.RepoPullRequests = nil
+			task.BranchName = "" // Force fresh branch so orchestrator doesn't see the old merged branch
 		}
 	}
 	if updateReq.Priority != "" {
