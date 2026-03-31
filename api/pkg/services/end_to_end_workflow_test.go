@@ -40,7 +40,7 @@ func TestCompleteSpecTaskMultiSessionWorkflow(t *testing.T) {
 		specTask := &types.SpecTask{
 			ID:             generateTestSpecTaskID(),
 			ProjectID:      createRequest.ProjectID,
-			Name:           generateTaskNameFromPrompt(createRequest.Prompt),
+			Name:           GenerateTaskNameFromPrompt(createRequest.Prompt),
 			Description:    createRequest.Prompt,
 			Type:           createRequest.Type,
 			Priority:       createRequest.Priority,
