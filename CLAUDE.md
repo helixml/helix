@@ -95,6 +95,22 @@ See `design/2026-02-04-macos-dev-environment-setup.md` for setup.
 
 Full rebuild order: `build-zed` → `build-ubuntu` → `build-sandbox` (if needed) → start new session.
 
+### **CRITICAL: Bumping sandbox-versions.txt after Zed or Qwen changes**
+
+`sandbox-versions.txt` pins the exact commits CI uses to build the sandbox:
+```
+ZED_COMMIT=<full git sha>
+QWEN_COMMIT=<full git sha>
+```
+
+**If you modify Zed or Qwen, you MUST follow this order:**
+
+1. **Open the Helix PR first** — create a PR in this repo bumping `sandbox-versions.txt` to the new commit hash *before* merging the Zed/Qwen PR.
+2. Merge the Zed/Qwen PR.
+3. Merge the Helix PR.
+
+**Why this order matters:** The spec task system marks a task done when all its PRs are merged. If the Zed PR is merged first, the system may close the task before `sandbox-versions.txt` is updated — leaving CI pointing at the wrong commit indefinitely.
+
 ### Verify Build
 ```bash
 cat sandbox-images/helix-ubuntu.version
