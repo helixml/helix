@@ -124,14 +124,15 @@ func (tb *TabBar) View() string {
 		return ""
 	}
 
+	// Match tmux: status-bg black, status-fg white
 	activeStyle := lipgloss.NewStyle().
 		Bold(true).
-		Foreground(lipgloss.Color("15")).
-		Background(lipgloss.Color("239"))
+		Foreground(lipgloss.Color("15")).  // white
+		Background(lipgloss.Color("0"))   // black
 
 	inactiveStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("248")).
-		Background(lipgloss.Color("233"))
+		Foreground(lipgloss.Color("7")).   // white (dimmer)
+		Background(lipgloss.Color("0"))   // black
 
 	var parts []string
 	for i, tab := range tb.tabs {
@@ -163,7 +164,7 @@ func (tb *TabBar) View() string {
 	}
 	if barLen < tb.width {
 		bar += lipgloss.NewStyle().
-			Background(lipgloss.Color("236")).
+			Background(lipgloss.Color("0")).
 			Render(strings.Repeat(" ", tb.width-barLen))
 	}
 
