@@ -31,7 +31,7 @@ var britishVerbs = []string{
 }
 
 var tips = []string{
-	"Use /btw to ask a quick side question without interrupting the agent",
+	"Use ctrl+enter to interrupt the agent with a new message",
 	"Use {prefix} | to split vertically and work on two tasks",
 	"Use shift+V in review mode to select lines and comment",
 	"Use /mcp to configure MCP servers for this project",

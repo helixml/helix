@@ -29,7 +29,6 @@ func NewSlashCommandRegistry() *SlashCommandRegistry {
 			{Name: "pr", Description: "Show pull request status"},
 			{Name: "logs", Description: "Show agent logs"},
 			{Name: "web", Description: "Open in web browser"},
-			{Name: "btw", Description: "Ask a side question without interrupting"},
 			{Name: "status", Description: "Show task status details"},
 			{Name: "help", Description: "Show all available commands"},
 		},
