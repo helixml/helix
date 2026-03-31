@@ -19,6 +19,8 @@ export interface DesktopStreamViewerProps {
   suppressOverlay?: boolean;
   showLoadingOverlay?: boolean;
   isRestart?: boolean;
+  // Interface mode: "desktop" (video stream) or "terminal" (xterm.js PTY)
+  interfaceMode?: "desktop" | "terminal";
 }
 
 // Stats for video streaming

@@ -141,7 +141,20 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   fps = 60,
   className = "",
   suppressOverlay = false,
+  interfaceMode = "desktop",
 }) => {
+  // Terminal mode — render xterm.js instead of video stream
+  if (interfaceMode === "terminal") {
+    const TerminalViewer = React.lazy(() => import("./TerminalViewer"));
+    return (
+      <React.Suspense fallback={<Box sx={{ p: 2, color: "text.secondary" }}>Loading terminal...</Box>}>
+        <TerminalViewer
+          sessionId={sessionId}
+          onConnectionChange={onConnectionChange}
+        />
+      </React.Suspense>
+    );
+  }
   const canvasRef = useRef<HTMLCanvasElement>(null); // Canvas for WebSocket video mode
   const containerRef = useRef<HTMLDivElement>(null);
   const hiddenInputRef = useRef<HTMLInputElement>(null); // Hidden input for iOS/iPad virtual keyboard
