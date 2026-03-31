@@ -102,7 +102,7 @@ const AppBar: React.FC<{
           }
           {
             leftContent && (
-              <Cell sx={{ flexShrink: 0 }}>
+              <Cell sx={{ flexShrink: 0, ml: 1 }}>
                 { leftContent }
               </Cell>
             )

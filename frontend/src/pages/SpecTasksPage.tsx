@@ -668,7 +668,7 @@ const SpecTasksPage: FC = () => {
       disableContentScroll={true}
       topbarLeftContent={
         /* View mode toggle: Board vs Workspace vs Audit Trail */
-        <Stack direction="row" spacing={0.5} sx={{ borderRadius: 1, p: 0.5 }}>
+        <Stack direction="row" spacing={0.5} sx={{ borderRadius: 1.5, p: 0.5, bgcolor: 'rgba(255,255,255,0.06)' }}>
             <Tooltip
               title={
                 <Box sx={{ p: 0.5 }}>
