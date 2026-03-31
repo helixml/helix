@@ -1,5 +1,6 @@
 import React, { FC, useEffect } from 'react'
 import { useRoute } from 'react-router5'
+import { addAutoOpenedSpecTask } from '../lib/specTaskAutoOpen'
 import {
   Box,
   IconButton,
@@ -46,6 +47,12 @@ const SpecTaskReviewPage: FC = () => {
   useEffect(() => {
     if (taskId && task?.name) cacheTaskName(taskId, task.name)
   }, [taskId, task?.name])
+
+  // Mark this task so that navigating back to the task detail page does not
+  // re-trigger the spec review auto-open, regardless of how we got here.
+  useEffect(() => {
+    if (taskId) addAutoOpenedSpecTask(taskId)
+  }, [taskId])
 
   // Fetch review data
   const { isLoading: reviewLoading } = useDesignReview(taskId, reviewId, {

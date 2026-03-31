@@ -110,17 +110,7 @@ import {
   Copy,
 } from "lucide-react";
 
-// Module-level set: tracks which task IDs have already had their spec auto-opened
-// in this SPA session. Persists across component unmount/remount so that navigating
-// back from the spec review page does not immediately redirect the user again.
-const AUTO_OPENED_KEY = "helix_auto_opened_spec_tasks";
-const getAutoOpenedSpecTasks = (): Set<string> =>
-  new Set(JSON.parse(sessionStorage.getItem(AUTO_OPENED_KEY) || "[]"));
-const addAutoOpenedSpecTask = (id: string) => {
-  const set = getAutoOpenedSpecTasks();
-  set.add(id);
-  sessionStorage.setItem(AUTO_OPENED_KEY, JSON.stringify([...set]));
-};
+import { getAutoOpenedSpecTasks, addAutoOpenedSpecTask } from "../../lib/specTaskAutoOpen";
 
 interface SpecTaskDetailContentProps {
   taskId: string;
