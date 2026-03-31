@@ -259,7 +259,7 @@ export function SettingsPanel({
           display: 'flex', alignItems: 'center', justifyContent: 'center',
         }}>
           <div style={{
-            background: 'var(--bg-secondary)',
+            background: 'var(--bg-panel)',
             borderRadius: 10,
             padding: 24,
             width: 580,
