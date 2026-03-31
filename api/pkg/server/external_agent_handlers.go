@@ -179,11 +179,14 @@ func (apiServer *HelixAPIServer) getExternalAgentScreenshot(res http.ResponseWri
 	defer revDialConn.Close()
 
 	// Send HTTP request over RevDial tunnel
-	// Forward query parameters (format, quality, include_cursor) to the desktop container
+	// Forward query parameters to the desktop container, defaulting to low-quality
+	// JPEG for polling screenshots (quality 40 keeps text readable at ~5x smaller)
 	screenshotURL := "http://localhost:9876/screenshot"
-	if req.URL.RawQuery != "" {
-		screenshotURL += "?" + req.URL.RawQuery
+	query := req.URL.Query()
+	if query.Get("quality") == "" {
+		query.Set("quality", "40")
 	}
+	screenshotURL += "?" + query.Encode()
 	httpReq, err := http.NewRequest("GET", screenshotURL, nil)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to create screenshot request")

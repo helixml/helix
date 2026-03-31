@@ -18,6 +18,7 @@ interface ScreenshotViewerProps {
   enableStreaming?: boolean; // Enable streaming mode toggle
   showToolbar?: boolean; // Show refresh/fullscreen buttons
   showTimestamp?: boolean; // Show last updated timestamp
+  quality?: number; // JPEG quality (1-100), lower = smaller. Default: server decides
 }
 
 const ScreenshotViewer: React.FC<ScreenshotViewerProps> = ({
@@ -33,6 +34,7 @@ const ScreenshotViewer: React.FC<ScreenshotViewerProps> = ({
   enableStreaming = true, // Enable streaming by default
   showToolbar = true, // Show toolbar by default
   showTimestamp = true, // Show timestamp by default
+  quality,
 }) => {
   // Dual-buffer system for smooth image transitions
   const [imageA, setImageA] = useState<string | null>(null);
@@ -61,12 +63,16 @@ const ScreenshotViewer: React.FC<ScreenshotViewerProps> = ({
 
   // Construct screenshot endpoint
   const getScreenshotEndpoint = useCallback(() => {
-    if (isRunner) {
-      return `/api/v1/external-agents/runners/${sessionId}/screenshot`;
-    } else {
-      return `/api/v1/external-agents/${sessionId}/screenshot`;
+    const base = isRunner
+      ? `/api/v1/external-agents/runners/${sessionId}/screenshot`
+      : `/api/v1/external-agents/${sessionId}/screenshot`;
+    const params = new URLSearchParams();
+    if (quality !== undefined) {
+      params.set('quality', String(quality));
     }
-  }, [sessionId, isRunner]);
+    const qs = params.toString();
+    return qs ? `${base}?${qs}` : base;
+  }, [sessionId, isRunner, quality]);
 
   // Fetch screenshot (useRef to prevent recreation on every render)
   const fetchScreenshotRef = useRef<() => Promise<void>>();
