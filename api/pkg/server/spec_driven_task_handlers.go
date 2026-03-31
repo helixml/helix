@@ -643,6 +643,15 @@ func (s *HelixAPIServer) getBatchTaskProgress(w http.ResponseWriter, r *http.Req
 		semaphore := make(chan struct{}, 10)
 
 		for _, task := range tasks {
+			// Skip checklist parsing for finished tasks — the UI doesn't show
+			// checklists for done/pull_request/failed tasks, and parsing git
+			// files for 169+ completed tasks is expensive and wasteful.
+			switch task.Status {
+			case types.TaskStatusDone, types.TaskStatusPullRequest,
+				types.TaskStatusSpecFailed, types.TaskStatusImplementationFailed:
+				continue
+			}
+
 			wg.Add(1)
 			go func(t *types.SpecTask) {
 				defer wg.Done()
