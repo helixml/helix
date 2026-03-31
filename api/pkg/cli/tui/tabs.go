@@ -124,14 +124,13 @@ func (tb *TabBar) View() string {
 		return ""
 	}
 
-	// Match tmux: status-bg black, status-fg white
 	activeStyle := lipgloss.NewStyle().
 		Bold(true).
-		Foreground(lipgloss.Color("15")).  // white
-		Background(lipgloss.Color("0"))   // black
+		Foreground(lipgloss.Color("15")).  // bright white
+		Background(lipgloss.Color("238")) // subtle dark gray highlight
 
 	inactiveStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("7")).   // white (dimmer)
+		Foreground(lipgloss.Color("250")). // light gray
 		Background(lipgloss.Color("0"))   // black
 
 	var parts []string

@@ -219,7 +219,7 @@ func (k *KanbanModel) Update(msg tea.Msg) tea.Cmd {
 			}
 		case "ctrl+d":
 			col := k.colIdx
-			half := k.cardHeight() / 2
+			half := k.visibleTaskSlots(col) / 2
 			k.rowIdx[col] += half
 			if k.rowIdx[col] >= len(k.columns[col]) {
 				k.rowIdx[col] = len(k.columns[col]) - 1
@@ -230,7 +230,7 @@ func (k *KanbanModel) Update(msg tea.Msg) tea.Cmd {
 			k.ensureVisible(col)
 		case "ctrl+u":
 			col := k.colIdx
-			half := k.cardHeight() / 2
+			half := k.visibleTaskSlots(col) / 2
 			k.rowIdx[col] -= half
 			if k.rowIdx[col] < 0 {
 				k.rowIdx[col] = 0
@@ -286,13 +286,30 @@ func (k *KanbanModel) cardHeight() int {
 	return ch
 }
 
+// visibleTaskSlots returns how many task cards actually fit in the column,
+// accounting for the header, separator, and scroll indicator lines.
+func (k *KanbanModel) visibleTaskSlots(col KanbanColumn) int {
+	slots := k.cardHeight() - 2 // header + separator inside box
+	if k.scrollOff[col] > 0 {
+		slots-- // "↑ N above" indicator
+	}
+	remaining := len(k.columns[col]) - (k.scrollOff[col] + slots)
+	if remaining > 0 {
+		slots-- // "↓ N below" indicator
+	}
+	if slots < 1 {
+		slots = 1
+	}
+	return slots
+}
+
 func (k *KanbanModel) ensureVisible(col KanbanColumn) {
-	ch := k.cardHeight()
+	slots := k.visibleTaskSlots(col)
 	if k.rowIdx[col] < k.scrollOff[col] {
 		k.scrollOff[col] = k.rowIdx[col]
 	}
-	if k.rowIdx[col] >= k.scrollOff[col]+ch {
-		k.scrollOff[col] = k.rowIdx[col] - ch + 1
+	if k.rowIdx[col] >= k.scrollOff[col]+slots {
+		k.scrollOff[col] = k.rowIdx[col] - slots + 1
 	}
 }
 
