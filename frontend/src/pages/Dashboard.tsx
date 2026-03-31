@@ -661,10 +661,15 @@ const Dashboard: FC<DashboardProps> = ({ tab = "llm_calls" }) => {
 
                 {tab === "agent_sandboxes" && account.admin && (
                     <Box sx={{ width: "100%" }}>
-                        {/* Version Mismatch Alert */}
+                        {/* Version Mismatch Alert - skip for dev builds (SHA1 hashes or unknown) */}
                         {(() => {
                             const controlPlaneVersion = account.serverConfig?.version;
                             if (!controlPlaneVersion || !sandboxInstances) return null;
+                            
+                            // Skip alert for dev builds: <unknown> or SHA1 hash (40 hex chars)
+                            if (controlPlaneVersion === "<unknown>") return null;
+                            const isSha1Hash = /^[a-f0-9]{40}$/i.test(controlPlaneVersion);
+                            if (isSha1Hash) return null;
                             
                             const mismatchedSandboxes = sandboxInstances.filter(
                                 (s) => s.helix_version && s.status === "online" && s.helix_version !== controlPlaneVersion
