@@ -178,7 +178,9 @@ const ScreenshotViewer: React.FC<ScreenshotViewerProps> = ({
   // Check if video streaming is active elsewhere (slow down polling to reduce main thread contention)
   const { isStreaming } = useVideoStream();
 
-  // Auto-refresh screenshot with RAF for higher priority
+  // Auto-refresh screenshot — waits for each fetch to complete before scheduling the next.
+  // This prevents request pile-up on slow connections (the old code fired every 1.7s
+  // regardless of whether the previous fetch had finished, causing unbounded queue growth).
   useEffect(() => {
     // Don't poll if auto-refresh disabled, not in screenshot mode, or session is unavailable
     if (!autoRefresh || streamingMode !== 'screenshot' || sessionUnavailable) return;
@@ -186,22 +188,27 @@ const ScreenshotViewer: React.FC<ScreenshotViewerProps> = ({
     // When video streaming is active elsewhere, slow down to 10s to reduce main thread contention
     const effectiveInterval = isStreaming ? 10000 : refreshInterval;
 
+    let cancelled = false;
     let timeoutId: NodeJS.Timeout;
-    let rafId: number;
 
-    const refresh = () => {
-      rafId = requestAnimationFrame(() => {
-        fetchScreenshotRef.current?.();
+    const refresh = async () => {
+      if (cancelled) return;
+      try {
+        await fetchScreenshotRef.current?.();
+      } catch {
+        // Errors handled inside fetchScreenshotRef
+      }
+      if (!cancelled) {
         timeoutId = setTimeout(refresh, effectiveInterval);
-      });
+      }
     };
 
     // Start the refresh cycle
     timeoutId = setTimeout(refresh, effectiveInterval);
 
     return () => {
+      cancelled = true;
       clearTimeout(timeoutId);
-      if (rafId) cancelAnimationFrame(rafId);
     };
   }, [autoRefresh, refreshInterval, streamingMode, isStreaming, sessionUnavailable]);
 
