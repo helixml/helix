@@ -3124,6 +3124,9 @@ type SandboxInstance struct {
 	ActiveSandboxes int  `json:"active_sandboxes" gorm:"default:0"` // Number of active desktop containers
 	MaxSandboxes    int  `json:"max_sandboxes" gorm:"default:10"`   // Maximum allowed containers
 	PrivilegedMode  bool `json:"privileged_mode" gorm:"default:false"`
+
+	// Helix version running on this sandbox (git commit hash or release version)
+	HelixVersion string `json:"helix_version,omitempty" gorm:"type:varchar(255)"`
 }
 
 // TableName returns the table name for GORM
@@ -3150,6 +3153,9 @@ type SandboxHeartbeatRequest struct {
 
 	// Privileged mode (host Docker access for development)
 	PrivilegedModeEnabled bool `json:"privileged_mode_enabled,omitempty"`
+
+	// Helix version running on this sandbox (git commit hash or release version)
+	HelixVersion string `json:"helix_version,omitempty"`
 }
 
 // DiskUsageMetric represents disk usage for a single mount point
