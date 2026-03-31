@@ -1,4 +1,4 @@
-FROM typesense/typesense:27.1
+FROM typesense/typesense:27.1@sha256:c0996f9144fd63a67c3b82ac7c6bf7dbb19f253b7fd1151cdadc3d048ad6481d
 RUN apt update && apt install -y curl
 RUN mkdir -p /models/all-MiniLM-L12-v2 && cd /models/all-MiniLM-L12-v2 && \
     curl -sL -O https://huggingface.co/typesense/models/resolve/main/all-MiniLM-L12-v2/config.json && \
