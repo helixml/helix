@@ -6,7 +6,7 @@ A spec task currently has three prompt-related fields that are all set at creati
 
 | Field | Role | Editable |
 |---|---|---|
-| `name` | Short title — auto-generated from prompt at creation, then independently user-editable as its own field; NOT recalculated when `description` changes | Yes (detail panel, as a separate field) |
+| `name` | Short title — auto-generated from the prompt; should always be derived from `description` and never edited directly | Derived only (not user-editable) |
 | `description` | Working prompt — what the agent receives | Yes (detail panel + backlog inline) |
 | `original_prompt` | Immutable original text for audit | No |
 

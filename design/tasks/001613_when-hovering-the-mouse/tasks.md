@@ -1,5 +1,6 @@
 # Implementation Tasks
 
+- [ ] In `spec_driven_task_handlers.go`: remove the `if updateReq.Name != ""` block; instead, whenever `description` is updated, recalculate `name` using `generateTaskNameFromPrompt(updateReq.Description)`
 - [ ] In `BacklogTableView.tsx`: fix `handlePromptClick` to initialize the inline editor from `task.description` (not `task.original_prompt`), keeping `original_prompt` as a fallback for very old tasks
 - [ ] In `TaskCard.tsx`: add `description?: string` to the `SpecTaskWithExtras` interface
 - [ ] In `TaskCard.tsx`: wrap the task name `<Typography>` with a MUI `<Tooltip>` showing `task.description || task.name` with `whiteSpace: "pre-wrap"`

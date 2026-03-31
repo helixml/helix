@@ -8,7 +8,25 @@ All tooltip content and fallback chains use `task.description || task.name` (the
 
 ---
 
-## Change 1: Fix backlog inline editor (BacklogTableView.tsx)
+## Change 1: Auto-recalculate `name` from `description` on update (backend)
+
+`name` is generated at creation by `generateTaskNameFromPrompt(prompt)` (truncates to ~N chars, collapses whitespace). It should stay in sync with `description` automatically and never be set independently.
+
+**In `spec_driven_task_handlers.go` `updateSpecTask` handler:**
+- Remove the `if updateReq.Name != ""` block that lets `name` be set directly.
+- Instead, whenever `description` is updated, recalculate `name`:
+```go
+if updateReq.Description != "" {
+    task.Description = updateReq.Description
+    task.Name = generateTaskNameFromPrompt(updateReq.Description)
+}
+```
+
+`generateTaskNameFromPrompt` is already defined in `spec_driven_task_service.go` — move it to a shared location (or keep it in the service and call it from the handler via a helper).
+
+---
+
+## Change 2: Fix backlog inline editor (BacklogTableView.tsx)
 
 ### Problem (bug)
 `handlePromptClick` (line 140) initializes the editor with `task.original_prompt`:
@@ -25,7 +43,7 @@ Prefer `description`; fall back to `original_prompt` only for old tasks that pre
 
 ---
 
-## Change 2: Kanban card tooltip (TaskCard.tsx)
+## Change 3: Kanban card tooltip (TaskCard.tsx)
 
 Wrap the task name `<Typography>` in a MUI `<Tooltip>`:
 ```tsx
@@ -43,7 +61,7 @@ Wrap the task name `<Typography>` in a MUI `<Tooltip>`:
 
 ---
 
-## Change 3: Tab heading tooltip (TabsView.tsx — PanelTab)
+## Change 4: Tab heading tooltip (TabsView.tsx — PanelTab)
 
 The existing `tooltipContent` memo has a branch for tasks with no planning session / no title history. Update that branch to show `description`:
 
@@ -60,7 +78,7 @@ The "Topic Evolution" branch (tasks with a planning session) is unchanged.
 
 ---
 
-## Change 4: Notifications panel tooltip (GlobalNotifications.tsx)
+## Change 5: Notifications panel tooltip (GlobalNotifications.tsx)
 
 Wrap the text content `<Box>` (containing both truncated lines) in a single `<Tooltip>`:
 
