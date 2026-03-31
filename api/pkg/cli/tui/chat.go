@@ -614,26 +614,46 @@ func (c *ChatModel) renderToolCallEntry(entry wsprotocol.ResponseEntry, width in
 	header := fmt.Sprintf("  %s %s%s", icon, name, statusStyle.Render(statusIcon))
 	lines = append(lines, header)
 
-	// Tool call content
+	// Tool call content — strip redundant markdown headers
 	if entry.Content != "" {
-		contentLines := strings.Split(entry.Content, "\n")
-		for _, cl := range contentLines {
-			// Detect diff lines within tool call content
-			if strings.HasPrefix(cl, "+") && !strings.HasPrefix(cl, "+++") {
-				lines = append(lines, "  "+diffAddStyle.Render("  "+truncate(cl, width-6)))
-			} else if strings.HasPrefix(cl, "-") && !strings.HasPrefix(cl, "---") {
-				lines = append(lines, "  "+diffRemoveStyle.Render("  "+truncate(cl, width-6)))
-			} else if strings.HasPrefix(cl, "$") {
-				// Command
-				cmdStyle := lipgloss.NewStyle().Foreground(colorText)
-				lines = append(lines, "  "+styleDim.Render("  ⎿  ")+cmdStyle.Render(truncate(cl, width-10)))
-			} else {
-				lines = append(lines, "  "+styleDim.Render("  ⎿  "+truncate(cl, width-10)))
+		content := entry.Content
+
+		// Strip the **Tool Call: ...** and Status: lines that duplicate our header
+		for _, prefix := range []string{"**Tool Call:", "Status:"} {
+			for {
+				idx := strings.Index(content, prefix)
+				if idx < 0 {
+					break
+				}
+				// Remove the whole line
+				end := strings.Index(content[idx:], "\n")
+				if end < 0 {
+					content = content[:idx]
+				} else {
+					content = content[:idx] + content[idx+end+1:]
+				}
+			}
+		}
+		content = strings.TrimSpace(content)
+
+		if content != "" {
+			contentLines := strings.Split(content, "\n")
+			for _, cl := range contentLines {
+				if cl == "" {
+					continue
+				}
+				// Diff lines get color
+				if strings.HasPrefix(cl, "+") && !strings.HasPrefix(cl, "+++") {
+					lines = append(lines, "    "+diffAddStyle.Render(truncate(cl, width-6)))
+				} else if strings.HasPrefix(cl, "-") && !strings.HasPrefix(cl, "---") {
+					lines = append(lines, "    "+diffRemoveStyle.Render(truncate(cl, width-6)))
+				} else {
+					lines = append(lines, "    "+styleDim.Render(truncate(cl, width-6)))
+				}
 			}
 		}
 	}
 
-	lines = append(lines, "") // blank line after tool call
 	return lines
 }
 
