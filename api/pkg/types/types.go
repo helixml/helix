@@ -1977,9 +1977,10 @@ type DesktopAgent struct {
 	DisplayHeight      int `json:"display_height,omitempty"`       // Streaming resolution height (default: 1080)
 	DisplayRefreshRate int `json:"display_refresh_rate,omitempty"` // Streaming refresh rate (default: 60)
 
-	// Resolution and desktop configuration
-	Resolution   string `json:"resolution,omitempty"`    // Resolution preset: "1080p" (default), "4k", or "5k"
-	DesktopType  string `json:"desktop_type,omitempty"`  // Desktop environment: "ubuntu" (default) or "sway"
+	// Interface and display configuration
+	InterfaceMode string `json:"interface_mode,omitempty"` // "desktop" (default) or "terminal"
+	Resolution    string `json:"resolution,omitempty"`     // Resolution preset: "1080p" (default), "4k", or "5k"
+	DesktopType   string `json:"desktop_type,omitempty"`   // Desktop environment: "ubuntu" (default) or "sway"
 	ZoomLevel    int    `json:"zoom_level,omitempty"`    // GNOME zoom percentage (100 default, 200 for 4k/5k)
 	DisplayScale int    `json:"display_scale,omitempty"` // KDE/Qt display scale factor (1=100%, 2=200%)
 

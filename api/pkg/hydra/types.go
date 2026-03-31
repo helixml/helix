@@ -64,6 +64,9 @@ type CreateDevContainerRequest struct {
 	// Dev container type
 	ContainerType DevContainerType `json:"container_type"`
 
+	// Interface mode: "desktop" (default) or "terminal"
+	InterfaceMode string `json:"interface_mode,omitempty"`
+
 	// GPU settings
 	GPUVendor string `json:"gpu_vendor"` // "nvidia", "amd", "intel", ""
 

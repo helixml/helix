@@ -528,6 +528,11 @@ func (dm *DevContainerManager) buildEnv(req *CreateDevContainerRequest) []string
 	// Our containers run as root, so without this Claude Code prompts for every tool use.
 	env = append(env, "IS_SANDBOX=1")
 
+	// Interface mode (desktop or terminal)
+	if req.InterfaceMode != "" {
+		env = append(env, fmt.Sprintf("HELIX_INTERFACE_MODE=%s", req.InterfaceMode))
+	}
+
 	// Add GPU-specific environment variables
 	switch req.GPUVendor {
 	case "nvidia":

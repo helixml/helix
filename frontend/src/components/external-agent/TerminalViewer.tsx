@@ -53,20 +53,10 @@ const TerminalViewer: React.FC<TerminalViewerProps> = ({
     termRef.current = term;
     fitAddonRef.current = fitAddon;
 
-    // Build WebSocket URL
+    // Build WebSocket URL — auth is handled by session cookie (same as video stream)
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     const cols = term.cols;
     const rows = term.rows;
-
-    // Get API key from cookie or localStorage
-    let apiKey = "";
-    try {
-      const stored = localStorage.getItem("helix_api_key");
-      if (stored) apiKey = stored;
-    } catch {
-      // ignore
-    }
-
     const wsUrl = `${protocol}//${window.location.host}/api/v1/sessions/${sessionId}/terminal?cols=${cols}&rows=${rows}`;
     const ws = new WebSocket(wsUrl);
     ws.binaryType = "arraybuffer";

@@ -58,6 +58,9 @@ import AgentCursorOverlay from "./AgentCursorOverlay";
 import CursorRenderer from "./CursorRenderer";
 import InsecureContextWarning from "./InsecureContextWarning";
 
+// Lazy-loaded terminal viewer for terminal interface mode
+const TerminalViewer = React.lazy(() => import("./TerminalViewer"));
+
 /**
  * Clipboard helpers: WKWebView (macOS Wails app) blocks navigator.clipboard
  * in iframes even with user gestures. When running inside an iframe, use
@@ -145,7 +148,6 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
 }) => {
   // Terminal mode — render xterm.js instead of video stream
   if (interfaceMode === "terminal") {
-    const TerminalViewer = React.lazy(() => import("./TerminalViewer"));
     return (
       <React.Suspense fallback={<Box sx={{ p: 2, color: "text.secondary" }}>Loading terminal...</Box>}>
         <TerminalViewer

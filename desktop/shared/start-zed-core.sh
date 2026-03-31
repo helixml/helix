@@ -238,24 +238,30 @@ start_zed_helix() {
     # - Stays open as bash shell for debugging
     echo "Launching setup terminal..."
     launch_terminal "Helix Setup" "$WORK_DIR" bash "$SHARED_SCRIPT_DIR/helix-workspace-setup.sh"
-    TERMINAL_PID=$!
-    # Verify the terminal process actually started (ghostty can crash silently
-    # if the Wayland compositor isn't ready, which hangs wait_for_setup_complete)
+    # TERMINAL_PID is set by launch_terminal (tmux server PID or ghostty PID).
+    # In desktop mode, also check the ghostty background PID.
+    GHOSTTY_PID=$!
     sleep 1
-    if ! kill -0 "$TERMINAL_PID" 2>/dev/null; then
-        echo "ERROR: Setup terminal (PID $TERMINAL_PID) died immediately after launch."
-        echo "This usually means the Wayland compositor was not ready."
-        echo "Retrying in 3 seconds..."
-        sleep 3
-        launch_terminal "Helix Setup" "$WORK_DIR" bash "$SHARED_SCRIPT_DIR/helix-workspace-setup.sh"
-        TERMINAL_PID=$!
-        sleep 1
-        if ! kill -0 "$TERMINAL_PID" 2>/dev/null; then
-            echo "FATAL: Setup terminal failed to start after retry."
+    # Verify the tmux session exists (more reliable than PID check)
+    if ! tmux has-session -t "helix-shell" 2>/dev/null; then
+        echo "ERROR: tmux session failed to start."
+        if [ "${HELIX_INTERFACE_MODE:-desktop}" = "desktop" ]; then
+            echo "This usually means the Wayland compositor was not ready."
+            echo "Retrying in 3 seconds..."
+            sleep 3
+            launch_terminal "Helix Setup" "$WORK_DIR" bash "$SHARED_SCRIPT_DIR/helix-workspace-setup.sh"
+            GHOSTTY_PID=$!
+            sleep 1
+            if ! tmux has-session -t "helix-shell" 2>/dev/null; then
+                echo "FATAL: Setup terminal failed to start after retry."
+                exit 1
+            fi
+        else
+            echo "FATAL: tmux session failed to start in terminal mode."
             exit 1
         fi
     fi
-    echo "Setup terminal launched (PID $TERMINAL_PID)"
+    echo "Setup terminal launched (tmux session: helix-shell)"
 
     wait_for_setup_complete
 

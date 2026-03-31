@@ -320,6 +320,7 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 		DisplayHeight: agent.DisplayHeight,
 		DisplayFPS:    agent.DisplayRefreshRate,
 		ContainerType: hydra.DevContainerType(containerType),
+		InterfaceMode: agent.InterfaceMode,
 		UserID:        agent.UserID,
 		Network:       "bridge",
 		Privileged:    true, // Required for inner dockerd (docker-in-desktop mode)

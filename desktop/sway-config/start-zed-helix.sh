@@ -26,8 +26,31 @@ launch_terminal() {
     local working_dir="$2"
     shift 2
     # Remaining args are the command
-    # The script itself has a trap to keep terminal open on exit
-    kitty --title="$title" --directory="$working_dir" "$@" &
+
+    # Always run commands in a shared tmux session (helix-shell).
+    local tmux_session="helix-shell"
+    local window_name
+    window_name=$(echo "$title" | tr ' ' '-' | tr '[:upper:]' '[:lower:]')
+
+    if ! tmux has-session -t "$tmux_session" 2>/dev/null; then
+        tmux new-session -d -s "$tmux_session" -n "$window_name" -x 80 -y 24 -c "$working_dir" \
+            bash -c "$* ; exec bash -l"
+        tmux set-option -t "$tmux_session" prefix C-]
+        tmux unbind-key -a 2>/dev/null || true
+        tmux bind-key C-] send-prefix
+        tmux set-option -t "$tmux_session" status off
+        tmux set-option -t "$tmux_session" mouse on
+        tmux set-option -t "$tmux_session" history-limit 10000
+    else
+        tmux new-window -t "$tmux_session" -n "$window_name" -c "$working_dir" \
+            bash -c "$* ; exec bash -l"
+    fi
+
+    if [ "${HELIX_INTERFACE_MODE:-desktop}" = "desktop" ]; then
+        tmux select-window -t "$tmux_session:$window_name" 2>/dev/null
+        kitty --title="$title" --directory="$working_dir" tmux attach-session -t "$tmux_session" &
+    fi
+    TERMINAL_PID=$(tmux display-message -t "$tmux_session" -p '#{pid}' 2>/dev/null || echo "$$")
 }
 
 # =========================================

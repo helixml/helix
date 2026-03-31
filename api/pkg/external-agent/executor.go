@@ -55,9 +55,10 @@ type ZedInstanceInfo struct {
 	StreamURL       string   `json:"stream_url,omitempty"`       // Video streaming URL
 
 	// Display configuration for streaming
-	DisplayWidth  int `json:"display_width,omitempty"`  // Streaming resolution width
-	DisplayHeight int `json:"display_height,omitempty"` // Streaming resolution height
-	DisplayFPS    int `json:"display_fps,omitempty"`    // Streaming framerate
+	DisplayWidth  int    `json:"display_width,omitempty"`  // Streaming resolution width
+	DisplayHeight int    `json:"display_height,omitempty"` // Streaming resolution height
+	DisplayFPS    int    `json:"display_fps,omitempty"`    // Streaming framerate
+	InterfaceMode string `json:"interface_mode,omitempty"` // "desktop" or "terminal"
 
 	// Container information for direct network access
 	ContainerName string `json:"container_name,omitempty"` // Docker container name
