@@ -273,7 +273,7 @@ func (c *ChatModel) Update(msg tea.Msg) tea.Cmd {
 		default:
 			if msg.Type == tea.KeyRunes {
 				c.input.InsertRunes([]rune(msg.String()))
-			} else if msg.String() == " " {
+			} else if msg.Type == tea.KeySpace {
 				c.input.InsertRunes([]rune{' '})
 			}
 		}

@@ -130,7 +130,7 @@ func (t *TerminalModel) Update(msg tea.Msg) tea.Cmd {
 		default:
 			if msg.Type == tea.KeyRunes {
 				t.appendOutput(msg.String())
-			} else if msg.String() == " " {
+			} else if msg.Type == tea.KeySpace {
 				t.appendOutput(" ")
 			}
 		}

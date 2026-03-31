@@ -223,7 +223,7 @@ func (p *PickerModel) handleCreateInput(msg tea.KeyMsg) tea.Cmd {
 			} else {
 				p.createURL += msg.String()
 			}
-		} else if msg.String() == " " {
+		} else if msg.Type == tea.KeySpace {
 			if p.createStep == 0 {
 				p.createName += " "
 			} else {

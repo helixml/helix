@@ -73,7 +73,7 @@ func (n *NewTaskModel) Update(msg tea.Msg) tea.Cmd {
 		default:
 			if msg.Type == tea.KeyRunes {
 				n.input += msg.String()
-			} else if msg.String() == " " {
+			} else if msg.Type == tea.KeySpace {
 				n.input += " "
 			}
 		}

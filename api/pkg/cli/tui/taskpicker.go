@@ -98,7 +98,7 @@ func (p *TaskPickerModel) Update(msg tea.Msg) tea.Cmd {
 			}
 
 		default:
-			if msg.Type == tea.KeyRunes {
+			if msg.Type == tea.KeyRunes || msg.Type == tea.KeySpace {
 				p.filter += msg.String()
 				p.applyFilter()
 				p.cursor = 0

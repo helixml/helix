@@ -215,7 +215,7 @@ func (r *ReviewModel) updateCommenting(msg tea.KeyMsg) tea.Cmd {
 	default:
 		if msg.Type == tea.KeyRunes {
 			r.commentInput.InsertRunes([]rune(msg.String()))
-		} else if msg.String() == " " {
+		} else if msg.Type == tea.KeySpace {
 			r.commentInput.InsertRunes([]rune{' '})
 		}
 	}
