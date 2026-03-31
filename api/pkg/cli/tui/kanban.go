@@ -489,13 +489,11 @@ func (k *KanbanModel) renderPreview() string {
 	}
 
 	task := tasks[k.rowIdx[col]]
-	name := taskDisplayName(task)
 	status := string(task.Status)
 
-	// Build preview: name, status, description
+	// Build preview: status + description (name already visible in column above)
 	var parts []string
-	parts = append(parts, fmt.Sprintf("\n  %s  %s",
-		styleHeader.Render(name), styleDim.Render(status)))
+	parts = append(parts, fmt.Sprintf("\n  %s", styleDim.Render(status)))
 
 	desc := task.OriginalPrompt
 	if desc == "" {
@@ -508,12 +506,12 @@ func (k *KanbanModel) renderPreview() string {
 			maxW = 60
 		}
 		wrapped := wrapText(desc, maxW)
-		for i, line := range wrapped {
-			if i >= 2 {
-				parts = append(parts, "  "+styleDim.Render(truncate("..."+line, maxW)))
-				break
-			}
-			parts = append(parts, "  "+styleDim.Render(line))
+		maxLines := 2
+		for i := 0; i < maxLines && i < len(wrapped); i++ {
+			parts = append(parts, "  "+styleDim.Render(wrapped[i]))
+		}
+		if len(wrapped) > maxLines {
+			parts = append(parts, "  "+styleDim.Render("..."))
 		}
 	}
 
