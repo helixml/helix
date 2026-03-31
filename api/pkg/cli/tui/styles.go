@@ -60,8 +60,8 @@ var (
 			Foreground(colorText)
 
 	styleStatusBar = lipgloss.NewStyle().
-			Foreground(colorDim).
-			Background(colorBg).
+			Foreground(lipgloss.Color("249")).
+			Background(lipgloss.Color("235")).
 			Padding(0, 1)
 
 	styleError = lipgloss.NewStyle().
