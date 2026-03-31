@@ -37,7 +37,7 @@ import DarkDialog from '../dialog/DarkDialog';
 import useLightTheme from '../../hooks/useLightTheme'
 import useApi from '../../hooks/useApi';
 import useAccount from '../../hooks/useAccount';
-import yaml from 'js-yaml';
+import { parse as yamlParse } from 'yaml';
 import { PROVIDER_ICONS, PROVIDER_COLORS } from '../icons/ProviderIcons';
 
 // Example skills
@@ -133,7 +133,7 @@ const parseActionsFromSchema = (schema: string): IToolApiAction[] => {
   } catch (jsonError) {
     // If JSON parsing fails, try parsing as YAML
     try {
-      parsedSchema = yaml.load(schema);
+      parsedSchema = yamlParse(schema);
     } catch (yamlError) {
       console.error('Failed to parse schema as JSON or YAML:', jsonError, yamlError);
       return [];
@@ -382,7 +382,7 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
         // loaded yaml schema should have several properties:
         // - key "paths" should have at least one element
         // - it should have "openapi" with a version number      
-        const yamlSchema = yaml.load(schema) as { paths?: any; openapi?: string };
+        const yamlSchema = yamlParse(schema) as { paths?: any; openapi?: string };
         if (!yamlSchema.paths || !yamlSchema.openapi) {
           setSchemaError('Schema must be valid OpenAPI 3.0.0');
           return false;
