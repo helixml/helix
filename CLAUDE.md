@@ -105,11 +105,15 @@ QWEN_COMMIT=<full git sha>
 
 **If you modify Zed or Qwen, you MUST follow this order:**
 
-1. **Open the Helix PR first** — create a PR in this repo bumping `sandbox-versions.txt` to the new commit hash *before* merging the Zed/Qwen PR.
-2. Merge the Zed/Qwen PR.
-3. Merge the Helix PR.
+1. Commit your changes in the Zed/Qwen repo (do NOT push yet).
+2. Copy the local commit hash: `git rev-parse HEAD`
+3. Update `sandbox-versions.txt` in this repo with that hash.
+4. **Open the Helix PR** (with the bumped hash) *before* pushing the Zed/Qwen branch.
+5. Push the Zed/Qwen branch and open that PR.
+6. Merge the Zed/Qwen PR.
+7. Merge the Helix PR.
 
-**Why this order matters:** The spec task system marks a task done when all its PRs are merged. If the Zed PR is merged first, the system may close the task before `sandbox-versions.txt` is updated — leaving CI pointing at the wrong commit indefinitely.
+**Why this order matters:** The spec task system marks a task done when all its PRs are merged. If the Zed PR is merged first, the system may close the task before `sandbox-versions.txt` is updated — leaving CI pointing at the wrong commit indefinitely. Getting the commit hash from a local commit (before pushing) solves the chicken-and-egg problem.
 
 ### Verify Build
 ```bash
