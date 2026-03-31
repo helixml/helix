@@ -445,6 +445,49 @@ Each SSH session spawns an independent `App` model with its own `APIClient`. The
 
 Graceful shutdown on SIGINT/SIGTERM with 5-second timeout.
 
+### Terminal Interface Mode
+
+The agent settings now have an "Interface" section with Desktop/Terminal toggle.
+When Terminal is selected:
+
+**Backend (desktop-bridge):**
+- A hidden tmux session (`helix-shell`) is started with:
+  - Prefix set to `C-]` (avoids conflicts with user's tmux/hmux)
+  - Status bar hidden (`set -g status off`)
+  - Session persists across WebSocket disconnects
+- The startup script runs inside this tmux session (not in a graphical terminal)
+- New WebSocket connections attach to the existing tmux session
+- Multiple simultaneous connections supported (pairing)
+- On new connection, tmux naturally redraws the screen
+
+**API server:**
+- `GET /sessions/{id}/terminal` WebSocket endpoint proxies through RevDial
+  to the desktop-bridge's `/pty` endpoint
+
+**Frontend (DesktopStreamViewer):**
+- When `interfaceMode === "terminal"`, renders xterm.js instead of H.264 canvas
+- Same component used everywhere: spec task detail, test startup script,
+  prime cache, admin floater, standalone desktop page
+- All existing chrome (presence indicator, fullscreen button) stays
+
+**Consumers (no changes needed):**
+
+| Component | Currently renders | Terminal mode |
+|-----------|------------------|---------------|
+| SpecTaskDetailContent | Video stream | xterm.js shell |
+| TeamDesktopPage | Video stream | xterm.js shell |
+| ProjectSettings (test startup) | Video of desktop during setup | xterm.js showing setup logs |
+| ProjectSettings (prime cache) | Video of desktop during build | xterm.js showing build logs |
+| FloatingModal (admin) | Screenshot/stream | xterm.js shell |
+
+**Step 1 towards GPU-free operation:**
+Currently terminal mode still launches an Ubuntu desktop container
+underneath — it just doesn't render the video stream. The user sees
+a terminal instead. Step 2 is swapping Zed for a headless Go ACP
+implementation, which eliminates the need for a desktop environment
+entirely. That's substantially more work but user-facing, terminal
+mode is already the right experience.
+
 ### Port expose for user workloads
 
 When working from the TUI over SSH/mosh, users can't open a browser to preview their app. Helix's port expose feature fills this gap — agents can expose ports from the dev container sandbox, making user workloads accessible via URL:
