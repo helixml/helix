@@ -296,11 +296,16 @@ const AttentionEventItem: React.FC<{
 
 const PANEL_WIDTH = 360
 
+const FILTER_STORAGE_KEY = 'attention-filter-mode'
+
 const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange }) => {
   const account = useAccount()
   const api = useApi()
   const lightTheme = useLightTheme()
   const [drawerOpen, setDrawerOpen] = useState(false)
+  const [filterMine, setFilterMine] = useState<boolean>(() => {
+    return localStorage.getItem(FILTER_STORAGE_KEY) === 'mine'
+  })
   const styleRef = useRef<HTMLStyleElement | null>(null)
 
   // Inject a global <style> that pushes <main> content when panel is open.
@@ -333,7 +338,7 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
     dismiss,
     snooze,
     dismissAll,
-  } = useAttentionEvents()
+  } = useAttentionEvents(true, filterMine)
 
   const {
     shouldPrompt,
@@ -436,6 +441,14 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
   const handleDismissNotificationBanner = useCallback(() => {
     setOptOut(true)
   }, [setOptOut])
+
+  const handleToggleFilter = useCallback(() => {
+    setFilterMine(prev => {
+      const next = !prev
+      localStorage.setItem(FILTER_STORAGE_KEY, next ? 'mine' : 'all')
+      return next
+    })
+  }, [])
 
   const groups = deduplicateGroupsByTask(groupEvents(events))
 
@@ -546,6 +559,41 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
                 {totalCount}
               </Box>
             )}
+            {/* Mine / All toggle */}
+            <Box
+              onClick={handleToggleFilter}
+              sx={{
+                display: 'flex',
+                alignItems: 'center',
+                borderRadius: '10px',
+                border: '1px solid rgba(255,255,255,0.1)',
+                overflow: 'hidden',
+                cursor: 'pointer',
+                fontSize: '0.62rem',
+                userSelect: 'none',
+              }}
+            >
+              {(['mine', 'all'] as const).map(mode => (
+                <Box
+                  key={mode}
+                  sx={{
+                    px: 0.75,
+                    py: 0.25,
+                    fontWeight: 600,
+                    textTransform: 'capitalize',
+                    color: (filterMine ? mode === 'mine' : mode === 'all')
+                      ? '#fff'
+                      : 'rgba(255,255,255,0.35)',
+                    backgroundColor: (filterMine ? mode === 'mine' : mode === 'all')
+                      ? 'rgba(255,255,255,0.12)'
+                      : 'transparent',
+                    transition: 'background-color 0.15s ease, color 0.15s ease',
+                  }}
+                >
+                  {mode}
+                </Box>
+              ))}
+            </Box>
           </Box>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25 }}>
             {totalCount > 0 && (

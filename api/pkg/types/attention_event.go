@@ -41,6 +41,14 @@ const (
 	AttentionEventPRReady                   AttentionEventType = "pr_ready"
 )
 
+// AttentionEventFilters controls optional filtering when listing attention events.
+type AttentionEventFilters struct {
+	// MineOnly restricts results to events whose associated spec task is owned by
+	// the requesting user. Ownership is determined by assignee_id first (when set),
+	// falling back to created_by.
+	MineOnly bool
+}
+
 // AttentionEventUpdateRequest is the request body for updating an attention event
 // (acknowledge, dismiss, or snooze).
 type AttentionEventUpdateRequest struct {

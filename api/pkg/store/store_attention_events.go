@@ -62,7 +62,7 @@ func (s *PostgresStore) CreateAttentionEvent(ctx context.Context, event *types.A
 }
 
 // ListAttentionEvents returns active (not dismissed, not snoozed) events for a user.
-func (s *PostgresStore) ListAttentionEvents(ctx context.Context, userID, organizationID string) ([]*types.AttentionEvent, error) {
+func (s *PostgresStore) ListAttentionEvents(ctx context.Context, userID, organizationID string, filters types.AttentionEventFilters) ([]*types.AttentionEvent, error) {
 	if userID == "" {
 		return nil, fmt.Errorf("user ID is required")
 	}
@@ -79,6 +79,16 @@ func (s *PostgresStore) ListAttentionEvents(ctx context.Context, userID, organiz
 		args = append(args, organizationID)
 	}
 
+	mineFilter := ""
+	if filters.MineOnly {
+		// Assignee takes priority; fall back to created_by when no assignee is set.
+		mineFilter = "AND spec_task_id IN (" +
+			"SELECT id FROM spec_tasks " +
+			"WHERE assignee_id = ? " +
+			"OR ((assignee_id IS NULL OR assignee_id = '') AND created_by = ?))"
+		args = append(args, userID, userID)
+	}
+
 	result := s.gdb.WithContext(ctx).Raw(`
 		SELECT DISTINCT ON (spec_task_id) *
 		FROM attention_events
@@ -86,9 +96,9 @@ func (s *PostgresStore) ListAttentionEvents(ctx context.Context, userID, organiz
 		  AND dismissed_at IS NULL
 		  AND (snoozed_until IS NULL OR snoozed_until < ?)
 		  `+orgFilter+`
+		  `+mineFilter+`
 		ORDER BY spec_task_id, created_at DESC
 	`, args...).Scan(&events)
-
 	if result.Error != nil {
 		return nil, fmt.Errorf("failed to list attention events: %w", result.Error)
 	}
