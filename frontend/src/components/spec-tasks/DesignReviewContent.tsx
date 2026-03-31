@@ -1252,6 +1252,7 @@ export default function DesignReviewContent({
 
             {/* Document content */}
             <Box
+              onMouseDown={() => removeHighlight()}
               onMouseUp={() => handleTextSelection(false)}
               onTouchEnd={() => handleTextSelection(true)}
               onMouseMove={(e) => {
