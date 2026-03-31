@@ -327,25 +327,37 @@ func (c *ChatModel) sendPrompt(interrupt bool) tea.Cmd {
 	}
 
 	return func() tea.Msg {
-		// If no task ID, this is a new chat — create the spec task first
+		// If no task ID, this is a new chat — create the spec task and start planning
 		if task.ID == "" {
 			newTask, err := c.api.CreateTaskFromPrompt(apiCtx(), &types.CreateTaskRequest{
-				ProjectID: task.ProjectID,
-				Prompt:    message,
-				Type:      "task",
-				Priority:  types.SpecTaskPriorityMedium,
+				ProjectID:    task.ProjectID,
+				Prompt:       message,
+				Type:         "task",
+				Priority:     types.SpecTaskPriorityMedium,
+				JustDoItMode: true, // skip spec review, go straight to implementation
 			})
 			if err != nil {
 				return errMsg{fmt.Errorf("failed to create task: %w", err)}
 			}
 
-			// Update the chat model with the real task
-			c.task = newTask
-			c.sessionID = newTask.PlanningSessionID
-			c.sessionName = taskDisplayName(newTask)
-			c.appID = newTask.HelixAppID
+			// Start planning to kick off the agent
+			if err := c.api.StartPlanning(apiCtx(), newTask.ID); err != nil {
+				return errMsg{fmt.Errorf("task created but failed to start: %w", err)}
+			}
 
-			return chatResponseMsg{sessionID: newTask.PlanningSessionID, response: ""}
+			// Re-fetch the task to get the PlanningSessionID (set by StartPlanning)
+			updatedTask, err := c.api.GetSpecTask(apiCtx(), newTask.ID)
+			if err != nil {
+				// Use what we have
+				updatedTask = newTask
+			}
+
+			c.task = updatedTask
+			c.sessionID = updatedTask.PlanningSessionID
+			c.sessionName = taskDisplayName(updatedTask)
+			c.appID = updatedTask.HelixAppID
+
+			return chatResponseMsg{sessionID: updatedTask.PlanningSessionID, response: ""}
 		}
 
 		interruptPtr := &interrupt

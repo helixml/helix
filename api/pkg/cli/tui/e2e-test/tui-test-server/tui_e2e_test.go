@@ -254,6 +254,45 @@ func TestTUI_E2E(t *testing.T) {
 		t.Log("[PASS] User role label rendered")
 	}
 
+	// --- Phase 6: Create new task from blank chat ---
+	t.Log("=== Phase 6: Create new task (blank chat) ===")
+
+	// Switch to kanban (esc from chat)
+	app, cmd = app.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	app, cmd = waitForCmd(t, app, cmd, 3*time.Second)
+
+	// Open new tab with prefix+c
+	// Simulate prefix key then 'c'
+	app, _ = app.Update(tea.KeyMsg{Type: tea.KeyCtrlB}) // default prefix
+	app, cmd = app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}})
+	app, cmd = waitForCmd(t, app, cmd, 3*time.Second)
+
+	view = app.View()
+	dumpView(t, "NEW TASK (blank chat)", view)
+
+	if strings.Contains(view, "Loading conversation") {
+		t.Error("[FAIL] New blank chat should NOT show 'Loading conversation'")
+	} else {
+		t.Log("[PASS] New blank chat doesn't show loading state")
+	}
+
+	// Type a message and send
+	for _, ch := range "Build a hello world API" {
+		app, _ = app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{ch}})
+	}
+	app, cmd = app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	app, cmd = waitForCmd(t, app, cmd, 10*time.Second)
+
+	view = app.View()
+	dumpView(t, "NEW TASK (after send)", view)
+
+	// Should not be stuck on "Loading conversation"
+	if strings.Contains(view, "Loading conversation") {
+		t.Error("[FAIL] Should not be stuck on 'Loading conversation' after creating task")
+	} else {
+		t.Log("[PASS] New task created and chat active")
+	}
+
 	// --- Summary ---
 	t.Log("")
 	t.Log("============================================")
@@ -366,11 +405,52 @@ func buildTestMux(ms *memorystore.MemoryStore, srv *server.HelixAPIServer, seedS
 	})
 
 	mux.HandleFunc("/api/v1/spec-tasks/", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(&types.SpecTask{
-			ID: "spt_e2e_1", ProjectID: "proj_e2e", Name: "E2E test task",
+		path := strings.TrimPrefix(r.URL.Path, "/api/v1/spec-tasks/")
+
+		// POST from-prompt
+		if path == "from-prompt" || strings.HasSuffix(path, "/from-prompt") {
+			var req types.CreateTaskRequest
+			json.NewDecoder(r.Body).Decode(&req)
+			task := &types.SpecTask{
+				ID: fmt.Sprintf("spt_new_%d", time.Now().UnixNano()%10000),
+				ProjectID: req.ProjectID, Name: req.Prompt,
+				Status: types.TaskStatusBacklog, Priority: req.Priority,
+				OriginalPrompt: req.Prompt,
+			}
+			w.WriteHeader(http.StatusCreated)
+			json.NewEncoder(w).Encode(task)
+			return
+		}
+
+		// POST start-planning
+		if strings.HasSuffix(path, "/start-planning") {
+			taskID := strings.TrimSuffix(path, "/start-planning")
+			// Create a session for this task
+			newSessionID := fmt.Sprintf("ses_plan_%s", taskID)
+			ms.CreateSession(nil, types.Session{
+				ID: newSessionID, Name: "Planning " + taskID,
+				Created: time.Now(), Updated: time.Now(),
+				Owner: "tui-e2e-user", Mode: types.SessionModeInference,
+				Type: types.SessionTypeText,
+			})
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
+		// GET individual task
+		taskID := strings.SplitN(path, "/", 2)[0]
+		task := &types.SpecTask{
+			ID: taskID, ProjectID: "proj_e2e", Name: "E2E test task",
 			Status: types.TaskStatusImplementation, Priority: types.SpecTaskPriorityHigh,
 			PlanningSessionID: seedSessionID, HelixAppID: "app_e2e",
-		})
+		}
+		// If this is a newly created task, give it a planning session
+		if strings.HasPrefix(taskID, "spt_new_") {
+			task.PlanningSessionID = fmt.Sprintf("ses_plan_%s", taskID)
+			task.Name = "New task"
+			task.Status = types.TaskStatusSpecGeneration
+		}
+		json.NewEncoder(w).Encode(task)
 	})
 
 	// Sessions
@@ -406,6 +486,18 @@ func buildTestMux(ms *memorystore.MemoryStore, srv *server.HelixAPIServer, seedS
 		}
 
 		json.NewEncoder(w).Encode(&types.Session{ID: seedSessionID, Name: "E2E Session"})
+	})
+
+	// Prompt history sync
+	mux.HandleFunc("/api/v1/prompt-history/sync", func(w http.ResponseWriter, r *http.Request) {
+		var req types.PromptHistorySyncRequest
+		json.NewDecoder(r.Body).Decode(&req)
+		json.NewEncoder(w).Encode(map[string]int{"synced": len(req.Entries), "existing": 0})
+	})
+
+	// Stop agent
+	mux.HandleFunc("/api/v1/spec-tasks/stop-agent", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
 	})
 
 	return mux
