@@ -7,4 +7,4 @@
 - [x] Add a `useEffect` cleanup that clears the debounce timer on unmount to prevent post-unmount writes
 - [x] After successful task creation (inside the `onTaskCreated` flow), call `localStorage.removeItem(DRAFT_KEY)` to clear the draft
 - [x] Inside `resetForm()`, call `localStorage.removeItem(DRAFT_KEY)` so an explicit cancel also clears the draft
-- [~] Manual test: type text → close panel → reopen → text is restored; submit task → reopen → form is empty; cancel → reopen → form is empty
+- [x] Manual test: type text → close panel → reopen → text is restored; submit task → reopen → form is empty; cancel → reopen → form is empty
