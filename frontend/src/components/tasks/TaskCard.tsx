@@ -1099,17 +1099,11 @@ function TaskCardInner({
           (task.phase === "planning" ||
             task.phase === "review" ||
             task.phase === "implementation" ||
-            task.phase === "pull_request") && (() => {
-            if (!usageData) console.log(`[TaskCard ${task.id}] usageData is undefined, phase=${task.phase}`);
-            else if (usageData.length === 0) console.log(`[TaskCard ${task.id}] usageData is empty array`);
-            return <UsagePulseChart accentColor={accentColor} usageData={usageData} />;
-          })()}
+            task.phase === "pull_request") && (
+            <UsagePulseChart accentColor={accentColor} usageData={usageData} />
+          )}
 
         {/* Gorgeous checklist progress for active tasks */}
-        {(() => {
-          if (progressData && !progressData.checklist) console.log(`[TaskCard ${task.id}] progressData exists but no checklist, status=${task.status}`);
-          return null;
-        })()}
         {progressData?.checklist && progressData.checklist.total_tasks > 0 && (
           <TaskProgressDisplay
             checklist={progressData.checklist as ChecklistProgress}
@@ -1549,7 +1543,9 @@ const TaskCard = React.memo(TaskCardInner, (prevProps, nextProps) => {
     prevProps.task.sandbox_status_message === nextProps.task.sandbox_status_message &&
     prevProps.isArchiving === nextProps.isArchiving &&
     prevProps.isVisible === nextProps.isVisible &&
-    prevProps.focusStartPlanning === nextProps.focusStartPlanning
+    prevProps.focusStartPlanning === nextProps.focusStartPlanning &&
+    prevProps.usageData === nextProps.usageData &&
+    prevProps.progressData === nextProps.progressData
   );
 });
 

@@ -705,20 +705,8 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
   });
   const batchUsageData = batchUsageResponse?.tasks;
 
-  // DEBUG: Log batch data to diagnose missing sparklines/checklists
-  React.useEffect(() => {
-    if (batchProgressData) {
-      const withChecklist = Object.values(batchProgressData).filter((t: any) => t?.checklist?.total_tasks > 0).length;
-      console.log('[KanbanDebug] batchProgressData:', Object.keys(batchProgressData).length, 'tasks,', withChecklist, 'with checklists');
-    } else {
-      console.log('[KanbanDebug] batchProgressData is', batchProgressData);
-    }
-    if (batchUsageData) {
-      console.log('[KanbanDebug] batchUsageData:', Object.keys(batchUsageData).length, 'tasks with usage');
-    } else {
-      console.log('[KanbanDebug] batchUsageData is', batchUsageData);
-    }
-  }, [batchProgressData, batchUsageData]);
+
+
 
   // Planning form state
   const [newTaskRequirements, setNewTaskRequirements] = useState("");

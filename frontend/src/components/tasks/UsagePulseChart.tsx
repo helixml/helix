@@ -1,7 +1,7 @@
 import React, { useMemo, useId } from "react";
 import { Box, Tooltip } from "@mui/material";
 import useTheme from "@mui/material/styles/useTheme";
-import { LineChart } from "@mui/x-charts";
+import { BarChart } from "@mui/x-charts";
 import { ServerBatchTaskUsageMetric } from "../../api/api";
 
 interface UsagePulseChartProps {
@@ -30,94 +30,56 @@ const UsagePulseChart: React.FC<UsagePulseChartProps> = ({
       const date = new Date(d.date || "");
       const month = String(date.getMonth() + 1).padStart(2, "0");
       const day = String(date.getDate()).padStart(2, "0");
-      const hours = String(date.getHours()).padStart(2, "0");
-      const minutes = String(date.getMinutes()).padStart(2, "0");
-      return `${month}/${day} ${hours}:${minutes}`;
+      return `${month}/${day}`;
     });
     const total = data.reduce((a, b) => a + b, 0);
     return { chartData: data, chartLabels: labels, totalTokens: total };
   }, [usageData]);
 
-  const uniqueId = useId();
-
   if (!chartData || chartData.length === 0 || totalTokens === 0) return null;
-
-  const gradientId = `usageGradient-${uniqueId}`;
 
   return (
     <Tooltip title={`${totalTokens.toLocaleString()} tokens used`}>
       <Box
         sx={{
           width: "100%",
-          height: 50,
+          height: 40,
           mt: 0.5,
           mb: 0.5,
         }}
       >
-        <LineChart
+        <BarChart
           xAxis={[
             {
               data: chartLabels,
-              scaleType: "point",
-              tickLabelStyle: { fontSize: 10, fill: "#aaa" },
-              label: "",
+              scaleType: "band",
+              tickLabelStyle: { display: "none" },
             },
           ]}
           yAxis={[
             {
               tickLabelStyle: { display: "none" },
-              label: "",
             },
           ]}
           series={[
             {
               data: chartData,
-              area: true,
-              showMark: false,
               color: accentColor,
             },
           ]}
-          height={50}
+          height={40}
           slotProps={{
             legend: { hidden: true },
           }}
           sx={{
             width: "100%",
-            "& .MuiAreaElement-root": {
-              fill: `url(#${gradientId})`,
-            },
-            "& .MuiMarkElement-root": {
-              display: "none",
-            },
-            "& .MuiLineElement-root": {
-              strokeWidth: 2,
-            },
-            "& .MuiChartsAxis-line": {
-              display: "none",
-            },
-            "& .MuiChartsAxis-tick": {
-              display: "none",
-            },
+            "& .MuiChartsAxis-line": { display: "none" },
+            "& .MuiChartsAxis-tick": { display: "none" },
           }}
           grid={{ horizontal: false, vertical: false }}
-          disableAxisListener
-          margin={{ top: 0, bottom: 0, left: 0, right: 0 }}
-        >
-          <defs>
-            <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
-              <stop
-                offset="0%"
-                stopColor={theme.chartGradientStart}
-                stopOpacity={theme.chartGradientStartOpacity}
-              />
-              <stop
-                offset="100%"
-                stopColor={theme.chartGradientEnd}
-                stopOpacity={theme.chartGradientEndOpacity}
-              />
-            </linearGradient>
-          </defs>
-        </LineChart>
+          margin={{ top: 2, bottom: 2, left: 0, right: 0 }}
+          borderRadius={2}
+        />
       </Box>
     </Tooltip>
   );

@@ -318,26 +318,27 @@ func (s *HelixAPIServer) getBatchTaskUsage(w http.ResponseWriter, r *http.Reques
 				return
 			}
 
-			// Strip interior consecutive zeroes to reduce payload (~98% of rows
-			// are zero). Keep first/last zero and any zero adjacent to a non-zero
-			// value so sparkline charts render correctly without gaps.
-			slim := make([]BatchTaskUsageMetric, 0, len(metrics))
-			for i, m := range metrics {
-				if m.TotalTokens > 0 {
-					slim = append(slim, BatchTaskUsageMetric{Date: m.Date, TotalTokens: m.TotalTokens})
-				} else {
-					// Keep zero if it's first, last, or adjacent to a non-zero value
-					isFirst := i == 0
-					isLast := i == len(metrics)-1
-					prevNonZero := i > 0 && metrics[i-1].TotalTokens > 0
-					nextNonZero := i < len(metrics)-1 && metrics[i+1].TotalTokens > 0
-					if isFirst || isLast || prevNonZero || nextNonZero {
-						slim = append(slim, BatchTaskUsageMetric{Date: m.Date, TotalTokens: 0})
-					}
+			// Only include the last 7 days of daily data — sparkline charts
+			// don't need months of history. This also naturally limits the
+			// payload since most tasks have zero usage outside their active period.
+			sevenDaysAgo := time.Now().AddDate(0, 0, -7)
+			slim := make([]BatchTaskUsageMetric, 0, 7)
+			for _, m := range metrics {
+				if m.Date.Before(sevenDaysAgo) {
+					continue
 				}
+				slim = append(slim, BatchTaskUsageMetric{Date: m.Date, TotalTokens: m.TotalTokens})
 			}
 
-			if len(slim) > 0 {
+			// Only include tasks that have non-zero usage in the window
+			hasUsage := false
+			for _, m := range slim {
+				if m.TotalTokens > 0 {
+					hasUsage = true
+					break
+				}
+			}
+			if hasUsage {
 				mu.Lock()
 				response.Tasks[t.ID] = slim
 				mu.Unlock()
