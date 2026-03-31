@@ -318,15 +318,30 @@ func (s *HelixAPIServer) getBatchTaskUsage(w http.ResponseWriter, r *http.Reques
 				return
 			}
 
-			// Map to slim response type
-			slim := make([]BatchTaskUsageMetric, len(metrics))
+			// Strip interior consecutive zeroes to reduce payload (~98% of rows
+			// are zero). Keep first/last zero and any zero adjacent to a non-zero
+			// value so sparkline charts render correctly without gaps.
+			slim := make([]BatchTaskUsageMetric, 0, len(metrics))
 			for i, m := range metrics {
-				slim[i] = BatchTaskUsageMetric{Date: m.Date, TotalTokens: m.TotalTokens}
+				if m.TotalTokens > 0 {
+					slim = append(slim, BatchTaskUsageMetric{Date: m.Date, TotalTokens: m.TotalTokens})
+				} else {
+					// Keep zero if it's first, last, or adjacent to a non-zero value
+					isFirst := i == 0
+					isLast := i == len(metrics)-1
+					prevNonZero := i > 0 && metrics[i-1].TotalTokens > 0
+					nextNonZero := i < len(metrics)-1 && metrics[i+1].TotalTokens > 0
+					if isFirst || isLast || prevNonZero || nextNonZero {
+						slim = append(slim, BatchTaskUsageMetric{Date: m.Date, TotalTokens: 0})
+					}
+				}
 			}
 
-			mu.Lock()
-			response.Tasks[t.ID] = slim
-			mu.Unlock()
+			if len(slim) > 0 {
+				mu.Lock()
+				response.Tasks[t.ID] = slim
+				mu.Unlock()
+			}
 		}(task)
 	}
 
