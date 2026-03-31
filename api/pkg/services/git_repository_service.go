@@ -279,6 +279,21 @@ func (s *GitRepositoryService) listLocalBranches(ctx context.Context, repoPath s
 
 // isBranchAheadOfRemote checks if a local branch has commits not in the remote
 func (s *GitRepositoryService) isBranchAheadOfRemote(ctx context.Context, repoPath, branch string) (bool, error) {
+	// Fetch the latest remote state so origin/<branch> reflects reality, not
+	// a stale ref from before a crash. Without this, a local branch that is
+	// strictly *behind* the remote looks "ahead" of the outdated tracking ref,
+	// causing spurious push attempts that always fail with PushRejected.
+	_, _, fetchErr := gitcmd.NewCommand("fetch", "origin").
+		AddDynamicArguments(branch).
+		RunStdString(ctx, &gitcmd.RunOpts{Dir: repoPath})
+	if fetchErr != nil {
+		// Can't reach remote (no network, no auth, etc.) — skip rather than
+		// incorrectly concluding the branch is ahead.
+		log.Debug().Err(fetchErr).Str("branch", branch).Str("repo_path", repoPath).
+			Msg("Failed to fetch remote before ahead check, skipping branch")
+		return false, nil
+	}
+
 	// Check if remote tracking ref exists
 	remoteRef := "refs/remotes/origin/" + branch
 	_, _, err := gitcmd.NewCommand("rev-parse").

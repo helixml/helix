@@ -428,7 +428,7 @@ func (s *Proxy) logLLMCall(ctx context.Context, createdAt time.Time, resp []byte
 		return
 	}
 
-	log.Debug().Interface("usage", respMessage.Usage).Msg("anthropic usage information")
+	log.Trace().Interface("usage", respMessage.Usage).Msg("anthropic usage information")
 
 	usage := respMessage.Usage
 	modelName := string(respMessage.Model)
@@ -436,7 +436,7 @@ func (s *Proxy) logLLMCall(ctx context.Context, createdAt time.Time, resp []byte
 	vals, ok := oai.GetContextValues(ctx)
 	if !ok {
 		// Session data will be missing for Discord, Slack, etc.
-		log.Debug().Msg("failed to get context values")
+		log.Trace().Msg("failed to get context values")
 		vals = &oai.ContextValues{}
 	}
 
