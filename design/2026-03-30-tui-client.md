@@ -445,14 +445,16 @@ Each SSH session spawns an independent `App` model with its own `APIClient`. The
 
 Graceful shutdown on SIGINT/SIGTERM with 5-second timeout.
 
-### Exposing the SSH port
+### Port expose for user workloads
 
-The SSH server plays nicely with Helix's existing port expose feature. Helix supports both name-based and port-based expose:
+When working from the TUI over SSH/mosh, users can't open a browser to preview their app. Helix's port expose feature fills this gap — agents can expose ports from the dev container sandbox, making user workloads accessible via URL:
 
-- **Port-based**: Expose port 2222 on the Helix host → users SSH directly
-- **Name-based**: Expose as `hmux.your-org.helix.example.com` → SSH via hostname
+- **Port-based**: Agent runs `go run . :8080` → expose port 8080 → accessible at `https://your-host:exposed-port/`
+- **Name-based**: Expose as `myapp.your-org.helix.example.com` → accessible by hostname
 
-This means hmux can be made accessible alongside the web UI without any extra infrastructure — just expose the SSH port in the session/sandbox configuration.
+This is especially important for TUI users since they have no local browser. The `/web` slash command can show the exposed URL, and the agent can include it in its response when starting a dev server.
+
+The expose API (`POST /sessions/{id}/expose`, `GET /sessions/{id}/expose`) is already available and can be called from the TUI via slash commands or automatically by the agent.
 
 ## E2E Test Infrastructure
 
