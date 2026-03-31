@@ -3,6 +3,7 @@ package tui
 import (
 	"strings"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -14,12 +15,22 @@ const (
 	SplitHorizontal                 // top / bottom
 )
 
-// PaneTree is a binary tree of panes. Each node is either a leaf (chat view)
+// PaneView is the interface for anything that can live in a pane.
+type PaneView interface {
+	Init() tea.Cmd
+	Update(msg tea.Msg) tea.Cmd
+	View() string
+	SetSize(w, h int)
+	SetFocused(f bool)
+}
+
+// PaneTree is a binary tree of panes. Each node is either a leaf (chat/terminal)
 // or a split containing two children.
 type PaneTree struct {
 	// Leaf fields (set when this is a leaf node)
-	Chat *ChatModel
-	ID   int // unique pane ID for focus tracking
+	Chat     *ChatModel     // chat pane (most common)
+	Terminal *TerminalModel // terminal pane (prefix+t)
+	ID       int            // unique pane ID for focus tracking
 
 	// Split fields (set when this is a split node)
 	Dir   SplitDir
@@ -62,6 +73,56 @@ func (pm *PaneManager) OpenPane(chat *ChatModel) {
 	}
 	pm.focused = pane.ID
 	chat.SetSize(pm.width, pm.height)
+}
+
+// OpenTerminalPane creates a pane with a terminal model.
+func (pm *PaneManager) OpenTerminalPane(term *TerminalModel) {
+	pane := &PaneTree{
+		Terminal: term,
+		ID:       pm.nextID,
+		Ratio:    0.5,
+	}
+	pm.nextID++
+
+	if pm.Root == nil {
+		pm.Root = pane
+	}
+	pm.focused = pane.ID
+	term.SetSize(pm.width, pm.height)
+}
+
+// SplitFocusedWithTerminal splits the focused pane, placing a terminal in the new pane.
+func (pm *PaneManager) SplitFocusedWithTerminal(dir SplitDir, term *TerminalModel) {
+	if pm.Root == nil {
+		pm.OpenTerminalPane(term)
+		return
+	}
+
+	newPane := &PaneTree{
+		Terminal: term,
+		ID:       pm.nextID,
+		Ratio:    0.5,
+	}
+	pm.nextID++
+
+	leaf := pm.findPane(pm.Root, pm.focused)
+	if leaf == nil {
+		return
+	}
+
+	// Replace leaf with split
+	oldChat := leaf.Chat
+	oldTerminal := leaf.Terminal
+	oldID := leaf.ID
+
+	leaf.Chat = nil
+	leaf.Terminal = nil
+	leaf.Dir = dir
+	leaf.Ratio = 0.5
+	leaf.Left = &PaneTree{Chat: oldChat, Terminal: oldTerminal, ID: oldID, Ratio: 0.5}
+	leaf.Right = newPane
+
+	pm.focused = newPane.ID
 }
 
 // SplitFocused splits the currently focused pane in the given direction,
@@ -159,7 +220,7 @@ func (pm *PaneManager) FocusPrev() {
 	}
 }
 
-// FocusedChat returns the chat model of the focused pane.
+// FocusedChat returns the chat model of the focused pane (nil if terminal).
 func (pm *PaneManager) FocusedChat() *ChatModel {
 	if pm.Root == nil {
 		return nil
@@ -169,6 +230,36 @@ func (pm *PaneManager) FocusedChat() *ChatModel {
 		return nil
 	}
 	return leaf.Chat
+}
+
+// FocusedTerminal returns the terminal model of the focused pane (nil if chat).
+func (pm *PaneManager) FocusedTerminal() *TerminalModel {
+	if pm.Root == nil {
+		return nil
+	}
+	leaf := pm.findPane(pm.Root, pm.focused)
+	if leaf == nil {
+		return nil
+	}
+	return leaf.Terminal
+}
+
+// FocusedView returns whichever PaneView is focused.
+func (pm *PaneManager) FocusedView() PaneView {
+	if pm.Root == nil {
+		return nil
+	}
+	leaf := pm.findPane(pm.Root, pm.focused)
+	if leaf == nil {
+		return nil
+	}
+	if leaf.Chat != nil {
+		return leaf.Chat
+	}
+	if leaf.Terminal != nil {
+		return leaf.Terminal
+	}
+	return nil
 }
 
 // PaneCount returns the number of leaf panes.
@@ -190,20 +281,17 @@ func (pm *PaneManager) Render() string {
 }
 
 func (pm *PaneManager) renderNode(node *PaneTree, w, h int) string {
-	if node.Chat != nil {
-		// Leaf node — render the chat
-		isSinglePane := pm.PaneCount() <= 1
-
-		if isSinglePane {
-			// No border for single pane (like Claude Code without tmux splits)
-			node.Chat.SetSize(w, h)
-			return node.Chat.View()
+	// Leaf node — render the pane content
+	if node.Chat != nil || node.Terminal != nil {
+		var view PaneView
+		if node.Chat != nil {
+			view = node.Chat
+		} else {
+			view = node.Terminal
 		}
 
-		// Multiple panes — no border, just render content
-		// Divider lines are drawn by the split node renderer
-		node.Chat.SetSize(w, h)
-		return node.Chat.View()
+		view.SetSize(w, h)
+		return view.View()
 	}
 
 	// Split node — draw divider line between panes
@@ -266,7 +354,7 @@ func (pm *PaneManager) findPane(node *PaneTree, id int) *PaneTree {
 	if node == nil {
 		return nil
 	}
-	if node.Chat != nil {
+	if node.Chat != nil || node.Terminal != nil {
 		if node.ID == id {
 			return node
 		}
@@ -278,14 +366,18 @@ func (pm *PaneManager) findPane(node *PaneTree, id int) *PaneTree {
 	return pm.findPane(node.Right, id)
 }
 
+func (pm *PaneManager) isLeaf(node *PaneTree) bool {
+	return node != nil && (node.Chat != nil || node.Terminal != nil)
+}
+
 func (pm *PaneManager) findParent(node *PaneTree, id int) (parent *PaneTree, isLeft bool) {
-	if node == nil || node.Chat != nil {
+	if node == nil || pm.isLeaf(node) {
 		return nil, false
 	}
-	if node.Left != nil && node.Left.ID == id && node.Left.Chat != nil {
+	if node.Left != nil && node.Left.ID == id && pm.isLeaf(node.Left) {
 		return node, true
 	}
-	if node.Right != nil && node.Right.ID == id && node.Right.Chat != nil {
+	if node.Right != nil && node.Right.ID == id && pm.isLeaf(node.Right) {
 		return node, false
 	}
 	// Check if it's a leaf inside a subtree
@@ -302,7 +394,7 @@ func (pm *PaneManager) containsLeaf(node *PaneTree, id int) bool {
 	if node == nil {
 		return false
 	}
-	if node.Chat != nil {
+	if node.Chat != nil || node.Terminal != nil {
 		return node.ID == id
 	}
 	return pm.containsLeaf(node.Left, id) || pm.containsLeaf(node.Right, id)
@@ -312,7 +404,7 @@ func (pm *PaneManager) firstLeafID(node *PaneTree) int {
 	if node == nil {
 		return 0
 	}
-	if node.Chat != nil {
+	if node.Chat != nil || node.Terminal != nil {
 		return node.ID
 	}
 	return pm.firstLeafID(node.Left)
@@ -322,7 +414,7 @@ func (pm *PaneManager) allLeaves(node *PaneTree) []*PaneTree {
 	if node == nil {
 		return nil
 	}
-	if node.Chat != nil {
+	if node.Chat != nil || node.Terminal != nil {
 		return []*PaneTree{node}
 	}
 	left := pm.allLeaves(node.Left)

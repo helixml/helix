@@ -369,6 +369,19 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return a, nil
 
+	case termExecResultMsg:
+		// Forward to all terminals in all tabs
+		for _, tab := range a.tabs.tabs {
+			if tab.Panes != nil {
+				for _, leaf := range tab.Panes.allLeaves(tab.Panes.Root) {
+					if leaf.Terminal != nil {
+						leaf.Terminal.Update(msg)
+					}
+				}
+			}
+		}
+		return a, nil
+
 	case outboxSentMsg:
 		// Forward to focused chat (marks outbox entry as sent)
 		if chat := a.focusedChat(); chat != nil {
@@ -578,9 +591,19 @@ func (a *App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			cmd = a.kanban.Update(msg)
 		} else if chat := a.focusedChat(); chat != nil {
 			cmd = chat.Update(msg)
+		} else if term := a.focusedTerminal(); term != nil {
+			cmd = term.Update(msg)
 		}
 	}
 	return a, cmd
+}
+
+func (a *App) focusedTerminal() *TerminalModel {
+	tab := a.tabs.ActiveTab()
+	if tab == nil || tab.Panes == nil {
+		return nil
+	}
+	return tab.Panes.FocusedTerminal()
 }
 
 func (a *App) handlePrefixedKey(key string) (tea.Model, tea.Cmd) {
@@ -658,11 +681,16 @@ func (a *App) handlePrefixedKey(key string) (tea.Model, tea.Cmd) {
 		a.notifications.Toggle()
 		return a, nil
 
-	// Terminal
+	// Terminal — open shell pane to sandbox
 	case "t":
-		if chat := a.focusedChat(); chat != nil && chat.task != nil {
-			// TODO: open terminal pane for task's sandbox
-			a.status = "Terminal: connecting to sandbox..."
+		chat := a.focusedChat()
+		if chat != nil && chat.task != nil && chat.sessionID != "" {
+			term := NewTerminalModel(a.api, chat.sessionID, taskDisplayName(chat.task))
+			tab := a.tabs.ActiveTab()
+			if tab != nil && tab.Panes != nil {
+				tab.Panes.SplitFocusedWithTerminal(SplitVertical, term)
+				a.syncPaneFocus()
+			}
 		}
 		return a, nil
 
