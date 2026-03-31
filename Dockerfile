@@ -3,7 +3,7 @@
 # Debian is required for CGo (hugot tokenizers link against glibc)
 # Pin to specific digest for stable layer caching.
 # Update digest when intentionally upgrading Go version.
-FROM golang:1.25-bookworm@sha256:e39bda82b10817cc38b3c8d3ebd64285b44e6d7df09b759ad96a6d75d61cbcac AS api-base
+FROM golang:1.25-bookworm AS api-base
 WORKDIR /app
 # Install build dependencies for CGo (hugot/tokenizers)
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -19,7 +19,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 # Downloads and converts the st-codesearch-distilroberta-base model to ONNX format.
 # Uses kodit's download-model tool (Go binary that embeds the Python conversion script).
 FROM api-base AS embedding-model
-COPY --from=ghcr.io/astral-sh/uv:debian-slim@sha256:b852203fd7831954c58bfa1fec1166295adcfcfa50f4de7fdd0e684c8bd784eb /usr/local/bin/uv /usr/local/bin/uv
+COPY --from=ghcr.io/astral-sh/uv:debian-slim /usr/local/bin/uv /usr/local/bin/uv
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     go run github.com/helixml/kodit/cmd/download-model /build/models/flax-sentence-embeddings_st-codesearch-distilroberta-base
@@ -78,7 +78,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 #--------------------
 # Pin to specific digest for stable layer caching.
 # Update digest when intentionally upgrading Node version.
-FROM node:23-alpine@sha256:b9d38d589853406ff0d4364f21969840c3e0397087643aef8eede40edbb6c7cd AS ui-base
+FROM node:23-alpine AS ui-base
 WORKDIR /app
 # - Install dependencies
 COPY ./frontend/*.json /app/
@@ -108,7 +108,7 @@ RUN yarn build
 #-----------------------
 # Pin to specific digest for stable layer caching.
 # Update digest when intentionally upgrading Debian version.
-FROM debian:bookworm-slim@sha256:8af0e5095f9964007f5ebd11191dfe52dcb51bf3afa2c07f055fc5451b78ba0e
+FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates git git-daemon-sysvinit \
     && rm -rf /var/lib/apt/lists/*
