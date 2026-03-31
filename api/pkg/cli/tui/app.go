@@ -332,13 +332,14 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (a *App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
 
-	// ctrl+d on empty input in chat acts like ctrl+c (double-tap to quit)
-	// On kanban/pickers, ctrl+d is page-down — don't intercept
+	// ctrl+d on empty input at bottom of chat acts like ctrl+c (double-tap to quit)
+	// If scrolled up or on kanban/pickers, ctrl+d is page-down
 	if key == "ctrl+d" {
 		chat := a.focusedChat()
-		if chat != nil && chat.input.IsEmpty() {
-			key = "ctrl+c" // treat as ctrl+c
+		if chat != nil && chat.input.IsEmpty() && chat.scrollOffset >= chat.maxScroll() {
+			key = "ctrl+c" // at bottom with empty input — treat as quit
 		}
+		// otherwise falls through to chat's page-down handler
 	}
 
 	if key == "ctrl+c" {
