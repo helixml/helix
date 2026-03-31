@@ -52,6 +52,21 @@ func (s *PostgresStore) GetRepositoriesCount(ctx context.Context, query *GetRepo
 	return count, nil
 }
 
+// GetGitRepositoryByExternalURL looks up an external repository by its URL within an organization.
+func (s *PostgresStore) GetGitRepositoryByExternalURL(ctx context.Context, orgID, externalURL string) (*types.GitRepository, error) {
+	var repo types.GitRepository
+	err := s.gdb.WithContext(ctx).
+		Where("organization_id = ? AND external_url = ? AND is_external = true", orgID, externalURL).
+		First(&repo).Error
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	return &repo, nil
+}
+
 // ListGitRepositories lists all git repositories, optionally filtered by owner
 func (s *PostgresStore) ListGitRepositories(ctx context.Context, request *types.ListGitRepositoriesRequest) ([]*types.GitRepository, error) {
 	var repos []*types.GitRepository
