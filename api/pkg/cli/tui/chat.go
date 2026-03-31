@@ -27,6 +27,7 @@ type ChatModel struct {
 	slashReg     *SlashCommandRegistry
 	outbox       *Outbox
 	tmuxPrefix   string
+	projectName  string
 
 	scrollOffset int
 	loading      bool
@@ -447,14 +448,14 @@ func (c *ChatModel) renderHeader(width int) string {
 
 	name := c.sessionName
 	status := string(c.task.Status)
-	prio := string(c.task.Priority)
 	branch := c.task.BranchName
 
-	parts := []string{styleHeader.Render(name)}
-	parts = append(parts, styleDim.Render(status))
-	if prio != "" {
-		parts = append(parts, priorityStyle(prio))
+	var parts []string
+	if c.projectName != "" {
+		parts = append(parts, styleDim.Render(c.projectName+" /"))
 	}
+	parts = append(parts, styleHeader.Render(name))
+	parts = append(parts, styleDim.Render(status))
 	if branch != "" {
 		parts = append(parts, styleDim.Render(branch))
 	}

@@ -176,6 +176,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if tab != nil && tab.Panes != nil {
 			chat := NewChatModel(a.api, msg.task)
 			chat.tmuxPrefix = a.tmux.Prefix
+		if a.kanban != nil && a.kanban.project != nil {
+			chat.projectName = a.kanban.project.Name
+		}
 			tab.Panes.SplitFocused(msg.splitDir, chat)
 			a.syncPaneFocus()
 			return a, chat.Init()
