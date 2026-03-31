@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -729,6 +730,22 @@ func (a *App) View() string {
 
 	statusBar := a.renderStatusBar()
 
+	// Calculate how many lines the chrome takes
+	chromeLines := 1 // status bar
+	if connBar != "" {
+		chromeLines += strings.Count(connBar, "\n") + 1
+	}
+	if tabBar != "" {
+		chromeLines++
+	}
+
+	// Pad content to fill available height so status bar sticks to bottom
+	contentLines := strings.Count(content, "\n") + 1
+	targetLines := a.height - chromeLines
+	if contentLines < targetLines {
+		content += strings.Repeat("\n", targetLines-contentLines)
+	}
+
 	parts := []string{}
 	if connBar != "" {
 		parts = append(parts, connBar)
@@ -739,14 +756,7 @@ func (a *App) View() string {
 	}
 	parts = append(parts, statusBar)
 
-	result := ""
-	for i, p := range parts {
-		if i > 0 {
-			result += "\n"
-		}
-		result += p
-	}
-	return result
+	return strings.Join(parts, "\n")
 }
 
 func (a *App) renderStatusBar() string {
