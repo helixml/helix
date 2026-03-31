@@ -308,9 +308,27 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return a, nil
 
+	case interactionsLoadedMsg:
+		// Forward to ALL chat models, not just the focused one
+		// (interactions may load for background tabs during restore)
+		for _, tab := range a.tabs.tabs {
+			if tab.Panes != nil {
+				for _, leaf := range tab.Panes.allLeaves(tab.Panes.Root) {
+					if leaf.Chat != nil {
+						leaf.Chat.Update(msg)
+					}
+				}
+			}
+		}
+		return a, nil
+
 	case errMsg:
 		a.err = msg.err
 		a.conn.RecordFailure(msg.err)
+		// Also forward to focused chat so it can clear loading state
+		if chat := a.focusedChat(); chat != nil {
+			chat.Update(msg)
+		}
 		return a, nil
 
 	case statusMsg:
@@ -793,9 +811,6 @@ func (a *App) applyRestoredPanes(state *TUIState, taskMap map[string]*types.Spec
 		}
 	}
 
-	if len(cmds) > 0 {
-		a.status = fmt.Sprintf("Restored %d tab(s)", len(cmds))
-	}
 	return tea.Batch(cmds...)
 }
 

@@ -4,22 +4,22 @@ import "github.com/charmbracelet/lipgloss"
 
 // Colors — muted palette inspired by Claude Code
 var (
-	colorPrimary    = lipgloss.Color("63")  // muted blue-purple
-	colorSecondary  = lipgloss.Color("241") // dim gray
-	colorText       = lipgloss.Color("252") // light gray
-	colorDim        = lipgloss.Color("241") // dim
+	colorPrimary    = lipgloss.Color("110") // blue-gray
+	colorSecondary  = lipgloss.Color("243") // mid gray
+	colorText       = lipgloss.Color("253") // light gray
+	colorDim        = lipgloss.Color("243") // dim gray
 	colorBorder     = lipgloss.Color("238") // dark border
-	colorBorderFoc  = lipgloss.Color("63")  // focused border
-	colorBg         = lipgloss.Color("235") // dark bg
+	colorBorderFoc  = lipgloss.Color("110") // focused border (blue-gray)
+	colorBg         = lipgloss.Color("233") // dark bg
 	colorSelected   = lipgloss.Color("237") // selected row bg
-	colorHeader     = lipgloss.Color("229") // warm white for headers
-	colorError      = lipgloss.Color("196") // red
-	colorSuccess    = lipgloss.Color("78")  // green
-	colorWarning    = lipgloss.Color("214") // orange
-	colorUserMsg    = lipgloss.Color("252") // user message text
-	colorAssistMsg  = lipgloss.Color("252") // assistant message text
-	colorRoleUser   = lipgloss.Color("111") // "You" label
-	colorRoleAssist = lipgloss.Color("183") // "Assistant" label
+	colorHeader     = lipgloss.Color("15")  // bright white for headers
+	colorError      = lipgloss.Color("167") // muted red
+	colorSuccess    = lipgloss.Color("114") // muted green
+	colorWarning    = lipgloss.Color("179") // muted yellow
+	colorUserMsg    = lipgloss.Color("253") // user message text
+	colorAssistMsg  = lipgloss.Color("253") // assistant message text
+	colorRoleUser   = lipgloss.Color("110") // "You" label (blue-gray)
+	colorRoleAssist = lipgloss.Color("146") // "Assistant" label (light blue-gray)
 
 	// Priority colors
 	colorPrioLow      = lipgloss.Color("241")

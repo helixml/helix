@@ -126,12 +126,12 @@ func (tb *TabBar) View() string {
 
 	activeStyle := lipgloss.NewStyle().
 		Bold(true).
-		Foreground(lipgloss.Color("231")).
-		Background(lipgloss.Color("240"))
+		Foreground(lipgloss.Color("15")).
+		Background(lipgloss.Color("239"))
 
 	inactiveStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("245")).
-		Background(lipgloss.Color("235"))
+		Foreground(lipgloss.Color("248")).
+		Background(lipgloss.Color("233"))
 
 	var parts []string
 	for i, tab := range tb.tabs {
