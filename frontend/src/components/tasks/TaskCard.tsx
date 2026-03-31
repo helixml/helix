@@ -51,7 +51,7 @@ import {
 import {
   ServerTaskProgressResponse,
   TypesSpecTaskStatus,
-  TypesAggregatedUsageMetric,
+  ServerBatchTaskUsageMetric,
 } from "../../api/api";
 import UsagePulseChart from "./UsagePulseChart";
 import ExternalAgentDesktopViewer from "../external-agent/ExternalAgentDesktopViewer";
@@ -233,7 +233,7 @@ interface TaskCardProps {
   /** Pre-fetched progress data from batch endpoint - required */
   progressData?: ServerTaskProgressResponse;
   /** Pre-fetched usage data from batch endpoint - required */
-  usageData?: TypesAggregatedUsageMetric[];
+  usageData?: ServerBatchTaskUsageMetric[];
   highlightedTaskIds?: string[] | null;
   onDependencyHoverStart?: (taskIds: string[]) => void;
   onDependencyHoverEnd?: () => void;
@@ -1091,6 +1091,7 @@ function TaskCardInner({
         <AssigneeSelector
           assigneeId={task.assignee_id}
           members={orgMembers}
+          currentUserId={account.user?.id}
           onAssigneeChange={handleAssigneeChange}
           isLoading={updateSpecTask.isPending}
           anchorEl={assigneeAnchorEl}
@@ -1555,7 +1556,9 @@ const TaskCard = React.memo(TaskCardInner, (prevProps, nextProps) => {
     prevProps.task.sandbox_status_message === nextProps.task.sandbox_status_message &&
     prevProps.isArchiving === nextProps.isArchiving &&
     prevProps.isVisible === nextProps.isVisible &&
-    prevProps.focusStartPlanning === nextProps.focusStartPlanning
+    prevProps.focusStartPlanning === nextProps.focusStartPlanning &&
+    prevProps.usageData === nextProps.usageData &&
+    prevProps.progressData === nextProps.progressData
   );
 });
 

@@ -8,6 +8,7 @@ rules:
   - app.aispec.org
   resources:
   - aiapps
+  - projects
   verbs:
   - create
   - delete
@@ -20,12 +21,14 @@ rules:
   - app.aispec.org
   resources:
   - aiapps/finalizers
+  - projects/finalizers
   verbs:
   - update
 - apiGroups:
   - app.aispec.org
   resources:
   - aiapps/status
+  - projects/status
   verbs:
   - get
   - patch

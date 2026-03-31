@@ -25,6 +25,35 @@ func (s *PostgresStore) ResetRunningInteractions(ctx context.Context) error {
 	return nil
 }
 
+// GetInteractionsSummary returns lightweight metadata (count + max updated) for
+// a session's interactions. Used to compute ETags without loading full rows.
+func (s *PostgresStore) GetInteractionsSummary(ctx context.Context, sessionID string, generationID int) (int64, time.Time, error) {
+	var result struct {
+		Count      int64
+		MaxUpdated *time.Time
+	}
+
+	q := s.gdb.WithContext(ctx).
+		Model(&types.Interaction{}).
+		Select("COUNT(*) as count, MAX(updated) as max_updated").
+		Where("session_id = ?", sessionID)
+
+	if generationID > 0 {
+		q = q.Where("generation_id = ?", generationID)
+	}
+
+	if err := q.Scan(&result).Error; err != nil {
+		return 0, time.Time{}, err
+	}
+
+	maxUpdated := time.Time{}
+	if result.MaxUpdated != nil {
+		maxUpdated = *result.MaxUpdated
+	}
+
+	return result.Count, maxUpdated, nil
+}
+
 func (s *PostgresStore) CreateInteraction(ctx context.Context, interaction *types.Interaction) (*types.Interaction, error) {
 	if interaction.SessionID == "" {
 		return nil, errors.New("session_id is required")

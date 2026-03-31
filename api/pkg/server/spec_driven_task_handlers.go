@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"hash/fnv"
 	"net/http"
 	"strings"
 	"sync"
@@ -29,7 +30,6 @@ import (
 // @Failure 500 {object} types.APIError
 // @Router  /api/v1/spec-tasks/from-prompt [post]
 func (s *HelixAPIServer) createTaskFromPrompt(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
 	user := getRequestUser(r)
 	if user == nil {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
@@ -42,6 +42,10 @@ func (s *HelixAPIServer) createTaskFromPrompt(w http.ResponseWriter, r *http.Req
 		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
+
+	// Detach from request context so DB mutations complete even if client disconnects
+	ctx, cancel := detachContext(r.Context(), 30*time.Second)
+	defer cancel()
 
 	// Authorize user to create task in the project
 	if err := s.authorizeUserToProjectByID(ctx, user, req.ProjectID, types.ActionCreate); err != nil {
@@ -298,8 +302,27 @@ func (s *HelixAPIServer) listTasks(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// ETag support: hash the response to avoid sending unchanged data
+	jsonBytes, err := json.Marshal(tasks)
+	if err != nil {
+		http.Error(w, "failed to encode response", http.StatusInternalServerError)
+		return
+	}
+
+	h := fnv.New64a()
+	h.Write(jsonBytes)
+	etag := fmt.Sprintf(`"%x"`, h.Sum64())
+
+	w.Header().Set("ETag", etag)
+	w.Header().Set("Cache-Control", "private, no-cache, must-revalidate")
+
+	if match := r.Header.Get("If-None-Match"); match == etag {
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(tasks)
+	w.Write(jsonBytes) //nolint:errcheck
 }
 
 // approveSpecs godoc
@@ -316,7 +339,6 @@ func (s *HelixAPIServer) listTasks(w http.ResponseWriter, r *http.Request) {
 // @Failure 500 {object} types.APIError
 // @Router  /api/v1/spec-tasks/{taskId}/approve-specs [post]
 func (s *HelixAPIServer) approveSpecs(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
 	user := getRequestUser(r)
 	if user == nil {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
@@ -330,6 +352,10 @@ func (s *HelixAPIServer) approveSpecs(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "task ID is required", http.StatusBadRequest)
 		return
 	}
+
+	// Detach from request context so DB mutations complete even if client disconnects
+	ctx, cancel := detachContext(r.Context(), 30*time.Second)
+	defer cancel()
 
 	// Return updated task
 	existingTask, err := s.Store.GetSpecTask(ctx, taskID)
@@ -623,6 +649,15 @@ func (s *HelixAPIServer) getBatchTaskProgress(w http.ResponseWriter, r *http.Req
 		semaphore := make(chan struct{}, 10)
 
 		for _, task := range tasks {
+			// Skip checklist parsing for finished tasks — the UI doesn't show
+			// checklists for done/pull_request/failed tasks, and parsing git
+			// files for 169+ completed tasks is expensive and wasteful.
+			switch task.Status {
+			case types.TaskStatusDone, types.TaskStatusPullRequest,
+				types.TaskStatusSpecFailed, types.TaskStatusImplementationFailed:
+				continue
+			}
+
 			wg.Add(1)
 			go func(t *types.SpecTask) {
 				defer wg.Done()
@@ -646,8 +681,7 @@ func (s *HelixAPIServer) getBatchTaskProgress(w http.ResponseWriter, r *http.Req
 		wg.Wait()
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	writeResponseWithETag(w, r, response)
 }
 
 // Helper functions
@@ -679,7 +713,6 @@ func parseIntQuery(value string, defaultValue int) int {
 // @Router /api/v1/spec-tasks/{taskId}/start-planning [post]
 // @Security BearerAuth
 func (s *HelixAPIServer) startPlanning(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
 	user := getRequestUser(r)
 	if user == nil {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
@@ -692,6 +725,10 @@ func (s *HelixAPIServer) startPlanning(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "task ID is required", http.StatusBadRequest)
 		return
 	}
+
+	// Detach from request context so DB mutations complete even if client disconnects
+	ctx, cancel := detachContext(r.Context(), 60*time.Second)
+	defer cancel()
 
 	// Parse optional query parameters for browser locale settings
 	// These allow testing keyboard layout detection via ?keyboard=fr&timezone=Europe/Paris
@@ -761,13 +798,16 @@ func (s *HelixAPIServer) startPlanning(w http.ResponseWriter, r *http.Request) {
 // @Router /api/v1/spec-tasks/{taskId} [put]
 // @Security BearerAuth
 func (s *HelixAPIServer) updateSpecTask(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
 	vars := mux.Vars(r)
 	taskID := vars["taskId"]
 	if taskID == "" {
 		http.Error(w, "task ID is required", http.StatusBadRequest)
 		return
 	}
+
+	// Detach from request context so DB mutations complete even if client disconnects
+	ctx, cancel := detachContext(r.Context(), 30*time.Second)
+	defer cancel()
 
 	var updateReq types.SpecTaskUpdateRequest
 	if err := json.NewDecoder(r.Body).Decode(&updateReq); err != nil {
@@ -950,8 +990,12 @@ func (s *HelixAPIServer) deleteSpecTask(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// Detach from request context so DB mutations complete even if client disconnects
+	ctx, cancel := detachContext(r.Context(), 30*time.Second)
+	defer cancel()
+
 	// Get existing task
-	task, err := s.Store.GetSpecTask(r.Context(), taskID)
+	task, err := s.Store.GetSpecTask(ctx, taskID)
 	if err != nil {
 		log.Error().Err(err).Str("task_id", taskID).Msg("Failed to get SpecTask for archiving")
 		http.Error(w, "SpecTask not found", http.StatusNotFound)
@@ -964,8 +1008,8 @@ func (s *HelixAPIServer) deleteSpecTask(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// Authorize user to archive task in the project
-	if err := s.authorizeUserToProjectByID(r.Context(), user, task.ProjectID, types.ActionUpdate); err != nil {
+	// Authorize user to delete task in the project
+	if err := s.authorizeUserToProjectByID(ctx, user, task.ProjectID, types.ActionUpdate); err != nil {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
@@ -977,7 +1021,7 @@ func (s *HelixAPIServer) deleteSpecTask(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// Delete the task
-	err = s.Store.DeleteSpecTask(r.Context(), taskID)
+	err = s.Store.DeleteSpecTask(ctx, taskID)
 	if err != nil {
 		log.Error().Err(err).Str("task_id", taskID).Msg("Failed to delete SpecTask")
 		http.Error(w, fmt.Sprintf("failed to delete SpecTask: %v", err), http.StatusInternalServerError)
@@ -1017,8 +1061,12 @@ func (s *HelixAPIServer) archiveSpecTask(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	// Detach from request context so DB mutations complete even if client disconnects
+	ctx, cancel := detachContext(r.Context(), 30*time.Second)
+	defer cancel()
+
 	// Get existing task
-	task, err := s.Store.GetSpecTask(r.Context(), taskID)
+	task, err := s.Store.GetSpecTask(ctx, taskID)
 	if err != nil {
 		log.Error().Err(err).Str("task_id", taskID).Msg("Failed to get SpecTask for archiving")
 		http.Error(w, "SpecTask not found", http.StatusNotFound)
@@ -1032,7 +1080,7 @@ func (s *HelixAPIServer) archiveSpecTask(w http.ResponseWriter, r *http.Request)
 	}
 
 	// Authorize user to archive task in the project
-	if err := s.authorizeUserToProjectByID(r.Context(), user, task.ProjectID, types.ActionUpdate); err != nil {
+	if err := s.authorizeUserToProjectByID(ctx, user, task.ProjectID, types.ActionUpdate); err != nil {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
@@ -1041,9 +1089,9 @@ func (s *HelixAPIServer) archiveSpecTask(w http.ResponseWriter, r *http.Request)
 	if req.Archived {
 		// Stop the external agent if it's running
 		if task.PlanningSessionID != "" {
-			session, sessionErr := s.Store.GetSession(r.Context(), task.PlanningSessionID)
+			session, sessionErr := s.Store.GetSession(ctx, task.PlanningSessionID)
 			if sessionErr == nil && session.Metadata.AgentType == "zed_external" {
-				stopErr := s.externalAgentExecutor.StopDesktop(r.Context(), task.PlanningSessionID)
+				stopErr := s.externalAgentExecutor.StopDesktop(ctx, task.PlanningSessionID)
 				if stopErr != nil {
 					log.Warn().
 						Err(stopErr).
@@ -1061,9 +1109,9 @@ func (s *HelixAPIServer) archiveSpecTask(w http.ResponseWriter, r *http.Request)
 
 		// Stop any implementation session agents
 		// Get all sessions for this task's project and stop ones related to this task
-		externalAgent, agentErr := s.Store.GetSpecTaskExternalAgent(r.Context(), taskID)
+		externalAgent, agentErr := s.Store.GetSpecTaskExternalAgent(ctx, taskID)
 		if agentErr == nil && externalAgent != nil && externalAgent.Status == "running" {
-			stopErr := s.externalAgentExecutor.StopDesktop(r.Context(), externalAgent.ID)
+			stopErr := s.externalAgentExecutor.StopDesktop(ctx, externalAgent.ID)
 			if stopErr != nil {
 				log.Warn().
 					Err(stopErr).
@@ -1073,7 +1121,7 @@ func (s *HelixAPIServer) archiveSpecTask(w http.ResponseWriter, r *http.Request)
 			} else {
 				// Update agent status
 				externalAgent.Status = "stopped"
-				_ = s.Store.UpdateSpecTaskExternalAgent(r.Context(), externalAgent)
+				_ = s.Store.UpdateSpecTaskExternalAgent(ctx, externalAgent)
 
 				log.Info().
 					Str("task_id", taskID).
@@ -1087,7 +1135,7 @@ func (s *HelixAPIServer) archiveSpecTask(w http.ResponseWriter, r *http.Request)
 	task.Archived = req.Archived
 
 	// Update in store
-	err = s.Store.UpdateSpecTask(r.Context(), task)
+	err = s.Store.UpdateSpecTask(ctx, task)
 	if err != nil {
 		log.Error().Err(err).Str("task_id", taskID).Msg("Failed to archive SpecTask")
 		http.Error(w, fmt.Sprintf("failed to archive SpecTask: %v", err), http.StatusInternalServerError)
@@ -1103,9 +1151,9 @@ func (s *HelixAPIServer) archiveSpecTask(w http.ResponseWriter, r *http.Request)
 	// Log audit event for archive/unarchive
 	if s.auditLogService != nil {
 		if req.Archived {
-			s.auditLogService.LogTaskArchived(r.Context(), task, user.ID, user.Email)
+			s.auditLogService.LogTaskArchived(ctx, task, user.ID, user.Email)
 		} else {
-			s.auditLogService.LogTaskUnarchived(r.Context(), task, user.ID, user.Email)
+			s.auditLogService.LogTaskUnarchived(ctx, task, user.ID, user.Email)
 		}
 	}
 

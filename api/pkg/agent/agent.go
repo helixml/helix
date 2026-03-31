@@ -196,7 +196,11 @@ func (a *Agent) ConvertSkillsToTools() []openai.Tool {
 func (a *Agent) decideNextAction(ctx context.Context, llm *LLM, clonedMessages *MessageList, memoryBlock, knowledgeBlock *MemoryBlock, _ chan Response, iterationNumber int) (*openai.ChatCompletionResponse, error) {
 	skillFunctions := make([]string, len(a.skills))
 	for i, skill := range a.skills {
-		skillFunctions[i] = skill.Name
+		if skill.Description != "" {
+			skillFunctions[i] = skill.Name + ": " + skill.Description
+		} else {
+			skillFunctions[i] = skill.Name
+		}
 	}
 
 	systemPromptData := prompts.SkillSelectionPromptData{

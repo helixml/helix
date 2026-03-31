@@ -2098,7 +2098,7 @@ steps:
         echo "Building helix-ubuntu..."
         docker build --pull --provenance=false \
           -f Dockerfile.ubuntu-helix \
-          --build-arg CUDA_BASE_IMAGE=nvidia/cuda:12.6.3-runtime-ubuntu24.04 \
+          --build-arg CUDA_BASE_IMAGE=nvidia/cuda:12.6.3-runtime-ubuntu24.04@sha256:2c8193530ecc423e0f123d0c85b68a15d1395adcddabfc943e2523dbfde172e1 \
           -t registry.helixml.tech/helix/helix-ubuntu:$${VERSION}-linux-amd64 \
           .
         docker push registry.helixml.tech/helix/helix-ubuntu:$${VERSION}-linux-amd64
@@ -2389,7 +2389,7 @@ steps:
         echo "Building helix-ubuntu (arm64, no CUDA)..."
         docker build --pull --provenance=false \
           -f Dockerfile.ubuntu-helix \
-          --build-arg CUDA_BASE_IMAGE=ubuntu:25.10 \
+          --build-arg CUDA_BASE_IMAGE=ubuntu:25.10@sha256:91e7ac4c041dd191af1b9012fadbf489280894699c3f31e180969c4478781b7b \
           -t registry.helixml.tech/helix/helix-ubuntu:$${VERSION}-linux-arm64 \
           .
         docker push registry.helixml.tech/helix/helix-ubuntu:$${VERSION}-linux-arm64
@@ -2712,3 +2712,78 @@ steps:
               --content-type "application/json" \
               --no-progress
         fi
+
+---
+# ====================================================================
+# Release Rollback Pipeline
+# ====================================================================
+# Runs ONLY on tag events when any release pipeline fails.
+# Cleans up partially-published user-visible artifacts:
+#   - GitHub release and uploaded assets
+#   - Remote git tag
+#   - Helm chart packages from GCS bucket
+#   - macOS DMG and VM disk from R2/Cloudflare
+#   - latest.json pointer (reverted to previous good release)
+#
+# Docker images are NOT cleaned up (harmless — nobody pulls a failed
+# version tag unless explicitly referencing it).
+#
+# Can also be run manually: scripts/release-rollback.sh VERSION
+# ====================================================================
+kind: pipeline
+type: docker
+name: release-rollback
+
+depends_on:
+  - default
+  - build-controlplane-amd64
+  - build-controlplane-arm64
+  - manifest-controlplane
+  - build-haystack-amd64
+  - build-haystack-arm64
+  - manifest-haystack
+  - build-runner
+  - build-runner-small
+  - build-runner-large
+  - build-typesense-amd64
+  - build-typesense-arm64
+  - manifest-typesense
+  - build-demos
+  - build-sandbox-amd64
+  - build-sandbox-arm64
+  - manifest-sandbox
+  - build-macos-dmg
+
+trigger:
+  ref:
+    include:
+      - refs/tags/*
+  status:
+    - failure
+
+steps:
+  - name: rollback-release
+    image: google/cloud-sdk:slim
+    environment:
+      GITHUB_TOKEN:
+        from_secret: github_token
+      R2_ACCESS_KEY_ID:
+        from_secret: r2_access_key_id
+      R2_SECRET_ACCESS_KEY:
+        from_secret: r2_secret_access_key
+      GCS_SERVICE_ACCOUNT_KEY:
+        from_secret: gcs_service_account_key
+      SLACK_WEBHOOK_URL:
+        from_secret: JANITOR_SLACK_WEBHOOK_URL
+    commands:
+      - apt-get update -qq && apt-get install -y -qq curl jq > /dev/null
+      # Install gh CLI
+      - curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg 2>/dev/null
+      - echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null
+      - apt-get update -qq && apt-get install -y -qq gh > /dev/null
+      # Install helm
+      - curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash > /dev/null 2>&1
+      # Install awscli
+      - pip3 install -q awscli 2>/dev/null
+      # Run rollback
+      - scripts/release-rollback.sh "$DRONE_TAG"

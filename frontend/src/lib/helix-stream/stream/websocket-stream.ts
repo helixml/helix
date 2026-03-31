@@ -1626,6 +1626,19 @@ export class WebSocketStream {
   }
 
   sendMouseButton(isDown: boolean, button: number) {
+    // Flush any pending (throttled) mouse position before sending a button event.
+    // This ensures the remote cursor is at the correct position before receiving the click,
+    // even if the position update from sendCursorPositionToRemote was throttled.
+    if (this.pendingMousePosition) {
+      const { x, y, refW, refH } = this.pendingMousePosition
+      this.pendingMousePosition = null
+      if (this.mouseThrottleTimeoutId) {
+        clearTimeout(this.mouseThrottleTimeoutId)
+        this.mouseThrottleTimeoutId = null
+      }
+      this.sendMousePositionImmediate(x, y, refW, refH)
+      this.lastMouseSendTime = performance.now()
+    }
     // Format: subType(1) + isDown(1) + button(1)
     this.inputBuffer[0] = 2 // sub-type for button
     this.inputBuffer[1] = isDown ? 1 : 0
