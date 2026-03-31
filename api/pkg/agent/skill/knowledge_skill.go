@@ -129,9 +129,9 @@ func (t *KnowledgeQueryTool) Execute(ctx context.Context, _ agent.Meta, args map
 	return formatKnowledgeSearchResponse(results), nil
 }
 
-// formatKnowledgeSearchResponse formats RAG results including DocumentID for citation support.
-// The response instructs the LLM to produce both inline [DOC_ID:xxx] references and an
-// <excerpts> XML block so the frontend can render the SOURCES citation sidebar.
+// formatKnowledgeSearchResponse formats RAG results as chunks with document IDs and
+// content boundary markers. Citation and excerpts formatting instructions are in the
+// system prompt (inference_agent.go), not here.
 func formatKnowledgeSearchResponse(results []*types.SessionRAGResult) string {
 	if len(results) == 0 {
 		return "No results found"
@@ -141,12 +141,5 @@ func formatKnowledgeSearchResponse(results []*types.SessionRAGResult) string {
 		buf.WriteString(fmt.Sprintf("<chunk>\n  <document_id>%s</document_id>\n  <content>\n    ### START OF CONTENT FOR DOCUMENT %s ###\n    %s\n    ### END OF CONTENT FOR DOCUMENT %s ###\n  </content>\n</chunk>\n",
 			result.DocumentID, result.DocumentID, result.Content, result.DocumentID))
 	}
-
-	buf.WriteString("\nProvide references in your answer in the format `[DOC_ID:DocumentID]`. " +
-		"For example, \"According to [DOC_ID:f6962c8007], the answer is 42.\"\n\n" +
-		"After your answer, write an excerpts block with an exact quote from each cited document:\n\n" +
-		"<excerpts>\n  <excerpt>\n    <document_id>DocumentID</document_id>\n    <snippet>An exact quote from this document</snippet>\n  </excerpt>\n</excerpts>\n\n" +
-		"Each document_id must appear at most once in the excerpts. No header before the excerpts block.")
-
 	return buf.String()
 }
