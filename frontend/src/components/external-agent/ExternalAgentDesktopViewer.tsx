@@ -120,6 +120,8 @@ interface ExternalAgentDesktopViewerProps {
   // Pre-computed sandbox state from the task list (avoids per-card session polling on Kanban)
   initialSandboxState?: string;
   initialSandboxStatusMessage?: string;
+  // Interface mode: "desktop" (video stream) or "terminal" (xterm.js)
+  interfaceMode?: "desktop" | "terminal";
 }
 
 const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
@@ -139,6 +141,7 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
   startupErrorMessage,
   initialSandboxState,
   initialSandboxStatusMessage,
+  interfaceMode = "desktop",
 }) => {
   const api = useApi();
   const snackbar = useSnackbar();
@@ -420,6 +423,7 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
           enableStreaming={false}
           showToolbar={false}
           showTimestamp={false}
+          interfaceMode={interfaceMode}
         />
       </Box>
     );
@@ -587,6 +591,7 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
             // Suppress DesktopStreamViewer's overlay when we're showing our own reconnecting overlay
             // This prevents double spinners when container state changes
             suppressOverlay={showReconnectingOverlay}
+            interfaceMode={interfaceMode}
           />
 
           {/* Reconnecting overlay - shown when state changes but stream stays mounted */}

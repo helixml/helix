@@ -257,6 +257,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
       width,
       height,
       fps: config.display_refresh_rate || 60,
+      interfaceMode: (config.interface_mode || "desktop") as "desktop" | "terminal",
     };
   }, [task?.helix_app_id, apps.apps]);
 
@@ -2226,6 +2227,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                       displayHeight={displaySettings.height}
                       displayFps={displaySettings.fps}
                       startupErrorMessage={taskMetadataError}
+                      interfaceMode={displaySettings.interfaceMode}
                     />
                   ))}
                 {currentView === "changes" && (
@@ -2713,6 +2715,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                     displayHeight={displaySettings.height}
                     displayFps={displaySettings.fps}
                     startupErrorMessage={taskMetadataError}
+                    interfaceMode={displaySettings.interfaceMode}
                   />
                 )}
               </Box>

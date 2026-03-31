@@ -18,6 +18,7 @@ interface ScreenshotViewerProps {
   enableStreaming?: boolean; // Enable streaming mode toggle
   showToolbar?: boolean; // Show refresh/fullscreen buttons
   showTimestamp?: boolean; // Show last updated timestamp
+  interfaceMode?: "desktop" | "terminal"; // Pass through to DesktopStreamViewer
 }
 
 const ScreenshotViewer: React.FC<ScreenshotViewerProps> = ({
@@ -33,6 +34,7 @@ const ScreenshotViewer: React.FC<ScreenshotViewerProps> = ({
   enableStreaming = true, // Enable streaming by default
   showToolbar = true, // Show toolbar by default
   showTimestamp = true, // Show timestamp by default
+  interfaceMode = "desktop" as "desktop" | "terminal",
 }) => {
   // Dual-buffer system for smooth image transitions
   const [imageA, setImageA] = useState<string | null>(null);
@@ -298,6 +300,7 @@ const ScreenshotViewer: React.FC<ScreenshotViewerProps> = ({
           onError={onError}
           width={width}
           height={height}
+          interfaceMode={interfaceMode}
         />
       </Box>
     );
