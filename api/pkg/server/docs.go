@@ -9710,6 +9710,73 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/prompt-history/{id}": {
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Soft-deletes a prompt history entry so it is removed from the queue and no longer synced to clients",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "PromptHistory"
+                ],
+                "summary": "Delete a prompt history entry",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Prompt ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "boolean"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/prompt-history/{id}/pin": {
             "put": {
                 "security": [
@@ -25414,6 +25481,10 @@ const docTemplate = `{
                 },
                 "created_at": {
                     "description": "Timestamps",
+                    "type": "string"
+                },
+                "deleted_at": {
+                    "description": "Soft-delete: non-nil means user removed from queue",
                     "type": "string"
                 },
                 "id": {

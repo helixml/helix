@@ -1276,6 +1276,20 @@ func (mr *MockStoreMockRecorder) DeleteInteraction(ctx, id any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteInteraction", reflect.TypeOf((*MockStore)(nil).DeleteInteraction), ctx, id)
 }
 
+// DeletePromptHistoryEntry mocks base method.
+func (m *MockStore) DeletePromptHistoryEntry(ctx context.Context, id string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeletePromptHistoryEntry", ctx, id)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeletePromptHistoryEntry indicates an expected call of DeletePromptHistoryEntry.
+func (mr *MockStoreMockRecorder) DeletePromptHistoryEntry(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeletePromptHistoryEntry", reflect.TypeOf((*MockStore)(nil).DeletePromptHistoryEntry), ctx, id)
+}
+
 // DeleteKnowledge mocks base method.
 func (m *MockStore) DeleteKnowledge(ctx context.Context, id string) error {
 	m.ctrl.T.Helper()
