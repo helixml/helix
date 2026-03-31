@@ -9933,6 +9933,38 @@ definitions:
       updated:
         type: string
     type: object
+  types.ZFSTree:
+    properties:
+      available:
+        type: boolean
+      golden:
+        $ref: '#/definitions/types.ZFSTreeNode'
+      orphans:
+        items:
+          $ref: '#/definitions/types.ZFSTreeNode'
+        type: array
+      pool_root:
+        type: string
+    type: object
+  types.ZFSTreeNode:
+    properties:
+      children:
+        items:
+          $ref: '#/definitions/types.ZFSTreeNode'
+        type: array
+      mounted:
+        type: boolean
+      name:
+        type: string
+      refer:
+        type: string
+      session_id:
+        type: string
+      type:
+        type: string
+      used:
+        type: string
+    type: object
   types.ZedConfigResponse:
     properties:
       agent:
@@ -15314,6 +15346,28 @@ paths:
       summary: Cancel running golden Docker cache builds
       tags:
       - Projects
+  /api/v1/projects/{id}/docker-cache/zfs-tree:
+    get:
+      description: Returns the ZFS snapshot and clone tree showing golden cache, snapshots,
+        and active session clones.
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.ZFSTree'
+      security:
+      - BearerAuth: []
+      summary: Get ZFS snapshot/clone tree for project's Docker cache
+      tags:
+      - projects
   /api/v1/projects/{id}/exploratory-session:
     delete:
       description: Stop the running exploratory session for a project (stops sandbox

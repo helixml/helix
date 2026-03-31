@@ -32,6 +32,7 @@ type KoditFileResult struct {
 	Lines    string  `json:"lines,omitempty"`
 	Score    float64 `json:"score"`
 	Preview  string  `json:"preview"`
+	Content  string  `json:"content"` // Full enrichment content (not truncated)
 }
 
 // KoditGrepResult represents a grep match grouped by file.
@@ -109,11 +110,18 @@ type KoditRepositoryTasks struct {
 	PendingTasks []KoditPendingTask
 }
 
+// RegisterRepositoryParams configures a RegisterRepository call.
+type RegisterRepositoryParams struct {
+	CloneURL    string
+	UpstreamURL string
+	Pipeline    string
+}
+
 // KoditServicer is the interface for Kodit code intelligence operations.
 // Used by handlers and other services; allows faking in tests.
 type KoditServicer interface {
 	IsEnabled() bool
-	RegisterRepository(ctx context.Context, cloneURL, upstreamURL string) (int64, bool, error)
+	RegisterRepository(ctx context.Context, params *RegisterRepositoryParams) (int64, bool, error)
 	GetRepositoryEnrichments(ctx context.Context, koditRepoID int64, enrichmentType, commitSHA string) ([]enrichment.Enrichment, error)
 	GetEnrichment(ctx context.Context, enrichmentID string) (enrichment.Enrichment, error)
 	GetRepositoryCommits(ctx context.Context, koditRepoID int64, limit int) ([]repository.Commit, error)
@@ -144,6 +152,9 @@ type KoditServicer interface {
 	ListFiles(ctx context.Context, koditRepoID int64, pattern string) ([]KoditFileEntry, error)
 	ReadFile(ctx context.Context, koditRepoID int64, filePath string, startLine, endLine int) (*KoditFileContent, error)
 
+	// Chunking configuration
+	UpdateChunkingConfig(ctx context.Context, koditRepoID int64, chunkSize, chunkOverlap, minChunkSize int) error
+
 	// Global task queue management
 	ListAllTasks(ctx context.Context, limit, offset int) ([]KoditPendingTask, int64, error)
 	ActiveTasks(ctx context.Context) ([]KoditActiveTask, error)
@@ -156,7 +167,7 @@ type disabledKoditService struct{}
 
 func (d *disabledKoditService) IsEnabled() bool          { return false }
 func (d *disabledKoditService) MCPDocumentation() string { return "" }
-func (d *disabledKoditService) RegisterRepository(context.Context, string, string) (int64, bool, error) {
+func (d *disabledKoditService) RegisterRepository(context.Context, *RegisterRepositoryParams) (int64, bool, error) {
 	return 0, false, errors.New("kodit service not enabled")
 }
 func (d *disabledKoditService) GetRepositoryEnrichments(context.Context, int64, string, string) ([]enrichment.Enrichment, error) {
@@ -224,6 +235,9 @@ func (d *disabledKoditService) ListAllTasks(context.Context, int, int) ([]KoditP
 }
 func (d *disabledKoditService) ActiveTasks(context.Context) ([]KoditActiveTask, error) {
 	return nil, errors.New("kodit service not enabled")
+}
+func (d *disabledKoditService) UpdateChunkingConfig(context.Context, int64, int, int, int) error {
+	return errors.New("kodit service not enabled")
 }
 func (d *disabledKoditService) DeleteTask(context.Context, int64) error {
 	return errors.New("kodit service not enabled")

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { main } from '../../wailsjs/go/models';
-import { SaveSettings, GetSettings, ResizeDataDisk, GetAutoLoginURL, FactoryReset as FactoryResetGo, GetLANAddress, ValidateLicenseKey, GetLicenseStatus, CheckForUpdate, ApplyAppUpdate, ApplyVMUpdate, RedownloadVMImage, DownloadVMUpdate, StartCombinedUpdate, ApplyCombinedUpdate, CancelUpdate } from '../../wailsjs/go/main/App';
-import { BrowserOpenURL } from '../../wailsjs/runtime/runtime';
+import { SaveSettings, GetSettings, ResizeDataDisk, GetAutoLoginURL, FactoryReset as FactoryResetGo, GetLANAddress, ValidateLicenseKey, GetLicenseStatus, CheckForUpdate, ApplyAppUpdate, ApplyVMUpdate, RedownloadVMImage, DownloadVMUpdate, StartCombinedUpdate, ApplyCombinedUpdate, CancelUpdate, CollectDiagnostics } from '../../wailsjs/go/main/App';
+import { BrowserOpenURL, ClipboardSetText } from '../../wailsjs/runtime/runtime';
 import { formatBytes } from '../lib/helpers';
 
 interface SettingsPanelProps {
@@ -112,6 +112,10 @@ export function SettingsPanel({
   const [appUpdating, setAppUpdating] = useState(false);
   const [vmApplying, setVmApplying] = useState(false);
   const [redownloading, setRedownloading] = useState(false);
+  const [reportDialogOpen, setReportDialogOpen] = useState(false);
+  const [diagnosticsLoading, setDiagnosticsLoading] = useState(false);
+  const [diagnosticsReport, setDiagnosticsReport] = useState('');
+  const [userDescription, setUserDescription] = useState('');
 
   useEffect(() => {
     // Re-fetch settings in case license key was added outside the panel
@@ -166,6 +170,50 @@ export function SettingsPanel({
     }
   }
 
+  async function handleReportIssue() {
+    setUserDescription('');
+    setDiagnosticsReport('');
+    setReportDialogOpen(true);
+    setDiagnosticsLoading(true);
+    try {
+      const report = await CollectDiagnostics();
+      const formatted = [
+        '=== System Info ===',
+        report.system_info,
+        '',
+        '=== App Info ===',
+        `App Version: ${report.app_version}`,
+        `VM Version: ${report.vm_version || 'unknown'}`,
+        `VM State: ${report.vm_state}`,
+        '',
+        '=== VM Console Logs (last 200 lines) ===',
+        report.console_logs || '(empty)',
+        '',
+        '=== VM Command Logs (last 200 lines) ===',
+        report.ssh_logs || '(empty)',
+        '',
+        '=== Container Logs ===',
+        report.container_logs || '(empty)',
+      ].join('\n');
+      setDiagnosticsReport(formatted);
+    } catch (err) {
+      setDiagnosticsReport('Failed to collect diagnostics: ' + err);
+    } finally {
+      setDiagnosticsLoading(false);
+    }
+  }
+
+  async function handleSubmitReport() {
+    const header = userDescription ? `Description:\n${userDescription}\n\n` : '';
+    const fullReport = `${header}Diagnostics:\n${diagnosticsReport}`;
+    await ClipboardSetText(fullReport);
+    const subject = encodeURIComponent('Helix Mac App - Bug Report');
+    const body = encodeURIComponent('(Diagnostics have been copied to your clipboard — paste them here)\n\n');
+    await BrowserOpenURL(`mailto:founders@helix.ml?subject=${subject}&body=${body}`);
+    showToast('Diagnostics copied to clipboard — paste into the email');
+    setReportDialogOpen(false);
+  }
+
   async function handleResizeDataDisk() {
     const newSize = parseInt(dataDiskSize);
     if (!newSize || newSize <= currentDiskSize) {
@@ -195,6 +243,77 @@ export function SettingsPanel({
 
   return (
     <>
+      {reportDialogOpen && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 1000,
+          background: 'rgba(0,0,0,0.6)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>
+          <div style={{
+            background: 'var(--bg-secondary)',
+            borderRadius: 10,
+            padding: 24,
+            width: 580,
+            maxHeight: '80vh',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 12,
+            boxShadow: '0 8px 32px rgba(0,0,0,0.4)',
+          }}>
+            <h3 style={{ margin: 0, fontSize: 15, fontWeight: 600 }}>Report Issue</h3>
+            {diagnosticsLoading ? (
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '24px 0' }}>
+                <div className="spinner" />
+                <span style={{ color: 'var(--text-secondary)', fontSize: 13 }}>Collecting diagnostics...</span>
+              </div>
+            ) : (
+              <>
+                <div>
+                  <label style={{ fontSize: 12, color: 'var(--text-secondary)', display: 'block', marginBottom: 4 }}>
+                    Describe the issue (optional)
+                  </label>
+                  <textarea
+                    value={userDescription}
+                    onChange={(e) => setUserDescription(e.target.value)}
+                    placeholder="What went wrong? Steps to reproduce?"
+                    style={{
+                      width: '100%', height: 72, resize: 'vertical',
+                      background: 'var(--bg-tertiary)', color: 'var(--text-primary)',
+                      border: '1px solid var(--border)', borderRadius: 6,
+                      padding: '6px 8px', fontSize: 12, fontFamily: 'inherit',
+                      boxSizing: 'border-box',
+                    }}
+                  />
+                </div>
+                <div>
+                  <label style={{ fontSize: 12, color: 'var(--text-secondary)', display: 'block', marginBottom: 4 }}>
+                    Diagnostic information (included automatically)
+                  </label>
+                  <textarea
+                    readOnly
+                    value={diagnosticsReport}
+                    style={{
+                      width: '100%', height: 200, resize: 'vertical',
+                      background: 'var(--bg-tertiary)', color: 'var(--text-secondary)',
+                      border: '1px solid var(--border)', borderRadius: 6,
+                      padding: '6px 8px', fontSize: 11, fontFamily: 'monospace',
+                      boxSizing: 'border-box',
+                    }}
+                  />
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--text-faded)' }}>
+                  Please review the diagnostic data above — it may contain sensitive information.
+                  Clicking "Send via Email" will copy it to your clipboard and open your email client.
+                </div>
+                <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                  <button className="btn btn-secondary" onClick={() => setReportDialogOpen(false)}>Cancel</button>
+                  <button className="btn btn-primary" onClick={handleSubmitReport}>Send via Email</button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
       <div className="panel-overlay" onClick={onClose} />
       <div className="settings-panel">
         <div className="panel-header" style={{ ['--wails-draggable' as any]: 'drag' }}>
@@ -889,6 +1008,19 @@ export function SettingsPanel({
                   </div>
                 </div>
               )}
+            </div>
+          </div>
+
+          {/* Support */}
+          <div className="panel-section">
+            <div className="panel-section-title">Support</div>
+            <div className="form-group">
+              <div className="form-hint" style={{ marginBottom: 12 }}>
+                Collect diagnostic information and email it to the Helix team to report a bug.
+              </div>
+              <button className="btn btn-secondary" onClick={handleReportIssue}>
+                Report Issue
+              </button>
             </div>
           </div>
 

@@ -10175,6 +10175,43 @@
                 }
             }
         },
+        "/api/v1/projects/{id}/docker-cache/zfs-tree": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the ZFS snapshot and clone tree showing golden cache, snapshots, and active session clones.",
+                "tags": [
+                    "projects"
+                ],
+                "summary": "Get ZFS snapshot/clone tree for project's Docker cache",
+                "parameters": [
+                    {
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.ZFSTree"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/projects/{id}/exploratory-session": {
             "get": {
                 "security": [
@@ -33759,6 +33796,55 @@
                         "type": "string"
                     },
                     "updated": {
+                        "type": "string"
+                    }
+                }
+            },
+            "types.ZFSTree": {
+                "type": "object",
+                "properties": {
+                    "available": {
+                        "type": "boolean"
+                    },
+                    "golden": {
+                        "$ref": "#/components/schemas/types.ZFSTreeNode"
+                    },
+                    "orphans": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/types.ZFSTreeNode"
+                        }
+                    },
+                    "pool_root": {
+                        "type": "string"
+                    }
+                }
+            },
+            "types.ZFSTreeNode": {
+                "type": "object",
+                "properties": {
+                    "children": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/types.ZFSTreeNode"
+                        }
+                    },
+                    "mounted": {
+                        "type": "boolean"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "refer": {
+                        "type": "string"
+                    },
+                    "session_id": {
+                        "type": "string"
+                    },
+                    "type": {
+                        "type": "string"
+                    },
+                    "used": {
                         "type": "string"
                     }
                 }

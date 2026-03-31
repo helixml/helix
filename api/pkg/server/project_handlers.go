@@ -182,14 +182,37 @@ func (s *HelixAPIServer) getProject(_ http.ResponseWriter, r *http.Request) (*ty
 			if s.externalAgentExecutor.HasRunningContainer(r.Context(), sbState.BuildSessionID) {
 				continue
 			}
-			log.Info().
-				Str("project_id", projectID).
-				Str("sandbox_id", sbID).
-				Str("session_id", sbState.BuildSessionID).
-				Msg("Recovering stale golden build: monitoring goroutine dead and container not running")
-			sbState.Status = "none"
-			sbState.BuildSessionID = ""
-			sbState.Error = ""
+			// Check if the golden cache actually exists on the sandbox before
+			// resetting to "none" — the build may have completed and promoted
+			// while the API was down. Query the ZFS tree to find out.
+			cacheExists := false
+			hydraClient := hydra.NewRevDialClient(s.connman, fmt.Sprintf("hydra-%s", sbID))
+			ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+			tree, err := hydraClient.GetZFSTree(ctx, project.ID)
+			cancel()
+			if err == nil && tree != nil && tree.Available && tree.Golden != nil && len(tree.Golden.Children) > 0 {
+				cacheExists = true
+			}
+
+			if cacheExists {
+				log.Info().
+					Str("project_id", projectID).
+					Str("sandbox_id", sbID).
+					Str("session_id", sbState.BuildSessionID).
+					Msg("Recovering stale golden build: build completed while API was down, setting ready")
+				sbState.Status = "ready"
+				sbState.BuildSessionID = ""
+				sbState.Error = ""
+			} else {
+				log.Info().
+					Str("project_id", projectID).
+					Str("sandbox_id", sbID).
+					Str("session_id", sbState.BuildSessionID).
+					Msg("Recovering stale golden build: no cache found, resetting to none")
+				sbState.Status = "none"
+				sbState.BuildSessionID = ""
+				sbState.Error = ""
+			}
 			staleRecovered = true
 		}
 		if staleRecovered {
@@ -2304,9 +2327,16 @@ func (s *HelixAPIServer) deleteDockerCache(_ http.ResponseWriter, r *http.Reques
 	return map[string]string{"message": fmt.Sprintf("cache cleared on %d sandbox(es)", deleted)}, nil
 }
 
-// getDockerCacheZFSTree returns the ZFS snapshot/clone tree for a project's docker cache.
-// Proxies to Hydra on the first online sandbox.
-func (s *HelixAPIServer) getDockerCacheZFSTree(_ http.ResponseWriter, r *http.Request) (interface{}, *system.HTTPError) {
+// getDockerCacheZFSTree godoc
+// @Summary Get ZFS snapshot/clone tree for project's Docker cache
+// @Description Returns the ZFS snapshot and clone tree showing golden cache, snapshots, and active session clones.
+// @Tags    projects
+// @Produce json
+// @Param   id path string true "Project ID"
+// @Success 200 {object} types.ZFSTree
+// @Router  /api/v1/projects/{id}/docker-cache/zfs-tree [get]
+// @Security BearerAuth
+func (s *HelixAPIServer) getDockerCacheZFSTree(_ http.ResponseWriter, r *http.Request) (*types.ZFSTree, *system.HTTPError) {
 	user := getRequestUser(r)
 	projectID := getID(r)
 
@@ -2340,7 +2370,7 @@ func (s *HelixAPIServer) getDockerCacheZFSTree(_ http.ResponseWriter, r *http.Re
 	}
 
 	// No sandbox available — return empty tree
-	return &hydra.ZFSTree{Available: false}, nil
+	return &types.ZFSTree{Available: false}, nil
 }
 
 // PinnedProjectsResponse is the response body for pin/unpin endpoints

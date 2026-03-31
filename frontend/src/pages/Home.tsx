@@ -135,7 +135,6 @@ const Home: FC = () => {
   const createBlankAgent = useCreateBlankAgent()
   const { NewInference } = useStreaming()
   const queryClient = useQueryClient()
-  const [modelPickerOpen, setModelPickerOpen] = useState(false)
   const [currentPrompt, setCurrentPrompt] = useState('')
   const [currentType, setCurrentType] = useState<ISessionType>(SESSION_TYPE_TEXT)
   const [currentModel, setCurrentModel] = useState<string>('')
@@ -248,17 +247,12 @@ const Home: FC = () => {
     account.orgNavigate('new', { app_id: appId });
   }
 
-  const handleNewAgent = () => {
+  const handleNewAgent = async () => {
     if (!account.user) {
       account.setShowLoginWindow(true)
       return
     }
-    setModelPickerOpen(true)
-  }
-
-  const handleModelSelected = async (provider: string, model: string) => {
-    setModelPickerOpen(false)
-    await createBlankAgent(provider, model)
+    await createBlankAgent()
   }
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -979,7 +973,7 @@ const Home: FC = () => {
                           textDecoration: 'underline',
                         },
                       }}
-                      onClick={() => account.orgNavigate('apps')}
+                      onClick={() => account.orgNavigate('agents')}
                     >
                       Agents
                     </Typography>
@@ -1177,14 +1171,6 @@ const Home: FC = () => {
           </Typography>
         </Box>
       </Box>
-      <AdvancedModelPicker
-        currentType="chat"
-        onSelectModel={handleModelSelected}
-        autoSelectFirst={false}
-        externalOpen={modelPickerOpen}
-        onExternalClose={() => setModelPickerOpen(false)}
-        hint="Select a model for your new agent"
-      />
     </Page>
   )
 }

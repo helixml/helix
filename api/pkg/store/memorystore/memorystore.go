@@ -108,6 +108,15 @@ func (m *MemoryStore) UpdateSession(_ context.Context, session types.Session) (*
 	return &cp, nil
 }
 
+func (m *MemoryStore) TouchSession(_ context.Context, sessionID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if s, ok := m.sessions[sessionID]; ok {
+		s.Updated = time.Now()
+	}
+	return nil
+}
+
 func (m *MemoryStore) ListSessions(_ context.Context, query store.ListSessionsQuery) ([]*types.Session, int64, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()

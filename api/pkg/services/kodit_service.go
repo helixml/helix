@@ -101,14 +101,15 @@ func wrapNotFound(err error) error {
 
 // RegisterRepository registers a repository with Kodit for indexing.
 // Returns the source ID (int64), whether it was newly created, and any error.
-func (s *KoditService) RegisterRepository(ctx context.Context, cloneURL, upstreamURL string) (int64, bool, error) {
+func (s *KoditService) RegisterRepository(ctx context.Context, params *RegisterRepositoryParams) (int64, bool, error) {
 	if !s.enabled {
 		return 0, false, fmt.Errorf("kodit service not enabled")
 	}
 
 	source, isNew, err := s.client.Repositories.Add(ctx, &service.RepositoryAddParams{
-		URL:         cloneURL,
-		UpstreamURL: upstreamURL,
+		URL:         params.CloneURL,
+		UpstreamURL: params.UpstreamURL,
+		Pipeline:    params.Pipeline,
 	})
 	if err != nil {
 		return 0, false, fmt.Errorf("failed to register repository: %w", err)
@@ -116,7 +117,7 @@ func (s *KoditService) RegisterRepository(ctx context.Context, cloneURL, upstrea
 
 	if source.ID() == 0 {
 		log.Error().
-			Str("clone_url", cloneURL).
+			Str("clone_url", params.CloneURL).
 			Bool("is_new", isNew).
 			Str("remote_url", source.RemoteURL()).
 			Str("status", source.Status().String()).
@@ -127,7 +128,7 @@ func (s *KoditService) RegisterRepository(ctx context.Context, cloneURL, upstrea
 		return 0, false, fmt.Errorf("kodit returned zero source ID for clone URL (is_new=%v, status=%s)", isNew, source.Status())
 	}
 
-	log.Info().Str("clone_url", cloneURL).Int64("kodit_repo_id", source.ID()).Bool("is_new", isNew).Msg("Registered repository with Kodit")
+	log.Info().Str("clone_url", params.CloneURL).Int64("kodit_repo_id", source.ID()).Bool("is_new", isNew).Msg("Registered repository with Kodit")
 	return source.ID(), isNew, nil
 }
 
@@ -877,7 +878,8 @@ func (s *KoditService) resolveFileResults(ctx context.Context, enrichments []enr
 			lines = fmt.Sprintf("L%d-L%d", lr.StartLine(), lr.EndLine())
 		}
 
-		preview := e.Content()
+		content := e.Content()
+		preview := content
 		runes := []rune(preview)
 		if len(runes) > 300 {
 			preview = string(runes[:300]) + "..."
@@ -889,13 +891,38 @@ func (s *KoditService) resolveFileResults(ctx context.Context, enrichments []enr
 			Lines:    lines,
 			Score:    scores[idStr],
 			Preview:  preview,
+			Content:  content,
 		})
 	}
 
 	return results, nil
 }
 
-// RescanCommit triggers a rescan of a specific commit in Kodit
+// UpdateChunkingConfig updates a repository's chunking configuration in Kodit.
+func (s *KoditService) UpdateChunkingConfig(ctx context.Context, koditRepoID int64, chunkSize, chunkOverlap, minChunkSize int) error {
+	if !s.enabled {
+		return fmt.Errorf("kodit service not enabled")
+	}
+
+	_, err := s.client.Repositories.UpdateChunkingConfig(ctx, koditRepoID, &service.ChunkingConfigParams{
+		Size:    chunkSize,
+		Overlap: chunkOverlap,
+		MinSize: minChunkSize,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to update chunking config: %w", err)
+	}
+
+	log.Info().
+		Int64("kodit_repo_id", koditRepoID).
+		Int("chunk_size", chunkSize).
+		Int("chunk_overlap", chunkOverlap).
+		Int("min_chunk_size", minChunkSize).
+		Msg("Updated kodit chunking config")
+	return nil
+}
+
+// RescanCommit triggers a rescan of a specific commit in Kodit.
 func (s *KoditService) RescanCommit(ctx context.Context, koditRepoID int64, commitSHA string) error {
 	if !s.enabled {
 		return fmt.Errorf("kodit service not enabled")
