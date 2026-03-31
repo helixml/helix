@@ -117,3 +117,4 @@ api/settings-sync-daemon
 /scanout-stream-test
 core.*
 nohup.out
+# CI validation Mon Mar 30 17:38:01 BST 2026

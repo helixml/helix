@@ -16,7 +16,7 @@
 # ====================================================================
 # Ubuntu's grim package is compiled without libjpeg, so we build from source
 # to enable JPEG output for smaller screenshots (100KB JPEG vs 300KB PNG)
-FROM ubuntu:25.10@sha256:91e7ac4c041dd191af1b9012fadbf489280894699c3f31e180969c4478781b7b AS grim-build
+FROM ubuntu:25.10 AS grim-build
 RUN apt-get update && apt-get install -y \
     meson ninja-build pkg-config git \
     libwayland-dev libcairo-dev libjpeg-turbo8-dev libpng-dev \
@@ -35,7 +35,7 @@ RUN git clone https://git.sr.ht/~emersion/grim /grim && \
 # desktop-bridge requires go-gst bindings (CGO) for in-process GStreamer.
 # Pin to specific digest for stable layer caching (golang:1.25-bookworm as of 2026-03-30)
 # Update digest when intentionally upgrading Go version
-FROM golang:1.25-bookworm@sha256:e39bda82b10817cc38b3c8d3ebd64285b44e6d7df09b759ad96a6d75d61cbcac AS go-build-env
+FROM golang:1.25-bookworm AS go-build-env
 
 # Install GStreamer development libraries for go-gst bindings
 # These are required for CGO compilation of desktop-bridge
@@ -73,7 +73,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 # - arm64: DMA-BUF -> CUDA -> NVENC (NVIDIA Grace Hopper / Spark ARM64 GPUs)
 # On macOS ARM64 VMs: CUDA not used, encoding happens on host via VideoToolbox
 # Enable with HELIX_VIDEO_MODE=zerocopy
-FROM ubuntu:25.10@sha256:91e7ac4c041dd191af1b9012fadbf489280894699c3f31e180969c4478781b7b AS rust-build-env
+FROM ubuntu:25.10 AS rust-build-env
 WORKDIR /build
 
 ARG TARGETARCH
@@ -135,7 +135,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 #    This fixes modifier key resetting layout when running as nested compositor.
 #
 # Required for ext-image-copy-capture-v1 protocol (Sway 1.11 needs wlroots 0.19)
-FROM ubuntu:25.10@sha256:91e7ac4c041dd191af1b9012fadbf489280894699c3f31e180969c4478781b7b AS wlroots-build
+FROM ubuntu:25.10 AS wlroots-build
 
 ENV DEBIAN_FRONTEND=noninteractive
 WORKDIR /build
@@ -190,7 +190,7 @@ RUN cd wlroots && \
 # ====================================================================
 # Build Sway 1.11 from source against wlroots 0.19.0
 # Required for ext-image-copy-capture-v1 protocol support
-FROM ubuntu:25.10@sha256:91e7ac4c041dd191af1b9012fadbf489280894699c3f31e180969c4478781b7b AS sway-build
+FROM ubuntu:25.10 AS sway-build
 
 ENV DEBIAN_FRONTEND=noninteractive
 WORKDIR /build
@@ -262,7 +262,7 @@ RUN if [ "${TARGETARCH}" = "arm64" ]; then LIB_TRIPLE="aarch64-linux-gnu"; else 
 # ====================================================================
 # Sway Desktop - Ubuntu 25.10 base with minimal GOW
 # ====================================================================
-FROM ubuntu:25.10@sha256:91e7ac4c041dd191af1b9012fadbf489280894699c3f31e180969c4478781b7b
+FROM ubuntu:25.10
 
 # Configure default user and set env (from GOW base-app)
 ENV \
@@ -600,19 +600,25 @@ RUN apt-get update && apt-get install -y \
          ln -sf /usr/lib/x86_64-linux-gnu/libgstcuda-1.0.so.0 /usr/lib/x86_64-linux-gnu/libgstcuda-1.0.so 2>/dev/null || true; \
        fi
 
-# Install Ghostty terminal (amd64 only - use kitty on arm64)
+# Install Ghostty terminal
+ARG TARGETARCH
 RUN <<_INSTALL_GHOSTTY
 set -e
-if [ "$(dpkg --print-architecture)" = "amd64" ]; then
-    echo "=== Installing Ghostty terminal for amd64 ==="
-    wget -q -O /tmp/ghostty.deb "https://github.com/mkasberg/ghostty-ubuntu/releases/download/1.1.3-0-ppa2/ghostty_1.1.3-0.ppa2_amd64_25.04.deb"
-    dpkg -i /tmp/ghostty.deb || apt-get install -f -y
-    rm /tmp/ghostty.deb
-else
-    echo "=== Ghostty not available for arm64, using kitty ==="
-    # kitty is already installed in the utilities section
+GHOSTTY_TAG="1.3.1-0-ppa1"
+ARCH=$(dpkg --print-architecture)
+# sway-helix uses Ubuntu 25.10
+GHOSTTY_DEB="ghostty_1.3.1-0.ppa1_${ARCH}_25.10.deb"
+echo "=== Installing Ghostty ${GHOSTTY_TAG} for ${ARCH} ==="
+apt-get update
+wget -q -O /tmp/ghostty.deb "https://github.com/mkasberg/ghostty-ubuntu/releases/download/${GHOSTTY_TAG}/${GHOSTTY_DEB}" || {
+    echo "WARNING: Ghostty not available for ${ARCH}, using kitty"
     ln -sf /usr/bin/kitty /usr/bin/ghostty || true
-fi
+    exit 0
+}
+dpkg -i /tmp/ghostty.deb || apt-get install -f -y
+rm -f /tmp/ghostty.deb
+apt-get clean && rm -rf /var/lib/apt/lists/*
+echo "=== Ghostty installed ==="
 _INSTALL_GHOSTTY
 
 # Helix background
@@ -760,9 +766,15 @@ fi
 
 echo "=== Installing zerocopy plugin for ${TARGETARCH} ==="
 
-# Install zerocopy plugin
-cp /tmp/zerocopy.so ${LIB_DIR}/gstreamer-1.0/libgstpipewirezerocopy.so
-chmod 644 ${LIB_DIR}/gstreamer-1.0/libgstpipewirezerocopy.so
+# Install zerocopy plugin (only if it's a real .so, not a placeholder)
+mkdir -p ${LIB_DIR}/gstreamer-1.0
+if file /tmp/zerocopy.so | grep -q "shared object"; then
+    cp /tmp/zerocopy.so ${LIB_DIR}/gstreamer-1.0/libgstpipewirezerocopy.so
+    chmod 644 ${LIB_DIR}/gstreamer-1.0/libgstpipewirezerocopy.so
+    echo "zerocopy plugin installed"
+else
+    echo "WARNING: zerocopy plugin is placeholder or missing, skipping"
+fi
 
 # Download and install CUDA runtime libs (for NVIDIA GPUs)
 # On ARM64: Uses sbsa (Server Base System Architecture) repository for Grace Hopper

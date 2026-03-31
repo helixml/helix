@@ -1,0 +1,73 @@
+apiVersion: helix.ml/v1alpha1
+kind: Project
+metadata:
+  name: my-fullstack-app
+
+spec:
+  description: "Full-stack web application"
+  technologies: [React, Go, PostgreSQL]
+  guidelines: |
+    Use conventional commits. All PRs require tests.
+
+  # Single-repo shorthand (mutually exclusive with 'repositories')
+  # repository:
+  #   url: "https://github.com/org/my-api"
+  #   branch: main
+
+  # Multi-repo: designate exactly one as primary
+  repositories:
+    - url: "https://github.com/org/my-api"
+      branch: main
+      primary: true
+    - url: "https://github.com/org/my-frontend"
+      branch: main
+
+  # Startup script runs in the primary repository root
+  # Preferred: use 'script' for full control over the startup sequence
+  startup:
+    script: |
+      #!/bin/bash
+      set -e
+      go mod download
+      go run ./cmd/server
+
+  # Legacy format (deprecated, use 'script' instead):
+  # startup:
+  #   install: "go mod download"
+  #   start: "go run ./cmd/server"
+
+  # Auto-start backlog tasks when capacity is available
+  auto_start_backlog_tasks: true
+
+  # Kanban board WIP limits (0 = unlimited)
+  kanban:
+    wip_limits:
+      planning: 5
+      implementation: 3
+      review: 3
+
+  # Optional: seed the Kanban board with tasks (demo/template use; omit in production)
+  tasks:
+    - title: "Set up CI pipeline"
+      description: "Configure GitHub Actions for build, test, and deploy"
+    - title: "Add authentication"
+      description: "Implement JWT-based auth for the API"
+    - title: "Write integration tests"
+
+  # Inline agent (creates/updates a linked Helix App)
+  agent:
+    name: "Project Assistant"
+    model: claude-sonnet-4-6
+    provider: anthropic
+    system_prompt: |
+      You are a coding assistant for this full-stack application.
+      Follow the project guidelines: use conventional commits, all PRs require tests.
+    tools:
+      web_search: true
+    mcps:
+      - name: github
+        transport: stdio
+        command: npx
+        args: ["-y", "@modelcontextprotocol/server-github"]
+        env:
+          GITHUB_TOKEN: "${GITHUB_TOKEN}"
