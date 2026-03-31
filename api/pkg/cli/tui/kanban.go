@@ -97,6 +97,8 @@ type openTaskChatMsg struct {
 
 type openNewTaskMsg struct{}
 type backToProjectsMsg struct{}
+type startPlanningMsg struct{ task *types.SpecTask }
+type openReviewMsg struct{ task *types.SpecTask }
 
 func NewKanbanModel(api *APIClient, projectID string) *KanbanModel {
 	return &KanbanModel{
@@ -228,8 +230,13 @@ func (k *KanbanModel) Update(msg tea.Msg) tea.Cmd {
 			tasks := k.columns[col]
 			if len(tasks) > 0 && k.rowIdx[col] < len(tasks) {
 				task := tasks[k.rowIdx[col]]
-				return func() tea.Msg {
-					return openTaskChatMsg{task: task}
+				switch task.Status {
+				case types.TaskStatusBacklog:
+					return func() tea.Msg { return startPlanningMsg{task: task} }
+				case types.TaskStatusSpecReview:
+					return func() tea.Msg { return openReviewMsg{task: task} }
+				default:
+					return func() tea.Msg { return openTaskChatMsg{task: task} }
 				}
 			}
 		case "r":

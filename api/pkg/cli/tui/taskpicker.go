@@ -29,6 +29,10 @@ type taskPickerDoneMsg struct {
 	splitDir SplitDir
 }
 
+type taskPickerNewMsg struct {
+	splitDir SplitDir
+}
+
 type taskPickerCancelMsg struct{}
 
 func NewTaskPickerModel(api *APIClient, projectID string, dir SplitDir) *TaskPickerModel {
@@ -74,13 +78,23 @@ func (p *TaskPickerModel) Update(msg tea.Msg) tea.Cmd {
 			return func() tea.Msg { return taskPickerCancelMsg{} }
 
 		case "enter":
-			if len(p.filtered) > 0 && p.cursor < len(p.filtered) {
-				task := p.filtered[p.cursor]
+			if p.cursor == 0 && len(p.filtered) > 0 {
+				// First item is "New task"
+				dir := p.splitDir
+				return func() tea.Msg { return taskPickerNewMsg{splitDir: dir} }
+			}
+			// Adjust for the "New task" entry at top
+			idx := p.cursor - 1
+			if idx >= 0 && idx < len(p.filtered) {
+				task := p.filtered[idx]
 				dir := p.splitDir
 				return func() tea.Msg {
 					return taskPickerDoneMsg{task: task, splitDir: dir}
 				}
 			}
+		case "n":
+			dir := p.splitDir
+			return func() tea.Msg { return taskPickerNewMsg{splitDir: dir} }
 
 		case "j", "down":
 			if p.cursor < len(p.filtered)-1 {
@@ -159,16 +173,26 @@ func (p *TaskPickerModel) View() string {
 	} else if len(p.filtered) == 0 {
 		b.WriteString(styleDim.Render("  No matching tasks"))
 	} else {
-		maxVisible := modalHeight - 5
+		maxVisible := modalHeight - 6
+
+		// "New task" option at top
+		newLabel := "  + New task (type first message to create)"
+		if p.cursor == 0 {
+			pointer := lipgloss.NewStyle().Foreground(colorPrimary).Render("> ")
+			b.WriteString(pointer + lipgloss.NewStyle().Bold(true).Foreground(colorSuccess).Render(newLabel))
+		} else {
+			b.WriteString("  " + lipgloss.NewStyle().Foreground(colorSuccess).Render(newLabel))
+		}
+		b.WriteString("\n")
+
 		for i := 0; i < maxVisible && i < len(p.filtered); i++ {
 			t := p.filtered[i]
 			name := taskDisplayName(t)
 			status := string(t.Status)
-			prio := priorityStyle(string(t.Priority))
 
-			line := fmt.Sprintf("%s %-40s %s", prio, truncate(name, 40), styleDim.Render(status))
+			line := fmt.Sprintf("%-40s %s", truncate(name, 40), styleDim.Render(status))
 
-			if i == p.cursor {
+			if i+1 == p.cursor { // +1 because "New task" is at 0
 				pointer := lipgloss.NewStyle().Foreground(colorPrimary).Render("> ")
 				b.WriteString(pointer + lipgloss.NewStyle().Bold(true).Foreground(colorText).Render(line))
 			} else {

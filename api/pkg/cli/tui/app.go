@@ -190,6 +190,28 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return a, nil
 
+	case taskPickerNewMsg:
+		a.taskPicker = nil
+		projectID := ""
+		if a.kanban != nil {
+			projectID = a.kanban.projectID
+		}
+		if projectID != "" {
+			placeholder := &types.SpecTask{ProjectID: projectID}
+			chat := NewChatModel(a.api, placeholder)
+			chat.tmuxPrefix = a.tmux.Prefix
+			if a.kanban != nil && a.kanban.project != nil {
+				chat.projectName = a.kanban.project.Name
+			}
+			chat.sessionName = "New task"
+			tab := a.tabs.ActiveTab()
+			if tab != nil && tab.Panes != nil {
+				tab.Panes.SplitFocused(msg.splitDir, chat)
+				a.syncPaneFocus()
+			}
+		}
+		return a, nil
+
 	case taskPickerCancelMsg:
 		a.taskPicker = nil
 		return a, nil
@@ -233,6 +255,26 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.picker = NewPickerModel(a.api, orgID)
 		a.updateSizes()
 		return a, a.picker.Init()
+
+	case startPlanningMsg:
+		task := msg.task
+		a.status = "Starting planning: " + taskDisplayName(task)
+		return a, func() tea.Msg {
+			err := a.api.StartPlanning(apiCtx(), task.ID)
+			if err != nil {
+				return errMsg{err}
+			}
+			// Open the task chat (it's now planning) and refresh kanban
+			return openTaskChatMsg{task: task}
+		}
+
+	case openReviewMsg:
+		// Open the review UI in a new tab
+		review := NewReviewModel(a.api, msg.task)
+		review.SetSize(a.width, a.contentHeight()-1)
+		// For now, open as chat tab (review is shown inline)
+		// TODO: proper tab type for review
+		return a, a.openTaskInTab(msg.task)
 
 	case openNewTaskMsg:
 		if a.kanban != nil {
@@ -340,6 +382,11 @@ func (a *App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			key = "ctrl+c" // at bottom with empty input — treat as quit
 		}
 		// otherwise falls through to chat's page-down handler
+	}
+
+	// ctrl+l: clear and re-render
+	if key == "ctrl+l" {
+		return a, tea.ClearScreen
 	}
 
 	if key == "ctrl+c" {
