@@ -124,13 +124,22 @@ func (c *ChatModel) Update(msg tea.Msg) tea.Cmd {
 			}
 			c.agentBusy = false
 			c.input.SetAgentBusy(false)
+			c.spinner = nil
+		} else if c.agentBusy {
+			// Still waiting — keep polling
+			return c.pollInteractions()
 		}
 		return nil
 
 	case chatResponseMsg:
 		c.sending = false
 		c.input.SetSending(false)
-		return c.fetchInteractions()
+		// Prompt synced — show spinner and start polling for response
+		c.agentBusy = true
+		c.spinner = NewSpinner(c.tmuxPrefix)
+		c.input.SetAgentBusy(true)
+		// Poll more frequently while waiting for agent
+		return tea.Batch(c.spinnerTickCmd(), c.pollInteractions())
 
 	case spinnerTickMsg:
 		if c.spinner != nil && c.agentBusy {
@@ -361,6 +370,22 @@ func (c *ChatModel) handleSlashCommand(cmd, args string) tea.Cmd {
 		}
 	}
 	return nil
+}
+
+// pollInteractions fetches interactions after a delay. Used for frequent
+// polling while waiting for agent response.
+func (c *ChatModel) pollInteractions() tea.Cmd {
+	sid := c.sessionID
+	return tea.Tick(2*time.Second, func(t time.Time) tea.Msg {
+		if sid == "" {
+			return nil
+		}
+		interactions, err := c.api.ListInteractions(apiCtx(), sid)
+		if err != nil {
+			return nil
+		}
+		return interactionsLoadedMsg{sessionID: sid, interactions: interactions}
+	})
 }
 
 func (c *ChatModel) stopAgent() tea.Cmd {
