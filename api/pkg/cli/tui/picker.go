@@ -94,6 +94,25 @@ func (p *PickerModel) Update(msg tea.Msg) tea.Cmd {
 		}
 		return nil
 
+	case projectPinToggledMsg:
+		if msg.pinned {
+			p.pinned[msg.projectID] = true
+		} else {
+			delete(p.pinned, msg.projectID)
+		}
+		// Re-sort: pinned first
+		pinned := make([]*types.Project, 0)
+		unpinned := make([]*types.Project, 0)
+		for _, proj := range p.projects {
+			if p.pinned[proj.ID] {
+				pinned = append(pinned, proj)
+			} else {
+				unpinned = append(unpinned, proj)
+			}
+		}
+		p.projects = append(pinned, unpinned...)
+		return nil
+
 	case errMsg:
 		p.err = msg.err
 		p.loading = false
@@ -128,9 +147,36 @@ func (p *PickerModel) Update(msg tea.Msg) tea.Cmd {
 			}
 		case "esc":
 			return func() tea.Msg { return backToOrgsMsg{} }
+		case "p":
+			if len(p.projects) > 0 && p.cursor < len(p.projects) {
+				proj := p.projects[p.cursor]
+				isPinned := p.pinned[proj.ID]
+				return p.togglePin(proj.ID, isPinned)
+			}
 		}
 	}
 	return nil
+}
+
+type projectPinToggledMsg struct {
+	projectID string
+	pinned    bool
+}
+
+func (p *PickerModel) togglePin(projectID string, currentlyPinned bool) tea.Cmd {
+	api := p.api
+	return func() tea.Msg {
+		var err error
+		if currentlyPinned {
+			err = api.UnpinProject(apiCtx(), projectID)
+		} else {
+			err = api.PinProject(apiCtx(), projectID)
+		}
+		if err != nil {
+			return errMsg{err}
+		}
+		return projectPinToggledMsg{projectID: projectID, pinned: !currentlyPinned}
+	}
 }
 
 func (p *PickerModel) ensureVisible() {

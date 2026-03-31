@@ -206,6 +206,12 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.newTask = nil
 		return a, nil
 
+	case projectPinToggledMsg:
+		if a.picker != nil {
+			a.picker.Update(msg)
+		}
+		return a, nil
+
 	case backToOrgsMsg:
 		a.mode = ModeOrgPicker
 		a.orgPicker = NewOrgPickerModel(a.api)
@@ -321,10 +327,11 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (a *App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
 
-	// ctrl+d on empty input acts like ctrl+c (double-tap to quit)
+	// ctrl+d on empty input in chat acts like ctrl+c (double-tap to quit)
+	// On kanban/pickers, ctrl+d is page-down — don't intercept
 	if key == "ctrl+d" {
 		chat := a.focusedChat()
-		if chat == nil || chat.input.IsEmpty() {
+		if chat != nil && chat.input.IsEmpty() {
 			key = "ctrl+c" // treat as ctrl+c
 		}
 	}
@@ -803,7 +810,7 @@ func (a *App) renderStatusBar() string {
 	case ModeOrgPicker:
 		help = "j/k: navigate  enter: select  q: quit"
 	case ModePicker:
-		help = "j/k: navigate  enter: select  esc: back  q: quit"
+		help = "j/k: navigate  enter: select  p: pin/unpin  esc: back  q: quit"
 	case ModeMain:
 		prefix := a.tmux.Prefix
 		if a.prefixNext {

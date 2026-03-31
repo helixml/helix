@@ -51,6 +51,14 @@ func (a *APIClient) ListOrganizations(ctx context.Context) ([]*types.Organizatio
 	return orgs, nil
 }
 
+func (a *APIClient) PinProject(ctx context.Context, projectID string) error {
+	return a.client.MakeRequest(ctx, http.MethodPost, "/projects/"+projectID+"/pin", nil, nil)
+}
+
+func (a *APIClient) UnpinProject(ctx context.Context, projectID string) error {
+	return a.client.MakeRequest(ctx, http.MethodDelete, "/projects/"+projectID+"/pin", nil, nil)
+}
+
 func (a *APIClient) GetProject(ctx context.Context, projectID string) (*types.Project, error) {
 	var project types.Project
 	err := a.client.MakeRequest(ctx, http.MethodGet, "/projects/"+projectID, nil, &project)
