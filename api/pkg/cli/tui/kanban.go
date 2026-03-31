@@ -238,7 +238,11 @@ func (k *KanbanModel) View() string {
 		colWidth = 16
 	}
 	innerWidth := colWidth - 4 // border + padding
-	cardHeight := k.height - 6 // project header + column header + borders
+	height := k.height
+	if height < 10 {
+		height = 24 // fallback if not set yet
+	}
+	cardHeight := height - 6 // project header + column header + borders
 	if cardHeight < 3 {
 		cardHeight = 3
 	}
@@ -304,42 +308,15 @@ func (k *KanbanModel) renderColumn(col KanbanColumn, totalWidth, innerWidth, car
 
 func (k *KanbanModel) renderCard(t *types.SpecTask, width int, selected bool) string {
 	name := taskDisplayName(t)
-	if len(name) > width-4 {
-		name = name[:width-7] + "..."
+	if len(name) > width-3 {
+		name = name[:width-6] + "..."
 	}
 
-	prefix := "  "
 	if selected {
-		prefix = lipgloss.NewStyle().Foreground(colorPrimary).Render("> ")
+		pointer := lipgloss.NewStyle().Foreground(colorPrimary).Render("> ")
+		return pointer + lipgloss.NewStyle().Bold(true).Foreground(colorText).Render(name)
 	}
-
-	line := fmt.Sprintf("%s%s", prefix, name)
-
-	style := styleNormal.Width(width)
-	if selected {
-		style = lipgloss.NewStyle().
-			Background(colorSelected).
-			Foreground(colorText).
-			Width(width)
-	}
-
-	// Status detail on second line for active tasks
-	detail := ""
-	if t.AgentWorkState != "" && t.AgentWorkState != "idle" {
-		detail = styleDim.Render(fmt.Sprintf("    %s", t.AgentWorkState))
-	} else if t.BranchName != "" {
-		branch := t.BranchName
-		if len(branch) > width-6 {
-			branch = branch[:width-9] + "..."
-		}
-		detail = styleDim.Render(fmt.Sprintf("    %s", branch))
-	}
-
-	result := style.Render(line)
-	if detail != "" {
-		result += "\n" + detail
-	}
-	return result
+	return "  " + name
 }
 
 func taskDisplayName(t *types.SpecTask) string {
