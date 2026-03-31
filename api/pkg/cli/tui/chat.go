@@ -28,6 +28,7 @@ type ChatModel struct {
 	outbox       *Outbox
 	tmuxPrefix   string
 	projectName  string
+	showDetails  bool // ctrl+o toggles expanded tool call details
 
 	scrollOffset int
 	loading      bool
@@ -181,6 +182,10 @@ func (c *ChatModel) Update(msg tea.Msg) tea.Cmd {
 		case "pgdown", "shift+down", "alt+down", "ctrl+down":
 			c.scrollOffset += c.height / 2
 			c.clampScroll()
+			return nil
+
+		case "ctrl+o":
+			c.showDetails = !c.showDetails
 			return nil
 
 		case "ctrl+d":
@@ -639,47 +644,64 @@ func (c *ChatModel) renderToolCallEntry(entry wsprotocol.ResponseEntry, width in
 	header := fmt.Sprintf("  %s %s%s", icon, name, statusStyle.Render(statusIcon))
 	lines = append(lines, header)
 
-	// Tool call content — strip redundant markdown headers
+	// Tool call content
 	if entry.Content != "" {
-		content := entry.Content
-
-		// Strip the **Tool Call: ...** and Status: lines that duplicate our header
-		for _, prefix := range []string{"**Tool Call:", "Status:"} {
-			for {
-				idx := strings.Index(content, prefix)
-				if idx < 0 {
-					break
-				}
-				// Remove the whole line
-				end := strings.Index(content[idx:], "\n")
-				if end < 0 {
-					content = content[:idx]
-				} else {
-					content = content[:idx] + content[idx+end+1:]
-				}
-			}
-		}
-		content = strings.TrimSpace(content)
+		content := stripToolCallHeaders(entry.Content)
 
 		if content != "" {
-			contentLines := strings.Split(content, "\n")
-			for _, cl := range contentLines {
-				if cl == "" {
-					continue
-				}
-				// Diff lines get color
-				if strings.HasPrefix(cl, "+") && !strings.HasPrefix(cl, "+++") {
-					lines = append(lines, "    "+diffAddStyle.Render(truncate(cl, width-6)))
-				} else if strings.HasPrefix(cl, "-") && !strings.HasPrefix(cl, "---") {
-					lines = append(lines, "    "+diffRemoveStyle.Render(truncate(cl, width-6)))
-				} else {
-					lines = append(lines, "    "+styleDim.Render(truncate(cl, width-6)))
+			// Check if this is a diff (has +/- lines)
+			isDiff := hasDiffLines(content)
+
+			if isDiff || c.showDetails {
+				// Show content: diffs always, others only when details toggled
+				for _, cl := range strings.Split(content, "\n") {
+					if cl == "" {
+						continue
+					}
+					if strings.HasPrefix(cl, "+") && !strings.HasPrefix(cl, "+++") {
+						lines = append(lines, "    "+diffAddStyle.Render(truncate(cl, width-6)))
+					} else if strings.HasPrefix(cl, "-") && !strings.HasPrefix(cl, "---") {
+						lines = append(lines, "    "+diffRemoveStyle.Render(truncate(cl, width-6)))
+					} else {
+						lines = append(lines, "    "+styleDim.Render(truncate(cl, width-6)))
+					}
 				}
 			}
 		}
 	}
 
 	return lines
+}
+
+// stripToolCallHeaders removes **Tool Call: ...** and Status: lines
+// that duplicate the ✽ header we already render.
+func stripToolCallHeaders(content string) string {
+	var kept []string
+	for _, line := range strings.Split(content, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "**Tool Call:") {
+			continue
+		}
+		if strings.HasPrefix(trimmed, "Status:") {
+			continue
+		}
+		if strings.HasPrefix(trimmed, "Diff:") {
+			continue
+		}
+		kept = append(kept, line)
+	}
+	return strings.TrimSpace(strings.Join(kept, "\n"))
+}
+
+// hasDiffLines checks if content contains diff-style +/- lines.
+func hasDiffLines(content string) bool {
+	for _, line := range strings.Split(content, "\n") {
+		if (strings.HasPrefix(line, "+") && !strings.HasPrefix(line, "+++")) ||
+			(strings.HasPrefix(line, "-") && !strings.HasPrefix(line, "---")) {
+			return true
+		}
+	}
+	return false
 }
 
 func (c *ChatModel) getPromptText(ix *types.Interaction) string {
