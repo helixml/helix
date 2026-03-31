@@ -209,14 +209,16 @@ func (m *InputModel) View() string {
 		text := string(m.value)
 		if m.cursor <= len(m.value) {
 			before := string(m.value[:m.cursor])
-			cursorChar := "█"
 			after := ""
 			if m.cursor < len(m.value) {
-				cursorChar = string(m.value[m.cursor])
+				// Cursor on a character — highlight it with reverse
+				cursorChar := string(m.value[m.cursor])
 				after = string(m.value[m.cursor+1:])
+				text = before + lipgloss.NewStyle().Reverse(true).Render(cursorChar) + after
+			} else {
+				// Cursor at end — show a visible block
+				text = before + lipgloss.NewStyle().Foreground(colorPrimary).Render("█")
 			}
-			cursorStyle := lipgloss.NewStyle().Reverse(true)
-			text = before + cursorStyle.Render(cursorChar) + after
 		}
 
 		inputLine = prompt + " " + text
