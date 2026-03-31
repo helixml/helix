@@ -170,7 +170,7 @@ func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *t
 		ProjectID:      req.ProjectID,
 		UserID:         req.UserID,
 		OrganizationID: organizationID,
-		Name:           generateTaskNameFromPrompt(req.Prompt),
+		Name:           GenerateTaskNameFromPrompt(req.Prompt),
 		Description:    req.Prompt,
 		Type:           req.Type,
 		Priority:       req.Priority,
@@ -1361,7 +1361,7 @@ func generateTaskID() string {
 	return system.GenerateSpecTaskID()
 }
 
-func generateTaskNameFromPrompt(prompt string) string {
+func GenerateTaskNameFromPrompt(prompt string) string {
 	// Replace newlines and other whitespace with spaces to create clean task names
 	// (prompts can contain newlines from multi-line input)
 	name := strings.ReplaceAll(prompt, "\n", " ")

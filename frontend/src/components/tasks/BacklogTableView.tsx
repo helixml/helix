@@ -137,7 +137,7 @@ const BacklogTableView: React.FC<BacklogTableViewProps> = ({
   // Handle prompt edit start
   const handlePromptClick = (task: SpecTask) => {
     setEditingTaskId(task.id || null);
-    setEditingPrompt(task.original_prompt || "");
+    setEditingPrompt(task.description || task.original_prompt || "");
   };
 
   // Handle prompt save

@@ -835,11 +835,9 @@ func (s *HelixAPIServer) updateSpecTask(w http.ResponseWriter, r *http.Request) 
 	if updateReq.Priority != "" {
 		task.Priority = updateReq.Priority
 	}
-	if updateReq.Name != "" {
-		task.Name = updateReq.Name
-	}
 	if updateReq.Description != "" {
 		task.Description = updateReq.Description
+		task.Name = services.GenerateTaskNameFromPrompt(updateReq.Description)
 	}
 	if updateReq.JustDoItMode != nil {
 		task.JustDoItMode = *updateReq.JustDoItMode
