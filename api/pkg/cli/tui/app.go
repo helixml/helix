@@ -369,16 +369,23 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return a, nil
 
-	case termExecResultMsg:
+	case termConnectedMsg, termOutputMsg, termDisconnectedMsg:
 		// Forward to all terminals in all tabs
+		var cmds []tea.Cmd
 		for _, tab := range a.tabs.tabs {
 			if tab.Panes != nil {
 				for _, leaf := range tab.Panes.allLeaves(tab.Panes.Root) {
 					if leaf.Terminal != nil {
-						leaf.Terminal.Update(msg)
+						cmd := leaf.Terminal.Update(msg)
+						if cmd != nil {
+							cmds = append(cmds, cmd)
+						}
 					}
 				}
 			}
+		}
+		if len(cmds) > 0 {
+			return a, tea.Batch(cmds...)
 		}
 		return a, nil
 
@@ -690,6 +697,7 @@ func (a *App) handlePrefixedKey(key string) (tea.Model, tea.Cmd) {
 			if tab != nil && tab.Panes != nil {
 				tab.Panes.SplitFocusedWithTerminal(SplitVertical, term)
 				a.syncPaneFocus()
+				return a, term.Init()
 			}
 		}
 		return a, nil

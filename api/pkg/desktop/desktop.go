@@ -460,6 +460,7 @@ func (s *Server) httpHandler() http.Handler {
 	mux.HandleFunc("/ws/input", s.handleWSInput)   // Direct WebSocket input
 	mux.HandleFunc("/ws/stream", s.handleWSStream) // Direct WebSocket video streaming
 	mux.HandleFunc("/exec", s.handleExec) // Execute command in container (for benchmarking)
+	mux.HandleFunc("/pty", s.handlePTY)   // Interactive shell via WebSocket PTY
 	mux.HandleFunc("/diff", s.handleDiff) // Git diff for live file changes
 	mux.HandleFunc("/workspaces", s.handleWorkspaces) // List git workspaces
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {

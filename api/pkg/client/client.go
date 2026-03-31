@@ -158,6 +158,11 @@ func NewClient(url, apiKey string, tlsSkipVerify bool) (*HelixClient, error) {
 	}, nil
 }
 
+// APIKey returns the API key for use in WebSocket auth headers.
+func (c *HelixClient) APIKey() string {
+	return c.apiKey
+}
+
 // MakeRequest is the exported version of makeRequest for use by packages
 // that need to call API endpoints not yet wrapped by dedicated methods.
 func (c *HelixClient) MakeRequest(ctx context.Context, method, path string, body io.Reader, v interface{}) error {

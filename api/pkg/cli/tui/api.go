@@ -28,6 +28,11 @@ func NewAPIClient(c *client.HelixClient) *APIClient {
 	return &APIClient{client: c, baseURL: baseURL}
 }
 
+// apiKey returns the API key for WebSocket auth headers.
+func (a *APIClient) apiKey() string {
+	return a.client.APIKey()
+}
+
 // WebURL returns the browser URL for a spec task.
 func (a *APIClient) WebURL(projectID, taskID string) string {
 	return fmt.Sprintf("%s/projects/%s/tasks/%s", a.baseURL, projectID, taskID)
