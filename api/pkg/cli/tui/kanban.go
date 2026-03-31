@@ -300,7 +300,7 @@ func (k *KanbanModel) cardHeight() int {
 	if h < 10 {
 		h = 24
 	}
-	ch := h - 6
+	ch := h - 6 - 4 // leave 4 lines for preview area below
 	if ch < 3 {
 		ch = 3
 	}
@@ -370,7 +370,10 @@ func (k *KanbanModel) View() string {
 
 	board := lipgloss.JoinHorizontal(lipgloss.Top, cols...)
 
-	// Archive prompt
+	// Preview of selected task
+	preview := k.renderPreview()
+
+	// Archive prompt (replaces preview)
 	if k.archiveTask != nil {
 		name := taskDisplayName(k.archiveTask)
 		prompt := fmt.Sprintf("\n  %s  %s\n  %s",
@@ -380,7 +383,7 @@ func (k *KanbanModel) View() string {
 		return header + "\n" + board + prompt
 	}
 
-	// Confirmation prompt
+	// Confirmation prompt (replaces preview)
 	if k.confirmTask != nil {
 		name := taskDisplayName(k.confirmTask)
 		prompt := fmt.Sprintf("\n  %s  %s\n  %s",
@@ -390,7 +393,7 @@ func (k *KanbanModel) View() string {
 		return header + "\n" + board + prompt
 	}
 
-	return header + "\n" + board
+	return header + "\n" + board + preview
 }
 
 func (k *KanbanModel) renderColumn(col KanbanColumn, totalWidth, innerWidth, cardHeight int) string {
@@ -476,6 +479,49 @@ func (k *KanbanModel) renderCard(t *types.SpecTask, width int, selected bool) st
 		return pointer + lipgloss.NewStyle().Bold(true).Foreground(colorText).Render(name)
 	}
 	return "  " + name
+}
+
+func (k *KanbanModel) renderPreview() string {
+	col := k.colIdx
+	tasks := k.columns[col]
+	if len(tasks) == 0 || k.rowIdx[col] >= len(tasks) {
+		return ""
+	}
+
+	task := tasks[k.rowIdx[col]]
+	name := taskDisplayName(task)
+	status := string(task.Status)
+
+	// Build preview: name, status, description
+	var parts []string
+	parts = append(parts, fmt.Sprintf("\n  %s  %s",
+		styleHeader.Render(name), styleDim.Render(status)))
+
+	desc := task.OriginalPrompt
+	if desc == "" {
+		desc = task.Description
+	}
+	if desc != "" {
+		// Wrap to fit width, max 2 lines
+		maxW := k.width - 4
+		if maxW < 20 {
+			maxW = 60
+		}
+		wrapped := wrapText(desc, maxW)
+		for i, line := range wrapped {
+			if i >= 2 {
+				parts = append(parts, "  "+styleDim.Render(truncate("..."+line, maxW)))
+				break
+			}
+			parts = append(parts, "  "+styleDim.Render(line))
+		}
+	}
+
+	if task.BranchName != "" {
+		parts = append(parts, "  "+styleDim.Render("branch: "+task.BranchName))
+	}
+
+	return strings.Join(parts, "\n")
 }
 
 func taskDisplayName(t *types.SpecTask) string {
