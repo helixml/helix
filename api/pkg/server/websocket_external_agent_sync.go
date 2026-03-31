@@ -802,6 +802,9 @@ func (apiServer *HelixAPIServer) handleThreadCreated(sessionID string, syncMsg *
 		return fmt.Errorf("failed to create interaction: %w", err)
 	}
 
+	// Notify frontend immediately so the chat updates without waiting for poll
+	apiServer.publishInteractionUpdateToFrontend(createdSession.ID, createdSession.Owner, createdInteraction)
+
 	// Enqueue the interaction so handleMessageAdded routes responses correctly
 	apiServer.contextMappingsMutex.Lock()
 	if apiServer.sessionToWaitingInteraction == nil {
@@ -1193,6 +1196,11 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 				Str("role", role).
 				Msg("💬 [HELIX] Created interaction for user message from Zed")
 
+			// Notify frontend immediately so the chat updates without waiting for poll
+			if helixSession != nil {
+				apiServer.publishInteractionUpdateToFrontend(helixSessionID, helixSession.Owner, createdInteraction)
+			}
+
 			// Update session timestamp so findConnectedSessionForSpecTask
 			// picks the session with the most recent activity.
 			_ = apiServer.Controller.Options.Store.TouchSession(context.Background(), helixSessionID)
@@ -1487,6 +1495,8 @@ func (apiServer *HelixAPIServer) sendChatMessageToExternalAgent(sessionID, messa
 			log.Warn().Err(createErr).Str("session_id", sessionID).Msg("Failed to create interaction for chat message")
 		} else {
 			interactionID = createdInteraction.ID
+			// Notify frontend immediately so the chat updates without waiting for poll
+			apiServer.publishInteractionUpdateToFrontend(sessionID, session.Owner, createdInteraction)
 			apiServer.contextMappingsMutex.Lock()
 			if apiServer.sessionToWaitingInteraction == nil {
 				apiServer.sessionToWaitingInteraction = make(map[string][]string)
@@ -2427,6 +2437,9 @@ func (apiServer *HelixAPIServer) sendQueuedPromptToSession(ctx context.Context, 
 		Str("interaction_id", createdInteraction.ID).
 		Str("content_preview", truncateString(prompt.Content, 30)).
 		Msg("✅ [QUEUE] Created interaction for queue prompt")
+
+	// Notify frontend immediately so the chat updates without waiting for poll
+	apiServer.publishInteractionUpdateToFrontend(sessionID, session.Owner, createdInteraction)
 
 	// CRITICAL: Enqueue the interaction so handleMessageAdded routes the response correctly.
 	// Using append (not overwrite) prevents the race where sendMessageToSpecTaskAgent
