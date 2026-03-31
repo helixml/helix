@@ -2,7 +2,6 @@ package tui
 
 import (
 	"strings"
-	"unicode/utf8"
 
 	"github.com/charmbracelet/lipgloss"
 )
@@ -242,9 +241,4 @@ func (m *InputModel) ViewHeight() int {
 	text := string(m.value)
 	lines += strings.Count(text, "\n")
 	return lines
-}
-
-// runeWidth returns the display width of a string in runes.
-func runeWidth(s string) int {
-	return utf8.RuneCountInString(s)
 }

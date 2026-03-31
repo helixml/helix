@@ -160,6 +160,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tasksLoadedMsg:
 		a.conn.RecordSuccess()
+		a.err = nil // clear any previous error on successful load
 		if a.taskPicker != nil {
 			a.taskPicker.Update(msg)
 		}
@@ -270,10 +271,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case openReviewMsg:
-		// Open the review UI in a new tab
-		review := NewReviewModel(a.api, msg.task)
-		review.SetSize(a.width, a.contentHeight()-1)
-		// For now, open as chat tab (review is shown inline)
+		// Open as chat tab for now
 		// TODO: proper tab type for review
 		return a, a.openTaskInTab(msg.task)
 
@@ -362,6 +360,22 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, cmd
 		}
 		return a, nil
+
+	case taskCreatedMsg:
+		// Forward to focused chat (applies task data from background goroutine)
+		if chat := a.focusedChat(); chat != nil {
+			cmd := chat.Update(msg)
+			return a, cmd
+		}
+		return a, nil
+
+	case outboxSentMsg:
+		// Forward to focused chat (marks outbox entry as sent)
+		if chat := a.focusedChat(); chat != nil {
+			cmd := chat.Update(msg)
+			return a, cmd
+		}
+		return a, nil
 	}
 
 	// Delegate to active sub-model
@@ -377,6 +391,27 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return a, nil
 			case "m":
 				a.notifications.MarkAllRead()
+				return a, nil
+			case "j", "down":
+				a.notifications.CursorDown()
+				return a, nil
+			case "k", "up":
+				a.notifications.CursorUp()
+				return a, nil
+			case "enter":
+				if n := a.notifications.Selected(); n != nil && n.TaskID != "" {
+					a.notifications.Toggle()
+					// Find the task across all kanban columns and open it
+					if a.kanban != nil {
+						for _, col := range a.kanban.columns {
+							for _, task := range col {
+								if task.ID == n.TaskID {
+									return a, a.openTaskInTab(task)
+								}
+							}
+						}
+					}
+				}
 				return a, nil
 			}
 		}

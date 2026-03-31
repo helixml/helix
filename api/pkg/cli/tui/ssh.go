@@ -71,10 +71,10 @@ func StartSSHServer(cfg *SSHServerConfig) error {
 			return password != ""
 		}),
 		wish.WithPublicKeyAuth(func(ctx ssh.Context, key ssh.PublicKey) bool {
-			// Accept all public keys for now
+			// Public key auth not yet implemented — reject so clients
+			// fall back to password auth (password = API key).
 			// TODO: map SSH keys to Helix users/API keys
-			ctx.SetValue("helix_api_key", "")
-			return true
+			return false
 		}),
 		wish.WithMiddleware(
 			bm.Middleware(func(s ssh.Session) (tea.Model, []tea.ProgramOption) {

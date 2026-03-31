@@ -54,6 +54,23 @@ type chatResponseMsg struct {
 	response  string
 }
 
+// taskCreatedMsg is returned by sendPrompt when a new task is created
+// from a background goroutine. The Update loop applies these fields
+// to avoid a race condition (goroutine mutating model state).
+type taskCreatedMsg struct {
+	task        *types.SpecTask
+	sessionID   string
+	sessionName string
+	appID       string
+}
+
+// outboxSentMsg signals that a prompt was successfully synced to the server
+// and the corresponding outbox entry should be marked as sent.
+type outboxSentMsg struct {
+	outboxID  string
+	sessionID string
+}
+
 type spinnerTickMsg struct{}
 type escFromChatMsg struct{}
 
@@ -133,6 +150,29 @@ func (c *ChatModel) Update(msg tea.Msg) tea.Cmd {
 			return c.pollInteractions()
 		}
 		return nil
+
+	case taskCreatedMsg:
+		c.task = msg.task
+		c.sessionID = msg.sessionID
+		c.sessionName = msg.sessionName
+		c.appID = msg.appID
+		c.sending = false
+		c.input.SetSending(false)
+		c.agentBusy = true
+		c.spinner = NewSpinner(c.tmuxPrefix)
+		c.input.SetAgentBusy(true)
+		return tea.Batch(c.spinnerTickCmd(), c.pollInteractions())
+
+	case outboxSentMsg:
+		if c.outbox != nil {
+			c.outbox.MarkSent(msg.outboxID)
+		}
+		c.sending = false
+		c.input.SetSending(false)
+		c.agentBusy = true
+		c.spinner = NewSpinner(c.tmuxPrefix)
+		c.input.SetAgentBusy(true)
+		return tea.Batch(c.spinnerTickCmd(), c.pollInteractions())
 
 	case chatResponseMsg:
 		c.sending = false
@@ -315,9 +355,10 @@ func (c *ChatModel) sendPrompt(interrupt bool) tea.Cmd {
 	// Generate a client-side ID for dedup
 	promptID := fmt.Sprintf("tui_%d", time.Now().UnixNano())
 
-	// Queue in the local outbox (survives disconnects)
+	// Queue in the local outbox using the same promptID (so MarkSent matches)
+	var outboxID string
 	if c.outbox != nil {
-		c.outbox.Enqueue(&types.SessionChatRequest{
+		outboxID = c.outbox.EnqueueWithID(promptID, &types.SessionChatRequest{
 			SessionID: sessionID,
 			Messages: []*types.Message{{
 				Role:    "user",
@@ -326,10 +367,11 @@ func (c *ChatModel) sendPrompt(interrupt bool) tea.Cmd {
 		})
 	}
 
+	api := c.api
 	return func() tea.Msg {
 		// If no task ID, this is a new chat — create the spec task and start planning
 		if task.ID == "" {
-			newTask, err := c.api.CreateTaskFromPrompt(apiCtx(), &types.CreateTaskRequest{
+			newTask, err := api.CreateTaskFromPrompt(apiCtx(), &types.CreateTaskRequest{
 				ProjectID:    task.ProjectID,
 				Prompt:       message,
 				Type:         "task",
@@ -341,23 +383,24 @@ func (c *ChatModel) sendPrompt(interrupt bool) tea.Cmd {
 			}
 
 			// Start planning to kick off the agent
-			if err := c.api.StartPlanning(apiCtx(), newTask.ID); err != nil {
+			if err := api.StartPlanning(apiCtx(), newTask.ID); err != nil {
 				return errMsg{fmt.Errorf("task created but failed to start: %w", err)}
 			}
 
 			// Re-fetch the task to get the PlanningSessionID (set by StartPlanning)
-			updatedTask, err := c.api.GetSpecTask(apiCtx(), newTask.ID)
+			updatedTask, err := api.GetSpecTask(apiCtx(), newTask.ID)
 			if err != nil {
 				// Use what we have
 				updatedTask = newTask
 			}
 
-			c.task = updatedTask
-			c.sessionID = updatedTask.PlanningSessionID
-			c.sessionName = taskDisplayName(updatedTask)
-			c.appID = updatedTask.HelixAppID
-
-			return chatResponseMsg{sessionID: updatedTask.PlanningSessionID, response: ""}
+			// Return data as a message — don't mutate model from goroutine
+			return taskCreatedMsg{
+				task:        updatedTask,
+				sessionID:   updatedTask.PlanningSessionID,
+				sessionName: taskDisplayName(updatedTask),
+				appID:       updatedTask.HelixAppID,
+			}
 		}
 
 		interruptPtr := &interrupt
@@ -376,13 +419,12 @@ func (c *ChatModel) sendPrompt(interrupt bool) tea.Cmd {
 			},
 		}
 
-		_, err := c.api.SyncPromptHistory(apiCtx(), syncReq)
+		_, err := api.SyncPromptHistory(apiCtx(), syncReq)
 		if err != nil {
 			return errMsg{fmt.Errorf("queued locally (sync failed: %v)", err)}
 		}
 
-		c.outbox.MarkSent(promptID)
-		return chatResponseMsg{sessionID: sessionID, response: ""}
+		return outboxSentMsg{outboxID: outboxID, sessionID: sessionID}
 	}
 }
 
@@ -803,6 +845,3 @@ func wrapText(text string, width int) []string {
 	return result
 }
 
-func lineCount(text string, width int) int {
-	return len(wrapText(text, width))
-}

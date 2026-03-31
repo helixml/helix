@@ -150,9 +150,6 @@ func (ds *demoServer) handler() http.Handler {
 	mux.HandleFunc("/api/v1/spec-tasks/", ds.handleSpecTask)
 	mux.HandleFunc("/api/v1/sessions/chat", ds.handleChat)
 	mux.HandleFunc("/api/v1/sessions/", ds.handleSession)
-	mux.HandleFunc("/api/v1/status", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]interface{}{"status": "demo"})
-	})
 
 	return mux
 }
@@ -505,34 +502,6 @@ func (ds *demoServer) updateInteraction(sessionID, ixID string, entries []wsprot
 			break
 		}
 	}
-}
-
-func (ds *demoServer) generateResponse(message string) string {
-	lower := strings.ToLower(message)
-
-	if strings.Contains(lower, "hello") || strings.Contains(lower, "hi") {
-		return "Hello! I'm the Zed agent working on this task. How can I help?"
-	}
-	if strings.Contains(lower, "status") {
-		return "Here's the current status:\n\n- **Branch**: `fix/login-1` (3 commits ahead of main)\n- **Tests**: All 42 passing\n- **Coverage**: 87% (+2% from this PR)\n- **PR**: Ready for review\n\nAnything else you'd like to know?"
-	}
-	if strings.Contains(lower, "test") {
-		return "Running tests...\n\n```\n$ go test ./...\nok  \tgithub.com/acme/webapp/auth     0.234s\nok  \tgithub.com/acme/webapp/api      1.102s\nok  \tgithub.com/acme/webapp/store    0.567s\n\nPASS\nAll 42 tests passing.\n```\n\nAll green! The new email validation tests cover 6 edge cases."
-	}
-	if strings.Contains(lower, "diff") || strings.Contains(lower, "change") {
-		return "Here are the changes so far:\n\n**src/auth/validate.go** — replaced regex with simple check\n**src/auth/validate_test.go** — added 6 new test cases\n**src/api/handlers.go** — added input length validation\n\nTotal: 3 files changed, +45 lines, -12 lines"
-	}
-	if strings.Contains(lower, "approve") || strings.Contains(lower, "lgtm") {
-		return "Great! I'll merge the PR and close this task.\n\n✅ PR #87 merged to main\n✅ Task marked as done\n✅ Branch `fix/login-1` cleaned up"
-	}
-
-	responses := []string{
-		"I'll look into that. Let me analyze the codebase and get back to you with a plan.",
-		"Good question. Let me check the relevant files and run some tests to verify.",
-		"I've made the changes you requested. Let me run the test suite to make sure everything still passes.",
-		"Understood. I'll implement that approach. Here's what I'll do:\n\n1. Update the data model\n2. Modify the API handlers\n3. Add migration\n4. Write tests\n\nStarting now...",
-	}
-	return responses[rand.Intn(len(responses))]
 }
 
 func timePtr(t time.Time) *time.Time {

@@ -58,6 +58,22 @@ func (o *Outbox) Enqueue(req *types.SessionChatRequest) string {
 	return id
 }
 
+// EnqueueWithID adds a message to the outbox with a caller-specified ID.
+// This ensures the outbox ID matches the prompt sync ID so MarkSent works.
+func (o *Outbox) EnqueueWithID(id string, req *types.SessionChatRequest) string {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
+	entry := &OutboxEntry{
+		ID:        id,
+		Request:   req,
+		CreatedAt: time.Now(),
+		Status:    OutboxPending,
+	}
+	o.entries = append(o.entries, entry)
+	return id
+}
+
 // NextPending returns the next pending message to send, or nil.
 func (o *Outbox) NextPending() *OutboxEntry {
 	o.mu.Lock()

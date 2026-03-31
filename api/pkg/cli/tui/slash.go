@@ -10,7 +10,6 @@ import (
 type SlashCommand struct {
 	Name        string
 	Description string
-	Handler     func(args string) // called when command is executed
 }
 
 // SlashCommandRegistry holds all available slash commands.

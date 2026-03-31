@@ -33,8 +33,6 @@ var britishVerbs = []string{
 var tips = []string{
 	"Use ctrl+enter to interrupt the agent with a new message",
 	"Use {prefix} | to split vertically and work on two tasks",
-	"Use shift+V in review mode to select lines and comment",
-	"Use /mcp to configure MCP servers for this project",
 	"Use {prefix} c to open a new tab for another task",
 	"Use /web to open this task in the browser",
 }

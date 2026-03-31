@@ -110,6 +110,33 @@ func (nm *NotificationManager) IsVisible() bool {
 	return nm.visible
 }
 
+// CursorUp moves the cursor up in the notification list.
+func (nm *NotificationManager) CursorUp() {
+	if nm.cursor > 0 {
+		nm.cursor--
+	}
+}
+
+// CursorDown moves the cursor down in the notification list.
+func (nm *NotificationManager) CursorDown() {
+	nm.mu.Lock()
+	max := len(nm.notifications) - 1
+	nm.mu.Unlock()
+	if nm.cursor < max {
+		nm.cursor++
+	}
+}
+
+// Selected returns the notification at the current cursor, or nil.
+func (nm *NotificationManager) Selected() *Notification {
+	nm.mu.Lock()
+	defer nm.mu.Unlock()
+	if nm.cursor >= 0 && nm.cursor < len(nm.notifications) {
+		return nm.notifications[nm.cursor]
+	}
+	return nil
+}
+
 // Render renders the notification list as a modal overlay.
 func (nm *NotificationManager) Render(width, height int) string {
 	nm.mu.Lock()

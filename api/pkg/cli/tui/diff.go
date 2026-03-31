@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -130,13 +129,6 @@ func pad(s string, width int) string {
 	return s + strings.Repeat(" ", width-len(s))
 }
 
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
-}
-
 // ParseToolCallDiff extracts diff info from a tool call response.
 // Returns filename, old content, new content.
 func ParseToolCallDiff(toolName string, args map[string]interface{}) (string, string, string) {
@@ -169,13 +161,3 @@ func ParseToolCallDiff(toolName string, args map[string]interface{}) (string, st
 	}
 }
 
-// FormatFileSize returns a human-readable file size.
-func FormatFileSize(bytes int) string {
-	if bytes < 1024 {
-		return fmt.Sprintf("%d B", bytes)
-	}
-	if bytes < 1024*1024 {
-		return fmt.Sprintf("%.1f KB", float64(bytes)/1024)
-	}
-	return fmt.Sprintf("%.1f MB", float64(bytes)/(1024*1024))
-}
