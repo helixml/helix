@@ -150,7 +150,20 @@ func (k *KanbanModel) Update(msg tea.Msg) tea.Cmd {
 		return nil
 
 	case tea.KeyMsg:
-		switch msg.String() {
+		key := msg.String()
+		// Also check key type for arrow keys (some terminals report differently)
+		switch msg.Type {
+		case tea.KeyLeft:
+			key = "left"
+		case tea.KeyRight:
+			key = "right"
+		case tea.KeyUp:
+			key = "up"
+		case tea.KeyDown:
+			key = "down"
+		}
+
+		switch key {
 		case "h", "left":
 			if k.colIdx > 0 {
 				k.colIdx--
@@ -211,6 +224,9 @@ func (k *KanbanModel) View() string {
 		colWidth = 15
 	}
 	contentHeight := k.height - 3 // header + status bar
+	if contentHeight < 5 {
+		contentHeight = 5
+	}
 
 	var cols []string
 	for i := KanbanColumn(0); i < ColCount; i++ {
@@ -271,9 +287,8 @@ func (k *KanbanModel) renderColumn(col KanbanColumn, width, height int) string {
 		cards = append(cards, more)
 	}
 
-	// Pad remaining height
-	rendered := len(cards)
-	for i := rendered; i < visibleCards; i++ {
+	// Pad to fill column height (required for JoinHorizontal alignment)
+	for len(cards) < visibleCards {
 		cards = append(cards, strings.Repeat(" ", width-1))
 	}
 
