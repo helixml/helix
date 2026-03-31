@@ -26,7 +26,6 @@ import (
 // @Router /api/v1/spec-tasks/{spec_task_id}/approve-implementation [post]
 // @Security BearerAuth
 func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
 	user := getRequestUser(r)
 	vars := mux.Vars(r)
 	specTaskID := vars["spec_task_id"]
@@ -35,6 +34,10 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 		http.Error(w, "spec_task_id is required", http.StatusBadRequest)
 		return
 	}
+
+	// Detach from request context so DB mutations complete even if client disconnects
+	ctx, cancel := detachContext(r.Context(), 60*time.Second)
+	defer cancel()
 
 	// Get spec task
 	specTask, err := s.Store.GetSpecTask(ctx, specTaskID)

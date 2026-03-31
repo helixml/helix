@@ -5,6 +5,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -115,6 +116,19 @@ func getRequestToken(r *http.Request) string {
 Request Context
 -
 */
+// detachContext creates a new context that is NOT tied to the HTTP request
+// lifecycle. Use this for mutating operations (DB writes, state changes) that
+// must complete even if the client disconnects or refreshes the page.
+// The returned context preserves the authenticated user but has its own timeout.
+func detachContext(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
+	newCtx, cancel := context.WithTimeout(context.Background(), timeout)
+	// Preserve the authenticated user
+	if userIntf := ctx.Value(userKey); userIntf != nil {
+		newCtx = context.WithValue(newCtx, userKey, userIntf)
+	}
+	return newCtx, cancel
+}
+
 func setRequestUser(ctx context.Context, user types.User) context.Context {
 	return context.WithValue(ctx, userKey, user)
 }

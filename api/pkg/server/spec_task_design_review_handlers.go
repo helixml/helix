@@ -237,7 +237,6 @@ func (s *HelixAPIServer) getDesignReview(w http.ResponseWriter, r *http.Request)
 // @Router /api/v1/spec-tasks/{spec_task_id}/design-reviews/{review_id}/submit [post]
 // @Security BearerAuth
 func (s *HelixAPIServer) submitDesignReview(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
 	user := getRequestUser(r)
 	vars := mux.Vars(r)
 	specTaskID := vars["spec_task_id"]
@@ -248,6 +247,10 @@ func (s *HelixAPIServer) submitDesignReview(w http.ResponseWriter, r *http.Reque
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+
+	// Detach from request context so DB mutations complete even if client disconnects
+	ctx, cancel := detachContext(r.Context(), 30*time.Second)
+	defer cancel()
 
 	specTask, err := s.Store.GetSpecTask(ctx, specTaskID)
 	if err != nil {
@@ -346,7 +349,6 @@ func (s *HelixAPIServer) submitDesignReview(w http.ResponseWriter, r *http.Reque
 // @Router /api/v1/spec-tasks/{spec_task_id}/design-reviews/{review_id}/comments [post]
 // @Security BearerAuth
 func (s *HelixAPIServer) createDesignReviewComment(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
 	user := getRequestUser(r)
 	vars := mux.Vars(r)
 	specTaskID := vars["spec_task_id"]
@@ -357,6 +359,10 @@ func (s *HelixAPIServer) createDesignReviewComment(w http.ResponseWriter, r *htt
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+
+	// Detach from request context so DB mutations complete even if client disconnects
+	ctx, cancel := detachContext(r.Context(), 30*time.Second)
+	defer cancel()
 
 	specTask, err := s.Store.GetSpecTask(ctx, specTaskID)
 	if err != nil {
@@ -505,11 +511,14 @@ func (s *HelixAPIServer) listDesignReviewComments(w http.ResponseWriter, r *http
 // @Router /api/v1/spec-tasks/{spec_task_id}/design-reviews/{review_id}/comments/{comment_id}/resolve [post]
 // @Security BearerAuth
 func (s *HelixAPIServer) resolveDesignReviewComment(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
 	user := getRequestUser(r)
 	vars := mux.Vars(r)
 	specTaskID := vars["spec_task_id"]
 	commentID := vars["comment_id"]
+
+	// Detach from request context so DB mutations complete even if client disconnects
+	ctx, cancel := detachContext(r.Context(), 30*time.Second)
+	defer cancel()
 
 	specTask, err := s.Store.GetSpecTask(ctx, specTaskID)
 	if err != nil {
