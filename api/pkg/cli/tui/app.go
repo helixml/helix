@@ -277,6 +277,21 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// TODO: proper tab type for review
 		return a, a.openTaskInTab(msg.task)
 
+	case archiveTaskMsg:
+		task := msg.task
+		return a, func() tea.Msg {
+			err := a.api.ArchiveTask(apiCtx(), task.ID)
+			if err != nil {
+				return errMsg{err}
+			}
+			// Refetch tasks to remove archived one from kanban
+			tasks, err := a.api.ListSpecTasks(apiCtx(), task.ProjectID)
+			if err != nil {
+				return statusMsg("Archived: " + taskDisplayName(task))
+			}
+			return tasksLoadedMsg{tasks: tasks}
+		}
+
 	case openNewTaskMsg:
 		if a.kanban != nil {
 			a.newTask = NewNewTaskModel(a.api, a.kanban.projectID)
@@ -911,7 +926,7 @@ func (a *App) renderStatusBar() string {
 		if a.prefixNext {
 			help = fmt.Sprintf("[%s] waiting for command...", prefix)
 		} else if a.isOnKanbanTab() {
-			help = "h/l: column  j/k: task  enter: open  n: new  r: refresh  esc: back  q: quit"
+			help = "h/l: column  j/k: task  enter: open  n: new  x: archive  r: refresh  esc: back  q: quit"
 		} else {
 			p := prefix
 			help = fmt.Sprintf("%s n/p: tabs  %s c: new  %s %s/%s: split  %s %s: close  esc: stop/clear",

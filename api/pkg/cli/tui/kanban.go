@@ -81,7 +81,8 @@ type KanbanModel struct {
 	rowIdx    [ColCount]int               // cursor row per column
 	scrollOff [ColCount]int              // scroll offset per column
 
-	confirmTask *types.SpecTask // non-nil when showing "start planning?" prompt
+	confirmTask   *types.SpecTask // non-nil when showing "start planning?" prompt
+	archiveTask   *types.SpecTask // non-nil when showing "archive?" prompt
 
 	loading bool
 	err     error
@@ -101,6 +102,7 @@ type openNewTaskMsg struct{}
 type backToProjectsMsg struct{}
 type startPlanningMsg struct{ task *types.SpecTask }
 type openReviewMsg struct{ task *types.SpecTask }
+type archiveTaskMsg struct{ task *types.SpecTask }
 
 func NewKanbanModel(api *APIClient, projectID string) *KanbanModel {
 	return &KanbanModel{
@@ -164,6 +166,19 @@ func (k *KanbanModel) Update(msg tea.Msg) tea.Cmd {
 		return nil
 
 	case tea.KeyMsg:
+		// Archive confirmation
+		if k.archiveTask != nil {
+			switch msg.String() {
+			case "y", "enter":
+				task := k.archiveTask
+				k.archiveTask = nil
+				return func() tea.Msg { return archiveTaskMsg{task: task} }
+			default:
+				k.archiveTask = nil
+			}
+			return nil
+		}
+
 		// Confirmation prompt for backlog tasks
 		if k.confirmTask != nil {
 			switch msg.String() {
@@ -267,6 +282,12 @@ func (k *KanbanModel) Update(msg tea.Msg) tea.Cmd {
 			return k.fetchTasks()
 		case "n":
 			return func() tea.Msg { return openNewTaskMsg{} }
+		case "x":
+			col := k.colIdx
+			tasks := k.columns[col]
+			if len(tasks) > 0 && k.rowIdx[col] < len(tasks) {
+				k.archiveTask = tasks[k.rowIdx[col]]
+			}
 		case "esc":
 			return func() tea.Msg { return backToProjectsMsg{} }
 		}
@@ -348,6 +369,16 @@ func (k *KanbanModel) View() string {
 	}
 
 	board := lipgloss.JoinHorizontal(lipgloss.Top, cols...)
+
+	// Archive prompt
+	if k.archiveTask != nil {
+		name := taskDisplayName(k.archiveTask)
+		prompt := fmt.Sprintf("\n  %s  %s\n  %s",
+			styleHeader.Render(truncate(name, 50)),
+			styleDim.Render("archive?"),
+			lipgloss.NewStyle().Foreground(colorWarning).Render("y: archive  any other key: cancel"))
+		return header + "\n" + board + prompt
+	}
 
 	// Confirmation prompt
 	if k.confirmTask != nil {
