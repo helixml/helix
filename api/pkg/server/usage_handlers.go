@@ -209,9 +209,16 @@ func selectAggregationLevel(from, to time.Time) store.AggregationLevel {
 }
 
 // BatchTaskUsageResponse contains usage metrics for all tasks in a project
+// BatchTaskUsageMetric is a slim version of AggregatedUsageMetric for the batch
+// endpoint — the Kanban sparkline charts only need date + total_tokens.
+type BatchTaskUsageMetric struct {
+	Date        time.Time `json:"date"`
+	TotalTokens int       `json:"total_tokens"`
+}
+
 type BatchTaskUsageResponse struct {
-	ProjectID string                                    `json:"project_id"`
-	Tasks     map[string][]*types.AggregatedUsageMetric `json:"tasks"` // keyed by task_id
+	ProjectID string                          `json:"project_id"`
+	Tasks     map[string][]BatchTaskUsageMetric `json:"tasks"` // keyed by task_id
 }
 
 // getBatchTaskUsage godoc
@@ -257,10 +264,12 @@ func (s *HelixAPIServer) getBatchTaskUsage(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	// Build response with usage for each task
+	// Build response with usage for each task.
+	// Use daily aggregation and return only date + total_tokens — the Kanban
+	// sparkline charts don't need finer granularity or other metric fields.
 	response := BatchTaskUsageResponse{
 		ProjectID: projectID,
-		Tasks:     make(map[string][]*types.AggregatedUsageMetric, len(tasks)),
+		Tasks:     make(map[string][]BatchTaskUsageMetric, len(tasks)),
 	}
 
 	// Fetch usage in parallel with concurrency limit
@@ -295,10 +304,9 @@ func (s *HelixAPIServer) getBatchTaskUsage(w http.ResponseWriter, r *http.Reques
 			}
 
 			to := time.Now()
-			aggregationLevel := selectAggregationLevel(from, to)
 
 			metrics, err := s.Store.GetAggregatedUsageMetrics(ctx, &store.GetAggregatedUsageMetricsQuery{
-				AggregationLevel: aggregationLevel,
+				AggregationLevel: store.AggregationLevelDaily,
 				UserID:           user.ID,
 				ProjectID:        projectID,
 				SpecTaskID:       t.ID,
@@ -310,8 +318,14 @@ func (s *HelixAPIServer) getBatchTaskUsage(w http.ResponseWriter, r *http.Reques
 				return
 			}
 
+			// Map to slim response type
+			slim := make([]BatchTaskUsageMetric, len(metrics))
+			for i, m := range metrics {
+				slim[i] = BatchTaskUsageMetric{Date: m.Date, TotalTokens: m.TotalTokens}
+			}
+
 			mu.Lock()
-			response.Tasks[t.ID] = metrics
+			response.Tasks[t.ID] = slim
 			mu.Unlock()
 		}(task)
 	}

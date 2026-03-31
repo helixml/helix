@@ -77,7 +77,9 @@ func (s *PostgresStore) ListAttentionEvents(ctx context.Context, userID, organiz
 		query = query.Where("organization_id = ?", organizationID)
 	}
 
-	result := query.Order("created_at DESC").Find(&events)
+	// Cap at 50 — the frontend deduplicates by task and shows only the most
+	// recent event per task, so returning hundreds is wasted bandwidth.
+	result := query.Order("created_at DESC").Limit(50).Find(&events)
 	if result.Error != nil {
 		return nil, fmt.Errorf("failed to list attention events: %w", result.Error)
 	}
