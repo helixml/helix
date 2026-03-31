@@ -115,3 +115,13 @@ The new `helix_version` column will be added automatically by GORM AutoMigrate o
 ### Gotchas
 - Sandbox won't report version until next heartbeat (up to 30s after rebuild)
 - Old sandboxes will have empty `helix_version` - UI handles this gracefully (no version shown)
+
+### CRITICAL: API Client Regeneration
+**ALWAYS use `./stack update_openapi`** - never run swag or swagger-typescript-api manually.
+
+The script uses specific versions and flags that the frontend code depends on:
+- `swag@v1.16.4` with `--parseDepth 3`
+- `swagger-typescript-api@13.0.23` with `--axios` flag
+- Uses `frontend/swagger/swagger.yaml` (not swagger.json directly)
+
+Running swag/swagger-typescript-api manually with different flags produces incompatible method names (e.g., `v1AppsDailyUsageList` instead of `v1AppsDailyUsageDetail`) which breaks the frontend build.
