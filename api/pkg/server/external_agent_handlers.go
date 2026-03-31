@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"hash/fnv"
 	"io"
 	"net"
 	"net/http"
@@ -219,17 +220,30 @@ func (apiServer *HelixAPIServer) getExternalAgentScreenshot(res http.ResponseWri
 		return
 	}
 
-	// Return PNG image directly
-	res.Header().Set("Content-Type", "image/png")
-	res.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
-	res.WriteHeader(http.StatusOK)
-
-	// Stream the PNG data from screenshot server to response
-	_, err = io.Copy(res, screenshotResp.Body)
+	// Buffer the screenshot so we can compute an ETag before sending.
+	// Screenshots are large (hundreds of KB) but idle desktops return identical
+	// images, so ETags eliminate most of the bandwidth on slow connections.
+	imageData, err := io.ReadAll(screenshotResp.Body)
 	if err != nil {
-		log.Error().Err(err).Msg("Failed to stream screenshot data")
+		log.Error().Err(err).Msg("Failed to read screenshot data")
+		http.Error(res, "Failed to read screenshot data", http.StatusInternalServerError)
 		return
 	}
+
+	h := fnv.New64a()
+	h.Write(imageData)
+	etag := fmt.Sprintf(`"%x"`, h.Sum64())
+
+	res.Header().Set("ETag", etag)
+	res.Header().Set("Cache-Control", "private, no-cache, must-revalidate")
+
+	if match := req.Header.Get("If-None-Match"); match == etag {
+		res.WriteHeader(http.StatusNotModified)
+		return
+	}
+
+	res.Header().Set("Content-Type", "image/png")
+	res.Write(imageData) //nolint:errcheck
 
 }
 
