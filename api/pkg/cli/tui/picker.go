@@ -21,6 +21,12 @@ type PickerModel struct {
 	err      error
 	width    int
 	height   int
+
+	// New project input
+	creating    bool
+	createStep  int    // 0=name, 1=github url
+	createName  string
+	createURL   string
 }
 
 type projectsLoadedMsg struct {
@@ -119,6 +125,11 @@ func (p *PickerModel) Update(msg tea.Msg) tea.Cmd {
 		return nil
 
 	case tea.KeyMsg:
+		// Creating a new project — handle input
+		if p.creating {
+			return p.handleCreateInput(msg)
+		}
+
 		switch msg.String() {
 		case "j", "down":
 			if p.cursor < len(p.projects)-1 {
@@ -153,6 +164,11 @@ func (p *PickerModel) Update(msg tea.Msg) tea.Cmd {
 				isPinned := p.pinned[proj.ID]
 				return p.togglePin(proj.ID, isPinned)
 			}
+		case "n":
+			p.creating = true
+			p.createStep = 0
+			p.createName = ""
+			p.createURL = ""
 		}
 	}
 	return nil
@@ -177,6 +193,94 @@ func (p *PickerModel) togglePin(projectID string, currentlyPinned bool) tea.Cmd 
 		}
 		return projectPinToggledMsg{projectID: projectID, pinned: !currentlyPinned}
 	}
+}
+
+func (p *PickerModel) handleCreateInput(msg tea.KeyMsg) tea.Cmd {
+	switch msg.String() {
+	case "esc":
+		p.creating = false
+		return nil
+	case "enter":
+		if p.createStep == 0 {
+			if p.createName == "" {
+				return nil // name required
+			}
+			p.createStep = 1
+			return nil
+		}
+		// Step 1: submit (URL is optional)
+		return p.submitNewProject()
+	case "backspace":
+		if p.createStep == 0 && len(p.createName) > 0 {
+			p.createName = p.createName[:len(p.createName)-1]
+		} else if p.createStep == 1 && len(p.createURL) > 0 {
+			p.createURL = p.createURL[:len(p.createURL)-1]
+		}
+	default:
+		if msg.Type == tea.KeyRunes {
+			if p.createStep == 0 {
+				p.createName += msg.String()
+			} else {
+				p.createURL += msg.String()
+			}
+		} else if msg.String() == " " {
+			if p.createStep == 0 {
+				p.createName += " "
+			} else {
+				p.createURL += " "
+			}
+		}
+	}
+	return nil
+}
+
+func (p *PickerModel) submitNewProject() tea.Cmd {
+	name := p.createName
+	url := strings.TrimSpace(p.createURL)
+	orgID := p.orgID
+	api := p.api
+
+	p.creating = false
+	p.loading = true
+
+	return func() tea.Msg {
+		req := &types.ProjectCreateRequest{
+			OrganizationID: orgID,
+			Name:           name,
+			GitHubRepoURL:  url,
+		}
+
+		project, err := api.CreateProject(apiCtx(), req)
+		if err != nil {
+			return errMsg{err}
+		}
+		return projectSelectedMsg{project: project}
+	}
+}
+
+func (p *PickerModel) viewCreateForm() string {
+	var b strings.Builder
+
+	b.WriteString("\n  " + styleHeader.Render("New project") + "\n\n")
+
+	prompt := lipgloss.NewStyle().Foreground(colorPrimary).Bold(true)
+
+	if p.createStep == 0 {
+		b.WriteString("  " + prompt.Render("Name: ") + p.createName)
+		b.WriteString(lipgloss.NewStyle().Foreground(colorPrimary).Render("█"))
+		b.WriteString("\n\n")
+		b.WriteString("  " + styleDim.Render("GitHub URL: (next step)"))
+	} else {
+		b.WriteString("  " + styleDim.Render("Name: "+p.createName) + "\n\n")
+		b.WriteString("  " + prompt.Render("GitHub URL: ") + p.createURL)
+		b.WriteString(lipgloss.NewStyle().Foreground(colorPrimary).Render("█"))
+		b.WriteString("\n")
+		b.WriteString("  " + styleDim.Render("(optional — press enter to skip)"))
+	}
+
+	b.WriteString("\n\n  " + styleDim.Render("enter: next/create  esc: cancel"))
+
+	return b.String()
 }
 
 func (p *PickerModel) ensureVisible() {
@@ -209,6 +313,10 @@ func (p *PickerModel) View() string {
 	}
 
 	var b strings.Builder
+
+	if p.creating {
+		return p.viewCreateForm()
+	}
 
 	title := styleHeader.Render("Select a project")
 	b.WriteString("\n  " + title + "\n\n")

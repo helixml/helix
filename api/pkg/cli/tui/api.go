@@ -59,6 +59,19 @@ func (a *APIClient) UnpinProject(ctx context.Context, projectID string) error {
 	return a.client.MakeRequest(ctx, http.MethodDelete, "/projects/"+projectID+"/pin", nil, nil)
 }
 
+func (a *APIClient) CreateProject(ctx context.Context, req *types.ProjectCreateRequest) (*types.Project, error) {
+	reqBody, err := json.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
+	}
+	var project types.Project
+	err = a.client.MakeRequest(ctx, http.MethodPost, "/projects", strings.NewReader(string(reqBody)), &project)
+	if err != nil {
+		return nil, err
+	}
+	return &project, nil
+}
+
 func (a *APIClient) GetProject(ctx context.Context, projectID string) (*types.Project, error) {
 	var project types.Project
 	err := a.client.MakeRequest(ctx, http.MethodGet, "/projects/"+projectID, nil, &project)

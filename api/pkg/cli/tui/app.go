@@ -810,7 +810,7 @@ func (a *App) renderStatusBar() string {
 	case ModeOrgPicker:
 		help = "j/k: navigate  enter: select  q: quit"
 	case ModePicker:
-		help = "j/k: navigate  enter: select  p: pin/unpin  esc: back  q: quit"
+		help = "j/k: navigate  enter: select  n: new  p: pin/unpin  esc: back  q: quit"
 	case ModeMain:
 		prefix := a.tmux.Prefix
 		if a.prefixNext {
