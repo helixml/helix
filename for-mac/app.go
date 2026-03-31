@@ -1085,13 +1085,19 @@ func collectSystemInfo() string {
 		macOSVersion, arch, cpus, ramGB)
 }
 
-// lastNLines returns the last n lines of s.
+// lastNLines returns the last n lines of s, truncating individual lines to maxLineLen chars.
 func lastNLines(s string, n int) string {
+	const maxLineLen = 500
 	lines := strings.Split(s, "\n")
-	if len(lines) <= n {
-		return s
+	if len(lines) > n {
+		lines = lines[len(lines)-n:]
 	}
-	return strings.Join(lines[len(lines)-n:], "\n")
+	for i, line := range lines {
+		if len(line) > maxLineLen {
+			lines[i] = line[:maxLineLen] + "..."
+		}
+	}
+	return strings.Join(lines, "\n")
 }
 
 // CollectDiagnostics gathers system info, app/VM info, logs, and container logs
