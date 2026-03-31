@@ -20,10 +20,31 @@ launch_terminal() {
     local working_dir="$2"
     shift 2
     # Remaining args are the command
-    # Ghostty options: --title, --working-directory, -e for command
-    # CRITICAL: --gtk-single-instance=false prevents D-Bus activation which loses our -e args
-    # Software rendering for virtio-gpu is handled by the ghostty wrapper (Dockerfile.ubuntu-helix).
-    ghostty --gtk-single-instance=false --title="$title" --working-directory="$working_dir" -e "$@" &
+
+    # Always run commands in a shared tmux session (helix-shell).
+    # This allows both desktop mode (ghostty attaches) and terminal mode
+    # (WebSocket PTY attaches) to share the same persistent session.
+    local tmux_session="helix-shell"
+
+    if ! tmux has-session -t "$tmux_session" 2>/dev/null; then
+        # Create session with the command
+        tmux new-session -d -s "$tmux_session" -x 80 -y 24 -c "$working_dir" "$@"
+        # Configure: hidden prefix, no status bar, mouse on
+        tmux set-option -t "$tmux_session" -g prefix C-]
+        tmux unbind -t "$tmux_session" C-b 2>/dev/null || true
+        tmux set-option -t "$tmux_session" -g status off
+        tmux set-option -t "$tmux_session" -g mouse on
+        tmux set-option -t "$tmux_session" -g history-limit 10000
+    else
+        # Session exists — run command in a new window
+        tmux new-window -t "$tmux_session" -n "$title" -c "$working_dir" "$@"
+    fi
+
+    # In desktop mode, open ghostty attached to the tmux session
+    if [ "${HELIX_INTERFACE_MODE:-desktop}" = "desktop" ]; then
+        ghostty --gtk-single-instance=false --title="$title" --working-directory="$working_dir" \
+            -e tmux attach-session -t "$tmux_session" &
+    fi
 }
 
 # =========================================

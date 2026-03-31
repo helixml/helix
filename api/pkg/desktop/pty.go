@@ -18,15 +18,84 @@ var ptyUpgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool { return true },
 }
 
-// handlePTY upgrades to WebSocket and spawns a bash shell with a real PTY.
-// All I/O is streamed bidirectionally over the WebSocket.
+const tmuxSessionName = "helix-shell"
+
+// ensureTmuxSession starts the shared tmux session if it doesn't exist.
+// The session uses C-] as prefix (avoids conflicts with user's tmux/hmux)
+// and has the status bar hidden.
+func (s *Server) ensureTmuxSession() error {
+	// Check if session exists
+	cmd := exec.Command("tmux", "has-session", "-t", tmuxSessionName)
+	if cmd.Run() == nil {
+		return nil // already running
+	}
+
+	// Create new session with hidden prefix and no status bar
+	cmd = exec.Command("tmux", "new-session",
+		"-d",                    // detached
+		"-s", tmuxSessionName,   // session name
+		"-x", "80", "-y", "24", // default size
+	)
+	cmd.Env = append(os.Environ(), "TERM=xterm-256color")
+	if err := cmd.Run(); err != nil {
+		return err
+	}
+
+	// Configure the session: hide status bar, set obscure prefix
+	for _, setting := range []string{
+		"set -g status off",
+		"set -g prefix C-]",
+		"unbind C-b",
+		"bind C-] send-prefix",
+		"set -g mouse on",
+		"set -g history-limit 10000",
+	} {
+		exec.Command("tmux", "send-keys", "-t", tmuxSessionName, "", "").Run()
+		args := append([]string{"set-option", "-t", tmuxSessionName}, splitTmuxArgs(setting)...)
+		exec.Command("tmux", args...).Run()
+	}
+
+	s.logger.Info("pty: created tmux session", "name", tmuxSessionName)
+	return nil
+}
+
+func splitTmuxArgs(s string) []string {
+	// Simple split on spaces for tmux set commands
+	var args []string
+	for _, a := range splitFields(s) {
+		args = append(args, a)
+	}
+	return args
+}
+
+func splitFields(s string) []string {
+	var fields []string
+	field := ""
+	for _, c := range s {
+		if c == ' ' {
+			if field != "" {
+				fields = append(fields, field)
+				field = ""
+			}
+		} else {
+			field += string(c)
+		}
+	}
+	if field != "" {
+		fields = append(fields, field)
+	}
+	return fields
+}
+
+// handlePTY upgrades to WebSocket and attaches to the shared tmux session.
+// If no tmux session exists, creates one. All I/O is streamed bidirectionally.
 //
 // Query params:
 //   - cols: terminal columns (default 80)
 //   - rows: terminal rows (default 24)
 //
-// WebSocket message types:
-//   - Binary: raw terminal I/O (stdin/stdout)
+// WebSocket messages:
+//   - Binary: raw terminal I/O
 //   - Text JSON: control messages {"type":"resize","cols":N,"rows":N}
 func (s *Server) handlePTY(w http.ResponseWriter, r *http.Request) {
 	conn, err := ptyUpgrader.Upgrade(w, r, nil)
@@ -36,7 +105,6 @@ func (s *Server) handlePTY(w http.ResponseWriter, r *http.Request) {
 	}
 	defer conn.Close()
 
-	// Parse initial size
 	cols := 80
 	rows := 24
 	if c, err := strconv.Atoi(r.URL.Query().Get("cols")); err == nil && c > 0 {
@@ -46,8 +114,15 @@ func (s *Server) handlePTY(w http.ResponseWriter, r *http.Request) {
 		rows = rv
 	}
 
-	// Start bash with PTY
-	cmd := exec.Command("/bin/bash", "-l")
+	// Ensure shared tmux session exists
+	if err := s.ensureTmuxSession(); err != nil {
+		s.logger.Error("pty: failed to create tmux session", "err", err)
+		conn.WriteMessage(websocket.TextMessage, []byte(`{"error":"failed to start shell"}`))
+		return
+	}
+
+	// Attach to the tmux session with a new PTY
+	cmd := exec.Command("tmux", "attach-session", "-t", tmuxSessionName)
 	cmd.Env = append(os.Environ(), "TERM=xterm-256color")
 
 	ptmx, err := pty.StartWithSize(cmd, &pty.Winsize{
@@ -55,13 +130,14 @@ func (s *Server) handlePTY(w http.ResponseWriter, r *http.Request) {
 		Cols: uint16(cols),
 	})
 	if err != nil {
-		s.logger.Error("pty: failed to start shell", "err", err)
-		conn.WriteMessage(websocket.TextMessage, []byte(`{"error":"failed to start shell"}`))
+		s.logger.Error("pty: failed to attach to tmux", "err", err)
+		conn.WriteMessage(websocket.TextMessage, []byte(`{"error":"failed to attach to shell"}`))
 		return
 	}
 	defer ptmx.Close()
 
-	s.logger.Info("pty: shell started", "pid", cmd.Process.Pid, "cols", cols, "rows", rows)
+	s.logger.Info("pty: client attached to tmux session",
+		"pid", cmd.Process.Pid, "cols", cols, "rows", rows)
 
 	var wg sync.WaitGroup
 
@@ -85,7 +161,11 @@ func (s *Server) handlePTY(w http.ResponseWriter, r *http.Request) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		defer cmd.Process.Signal(syscall.SIGHUP)
+		defer func() {
+			// Don't kill the tmux session when client disconnects —
+			// just detach. The session persists for reconnect.
+			cmd.Process.Signal(syscall.SIGHUP)
+		}()
 
 		for {
 			msgType, data, err := conn.ReadMessage()
@@ -94,21 +174,18 @@ func (s *Server) handlePTY(w http.ResponseWriter, r *http.Request) {
 			}
 
 			if msgType == websocket.TextMessage {
-				// Control message — check for resize
 				s.handlePTYControl(ptmx, data)
 				continue
 			}
 
-			// Binary — write to PTY stdin
 			if _, err := ptmx.Write(data); err != nil {
 				return
 			}
 		}
 	}()
 
-	// Wait for shell to exit
 	cmd.Wait()
-	s.logger.Info("pty: shell exited", "pid", cmd.Process.Pid)
+	s.logger.Info("pty: client detached from tmux session", "pid", cmd.Process.Pid)
 	wg.Wait()
 }
 
