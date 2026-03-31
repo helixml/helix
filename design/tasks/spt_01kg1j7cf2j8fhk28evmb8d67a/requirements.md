@@ -17,6 +17,6 @@ When a user starts typing in the "new spectask" form and then navigates away (cl
 1. When the user types into the "Describe what you want to get done" textarea, the content is saved to localStorage within ~300 ms (debounced, same pattern as `usePromptHistory`).
 2. When the `NewSpecTaskForm` mounts, it loads the draft from localStorage and populates `taskPrompt` if a valid draft exists.
 3. After a task is **successfully submitted**, the draft is deleted from localStorage.
-4. Draft has a 24-hour TTL — expired drafts are ignored on load (same as `usePromptHistory`).
+4. Drafts have no TTL — they persist indefinitely until explicitly cleared (on submit or cancel).
 5. Draft is scoped per project: key = `helix_new_spectask_draft_{projectId}` so switching projects doesn't cross-contaminate.
-6. The existing `resetForm()` called on cancel does **not** need to clear the draft (let TTL handle it, or optionally clear on explicit cancel — see design decision).
+6. The existing `resetForm()` called on cancel clears the draft.

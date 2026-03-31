@@ -8,7 +8,7 @@
   - TextField onChange (line 516): fires on every keystroke
 - **Inspiration:** `frontend/src/hooks/usePromptHistory.ts`
   - `DRAFT_STORAGE_KEY = 'helix_prompt_draft'` (line 27)
-  - `loadDraft(sessionId)` (lines 138-152): reads with 24-hour TTL check
+  - `loadDraft(sessionId)` (lines 138-152): reads draft — **TTL check to be removed as part of this work**
   - `saveDraft(sessionId, content)` (lines 154-165): debounced 300ms write
   - `clearDraftStorage(sessionId)` (lines 167-173): deletes on send
 
@@ -24,25 +24,25 @@ helix_new_spectask_draft_{projectId}
 
 `projectId` is already a required prop on `NewSpecTaskForm`, so this is always available. One draft per project, no cross-contamination.
 
-### Draft shape (same as usePromptHistory)
+### Draft shape
 
 ```json
-{ "content": "...", "timestamp": 1234567890 }
+{ "content": "..." }
 ```
+
+No timestamp — drafts persist indefinitely until the user submits or cancels.
 
 ### Implementation sketch
 
 ```typescript
 const DRAFT_KEY = `helix_new_spectask_draft_${projectId}`
-const DRAFT_TTL = 24 * 60 * 60 * 1000 // 24 hours
 
 // On mount — load draft
 const [taskPrompt, setTaskPrompt] = useState<string>(() => {
   try {
     const raw = localStorage.getItem(DRAFT_KEY)
     if (!raw) return ""
-    const { content, timestamp } = JSON.parse(raw)
-    if (Date.now() - timestamp > DRAFT_TTL) { localStorage.removeItem(DRAFT_KEY); return "" }
+    const { content } = JSON.parse(raw)
     return content || ""
   } catch { return "" }
 })
@@ -53,7 +53,7 @@ const handlePromptChange = (value: string) => {
   setTaskPrompt(value)
   clearTimeout(draftTimer.current)
   draftTimer.current = setTimeout(() => {
-    if (value) localStorage.setItem(DRAFT_KEY, JSON.stringify({ content: value, timestamp: Date.now() }))
+    if (value) localStorage.setItem(DRAFT_KEY, JSON.stringify({ content: value }))
     else localStorage.removeItem(DRAFT_KEY)
   }, 300)
 }
