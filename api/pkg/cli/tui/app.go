@@ -321,6 +321,14 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (a *App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
 
+	// ctrl+d on empty input acts like ctrl+c (double-tap to quit)
+	if key == "ctrl+d" {
+		chat := a.focusedChat()
+		if chat == nil || chat.input.IsEmpty() {
+			key = "ctrl+c" // treat as ctrl+c
+		}
+	}
+
 	if key == "ctrl+c" {
 		now := time.Now()
 		if now.Sub(a.lastCtrlC) < 1*time.Second {
