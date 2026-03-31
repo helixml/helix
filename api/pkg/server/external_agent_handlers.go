@@ -242,7 +242,13 @@ func (apiServer *HelixAPIServer) getExternalAgentScreenshot(res http.ResponseWri
 		return
 	}
 
-	res.Header().Set("Content-Type", "image/png")
+	// Forward the Content-Type from the container's screenshot server
+	// (defaults to image/jpeg at quality 70, supports format=png via query param)
+	contentType := screenshotResp.Header.Get("Content-Type")
+	if contentType == "" {
+		contentType = "image/jpeg"
+	}
+	res.Header().Set("Content-Type", contentType)
 	res.Write(imageData) //nolint:errcheck
 
 }
