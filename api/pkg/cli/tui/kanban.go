@@ -76,9 +76,10 @@ type KanbanModel struct {
 	projectID string
 	project   *types.Project
 
-	columns [ColCount][]*types.SpecTask // tasks grouped by column
-	colIdx  KanbanColumn               // focused column
-	rowIdx  [ColCount]int               // cursor row per column
+	columns   [ColCount][]*types.SpecTask // tasks grouped by column
+	colIdx    KanbanColumn               // focused column
+	rowIdx    [ColCount]int               // cursor row per column
+	scrollOff [ColCount]int              // scroll offset per column
 
 	loading bool
 	err     error
@@ -176,11 +177,13 @@ func (k *KanbanModel) Update(msg tea.Msg) tea.Cmd {
 			col := k.colIdx
 			if k.rowIdx[col] < len(k.columns[col])-1 {
 				k.rowIdx[col]++
+				k.ensureVisible(col)
 			}
 		case "k", "up":
 			col := k.colIdx
 			if k.rowIdx[col] > 0 {
 				k.rowIdx[col]--
+				k.ensureVisible(col)
 			}
 		case "1":
 			k.colIdx = ColBacklog
@@ -211,6 +214,28 @@ func (k *KanbanModel) Update(msg tea.Msg) tea.Cmd {
 	return nil
 }
 
+func (k *KanbanModel) cardHeight() int {
+	h := k.height
+	if h < 10 {
+		h = 24
+	}
+	ch := h - 6
+	if ch < 3 {
+		ch = 3
+	}
+	return ch
+}
+
+func (k *KanbanModel) ensureVisible(col KanbanColumn) {
+	ch := k.cardHeight()
+	if k.rowIdx[col] < k.scrollOff[col] {
+		k.scrollOff[col] = k.rowIdx[col]
+	}
+	if k.rowIdx[col] >= k.scrollOff[col]+ch {
+		k.scrollOff[col] = k.rowIdx[col] - ch + 1
+	}
+}
+
 func (k *KanbanModel) View() string {
 	if k.loading {
 		return "\n  Loading kanban board..."
@@ -238,18 +263,11 @@ func (k *KanbanModel) View() string {
 		colWidth = 16
 	}
 	innerWidth := colWidth - 4 // border + padding
-	height := k.height
-	if height < 10 {
-		height = 24 // fallback if not set yet
-	}
-	cardHeight := height - 6 // project header + column header + borders
-	if cardHeight < 3 {
-		cardHeight = 3
-	}
+	ch := k.cardHeight()
 
 	var cols []string
 	for i := KanbanColumn(0); i < ColCount; i++ {
-		cols = append(cols, k.renderColumn(i, colWidth, innerWidth, cardHeight))
+		cols = append(cols, k.renderColumn(i, colWidth, innerWidth, ch))
 	}
 
 	board := lipgloss.JoinHorizontal(lipgloss.Top, cols...)
@@ -264,16 +282,28 @@ func (k *KanbanModel) renderColumn(col KanbanColumn, totalWidth, innerWidth, car
 	headerColor := statusColor(col)
 	title := fmt.Sprintf("%s (%d)", col.Title(), len(tasks))
 
-	// Build card content
+	// Build card content with scroll offset
+	offset := k.scrollOff[col]
 	var lines []string
-	for i := 0; i < cardHeight && i < len(tasks); i++ {
+
+	end := offset + cardHeight
+	if end > len(tasks) {
+		end = len(tasks)
+	}
+
+	for i := offset; i < end; i++ {
 		t := tasks[i]
 		isSelected := isFocusedCol && i == k.rowIdx[col]
 		lines = append(lines, k.renderCard(t, innerWidth, isSelected))
 	}
 
-	if len(tasks) > cardHeight {
-		lines = append(lines, styleDim.Render(fmt.Sprintf("+%d more", len(tasks)-cardHeight)))
+	// Scroll indicators
+	if offset > 0 {
+		lines = append([]string{styleDim.Render(fmt.Sprintf("↑ %d above", offset))}, lines...)
+	}
+	remaining := len(tasks) - end
+	if remaining > 0 {
+		lines = append(lines, styleDim.Render(fmt.Sprintf("↓ %d below", remaining)))
 	}
 
 	// Pad to fill height
