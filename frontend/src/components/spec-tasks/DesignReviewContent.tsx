@@ -70,6 +70,8 @@ import ReviewSubmitDialog from "./ReviewSubmitDialog";
 import RejectDesignDialog from "./RejectDesignDialog";
 import { useSpecTask } from "../../services/specTaskService";
 import { TypesSpecTaskStatus } from "../../api/api";
+import { useSandboxState } from "../external-agent/ExternalAgentDesktopViewer";
+import { GET_SESSION_QUERY_KEY } from "../../services/sessionService";
 
 type DocumentType = "requirements" | "technical_design" | "implementation_plan";
 
@@ -240,6 +242,10 @@ export default function DesignReviewContent({
 
   // Get planning session ID from spec task (more reliable than waiting for queue status)
   const planningSessionId = task?.planning_session_id;
+
+  // Track desktop state so we can auto-resume it when the user sends a comment
+  const { sandboxState } = useSandboxState(planningSessionId || "", !!planningSessionId);
+
   const activeDocComments = useMemo(
     () => allComments.filter((c) => c.document_type === activeTab),
     [allComments, activeTab],
@@ -867,6 +873,17 @@ export default function DesignReviewContent({
     if (!commentText.trim()) {
       snackbar.error("Comment text is required");
       return;
+    }
+
+    // Auto-resume the desktop if it's stopped so the agent can respond
+    if (planningSessionId && sandboxState === "absent") {
+      snackbar.info("Starting desktop so the agent can respond...");
+      api.getApiClient().v1SessionsResumeCreate(planningSessionId).then(() => {
+        queryClient.invalidateQueries({ queryKey: GET_SESSION_QUERY_KEY(planningSessionId) });
+      }).catch((err: any) => {
+        console.error("Failed to start desktop:", err);
+        snackbar.error("Could not start the desktop — the agent may not respond");
+      });
     }
 
     try {
