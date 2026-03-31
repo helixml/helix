@@ -402,7 +402,7 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
           enableStreaming={false}
           showToolbar={false}
           showTimestamp={false}
-          quality={15}
+          quality={5}
         />
       </Box>
     );
