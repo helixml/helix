@@ -2362,18 +2362,9 @@ func (apiServer *HelixAPIServer) processAnyPendingPrompt(ctx context.Context, se
 		Bool("is_retry", isRetry).
 		Msg("📤 [QUEUE] Processing pending prompt")
 
-	// Atomically claim this prompt to prevent duplicate delivery (issue #2).
-	// Uses a conditional DB UPDATE (status IN ('pending','failed') → 'sending').
-	// If RowsAffected == 0, another goroutine already claimed it — skip.
-	claimed, claimErr := apiServer.Store.ClaimPromptForSending(ctx, nextPrompt.ID)
-	if claimErr != nil {
-		log.Error().Err(claimErr).Str("prompt_id", nextPrompt.ID).Msg("Failed to claim prompt for sending")
-		return
-	}
-	if !claimed {
-		log.Info().Str("prompt_id", nextPrompt.ID).Msg("📤 [QUEUE] Prompt already claimed by another goroutine — skipping duplicate send")
-		return
-	}
+	// GetAnyPendingPrompt already atomically claimed this prompt (set status='sending').
+	// No additional ClaimPromptForSending call needed — that would fail because
+	// the status is already 'sending', causing every queued prompt to be silently dropped.
 
 	// Send the prompt to the session (creates interaction and sends to agent)
 	if err := apiServer.sendQueuedPromptToSession(ctx, sessionID, nextPrompt); err != nil {

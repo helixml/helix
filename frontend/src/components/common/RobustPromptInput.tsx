@@ -569,10 +569,16 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
     // Backend handles processing after sync - no need to call processQueue
   }, [draft, disabled, attachments, saveToHistory, clearDraft, interruptMode])
 
-  // Remove from queue
+  // Remove from queue: call backend first so the entry is soft-deleted and
+  // never redelivered (even after page reload or API restart), then remove locally.
   const handleRemoveFromQueue = useCallback((entryId: string) => {
     removeFromQueue(entryId)
-  }, [removeFromQueue])
+    if (apiClient) {
+      apiClient.v1PromptHistoryDelete(entryId).catch((err: unknown) => {
+        console.warn('Failed to delete prompt from backend:', err)
+      })
+    }
+  }, [removeFromQueue, apiClient])
 
   // Toggle interrupt mode for a queued message
   const handleToggleInterrupt = useCallback((entryId: string) => {
