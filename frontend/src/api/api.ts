@@ -4387,6 +4387,8 @@ export interface TypesSandboxHeartbeatRequest {
   disk_usage?: TypesDiskUsageMetric[];
   /** GPU configuration */
   gpu_vendor?: string;
+  /** Helix version running on this sandbox (git commit hash or release version) */
+  helix_version?: string;
   /** Privileged mode (host Docker access for development) */
   privileged_mode_enabled?: boolean;
   /** /dev/dri/renderD128 or SOFTWARE */
@@ -4404,6 +4406,8 @@ export interface TypesSandboxInstance {
   desktop_versions?: Record<string, string>;
   /** GPU configuration */
   gpu_vendor?: string;
+  /** Helix version running on this sandbox (git commit hash or release version) */
+  helix_version?: string;
   /** Hostname for DNS resolution */
   hostname?: string;
   id?: string;

@@ -26541,6 +26541,10 @@ const docTemplate = `{
                     "description": "GPU configuration",
                     "type": "string"
                 },
+                "helix_version": {
+                    "description": "Helix version running on this sandbox (git commit hash or release version)",
+                    "type": "string"
+                },
                 "privileged_mode_enabled": {
                     "description": "Privileged mode (host Docker access for development)",
                     "type": "boolean"
@@ -26570,6 +26574,10 @@ const docTemplate = `{
                 },
                 "gpu_vendor": {
                     "description": "GPU configuration",
+                    "type": "string"
+                },
+                "helix_version": {
+                    "description": "Helix version running on this sandbox (git commit hash or release version)",
                     "type": "string"
                 },
                 "hostname": {
