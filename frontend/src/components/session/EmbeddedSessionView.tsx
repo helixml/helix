@@ -235,11 +235,13 @@ const EmbeddedSessionView = forwardRef<
   );
 
   // Fetch session data with auto-refresh
+  // 5s is a good balance: responsive enough for chat, gentle on slow connections.
+  // React Query deduplicates this with other useGetSession consumers (e.g. useSandboxState).
   const { data: sessionResponse, refetch: refetchSession } = useGetSession(
     sessionId,
     {
       enabled: !!sessionId,
-      refetchInterval: 2000,
+      refetchInterval: 5000,
     },
   );
 

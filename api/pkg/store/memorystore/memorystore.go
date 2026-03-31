@@ -149,6 +149,26 @@ func (m *MemoryStore) GetInteraction(_ context.Context, id string) (*types.Inter
 	return &cp, nil
 }
 
+func (m *MemoryStore) GetInteractionsSummary(_ context.Context, sessionID string, generationID int) (int64, time.Time, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	var count int64
+	var maxUpdated time.Time
+	for _, i := range m.interactions {
+		if i.SessionID != sessionID {
+			continue
+		}
+		if generationID > 0 && i.GenerationID != generationID {
+			continue
+		}
+		count++
+		if i.Updated.After(maxUpdated) {
+			maxUpdated = i.Updated
+		}
+	}
+	return count, maxUpdated, nil
+}
+
 func (m *MemoryStore) CreateInteraction(_ context.Context, interaction *types.Interaction) (*types.Interaction, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

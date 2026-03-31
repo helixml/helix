@@ -35,54 +35,83 @@ import (
 // @Param id path string true "Session ID"
 // @Router /api/v1/sessions/{id} [get]
 // @Security BearerAuth
-func (apiServer *HelixAPIServer) getSession(_ http.ResponseWriter, req *http.Request) (*types.Session, *system.HTTPError) {
+func (apiServer *HelixAPIServer) getSession(rw http.ResponseWriter, req *http.Request) {
 	id := mux.Vars(req)["id"]
 	if id == "" {
-		return nil, system.NewHTTPError400("cannot load session without id")
+		http.Error(rw, "cannot load session without id", http.StatusBadRequest)
+		return
 	}
 	ctx := req.Context()
 	user := getRequestUser(req)
 
 	session, err := apiServer.Store.GetSession(ctx, id)
 	if err != nil {
-		return nil, system.NewHTTPError500(err.Error())
+		http.Error(rw, err.Error(), http.StatusInternalServerError)
+		return
 	}
 
 	err = apiServer.authorizeUserToSession(ctx, user, session, types.ActionGet)
 	if err != nil {
-		return nil, system.NewHTTPError403(err.Error())
+		http.Error(rw, err.Error(), http.StatusForbidden)
+		return
 	}
 
-	// Load interactions
+	// Determine external agent status (cheap RPC, no DB)
+	agentStatus := ""
+	if session.Metadata.ContainerName != "" {
+		if apiServer.externalAgentExecutor != nil {
+			_, execErr := apiServer.externalAgentExecutor.GetSession(session.ID)
+			if execErr != nil {
+				agentStatus = "stopped"
+			} else {
+				agentStatus = "running"
+			}
+		} else {
+			agentStatus = "stopped"
+		}
+	}
+
+	// Compute a lightweight ETag from cheap metadata — avoids loading full interactions
+	// on cache hits (the expensive part). Components: session row updated_at, interaction
+	// count + max updated_at (single aggregate query), and runtime agent status.
+	interactionCount, maxInteractionUpdated, err := apiServer.Store.GetInteractionsSummary(ctx, id, session.GenerationID)
+	if err != nil {
+		http.Error(rw, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	etag := fmt.Sprintf(`"%x-%x-%d-%x-%s"`,
+		session.Updated.UnixNano(),
+		maxInteractionUpdated.UnixNano(),
+		interactionCount,
+		session.GenerationID,
+		agentStatus,
+	)
+
+	rw.Header().Set("ETag", etag)
+
+	if match := req.Header.Get("If-None-Match"); match == etag {
+		rw.WriteHeader(http.StatusNotModified)
+		return
+	}
+
+	// Cache miss — load full interactions
 	interactions, _, err := apiServer.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
 		SessionID:    id,
 		GenerationID: session.GenerationID,
 		PerPage:      1000,
 	})
 	if err != nil {
-		return nil, system.NewHTTPError500(err.Error())
+		http.Error(rw, err.Error(), http.StatusInternalServerError)
+		return
 	}
 	session.Interactions = interactions
+	session.Metadata.ExternalAgentStatus = agentStatus
 
-	// Check if the external agent (sandbox container) is actually running
-	// If not running, update status to "stopped"
-	if session.Metadata.ContainerName != "" {
-		if apiServer.externalAgentExecutor != nil {
-			_, err := apiServer.externalAgentExecutor.GetSession(session.ID)
-			if err != nil {
-				// External agent not running - mark as stopped
-				session.Metadata.ExternalAgentStatus = "stopped"
-			} else {
-				// External agent is running
-				session.Metadata.ExternalAgentStatus = "running"
-			}
-		} else {
-			// No external agent executor available - assume stopped
-			session.Metadata.ExternalAgentStatus = "stopped"
-		}
+	rw.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(rw).Encode(session); err != nil {
+		log.Ctx(ctx).Error().Err(err).Msg("failed to encode session response")
 	}
-
-	return session, nil
 }
 
 // listSessions godoc

@@ -1,4 +1,4 @@
-import React, { FC, useState, useEffect, useCallback, useRef } from "react";
+import React, { FC, useState, useEffect, useCallback, useRef, useMemo } from "react";
 import {
   Box,
   Button,
@@ -23,71 +23,53 @@ import { useStreaming } from "../../contexts/streaming";
 import { SESSION_TYPE_TEXT } from "../../types";
 import { Api } from "../../api/api";
 import { useQueryClient } from "@tanstack/react-query";
-import { GET_SESSION_QUERY_KEY } from "../../services/sessionService";
+import { GET_SESSION_QUERY_KEY, useGetSession } from "../../services/sessionService";
 
 // Hook to track sandbox container state for external agent sessions
 // Exported for use in SpecTaskDetailContent.tsx toolbar buttons
+// Uses React Query (useGetSession) for automatic deduplication — multiple components
+// polling the same sessionId share a single network request.
 export const useSandboxState = (sessionId: string, enabled: boolean = true) => {
-  const api = useApi();
-  const [sandboxState, setSandboxState] = React.useState<string>("loading");
-  const [statusMessage, setStatusMessage] = React.useState<string>("");
+  const { data: sessionResponse } = useGetSession(sessionId, {
+    enabled: enabled && !!sessionId,
+    refetchInterval: 3000, // Poll every 3 seconds
+  });
 
-  React.useEffect(() => {
-    // Skip polling when disabled (e.g., card is off-screen)
-    if (!enabled) return;
+  const { sandboxState, statusMessage } = useMemo(() => {
+    if (!sessionResponse?.data) {
+      return { sandboxState: "loading", statusMessage: "" };
+    }
 
-    const apiClient = api.getApiClient();
-    const fetchState = async () => {
-      try {
-        // Get session details and check external agent status from metadata
-        const response = await apiClient.v1SessionsDetail(sessionId);
-        if (response.data) {
-          // Check external agent status from session metadata
-          const status = response.data.config?.external_agent_status || "";
-          const desiredState = (response.data.config as (typeof response.data.config & { desired_state?: string }))?.desired_state || "";
-          const hasContainer = !!response.data.config?.container_name;
+    const session = sessionResponse.data;
+    const status = session.config?.external_agent_status || "";
+    const desiredState = (session.config as (typeof session.config & { desired_state?: string }))?.desired_state || "";
+    const hasContainer = !!session.config?.container_name;
+    const msg = session.config?.status_message || "";
 
-          // Pickup transient status message (e.g., "Unpacking build cache (2.1/7.0 GB)")
-          setStatusMessage(response.data.config?.status_message || "");
+    // Map session metadata to sandbox state
+    // Check stopped status first - it takes priority from the backend check
+    let state: string;
+    if (status === "stopped") {
+      state = "absent";
+    } else if (
+      status === "running" ||
+      (hasContainer && desiredState === "running")
+    ) {
+      state = "running";
+    } else if (status === "starting") {
+      state = "starting";
+    } else if (desiredState === "stopped") {
+      state = "absent";
+    } else if (!hasContainer && desiredState === "running") {
+      state = "starting";
+    } else if (!hasContainer) {
+      state = "absent";
+    } else {
+      state = hasContainer ? "running" : "absent";
+    }
 
-          // Map session metadata to sandbox state
-          // Check stopped status first - it takes priority from the backend check
-          if (status === "stopped") {
-            setSandboxState("absent");
-          } else if (
-            status === "running" ||
-            (hasContainer && desiredState === "running")
-          ) {
-            setSandboxState("running");
-          } else if (status === "starting") {
-            setSandboxState("starting");
-          } else if (desiredState === "stopped") {
-            // Explicitly stopped - show paused UI
-            setSandboxState("absent");
-          } else if (!hasContainer && desiredState === "running") {
-            // Container not created yet but we want it running - show starting
-            // This happens immediately after "Start Planning" before container spins up
-            setSandboxState("starting");
-          } else if (!hasContainer) {
-            // No container and no desire to run - paused
-            setSandboxState("absent");
-          } else {
-            // Default to running if we have a container
-            setSandboxState(hasContainer ? "running" : "absent");
-          }
-        }
-      } catch (err) {
-        console.error("Failed to fetch sandbox state:", err);
-      }
-    };
-
-    fetchState();
-    const interval = setInterval(fetchState, 3000); // Poll every 3 seconds
-
-    return () => {
-      clearInterval(interval);
-    };
-  }, [sessionId, enabled]);
+    return { sandboxState: state, statusMessage: msg };
+  }, [sessionResponse?.data]);
 
   // Backend now returns 'starting' state for recently-created containers
   // Include 'loading' in isStarting to prevent DesktopStreamViewer from mounting

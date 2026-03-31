@@ -3784,6 +3784,22 @@ func (mr *MockStoreMockRecorder) ListGuidelinesHistory(ctx, organizationID, proj
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListGuidelinesHistory", reflect.TypeOf((*MockStore)(nil).ListGuidelinesHistory), ctx, organizationID, projectID, userID)
 }
 
+// GetInteractionsSummary mocks base method.
+func (m *MockStore) GetInteractionsSummary(ctx context.Context, sessionID string, generationID int) (int64, time.Time, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetInteractionsSummary", ctx, sessionID, generationID)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(time.Time)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// GetInteractionsSummary indicates an expected call of GetInteractionsSummary.
+func (mr *MockStoreMockRecorder) GetInteractionsSummary(ctx, sessionID, generationID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetInteractionsSummary", reflect.TypeOf((*MockStore)(nil).GetInteractionsSummary), ctx, sessionID, generationID)
+}
+
 // ListInteractions mocks base method.
 func (m *MockStore) ListInteractions(ctx context.Context, query *types.ListInteractionsQuery) ([]*types.Interaction, int64, error) {
 	m.ctrl.T.Helper()
