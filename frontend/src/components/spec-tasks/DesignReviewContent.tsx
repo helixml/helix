@@ -1213,6 +1213,10 @@ export default function DesignReviewContent({
             flex={1}
             overflow="auto"
             p={2}
+            onMouseLeave={() => {
+              hoveredElementRef.current = null;
+              setHoverButtonPosition(null);
+            }}
             sx={{
               bgcolor: "background.default",
               position: "relative",
@@ -1234,13 +1238,11 @@ export default function DesignReviewContent({
                     top: hoverButtonPosition.y,
                     left: "calc(50% + 400px + 4px)",
                     zIndex: 15,
-                    bgcolor: "background.paper",
-                    border: "1px solid",
-                    borderColor: "primary.main",
-                    color: "primary.main",
+                    bgcolor: "#1976d2",
+                    color: "#fff",
                     width: 28,
                     height: 28,
-                    "&:hover": { bgcolor: "primary.main", color: "primary.contrastText" },
+                    "&:hover": { bgcolor: "#1565c0" },
                   }}
                 >
                   <AddCommentIcon sx={{ fontSize: 14 }} />
@@ -1273,10 +1275,6 @@ export default function DesignReviewContent({
                   }
                   node = node.parentNode;
                 }
-              }}
-              onMouseLeave={() => {
-                hoveredElementRef.current = null;
-                setHoverButtonPosition(null);
               }}
               sx={{
                 maxWidth: "800px",
