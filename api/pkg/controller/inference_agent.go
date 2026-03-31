@@ -255,12 +255,7 @@ func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*agent
 		enriched += "\n\n# Knowledge Bases\n\nYou have access to the following knowledge bases: " +
 			strings.Join(knowledgeNames, ", ") +
 			".\nYou MUST search these knowledge bases before responding to every user message. " +
-			"Do not answer from your own knowledge without searching first." +
-			"\n\nProvide references in your answer in the format `[DOC_ID:DocumentID]`. " +
-			"For example, \"According to [DOC_ID:f6962c8007], the answer is 42.\"" +
-			"\n\nAfter your answer, write an excerpts block with an exact quote from each cited document:\n" +
-			"<excerpts>\n  <excerpt>\n    <document_id>DocumentID</document_id>\n    <snippet>An exact quote from this document</snippet>\n  </excerpt>\n</excerpts>\n" +
-			"Each document_id must appear at most once. No header before the excerpts block."
+			"Do not answer from your own knowledge without searching first."
 	}
 
 	helixAgent := agent.NewAgent(

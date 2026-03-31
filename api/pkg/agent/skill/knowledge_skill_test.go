@@ -117,6 +117,8 @@ func TestNewKnowledgeSkill_Execute_WithFiltering(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, response, "<chunk>\n  <document_id>doc1</document_id>")
 	assert.Contains(t, response, "test content")
+	assert.Contains(t, response, "[DOC_ID:DocumentID]")
+	assert.Contains(t, response, "<excerpts>")
 
 	// Verify the collector received the RAG results
 	require.Len(t, collectedResults, 1)
@@ -161,4 +163,6 @@ func TestNewKnowledgeSkill_Execute_NilCollector(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, response, "<chunk>\n  <document_id>abc123</document_id>")
 	assert.Contains(t, response, "result content")
+	assert.Contains(t, response, "[DOC_ID:DocumentID]")
+	assert.Contains(t, response, "<excerpts>")
 }
