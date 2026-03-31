@@ -81,6 +81,8 @@ type KanbanModel struct {
 	rowIdx    [ColCount]int               // cursor row per column
 	scrollOff [ColCount]int              // scroll offset per column
 
+	confirmTask *types.SpecTask // non-nil when showing "start planning?" prompt
+
 	loading bool
 	err     error
 	width   int
@@ -162,6 +164,25 @@ func (k *KanbanModel) Update(msg tea.Msg) tea.Cmd {
 		return nil
 
 	case tea.KeyMsg:
+		// Confirmation prompt for backlog tasks
+		if k.confirmTask != nil {
+			switch msg.String() {
+			case "y", "enter":
+				task := k.confirmTask
+				k.confirmTask = nil
+				return func() tea.Msg { return startPlanningMsg{task: task} }
+			case "v":
+				// View the task without starting
+				task := k.confirmTask
+				k.confirmTask = nil
+				return func() tea.Msg { return openTaskChatMsg{task: task} }
+			default:
+				// Any other key cancels
+				k.confirmTask = nil
+			}
+			return nil
+		}
+
 		key := msg.String()
 		// Also check key type for arrow keys (some terminals report differently)
 		switch msg.Type {
@@ -232,7 +253,9 @@ func (k *KanbanModel) Update(msg tea.Msg) tea.Cmd {
 				task := tasks[k.rowIdx[col]]
 				switch task.Status {
 				case types.TaskStatusBacklog:
-					return func() tea.Msg { return startPlanningMsg{task: task} }
+					// Show confirmation — don't auto-start
+					k.confirmTask = task
+					return nil
 				case types.TaskStatusSpecReview:
 					return func() tea.Msg { return openReviewMsg{task: task} }
 				default:
@@ -308,6 +331,17 @@ func (k *KanbanModel) View() string {
 	}
 
 	board := lipgloss.JoinHorizontal(lipgloss.Top, cols...)
+
+	// Confirmation prompt
+	if k.confirmTask != nil {
+		name := taskDisplayName(k.confirmTask)
+		prompt := fmt.Sprintf("\n  %s  %s\n  %s",
+			styleHeader.Render(truncate(name, 50)),
+			styleDim.Render("(backlog)"),
+			lipgloss.NewStyle().Foreground(colorWarning).Render("y: start planning  v: view  esc: cancel"))
+		return header + "\n" + board + prompt
+	}
+
 	return header + "\n" + board
 }
 

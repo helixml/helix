@@ -87,15 +87,23 @@ func TestKanbanEnterDispatchesByStatus(t *testing.T) {
 	k.columns[ColPlanning] = []*types.SpecTask{{ID: "spt_2", Status: types.TaskStatusSpecReview}}
 	k.columns[ColInProgress] = []*types.SpecTask{{ID: "spt_3", Status: types.TaskStatusImplementation}}
 
-	// Backlog → startPlanningMsg
+	// Backlog → shows confirmation prompt
 	k.colIdx = ColBacklog
 	cmd := k.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd != nil {
+		t.Error("backlog enter should not return command (shows prompt first)")
+	}
+	if k.confirmTask == nil {
+		t.Fatal("expected confirmTask to be set")
+	}
+	// Press 'y' to confirm
+	cmd = k.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
 	if cmd == nil {
-		t.Fatal("expected command from enter on backlog")
+		t.Fatal("expected command from 'y' confirmation")
 	}
 	msg := cmd()
 	if _, ok := msg.(startPlanningMsg); !ok {
-		t.Errorf("backlog enter should produce startPlanningMsg, got %T", msg)
+		t.Errorf("confirmed backlog should produce startPlanningMsg, got %T", msg)
 	}
 
 	// Planning (spec_review) → openReviewMsg
