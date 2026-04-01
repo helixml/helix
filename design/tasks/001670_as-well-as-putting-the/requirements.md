@@ -24,4 +24,7 @@ so that it behaves the same way as the notification dropdown (viewing = acknowle
 
 - No changes to the notification dropdown itself.
 - No per-column aggregate badge (only per-card).
-- No changes to the existing orange attention dot logic (that remains as-is).
+
+## Also Required
+
+- Remove the existing orange attention dot (`useAgentActivityCheck`, green pulsing and orange dot in `TaskCard.tsx`) — it never worked reliably. The new red dot replaces it entirely.
