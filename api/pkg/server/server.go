@@ -280,6 +280,7 @@ func NewServer(
 		HelixAPIToken:                 cfg.WebServer.RunnerToken,
 		WorkspaceBasePathForContainer: "/workspace",       // Path inside dev container
 		WorkspaceBasePathForCloning:   "/data/workspaces", // Path on sandbox filesystem (not API - Hydra creates dirs)
+		FilestoreLocalPath:            cfg.FileStore.LocalFSPath,
 		Connman:                       connectionManager,
 		GPUVendor:                     os.Getenv("GPU_VENDOR"), // "nvidia", "amd", "intel", or ""
 		LicenseKey:                    licenseKeyForHydra,      // Pass to nested Helix instances

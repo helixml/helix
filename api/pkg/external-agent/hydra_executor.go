@@ -42,6 +42,7 @@ type HydraExecutor struct {
 	// Workspace path configuration
 	workspaceBasePathForContainer string // Path as seen from inside dev container
 	workspaceBasePathForCloning   string // Path on sandbox filesystem (Hydra creates dirs)
+	filestoreLocalPath            string // Local filestore root (e.g. /filestore)
 
 	// RevDial connection manager for communicating with Hydra in sandbox
 	connman connmanInterface
@@ -70,6 +71,7 @@ type HydraExecutorConfig struct {
 	HelixAPIToken                 string
 	WorkspaceBasePathForContainer string
 	WorkspaceBasePathForCloning   string
+	FilestoreLocalPath            string // Local filestore root for persisting paused screenshots
 	Connman                       connmanInterface
 	GPUVendor                     string
 	LicenseKey                    string // License key to pass to nested Helix instances
@@ -85,6 +87,7 @@ func NewHydraExecutor(cfg HydraExecutorConfig) *HydraExecutor {
 		helixAPIToken:                 cfg.HelixAPIToken,
 		workspaceBasePathForContainer: cfg.WorkspaceBasePathForContainer,
 		workspaceBasePathForCloning:   cfg.WorkspaceBasePathForCloning,
+		filestoreLocalPath:            cfg.FilestoreLocalPath,
 		connman:                       cfg.Connman,
 		creationLocks:                 make(map[string]*sync.Mutex),
 		gpuVendor:                     cfg.GPUVendor,
@@ -820,7 +823,11 @@ func (h *HydraExecutor) capturePausedScreenshot(ctx context.Context, sessionID s
 		return ""
 	}
 
-	dir := filepath.Join(os.TempDir(), "helix-paused-screenshots")
+	filestoreRoot := h.filestoreLocalPath
+	if filestoreRoot == "" {
+		filestoreRoot = "/filestore"
+	}
+	dir := filepath.Join(filestoreRoot, "workspaces", "paused-screenshots")
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return ""
 	}
