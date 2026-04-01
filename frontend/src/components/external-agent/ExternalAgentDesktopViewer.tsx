@@ -345,8 +345,8 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
     }
 
     if (isPaused) {
-      // Don't fetch screenshot when we know sandbox is absent — just show the paused UI.
-      // (The screenshotUrl used to be loaded here, but it's an unnecessary download.)
+      // Show the last screenshot (served from PausedScreenshotPath on the API) behind
+      // a semi-transparent overlay so the user can see the desktop's last state.
       return (
         <Box
           sx={{
@@ -357,32 +357,52 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
             borderColor: "divider",
             borderRadius: 1,
             overflow: "hidden",
-            backgroundColor: "#1a1a1a",
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: 2,
           }}
         >
-          <Typography
-            variant="body1"
-            sx={{ color: "rgba(255,255,255,0.9)", fontWeight: 500 }}
+          {/* Last screenshot from before shutdown — fetched once, no polling */}
+          <ScreenshotViewer
+            sessionId={sessionId}
+            autoRefresh={false}
+            enableStreaming={false}
+            showToolbar={false}
+            showTimestamp={false}
+            quality={5}
+          />
+          {/* Overlay with resume button */}
+          <Box
+            sx={{
+              position: "absolute",
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              backgroundColor: "rgba(0,0,0,0.55)",
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 2,
+            }}
           >
-            Desktop Paused
-          </Typography>
-          <Button
-            variant="contained"
-            color="primary"
-            size="large"
-            startIcon={
-              isResuming ? <CircularProgress size={20} /> : <PlayArrow />
-            }
-            onClick={handleResume}
-            disabled={isResuming}
-          >
-            {isResuming ? "Starting..." : "Start Desktop"}
-          </Button>
+            <Typography
+              variant="body1"
+              sx={{ color: "rgba(255,255,255,0.9)", fontWeight: 500 }}
+            >
+              Desktop Paused
+            </Typography>
+            <Button
+              variant="contained"
+              color="primary"
+              size="large"
+              startIcon={
+                isResuming ? <CircularProgress size={20} /> : <PlayArrow />
+              }
+              onClick={handleResume}
+              disabled={isResuming}
+            >
+              {isResuming ? "Starting..." : "Start Desktop"}
+            </Button>
+          </Box>
         </Box>
       );
     }
