@@ -352,22 +352,22 @@ func (s *PostgresStore) ListIdleDesktops(ctx context.Context, idleSince time.Tim
 	query := `
 WITH desktop_last_activity AS (
     SELECT
-        s.config->>'external_agent_id' AS agent_id,
+        s.config->>'dev_container_id' AS container_id,
         COALESCE(MAX(i.updated), MAX(s.updated)) AS last_activity
     FROM sessions s
     LEFT JOIN interactions i ON i.session_id = s.id
     WHERE s.deleted_at IS NULL
       AND s.config->>'external_agent_status' = 'running'
-      AND s.config->>'external_agent_id' IS NOT NULL
-      AND s.config->>'external_agent_id' != ''
-    GROUP BY s.config->>'external_agent_id'
+      AND s.config->>'dev_container_id' IS NOT NULL
+      AND s.config->>'dev_container_id' != ''
+    GROUP BY s.config->>'dev_container_id'
 )
-SELECT DISTINCT ON (s.config->>'external_agent_id') s.*
+SELECT DISTINCT ON (s.config->>'dev_container_id') s.*
 FROM sessions s
-JOIN desktop_last_activity da ON da.agent_id = s.config->>'external_agent_id'
+JOIN desktop_last_activity da ON da.container_id = s.config->>'dev_container_id'
 WHERE s.deleted_at IS NULL
   AND da.last_activity < ?
-ORDER BY s.config->>'external_agent_id', s.created ASC`
+ORDER BY s.config->>'dev_container_id', s.created ASC`
 
 	var sessions []*types.Session
 	err := s.gdb.WithContext(ctx).Raw(query, idleSince).Scan(&sessions).Error

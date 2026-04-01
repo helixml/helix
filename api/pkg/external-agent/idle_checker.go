@@ -44,7 +44,7 @@ func checkAndStopIdleDesktops(ctx context.Context, executor Executor, st store.S
 func stopIdleDesktop(ctx context.Context, executor Executor, st store.Store, session *types.Session) {
 	log.Info().
 		Str("session_id", session.ID).
-		Str("external_agent_id", session.Metadata.ExternalAgentID).
+		Str("dev_container_id", session.Metadata.DevContainerID).
 		Msg("shutting down idle desktop")
 
 	if err := executor.StopDesktop(ctx, session.ID); err != nil {
