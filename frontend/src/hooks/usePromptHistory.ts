@@ -51,7 +51,6 @@ export interface PromptHistoryEntry {
 interface PromptDraft {
   content: string
   sessionId: string
-  timestamp: number
 }
 
 interface UsePromptHistoryOptions {
@@ -140,10 +139,7 @@ function loadDraft(sessionId: string): string {
     const stored = localStorage.getItem(`${DRAFT_STORAGE_KEY}_${sessionId}`)
     if (stored) {
       const draft: PromptDraft = JSON.parse(stored)
-      // Only restore drafts less than 24 hours old
-      if (Date.now() - draft.timestamp < 24 * 60 * 60 * 1000) {
-        return draft.content
-      }
+      return draft.content
     }
   } catch (e) {
     console.warn('Failed to load draft:', e)
@@ -156,7 +152,6 @@ function saveDraft(sessionId: string, content: string): void {
     const draft: PromptDraft = {
       content,
       sessionId,
-      timestamp: Date.now(),
     }
     localStorage.setItem(`${DRAFT_STORAGE_KEY}_${sessionId}`, JSON.stringify(draft))
   } catch (e) {

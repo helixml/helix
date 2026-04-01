@@ -106,6 +106,10 @@ export function GetUpdateInfo() {
   return window['go']['main']['App']['GetUpdateInfo']();
 }
 
+export function GetUserIdentity() {
+  return window['go']['main']['App']['GetUserIdentity']();
+}
+
 export function GetVMConfig() {
   return window['go']['main']['App']['GetVMConfig']();
 }

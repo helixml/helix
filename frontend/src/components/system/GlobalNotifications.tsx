@@ -233,38 +233,51 @@ const AttentionEventItem: React.FC<{
           : eventIcon(event.event_type, accentColor)
         }
       </Box>
-      <Box sx={{ minWidth: 0, flex: 1 }}>
-        <Typography
-          variant="body2"
-          sx={{
-            fontWeight: isAcknowledged ? 400 : 600,
-            color: '#fff',
-            overflow: 'hidden',
-            display: '-webkit-box',
-            WebkitLineClamp: 2,
-            WebkitBoxOrient: 'vertical',
-            fontSize: '0.8rem',
-            lineHeight: 1.4,
-          }}
-        >
-          {event.spec_task_name || event.spec_task_id}
-        </Typography>
-        <Typography
-          variant="caption"
-          sx={{
-            color: 'rgba(255,255,255,0.65)',
-            display: 'block',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
-            fontSize: '0.72rem',
-            lineHeight: 1.3,
-            mt: 0.25,
-          }}
-        >
-          {groupedWith ? 'Spec ready & agent finished' : event.title} · {event.project_name || event.project_id}
-        </Typography>
-      </Box>
+      <Tooltip
+        title={
+          <span style={{ whiteSpace: 'pre-wrap' }}>
+            {event.spec_task_name || event.spec_task_id || ''}
+            {'\n'}
+            {groupedWith ? 'Spec ready & agent finished' : event.title}
+          </span>
+        }
+        placement="left"
+        enterDelay={500}
+        arrow
+      >
+        <Box sx={{ minWidth: 0, flex: 1 }}>
+          <Typography
+            variant="body2"
+            sx={{
+              fontWeight: isAcknowledged ? 400 : 600,
+              color: '#fff',
+              overflow: 'hidden',
+              display: '-webkit-box',
+              WebkitLineClamp: 2,
+              WebkitBoxOrient: 'vertical',
+              fontSize: '0.8rem',
+              lineHeight: 1.4,
+            }}
+          >
+            {event.spec_task_name || event.spec_task_id}
+          </Typography>
+          <Typography
+            variant="caption"
+            sx={{
+              color: 'rgba(255,255,255,0.65)',
+              display: 'block',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+              fontSize: '0.72rem',
+              lineHeight: 1.3,
+              mt: 0.25,
+            }}
+          >
+            {groupedWith ? 'Spec ready & agent finished' : event.title} · {event.project_name || event.project_id}
+          </Typography>
+        </Box>
+      </Tooltip>
       <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.65rem', whiteSpace: 'nowrap', flexShrink: 0 }}>
         {timeAgo(event.created_at)}
       </Typography>
@@ -283,11 +296,16 @@ const AttentionEventItem: React.FC<{
 
 const PANEL_WIDTH = 360
 
+const FILTER_STORAGE_KEY = 'attention-filter-mode'
+
 const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange }) => {
   const account = useAccount()
   const api = useApi()
   const lightTheme = useLightTheme()
   const [drawerOpen, setDrawerOpen] = useState(false)
+  const [filterMine, setFilterMine] = useState<boolean>(() => {
+    return localStorage.getItem(FILTER_STORAGE_KEY) === 'mine'
+  })
   const styleRef = useRef<HTMLStyleElement | null>(null)
 
   // Inject a global <style> that pushes <main> content when panel is open.
@@ -320,7 +338,7 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
     dismiss,
     snooze,
     dismissAll,
-  } = useAttentionEvents()
+  } = useAttentionEvents(true, filterMine)
 
   const {
     shouldPrompt,
@@ -331,21 +349,40 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
     fireNotification,
   } = useBrowserNotifications()
 
-  // Fire browser notifications for genuinely new events
+  // Fire browser notifications for genuinely new events, grouped the same way
+  // the panel UI groups them — so specs_pushed + agent_interaction_completed
+  // for the same task produce a single notification, not two.
   useEffect(() => {
     if (!browserNotifEnabled || newEvents.length === 0) return
-    for (const event of newEvents) {
-      fireNotification(
-        event.id,
-        `Helix: ${event.title}`,
-        `${event.spec_task_name || ''} · ${event.project_name || ''}`,
-        () => {
-          account.orgNavigate('project-task-detail', {
-            id: event.project_id,
-            taskId: event.spec_task_id,
-          })
-        },
-      )
+    const groups = deduplicateGroupsByTask(groupEvents(newEvents))
+    for (const group of groups) {
+      if (group.kind === 'grouped') {
+        const { primary } = group
+        fireNotification(
+          primary.id,
+          'Helix: Spec ready & agent finished',
+          `${primary.spec_task_name || ''} · ${primary.project_name || ''}`,
+          () => {
+            account.orgNavigate('project-task-detail', {
+              id: primary.project_id,
+              taskId: primary.spec_task_id,
+            })
+          },
+        )
+      } else {
+        const { event } = group
+        fireNotification(
+          event.id,
+          `Helix: ${event.title}`,
+          `${event.spec_task_name || ''} · ${event.project_name || ''}`,
+          () => {
+            account.orgNavigate('project-task-detail', {
+              id: event.project_id,
+              taskId: event.spec_task_id,
+            })
+          },
+        )
+      }
     }
   }, [newEvents, browserNotifEnabled, fireNotification, account])
 
@@ -404,6 +441,14 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
   const handleDismissNotificationBanner = useCallback(() => {
     setOptOut(true)
   }, [setOptOut])
+
+  const handleToggleFilter = useCallback(() => {
+    setFilterMine(prev => {
+      const next = !prev
+      localStorage.setItem(FILTER_STORAGE_KEY, next ? 'mine' : 'all')
+      return next
+    })
+  }, [])
 
   const groups = deduplicateGroupsByTask(groupEvents(events))
 
@@ -514,6 +559,41 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
                 {totalCount}
               </Box>
             )}
+            {/* Mine / All toggle */}
+            <Box
+              onClick={handleToggleFilter}
+              sx={{
+                display: 'flex',
+                alignItems: 'center',
+                borderRadius: '10px',
+                border: '1px solid rgba(255,255,255,0.1)',
+                overflow: 'hidden',
+                cursor: 'pointer',
+                fontSize: '0.62rem',
+                userSelect: 'none',
+              }}
+            >
+              {(['mine', 'all'] as const).map(mode => (
+                <Box
+                  key={mode}
+                  sx={{
+                    px: 0.75,
+                    py: 0.25,
+                    fontWeight: 600,
+                    textTransform: 'capitalize',
+                    color: (filterMine ? mode === 'mine' : mode === 'all')
+                      ? '#fff'
+                      : 'rgba(255,255,255,0.35)',
+                    backgroundColor: (filterMine ? mode === 'mine' : mode === 'all')
+                      ? 'rgba(255,255,255,0.12)'
+                      : 'transparent',
+                    transition: 'background-color 0.15s ease, color 0.15s ease',
+                  }}
+                >
+                  {mode}
+                </Box>
+              ))}
+            </Box>
           </Box>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25 }}>
             {totalCount > 0 && (

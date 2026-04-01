@@ -8278,6 +8278,63 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/projects/apply": {
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Idempotent upsert of a project from a declarative YAML spec",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Projects"
+                ],
+                "summary": "Apply a project YAML",
+                "parameters": [
+                    {
+                        "description": "Project apply request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.ProjectApplyRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.ProjectApplyResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/projects/quick-create": {
             "post": {
                 "security": [
@@ -10126,6 +10183,73 @@ const docTemplate = `{
                     },
                     "401": {
                         "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/prompt-history/{id}": {
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Soft-deletes a prompt history entry so it is removed from the queue and no longer synced to clients",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "PromptHistory"
+                ],
+                "summary": "Delete a prompt history entry",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Prompt ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "boolean"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
                         "schema": {
                             "$ref": "#/definitions/system.HTTPError"
                         }
@@ -18056,6 +18180,17 @@ const docTemplate = `{
                 }
             }
         },
+        "server.BatchTaskUsageMetric": {
+            "type": "object",
+            "properties": {
+                "date": {
+                    "type": "string"
+                },
+                "total_tokens": {
+                    "type": "integer"
+                }
+            }
+        },
         "server.BatchTaskUsageResponse": {
             "type": "object",
             "properties": {
@@ -18068,7 +18203,7 @@ const docTemplate = `{
                     "additionalProperties": {
                         "type": "array",
                         "items": {
-                            "$ref": "#/definitions/types.AggregatedUsageMetric"
+                            "$ref": "#/definitions/server.BatchTaskUsageMetric"
                         }
                     }
                 }
@@ -25603,8 +25738,23 @@ const docTemplate = `{
                         }
                     ]
                 },
+                "startup_install": {
+                    "description": "Startup commands from declarative project YAML (persisted) - DEPRECATED\nUse StartupScriptYAML instead. Kept for backward compatibility.",
+                    "type": "string"
+                },
                 "startup_script": {
                     "description": "Transient field - loaded from primary code repo's .helix/startup.sh, never persisted to database",
+                    "type": "string"
+                },
+                "startup_script_from_yaml": {
+                    "description": "StartupScriptFromYAML indicates the startup script was set via project YAML\nWhen true, the UI should show the script as read-only",
+                    "type": "boolean"
+                },
+                "startup_script_yaml": {
+                    "description": "StartupScriptYAML is the startup script content from project YAML (persisted)\nThis is the source of truth when StartupScriptFromYAML is true.\nAt runtime, helix-specs/.helix/startup.sh takes precedence if it exists,\notherwise this field is used as fallback.",
+                    "type": "string"
+                },
+                "startup_start": {
                     "type": "string"
                 },
                 "stats": {
@@ -25629,6 +25779,92 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "user_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.ProjectAgentDisplay": {
+            "type": "object",
+            "properties": {
+                "desktop_type": {
+                    "description": "Desktop environment: \"ubuntu\" (default GNOME) or \"sway\"",
+                    "type": "string"
+                },
+                "fps": {
+                    "description": "Display refresh rate in Hz (default 60)",
+                    "type": "integer"
+                },
+                "resolution": {
+                    "description": "Resolution preset: \"1080p\" (default), \"4k\", or \"5k\"",
+                    "type": "string"
+                }
+            }
+        },
+        "types.ProjectAgentSpec": {
+            "type": "object",
+            "properties": {
+                "credentials": {
+                    "type": "string"
+                },
+                "display": {
+                    "$ref": "#/definitions/types.ProjectAgentDisplay"
+                },
+                "model": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "provider": {
+                    "type": "string"
+                },
+                "runtime": {
+                    "type": "string"
+                },
+                "tools": {
+                    "$ref": "#/definitions/types.ProjectAgentTools"
+                }
+            }
+        },
+        "types.ProjectAgentTools": {
+            "type": "object",
+            "properties": {
+                "browser": {
+                    "type": "boolean"
+                },
+                "calculator": {
+                    "type": "boolean"
+                },
+                "web_search": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "types.ProjectApplyRequest": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string"
+                },
+                "organization_id": {
+                    "type": "string"
+                },
+                "spec": {
+                    "$ref": "#/definitions/types.ProjectSpec"
+                }
+            }
+        },
+        "types.ProjectApplyResponse": {
+            "type": "object",
+            "properties": {
+                "agent_app_id": {
+                    "type": "string"
+                },
+                "created": {
+                    "description": "true if created, false if updated",
+                    "type": "boolean"
+                },
+                "project_id": {
                     "type": "string"
                 }
             }
@@ -25733,6 +25969,14 @@ const docTemplate = `{
                 }
             }
         },
+        "types.ProjectKanban": {
+            "type": "object",
+            "properties": {
+                "wip_limits": {
+                    "$ref": "#/definitions/types.ProjectWIPLimits"
+                }
+            }
+        },
         "types.ProjectMetadata": {
             "type": "object",
             "properties": {
@@ -25744,6 +25988,89 @@ const docTemplate = `{
                 },
                 "docker_cache_status": {
                     "$ref": "#/definitions/types.DockerCacheState"
+                }
+            }
+        },
+        "types.ProjectRepositorySpec": {
+            "type": "object",
+            "properties": {
+                "default_branch": {
+                    "type": "string"
+                },
+                "primary": {
+                    "type": "boolean"
+                },
+                "url": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.ProjectSpec": {
+            "type": "object",
+            "properties": {
+                "agent": {
+                    "$ref": "#/definitions/types.ProjectAgentSpec"
+                },
+                "auto_start_backlog_tasks": {
+                    "type": "boolean"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "guidelines": {
+                    "type": "string"
+                },
+                "kanban": {
+                    "$ref": "#/definitions/types.ProjectKanban"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "repositories": {
+                    "description": "Multi-repo list",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.ProjectRepositorySpec"
+                    }
+                },
+                "repository": {
+                    "description": "Singular shorthand",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.ProjectRepositorySpec"
+                        }
+                    ]
+                },
+                "startup": {
+                    "$ref": "#/definitions/types.ProjectStartup"
+                },
+                "tasks": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.ProjectTaskSpec"
+                    }
+                },
+                "technologies": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "types.ProjectStartup": {
+            "type": "object",
+            "properties": {
+                "install": {
+                    "description": "Install and Start are deprecated - use Script instead\nKept for backward compatibility with existing YAML files",
+                    "type": "string"
+                },
+                "script": {
+                    "description": "Script is the unified startup script content (preferred)",
+                    "type": "string"
+                },
+                "start": {
+                    "type": "string"
                 }
             }
         },
@@ -25773,6 +26100,17 @@ const docTemplate = `{
                 },
                 "total_tasks": {
                     "type": "integer"
+                }
+            }
+        },
+        "types.ProjectTaskSpec": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "title": {
+                    "type": "string"
                 }
             }
         },
@@ -25846,6 +26184,20 @@ const docTemplate = `{
                 }
             }
         },
+        "types.ProjectWIPLimits": {
+            "type": "object",
+            "properties": {
+                "implementation": {
+                    "type": "integer"
+                },
+                "planning": {
+                    "type": "integer"
+                },
+                "review": {
+                    "type": "integer"
+                }
+            }
+        },
         "types.PromptHistoryEntry": {
             "type": "object",
             "properties": {
@@ -25855,6 +26207,10 @@ const docTemplate = `{
                 },
                 "created_at": {
                     "description": "Timestamps",
+                    "type": "string"
+                },
+                "deleted_at": {
+                    "description": "Soft-delete: non-nil means user removed from queue",
                     "type": "string"
                 },
                 "id": {
@@ -26982,6 +27338,10 @@ const docTemplate = `{
                     "description": "GPU configuration",
                     "type": "string"
                 },
+                "helix_version": {
+                    "description": "Helix version running on this sandbox (git commit hash or release version)",
+                    "type": "string"
+                },
                 "privileged_mode_enabled": {
                     "description": "Privileged mode (host Docker access for development)",
                     "type": "boolean"
@@ -27011,6 +27371,10 @@ const docTemplate = `{
                 },
                 "gpu_vendor": {
                     "description": "GPU configuration",
+                    "type": "string"
+                },
+                "helix_version": {
+                    "description": "Helix version running on this sandbox (git commit hash or release version)",
                     "type": "string"
                 },
                 "hostname": {

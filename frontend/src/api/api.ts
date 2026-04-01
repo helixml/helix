@@ -660,10 +660,15 @@ export interface ServerBatchTaskProgressResponse {
   tasks?: Record<string, ServerTaskProgressResponse>;
 }
 
+export interface ServerBatchTaskUsageMetric {
+  date?: string;
+  total_tokens?: number;
+}
+
 export interface ServerBatchTaskUsageResponse {
   project_id?: string;
   /** keyed by task_id */
-  tasks?: Record<string, TypesAggregatedUsageMetric[]>;
+  tasks?: Record<string, ServerBatchTaskUsageMetric[]>;
 }
 
 export interface ServerClaudeLoginSessionResponse {
@@ -3800,8 +3805,26 @@ export interface TypesProject {
    * Useful for project-specific tools like CI integration (e.g., drone-ci-mcp)
    */
   skills?: TypesAssistantSkills;
+  /**
+   * Startup commands from declarative project YAML (persisted) - DEPRECATED
+   * Use StartupScriptYAML instead. Kept for backward compatibility.
+   */
+  startup_install?: string;
   /** Transient field - loaded from primary code repo's .helix/startup.sh, never persisted to database */
   startup_script?: string;
+  /**
+   * StartupScriptFromYAML indicates the startup script was set via project YAML
+   * When true, the UI should show the script as read-only
+   */
+  startup_script_from_yaml?: boolean;
+  /**
+   * StartupScriptYAML is the startup script content from project YAML (persisted)
+   * This is the source of truth when StartupScriptFromYAML is true.
+   * At runtime, helix-specs/.helix/startup.sh takes precedence if it exists,
+   * otherwise this field is used as fallback.
+   */
+  startup_script_yaml?: string;
+  startup_start?: string;
   /** Computed */
   stats?: TypesProjectStats;
   /** "active", "archived", "completed" */
@@ -3809,6 +3832,44 @@ export interface TypesProject {
   technologies?: string[];
   updated_at?: string;
   user_id?: string;
+}
+
+export interface TypesProjectAgentDisplay {
+  /** Desktop environment: "ubuntu" (default GNOME) or "sway" */
+  desktop_type?: string;
+  /** Display refresh rate in Hz (default 60) */
+  fps?: number;
+  /** Resolution preset: "1080p" (default), "4k", or "5k" */
+  resolution?: string;
+}
+
+export interface TypesProjectAgentSpec {
+  credentials?: string;
+  display?: TypesProjectAgentDisplay;
+  model?: string;
+  name?: string;
+  provider?: string;
+  runtime?: string;
+  tools?: TypesProjectAgentTools;
+}
+
+export interface TypesProjectAgentTools {
+  browser?: boolean;
+  calculator?: boolean;
+  web_search?: boolean;
+}
+
+export interface TypesProjectApplyRequest {
+  name?: string;
+  organization_id?: string;
+  spec?: TypesProjectSpec;
+}
+
+export interface TypesProjectApplyResponse {
+  agent_app_id?: string;
+  /** true if created, false if updated */
+  created?: boolean;
+  project_id?: string;
 }
 
 export interface TypesProjectAuditLog {
@@ -3847,10 +3908,47 @@ export interface TypesProjectCreateRequest {
   technologies?: string[];
 }
 
+export interface TypesProjectKanban {
+  wip_limits?: TypesProjectWIPLimits;
+}
+
 export interface TypesProjectMetadata {
   auto_warm_docker_cache?: boolean;
   board_settings?: TypesBoardSettings;
   docker_cache_status?: TypesDockerCacheState;
+}
+
+export interface TypesProjectRepositorySpec {
+  default_branch?: string;
+  primary?: boolean;
+  url?: string;
+}
+
+export interface TypesProjectSpec {
+  agent?: TypesProjectAgentSpec;
+  auto_start_backlog_tasks?: boolean;
+  description?: string;
+  guidelines?: string;
+  kanban?: TypesProjectKanban;
+  name?: string;
+  /** Multi-repo list */
+  repositories?: TypesProjectRepositorySpec[];
+  /** Singular shorthand */
+  repository?: TypesProjectRepositorySpec;
+  startup?: TypesProjectStartup;
+  tasks?: TypesProjectTaskSpec[];
+  technologies?: string[];
+}
+
+export interface TypesProjectStartup {
+  /**
+   * Install and Start are deprecated - use Script instead
+   * Kept for backward compatibility with existing YAML files
+   */
+  install?: string;
+  /** Script is the unified startup script content (preferred) */
+  script?: string;
+  start?: string;
 }
 
 export interface TypesProjectStats {
@@ -3862,6 +3960,11 @@ export interface TypesProjectStats {
   pending_review_tasks?: number;
   planning_tasks?: number;
   total_tasks?: number;
+}
+
+export interface TypesProjectTaskSpec {
+  description?: string;
+  title?: string;
 }
 
 export interface TypesProjectUpdateRequest {
@@ -3891,11 +3994,19 @@ export interface TypesProjectUpdateRequest {
   technologies?: string[];
 }
 
+export interface TypesProjectWIPLimits {
+  implementation?: number;
+  planning?: number;
+  review?: number;
+}
+
 export interface TypesPromptHistoryEntry {
   /** Content */
   content?: string;
   /** Timestamps */
   created_at?: string;
+  /** Soft-delete: non-nil means user removed from queue */
+  deleted_at?: string;
   /** Composite primary key: ID is globally unique, but we also index by user+spec_task */
   id?: string;
   /**
@@ -4368,6 +4479,8 @@ export interface TypesSandboxHeartbeatRequest {
   disk_usage?: TypesDiskUsageMetric[];
   /** GPU configuration */
   gpu_vendor?: string;
+  /** Helix version running on this sandbox (git commit hash or release version) */
+  helix_version?: string;
   /** Privileged mode (host Docker access for development) */
   privileged_mode_enabled?: boolean;
   /** /dev/dri/renderD128 or SOFTWARE */
@@ -4385,6 +4498,8 @@ export interface TypesSandboxInstance {
   desktop_versions?: Record<string, string>;
   /** GPU configuration */
   gpu_vendor?: string;
+  /** Helix version running on this sandbox (git commit hash or release version) */
+  helix_version?: string;
   /** Hostname for DNS resolution */
   hostname?: string;
   id?: string;
@@ -10704,6 +10819,26 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Idempotent upsert of a project from a declarative YAML spec
+     *
+     * @tags Projects
+     * @name V1ProjectsApplyUpdate
+     * @summary Apply a project YAML
+     * @request PUT:/api/v1/projects/apply
+     * @secure
+     */
+    v1ProjectsApplyUpdate: (request: TypesProjectApplyRequest, params: RequestParams = {}) =>
+      this.request<TypesProjectApplyResponse, SystemHTTPError>({
+        path: `/api/v1/projects/apply`,
+        method: "PUT",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Create a minimal project for a repository that doesn't have one
      *
      * @tags Projects
@@ -10753,6 +10888,24 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         query: query,
         secure: true,
         type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Soft-deletes a prompt history entry so it is removed from the queue and no longer synced to clients
+     *
+     * @tags PromptHistory
+     * @name V1PromptHistoryDelete
+     * @summary Delete a prompt history entry
+     * @request DELETE:/api/v1/prompt-history/{id}
+     * @secure
+     */
+    v1PromptHistoryDelete: (id: string, params: RequestParams = {}) =>
+      this.request<Record<string, boolean>, SystemHTTPError>({
+        path: `/api/v1/prompt-history/${id}`,
+        method: "DELETE",
+        secure: true,
         format: "json",
         ...params,
       }),

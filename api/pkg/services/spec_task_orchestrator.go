@@ -690,7 +690,7 @@ func (o *SpecTaskOrchestrator) processExternalPullRequestStatus(ctx context.Cont
 			anyOpen = true
 			allMerged = false
 			allClosed = false
-			log.Debug().
+			log.Trace().
 				Str("task_id", task.ID).
 				Str("repo_id", repoPR.RepositoryID).
 				Str("pr_id", repoPR.PRID).
@@ -922,40 +922,42 @@ func (o *SpecTaskOrchestrator) checkTaskForExternalPRActivity(ctx context.Contex
 		return fmt.Errorf("failed to get project: %w", err)
 	}
 
-	if project.DefaultRepoID == "" {
-		return nil // No repo to check
-	}
-
-	repo, err := o.gitService.GetRepository(ctx, project.DefaultRepoID)
+	// Check ALL project repos for PR activity, not just the default.
+	// Tasks may only have PRs in secondary repos (e.g., Zed repo).
+	allRepos, err := o.store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
+		ProjectID: project.ID,
+	})
 	if err != nil {
-		return fmt.Errorf("failed to get repository: %w", err)
+		return fmt.Errorf("failed to list project repositories: %w", err)
 	}
 
-	// Only check external repos - internal repos use git hooks for merge detection
-	if !repo.IsExternal {
-		return nil
-	}
+	branchRef := "refs/heads/" + task.BranchName
 
-	// First: check for open PRs on this branch
-	prs, err := o.gitService.ListPullRequests(ctx, project.DefaultRepoID)
-	if err != nil {
-		log.Debug().Err(err).Str("repo_id", project.DefaultRepoID).Msg("Failed to list PRs, skipping")
-		// Don't return error - PR listing might fail for various reasons
-	} else {
-		branchRef := "refs/heads/" + task.BranchName
+	for _, repo := range allRepos {
+		if !repo.IsExternal || repo.ExternalURL == "" {
+			continue
+		}
+
+		// Check for open or merged PRs on this branch
+		prs, err := o.gitService.ListPullRequests(ctx, repo.ID)
+		if err != nil {
+			log.Debug().Err(err).Str("repo_id", repo.ID).Msg("Failed to list PRs, skipping repo")
+			continue
+		}
+
 		for _, pr := range prs {
+			branchMatches := pr.SourceBranch == branchRef || pr.SourceBranch == task.BranchName
+
 			// Check if PR is open and matches our branch
-			if pr.State == types.PullRequestStateOpen &&
-				(pr.SourceBranch == branchRef || pr.SourceBranch == task.BranchName) {
-				// Found an open PR - link it and transition to pull_request status
+			if pr.State == types.PullRequestStateOpen && branchMatches {
 				log.Info().
 					Str("task_id", task.ID).
 					Str("pr_id", pr.ID).
 					Str("pr_title", pr.Title).
 					Str("branch", task.BranchName).
+					Str("repo_name", repo.Name).
 					Msg("Detected externally-opened PR, moving task to pull_request status")
 
-				// Add to RepoPullRequests
 				task.RepoPullRequests = append(task.RepoPullRequests, types.RepoPR{
 					RepositoryID:   repo.ID,
 					RepositoryName: repo.Name,
@@ -970,7 +972,6 @@ func (o *SpecTaskOrchestrator) checkTaskForExternalPRActivity(ctx context.Contex
 					return err
 				}
 
-				// Emit pr_ready attention event
 				if o.attentionService != nil {
 					go func(t *types.SpecTask, prID string, prURL string) {
 						_, emitErr := o.attentionService.EmitEvent(
@@ -994,17 +995,15 @@ func (o *SpecTaskOrchestrator) checkTaskForExternalPRActivity(ctx context.Contex
 			}
 
 			// Check if PR is already merged
-			if pr.State == types.PullRequestStateMerged &&
-				(pr.SourceBranch == branchRef || pr.SourceBranch == task.BranchName) {
-				// PR was merged - transition to done
+			if pr.State == types.PullRequestStateMerged && branchMatches {
 				log.Info().
 					Str("task_id", task.ID).
 					Str("pr_id", pr.ID).
 					Str("branch", task.BranchName).
+					Str("repo_name", repo.Name).
 					Msg("Detected merged PR, moving task to done status")
 
 				now := time.Now()
-				// Add to RepoPullRequests
 				task.RepoPullRequests = append(task.RepoPullRequests, types.RepoPR{
 					RepositoryID:   repo.ID,
 					RepositoryName: repo.Name,
@@ -1023,35 +1022,29 @@ func (o *SpecTaskOrchestrator) checkTaskForExternalPRActivity(ctx context.Contex
 		}
 	}
 
-	// Second: check if branch has been merged to main (handles cases where PR was
-	// squash-merged or branch was deleted after merge)
-	// First try using the branch name
-	log.Info().
-		Str("task_id", task.ID).
-		Str("branch", task.BranchName).
-		Str("target", repo.DefaultBranch).
-		Str("repo_id", project.DefaultRepoID).
-		Msg("Checking if branch is merged into main")
+	// Fallback: check if branch has been merged to main in the primary repo
+	// (handles squash-merges or branch deletion after merge)
+	if project.DefaultRepoID == "" {
+		return nil
+	}
+	repo, err := o.gitService.GetRepository(ctx, project.DefaultRepoID)
+	if err != nil {
+		return fmt.Errorf("failed to get default repository: %w", err)
+	}
+	if !repo.IsExternal {
+		return nil
+	}
+
 	merged, err := o.gitService.IsBranchMerged(ctx, project.DefaultRepoID, task.BranchName, repo.DefaultBranch)
 	if err != nil {
-		// Branch might not exist locally - try using LastPushCommitHash if available
 		if task.LastPushCommitHash != "" {
 			merged, err = o.gitService.IsCommitInBranch(ctx, project.DefaultRepoID, task.LastPushCommitHash, repo.DefaultBranch)
 			if err != nil {
-				log.Debug().
-					Err(err).
-					Str("task_id", task.ID).
-					Str("commit", task.LastPushCommitHash).
-					Msg("Failed to check if commit is in main branch")
-				return nil // Don't break polling
+				log.Debug().Err(err).Str("task_id", task.ID).Msg("Failed to check if commit is in main branch")
+				return nil
 			}
 		} else {
-			log.Debug().
-				Err(err).
-				Str("task_id", task.ID).
-				Str("branch", task.BranchName).
-				Msg("Failed to check if branch is merged and no LastPushCommitHash available")
-			return nil // Don't break polling
+			return nil
 		}
 	}
 

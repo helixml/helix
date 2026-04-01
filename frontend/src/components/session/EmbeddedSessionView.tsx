@@ -235,11 +235,14 @@ const EmbeddedSessionView = forwardRef<
   );
 
   // Fetch session data with auto-refresh
+  // 3s keeps chat responsive when agent is active. React Query deduplicates
+  // this with other useGetSession consumers (e.g. useSandboxState), and ETags
+  // mean most responses are 304 (zero bytes) when nothing has changed.
   const { data: sessionResponse, refetch: refetchSession } = useGetSession(
     sessionId,
     {
       enabled: !!sessionId,
-      refetchInterval: 2000,
+      refetchInterval: 3000,
     },
   );
 

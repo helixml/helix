@@ -1334,6 +1334,20 @@ func (mr *MockStoreMockRecorder) DeleteInteraction(ctx, id any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteInteraction", reflect.TypeOf((*MockStore)(nil).DeleteInteraction), ctx, id)
 }
 
+// DeletePromptHistoryEntry mocks base method.
+func (m *MockStore) DeletePromptHistoryEntry(ctx context.Context, id string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeletePromptHistoryEntry", ctx, id)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeletePromptHistoryEntry indicates an expected call of DeletePromptHistoryEntry.
+func (mr *MockStoreMockRecorder) DeletePromptHistoryEntry(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeletePromptHistoryEntry", reflect.TypeOf((*MockStore)(nil).DeletePromptHistoryEntry), ctx, id)
+}
+
 // DeleteKnowledge mocks base method.
 func (m *MockStore) DeleteKnowledge(ctx context.Context, id string) error {
 	m.ctrl.T.Helper()
@@ -2401,6 +2415,21 @@ func (m *MockStore) GetGitRepository(ctx context.Context, id string) (*types.Git
 func (mr *MockStoreMockRecorder) GetGitRepository(ctx, id any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetGitRepository", reflect.TypeOf((*MockStore)(nil).GetGitRepository), ctx, id)
+}
+
+// GetGitRepositoryByExternalURL mocks base method.
+func (m *MockStore) GetGitRepositoryByExternalURL(ctx context.Context, orgID, externalURL string) (*types.GitRepository, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetGitRepositoryByExternalURL", ctx, orgID, externalURL)
+	ret0, _ := ret[0].(*types.GitRepository)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetGitRepositoryByExternalURL indicates an expected call of GetGitRepositoryByExternalURL.
+func (mr *MockStoreMockRecorder) GetGitRepositoryByExternalURL(ctx, orgID, externalURL any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetGitRepositoryByExternalURL", reflect.TypeOf((*MockStore)(nil).GetGitRepositoryByExternalURL), ctx, orgID, externalURL)
 }
 
 // GetInteraction mocks base method.
@@ -3738,18 +3767,18 @@ func (mr *MockStoreMockRecorder) ListApps(ctx, q any) *gomock.Call {
 }
 
 // ListAttentionEvents mocks base method.
-func (m *MockStore) ListAttentionEvents(ctx context.Context, userID, organizationID string) ([]*types.AttentionEvent, error) {
+func (m *MockStore) ListAttentionEvents(ctx context.Context, userID, organizationID string, filters types.AttentionEventFilters) ([]*types.AttentionEvent, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListAttentionEvents", ctx, userID, organizationID)
+	ret := m.ctrl.Call(m, "ListAttentionEvents", ctx, userID, organizationID, filters)
 	ret0, _ := ret[0].([]*types.AttentionEvent)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // ListAttentionEvents indicates an expected call of ListAttentionEvents.
-func (mr *MockStoreMockRecorder) ListAttentionEvents(ctx, userID, organizationID any) *gomock.Call {
+func (mr *MockStoreMockRecorder) ListAttentionEvents(ctx, userID, organizationID, filters any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListAttentionEvents", reflect.TypeOf((*MockStore)(nil).ListAttentionEvents), ctx, userID, organizationID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListAttentionEvents", reflect.TypeOf((*MockStore)(nil).ListAttentionEvents), ctx, userID, organizationID, filters)
 }
 
 // ListClaudeSubscriptions mocks base method.
@@ -3885,6 +3914,22 @@ func (m *MockStore) ListGuidelinesHistory(ctx context.Context, organizationID, p
 func (mr *MockStoreMockRecorder) ListGuidelinesHistory(ctx, organizationID, projectID, userID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListGuidelinesHistory", reflect.TypeOf((*MockStore)(nil).ListGuidelinesHistory), ctx, organizationID, projectID, userID)
+}
+
+// GetInteractionsSummary mocks base method.
+func (m *MockStore) GetInteractionsSummary(ctx context.Context, sessionID string, generationID int) (int64, time.Time, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetInteractionsSummary", ctx, sessionID, generationID)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(time.Time)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// GetInteractionsSummary indicates an expected call of GetInteractionsSummary.
+func (mr *MockStoreMockRecorder) GetInteractionsSummary(ctx, sessionID, generationID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetInteractionsSummary", reflect.TypeOf((*MockStore)(nil).GetInteractionsSummary), ctx, sessionID, generationID)
 }
 
 // ListInteractions mocks base method.
@@ -4368,6 +4413,21 @@ func (m *MockStore) ListSessionsBySandbox(ctx context.Context, sandboxID string)
 func (mr *MockStoreMockRecorder) ListSessionsBySandbox(ctx, sandboxID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListSessionsBySandbox", reflect.TypeOf((*MockStore)(nil).ListSessionsBySandbox), ctx, sandboxID)
+}
+
+// ListIdleDesktops mocks base method.
+func (m *MockStore) ListIdleDesktops(ctx context.Context, idleSince time.Time) ([]*types.Session, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListIdleDesktops", ctx, idleSince)
+	ret0, _ := ret[0].([]*types.Session)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListIdleDesktops indicates an expected call of ListIdleDesktops.
+func (mr *MockStoreMockRecorder) ListIdleDesktops(ctx, idleSince any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListIdleDesktops", reflect.TypeOf((*MockStore)(nil).ListIdleDesktops), ctx, idleSince)
 }
 
 // ListSlots mocks base method.

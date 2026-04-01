@@ -23,7 +23,12 @@ var knowledgeSkillParameters = jsonschema.Definition{
 	Required: []string{"query"},
 }
 
-func NewKnowledgeSkill(ragClient rag.RAG, knowledge *types.Knowledge, documentIDs []string) agent.Skill {
+// RAGResultsCollector is a callback that receives RAG results from knowledge queries.
+// It is called each time a knowledge query executes, allowing the controller to
+// accumulate results for session metadata (citations).
+type RAGResultsCollector func(results []*types.SessionRAGResult)
+
+func NewKnowledgeSkill(ragClient rag.RAG, knowledge *types.Knowledge, documentIDs []string, resultsCollector RAGResultsCollector) agent.Skill {
 	description := knowledge.Description
 	if description == "" {
 		description = "Search the '" + knowledge.Name + "' knowledge base."
@@ -36,21 +41,23 @@ func NewKnowledgeSkill(ragClient rag.RAG, knowledge *types.Knowledge, documentID
 		// SystemPrompt: "", // NOTE: This is not used by the agent. It does not work.
 		Tools: []agent.Tool{
 			&KnowledgeQueryTool{
-				toolName:    "KnowledgeQuery",
-				description: description,
-				ragClient:   ragClient,
-				knowledge:   knowledge,
-				documentIDs: documentIDs,
+				toolName:         "KnowledgeQuery",
+				description:      description,
+				ragClient:        ragClient,
+				knowledge:        knowledge,
+				documentIDs:      documentIDs,
+				resultsCollector: resultsCollector,
 			}},
 	}
 }
 
 type KnowledgeQueryTool struct {
-	toolName    string
-	description string
-	ragClient   rag.RAG
-	knowledge   *types.Knowledge
-	documentIDs []string // Filter by document IDs
+	toolName         string
+	description      string
+	ragClient        rag.RAG
+	knowledge        *types.Knowledge
+	documentIDs      []string // Filter by document IDs
+	resultsCollector RAGResultsCollector
 }
 
 var _ agent.Tool = &KnowledgeQueryTool{}
@@ -115,25 +122,32 @@ func (t *KnowledgeQueryTool) Execute(ctx context.Context, _ agent.Meta, args map
 		return "", fmt.Errorf("error querying RAG for knowledge %s: %w", t.knowledge.ID, err)
 	}
 
+	if t.resultsCollector != nil {
+		t.resultsCollector(results)
+	}
+
 	return formatKnowledgeSearchResponse(results), nil
 }
 
-// formatKnowledgeSearchResponse formats the results into a text with just Source and Content fields. Each section is separated by an empty line
-//
-// Source: <URL>
-// Content: <Content>
-// ...
-// Source: <URL>
-// Content: <Content>
-
+// formatKnowledgeSearchResponse formats RAG results as chunks with document IDs,
+// content boundary markers, and citation formatting instructions. The formatting
+// instructions are here (not in the system prompt) because they need to be proximate
+// to the data for the LLM to follow them reliably.
 func formatKnowledgeSearchResponse(results []*types.SessionRAGResult) string {
 	if len(results) == 0 {
 		return "No results found"
 	}
 	var buf bytes.Buffer
 	for _, result := range results {
-		buf.WriteString(fmt.Sprintf("Source: %s\nContent: %s\n\n", result.Source, result.Content))
+		buf.WriteString(fmt.Sprintf("<chunk>\n  <document_id>%s</document_id>\n  <content>\n    ### START OF CONTENT FOR DOCUMENT %s ###\n    %s\n    ### END OF CONTENT FOR DOCUMENT %s ###\n  </content>\n</chunk>\n",
+			result.DocumentID, result.DocumentID, result.Content, result.DocumentID))
 	}
+
+	buf.WriteString("\nProvide references in your answer in the format `[DOC_ID:DocumentID]`. " +
+		"For example, \"According to [DOC_ID:f6962c8007], the answer is 42.\"\n\n" +
+		"After your answer, write an excerpts block with an exact quote from each cited document:\n\n" +
+		"<excerpts>\n  <excerpt>\n    <document_id>DocumentID</document_id>\n    <snippet>An exact quote from this document</snippet>\n  </excerpt>\n</excerpts>\n\n" +
+		"Each document_id must appear at most once in the excerpts. No header before the excerpts block.")
 
 	return buf.String()
 }

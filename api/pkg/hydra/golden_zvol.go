@@ -421,8 +421,9 @@ func SetupGoldenClone(projectID, sessionID string) (string, error) {
 				Msg("Reusing existing ZFS clone (session restart)")
 			return mountPath, nil
 		}
-		// Clone exists but not mounted — mount it
-		if err := mountZvol(cloneName, mountPath); err != nil {
+		// Clone exists but not mounted (e.g. after reboot) — mount with nouuid
+		// because the clone shares the golden's XFS UUID.
+		if err := mountZvolWithOptions(cloneName, mountPath, "nouuid"); err != nil {
 			return "", fmt.Errorf("failed to mount existing clone %s: %w", cloneName, err)
 		}
 		log.Info().
