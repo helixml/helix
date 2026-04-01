@@ -1864,9 +1864,6 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                     projectId={task.project_id}
                     apiClient={api.getApiClient()}
                     onSend={async (message: string, interrupt?: boolean) => {
-                      if (isDesktopPaused) {
-                        handleStartSession();
-                      }
                       await streaming.NewInference({
                         type: SESSION_TYPE_TEXT,
                         message,
@@ -2630,9 +2627,6 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                       projectId={task.project_id}
                       apiClient={api.getApiClient()}
                       onSend={async (message: string, interrupt?: boolean) => {
-                        if (isDesktopPaused) {
-                          handleStartSession();
-                        }
                         await streaming.NewInference({
                           type: SESSION_TYPE_TEXT,
                           message,
