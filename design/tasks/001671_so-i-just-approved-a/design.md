@@ -1,52 +1,58 @@
 # Design
 
-## Root Cause
+## Fix 1 — Stop `onClose()` from conflicting with `onImplementationStarted()`
 
-`submitDesignReview` in `api/pkg/server/spec_task_design_review_handlers.go` (lines 282–325).
+**File:** `frontend/src/components/spec-tasks/DesignReviewContent.tsx`, `handleSubmitReview` (~line 932)
 
-The `"approve"` switch case (lines 283–288) only updates the `review` object. It never touches `specTask`. Compare with `"request_changes"` (lines 289–321) which updates task status, saves the task, and pings the agent.
-
-## Fix
-
-In the `"approve"` case, after setting review fields, add the same task transition that already exists in `approveImplementation`'s auto-approve branch (lines 80–96 of `spec_task_workflow_handlers.go`):
-
-```go
-case "approve":
-    review.Status = types.SpecTaskDesignReviewStatusApproved
-    now := time.Now()
-    review.ApprovedAt = &now
-    review.OverallComment = req.OverallComment
-
-    // Advance task status
-    specTask.Status = types.TaskStatusSpecApproved
-    specTask.SpecApprovedBy = user.ID
-    specTask.SpecApprovedAt = &now
-    specTask.StatusUpdatedAt = &now
-    if err := s.Store.UpdateSpecTask(ctx, specTask); err != nil {
-        http.Error(w, err.Error(), http.StatusInternalServerError)
-        return
-    }
-    // Kick off implementation asynchronously
-    s.wg.Add(1)
-    go func() {
-        defer s.wg.Done()
-        if err := s.specDrivenTaskService.ApproveSpecs(context.Background(), specTask); err != nil {
-            log.Error().Err(err).Str("spec_task_id", specTask.ID).Msg("[DesignReview] Failed to start implementation after approval")
-        }
-    }()
+Currently:
+```typescript
+if (onImplementationStarted) {
+  onImplementationStarted();
+}
+onClose(); // always fires, overrides the navigation from onImplementationStarted
 ```
+
+Fix: skip `onClose()` when `onImplementationStarted` has handled navigation:
+```typescript
+if (onImplementationStarted) {
+  onImplementationStarted();
+  return;
+}
+onClose();
+```
+
+This is the primary fix. `onImplementationStarted` is the caller's signal that it owns post-approval navigation.
+
+## Fix 2 — Mark task as auto-opened before navigating away from the review page
+
+**File:** `frontend/src/pages/SpecTaskReviewPage.tsx`, `handleApproved`
+
+The auto-open guard in `SpecTaskDetailContent` uses sessionStorage key `"helix_auto_opened_spec_tasks"`. If the user came to the review page directly (not via the auto-open flow), this key doesn't contain the task ID, so the guard doesn't fire and the effect redirects them back.
+
+Fix: write the task ID into sessionStorage in `handleApproved` before navigating:
+```typescript
+const handleApproved = () => {
+  // Prevent SpecTaskDetailContent's auto-open effect from redirecting back to review
+  const key = "helix_auto_opened_spec_tasks";
+  const existing = new Set<string>(JSON.parse(sessionStorage.getItem(key) || "[]"));
+  existing.add(taskId);
+  sessionStorage.setItem(key, JSON.stringify([...existing]));
+
+  account.orgNavigate('project-task-detail', { id: projectId, taskId });
+};
+```
+
+Note: also change the destination from `project-specs` to `project-task-detail` — the user wants to see the agent desktop, not the kanban board. The `openTask` param passed to `project-specs` only works in workspace mode (which isn't the default), so the previous navigation landed on kanban with no task visible.
 
 ## Key Files
 
-| File | Purpose |
-|------|---------|
-| `api/pkg/server/spec_task_design_review_handlers.go` | The bug — `approve` case missing task update |
-| `api/pkg/server/spec_task_workflow_handlers.go` | Reference — `approveImplementation` auto-approve branch (lines 74–100) |
-| `api/pkg/services/spec_driven_task_service.go` | `ApproveSpecs()` — triggers implementation |
-| `api/pkg/types/simple_spec_task.go` | `TaskStatusSpecApproved` constant |
+| File | Change |
+|------|--------|
+| `frontend/src/components/spec-tasks/DesignReviewContent.tsx` | Don't call `onClose()` after `onImplementationStarted()` returns |
+| `frontend/src/pages/SpecTaskReviewPage.tsx` | Write task ID to sessionStorage + navigate to `project-task-detail` |
 
 ## Notes
 
-- `SpecApprovedBy`/`SpecApprovedAt` fields may or may not exist on the struct — check `types.SpecTask` before adding them. If they don't exist, just update the status; the `ApproveSpecs()` call is the critical part.
-- The `context.Background()` goroutine pattern is already established in `approveImplementation` — follow the same pattern.
-- No frontend changes needed if the frontend already handles `spec_approved` status correctly.
+- The sessionStorage key `"helix_auto_opened_spec_tasks"` is defined at the top of `SpecTaskDetailContent.tsx` (line 116). Duplicate the write logic in `SpecTaskReviewPage` rather than exporting it — it's two lines of sessionStorage manipulation, not worth an abstraction.
+- The backend `approveSpecs` handler already correctly updates task status to `spec_approved` and kicks off implementation. No backend changes needed.
+- The original bug report mentioned "probably because of a use effect" — that's Fix 2 (`SpecTaskDetailContent` line 844). Fix 1 is the immediate cause that gets the user to the detail page in the first place.

@@ -2,18 +2,32 @@
 
 ## Problem
 
-When a user approves a design review, the task stays in `spec_review` status because the `approve` handler never updates the task status. The orchestrator's `handleSpecReview` is a no-op (returns nil, waits for human action), so the task sits in `spec_review` indefinitely and the UI stays on the design review screen. Implementation never starts.
+When a user approves a design from `SpecTaskReviewPage`, they briefly see the spec detail page and are then immediately bounced back to the spec review page.
 
-The `request_changes` path works correctly: it sets `TaskStatusSpecRevision`, saves the task, and notifies the agent. The `approve` path does none of these things.
+This is a frontend-only navigation bug (the backend correctly updates task status to `spec_approved` via the `approve-specs` call).
 
-## User Stories
+## Root Cause
 
-**As a user approving a design**, I expect the task to advance to implementation after I click Approve — not stay on the design review screen.
+Two bugs interact:
+
+**Bug 1 — conflicting navigation calls in `DesignReviewContent.handleSubmitReview`:**
+
+After approval, it calls `onImplementationStarted()` (which navigates to `project-specs`) and then immediately calls `onClose()` (which navigates to `project-task-detail`). The second navigation wins, sending the user to `project-task-detail`.
+
+**Bug 2 — auto-open `useEffect` in `SpecTaskDetailContent` fires on arrival:**
+
+`SpecTaskDetailContent` (line 844) redirects to spec review whenever:
+- task status is `spec_review` or `spec_revision`, AND
+- the task ID is not in sessionStorage (the "already auto-opened" guard)
+
+If the user navigated directly to the spec review URL (e.g. via a link/email) rather than through the normal auto-open flow, the task ID was never added to sessionStorage. So when they arrive at `project-task-detail` after approving, the effect fires and sends them back to spec review.
+
+## Desired Behavior
+
+After approving a design, the user should stay on the spec detail page (`project-task-detail`) so they can watch the agent begin implementation.
 
 ## Acceptance Criteria
 
-- Approving a design review transitions the task status from `spec_review` → `spec_approved`
-- The task records who approved it (`SpecApprovedBy`, `SpecApprovedAt`)
-- `ApproveSpecs()` is called asynchronously to kick off implementation (same as the auto-approve path in `approveImplementation`)
-- The API response still returns the updated design review object (unchanged)
-- `request_changes` path is unaffected
+- Approving a design review navigates the user to the spec detail page (`project-task-detail`) and keeps them there
+- The auto-open `useEffect` does not redirect back to spec review after an approval
+- Navigating directly to a spec review URL, approving, and being sent to the task detail page all works correctly

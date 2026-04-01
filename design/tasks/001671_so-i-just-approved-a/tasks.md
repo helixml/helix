@@ -1,7 +1,7 @@
 # Implementation Tasks
 
-- [ ] Check `types.SpecTask` struct for `SpecApprovedBy`/`SpecApprovedAt` fields
-- [ ] In `submitDesignReview` `"approve"` case: update `specTask.Status = TaskStatusSpecApproved`, set approval metadata, call `s.Store.UpdateSpecTask()`
-- [ ] In `submitDesignReview` `"approve"` case: launch goroutine calling `s.specDrivenTaskService.ApproveSpecs()` (same pattern as `approveImplementation` auto-approve branch)
-- [ ] Build and verify: `go build ./pkg/server/ ./pkg/types/`
-- [ ] End-to-end test: approve a design review in the inner Helix UI and confirm the task advances to `spec_approved` / implementation
+- [ ] In `DesignReviewContent.handleSubmitReview`: add `return` after calling `onImplementationStarted()` so `onClose()` is not also called
+- [ ] In `SpecTaskReviewPage.handleApproved`: write `taskId` into sessionStorage key `"helix_auto_opened_spec_tasks"` before navigating
+- [ ] In `SpecTaskReviewPage.handleApproved`: change navigation destination from `project-specs` to `project-task-detail`
+- [ ] Test: go directly to a spec review URL (not via auto-open), approve, confirm you land on task detail and stay there
+- [ ] Build check: `cd frontend && yarn build`
