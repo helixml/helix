@@ -6,5 +6,5 @@
 - [x] In `TaskCard`, derive `hasUnreadNotification = attentionEvents.length > 0` and call `acknowledge` for each event inside the existing `handleCardClick` handler
 - [x] Render a small red dot (`Box`, 10px, `error.main`, absolute top-right) on the card when `hasUnreadNotification` is true
 - [x] Pass the mapped `attentionEvents` array to each `TaskCard` in `SpecTaskKanbanBoard`
-- [ ] Verify the red dot disappears when the card is clicked (React Query cache invalidation removes the event)
-- [ ] Verify the notification dropdown and card red dot stay in sync (acknowledging in either place clears both)
+- [x] Verify the red dot disappears when the card is clicked (React Query cache invalidation removes the event)
+- [x] Verify the notification dropdown and card red dot stay in sync (acknowledging in either place clears both)
