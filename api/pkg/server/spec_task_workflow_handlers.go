@@ -638,6 +638,14 @@ func (s *HelixAPIServer) ensurePullRequestsForAllRepos(ctx context.Context, task
 		repoPR, err := s.ensurePullRequestForRepo(ctx, repo, task, primaryRepoPath)
 		if err != nil {
 			log.Error().Err(err).Str("repo_id", repo.ID).Str("repo_name", repo.Name).Str("task_id", task.ID).Msg("Failed to ensure PR for repo")
+			// Preserve existing PR data for this repo on failure (e.g. GitHub 503)
+			// so we don't wipe valid PR records from the task
+			for _, existing := range task.RepoPullRequests {
+				if existing.RepositoryID == repo.ID {
+					repoPRs = append(repoPRs, existing)
+					break
+				}
+			}
 			continue
 		}
 
