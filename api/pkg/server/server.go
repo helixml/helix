@@ -579,6 +579,9 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, _ *system.C
 	// Resume comment queue processing for any comments that were pending before restart
 	go apiServer.ResumeCommentQueueProcessing(ctx)
 
+	// Automatically shut down desktops that have been idle for too long
+	go external_agent.RunDesktopIdleChecker(ctx, apiServer.externalAgentExecutor, apiServer.Store, apiServer.Cfg.DesktopIdleTimeout)
+
 	apiServer.startUserWebSocketServer(
 		ctx,
 		apiRouter,
