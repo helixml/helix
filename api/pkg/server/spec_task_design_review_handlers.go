@@ -722,8 +722,57 @@ func (s *HelixAPIServer) processNextCommentInQueue(ctx context.Context, sessionI
 		log.Error().
 			Err(err).
 			Str("comment_id", comment.ID).
-			Msg("Failed to send comment to agent")
-		// Clear QueuedAt and try next
+			Msg("Failed to send comment to agent — desktop may be stopped, attempting auto-start")
+
+		const autoStartTimeout = 3 * time.Minute
+		const retryDelay = 30 * time.Second
+
+		s.sessionCommentMutex.Lock()
+		startedAt, alreadyStarted := s.pendingDesktopAutoStarts[comment.ID]
+		s.sessionCommentMutex.Unlock()
+
+		if alreadyStarted && time.Since(startedAt) < autoStartTimeout {
+			// Auto-start already initiated; desktop is still coming up — retry shortly
+			log.Info().
+				Str("comment_id", comment.ID).
+				Dur("elapsed", time.Since(startedAt)).
+				Msg("Desktop auto-start already pending, retrying comment delivery in 30s")
+			go func() {
+				time.Sleep(retryDelay)
+				s.processNextCommentInQueue(ctx, sessionID)
+			}()
+			return
+		}
+
+		if alreadyStarted {
+			// Exceeded autoStartTimeout — give up on this comment
+			log.Warn().
+				Str("comment_id", comment.ID).
+				Msg("Desktop auto-start timed out, dropping comment from queue")
+			s.sessionCommentMutex.Lock()
+			delete(s.pendingDesktopAutoStarts, comment.ID)
+			s.sessionCommentMutex.Unlock()
+		} else {
+			// First failure — initiate desktop auto-start and schedule a retry
+			if startErr := s.startDesktopForSpecTask(ctx, specTask); startErr != nil {
+				log.Error().Err(startErr).Str("comment_id", comment.ID).Msg("Failed to auto-start desktop, dropping comment")
+			} else {
+				s.sessionCommentMutex.Lock()
+				s.pendingDesktopAutoStarts[comment.ID] = time.Now()
+				s.sessionCommentMutex.Unlock()
+				log.Info().
+					Str("comment_id", comment.ID).
+					Str("session_id", sessionID).
+					Msg("Desktop auto-start initiated, retrying comment delivery in 30s")
+				go func() {
+					time.Sleep(retryDelay)
+					s.processNextCommentInQueue(ctx, sessionID)
+				}()
+				return
+			}
+		}
+
+		// Give up on this comment — clear QueuedAt and try next
 		comment.QueuedAt = nil
 		if updateErr := s.Store.UpdateSpecTaskDesignReviewComment(ctx, comment); updateErr != nil {
 			log.Error().Err(updateErr).Str("comment_id", comment.ID).Msg("Failed to clear QueuedAt")
@@ -731,6 +780,11 @@ func (s *HelixAPIServer) processNextCommentInQueue(ctx context.Context, sessionI
 		go s.processNextCommentInQueue(ctx, sessionID)
 		return
 	}
+
+	// Comment sent successfully — clear any pending auto-start tracking for this comment
+	s.sessionCommentMutex.Lock()
+	delete(s.pendingDesktopAutoStarts, comment.ID)
+	s.sessionCommentMutex.Unlock()
 
 	// Comment sent successfully - start timeout to handle agent not responding
 	// 2 minute timeout for agent to respond to the comment
@@ -828,6 +882,103 @@ func (s *HelixAPIServer) findConnectedSessionForSpecTask(ctx context.Context, sp
 
 	return "", fmt.Errorf("no WebSocket connection found for spec task %s (tried planning session %s and %d other connected sessions)",
 		specTask.ID, specTask.PlanningSessionID, len(connectedSessions))
+}
+
+// startDesktopForSpecTask auto-starts the desktop for a spec task's planning session.
+// This is the backend equivalent of the frontend auto-start logic in DesignReviewContent.tsx.
+// It extracts the core logic from resumeSession without requiring an HTTP request context.
+func (s *HelixAPIServer) startDesktopForSpecTask(ctx context.Context, specTask *types.SpecTask) error {
+	if specTask.PlanningSessionID == "" {
+		return fmt.Errorf("spec task %s has no planning session ID", specTask.ID)
+	}
+	if s.externalAgentExecutor == nil {
+		return fmt.Errorf("external agent executor not available")
+	}
+
+	session, err := s.Store.GetSession(ctx, specTask.PlanningSessionID)
+	if err != nil {
+		return fmt.Errorf("failed to get planning session %s: %w", specTask.PlanningSessionID, err)
+	}
+
+	agent := &types.DesktopAgent{
+		SessionID:      session.ID,
+		UserID:         session.Owner,
+		Input:          "Resume session",
+		ProjectPath:    "workspace",
+		SpecTaskID:     specTask.ID,
+		ProjectID:      specTask.ProjectID,
+		OrganizationID: specTask.OrganizationID,
+	}
+
+	// Load project repositories
+	if agent.ProjectID != "" {
+		projectRepos, err := s.Store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
+			ProjectID: agent.ProjectID,
+		})
+		if err == nil && len(projectRepos) > 0 {
+			agent.RepositoryIDs = make([]string, 0, len(projectRepos))
+			for _, repo := range projectRepos {
+				if repo.ID != "" {
+					agent.RepositoryIDs = append(agent.RepositoryIDs, repo.ID)
+				}
+			}
+			project, err := s.Store.GetProject(ctx, agent.ProjectID)
+			if err == nil && project != nil && project.DefaultRepoID != "" {
+				agent.PrimaryRepositoryID = project.DefaultRepoID
+			} else if len(projectRepos) > 0 {
+				agent.PrimaryRepositoryID = projectRepos[0].ID
+			}
+		}
+	}
+
+	// Get display settings from app config
+	if session.ParentApp != "" {
+		app, err := s.Controller.Options.Store.GetApp(ctx, session.ParentApp)
+		if err == nil && app != nil && app.Config.Helix.ExternalAgentConfig != nil {
+			width, height := app.Config.Helix.ExternalAgentConfig.GetEffectiveResolution()
+			agent.DisplayWidth = width
+			agent.DisplayHeight = height
+			if app.Config.Helix.ExternalAgentConfig.DisplayRefreshRate > 0 {
+				agent.DisplayRefreshRate = app.Config.Helix.ExternalAgentConfig.DisplayRefreshRate
+			}
+			agent.Resolution = app.Config.Helix.ExternalAgentConfig.Resolution
+			agent.ZoomLevel = app.Config.Helix.ExternalAgentConfig.GetEffectiveZoomLevel()
+			agent.DesktopType = app.Config.Helix.ExternalAgentConfig.GetEffectiveDesktopType()
+		}
+	}
+
+	if err := s.addUserAPITokenToAgent(ctx, agent, session.Owner); err != nil {
+		return fmt.Errorf("failed to add user API token: %w", err)
+	}
+
+	log.Info().
+		Str("spec_task_id", specTask.ID).
+		Str("session_id", session.ID).
+		Msg("Auto-starting desktop for spec task (backend-initiated resume)")
+
+	response, err := s.externalAgentExecutor.StartDesktop(ctx, agent)
+	if err != nil {
+		return fmt.Errorf("failed to start desktop: %w", err)
+	}
+
+	// Re-fetch session and update metadata (same as resumeSession does)
+	session, err = s.Store.GetSession(ctx, specTask.PlanningSessionID)
+	if err == nil {
+		if response.DevContainerID != "" {
+			session.Metadata.DevContainerID = response.DevContainerID
+		}
+		session.Metadata.PausedScreenshotPath = ""
+		if _, err := s.Store.UpdateSession(ctx, *session); err != nil {
+			log.Warn().Err(err).Str("session_id", session.ID).Msg("Failed to update session metadata after auto-start")
+		}
+	}
+
+	log.Info().
+		Str("spec_task_id", specTask.ID).
+		Str("session_id", specTask.PlanningSessionID).
+		Msg("✅ Desktop auto-started for spec task, agent will reconnect via WebSocket")
+
+	return nil
 }
 
 // sendCommentToAgentNow actually sends a comment to the agent (called from queue processor)
