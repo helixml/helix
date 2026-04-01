@@ -240,7 +240,8 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
       // The useEffect below will reset it when container state changes
     } catch (error: any) {
       console.error("Failed to resume agent:", error);
-      snackbar.error(error?.message || "Failed to start agent");
+      const message = error?.response?.data || error?.message || "Failed to start agent";
+      snackbar.error(typeof message === "string" ? message.trim() : "Failed to start agent");
       // Error - reset so user can retry
       setIsResuming(false);
     }
