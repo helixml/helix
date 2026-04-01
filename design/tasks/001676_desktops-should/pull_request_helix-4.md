@@ -11,5 +11,5 @@ Desktops now automatically shut down when they have had no interaction activity 
 - `api/pkg/store/store_mocks.go` — add mock for `ListIdleDesktops`
 - `api/pkg/store/store_desktop_idle_test.go` — Postgres store tests for all four cases (idle returned, recent interaction skipped, stopped desktop skipped, new desktop with no interactions skipped)
 - `api/pkg/external-agent/idle_checker.go` — `RunDesktopIdleChecker` goroutine (5-minute tick)
-- `api/pkg/config/config.go` — `DesktopIdleTimeout` field wired to `HELIX_DESKTOP_IDLE_TIMEOUT` env var (default `1h`)
+- `api/pkg/config/config.go` — `DesktopIdleTimeout` (`HELIX_DESKTOP_IDLE_TIMEOUT`, default `1h`) and `DesktopIdleCheckInterval` (`HELIX_DESKTOP_IDLE_CHECK_INTERVAL`, default `5m`) env vars
 - `api/pkg/server/server.go` — start the idle checker in `ListenAndServe`
