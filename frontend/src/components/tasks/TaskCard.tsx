@@ -1080,6 +1080,27 @@ function TaskCardInner({
           </Box>
         )}
 
+        {/* Queued state: waiting for orchestrator to create session */}
+        {isQueued && !task.planning_session_id && (
+          <Box
+            sx={{
+              display: "flex",
+              alignItems: "center",
+              gap: 1,
+              mt: 1,
+              px: 0.5,
+            }}
+          >
+            <CircularProgress size={10} thickness={5} />
+            <Typography
+              variant="caption"
+              sx={{ color: "text.secondary", fontSize: "0.7rem" }}
+            >
+              Starting desktop...
+            </Typography>
+          </Box>
+        )}
+
         {/* Live screenshot for active sessions - click opens desktop viewer */}
         {/* Don't show for completed/merged tasks - the container is shut down */}
         {task.planning_session_id &&

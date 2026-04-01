@@ -1228,6 +1228,28 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
         );
       }
 
+      // Immediately apply the API response to local state so the card moves to
+      // Planning right away (before the first poll completes).
+      const updatedTask: SpecTask = await response.json();
+      const { phase, planningStatus, hasSpecs } = mapStatusToPhase(
+        updatedTask.status || "backlog",
+      );
+      setTasks((prev) =>
+        prev.map((t) =>
+          t.id === task.id
+            ? ({
+                ...t,
+                ...updatedTask,
+                phase,
+                planningStatus,
+                hasSpecs,
+                activeSessionsCount: 0,
+                completedSessionsCount: 0,
+              } as unknown as BoardTask)
+            : t,
+        ),
+      );
+
       // Aggressive polling after starting planning to catch planning_session_id update
       // Poll at 1s, 2s, 4s, 6s intervals to catch the async session creation
       const pollForSessionId = async (retryCount = 0, maxRetries = 6) => {
