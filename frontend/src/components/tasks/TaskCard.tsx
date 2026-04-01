@@ -1493,7 +1493,8 @@ const TaskCard = React.memo(TaskCardInner, (prevProps, nextProps) => {
     prevProps.isVisible === nextProps.isVisible &&
     prevProps.focusStartPlanning === nextProps.focusStartPlanning &&
     prevProps.usageData === nextProps.usageData &&
-    prevProps.progressData === nextProps.progressData
+    prevProps.progressData === nextProps.progressData &&
+    prevProps.attentionEvents?.length === nextProps.attentionEvents?.length
   );
 });
 
