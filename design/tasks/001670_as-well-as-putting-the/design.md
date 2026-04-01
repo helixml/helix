@@ -80,7 +80,7 @@ The `acknowledge` function comes from `useAttentionEvents` (already exported). I
 
 - **IntersectionObserver over click**: Matches the requirement of "viewing is sufficient." Threshold of 0.5 prevents false positives from barely-visible cards at scroll edges.
 - **API acknowledgment (not local state)**: Must use the same `acknowledged_at` mechanism as the notification panel so both indicators stay in sync.
-- **No change to existing orange dot**: The orange dot (`needsAttention` from `useAgentActivityCheck`) is a separate local-state concern for agent activity; this red dot is the notification-system concern. They coexist independently.
+- **Remove the orange dot**: The existing orange dot (`needsAttention` from `useAgentActivityCheck`, lines 985-1028 in `TaskCard.tsx`) never worked reliably and is being removed. The new red dot (API-backed) replaces it entirely. Delete `useAgentActivityCheck`, its local state, and the orange/green pulsing dot rendering block.
 - **Filter to `agent_interaction_completed` events only**: Other event types (e.g., `specs_pushed`, `pr_ready`) are not specifically about agent completion and don't belong on cards in this context.
 
 ### Codebase Notes
