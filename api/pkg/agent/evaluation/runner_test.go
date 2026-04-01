@@ -56,6 +56,23 @@ func (s *RunnerSuite) newRunnerConfig() *RunnerConfig {
 	}
 }
 
+// expectListLLMCalls sets up the mock to return LLM calls with the given token/cost values
+func (s *RunnerSuite) expectListLLMCalls(promptTokens, completionTokens, totalTokens int64, totalCost float64) *gomock.Call {
+	return s.mockStore.EXPECT().ListLLMCalls(gomock.Any(), gomock.Any()).
+		Return([]*types.LLMCall{{
+			PromptTokens:     promptTokens,
+			CompletionTokens: completionTokens,
+			TotalTokens:      totalTokens,
+			TotalCost:        totalCost,
+		}}, int64(1), nil)
+}
+
+// expectListLLMCallsEmpty sets up the mock to return no LLM calls
+func (s *RunnerSuite) expectListLLMCallsEmpty() *gomock.Call {
+	return s.mockStore.EXPECT().ListLLMCalls(gomock.Any(), gomock.Any()).
+		Return([]*types.LLMCall{}, int64(0), nil)
+}
+
 func (s *RunnerSuite) TestRunEvaluation_SingleQuestion_AllPass() {
 	suite := &types.EvaluationSuite{
 		Questions: []types.EvaluationQuestion{{
@@ -81,14 +98,11 @@ func (s *RunnerSuite) TestRunEvaluation_SingleQuestion_AllPass() {
 	// Expect blocking session with response containing "4"
 	s.mockCtrl.EXPECT().RunBlockingSession(gomock.Any(), gomock.Any()).
 		Return(&types.Interaction{
-			ID: "int-1",
+			ID:              "int-1",
 			ResponseEntries: datatypes.JSON(`[{"type":"text","content":"The answer is 4"}]`),
-			Usage: types.Usage{
-				PromptTokens:     100,
-				CompletionTokens: 50,
-				TotalTokens:      150,
-			},
 		}, nil)
+
+	s.expectListLLMCalls(100, 50, 150, 0.001)
 
 	var progress []types.EvaluationRunProgress
 	RunEvaluation(context.Background(), s.newRunnerConfig(), run, suite, s.app, s.user, func(p types.EvaluationRunProgress) {
@@ -132,6 +146,7 @@ func (s *RunnerSuite) TestRunEvaluation_QuestionFails() {
 			ID:              "int-1",
 			ResponseEntries: datatypes.JSON(`[{"type":"text","content":"The answer is 4"}]`),
 		}, nil)
+	s.expectListLLMCallsEmpty()
 
 	RunEvaluation(context.Background(), s.newRunnerConfig(), run, suite, s.app, s.user, nil)
 
@@ -179,6 +194,8 @@ func (s *RunnerSuite) TestRunEvaluation_MultipleQuestions() {
 				ResponseEntries: datatypes.JSON(`[{"type":"text","content":"see you later"}]`),
 			}, nil),
 	)
+	s.mockStore.EXPECT().ListLLMCalls(gomock.Any(), gomock.Any()).
+		Return([]*types.LLMCall{}, int64(0), nil).Times(2)
 
 	RunEvaluation(context.Background(), s.newRunnerConfig(), run, suite, s.app, s.user, nil)
 
@@ -280,6 +297,7 @@ func (s *RunnerSuite) TestRunEvaluation_NoProgressCallback() {
 		Return(&types.Interaction{
 			ResponseEntries: datatypes.JSON(`[{"type":"text","content":"response"}]`),
 		}, nil)
+	s.expectListLLMCallsEmpty()
 
 	// Should not panic with nil callback
 	RunEvaluation(context.Background(), s.newRunnerConfig(), run, suite, s.app, s.user, nil)
@@ -311,6 +329,7 @@ func (s *RunnerSuite) TestRunEvaluation_WithLLMJudgeAssertion() {
 		Return(&types.Interaction{
 			ResponseEntries: datatypes.JSON(`[{"type":"text","content":"I'm happy to help!"}]`),
 		}, nil)
+	s.expectListLLMCallsEmpty()
 
 	RunEvaluation(context.Background(), s.newRunnerConfig(), run, suite, s.app, s.user, nil)
 
@@ -344,6 +363,7 @@ func (s *RunnerSuite) TestRunEvaluation_SkillsTracked() {
 				{Function: openai.FunctionCall{Name: "web_search"}},
 			},
 		}, nil)
+	s.expectListLLMCallsEmpty()
 
 	RunEvaluation(context.Background(), s.newRunnerConfig(), run, suite, s.app, s.user, nil)
 
@@ -370,19 +390,37 @@ func (s *RunnerSuite) TestRunEvaluation_TokensAndCostAggregated() {
 	gomock.InOrder(
 		s.mockCtrl.EXPECT().RunBlockingSession(gomock.Any(), gomock.Any()).
 			Return(&types.Interaction{
+				ID:              "int-1",
 				ResponseEntries: datatypes.JSON(`[{"type":"text","content":"r1"}]`),
-				Usage:           types.Usage{TotalTokens: 100, PromptTokens: 60, CompletionTokens: 40},
 			}, nil),
 		s.mockCtrl.EXPECT().RunBlockingSession(gomock.Any(), gomock.Any()).
 			Return(&types.Interaction{
+				ID:              "int-2",
 				ResponseEntries: datatypes.JSON(`[{"type":"text","content":"r2"}]`),
-				Usage:           types.Usage{TotalTokens: 200, PromptTokens: 120, CompletionTokens: 80},
 			}, nil),
+	)
+
+	// LLM call records for each interaction (source of truth for usage)
+	gomock.InOrder(
+		s.mockStore.EXPECT().ListLLMCalls(gomock.Any(), gomock.Any()).
+			Return([]*types.LLMCall{{
+				PromptTokens:     60,
+				CompletionTokens: 40,
+				TotalTokens:      100,
+				TotalCost:        0.001,
+			}}, int64(1), nil),
+		s.mockStore.EXPECT().ListLLMCalls(gomock.Any(), gomock.Any()).
+			Return([]*types.LLMCall{{
+				PromptTokens:     120,
+				CompletionTokens: 80,
+				TotalTokens:      200,
+				TotalCost:        0.002,
+			}}, int64(1), nil),
 	)
 
 	RunEvaluation(context.Background(), s.newRunnerConfig(), run, suite, s.app, s.user, nil)
 
 	assert.Equal(s.T(), 300, run.Summary.TotalTokens)
-	assert.Greater(s.T(), run.Summary.TotalCost, 0.0)
+	assert.InDelta(s.T(), 0.003, run.Summary.TotalCost, 0.0001)
 	assert.GreaterOrEqual(s.T(), run.Summary.TotalDurationMs, int64(0))
 }

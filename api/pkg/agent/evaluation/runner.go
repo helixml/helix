@@ -203,7 +203,10 @@ func runSingleQuestion(
 
 	response := types.TextFromInteraction(interaction)
 	skillsUsed := extractSkillNames(interaction)
-	usage := interaction.Usage
+
+	// Get actual token usage and cost from LLM call records rather than the interaction,
+	// since agent-mode interactions don't propagate usage back to the interaction object.
+	usage, cost := aggregateLLMCallUsage(ctx, cfg.Store, sessionID, interaction.ID)
 
 	// Run assertions
 	assertionResults, passed := CheckAllAssertions(ctx, question.Assertions, response, skillsUsed, cfg.Judge)
@@ -216,7 +219,7 @@ func runSingleQuestion(
 		InteractionID:    interaction.ID,
 		DurationMs:       durationMs,
 		TokensUsed:       usage,
-		Cost:             estimateCost(usage),
+		Cost:             cost,
 		SkillsUsed:       skillsUsed,
 		AssertionResults: assertionResults,
 		Passed:           passed,
@@ -246,6 +249,35 @@ func estimateCost(usage types.Usage) float64 {
 	inputCost := float64(usage.PromptTokens) * 3.0 / 1_000_000
 	outputCost := float64(usage.CompletionTokens) * 15.0 / 1_000_000
 	return inputCost + outputCost
+}
+
+// aggregateLLMCallUsage queries the LLM call records for a session/interaction
+// and sums up token usage and cost. This is the source of truth for usage data
+// since the logging middleware records every LLM call with accurate token counts and pricing.
+func aggregateLLMCallUsage(ctx context.Context, s store.Store, sessionID, interactionID string) (types.Usage, float64) {
+	calls, _, err := s.ListLLMCalls(ctx, &store.ListLLMCallsQuery{
+		SessionID:     sessionID,
+		InteractionID: interactionID,
+		Page:          1,
+		PerPage:       100,
+	})
+	if err != nil {
+		log.Warn().Err(err).
+			Str("session_id", sessionID).
+			Str("interaction_id", interactionID).
+			Msg("failed to query LLM calls for usage aggregation")
+		return types.Usage{}, 0
+	}
+
+	var usage types.Usage
+	var totalCost float64
+	for _, call := range calls {
+		usage.PromptTokens += int(call.PromptTokens)
+		usage.CompletionTokens += int(call.CompletionTokens)
+		usage.TotalTokens += int(call.TotalTokens)
+		totalCost += call.TotalCost
+	}
+	return usage, totalCost
 }
 
 func truncate(s string, maxLen int) string {
