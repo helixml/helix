@@ -342,6 +342,41 @@ func (s *PostgresStore) ListSessionsBySandbox(ctx context.Context, sandboxID str
 	return sessions, nil
 }
 
+// ListIdleDesktops returns one representative session per desktop (identified by
+// external_agent_id) where no interaction has been created or updated since
+// idleSince. For desktops with no interactions at all, the session's own
+// updated timestamp is used as the activity marker.
+func (s *PostgresStore) ListIdleDesktops(ctx context.Context, idleSince time.Time) ([]*types.Session, error) {
+	// CTE computes the last activity time per desktop, then the outer query
+	// selects one session per desktop that is past the idle threshold.
+	query := `
+WITH desktop_last_activity AS (
+    SELECT
+        s.config->>'external_agent_id' AS agent_id,
+        COALESCE(MAX(i.updated), MAX(s.updated)) AS last_activity
+    FROM sessions s
+    LEFT JOIN interactions i ON i.session_id = s.id
+    WHERE s.deleted_at IS NULL
+      AND s.config->>'external_agent_status' = 'running'
+      AND s.config->>'external_agent_id' IS NOT NULL
+      AND s.config->>'external_agent_id' != ''
+    GROUP BY s.config->>'external_agent_id'
+)
+SELECT DISTINCT ON (s.config->>'external_agent_id') s.*
+FROM sessions s
+JOIN desktop_last_activity da ON da.agent_id = s.config->>'external_agent_id'
+WHERE s.deleted_at IS NULL
+  AND da.last_activity < ?
+ORDER BY s.config->>'external_agent_id', s.created ASC`
+
+	var sessions []*types.Session
+	err := s.gdb.WithContext(ctx).Raw(query, idleSince).Scan(&sessions).Error
+	if err != nil {
+		return nil, err
+	}
+	return sessions, nil
+}
+
 func (s *PostgresStore) notifySessionUpdates(ctx context.Context, operation StoreEventOperation, session *types.Session) error {
 	return s.publishStoreEvent(ctx, operation, session)
 }
