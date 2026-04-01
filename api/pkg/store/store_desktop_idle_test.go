@@ -12,7 +12,7 @@ import (
 // desktop whose last interaction is older than the threshold is returned.
 func (suite *PostgresStoreTestSuite) TestPostgresStore_ListIdleDesktops_ReturnsIdleDesktop() {
 	ctx := context.Background()
-	agentID := "agent-idle-" + system.GenerateUUID()
+	containerID := "container-idle-" + system.GenerateUUID()
 
 	session := types.Session{
 		ID:      system.GenerateSessionID(),
@@ -21,7 +21,7 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_ListIdleDesktops_ReturnsI
 		Updated: time.Now(),
 		Metadata: types.SessionMetadata{
 			ExternalAgentStatus: "running",
-			ExternalAgentID:     agentID,
+			DevContainerID:      containerID,
 		},
 	}
 	_, err := suite.db.CreateSession(ctx, session)
@@ -59,7 +59,7 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_ListIdleDesktops_ReturnsI
 // desktop with a recent interaction is not considered idle.
 func (suite *PostgresStoreTestSuite) TestPostgresStore_ListIdleDesktops_SkipsRecentInteraction() {
 	ctx := context.Background()
-	agentID := "agent-recent-" + system.GenerateUUID()
+	containerID := "container-recent-" + system.GenerateUUID()
 
 	session := types.Session{
 		ID:      system.GenerateSessionID(),
@@ -68,7 +68,7 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_ListIdleDesktops_SkipsRec
 		Updated: time.Now(),
 		Metadata: types.SessionMetadata{
 			ExternalAgentStatus: "running",
-			ExternalAgentID:     agentID,
+			DevContainerID:      containerID,
 		},
 	}
 	_, err := suite.db.CreateSession(ctx, session)
@@ -101,7 +101,7 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_ListIdleDesktops_SkipsRec
 // desktop not in "running" status is excluded.
 func (suite *PostgresStoreTestSuite) TestPostgresStore_ListIdleDesktops_SkipsStoppedDesktop() {
 	ctx := context.Background()
-	agentID := "agent-stopped-" + system.GenerateUUID()
+	containerID := "container-stopped-" + system.GenerateUUID()
 
 	session := types.Session{
 		ID:      system.GenerateSessionID(),
@@ -110,7 +110,7 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_ListIdleDesktops_SkipsSto
 		Updated: time.Now().Add(-2 * time.Hour),
 		Metadata: types.SessionMetadata{
 			ExternalAgentStatus: "stopped",
-			ExternalAgentID:     agentID,
+			DevContainerID:      containerID,
 		},
 	}
 	_, err := suite.db.CreateSession(ctx, session)
@@ -132,7 +132,7 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_ListIdleDesktops_SkipsSto
 // activity marker when there are no interactions.
 func (suite *PostgresStoreTestSuite) TestPostgresStore_ListIdleDesktops_SkipsRecentSessionWithNoInteractions() {
 	ctx := context.Background()
-	agentID := "agent-nointeractions-" + system.GenerateUUID()
+	containerID := "container-nointeractions-" + system.GenerateUUID()
 
 	session := types.Session{
 		ID:      system.GenerateSessionID(),
@@ -141,7 +141,7 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_ListIdleDesktops_SkipsRec
 		Updated: time.Now(), // just updated — not idle
 		Metadata: types.SessionMetadata{
 			ExternalAgentStatus: "running",
-			ExternalAgentID:     agentID,
+			DevContainerID:      containerID,
 		},
 	}
 	_, err := suite.db.CreateSession(ctx, session)
