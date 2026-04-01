@@ -303,6 +303,45 @@ func TestEntriesStreamingGrowth(t *testing.T) {
 	assert.Equal(t, "tool_call", entries[1].Type)
 }
 
+func TestExcludedMessageIDsFilterOldEntries(t *testing.T) {
+	// Simulate a follow-up interaction where Zed's flush resends ALL entries
+	// from the ACP thread, including entries from previous completed interactions.
+	// The accumulator must ignore excluded message_ids to prevent accumulation.
+	a := &MessageAccumulator{
+		ExcludedMessageIDs: map[string]bool{
+			"1": true, "2": true, "3": true, // from previous interaction
+		},
+	}
+
+	// New response arrives for this interaction
+	a.AddMessageWithType("4", "Hey! What's up?", "text")
+
+	// Flush resends ALL entries in the thread, including old ones
+	a.AddMessageWithType("1", "<thinking>\nOld planning content...", "text")
+	a.AddMessageWithType("2", "**Tool Call: old tool call**\nStatus: Completed", "tool_call")
+	a.AddMessageWithType("3", "Done with previous task.", "text")
+	a.AddMessageWithType("4", "Hey! What's up?", "text") // corrected flush of current entry
+
+	entries := a.Entries()
+	require.Len(t, entries, 1, "excluded message_ids should not be added")
+	assert.Equal(t, "4", entries[0].MessageID)
+	assert.Equal(t, "Hey! What's up?", entries[0].Content)
+	assert.Equal(t, "text", entries[0].Type)
+
+	// Content should only contain the current interaction's message
+	assert.Equal(t, "Hey! What's up?", a.Content)
+}
+
+func TestExcludedMessageIDsNilIsNoOp(t *testing.T) {
+	// When ExcludedMessageIDs is nil (first interaction), all messages are accepted
+	a := &MessageAccumulator{}
+	a.AddMessageWithType("1", "First message", "text")
+	a.AddMessageWithType("2", "Second message", "text")
+
+	entries := a.Entries()
+	require.Len(t, entries, 2)
+}
+
 func TestResumeFromPersistedState(t *testing.T) {
 	// Simulate restoring state from DB after API restart
 	a := &MessageAccumulator{

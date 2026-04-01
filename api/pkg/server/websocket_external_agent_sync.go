@@ -29,6 +29,9 @@ type streamingContext struct {
 	interaction *types.Interaction
 	// Track which interaction this context is for - used to detect transitions
 	interactionID string
+	// Message IDs from previous completed interactions in this session.
+	// Used to prevent re-accumulating old entries when Zed flushes the entire thread.
+	excludedMessageIDs map[string]bool
 	// Commenter ID for design review comment streaming (looked up from sessionToCommenterMapping)
 	commenterID string
 	// DB write throttling
@@ -1070,9 +1073,10 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 			// the DB only stores the joined Content string + LastMessageID/Offset.
 			if sctx.accumulator == nil {
 				sctx.accumulator = &wsprotocol.MessageAccumulator{
-					Content:       targetInteraction.ResponseMessage,
-					LastMessageID: targetInteraction.LastZedMessageID,
-					Offset:        targetInteraction.LastZedMessageOffset,
+					Content:            targetInteraction.ResponseMessage,
+					LastMessageID:      targetInteraction.LastZedMessageID,
+					Offset:             targetInteraction.LastZedMessageOffset,
+					ExcludedMessageIDs: sctx.excludedMessageIDs,
 				}
 			}
 			acc := sctx.accumulator
@@ -1336,12 +1340,20 @@ func (apiServer *HelixAPIServer) getOrCreateStreamingContext(ctx context.Context
 		newInteractionID = targetInteraction.ID
 	}
 
+	// Collect message_ids from ALL other completed interactions in this session.
+	// When Zed's flush_streaming_throttle fires, it resends every entry in the ACP
+	// thread — including entries from previous turns. Without an exclusion set the
+	// accumulator would treat those old entries as new and append them, causing
+	// response_entries to balloon across interactions.
+	excludedIDs := collectExcludedMessageIDs(interactions, newInteractionID)
+
 	// If we have an existing context (from a transition), update it instead of creating new
 	if exists && sctx != nil {
 		sctx.mu.Lock()
 		sctx.session = helixSession
 		sctx.interaction = targetInteraction
 		sctx.interactionID = newInteractionID
+		sctx.excludedMessageIDs = excludedIDs
 		sctx.mu.Unlock()
 
 		log.Info().
@@ -1354,9 +1366,10 @@ func (apiServer *HelixAPIServer) getOrCreateStreamingContext(ctx context.Context
 
 	// Create new context
 	sctx = &streamingContext{
-		session:       helixSession,
-		interaction:   targetInteraction,
-		interactionID: newInteractionID,
+		session:            helixSession,
+		interaction:        targetInteraction,
+		interactionID:      newInteractionID,
+		excludedMessageIDs: excludedIDs,
 	}
 
 	apiServer.streamingContextsMu.Lock()
@@ -1375,6 +1388,35 @@ func (apiServer *HelixAPIServer) getOrCreateStreamingContext(ctx context.Context
 		Msg("📦 [PERF] Created streaming context cache (will skip DB queries on subsequent tokens)")
 
 	return sctx
+}
+
+// collectExcludedMessageIDs extracts message_ids from ALL completed interactions
+// in the session other than the target interaction. These IDs are used to prevent
+// the accumulator from re-adding old entries when Zed's flush resends the entire
+// ACP thread history.
+func collectExcludedMessageIDs(interactions []*types.Interaction, targetInteractionID string) map[string]bool {
+	excluded := make(map[string]bool)
+	for _, inter := range interactions {
+		if inter.ID == targetInteractionID {
+			continue
+		}
+		if len(inter.ResponseEntries) == 0 {
+			continue
+		}
+		var entries []wsprotocol.ResponseEntry
+		if err := json.Unmarshal(inter.ResponseEntries, &entries); err != nil {
+			continue
+		}
+		for _, e := range entries {
+			if e.MessageID != "" {
+				excluded[e.MessageID] = true
+			}
+		}
+	}
+	if len(excluded) == 0 {
+		return nil
+	}
+	return excluded
 }
 
 // flushAndClearStreamingContext flushes any dirty interaction state to the DB,

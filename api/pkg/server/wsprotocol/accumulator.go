@@ -36,6 +36,13 @@ type MessageAccumulator struct {
 	LastMessageID string
 	Offset        int // kept for DB backward compat; not used in new logic
 
+	// ExcludedMessageIDs contains message_ids from previous interactions in the
+	// same ACP thread. When Zed's flush_streaming_throttle fires, it resends ALL
+	// entries in the thread — including entries from completed previous turns.
+	// Without this exclusion set, the accumulator would treat those old entries as
+	// new and append them, causing response_entries to balloon across interactions.
+	ExcludedMessageIDs map[string]bool
+
 	// Ordered list of message IDs (insertion order)
 	messageOrder []string
 	// Map from message_id to its content
@@ -65,6 +72,12 @@ func (a *MessageAccumulator) AddMessageWithType(messageID, content, entryType st
 
 // AddMessageWithToolInfo processes a new content update with full tool metadata.
 func (a *MessageAccumulator) AddMessageWithToolInfo(messageID, content, entryType, toolName, toolStatus string) {
+	// Skip message_ids that belong to previous interactions in the same ACP thread.
+	// Zed's flush resends ALL thread entries; we must not re-accumulate old ones.
+	if a.ExcludedMessageIDs[messageID] {
+		return
+	}
+
 	if a.messageContent == nil {
 		a.messageContent = make(map[string]string)
 	}
