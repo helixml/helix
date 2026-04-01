@@ -2,9 +2,10 @@
 
 ## Overview
 
-Two related improvements to the notification system:
+Three improvements to the notification system:
 1. A new `pr_opened` attention event type, triggered when Helix creates a PR, with a click action that opens the external PR URL in a new tab.
 2. Auto-acknowledging notifications when a user clicks a browser/desktop notification to navigate within Helix.
+3. Fix missing `specs_pushed` notifications: the two real code paths that transition a task to SpecReview never send a notification; the function that does (`HandleSpecGenerationComplete`) is dead code.
 
 ---
 
@@ -77,6 +78,41 @@ The acknowledge mutation is already available in `GlobalNotifications.tsx` where
 
 ---
 
+---
+
+## Part 3: Fix Missing `specs_pushed` Notifications on SpecReview Transition
+
+### Problem
+
+There are two real code paths that transition a task to `SpecReview` status, and neither sends a notification:
+
+1. **`api/pkg/services/spec_task_orchestrator.go` lines 531-557** (`handleSpecGeneration`) — the polling loop detects that spec docs exist and sets status to `SpecReview`. No notification emitted.
+2. **`api/pkg/server/git_http_server.go` lines 1348-1361** — when design docs are pushed via git directly. Also no notification.
+
+`HandleSpecGenerationComplete` in `spec_driven_task_service.go` is the only place that emits a `specs_pushed` event, but it is dead code — never called outside tests. All real transitions bypass it.
+
+### Fix
+
+Extract the notification logic into a helper method on `AttentionService` (or inline `EmitEvent` calls) and call it from both real code paths.
+
+**Option A (recommended):** Add a small helper — e.g. `emitSpecReviewNotification(ctx, task)` — that calls `attentionService.EmitEvent(ctx, types.AttentionEventSpecsPushed, task, qualifier, nil)`. Call it:
+- In `handleSpecGeneration` (orchestrator, line ~557) after the status is set to `SpecReview`
+- In the git push handler (`git_http_server.go`, line ~1361) after the status is set to `SpecReview`
+
+Use the task ID as the idempotency qualifier so duplicate events can't fire if both paths race.
+
+**Dead code:** `HandleSpecGenerationComplete` in `spec_driven_task_service.go` can be deleted (or kept if it is wired up elsewhere — confirm before deleting).
+
+### Files to Change
+
+| File | Change |
+|------|--------|
+| `api/pkg/services/spec_task_orchestrator.go` | Emit `specs_pushed` after transitioning to SpecReview (~line 557) |
+| `api/pkg/server/git_http_server.go` | Emit `specs_pushed` after transitioning to SpecReview (~line 1361) |
+| `api/pkg/services/spec_driven_task_service.go` | Delete or wire up `HandleSpecGenerationComplete` |
+
+---
+
 ## Key Files to Change
 
 | File | Change |
@@ -86,3 +122,6 @@ The acknowledge mutation is already available in `GlobalNotifications.tsx` where
 | `api/pkg/server/spec_task_workflow_handlers.go` | Emit `pr_opened` after PR creation |
 | `frontend/src/hooks/useAttentionEvents.ts` | Add `'pr_opened'` to type union |
 | `frontend/src/components/system/GlobalNotifications.tsx` | Icon, color, click handler, browser notification onClick |
+| `api/pkg/services/spec_task_orchestrator.go` | Emit `specs_pushed` after SpecReview transition (~line 557) |
+| `api/pkg/server/git_http_server.go` | Emit `specs_pushed` after SpecReview transition (~line 1361) |
+| `api/pkg/services/spec_driven_task_service.go` | Remove dead `HandleSpecGenerationComplete` |
