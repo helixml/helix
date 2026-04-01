@@ -1,6 +1,6 @@
 # Implementation Tasks
 
-- [ ] In `TaskCard.tsx`, remove `useAgentActivityCheck` hook, its local state, and the entire orange/green pulsing dot rendering block (lines ~107-143 and ~985-1028)
+- [~] In `TaskCard.tsx`, remove `useAgentActivityCheck` hook, its local state, and the entire orange/green pulsing dot rendering block (lines ~107-143 and ~985-1028)
 - [ ] In `SpecTaskKanbanBoard.tsx`, import `useAttentionEvents` and build a `taskAttentionEvents` map (keyed by `spec_task_id`) containing only unread `agent_interaction_completed` events
 - [ ] Add `attentionEvents: AttentionEvent[]` prop to `TaskCard` (default `[]`) and import `useAttentionEvents` to get the `acknowledge` function
 - [ ] In `TaskCard`, derive `hasUnreadNotification = attentionEvents.length > 0` and call `acknowledge` for each event inside the existing `handleCardClick` handler
