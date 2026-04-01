@@ -346,7 +346,8 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
 
     if (isPaused) {
       // Show the last screenshot (served from PausedScreenshotPath on the API) behind
-      // a semi-transparent overlay so the user can see the desktop's last state.
+      // a semi-transparent overlay. onError hides the img gracefully if unavailable.
+      const screenshotUrl = `/api/v1/external-agents/${sessionId}/screenshot`;
       return (
         <Box
           sx={{
@@ -357,18 +358,24 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
             borderColor: "divider",
             borderRadius: 1,
             overflow: "hidden",
+            backgroundColor: "#1a1a1a",
           }}
         >
-          {/* Last screenshot from before shutdown — fetched once, no polling */}
-          <ScreenshotViewer
-            sessionId={sessionId}
-            autoRefresh={false}
-            enableStreaming={false}
-            showToolbar={false}
-            showTimestamp={false}
-            quality={5}
+          <Box
+            component="img"
+            src={screenshotUrl}
+            alt="Paused Desktop"
+            sx={{
+              width: "100%",
+              height: "100%",
+              objectFit: "contain",
+              filter: "grayscale(0.5) brightness(0.7) blur(1px)",
+              opacity: 0.6,
+            }}
+            onError={(e: React.SyntheticEvent<HTMLImageElement>) => {
+              e.currentTarget.style.display = "none";
+            }}
           />
-          {/* Overlay with resume button */}
           <Box
             sx={{
               position: "absolute",
@@ -376,7 +383,7 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
               left: 0,
               right: 0,
               bottom: 0,
-              backgroundColor: "rgba(0,0,0,0.55)",
+              backgroundColor: "rgba(0,0,0,0.3)",
               display: "flex",
               flexDirection: "column",
               alignItems: "center",
