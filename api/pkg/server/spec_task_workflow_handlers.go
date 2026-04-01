@@ -471,6 +471,26 @@ func (s *HelixAPIServer) ensurePullRequestForRepo(ctx context.Context, repo *typ
 
 	log.Info().Str("repo_id", repo.ID).Str("repo_name", repo.Name).Str("branch", branch).Str("task_id", task.ID).Msg("Ensuring pull request for repo")
 
+	// If a PR is already tracked for this repo, return it directly without creating a new one.
+	// This prevents duplicate PRs when the user renames or otherwise changes the existing PR,
+	// since ListPullRequests (open-only) may not reliably surface it during a rename window.
+	if existing := task.GetPRForRepo(repo.ID); existing != nil {
+		pr, err := s.gitRepositoryService.GetPullRequest(ctx, repo.ID, existing.PRID)
+		if err == nil {
+			log.Info().Str("pr_id", existing.PRID).Str("repo_name", repo.Name).Msg("Pull request already tracked, returning existing")
+			return &types.RepoPR{
+				RepositoryID:   repo.ID,
+				RepositoryName: repo.Name,
+				PRID:           pr.ID,
+				PRNumber:       pr.Number,
+				PRURL:          pr.URL,
+				PRState:        string(pr.State),
+			}, nil
+		}
+		// If we can't fetch the tracked PR (e.g. it was deleted), fall through to create a new one.
+		log.Warn().Err(err).Str("pr_id", existing.PRID).Str("repo_name", repo.Name).Msg("Tracked PR not found, will create a new one")
+	}
+
 	// Push branch to remote first
 	if err := s.gitRepositoryService.WithRepoLock(repo.ID, func() error {
 		return s.gitRepositoryService.PushBranchToRemote(ctx, repo.ID, branch, false)
@@ -520,6 +540,26 @@ func (s *HelixAPIServer) ensurePullRequestForRepo(ctx context.Context, repo *typ
 	// Create new PR
 	prID, err := s.gitRepositoryService.CreatePullRequest(ctx, repo.ID, title, description, branch, repo.DefaultBranch)
 	if err != nil {
+		// If a PR already exists for this branch (race condition), find and return it rather than failing.
+		if strings.Contains(err.Error(), "already exists") {
+			log.Info().Str("branch", branch).Str("repo_name", repo.Name).Msg("PR already exists (race), looking it up")
+			freshPRs, listErr := s.gitRepositoryService.ListPullRequests(ctx, repo.ID)
+			if listErr == nil {
+				for _, pr := range freshPRs {
+					branchMatches := pr.SourceBranch == sourceBranchRef || pr.SourceBranch == branch
+					if branchMatches && pr.State == types.PullRequestStateOpen {
+						return &types.RepoPR{
+							RepositoryID:   repo.ID,
+							RepositoryName: repo.Name,
+							PRID:           pr.ID,
+							PRNumber:       pr.Number,
+							PRURL:          pr.URL,
+							PRState:        string(pr.State),
+						}, nil
+					}
+				}
+			}
+		}
 		return nil, fmt.Errorf("failed to create PR: %w", err)
 	}
 

@@ -1210,19 +1210,15 @@ func (s *GitHTTPServer) ensurePullRequest(ctx context.Context, repo *types.GitRe
 	for _, pr := range prs {
 		branchMatches := pr.SourceBranch == sourceBranchRef || pr.SourceBranch == branch
 		if branchMatches && pr.State == types.PullRequestStateOpen {
-			// Update the PR title/description in case helix-specs changed
-			if pr.Number > 0 {
-				if updateErr := s.gitRepoService.UpdatePullRequest(ctx, repo.ID, pr.Number, title, description); updateErr != nil {
-					log.Warn().Err(updateErr).Str("pr_id", pr.ID).Msg("Failed to update existing PR content")
-				}
-			}
+			// Do not update the PR title/description here — the user may have renamed the PR
+			// and overwriting their title would conflict with their explicit change.
 			s.updateRepoPullRequests(task, repo, pr.ID, pr.Number, pr.URL, string(pr.State))
 			task.UpdatedAt = time.Now()
 			s.store.UpdateSpecTask(ctx, task)
 			log.Info().
 				Str("pr_id", pr.ID).
 				Str("repo_id", repo.ID).
-				Msg("Found and updated existing pull request")
+				Msg("Found existing pull request")
 			return nil
 		}
 	}

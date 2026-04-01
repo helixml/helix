@@ -118,7 +118,7 @@ type HelixAPIServer struct {
 	trigger                   *trigger.Manager
 	specDrivenTaskService     *services.SpecDrivenTaskService
 	sampleProjectCodeService  *services.SampleProjectCodeService
-	gitRepositoryService      *services.GitRepositoryService
+	gitRepositoryService      gitRepositoryServicer
 	koditService              services.KoditServicer
 	kodit                     *KoditResult
 	mcpGateway                *MCPGateway
@@ -399,7 +399,7 @@ func NewServer(
 		}
 	} else {
 		var initErr error
-		kr, initErr = InitKodit(cfg, apiServer.gitRepositoryService, apiServer.Store)
+		kr, initErr = InitKodit(cfg, gitRepositoryService, apiServer.Store)
 		if initErr != nil {
 			return nil, initErr
 		}
@@ -447,7 +447,7 @@ func NewServer(
 
 	apiServer.gitHTTPServer = services.NewGitHTTPServer(
 		store,
-		apiServer.gitRepositoryService,
+		gitRepositoryService,
 		*gitHTTPConfig, // Dereference the pointer
 		apiServer.authorizeUserToRepository,
 		apiServer.trigger,
@@ -478,7 +478,7 @@ func NewServer(
 	// Initialize SpecTask Orchestrator components
 	apiServer.specTaskOrchestrator = services.NewSpecTaskOrchestrator(
 		store,
-		apiServer.gitRepositoryService,
+		gitRepositoryService,
 		apiServer.specDrivenTaskService,
 		apiServer.externalAgentExecutor, // Hydra executor for external agent management
 	)
