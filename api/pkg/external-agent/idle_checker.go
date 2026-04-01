@@ -9,13 +9,12 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-const desktopIdleCheckInterval = 5 * time.Minute
-
 // RunDesktopIdleChecker periodically shuts down desktops that have had no
-// interaction activity for longer than idleTimeout. It blocks until ctx is
-// cancelled and is intended to be run in a goroutine.
-func RunDesktopIdleChecker(ctx context.Context, executor Executor, st store.Store, idleTimeout time.Duration) {
-	ticker := time.NewTicker(desktopIdleCheckInterval)
+// interaction activity for longer than idleTimeout. checkInterval controls how
+// often the check runs. It blocks until ctx is cancelled and is intended to be
+// run in a goroutine.
+func RunDesktopIdleChecker(ctx context.Context, executor Executor, st store.Store, idleTimeout, checkInterval time.Duration) {
+	ticker := time.NewTicker(checkInterval)
 	defer ticker.Stop()
 
 	for {

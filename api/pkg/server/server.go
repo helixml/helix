@@ -580,7 +580,7 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, _ *system.C
 	go apiServer.ResumeCommentQueueProcessing(ctx)
 
 	// Automatically shut down desktops that have been idle for too long
-	go external_agent.RunDesktopIdleChecker(ctx, apiServer.externalAgentExecutor, apiServer.Store, apiServer.Cfg.DesktopIdleTimeout)
+	go external_agent.RunDesktopIdleChecker(ctx, apiServer.externalAgentExecutor, apiServer.Store, apiServer.Cfg.DesktopIdleTimeout, apiServer.Cfg.DesktopIdleCheckInterval)
 
 	apiServer.startUserWebSocketServer(
 		ctx,

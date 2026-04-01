@@ -39,6 +39,9 @@ type ServerConfig struct {
 	// across all sessions belonging to the desktop.
 	DesktopIdleTimeout time.Duration `envconfig:"HELIX_DESKTOP_IDLE_TIMEOUT" default:"1h"`
 
+	// DesktopIdleCheckInterval controls how often the idle checker scans for desktops to shut down.
+	DesktopIdleCheckInterval time.Duration `envconfig:"HELIX_DESKTOP_IDLE_CHECK_INTERVAL" default:"5m"`
+
 	DisableLLMCallLogging bool `envconfig:"DISABLE_LLM_CALL_LOGGING" default:"false"`
 	DisableUsageLogging   bool `envconfig:"DISABLE_USAGE_LOGGING" default:"false"`
 	DisableVersionPing    bool `envconfig:"DISABLE_VERSION_PING" default:"false"`
