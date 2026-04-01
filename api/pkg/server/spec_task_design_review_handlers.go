@@ -715,64 +715,16 @@ func (s *HelixAPIServer) processNextCommentInQueue(ctx context.Context, sessionI
 		return
 	}
 
-	// Now actually send the comment to the agent
-	// sendCommentToAgentNow sets RequestID on the comment, marking it as "being processed"
+	// Now actually send the comment to the agent.
+	// sendCommentToAgentNow → sendMessageToSpecTaskAgent, which auto-starts the desktop
+	// and waits up to 90s for the agent to connect if no session is currently active.
 	err = s.sendCommentToAgentNow(ctx, specTask, comment)
 	if err != nil {
 		log.Error().
 			Err(err).
 			Str("comment_id", comment.ID).
-			Msg("Failed to send comment to agent — desktop may be stopped, attempting auto-start")
-
-		const autoStartTimeout = 3 * time.Minute
-		const retryDelay = 30 * time.Second
-
-		s.sessionCommentMutex.Lock()
-		startedAt, alreadyStarted := s.pendingDesktopAutoStarts[comment.ID]
-		s.sessionCommentMutex.Unlock()
-
-		if alreadyStarted && time.Since(startedAt) < autoStartTimeout {
-			// Auto-start already initiated; desktop is still coming up — retry shortly
-			log.Info().
-				Str("comment_id", comment.ID).
-				Dur("elapsed", time.Since(startedAt)).
-				Msg("Desktop auto-start already pending, retrying comment delivery in 30s")
-			go func() {
-				time.Sleep(retryDelay)
-				s.processNextCommentInQueue(ctx, sessionID)
-			}()
-			return
-		}
-
-		if alreadyStarted {
-			// Exceeded autoStartTimeout — give up on this comment
-			log.Warn().
-				Str("comment_id", comment.ID).
-				Msg("Desktop auto-start timed out, dropping comment from queue")
-			s.sessionCommentMutex.Lock()
-			delete(s.pendingDesktopAutoStarts, comment.ID)
-			s.sessionCommentMutex.Unlock()
-		} else {
-			// First failure — initiate desktop auto-start and schedule a retry
-			if startErr := s.startDesktopForSpecTask(ctx, specTask); startErr != nil {
-				log.Error().Err(startErr).Str("comment_id", comment.ID).Msg("Failed to auto-start desktop, dropping comment")
-			} else {
-				s.sessionCommentMutex.Lock()
-				s.pendingDesktopAutoStarts[comment.ID] = time.Now()
-				s.sessionCommentMutex.Unlock()
-				log.Info().
-					Str("comment_id", comment.ID).
-					Str("session_id", sessionID).
-					Msg("Desktop auto-start initiated, retrying comment delivery in 30s")
-				go func() {
-					time.Sleep(retryDelay)
-					s.processNextCommentInQueue(ctx, sessionID)
-				}()
-				return
-			}
-		}
-
-		// Give up on this comment — clear QueuedAt and try next
+			Msg("Failed to send comment to agent")
+		// Clear QueuedAt and try next
 		comment.QueuedAt = nil
 		if updateErr := s.Store.UpdateSpecTaskDesignReviewComment(ctx, comment); updateErr != nil {
 			log.Error().Err(updateErr).Str("comment_id", comment.ID).Msg("Failed to clear QueuedAt")
@@ -780,11 +732,6 @@ func (s *HelixAPIServer) processNextCommentInQueue(ctx context.Context, sessionI
 		go s.processNextCommentInQueue(ctx, sessionID)
 		return
 	}
-
-	// Comment sent successfully — clear any pending auto-start tracking for this comment
-	s.sessionCommentMutex.Lock()
-	delete(s.pendingDesktopAutoStarts, comment.ID)
-	s.sessionCommentMutex.Unlock()
 
 	// Comment sent successfully - start timeout to handle agent not responding
 	// 2 minute timeout for agent to respond to the comment
@@ -1441,6 +1388,7 @@ func sanitizeBranchName(name string) string {
 
 // sendMessageToSpecTaskAgent is the unified helper for sending messages to spec task agents via WebSocket
 // It handles: finding connected session, generating request ID, setting up response routing, and sending
+// If no session is connected, it auto-starts the desktop and waits up to 90s for the agent to connect.
 // Returns (requestID, interactionID, error). Both IDs are needed by callers that track comment responses.
 func (s *HelixAPIServer) sendMessageToSpecTaskAgent(
 	ctx context.Context,
@@ -1451,7 +1399,38 @@ func (s *HelixAPIServer) sendMessageToSpecTaskAgent(
 	// Find a connected session for this spec task
 	sessionID, err := s.findConnectedSessionForSpecTask(ctx, specTask)
 	if err != nil {
-		return "", "", fmt.Errorf("no connected session found: %w", err)
+		// No connected session — try to auto-start the desktop and wait for reconnect
+		if specTask.PlanningSessionID == "" || s.externalAgentExecutor == nil {
+			return "", "", fmt.Errorf("no connected session found: %w", err)
+		}
+
+		log.Info().
+			Str("spec_task_id", specTask.ID).
+			Str("planning_session_id", specTask.PlanningSessionID).
+			Msg("No connected session, auto-starting desktop and waiting for agent to connect")
+
+		if startErr := s.startDesktopForSpecTask(ctx, specTask); startErr != nil {
+			return "", "", fmt.Errorf("no connected session and desktop auto-start failed: %w", startErr)
+		}
+
+		// Poll for the agent to connect via WebSocket (up to 90s)
+		const maxWait = 90 * time.Second
+		const pollInterval = 5 * time.Second
+		deadline := time.Now().Add(maxWait)
+		for time.Now().Before(deadline) {
+			time.Sleep(pollInterval)
+			sessionID, err = s.findConnectedSessionForSpecTask(ctx, specTask)
+			if err == nil {
+				log.Info().
+					Str("spec_task_id", specTask.ID).
+					Str("session_id", sessionID).
+					Msg("✅ Agent connected after desktop auto-start")
+				break
+			}
+		}
+		if err != nil {
+			return "", "", fmt.Errorf("desktop started but agent did not connect within %s: %w", maxWait, err)
+		}
 	}
 
 	// Generate request ID for tracking
