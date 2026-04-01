@@ -1,0 +1,5 @@
+# Implementation Tasks
+
+- [ ] Add `ListIdleDesktops(ctx context.Context, idleSince time.Time) ([]*types.Session, error)` to the store interface (`api/pkg/store/store.go`) and implement in `api/pkg/store/store_sessions.go`: query sessions where `external_agent_status = 'running'`, grouped by `external_agent_id`, where max interaction `updated` < `idleSince` (or no interactions and `session.updated` < `idleSince`)
+- [ ] Add `runDesktopIdleChecker(ctx context.Context, executor ExternalAgentExecutor, store store.Store)` function in `api/pkg/external-agent/` that loops every 5 minutes, calls `ListIdleDesktops`, and for each result calls `StopDesktop` + `UpdateSessionMetadata` with `ExternalAgentStatus: "terminated_idle"`; log each shutdown at INFO level
+- [ ] Wire up `runDesktopIdleChecker` in `api/cmd/helix/serve.go` as a background goroutine (alongside existing background workers)
