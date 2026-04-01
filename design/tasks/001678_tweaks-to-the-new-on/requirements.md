@@ -42,3 +42,15 @@
 - Pseudo-highlight correctly covers text before, inside, and after a code block
 - Syntax highlighting inside the code block remains visually correct under the highlight (colors may blend but structure must be intact)
 - The highlight is removable without leaving orphaned DOM artifacts
+
+### 4. No hover button when cursor is over a comment panel
+
+**As a** reviewer,
+**When** I move my mouse over an existing inline comment panel (`InlineCommentBubble`),
+**I want** the add-comment hover button to not appear (or to disappear if already visible),
+**So that** comment panels are not obscured by an irrelevant button.
+
+**Acceptance Criteria:**
+- Moving the cursor over any `InlineCommentBubble` clears any visible hover button
+- The hover button does not re-appear while the cursor remains over the comment panel
+- Moving the cursor back to document text resumes normal hover-button behaviour

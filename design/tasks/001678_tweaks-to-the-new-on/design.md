@@ -61,3 +61,27 @@ This only triggers when `hoverButtonPosition` is set (button is visible) and cur
 **CSS consideration:** SyntaxHighlighter tokens use `color` on `<span>` elements. The `.comment-highlight` mark only sets `background-color`, so syntax colors are preserved. If needed, the highlight CSS can use higher specificity to ensure visibility.
 
 **Pattern note:** This codebase uses React MUI with all styling inline via `sx` props and `GlobalStyles`. The `.comment-highlight` class is defined via `GlobalStyles` at line ~1028.
+
+## 4. No hover button when cursor is over a comment panel
+
+**Root cause:** `InlineCommentBubble` panels are rendered as siblings of the markdown `<Paper>` inside the same `onMouseMove` Box, but they are **not** descendants of `markdownRef.current`. When the cursor moves over a bubble, the `onMouseMove` walk goes up through the bubble's DOM tree, never reaches `markdownRef.current`, and exits the while loop with `node === null` — at which point the handler does nothing, leaving the last `hoverButtonPosition` stale and the button still visible.
+
+**Fix:** At the top of the `onMouseMove` handler (before the while loop), check whether `e.target` is contained within any comment bubble using `commentRefs.current`. If so, clear the hover button and return early.
+
+```typescript
+onMouseMove={(e) => {
+  if (showCommentForm || isNarrowViewport) return;
+  // Clear button if cursor enters a comment panel
+  const isOverBubble = Array.from(commentRefs.current.values()).some(
+    (el) => el.contains(e.target as Node)
+  );
+  if (isOverBubble) {
+    setHoverButtonPosition(null);
+    hoveredElementRef.current = null;
+    return;
+  }
+  // ... existing block-tag walk
+}}
+```
+
+`commentRefs` is already a `useRef<Map<string, HTMLDivElement>>` populated via the `commentRef` callback prop on each `InlineCommentBubble`, so no new state is needed.

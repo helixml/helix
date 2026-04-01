@@ -7,4 +7,5 @@ All changes in `frontend/src/components/spec-tasks/DesignReviewContent.tsx`.
 - [ ] Change `highlightMarkRef` from `useRef<HTMLElement | null>` to `useRef<HTMLElement[]>` to support multiple mark elements
 - [ ] Rewrite `applyHighlight` to walk text nodes within the range using `createTreeWalker` and wrap each intersecting text node in its own `<mark class="comment-highlight">` via `surroundContents`, leaving surrounding element structure intact
 - [ ] Update `removeHighlight` to iterate the marks array, unwrap each mark's children, and reset the array
+- [ ] At the top of the inner Box's `onMouseMove` handler, check if `e.target` is contained within any `commentRefs.current` entry; if so, clear `hoverButtonPosition` and `hoveredElementRef.current` and return early
 - [ ] Run `cd frontend && yarn build` to verify no TypeScript errors before committing
