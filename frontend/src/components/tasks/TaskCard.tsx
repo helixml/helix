@@ -61,6 +61,7 @@ import SpecTaskActionButtons from "./SpecTaskActionButtons";
 import AssigneeSelector from "./AssigneeSelector";
 import useAccount from "../../hooks/useAccount";
 import { TypesOrganizationMembership, TypesUser } from "../../api/api";
+import { useAttentionEvents, AttentionEvent } from "../../hooks/useAttentionEvents";
 
 // Pulse animation for the active task spinner
 const pulseRing = keyframes`
@@ -87,60 +88,6 @@ const spin = keyframes`
   }
 `;
 
-// Pulse animation for active agent indicator
-const activePulse = keyframes`
-  0%, 100% {
-    transform: scale(1);
-    opacity: 1;
-  }
-  50% {
-    transform: scale(1.4);
-    opacity: 0.7;
-  }
-`;
-
-// Agent work state from backend (replaces timestamp-based heuristics)
-type AgentWorkState = "idle" | "working" | "done";
-
-// Hook to manage agent activity status and attention state
-// Uses backend-tracked agent_work_state instead of timestamp heuristics
-const useAgentActivityCheck = (
-  agentWorkState?: AgentWorkState,
-  enabled: boolean = true,
-): { isActive: boolean; needsAttention: boolean; markAsSeen: () => void } => {
-  const [lastSeenState, setLastSeenState] = useState<AgentWorkState | null>(
-    null,
-  );
-
-  // Agent is active if backend reports it's working
-  const isActive = enabled && agentWorkState === "working";
-
-  // Agent needs attention if:
-  // 1. It's idle or done (not actively working)
-  // 2. User hasn't marked the current state as seen
-  // 3. There IS an agent work state (undefined means no session yet)
-  const needsAttention =
-    enabled &&
-    agentWorkState !== undefined &&
-    agentWorkState !== "working" &&
-    agentWorkState !== lastSeenState;
-
-  const markAsSeen = () => {
-    if (agentWorkState) {
-      setLastSeenState(agentWorkState);
-    }
-  };
-
-  // Reset seen state when agent becomes active again
-  // (so if it goes idle again later, attention dot reappears)
-  useEffect(() => {
-    if (isActive && lastSeenState) {
-      setLastSeenState(null);
-    }
-  }, [isActive, lastSeenState]);
-
-  return { isActive, needsAttention, markAsSeen };
-};
 
 type SpecTaskPhase =
   | "backlog"
@@ -241,6 +188,8 @@ interface TaskCardProps {
   focusStartPlanning?: boolean;
   /** Whether the card is currently visible (for virtualization) */
   isVisible?: boolean;
+  /** Unread attention events for this task (agent_interaction_completed events without acknowledged_at) */
+  attentionEvents?: AttentionEvent[];
 }
 
 // Interface for checklist items from API
@@ -581,6 +530,7 @@ function TaskCardInner({
   onDependencyHoverStart,
   onDependencyHoverEnd,
   focusStartPlanning = false,
+  attentionEvents = [],
 }: TaskCardProps) {
   const [isStartingPlanning, setIsStartingPlanning] = useState(false);
   const [showCloneDialog, setShowCloneDialog] = useState(false);
@@ -641,13 +591,8 @@ function TaskCardInner({
   const showProgress =
     task.phase === "planning" || task.phase === "implementation";
 
-  // Check agent activity status using backend-tracked work state.
-  // Enabled for ANY phase with a running session, not just planning/implementation,
-  // because every phase can have an active agent container.
-  const { isActive, needsAttention, markAsSeen } = useAgentActivityCheck(
-    task.agent_work_state,
-    !!task.planning_session_id,
-  );
+  const { acknowledge } = useAttentionEvents();
+  const hasUnreadNotification = attentionEvents.length > 0;
 
   const runningDuration = useRunningDuration(
     task.started_at,
@@ -729,8 +674,7 @@ function TaskCardInner({
 
   // Handle card click - always open task detail view (session viewer)
   const handleCardClick = () => {
-    // Mark attention dot as seen when user clicks to view the task
-    markAsSeen();
+    attentionEvents.forEach((event) => acknowledge(event.id));
     if (onTaskClick) {
       onTaskClick(task);
     }
@@ -771,6 +715,24 @@ function TaskCardInner({
         },
       }}
     >
+      {hasUnreadNotification && (
+        <Tooltip title="Agent finished - click to dismiss">
+          <Box
+            sx={{
+              position: "absolute",
+              top: 8,
+              right: 8,
+              width: 10,
+              height: 10,
+              borderRadius: "50%",
+              backgroundColor: "error.main",
+              zIndex: 1,
+              border: "2px solid",
+              borderColor: "background.paper",
+            }}
+          />
+        </Tooltip>
+      )}
       <CardContent sx={{ p: 2, "&:last-child": { pb: 2 } }}>
         {/* Task name */}
         <Box
@@ -982,50 +944,23 @@ function TaskCardInner({
         {/* Status row */}
         <Box sx={{ display: "flex", gap: 1.5, alignItems: "center", mb: 1.5 }}>
           <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
-            {isActive &&
-            task.planning_session_id ? (
-              <Tooltip title="Agent is working">
-                <Box
-                  sx={{
-                    width: 8,
-                    height: 8,
-                    borderRadius: "50%",
-                    backgroundColor: "#22c55e",
-                    animation: `${activePulse} 1.5s ease-in-out infinite`,
-                  }}
-                />
-              </Tooltip>
-            ) : needsAttention &&
-              task.planning_session_id ? (
-              <Tooltip title="Agent finished - click card to dismiss">
-                <Box
-                  sx={{
-                    width: 8,
-                    height: 8,
-                    borderRadius: "50%",
-                    backgroundColor: "#f59e0b",
-                  }}
-                />
-              </Tooltip>
-            ) : (
-              <CircleIcon
-                sx={{
-                  fontSize: 8,
-                  color:
-                    task.phase === "planning"
-                      ? "#f59e0b"
-                      : task.phase === "review"
-                        ? "#3b82f6"
-                        : task.phase === "implementation"
-                          ? "#10b981"
-                          : task.phase === "pull_request"
-                            ? "#8b5cf6"
-                            : task.phase === "completed"
-                              ? "#6b7280"
-                              : "#9ca3af",
-                }}
-              />
-            )}
+            <CircleIcon
+              sx={{
+                fontSize: 8,
+                color:
+                  task.phase === "planning"
+                    ? "#f59e0b"
+                    : task.phase === "review"
+                      ? "#3b82f6"
+                      : task.phase === "implementation"
+                        ? "#10b981"
+                        : task.phase === "pull_request"
+                          ? "#8b5cf6"
+                          : task.phase === "completed"
+                            ? "#6b7280"
+                            : "#9ca3af",
+              }}
+            />
             <Typography
               variant="caption"
               sx={{

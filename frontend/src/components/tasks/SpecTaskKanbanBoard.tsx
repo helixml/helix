@@ -91,6 +91,7 @@ import useSnackbar from "../../hooks/useSnackbar";
 import BacklogTableView from "./BacklogTableView";
 import { useCreateSampleRepository } from "../../services/gitRepositoryService";
 import { useSampleTypes } from "../../hooks/useSampleTypes";
+import { useAttentionEvents, AttentionEvent } from "../../hooks/useAttentionEvents";
 
 // SpecTask types and statuses
 type SpecTaskPhase =
@@ -303,6 +304,18 @@ const DroppableColumn: React.FC<{
   // Simplified - no drag and drop, no complex interactions
   const setNodeRef = (node: HTMLElement | null) => {};
 
+  const { events: attentionEvents } = useAttentionEvents();
+  const taskAttentionEventsMap = useMemo(() => {
+    const map: Record<string, AttentionEvent[]> = {};
+    for (const event of attentionEvents) {
+      if (event.event_type === 'agent_interaction_completed' && !event.acknowledged_at) {
+        if (!map[event.spec_task_id]) map[event.spec_task_id] = [];
+        map[event.spec_task_id].push(event);
+      }
+    }
+    return map;
+  }, [attentionEvents]);
+
   // Render task card wrapper - simplified
   const renderTaskCard = (task: SpecTaskWithExtras, index: number) => {
     return (
@@ -325,6 +338,7 @@ const DroppableColumn: React.FC<{
         highlightedTaskIds={highlightedTaskIds}
         onDependencyHoverStart={onDependencyHoverStart}
         onDependencyHoverEnd={onDependencyHoverEnd}
+        attentionEvents={taskAttentionEventsMap[task.id] || []}
       />
     );
   };
