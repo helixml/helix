@@ -53,32 +53,22 @@ Position: absolute, top-right corner of the card container (`top: -6px, right: -
 
 The card's root `Box` needs `position: 'relative'` (likely already set).
 
-### Acknowledge on View
+### Acknowledge on Click
+
+The existing `handleCardClick` in `TaskCard.tsx` already fires when the user clicks the card. Add acknowledgment there:
 
 ```tsx
-const cardRef = useRef<HTMLDivElement>(null)
-
-useEffect(() => {
-  if (!hasUnreadNotification || !cardRef.current) return
-  const observer = new IntersectionObserver(
-    ([entry]) => {
-      if (entry.isIntersecting) {
-        attentionEvents.forEach(event => acknowledge(event.id))
-        observer.disconnect()
-      }
-    },
-    { threshold: 0.5 }
-  )
-  observer.observe(cardRef.current)
-  return () => observer.disconnect()
-}, [hasUnreadNotification, attentionEvents])
+const handleCardClick = () => {
+  attentionEvents.forEach(event => acknowledge(event.id))
+  if (onTaskClick) onTaskClick(task)
+}
 ```
 
-The `acknowledge` function comes from `useAttentionEvents` (already exported). It calls `PUT /api/v1/attention-events/{id}` and invalidates the React Query cache, causing the dot to disappear.
+The `acknowledge` function comes from `useAttentionEvents` (already exported). It calls `PUT /api/v1/attention-events/{id}` and invalidates the React Query cache, causing the dot to disappear. No `IntersectionObserver` needed.
 
 ### Key Decisions
 
-- **IntersectionObserver over click**: Matches the requirement of "viewing is sufficient." Threshold of 0.5 prevents false positives from barely-visible cards at scroll edges.
+- **Click to acknowledge**: Acknowledgment fires in the existing `handleCardClick` handler. No `IntersectionObserver` needed — simpler and intentional (user must click the card).
 - **API acknowledgment (not local state)**: Must use the same `acknowledged_at` mechanism as the notification panel so both indicators stay in sync.
 - **Remove the orange dot**: The existing orange dot (`needsAttention` from `useAgentActivityCheck`, lines 985-1028 in `TaskCard.tsx`) never worked reliably and is being removed. The new red dot (API-backed) replaces it entirely. Delete `useAgentActivityCheck`, its local state, and the orange/green pulsing dot rendering block.
 - **Filter to `agent_interaction_completed` events only**: Other event types (e.g., `specs_pushed`, `pr_ready`) are not specifically about agent completion and don't belong on cards in this context.

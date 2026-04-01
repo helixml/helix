@@ -14,9 +14,9 @@ so that it behaves the same way as the notification dropdown (viewing = acknowle
 
 1. A red dot badge appears at the top of a Kanban card when there is an unread `AttentionEvent` linked to that task (i.e., `acknowledged_at` is null).
 2. The red dot is visually distinct — a small solid red circle, positioned prominently at the top of the card (e.g., top-right corner overlay or top of the card header).
-3. When the card becomes visible in the viewport (scrolled into view), the system automatically acknowledges the linked `AttentionEvent` via the API (`PUT /api/v1/attention-events/{id}` with `{acknowledge: true}`).
-4. After acknowledgment, the red dot disappears without requiring any user click.
-5. This behavior mirrors the notification dropdown: "viewing = acknowledged." No extra click is required.
+3. When the user clicks the card, the system acknowledges the linked `AttentionEvent` via the API (`PUT /api/v1/attention-events/{id}` with `{acknowledge: true}`).
+4. After acknowledgment, the red dot disappears.
+5. This mirrors the notification dropdown where clicking an item acknowledges it.
 6. If multiple unread events are linked to a single task, acknowledging on view applies to all of them.
 7. The red dot is only shown for `event_type = "agent_interaction_completed"` events (same events that trigger notifications for agent completion).
 
