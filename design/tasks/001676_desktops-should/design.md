@@ -42,7 +42,7 @@ serve.go startup
 
 **Check interval: 5 minutes**: Balances responsiveness (idle for up to 65 minutes max) against DB query overhead.
 
-**Idle threshold: 1 hour**: Configurable via a constant; exposes as an optional env var in the future if needed.
+**Idle threshold: 1 hour**: Configurable via `HELIX_DESKTOP_IDLE_TIMEOUT` environment variable (e.g. `1h`, `30m`), defaulting to `1h`. Parse with `time.ParseDuration`.
 
 ## Codebase Patterns
 
