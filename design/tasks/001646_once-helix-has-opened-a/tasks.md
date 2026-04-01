@@ -1,6 +1,6 @@
 # Implementation Tasks
 
-- [ ] In `ensurePullRequestForRepo` (spec_task_workflow_handlers.go), before `ListPullRequests`, check `task.GetPRForRepo(repo.ID)`; if a PR is already tracked, fetch it by PR ID and return it without creating a new one
+- [~] In `ensurePullRequestForRepo` (spec_task_workflow_handlers.go), before `ListPullRequests`, check `task.GetPRForRepo(repo.ID)`; if a PR is already tracked, fetch it by PR ID and return it without creating a new one
 - [ ] In `ensurePullRequestForRepo`, add 422 "already exists" error handling after `CreatePullRequest` fails: re-list PRs and return the found PR instead of propagating the error (matching the behaviour in git_http_server.go's `ensurePullRequest`)
 - [ ] In `ensurePullRequest` (git_http_server.go), skip the `UpdatePullRequest` title-overwrite call so user-renamed PR titles are preserved
 - [ ] Write a unit test: task with a tracked RepoPR for a repo → `ensurePullRequestForRepo` returns that PR without calling `ListPullRequests` or `CreatePullRequest`
