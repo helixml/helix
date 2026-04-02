@@ -333,6 +333,12 @@ func (apiServer *HelixAPIServer) handleExternalAgentSync(res http.ResponseWriter
 		// Get the Helix session to find the initial interaction
 		helixSession, err := apiServer.Controller.Options.Store.GetSession(ctx, helixSessionID)
 		if err == nil && helixSession != nil {
+			log.Info().
+				Str("session_id", helixSessionID).
+				Str("zed_thread_id", helixSession.Metadata.ZedThreadID).
+				Str("spec_task_id", helixSession.Metadata.SpecTaskID).
+				Str("agent_type", helixSession.Metadata.AgentType).
+				Msg("[CONNECT] Session loaded for reconnect")
 			// CRITICAL: Rebuild contextMappings from persisted ZedThreadID if present
 			// This ensures message routing works after API server restarts
 			if helixSession.Metadata.ZedThreadID != "" {
@@ -381,17 +387,40 @@ func (apiServer *HelixAPIServer) handleExternalAgentSync(res http.ResponseWriter
 					Str("session_id", helixSessionID).
 					Str("zed_thread_id", targetThreadID).
 					Str("agent_name", agentNameForOpen).
-					Msg("[CONNECT] Sending open_thread on connect before agent_ready gate")
-				if err := apiServer.sendOpenThreadCommand(helixSessionID, targetThreadID, agentNameForOpen); err != nil {
+					Msg("[CONNECT] Sending open_thread directly on new connection before agent_ready gate")
+
+				// Send directly on the new wsConn rather than going through
+				// sendCommandToExternalAgent — during reconnection, the connection
+				// map may briefly have a stale entry or the channel may be closed
+				// by a racing defer from the old connection handler.
+				data := map[string]interface{}{
+					"acp_thread_id": targetThreadID,
+					"session_id":    helixSessionID,
+				}
+				if agentNameForOpen != "" {
+					data["agent_name"] = agentNameForOpen
+				}
+				openThreadCmd := types.ExternalAgentCommand{
+					Type: "open_thread",
+					Data: data,
+				}
+				// Write directly to the WebSocket, bypassing SendChan and the
+				// sender goroutine. During reconnection, the sender goroutine
+				// may not have started reading from the channel yet, and we
+				// need open_thread to arrive before agent_ready.
+				wsConn.mu.Lock()
+				writeErr := wsConn.Conn.WriteJSON(openThreadCmd)
+				wsConn.mu.Unlock()
+				if writeErr != nil {
 					log.Error().
 						Str("session_id", helixSessionID).
-						Err(err).
-						Msg("[CONNECT] Failed to send open_thread on connect")
+						Err(writeErr).
+						Msg("[CONNECT] Failed to write open_thread directly to WebSocket")
 				} else {
 					log.Info().
 						Str("session_id", helixSessionID).
 						Str("zed_thread_id", targetThreadID).
-						Msg("[CONNECT] ✅ open_thread sent successfully on connect")
+						Msg("[CONNECT] ✅ open_thread written directly to WebSocket")
 				}
 			}
 		}
