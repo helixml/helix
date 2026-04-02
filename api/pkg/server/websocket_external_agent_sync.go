@@ -2547,6 +2547,23 @@ func (apiServer *HelixAPIServer) sendQueuedPromptToSession(ctx context.Context, 
 			Str("interaction_id", createdInteraction.ID).
 			Str("prompt_id", prompt.ID).
 			Msg("❌ [QUEUE] Failed to send to agent (dev container auto-start triggered by sendCommandToExternalAgent)")
+
+		// Clean up in-memory state so pickupWaitingInteraction can set it up
+		// fresh on reconnect. Without this, stale message_completed events from
+		// the agent's previous context get matched to this interaction.
+		apiServer.contextMappingsMutex.Lock()
+		if queue := apiServer.sessionToWaitingInteraction[sessionID]; len(queue) > 0 {
+			// Remove the interaction we just added
+			filtered := make([]string, 0, len(queue))
+			for _, id := range queue {
+				if id != createdInteraction.ID {
+					filtered = append(filtered, id)
+				}
+			}
+			apiServer.sessionToWaitingInteraction[sessionID] = filtered
+		}
+		delete(apiServer.requestToSessionMapping, requestID)
+		apiServer.contextMappingsMutex.Unlock()
 	}
 
 	return nil
@@ -2559,10 +2576,16 @@ func (apiServer *HelixAPIServer) sendQueuedPromptToSession(ctx context.Context, 
 func (apiServer *HelixAPIServer) autoStartDevContainerForSession(sessionID string) {
 	ctx := context.Background()
 	session, err := apiServer.Controller.Options.Store.GetSession(ctx, sessionID)
-	if err != nil || session == nil {
+	if err != nil {
+		log.Error().Err(err).Str("session_id", sessionID).Msg("autoStartDevContainerForSession: failed to get session")
+		return
+	}
+	if session == nil {
+		log.Warn().Str("session_id", sessionID).Msg("autoStartDevContainerForSession: session is nil")
 		return
 	}
 	if session.Metadata.SpecTaskID == "" {
+		log.Debug().Str("session_id", sessionID).Msg("autoStartDevContainerForSession: no spec task ID on session, skipping")
 		return
 	}
 	specTask, err := apiServer.Controller.Options.Store.GetSpecTask(ctx, session.Metadata.SpecTaskID)
