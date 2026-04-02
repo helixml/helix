@@ -6,31 +6,33 @@
 
 ## Solution
 
-In the HTTP handler, check whether the acting user already has an OAuth connection for the repo's provider. If they do, use their token for PR creation. If they do not, initiate the OAuth flow for them rather than silently using repo-level credentials.
+Thread `userID` (the acting user) from the HTTP handler all the way into `getGitHubClient` / `getGitLabClient`. When `userID` is provided, look up that user's OAuth connections first; if none found, return an error (the handler surfaces this as an OAuth prompt). If `userID` is empty (background/automated calls), fall through to repo-level credentials unchanged.
 
-### Handler Logic (user-initiated path)
-
-```
-createGitRepositoryPullRequest (handler)
-  1. Look up acting user's OAuth connection for this provider
-     → s.store.GetOAuthConnectionByUserAndProvider(ctx, user.ID, providerID)
-  2a. Connection found → pass user.ID into CreatePullRequest (token used for PR authorship)
-  2b. No connection   → call s.oauthManager.StartOAuthFlow(ctx, user.ID, providerID, redirectURL, ...)
-                        → return OAuth authorization URL to client (HTTP 401 or dedicated response)
-                        → client redirects user to GitHub/GitLab OAuth; after completion, user retries
-```
-
-For the service layer, thread `userID` down so `getGitHubClient` / `getGitLabClient` use the acting user's token (step 2a only reaches `CreatePullRequest` when the connection exists):
+### Credential resolution chain in `getGitHubClient`
 
 ```
-gitRepositoryService.CreatePullRequest(ctx, repoID, ..., userID)
-  → createGitHubPullRequest(ctx, repo, ..., userID)
-    → getGitHubClient(ctx, repo, userID)   ← look up user's connection, no fallback to repo creds
+1. GitHub App (service-to-service, highest priority — unchanged)
+2. Acting user's OAuth connection  ← NEW
+   → s.store.ListOAuthConnections(ctx, &ListOAuthConnectionsQuery{UserID: userID})
+   → find conn where conn.Provider.Type == OAuthProviderTypeGitHub && conn.AccessToken != ""
+   → if userID non-empty and no connection found: return error (handler prompts OAuth)
+3. Repo-level OAuth connection (repo.OAuthConnectionID)  ← fallback when userID empty
+4. Repo-level PAT
+5. Username/password
 ```
+
+Same chain applies to `getGitLabClient`.
+
+### Handler logic (user-initiated path)
+
+`createGitRepositoryPullRequest` calls the existing `ensureUserOAuthConnection` helper, which:
+1. Lists the user's OAuth connections
+2. If none match the provider type, starts an OAuth flow and returns a 401 with `auth_url`
+3. If found, calls `s.gitRepositoryService.CreatePullRequest(..., user.ID)` so the service uses their token
 
 ### Task workflow path (`ensurePullRequestForTask`)
 
-Same check: if the acting user (the approver) has no OAuth connection, surface an error requiring them to connect their account before approval can proceed. Thread `userID` from `approveImplementation` through to `CreatePullRequest`.
+`approveImplementation` checks the user's OAuth connection upfront; returns 400 if missing. It then passes `user.ID` as `approverUserID` to `ensurePullRequestForTask`, which passes it to `CreatePullRequest`.
 
 ## Key APIs
 
@@ -48,7 +50,8 @@ Same check: if the acting user (the approver) has no OAuth connection, surface a
 
 ## Notes for Implementer
 
-- `GetOAuthConnectionByUserAndProvider(ctx, userID, providerID string)` returns `(*types.OAuthConnection, error)`. Treat any error or empty `AccessToken` as "no connection — trigger OAuth flow".
-- `StartOAuthFlow` returns an authorization URL string. The handler should return this to the client with a response shape the frontend already understands (check existing OAuth initiation endpoints for the pattern).
-- Provider ID strings: confirm exact values from `oauth/manager.go` provider registration (likely `"github"` and `"gitlab"`).
+- Use `s.store.ListOAuthConnections(ctx, &store.ListOAuthConnectionsQuery{UserID: userID})` to find connections; filter by `conn.Provider.Type == types.OAuthProviderTypeGitHub` (or `TypeGitLab`).
 - `userID` is always available in these handlers via `getRequestUser(r)`. There is no background-job path for user-initiated PR creation.
+- **GitHub App takes priority over user OAuth** — this is intentional. GitHub App is service-level auth for automated systems and is never overridden by individual user tokens.
+- The handler's `ensureUserOAuthConnection` helper already handles the 401+auth_url response pattern — reuse it rather than reimplementing.
+- `OAuthConnectionID` on the repo struct is unchanged. It remains the fallback when `userID` is empty (background calls, older code paths).
