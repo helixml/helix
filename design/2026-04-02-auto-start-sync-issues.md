@@ -1,7 +1,7 @@
 # Auto-Start Dev Container: WebSocket Sync Issues After Reconnect
 
 **Date**: 2026-04-02
-**Context**: Testing auto-start of dev containers when messages are sent to stopped sessions (PRs #2113, #2121, #2122, #2123, #2124)
+**Context**: Testing auto-start of dev containers when messages are sent to stopped sessions (PRs #2113, #2121, #2122, #2123, #2124, #2125)
 
 ## Incident Timeline (spt_01kn54z1vm6zd89cdj07fvqnb8)
 
@@ -39,116 +39,236 @@ User sent "carry on 3" to a stopped task. The dev container auto-started correct
 
 **Severity: Critical**
 
-When Zed opens an existing thread (`open_thread`), it replays ALL historical messages as `message_added` events. These are indistinguishable from new streaming content. `handleMessageAdded` routes them to the current waiting interaction (`int_01kn7g9849gekkc13jrparx1a2`), overwriting its `response_entries` with empty content from old messages.
+When Zed opens an existing thread (`open_thread`), it replays ALL historical messages as `message_added` events. These are indistinguishable from new streaming content. `handleMessageAdded` routes them to the current waiting interaction, overwriting its `response_entries` with empty content from old messages.
 
-The message IDs jump (9, 10, 11, 19, 22, 24, 26, 28, 30, 44, 50...) — these are clearly historical messages being replayed, not a streaming response. But there's no way for the API to distinguish replay from new content.
-
-**Root cause detail**: `pickupWaitingInteraction` queues both `open_thread` AND `chat_message` together (both sent immediately after `agent_ready`). But Zed needs to finish loading the thread and replaying history before the new `chat_message` is processed. The history replay `message_added` events arrive while the interaction is already set up, corrupting it.
-
-**Fix options:**
-- a) **Delay `agent_ready` until thread is loaded (recommended)**: Currently `agent_ready` fires when Zed is ready to receive commands, BEFORE the thread is opened. The API then sends `open_thread` + `chat_message` together after `agent_ready`, so the history replay corrupts the chat interaction. Fix: send `open_thread` immediately on WebSocket connect (before `agent_ready` gate), have Zed delay `agent_ready` until the thread is fully loaded and history replayed. The existing `agent_ready` gate then naturally holds `chat_message` until replay is done. No new event types needed — just reordering.
-- b) **New `thread_opened` handshake**: Zed sends a `thread_opened` event after it finishes loading and replaying thread history. The API gates `chat_message` delivery on this event. More protocol complexity but more explicit.
-- c) **Track last-seen message_id per thread**: Ignore `message_added` events with `message_id <= last_seen_id`. On reconnect, only process messages with higher IDs.
-- d) **API-side heuristic**: After sending `open_thread`, ignore `message_added` events for ~2s. Fragile/hacky.
+**Root cause detail**: `pickupWaitingInteraction` queues both `open_thread` AND `chat_message` together (both sent immediately after `agent_ready`). But Zed needs to finish loading the thread and replaying history before the new `chat_message` is processed.
 
 ### Issue 2: Prompt Text Contaminated with CLI Output
 
 **Severity: Medium**
 
-The "carry on 3" message was delivered with XML prefix:
-```
-<command-name>/model</command-name>
-<command-message>model</command-message>
-<command-args>default</command-args>
-<local-command-stdout>Set model to claude-sonnet-4-6</local-command-stdout>carry on 3
-```
+The "carry on 3" message was delivered with XML prefix from local CLI command output. The prompt history sync captures terminal buffer content along with the user's message.
 
-The prompt history sync captures local CLI command output along with the user's message. This is a frontend bug — the prompt text should be the user's message only, not the full terminal buffer.
-
-**Fix**: Frontend should strip `<command-name>`, `<local-command-stdout>`, and similar tags from the prompt content before syncing to the prompt history API.
+**Fix**: Frontend should strip `<command-name>`, `<local-command-stdout>`, and similar tags from the prompt content before syncing.
 
 ### Issue 3: User Messages Typed Directly in Zed Don't Sync to Helix
 
 **Severity: Medium**
 
-When the user typed "you there?" directly in Zed (not via the Helix UI), the agent responded ("Yep, here!") but the interaction was never created in Helix. The Zed-side `message_added` and `message_completed` events were either not sent, or sent with a context/thread that Helix didn't have a mapping for.
-
-This is expected behaviour for now (Zed-side messages bypass the Helix prompt queue), but it means the Helix session view is incomplete. After reconnect, any Zed-side interactions are invisible to Helix.
-
-**Fix options:**
-- a) On reconnect, sync the full thread state from Zed → Helix (reconciliation)
-- b) Treat any `message_completed` without a matching interaction as a new interaction (auto-create)
+When the user typed "you there?" directly in Zed (not via the Helix UI), the agent responded but the interaction was never created in Helix.
 
 ### Issue 4: Multiple WebSocket Reconnections
 
 **Severity: Low**
 
-Between 16:27:28 and 16:29:04, three WebSocket connections were established for the same session. Container-side logs show "Connection reset without closing handshake" errors. The reconnection loop causes repeated `open_thread` → history replay cycles, compounding Issue 1.
+Three connections established in 2 minutes, with "Connection reset without closing handshake" errors.
 
-**Fix**: Investigate why the WebSocket connection is unstable after auto-start. May be related to the sandbox reconnect at 16:27:28 racing with the initial connection at 16:26:52.
-
-## Chosen Fix: Delay `agent_ready` until thread is loaded (Option a)
+## Chosen Fix: Delay `agent_ready` until thread is loaded (PR #2125)
 
 ### Design
 
-The existing `agent_ready` gate already holds `chat_message` delivery. The fix reorders
-what happens on each side of the gate:
-
 **Before (broken):**
 1. WebSocket connects
-2. Zed sends `agent_ready` (immediately, Zed process is ready)
+2. Zed sends `agent_ready` (immediately)
 3. `pickupWaitingInteraction` sends `open_thread` + `chat_message` together
 4. Zed opens thread → replays history → `message_added` events corrupt the interaction
-5. `message_completed` → empty response
 
 **After (fixed):**
 1. WebSocket connects
 2. API sends `open_thread` immediately (before `agent_ready` gate) — only if session has `ZedThreadID`
 3. Zed receives `open_thread`, loads thread, replays history
-4. Zed sends `agent_ready` only after thread loading is complete
-5. API receives `agent_ready`, `pickupWaitingInteraction` sends `chat_message` only (no `open_thread`)
-6. Agent processes `chat_message` → real response streams correctly
+4. Zed sends `agent_ready` only after thread loading is complete (thread_service.rs:1253, 1404)
+5. API receives `agent_ready`, flushes queued `chat_message`
+6. API-side guard: `handleMessageAdded` drops events when `isSessionReady()==false`
 
 **Fresh start (no thread):**
 1. WebSocket connects
 2. No `open_thread` sent (no `ZedThreadID`)
-3. Zed sends `agent_ready` immediately (nothing to load)
+3. Zed sends `agent_ready` after 5s fallback timer
 4. `pickupWaitingInteraction` sends `chat_message` → triggers `thread_created`
 
-### Changes Required
+---
 
-**Helix API (Go):**
-- On WebSocket connect, BEFORE calling `pickupWaitingInteraction`: if session has `ZedThreadID`, send `open_thread` command immediately
-- In `pickupWaitingInteraction`: skip sending `open_thread` (it was already sent on connect)
-- Ignore `message_added` events that arrive before `agent_ready` (thread history replay)
+## Restart Resilience Analysis
 
-**Zed (Rust):**
-- When `open_thread` arrives: load the thread, replay history, THEN send `agent_ready`
-- If no `open_thread` arrives before the agent is otherwise ready: send `agent_ready` as normal
-- Requires updating `sandbox-versions.txt` with the new Zed commit
+### Scenario A: Zed Restart (container stops → auto-start → fresh Zed process)
 
-## Priority
+**What Zed loses:**
+- Thread registry (`THREAD_REGISTRY`, `THREAD_KEEP_ALIVE`) — all thread entity references
+- Subscriptions (`PERSISTENT_SUBSCRIPTIONS`) — cleared on process restart
+- Message ID mappings (`THREAD_REQUEST_MAP`, `THREAD_AGENT_SESSION_MAP`)
+- External origin tracking (`EXTERNAL_ORIGINATED_ENTRIES`)
+- Streaming throttle state (`STREAMING_THROTTLE`)
 
-Issue 1 (thread history replay) is the most critical — it causes data loss (empty response). Without fixing it, the auto-start feature is unreliable because every reconnect triggers a history replay that corrupts the current interaction.
+**Recovery flow:**
+1. Zed starts fresh, workspace restoration loads `SerializedAgentPanel` (agent_panel.rs:854-883)
+2. `load_agent_thread()` restores the last active thread from the serialized state
+3. WebSocket connects → Helix sends `open_thread` → Zed loads thread from ACP agent DB
+4. Thread service sends `agent_ready` after thread is loaded (thread_service.rs:1253)
+5. Helix flushes queued `chat_message`
 
-## E2E Test Gap
+**Collision risk: Zed workspace restore vs. Helix `open_thread`**
 
-The existing E2E tests (Phase 7) test `open_thread` + `chat_message` on an already-connected session. They don't test the reconnect scenario where:
-1. Session has an existing thread
-2. WebSocket disconnects
-3. Agent reconnects
-4. `open_thread` triggers history replay
-5. New `chat_message` must arrive AFTER replay completes
+Both paths try to load the same thread:
+- **Zed's native restore**: `SerializedAgentPanel` → `load_agent_thread()` → loads thread from ACP agent
+- **Helix's `open_thread`**: `open_existing_thread_sync()` → loads thread from ACP agent
 
-A new Phase 12 should be added to the E2E test (`helix-ws-test-server/main.go`) that:
-1. Creates a thread and completes a message (Phase 1-style)
-2. Disconnects the WebSocket (kill the Zed binary or drop the connection)
-3. Reconnects (restart Zed or force new WebSocket connection)
-4. Sends a new `chat_message` to the existing thread
-5. Verifies the response is correct (not corrupted by history replay)
-6. Verifies `response_length > 0` on the interaction
+The collision is mitigated at thread_service.rs:1282:
+```rust
+if let Some(thread_weak) = get_thread(&request.acp_thread_id) {
+    // Thread already loaded — just ensure subscription, skip re-load
+    ensure_thread_subscription(&thread_entity, &request.acp_thread_id, cx);
+    return Ok(());
+}
+```
 
-This requires the test server to handle WebSocket reconnection, which is a larger change.
+And `ensure_thread_subscription` is idempotent (thread_service.rs:417):
+```rust
+if has_persistent_subscription(thread_id) {
+    return; // already subscribed
+}
+```
+
+**Remaining risk**: If Helix's `open_thread` arrives BEFORE Zed's workspace restore has registered the thread in the registry, both paths load independently. The second load would create a second `Entity<AcpThread>` for the same thread. However, `register_thread` overwrites the registry entry, so only the latest entity survives. The earlier entity's subscription becomes orphaned (subscribed to a dropped entity → events silently lost).
+
+**Verdict**: **LOW risk** — the registry overwrite prevents corruption, and the thread service always re-subscribes on `open_thread`.
+
+**What happens to in-flight interactions:**
+- Interaction stays in `Waiting` state in DB
+- `pickupWaitingInteraction` finds it on reconnect (websocket_external_agent_sync.go:399-410)
+- Message is re-sent to Zed after `agent_ready`
+- **Result**: Message delivery is reliable ✅
+
+**What happens to partial streaming content:**
+- `streamingContexts` is in-memory only, lost on Zed disconnect
+- The interaction stays in `Waiting` state
+- On reconnect, `pickupWaitingInteraction` re-sends the original `chat_message`
+- Zed generates a fresh response
+- **Result**: Up to 200ms of streamed content lost, but full response regenerated ✅
+
+**Gap: `streamingContexts` not cleaned up on disconnect**
+When Zed disconnects mid-stream, `handleExternalAgentReceiver` returns but `streamingContexts[sessionID]` is never deleted. Memory leak + stale context if reused.
+**Fix**: Clean up `streamingContexts` in the defer/error handler of `handleExternalAgentReceiver`.
+
+### Scenario B: Helix API Restart (Air hot-reload or crash)
+
+**What Helix loses:**
+- `contextMappings` (acp_thread_id → helix_session_id) — **in-memory only**
+- `sessionToWaitingInteraction` (session → FIFO queue) — **in-memory only**
+- `requestToSessionMapping` (request_id → session_id) — **in-memory only**
+- `readinessState` (per-session readiness tracking) — **in-memory only**
+- `streamingContexts` (buffered streaming content) — **in-memory only**
+- `sessionCommentTimeout` (comment processing timers) — **in-memory only**
+
+**Recovery flow:**
+1. Zed detects WebSocket close, enters reconnection loop (exponential backoff: 1s → 2s → ... → 30s)
+2. Helix restarts, new process has empty in-memory state
+3. Zed reconnects → `handleExternalAgentSync` fires
+4. `contextMappings` rebuilt from `session.Metadata.ZedThreadID` (line 338-346) ✅
+5. `pickupWaitingInteraction` finds `Waiting` interactions from DB (line 399-410) ✅
+6. Readiness state initialized fresh (line 353) ✅
+7. `open_thread` sent on connect (line 364+) ✅
+8. `ResumeCommentQueueProcessing` runs on startup (server.go:581), resets stuck comments ✅
+
+**What's NOT recovered:**
+- **`readinessState.PendingQueue`** — messages queued but not yet sent to Zed. If Helix crashes while messages are in the pending queue (between creation and `agent_ready` flush), those messages are lost. However, if they correspond to DB interactions in `Waiting` state, `pickupWaitingInteraction` will re-discover and re-send them.
+- **Prompt history entries in `sending` state** — a prompt marked `sending` but never confirmed as `sent`. `processPendingPromptsForIdleSessions` will re-scan on the next sync, but the `sending` status might prevent re-processing (depends on the store query). **Gap: needs a timeout to revert `sending` → `pending`.**
+
+**Gap: Partial streaming content lost**
+If `streamingContext` was mid-flush (200ms throttle interval), up to 200ms of content is lost. However, since Zed has the full response, when it reconnects and the thread is re-opened via `open_thread`, the full history is replayed. With the `isSessionReady` guard, this replay is correctly dropped (it's old content, not new). But the original interaction's response is incomplete.
+**Mitigation**: The interaction is in `Waiting` state, so `pickupWaitingInteraction` will re-send the `chat_message` and get a fresh response.
+
+### Scenario C: Simultaneous Restart (both Zed and Helix crash)
+
+**What happens:**
+1. Both processes crash — all in-memory state lost on both sides
+2. Helix restarts first (typically faster — Go binary)
+3. Zed container auto-starts (container creation + Zed startup — slower)
+4. Zed connects → `handleExternalAgentSync` → `pickupWaitingInteraction` → re-sends
+
+**Result**: The message is re-delivered. The original partial response is lost, but a fresh response is generated. **Acceptable** — the user didn't see the original response anyway.
+
+---
+
+## ACP Agent Compatibility
+
+Both built-in Zed ACP agent (NativeAgent) and external ACP agents (Claude Code, Qwen Code) go through the same `ThreadService` code paths:
+
+```rust
+// thread_service.rs — agent selection
+match request.agent_name.as_deref() {
+    Some("zed-agent") | Some("") | None => ExternalAgent::NativeAgent,
+    Some("claude") => ExternalAgent::Custom { name: CLAUDE_AGENT_ID, ... },
+    Some(other) => ExternalAgent::Custom { name: other, ... },
+}
+```
+
+Both agent types use:
+- Same `open_existing_thread_sync` for thread loading (thread_service.rs:1267)
+- Same `load_thread_from_agent` for loading from ACP DB (thread_service.rs:1188)
+- Same `ensure_thread_subscription` for event subscriptions (thread_service.rs:412)
+- Same `agent_ready` signaling after thread load (thread_service.rs:1253, 1404)
+
+The protocol change (delay `agent_ready` until thread loaded) applies uniformly to all agent types. ✅
+
+---
+
+## State Persistence Summary
+
+| State | Persisted? | Zed Restart Recovery | Helix Restart Recovery |
+|-------|-----------|---------------------|----------------------|
+| Session metadata (ZedThreadID) | **YES** (DB) | Rebuilt on connect ✅ | Rebuilt on connect ✅ |
+| Waiting interactions | **YES** (DB) | Re-sent via pickupWaitingInteraction ✅ | Re-sent via pickupWaitingInteraction ✅ |
+| contextMappings | **Partial** (in ZedThreadID) | Rebuilt from metadata ✅ | Rebuilt from metadata ✅ |
+| sessionToWaitingInteraction | **NO** (memory) | Rebuilt from DB ✅ | Rebuilt from DB ✅ |
+| readinessState.PendingQueue | **NO** (memory) | N/A (fresh Zed) | **LOST** ⚠️ (mitigated by pickupWaitingInteraction) |
+| streamingContexts | **Partial** (200ms flush) | New context on reconnect ✅ | New context on reconnect ✅ |
+| Prompt history entries | **YES** (DB) | Re-processed on sync ✅ | Re-processed on sync ✅ |
+| Comment queue (QueuedAt) | **YES** (DB) | ResumeCommentQueueProcessing ✅ | ResumeCommentQueueProcessing ✅ |
+| PERSISTENT_SUBSCRIPTIONS (Zed) | **NO** (memory) | Cleared, recreated via open_thread ✅ | N/A |
+
+---
+
+## Remaining Gaps (Priority Order)
+
+### HIGH: `streamingContexts` not cleaned up on disconnect
+When Zed disconnects mid-stream, the streaming context leaks. Clean up in the defer of `handleExternalAgentReceiver`.
+
+### HIGH: Prompt history `sending` → `pending` timeout
+If a prompt is marked `sending` but Helix crashes before confirming, it's orphaned. Need a background job that reverts `sending` → `pending` after 5 minutes.
+
+### MEDIUM: Workspace restore + `open_thread` timing race
+If Helix's `open_thread` arrives before Zed's workspace restore registers the thread, the thread is loaded twice. The second load's entity overwrites the registry, orphaning the first entity's subscriptions. Low probability but possible on slow disk I/O.
+
+### MEDIUM: `sessionToWaitingInteraction` is append-only
+The FIFO queue grows unboundedly. Clean up entries when interactions transition to terminal states.
+
+### LOW: No request_id correlation in `message_added`
+The protocol doesn't include `request_id` in `message_added` events, so Helix can't verify responses match the right interaction. Currently relies on FIFO ordering which is fragile.
+
+---
+
+## E2E Test Gaps
+
+### Phase 12: Zed restart reconnection test
+1. Complete a message (Phase 1-style)
+2. Kill the Zed process
+3. Start a new Zed process (fresh binary, connects to same test server)
+4. Test server sends `open_thread` for existing thread
+5. New Zed loads thread, replays history, sends `agent_ready`
+6. Test server sends `chat_message`
+7. Verify response is correct, `response_length > 0`
+
+Requires test infrastructure to restart the Zed binary mid-test.
+
+### Phase 13: Helix restart reconnection test
+1. Complete a message
+2. Restart the Go test server (clear in-memory state, keep DB)
+3. Zed reconnects to new server
+4. Verify contextMappings rebuilt, waiting interaction re-sent
+5. Verify response routing correct
+
+Requires test infrastructure to restart the Go test server mid-test while preserving the DB.
 
 ## Related PRs
 - #2113: Backend auto-start for design review comments
@@ -156,3 +276,4 @@ This requires the test server to handle WebSocket reconnection, which is a large
 - #2122: Auto-start in sendCommandToExternalAgent (consolidated)
 - #2123: Fix stale response routing after auto-start
 - #2124: Fix idle timeout overwriting paused screenshot
+- #2125: Fix history replay corruption (open_thread before agent_ready)
