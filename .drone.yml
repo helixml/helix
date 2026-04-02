@@ -1945,7 +1945,10 @@ steps:
         else
           echo "Building Zed from source commit: $${ZED_SHA}"
           mkdir -p zed-build
-          docker build \
+          # MUST use DOCKER_BUILDKIT=1 so cache mounts in the Dockerfile work.
+          # Plain 'docker build' on Docker 29.x ignores BuildKit cache mounts,
+          # causing a full Rust recompile (~12min) on every ZED_COMMIT change.
+          DOCKER_BUILDKIT=1 docker build \
             --build-arg BUILD_TYPE=release \
             --build-arg ZED_COMMIT_SHA=$${ZED_SHA} \
             --output type=local,dest=zed-build \
@@ -2329,7 +2332,7 @@ steps:
         else
           echo "Building Zed from source commit: $${ZED_SHA}"
           mkdir -p zed-build
-          docker build \
+          DOCKER_BUILDKIT=1 docker build \
             --provenance=false \
             --build-arg BUILD_TYPE=release \
             --build-arg ZED_COMMIT_SHA=$${ZED_SHA} \
