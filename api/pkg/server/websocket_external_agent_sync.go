@@ -903,35 +903,10 @@ func (apiServer *HelixAPIServer) NotifyExternalAgentOfNewInteraction(sessionID s
 		Data: commandData,
 	}
 
-	// If no WebSocket connection exists and this session belongs to a spec task,
-	// auto-start the desktop and wait for the agent to connect before sending.
-	if _, exists := apiServer.externalAgentWSManager.getConnection(sessionID); !exists {
-		if session.Metadata.SpecTaskID != "" {
-			specTask, err := apiServer.Controller.Options.Store.GetSpecTask(context.Background(), session.Metadata.SpecTaskID)
-			if err != nil {
-				log.Error().Err(err).Str("spec_task_id", session.Metadata.SpecTaskID).Msg("Failed to load spec task for desktop auto-start")
-			} else if startErr := apiServer.startDesktopForSpecTask(context.Background(), specTask); startErr != nil {
-				log.Error().Err(startErr).Str("spec_task_id", session.Metadata.SpecTaskID).Msg("Failed to auto-start desktop")
-			} else {
-				// Wait for the agent to reconnect via WebSocket (up to 90s)
-				const maxWait = 90 * time.Second
-				const pollInterval = 5 * time.Second
-				deadline := time.Now().Add(maxWait)
-				for time.Now().Before(deadline) {
-					time.Sleep(pollInterval)
-					if _, exists := apiServer.externalAgentWSManager.getConnection(sessionID); exists {
-						log.Info().
-							Str("session_id", sessionID).
-							Str("spec_task_id", session.Metadata.SpecTaskID).
-							Msg("✅ Agent connected after desktop auto-start, delivering chat message")
-						break
-					}
-				}
-			}
-		}
-	}
-
-	// Use the unified sendCommandToExternalAgent which handles connection lookup and routing
+	// Use the unified sendCommandToExternalAgent which handles connection lookup and routing.
+	// If no WebSocket connection exists, sendCommandToExternalAgent will auto-start the
+	// dev container via autoStartDevContainerForSession. The waiting interaction will be picked up
+	// by pickupWaitingInteraction when the agent reconnects.
 	return apiServer.sendCommandToExternalAgent(sessionID, command)
 }
 
@@ -1606,6 +1581,10 @@ func (apiServer *HelixAPIServer) sendCommandToExternalAgent(sessionID string, co
 	// Get the WebSocket connection for this session
 	wsConn, exists := apiServer.externalAgentWSManager.getConnection(sessionID)
 	if !exists || wsConn == nil {
+		// No connection — auto-start the dev container if this session belongs to a spec task.
+		// The caller's interaction/prompt is already persisted; pickupWaitingInteraction
+		// will deliver it when the agent reconnects via WebSocket.
+		go apiServer.autoStartDevContainerForSession(sessionID)
 		return fmt.Errorf("no WebSocket connection found for session %s", sessionID)
 	}
 
@@ -2563,14 +2542,41 @@ func (apiServer *HelixAPIServer) sendQueuedPromptToSession(ctx context.Context, 
 	// affect the prompt status. The user will see the interaction in the session
 	// and can retry if needed.
 	if err := apiServer.sendCommandToExternalAgent(sessionID, command); err != nil {
-		log.Error().Err(err).
+		log.Warn().Err(err).
 			Str("session_id", sessionID).
 			Str("interaction_id", createdInteraction.ID).
 			Str("prompt_id", prompt.ID).
-			Msg("❌ [QUEUE] Failed to send to agent, but interaction was created - prompt will be marked as sent")
+			Msg("❌ [QUEUE] Failed to send to agent (dev container auto-start triggered by sendCommandToExternalAgent)")
 	}
 
 	return nil
+}
+
+// autoStartDevContainerForSession checks if a session belongs to a spec task and,
+// if so, auto-starts its dev container. This is fire-and-forget — the caller's
+// message is already persisted and will be picked up by pickupWaitingInteraction
+// when the agent reconnects.
+func (apiServer *HelixAPIServer) autoStartDevContainerForSession(sessionID string) {
+	ctx := context.Background()
+	session, err := apiServer.Controller.Options.Store.GetSession(ctx, sessionID)
+	if err != nil || session == nil {
+		return
+	}
+	if session.Metadata.SpecTaskID == "" {
+		return
+	}
+	specTask, err := apiServer.Controller.Options.Store.GetSpecTask(ctx, session.Metadata.SpecTaskID)
+	if err != nil {
+		log.Error().Err(err).Str("spec_task_id", session.Metadata.SpecTaskID).Msg("Failed to load spec task for dev container auto-start")
+		return
+	}
+	log.Info().
+		Str("session_id", sessionID).
+		Str("spec_task_id", specTask.ID).
+		Msg("Auto-starting dev container for session with no WebSocket connection")
+	if startErr := apiServer.startDevContainerForSpecTask(ctx, specTask); startErr != nil {
+		log.Error().Err(startErr).Str("spec_task_id", specTask.ID).Msg("Failed to auto-start dev container")
+	}
 }
 
 // truncateString truncates a string to maxLen characters

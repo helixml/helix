@@ -874,13 +874,13 @@ func (s *WebSocketSyncSuite) TestAgentReady_WithPendingPrompt() {
 		ID:    "ses_pending",
 		Owner: "user-1",
 	}
-	s.store.EXPECT().GetSession(gomock.Any(), "ses_pending").Return(session, nil)
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_pending").Return(session, nil).AnyTimes()
 	s.store.EXPECT().CreateInteraction(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, interaction *types.Interaction) (*types.Interaction, error) {
 			return &types.Interaction{ID: "int-prompt", SessionID: "ses_pending"}, nil
 		},
 	)
-	// GetSpecTask for getAgentNameForSession
+	// GetSpecTask for getAgentNameForSession + autoStartDevContainerForSession
 	s.store.EXPECT().GetSpecTask(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound).AnyTimes()
 
 	syncMsg := &types.SyncMessage{
@@ -1015,7 +1015,7 @@ func (s *WebSocketSyncSuite) TestProcessPromptQueue_HasPending() {
 		ID:    "ses_pq",
 		Owner: "user-1",
 	}
-	s.store.EXPECT().GetSession(gomock.Any(), "ses_pq").Return(session, nil)
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_pq").Return(session, nil).AnyTimes()
 	s.store.EXPECT().CreateInteraction(gomock.Any(), gomock.Any()).Return(
 		&types.Interaction{ID: "int-pq", SessionID: "ses_pq"}, nil,
 	)
@@ -1026,6 +1026,7 @@ func (s *WebSocketSyncSuite) TestProcessPromptQueue_HasPending() {
 	s.store.EXPECT().MarkPromptAsSent(gomock.Any(), "prompt-pq").Return(nil)
 
 	s.server.processPromptQueue(context.Background(), "ses_pq")
+	time.Sleep(50 * time.Millisecond) // let autoStartDevContainerForSession goroutine complete
 }
 
 func (s *WebSocketSyncSuite) TestProcessPromptQueue_SendFails_GetSessionFails() {
@@ -1076,13 +1077,14 @@ func (s *WebSocketSyncSuite) TestProcessAnyPendingPrompt_HasPending() {
 		ID:    "ses_any",
 		Owner: "user-1",
 	}
-	s.store.EXPECT().GetSession(gomock.Any(), "ses_any").Return(session, nil)
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_any").Return(session, nil).AnyTimes()
 	s.store.EXPECT().CreateInteraction(gomock.Any(), gomock.Any()).Return(
 		&types.Interaction{ID: "int-any", SessionID: "ses_any"}, nil,
 	)
 	s.store.EXPECT().GetSpecTask(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound).AnyTimes()
 
 	s.server.processAnyPendingPrompt(context.Background(), "ses_any")
+	time.Sleep(50 * time.Millisecond) // let autoStartDevContainerForSession goroutine complete
 }
 
 func (s *WebSocketSyncSuite) TestProcessAnyPendingPrompt_SendFails_MarkedFailed() {
