@@ -29,8 +29,8 @@ type ExternalAgentHooks struct {
 	SendCommand               func(sessionID string, command types.ExternalAgentCommand) error
 	StoreResponseChannel      func(sessionID, requestID string, responseChan chan string, doneChan chan bool, errorChan chan error)
 	CleanupResponseChannel    func(sessionID, requestID string)
-	SetWaitingInteraction     func(sessionID, interactionID string)
-	SetRequestSessionMapping  func(requestID, sessionID string)
+	SetRequestInteractionMapping func(requestID, interactionID string)
+	SetRequestSessionMapping     func(requestID, sessionID string)
 }
 
 type RunExternalAgentRequest struct {
@@ -85,7 +85,7 @@ func (c *Controller) RunExternalAgent(ctx context.Context, req RunExternalAgentR
 		hooks.SendCommand == nil ||
 		hooks.StoreResponseChannel == nil ||
 		hooks.CleanupResponseChannel == nil ||
-		hooks.SetWaitingInteraction == nil ||
+		hooks.SetRequestInteractionMapping == nil ||
 		hooks.SetRequestSessionMapping == nil {
 		return nil, fmt.Errorf("external agent hooks are incomplete")
 	}
@@ -139,7 +139,7 @@ func (c *Controller) RunExternalAgent(ctx context.Context, req RunExternalAgentR
 	errorChan := make(chan error, 1)
 
 	hooks.StoreResponseChannel(req.Session.ID, requestID, responseChan, doneChan, errorChan)
-	hooks.SetWaitingInteraction(req.Session.ID, interaction.ID)
+	hooks.SetRequestInteractionMapping(requestID, interaction.ID)
 	hooks.SetRequestSessionMapping(requestID, req.Session.ID)
 
 	if err := hooks.SendCommand(req.Session.ID, command); err != nil {

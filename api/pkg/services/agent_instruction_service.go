@@ -580,10 +580,10 @@ func (s *AgentInstructionService) SendApprovalInstruction(
 
 	// Use messageSender which:
 	// 1. Creates an interaction in the database
-	// 2. Sets up sessionToWaitingInteraction mapping for response routing
+	// 2. Sets up requestToInteractionMapping for response routing
 	// 3. Sends the message via WebSocket to the agent
 	// NOTE: We do NOT call sendMessage here - that would create a duplicate interaction
-	// and overwrite the sessionToWaitingInteraction mapping, causing responses to go
+	// and overwrite the requestToInteractionMapping, causing responses to go
 	// to the wrong (empty) interaction.
 	_, _, err := s.messageSender(ctx, task, message, userID)
 	if err != nil {

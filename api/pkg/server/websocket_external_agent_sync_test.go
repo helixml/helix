@@ -59,8 +59,8 @@ func (s *WebSocketSyncSuite) SetupTest() {
 		externalAgentWSManager:      NewExternalAgentWSManager(),
 		externalAgentRunnerManager:  NewExternalAgentRunnerManager(),
 		contextMappings:             make(map[string]string),
-		sessionToWaitingInteraction: make(map[string][]string),
 		requestToSessionMapping:     make(map[string]string),
+		requestToInteractionMapping: make(map[string]string),
 		externalAgentSessionMapping: make(map[string]string),
 		externalAgentUserMapping:    make(map[string]string),
 		sessionCommentTimeout:       make(map[string]*time.Timer),
@@ -193,9 +193,8 @@ func (s *WebSocketSyncSuite) TestThreadCreated_Priority3_NewSession() {
 	err := s.server.handleThreadCreated("agent-1", syncMsg)
 	s.NoError(err)
 
-	// Verify contextMappings and sessionToWaitingInteraction populated
+	// Verify contextMappings populated
 	s.Equal("ses_new", s.server.contextMappings["thread-new"])
-	s.Equal([]string{"int-new"}, s.server.sessionToWaitingInteraction["ses_new"])
 }
 
 func (s *WebSocketSyncSuite) TestThreadCreated_Priority3_SpectaskLink() {
@@ -304,7 +303,6 @@ func (s *WebSocketSyncSuite) TestThreadCreated_StoreError() {
 
 func (s *WebSocketSyncSuite) TestMessageAdded_AssistantFirstMessage() {
 	s.server.contextMappings["thread-1"] = "ses_1"
-	s.server.sessionToWaitingInteraction["ses_1"] = []string{"int-1"}
 
 	session := &types.Session{
 		ID:    "ses_1",
@@ -352,7 +350,6 @@ func (s *WebSocketSyncSuite) TestMessageAdded_AssistantFirstMessage() {
 
 func (s *WebSocketSyncSuite) TestMessageAdded_AssistantSameMessageID_StreamingUpdate() {
 	s.server.contextMappings["thread-2"] = "ses_2"
-	s.server.sessionToWaitingInteraction["ses_2"] = []string{"int-2"}
 
 	session := &types.Session{
 		ID:    "ses_2",
@@ -403,7 +400,6 @@ func (s *WebSocketSyncSuite) TestMessageAdded_AssistantSameMessageID_StreamingUp
 
 func (s *WebSocketSyncSuite) TestMessageAdded_AssistantNewMessageID_MultiEntry() {
 	s.server.contextMappings["thread-3"] = "ses_3"
-	s.server.sessionToWaitingInteraction["ses_3"] = []string{"int-3"}
 
 	session := &types.Session{
 		ID:    "ses_3",
@@ -489,12 +485,10 @@ func (s *WebSocketSyncSuite) TestMessageAdded_UserMessage() {
 	err := s.server.handleMessageAdded("agent-1", syncMsg)
 	s.NoError(err)
 
-	// Verify sessionToWaitingInteraction was updated
-	s.Equal([]string{"int-user-new"}, s.server.sessionToWaitingInteraction["ses_user"])
 }
 
 // TestMessageAdded_UserMessage_PreCreatedInteractionReuse verifies Bug 1 fix:
-// When sendMessageToSpecTaskAgent pre-creates an interaction and sets sessionToWaitingInteraction,
+// When sendMessageToSpecTaskAgent pre-creates an interaction and sets requestToInteractionMapping,
 // the subsequent Zed echo of the user message must NOT create a duplicate interaction and must
 // NOT overwrite the mapping. This ensures the assistant response lands in the pre-created interaction.
 func (s *WebSocketSyncSuite) TestMessageAdded_UserMessage_PreCreatedInteractionReuse() {
@@ -502,7 +496,9 @@ func (s *WebSocketSyncSuite) TestMessageAdded_UserMessage_PreCreatedInteractionR
 
 	// Simulate sendMessageToSpecTaskAgent having pre-created an interaction
 	preCreatedID := "int-pre-created"
-	s.server.sessionToWaitingInteraction["ses_spec"] = []string{preCreatedID}
+	requestID := preCreatedID // sendMessageToSpecTaskAgent uses interaction ID as request ID
+	s.server.requestToSessionMapping[requestID] = "ses_spec"
+	s.server.requestToInteractionMapping[requestID] = preCreatedID
 
 	// No store expectations: CreateInteraction must NOT be called, GetSession must NOT be called
 
@@ -519,11 +515,9 @@ func (s *WebSocketSyncSuite) TestMessageAdded_UserMessage_PreCreatedInteractionR
 	err := s.server.handleMessageAdded("agent-1", syncMsg)
 	s.NoError(err)
 
-	// Mapping must still point to the pre-created interaction (not overwritten)
-	s.Require().NotEmpty(s.server.sessionToWaitingInteraction["ses_spec"],
-		"sessionToWaitingInteraction must not be emptied by Zed user-message echo")
-	s.Equal(preCreatedID, s.server.sessionToWaitingInteraction["ses_spec"][0],
-		"sessionToWaitingInteraction must not be overwritten by Zed user-message echo")
+	// requestToInteractionMapping must still contain the pre-created interaction (not removed by echo)
+	s.Equal(preCreatedID, s.server.requestToInteractionMapping[requestID],
+		"requestToInteractionMapping must not be removed by Zed user-message echo")
 }
 
 func (s *WebSocketSyncSuite) TestMessageAdded_ContextMappingMiss_DBFallback() {
@@ -1098,7 +1092,7 @@ func (s *WebSocketSyncSuite) TestProcessAnyPendingPrompt_SendFails_MarkedFailed(
 
 func (s *WebSocketSyncSuite) TestSendQueuedPrompt_SendFails_CleansUpInMemoryState() {
 	// When sendCommandToExternalAgent fails (no WS connection),
-	// sessionToWaitingInteraction and requestToSessionMapping must be cleaned
+	// requestToSessionMapping and requestToInteractionMapping must be cleaned
 	// up so pickupWaitingInteraction sets them fresh on reconnect.
 	// Otherwise a stale message_completed from the agent's previous context
 	// gets matched to the new interaction (wrong response bug).
@@ -1127,12 +1121,12 @@ func (s *WebSocketSyncSuite) TestSendQueuedPrompt_SendFails_CleansUpInMemoryStat
 
 	// Verify in-memory state was cleaned up
 	s.server.contextMappingsMutex.Lock()
-	waitingQueue := s.server.sessionToWaitingInteraction["ses_cleanup"]
-	_, hasMapping := s.server.requestToSessionMapping["int-cleanup"]
+	_, hasSessionMapping := s.server.requestToSessionMapping["int-cleanup"]
+	_, hasInteractionMapping := s.server.requestToInteractionMapping["int-cleanup"]
 	s.server.contextMappingsMutex.Unlock()
 
-	s.Empty(waitingQueue, "sessionToWaitingInteraction should be empty after send failure — stale entries cause wrong response routing")
-	s.False(hasMapping, "requestToSessionMapping should be cleaned up after send failure")
+	s.False(hasSessionMapping, "requestToSessionMapping should be cleaned up after send failure")
+	s.False(hasInteractionMapping, "requestToInteractionMapping should be cleaned up after send failure")
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -1454,7 +1448,6 @@ func (s *WebSocketSyncSuite) TestProcessSyncMessage_SyncEventHookFires() {
 func (s *WebSocketSyncSuite) TestStreamingContextCache_SecondTokenSkipsDBQueries() {
 	// Setup: context mapping and waiting interaction
 	s.server.contextMappings["thread-cache"] = "ses_cache"
-	s.server.sessionToWaitingInteraction["ses_cache"] = []string{"int-cache"}
 
 	session := &types.Session{
 		ID:    "ses_cache",
@@ -1526,7 +1519,6 @@ func (s *WebSocketSyncSuite) TestStreamingContextCache_SecondTokenSkipsDBQueries
 
 func (s *WebSocketSyncSuite) TestStreamingContextCache_ClearedOnMessageCompleted() {
 	s.server.contextMappings["thread-clear"] = "ses_clear"
-	s.server.sessionToWaitingInteraction["ses_clear"] = []string{"int-clear"}
 
 	session := &types.Session{
 		ID:    "ses_clear",
@@ -1622,7 +1614,6 @@ func (s *WebSocketSyncSuite) TestStreamingContextCache_UserMessageDoesNotUseCach
 func (s *WebSocketSyncSuite) TestStreamingThrottle_DBWriteAfterInterval() {
 	// Test that DB write happens after the throttle interval expires.
 	s.server.contextMappings["thread-throttle"] = "ses_throttle"
-	s.server.sessionToWaitingInteraction["ses_throttle"] = []string{"int-throttle"}
 
 	session := &types.Session{
 		ID:    "ses_throttle",
@@ -1696,7 +1687,6 @@ func (s *WebSocketSyncSuite) TestStreamingThrottle_DBWriteAfterInterval() {
 func (s *WebSocketSyncSuite) TestStreamingThrottle_DirtyFlushOnMessageCompleted() {
 	// Test that dirty interaction is flushed to DB when message_completed arrives.
 	s.server.contextMappings["thread-flush"] = "ses_flush"
-	s.server.sessionToWaitingInteraction["ses_flush"] = []string{"int-flush"}
 
 	session := &types.Session{
 		ID:    "ses_flush",
@@ -1778,7 +1768,6 @@ func (s *WebSocketSyncSuite) TestStreamingThrottle_DirtyFlushOnMessageCompleted(
 func (s *WebSocketSyncSuite) TestStreamingThrottle_MultiMessageAccumulation() {
 	// Test content accumulation across different message_ids (text -> tool call -> text)
 	s.server.contextMappings["thread-multi"] = "ses_multi"
-	s.server.sessionToWaitingInteraction["ses_multi"] = []string{"int-multi"}
 
 	session := &types.Session{
 		ID:    "ses_multi",
@@ -2156,8 +2145,8 @@ func (s *WebSocketSyncSuite) TestPickupWaitingInteraction_FallbackCreatesMapping
 	s.Equal(sessionID, s.server.requestToSessionMapping[interactionID],
 		"fallback should map interaction ID → session ID")
 
-	// Verify sessionToWaitingInteraction populated
-	s.Contains(s.server.sessionToWaitingInteraction[sessionID], interactionID)
+	// Verify requestToInteractionMapping populated
+	s.Equal(interactionID, s.server.requestToInteractionMapping[interactionID])
 
 	// Verify command was queued in pending queue
 	s.server.externalAgentWSManager.readinessMu.Lock()
@@ -2235,7 +2224,7 @@ func (s *WebSocketSyncSuite) TestPickupWaitingInteraction_NoWaitingInteraction()
 
 	// No mappings should be created
 	s.Empty(s.server.requestToSessionMapping)
-	s.Empty(s.server.sessionToWaitingInteraction)
+	s.Empty(s.server.requestToInteractionMapping)
 
 	// No command should be queued
 	s.server.externalAgentWSManager.readinessMu.Lock()

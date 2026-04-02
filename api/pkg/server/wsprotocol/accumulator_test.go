@@ -303,45 +303,6 @@ func TestEntriesStreamingGrowth(t *testing.T) {
 	assert.Equal(t, "tool_call", entries[1].Type)
 }
 
-func TestExcludedMessageIDsFilterOldEntries(t *testing.T) {
-	// Simulate a follow-up interaction where Zed's flush resends ALL entries
-	// from the ACP thread, including entries from previous completed interactions.
-	// The accumulator must ignore excluded message_ids to prevent accumulation.
-	a := &MessageAccumulator{
-		ExcludedMessageIDs: map[string]bool{
-			"1": true, "2": true, "3": true, // from previous interaction
-		},
-	}
-
-	// New response arrives for this interaction
-	a.AddMessageWithType("4", "Hey! What's up?", "text")
-
-	// Flush resends ALL entries in the thread, including old ones
-	a.AddMessageWithType("1", "<thinking>\nOld planning content...", "text")
-	a.AddMessageWithType("2", "**Tool Call: old tool call**\nStatus: Completed", "tool_call")
-	a.AddMessageWithType("3", "Done with previous task.", "text")
-	a.AddMessageWithType("4", "Hey! What's up?", "text") // corrected flush of current entry
-
-	entries := a.Entries()
-	require.Len(t, entries, 1, "excluded message_ids should not be added")
-	assert.Equal(t, "4", entries[0].MessageID)
-	assert.Equal(t, "Hey! What's up?", entries[0].Content)
-	assert.Equal(t, "text", entries[0].Type)
-
-	// Content should only contain the current interaction's message
-	assert.Equal(t, "Hey! What's up?", a.Content)
-}
-
-func TestExcludedMessageIDsNilIsNoOp(t *testing.T) {
-	// When ExcludedMessageIDs is nil (first interaction), all messages are accepted
-	a := &MessageAccumulator{}
-	a.AddMessageWithType("1", "First message", "text")
-	a.AddMessageWithType("2", "Second message", "text")
-
-	entries := a.Entries()
-	require.Len(t, entries, 2)
-}
-
 func TestResumeFromPersistedState(t *testing.T) {
 	// Simulate restoring state from DB after API restart
 	a := &MessageAccumulator{
@@ -365,4 +326,52 @@ func TestResumeFromPersistedState(t *testing.T) {
 	if a.Content != expected {
 		t.Errorf("expected %q, got %q", expected, a.Content)
 	}
+}
+
+func TestSanitizeNullBytes(t *testing.T) {
+	a := &MessageAccumulator{}
+
+	// Content with null bytes (from terminal output or binary data)
+	a.AddMessage("msg-1", "Hello\x00World")
+	assert.Equal(t, "HelloWorld", a.Content, "null bytes should be stripped")
+
+	// Content with multiple null bytes
+	a.AddMessage("msg-2", "\x00before\x00middle\x00after\x00")
+	assert.Equal(t, "HelloWorld\n\nbeforemiddleafter", a.Content)
+
+	// Content without null bytes should pass through unchanged
+	a.AddMessage("msg-3", "clean content")
+	assert.Contains(t, a.Content, "clean content")
+}
+
+func TestSanitizeForPostgres(t *testing.T) {
+	// Null bytes
+	assert.Equal(t, "hello", sanitizeForPostgres("hello"))
+	assert.Equal(t, "helloworld", sanitizeForPostgres("hello\x00world"))
+	assert.Equal(t, "", sanitizeForPostgres("\x00"))
+	assert.Equal(t, "", sanitizeForPostgres(""))
+	assert.Equal(t, "abc", sanitizeForPostgres("\x00a\x00b\x00c\x00"))
+
+	// C0 control characters (strip 0x01-0x08, 0x0B, 0x0C, 0x0E-0x1F; keep \t \n \r)
+	assert.Equal(t, "ab", sanitizeForPostgres("a\x01b"))
+	assert.Equal(t, "a\tb", sanitizeForPostgres("a\tb"), "tab preserved")
+	assert.Equal(t, "a\nb", sanitizeForPostgres("a\nb"), "newline preserved")
+	assert.Equal(t, "a\rb", sanitizeForPostgres("a\rb"), "carriage return preserved")
+	assert.Equal(t, "ab", sanitizeForPostgres("a\x0Bb"))  // vertical tab stripped
+	assert.Equal(t, "ab", sanitizeForPostgres("a\x1Fb"))  // unit separator stripped
+
+	// C1 control characters (U+0080–U+009F)
+	assert.Equal(t, "ab", sanitizeForPostgres("a\u0080b"))
+	assert.Equal(t, "ab", sanitizeForPostgres("a\u009Fb"))
+
+	// Unicode non-characters
+	assert.Equal(t, "ab", sanitizeForPostgres("a\uFFFEb"))
+	assert.Equal(t, "ab", sanitizeForPostgres("a\uFFFFb"))
+
+	// Normal Unicode passes through
+	assert.Equal(t, "héllo wörld 🌍", sanitizeForPostgres("héllo wörld 🌍"))
+
+	// Fast path — clean strings return unchanged (same pointer)
+	clean := "nothing to strip here"
+	assert.Equal(t, clean, sanitizeForPostgres(clean))
 }
