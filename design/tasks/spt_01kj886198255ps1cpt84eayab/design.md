@@ -6,40 +6,36 @@
 
 ## Solution
 
-Thread an optional `userID string` parameter down the PR creation call chain. When a `userID` is provided, attempt to look up that user's GitHub/GitLab OAuth connection first; fall back to existing repo-level credential resolution if not found.
+In the HTTP handler, check whether the acting user already has an OAuth connection for the repo's provider. If they do, use their token for PR creation. If they do not, initiate the OAuth flow for them rather than silently using repo-level credentials.
 
-### Fallback Chain (new)
-
-```
-1. Acting user's OAuth token  (new — looked up by userID + provider)
-2. Repo OAuth connection       (existing repo.OAuthConnectionID)
-3. GitHub App                  (existing)
-4. PAT                         (existing repo.GitHub.PersonalAccessToken or repo.Password)
-```
-
-### Call Chain Changes
+### Handler Logic (user-initiated path)
 
 ```
-createGitRepositoryPullRequest (handler)         ← pass user.ID
-  → gitRepositoryService.CreatePullRequest(ctx, repoID, ..., userID)
-    → createGitHubPullRequest(ctx, repo, ..., userID)
-      → getGitHubClient(ctx, repo, userID)       ← try user's connection first
+createGitRepositoryPullRequest (handler)
+  1. Look up acting user's OAuth connection for this provider
+     → s.store.GetOAuthConnectionByUserAndProvider(ctx, user.ID, providerID)
+  2a. Connection found → pass user.ID into CreatePullRequest (token used for PR authorship)
+  2b. No connection   → call s.oauthManager.StartOAuthFlow(ctx, user.ID, providerID, redirectURL, ...)
+                        → return OAuth authorization URL to client (HTTP 401 or dedicated response)
+                        → client redirects user to GitHub/GitLab OAuth; after completion, user retries
 ```
 
-Same change applied to `createGitLabMergeRequest` / `getGitLabClient`.
+For the service layer, thread `userID` down so `getGitHubClient` / `getGitLabClient` use the acting user's token (step 2a only reaches `CreatePullRequest` when the connection exists):
 
-For the task workflow path:
 ```
-approveImplementation (handler)                  ← already has user
-  → ensurePullRequestForTask(ctx, repo, task, userID)
-    → gitRepositoryService.CreatePullRequest(ctx, ..., userID)
+gitRepositoryService.CreatePullRequest(ctx, repoID, ..., userID)
+  → createGitHubPullRequest(ctx, repo, ..., userID)
+    → getGitHubClient(ctx, repo, userID)   ← look up user's connection, no fallback to repo creds
 ```
+
+### Task workflow path (`ensurePullRequestForTask`)
+
+Same check: if the acting user (the approver) has no OAuth connection, surface an error requiring them to connect their account before approval can proceed. Thread `userID` from `approveImplementation` through to `CreatePullRequest`.
 
 ## Key APIs
 
-- **Look up acting user's token:** `s.store.GetOAuthConnectionByUserAndProvider(ctx, userID, providerID)`
-  - `providerID` is `"github"` or `"gitlab"` (match the string used in `oauth/manager.go`)
-  - This method already exists on the store (used by `oauth/manager.go:284`)
+- **Check/fetch acting user's token:** `s.store.GetOAuthConnectionByUserAndProvider(ctx, userID, providerID)` (exists — used by `oauth/manager.go:284`)
+- **Initiate OAuth flow:** `s.oauthManager.StartOAuthFlow(ctx, userID, providerID, redirectURL, metadata, scopes)` → returns authorization URL (`oauth/manager.go:363`)
 - **No changes to how repos are stored.** `OAuthConnectionID` remains the repo-level default.
 
 ## Files to Change
@@ -52,7 +48,7 @@ approveImplementation (handler)                  ← already has user
 
 ## Notes for Implementer
 
-- The store method is `GetOAuthConnectionByUserAndProvider(ctx, userID, providerID string)` — returns `(*types.OAuthConnection, error)`. If `err != nil` or `conn.AccessToken == ""`, skip and continue to next fallback.
-- `userID` may be empty (e.g., background jobs) — treat empty string as "no acting user, use repo credentials".
-- No need to call `oauth/manager.go`'s `GetConnection` (which handles refresh); the store fetch is sufficient here since we only need a token at request time and existing background refresh keeps tokens current.
-- Provider ID strings: check `oauth/manager.go` or provider registration to confirm the exact strings (likely `"github"` and `"gitlab"`).
+- `GetOAuthConnectionByUserAndProvider(ctx, userID, providerID string)` returns `(*types.OAuthConnection, error)`. Treat any error or empty `AccessToken` as "no connection — trigger OAuth flow".
+- `StartOAuthFlow` returns an authorization URL string. The handler should return this to the client with a response shape the frontend already understands (check existing OAuth initiation endpoints for the pattern).
+- Provider ID strings: confirm exact values from `oauth/manager.go` provider registration (likely `"github"` and `"gitlab"`).
+- `userID` is always available in these handlers via `getRequestUser(r)`. There is no background-job path for user-initiated PR creation.
