@@ -227,6 +227,7 @@ interface TaskCardProps {
   projectId?: string;
   isArchiving?: boolean;
   hasExternalRepo?: boolean;
+  externalRepoType?: string;
   showMetrics?: boolean;
   /** Hide the "Clone to other projects" menu option (used in clone batch progress view) */
   hideCloneOption?: boolean;
@@ -573,6 +574,7 @@ function TaskCardInner({
   projectId,
   isArchiving = false,
   hasExternalRepo = false,
+  externalRepoType,
   showMetrics = true,
   hideCloneOption = false,
   progressData,
@@ -1277,6 +1279,7 @@ function TaskCardInner({
               }
             }}
             hasExternalRepo={hasExternalRepo}
+            externalRepoType={externalRepoType}
             isArchiving={isArchiving}
           />
         )}

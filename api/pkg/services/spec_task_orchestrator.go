@@ -21,7 +21,7 @@ import (
 // EnsurePRsFunc is a callback that creates PRs for all project repos that have
 // the task's feature branch. Set by the server so the orchestrator can retry
 // PR creation for repos whose branches weren't ready at initial "Open PR" time.
-type EnsurePRsFunc func(ctx context.Context, task *types.SpecTask, primaryRepoID string) error
+type EnsurePRsFunc func(ctx context.Context, task *types.SpecTask, primaryRepoID string, userID string) error
 
 type SpecTaskOrchestrator struct {
 	store                 store.Store
@@ -637,7 +637,7 @@ func (o *SpecTaskOrchestrator) handlePullRequest(ctx context.Context, task *type
 	if o.ensurePRs != nil {
 		project, err := o.store.GetProject(ctx, task.ProjectID)
 		if err == nil && project.DefaultRepoID != "" {
-			if err := o.ensurePRs(ctx, task, project.DefaultRepoID); err != nil {
+			if err := o.ensurePRs(ctx, task, project.DefaultRepoID, ""); err != nil {
 				log.Debug().Err(err).Str("task_id", task.ID).Msg("Failed to ensure PRs for all repos (will retry)")
 			}
 		}

@@ -141,7 +141,7 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 		s.wg.Add(1)
 		go func() {
 			defer s.wg.Done()
-			if err := s.ensurePullRequestsForAllRepos(context.Background(), specTask, project.DefaultRepoID); err != nil {
+			if err := s.ensurePullRequestsForAllRepos(context.Background(), specTask, project.DefaultRepoID, user.ID); err != nil {
 				log.Error().Err(err).Str("task_id", specTask.ID).Msg("Failed to create PRs on approval (push detection will retry)")
 			}
 		}()
@@ -479,7 +479,7 @@ func (s *HelixAPIServer) buildPRFooterForTask(ctx context.Context, repo *types.G
 // ensurePullRequestForRepo creates a PR for a spec task in a specific repo if one doesn't exist
 // Returns the RepoPR info if successful, nil if no PR needed (internal repo or branch doesn't exist), or error
 // primaryRepoPath is the local path of the primary repo where the helix-specs branch lives
-func (s *HelixAPIServer) ensurePullRequestForRepo(ctx context.Context, repo *types.GitRepository, task *types.SpecTask, primaryRepoPath string) (*types.RepoPR, error) {
+func (s *HelixAPIServer) ensurePullRequestForRepo(ctx context.Context, repo *types.GitRepository, task *types.SpecTask, primaryRepoPath string, userID string) (*types.RepoPR, error) {
 	if repo.ExternalURL == "" {
 		return nil, nil
 	}
@@ -567,7 +567,7 @@ func (s *HelixAPIServer) ensurePullRequestForRepo(ctx context.Context, repo *typ
 	description = description + "\n\n" + footer
 
 	// Create new PR
-	prID, err := s.gitRepositoryService.CreatePullRequest(ctx, repo.ID, title, description, branch, repo.DefaultBranch)
+	prID, err := s.gitRepositoryService.CreatePullRequest(ctx, repo.ID, title, description, branch, repo.DefaultBranch, userID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create PR: %w", err)
 	}
@@ -610,7 +610,7 @@ func (s *HelixAPIServer) ensurePullRequestForRepo(ctx context.Context, repo *typ
 
 // ensurePullRequestsForAllRepos creates PRs across all project repos that have external URLs
 // Updates the task's RepoPullRequests field
-func (s *HelixAPIServer) ensurePullRequestsForAllRepos(ctx context.Context, task *types.SpecTask, primaryRepoID string) error {
+func (s *HelixAPIServer) ensurePullRequestsForAllRepos(ctx context.Context, task *types.SpecTask, primaryRepoID string, userID string) error {
 	// Get all repos for the project
 	projectRepos, err := s.Store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
 		ProjectID: task.ProjectID,
@@ -635,7 +635,7 @@ func (s *HelixAPIServer) ensurePullRequestsForAllRepos(ctx context.Context, task
 			continue
 		}
 
-		repoPR, err := s.ensurePullRequestForRepo(ctx, repo, task, primaryRepoPath)
+		repoPR, err := s.ensurePullRequestForRepo(ctx, repo, task, primaryRepoPath, userID)
 		if err != nil {
 			log.Error().Err(err).Str("repo_id", repo.ID).Str("repo_name", repo.Name).Str("task_id", task.ID).Msg("Failed to ensure PR for repo")
 			// Preserve existing PR data for this repo on failure (e.g. GitHub 503)
@@ -684,7 +684,7 @@ func (s *HelixAPIServer) ensurePullRequestsForAllRepos(ctx context.Context, task
 // ensurePullRequestForTask creates a PR for a spec task if one doesn't exist (backward compat wrapper)
 // DEPRECATED: Use ensurePullRequestsForAllRepos for multi-repo support
 func (s *HelixAPIServer) ensurePullRequestForTask(ctx context.Context, repo *types.GitRepository, task *types.SpecTask) error {
-	repoPR, err := s.ensurePullRequestForRepo(ctx, repo, task, repo.LocalPath)
+	repoPR, err := s.ensurePullRequestForRepo(ctx, repo, task, repo.LocalPath, "")
 	if err != nil {
 		return err
 	}

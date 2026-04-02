@@ -2016,6 +2016,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                     hasExternalRepo={projectRepositories.some(
                       (r) => r.is_external || r.external_type || r.external_url,
                     )}
+                    externalRepoType={projectRepositories.find((r) => r.external_type)?.external_type}
                     isStartingPlanning={isStartingPlanning}
                     isArchiving={isArchiving}
                   />
@@ -2395,6 +2396,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                 hasExternalRepo={projectRepositories.some(
                   (r) => r.is_external || r.external_type || r.external_url,
                 )}
+                externalRepoType={projectRepositories.find((r) => r.external_type)?.external_type}
                 isStartingPlanning={isStartingPlanning}
                 isArchiving={isArchiving}
               />

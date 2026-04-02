@@ -11,6 +11,7 @@ import (
 	"github.com/helixml/helix/api/pkg/agent/skill/bitbucket"
 	"github.com/helixml/helix/api/pkg/agent/skill/github"
 	"github.com/helixml/helix/api/pkg/agent/skill/gitlab"
+	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 
 	gh "github.com/google/go-github/v57/github"
@@ -20,7 +21,7 @@ import (
 
 // CreatePullRequest opens a pull request in the external repository. Should be called after the changes are committed to the local repository and
 // it has been pushed to the external repository.
-func (s *GitRepositoryService) CreatePullRequest(ctx context.Context, repoID string, title string, description string, sourceBranch string, targetBranch string) (string, error) {
+func (s *GitRepositoryService) CreatePullRequest(ctx context.Context, repoID string, title string, description string, sourceBranch string, targetBranch string, userID string) (string, error) {
 	repo, err := s.GetRepository(ctx, repoID)
 	if err != nil {
 		return "", fmt.Errorf("repository not found: %w", err)
@@ -34,7 +35,7 @@ func (s *GitRepositoryService) CreatePullRequest(ctx context.Context, repoID str
 	case types.ExternalRepositoryTypeADO:
 		return s.createAzureDevOpsPullRequest(ctx, repo, title, description, sourceBranch, targetBranch)
 	case types.ExternalRepositoryTypeGitHub:
-		return s.createGitHubPullRequest(ctx, repo, title, description, sourceBranch, targetBranch)
+		return s.createGitHubPullRequest(ctx, repo, title, description, sourceBranch, targetBranch, userID)
 	case types.ExternalRepositoryTypeGitLab:
 		return s.createGitLabMergeRequest(ctx, repo, title, description, sourceBranch, targetBranch)
 	case types.ExternalRepositoryTypeBitbucket:
@@ -70,7 +71,7 @@ func (s *GitRepositoryService) UpdatePullRequest(ctx context.Context, repoID str
 }
 
 func (s *GitRepositoryService) updateGitHubPullRequest(ctx context.Context, repo *types.GitRepository, prNumber int, title string, description string) error {
-	client, err := s.getGitHubClient(ctx, repo)
+	client, err := s.getGitHubClient(ctx, repo, "")
 	if err != nil {
 		return err
 	}
@@ -483,11 +484,27 @@ func (s *GitRepositoryService) getAzureDevOpsClient(ctx context.Context, repo *t
 
 // GitHub Pull Request Operations
 
-func (s *GitRepositoryService) getGitHubClient(ctx context.Context, repo *types.GitRepository) (*github.Client, error) {
+func (s *GitRepositoryService) getGitHubClient(ctx context.Context, repo *types.GitRepository, userID string) (*github.Client, error) {
 	// Get GitHub Enterprise base URL if configured
 	var baseURL string
 	if repo.GitHub != nil {
 		baseURL = repo.GitHub.BaseURL
+	}
+
+	// If a specific user is acting, prefer their personal OAuth connection
+	if userID != "" {
+		connections, err := s.store.ListOAuthConnections(ctx, &store.ListOAuthConnectionsQuery{
+			UserID: userID,
+		})
+		if err != nil {
+			log.Warn().Err(err).Str("user_id", userID).Msg("Failed to look up user OAuth connections, falling back to repo credentials")
+		} else {
+			for _, conn := range connections {
+				if conn.Provider.Type == types.OAuthProviderTypeGitHub && conn.AccessToken != "" {
+					return github.NewClientWithOAuthAndBaseURL(conn.AccessToken, baseURL), nil
+				}
+			}
+		}
 	}
 
 	// First check for GitHub App authentication (service-to-service)
@@ -521,8 +538,8 @@ func (s *GitRepositoryService) getGitHubClient(ctx context.Context, repo *types.
 	return nil, fmt.Errorf("no GitHub authentication configured - provide a Personal Access Token, GitHub App, or connect via OAuth")
 }
 
-func (s *GitRepositoryService) createGitHubPullRequest(ctx context.Context, repo *types.GitRepository, title string, description string, sourceBranch string, targetBranch string) (string, error) {
-	client, err := s.getGitHubClient(ctx, repo)
+func (s *GitRepositoryService) createGitHubPullRequest(ctx context.Context, repo *types.GitRepository, title string, description string, sourceBranch string, targetBranch string, userID string) (string, error) {
+	client, err := s.getGitHubClient(ctx, repo, userID)
 	if err != nil {
 		return "", err
 	}
@@ -548,7 +565,7 @@ func (s *GitRepositoryService) createGitHubPullRequest(ctx context.Context, repo
 }
 
 func (s *GitRepositoryService) listGitHubPullRequests(ctx context.Context, repo *types.GitRepository) ([]*types.PullRequest, error) {
-	client, err := s.getGitHubClient(ctx, repo)
+	client, err := s.getGitHubClient(ctx, repo, "")
 	if err != nil {
 		return nil, err
 	}
@@ -595,7 +612,7 @@ func (s *GitRepositoryService) listGitHubPullRequests(ctx context.Context, repo 
 }
 
 func (s *GitRepositoryService) getGitHubPullRequest(ctx context.Context, repo *types.GitRepository, number int) (*types.PullRequest, error) {
-	client, err := s.getGitHubClient(ctx, repo)
+	client, err := s.getGitHubClient(ctx, repo, "")
 	if err != nil {
 		return nil, err
 	}
