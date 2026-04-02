@@ -903,30 +903,10 @@ func (apiServer *HelixAPIServer) NotifyExternalAgentOfNewInteraction(sessionID s
 		Data: commandData,
 	}
 
-	// If no WebSocket connection exists and this session belongs to a spec task,
-	// auto-start the desktop. The waiting interaction will be picked up by
-	// pickupWaitingInteraction when the agent reconnects via WebSocket.
-	if _, exists := apiServer.externalAgentWSManager.getConnection(sessionID); !exists {
-		if session.Metadata.SpecTaskID != "" {
-			specTask, err := apiServer.Controller.Options.Store.GetSpecTask(context.Background(), session.Metadata.SpecTaskID)
-			if err != nil {
-				log.Error().Err(err).Str("spec_task_id", session.Metadata.SpecTaskID).Msg("Failed to load spec task for desktop auto-start")
-			} else {
-				log.Info().
-					Str("session_id", sessionID).
-					Str("spec_task_id", session.Metadata.SpecTaskID).
-					Msg("No WebSocket connection, auto-starting desktop — agent will pick up waiting interaction on reconnect")
-				go func() {
-					if startErr := apiServer.startDesktopForSpecTask(context.Background(), specTask); startErr != nil {
-						log.Error().Err(startErr).Str("spec_task_id", session.Metadata.SpecTaskID).Msg("Failed to auto-start desktop")
-					}
-				}()
-			}
-			return nil // interaction is in "waiting" state; agent will pick it up
-		}
-	}
-
-	// Use the unified sendCommandToExternalAgent which handles connection lookup and routing
+	// Use the unified sendCommandToExternalAgent which handles connection lookup and routing.
+	// If no WebSocket connection exists, sendCommandToExternalAgent will auto-start the
+	// desktop via autoStartDesktopForSession. The waiting interaction will be picked up
+	// by pickupWaitingInteraction when the agent reconnects.
 	return apiServer.sendCommandToExternalAgent(sessionID, command)
 }
 
@@ -1601,6 +1581,10 @@ func (apiServer *HelixAPIServer) sendCommandToExternalAgent(sessionID string, co
 	// Get the WebSocket connection for this session
 	wsConn, exists := apiServer.externalAgentWSManager.getConnection(sessionID)
 	if !exists || wsConn == nil {
+		// No connection — auto-start the desktop if this session belongs to a spec task.
+		// The caller's interaction/prompt is already persisted; pickupWaitingInteraction
+		// will deliver it when the agent reconnects via WebSocket.
+		go apiServer.autoStartDesktopForSession(sessionID)
 		return fmt.Errorf("no WebSocket connection found for session %s", sessionID)
 	}
 
@@ -2562,26 +2546,37 @@ func (apiServer *HelixAPIServer) sendQueuedPromptToSession(ctx context.Context, 
 			Str("session_id", sessionID).
 			Str("interaction_id", createdInteraction.ID).
 			Str("prompt_id", prompt.ID).
-			Msg("❌ [QUEUE] Failed to send to agent — auto-starting desktop if stopped")
-
-		// Auto-start the desktop if the session belongs to a spec task.
-		// The interaction is in "waiting" state; pickupWaitingInteraction will
-		// deliver it when the agent reconnects via WebSocket.
-		if session.Metadata.SpecTaskID != "" {
-			specTask, taskErr := apiServer.Controller.Options.Store.GetSpecTask(ctx, session.Metadata.SpecTaskID)
-			if taskErr != nil {
-				log.Error().Err(taskErr).Str("spec_task_id", session.Metadata.SpecTaskID).Msg("Failed to load spec task for desktop auto-start")
-			} else {
-				go func() {
-					if startErr := apiServer.startDesktopForSpecTask(context.Background(), specTask); startErr != nil {
-						log.Error().Err(startErr).Str("spec_task_id", session.Metadata.SpecTaskID).Msg("Failed to auto-start desktop from prompt queue")
-					}
-				}()
-			}
-		}
+			Msg("❌ [QUEUE] Failed to send to agent (desktop auto-start triggered by sendCommandToExternalAgent)")
 	}
 
 	return nil
+}
+
+// autoStartDesktopForSession checks if a session belongs to a spec task and,
+// if so, auto-starts its desktop. This is fire-and-forget — the caller's
+// message is already persisted and will be picked up by pickupWaitingInteraction
+// when the agent reconnects.
+func (apiServer *HelixAPIServer) autoStartDesktopForSession(sessionID string) {
+	ctx := context.Background()
+	session, err := apiServer.Controller.Options.Store.GetSession(ctx, sessionID)
+	if err != nil || session == nil {
+		return
+	}
+	if session.Metadata.SpecTaskID == "" {
+		return
+	}
+	specTask, err := apiServer.Controller.Options.Store.GetSpecTask(ctx, session.Metadata.SpecTaskID)
+	if err != nil {
+		log.Error().Err(err).Str("spec_task_id", session.Metadata.SpecTaskID).Msg("Failed to load spec task for desktop auto-start")
+		return
+	}
+	log.Info().
+		Str("session_id", sessionID).
+		Str("spec_task_id", specTask.ID).
+		Msg("Auto-starting desktop for session with no WebSocket connection")
+	if startErr := apiServer.startDesktopForSpecTask(ctx, specTask); startErr != nil {
+		log.Error().Err(startErr).Str("spec_task_id", specTask.ID).Msg("Failed to auto-start desktop")
+	}
 }
 
 // truncateString truncates a string to maxLen characters
