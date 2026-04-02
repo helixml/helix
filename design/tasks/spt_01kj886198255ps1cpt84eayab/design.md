@@ -30,28 +30,38 @@ Same chain applies to `getGitLabClient`.
 2. If none match the provider type, starts an OAuth flow and returns a 401 with `auth_url`
 3. If found, calls `s.gitRepositoryService.CreatePullRequest(..., user.ID)` so the service uses their token
 
-### Task workflow path (`ensurePullRequestForTask`)
+### Task workflow path (spec task approval)
 
-`approveImplementation` checks the user's OAuth connection upfront; returns 400 if missing. It then passes `user.ID` as `approverUserID` to `ensurePullRequestForTask`, which passes it to `CreatePullRequest`.
+`approveImplementation` checks the user's OAuth connection upfront (returns 400 if missing). It then passes `user.ID` as `approverUserID` to `ensurePullRequestsForAllRepos`, which threads it through `ensurePullRequestForRepo` → `CreatePullRequest`.
 
-## Key APIs
+```
+approveImplementation
+  → ensurePullRequestsForAllRepos(ctx, task, primaryRepoID, approverUserID)
+    → ensurePullRequestForRepo(ctx, repo, task, primaryRepoPath, userID)
+      → gitRepositoryService.CreatePullRequest(ctx, repo.ID, ..., userID)
+        → getGitHubClient(ctx, repo, userID)   ← user's token used
+```
 
-- **Check/fetch acting user's token:** `s.store.GetOAuthConnectionByUserAndProvider(ctx, userID, providerID)` (exists — used by `oauth/manager.go:284`)
-- **Initiate OAuth flow:** `s.oauthManager.StartOAuthFlow(ctx, userID, providerID, redirectURL, metadata, scopes)` → returns authorization URL (`oauth/manager.go:363`)
-- **No changes to how repos are stored.** `OAuthConnectionID` remains the repo-level default.
+Background polling (orchestrator's `handlePullRequest`) passes `""` for `userID`, so it falls back to repo-level credentials.
 
-## Files to Change
+### `EnsurePRsFunc` type update
+
+The `EnsurePRsFunc` callback type in `spec_task_orchestrator.go` also gets the `userID` parameter. The orchestrator's own call passes `""` (no user context in background polling).
+
+## Files Changed
 
 | File | Change |
 |------|--------|
-| `api/pkg/services/git_repository_service_pull_requests.go` | Add `userID string` to `getGitHubClient`, `getGitLabClient`, `createGitHubPullRequest`, `createGitLabMergeRequest`, `CreatePullRequest`. Prepend user-OAuth lookup before existing fallback chain. |
-| `api/pkg/server/git_repository_handlers.go` | Extract acting user (`getRequestUser(r)`) and pass `user.ID` to `CreatePullRequest`. |
-| `api/pkg/server/spec_task_workflow_handlers.go` | Add `userID string` param to `ensurePullRequestForTask`; pass it through from `approveImplementation`. |
+| `api/pkg/services/git_repository_service_pull_requests.go` | Add `userID string` to `getGitHubClient`, `getGitLabClient`, `createGitHubPullRequest`, `createGitLabMergeRequest`, `CreatePullRequest`. User-OAuth lookup added as step 2 in resolution chain. |
+| `api/pkg/server/git_repository_handlers.go` | Pass `user.ID` to `CreatePullRequest`; enforce OAuth via `ensureUserOAuthConnection`. |
+| `api/pkg/server/spec_task_workflow_handlers.go` | Add `userID string` to `ensurePullRequestForRepo` and `ensurePullRequestsForAllRepos`; thread `user.ID` from `approveImplementation`. OAuth check added upfront in `approveImplementation`. |
+| `api/pkg/services/git_http_server.go` | Pass `""` to `CreatePullRequest` (background path, use repo-level creds). |
+| `api/pkg/services/spec_task_orchestrator.go` | Update `EnsurePRsFunc` type to include `userID string`; pass `""` from background polling. |
 
 ## Notes for Implementer
 
 - Use `s.store.ListOAuthConnections(ctx, &store.ListOAuthConnectionsQuery{UserID: userID})` to find connections; filter by `conn.Provider.Type == types.OAuthProviderTypeGitHub` (or `TypeGitLab`).
-- `userID` is always available in these handlers via `getRequestUser(r)`. There is no background-job path for user-initiated PR creation.
-- **GitHub App takes priority over user OAuth** — this is intentional. GitHub App is service-level auth for automated systems and is never overridden by individual user tokens.
-- The handler's `ensureUserOAuthConnection` helper already handles the 401+auth_url response pattern — reuse it rather than reimplementing.
-- `OAuthConnectionID` on the repo struct is unchanged. It remains the fallback when `userID` is empty (background calls, older code paths).
+- **GitHub App takes priority over user OAuth** — intentional; service-level auth for automated systems.
+- The handler's `ensureUserOAuthConnection` helper handles the 401+auth_url response pattern.
+- `OAuthConnectionID` on the repo struct is unchanged. It remains the fallback when `userID` is empty.
+- `ensurePullRequestForTask` (deprecated wrapper) passes `""` for userID — existing callers unaffected.
