@@ -131,6 +131,25 @@ what happens on each side of the gate:
 
 Issue 1 (thread history replay) is the most critical — it causes data loss (empty response). Without fixing it, the auto-start feature is unreliable because every reconnect triggers a history replay that corrupts the current interaction.
 
+## E2E Test Gap
+
+The existing E2E tests (Phase 7) test `open_thread` + `chat_message` on an already-connected session. They don't test the reconnect scenario where:
+1. Session has an existing thread
+2. WebSocket disconnects
+3. Agent reconnects
+4. `open_thread` triggers history replay
+5. New `chat_message` must arrive AFTER replay completes
+
+A new Phase 12 should be added to the E2E test (`helix-ws-test-server/main.go`) that:
+1. Creates a thread and completes a message (Phase 1-style)
+2. Disconnects the WebSocket (kill the Zed binary or drop the connection)
+3. Reconnects (restart Zed or force new WebSocket connection)
+4. Sends a new `chat_message` to the existing thread
+5. Verifies the response is correct (not corrupted by history replay)
+6. Verifies `response_length > 0` on the interaction
+
+This requires the test server to handle WebSocket reconnection, which is a larger change.
+
 ## Related PRs
 - #2113: Backend auto-start for design review comments
 - #2121: Auto-start in NotifyExternalAgentOfNewInteraction
