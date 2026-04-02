@@ -202,9 +202,10 @@ export default function SpecTaskActionButtons({
     e.stopPropagation();
     if (!isDirectPush && hasExternalRepo && externalRepoType === "github" && !hasGitHubOAuth) {
       if (gitHubProvider?.id) {
-        // GitHub OAuth provider exists -- start the connection flow
+        // GitHub OAuth provider exists -- start the connection flow with repo scope
         startOAuthFlow({
           providerId: gitHubProvider.id,
+          scopes: ['repo'],
           onSuccess: () => {
             setShowOAuthPrompt(false);
             approveImplementationMutation.mutate();
@@ -415,6 +416,7 @@ export default function SpecTaskActionButtons({
                 onClick={() => {
                   startOAuthFlow({
                     providerId: gitHubProvider.id!,
+                    scopes: ['repo'],
                     onSuccess: () => {
                       setShowOAuthPrompt(false);
                       approveImplementationMutation.mutate();
