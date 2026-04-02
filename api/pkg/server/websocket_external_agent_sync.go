@@ -2558,11 +2558,27 @@ func (apiServer *HelixAPIServer) sendQueuedPromptToSession(ctx context.Context, 
 	// affect the prompt status. The user will see the interaction in the session
 	// and can retry if needed.
 	if err := apiServer.sendCommandToExternalAgent(sessionID, command); err != nil {
-		log.Error().Err(err).
+		log.Warn().Err(err).
 			Str("session_id", sessionID).
 			Str("interaction_id", createdInteraction.ID).
 			Str("prompt_id", prompt.ID).
-			Msg("❌ [QUEUE] Failed to send to agent, but interaction was created - prompt will be marked as sent")
+			Msg("❌ [QUEUE] Failed to send to agent — auto-starting desktop if stopped")
+
+		// Auto-start the desktop if the session belongs to a spec task.
+		// The interaction is in "waiting" state; pickupWaitingInteraction will
+		// deliver it when the agent reconnects via WebSocket.
+		if session.Metadata.SpecTaskID != "" {
+			specTask, taskErr := apiServer.Controller.Options.Store.GetSpecTask(ctx, session.Metadata.SpecTaskID)
+			if taskErr != nil {
+				log.Error().Err(taskErr).Str("spec_task_id", session.Metadata.SpecTaskID).Msg("Failed to load spec task for desktop auto-start")
+			} else {
+				go func() {
+					if startErr := apiServer.startDesktopForSpecTask(context.Background(), specTask); startErr != nil {
+						log.Error().Err(startErr).Str("spec_task_id", session.Metadata.SpecTaskID).Msg("Failed to auto-start desktop from prompt queue")
+					}
+				}()
+			}
+		}
 	}
 
 	return nil
