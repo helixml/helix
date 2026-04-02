@@ -22,7 +22,7 @@ import {
   useStopAgent,
 } from "../../services/specTaskWorkflowService";
 import { useListOAuthProviders, useListOAuthConnections } from "../../services/oauthProvidersService";
-import { findOAuthProviderForType, findOAuthConnectionForProvider } from "../../utils/oauthProviders";
+import { findOAuthProviderForType, findOAuthConnectionForProvider, hasRequiredScopes } from "../../utils/oauthProviders";
 import { useOAuthFlow } from "../../hooks/useOAuthFlow";
 
 export interface RepoPR {
@@ -185,7 +185,8 @@ export default function SpecTaskActionButtons({
   const { data: oauthConnections } = useListOAuthConnections();
   const { startOAuthFlow, isLoading: isOAuthLoading } = useOAuthFlow();
 
-  const hasGitHubOAuth = !!findOAuthConnectionForProvider(oauthConnections, 'github');
+  const gitHubConnection = findOAuthConnectionForProvider(oauthConnections, 'github');
+  const hasGitHubOAuthWithRepoScope = !!gitHubConnection && hasRequiredScopes(gitHubConnection.scopes, ['repo']);
   const gitHubProvider = findOAuthProviderForType(oauthProviders, 'github');
 
   // Detect oauth_required error from the backend (enforcement fallback)
@@ -200,7 +201,7 @@ export default function SpecTaskActionButtons({
 
   const handleOpenPR = (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!isDirectPush && hasExternalRepo && externalRepoType === "github" && !hasGitHubOAuth) {
+    if (!isDirectPush && hasExternalRepo && externalRepoType === "github" && !hasGitHubOAuthWithRepoScope) {
       if (gitHubProvider?.id) {
         // GitHub OAuth provider exists -- start the connection flow with repo scope
         startOAuthFlow({
