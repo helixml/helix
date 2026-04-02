@@ -29,9 +29,6 @@ type streamingContext struct {
 	interaction *types.Interaction
 	// Track which interaction this context is for - used to detect transitions
 	interactionID string
-	// Message IDs from previous completed interactions in this session.
-	// Used to prevent re-accumulating old entries when Zed flushes the entire thread.
-	excludedMessageIDs map[string]bool
 	// Commenter ID for design review comment streaming (looked up from sessionToCommenterMapping)
 	commenterID string
 	// DB write throttling
@@ -360,9 +357,6 @@ func (apiServer *HelixAPIServer) handleExternalAgentSync(res http.ResponseWriter
 			defer apiServer.externalAgentWSManager.cleanupReadinessState(helixSessionID)
 
 			// Clear stale streaming context from previous connection.
-			// After a Zed restart, ACP thread entry indices are reused (1, 2, ... 68).
-			// The old streaming context's excludedMessageIDs would silently drop
-			// the new response content because the IDs collide with old entries.
 			apiServer.flushAndClearStreamingContext(ctx, helixSessionID)
 
 			// Find and queue the waiting interaction for the agent
@@ -470,16 +464,16 @@ func (apiServer *HelixAPIServer) pickupWaitingInteraction(ctx context.Context, h
 				apiServer.requestToSessionMapping = make(map[string]string)
 			}
 			apiServer.requestToSessionMapping[requestID] = helixSessionID
-			if apiServer.sessionToWaitingInteraction == nil {
-				apiServer.sessionToWaitingInteraction = make(map[string][]string)
-			}
-			apiServer.sessionToWaitingInteraction[helixSessionID] = append(
-				apiServer.sessionToWaitingInteraction[helixSessionID], interactionID)
 			log.Info().
 				Str("helix_session_id", helixSessionID).
 				Str("request_id", requestID).
 				Msg("🔧 [HELIX] Created request_id mapping from waiting interaction ID")
 		}
+		// Map request_id → interaction_id for FIFO queue matching
+		if apiServer.requestToInteractionMapping == nil {
+			apiServer.requestToInteractionMapping = make(map[string]string)
+		}
+		apiServer.requestToInteractionMapping[requestID] = interactionID
 		apiServer.contextMappingsMutex.Unlock()
 
 		// Combine system prompt and user message into a single message
@@ -876,13 +870,6 @@ func (apiServer *HelixAPIServer) handleThreadCreated(sessionID string, syncMsg *
 	// Notify frontend immediately so the chat updates without waiting for poll
 	apiServer.publishInteractionUpdateToFrontend(createdSession.ID, createdSession.Owner, createdInteraction)
 
-	// Enqueue the interaction so handleMessageAdded routes responses correctly
-	apiServer.contextMappingsMutex.Lock()
-	if apiServer.sessionToWaitingInteraction == nil {
-		apiServer.sessionToWaitingInteraction = make(map[string][]string)
-	}
-	apiServer.sessionToWaitingInteraction[createdSession.ID] = append(apiServer.sessionToWaitingInteraction[createdSession.ID], createdInteraction.ID)
-	apiServer.contextMappingsMutex.Unlock()
 
 	log.Info().
 		Str("helix_session_id", createdSession.ID).
@@ -1009,6 +996,9 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 	// entry_type distinguishes "text" (assistant prose) from "tool_call" (tool invocations).
 	// Optional field — old Zed versions don't send it (defaults to empty string).
 	entryType, _ := syncMsg.Data["entry_type"].(string)
+	// request_id correlates this response to the chat_message that triggered it.
+	// Used to route streaming tokens to the correct interaction.
+	messageRequestID, _ := syncMsg.Data["request_id"].(string)
 	// Structured tool call metadata — sent by Zed for tool_call entries.
 	toolName, _ := syncMsg.Data["tool_name"].(string)
 	toolStatus, _ := syncMsg.Data["tool_status"].(string)
@@ -1106,7 +1096,7 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 		// redundant DB queries during token streaming. GetSession and
 		// ListInteractions are called once on the first token, then cached
 		// for all subsequent tokens until message_completed.
-		sctx := apiServer.getOrCreateStreamingContext(context.Background(), helixSessionID)
+		sctx := apiServer.getOrCreateStreamingContext(context.Background(), helixSessionID, messageRequestID)
 		if sctx == nil {
 			return fmt.Errorf("failed to get or create streaming context for session %s", helixSessionID)
 		}
@@ -1144,10 +1134,9 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 			// the DB only stores the joined Content string + LastMessageID/Offset.
 			if sctx.accumulator == nil {
 				sctx.accumulator = &wsprotocol.MessageAccumulator{
-					Content:            targetInteraction.ResponseMessage,
-					LastMessageID:      targetInteraction.LastZedMessageID,
-					Offset:             targetInteraction.LastZedMessageOffset,
-					ExcludedMessageIDs: sctx.excludedMessageIDs,
+					Content:       targetInteraction.ResponseMessage,
+					LastMessageID: targetInteraction.LastZedMessageID,
+					Offset:        targetInteraction.LastZedMessageOffset,
 				}
 			}
 			acc := sctx.accumulator
@@ -1219,11 +1208,17 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 		// Zed echoes the sent user message back as message_added(role=user), which would
 		// otherwise create a duplicate interaction and overwrite the mapping, causing the
 		// assistant response to land in the wrong interaction (Bug 1 fix).
-		// Peek at the front of the FIFO queue (don't pop — message_completed does that)
+		// Check requestToInteractionMapping: if any request maps to this session via
+		// requestToSessionMapping, a pre-created interaction already exists.
 		apiServer.contextMappingsMutex.RLock()
 		var existingInteractionID string
-		if q := apiServer.sessionToWaitingInteraction[helixSessionID]; len(q) > 0 {
-			existingInteractionID = q[0]
+		for reqID, sessID := range apiServer.requestToSessionMapping {
+			if sessID == helixSessionID {
+				if intID, ok := apiServer.requestToInteractionMapping[reqID]; ok {
+					existingInteractionID = intID
+					break
+				}
+			}
 		}
 		apiServer.contextMappingsMutex.RUnlock()
 
@@ -1280,17 +1275,10 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 			// picks the session with the most recent activity.
 			_ = apiServer.Controller.Options.Store.TouchSession(context.Background(), helixSessionID)
 
-			// CRITICAL: Enqueue this interaction so the AI response goes to it
-			apiServer.contextMappingsMutex.Lock()
-			if apiServer.sessionToWaitingInteraction == nil {
-				apiServer.sessionToWaitingInteraction = make(map[string][]string)
-			}
-			apiServer.sessionToWaitingInteraction[helixSessionID] = append(apiServer.sessionToWaitingInteraction[helixSessionID], createdInteraction.ID)
-			apiServer.contextMappingsMutex.Unlock()
 			log.Info().
 				Str("helix_session_id", helixSessionID).
 				Str("interaction_id", createdInteraction.ID).
-				Msg("🗺️ [HELIX] Mapped session to new interaction from Zed user message")
+				Msg("🗺️ [HELIX] Created interaction from Zed user message")
 		}
 	}
 
@@ -1301,20 +1289,20 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 // helix session, or creates one by querying the DB on the first call. This avoids
 // redundant GetSession + ListInteractions queries on every streaming token.
 //
+// requestID is the request_id from the message_added event, used to route tokens
+// to the correct interaction via requestToInteractionMapping.
+//
 // IMPORTANT: Also detects interaction transitions (follow-up messages) and resets
 // previousEntries when the target interaction changes. This prevents patch computation
 // from using stale entries from the old interaction.
-func (apiServer *HelixAPIServer) getOrCreateStreamingContext(ctx context.Context, helixSessionID string) *streamingContext {
-	// Check what interaction we SHOULD be targeting: peek at front of the FIFO queue.
-	// Do NOT pop here — message_completed pops after marking the interaction complete.
-	apiServer.contextMappingsMutex.RLock()
+func (apiServer *HelixAPIServer) getOrCreateStreamingContext(ctx context.Context, helixSessionID string, requestID string) *streamingContext {
+	// Resolve which interaction this request_id maps to
 	var expectedInteractionID string
-	var hasMapping bool
-	if q := apiServer.sessionToWaitingInteraction[helixSessionID]; len(q) > 0 {
-		expectedInteractionID = q[0]
-		hasMapping = true
+	if requestID != "" {
+		apiServer.contextMappingsMutex.RLock()
+		expectedInteractionID = apiServer.requestToInteractionMapping[requestID]
+		apiServer.contextMappingsMutex.RUnlock()
 	}
-	apiServer.contextMappingsMutex.RUnlock()
 
 	apiServer.streamingContextsMu.RLock()
 	sctx, exists := apiServer.streamingContexts[helixSessionID]
@@ -1323,11 +1311,12 @@ func (apiServer *HelixAPIServer) getOrCreateStreamingContext(ctx context.Context
 	if exists {
 		// Check if interaction has changed (follow-up message scenario)
 		sctx.mu.Lock()
-		if hasMapping && sctx.interactionID != "" && sctx.interactionID != expectedInteractionID {
+		if expectedInteractionID != "" && sctx.interactionID != "" && sctx.interactionID != expectedInteractionID {
 			log.Info().
 				Str("session_id", helixSessionID).
 				Str("old_interaction_id", sctx.interactionID).
 				Str("new_interaction_id", expectedInteractionID).
+				Str("request_id", requestID).
 				Msg("🔄 [PERF] Interaction transition detected! Resetting streaming context for new interaction")
 
 			// Flush any dirty state for the old interaction before switching
@@ -1377,28 +1366,20 @@ func (apiServer *HelixAPIServer) getOrCreateStreamingContext(ctx context.Context
 		return nil
 	}
 
-	// Find the target interaction: use front of FIFO queue if available
+	// Find the target interaction: use request_id mapping if available
 	var targetInteraction *types.Interaction
-	apiServer.contextMappingsMutex.RLock()
-	var mappedInteractionID string
-	var hasMappingForLookup bool
-	if q := apiServer.sessionToWaitingInteraction[helixSessionID]; len(q) > 0 {
-		mappedInteractionID = q[0]
-		hasMappingForLookup = true
-	}
-	apiServer.contextMappingsMutex.RUnlock()
-	if hasMappingForLookup {
+	if expectedInteractionID != "" {
 		for i := range interactions {
-			if interactions[i].ID == mappedInteractionID {
+			if interactions[i].ID == expectedInteractionID {
 				targetInteraction = interactions[i]
 				break
 			}
 		}
 	}
+	// Fallback: find most recent waiting interaction (for backward compat / old Zed without request_id)
 	if targetInteraction == nil {
 		for i := len(interactions) - 1; i >= 0; i-- {
-			if interactions[i].State == types.InteractionStateWaiting ||
-				(interactions[i].State == types.InteractionStateComplete && interactions[i].ResponseMessage == "") {
+			if interactions[i].State == types.InteractionStateWaiting {
 				targetInteraction = interactions[i]
 				break
 			}
@@ -1411,20 +1392,12 @@ func (apiServer *HelixAPIServer) getOrCreateStreamingContext(ctx context.Context
 		newInteractionID = targetInteraction.ID
 	}
 
-	// Collect message_ids from ALL other completed interactions in this session.
-	// When Zed's flush_streaming_throttle fires, it resends every entry in the ACP
-	// thread — including entries from previous turns. Without an exclusion set the
-	// accumulator would treat those old entries as new and append them, causing
-	// response_entries to balloon across interactions.
-	excludedIDs := collectExcludedMessageIDs(interactions, newInteractionID)
-
 	// If we have an existing context (from a transition), update it instead of creating new
 	if exists && sctx != nil {
 		sctx.mu.Lock()
 		sctx.session = helixSession
 		sctx.interaction = targetInteraction
 		sctx.interactionID = newInteractionID
-		sctx.excludedMessageIDs = excludedIDs
 		sctx.mu.Unlock()
 
 		log.Info().
@@ -1437,10 +1410,9 @@ func (apiServer *HelixAPIServer) getOrCreateStreamingContext(ctx context.Context
 
 	// Create new context
 	sctx = &streamingContext{
-		session:            helixSession,
-		interaction:        targetInteraction,
-		interactionID:      newInteractionID,
-		excludedMessageIDs: excludedIDs,
+		session:       helixSession,
+		interaction:   targetInteraction,
+		interactionID: newInteractionID,
 	}
 
 	apiServer.streamingContextsMu.Lock()
@@ -1461,44 +1433,8 @@ func (apiServer *HelixAPIServer) getOrCreateStreamingContext(ctx context.Context
 	return sctx
 }
 
-// collectExcludedMessageIDs extracts message_ids from ALL completed interactions
-// in the session other than the target interaction. These IDs are used to prevent
-// the accumulator from re-adding old entries when Zed's flush resends the entire
-// ACP thread history within the same Zed process session.
-//
-// NOTE: After a Zed restart, entry indices are reused (1, 2, ... N). The streaming
-// context (including excluded IDs) must be cleared on reconnect to prevent new
-// responses from being silently dropped. This is done in handleExternalAgentSync
-// via flushAndClearStreamingContext.
-func collectExcludedMessageIDs(interactions []*types.Interaction, targetInteractionID string) map[string]bool {
-	excluded := make(map[string]bool)
-	for _, inter := range interactions {
-		if inter.ID == targetInteractionID {
-			continue
-		}
-		if len(inter.ResponseEntries) == 0 {
-			continue
-		}
-		var entries []wsprotocol.ResponseEntry
-		if err := json.Unmarshal(inter.ResponseEntries, &entries); err != nil {
-			continue
-		}
-		for _, e := range entries {
-			if e.MessageID != "" {
-				excluded[e.MessageID] = true
-			}
-		}
-	}
-	if len(excluded) == 0 {
-		return nil
-	}
-	return excluded
-}
-
 // flushAndClearStreamingContext flushes any dirty interaction state to the DB,
 // then removes the cached streaming context for a session.
-// Called on message_completed to ensure the DB has the latest content before
-// the interaction is marked as complete.
 func (apiServer *HelixAPIServer) flushAndClearStreamingContext(ctx context.Context, helixSessionID string) []wsprotocol.ResponseEntry {
 	apiServer.streamingContextsMu.Lock()
 	sctx, exists := apiServer.streamingContexts[helixSessionID]
@@ -1615,12 +1551,13 @@ func (apiServer *HelixAPIServer) sendChatMessageToExternalAgent(sessionID, messa
 			interactionID = createdInteraction.ID
 			// Notify frontend immediately so the chat updates without waiting for poll
 			apiServer.publishInteractionUpdateToFrontend(sessionID, session.Owner, createdInteraction)
+			// Map request_id → interaction_id so handleMessageCompleted can
+			// route responses to the correct interaction.
 			apiServer.contextMappingsMutex.Lock()
-			if apiServer.sessionToWaitingInteraction == nil {
-				apiServer.sessionToWaitingInteraction = make(map[string][]string)
+			if apiServer.requestToInteractionMapping == nil {
+				apiServer.requestToInteractionMapping = make(map[string]string)
 			}
-			apiServer.sessionToWaitingInteraction[sessionID] = append(
-				apiServer.sessionToWaitingInteraction[sessionID], interactionID)
+			apiServer.requestToInteractionMapping[requestID] = interactionID
 			apiServer.contextMappingsMutex.Unlock()
 		}
 
@@ -2130,28 +2067,35 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 		Int("interaction_count", len(interactions)).
 		Msg("🔍 [DEBUG] Loaded interactions for message_completed")
 
-	// PRIMARY: use the front of the FIFO queue — the interaction that was being processed.
-	// Pop it now so the next message_completed will target the next queued interaction.
-	// This fixes the off-by-one bug where sendMessageToSpecTaskAgent creates a second
-	// waiting interaction while the first is still streaming.
+	// Match the request_id from message_completed to the correct interaction
+	// in the FIFO queue. The old code blindly popped queue[0], which caused
+	// desynchronization when the agent completed messages out of order
+	// (e.g. a short message completing before a longer one that was sent first).
+	messageRequestID, _ := syncMsg.Data["request_id"].(string)
+
 	var targetInteractionID string
 	apiServer.contextMappingsMutex.Lock()
-	if q := apiServer.sessionToWaitingInteraction[helixSessionID]; len(q) > 0 {
-		targetInteractionID = q[0]
-		if len(q) == 1 {
-			delete(apiServer.sessionToWaitingInteraction, helixSessionID)
-		} else {
-			apiServer.sessionToWaitingInteraction[helixSessionID] = q[1:]
+
+	// Try to find the interaction via request_id → interaction_id mapping
+	if messageRequestID != "" {
+		if mappedID, ok := apiServer.requestToInteractionMapping[messageRequestID]; ok {
+			targetInteractionID = mappedID
+			delete(apiServer.requestToInteractionMapping, messageRequestID)
 		}
+	}
+
+	// Remove the matched interaction from the FIFO queue (by value, not position)
+	if targetInteractionID != "" {
 		log.Info().
 			Str("helix_session_id", helixSessionID).
 			Str("interaction_id", targetInteractionID).
-			Int("remaining_queue", len(apiServer.sessionToWaitingInteraction[helixSessionID])).
-			Msg("✅ [HELIX] Popped interaction from FIFO queue for message_completed")
+			Str("request_id", messageRequestID).
+			Msg("✅ [HELIX] Matched interaction by request_id")
 	}
 	apiServer.contextMappingsMutex.Unlock()
 
-	// FALLBACK: after API restart the in-memory queue is lost — find most recent waiting interaction in DB
+	// FALLBACK: after API restart the in-memory requestToInteractionMapping is lost.
+	// Find the most recent waiting interaction in DB.
 	if targetInteractionID == "" {
 		for i := len(interactions) - 1; i >= 0; i-- {
 			if interactions[i].State == types.InteractionStateWaiting {
@@ -2159,7 +2103,7 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 				log.Info().
 					Str("helix_session_id", helixSessionID).
 					Str("interaction_id", interactions[i].ID).
-					Msg("✅ [HELIX] Fallback: found waiting interaction via DB scan (queue was empty)")
+					Msg("✅ [HELIX] Fallback: found waiting interaction via DB scan (no request_id mapping)")
 				break
 			}
 		}
@@ -2264,7 +2208,7 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 
 	// Extract request_id from message data for commenter notification
 	// This needs to be done before publishing so we can pass it to publishSessionUpdateToFrontend
-	messageRequestID, _ := syncMsg.Data["request_id"].(string)
+	// (messageRequestID already extracted above for FIFO queue matching)
 
 	// FINALIZE COMMENT RESPONSE before notifying the frontend.
 	// Running this synchronously (not in a goroutine) ensures comment.agent_response is
@@ -2570,17 +2514,6 @@ func (apiServer *HelixAPIServer) sendQueuedPromptToSession(ctx context.Context, 
 	// Notify frontend immediately so the chat updates without waiting for poll
 	apiServer.publishInteractionUpdateToFrontend(sessionID, session.Owner, createdInteraction)
 
-	// CRITICAL: Enqueue the interaction so handleMessageAdded routes the response correctly.
-	// Using append (not overwrite) prevents the race where sendMessageToSpecTaskAgent
-	// creates a second interaction while the first is still streaming, which would cause
-	// the first interaction's streaming content to land in the second interaction (off-by-one bug).
-	apiServer.contextMappingsMutex.Lock()
-	if apiServer.sessionToWaitingInteraction == nil {
-		apiServer.sessionToWaitingInteraction = make(map[string][]string)
-	}
-	apiServer.sessionToWaitingInteraction[sessionID] = append(apiServer.sessionToWaitingInteraction[sessionID], createdInteraction.ID)
-	apiServer.contextMappingsMutex.Unlock()
-
 	// Determine agent name
 	agentName := apiServer.getAgentNameForSession(ctx, session)
 
@@ -2594,6 +2527,11 @@ func (apiServer *HelixAPIServer) sendQueuedPromptToSession(ctx context.Context, 
 		apiServer.requestToSessionMapping = make(map[string]string)
 	}
 	apiServer.requestToSessionMapping[requestID] = sessionID
+	// Map request_id → interaction_id for FIFO queue matching
+	if apiServer.requestToInteractionMapping == nil {
+		apiServer.requestToInteractionMapping = make(map[string]string)
+	}
+	apiServer.requestToInteractionMapping[requestID] = createdInteraction.ID
 	apiServer.contextMappingsMutex.Unlock()
 	log.Info().
 		Str("request_id", requestID).
@@ -2641,17 +2579,8 @@ func (apiServer *HelixAPIServer) sendQueuedPromptToSession(ctx context.Context, 
 		// fresh on reconnect. Without this, stale message_completed events from
 		// the agent's previous context get matched to this interaction.
 		apiServer.contextMappingsMutex.Lock()
-		if queue := apiServer.sessionToWaitingInteraction[sessionID]; len(queue) > 0 {
-			// Remove the interaction we just added
-			filtered := make([]string, 0, len(queue))
-			for _, id := range queue {
-				if id != createdInteraction.ID {
-					filtered = append(filtered, id)
-				}
-			}
-			apiServer.sessionToWaitingInteraction[sessionID] = filtered
-		}
 		delete(apiServer.requestToSessionMapping, requestID)
+		delete(apiServer.requestToInteractionMapping, requestID)
 		apiServer.contextMappingsMutex.Unlock()
 	}
 
