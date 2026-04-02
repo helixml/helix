@@ -1578,7 +1578,7 @@ func (s *HelixAPIServer) createGitRepositoryPullRequest(w http.ResponseWriter, r
 	// Both push and PR creation should happen atomically.
 	var prID string
 	err = s.gitRepositoryService.WithRepoLock(repoID, func() error {
-		if pushErr := s.gitRepositoryService.PushBranchToRemote(r.Context(), repoID, request.SourceBranch, false); pushErr != nil {
+		if pushErr := s.gitRepositoryService.PushBranchToRemote(r.Context(), repoID, request.SourceBranch, false, user.ID); pushErr != nil {
 			log.Error().Err(pushErr).
 				Str("repo_id", repoID).
 				Str("branch", request.SourceBranch).

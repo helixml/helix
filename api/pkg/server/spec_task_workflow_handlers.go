@@ -524,9 +524,9 @@ func (s *HelixAPIServer) ensurePullRequestForRepo(ctx context.Context, repo *typ
 
 	log.Info().Str("repo_id", repo.ID).Str("repo_name", repo.Name).Str("branch", branch).Str("task_id", task.ID).Msg("Ensuring pull request for repo")
 
-	// Push branch to remote first
+	// Push branch to remote first — use acting user's credentials when available
 	if err := s.gitRepositoryService.WithRepoLock(repo.ID, func() error {
-		return s.gitRepositoryService.PushBranchToRemote(ctx, repo.ID, branch, false)
+		return s.gitRepositoryService.PushBranchToRemote(ctx, repo.ID, branch, false, userID)
 	}); err != nil {
 		return nil, fmt.Errorf("failed to push branch: %w", err)
 	}
