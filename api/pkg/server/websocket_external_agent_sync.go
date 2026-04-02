@@ -353,6 +353,12 @@ func (apiServer *HelixAPIServer) handleExternalAgentSync(res http.ResponseWriter
 			apiServer.externalAgentWSManager.initReadinessState(helixSessionID, needsContinue, nil)
 			defer apiServer.externalAgentWSManager.cleanupReadinessState(helixSessionID)
 
+			// Clear stale streaming context from previous connection.
+			// After a Zed restart, ACP thread entry indices are reused (1, 2, ... 68).
+			// The old streaming context's excludedMessageIDs would silently drop
+			// the new response content because the IDs collide with old entries.
+			apiServer.flushAndClearStreamingContext(ctx, helixSessionID)
+
 			// Find and queue the waiting interaction for the agent
 			apiServer.pickupWaitingInteraction(ctx, helixSessionID, helixSession, agentID)
 
@@ -1436,36 +1442,32 @@ func (apiServer *HelixAPIServer) getOrCreateStreamingContext(ctx context.Context
 	return sctx
 }
 
-// collectExcludedMessageIDs extracts message_ids from the immediately preceding
-// completed interaction. This prevents the accumulator from re-adding entries
-// when Zed's flush_streaming_throttle resends the entire thread in the SAME turn.
+// collectExcludedMessageIDs extracts message_ids from ALL completed interactions
+// in the session other than the target interaction. These IDs are used to prevent
+// the accumulator from re-adding old entries when Zed's flush resends the entire
+// ACP thread history within the same Zed process session.
 //
-// IMPORTANT: Only the immediately preceding interaction is checked, NOT all
-// historical ones. Message IDs are entry indices that get reused when a thread
-// is reloaded after a container restart. Including all historical interactions
-// would cause new responses to be silently dropped when their message IDs
-// collide with old entries.
+// NOTE: After a Zed restart, entry indices are reused (1, 2, ... N). The streaming
+// context (including excluded IDs) must be cleared on reconnect to prevent new
+// responses from being silently dropped. This is done in handleExternalAgentSync
+// via flushAndClearStreamingContext.
 func collectExcludedMessageIDs(interactions []*types.Interaction, targetInteractionID string) map[string]bool {
-	// Find the interaction immediately before the target
-	var precedingInteraction *types.Interaction
-	for i, inter := range interactions {
-		if inter.ID == targetInteractionID && i > 0 {
-			precedingInteraction = interactions[i-1]
-			break
-		}
-	}
-	if precedingInteraction == nil || len(precedingInteraction.ResponseEntries) == 0 {
-		return nil
-	}
-
 	excluded := make(map[string]bool)
-	var entries []wsprotocol.ResponseEntry
-	if err := json.Unmarshal(precedingInteraction.ResponseEntries, &entries); err != nil {
-		return nil
-	}
-	for _, e := range entries {
-		if e.MessageID != "" {
-			excluded[e.MessageID] = true
+	for _, inter := range interactions {
+		if inter.ID == targetInteractionID {
+			continue
+		}
+		if len(inter.ResponseEntries) == 0 {
+			continue
+		}
+		var entries []wsprotocol.ResponseEntry
+		if err := json.Unmarshal(inter.ResponseEntries, &entries); err != nil {
+			continue
+		}
+		for _, e := range entries {
+			if e.MessageID != "" {
+				excluded[e.MessageID] = true
+			}
 		}
 	}
 	if len(excluded) == 0 {
