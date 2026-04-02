@@ -32,6 +32,20 @@ Our intelligent GPU scheduler packs models efficiently into available GPU memory
 - **Memory management** for context-aware interactions
 - **Support for multiple LLM providers** (OpenAI, Anthropic, and local models)
 
+### ⚡ Parallel Agents
+- **Run multiple agents simultaneously** — up to 15 isolated agents per node with deduplicated filesystems
+- **Fleet visibility dashboard** — monitor all running agents at a glance
+- **Asynchronous execution** — agents work across time zones with zero-friction handoffs
+- **Isolated sandbox environments** — each agent gets a full desktop with browser, terminal, and filesystem access
+- **Ephemeral per-task git credentials** with branch-scoped access restrictions
+
+### 📋 Spec Coding
+- **Spec-driven workflow**: define a specification, agents propose an execution plan, you approve, then implementation begins
+- **Human review gates** before any code is merged — agents never push directly
+- **Parallel implementation** — multiple agents tackle different parts of the spec simultaneously
+- **Structured process**: `Spec → Plan → Implement (in parallel) → Review → Merge`
+- **Evaluation framework** to test and validate agent output against your acceptance criteria
+
 <img width="1768" height="1053" alt="AI Agents Interface" src="https://github.com/user-attachments/assets/0e945ace-4f54-46a2-8d20-49485169486f" />
 
 ### 🛠️ Skills and Tools
