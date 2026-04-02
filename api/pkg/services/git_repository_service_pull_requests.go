@@ -19,6 +19,37 @@ import (
 	gl "github.com/xanzy/go-gitlab"
 )
 
+// OAuthRequiredError is returned when a user-initiated action requires
+// a GitHub OAuth connection that the acting user does not have.
+type OAuthRequiredError struct {
+	ProviderType string
+}
+
+func (e *OAuthRequiredError) Error() string {
+	return fmt.Sprintf("%s OAuth connection required to open a PR under your account", e.ProviderType)
+}
+
+// ValidateUserGitHubOAuth checks whether the acting user has a GitHub OAuth
+// connection. Returns OAuthRequiredError if the user needs to connect.
+// Returns nil for empty userID (agent path) or non-GitHub repos.
+func (s *GitRepositoryService) ValidateUserGitHubOAuth(ctx context.Context, repo *types.GitRepository, userID string) error {
+	if userID == "" || repo.ExternalType != types.ExternalRepositoryTypeGitHub {
+		return nil
+	}
+	connections, err := s.store.ListOAuthConnections(ctx, &store.ListOAuthConnectionsQuery{
+		UserID: userID,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to check OAuth connections: %w", err)
+	}
+	for _, conn := range connections {
+		if conn.Provider.Type == types.OAuthProviderTypeGitHub && conn.AccessToken != "" {
+			return nil
+		}
+	}
+	return &OAuthRequiredError{ProviderType: "github"}
+}
+
 // CreatePullRequest opens a pull request in the external repository. Should be called after the changes are committed to the local repository and
 // it has been pushed to the external repository.
 func (s *GitRepositoryService) CreatePullRequest(ctx context.Context, repoID string, title string, description string, sourceBranch string, targetBranch string, userID string) (string, error) {
@@ -491,21 +522,23 @@ func (s *GitRepositoryService) getGitHubClient(ctx context.Context, repo *types.
 		baseURL = repo.GitHub.BaseURL
 	}
 
-	// If a specific user is acting, prefer their personal OAuth connection
+	// If a specific user is acting, use their OAuth connection or fail
 	if userID != "" {
 		connections, err := s.store.ListOAuthConnections(ctx, &store.ListOAuthConnectionsQuery{
 			UserID: userID,
 		})
 		if err != nil {
-			log.Warn().Err(err).Str("user_id", userID).Msg("Failed to look up user OAuth connections, falling back to repo credentials")
-		} else {
-			for _, conn := range connections {
-				if conn.Provider.Type == types.OAuthProviderTypeGitHub && conn.AccessToken != "" {
-					return github.NewClientWithOAuthAndBaseURL(conn.AccessToken, baseURL), nil
-				}
+			return nil, fmt.Errorf("failed to look up user OAuth connections: %w", err)
+		}
+		for _, conn := range connections {
+			if conn.Provider.Type == types.OAuthProviderTypeGitHub && conn.AccessToken != "" {
+				return github.NewClientWithOAuthAndBaseURL(conn.AccessToken, baseURL), nil
 			}
 		}
+		return nil, &OAuthRequiredError{ProviderType: "github"}
 	}
+
+	// Agent/automated path: repo-level credential fallback chain
 
 	// First check for GitHub App authentication (service-to-service)
 	// This takes priority as it's the recommended approach for automated systems

@@ -1,4 +1,4 @@
-import React, { RefObject, useState } from "react";
+import React, { RefObject, useEffect, useState } from "react";
 import {
   Alert,
   Box,
@@ -187,6 +187,16 @@ export default function SpecTaskActionButtons({
 
   const hasGitHubOAuth = !!findOAuthConnectionForProvider(oauthConnections, 'github');
   const gitHubProvider = findOAuthProviderForType(oauthProviders, 'github');
+
+  // Detect oauth_required error from the backend (enforcement fallback)
+  useEffect(() => {
+    if (approveImplementationMutation.error) {
+      const data = (approveImplementationMutation.error as any)?.response?.data;
+      if (data?.error === "oauth_required") {
+        setShowOAuthPrompt(true);
+      }
+    }
+  }, [approveImplementationMutation.error]);
 
   const handleOpenPR = (e: React.MouseEvent) => {
     e.stopPropagation();

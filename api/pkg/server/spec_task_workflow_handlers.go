@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os/exec"
@@ -124,6 +125,22 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 	// If repo is external, move to pull_request status (awaiting merge in external system)
 	// For internal repos, try merge first - only record approval if merge succeeds
 	if s.shouldOpenPullRequest(repo) {
+		// Validate user has GitHub OAuth before advancing task status.
+		// This is a lightweight sync check (DB lookup only). The actual PR
+		// creation remains async.
+		if err := s.gitRepositoryService.ValidateUserGitHubOAuth(ctx, repo, user.ID); err != nil {
+			var oauthErr *services.OAuthRequiredError
+			if errors.As(err, &oauthErr) {
+				writeResponse(w, map[string]interface{}{
+					"error":         "oauth_required",
+					"message":       oauthErr.Error(),
+					"provider_type": oauthErr.ProviderType,
+				}, http.StatusUnprocessableEntity)
+				return
+			}
+			log.Warn().Err(err).Str("task_id", specTask.ID).Msg("Failed to validate user OAuth, proceeding anyway")
+		}
+
 		// External repo: record approval and move to pull_request status, await merge via polling
 		specTask.ImplementationApprovedBy = user.ID
 		specTask.ImplementationApprovedAt = &now

@@ -83,7 +83,7 @@ func TestGetGitHubClient_AgentFallsBackToRepoCreds(t *testing.T) {
 	}
 }
 
-func TestGetGitHubClient_UserWithoutOAuth_FallsBackToRepoCreds(t *testing.T) {
+func TestGetGitHubClient_UserWithoutOAuth_ReturnsError(t *testing.T) {
 	svc := newPRTestService(&prTestStore{})
 	repo := &types.GitRepository{
 		ExternalURL:  "https://github.com/org/repo",
@@ -91,12 +91,16 @@ func TestGetGitHubClient_UserWithoutOAuth_FallsBackToRepoCreds(t *testing.T) {
 		Password:     "repo-pat",
 	}
 
-	// User has no OAuth connection, but repo has a PAT -- should fall back
-	client, err := svc.getGitHubClient(context.Background(), repo, "user-x")
-	if err != nil {
-		t.Fatalf("expected no error (fallback to PAT), got: %v", err)
+	// User has no OAuth connection -- should return OAuthRequiredError, NOT fall back
+	_, err := svc.getGitHubClient(context.Background(), repo, "user-x")
+	if err == nil {
+		t.Fatal("expected error, got nil")
 	}
-	if client == nil {
-		t.Fatal("expected client, got nil")
+	oauthErr, ok := err.(*OAuthRequiredError)
+	if !ok {
+		t.Fatalf("expected *OAuthRequiredError, got %T: %v", err, err)
+	}
+	if oauthErr.ProviderType != "github" {
+		t.Fatalf("expected provider_type 'github', got '%s'", oauthErr.ProviderType)
 	}
 }

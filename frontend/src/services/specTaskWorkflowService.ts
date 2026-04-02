@@ -48,8 +48,13 @@ export function useApproveImplementation(specTaskId: string) {
       queryClient.invalidateQueries({ queryKey: ["spec-tasks"] });
     },
     onError: (error: any) => {
+      const responseData = error?.response?.data;
+      if (responseData?.error === "oauth_required") {
+        // Let the component handle this via mutation.error
+        return;
+      }
       snackbar.error(
-        error?.response?.data?.message || "Failed to approve implementation",
+        responseData?.message || "Failed to approve implementation",
       );
     },
   });

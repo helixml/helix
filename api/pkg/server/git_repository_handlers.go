@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -1590,6 +1591,15 @@ func (s *HelixAPIServer) createGitRepositoryPullRequest(w http.ResponseWriter, r
 		return prErr
 	})
 	if err != nil {
+		var oauthErr *services.OAuthRequiredError
+		if errors.As(err, &oauthErr) {
+			writeResponse(w, map[string]interface{}{
+				"error":         "oauth_required",
+				"message":       oauthErr.Error(),
+				"provider_type": oauthErr.ProviderType,
+			}, http.StatusUnprocessableEntity)
+			return
+		}
 		log.Error().Err(err).
 			Str("repo_id", repoID).
 			Str("title", request.Title).
