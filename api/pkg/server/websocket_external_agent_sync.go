@@ -371,16 +371,21 @@ func (apiServer *HelixAPIServer) handleExternalAgentSync(res http.ResponseWriter
 				}
 
 				agentNameForOpen := apiServer.getAgentNameForSession(ctx, helixSession)
-				log.Trace().
+				log.Info().
 					Str("session_id", helixSessionID).
 					Str("zed_thread_id", targetThreadID).
 					Str("agent_name", agentNameForOpen).
-					Msg("[CONNECT] Sending open_thread on connect to re-establish Zed subscription before agent_ready")
+					Msg("[CONNECT] Sending open_thread on connect before agent_ready gate")
 				if err := apiServer.sendOpenThreadCommand(helixSessionID, targetThreadID, agentNameForOpen); err != nil {
-					log.Warn().
+					log.Error().
 						Str("session_id", helixSessionID).
 						Err(err).
 						Msg("[CONNECT] Failed to send open_thread on connect")
+				} else {
+					log.Info().
+						Str("session_id", helixSessionID).
+						Str("zed_thread_id", targetThreadID).
+						Msg("[CONNECT] ✅ open_thread sent successfully on connect")
 				}
 			}
 		}
@@ -1431,27 +1436,36 @@ func (apiServer *HelixAPIServer) getOrCreateStreamingContext(ctx context.Context
 	return sctx
 }
 
-// collectExcludedMessageIDs extracts message_ids from ALL completed interactions
-// in the session other than the target interaction. These IDs are used to prevent
-// the accumulator from re-adding old entries when Zed's flush resends the entire
-// ACP thread history.
+// collectExcludedMessageIDs extracts message_ids from the immediately preceding
+// completed interaction. This prevents the accumulator from re-adding entries
+// when Zed's flush_streaming_throttle resends the entire thread in the SAME turn.
+//
+// IMPORTANT: Only the immediately preceding interaction is checked, NOT all
+// historical ones. Message IDs are entry indices that get reused when a thread
+// is reloaded after a container restart. Including all historical interactions
+// would cause new responses to be silently dropped when their message IDs
+// collide with old entries.
 func collectExcludedMessageIDs(interactions []*types.Interaction, targetInteractionID string) map[string]bool {
+	// Find the interaction immediately before the target
+	var precedingInteraction *types.Interaction
+	for i, inter := range interactions {
+		if inter.ID == targetInteractionID && i > 0 {
+			precedingInteraction = interactions[i-1]
+			break
+		}
+	}
+	if precedingInteraction == nil || len(precedingInteraction.ResponseEntries) == 0 {
+		return nil
+	}
+
 	excluded := make(map[string]bool)
-	for _, inter := range interactions {
-		if inter.ID == targetInteractionID {
-			continue
-		}
-		if len(inter.ResponseEntries) == 0 {
-			continue
-		}
-		var entries []wsprotocol.ResponseEntry
-		if err := json.Unmarshal(inter.ResponseEntries, &entries); err != nil {
-			continue
-		}
-		for _, e := range entries {
-			if e.MessageID != "" {
-				excluded[e.MessageID] = true
-			}
+	var entries []wsprotocol.ResponseEntry
+	if err := json.Unmarshal(precedingInteraction.ResponseEntries, &entries); err != nil {
+		return nil
+	}
+	for _, e := range entries {
+		if e.MessageID != "" {
+			excluded[e.MessageID] = true
 		}
 	}
 	if len(excluded) == 0 {
