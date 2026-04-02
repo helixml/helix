@@ -904,30 +904,25 @@ func (apiServer *HelixAPIServer) NotifyExternalAgentOfNewInteraction(sessionID s
 	}
 
 	// If no WebSocket connection exists and this session belongs to a spec task,
-	// auto-start the desktop and wait for the agent to connect before sending.
+	// auto-start the desktop. The waiting interaction will be picked up by
+	// pickupWaitingInteraction when the agent reconnects via WebSocket.
 	if _, exists := apiServer.externalAgentWSManager.getConnection(sessionID); !exists {
 		if session.Metadata.SpecTaskID != "" {
 			specTask, err := apiServer.Controller.Options.Store.GetSpecTask(context.Background(), session.Metadata.SpecTaskID)
 			if err != nil {
 				log.Error().Err(err).Str("spec_task_id", session.Metadata.SpecTaskID).Msg("Failed to load spec task for desktop auto-start")
-			} else if startErr := apiServer.startDesktopForSpecTask(context.Background(), specTask); startErr != nil {
-				log.Error().Err(startErr).Str("spec_task_id", session.Metadata.SpecTaskID).Msg("Failed to auto-start desktop")
 			} else {
-				// Wait for the agent to reconnect via WebSocket (up to 90s)
-				const maxWait = 90 * time.Second
-				const pollInterval = 5 * time.Second
-				deadline := time.Now().Add(maxWait)
-				for time.Now().Before(deadline) {
-					time.Sleep(pollInterval)
-					if _, exists := apiServer.externalAgentWSManager.getConnection(sessionID); exists {
-						log.Info().
-							Str("session_id", sessionID).
-							Str("spec_task_id", session.Metadata.SpecTaskID).
-							Msg("✅ Agent connected after desktop auto-start, delivering chat message")
-						break
+				log.Info().
+					Str("session_id", sessionID).
+					Str("spec_task_id", session.Metadata.SpecTaskID).
+					Msg("No WebSocket connection, auto-starting desktop — agent will pick up waiting interaction on reconnect")
+				go func() {
+					if startErr := apiServer.startDesktopForSpecTask(context.Background(), specTask); startErr != nil {
+						log.Error().Err(startErr).Str("spec_task_id", session.Metadata.SpecTaskID).Msg("Failed to auto-start desktop")
 					}
-				}
+				}()
 			}
+			return nil // interaction is in "waiting" state; agent will pick it up
 		}
 	}
 
