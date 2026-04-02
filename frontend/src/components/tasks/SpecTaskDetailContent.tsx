@@ -2002,6 +2002,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                       archived: task.archived,
                       just_do_it_mode: justDoItMode,
                       planning_session_id: task.planning_session_id,
+                      metadata: task.metadata as { error?: string },
                     }}
                     variant="inline"
                     onStartPlanning={handleStartPlanning}
@@ -2382,6 +2383,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                   archived: task.archived,
                   just_do_it_mode: justDoItMode,
                   planning_session_id: task.planning_session_id,
+                  metadata: task.metadata as { error?: string },
                 }}
                 variant="inline"
                 onStartPlanning={handleStartPlanning}
