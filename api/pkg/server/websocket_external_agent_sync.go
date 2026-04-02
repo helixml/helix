@@ -355,6 +355,34 @@ func (apiServer *HelixAPIServer) handleExternalAgentSync(res http.ResponseWriter
 
 			// Find and queue the waiting interaction for the agent
 			apiServer.pickupWaitingInteraction(ctx, helixSessionID, helixSession, agentID)
+
+			// Send open_thread BEFORE the agent_ready gate so Zed re-establishes its
+			// thread subscription immediately on connect. If we wait until after
+			// agent_ready, the queued chat_message gets flushed first, and when Zed
+			// opens the thread it replays history as message_added events that corrupt
+			// the current interaction.
+			if helixSession.Metadata.ZedThreadID != "" {
+				targetThreadID := helixSession.Metadata.ZedThreadID
+				if helixSession.Metadata.SpecTaskID != "" {
+					latestThreadID := apiServer.findLatestZedThreadForSpecTask(ctx, helixSession.Metadata.SpecTaskID)
+					if latestThreadID != "" {
+						targetThreadID = latestThreadID
+					}
+				}
+
+				agentNameForOpen := apiServer.getAgentNameForSession(ctx, helixSession)
+				log.Trace().
+					Str("session_id", helixSessionID).
+					Str("zed_thread_id", targetThreadID).
+					Str("agent_name", agentNameForOpen).
+					Msg("[CONNECT] Sending open_thread on connect to re-establish Zed subscription before agent_ready")
+				if err := apiServer.sendOpenThreadCommand(helixSessionID, targetThreadID, agentNameForOpen); err != nil {
+					log.Warn().
+						Str("session_id", helixSessionID).
+						Err(err).
+						Msg("[CONNECT] Failed to send open_thread on connect")
+				}
+			}
 		}
 	}
 
@@ -912,6 +940,16 @@ func (apiServer *HelixAPIServer) NotifyExternalAgentOfNewInteraction(sessionID s
 
 // handleMessageAdded processes message addition from external agent
 func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *types.SyncMessage) error {
+	// If the session is not yet ready (agent_ready hasn't fired), skip processing.
+	// On reconnect, Zed replays thread history as message_added events. Processing
+	// these before the session is ready would corrupt the current interaction.
+	if !apiServer.externalAgentWSManager.isSessionReady(sessionID) {
+		log.Debug().
+			Str("session_id", sessionID).
+			Msg("[READINESS] Skipping message_added event — session not yet ready (likely history replay)")
+		return nil
+	}
+
 	// NEW PROTOCOL: use acp_thread_id
 	contextID, ok := syncMsg.Data["acp_thread_id"].(string)
 	if !ok {
@@ -2785,43 +2823,10 @@ func (apiServer *HelixAPIServer) handleAgentReady(sessionID string, syncMsg *typ
 	// Mark as ready (this flushes queued messages and calls onReady)
 	apiServer.externalAgentWSManager.markSessionReady(sessionID, onReadyCallback)
 
-	// After container/API restart, Zed reconnects and sends agent_ready with thread_id=null.
-	// At this point, Zed has lost its thread event subscriptions (SUBSCRIBED_THREADS static
-	// is cleared on process restart). Without a subscription, messages the user types directly
-	// into Zed's agent panel won't sync back to Helix over the WebSocket.
-	//
-	// Fix: if the session has an existing ZedThreadID and the agent_ready came without a
-	// thread_id (meaning Zed reconnected fresh), send an open_thread command so Zed loads
-	// the thread and re-establishes its event subscription via ensure_thread_subscription().
-	if threadID == "" && connExists {
-		helixSession, err := apiServer.Controller.Options.Store.GetSession(context.Background(), sessionID)
-		if err == nil && helixSession != nil && helixSession.Metadata.ZedThreadID != "" {
-			// Use the latest thread for this spectask (not necessarily the one stored
-			// on this session). When the user creates new threads in Zed, the latest
-			// thread is the one they're working in — reopening the original thread
-			// would jump them back to stale context.
-			targetThreadID := helixSession.Metadata.ZedThreadID
-			if helixSession.Metadata.SpecTaskID != "" {
-				latestThreadID := apiServer.findLatestZedThreadForSpecTask(context.Background(), helixSession.Metadata.SpecTaskID)
-				if latestThreadID != "" {
-					targetThreadID = latestThreadID
-				}
-			}
-
-			agentNameForOpen := apiServer.getAgentNameForSession(context.Background(), helixSession)
-			log.Trace().
-				Str("session_id", sessionID).
-				Str("zed_thread_id", targetThreadID).
-				Str("agent_name", agentNameForOpen).
-				Msg("[READINESS] Sending open_thread to re-establish Zed subscription after reconnect")
-			if err := apiServer.sendOpenThreadCommand(sessionID, targetThreadID, agentNameForOpen); err != nil {
-				log.Warn().
-					Str("session_id", sessionID).
-					Err(err).
-					Msg("⚠️ [READINESS] Failed to send open_thread for reconnect subscription recovery")
-			}
-		}
-	}
+	// NOTE: open_thread is now sent on connect in handleExternalAgentConnection,
+	// BEFORE the agent_ready gate. This ensures Zed re-establishes its thread
+	// subscription before any queued chat_message is flushed, preventing history
+	// replay message_added events from corrupting the current interaction.
 
 	// Process any pending prompts (including interrupt=true ones)
 	// When agent is ready/idle, we should process ALL pending prompts, not just non-interrupt ones

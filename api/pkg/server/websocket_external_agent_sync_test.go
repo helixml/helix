@@ -894,10 +894,11 @@ func (s *WebSocketSyncSuite) TestAgentReady_WithPendingPrompt() {
 	time.Sleep(100 * time.Millisecond)
 }
 
-func (s *WebSocketSyncSuite) TestAgentReady_ReconnectSendsOpenThread() {
-	// Simulate a reconnect scenario: session has an existing ZedThreadID,
-	// agent_ready arrives with thread_id=null (fresh reconnect).
-	// Helix should send open_thread to re-establish Zed's subscription.
+func (s *WebSocketSyncSuite) TestAgentReady_ReconnectDoesNotSendOpenThread() {
+	// open_thread is now sent on connect (handleExternalAgentConnection), BEFORE
+	// the agent_ready gate. handleAgentReady should NOT send open_thread — doing
+	// so would cause it to arrive after the queued chat_message, triggering
+	// history replay that corrupts the current interaction.
 	sessionID := "ses_reconnect"
 
 	s.server.externalAgentWSManager.initReadinessState(sessionID, false, nil)
@@ -911,15 +912,6 @@ func (s *WebSocketSyncSuite) TestAgentReady_ReconnectSendsOpenThread() {
 	}
 	s.server.externalAgentWSManager.registerConnection(sessionID, conn)
 
-	// Session has an existing ZedThreadID from before the restart
-	session := &types.Session{
-		ID:    sessionID,
-		Owner: "user-1",
-		Metadata: types.SessionMetadata{
-			ZedThreadID: "thread-existing-abc",
-		},
-	}
-	s.store.EXPECT().GetSession(gomock.Any(), sessionID).Return(session, nil)
 	s.store.EXPECT().GetSpecTask(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound).AnyTimes()
 	s.store.EXPECT().GetAnyPendingPrompt(gomock.Any(), sessionID).Return(nil, nil).AnyTimes()
 
@@ -936,11 +928,8 @@ func (s *WebSocketSyncSuite) TestAgentReady_ReconnectSendsOpenThread() {
 
 	time.Sleep(50 * time.Millisecond)
 
-	// Verify open_thread command was sent
-	s.Require().Greater(len(sendChan), 0, "expected open_thread command to be sent")
-	cmd := <-sendChan
-	s.Equal("open_thread", cmd.Type)
-	s.Equal("thread-existing-abc", cmd.Data["acp_thread_id"])
+	// Verify NO open_thread command was sent (it's now sent on connect, not on agent_ready)
+	s.Equal(0, len(sendChan), "handleAgentReady should NOT send open_thread — it's sent on connect now")
 }
 
 func (s *WebSocketSyncSuite) TestAgentReady_NoOpenThreadWhenThreadIDPresent() {
