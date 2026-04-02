@@ -1396,41 +1396,20 @@ func (s *HelixAPIServer) sendMessageToSpecTaskAgent(
 	message string,
 	notifyUserID string, // Optional: user to notify of responses (e.g., commenter). Empty = no extra notification
 ) (string, string, error) {
-	// Find a connected session for this spec task
+	// Find a connected session for this spec task, falling back to PlanningSessionID.
+	// If no session is connected, sendChatMessageToExternalAgent will still create
+	// the interaction. sendCommandToExternalAgent will fail and trigger auto-start;
+	// pickupWaitingInteraction delivers the message when the agent reconnects.
 	sessionID, err := s.findConnectedSessionForSpecTask(ctx, specTask)
 	if err != nil {
-		// No connected session — try to auto-start the desktop and wait for reconnect
-		if specTask.PlanningSessionID == "" || s.externalAgentExecutor == nil {
-			return "", "", fmt.Errorf("no connected session found: %w", err)
+		if specTask.PlanningSessionID == "" {
+			return "", "", fmt.Errorf("no connected session and no planning session ID: %w", err)
 		}
-
 		log.Info().
 			Str("spec_task_id", specTask.ID).
 			Str("planning_session_id", specTask.PlanningSessionID).
-			Msg("No connected session, auto-starting desktop and waiting for agent to connect")
-
-		if startErr := s.startDesktopForSpecTask(ctx, specTask); startErr != nil {
-			return "", "", fmt.Errorf("no connected session and desktop auto-start failed: %w", startErr)
-		}
-
-		// Poll for the agent to connect via WebSocket (up to 90s)
-		const maxWait = 90 * time.Second
-		const pollInterval = 5 * time.Second
-		deadline := time.Now().Add(maxWait)
-		for time.Now().Before(deadline) {
-			time.Sleep(pollInterval)
-			sessionID, err = s.findConnectedSessionForSpecTask(ctx, specTask)
-			if err == nil {
-				log.Info().
-					Str("spec_task_id", specTask.ID).
-					Str("session_id", sessionID).
-					Msg("✅ Agent connected after desktop auto-start")
-				break
-			}
-		}
-		if err != nil {
-			return "", "", fmt.Errorf("desktop started but agent did not connect within %s: %w", maxWait, err)
-		}
+			Msg("No connected session, falling back to planning session ID — auto-start will be triggered on send")
+		sessionID = specTask.PlanningSessionID
 	}
 
 	// Generate request ID for tracking
