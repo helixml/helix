@@ -662,7 +662,11 @@ func (s *HelixAPIServer) ensurePullRequestsForAllRepos(ctx context.Context, task
 			}
 			var oauthErr *services.OAuthRequiredError
 			if errors.As(err, &oauthErr) {
-				task.Metadata["error"] = fmt.Sprintf("GitHub OAuth connection required to open a PR. Please connect your GitHub account and try again.")
+				task.Metadata["error"] = "GitHub OAuth connection required to open a PR. Please connect your GitHub account and try again."
+			} else if strings.Contains(err.Error(), "Permission") && strings.Contains(err.Error(), "denied") {
+				task.Metadata["error"] = fmt.Sprintf("Permission denied: your GitHub account does not have write access to %s. Ask the repository owner to add you as a collaborator.", repo.Name)
+			} else if strings.Contains(err.Error(), "403") {
+				task.Metadata["error"] = fmt.Sprintf("Access denied when pushing to %s. Check that your GitHub account has write access to this repository.", repo.Name)
 			} else {
 				task.Metadata["error"] = fmt.Sprintf("Failed to create PR for %s: %s", repo.Name, err.Error())
 			}

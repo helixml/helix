@@ -1408,6 +1408,20 @@ function TaskCardInner({
               </>
             ) : (
               (() => {
+                // Show specific error from task metadata if available
+                if (taskError) {
+                  return (
+                    <Alert severity="error" sx={{ py: 0.5 }}>
+                      <Typography
+                        variant="caption"
+                        sx={{ fontSize: "0.7rem", display: "block" }}
+                      >
+                        {taskError}
+                      </Typography>
+                    </Alert>
+                  );
+                }
+
                 // Calculate seconds since approval
                 const approvedAt = task.implementation_approved_at
                   ? new Date(task.implementation_approved_at).getTime()

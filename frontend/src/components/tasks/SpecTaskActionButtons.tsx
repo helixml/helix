@@ -600,6 +600,16 @@ export default function SpecTaskActionButtons({
   const hasMultiplePRs = pullRequests.length > 1;
   const hasAnyPR = pullRequests.length > 0;
 
+  if (task.status === "pull_request" && !hasAnyPR && task.metadata?.error) {
+    return (
+      <Box sx={{ display: "flex", flexDirection: "column", gap: 1, width: "100%" }}>
+        <Alert severity="error" sx={{ py: 0.5 }}>
+          {task.metadata.error}
+        </Alert>
+      </Box>
+    );
+  }
+
   if (task.status === "pull_request" && hasAnyPR) {
     // Single PR case
     if (pullRequests.length === 1) {
