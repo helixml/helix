@@ -293,7 +293,7 @@ func (apiServer *HelixAPIServer) handleExternalAgentSync(res http.ResponseWriter
 
 	// Register connection with agent ID
 	apiServer.externalAgentWSManager.registerConnection(agentID, wsConn)
-	defer apiServer.externalAgentWSManager.unregisterConnection(agentID)
+	defer apiServer.externalAgentWSManager.unregisterConnection(agentID, wsConn)
 
 	// Check if this agent has a Helix session mapping
 	// agentID could be either agent_session_id (req_*) or helix_session_id (ses_*)
@@ -313,7 +313,7 @@ func (apiServer *HelixAPIServer) handleExternalAgentSync(res http.ResponseWriter
 			// Agent session ID mapping - register connection with BOTH IDs for routing
 			helixSessionID = mappedHelixID
 			apiServer.externalAgentWSManager.registerConnection(helixSessionID, wsConn)
-			defer apiServer.externalAgentWSManager.unregisterConnection(helixSessionID)
+			defer apiServer.externalAgentWSManager.unregisterConnection(helixSessionID, wsConn)
 			log.Info().
 				Str("agent_session_id", agentID).
 				Str("helix_session_id", helixSessionID).
@@ -1632,18 +1632,31 @@ func (apiServer *HelixAPIServer) sendCommandToExternalAgent(sessionID string, co
 		return fmt.Errorf("no WebSocket connection found for session %s", sessionID)
 	}
 
-	// Send command to the specific Zed agent
-	select {
-	case wsConn.SendChan <- command:
-		log.Trace().
-			Str("session_id", sessionID).
-			Str("command_type", command.Type).
-			Msg("Sent command to specific external Zed agent")
-
-		return nil
-	default:
-		return fmt.Errorf("external agent send channel full for session %s", sessionID)
-	}
+	// Send command to the specific Zed agent.
+	// Use a deferred recover to handle the case where the connection's SendChan
+	// was closed between getConnection and the send (race on reconnection).
+	var sendErr error
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Warn().
+					Str("session_id", sessionID).
+					Interface("panic", r).
+					Msg("Recovered from panic sending to external agent (connection likely replaced during reconnect)")
+				sendErr = fmt.Errorf("connection replaced during send for session %s", sessionID)
+			}
+		}()
+		select {
+		case wsConn.SendChan <- command:
+			log.Trace().
+				Str("session_id", sessionID).
+				Str("command_type", command.Type).
+				Msg("Sent command to specific external Zed agent")
+		default:
+			sendErr = fmt.Errorf("external agent send channel full for session %s", sessionID)
+		}
+	}()
+	return sendErr
 }
 
 // registerConnection registers a new external agent connection
@@ -1657,11 +1670,14 @@ func (manager *ExternalAgentWSManager) registerConnection(sessionID string, conn
 		Msg("[HELIX] Registered external agent connection")
 }
 
-// unregisterConnection unregisters an external agent connection
-func (manager *ExternalAgentWSManager) unregisterConnection(sessionID string) {
+// unregisterConnection unregisters an external agent connection.
+// Only removes if it matches the currently registered connection,
+// preventing a stale defer from closing a newer connection's channel
+// after reconnection.
+func (manager *ExternalAgentWSManager) unregisterConnection(sessionID string, conn *ExternalAgentWSConnection) {
 	manager.mu.Lock()
 	defer manager.mu.Unlock()
-	if conn, exists := manager.connections[sessionID]; exists {
+	if current, exists := manager.connections[sessionID]; exists && current == conn {
 		close(conn.SendChan)
 		delete(manager.connections, sessionID)
 	}
