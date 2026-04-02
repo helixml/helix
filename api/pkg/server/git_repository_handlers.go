@@ -15,6 +15,7 @@ import (
 	"github.com/helixml/helix/api/pkg/agent/skill/gitlab"
 	"github.com/helixml/helix/api/pkg/crypto"
 	"github.com/helixml/helix/api/pkg/services"
+	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -1571,6 +1572,29 @@ func (s *HelixAPIServer) createGitRepositoryPullRequest(w http.ResponseWriter, r
 		return
 	}
 
+	// For GitHub and GitLab repos, require the acting user to have their own OAuth connection
+	// so the PR/MR is attributed to them, not the repo initializer.
+	var oauthProviderType types.OAuthProviderType
+	switch repository.ExternalType {
+	case types.ExternalRepositoryTypeGitHub:
+		oauthProviderType = types.OAuthProviderTypeGitHub
+	case types.ExternalRepositoryTypeGitLab:
+		oauthProviderType = types.OAuthProviderTypeGitLab
+	}
+
+	if oauthProviderType != "" {
+		if authURL, needsOAuth := s.ensureUserOAuthConnection(r, user.ID, oauthProviderType); needsOAuth {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			json.NewEncoder(w).Encode(map[string]string{
+				"oauth_required": "true",
+				"auth_url":       authURL,
+				"provider_type":  string(oauthProviderType),
+			})
+			return
+		}
+	}
+
 	// Acquire repo lock to serialize git operations and prevent race conditions.
 	// Both push and PR creation should happen atomically.
 	var prID string
@@ -1584,7 +1608,7 @@ func (s *HelixAPIServer) createGitRepositoryPullRequest(w http.ResponseWriter, r
 		}
 
 		var prErr error
-		prID, prErr = s.gitRepositoryService.CreatePullRequest(r.Context(), repoID, request.Title, request.Description, request.SourceBranch, request.TargetBranch)
+		prID, prErr = s.gitRepositoryService.CreatePullRequest(r.Context(), repoID, request.Title, request.Description, request.SourceBranch, request.TargetBranch, user.ID)
 		return prErr
 	})
 	if err != nil {
@@ -1607,6 +1631,43 @@ func (s *HelixAPIServer) createGitRepositoryPullRequest(w http.ResponseWriter, r
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(response)
+}
+
+// ensureUserOAuthConnection checks whether the acting user has an OAuth connection for the given
+// provider type. Returns (authURL, true) if the user needs to complete OAuth, or ("", false) if
+// a connection already exists. authURL is empty if no matching OAuth provider is configured.
+func (s *HelixAPIServer) ensureUserOAuthConnection(r *http.Request, userID string, providerType types.OAuthProviderType) (authURL string, needsOAuth bool) {
+	ctx := r.Context()
+
+	// Check if user already has a connection for this provider type.
+	connections, err := s.Store.ListOAuthConnections(ctx, &store.ListOAuthConnectionsQuery{UserID: userID})
+	if err != nil {
+		log.Warn().Err(err).Str("user_id", userID).Msg("Failed to list OAuth connections; will prompt OAuth")
+	} else {
+		for _, conn := range connections {
+			if conn.Provider.Type == providerType && conn.AccessToken != "" {
+				return "", false // already connected
+			}
+		}
+	}
+
+	// No connection found — find the provider and start OAuth flow.
+	providers, err := s.Store.ListOAuthProviders(ctx, &store.ListOAuthProvidersQuery{
+		Type:    string(providerType),
+		Enabled: true,
+	})
+	if err != nil || len(providers) == 0 {
+		log.Warn().Str("provider_type", string(providerType)).Msg("No OAuth provider configured for type")
+		return "", true // needsOAuth=true but no authURL (admin must configure provider)
+	}
+
+	redirectURL := r.Referer()
+	url, err := s.oauthManager.StartOAuthFlow(ctx, userID, providers[0].ID, redirectURL, "", nil)
+	if err != nil {
+		log.Warn().Err(err).Str("provider_id", providers[0].ID).Msg("Failed to start OAuth flow")
+		return "", true
+	}
+	return url, true
 }
 
 // getOrCreateUserAPIKey retrieves an existing personal API key for the user or creates a new one

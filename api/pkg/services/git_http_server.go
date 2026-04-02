@@ -1065,7 +1065,7 @@ func (s *GitHTTPServer) ensurePullRequest(ctx context.Context, repo *types.GitRe
 	}
 
 	description := fmt.Sprintf("> **Helix**: %s\n\n---\n[Created by Helix](https://helix.ml)\n", task.Description)
-	prID, err := s.gitRepoService.CreatePullRequest(ctx, repo.ID, task.Name, description, branch, repo.DefaultBranch)
+	prID, err := s.gitRepoService.CreatePullRequest(ctx, repo.ID, task.Name, description, branch, repo.DefaultBranch, "")
 	if err != nil {
 		return fmt.Errorf("failed to create PR: %w", err)
 	}

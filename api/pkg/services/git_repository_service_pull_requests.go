@@ -11,6 +11,7 @@ import (
 	"github.com/helixml/helix/api/pkg/agent/skill/bitbucket"
 	"github.com/helixml/helix/api/pkg/agent/skill/github"
 	"github.com/helixml/helix/api/pkg/agent/skill/gitlab"
+	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 
 	gh "github.com/google/go-github/v57/github"
@@ -20,7 +21,9 @@ import (
 
 // CreatePullRequest opens a pull request in the external repository. Should be called after the changes are committed to the local repository and
 // it has been pushed to the external repository.
-func (s *GitRepositoryService) CreatePullRequest(ctx context.Context, repoID string, title string, description string, sourceBranch string, targetBranch string) (string, error) {
+// userID is the acting user's ID; when non-empty, their OAuth connection is used for authorship.
+// Pass empty string for background/automated calls (falls back to repo-level credentials).
+func (s *GitRepositoryService) CreatePullRequest(ctx context.Context, repoID string, title string, description string, sourceBranch string, targetBranch string, userID string) (string, error) {
 	repo, err := s.GetRepository(ctx, repoID)
 	if err != nil {
 		return "", fmt.Errorf("repository not found: %w", err)
@@ -34,9 +37,9 @@ func (s *GitRepositoryService) CreatePullRequest(ctx context.Context, repoID str
 	case types.ExternalRepositoryTypeADO:
 		return s.createAzureDevOpsPullRequest(ctx, repo, title, description, sourceBranch, targetBranch)
 	case types.ExternalRepositoryTypeGitHub:
-		return s.createGitHubPullRequest(ctx, repo, title, description, sourceBranch, targetBranch)
+		return s.createGitHubPullRequest(ctx, repo, title, description, sourceBranch, targetBranch, userID)
 	case types.ExternalRepositoryTypeGitLab:
-		return s.createGitLabMergeRequest(ctx, repo, title, description, sourceBranch, targetBranch)
+		return s.createGitLabMergeRequest(ctx, repo, title, description, sourceBranch, targetBranch, userID)
 	case types.ExternalRepositoryTypeBitbucket:
 		return s.createBitbucketPullRequest(ctx, repo, title, description, sourceBranch, targetBranch)
 	default:
@@ -384,7 +387,7 @@ func (s *GitRepositoryService) getAzureDevOpsClient(ctx context.Context, repo *t
 
 // GitHub Pull Request Operations
 
-func (s *GitRepositoryService) getGitHubClient(ctx context.Context, repo *types.GitRepository) (*github.Client, error) {
+func (s *GitRepositoryService) getGitHubClient(ctx context.Context, repo *types.GitRepository, userID string) (*github.Client, error) {
 	// Get GitHub Enterprise base URL if configured
 	var baseURL string
 	if repo.GitHub != nil {
@@ -400,6 +403,22 @@ func (s *GitRepositoryService) getGitHubClient(ctx context.Context, repo *types.
 		}
 		return client, nil
 	}
+
+	// When an acting user is provided, use their OAuth token so the PR is attributed to them.
+	if userID != "" {
+		connections, err := s.store.ListOAuthConnections(ctx, &store.ListOAuthConnectionsQuery{UserID: userID})
+		if err != nil {
+			return nil, fmt.Errorf("failed to look up GitHub OAuth connection for user: %w", err)
+		}
+		for _, conn := range connections {
+			if conn.Provider.Type == types.OAuthProviderTypeGitHub && conn.AccessToken != "" {
+				return github.NewClientWithOAuthAndBaseURL(conn.AccessToken, baseURL), nil
+			}
+		}
+		return nil, fmt.Errorf("no GitHub OAuth connection found for user - please connect your GitHub account first")
+	}
+
+	// No acting user — fall back to repo-level credentials (background/automated calls).
 
 	// Check for OAuth connection
 	if repo.OAuthConnectionID != "" {
@@ -422,8 +441,8 @@ func (s *GitRepositoryService) getGitHubClient(ctx context.Context, repo *types.
 	return nil, fmt.Errorf("no GitHub authentication configured - provide a Personal Access Token, GitHub App, or connect via OAuth")
 }
 
-func (s *GitRepositoryService) createGitHubPullRequest(ctx context.Context, repo *types.GitRepository, title string, description string, sourceBranch string, targetBranch string) (string, error) {
-	client, err := s.getGitHubClient(ctx, repo)
+func (s *GitRepositoryService) createGitHubPullRequest(ctx context.Context, repo *types.GitRepository, title string, description string, sourceBranch string, targetBranch string, userID string) (string, error) {
+	client, err := s.getGitHubClient(ctx, repo, userID)
 	if err != nil {
 		return "", err
 	}
@@ -449,7 +468,7 @@ func (s *GitRepositoryService) createGitHubPullRequest(ctx context.Context, repo
 }
 
 func (s *GitRepositoryService) listGitHubPullRequests(ctx context.Context, repo *types.GitRepository) ([]*types.PullRequest, error) {
-	client, err := s.getGitHubClient(ctx, repo)
+	client, err := s.getGitHubClient(ctx, repo, "")
 	if err != nil {
 		return nil, err
 	}
@@ -496,7 +515,7 @@ func (s *GitRepositoryService) listGitHubPullRequests(ctx context.Context, repo 
 }
 
 func (s *GitRepositoryService) getGitHubPullRequest(ctx context.Context, repo *types.GitRepository, number int) (*types.PullRequest, error) {
-	client, err := s.getGitHubClient(ctx, repo)
+	client, err := s.getGitHubClient(ctx, repo, "")
 	if err != nil {
 		return nil, err
 	}
@@ -555,7 +574,7 @@ func pullRequestStateFromGitHub(ghPR *gh.PullRequest) types.PullRequestState {
 
 // GitLab Merge Request Operations
 
-func (s *GitRepositoryService) getGitLabClient(ctx context.Context, repo *types.GitRepository) (*gitlab.Client, error) {
+func (s *GitRepositoryService) getGitLabClient(ctx context.Context, repo *types.GitRepository, userID string) (*gitlab.Client, error) {
 	// Determine base URL (empty for gitlab.com, custom for self-hosted)
 	var baseURL string
 	if repo.GitLab != nil && repo.GitLab.BaseURL != "" {
@@ -568,7 +587,23 @@ func (s *GitRepositoryService) getGitLabClient(ctx context.Context, repo *types.
 		}
 	}
 
-	// First check for OAuth connection
+	// When an acting user is provided, use their OAuth token so the MR is attributed to them.
+	if userID != "" {
+		connections, err := s.store.ListOAuthConnections(ctx, &store.ListOAuthConnectionsQuery{UserID: userID})
+		if err != nil {
+			return nil, fmt.Errorf("failed to look up GitLab OAuth connection for user: %w", err)
+		}
+		for _, conn := range connections {
+			if conn.Provider.Type == types.OAuthProviderTypeGitLab && conn.AccessToken != "" {
+				return gitlab.NewClientWithOAuth(baseURL, conn.AccessToken)
+			}
+		}
+		return nil, fmt.Errorf("no GitLab OAuth connection found for user - please connect your GitLab account first")
+	}
+
+	// No acting user — fall back to repo-level credentials (background/automated calls).
+
+	// Check for OAuth connection
 	if repo.OAuthConnectionID != "" {
 		conn, err := s.store.GetOAuthConnection(ctx, repo.OAuthConnectionID)
 		if err == nil && conn.AccessToken != "" {
@@ -603,8 +638,8 @@ func (s *GitRepositoryService) getGitLabProjectID(ctx context.Context, client *g
 	return project.ID, nil
 }
 
-func (s *GitRepositoryService) createGitLabMergeRequest(ctx context.Context, repo *types.GitRepository, title string, description string, sourceBranch string, targetBranch string) (string, error) {
-	client, err := s.getGitLabClient(ctx, repo)
+func (s *GitRepositoryService) createGitLabMergeRequest(ctx context.Context, repo *types.GitRepository, title string, description string, sourceBranch string, targetBranch string, userID string) (string, error) {
+	client, err := s.getGitLabClient(ctx, repo, userID)
 	if err != nil {
 		return "", err
 	}
@@ -629,7 +664,7 @@ func (s *GitRepositoryService) createGitLabMergeRequest(ctx context.Context, rep
 }
 
 func (s *GitRepositoryService) listGitLabMergeRequests(ctx context.Context, repo *types.GitRepository) ([]*types.PullRequest, error) {
-	client, err := s.getGitLabClient(ctx, repo)
+	client, err := s.getGitLabClient(ctx, repo, "")
 	if err != nil {
 		return nil, err
 	}
@@ -690,7 +725,7 @@ func pullRequestStateFromGitLab(glMR *gl.MergeRequest) types.PullRequestState {
 }
 
 func (s *GitRepositoryService) getGitLabMergeRequest(ctx context.Context, repo *types.GitRepository, mrIID int) (*types.PullRequest, error) {
-	client, err := s.getGitLabClient(ctx, repo)
+	client, err := s.getGitLabClient(ctx, repo, "")
 	if err != nil {
 		return nil, err
 	}

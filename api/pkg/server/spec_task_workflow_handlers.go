@@ -10,6 +10,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/prompts"
 	"github.com/helixml/helix/api/pkg/services"
+	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
@@ -85,6 +86,36 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 	// If repo is external, move to pull_request status (awaiting merge in external system)
 	// For internal repos, try merge first - only record approval if merge succeeds
 	if s.shouldOpenPullRequest(repo) {
+		// For GitHub/GitLab repos, require the approving user to have their own OAuth connection
+		// so the PR is attributed to them. Check this before updating task status to avoid
+		// moving the task to pull_request state when we can't create the PR.
+		var oauthProviderType types.OAuthProviderType
+		switch repo.ExternalType {
+		case types.ExternalRepositoryTypeGitHub:
+			oauthProviderType = types.OAuthProviderTypeGitHub
+		case types.ExternalRepositoryTypeGitLab:
+			oauthProviderType = types.OAuthProviderTypeGitLab
+		}
+
+		if oauthProviderType != "" {
+			connections, listErr := s.Store.ListOAuthConnections(ctx, &store.ListOAuthConnectionsQuery{UserID: user.ID})
+			if listErr != nil {
+				http.Error(w, fmt.Sprintf("Failed to check OAuth connection: %s", listErr.Error()), http.StatusInternalServerError)
+				return
+			}
+			hasConnection := false
+			for _, conn := range connections {
+				if conn.Provider.Type == oauthProviderType && conn.AccessToken != "" {
+					hasConnection = true
+					break
+				}
+			}
+			if !hasConnection {
+				http.Error(w, fmt.Sprintf("Please connect your %s account before approving — go to Settings > Integrations", string(oauthProviderType)), http.StatusBadRequest)
+				return
+			}
+		}
+
 		// External repo: record approval and move to pull_request status, await merge via polling
 		specTask.ImplementationApprovedBy = user.ID
 		specTask.ImplementationApprovedAt = &now
@@ -102,10 +133,11 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 			log.Warn().Err(err).Str("task_id", specTask.ID).Msg("Failed to check if branch has commits ahead - will wait for agent push")
 		} else if hasCommits {
 			log.Info().Str("task_id", specTask.ID).Str("branch", specTask.BranchName).Msg("Branch has commits ahead - creating PR immediately")
+			approverUserID := user.ID
 			s.wg.Add(1)
 			go func() {
 				defer s.wg.Done()
-				if err := s.ensurePullRequestForTask(context.Background(), repo, specTask); err != nil {
+				if err := s.ensurePullRequestForTask(context.Background(), repo, specTask, approverUserID); err != nil {
 					log.Error().Err(err).Str("task_id", specTask.ID).Msg("Failed to auto-create PR on approval")
 				}
 			}()
@@ -306,8 +338,9 @@ func (s *HelixAPIServer) branchHasCommitsAhead(ctx context.Context, repoPath, fe
 	return ahead > 0, nil
 }
 
-// ensurePullRequestForTask creates a PR for a spec task if one doesn't exist
-func (s *HelixAPIServer) ensurePullRequestForTask(ctx context.Context, repo *types.GitRepository, task *types.SpecTask) error {
+// ensurePullRequestForTask creates a PR for a spec task if one doesn't exist.
+// userID is the approving user's ID; their OAuth token is used for PR authorship.
+func (s *HelixAPIServer) ensurePullRequestForTask(ctx context.Context, repo *types.GitRepository, task *types.SpecTask, userID string) error {
 	if repo.ExternalURL == "" {
 		return nil
 	}
@@ -345,7 +378,7 @@ func (s *HelixAPIServer) ensurePullRequestForTask(ctx context.Context, repo *typ
 
 	// Create new PR
 	description := fmt.Sprintf("> **Helix**: %s\n\n---\n[Created by Helix](https://helix.ml)\n", task.Description)
-	prID, err := s.gitRepositoryService.CreatePullRequest(ctx, repo.ID, task.Name, description, branch, repo.DefaultBranch)
+	prID, err := s.gitRepositoryService.CreatePullRequest(ctx, repo.ID, task.Name, description, branch, repo.DefaultBranch, userID)
 	if err != nil {
 		return fmt.Errorf("failed to create PR: %w", err)
 	}
