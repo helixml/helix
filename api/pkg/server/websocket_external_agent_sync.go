@@ -293,7 +293,7 @@ func (apiServer *HelixAPIServer) handleExternalAgentSync(res http.ResponseWriter
 
 	// Register connection with agent ID
 	apiServer.externalAgentWSManager.registerConnection(agentID, wsConn)
-	defer apiServer.externalAgentWSManager.unregisterConnection(agentID)
+	defer apiServer.externalAgentWSManager.unregisterConnection(agentID, wsConn)
 
 	// Check if this agent has a Helix session mapping
 	// agentID could be either agent_session_id (req_*) or helix_session_id (ses_*)
@@ -313,7 +313,7 @@ func (apiServer *HelixAPIServer) handleExternalAgentSync(res http.ResponseWriter
 			// Agent session ID mapping - register connection with BOTH IDs for routing
 			helixSessionID = mappedHelixID
 			apiServer.externalAgentWSManager.registerConnection(helixSessionID, wsConn)
-			defer apiServer.externalAgentWSManager.unregisterConnection(helixSessionID)
+			defer apiServer.externalAgentWSManager.unregisterConnection(helixSessionID, wsConn)
 			log.Info().
 				Str("agent_session_id", agentID).
 				Str("helix_session_id", helixSessionID).
@@ -333,6 +333,12 @@ func (apiServer *HelixAPIServer) handleExternalAgentSync(res http.ResponseWriter
 		// Get the Helix session to find the initial interaction
 		helixSession, err := apiServer.Controller.Options.Store.GetSession(ctx, helixSessionID)
 		if err == nil && helixSession != nil {
+			log.Info().
+				Str("session_id", helixSessionID).
+				Str("zed_thread_id", helixSession.Metadata.ZedThreadID).
+				Str("spec_task_id", helixSession.Metadata.SpecTaskID).
+				Str("agent_type", helixSession.Metadata.AgentType).
+				Msg("[CONNECT] Session loaded for reconnect")
 			// CRITICAL: Rebuild contextMappings from persisted ZedThreadID if present
 			// This ensures message routing works after API server restarts
 			if helixSession.Metadata.ZedThreadID != "" {
@@ -381,17 +387,40 @@ func (apiServer *HelixAPIServer) handleExternalAgentSync(res http.ResponseWriter
 					Str("session_id", helixSessionID).
 					Str("zed_thread_id", targetThreadID).
 					Str("agent_name", agentNameForOpen).
-					Msg("[CONNECT] Sending open_thread on connect before agent_ready gate")
-				if err := apiServer.sendOpenThreadCommand(helixSessionID, targetThreadID, agentNameForOpen); err != nil {
+					Msg("[CONNECT] Sending open_thread directly on new connection before agent_ready gate")
+
+				// Send directly on the new wsConn rather than going through
+				// sendCommandToExternalAgent — during reconnection, the connection
+				// map may briefly have a stale entry or the channel may be closed
+				// by a racing defer from the old connection handler.
+				data := map[string]interface{}{
+					"acp_thread_id": targetThreadID,
+					"session_id":    helixSessionID,
+				}
+				if agentNameForOpen != "" {
+					data["agent_name"] = agentNameForOpen
+				}
+				openThreadCmd := types.ExternalAgentCommand{
+					Type: "open_thread",
+					Data: data,
+				}
+				// Write directly to the WebSocket, bypassing SendChan and the
+				// sender goroutine. During reconnection, the sender goroutine
+				// may not have started reading from the channel yet, and we
+				// need open_thread to arrive before agent_ready.
+				wsConn.mu.Lock()
+				writeErr := wsConn.Conn.WriteJSON(openThreadCmd)
+				wsConn.mu.Unlock()
+				if writeErr != nil {
 					log.Error().
 						Str("session_id", helixSessionID).
-						Err(err).
-						Msg("[CONNECT] Failed to send open_thread on connect")
+						Err(writeErr).
+						Msg("[CONNECT] Failed to write open_thread directly to WebSocket")
 				} else {
 					log.Info().
 						Str("session_id", helixSessionID).
 						Str("zed_thread_id", targetThreadID).
-						Msg("[CONNECT] ✅ open_thread sent successfully on connect")
+						Msg("[CONNECT] ✅ open_thread written directly to WebSocket")
 				}
 			}
 		}
@@ -1632,18 +1661,31 @@ func (apiServer *HelixAPIServer) sendCommandToExternalAgent(sessionID string, co
 		return fmt.Errorf("no WebSocket connection found for session %s", sessionID)
 	}
 
-	// Send command to the specific Zed agent
-	select {
-	case wsConn.SendChan <- command:
-		log.Trace().
-			Str("session_id", sessionID).
-			Str("command_type", command.Type).
-			Msg("Sent command to specific external Zed agent")
-
-		return nil
-	default:
-		return fmt.Errorf("external agent send channel full for session %s", sessionID)
-	}
+	// Send command to the specific Zed agent.
+	// Use a deferred recover to handle the case where the connection's SendChan
+	// was closed between getConnection and the send (race on reconnection).
+	var sendErr error
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Warn().
+					Str("session_id", sessionID).
+					Interface("panic", r).
+					Msg("Recovered from panic sending to external agent (connection likely replaced during reconnect)")
+				sendErr = fmt.Errorf("connection replaced during send for session %s", sessionID)
+			}
+		}()
+		select {
+		case wsConn.SendChan <- command:
+			log.Trace().
+				Str("session_id", sessionID).
+				Str("command_type", command.Type).
+				Msg("Sent command to specific external Zed agent")
+		default:
+			sendErr = fmt.Errorf("external agent send channel full for session %s", sessionID)
+		}
+	}()
+	return sendErr
 }
 
 // registerConnection registers a new external agent connection
@@ -1657,11 +1699,14 @@ func (manager *ExternalAgentWSManager) registerConnection(sessionID string, conn
 		Msg("[HELIX] Registered external agent connection")
 }
 
-// unregisterConnection unregisters an external agent connection
-func (manager *ExternalAgentWSManager) unregisterConnection(sessionID string) {
+// unregisterConnection unregisters an external agent connection.
+// Only removes if it matches the currently registered connection,
+// preventing a stale defer from closing a newer connection's channel
+// after reconnection.
+func (manager *ExternalAgentWSManager) unregisterConnection(sessionID string, conn *ExternalAgentWSConnection) {
 	manager.mu.Lock()
 	defer manager.mu.Unlock()
-	if conn, exists := manager.connections[sessionID]; exists {
+	if current, exists := manager.connections[sessionID]; exists && current == conn {
 		close(conn.SendChan)
 		delete(manager.connections, sessionID)
 	}
