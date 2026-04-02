@@ -951,16 +951,6 @@ func (apiServer *HelixAPIServer) NotifyExternalAgentOfNewInteraction(sessionID s
 
 // handleMessageAdded processes message addition from external agent
 func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *types.SyncMessage) error {
-	// If the session is not yet ready (agent_ready hasn't fired), skip processing.
-	// On reconnect, Zed replays thread history as message_added events. Processing
-	// these before the session is ready would corrupt the current interaction.
-	if !apiServer.externalAgentWSManager.isSessionReady(sessionID) {
-		log.Debug().
-			Str("session_id", sessionID).
-			Msg("[READINESS] Skipping message_added event — session not yet ready (likely history replay)")
-		return nil
-	}
-
 	// NEW PROTOCOL: use acp_thread_id
 	contextID, ok := syncMsg.Data["acp_thread_id"].(string)
 	if !ok {
