@@ -655,6 +655,21 @@ func (s *HelixAPIServer) ensurePullRequestsForAllRepos(ctx context.Context, task
 		repoPR, err := s.ensurePullRequestForRepo(ctx, repo, task, primaryRepoPath, userID)
 		if err != nil {
 			log.Error().Err(err).Str("repo_id", repo.ID).Str("repo_name", repo.Name).Str("task_id", task.ID).Msg("Failed to ensure PR for repo")
+
+			// Surface the error to the user via task metadata
+			if task.Metadata == nil {
+				task.Metadata = make(map[string]interface{})
+			}
+			var oauthErr *services.OAuthRequiredError
+			if errors.As(err, &oauthErr) {
+				task.Metadata["error"] = fmt.Sprintf("GitHub OAuth connection required to open a PR. Please connect your GitHub account and try again.")
+			} else {
+				task.Metadata["error"] = fmt.Sprintf("Failed to create PR for %s: %s", repo.Name, err.Error())
+			}
+			if updateErr := s.Store.UpdateSpecTask(ctx, task); updateErr != nil {
+				log.Error().Err(updateErr).Str("task_id", task.ID).Msg("Failed to save PR error to task metadata")
+			}
+
 			// Preserve existing PR data for this repo on failure (e.g. GitHub 503)
 			// so we don't wipe valid PR records from the task
 			for _, existing := range task.RepoPullRequests {
@@ -668,6 +683,13 @@ func (s *HelixAPIServer) ensurePullRequestsForAllRepos(ctx context.Context, task
 
 		if repoPR != nil {
 			repoPRs = append(repoPRs, *repoPR)
+		}
+	}
+
+	// Clear any previous PR error if we got at least one PR successfully
+	if len(repoPRs) > 0 && task.Metadata != nil {
+		if _, hasErr := task.Metadata["error"]; hasErr {
+			delete(task.Metadata, "error")
 		}
 	}
 
