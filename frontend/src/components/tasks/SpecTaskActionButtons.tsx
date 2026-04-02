@@ -1,5 +1,6 @@
-import React, { RefObject, useState } from "react";
+import React, { RefObject, useEffect, useState } from "react";
 import {
+  Alert,
   Box,
   Button,
   CircularProgress,
@@ -20,6 +21,9 @@ import {
   useApproveImplementation,
   useStopAgent,
 } from "../../services/specTaskWorkflowService";
+import { useListOAuthProviders, useListOAuthConnections } from "../../services/oauthProvidersService";
+import { findOAuthProviderForType, findOAuthConnectionForProvider, hasRequiredScopes } from "../../utils/oauthProviders";
+import { useOAuthFlow } from "../../hooks/useOAuthFlow";
 
 export interface RepoPR {
   repository_id?: string;
@@ -57,6 +61,8 @@ interface SpecTaskActionButtonsProps {
   onReject?: (shiftKey?: boolean) => void;
   /** Whether the connected project has an external repo (affects Accept vs Open PR text) */
   hasExternalRepo?: boolean;
+  /** The external repository type (e.g. "github", "ado") -- used to decide provider-specific OAuth checks */
+  externalRepoType?: string;
   /** Whether archive/reject is in progress */
   isArchiving?: boolean;
   /** Whether start planning is in progress */
@@ -161,6 +167,7 @@ export default function SpecTaskActionButtons({
   onReviewSpec,
   onReject,
   hasExternalRepo = false,
+  externalRepoType,
   isArchiving = false,
   isStartingPlanning = false,
   isQueued = false,
@@ -173,6 +180,49 @@ export default function SpecTaskActionButtons({
   const stopAgentMutation = useStopAgent(task.id);
   const [isReviewingSpec, setIsReviewingSpec] = useState(false);
   const [prMenuAnchor, setPrMenuAnchor] = useState<null | HTMLElement>(null);
+  const [showOAuthPrompt, setShowOAuthPrompt] = useState(false);
+  const { data: oauthProviders } = useListOAuthProviders();
+  const { data: oauthConnections } = useListOAuthConnections();
+  const { startOAuthFlow, isLoading: isOAuthLoading } = useOAuthFlow();
+
+  const gitHubConnection = findOAuthConnectionForProvider(oauthConnections, 'github');
+  const hasGitHubOAuthWithRepoScope = !!gitHubConnection && hasRequiredScopes(gitHubConnection.scopes, ['repo']);
+  const gitHubProvider = findOAuthProviderForType(oauthProviders, 'github');
+
+  // Detect oauth_required error from the backend (enforcement fallback)
+  useEffect(() => {
+    if (approveImplementationMutation.error) {
+      const data = (approveImplementationMutation.error as any)?.response?.data;
+      if (data?.error === "oauth_required") {
+        setShowOAuthPrompt(true);
+      }
+    }
+  }, [approveImplementationMutation.error]);
+
+  const handleOpenPR = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!isDirectPush && hasExternalRepo && externalRepoType === "github" && !hasGitHubOAuthWithRepoScope) {
+      if (gitHubProvider?.id) {
+        // GitHub OAuth provider exists -- start the connection flow with repo scope
+        startOAuthFlow({
+          providerId: gitHubProvider.id,
+          scopes: ['repo'],
+          onSuccess: () => {
+            setShowOAuthPrompt(false);
+            approveImplementationMutation.mutate();
+          },
+          onError: () => {
+            setShowOAuthPrompt(true);
+          },
+        });
+      } else {
+        // No GitHub OAuth provider configured -- show prompt
+        setShowOAuthPrompt(true);
+      }
+      return;
+    }
+    approveImplementationMutation.mutate();
+  };
 
   const isArchived = task.archived ?? false;
   const isInline = variant === "inline";
@@ -350,6 +400,49 @@ export default function SpecTaskActionButtons({
   if (task.status === "implementation") {
     const hasDesignDocs = !!task.design_docs_pushed_at;
 
+    if (showOAuthPrompt) {
+      return (
+        <Box sx={{ display: "flex", flexDirection: "column", gap: 1, width: "100%" }}>
+          <Alert severity="warning" sx={{ py: 0.5 }}>
+            {gitHubProvider?.id
+              ? "Connect your GitHub account to open PRs under your name."
+              : "GitHub OAuth is not configured. Ask your administrator to set it up so PRs can be opened under your name."}
+          </Alert>
+          <Box sx={{ display: "flex", gap: 1 }}>
+            {gitHubProvider?.id && (
+              <Button
+                variant="contained"
+                size="small"
+                disabled={isOAuthLoading}
+                onClick={() => {
+                  startOAuthFlow({
+                    providerId: gitHubProvider.id!,
+                    scopes: ['repo'],
+                    onSuccess: () => {
+                      setShowOAuthPrompt(false);
+                      approveImplementationMutation.mutate();
+                    },
+                    onError: () => {
+                      // Keep showing the prompt
+                    },
+                  });
+                }}
+              >
+                {isOAuthLoading ? "Connecting..." : "Connect GitHub"}
+              </Button>
+            )}
+            <Button
+              variant="outlined"
+              size="small"
+              onClick={() => setShowOAuthPrompt(false)}
+            >
+              Cancel
+            </Button>
+          </Box>
+        </Box>
+      );
+    }
+
     if (isInline) {
       return (
         <Box sx={{ display: "flex", gap: 1 }}>
@@ -392,10 +485,7 @@ export default function SpecTaskActionButtons({
                   ? "Accept"
                   : "Open PR"
             }
-            onClick={(e) => {
-              e.stopPropagation();
-              approveImplementationMutation.mutate();
-            }}
+            onClick={handleOpenPR}
           />
           {hasDesignDocs && onReviewSpec && (
             <CompactActionButton
@@ -464,10 +554,7 @@ export default function SpecTaskActionButtons({
                     <ApproveIcon />
                   )
                 }
-                onClick={(e) => {
-                  e.stopPropagation();
-                  approveImplementationMutation.mutate();
-                }}
+                onClick={handleOpenPR}
                 disabled={isArchived || approveImplementationMutation.isPending}
                 fullWidth
                 sx={buttonSx}
@@ -515,6 +602,16 @@ export default function SpecTaskActionButtons({
   const pullRequests = task.repo_pull_requests?.filter(pr => pr.pr_url) || [];
   const hasMultiplePRs = pullRequests.length > 1;
   const hasAnyPR = pullRequests.length > 0;
+
+  if (task.status === "pull_request" && !hasAnyPR && task.metadata?.error) {
+    return (
+      <Box sx={{ display: "flex", flexDirection: "column", gap: 1, width: "100%" }}>
+        <Alert severity="error" sx={{ py: 0.5 }}>
+          {task.metadata.error}
+        </Alert>
+      </Box>
+    );
+  }
 
   if (task.status === "pull_request" && hasAnyPR) {
     // Single PR case

@@ -227,6 +227,7 @@ interface TaskCardProps {
   projectId?: string;
   isArchiving?: boolean;
   hasExternalRepo?: boolean;
+  externalRepoType?: string;
   showMetrics?: boolean;
   /** Hide the "Clone to other projects" menu option (used in clone batch progress view) */
   hideCloneOption?: boolean;
@@ -573,6 +574,7 @@ function TaskCardInner({
   projectId,
   isArchiving = false,
   hasExternalRepo = false,
+  externalRepoType,
   showMetrics = true,
   hideCloneOption = false,
   progressData,
@@ -1277,6 +1279,7 @@ function TaskCardInner({
               }
             }}
             hasExternalRepo={hasExternalRepo}
+            externalRepoType={externalRepoType}
             isArchiving={isArchiving}
           />
         )}
@@ -1405,6 +1408,20 @@ function TaskCardInner({
               </>
             ) : (
               (() => {
+                // Show specific error from task metadata if available
+                if (taskError) {
+                  return (
+                    <Alert severity="error" sx={{ py: 0.5 }}>
+                      <Typography
+                        variant="caption"
+                        sx={{ fontSize: "0.7rem", display: "block" }}
+                      >
+                        {taskError}
+                      </Typography>
+                    </Alert>
+                  );
+                }
+
                 // Calculate seconds since approval
                 const approvedAt = task.implementation_approved_at
                   ? new Date(task.implementation_approved_at).getTime()

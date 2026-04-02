@@ -241,6 +241,7 @@ interface SpecTaskKanbanBoardProps {
   };
   focusTaskId?: string; // Task ID to focus "Start Planning" button on (for newly created tasks)
   hasExternalRepo?: boolean; // When true, project uses external repo (ADO) - Accept button becomes "Open PR"
+  externalRepoType?: string; // The external repo type (e.g. "github", "ado")
   showArchived?: boolean; // Show archived tasks instead of active tasks
   showMetrics?: boolean; // Show metrics in task cards
   showMerged?: boolean; // Show merged column
@@ -262,6 +263,7 @@ const DroppableColumn: React.FC<{
   focusTaskId?: string;
   archivingTaskId?: string | null;
   hasExternalRepo?: boolean;
+  externalRepoType?: string;
   showMetrics?: boolean;
   theme: any;
   onHeaderClick?: () => void;
@@ -287,6 +289,7 @@ const DroppableColumn: React.FC<{
   focusTaskId,
   archivingTaskId,
   hasExternalRepo,
+  externalRepoType,
   showMetrics,
   theme,
   onHeaderClick,
@@ -319,6 +322,7 @@ const DroppableColumn: React.FC<{
         focusStartPlanning={task.id === focusTaskId}
         isArchiving={task.id === archivingTaskId}
         hasExternalRepo={hasExternalRepo}
+        externalRepoType={externalRepoType}
         showMetrics={showMetrics}
         progressData={batchProgressData?.[task.id]}
         usageData={batchUsageData?.[task.id]}
@@ -602,6 +606,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
   wipLimits = { planning: 3, review: 2, implementation: 5 },
   focusTaskId,
   hasExternalRepo = false,
+  externalRepoType,
   showArchived: showArchivedProp = false,
   showMetrics: showMetricsProp,
   showMerged: showMergedProp = true,
@@ -1624,6 +1629,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
                 focusTaskId={focusTaskId}
                 archivingTaskId={archivingTaskId}
                 hasExternalRepo={hasExternalRepo}
+                externalRepoType={externalRepoType}
                 showMetrics={showMetrics}
                 highlightedTaskIds={highlightedDependencyTaskIds}
                 onDependencyHoverStart={setHighlightedDependencyTaskIds}
@@ -1664,6 +1670,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
               focusTaskId={focusTaskId}
               archivingTaskId={archivingTaskId}
               hasExternalRepo={hasExternalRepo}
+              externalRepoType={externalRepoType}
               showMetrics={showMetrics}
               highlightedTaskIds={highlightedDependencyTaskIds}
               onDependencyHoverStart={setHighlightedDependencyTaskIds}
