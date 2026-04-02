@@ -393,8 +393,11 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({
               const current = prev.get(currentSessionId) || {};
               const isSameInteraction = current.id === updatedInteraction.id;
 
-              // When complete, use server's response_message directly — do NOT fall
-              // back to current.response_message which may be truncated streaming data
+              // When complete, use server's response_message and response_entries directly.
+              // Do NOT fall back to current values which may be truncated streaming data.
+              // Storing response_entries here prevents the 3s poll from overwriting the
+              // correct final entries with stale pre-completion data from the DB.
+              const serverEntries = (updatedInteraction as any)?.response_entries as ResponseEntry[] | undefined;
               const updated: StreamingInteraction = isSameInteraction
                 ? {
                     ...current,
@@ -407,6 +410,7 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({
                       ? updatedInteraction.response_message // Complete: use server data only
                       : updatedInteraction.response_message ||
                         current.response_message,
+                    ...(isComplete && serverEntries ? { response_entries: serverEntries } : {}),
                   }
                 : {
                     // New interaction - start with clean slate
@@ -414,6 +418,7 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({
                     state: updatedInteraction.state,
                     prompt_message: updatedInteraction.prompt_message,
                     response_message: updatedInteraction.response_message,
+                    ...(isComplete && serverEntries ? { response_entries: serverEntries } : {}),
                   };
 
               const newMap = new Map(prev).set(currentSessionId, updated);
