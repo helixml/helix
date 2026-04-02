@@ -903,6 +903,34 @@ func (apiServer *HelixAPIServer) NotifyExternalAgentOfNewInteraction(sessionID s
 		Data: commandData,
 	}
 
+	// If no WebSocket connection exists and this session belongs to a spec task,
+	// auto-start the desktop and wait for the agent to connect before sending.
+	if _, exists := apiServer.externalAgentWSManager.getConnection(sessionID); !exists {
+		if session.Metadata.SpecTaskID != "" {
+			specTask, err := apiServer.Controller.Options.Store.GetSpecTask(context.Background(), session.Metadata.SpecTaskID)
+			if err != nil {
+				log.Error().Err(err).Str("spec_task_id", session.Metadata.SpecTaskID).Msg("Failed to load spec task for desktop auto-start")
+			} else if startErr := apiServer.startDesktopForSpecTask(context.Background(), specTask); startErr != nil {
+				log.Error().Err(startErr).Str("spec_task_id", session.Metadata.SpecTaskID).Msg("Failed to auto-start desktop")
+			} else {
+				// Wait for the agent to reconnect via WebSocket (up to 90s)
+				const maxWait = 90 * time.Second
+				const pollInterval = 5 * time.Second
+				deadline := time.Now().Add(maxWait)
+				for time.Now().Before(deadline) {
+					time.Sleep(pollInterval)
+					if _, exists := apiServer.externalAgentWSManager.getConnection(sessionID); exists {
+						log.Info().
+							Str("session_id", sessionID).
+							Str("spec_task_id", session.Metadata.SpecTaskID).
+							Msg("✅ Agent connected after desktop auto-start, delivering chat message")
+						break
+					}
+				}
+			}
+		}
+	}
+
 	// Use the unified sendCommandToExternalAgent which handles connection lookup and routing
 	return apiServer.sendCommandToExternalAgent(sessionID, command)
 }
