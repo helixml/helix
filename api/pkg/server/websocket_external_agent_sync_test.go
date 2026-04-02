@@ -1104,6 +1104,49 @@ func (s *WebSocketSyncSuite) TestProcessAnyPendingPrompt_SendFails_MarkedFailed(
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
+// sendQueuedPromptToSession — in-memory state cleanup on send failure
+// ──────────────────────────────────────────────────────────────────────────────
+
+func (s *WebSocketSyncSuite) TestSendQueuedPrompt_SendFails_CleansUpInMemoryState() {
+	// When sendCommandToExternalAgent fails (no WS connection),
+	// sessionToWaitingInteraction and requestToSessionMapping must be cleaned
+	// up so pickupWaitingInteraction sets them fresh on reconnect.
+	// Otherwise a stale message_completed from the agent's previous context
+	// gets matched to the new interaction (wrong response bug).
+
+	session := &types.Session{
+		ID:    "ses_cleanup",
+		Owner: "user-1",
+	}
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_cleanup").Return(session, nil).AnyTimes()
+	s.store.EXPECT().CreateInteraction(gomock.Any(), gomock.Any()).Return(
+		&types.Interaction{ID: "int-cleanup", SessionID: "ses_cleanup"}, nil,
+	)
+	s.store.EXPECT().GetSpecTask(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound).AnyTimes()
+
+	prompt := &types.PromptHistoryEntry{
+		ID:        "prompt-cleanup",
+		SessionID: "ses_cleanup",
+		Content:   "test prompt",
+	}
+
+	// No WS connection registered → sendCommandToExternalAgent will fail
+	err := s.server.sendQueuedPromptToSession(context.Background(), "ses_cleanup", prompt)
+	s.NoError(err) // interaction was created, send failure is not returned as error
+
+	time.Sleep(50 * time.Millisecond) // let autoStartDevContainerForSession goroutine complete
+
+	// Verify in-memory state was cleaned up
+	s.server.contextMappingsMutex.Lock()
+	waitingQueue := s.server.sessionToWaitingInteraction["ses_cleanup"]
+	_, hasMapping := s.server.requestToSessionMapping["int-cleanup"]
+	s.server.contextMappingsMutex.Unlock()
+
+	s.Empty(waitingQueue, "sessionToWaitingInteraction should be empty after send failure — stale entries cause wrong response routing")
+	s.False(hasMapping, "requestToSessionMapping should be cleaned up after send failure")
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
 // findSessionByZedThreadID tests
 // ──────────────────────────────────────────────────────────────────────────────
 
