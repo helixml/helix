@@ -1388,6 +1388,8 @@ definitions:
     properties:
       created_at:
         type: string
+      helix_org_id:
+        type: string
       helix_repo_id:
         type: string
       helix_repo_name:
@@ -1422,6 +1424,10 @@ definitions:
         type: string
       enrichment_count:
         type: integer
+      helix_org_id:
+        type: string
+      helix_org_name:
+        type: string
       helix_repo_id:
         type: string
       helix_repo_name:
@@ -1574,6 +1580,17 @@ definitions:
           $ref: '#/definitions/server.KoditEnrichmentDTO'
         type: array
     type: object
+  server.KoditEnrichmentsMeta:
+    properties:
+      commit_sha:
+        type: string
+      count:
+        type: integer
+      enrichment_type:
+        type: string
+      kodit_repo_id:
+        type: integer
+    type: object
   server.KoditFileContentDTO:
     properties:
       commit_sha:
@@ -1718,6 +1735,43 @@ definitions:
         type: string
       type:
         type: string
+    type: object
+  server.KoditRepoEnrichmentsResponse:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/server.KoditEnrichmentDTO'
+        type: array
+      links:
+        additionalProperties:
+          type: string
+        type: object
+      meta:
+        $ref: '#/definitions/server.KoditEnrichmentsMeta'
+    type: object
+  server.KoditRepoSearchMeta:
+    properties:
+      count:
+        type: integer
+      kodit_repo_id:
+        type: integer
+      limit:
+        type: integer
+      query:
+        type: string
+    type: object
+  server.KoditRepoSearchResponse:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/server.KoditSearchResultDTO'
+        type: array
+      links:
+        additionalProperties:
+          type: string
+        type: object
+      meta:
+        $ref: '#/definitions/server.KoditRepoSearchMeta'
     type: object
   server.KoditSearchMeta:
     properties:
@@ -14157,6 +14211,78 @@ paths:
       summary: List knowledge versions
       tags:
       - knowledge
+  /api/v1/kodit/repositories/{koditRepoId}/enrichments:
+    get:
+      description: Fetch code intelligence enrichments for any Kodit repository (git
+        or knowledge-backed).
+      parameters:
+      - description: Kodit Repository ID
+        in: path
+        name: koditRepoId
+        required: true
+        type: integer
+      - description: Filter by enrichment type
+        in: query
+        name: enrichment_type
+        type: string
+      - description: Filter by commit SHA
+        in: query
+        name: commit_sha
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.KoditRepoEnrichmentsResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Get enrichments by Kodit repo ID
+      tags:
+      - kodit
+  /api/v1/kodit/repositories/{koditRepoId}/search:
+    get:
+      description: Search code snippets in any Kodit repository (git or knowledge-backed).
+      parameters:
+      - description: Kodit Repository ID
+        in: path
+        name: koditRepoId
+        required: true
+        type: integer
+      - description: Search query
+        in: query
+        name: query
+        required: true
+        type: string
+      - description: Max results (default 20, max 100)
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.KoditRepoSearchResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Search snippets by Kodit repo ID
+      tags:
+      - kodit
   /api/v1/license:
     get:
       consumes:

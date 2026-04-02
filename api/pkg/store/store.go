@@ -310,6 +310,7 @@ type Store interface {
 	UpdateDataEntity(ctx context.Context, dataEntity *types.DataEntity) (*types.DataEntity, error)
 	GetDataEntity(ctx context.Context, id string) (*types.DataEntity, error)
 	ListDataEntities(ctx context.Context, q *ListDataEntitiesQuery) ([]*types.DataEntity, error)
+	ListDataEntitiesWithKoditRepo(ctx context.Context) ([]*types.DataEntity, error)
 	DeleteDataEntity(ctx context.Context, id string) error
 
 	// Knowledge

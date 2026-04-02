@@ -6394,6 +6394,117 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/kodit/repositories/{koditRepoId}/enrichments": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Fetch code intelligence enrichments for any Kodit repository (git or knowledge-backed).",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "kodit"
+                ],
+                "summary": "Get enrichments by Kodit repo ID",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Kodit Repository ID",
+                        "name": "koditRepoId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by enrichment type",
+                        "name": "enrichment_type",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by commit SHA",
+                        "name": "commit_sha",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.KoditRepoEnrichmentsResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/kodit/repositories/{koditRepoId}/search": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Search code snippets in any Kodit repository (git or knowledge-backed).",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "kodit"
+                ],
+                "summary": "Search snippets by Kodit repo ID",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Kodit Repository ID",
+                        "name": "koditRepoId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Search query",
+                        "name": "query",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Max results (default 20, max 100)",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.KoditRepoSearchResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/license": {
             "get": {
                 "security": [
@@ -18280,6 +18391,9 @@ const docTemplate = `{
                 "created_at": {
                     "type": "string"
                 },
+                "helix_org_id": {
+                    "type": "string"
+                },
                 "helix_repo_id": {
                     "type": "string"
                 },
@@ -18331,6 +18445,12 @@ const docTemplate = `{
                 },
                 "enrichment_count": {
                     "type": "integer"
+                },
+                "helix_org_id": {
+                    "type": "string"
+                },
+                "helix_org_name": {
+                    "type": "string"
                 },
                 "helix_repo_id": {
                     "type": "string"
@@ -18566,6 +18686,23 @@ const docTemplate = `{
                 }
             }
         },
+        "server.KoditEnrichmentsMeta": {
+            "type": "object",
+            "properties": {
+                "commit_sha": {
+                    "type": "string"
+                },
+                "count": {
+                    "type": "integer"
+                },
+                "enrichment_type": {
+                    "type": "string"
+                },
+                "kodit_repo_id": {
+                    "type": "integer"
+                }
+            }
+        },
         "server.KoditFileContentDTO": {
             "type": "object",
             "properties": {
@@ -18787,6 +18924,63 @@ const docTemplate = `{
                 },
                 "type": {
                     "type": "string"
+                }
+            }
+        },
+        "server.KoditRepoEnrichmentsResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/server.KoditEnrichmentDTO"
+                    }
+                },
+                "links": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "meta": {
+                    "$ref": "#/definitions/server.KoditEnrichmentsMeta"
+                }
+            }
+        },
+        "server.KoditRepoSearchMeta": {
+            "type": "object",
+            "properties": {
+                "count": {
+                    "type": "integer"
+                },
+                "kodit_repo_id": {
+                    "type": "integer"
+                },
+                "limit": {
+                    "type": "integer"
+                },
+                "query": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.KoditRepoSearchResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/server.KoditSearchResultDTO"
+                    }
+                },
+                "links": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "meta": {
+                    "$ref": "#/definitions/server.KoditRepoSearchMeta"
                 }
             }
         },

@@ -35,11 +35,9 @@ import {
   useAdminKoditRepositoryTasks,
   useAdminSyncKoditRepository,
   useAdminRescanKoditRepository,
+  useAdminKoditRepoEnrichments,
+  useAdminKoditRepoSearch,
 } from '../../services/koditAdminService'
-import {
-  useKoditSearch,
-  useKoditEnrichments,
-} from '../../services/koditService'
 
 const statusColor: Record<string, 'success' | 'warning' | 'error' | 'default' | 'info'> = {
   cloned: 'success',
@@ -103,15 +101,11 @@ const KoditAdminRepoDetail: FC<KoditAdminRepoDetailProps> = ({ koditRepoId, onBa
   const attrs = data?.data?.attributes
   const helixRepoId = attrs?.helix_repo_id || ''
 
-  // Enrichments for this repo (if we have a Helix repo ID to cross-reference)
-  const enrichmentsQuery = useKoditEnrichments(helixRepoId, undefined, {
-    enabled: !!helixRepoId,
-    refetchInterval: false,
-  })
-
-  // Search (if we have a Helix repo ID)
-  const searchResults = useKoditSearch(helixRepoId, activeSearch, undefined, undefined, {
-    enabled: !!helixRepoId && !!activeSearch,
+  // Enrichments and search use admin endpoints keyed by kodit repo ID
+  // (works for both git repos and knowledge-based repos)
+  const enrichmentsQuery = useAdminKoditRepoEnrichments(koditRepoId)
+  const searchResults = useAdminKoditRepoSearch(koditRepoId, activeSearch, {
+    enabled: !!activeSearch,
   })
 
   const handleBack = useCallback(() => {
@@ -253,8 +247,13 @@ const KoditAdminRepoDetail: FC<KoditAdminRepoDetailProps> = ({ koditRepoId, onBa
             <Typography variant="body2">{attrs.default_branch || '-'}</Typography>
           </Grid>
           <Grid item xs={6}>
-            <Typography variant="caption" color="text.secondary">Helix Repository</Typography>
-            <Typography variant="body2">{attrs.helix_repo_name || '-'}</Typography>
+            <Typography variant="caption" color="text.secondary">Organization</Typography>
+            <Typography variant="body2">{attrs.helix_org_name || '-'}</Typography>
+            {attrs.helix_org_id && (
+              <Typography variant="caption" color="text.secondary" sx={{ fontFamily: 'monospace' }}>
+                {attrs.helix_org_id}
+              </Typography>
+            )}
           </Grid>
           <Grid item xs={6}>
             <Typography variant="caption" color="text.secondary">Helix Repository ID</Typography>
@@ -442,7 +441,7 @@ const KoditAdminRepoDetail: FC<KoditAdminRepoDetailProps> = ({ koditRepoId, onBa
       )}
 
       {/* Search Test Panel */}
-      {helixRepoId && (
+      {koditRepoId && (
         <Box sx={{ mb: 3 }}>
           <Typography variant="subtitle1" gutterBottom>Search Test</Typography>
           <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
@@ -459,39 +458,43 @@ const KoditAdminRepoDetail: FC<KoditAdminRepoDetailProps> = ({ koditRepoId, onBa
             </Button>
           </Box>
           {searchResults.isLoading && <CircularProgress size={20} />}
-          {searchResults.data && Array.isArray(searchResults.data) && searchResults.data.length > 0 && (
-            <Paper variant="outlined" sx={{ maxHeight: 400, overflow: 'auto' }}>
-              {searchResults.data.map((result: any, i: number) => (
-                <Box key={result.id || i} sx={{ p: 2, borderBottom: '1px solid', borderColor: 'divider' }}>
-                  <Box sx={{ display: 'flex', gap: 1, mb: 1 }}>
-                    <Chip label={result.type} size="small" />
-                    {result.language && <Chip label={result.language} size="small" variant="outlined" />}
+          {(() => {
+            const results = (searchResults.data as any)?.data || []
+            if (results.length > 0) return (
+              <Paper variant="outlined" sx={{ maxHeight: 400, overflow: 'auto' }}>
+                {results.map((result: any, i: number) => (
+                  <Box key={result.id || i} sx={{ p: 2, borderBottom: '1px solid', borderColor: 'divider' }}>
+                    <Box sx={{ display: 'flex', gap: 1, mb: 1 }}>
+                      <Chip label={result.type} size="small" />
+                      {result.language && <Chip label={result.language} size="small" variant="outlined" />}
+                    </Box>
+                    <Typography
+                      variant="body2"
+                      component="pre"
+                      sx={{
+                        whiteSpace: 'pre-wrap',
+                        fontFamily: 'monospace',
+                        fontSize: '0.75rem',
+                        maxHeight: 200,
+                        overflow: 'auto',
+                      }}
+                    >
+                      {result.content}
+                    </Typography>
                   </Box>
-                  <Typography
-                    variant="body2"
-                    component="pre"
-                    sx={{
-                      whiteSpace: 'pre-wrap',
-                      fontFamily: 'monospace',
-                      fontSize: '0.75rem',
-                      maxHeight: 200,
-                      overflow: 'auto',
-                    }}
-                  >
-                    {result.content}
-                  </Typography>
-                </Box>
-              ))}
-            </Paper>
-          )}
-          {searchResults.data && Array.isArray(searchResults.data) && searchResults.data.length === 0 && activeSearch && (
-            <Typography variant="body2" color="text.secondary">No results found</Typography>
-          )}
+                ))}
+              </Paper>
+            )
+            if (searchResults.data && activeSearch) return (
+              <Typography variant="body2" color="text.secondary">No results found</Typography>
+            )
+            return null
+          })()}
         </Box>
       )}
 
       {/* Enrichments Preview */}
-      {helixRepoId && enrichmentsQuery.data && (
+      {koditRepoId && enrichmentsQuery.data && (
         <Box>
           <Typography variant="subtitle1" gutterBottom>
             Enrichments Preview ({(enrichmentsQuery.data as any)?.data?.length || 0})

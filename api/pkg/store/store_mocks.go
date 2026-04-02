@@ -3738,6 +3738,21 @@ func (mr *MockStoreMockRecorder) ListDataEntities(ctx, q any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListDataEntities", reflect.TypeOf((*MockStore)(nil).ListDataEntities), ctx, q)
 }
 
+// ListDataEntitiesWithKoditRepo mocks base method.
+func (m *MockStore) ListDataEntitiesWithKoditRepo(ctx context.Context) ([]*types.DataEntity, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListDataEntitiesWithKoditRepo", ctx)
+	ret0, _ := ret[0].([]*types.DataEntity)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListDataEntitiesWithKoditRepo indicates an expected call of ListDataEntitiesWithKoditRepo.
+func (mr *MockStoreMockRecorder) ListDataEntitiesWithKoditRepo(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListDataEntitiesWithKoditRepo", reflect.TypeOf((*MockStore)(nil).ListDataEntitiesWithKoditRepo), ctx)
+}
+
 // ListDynamicModelInfos mocks base method.
 func (m *MockStore) ListDynamicModelInfos(ctx context.Context, q *types.ListDynamicModelInfosQuery) ([]*types.DynamicModelInfo, error) {
 	m.ctrl.T.Helper()

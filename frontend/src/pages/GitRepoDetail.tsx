@@ -882,7 +882,7 @@ const GitRepoDetail: FC = () => {
 
           {/* Search Tab */}
           {currentTab === 'search' && repository.kodit_indexing && (
-            <SearchSubTab repoId={repoId || ''} enabled={!!repoId && repository.kodit_indexing} />
+            <SearchSubTab repoId={repoId || ''} enabled={!!repoId && repository.kodit_indexing} repository={repository} />
           )}
 
           {/* Changelog Tab */}

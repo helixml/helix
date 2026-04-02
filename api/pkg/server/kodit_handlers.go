@@ -1230,3 +1230,191 @@ func (apiServer *HelixAPIServer) rescanRepository(w http.ResponseWriter, r *http
 		"commit_sha": commitSHA,
 	})
 }
+
+// KoditRepoEnrichmentsResponse is the JSON:API envelope for enrichments by kodit repo ID.
+type KoditRepoEnrichmentsResponse struct {
+	Data  []KoditEnrichmentDTO `json:"data"`
+	Meta  KoditEnrichmentsMeta `json:"meta"`
+	Links map[string]string    `json:"links"`
+}
+
+// KoditEnrichmentsMeta holds metadata about an enrichments response.
+type KoditEnrichmentsMeta struct {
+	KoditRepoID    int64  `json:"kodit_repo_id"`
+	EnrichmentType string `json:"enrichment_type,omitempty"`
+	CommitSHA      string `json:"commit_sha,omitempty"`
+	Count          int    `json:"count"`
+	Total          int    `json:"total"`
+	Page           int    `json:"page"`
+	PerPage        int    `json:"per_page"`
+	TotalPages     int    `json:"total_pages"`
+}
+
+// KoditRepoSearchResponse is the JSON:API envelope for search results by kodit repo ID.
+type KoditRepoSearchResponse struct {
+	Data  []KoditSearchResultDTO `json:"data"`
+	Meta  KoditRepoSearchMeta   `json:"meta"`
+	Links map[string]string      `json:"links"`
+}
+
+// KoditRepoSearchMeta holds metadata about a search response.
+type KoditRepoSearchMeta struct {
+	KoditRepoID int64  `json:"kodit_repo_id"`
+	Query       string `json:"query"`
+	Limit       int    `json:"limit"`
+	Count       int    `json:"count"`
+}
+
+// getKoditRepoEnrichments fetches enrichments by kodit repo ID directly.
+// Works for both git repo-backed and knowledge-backed kodit repositories.
+// @Summary Get enrichments by Kodit repo ID
+// @Description Fetch code intelligence enrichments for any Kodit repository (git or knowledge-backed).
+// @Tags kodit
+// @Produce json
+// @Param koditRepoId path int true "Kodit Repository ID"
+// @Param enrichment_type query string false "Filter by enrichment type"
+// @Param commit_sha query string false "Filter by commit SHA"
+// @Success 200 {object} KoditRepoEnrichmentsResponse
+// @Failure 404 {object} types.APIError
+// @Router /api/v1/kodit/repositories/{koditRepoId}/enrichments [get]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) getKoditRepoEnrichments(w http.ResponseWriter, r *http.Request) {
+	koditRepoID, ok := parseKoditRepoID(w, r)
+	if !ok {
+		return
+	}
+
+	if apiServer.koditService == nil || !apiServer.koditService.IsEnabled() {
+		http.Error(w, "Kodit service is not enabled", http.StatusNotFound)
+		return
+	}
+
+	enrichmentType := r.URL.Query().Get("enrichment_type")
+	commitSHA := r.URL.Query().Get("commit_sha")
+	page, perPage := parsePagination(r, 1, 25, 100)
+
+	enrichments, err := apiServer.koditService.GetRepositoryEnrichments(r.Context(), koditRepoID, enrichmentType, commitSHA)
+	if err != nil {
+		handleKoditError(w, err, "Failed to fetch enrichments")
+		return
+	}
+
+	dtoList := enrichmentListToDTO(enrichments, commitSHA)
+	total := len(dtoList.Data)
+	totalPages := (total + perPage - 1) / perPage
+
+	// Paginate
+	start := (page - 1) * perPage
+	end := start + perPage
+	if start > total {
+		start = total
+	}
+	if end > total {
+		end = total
+	}
+	pageData := dtoList.Data[start:end]
+
+	idStr := strconv.FormatInt(koditRepoID, 10)
+	selfURL := fmt.Sprintf("/api/v1/kodit/repositories/%s/enrichments?page=%d&per_page=%d", idStr, page, perPage)
+
+	links := map[string]string{
+		"self":       selfURL,
+		"first":      fmt.Sprintf("/api/v1/kodit/repositories/%s/enrichments?page=1&per_page=%d", idStr, perPage),
+		"last":       fmt.Sprintf("/api/v1/kodit/repositories/%s/enrichments?page=%d&per_page=%d", idStr, totalPages, perPage),
+		"repository": fmt.Sprintf("/api/v1/kodit/repositories/%s", idStr),
+		"search":     fmt.Sprintf("/api/v1/kodit/repositories/%s/search", idStr),
+	}
+	if page > 1 {
+		links["prev"] = fmt.Sprintf("/api/v1/kodit/repositories/%s/enrichments?page=%d&per_page=%d", idStr, page-1, perPage)
+	}
+	if page < totalPages {
+		links["next"] = fmt.Sprintf("/api/v1/kodit/repositories/%s/enrichments?page=%d&per_page=%d", idStr, page+1, perPage)
+	}
+
+	resp := KoditRepoEnrichmentsResponse{
+		Data: pageData,
+		Meta: KoditEnrichmentsMeta{
+			KoditRepoID:    koditRepoID,
+			EnrichmentType: enrichmentType,
+			CommitSHA:      commitSHA,
+			Count:          len(pageData),
+			Total:          total,
+			Page:           page,
+			PerPage:        perPage,
+			TotalPages:     totalPages,
+		},
+		Links: links,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}
+
+// searchKoditRepo searches code snippets by kodit repo ID directly.
+// Works for both git repo-backed and knowledge-backed kodit repositories.
+// @Summary Search snippets by Kodit repo ID
+// @Description Search code snippets in any Kodit repository (git or knowledge-backed).
+// @Tags kodit
+// @Produce json
+// @Param koditRepoId path int true "Kodit Repository ID"
+// @Param query query string true "Search query"
+// @Param limit query int false "Max results (default 20, max 100)"
+// @Success 200 {object} KoditRepoSearchResponse
+// @Failure 400 {object} types.APIError
+// @Failure 404 {object} types.APIError
+// @Router /api/v1/kodit/repositories/{koditRepoId}/search [get]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) searchKoditRepo(w http.ResponseWriter, r *http.Request) {
+	koditRepoID, ok := parseKoditRepoID(w, r)
+	if !ok {
+		return
+	}
+
+	if apiServer.koditService == nil || !apiServer.koditService.IsEnabled() {
+		http.Error(w, "Kodit service is not enabled", http.StatusNotFound)
+		return
+	}
+
+	query := r.URL.Query().Get("query")
+	if query == "" {
+		http.Error(w, "query parameter is required", http.StatusBadRequest)
+		return
+	}
+
+	limit := 20
+	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
+		if parsedLimit, err := strconv.Atoi(limitStr); err == nil && parsedLimit > 0 {
+			limit = parsedLimit
+		}
+	}
+	if limit > 100 {
+		limit = 100
+	}
+
+	enrichments, err := apiServer.koditService.SearchSnippets(r.Context(), koditRepoID, query, limit)
+	if err != nil {
+		handleKoditError(w, err, "Failed to search snippets")
+		return
+	}
+
+	results := searchResultsToDTO(enrichments)
+	idStr := strconv.FormatInt(koditRepoID, 10)
+
+	resp := KoditRepoSearchResponse{
+		Data: results,
+		Meta: KoditRepoSearchMeta{
+			KoditRepoID: koditRepoID,
+			Query:       query,
+			Limit:       limit,
+			Count:       len(results),
+		},
+		Links: map[string]string{
+			"self":        fmt.Sprintf("/api/v1/kodit/repositories/%s/search?query=%s&limit=%d", idStr, url.QueryEscape(query), limit),
+			"repository":  fmt.Sprintf("/api/v1/kodit/repositories/%s", idStr),
+			"enrichments": fmt.Sprintf("/api/v1/kodit/repositories/%s/enrichments", idStr),
+		},
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}
