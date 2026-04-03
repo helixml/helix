@@ -19,6 +19,9 @@ NotFoundError: Failed to execute 'removeChild' on 'Node': The node to be removed
 NotFoundError: Failed to execute 'insertBefore' on 'Node': The node before which the new node is to be inserted is not a child of this node
 ```
 
+**3. Highlight disappears when clicking comment box:**
+Line 1256 has `onMouseDown={() => removeHighlight()}` on the document container Box. Any mousedown inside that container clears the highlight — including clicking into the comment TextField.
+
 ## Fix: CSS Custom Highlight API
 
 Use the CSS Custom Highlight API instead of DOM manipulation. This creates a visual highlight overlay without modifying the DOM tree at all — no React desync, no list structure corruption.
@@ -70,6 +73,27 @@ CSS Custom Highlight API is supported in Chrome 105+, Edge 105+, Safari 17.2+. F
 Change `highlightMarkRef` from storing a DOM element to storing the Range:
 - Old: `highlightMarkRef: MutableRefObject<HTMLElement | null>`
 - New: `savedHighlightRangeRef: MutableRefObject<Range | null>`
+
+## Fix: Preserve highlight while typing comment
+
+**Problem:** Line 1256 clears highlight on any mousedown in the document container:
+```typescript
+onMouseDown={() => removeHighlight()}
+```
+
+**Solution:** Only clear highlight if comment form is not open:
+```typescript
+onMouseDown={() => {
+  if (!showCommentForm) {
+    removeHighlight();
+  }
+}}
+```
+
+This keeps the highlight visible while the user types their comment. The highlight is cleared:
+- When the comment is submitted (line 881)
+- When the comment form is cancelled/closed (line 1454)
+- When user starts a new text selection (new selection replaces old)
 
 ## Alternative Considered
 
