@@ -1,6 +1,6 @@
 # Implementation Tasks
 
-- [ ] In `DesignReviewContent.tsx`, replace `highlightMarkRef` with `savedHighlightRangeRef: MutableRefObject<Range | null>`
+- [~] In `DesignReviewContent.tsx`, replace `highlightMarkRef` with `savedHighlightRangeRef: MutableRefObject<Range | null>`
 - [ ] Rewrite `applyHighlight()` to use `CSS.highlights.set("comment-highlight", new Highlight(range))` instead of DOM manipulation
 - [ ] Rewrite `removeHighlight()` to use `CSS.highlights.delete("comment-highlight")`
 - [ ] Update GlobalStyles: change `.comment-highlight` selector to `::highlight(comment-highlight)`
