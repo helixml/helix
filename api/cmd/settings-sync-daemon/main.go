@@ -192,7 +192,13 @@ func (d *SettingsDaemon) generateAgentServerConfig() map[string]interface{} {
 			"env":          env,
 		}
 		if d.codeAgentConfig.Model != "" {
+			// default_model sets session.models.current_model_id (for non-config-options agents)
 			claudeACPConfig["default_model"] = d.codeAgentConfig.Model
+			// default_config_options sets the "model" config option via set_session_config_option,
+			// which updates config_options.current_value — the value ConfigOptionsView (Claude Code UI) reads.
+			claudeACPConfig["default_config_options"] = map[string]interface{}{
+				"model": d.codeAgentConfig.Model,
+			}
 		}
 		return map[string]interface{}{
 			"claude-acp": claudeACPConfig,
