@@ -1406,6 +1406,15 @@ func (s *HelixAPIServer) startExploratorySession(_ http.ResponseWriter, r *http.
 				DesktopType:         desktopType,
 			}
 
+			// Inject project secrets as environment variables (matching spec task behavior)
+			projectSecrets, err := s.GetProjectSecretsAsEnvVars(r.Context(), projectID)
+			if err != nil {
+				log.Warn().Err(err).Str("project_id", projectID).Msg("Failed to get project secrets for exploratory restart, continuing without them")
+			} else if len(projectSecrets) > 0 {
+				zedAgent.Env = append(zedAgent.Env, projectSecrets...)
+				log.Info().Int("secret_count", len(projectSecrets)).Str("project_id", projectID).Msg("Injected project secrets into exploratory desktop env (restart)")
+			}
+
 			// Add user's API token for git operations
 			if err := s.addUserAPITokenToAgent(r.Context(), zedAgent, user.ID); err != nil {
 				log.Error().Err(err).Str("user_id", user.ID).Msg("Failed to add user API token for restart")
@@ -1559,6 +1568,15 @@ func (s *HelixAPIServer) startExploratorySession(_ http.ResponseWriter, r *http.
 		Resolution:          resolution,
 		ZoomLevel:           zoomLevel,
 		DesktopType:         desktopType,
+	}
+
+	// Inject project secrets as environment variables (matching spec task behavior)
+	projectSecrets, err := s.GetProjectSecretsAsEnvVars(r.Context(), projectID)
+	if err != nil {
+		log.Warn().Err(err).Str("project_id", projectID).Msg("Failed to get project secrets for exploratory session, continuing without them")
+	} else if len(projectSecrets) > 0 {
+		zedAgent.Env = append(zedAgent.Env, projectSecrets...)
+		log.Info().Int("secret_count", len(projectSecrets)).Str("project_id", projectID).Msg("Injected project secrets into exploratory desktop env")
 	}
 
 	// Add user's API token for git operations (RBAC enforced)
