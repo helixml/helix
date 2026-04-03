@@ -1,6 +1,9 @@
 # Implementation Tasks
 
-- [ ] In `frontend/src/components/spec-tasks/DesignReviewContent.tsx`, replace `applyHighlight()` (line 800): swap `extractContents()` + `insertNode()` with `range.surroundContents(mark)` — set `highlightMarkRef.current = null` in the catch block since no mark was applied
-- [ ] Manually test: select text inside a bullet point list on the spec review page — confirm blue highlight appears without extra list items
-- [ ] Manually test: submit the comment — confirm list structure is restored correctly after `removeHighlight()` runs
-- [ ] Manually test: select text that spans two list items — confirm no DOM corruption and comment form still opens
+- [ ] In `DesignReviewContent.tsx`, replace `highlightMarkRef` with `savedHighlightRangeRef: MutableRefObject<Range | null>`
+- [ ] Rewrite `applyHighlight()` to use `CSS.highlights.set("comment-highlight", new Highlight(range))` instead of DOM manipulation
+- [ ] Rewrite `removeHighlight()` to use `CSS.highlights.delete("comment-highlight")`
+- [ ] Update GlobalStyles: change `.comment-highlight` selector to `::highlight(comment-highlight)`
+- [ ] Test: select text in a bullet list — confirm highlight appears, no extra list items, no console errors
+- [ ] Test: select text across multiple list items — confirm graceful degradation (no crash)
+- [ ] Test: submit comment — confirm highlight clears and list structure is intact

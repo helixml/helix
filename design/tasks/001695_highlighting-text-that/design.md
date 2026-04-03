@@ -2,46 +2,75 @@
 
 ## Root Cause
 
-`applyHighlight()` in `DesignReviewContent.tsx` (line 800) uses:
+Two problems in `applyHighlight()` at `DesignReviewContent.tsx:800`:
 
+**1. DOM structure corruption:**
 ```typescript
 const fragment = range.extractContents(); // removes content from DOM
 mark.appendChild(fragment);
 range.insertNode(mark);                   // reinserts <mark> at old range position
 ```
+`extractContents()` rips text out of `<li>` elements. The browser "repairs" this by creating new list items.
 
-`extractContents()` **removes** the selected nodes from the DOM. When the selection is inside a `<li>`, the text is ripped out of the list item. Then `insertNode(mark)` places the `<mark>` outside the `<li>` context (or at an invalid position within it). The browser "repairs" this malformed DOM by auto-creating a new `<li>` to contain the orphaned `<mark>`, producing the extra list item. The `color: "#000"` in the highlight CSS (line 1012) makes the text appear black even when the blue background is applied — on a light background inside a list this makes it look unhighlighted.
+**2. React/DOM desync (the console errors):**
+Direct DOM manipulation (`extractContents`, `insertNode`, `removeChild`) modifies nodes that React's virtual DOM thinks it owns. On the next React reconciliation cycle, React expects nodes in certain positions but they've been moved:
+```
+NotFoundError: Failed to execute 'removeChild' on 'Node': The node to be removed is not a child of this node
+NotFoundError: Failed to execute 'insertBefore' on 'Node': The node before which the new node is to be inserted is not a child of this node
+```
 
-## Fix
+## Fix: CSS Custom Highlight API
 
-Replace `extractContents()` + `insertNode()` with `surroundContents()`:
+Use the CSS Custom Highlight API instead of DOM manipulation. This creates a visual highlight overlay without modifying the DOM tree at all — no React desync, no list structure corruption.
 
 ```typescript
 const applyHighlight = (range: Range) => {
   try {
-    const mark = document.createElement("mark");
-    mark.className = "comment-highlight";
-    range.surroundContents(mark);  // wraps in-place, no extraction
-    highlightMarkRef.current = mark;
+    // Clear any existing highlight
+    CSS.highlights.delete("comment-highlight");
+
+    // Create highlight from the range - no DOM modification
+    const highlight = new Highlight(range);
+    CSS.highlights.set("comment-highlight", highlight);
+
+    // Store range for cleanup (not a DOM node)
+    savedHighlightRangeRef.current = range;
   } catch {
-    // surroundContents throws if the range partially spans non-Text nodes
-    // (e.g. cross-element selection). In that case, skip the visual highlight
-    // but the comment form still opens — acceptable graceful degradation.
-    highlightMarkRef.current = null;
+    // Fallback: skip visual highlight, comment form still opens
+    savedHighlightRangeRef.current = null;
   }
+};
+
+const removeHighlight = () => {
+  CSS.highlights.delete("comment-highlight");
+  savedHighlightRangeRef.current = null;
 };
 ```
 
-`surroundContents()` wraps the selected content in the provided element **in place**, without extracting and reinserting nodes. This preserves the surrounding DOM structure including `<ul>`/`<ol>`/`<li>` hierarchy.
+Replace the GlobalStyles highlight CSS with:
+```typescript
+<GlobalStyles styles={{
+  "::highlight(comment-highlight)": {
+    backgroundColor: "#b3d7ff",
+    color: "#000",
+  }
+}} />
+```
 
-### Limitation
+### Why this works
+- `CSS.highlights` is a registry of named highlights
+- `Highlight` objects wrap `Range` objects to style them visually
+- The DOM tree is never modified — React's virtual DOM stays in sync
+- List structure is preserved because we're not touching DOM nodes
 
-`surroundContents()` throws a `DOMException` if the range boundary partially intersects an element node (e.g. the selection starts mid-paragraph and ends mid-list-item). This is an edge case — single-element list item selections work fine. The catch block already handles this gracefully by skipping the visual mark while still opening the comment form.
+### Browser Support
+CSS Custom Highlight API is supported in Chrome 105+, Edge 105+, Safari 17.2+. For older browsers, degrade gracefully (no visual highlight but comment form still works).
 
-### `removeHighlight()` unchanged
+### Ref change
+Change `highlightMarkRef` from storing a DOM element to storing the Range:
+- Old: `highlightMarkRef: MutableRefObject<HTMLElement | null>`
+- New: `savedHighlightRangeRef: MutableRefObject<Range | null>`
 
-The existing `removeHighlight()` using `mark.replaceWith(...mark.childNodes)` is correct and doesn't need to change.
+## Alternative Considered
 
-## Pattern Note
-
-`DesignReviewContent.tsx` uses direct DOM manipulation for text highlighting because ReactMarkdown renders into real DOM nodes and doesn't expose a React-friendly selection API. The `surroundContents()` approach is the standard DOM Range API method for this use case — using `extractContents()` was the wrong choice here.
+Using `surroundContents()` instead of `extractContents()` — less invasive DOM manipulation but still modifies the DOM tree, which would still cause React reconciliation issues on re-renders. The CSS Highlight API is the correct solution for highlighting in React-rendered content.
