@@ -129,6 +129,28 @@ echo "Using helix directory: $HELIX_DIR"
 cd "$HELIX_DIR"
 
 # =========================================
+# Safety check: refuse to proceed if any helix-N stacks are running
+# =========================================
+# helix-N directories are symlinks to helix/ created by the renaming loop above.
+# If someone ran `./stack start` from helix-4 (a symlink), Docker Compose uses
+# "helix-4" as the project name but joins the same helix_default network, registering
+# a second "frontend" service. Docker DNS then round-robins between both frontends,
+# causing intermittent 504s from the wrong Vite instance.
+ROGUE_STACKS=$(sudo docker compose ls 2>/dev/null | awk 'NR>1 {print $1}' | grep -E '^helix-[0-9]+$' || true)
+if [[ -n "$ROGUE_STACKS" ]]; then
+    echo ""
+    echo "⚠️  Detected helix stack(s) running from a non-canonical directory (symlink confusion)."
+    echo "   These cause DNS round-robin conflicts → intermittent 504 errors on the frontend."
+    echo "   Stopping them now..."
+    for stack in $ROGUE_STACKS; do
+        echo "   Stopping $stack..."
+        sudo docker compose -f ~/work/${stack}/docker-compose.dev.yaml down || true
+    done
+    echo "   ✅ Rogue stacks stopped."
+    echo ""
+fi
+
+# =========================================
 # Create stable hostname for outer API
 # =========================================
 # The inner compose stack shadows the "api" hostname with its own API service.
