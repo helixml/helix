@@ -1,6 +1,6 @@
 # Implementation Tasks
 
-- [ ] Find where exploratory sessions are created (likely `startExploratorySession` or similar)
+- [~] Find where exploratory sessions are created (likely `startExploratorySession` or similar)
 - [ ] Set `session.ProjectID = session.Metadata.ProjectID` when creating exploratory sessions
 - [ ] Add database migration to backfill existing sessions where `ProjectID` is empty but `Metadata.ProjectID` is set
 - [ ] Test: user with project access can resume shared project's Human Desktop
