@@ -176,6 +176,13 @@ export HELIX_API_KEY=`grep HELIX_API_KEY .env.usercreds | cut -d= -f2-`
 ```
 **Shell bug**: Use backticks, not `$()` (tool escapes `$` incorrectly).
 
+**Helix-in-Helix**: `.env.usercreds` is NOT available in the inner instance. Use the browser at `http://localhost:8080`. In dev mode, the first registered account is automatically admin. Use these fixed credentials so sessions are idempotent:
+- Email: `test@helix.ml`
+- Password: `helixtest`
+- Full Name: `Test User`
+
+If already registered, click "Sign in here" and use the same credentials.
+
 ## Quick Reference
 - Build CLI: `cd api && CGO_ENABLED=0 go build -o /tmp/helix-bin .`
 - Regenerate API client: `./stack update_openapi`
