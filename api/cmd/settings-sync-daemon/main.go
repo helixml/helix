@@ -186,12 +186,16 @@ func (d *SettingsDaemon) generateAgentServerConfig() map[string]interface{} {
 		// also triggers refresh_if_stale() earlier via has_registry_agents().
 		// Helix sends agent_name="claude" over WebSocket; thread_service.rs
 		// maps it to "claude-acp" before calling server.connect().
+		claudeACPConfig := map[string]interface{}{
+			"type":         "registry",
+			"default_mode": "bypassPermissions",
+			"env":          env,
+		}
+		if d.codeAgentConfig.Model != "" {
+			claudeACPConfig["default_model"] = d.codeAgentConfig.Model
+		}
 		return map[string]interface{}{
-			"claude-acp": map[string]interface{}{
-				"type":         "registry",
-				"default_mode": "bypassPermissions",
-				"env":          env,
-			},
+			"claude-acp": claudeACPConfig,
 		}
 
 	default: // "zed_agent" or empty (default)
