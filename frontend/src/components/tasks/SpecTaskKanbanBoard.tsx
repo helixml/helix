@@ -76,6 +76,7 @@ import TaskCard, {
   KanbanColumn as TaskCardKanbanColumn,
   TaskDependency,
 } from "./TaskCard";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   SpecTask,
   useSpecTasks,
@@ -617,6 +618,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
   const api = useApi();
   const account = useAccount();
   const snackbar = useSnackbar();
+  const queryClient = useQueryClient();
 
   // Track initial load to avoid showing loading spinner on refreshes
   const hasLoadedOnceRef = React.useRef(false);
@@ -1218,6 +1220,11 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
             `Failed to start planning: ${response.statusText}`,
         );
       }
+
+      // Immediately invalidate so the task list refetches right away, causing
+      // ExternalAgentDesktopViewer to mount and show "Starting Desktop..." without
+      // waiting for the next background poll interval (default 10s).
+      queryClient.invalidateQueries({ queryKey: ["spec-tasks"] });
 
       // Aggressive polling after starting planning to catch planning_session_id update
       // Poll at 1s, 2s, 4s, 6s intervals to catch the async session creation
