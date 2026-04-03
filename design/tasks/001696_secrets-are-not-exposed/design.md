@@ -1,44 +1,40 @@
 # Design: Secrets Not Exposed to Human Desktop (Bug Fix)
 
-## Current State
+## Root Cause Found
 
-The spec task desktop receives secrets via `DesktopAgentAPIEnvVars()` in `api/pkg/external-agent/hydra_executor.go`:
+The spec task desktop injects project secrets via `GetProjectSecretsAsEnvVars()` (lines 554-561 in `spec_driven_task_service.go`):
 
 ```go
-func DesktopAgentAPIEnvVars(apiKey string) []string {
-    return []string{
-        fmt.Sprintf("USER_API_TOKEN=%s", apiKey),
-        fmt.Sprintf("ANTHROPIC_API_KEY=%s", apiKey),
-        fmt.Sprintf("OPENAI_API_KEY=%s", apiKey),
-        fmt.Sprintf("ZED_HELIX_TOKEN=%s", apiKey),
+// Inject project secrets as environment variables
+if s.GetProjectSecrets != nil && task.ProjectID != "" {
+    projectSecrets, err := s.GetProjectSecrets(ctx, task.ProjectID)
+    if err != nil {
+        log.Warn().Err(err).Str("project_id", task.ProjectID).Msg("Failed to get project secrets, continuing without them")
+    } else if len(projectSecrets) > 0 {
+        envVars = append(envVars, projectSecrets...)
+        log.Info().Int("secret_count", len(projectSecrets)).Str("project_id", task.ProjectID).Msg("Injected project secrets into desktop env")
     }
 }
 ```
 
-However, the human/exploratory desktop does NOT call this function or equivalent, so it lacks the necessary environment variables for AI tools to function.
+However, the exploratory session (`startExploratorySession` in `project_handlers.go`) does NOT have this code. It only adds:
+- User API tokens via `addUserAPITokenToAgent()`
+- But NOT project secrets
 
-## Root Cause
+## Solution
 
-The human desktop startup path is missing the secret injection that the spec task path has. Need to identify where human desktop env vars are set and add the missing call to `DesktopAgentAPIEnvVars()`.
+Add project secret injection to the exploratory session startup path in `project_handlers.go`, using the existing `GetProjectSecretsAsEnvVars()` function.
 
-## Proposed Solution
+## Files to Modify
 
-1. **Find the human desktop startup code path** - likely a different executor or entry point than spec tasks
-2. **Add `DesktopAgentAPIEnvVars()` call** to inject secrets into human desktop environment
-3. **Ensure user's API token is available** at that point in the code
+| File | Change |
+|------|--------|
+| `api/pkg/server/project_handlers.go` | Add project secrets injection in both restart and new session paths |
 
-## Files to Investigate
+## Implementation Notes
 
-| File | Purpose |
-|------|---------|
-| `api/pkg/external-agent/hydra_executor.go` | Has `DesktopAgentAPIEnvVars()` - used by spec task |
-| `api/pkg/external-agent/` | Look for human desktop executor |
-| `api/pkg/server/` | Handlers that start human desktops |
-
-## Codebase Pattern
-
-The existing `DesktopAgentAPIEnvVars()` function is the correct pattern. The fix is calling it from the human desktop path, not creating something new.
-
-## Risk
-
-Low risk - this is adding existing functionality to a missing code path. No architectural changes needed.
+- The `GetProjectSecretsAsEnvVars` function already exists in `secrets_handlers.go`
+- Need to call it for both code paths in `startExploratorySession`:
+  1. Restart path (existing session, container stopped) - around line 1391
+  2. New session path - around line 1546
+- Secrets are added to `zedAgent.Env` before calling `addUserAPITokenToAgent()`
