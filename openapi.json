@@ -2032,6 +2032,52 @@
                 }
             }
         },
+        "/api/v1/apps/{id}/skills/{skill}/enable": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Enable a marketplace skill on an app. For autoProvision MCP skills the server generates URL and auth automatically.",
+                "tags": [
+                    "skills"
+                ],
+                "summary": "Enable a marketplace skill on an app",
+                "parameters": [
+                    {
+                        "description": "App ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Skill name (e.g. code-intelligence)",
+                        "name": "skill",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.App"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/apps/{id}/step-info": {
             "get": {
                 "security": [
@@ -2233,6 +2279,188 @@
                             "application/json": {
                                 "schema": {
                                     "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/attention-events": {
+            "get": {
+                "description": "Returns attention events that need human action for the current user. Only returns events that have not been dismissed and are not currently snoozed.",
+                "tags": [
+                    "attention-events"
+                ],
+                "summary": "List active attention events",
+                "parameters": [
+                    {
+                        "description": "Filter to active (non-dismissed, non-snoozed) events only (default: true)",
+                        "name": "active",
+                        "in": "query",
+                        "schema": {
+                            "type": "boolean"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/types.AttentionEvent"
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "unauthorized",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "internal server error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/attention-events/dismiss-all": {
+            "post": {
+                "description": "Bulk-dismiss all active (non-dismissed) attention events for the current user.",
+                "tags": [
+                    "attention-events"
+                ],
+                "summary": "Dismiss all active attention events",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": true
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "unauthorized",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "internal server error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/attention-events/{id}": {
+            "patch": {
+                "description": "Acknowledge, dismiss, or snooze an attention event.",
+                "tags": [
+                    "attention-events"
+                ],
+                "summary": "Update an attention event",
+                "parameters": [
+                    {
+                        "description": "Attention event ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/types.AttentionEventUpdateRequest"
+                            }
+                        }
+                    },
+                    "description": "Update request",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {
+                                        "type": "string"
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "bad request",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "unauthorized",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "not found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "internal server error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "string"
                                 }
                             }
                         }
@@ -9197,6 +9425,73 @@
                 }
             }
         },
+        "/api/v1/projects/apply": {
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Idempotent upsert of a project from a declarative YAML spec",
+                "tags": [
+                    "Projects"
+                ],
+                "summary": "Apply a project YAML",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/types.ProjectApplyRequest"
+                            }
+                        }
+                    },
+                    "description": "Project apply request",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.ProjectApplyResponse"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/projects/quick-create": {
             "post": {
                 "security": [
@@ -9880,6 +10175,43 @@
                 }
             }
         },
+        "/api/v1/projects/{id}/docker-cache/zfs-tree": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the ZFS snapshot and clone tree showing golden cache, snapshots, and active session clones.",
+                "tags": [
+                    "projects"
+                ],
+                "summary": "Get ZFS snapshot/clone tree for project's Docker cache",
+                "parameters": [
+                    {
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.ZFSTree"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/projects/{id}/exploratory-session": {
             "get": {
                 "security": [
@@ -10282,6 +10614,128 @@
                     },
                     "404": {
                         "description": "Not Found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{id}/pin": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Pin a project for the current user so it appears at the top of the projects board",
+                "tags": [
+                    "Projects"
+                ],
+                "summary": "Pin a project",
+                "parameters": [
+                    {
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/server.PinnedProjectsResponse"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Remove a project from the current user's pinned projects",
+                "tags": [
+                    "Projects"
+                ],
+                "summary": "Unpin a project",
+                "parameters": [
+                    {
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/server.PinnedProjectsResponse"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -10935,6 +11389,71 @@
                 }
             }
         },
+        "/api/v1/projects/{projectId}/labels": {
+            "get": {
+                "description": "Returns a sorted list of unique labels across all spec tasks in a project",
+                "tags": [
+                    "spec-driven-tasks"
+                ],
+                "summary": "List all labels used in a project",
+                "parameters": [
+                    {
+                        "description": "Project ID",
+                        "name": "projectId",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "string"
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.APIError"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.APIError"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.APIError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/prompt-history": {
             "get": {
                 "security": [
@@ -11217,6 +11736,96 @@
                     },
                     "401": {
                         "description": "Unauthorized",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/prompt-history/{id}": {
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Soft-deletes a prompt history entry so it is removed from the queue and no longer synced to clients",
+                "tags": [
+                    "PromptHistory"
+                ],
+                "summary": "Delete a prompt history entry",
+                "parameters": [
+                    {
+                        "description": "Prompt ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {
+                                        "type": "boolean"
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -14161,7 +14770,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/types.ClaudeOAuthCredentials"
+                                    "$ref": "#/components/schemas/server.SessionClaudeCredentialsResponse"
                                 }
                             }
                         }
@@ -15602,6 +16211,14 @@
                         }
                     },
                     {
+                        "description": "Filter by labels (comma-separated, AND semantics)",
+                        "name": "labels",
+                        "in": "query",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
                         "description": "Limit number of results",
                         "name": "limit",
                         "in": "query",
@@ -16888,6 +17505,170 @@
                                     "items": {
                                         "$ref": "#/components/schemas/types.CloneGroup"
                                     }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/spec-tasks/{taskId}/labels": {
+            "post": {
+                "description": "Adds a label to a spec task (idempotent - no error if label already exists)",
+                "tags": [
+                    "spec-driven-tasks"
+                ],
+                "summary": "Add a label to a spec task",
+                "parameters": [
+                    {
+                        "description": "Task ID",
+                        "name": "taskId",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/server.addLabelRequest"
+                            }
+                        }
+                    },
+                    "description": "Label to add",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.SpecTask"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.APIError"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.APIError"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.APIError"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.APIError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/spec-tasks/{taskId}/labels/{label}": {
+            "delete": {
+                "description": "Removes a label from a spec task (no-op if label does not exist)",
+                "tags": [
+                    "spec-driven-tasks"
+                ],
+                "summary": "Remove a label from a spec task",
+                "parameters": [
+                    {
+                        "description": "Task ID",
+                        "name": "taskId",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Label to remove",
+                        "name": "label",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.SpecTask"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.APIError"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.APIError"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.APIError"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.APIError"
                                 }
                             }
                         }
@@ -18271,6 +19052,52 @@
                             "application/json": {
                                 "schema": {
                                     "$ref": "#/components/schemas/types.User"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/users/me/pinned-projects": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get the list of project IDs pinned by the current user",
+                "tags": [
+                    "Users"
+                ],
+                "summary": "Get pinned project IDs",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/server.PinnedProjectsResponse"
                                 }
                             }
                         }
@@ -20353,6 +21180,17 @@
                     }
                 }
             },
+            "server.BatchTaskUsageMetric": {
+                "type": "object",
+                "properties": {
+                    "date": {
+                        "type": "string"
+                    },
+                    "total_tokens": {
+                        "type": "integer"
+                    }
+                }
+            },
             "server.BatchTaskUsageResponse": {
                 "type": "object",
                 "properties": {
@@ -20365,7 +21203,7 @@
                         "additionalProperties": {
                             "type": "array",
                             "items": {
-                                "$ref": "#/components/schemas/types.AggregatedUsageMetric"
+                                "$ref": "#/components/schemas/server.BatchTaskUsageMetric"
                             }
                         }
                     }
@@ -20402,6 +21240,10 @@
                     },
                     "found": {
                         "type": "boolean"
+                    },
+                    "url": {
+                        "description": "OAuth URL for native browser",
+                        "type": "string"
                     }
                 }
             },
@@ -21664,6 +22506,17 @@
                     }
                 }
             },
+            "server.PinnedProjectsResponse": {
+                "type": "object",
+                "properties": {
+                    "pinned_project_ids": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    }
+                }
+            },
             "server.PromptPinRequest": {
                 "type": "object",
                 "properties": {
@@ -21898,6 +22751,21 @@
                         "type": "string"
                     },
                     "status": {
+                        "type": "string"
+                    }
+                }
+            },
+            "server.SessionClaudeCredentialsResponse": {
+                "type": "object",
+                "properties": {
+                    "credential_type": {
+                        "description": "\"oauth\" or \"setup_token\"",
+                        "type": "string"
+                    },
+                    "oauth_credentials": {
+                        "$ref": "#/components/schemas/types.ClaudeOAuthCredentials"
+                    },
+                    "setup_token": {
                         "type": "string"
                     }
                 }
@@ -22170,6 +23038,14 @@
                     },
                     "gop_buffer_size": {
                         "type": "integer"
+                    }
+                }
+            },
+            "server.addLabelRequest": {
+                "type": "object",
+                "properties": {
+                    "label": {
+                        "type": "string"
                     }
                 }
             },
@@ -23245,6 +24121,94 @@
                     }
                 }
             },
+            "types.AttentionEvent": {
+                "type": "object",
+                "properties": {
+                    "acknowledged_at": {
+                        "type": "string"
+                    },
+                    "created_at": {
+                        "type": "string"
+                    },
+                    "description": {
+                        "type": "string"
+                    },
+                    "dismissed_at": {
+                        "type": "string"
+                    },
+                    "event_type": {
+                        "$ref": "#/components/schemas/types.AttentionEventType"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "idempotency_key": {
+                        "type": "string"
+                    },
+                    "metadata": {
+                        "type": "array",
+                        "items": {
+                            "type": "integer"
+                        }
+                    },
+                    "organization_id": {
+                        "type": "string"
+                    },
+                    "project_id": {
+                        "type": "string"
+                    },
+                    "project_name": {
+                        "description": "Denormalized for display without joins",
+                        "type": "string"
+                    },
+                    "snoozed_until": {
+                        "type": "string"
+                    },
+                    "spec_task_id": {
+                        "type": "string"
+                    },
+                    "spec_task_name": {
+                        "type": "string"
+                    },
+                    "title": {
+                        "type": "string"
+                    },
+                    "user_id": {
+                        "type": "string"
+                    }
+                }
+            },
+            "types.AttentionEventType": {
+                "type": "string",
+                "enum": [
+                    "specs_pushed",
+                    "agent_interaction_completed",
+                    "spec_failed",
+                    "implementation_failed",
+                    "pr_ready"
+                ],
+                "x-enum-varnames": [
+                    "AttentionEventSpecsPushed",
+                    "AttentionEventAgentInteractionCompleted",
+                    "AttentionEventSpecFailed",
+                    "AttentionEventImplementationFailed",
+                    "AttentionEventPRReady"
+                ]
+            },
+            "types.AttentionEventUpdateRequest": {
+                "type": "object",
+                "properties": {
+                    "acknowledge": {
+                        "type": "boolean"
+                    },
+                    "dismiss": {
+                        "type": "boolean"
+                    },
+                    "snoozed_until": {
+                        "type": "string"
+                    }
+                }
+            },
             "types.AuditEventType": {
                 "type": "string",
                 "enum": [
@@ -23353,12 +24317,12 @@
                         "description": "Project information",
                         "type": "string"
                     },
-                    "pull_request_id": {
+                    "pull_requests": {
                         "description": "Pull request information",
-                        "type": "string"
-                    },
-                    "pull_request_url": {
-                        "type": "string"
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/types.RepoPR"
+                        }
                     },
                     "requirements_spec_hash": {
                         "description": "Hash of requirements spec content",
@@ -23704,6 +24668,10 @@
                         "type": "string"
                     },
                     "created_by": {
+                        "type": "string"
+                    },
+                    "credential_type": {
+                        "description": "\"oauth\" or \"setup_token\"",
                         "type": "string"
                     },
                     "id": {
@@ -24240,6 +25208,10 @@
                                 "$ref": "#/components/schemas/types.OwnerType"
                             }
                         ]
+                    },
+                    "setup_token": {
+                        "description": "From `claude setup-token` (alternative to credentials)",
+                        "type": "string"
                     }
                 }
             },
@@ -25429,10 +26401,6 @@
                         "description": "Password for the repository",
                         "type": "string"
                     },
-                    "project_id": {
-                        "description": "Deprecated: ProjectID is maintained for backward compatibility only.\nUse the project_repositories junction table for many-to-many project-repo relationships.\nThis column is kept in the database for rollback compatibility but reads should use the junction table.",
-                        "type": "string"
-                    },
                     "repo_type": {
                         "$ref": "#/components/schemas/types.GitRepositoryType"
                     },
@@ -25852,6 +26820,13 @@
                         "type": "array",
                         "items": {
                             "$ref": "#/components/schemas/types.SessionRAGResult"
+                        }
+                    },
+                    "response_entries": {
+                        "description": "ResponseEntries holds the structured response as an ordered list of typed entries.\nEach entry is either \"text\" (assistant prose) or \"tool_call\" (tool invocation),\npreserving the ordering and boundaries that Zed's internal Vec<AgentThreadEntry> has.\nThis is populated on completion alongside ResponseMessage (flat string, backward compat).\nThe frontend uses this to render entries with the correct component in the correct order.",
+                        "type": "array",
+                        "items": {
+                            "type": "integer"
                         }
                     },
                     "response_format": {
@@ -27523,8 +28498,23 @@
                             }
                         ]
                     },
+                    "startup_install": {
+                        "description": "Startup commands from declarative project YAML (persisted) - DEPRECATED\nUse StartupScriptYAML instead. Kept for backward compatibility.",
+                        "type": "string"
+                    },
                     "startup_script": {
                         "description": "Transient field - loaded from primary code repo's .helix/startup.sh, never persisted to database",
+                        "type": "string"
+                    },
+                    "startup_script_from_yaml": {
+                        "description": "StartupScriptFromYAML indicates the startup script was set via project YAML\nWhen true, the UI should show the script as read-only",
+                        "type": "boolean"
+                    },
+                    "startup_script_yaml": {
+                        "description": "StartupScriptYAML is the startup script content from project YAML (persisted)\nThis is the source of truth when StartupScriptFromYAML is true.\nAt runtime, helix-specs/.helix/startup.sh takes precedence if it exists,\notherwise this field is used as fallback.",
+                        "type": "string"
+                    },
+                    "startup_start": {
                         "type": "string"
                     },
                     "stats": {
@@ -27549,6 +28539,92 @@
                         "type": "string"
                     },
                     "user_id": {
+                        "type": "string"
+                    }
+                }
+            },
+            "types.ProjectAgentDisplay": {
+                "type": "object",
+                "properties": {
+                    "desktop_type": {
+                        "description": "Desktop environment: \"ubuntu\" (default GNOME) or \"sway\"",
+                        "type": "string"
+                    },
+                    "fps": {
+                        "description": "Display refresh rate in Hz (default 60)",
+                        "type": "integer"
+                    },
+                    "resolution": {
+                        "description": "Resolution preset: \"1080p\" (default), \"4k\", or \"5k\"",
+                        "type": "string"
+                    }
+                }
+            },
+            "types.ProjectAgentSpec": {
+                "type": "object",
+                "properties": {
+                    "credentials": {
+                        "type": "string"
+                    },
+                    "display": {
+                        "$ref": "#/components/schemas/types.ProjectAgentDisplay"
+                    },
+                    "model": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "provider": {
+                        "type": "string"
+                    },
+                    "runtime": {
+                        "type": "string"
+                    },
+                    "tools": {
+                        "$ref": "#/components/schemas/types.ProjectAgentTools"
+                    }
+                }
+            },
+            "types.ProjectAgentTools": {
+                "type": "object",
+                "properties": {
+                    "browser": {
+                        "type": "boolean"
+                    },
+                    "calculator": {
+                        "type": "boolean"
+                    },
+                    "web_search": {
+                        "type": "boolean"
+                    }
+                }
+            },
+            "types.ProjectApplyRequest": {
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string"
+                    },
+                    "organization_id": {
+                        "type": "string"
+                    },
+                    "spec": {
+                        "$ref": "#/components/schemas/types.ProjectSpec"
+                    }
+                }
+            },
+            "types.ProjectApplyResponse": {
+                "type": "object",
+                "properties": {
+                    "agent_app_id": {
+                        "type": "string"
+                    },
+                    "created": {
+                        "description": "true if created, false if updated",
+                        "type": "boolean"
+                    },
+                    "project_id": {
                         "type": "string"
                     }
                 }
@@ -27653,6 +28729,14 @@
                     }
                 }
             },
+            "types.ProjectKanban": {
+                "type": "object",
+                "properties": {
+                    "wip_limits": {
+                        "$ref": "#/components/schemas/types.ProjectWIPLimits"
+                    }
+                }
+            },
             "types.ProjectMetadata": {
                 "type": "object",
                 "properties": {
@@ -27664,6 +28748,89 @@
                     },
                     "docker_cache_status": {
                         "$ref": "#/components/schemas/types.DockerCacheState"
+                    }
+                }
+            },
+            "types.ProjectRepositorySpec": {
+                "type": "object",
+                "properties": {
+                    "default_branch": {
+                        "type": "string"
+                    },
+                    "primary": {
+                        "type": "boolean"
+                    },
+                    "url": {
+                        "type": "string"
+                    }
+                }
+            },
+            "types.ProjectSpec": {
+                "type": "object",
+                "properties": {
+                    "agent": {
+                        "$ref": "#/components/schemas/types.ProjectAgentSpec"
+                    },
+                    "auto_start_backlog_tasks": {
+                        "type": "boolean"
+                    },
+                    "description": {
+                        "type": "string"
+                    },
+                    "guidelines": {
+                        "type": "string"
+                    },
+                    "kanban": {
+                        "$ref": "#/components/schemas/types.ProjectKanban"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "repositories": {
+                        "description": "Multi-repo list",
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/types.ProjectRepositorySpec"
+                        }
+                    },
+                    "repository": {
+                        "description": "Singular shorthand",
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/types.ProjectRepositorySpec"
+                            }
+                        ]
+                    },
+                    "startup": {
+                        "$ref": "#/components/schemas/types.ProjectStartup"
+                    },
+                    "tasks": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/types.ProjectTaskSpec"
+                        }
+                    },
+                    "technologies": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    }
+                }
+            },
+            "types.ProjectStartup": {
+                "type": "object",
+                "properties": {
+                    "install": {
+                        "description": "Install and Start are deprecated - use Script instead\nKept for backward compatibility with existing YAML files",
+                        "type": "string"
+                    },
+                    "script": {
+                        "description": "Script is the unified startup script content (preferred)",
+                        "type": "string"
+                    },
+                    "start": {
+                        "type": "string"
                     }
                 }
             },
@@ -27693,6 +28860,17 @@
                     },
                     "total_tasks": {
                         "type": "integer"
+                    }
+                }
+            },
+            "types.ProjectTaskSpec": {
+                "type": "object",
+                "properties": {
+                    "description": {
+                        "type": "string"
+                    },
+                    "title": {
+                        "type": "string"
                     }
                 }
             },
@@ -27766,6 +28944,20 @@
                     }
                 }
             },
+            "types.ProjectWIPLimits": {
+                "type": "object",
+                "properties": {
+                    "implementation": {
+                        "type": "integer"
+                    },
+                    "planning": {
+                        "type": "integer"
+                    },
+                    "review": {
+                        "type": "integer"
+                    }
+                }
+            },
             "types.PromptHistoryEntry": {
                 "type": "object",
                 "properties": {
@@ -27777,12 +28969,16 @@
                         "description": "Timestamps",
                         "type": "string"
                     },
+                    "deleted_at": {
+                        "description": "Soft-delete: non-nil means user removed from queue",
+                        "type": "string"
+                    },
                     "id": {
                         "description": "Composite primary key: ID is globally unique, but we also index by user+spec_task",
                         "type": "string"
                     },
                     "interrupt": {
-                        "description": "Interrupt indicates this message should interrupt the current conversation\nWhen false, message waits until current conversation completes",
+                        "description": "Interrupt indicates this message should interrupt the current conversation\nWhen false, message waits until current conversation completes\nDefault is false: queue mode is the default, interrupt is explicit",
                         "type": "boolean"
                     },
                     "is_template": {
@@ -28429,6 +29625,30 @@
                     }
                 }
             },
+            "types.RepoPR": {
+                "type": "object",
+                "properties": {
+                    "pr_id": {
+                        "type": "string"
+                    },
+                    "pr_number": {
+                        "type": "integer"
+                    },
+                    "pr_state": {
+                        "description": "\"open\", \"closed\", \"merged\"",
+                        "type": "string"
+                    },
+                    "pr_url": {
+                        "type": "string"
+                    },
+                    "repository_id": {
+                        "type": "string"
+                    },
+                    "repository_name": {
+                        "type": "string"
+                    }
+                }
+            },
             "types.RepositoryAccessCheck": {
                 "type": "object",
                 "properties": {
@@ -28878,6 +30098,10 @@
                         "description": "GPU configuration",
                         "type": "string"
                     },
+                    "helix_version": {
+                        "description": "Helix version running on this sandbox (git commit hash or release version)",
+                        "type": "string"
+                    },
                     "privileged_mode_enabled": {
                         "description": "Privileged mode (host Docker access for development)",
                         "type": "boolean"
@@ -28907,6 +30131,10 @@
                     },
                     "gpu_vendor": {
                         "description": "GPU configuration",
+                        "type": "string"
+                    },
+                    "helix_version": {
+                        "description": "Helix version running on this sandbox (git commit hash or release version)",
                         "type": "string"
                     },
                     "hostname": {
@@ -29622,10 +30850,6 @@
                         "description": "Container fields (Hydra executor)",
                         "type": "string"
                     },
-                    "desired_state": {
-                        "description": "\"running\" = should be running, \"stopped\" = can terminate",
-                        "type": "string"
-                    },
                     "dev_container_id": {
                         "description": "Dev container ID for streaming",
                         "type": "string"
@@ -29776,6 +31000,10 @@
                     },
                     "work_session_id": {
                         "description": "ID of associated WorkSession",
+                        "type": "string"
+                    },
+                    "zed_agent_name": {
+                        "description": "Agent name used when thread was created (e.g., \"zed-agent\", \"claude\", \"qwen\")",
                         "type": "string"
                     },
                     "zed_instance_id": {
@@ -29953,6 +31181,14 @@
                     "loadedAt": {
                         "type": "string"
                     },
+                    "mcp": {
+                        "description": "MCP configuration (present when this skill is MCP-backed rather than API-backed)",
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/types.SkillMCPSpec"
+                            }
+                        ]
+                    },
                     "name": {
                         "type": "string"
                     },
@@ -30000,6 +31236,19 @@
                     },
                     "type": {
                         "description": "e.g., \"material-ui\", \"custom\"",
+                        "type": "string"
+                    }
+                }
+            },
+            "types.SkillMCPSpec": {
+                "type": "object",
+                "properties": {
+                    "autoProvision": {
+                        "description": "if true, URL+auth are generated server-side",
+                        "type": "boolean"
+                    },
+                    "transport": {
+                        "description": "\"http\" or \"sse\"",
                         "type": "string"
                     }
                 }
@@ -30105,6 +31354,10 @@
                     "archived": {
                         "description": "Archive to hide from main view",
                         "type": "boolean"
+                    },
+                    "assignee_id": {
+                        "description": "Team member assigned to work on this task",
+                        "type": "string"
                     },
                     "base_branch": {
                         "description": "The base branch this was created from",
@@ -30268,15 +31521,23 @@
                         "description": "Public sharing",
                         "type": "boolean"
                     },
-                    "pull_request_id": {
-                        "type": "string"
-                    },
-                    "pull_request_url": {
-                        "description": "Computed field, not stored",
-                        "type": "string"
+                    "repo_pull_requests": {
+                        "description": "Multi-repo PR tracking: list of PRs across all project repositories",
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/types.RepoPR"
+                        }
                     },
                     "requirements_spec": {
                         "description": "User stories + EARS acceptance criteria (markdown)",
+                        "type": "string"
+                    },
+                    "sandbox_state": {
+                        "description": "\"absent\", \"running\", \"starting\" — derived from session config in listTasks",
+                        "type": "string"
+                    },
+                    "sandbox_status_message": {
+                        "description": "Transient startup message e.g. \"Unpacking build cache\"",
                         "type": "string"
                     },
                     "session_updated_at": {
@@ -30424,6 +31685,13 @@
                     "agent_response_at": {
                         "description": "When agent responded",
                         "type": "string"
+                    },
+                    "agent_response_entries": {
+                        "description": "Agent's structured entries (for tool call rendering)",
+                        "type": "array",
+                        "items": {
+                            "type": "integer"
+                        }
                     },
                     "comment_text": {
                         "description": "The actual comment",
@@ -30746,6 +32014,10 @@
             "types.SpecTaskUpdateRequest": {
                 "type": "object",
                 "properties": {
+                    "assignee_id": {
+                        "description": "Pointer to allow clearing (set to empty string to unassign)",
+                        "type": "string"
+                    },
                     "depends_on": {
                         "description": "IDs of tasks this task depends on",
                         "type": "array",
@@ -30797,6 +32069,10 @@
                     "archived": {
                         "description": "Archive to hide from main view",
                         "type": "boolean"
+                    },
+                    "assignee_id": {
+                        "description": "Team member assigned to work on this task",
+                        "type": "string"
                     },
                     "base_branch": {
                         "description": "The base branch this was created from",
@@ -30963,15 +32239,23 @@
                         "description": "Public sharing",
                         "type": "boolean"
                     },
-                    "pull_request_id": {
-                        "type": "string"
-                    },
-                    "pull_request_url": {
-                        "description": "Computed field, not stored",
-                        "type": "string"
+                    "repo_pull_requests": {
+                        "description": "Multi-repo PR tracking: list of PRs across all project repositories",
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/types.RepoPR"
+                        }
                     },
                     "requirements_spec": {
                         "description": "User stories + EARS acceptance criteria (markdown)",
+                        "type": "string"
+                    },
+                    "sandbox_state": {
+                        "description": "\"absent\", \"running\", \"starting\" — derived from session config in listTasks",
+                        "type": "string"
+                    },
+                    "sandbox_status_message": {
+                        "description": "Transient startup message e.g. \"Unpacking build cache\"",
                         "type": "string"
                     },
                     "session_updated_at": {
@@ -32625,6 +33909,55 @@
                         "type": "string"
                     },
                     "updated": {
+                        "type": "string"
+                    }
+                }
+            },
+            "types.ZFSTree": {
+                "type": "object",
+                "properties": {
+                    "available": {
+                        "type": "boolean"
+                    },
+                    "golden": {
+                        "$ref": "#/components/schemas/types.ZFSTreeNode"
+                    },
+                    "orphans": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/types.ZFSTreeNode"
+                        }
+                    },
+                    "pool_root": {
+                        "type": "string"
+                    }
+                }
+            },
+            "types.ZFSTreeNode": {
+                "type": "object",
+                "properties": {
+                    "children": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/types.ZFSTreeNode"
+                        }
+                    },
+                    "mounted": {
+                        "type": "boolean"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "refer": {
+                        "type": "string"
+                    },
+                    "session_id": {
+                        "type": "string"
+                    },
+                    "type": {
+                        "type": "string"
+                    },
+                    "used": {
                         "type": "string"
                     }
                 }

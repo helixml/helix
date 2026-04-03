@@ -9,7 +9,7 @@ import { Api } from "../api"
 import { StreamSettings } from "../component/settings_menu"
 import { defaultStreamInputConfig, StreamInput } from "./input"
 import { createSupportedVideoFormatsBits, VideoCodecSupport } from "./video"
-import { WsVideoCodec, codecToWebCodecsString, codecToDisplayName } from "./codecs"
+import { WsVideoCodec, WsVideoCodecType, codecToWebCodecsString, codecToDisplayName } from "./codecs"
 import {
   WsMessageType,
   CursorImageData,
@@ -108,6 +108,7 @@ export class WebSocketStream {
   private currentTotalBitrateMbps = 0
   private framesDecoded = 0
   private framesDropped = 0
+  private framesReceived = 0
 
   // RTT (Round-Trip Time) measurement for latency tracking
   private pingSeq = 0
@@ -371,7 +372,8 @@ export class WebSocketStream {
     // Uses /api/v1/external-agents/{sessionId}/ws/stream
     // Auth is handled via cookies (same-origin WebSocket includes cookies automatically)
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const wsUrl = `${protocol}//${window.location.host}/api/v1/external-agents/${encodeURIComponent(this.sessionId || '')}/ws/stream`
+    const clientIdParam = this.clientUniqueId ? `?client_id=${encodeURIComponent(this.clientUniqueId)}` : ''
+    const wsUrl = `${protocol}//${window.location.host}/api/v1/external-agents/${encodeURIComponent(this.sessionId || '')}/ws/stream${clientIdParam}`
 
     console.log("[WebSocketStream] Connecting to:", wsUrl)
     this.ws = new WebSocket(wsUrl)
@@ -459,10 +461,11 @@ export class WebSocketStream {
       return
     }
 
-    // Attempt reconnection with exponential backoff (capped at 10 seconds)
+    // Attempt reconnection with exponential backoff + jitter (capped at 30 seconds)
     if (this.reconnectAttempts < this.maxReconnectAttempts) {
       this.reconnectAttempts++
-      const delay = Math.min(this.reconnectDelay * this.reconnectAttempts, 10000)
+      const baseDelay = Math.min(this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1), 30000)
+      const delay = baseDelay * (0.5 + Math.random() * 0.5)
       this.dispatchInfoEvent({ type: "reconnecting", attempt: this.reconnectAttempts })
 
       console.log(`[WebSocketStream] Will reconnect in ${delay}ms (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`)
@@ -1624,6 +1627,19 @@ export class WebSocketStream {
   }
 
   sendMouseButton(isDown: boolean, button: number) {
+    // Flush any pending (throttled) mouse position before sending a button event.
+    // This ensures the remote cursor is at the correct position before receiving the click,
+    // even if the position update from sendCursorPositionToRemote was throttled.
+    if (this.pendingMousePosition) {
+      const { x, y, refW, refH } = this.pendingMousePosition
+      this.pendingMousePosition = null
+      if (this.mouseThrottleTimeoutId) {
+        clearTimeout(this.mouseThrottleTimeoutId)
+        this.mouseThrottleTimeoutId = null
+      }
+      this.sendMousePositionImmediate(x, y, refW, refH)
+      this.lastMouseSendTime = performance.now()
+    }
     // Format: subType(1) + isDown(1) + button(1)
     this.inputBuffer[0] = 2 // sub-type for button
     this.inputBuffer[1] = isDown ? 1 : 0
@@ -1874,6 +1890,8 @@ export class WebSocketStream {
     renderJitterMs: string           // "min-max" interval between frames rendering
     avgReceiveIntervalMs: number     // Average receive interval (16.7ms = 60fps)
     avgRenderIntervalMs: number      // Average render interval
+    // FPS timestamp
+    fpsUpdatedAt: number             // Wall clock timestamp of last FPS update
     // Debug flags
     usingSoftwareDecoder: boolean    // True if software decoding was forced (?softdecode=1)
     // Frame health monitoring (for iOS Safari stall detection)

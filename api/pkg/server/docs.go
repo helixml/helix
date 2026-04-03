@@ -1712,6 +1712,44 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/apps/{id}/skills/{skill}/enable": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Enable a marketplace skill on an app. For autoProvision MCP skills the server generates URL and auth automatically.",
+                "tags": [
+                    "skills"
+                ],
+                "summary": "Enable a marketplace skill on an app",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "App ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Skill name (e.g. code-intelligence)",
+                        "name": "skill",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.App"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/apps/{id}/step-info": {
             "get": {
                 "security": [
@@ -1882,6 +1920,150 @@ const docTemplate = `{
                         "description": "Internal Server Error",
                         "schema": {
                             "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/attention-events": {
+            "get": {
+                "description": "Returns attention events that need human action for the current user. Only returns events that have not been dismissed and are not currently snoozed.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "attention-events"
+                ],
+                "summary": "List active attention events",
+                "parameters": [
+                    {
+                        "type": "boolean",
+                        "description": "Filter to active (non-dismissed, non-snoozed) events only (default: true)",
+                        "name": "active",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.AttentionEvent"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "unauthorized",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "500": {
+                        "description": "internal server error",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/attention-events/dismiss-all": {
+            "post": {
+                "description": "Bulk-dismiss all active (non-dismissed) attention events for the current user.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "attention-events"
+                ],
+                "summary": "Dismiss all active attention events",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "401": {
+                        "description": "unauthorized",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "500": {
+                        "description": "internal server error",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/attention-events/{id}": {
+            "patch": {
+                "description": "Acknowledge, dismiss, or snooze an attention event.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "attention-events"
+                ],
+                "summary": "Update an attention event",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Attention event ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Update request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.AttentionEventUpdateRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "bad request",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "401": {
+                        "description": "unauthorized",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "404": {
+                        "description": "not found",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "500": {
+                        "description": "internal server error",
+                        "schema": {
+                            "type": "string"
                         }
                     }
                 }
@@ -7610,6 +7792,63 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/projects/apply": {
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Idempotent upsert of a project from a declarative YAML spec",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Projects"
+                ],
+                "summary": "Apply a project YAML",
+                "parameters": [
+                    {
+                        "description": "Project apply request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.ProjectApplyRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.ProjectApplyResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/projects/quick-create": {
             "post": {
                 "security": [
@@ -8164,6 +8403,40 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/projects/{id}/docker-cache/zfs-tree": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the ZFS snapshot and clone tree showing golden cache, snapshots, and active session clones.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "projects"
+                ],
+                "summary": "Get ZFS snapshot/clone tree for project's Docker cache",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.ZFSTree"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/projects/{id}/exploratory-session": {
             "get": {
                 "security": [
@@ -8501,6 +8774,108 @@ const docTemplate = `{
                     },
                     "404": {
                         "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{id}/pin": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Pin a project for the current user so it appears at the top of the projects board",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Projects"
+                ],
+                "summary": "Pin a project",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.PinnedProjectsResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Remove a project from the current user's pinned projects",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Projects"
+                ],
+                "summary": "Unpin a project",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.PinnedProjectsResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
                         "schema": {
                             "$ref": "#/definitions/system.HTTPError"
                         }
@@ -9034,6 +9409,56 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/projects/{projectId}/labels": {
+            "get": {
+                "description": "Returns a sorted list of unique labels across all spec tasks in a project",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "spec-driven-tasks"
+                ],
+                "summary": "List all labels used in a project",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "projectId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/prompt-history": {
             "get": {
                 "security": [
@@ -9272,6 +9697,73 @@ const docTemplate = `{
                     },
                     "401": {
                         "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/prompt-history/{id}": {
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Soft-deletes a prompt history entry so it is removed from the queue and no longer synced to clients",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "PromptHistory"
+                ],
+                "summary": "Delete a prompt history entry",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Prompt ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "boolean"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
                         "schema": {
                             "$ref": "#/definitions/system.HTTPError"
                         }
@@ -11706,7 +12198,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/types.ClaudeOAuthCredentials"
+                            "$ref": "#/definitions/server.SessionClaudeCredentialsResponse"
                         }
                     },
                     "401": {
@@ -12880,6 +13372,12 @@ const docTemplate = `{
                         "in": "query"
                     },
                     {
+                        "type": "string",
+                        "description": "Filter by labels (comma-separated, AND semantics)",
+                        "name": "labels",
+                        "in": "query"
+                    },
+                    {
                         "type": "integer",
                         "default": 50,
                         "description": "Limit number of results",
@@ -13945,6 +14443,131 @@ const docTemplate = `{
                             "items": {
                                 "$ref": "#/definitions/types.CloneGroup"
                             }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/spec-tasks/{taskId}/labels": {
+            "post": {
+                "description": "Adds a label to a spec task (idempotent - no error if label already exists)",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "spec-driven-tasks"
+                ],
+                "summary": "Add a label to a spec task",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Task ID",
+                        "name": "taskId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Label to add",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/server.addLabelRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.SpecTask"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/spec-tasks/{taskId}/labels/{label}": {
+            "delete": {
+                "description": "Removes a label from a spec task (no-op if label does not exist)",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "spec-driven-tasks"
+                ],
+                "summary": "Remove a label from a spec task",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Task ID",
+                        "name": "taskId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Label to remove",
+                        "name": "label",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.SpecTask"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
                         }
                     }
                 }
@@ -15112,6 +15735,43 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/types.User"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/users/me/pinned-projects": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get the list of project IDs pinned by the current user",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Users"
+                ],
+                "summary": "Get pinned project IDs",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.PinnedProjectsResponse"
                         }
                     },
                     "401": {
@@ -17034,6 +17694,17 @@ const docTemplate = `{
                 }
             }
         },
+        "server.BatchTaskUsageMetric": {
+            "type": "object",
+            "properties": {
+                "date": {
+                    "type": "string"
+                },
+                "total_tokens": {
+                    "type": "integer"
+                }
+            }
+        },
         "server.BatchTaskUsageResponse": {
             "type": "object",
             "properties": {
@@ -17046,7 +17717,7 @@ const docTemplate = `{
                     "additionalProperties": {
                         "type": "array",
                         "items": {
-                            "$ref": "#/definitions/types.AggregatedUsageMetric"
+                            "$ref": "#/definitions/server.BatchTaskUsageMetric"
                         }
                     }
                 }
@@ -17083,6 +17754,10 @@ const docTemplate = `{
                 },
                 "found": {
                     "type": "boolean"
+                },
+                "url": {
+                    "description": "OAuth URL for native browser",
+                    "type": "string"
                 }
             }
         },
@@ -18345,6 +19020,17 @@ const docTemplate = `{
                 }
             }
         },
+        "server.PinnedProjectsResponse": {
+            "type": "object",
+            "properties": {
+                "pinned_project_ids": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
         "server.PromptPinRequest": {
             "type": "object",
             "properties": {
@@ -18579,6 +19265,21 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "status": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.SessionClaudeCredentialsResponse": {
+            "type": "object",
+            "properties": {
+                "credential_type": {
+                    "description": "\"oauth\" or \"setup_token\"",
+                    "type": "string"
+                },
+                "oauth_credentials": {
+                    "$ref": "#/definitions/types.ClaudeOAuthCredentials"
+                },
+                "setup_token": {
                     "type": "string"
                 }
             }
@@ -18851,6 +19552,14 @@ const docTemplate = `{
                 },
                 "gop_buffer_size": {
                     "type": "integer"
+                }
+            }
+        },
+        "server.addLabelRequest": {
+            "type": "object",
+            "properties": {
+                "label": {
+                    "type": "string"
                 }
             }
         },
@@ -19926,6 +20635,94 @@ const docTemplate = `{
                 }
             }
         },
+        "types.AttentionEvent": {
+            "type": "object",
+            "properties": {
+                "acknowledged_at": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "dismissed_at": {
+                    "type": "string"
+                },
+                "event_type": {
+                    "$ref": "#/definitions/types.AttentionEventType"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "idempotency_key": {
+                    "type": "string"
+                },
+                "metadata": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "organization_id": {
+                    "type": "string"
+                },
+                "project_id": {
+                    "type": "string"
+                },
+                "project_name": {
+                    "description": "Denormalized for display without joins",
+                    "type": "string"
+                },
+                "snoozed_until": {
+                    "type": "string"
+                },
+                "spec_task_id": {
+                    "type": "string"
+                },
+                "spec_task_name": {
+                    "type": "string"
+                },
+                "title": {
+                    "type": "string"
+                },
+                "user_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.AttentionEventType": {
+            "type": "string",
+            "enum": [
+                "specs_pushed",
+                "agent_interaction_completed",
+                "spec_failed",
+                "implementation_failed",
+                "pr_ready"
+            ],
+            "x-enum-varnames": [
+                "AttentionEventSpecsPushed",
+                "AttentionEventAgentInteractionCompleted",
+                "AttentionEventSpecFailed",
+                "AttentionEventImplementationFailed",
+                "AttentionEventPRReady"
+            ]
+        },
+        "types.AttentionEventUpdateRequest": {
+            "type": "object",
+            "properties": {
+                "acknowledge": {
+                    "type": "boolean"
+                },
+                "dismiss": {
+                    "type": "boolean"
+                },
+                "snoozed_until": {
+                    "type": "string"
+                }
+            }
+        },
         "types.AuditEventType": {
             "type": "string",
             "enum": [
@@ -20034,12 +20831,12 @@ const docTemplate = `{
                     "description": "Project information",
                     "type": "string"
                 },
-                "pull_request_id": {
+                "pull_requests": {
                     "description": "Pull request information",
-                    "type": "string"
-                },
-                "pull_request_url": {
-                    "type": "string"
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.RepoPR"
+                    }
                 },
                 "requirements_spec_hash": {
                     "description": "Hash of requirements spec content",
@@ -20385,6 +21182,10 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "created_by": {
+                    "type": "string"
+                },
+                "credential_type": {
+                    "description": "\"oauth\" or \"setup_token\"",
                     "type": "string"
                 },
                 "id": {
@@ -20921,6 +21722,10 @@ const docTemplate = `{
                             "$ref": "#/definitions/types.OwnerType"
                         }
                     ]
+                },
+                "setup_token": {
+                    "description": "From ` + "`" + `claude setup-token` + "`" + ` (alternative to credentials)",
+                    "type": "string"
                 }
             }
         },
@@ -22110,10 +22915,6 @@ const docTemplate = `{
                     "description": "Password for the repository",
                     "type": "string"
                 },
-                "project_id": {
-                    "description": "Deprecated: ProjectID is maintained for backward compatibility only.\nUse the project_repositories junction table for many-to-many project-repo relationships.\nThis column is kept in the database for rollback compatibility but reads should use the junction table.",
-                    "type": "string"
-                },
                 "repo_type": {
                     "$ref": "#/definitions/types.GitRepositoryType"
                 },
@@ -22533,6 +23334,13 @@ const docTemplate = `{
                     "type": "array",
                     "items": {
                         "$ref": "#/definitions/types.SessionRAGResult"
+                    }
+                },
+                "response_entries": {
+                    "description": "ResponseEntries holds the structured response as an ordered list of typed entries.\nEach entry is either \"text\" (assistant prose) or \"tool_call\" (tool invocation),\npreserving the ordering and boundaries that Zed's internal Vec\u003cAgentThreadEntry\u003e has.\nThis is populated on completion alongside ResponseMessage (flat string, backward compat).\nThe frontend uses this to render entries with the correct component in the correct order.",
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
                     }
                 },
                 "response_format": {
@@ -24204,8 +25012,23 @@ const docTemplate = `{
                         }
                     ]
                 },
+                "startup_install": {
+                    "description": "Startup commands from declarative project YAML (persisted) - DEPRECATED\nUse StartupScriptYAML instead. Kept for backward compatibility.",
+                    "type": "string"
+                },
                 "startup_script": {
                     "description": "Transient field - loaded from primary code repo's .helix/startup.sh, never persisted to database",
+                    "type": "string"
+                },
+                "startup_script_from_yaml": {
+                    "description": "StartupScriptFromYAML indicates the startup script was set via project YAML\nWhen true, the UI should show the script as read-only",
+                    "type": "boolean"
+                },
+                "startup_script_yaml": {
+                    "description": "StartupScriptYAML is the startup script content from project YAML (persisted)\nThis is the source of truth when StartupScriptFromYAML is true.\nAt runtime, helix-specs/.helix/startup.sh takes precedence if it exists,\notherwise this field is used as fallback.",
+                    "type": "string"
+                },
+                "startup_start": {
                     "type": "string"
                 },
                 "stats": {
@@ -24230,6 +25053,92 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "user_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.ProjectAgentDisplay": {
+            "type": "object",
+            "properties": {
+                "desktop_type": {
+                    "description": "Desktop environment: \"ubuntu\" (default GNOME) or \"sway\"",
+                    "type": "string"
+                },
+                "fps": {
+                    "description": "Display refresh rate in Hz (default 60)",
+                    "type": "integer"
+                },
+                "resolution": {
+                    "description": "Resolution preset: \"1080p\" (default), \"4k\", or \"5k\"",
+                    "type": "string"
+                }
+            }
+        },
+        "types.ProjectAgentSpec": {
+            "type": "object",
+            "properties": {
+                "credentials": {
+                    "type": "string"
+                },
+                "display": {
+                    "$ref": "#/definitions/types.ProjectAgentDisplay"
+                },
+                "model": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "provider": {
+                    "type": "string"
+                },
+                "runtime": {
+                    "type": "string"
+                },
+                "tools": {
+                    "$ref": "#/definitions/types.ProjectAgentTools"
+                }
+            }
+        },
+        "types.ProjectAgentTools": {
+            "type": "object",
+            "properties": {
+                "browser": {
+                    "type": "boolean"
+                },
+                "calculator": {
+                    "type": "boolean"
+                },
+                "web_search": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "types.ProjectApplyRequest": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string"
+                },
+                "organization_id": {
+                    "type": "string"
+                },
+                "spec": {
+                    "$ref": "#/definitions/types.ProjectSpec"
+                }
+            }
+        },
+        "types.ProjectApplyResponse": {
+            "type": "object",
+            "properties": {
+                "agent_app_id": {
+                    "type": "string"
+                },
+                "created": {
+                    "description": "true if created, false if updated",
+                    "type": "boolean"
+                },
+                "project_id": {
                     "type": "string"
                 }
             }
@@ -24334,6 +25243,14 @@ const docTemplate = `{
                 }
             }
         },
+        "types.ProjectKanban": {
+            "type": "object",
+            "properties": {
+                "wip_limits": {
+                    "$ref": "#/definitions/types.ProjectWIPLimits"
+                }
+            }
+        },
         "types.ProjectMetadata": {
             "type": "object",
             "properties": {
@@ -24345,6 +25262,89 @@ const docTemplate = `{
                 },
                 "docker_cache_status": {
                     "$ref": "#/definitions/types.DockerCacheState"
+                }
+            }
+        },
+        "types.ProjectRepositorySpec": {
+            "type": "object",
+            "properties": {
+                "default_branch": {
+                    "type": "string"
+                },
+                "primary": {
+                    "type": "boolean"
+                },
+                "url": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.ProjectSpec": {
+            "type": "object",
+            "properties": {
+                "agent": {
+                    "$ref": "#/definitions/types.ProjectAgentSpec"
+                },
+                "auto_start_backlog_tasks": {
+                    "type": "boolean"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "guidelines": {
+                    "type": "string"
+                },
+                "kanban": {
+                    "$ref": "#/definitions/types.ProjectKanban"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "repositories": {
+                    "description": "Multi-repo list",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.ProjectRepositorySpec"
+                    }
+                },
+                "repository": {
+                    "description": "Singular shorthand",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.ProjectRepositorySpec"
+                        }
+                    ]
+                },
+                "startup": {
+                    "$ref": "#/definitions/types.ProjectStartup"
+                },
+                "tasks": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.ProjectTaskSpec"
+                    }
+                },
+                "technologies": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "types.ProjectStartup": {
+            "type": "object",
+            "properties": {
+                "install": {
+                    "description": "Install and Start are deprecated - use Script instead\nKept for backward compatibility with existing YAML files",
+                    "type": "string"
+                },
+                "script": {
+                    "description": "Script is the unified startup script content (preferred)",
+                    "type": "string"
+                },
+                "start": {
+                    "type": "string"
                 }
             }
         },
@@ -24374,6 +25374,17 @@ const docTemplate = `{
                 },
                 "total_tasks": {
                     "type": "integer"
+                }
+            }
+        },
+        "types.ProjectTaskSpec": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "title": {
+                    "type": "string"
                 }
             }
         },
@@ -24447,6 +25458,20 @@ const docTemplate = `{
                 }
             }
         },
+        "types.ProjectWIPLimits": {
+            "type": "object",
+            "properties": {
+                "implementation": {
+                    "type": "integer"
+                },
+                "planning": {
+                    "type": "integer"
+                },
+                "review": {
+                    "type": "integer"
+                }
+            }
+        },
         "types.PromptHistoryEntry": {
             "type": "object",
             "properties": {
@@ -24458,12 +25483,16 @@ const docTemplate = `{
                     "description": "Timestamps",
                     "type": "string"
                 },
+                "deleted_at": {
+                    "description": "Soft-delete: non-nil means user removed from queue",
+                    "type": "string"
+                },
                 "id": {
                     "description": "Composite primary key: ID is globally unique, but we also index by user+spec_task",
                     "type": "string"
                 },
                 "interrupt": {
-                    "description": "Interrupt indicates this message should interrupt the current conversation\nWhen false, message waits until current conversation completes",
+                    "description": "Interrupt indicates this message should interrupt the current conversation\nWhen false, message waits until current conversation completes\nDefault is false: queue mode is the default, interrupt is explicit",
                     "type": "boolean"
                 },
                 "is_template": {
@@ -25110,6 +26139,30 @@ const docTemplate = `{
                 }
             }
         },
+        "types.RepoPR": {
+            "type": "object",
+            "properties": {
+                "pr_id": {
+                    "type": "string"
+                },
+                "pr_number": {
+                    "type": "integer"
+                },
+                "pr_state": {
+                    "description": "\"open\", \"closed\", \"merged\"",
+                    "type": "string"
+                },
+                "pr_url": {
+                    "type": "string"
+                },
+                "repository_id": {
+                    "type": "string"
+                },
+                "repository_name": {
+                    "type": "string"
+                }
+            }
+        },
         "types.RepositoryAccessCheck": {
             "type": "object",
             "properties": {
@@ -25559,6 +26612,10 @@ const docTemplate = `{
                     "description": "GPU configuration",
                     "type": "string"
                 },
+                "helix_version": {
+                    "description": "Helix version running on this sandbox (git commit hash or release version)",
+                    "type": "string"
+                },
                 "privileged_mode_enabled": {
                     "description": "Privileged mode (host Docker access for development)",
                     "type": "boolean"
@@ -25588,6 +26645,10 @@ const docTemplate = `{
                 },
                 "gpu_vendor": {
                     "description": "GPU configuration",
+                    "type": "string"
+                },
+                "helix_version": {
+                    "description": "Helix version running on this sandbox (git commit hash or release version)",
                     "type": "string"
                 },
                 "hostname": {
@@ -26303,10 +27364,6 @@ const docTemplate = `{
                     "description": "Container fields (Hydra executor)",
                     "type": "string"
                 },
-                "desired_state": {
-                    "description": "\"running\" = should be running, \"stopped\" = can terminate",
-                    "type": "string"
-                },
                 "dev_container_id": {
                     "description": "Dev container ID for streaming",
                     "type": "string"
@@ -26457,6 +27514,10 @@ const docTemplate = `{
                 },
                 "work_session_id": {
                     "description": "ID of associated WorkSession",
+                    "type": "string"
+                },
+                "zed_agent_name": {
+                    "description": "Agent name used when thread was created (e.g., \"zed-agent\", \"claude\", \"qwen\")",
                     "type": "string"
                 },
                 "zed_instance_id": {
@@ -26634,6 +27695,14 @@ const docTemplate = `{
                 "loadedAt": {
                     "type": "string"
                 },
+                "mcp": {
+                    "description": "MCP configuration (present when this skill is MCP-backed rather than API-backed)",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.SkillMCPSpec"
+                        }
+                    ]
+                },
                 "name": {
                     "type": "string"
                 },
@@ -26681,6 +27750,19 @@ const docTemplate = `{
                 },
                 "type": {
                     "description": "e.g., \"material-ui\", \"custom\"",
+                    "type": "string"
+                }
+            }
+        },
+        "types.SkillMCPSpec": {
+            "type": "object",
+            "properties": {
+                "autoProvision": {
+                    "description": "if true, URL+auth are generated server-side",
+                    "type": "boolean"
+                },
+                "transport": {
+                    "description": "\"http\" or \"sse\"",
                     "type": "string"
                 }
             }
@@ -26786,6 +27868,10 @@ const docTemplate = `{
                 "archived": {
                     "description": "Archive to hide from main view",
                     "type": "boolean"
+                },
+                "assignee_id": {
+                    "description": "Team member assigned to work on this task",
+                    "type": "string"
                 },
                 "base_branch": {
                     "description": "The base branch this was created from",
@@ -26949,15 +28035,23 @@ const docTemplate = `{
                     "description": "Public sharing",
                     "type": "boolean"
                 },
-                "pull_request_id": {
-                    "type": "string"
-                },
-                "pull_request_url": {
-                    "description": "Computed field, not stored",
-                    "type": "string"
+                "repo_pull_requests": {
+                    "description": "Multi-repo PR tracking: list of PRs across all project repositories",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.RepoPR"
+                    }
                 },
                 "requirements_spec": {
                     "description": "User stories + EARS acceptance criteria (markdown)",
+                    "type": "string"
+                },
+                "sandbox_state": {
+                    "description": "\"absent\", \"running\", \"starting\" — derived from session config in listTasks",
+                    "type": "string"
+                },
+                "sandbox_status_message": {
+                    "description": "Transient startup message e.g. \"Unpacking build cache\"",
                     "type": "string"
                 },
                 "session_updated_at": {
@@ -27105,6 +28199,13 @@ const docTemplate = `{
                 "agent_response_at": {
                     "description": "When agent responded",
                     "type": "string"
+                },
+                "agent_response_entries": {
+                    "description": "Agent's structured entries (for tool call rendering)",
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
                 },
                 "comment_text": {
                     "description": "The actual comment",
@@ -27427,6 +28528,10 @@ const docTemplate = `{
         "types.SpecTaskUpdateRequest": {
             "type": "object",
             "properties": {
+                "assignee_id": {
+                    "description": "Pointer to allow clearing (set to empty string to unassign)",
+                    "type": "string"
+                },
                 "depends_on": {
                     "description": "IDs of tasks this task depends on",
                     "type": "array",
@@ -27478,6 +28583,10 @@ const docTemplate = `{
                 "archived": {
                     "description": "Archive to hide from main view",
                     "type": "boolean"
+                },
+                "assignee_id": {
+                    "description": "Team member assigned to work on this task",
+                    "type": "string"
                 },
                 "base_branch": {
                     "description": "The base branch this was created from",
@@ -27644,15 +28753,23 @@ const docTemplate = `{
                     "description": "Public sharing",
                     "type": "boolean"
                 },
-                "pull_request_id": {
-                    "type": "string"
-                },
-                "pull_request_url": {
-                    "description": "Computed field, not stored",
-                    "type": "string"
+                "repo_pull_requests": {
+                    "description": "Multi-repo PR tracking: list of PRs across all project repositories",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.RepoPR"
+                    }
                 },
                 "requirements_spec": {
                     "description": "User stories + EARS acceptance criteria (markdown)",
+                    "type": "string"
+                },
+                "sandbox_state": {
+                    "description": "\"absent\", \"running\", \"starting\" — derived from session config in listTasks",
+                    "type": "string"
+                },
+                "sandbox_status_message": {
+                    "description": "Transient startup message e.g. \"Unpacking build cache\"",
                     "type": "string"
                 },
                 "session_updated_at": {
@@ -29306,6 +30423,55 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "updated": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.ZFSTree": {
+            "type": "object",
+            "properties": {
+                "available": {
+                    "type": "boolean"
+                },
+                "golden": {
+                    "$ref": "#/definitions/types.ZFSTreeNode"
+                },
+                "orphans": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.ZFSTreeNode"
+                    }
+                },
+                "pool_root": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.ZFSTreeNode": {
+            "type": "object",
+            "properties": {
+                "children": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.ZFSTreeNode"
+                    }
+                },
+                "mounted": {
+                    "type": "boolean"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "refer": {
+                    "type": "string"
+                },
+                "session_id": {
+                    "type": "string"
+                },
+                "type": {
+                    "type": "string"
+                },
+                "used": {
                     "type": "string"
                 }
             }

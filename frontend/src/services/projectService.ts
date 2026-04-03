@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import useApi from '../hooks/useApi';
-import { TypesProject, TypesProjectCreateRequest, TypesProjectUpdateRequest, TypesBoardSettings, TypesSession, ServicesStartupScriptVersion, TypesGitRepository, TypesForkSimpleProjectRequest, TypesGuidelinesHistory, TypesAggregatedUsageMetric } from '../api/api';
+import { TypesProject, TypesProjectCreateRequest, TypesProjectUpdateRequest, TypesBoardSettings, TypesSession, ServicesStartupScriptVersion, TypesGitRepository, TypesForkSimpleProjectRequest, TypesGuidelinesHistory, TypesAggregatedUsageMetric, ServerPinnedProjectsResponse } from '../api/api';
 
 // Query keys
 export const projectsListQueryKey = (orgId?: string) => ['projects', orgId];
@@ -383,5 +383,62 @@ export const useGetProjectUsage = (
       return response.data || [];
     },
     enabled: (options?.enabled ?? true) && !!projectId,
+  });
+};
+
+export const pinnedProjectsQueryKey = () => ['pinned-projects'];
+
+/**
+ * Hook to get the current user's pinned project IDs
+ */
+export const usePinnedProjectIds = (enabled = true) => {
+  const api = useApi();
+  const apiClient = api.getApiClient();
+
+  return useQuery<string[]>({
+    queryKey: pinnedProjectsQueryKey(),
+    queryFn: async () => {
+      const response = await apiClient.v1UsersMePinnedProjectsList();
+      return response.data?.pinned_project_ids || [];
+    },
+    enabled,
+  });
+};
+
+/**
+ * Hook to pin a project for the current user
+ */
+export const usePinProject = () => {
+  const api = useApi();
+  const apiClient = api.getApiClient();
+  const queryClient = useQueryClient();
+
+  return useMutation<ServerPinnedProjectsResponse, Error, string>({
+    mutationFn: async (projectId: string) => {
+      const response = await apiClient.v1ProjectsPinCreate(projectId);
+      return response.data;
+    },
+    onSuccess: (data) => {
+      queryClient.setQueryData(pinnedProjectsQueryKey(), data.pinned_project_ids || []);
+    },
+  });
+};
+
+/**
+ * Hook to unpin a project for the current user
+ */
+export const useUnpinProject = () => {
+  const api = useApi();
+  const apiClient = api.getApiClient();
+  const queryClient = useQueryClient();
+
+  return useMutation<ServerPinnedProjectsResponse, Error, string>({
+    mutationFn: async (projectId: string) => {
+      const response = await apiClient.v1ProjectsPinDelete(projectId);
+      return response.data;
+    },
+    onSuccess: (data) => {
+      queryClient.setQueryData(pinnedProjectsQueryKey(), data.pinned_project_ids || []);
+    },
   });
 };

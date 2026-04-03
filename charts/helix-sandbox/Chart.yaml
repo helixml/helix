@@ -9,7 +9,7 @@ type: application
 icon: https://helix.ml/logo.png
 
 # Chart version - increment on changes to chart templates
-version: 0.2.1
+version: 0.2.2
 
 # Application version - matches helix-sandbox container version
 appVersion: "2.7.10"

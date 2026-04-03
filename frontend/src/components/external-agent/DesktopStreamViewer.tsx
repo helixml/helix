@@ -105,6 +105,18 @@ function clipboardReadText(): Promise<string> {
   return Promise.resolve("");
 }
 
+// Returns a stable UUID for a given sessionId in this browser tab.
+// Stored in sessionStorage so it survives component remounts but differs across tabs.
+function getOrCreateStreamUUID(sessionId: string): string {
+  const storageKey = `helix-stream-uuid-${sessionId}`;
+  let id = sessionStorage.getItem(storageKey);
+  if (!id) {
+    id = crypto.randomUUID();
+    sessionStorage.setItem(storageKey, id);
+  }
+  return id;
+}
+
 /**
  * DesktopStreamViewer - Native React component for desktop streaming
  *
@@ -135,20 +147,21 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   const hiddenInputRef = useRef<HTMLInputElement>(null); // Hidden input for iOS/iPad virtual keyboard
   const streamRef = useRef<WebSocketStream | null>(null); // WebSocket stream instance
   const retryAttemptRef = useRef(0); // Use ref to avoid closure issues
+  const retryTimeoutRef = useRef<NodeJS.Timeout | null>(null); // AlreadyStreaming retry timeout
+  const retryIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null); // AlreadyStreaming countdown interval
   const previousLobbyIdRef = useRef<string | undefined>(undefined); // Track lobby changes
   const isExplicitlyClosingRef = useRef(false); // Track explicit close to prevent spurious "Reconnecting..." state
   const pendingReconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null); // Cancel pending reconnects to prevent duplicate streams
   const manualReconnectAttemptsRef = useRef(0); // Track manual reconnect attempts to prevent infinite loops
 
-  // Generate unique UUID for this component instance (persists across re-renders)
-  // This ensures multiple floating windows get different streaming client IDs
-  const componentInstanceIdRef = useRef<string>(
-    "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
-      const r = (Math.random() * 16) | 0;
-      const v = c === "x" ? r : (r & 0x3) | 0x8;
-      return v.toString(16);
-    }),
-  );
+  // Stable UUID for this browser tab + session combination.
+  // Survives component remounts (stored in sessionStorage) but differs across tabs.
+  // The backend uses this to deduplicate clients on reconnect — same UUID = same viewer tab.
+  const componentInstanceIdRef = useRef<string>(getOrCreateStreamUUID(sessionId));
+  const sessionIdRef = useRef<string>(sessionId);
+  useEffect(() => {
+    sessionIdRef.current = sessionId;
+  }, [sessionId]);
 
   const [isConnecting, setIsConnecting] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
@@ -216,6 +229,13 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   const [debugThrottleRatio, setDebugThrottleRatio] = useState<number | null>(
     null,
   ); // Debug override for throttle ratio
+  // Two-finger gesture debug info for trackpad mode (updated during gestures)
+  const [twoFingerDebug, setTwoFingerDebug] = useState<{
+    gestureType: "undecided" | "pinch" | "scroll";
+    distanceChange: number;
+    centerMovement: number;
+    lastScrollDelta: { dx: number; dy: number };
+  } | null>(null);
   // Connection debug log for iPad (no devtools) - shows recent connection events
   const [connectionLog, setConnectionLog] = useState<
     Array<{ time: string; msg: string }>
@@ -225,6 +245,45 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     console.log(`[DesktopStreamViewer] ${msg}`);
     setConnectionLog((prev) => [...prev.slice(-9), { time, msg }]); // Keep last 10 entries
   }, []);
+
+  // Shared retry logic for AlreadyStreaming errors.
+  // Both the stream event handler and catch handler use identical backoff.
+  const scheduleAlreadyStreamingRetry = useCallback((logPrefix: string, onRetry: () => void) => {
+    setIsConnecting(false);
+    retryAttemptRef.current += 1;
+    const nextAttempt = retryAttemptRef.current;
+    const baseDelay = Math.min(Math.pow(2, nextAttempt), 30);
+    const retryDelaySeconds = baseDelay * (0.5 + Math.random() * 0.5);
+
+    console.warn(
+      `[DesktopStreamViewer] ${logPrefix} (attempt ${nextAttempt}), will retry in ${retryDelaySeconds.toFixed(1)} seconds...`,
+    );
+
+    setRetryAttemptDisplay(nextAttempt);
+    setRetryCountdown(retryDelaySeconds);
+
+    if (retryIntervalRef.current) clearInterval(retryIntervalRef.current);
+    if (retryTimeoutRef.current) clearTimeout(retryTimeoutRef.current);
+
+    retryIntervalRef.current = setInterval(() => {
+      setRetryCountdown((prev) => {
+        if (prev === null || prev <= 1) {
+          if (retryIntervalRef.current) clearInterval(retryIntervalRef.current);
+          retryIntervalRef.current = null;
+          return null;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    retryTimeoutRef.current = setTimeout(() => {
+      retryTimeoutRef.current = null;
+      console.log(`[DesktopStreamViewer] ${logPrefix} - retrying now (attempt ${nextAttempt})`);
+      setRetryCountdown(null);
+      onRetry();
+    }, retryDelaySeconds * 1000);
+  }, []);
+
   // Quality mode: video or screenshot-based fallback
   // - 'video': 60fps video over WebSocket (default)
   // - 'screenshot': Screenshot-based polling (for low bandwidth)
@@ -272,7 +331,19 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   const twoFingerGestureTypeRef = useRef<"undecided" | "pinch" | "scroll">(
     "undecided",
   ); // Track gesture type
-  const PINCH_VS_SCROLL_THRESHOLD = 30; // Pixels of distance change to classify as pinch vs scroll
+  // Debug info for two-finger gestures (displayed in stats panel)
+  const twoFingerDebugRef = useRef<{
+    gestureType: "undecided" | "pinch" | "scroll";
+    distanceChange: number;
+    centerMovement: number;
+    lastScrollDelta: { dx: number; dy: number };
+  }>({
+    gestureType: "undecided",
+    distanceChange: 0,
+    centerMovement: 0,
+    lastScrollDelta: { dx: 0, dy: 0 },
+  });
+  const PINCH_VS_SCROLL_THRESHOLD = 50; // Pixels of distance change to classify as pinch vs scroll (increased for better scroll detection)
   const SCROLL_SENSITIVITY = 2.0; // Multiplier for scroll speed
   const MIN_ZOOM = 1; // Minimum zoom (no zoom out beyond 1:1)
   const MAX_ZOOM = 5; // Maximum zoom level
@@ -554,13 +625,9 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     // Reset explicit close flag - we're starting a new connection
     isExplicitlyClosingRef.current = false;
 
-    // Generate fresh UUID for EVERY connection attempt to avoid stale state on reconnect
-    componentInstanceIdRef.current =
-      "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
-        const r = (Math.random() * 16) | 0;
-        const v = c === "x" ? r : (r & 0x3) | 0x8;
-        return v.toString(16);
-      });
+    // componentInstanceIdRef is generated once per component instance (in useRef initializer).
+    // It must NOT be regenerated on reconnect — the backend uses it to deduplicate clients
+    // and evict stale connections from the same viewer tab.
 
     setIsConnecting(true);
     setError(null);
@@ -595,8 +662,9 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         // Try to get from backend config
         try {
           const configResponse = await apiClient.v1ConfigList();
-          if (configResponse.data.streaming_bitrate_mbps) {
-            streamingBitrateMbps = configResponse.data.streaming_bitrate_mbps;
+          const configData = configResponse.data as typeof configResponse.data & { streaming_bitrate_mbps?: number };
+          if (configData.streaming_bitrate_mbps) {
+            streamingBitrateMbps = configData.streaming_bitrate_mbps;
             console.log(
               `[DesktopStreamViewer] Using configured bitrate: ${streamingBitrateMbps} Mbps`,
             );
@@ -677,7 +745,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         supportedFormats,
         [width, height],
         sessionId,
-        undefined, // clientUniqueId
+        componentInstanceIdRef.current, // clientUniqueId — enables server-side deduplication on reconnect
         account.user?.name, // userName for multi-player presence
         undefined, // avatarUrl
       );
@@ -798,40 +866,10 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
             errorMsg.includes("AlreadyStreaming") ||
             errorMsg.includes("already streaming")
           ) {
-            setIsConnecting(false);
-
-            // Progressive retry: 2s, 3s, 4s, 5s... (capped at 10s)
-            // Use ref to avoid closure issues with event listeners
-            retryAttemptRef.current += 1;
-            const nextAttempt = retryAttemptRef.current;
-            const retryDelaySeconds = Math.min(nextAttempt + 1, 10); // +1 to start at 2s
-
-            console.warn(
-              `[DesktopStreamViewer] AlreadyStreaming error from stream (attempt ${nextAttempt}), will retry in ${retryDelaySeconds} seconds...`,
+            scheduleAlreadyStreamingRetry(
+              "AlreadyStreaming error from stream",
+              () => reconnectRef.current(1000, "Reconnecting..."),
             );
-
-            setRetryAttemptDisplay(nextAttempt);
-            setRetryCountdown(retryDelaySeconds);
-
-            // Update countdown every second
-            const countdownInterval = setInterval(() => {
-              setRetryCountdown((prev) => {
-                if (prev === null || prev <= 1) {
-                  clearInterval(countdownInterval);
-                  return null;
-                }
-                return prev - 1;
-              });
-            }, 1000);
-
-            // Retry after delay
-            setTimeout(() => {
-              console.log(
-                `[DesktopStreamViewer] Retrying connection after AlreadyStreaming stream error (attempt ${nextAttempt})`,
-              );
-              setRetryCountdown(null);
-              reconnectRef.current(1000, "Reconnecting...");
-            }, retryDelaySeconds * 1000);
             return;
           }
 
@@ -1094,42 +1132,14 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         errorMsg.includes("AlreadyStreaming") ||
         errorMsg.includes("already streaming")
       ) {
-        setIsConnecting(false);
-
-        // Progressive retry: 2s, 3s, 4s, 5s... (capped at 10s)
-        // Use ref to avoid closure issues
-        retryAttemptRef.current += 1;
-        const nextAttempt = retryAttemptRef.current;
-        const retryDelaySeconds = Math.min(nextAttempt + 1, 10); // +1 to start at 2s
-
-        console.warn(
-          `[DesktopStreamViewer] AlreadyStreaming error detected (attempt ${nextAttempt}), will retry in ${retryDelaySeconds} seconds...`,
+        scheduleAlreadyStreamingRetry(
+          "AlreadyStreaming error detected",
+          () => {
+            setStatus("Reconnecting...");
+            setIsConnecting(true);
+            connectRef.current();
+          },
         );
-
-        setRetryAttemptDisplay(nextAttempt);
-        setRetryCountdown(retryDelaySeconds);
-
-        // Update countdown every second
-        const countdownInterval = setInterval(() => {
-          setRetryCountdown((prev) => {
-            if (prev === null || prev <= 1) {
-              clearInterval(countdownInterval);
-              return null;
-            }
-            return prev - 1;
-          });
-        }, 1000);
-
-        // Retry after delay
-        setTimeout(() => {
-          console.log(
-            `[DesktopStreamViewer] Retrying connection after AlreadyStreaming error (attempt ${nextAttempt})`,
-          );
-          setRetryCountdown(null);
-          setStatus("Reconnecting...");
-          setIsConnecting(true);
-          connectRef.current();
-        }, retryDelaySeconds * 1000);
         return;
       }
 
@@ -1877,6 +1887,9 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       console.log(
         "[DesktopStreamViewer] Component unmounting, calling disconnect()",
       );
+      // Clean up retry timers to prevent state updates on unmounted component
+      if (retryTimeoutRef.current) clearTimeout(retryTimeoutRef.current);
+      if (retryIntervalRef.current) clearInterval(retryIntervalRef.current);
       disconnect();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2786,9 +2799,9 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           rttMs: wsStats.rttMs,
           encoderLatencyMs: wsStats.encoderLatencyMs,
           isHighLatency: wsStats.isHighLatency,
-          batchingRatio: wsStats.batchingRatio,
-          avgBatchSize: wsStats.avgBatchSize,
-          batchesReceived: wsStats.batchesReceived,
+          batchingRatio: 0,
+          avgBatchSize: 0,
+          batchesReceived: 0,
           frameLatencyMs: wsStats.frameLatencyMs,
           adaptiveThrottleRatio: wsStats.adaptiveThrottleRatio,
           effectiveInputFps: wsStats.effectiveInputFps,
@@ -2954,6 +2967,12 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     (event: React.MouseEvent) => {
       event.preventDefault();
 
+      // In trackpad mode, ignore synthetic mouse events generated by the browser
+      // from touch input. Touch taps fire a mousemove at the tap coordinates,
+      // which would jump the virtual cursor to the physical tap position.
+      // Trackpad cursor position is managed exclusively by the touch handlers.
+      if (touchMode === "trackpad") return;
+
       // Update custom cursor position - must match input coordinate space
       // Input uses getStreamRect() which accounts for letterboxing, so custom cursor
       // must also be positioned relative to stream rect, not container
@@ -2983,7 +3002,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
 
       getInputHandler()?.onMouseMove(event.nativeEvent, getStreamRect());
     },
-    [getStreamRect, hasMouseMoved, getInputHandler],
+    [getStreamRect, hasMouseMoved, getInputHandler, touchMode],
   );
 
   const handleContextMenu = useCallback((event: React.MouseEvent) => {
@@ -3018,10 +3037,15 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           // Initialize cursor at center of stream if this is first touch
           if (!hasMouseMoved && containerRef.current) {
             const containerRect = containerRef.current.getBoundingClientRect();
-            setCursorPosition({
-              x: rect.x - containerRect.x + rect.width / 2,
-              y: rect.y - containerRect.y + rect.height / 2,
-            });
+            const centerX = rect.x - containerRect.x + rect.width / 2;
+            const centerY = rect.y - containerRect.y + rect.height / 2;
+            setCursorPosition({ x: centerX, y: centerY });
+            // Also sync the ref so sendCursorPositionToRemote() uses the correct
+            // position on first tap (before any drag has updated the ref)
+            cursorPositionRef.current = { x: centerX, y: centerY };
+            if (trackpadCursorRef.current) {
+              trackpadCursorRef.current.style.transform = `translate(${centerX}px, ${centerY}px)`;
+            }
             setHasMouseMoved(true);
           }
 
@@ -3327,6 +3351,10 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           centerDx * centerDx + centerDy * centerDy,
         );
 
+        // Update debug info for stats panel (both ref and state)
+        twoFingerDebugRef.current.distanceChange = Math.round(distanceChange);
+        twoFingerDebugRef.current.centerMovement = Math.round(centerMovement);
+
         // Determine gesture type on first significant move
         if (twoFingerGestureTypeRef.current === "undecided") {
           // If distance between fingers changes significantly, it's a pinch
@@ -3339,13 +3367,26 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           }
         }
 
+        // Update debug gesture type
+        twoFingerDebugRef.current.gestureType =
+          twoFingerGestureTypeRef.current;
+
+        // Update state for stats panel display
+        setTwoFingerDebug({ ...twoFingerDebugRef.current });
+
         // Handle scroll gesture - send scroll events to remote
         if (twoFingerGestureTypeRef.current === "scroll") {
+          const scrollDx = -centerDx * SCROLL_SENSITIVITY;
+          const scrollDy = centerDy * SCROLL_SENSITIVITY;
+          // Update debug scroll delta
+          twoFingerDebugRef.current.lastScrollDelta = {
+            dx: Math.round(scrollDx),
+            dy: Math.round(scrollDy),
+          };
+          // Update state for stats panel
+          setTwoFingerDebug({ ...twoFingerDebugRef.current });
           // Send scroll wheel events to remote desktop
-          handler.sendMouseWheel?.(
-            -centerDx * SCROLL_SENSITIVITY, // Invert X for natural scrolling
-            centerDy * SCROLL_SENSITIVITY, // Y is not inverted (swipe up = scroll up)
-          );
+          handler.sendMouseWheel?.(scrollDx, scrollDy);
           lastPinchCenterRef.current = { x: centerX, y: centerY };
           return;
         }
@@ -3433,13 +3474,15 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       // In trackpad mode, handle gestures
       if (touchMode === "trackpad") {
         // Helper to send current cursor position to remote before clicks
+        // Uses cursorPositionRef (not state) to get the latest position synchronously
         const sendCursorPositionToRemote = () => {
           if (!containerRef.current) return;
           const containerRect = containerRef.current.getBoundingClientRect();
           const streamOffsetX = rect.x - containerRect.x;
           const streamOffsetY = rect.y - containerRect.y;
-          const streamRelativeX = cursorPosition.x - streamOffsetX;
-          const streamRelativeY = cursorPosition.y - streamOffsetY;
+          const currentPos = cursorPositionRef.current;
+          const streamRelativeX = currentPos.x - streamOffsetX;
+          const streamRelativeY = currentPos.y - streamOffsetY;
           const streamX = (streamRelativeX / rect.width) * width;
           const streamY = (streamRelativeY / rect.height) * height;
           handler.sendMousePosition?.(streamX, streamY, width, height);
@@ -3576,7 +3619,6 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       getInputHandler,
       touchMode,
       isDragging,
-      cursorPosition,
       width,
       height,
       stopEdgePan,
@@ -3741,7 +3783,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         return; // Don't preventDefault, let browser copy the selected text
       }
 
-      if (isCopyKeystroke && sessionId) {
+      if (isCopyKeystroke && sessionIdRef.current) {
         // Send the copy keystroke to remote first (translate Cmd to Ctrl for Linux)
         const input = getInput();
         if (input) {
@@ -3784,7 +3826,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           try {
             const apiClient = helixApi.getApiClient();
             const response =
-              await apiClient.v1ExternalAgentsClipboardDetail(sessionId);
+              await apiClient.v1ExternalAgentsClipboardDetail(sessionIdRef.current);
             const clipboardData: TypesClipboardData = response.data;
 
             if (!clipboardData || !clipboardData.type || !clipboardData.data) {
@@ -3848,7 +3890,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         event.metaKey && event.shiftKey && event.code === "KeyV";
       const isPasteKeystroke = isCtrlV || isCmdV || isCtrlShiftV || isCmdShiftV;
 
-      if (isPasteKeystroke && sessionId) {
+      if (isPasteKeystroke && sessionIdRef.current) {
         event.preventDefault();
         event.stopPropagation();
 
@@ -3952,7 +3994,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         const syncAndPaste = (payload: TypesClipboardData) => {
           const apiClient = helixApi.getApiClient();
           apiClient
-            .v1ExternalAgentsClipboardCreate(sessionId, payload)
+            .v1ExternalAgentsClipboardCreate(sessionIdRef.current, payload)
             .then(() => {
               console.log(`[Clipboard] Synced ${payload.type} to remote`);
               showClipboardToast("Pasted", "success");
@@ -4852,9 +4894,9 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
         onTouchCancel={handleTouchCancel}
-        onSelectStart={(e) => e.preventDefault()}
         onDragStart={(e) => e.preventDefault()}
         style={{
+          userSelect: "none",
           // Use calculated dimensions to maintain aspect ratio, scaled by zoom level
           // By scaling CSS dimensions (not CSS transform), the browser renders more pixels
           // from the canvas's internal buffer, giving access to native resolution detail
@@ -4884,7 +4926,6 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           // This ensures all touch events go to our handlers
           touchAction: "none",
           // Prevent text selection on double-click in Safari iPad
-          userSelect: "none",
           WebkitUserSelect: "none",
           WebkitTouchCallout: "none",
         }}
@@ -5036,6 +5077,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           connectionLog={connectionLog}
           isConnected={isConnected}
           isConnecting={isConnecting}
+          twoFingerDebug={twoFingerDebug}
         />
       )}
 

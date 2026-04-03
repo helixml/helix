@@ -15,20 +15,22 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-// koditResult holds everything produced by initKodit.
-type koditResult struct {
-	service    services.KoditServicer
+// KoditResult holds everything produced by InitKodit.
+// It is exported so that serve.go can initialize kodit once and share the
+// service between the RAG factory and the API server.
+type KoditResult struct {
+	Service    services.KoditServicer
 	mcpBackend *KoditMCPBackend
 	closer     io.Closer
 }
 
-// initKodit creates the kodit client, service, and MCP backend.
+// InitKodit creates the kodit client, service, and MCP backend.
 // When kodit is disabled in config it returns a disabled service and nil closer.
-func initKodit(cfg *config.ServerConfig, gitRepoService *services.GitRepositoryService, store store.Store) (*koditResult, error) {
+func InitKodit(cfg *config.ServerConfig, gitRepoService *services.GitRepositoryService, store store.Store) (*KoditResult, error) {
 	if !cfg.Kodit.Enabled || gitRepoService == nil {
 		log.Info().Msg("Kodit code intelligence service disabled")
-		return &koditResult{
-			service:    services.NewDisabledKoditService(),
+		return &KoditResult{
+			Service:    services.NewDisabledKoditService(),
 			mcpBackend: NewKoditMCPBackend(nil, false, store),
 		}, nil
 	}
@@ -39,9 +41,6 @@ func initKodit(cfg *config.ServerConfig, gitRepoService *services.GitRepositoryS
 
 	var koditOpts []kodit.Option
 	koditOpts = append(koditOpts, kodit.WithPostgresVectorchord(cfg.Kodit.DatabaseURL))
-
-	// Default to the new Chunking implementation
-	koditOpts = append(koditOpts, kodit.WithSimpleChunking())
 
 	// Data directory (for cloned repos, model cache, etc.)
 	dataDir := cfg.Kodit.DataDir
@@ -90,8 +89,8 @@ func initKodit(cfg *config.ServerConfig, gitRepoService *services.GitRepositoryS
 		Str("kodit_git_url", cfg.Kodit.GitURL).
 		Msg("Initialized Kodit code intelligence service (in-process)")
 
-	return &koditResult{
-		service:    svc,
+	return &KoditResult{
+		Service:    svc,
 		mcpBackend: NewKoditMCPBackend(koditClient, true, store),
 		closer:     koditClient,
 	}, nil

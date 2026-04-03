@@ -34,6 +34,14 @@ type ServerConfig struct {
 	SSL                SSL
 	Organizations      Organizations
 
+	// DesktopIdleTimeout is how long a desktop can be inactive before it is automatically shut down.
+	// Inactivity is measured as the time since the last interaction was created or updated
+	// across all sessions belonging to the desktop.
+	DesktopIdleTimeout time.Duration `envconfig:"HELIX_DESKTOP_IDLE_TIMEOUT" default:"1h"`
+
+	// DesktopIdleCheckInterval controls how often the idle checker scans for desktops to shut down.
+	DesktopIdleCheckInterval time.Duration `envconfig:"HELIX_DESKTOP_IDLE_CHECK_INTERVAL" default:"5m"`
+
 	DisableLLMCallLogging bool `envconfig:"DISABLE_LLM_CALL_LOGGING" default:"false"`
 	DisableUsageLogging   bool `envconfig:"DISABLE_USAGE_LOGGING" default:"false"`
 	DisableVersionPing    bool `envconfig:"DISABLE_VERSION_PING" default:"false"`
@@ -317,6 +325,7 @@ const (
 	RAGProviderTypesense  RAGProvider = "typesense"
 	RAGProviderLlamaindex RAGProvider = "llamaindex"
 	RAGProviderHaystack   RAGProvider = "haystack"
+	RAGProviderKodit      RAGProvider = "kodit"
 )
 
 type RAG struct {

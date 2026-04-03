@@ -457,15 +457,13 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
       // Strip any unique key suffix (format: "text#123")
       const textToPrepend = appendText.replace(/#\d+$/, '')
       // Prepend to draft with proper spacing
-      setDraft(prev => {
-        const needsSpace = prev.length > 0 && !prev.startsWith(' ') && !prev.startsWith('\n')
-        return textToPrepend + (needsSpace ? ' ' : '') + prev
-      })
+      const needsSpace = draft.length > 0 && !draft.startsWith(' ') && !draft.startsWith('\n')
+      setDraft(textToPrepend + (needsSpace ? ' ' : '') + draft)
       prevAppendTextRef.current = appendText
       // Focus the textarea
       textareaRef.current?.focus()
     }
-  }, [appendText, setDraft])
+  }, [appendText, setDraft, draft])
 
   // DnD sensors
   const sensors = useSensors(
@@ -571,10 +569,16 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
     // Backend handles processing after sync - no need to call processQueue
   }, [draft, disabled, attachments, saveToHistory, clearDraft, interruptMode])
 
-  // Remove from queue
+  // Remove from queue: call backend first so the entry is soft-deleted and
+  // never redelivered (even after page reload or API restart), then remove locally.
   const handleRemoveFromQueue = useCallback((entryId: string) => {
     removeFromQueue(entryId)
-  }, [removeFromQueue])
+    if (apiClient) {
+      apiClient.v1PromptHistoryDelete(entryId).catch((err: unknown) => {
+        console.warn('Failed to delete prompt from backend:', err)
+      })
+    }
+  }, [removeFromQueue, apiClient])
 
   // Toggle interrupt mode for a queued message
   const handleToggleInterrupt = useCallback((entryId: string) => {
@@ -842,14 +846,13 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
       const file = new File([pastedText], `pasted-text-${timestamp}.txt`, { type: 'text/plain' })
       await uploadAndAddAttachment(file)
       // Add a note to the draft about the attached file
-      setDraft(prev => {
-        const note = '[Large text pasted as attachment]'
-        if (prev.includes(note)) return prev
-        const needsSpace = prev.length > 0 && !prev.startsWith(' ') && !prev.startsWith('\n')
-        return note + (needsSpace ? ' ' : '') + prev
-      })
+      const note = '[Large text pasted as attachment]'
+      if (!draft.includes(note)) {
+        const needsSpace = draft.length > 0 && !draft.startsWith(' ') && !draft.startsWith('\n')
+        setDraft(note + (needsSpace ? ' ' : '') + draft)
+      }
     }
-  }, [handleFileUploadCallback, uploadAndAddAttachment, setDraft])
+  }, [handleFileUploadCallback, uploadAndAddAttachment, setDraft, draft])
 
   // Track drag state for visual feedback
   const [isDraggingOver, setIsDraggingOver] = useState(false)

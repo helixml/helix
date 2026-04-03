@@ -266,6 +266,11 @@ func (s *PostgresStore) UpdateSessionMetadata(ctx context.Context, sessionID str
 	return nil
 }
 
+// TouchSession updates only the Updated timestamp on a session.
+func (s *PostgresStore) TouchSession(ctx context.Context, sessionID string) error {
+	return s.gdb.WithContext(ctx).Model(&types.Session{}).Where("id = ?", sessionID).Update("updated", time.Now()).Error
+}
+
 func (s *PostgresStore) DeleteSession(ctx context.Context, sessionID string) (*types.Session, error) {
 	existing, err := s.GetSession(ctx, sessionID)
 	if err != nil {
@@ -307,21 +312,68 @@ func (s *PostgresStore) GetProjectExploratorySession(ctx context.Context, projec
 	return &session, nil
 }
 
-// ListSessionsWithDesiredState returns sessions where metadata.desired_state matches
-// Used by the reconciler to find sessions that should be running
-func (s *PostgresStore) ListSessionsWithDesiredState(ctx context.Context, desiredState string) ([]*types.Session, error) {
+
+// ClearStaleStartingSessions clears external_agent_status and status_message
+// for sessions stuck in "starting" state. Called on API startup — if the API
+// just started, no session can legitimately be mid-startup.
+func (s *PostgresStore) ClearStaleStartingSessions(ctx context.Context) (int64, error) {
+	result := s.gdb.WithContext(ctx).
+		Model(&types.Session{}).
+		Where("config->>'external_agent_status' = ?", "starting").
+		Updates(map[string]interface{}{
+			"config": gorm.Expr(`config || '{"external_agent_status":"","status_message":""}'::jsonb`),
+		})
+	return result.RowsAffected, result.Error
+}
+
+// ListSessionsBySandbox returns all sessions associated with a specific sandbox
+// Used to clean up session metadata when a sandbox disconnects
+func (s *PostgresStore) ListSessionsBySandbox(ctx context.Context, sandboxID string) ([]*types.Session, error) {
 	var sessions []*types.Session
 
-	// PostgreSQL JSONB query for metadata.desired_state
-	// Note: column is named 'config' for backward compatibility but contains SessionMetadata
 	err := s.gdb.WithContext(ctx).
-		Where("config->>'desired_state' = ?", desiredState).
+		Where("sandbox_id = ?", sandboxID).
 		Find(&sessions).Error
 
 	if err != nil {
 		return nil, err
 	}
 
+	return sessions, nil
+}
+
+// ListIdleDesktops returns one representative session per desktop (identified by
+// external_agent_id) where no interaction has been created or updated since
+// idleSince. For desktops with no interactions at all, the session's own
+// updated timestamp is used as the activity marker.
+func (s *PostgresStore) ListIdleDesktops(ctx context.Context, idleSince time.Time) ([]*types.Session, error) {
+	// CTE computes the last activity time per desktop, then the outer query
+	// selects one session per desktop that is past the idle threshold.
+	query := `
+WITH desktop_last_activity AS (
+    SELECT
+        s.config->>'dev_container_id' AS container_id,
+        COALESCE(MAX(i.updated), MAX(s.updated)) AS last_activity
+    FROM sessions s
+    LEFT JOIN interactions i ON i.session_id = s.id
+    WHERE s.deleted_at IS NULL
+      AND s.config->>'external_agent_status' = 'running'
+      AND s.config->>'dev_container_id' IS NOT NULL
+      AND s.config->>'dev_container_id' != ''
+    GROUP BY s.config->>'dev_container_id'
+)
+SELECT DISTINCT ON (s.config->>'dev_container_id') s.*
+FROM sessions s
+JOIN desktop_last_activity da ON da.container_id = s.config->>'dev_container_id'
+WHERE s.deleted_at IS NULL
+  AND da.last_activity < ?
+ORDER BY s.config->>'dev_container_id', s.created ASC`
+
+	var sessions []*types.Session
+	err := s.gdb.WithContext(ctx).Raw(query, idleSince).Scan(&sessions).Error
+	if err != nil {
+		return nil, err
+	}
 	return sessions, nil
 }
 

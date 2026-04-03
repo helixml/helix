@@ -1,0 +1,202 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.16.4
+  name: projects.app.aispec.org
+spec:
+  group: app.aispec.org
+  names:
+    kind: Project
+    listKind: ProjectList
+    plural: projects
+    singular: project
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .status.ready
+      name: Ready
+      type: boolean
+    - jsonPath: .status.project_id
+      name: ProjectID
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: Project is the Schema for the projects API.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: ProjectSpec defines the desired state of a Project.
+            properties:
+              agent:
+                description: |-
+                  ProjectAgentSpec is the simplified agent configuration.
+
+                  Runtime selects the code agent inside the Zed desktop container.
+                  Defaults to "claude_code" when omitted (recommended — handles context compaction).
+                    - "claude_code" — Claude Code CLI (default)
+                    - "zed"         — Zed's built-in agent panel
+                    - "qwen_code"   — Qwen Code CLI
+                    - "gemini_cli"  — Gemini CLI
+                    - "codex_cli"   — OpenAI Codex CLI
+                properties:
+                  credentials:
+                    type: string
+                  display:
+                    description: ProjectAgentDisplay configures the virtual desktop
+                      for the agent container.
+                    properties:
+                      desktop_type:
+                        description: 'Desktop environment: "ubuntu" (default GNOME)
+                          or "sway"'
+                        type: string
+                      fps:
+                        description: Display refresh rate in Hz (default 60)
+                        type: integer
+                      resolution:
+                        description: 'Resolution preset: "1080p" (default), "4k",
+                          or "5k"'
+                        type: string
+                    type: object
+                  model:
+                    type: string
+                  name:
+                    type: string
+                  provider:
+                    type: string
+                  runtime:
+                    type: string
+                  tools:
+                    description: ProjectAgentTools lists the built-in tools to enable
+                      for the project agent.
+                    properties:
+                      browser:
+                        type: boolean
+                      calculator:
+                        type: boolean
+                      web_search:
+                        type: boolean
+                    type: object
+                type: object
+              autoStartBacklogTasks:
+                description: AutoStartBacklogTasks automatically starts backlog tasks
+                  when capacity is available
+                type: boolean
+              description:
+                type: string
+              guidelines:
+                type: string
+              kanban:
+                description: ProjectKanban holds Kanban board settings.
+                properties:
+                  wip_limits:
+                    description: ProjectWIPLimits holds per-column WIP limit values.
+                    properties:
+                      implementation:
+                        type: integer
+                      planning:
+                        type: integer
+                      review:
+                        type: integer
+                    type: object
+                type: object
+              repositories:
+                items:
+                  description: ProjectRepositorySpec describes a repository attachment.
+                  properties:
+                    default_branch:
+                      type: string
+                    primary:
+                      type: boolean
+                    url:
+                      type: string
+                  required:
+                  - url
+                  type: object
+                type: array
+              repository:
+                description: ProjectRepositorySpec describes a repository attachment.
+                properties:
+                  default_branch:
+                    type: string
+                  primary:
+                    type: boolean
+                  url:
+                    type: string
+                required:
+                - url
+                type: object
+              startup:
+                description: ProjectStartup describes startup commands for the primary
+                  repository.
+                properties:
+                  install:
+                    description: Install is deprecated - use Script instead
+                    type: string
+                  script:
+                    description: Script is the unified startup script content (preferred)
+                    type: string
+                  start:
+                    description: Start is deprecated - use Script instead
+                    type: string
+                type: object
+              tasks:
+                items:
+                  description: ProjectTaskSpec is a task to seed onto the Kanban board.
+                  properties:
+                    description:
+                      type: string
+                    title:
+                      type: string
+                  required:
+                  - title
+                  type: object
+                type: array
+            type: object
+          status:
+            description: ProjectStatus defines the observed state of a Project.
+            properties:
+              agent_app_id:
+                description: AgentAppID is the linked Helix agent app ID.
+                type: string
+              last_synced:
+                description: LastSynced is the timestamp of the last successful sync.
+                format: date-time
+                type: string
+              message:
+                description: Message holds any error or status message.
+                type: string
+              project_id:
+                description: ProjectID is the Helix project ID.
+                type: string
+              ready:
+                description: Ready indicates whether the project was successfully
+                  applied.
+                type: boolean
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

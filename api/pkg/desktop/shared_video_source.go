@@ -12,6 +12,7 @@ package desktop
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"strconv"
 	"sync"
@@ -116,7 +117,19 @@ type sharedVideoClient struct {
 	// Catchup goroutine drains this to frameCh after GOP replay
 	pendingMu sync.Mutex
 	pending   []VideoFrame
+
+	// Tracks consecutive frames where the channel was full (client too slow).
+	// Only accessed from the single broadcast goroutine, no synchronization needed.
+	// Client is disconnected after slowClientThreshold consecutive slow frames.
+	consecutiveSlowFrames int
 }
+
+// slowClientThreshold is the number of consecutive buffer-full frames before
+// disconnecting a slow client. The effective tolerance is much larger than this
+// threshold alone: the client's channel buffer (default 120 frames / ~2s at
+// 60fps) must fill first, then 30 more consecutive sends must fail (~0.5s).
+// Total tolerance: ~2.5 seconds of sustained slowness at 60fps.
+const slowClientThreshold = 30
 
 // pendingStop represents a deferred pipeline shutdown during the grace period.
 // When all clients disconnect, we don't immediately stop the pipeline - instead we
@@ -1132,10 +1145,13 @@ func (s *SharedVideoSource) broadcastFrames() {
 						}()
 						select {
 						case client.frameCh <- frame:
-							// Frame sent successfully
+							client.consecutiveSlowFrames = 0
 						default:
-							// Buffer full - client is too slow, mark for disconnection
-							slowClients = append(slowClients, client.id)
+							// Buffer full - tolerate transient slowness before disconnecting
+							client.consecutiveSlowFrames++
+							if client.consecutiveSlowFrames >= slowClientThreshold {
+								slowClients = append(slowClients, client.id)
+							}
 						}
 					}()
 				}
@@ -1145,7 +1161,7 @@ func (s *SharedVideoSource) broadcastFrames() {
 
 			// Disconnect slow/overflow clients (outside of RLock to avoid deadlock)
 			for _, clientID := range slowClients {
-				fmt.Printf("[SHARED_VIDEO] Disconnecting slow client %d (channel buffer full)\n", clientID)
+				slog.Warn("[SHARED_VIDEO] Disconnecting slow client", "client_id", clientID, "consecutive_frames_dropped", slowClientThreshold)
 				s.disconnectClient(clientID)
 			}
 			for _, clientID := range pendingOverflow {

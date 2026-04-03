@@ -34,6 +34,7 @@ import {
   Cloud,
   Key,
   Trash2,
+  RefreshCw,
 } from "lucide-react";
 import { SiGitlab, SiBitbucket } from "react-icons/si";
 
@@ -62,8 +63,12 @@ import { useSettingsDialog } from "../../contexts/settingsDialog";
 import {
   matchesProviderType,
   mapProviderToRepoType,
+  hasRequiredScopes,
   PROVIDER_TYPES,
 } from "../../utils/oauthProviders";
+
+// Scopes required for GitHub repo browsing (including workflow file support)
+const GITHUB_REQUIRED_SCOPES = ["repo", "workflow"];
 
 interface BrowseProvidersDialogProps {
   open: boolean;
@@ -193,6 +198,7 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
   const {
     data: repositoriesData,
     isLoading: reposLoading,
+    isFetching: reposFetching,
     error: reposError,
   } = useListOAuthConnectionRepositories(selectedConnectionId || "");
 
@@ -389,8 +395,13 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
     if (!selectedProvider) return;
 
     const oauthConnection = getOAuthConnectionForProvider(selectedProvider);
-    if (oauthConnection) {
-      // Already connected - browse repos
+    const needsScopeUpgrade =
+      selectedProvider === "github" &&
+      !!oauthConnection &&
+      !hasRequiredScopes(oauthConnection.scopes, GITHUB_REQUIRED_SCOPES);
+
+    if (oauthConnection && !needsScopeUpgrade) {
+      // Already connected with required scopes - browse repos
       setSelectedConnectionId(oauthConnection.id || null);
       setViewMode("browse-repos");
     } else {
@@ -402,7 +413,7 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
         // GitLab needs 'read_repository,write_repository' scopes
         let scopesParam = "";
         if (selectedProvider === "github") {
-          scopesParam = "?scopes=repo,read:org,read:user,user:email";
+          scopesParam = "?scopes=repo,workflow,read:org,read:user,user:email";
         } else if (selectedProvider === "gitlab") {
           scopesParam = "?scopes=read_repository,write_repository,read_user";
         }
@@ -731,6 +742,10 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
     const hasOAuth = selectedProvider
       ? !!getProviderIdForType(selectedProvider)
       : false;
+    const needsScopeUpgrade =
+      selectedProvider === "github" &&
+      !!oauthConnection &&
+      !hasRequiredScopes(oauthConnection.scopes, GITHUB_REQUIRED_SCOPES);
 
     return (
       <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
@@ -744,6 +759,12 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
           <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
             Choose how you want to connect to {currentProvider?.name}.
           </Typography>
+
+          {needsScopeUpgrade && (
+            <Alert severity="warning" sx={{ mb: 2 }}>
+              Your GitHub connection needs the <strong>workflow</strong> scope to push changes to <code>.github/workflows/</code>. Click &ldquo;Connect via OAuth&rdquo; below to reconnect with the required permissions.
+            </Alert>
+          )}
 
           <List>
             {/* OAuth option - highlighted when available but not connected */}
@@ -1077,7 +1098,7 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
         Browse {currentProvider?.name} Repositories
       </DialogTitle>
       <DialogContent>
-        <Box sx={{ mb: 2 }}>
+        <Box sx={{ mb: 2, display: 'flex', gap: 1, alignItems: 'center' }}>
           <TextField
             fullWidth
             size="small"
@@ -1092,6 +1113,16 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
               ),
             }}
           />
+          <Tooltip title="Refresh repository list">
+            <IconButton
+              size="small"
+              onClick={() => queryClient.invalidateQueries({ queryKey: ["oauth-connection-repositories"] })}
+              disabled={reposFetching}
+              sx={reposFetching ? { animation: 'spin 1s linear infinite', '@keyframes spin': { '100%': { transform: 'rotate(360deg)' } } } : {}}
+            >
+              <RefreshCw size={18} />
+            </IconButton>
+          </Tooltip>
         </Box>
 
         {currentError && (
@@ -1115,12 +1146,11 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
         ) : (
           <List sx={{ maxHeight: 400, overflow: "auto" }}>
             {filteredRepos.map((repo, index) => (
-              <React.Fragment key={repo.id || repo.full_name || index}>
+              <React.Fragment key={repo.full_name || index}>
                 {index > 0 && <Divider />}
                 <ListItem disablePadding>
                   <ListItemButton
                     selected={
-                      selectedRepo?.id === repo.id ||
                       selectedRepo?.full_name === repo.full_name
                     }
                     onClick={() => setSelectedRepo(repo)}

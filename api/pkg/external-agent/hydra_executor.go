@@ -42,6 +42,7 @@ type HydraExecutor struct {
 	// Workspace path configuration
 	workspaceBasePathForContainer string // Path as seen from inside dev container
 	workspaceBasePathForCloning   string // Path on sandbox filesystem (Hydra creates dirs)
+	filestoreLocalPath            string // Local filestore root (e.g. /filestore)
 
 	// RevDial connection manager for communicating with Hydra in sandbox
 	connman connmanInterface
@@ -70,6 +71,7 @@ type HydraExecutorConfig struct {
 	HelixAPIToken                 string
 	WorkspaceBasePathForContainer string
 	WorkspaceBasePathForCloning   string
+	FilestoreLocalPath            string // Local filestore root for persisting paused screenshots
 	Connman                       connmanInterface
 	GPUVendor                     string
 	LicenseKey                    string // License key to pass to nested Helix instances
@@ -85,6 +87,7 @@ func NewHydraExecutor(cfg HydraExecutorConfig) *HydraExecutor {
 		helixAPIToken:                 cfg.HelixAPIToken,
 		workspaceBasePathForContainer: cfg.WorkspaceBasePathForContainer,
 		workspaceBasePathForCloning:   cfg.WorkspaceBasePathForCloning,
+		filestoreLocalPath:            cfg.FilestoreLocalPath,
 		connman:                       cfg.Connman,
 		creationLocks:                 make(map[string]*sync.Mutex),
 		gpuVendor:                     cfg.GPUVendor,
@@ -335,9 +338,29 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 		Str("container_type", string(req.ContainerType)).
 		Msg("Creating dev container via Hydra")
 
+	// Detach from the HTTP request context before any long-running work.
+	// Container creation (ZFS clone + Docker pull) can take several minutes.
+	// If the user navigates away the browser closes the connection, cancelling
+	// the request context — we must NOT abort a ZFS clone or Docker start
+	// mid-flight because of that. Use a background context with a hard upper
+	// bound instead. All operations below this line use startCtx.
+	startCtx, startCancel := context.WithTimeout(context.Background(), 20*time.Minute)
+	defer startCancel()
+	ctx = startCtx //nolint:govet // intentional shadow — request ctx no longer needed
+
 	// Mark session as "starting" so the frontend shows the starting UI
 	// (with progress messages) instead of the paused/absent state.
 	h.setExternalAgentStatus(ctx, agent.SessionID, "starting")
+
+	// Guarantee status cleanup on any error: if StartDesktop returns an error the
+	// status must not remain "starting" permanently (issue #1 from ZFS deployment).
+	startErr := error(nil)
+	defer func() {
+		if startErr != nil {
+			h.setExternalAgentStatus(context.Background(), agent.SessionID, "")
+			h.updateSessionStatusMessage(context.Background(), agent.SessionID, "")
+		}
+	}()
 
 	// Poll golden cache copy progress in a goroutine while CreateDevContainer blocks.
 	// If a golden cache exists, the Hydra side copies it before creating the container.
@@ -375,7 +398,8 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 	h.updateSessionStatusMessage(ctx, agent.SessionID, "")
 
 	if err != nil {
-		return nil, fmt.Errorf("failed to create dev container via Hydra: %w", err)
+		startErr = fmt.Errorf("failed to create dev container via Hydra: %w", err)
+		return nil, startErr
 	}
 
 	log.Info().
@@ -388,16 +412,22 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 	// No bridging needed - desktop runs its own dockerd, so all containers
 	// are on the same Docker network inside the desktop container.
 
-	// Wait for desktop-bridge to be ready before returning
-	// Desktop-bridge takes time to start: waits for D-Bus, Wayland, portal, GStreamer init
-	// Without this, frontend connects immediately but screenshot/video fail
-	// Uses RevDial for health check since container IP is inside sandbox's DinD network
-	if err := h.waitForDesktopBridge(ctx, agent.SessionID); err != nil {
+	// Wait for desktop-bridge to be ready before returning.
+	// Desktop-bridge takes time to start: waits for D-Bus, Wayland, portal, GStreamer init.
+	// Uses RevDial for health check since container IP is inside sandbox's DinD network.
+	//
+	// IMPORTANT: use an independent context here (issue #1 from ZFS deployment).
+	// The caller's ctx may have been partially consumed by the ZFS clone (which can take
+	// 10-90s). If we reuse it, the bridge wait budget is whatever is left over, which may
+	// be far less than the 90s we need. Using context.Background() gives the full 90s.
+	bridgeCtx, bridgeCancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer bridgeCancel()
+	if err := h.waitForDesktopBridge(bridgeCtx, agent.SessionID); err != nil {
 		log.Warn().Err(err).
 			Str("session_id", agent.SessionID).
 			Msg("Desktop bridge not ready (continuing anyway, frontend may need to retry)")
-		// Don't fail - container is running, just not fully ready yet
-		// Frontend should handle this gracefully with retry logic
+		// Don't fail - container is running, just not fully ready yet.
+		// Frontend should handle this gracefully with retry logic.
 	}
 
 	// Track session
@@ -456,6 +486,14 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 
 // StopDesktop stops a dev container using Hydra
 func (h *HydraExecutor) StopDesktop(ctx context.Context, sessionID string) error {
+	// Detach from the caller's context immediately. Stopping a container is a
+	// state-machine transition that must run to completion regardless of whether
+	// the triggering HTTP request is still alive (browser navigation, etc.).
+	// A half-stopped container with a stale ZFS zvol is worse than a slow stop.
+	stopCtx, stopCancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer stopCancel()
+	ctx = stopCtx //nolint:govet // intentional shadow — caller ctx not needed
+
 	log.Info().Str("session_id", sessionID).Msg("Stopping dev container via Hydra")
 
 	h.mutex.Lock()
@@ -485,6 +523,10 @@ func (h *HydraExecutor) StopDesktop(ctx context.Context, sessionID string) error
 	hydraRunnerID := fmt.Sprintf("hydra-%s", sandboxID)
 	hydraClient := hydra.NewRevDialClient(h.connman, hydraRunnerID)
 
+	// Capture a screenshot before tearing down the container so stopped desktops
+	// can still show their last state in the Kanban card and session viewer.
+	screenshotPath := h.capturePausedScreenshot(ctx, sessionID)
+
 	// Delete dev container via Hydra
 	resp, err := hydraClient.DeleteDevContainer(ctx, sessionID)
 	if err != nil {
@@ -508,6 +550,20 @@ func (h *HydraExecutor) StopDesktop(ctx context.Context, sessionID string) error
 	h.creationLocksMutex.Lock()
 	delete(h.creationLocks, sessionID)
 	h.creationLocksMutex.Unlock()
+
+	// Clear external_agent_status and persist the paused screenshot path together.
+	if dbSession, err := h.store.GetSession(ctx, sessionID); err == nil {
+		dbSession.Metadata.ExternalAgentStatus = ""
+		dbSession.Metadata.PausedScreenshotPath = screenshotPath
+		dbSession.Metadata.StatusMessage = ""
+		if _, err := h.store.UpdateSession(ctx, *dbSession); err != nil {
+			log.Debug().Err(err).Str("session_id", sessionID).Msg("Failed to update session after stop")
+		}
+	} else {
+		// Fallback: just clear the status the old way
+		h.setExternalAgentStatus(ctx, sessionID, "")
+		h.updateSessionStatusMessage(ctx, sessionID, "")
+	}
 
 	return nil
 }
@@ -724,6 +780,65 @@ func (h *HydraExecutor) updateSessionStatusMessage(ctx context.Context, sessionI
 
 // setExternalAgentStatus updates the session's external agent status in the database.
 // This controls which UI state the frontend shows (starting, running, stopped, etc.).
+// capturePausedScreenshot fetches a screenshot from the running desktop container
+// via RevDial and saves it to disk so it can be served after the container stops.
+// Returns the file path on success, empty string on any failure (best-effort).
+func (h *HydraExecutor) capturePausedScreenshot(ctx context.Context, sessionID string) string {
+	captureCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	conn, err := h.connman.Dial(captureCtx, fmt.Sprintf("desktop-%s", sessionID))
+	if err != nil {
+		log.Debug().Err(err).Str("session_id", sessionID).Msg("Could not connect to desktop for paused screenshot")
+		return ""
+	}
+	defer conn.Close()
+
+	req, err := http.NewRequestWithContext(captureCtx, "GET", "http://localhost:9876/screenshot?quality=80", nil)
+	if err != nil {
+		return ""
+	}
+	if err := req.Write(conn); err != nil {
+		return ""
+	}
+
+	resp, err := http.ReadResponse(bufio.NewReader(conn), req)
+	if err != nil || resp.StatusCode != http.StatusOK {
+		return ""
+	}
+	defer resp.Body.Close()
+
+	data := make([]byte, 0, 512*1024)
+	buf := make([]byte, 32*1024)
+	for {
+		n, readErr := resp.Body.Read(buf)
+		if n > 0 {
+			data = append(data, buf[:n]...)
+		}
+		if readErr != nil {
+			break
+		}
+	}
+	if len(data) == 0 {
+		return ""
+	}
+
+	filestoreRoot := h.filestoreLocalPath
+	if filestoreRoot == "" {
+		filestoreRoot = "/filestore"
+	}
+	dir := filepath.Join(filestoreRoot, "workspaces", "paused-screenshots")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return ""
+	}
+	path := filepath.Join(dir, sessionID+".jpg")
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		return ""
+	}
+	log.Info().Str("session_id", sessionID).Str("path", path).Msg("Saved paused screenshot")
+	return path
+}
+
 func (h *HydraExecutor) setExternalAgentStatus(ctx context.Context, sessionID, status string) {
 	dbSession, err := h.store.GetSession(ctx, sessionID)
 	if err != nil {
@@ -1056,8 +1171,9 @@ func (h *HydraExecutor) waitForDesktopBridge(ctx context.Context, sessionID stri
 	// RevDial runner ID follows the pattern "desktop-{sessionID}"
 	runnerID := fmt.Sprintf("desktop-%s", sessionID)
 
-	// Poll for up to 60 seconds (desktop startup can be slow)
-	maxAttempts := 60
+	// Poll for up to 120 seconds (desktop startup can be slow, especially
+	// when multiple desktops boot in parallel and contend for GPU/CPU/disk)
+	maxAttempts := 120
 	pollInterval := 1 * time.Second
 
 	log.Info().
@@ -1310,4 +1426,87 @@ func (h *HydraExecutor) checkLimits(ctx context.Context, agent *types.DesktopAge
 	}
 
 	return limitReached, nil
+}
+
+// OnSandboxDisconnected is called when a sandbox's grace period expires (definitively disconnected).
+// It clears stale container metadata from sessions on that sandbox so the frontend shows
+// "stopped" state instead of an endless connection loop.
+func (h *HydraExecutor) OnSandboxDisconnected(sandboxID string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	log.Info().Str("sandbox_id", sandboxID).Msg("Sandbox disconnected, clearing session metadata")
+
+	// Get all sessions associated with this sandbox
+	sessions, err := h.store.ListSessionsBySandbox(ctx, sandboxID)
+	if err != nil {
+		log.Error().Err(err).Str("sandbox_id", sandboxID).Msg("Failed to list sessions for sandbox")
+		return
+	}
+
+	if len(sessions) == 0 {
+		log.Debug().Str("sandbox_id", sandboxID).Msg("No sessions found for disconnected sandbox")
+		return
+	}
+
+	log.Info().Str("sandbox_id", sandboxID).Int("session_count", len(sessions)).Msg("Clearing metadata for sessions on disconnected sandbox")
+
+	// Clear container metadata for each session
+	for _, session := range sessions {
+		// Only clear if the session had container metadata
+		if session.Metadata.ContainerName == "" && session.Metadata.ContainerID == "" {
+			continue
+		}
+
+		// Clear stale container metadata
+		session.Metadata.ContainerName = ""
+		session.Metadata.ContainerID = ""
+		session.Metadata.ContainerIP = ""
+		session.Metadata.ExternalAgentStatus = "stopped"
+		// Keep DesiredState unchanged so reconciler can restart when sandbox returns
+		session.SandboxID = "" // Clear sandbox association
+
+		if _, err := h.store.UpdateSession(ctx, *session); err != nil {
+			log.Warn().Err(err).
+				Str("session_id", session.ID).
+				Str("sandbox_id", sandboxID).
+				Msg("Failed to clear session metadata after sandbox disconnect")
+		} else {
+			log.Debug().
+				Str("session_id", session.ID).
+				Str("sandbox_id", sandboxID).
+				Msg("Cleared session metadata after sandbox disconnect")
+		}
+	}
+
+	// Also clear in-memory sessions map
+	h.clearSessionsBySandbox(sandboxID)
+}
+
+// clearSessionsBySandbox removes all in-memory session entries for a given sandbox
+func (h *HydraExecutor) clearSessionsBySandbox(sandboxID string) {
+	h.mutex.Lock()
+	defer h.mutex.Unlock()
+
+	var cleared []string
+	for sessionID, session := range h.sessions {
+		// Check if this session was on the disconnected sandbox
+		// We need to check the DB session's SandboxID, but since we already updated the DB,
+		// we check if the session doesn't have a valid container anymore
+		if session.ContainerID == "" || session.Status != "running" {
+			continue
+		}
+
+		// Remove from in-memory map - the container no longer exists
+		delete(h.sessions, sessionID)
+		cleared = append(cleared, sessionID)
+	}
+
+	if len(cleared) > 0 {
+		log.Info().
+			Str("sandbox_id", sandboxID).
+			Int("cleared_count", len(cleared)).
+			Strs("session_ids", cleared).
+			Msg("Cleared in-memory sessions for disconnected sandbox")
+	}
 }

@@ -45,7 +45,10 @@ import useApi from "../../hooks/useApi";
 import useSnackbar from "../../hooks/useSnackbar";
 import useApps from "../../hooks/useApps";
 import { useGetProject, useGetProjectRepositories } from "../../services";
-import { useSpecTasks } from "../../services/specTaskService";
+import { useSpecTasks, useProjectLabels, useAddLabel } from "../../services/specTaskService";
+
+const LAST_LABELS_KEY = "helix_last_task_labels";
+const DRAFT_KEY_PREFIX = "helix_new_spectask_draft_";
 
 
 
@@ -82,9 +85,31 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
     enabled: !!projectId,
   });
 
+  const { data: projectLabels = [] } = useProjectLabels(projectId);
+  const addLabelMutation = useAddLabel();
+
+  const draftKey = `${DRAFT_KEY_PREFIX}${projectId}`;
+
   // Form state
-  const [taskPrompt, setTaskPrompt] = useState("");
+  const [taskPrompt, setTaskPrompt] = useState<string>(() => {
+    try {
+      const raw = localStorage.getItem(`${DRAFT_KEY_PREFIX}${projectId}`);
+      if (!raw) return "";
+      const { content } = JSON.parse(raw);
+      return content || "";
+    } catch {
+      return "";
+    }
+  });
+  const draftTimer = useRef<ReturnType<typeof setTimeout>>();
   const [taskPriority, setTaskPriority] = useState("medium");
+  const [taskLabels, setTaskLabels] = useState<string[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem(LAST_LABELS_KEY) || "[]");
+    } catch {
+      return [];
+    }
+  });
   const [selectedDependencyTaskIds, setSelectedDependencyTaskIds] = useState<
     string[]
   >([]);
@@ -240,11 +265,20 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
     }, 0);
   }, []);
 
+  // Clear debounce timer on unmount to prevent post-unmount writes
+  useEffect(() => {
+    return () => {
+      clearTimeout(draftTimer.current);
+    };
+  }, []);
+
   // Handle inline agent creation
   // Reset form
   const resetForm = useCallback(() => {
     setTaskPrompt("");
+    localStorage.removeItem(draftKey);
     setTaskPriority("medium");
+    // Labels intentionally kept — they persist to the next task via localStorage
     setSelectedDependencyTaskIds([]);
     setSelectedHelixAgent("");
     setJustDoItMode(false);
@@ -317,6 +351,20 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
         .v1SpecTasksFromPromptCreate(createTaskRequest);
 
       if (response.data) {
+        // Invalidate immediately so the task appears in the list without waiting for polling
+        queryClient.invalidateQueries({ queryKey: ["spec-tasks"] });
+
+        // Persist labels to localStorage for next task
+        localStorage.setItem(LAST_LABELS_KEY, JSON.stringify(taskLabels));
+
+        // Add labels to the newly created task
+        const taskId = response.data.id;
+        if (taskId && taskLabels.length > 0) {
+          for (const label of taskLabels) {
+            await addLabelMutation.mutateAsync({ taskId, label });
+          }
+        }
+
         snackbar.success(
           "SpecTask created! Planning agent will generate specifications.",
         );
@@ -411,6 +459,77 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
             </Select>
           </FormControl>
 
+          {/* Labels */}
+          <Autocomplete
+            multiple
+            freeSolo
+            options={projectLabels.filter((l) => !taskLabels.includes(l))}
+            value={taskLabels}
+            filterOptions={(options, params) => {
+              const filtered = options.filter((o) =>
+                o.toLowerCase().includes(params.inputValue.toLowerCase()),
+              );
+              const trimmed = params.inputValue.trim();
+              if (
+                trimmed &&
+                !taskLabels.some(
+                  (l) => l.toLowerCase() === trimmed.toLowerCase(),
+                ) &&
+                !options.some(
+                  (o) => o.toLowerCase() === trimmed.toLowerCase(),
+                )
+              ) {
+                filtered.push(`__create__:${trimmed}`);
+              }
+              return filtered;
+            }}
+            onChange={(_, newValue) => {
+              const resolved = (newValue as string[]).map((v) =>
+                v.startsWith("__create__:") ? v.slice("__create__:".length) : v,
+              );
+              setTaskLabels(resolved);
+            }}
+            getOptionLabel={(option) =>
+              option.startsWith("__create__:")
+                ? option.slice("__create__:".length)
+                : option
+            }
+            renderOption={(props, option) => {
+              if (option.startsWith("__create__:")) {
+                const label = option.slice("__create__:".length);
+                return (
+                  <li {...props} key="__create__">
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                      <Typography variant="body2" color="primary">
+                        + Create &ldquo;{label}&rdquo;
+                      </Typography>
+                    </Box>
+                  </li>
+                );
+              }
+              return <li {...props} key={option}>{option}</li>;
+            }}
+            renderTags={(value, getTagProps) =>
+              value.map((label, index) => (
+                <Chip
+                  key={label}
+                  label={label}
+                  size="small"
+                  {...getTagProps({ index })}
+                />
+              ))
+            }
+            renderInput={(params) => (
+              <TextField
+                {...params}
+                label="Labels"
+                placeholder={taskLabels.length === 0 ? "Add label..." : ""}
+                size="small"
+                helperText="Optional: labels are remembered for your next task"
+              />
+            )}
+          />
+
           {/* Single text box for everything */}
           <TextField
             label="Describe what you want to get done"
@@ -419,7 +538,18 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
             multiline
             rows={embedded ? 6 : 9}
             value={taskPrompt}
-            onChange={(e) => setTaskPrompt(e.target.value)}
+            onChange={(e) => {
+              const value = e.target.value;
+              setTaskPrompt(value);
+              clearTimeout(draftTimer.current);
+              draftTimer.current = setTimeout(() => {
+                if (value) {
+                  localStorage.setItem(draftKey, JSON.stringify({ content: value }));
+                } else {
+                  localStorage.removeItem(draftKey);
+                }
+              }, 300);
+            }}
             onKeyDown={(e) => {
               // If user presses Enter in empty text box, close panel
               if (

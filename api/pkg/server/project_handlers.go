@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"path"
+	"strings"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -73,7 +75,7 @@ func (s *HelixAPIServer) listOrganizationProjects(ctx context.Context, user *typ
 		return nil, system.NewHTTPError500(fmt.Sprintf("failed to lookup org: %s", err))
 	}
 
-	_, err = s.authorizeOrgMember(ctx, user, org.ID)
+	orgMembership, err := s.authorizeOrgMember(ctx, user, org.ID)
 	if err != nil {
 		return nil, system.NewHTTPError403(err.Error())
 	}
@@ -86,7 +88,21 @@ func (s *HelixAPIServer) listOrganizationProjects(ctx context.Context, user *typ
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
-	return projects, nil
+	// Org owners see all projects
+	if orgMembership.Role == types.OrganizationRoleOwner {
+		return projects, nil
+	}
+
+	// Non-owners only see projects they have access to
+	var authorizedProjects []*types.Project
+	for _, project := range projects {
+		if err := s.authorizeUserToProject(ctx, user, project, types.ActionGet); err != nil {
+			continue
+		}
+		authorizedProjects = append(authorizedProjects, project)
+	}
+
+	return authorizedProjects, nil
 }
 
 // getProject godoc
@@ -149,31 +165,54 @@ func (s *HelixAPIServer) getProject(_ http.ResponseWriter, r *http.Request) (*ty
 	// After an API restart, the monitoring goroutine is dead but DB still says
 	// "building". If the build isn't tracked in memory AND the container isn't
 	// running, reset the status so the UI doesn't get stuck.
-	if project.Metadata.DockerCacheStatus != nil {
+	//
+	// Skip during the first 90s after startup — RecoverStaleBuilds needs up
+	// to 60s to wait for sandbox reconnect and re-attach monitoring goroutines.
+	// Without this grace period, a page load during startup races with recovery
+	// and resets status to "none" before the sandbox can reconnect.
+	if project.Metadata.DockerCacheStatus != nil && time.Since(s.startTime) > 90*time.Second {
 		staleRecovered := false
 		for sbID, sbState := range project.Metadata.DockerCacheStatus.Sandboxes {
 			if sbState.Status != "building" || sbState.BuildSessionID == "" {
 				continue
 			}
-			// Two conditions must BOTH be false for recovery:
-			// 1. Monitoring goroutine alive (in-memory tracking)
-			// 2. Container still running on sandbox
-			// During normal operation, condition 1 is true → no recovery.
-			// After API restart, both are false → recovery triggers.
 			if s.goldenBuildService.IsTracking(project.ID, sbID) {
 				continue
 			}
 			if s.externalAgentExecutor.HasRunningContainer(r.Context(), sbState.BuildSessionID) {
 				continue
 			}
-			log.Info().
-				Str("project_id", projectID).
-				Str("sandbox_id", sbID).
-				Str("session_id", sbState.BuildSessionID).
-				Msg("Recovering stale golden build: monitoring goroutine dead and container not running")
-			sbState.Status = "none"
-			sbState.BuildSessionID = ""
-			sbState.Error = ""
+			// Check if the golden cache actually exists on the sandbox before
+			// resetting to "none" — the build may have completed and promoted
+			// while the API was down. Query the ZFS tree to find out.
+			cacheExists := false
+			hydraClient := hydra.NewRevDialClient(s.connman, fmt.Sprintf("hydra-%s", sbID))
+			ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+			tree, err := hydraClient.GetZFSTree(ctx, project.ID)
+			cancel()
+			if err == nil && tree != nil && tree.Available && tree.Golden != nil && len(tree.Golden.Children) > 0 {
+				cacheExists = true
+			}
+
+			if cacheExists {
+				log.Info().
+					Str("project_id", projectID).
+					Str("sandbox_id", sbID).
+					Str("session_id", sbState.BuildSessionID).
+					Msg("Recovering stale golden build: build completed while API was down, setting ready")
+				sbState.Status = "ready"
+				sbState.BuildSessionID = ""
+				sbState.Error = ""
+			} else {
+				log.Info().
+					Str("project_id", projectID).
+					Str("sandbox_id", sbID).
+					Str("session_id", sbState.BuildSessionID).
+					Msg("Recovering stale golden build: no cache found, resetting to none")
+				sbState.Status = "none"
+				sbState.BuildSessionID = ""
+				sbState.Error = ""
+			}
 			staleRecovered = true
 		}
 		if staleRecovered {
@@ -204,6 +243,20 @@ func (s *HelixAPIServer) getProject(_ http.ResponseWriter, r *http.Request) (*ty
 					Str("primary_repo_id", project.DefaultRepoID).
 					Msg("failed to load startup script from helix-specs branch")
 			}
+		}
+	}
+
+	// If no startup script was found in the git repo, use the database fallbacks.
+	// Priority: 1) helix-specs/.helix/startup.sh (already loaded above)
+	//           2) StartupScriptYAML (from YAML apply)
+	//           3) Synthesize from StartupInstall/StartupStart (legacy)
+	if project.StartupScript == "" {
+		if project.StartupScriptYAML != "" {
+			project.StartupScript = project.StartupScriptYAML
+			project.StartupScriptFromYAML = true
+		} else if project.StartupInstall != "" || project.StartupStart != "" {
+			project.StartupScript = synthesizeStartupScript(project.StartupInstall, project.StartupStart)
+			project.StartupScriptFromYAML = true
 		}
 	}
 
@@ -320,7 +373,6 @@ func (s *HelixAPIServer) createProject(_ http.ResponseWriter, r *http.Request) (
 	}
 
 	// Attach the primary repository to the project
-	// This sets the project_id on the repository so it shows up in the project's repo list
 	if err := s.Store.AttachRepositoryToProject(r.Context(), created.ID, req.DefaultRepoID); err != nil {
 		log.Warn().
 			Err(err).
@@ -553,6 +605,12 @@ func (s *HelixAPIServer) updateProject(_ http.ResponseWriter, r *http.Request) (
 
 	// DON'T update StartupScript in database - Git repo is source of truth
 	// It will be saved to git repo below and loaded from there on next fetch
+
+	// If user is editing the startup script via UI, clear the YAML-controlled flag
+	// since they're now manually managing the script
+	if req.StartupScript != nil {
+		project.StartupScriptFromYAML = false
+	}
 
 	err = s.Store.UpdateProject(r.Context(), project)
 	if err != nil {
@@ -985,6 +1043,26 @@ func (s *HelixAPIServer) attachRepositoryToProject(_ http.ResponseWriter, r *htt
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
+	// Update default_repo_id if it is empty or stale (points to a repo no longer attached).
+	attachedRepos, err := s.Store.ListGitRepositories(r.Context(), &types.ListGitRepositoriesRequest{ProjectID: projectID})
+	if err != nil {
+		log.Error().Err(err).Str("project_id", projectID).Msg("failed to list repositories after attach")
+		return nil, system.NewHTTPError500(err.Error())
+	}
+	defaultIsValid := false
+	for _, ar := range attachedRepos {
+		if ar.ID == project.DefaultRepoID {
+			defaultIsValid = true
+			break
+		}
+	}
+	if !defaultIsValid {
+		if err := s.Store.SetProjectPrimaryRepository(r.Context(), projectID, repoID); err != nil {
+			log.Error().Err(err).Str("project_id", projectID).Str("repo_id", repoID).Msg("failed to set default repo after attach")
+			return nil, system.NewHTTPError500(err.Error())
+		}
+	}
+
 	log.Info().
 		Str("user_id", user.ID).
 		Str("project_id", projectID).
@@ -1068,6 +1146,23 @@ func (s *HelixAPIServer) detachRepositoryFromProject(_ http.ResponseWriter, r *h
 			Str("repo_id", repoID).
 			Msg("failed to detach repository from project")
 		return nil, system.NewHTTPError500(err.Error())
+	}
+
+	// If the detached repo was the default, update default_repo_id to another attached repo or clear it.
+	if project.DefaultRepoID == repoID {
+		remainingRepos, err := s.Store.ListGitRepositories(r.Context(), &types.ListGitRepositoriesRequest{ProjectID: projectID})
+		if err != nil {
+			log.Error().Err(err).Str("project_id", projectID).Msg("failed to list repositories after detach")
+			return nil, system.NewHTTPError500(err.Error())
+		}
+		newDefault := ""
+		if len(remainingRepos) > 0 {
+			newDefault = remainingRepos[0].ID
+		}
+		if err := s.Store.SetProjectPrimaryRepository(r.Context(), projectID, newDefault); err != nil {
+			log.Error().Err(err).Str("project_id", projectID).Msg("failed to update default repo after detach")
+			return nil, system.NewHTTPError500(err.Error())
+		}
 	}
 
 	log.Info().
@@ -2230,4 +2325,504 @@ func (s *HelixAPIServer) deleteDockerCache(_ http.ResponseWriter, r *http.Reques
 	}
 
 	return map[string]string{"message": fmt.Sprintf("cache cleared on %d sandbox(es)", deleted)}, nil
+}
+
+// getDockerCacheZFSTree godoc
+// @Summary Get ZFS snapshot/clone tree for project's Docker cache
+// @Description Returns the ZFS snapshot and clone tree showing golden cache, snapshots, and active session clones.
+// @Tags    projects
+// @Produce json
+// @Param   id path string true "Project ID"
+// @Success 200 {object} types.ZFSTree
+// @Router  /api/v1/projects/{id}/docker-cache/zfs-tree [get]
+// @Security BearerAuth
+func (s *HelixAPIServer) getDockerCacheZFSTree(_ http.ResponseWriter, r *http.Request) (*types.ZFSTree, *system.HTTPError) {
+	user := getRequestUser(r)
+	projectID := getID(r)
+
+	project, err := s.Store.GetProject(r.Context(), projectID)
+	if err != nil {
+		return nil, system.NewHTTPError404("project not found")
+	}
+
+	err = s.authorizeUserToProject(r.Context(), user, project, types.ActionGet)
+	if err != nil {
+		return nil, system.NewHTTPError403(err.Error())
+	}
+
+	sandboxes, err := s.Store.ListSandboxes(r.Context())
+	if err != nil {
+		return nil, system.NewHTTPError500(fmt.Sprintf("failed to list sandboxes: %v", err))
+	}
+
+	for _, sb := range sandboxes {
+		if sb.Status != "online" {
+			continue
+		}
+		hydraClient := hydra.NewRevDialClient(s.connman, fmt.Sprintf("hydra-%s", sb.ID))
+		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+		tree, err := hydraClient.GetZFSTree(ctx, projectID)
+		cancel()
+		if err != nil {
+			continue // try next sandbox
+		}
+		return tree, nil
+	}
+
+	// No sandbox available — return empty tree
+	return &types.ZFSTree{Available: false}, nil
+}
+
+// PinnedProjectsResponse is the response body for pin/unpin endpoints
+type PinnedProjectsResponse struct {
+	PinnedProjectIDs []string `json:"pinned_project_ids"`
+}
+
+// pinProject godoc
+// @Summary Pin a project
+// @Description Pin a project for the current user so it appears at the top of the projects board
+// @Tags Projects
+// @Accept json
+// @Produce json
+// @Param id path string true "Project ID"
+// @Success 200 {object} PinnedProjectsResponse
+// @Failure 401 {object} system.HTTPError
+// @Failure 404 {object} system.HTTPError
+// @Failure 500 {object} system.HTTPError
+// @Security BearerAuth
+// @Router /api/v1/projects/{id}/pin [post]
+func (s *HelixAPIServer) pinProject(_ http.ResponseWriter, r *http.Request) (*PinnedProjectsResponse, *system.HTTPError) {
+	user := getRequestUser(r)
+	projectID := getID(r)
+
+	// Verify project exists
+	_, err := s.Store.GetProject(r.Context(), projectID)
+	if err != nil {
+		return nil, system.NewHTTPError404("project not found")
+	}
+
+	userMeta, err := s.Store.EnsureUserMeta(r.Context(), types.UserMeta{ID: user.ID})
+	if err != nil {
+		return nil, system.NewHTTPError500(fmt.Sprintf("failed to load user meta: %v", err))
+	}
+
+	// Add project ID if not already pinned
+	for _, id := range userMeta.Config.PinnedProjectIDs {
+		if id == projectID {
+			return &PinnedProjectsResponse{PinnedProjectIDs: userMeta.Config.PinnedProjectIDs}, nil
+		}
+	}
+	userMeta.Config.PinnedProjectIDs = append(userMeta.Config.PinnedProjectIDs, projectID)
+
+	if _, err := s.Store.UpdateUserMeta(r.Context(), *userMeta); err != nil {
+		return nil, system.NewHTTPError500(fmt.Sprintf("failed to update user meta: %v", err))
+	}
+
+	return &PinnedProjectsResponse{PinnedProjectIDs: userMeta.Config.PinnedProjectIDs}, nil
+}
+
+// unpinProject godoc
+// @Summary Unpin a project
+// @Description Remove a project from the current user's pinned projects
+// @Tags Projects
+// @Accept json
+// @Produce json
+// @Param id path string true "Project ID"
+// @Success 200 {object} PinnedProjectsResponse
+// @Failure 401 {object} system.HTTPError
+// @Failure 500 {object} system.HTTPError
+// @Security BearerAuth
+// @Router /api/v1/projects/{id}/pin [delete]
+func (s *HelixAPIServer) unpinProject(_ http.ResponseWriter, r *http.Request) (*PinnedProjectsResponse, *system.HTTPError) {
+	user := getRequestUser(r)
+	projectID := getID(r)
+
+	userMeta, err := s.Store.EnsureUserMeta(r.Context(), types.UserMeta{ID: user.ID})
+	if err != nil {
+		return nil, system.NewHTTPError500(fmt.Sprintf("failed to load user meta: %v", err))
+	}
+
+	// Remove project ID from pinned list
+	updated := userMeta.Config.PinnedProjectIDs[:0]
+	for _, id := range userMeta.Config.PinnedProjectIDs {
+		if id != projectID {
+			updated = append(updated, id)
+		}
+	}
+	userMeta.Config.PinnedProjectIDs = updated
+
+	if _, err := s.Store.UpdateUserMeta(r.Context(), *userMeta); err != nil {
+		return nil, system.NewHTTPError500(fmt.Sprintf("failed to update user meta: %v", err))
+	}
+
+	return &PinnedProjectsResponse{PinnedProjectIDs: userMeta.Config.PinnedProjectIDs}, nil
+}
+
+// applyProject godoc
+// @Summary Apply a project YAML
+// @Description Idempotent upsert of a project from a declarative YAML spec
+// @Tags Projects
+// @Accept json
+// @Produce json
+// @Param request body types.ProjectApplyRequest true "Project apply request"
+// @Success 200 {object} types.ProjectApplyResponse
+// @Failure 400 {object} system.HTTPError
+// @Failure 401 {object} system.HTTPError
+// @Failure 500 {object} system.HTTPError
+// @Security BearerAuth
+// @Router /api/v1/projects/apply [put]
+func (s *HelixAPIServer) applyProject(_ http.ResponseWriter, r *http.Request) (*types.ProjectApplyResponse, *system.HTTPError) {
+	user := getRequestUser(r)
+
+	var req types.ProjectApplyRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		return nil, system.NewHTTPError400("invalid request body")
+	}
+
+	if req.Name == "" {
+		return nil, system.NewHTTPError400("name is required")
+	}
+
+	// Validate repositories
+	if err := req.Spec.ValidateRepositories(); err != nil {
+		return nil, system.NewHTTPError400(err.Error())
+	}
+
+	// Resolve org: if provided, verify membership; otherwise auto-resolve to user's only org
+	orgID := req.OrganizationID
+	if orgID != "" {
+		// Org ID or name was provided - resolve it
+		membership, err := s.authorizeOrgMember(r.Context(), user, orgID)
+		if err != nil {
+			return nil, system.NewHTTPError403(err.Error())
+		}
+		orgID = membership.OrganizationID // Normalize to ID (in case name was provided)
+	} else {
+		// No org specified - auto-resolve to user's only organization
+		memberships, err := s.Store.ListOrganizationMemberships(r.Context(), &store.ListOrganizationMembershipsQuery{UserID: user.ID})
+		if err != nil {
+			return nil, system.NewHTTPError500(fmt.Sprintf("failed to list user organizations: %v", err))
+		}
+		if len(memberships) >= 1 {
+			orgID = memberships[0].OrganizationID
+		}
+		// If len(memberships) == 0, orgID stays empty and project is user-scoped
+	}
+
+	// Idempotency: look up existing project by name + org/user
+	var existingProjects []*types.Project
+	var listErr error
+	if orgID != "" {
+		existingProjects, listErr = s.Store.ListProjects(r.Context(), &store.ListProjectsQuery{OrganizationID: orgID})
+	} else {
+		existingProjects, listErr = s.Store.ListProjects(r.Context(), &store.ListProjectsQuery{UserID: user.ID})
+	}
+	if listErr != nil {
+		return nil, system.NewHTTPError500(listErr.Error())
+	}
+
+	var project *types.Project
+	for _, p := range existingProjects {
+		if p.Name == req.Name {
+			project = p
+			break
+		}
+	}
+
+	wasCreated := project == nil
+	if wasCreated {
+		project = &types.Project{
+			ID:             system.GenerateProjectID(),
+			Name:           req.Name,
+			UserID:         user.ID,
+			OrganizationID: orgID,
+			Status:         "active",
+		}
+	}
+
+	// Apply spec fields
+	if req.Spec.Description != "" {
+		project.Description = req.Spec.Description
+	}
+	if len(req.Spec.Technologies) > 0 {
+		project.Technologies = req.Spec.Technologies
+	}
+	if req.Spec.Guidelines != "" {
+		project.Guidelines = req.Spec.Guidelines
+	}
+	if req.Spec.Startup != nil {
+		// Prefer unified Script field, fall back to Install/Start for backward compatibility
+		if req.Spec.Startup.Script != "" {
+			project.StartupScriptYAML = req.Spec.Startup.Script // Store in database
+			project.StartupInstall = ""                         // Clear legacy fields
+			project.StartupStart = ""
+		} else if req.Spec.Startup.Install != "" || req.Spec.Startup.Start != "" {
+			// Synthesize script from legacy fields and store it
+			project.StartupScriptYAML = synthesizeStartupScript(req.Spec.Startup.Install, req.Spec.Startup.Start)
+			project.StartupInstall = req.Spec.Startup.Install
+			project.StartupStart = req.Spec.Startup.Start
+		}
+		project.StartupScriptFromYAML = true
+	}
+	if req.Spec.AutoStartBacklogTasks {
+		project.AutoStartBacklogTasks = true
+	}
+	if req.Spec.Kanban != nil && req.Spec.Kanban.WIPLimits != nil {
+		if project.Metadata.BoardSettings == nil {
+			project.Metadata.BoardSettings = &types.BoardSettings{}
+		}
+		project.Metadata.BoardSettings.WIPLimits = types.WIPLimits{
+			Planning:       req.Spec.Kanban.WIPLimits.Planning,
+			Implementation: req.Spec.Kanban.WIPLimits.Implementation,
+			Review:         req.Spec.Kanban.WIPLimits.Review,
+		}
+	}
+
+	if wasCreated {
+		if _, err := s.Store.CreateProject(r.Context(), project); err != nil {
+			return nil, system.NewHTTPError500(fmt.Sprintf("failed to create project: %v", err))
+		}
+	} else {
+		if err := s.Store.UpdateProject(r.Context(), project); err != nil {
+			return nil, system.NewHTTPError500(fmt.Sprintf("failed to update project: %v", err))
+		}
+	}
+
+	// Attach repositories
+	var primaryRepo *types.GitRepository
+	resolvedRepos := req.Spec.ResolvedRepositories()
+	for _, repoSpec := range resolvedRepos {
+		// Find-or-create git repository by external URL
+		repo, err := s.Store.GetGitRepositoryByExternalURL(r.Context(), orgID, repoSpec.URL)
+		if err != nil {
+			if err != store.ErrNotFound {
+				return nil, system.NewHTTPError500(fmt.Sprintf("failed to look up repository %s: %v", repoSpec.URL, err))
+			}
+			// Create it
+			branch := repoSpec.DefaultBranch
+			if branch == "" {
+				branch = "main"
+			}
+			// Derive a short human-readable name from the URL (e.g. "robot-hq" from
+			// "https://github.com/binocarlos/robot-hq"). This name is used as the
+			// workspace directory name inside the sandbox (/home/retro/work/<name>),
+			// so it must never be the full URL string.
+			repoName := strings.TrimSuffix(path.Base(repoSpec.URL), ".git")
+			if repoName == "" || repoName == "." {
+				repoName = repoSpec.URL
+			}
+			repo = &types.GitRepository{
+				ID:             system.GenerateUUID(),
+				Name:           repoName,
+				OrganizationID: orgID,
+				OwnerID:        user.ID,
+				RepoType:       types.GitRepositoryTypeCode,
+				IsExternal:     true,
+				ExternalURL:    repoSpec.URL,
+				CloneURL:       repoSpec.URL,
+				DefaultBranch:  branch,
+				Status:         types.GitRepositoryStatusActive,
+			}
+			if err := s.Store.CreateGitRepository(r.Context(), repo); err != nil {
+				return nil, system.NewHTTPError500(fmt.Sprintf("failed to create repository %s: %v", repoSpec.URL, err))
+			}
+		}
+		if err := s.Store.AttachRepositoryToProject(r.Context(), project.ID, repo.ID); err != nil {
+			return nil, system.NewHTTPError500(fmt.Sprintf("failed to attach repository %s: %v", repoSpec.URL, err))
+		}
+		if repoSpec.Primary {
+			if err := s.Store.SetProjectPrimaryRepository(r.Context(), project.ID, repo.ID); err != nil {
+				return nil, system.NewHTTPError500(fmt.Sprintf("failed to set primary repository: %v", err))
+			}
+			primaryRepo = repo
+		}
+	}
+
+	// Write startup script to helix-specs branch in the primary repo.
+	// For newly-created external repos (LocalPath == ""), trigger an async clone that
+	// calls SaveStartupScriptToHelixSpecs once the clone completes.
+	// For repos already cloned (LocalPath != ""), write the script synchronously.
+	if primaryRepo != nil && req.Spec.Startup != nil {
+		var startupScript string
+		if req.Spec.Startup.Script != "" {
+			startupScript = req.Spec.Startup.Script
+		} else if req.Spec.Startup.Install != "" || req.Spec.Startup.Start != "" {
+			startupScript = synthesizeStartupScript(req.Spec.Startup.Install, req.Spec.Startup.Start)
+		}
+		if startupScript != "" {
+			userName := user.FullName
+			userEmail := user.Email
+			repoSvc := s.projectInternalRepoService
+
+			if primaryRepo.LocalPath == "" {
+				// Repo not yet cloned — trigger async clone; write startup script after clone succeeds.
+				log.Info().Str("repo_id", primaryRepo.ID).Msg("Triggering async clone to initialize startup script in helix-specs")
+				s.gitRepositoryService.CloneRepositoryAsync(primaryRepo, func(localPath string) {
+					if _, err := repoSvc.SaveStartupScriptToHelixSpecs(localPath, startupScript, userName, userEmail); err != nil {
+						log.Warn().Err(err).Str("repo_id", primaryRepo.ID).Msg("failed to write startup script to helix-specs after clone")
+					} else {
+						log.Info().Str("repo_id", primaryRepo.ID).Msg("Startup script written to helix-specs after async clone")
+					}
+				})
+			} else {
+				// Repo already cloned — write startup script synchronously.
+				if _, err := repoSvc.SaveStartupScriptToHelixSpecs(primaryRepo.LocalPath, startupScript, userName, userEmail); err != nil {
+					log.Warn().Err(err).Str("repo_id", primaryRepo.ID).Msg("failed to write startup script to helix-specs")
+				}
+			}
+		}
+	}
+
+	// Seed Kanban tasks (idempotent by title — only creates tasks not already present)
+	if len(req.Spec.Tasks) > 0 {
+		existingTasks, err := s.Store.ListSpecTasks(r.Context(), &types.SpecTaskFilters{ProjectID: project.ID})
+		if err != nil {
+			return nil, system.NewHTTPError500(fmt.Sprintf("failed to list tasks: %v", err))
+		}
+		existingTitles := make(map[string]bool, len(existingTasks))
+		for _, t := range existingTasks {
+			existingTitles[t.Name] = true
+		}
+		for _, taskSpec := range req.Spec.Tasks {
+			if taskSpec.Title == "" || existingTitles[taskSpec.Title] {
+				continue
+			}
+			task := &types.SpecTask{
+				ID:             system.GenerateUUID(),
+				ProjectID:      project.ID,
+				UserID:         user.ID,
+				CreatedBy:      user.ID,
+				OrganizationID: orgID,
+				Name:           taskSpec.Title,
+				Description:    taskSpec.Description,
+				Status:         types.TaskStatusBacklog,
+				Priority:       types.SpecTaskPriorityMedium,
+				Type:           "task",
+			}
+			if err := s.Store.CreateSpecTask(r.Context(), task); err != nil {
+				log.Warn().Err(err).Str("title", taskSpec.Title).Msg("failed to seed task")
+			}
+		}
+	}
+
+	// Create or update the project's agent app from the agent spec
+	var agentAppID string
+	if req.Spec.Agent != nil {
+		agentSpec := req.Spec.Agent
+		// Map runtime string → AgentType + CodeAgentRuntime.
+		// When runtime is set, the agent runs inside a Zed desktop container (zed_external).
+		// When omitted, a plain chat agent (helix_basic) is created.
+		agentType, codeRuntime := projectAgentRuntimeToTypes(agentSpec.Runtime)
+
+		var credType types.CodeAgentCredentialType
+		if agentSpec.Credentials == "subscription" {
+			credType = types.CodeAgentCredentialTypeSubscription
+		}
+
+		assistant := types.AssistantConfig{
+			Name:                    agentSpec.Name,
+			Model:                   agentSpec.Model,
+			Provider:                agentSpec.Provider,
+			AgentType:               agentType,
+			CodeAgentRuntime:        codeRuntime,
+			CodeAgentCredentialType: credType,
+		}
+		if agentSpec.Tools != nil {
+			assistant.WebSearch = types.AssistantWebSearch{Enabled: agentSpec.Tools.WebSearch}
+			assistant.Browser = types.AssistantBrowser{Enabled: agentSpec.Tools.Browser}
+			assistant.Calculator = types.AssistantCalculator{Enabled: agentSpec.Tools.Calculator}
+		}
+
+		appHelixConfig := types.AppHelixConfig{
+			Name:             agentSpec.Name,
+			Assistants:       []types.AssistantConfig{assistant},
+			DefaultAgentType: agentType,
+		}
+		if agentType == types.AgentTypeZedExternal && agentSpec.Display != nil {
+			appHelixConfig.ExternalAgentEnabled = true
+			appHelixConfig.ExternalAgentConfig = &types.ExternalAgentConfig{
+				Resolution:         agentSpec.Display.Resolution,
+				DesktopType:        agentSpec.Display.DesktopType,
+				DisplayRefreshRate: agentSpec.Display.FPS,
+			}
+		} else if agentType == types.AgentTypeZedExternal {
+			appHelixConfig.ExternalAgentEnabled = true
+		}
+
+		var agentApp *types.App
+		if project.DefaultHelixAppID != "" {
+			agentApp, _ = s.Store.GetApp(r.Context(), project.DefaultHelixAppID)
+		}
+
+		if agentApp != nil {
+			agentApp.Config.Helix = appHelixConfig
+			if _, err := s.Store.UpdateApp(r.Context(), agentApp); err != nil {
+				return nil, system.NewHTTPError500(fmt.Sprintf("failed to update agent app: %v", err))
+			}
+			agentAppID = agentApp.ID
+		} else {
+			agentApp = &types.App{
+				ID:             system.GenerateUUID(),
+				Owner:          user.ID,
+				OwnerType:      types.OwnerTypeUser,
+				OrganizationID: orgID,
+				Config: types.AppConfig{
+					Helix: appHelixConfig,
+				},
+			}
+			if _, err := s.Store.CreateApp(r.Context(), agentApp); err != nil {
+				return nil, system.NewHTTPError500(fmt.Sprintf("failed to create agent app: %v", err))
+			}
+			agentAppID = agentApp.ID
+			project.DefaultHelixAppID = agentApp.ID
+			if err := s.Store.UpdateProject(r.Context(), project); err != nil {
+				return nil, system.NewHTTPError500(fmt.Sprintf("failed to link agent app to project: %v", err))
+			}
+		}
+	}
+
+	return &types.ProjectApplyResponse{
+		ProjectID:  project.ID,
+		Created:    wasCreated,
+		AgentAppID: agentAppID,
+	}, nil
+}
+
+// synthesizeStartupScript builds a shell script from declarative startup fields
+// (startup_install / startup_start) set via `helix apply -f project.yaml`.
+// It is shown in the UI when no .helix/startup.sh exists in the git repo yet.
+func synthesizeStartupScript(install, start string) string {
+	var sb strings.Builder
+	sb.WriteString("#!/bin/bash\nset -e\n")
+	if install != "" {
+		sb.WriteString("\n# Install dependencies\n")
+		sb.WriteString(install)
+		sb.WriteString("\n")
+	}
+	if start != "" {
+		sb.WriteString("\n# Start services\n")
+		sb.WriteString(start)
+		sb.WriteString("\n")
+	}
+	return sb.String()
+}
+
+// projectAgentRuntimeToTypes maps the human-friendly runtime string from project.yaml
+// to the internal AgentType + CodeAgentRuntime pair.
+// When runtime is empty or unrecognised, defaults to claude_code (recommended: handles
+// context compaction automatically, unlike Zed's built-in agent).
+func projectAgentRuntimeToTypes(runtime string) (types.AgentType, types.CodeAgentRuntime) {
+	switch runtime {
+	case "zed", "zed_agent":
+		return types.AgentTypeZedExternal, types.CodeAgentRuntimeZedAgent
+	case "qwen_code":
+		return types.AgentTypeZedExternal, types.CodeAgentRuntimeQwenCode
+	case "gemini_cli":
+		return types.AgentTypeZedExternal, types.CodeAgentRuntimeGeminiCLI
+	case "codex_cli":
+		return types.AgentTypeZedExternal, types.CodeAgentRuntimeCodexCLI
+	default:
+		// "claude_code" or empty/unrecognised → Claude Code CLI (default)
+		return types.AgentTypeZedExternal, types.CodeAgentRuntimeClaudeCode
+	}
 }

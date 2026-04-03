@@ -26,6 +26,7 @@ import PromptsListView from "../components/project/PromptsListView";
 import useAccount from "../hooks/useAccount";
 import useRouter from "../hooks/useRouter";
 import useSnackbar from "../hooks/useSnackbar";
+import { useSettingsDialog } from "../contexts/settingsDialog";
 import useApi from "../hooks/useApi";
 import useApps from "../hooks/useApps";
 import useSubscriptionGate from "../hooks/useSubscriptionGate";
@@ -35,6 +36,9 @@ import {
   useListSampleProjects,
   useInstantiateSampleProject,
   TypesProject,
+  usePinnedProjectIds,
+  usePinProject,
+  useUnpinProject,
 } from "../services";
 import { useGitRepositories } from "../services/gitRepositoryService";
 import type {
@@ -55,6 +59,7 @@ const Projects: FC = () => {
   const api = useApi();
   const apps = useApps();
   const { paywallActive, navigateToBilling } = useSubscriptionGate();
+  const { openDialog } = useSettingsDialog();
 
   const isLoggedIn = !!account.user;
 
@@ -113,6 +118,19 @@ const Projects: FC = () => {
     enabled: isLoggedIn,
   });
   const instantiateSampleMutation = useInstantiateSampleProject();
+
+  // Pinned projects
+  const { data: pinnedProjectIds = [] } = usePinnedProjectIds(isLoggedIn);
+  const pinProjectMutation = usePinProject();
+  const unpinProjectMutation = useUnpinProject();
+
+  const handlePinProject = React.useCallback((projectId: string) => {
+    pinProjectMutation.mutate(projectId);
+  }, [pinProjectMutation]);
+
+  const handleUnpinProject = React.useCallback((projectId: string) => {
+    unpinProjectMutation.mutate(projectId);
+  }, [unpinProjectMutation]);
 
   // Get tab from URL query parameter
   const { tab } = router.params;
@@ -286,7 +304,7 @@ const Projects: FC = () => {
 
   const handleProjectSettings = () => {
     if (selectedProject) {
-      account.orgNavigate("project-settings", { id: selectedProject.id });
+      openDialog('project-settings', { projectId: selectedProject.id });
     }
     handleMenuClose();
   };
@@ -716,13 +734,16 @@ const Projects: FC = () => {
               onViewProject={handleViewProject}
               onMenuOpen={handleMenuOpen}
               onNavigateToSettings={(id) =>
-                account.orgNavigate("project-settings", { id })
+                openDialog('project-settings', { projectId: id })
               }
               onCreateEmpty={handleNewProject}
               onCreateFromSample={handleInstantiateSample}
               sampleProjects={sampleProjects}
               isCreating={instantiateSampleMutation.isPending}
               appNamesMap={appNamesMap}
+              pinnedProjectIds={pinnedProjectIds}
+              onPinProject={handlePinProject}
+              onUnpinProject={handleUnpinProject}
             />
           )}
 

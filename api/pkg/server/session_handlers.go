@@ -35,54 +35,88 @@ import (
 // @Param id path string true "Session ID"
 // @Router /api/v1/sessions/{id} [get]
 // @Security BearerAuth
-func (apiServer *HelixAPIServer) getSession(_ http.ResponseWriter, req *http.Request) (*types.Session, *system.HTTPError) {
+func (apiServer *HelixAPIServer) getSession(rw http.ResponseWriter, req *http.Request) {
 	id := mux.Vars(req)["id"]
 	if id == "" {
-		return nil, system.NewHTTPError400("cannot load session without id")
+		http.Error(rw, "cannot load session without id", http.StatusBadRequest)
+		return
 	}
 	ctx := req.Context()
 	user := getRequestUser(req)
 
 	session, err := apiServer.Store.GetSession(ctx, id)
 	if err != nil {
-		return nil, system.NewHTTPError500(err.Error())
+		http.Error(rw, err.Error(), http.StatusInternalServerError)
+		return
 	}
 
 	err = apiServer.authorizeUserToSession(ctx, user, session, types.ActionGet)
 	if err != nil {
-		return nil, system.NewHTTPError403(err.Error())
+		http.Error(rw, err.Error(), http.StatusForbidden)
+		return
 	}
 
-	// Load interactions
+	// Determine external agent status (cheap RPC, no DB)
+	agentStatus := ""
+	if session.Metadata.ContainerName != "" {
+		if apiServer.externalAgentExecutor != nil {
+			_, execErr := apiServer.externalAgentExecutor.GetSession(session.ID)
+			if execErr != nil {
+				agentStatus = "stopped"
+			} else {
+				agentStatus = "running"
+			}
+		} else {
+			agentStatus = "stopped"
+		}
+	}
+
+	// Compute a lightweight ETag from cheap metadata — avoids loading full interactions
+	// on cache hits (the expensive part). Components: session row updated_at, interaction
+	// count + max updated_at (single aggregate query), and runtime agent status.
+	interactionCount, maxInteractionUpdated, err := apiServer.Store.GetInteractionsSummary(ctx, id, session.GenerationID)
+	if err != nil {
+		http.Error(rw, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	etag := fmt.Sprintf(`"%x-%x-%d-%x-%s"`,
+		session.Updated.UnixNano(),
+		maxInteractionUpdated.UnixNano(),
+		interactionCount,
+		session.GenerationID,
+		agentStatus,
+	)
+
+	rw.Header().Set("ETag", etag)
+	// must-revalidate: cache the response but always revalidate with the server.
+	// private: only the browser cache (not shared proxies like Caddy) may cache it.
+	// must-revalidate is required (not just no-cache) because responses to requests
+	// with Authorization headers are not cacheable otherwise per RFC 7234 §3.2.
+	rw.Header().Set("Cache-Control", "private, no-cache, must-revalidate")
+
+	if match := req.Header.Get("If-None-Match"); match == etag {
+		rw.WriteHeader(http.StatusNotModified)
+		return
+	}
+
+	// Cache miss — load full interactions
 	interactions, _, err := apiServer.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
 		SessionID:    id,
 		GenerationID: session.GenerationID,
 		PerPage:      1000,
 	})
 	if err != nil {
-		return nil, system.NewHTTPError500(err.Error())
+		http.Error(rw, err.Error(), http.StatusInternalServerError)
+		return
 	}
 	session.Interactions = interactions
+	session.Metadata.ExternalAgentStatus = agentStatus
 
-	// Check if the external agent (sandbox container) is actually running
-	// If not running, update status to "stopped"
-	if session.Metadata.ContainerName != "" {
-		if apiServer.externalAgentExecutor != nil {
-			_, err := apiServer.externalAgentExecutor.GetSession(session.ID)
-			if err != nil {
-				// External agent not running - mark as stopped
-				session.Metadata.ExternalAgentStatus = "stopped"
-			} else {
-				// External agent is running
-				session.Metadata.ExternalAgentStatus = "running"
-			}
-		} else {
-			// No external agent executor available - assume stopped
-			session.Metadata.ExternalAgentStatus = "stopped"
-		}
+	rw.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(rw).Encode(session); err != nil {
+		log.Ctx(ctx).Error().Err(err).Msg("failed to encode session response")
 	}
-
-	return session, nil
 }
 
 // listSessions godoc
@@ -1847,7 +1881,7 @@ func (s *HelixAPIServer) resumeSession(rw http.ResponseWriter, req *http.Request
 			Msg("Loading project context for exploratory session resume")
 	}
 
-	_, err = s.Controller.Options.Store.GetProject(ctx, agent.ProjectID)
+	project, err := s.Controller.Options.Store.GetProject(ctx, agent.ProjectID)
 	if err != nil {
 		http.Error(rw, fmt.Sprintf("failed to get project '%s': %s", agent.ProjectID, err.Error()), http.StatusInternalServerError)
 		return
@@ -1865,11 +1899,12 @@ func (s *HelixAPIServer) resumeSession(rw http.ResponseWriter, req *http.Request
 			}
 		}
 
-		// Set primary repository from project (repos are now managed at project level)
-		if len(projectRepos) > 0 {
-			// Use first repo as fallback if no default set
-			agent.PrimaryRepositoryID = projectRepos[0].ID
+		// Set primary repository: prefer project's configured default, fall back to first repo
+		primaryRepoID := project.DefaultRepoID
+		if primaryRepoID == "" {
+			primaryRepoID = projectRepos[0].ID
 		}
+		agent.PrimaryRepositoryID = primaryRepoID
 	}
 
 	// Get display settings from app's ExternalAgentConfig (or use defaults)

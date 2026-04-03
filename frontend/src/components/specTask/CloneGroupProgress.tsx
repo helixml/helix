@@ -95,8 +95,7 @@ const transformTaskForCard = (task: TypesSpecTaskWithProject) => ({
   design_docs_pushed_at: task.design_docs_pushed_at,
   clone_group_id: task.clone_group_id,
   cloned_from_id: task.cloned_from_id,
-  pull_request_id: task.pull_request_id,
-  pull_request_url: task.pull_request_url,
+  repo_pull_requests: task.repo_pull_requests,
   implementation_approved_at: task.implementation_approved_at,
   base_branch: task.base_branch,
   branch_name: task.branch_name,
@@ -109,7 +108,7 @@ const transformTaskForCard = (task: TypesSpecTaskWithProject) => ({
 
 // Stacked bar component showing all tasks as segments
 const StackedProgressBar: React.FC<{
-  tasks: Array<{ task_id: string; project_name: string; name: string; status: string; project_id?: string }>;
+  tasks: Array<{ task_id?: string; project_name?: string; name?: string; status?: string; project_id?: string }>;
   onTaskClick?: (taskId: string, projectId: string) => void;
 }> = ({ tasks, onTaskClick }) => {
   if (!tasks || tasks.length === 0) return null;
@@ -165,7 +164,7 @@ const StackedProgressBar: React.FC<{
               }}
             >
               <Box
-                onClick={() => onTaskClick?.(task.task_id, task.project_id || '')}
+                onClick={() => onTaskClick?.(task.task_id || '', task.project_id || '')}
                 sx={{
                   width: `${widthPercent}%`,
                   backgroundColor: color,
@@ -188,7 +187,7 @@ const StackedProgressBar: React.FC<{
                 {(task.status === 'implementation' || task.status === 'spec_generation') && (
                   <Play size={10} color="white" />
                 )}
-                {(task.status === 'failed' || task.status.includes('failed')) && (
+                {(task.status === 'failed' || (task.status || '').includes('failed')) && (
                   <AlertCircle size={10} color="white" />
                 )}
               </Box>
@@ -304,8 +303,7 @@ const CloneGroupProgressFull: React.FC<CloneGroupProgressProps> = ({
       try {
         await apiClient.v1SpecTasksApproveSpecsCreate(task.id!, {
           approved: true,
-          feedback: '',
-          auto_start: true,
+          comments: '',
         });
         successCount++;
       } catch (err) {

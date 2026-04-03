@@ -32,7 +32,31 @@ func (s *HelixAPIServer) anthropicAPIProxyHandler(w http.ResponseWriter, r *http
 	if err != nil {
 		log.Error().Err(err).Msg("failed to get provider endpoint")
 
-		http.Error(w, "Failed to get provider endpoint: "+err.Error(), http.StatusInternalServerError)
+		http.Error(w, "Failed to get provider endpoint: "+err.Error()+
+			". Note: /v1/messages only supports Anthropic-compatible providers. "+
+			"For OpenAI-compatible providers (Ollama, OpenRouter, etc.), use /v1/chat/completions instead.",
+			http.StatusBadRequest)
+		return
+	}
+
+	// Guard: reject non-Anthropic providers early with a clear error.
+	// The /v1/messages endpoint uses Anthropic API format which is incompatible
+	// with OpenAI-compatible providers (Ollama, OpenRouter, etc.).
+	// Agent tasks with non-Anthropic providers should route through /v1/chat/completions
+	// via the Zed config (see mapHelixToZedProvider in zed_config.go).
+	if !isAnthropicCompatible(endpoint) {
+		log.Warn().
+			Str("provider", endpoint.Name).
+			Str("base_url", endpoint.BaseURL).
+			Str("user_id", user.ID).
+			Msg("non-Anthropic provider hit /v1/messages — rejecting")
+
+		http.Error(w,
+			fmt.Sprintf("Provider %q is not Anthropic-compatible. "+
+				"The /v1/messages endpoint only supports Anthropic API format. "+
+				"Use /v1/chat/completions for OpenAI-compatible providers (Ollama, OpenRouter, etc.).",
+				endpoint.Name),
+			http.StatusBadRequest)
 		return
 	}
 
@@ -107,6 +131,23 @@ func (s *HelixAPIServer) anthropicAPIProxyHandler(w http.ResponseWriter, r *http
 	logger.Info().Msg("has enough balance, proxying request")
 
 	s.anthropicProxy.ServeHTTP(w, r)
+}
+
+// isAnthropicCompatible checks whether a provider endpoint speaks the Anthropic
+// /v1/messages API format. Currently only the built-in "anthropic" provider and
+// endpoints whose base URL points to Anthropic's API (or a Vertex AI proxy) qualify.
+func isAnthropicCompatible(ep *types.ProviderEndpoint) bool {
+	if ep.Name == string(types.ProviderAnthropic) {
+		return true
+	}
+	// Vertex AI endpoints proxy Anthropic format
+	if ep.VertexProjectID != "" {
+		return true
+	}
+	// Check base URL for known Anthropic-compatible hosts
+	baseURL := strings.ToLower(ep.BaseURL)
+	return strings.Contains(baseURL, "anthropic.com") ||
+		strings.Contains(baseURL, "anthropic.googleapis.com")
 }
 
 func parseAnthropicRequestModel(body []byte) (string, bool) {

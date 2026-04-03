@@ -33,7 +33,7 @@ export interface PromptHistoryEntry {
   id: string
   content: string
   timestamp: number
-  sessionId: string
+  sessionId?: string
   status: 'sent' | 'pending' | 'failed'
   interrupt?: boolean       // If true, this message interrupts current conversation
   queuePosition?: number    // Position in queue for ordering
@@ -51,7 +51,6 @@ export interface PromptHistoryEntry {
 interface PromptDraft {
   content: string
   sessionId: string
-  timestamp: number
 }
 
 interface UsePromptHistoryOptions {
@@ -140,10 +139,7 @@ function loadDraft(sessionId: string): string {
     const stored = localStorage.getItem(`${DRAFT_STORAGE_KEY}_${sessionId}`)
     if (stored) {
       const draft: PromptDraft = JSON.parse(stored)
-      // Only restore drafts less than 24 hours old
-      if (Date.now() - draft.timestamp < 24 * 60 * 60 * 1000) {
-        return draft.content
-      }
+      return draft.content
     }
   } catch (e) {
     console.warn('Failed to load draft:', e)
@@ -156,7 +152,6 @@ function saveDraft(sessionId: string, content: string): void {
     const draft: PromptDraft = {
       content,
       sessionId,
-      timestamp: Date.now(),
     }
     localStorage.setItem(`${DRAFT_STORAGE_KEY}_${sessionId}`, JSON.stringify(draft))
   } catch (e) {
@@ -619,7 +614,7 @@ export function usePromptHistory({
   const updateContent = useCallback((id: string, content: string) => {
     setHistory(prev => {
       const updated = prev.map(h =>
-        h.id === id ? { ...h, content } : h
+        h.id === id ? { ...h, content, syncedToBackend: false } : h
       )
       saveHistory(updated, specTaskId)
       return updated
@@ -630,7 +625,7 @@ export function usePromptHistory({
   const updateInterrupt = useCallback((id: string, interrupt: boolean) => {
     setHistory(prev => {
       const updated = prev.map(h =>
-        h.id === id ? { ...h, interrupt } : h
+        h.id === id ? { ...h, interrupt, syncedToBackend: false } : h
       )
       saveHistory(updated, specTaskId)
       return updated

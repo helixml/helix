@@ -8,6 +8,7 @@ interface ScreenshotViewerProps {
   sessionId: string;
   isRunner?: boolean;
   sandboxId?: string; // For desktop video streaming mode
+  onConnectionChange?: (connected: boolean) => void;
   onError?: (error: string) => void;
   width?: number;
   height?: number;
@@ -17,6 +18,7 @@ interface ScreenshotViewerProps {
   enableStreaming?: boolean; // Enable streaming mode toggle
   showToolbar?: boolean; // Show refresh/fullscreen buttons
   showTimestamp?: boolean; // Show last updated timestamp
+  quality?: number; // JPEG quality (1-100), lower = smaller. Default: server decides
 }
 
 const ScreenshotViewer: React.FC<ScreenshotViewerProps> = ({
@@ -32,6 +34,7 @@ const ScreenshotViewer: React.FC<ScreenshotViewerProps> = ({
   enableStreaming = true, // Enable streaming by default
   showToolbar = true, // Show toolbar by default
   showTimestamp = true, // Show timestamp by default
+  quality,
 }) => {
   // Dual-buffer system for smooth image transitions
   const [imageA, setImageA] = useState<string | null>(null);
@@ -60,12 +63,16 @@ const ScreenshotViewer: React.FC<ScreenshotViewerProps> = ({
 
   // Construct screenshot endpoint
   const getScreenshotEndpoint = useCallback(() => {
-    if (isRunner) {
-      return `/api/v1/external-agents/runners/${sessionId}/screenshot`;
-    } else {
-      return `/api/v1/external-agents/${sessionId}/screenshot`;
+    const base = isRunner
+      ? `/api/v1/external-agents/runners/${sessionId}/screenshot`
+      : `/api/v1/external-agents/${sessionId}/screenshot`;
+    const params = new URLSearchParams();
+    if (quality !== undefined) {
+      params.set('quality', String(quality));
     }
-  }, [sessionId, isRunner]);
+    const qs = params.toString();
+    return qs ? `${base}?${qs}` : base;
+  }, [sessionId, isRunner, quality]);
 
   // Fetch screenshot (useRef to prevent recreation on every render)
   const fetchScreenshotRef = useRef<() => Promise<void>>();
@@ -177,7 +184,9 @@ const ScreenshotViewer: React.FC<ScreenshotViewerProps> = ({
   // Check if video streaming is active elsewhere (slow down polling to reduce main thread contention)
   const { isStreaming } = useVideoStream();
 
-  // Auto-refresh screenshot with RAF for higher priority
+  // Auto-refresh screenshot — waits for each fetch to complete before scheduling the next.
+  // This prevents request pile-up on slow connections (the old code fired every 1.7s
+  // regardless of whether the previous fetch had finished, causing unbounded queue growth).
   useEffect(() => {
     // Don't poll if auto-refresh disabled, not in screenshot mode, or session is unavailable
     if (!autoRefresh || streamingMode !== 'screenshot' || sessionUnavailable) return;
@@ -185,22 +194,27 @@ const ScreenshotViewer: React.FC<ScreenshotViewerProps> = ({
     // When video streaming is active elsewhere, slow down to 10s to reduce main thread contention
     const effectiveInterval = isStreaming ? 10000 : refreshInterval;
 
+    let cancelled = false;
     let timeoutId: NodeJS.Timeout;
-    let rafId: number;
 
-    const refresh = () => {
-      rafId = requestAnimationFrame(() => {
-        fetchScreenshotRef.current?.();
+    const refresh = async () => {
+      if (cancelled) return;
+      try {
+        await fetchScreenshotRef.current?.();
+      } catch {
+        // Errors handled inside fetchScreenshotRef
+      }
+      if (!cancelled) {
         timeoutId = setTimeout(refresh, effectiveInterval);
-      });
+      }
     };
 
     // Start the refresh cycle
     timeoutId = setTimeout(refresh, effectiveInterval);
 
     return () => {
+      cancelled = true;
       clearTimeout(timeoutId);
-      if (rafId) cancelAnimationFrame(rafId);
     };
   }, [autoRefresh, refreshInterval, streamingMode, isStreaming, sessionUnavailable]);
 

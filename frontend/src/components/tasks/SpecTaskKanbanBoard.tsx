@@ -27,6 +27,7 @@ import {
   InputLabel,
   Avatar,
   InputAdornment,
+  Autocomplete,
 } from "@mui/material";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
@@ -70,7 +71,11 @@ import useAccount from "../../hooks/useAccount";
 import useRouter from "../../hooks/useRouter";
 import { getBrowserLocale } from "../../hooks/useBrowserLocale";
 import ArchiveConfirmDialog from "./ArchiveConfirmDialog";
-import TaskCard from "./TaskCard";
+import TaskCard, {
+  SpecTaskWithExtras,
+  KanbanColumn as TaskCardKanbanColumn,
+  TaskDependency,
+} from "./TaskCard";
 import {
   SpecTask,
   useSpecTasks,
@@ -79,7 +84,7 @@ import {
 } from "../../services/specTaskService";
 import {
   ServerTaskProgressResponse,
-  TypesAggregatedUsageMetric,
+  ServerBatchTaskUsageMetric,
 } from "../../api/api";
 import { useGetProject, useUpdateProject } from "../../services/projectService";
 import useSnackbar from "../../hooks/useSnackbar";
@@ -177,41 +182,48 @@ function mapStatusToPhase(status: string): {
   return { phase, planningStatus, hasSpecs };
 }
 
-interface SpecTaskWithExtras extends SpecTask {
-  hasSpecs: boolean;
-  phase: SpecTaskPhase;
-  planningStatus?:
-    | "none"
-    | "active"
-    | "pending_review"
-    | "completed"
-    | "failed"
-    | "queued";
+// Board-specific extensions of SpecTaskWithExtras (imported from TaskCard)
+// Use type alias to avoid TS2719 "two different types with this name" error
+type BoardTask = SpecTaskWithExtras & {
+  hasSpecs?: boolean;
+  completed_at?: string;
+  branch_prefix?: string;
+  planning_options?: Record<string, unknown>;
+  spec_approval?: Record<string, unknown>;
+  design_review_id?: string;
+  helix_app_id?: string;
+  external_agent_id?: string;
+  estimated_hours?: number;
+  last_push_at?: string;
+  last_push_commit_hash?: string;
+  merge_commit_hash?: string;
+  merged_at?: string;
+  original_prompt?: string;
+  last_prompt_content?: string;
+  implementation_plan?: string;
+  design_doc_path?: string;
+  description?: string;
+  priority?: string;
+  organization_id?: string;
+  project_id?: string;
+  user_id?: string;
+  created_at?: string;
+  created_by?: string;
   gitRepositoryId?: string;
   gitRepositoryUrl?: string;
   lastActivity?: string;
   activeSessionsCount?: number;
   completedSessionsCount?: number;
   specApprovalNeeded?: boolean;
-  onReviewDocs?: (task: SpecTaskWithExtras) => void;
-  depends_on?: TaskDependency[];
-}
+  onReviewDocs?: (task: BoardTask) => void;
+};
 
-interface TaskDependency {
-  id?: string;
-  task_number?: number;
-  status?: string;
-  archived?: boolean;
-}
-
-interface KanbanColumn {
-  id: SpecTaskPhase;
+interface KanbanColumn extends TaskCardKanbanColumn {
   title: string;
   color: string;
   backgroundColor: string;
   description: string;
-  limit?: number;
-  tasks: SpecTaskWithExtras[];
+  tasks: BoardTask[];
 }
 
 interface SpecTaskKanbanBoardProps {
@@ -229,6 +241,7 @@ interface SpecTaskKanbanBoardProps {
   };
   focusTaskId?: string; // Task ID to focus "Start Planning" button on (for newly created tasks)
   hasExternalRepo?: boolean; // When true, project uses external repo (ADO) - Accept button becomes "Open PR"
+  externalRepoType?: string; // The external repo type (e.g. "github", "ado")
   showArchived?: boolean; // Show archived tasks instead of active tasks
   showMetrics?: boolean; // Show metrics in task cards
   showMerged?: boolean; // Show merged column
@@ -242,6 +255,7 @@ const DroppableColumn: React.FC<{
   onArchiveTask?: (
     task: SpecTaskWithExtras,
     archived: boolean,
+    shiftKey?: boolean,
   ) => Promise<void>;
   onTaskClick?: (task: SpecTaskWithExtras) => void;
   onReviewDocs?: (task: SpecTaskWithExtras) => void;
@@ -249,13 +263,14 @@ const DroppableColumn: React.FC<{
   focusTaskId?: string;
   archivingTaskId?: string | null;
   hasExternalRepo?: boolean;
+  externalRepoType?: string;
   showMetrics?: boolean;
   theme: any;
   onHeaderClick?: () => void;
   /** Batch progress data keyed by task ID - avoids per-card polling */
   batchProgressData?: Record<string, ServerTaskProgressResponse>;
   /** Batch usage data keyed by task ID - avoids per-card polling */
-  batchUsageData?: Record<string, TypesAggregatedUsageMetric[]>;
+  batchUsageData?: Record<string, ServerBatchTaskUsageMetric[]>;
   autoStartBacklogTasks?: boolean;
   onToggleAutoStart?: () => void;
   highlightedTaskIds?: string[] | null;
@@ -274,6 +289,7 @@ const DroppableColumn: React.FC<{
   focusTaskId,
   archivingTaskId,
   hasExternalRepo,
+  externalRepoType,
   showMetrics,
   theme,
   onHeaderClick,
@@ -306,6 +322,7 @@ const DroppableColumn: React.FC<{
         focusStartPlanning={task.id === focusTaskId}
         isArchiving={task.id === archivingTaskId}
         hasExternalRepo={hasExternalRepo}
+        externalRepoType={externalRepoType}
         showMetrics={showMetrics}
         progressData={batchProgressData?.[task.id]}
         usageData={batchUsageData?.[task.id]}
@@ -589,6 +606,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
   wipLimits = { planning: 3, review: 2, implementation: 5 },
   focusTaskId,
   hasExternalRepo = false,
+  externalRepoType,
   showArchived: showArchivedProp = false,
   showMetrics: showMetricsProp,
   showMerged: showMergedProp = true,
@@ -606,14 +624,14 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
   const [mobileColumnIndex, setMobileColumnIndex] = useState(0);
 
   // State
-  const [tasks, setTasks] = useState<SpecTaskWithExtras[]>([]);
+  const [tasks, setTasks] = useState<BoardTask[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [planningDialogOpen, setPlanningDialogOpen] = useState(false);
-  const [selectedTask, setSelectedTask] = useState<SpecTaskWithExtras | null>(
+  const [selectedTask, setSelectedTask] = useState<BoardTask | null>(
     null,
   );
   const [archiveConfirmOpen, setArchiveConfirmOpen] = useState(false);
-  const [taskToArchive, setTaskToArchive] = useState<SpecTaskWithExtras | null>(
+  const [taskToArchive, setTaskToArchive] = useState<BoardTask | null>(
     null,
   );
   const [highlightedDependencyTaskIds, setHighlightedDependencyTaskIds] =
@@ -622,6 +640,46 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
 
   // Local search filter state (use prop as initial value, but manage locally)
   const [searchFilter, setSearchFilter] = useState(searchFilterProp);
+
+  // Label filter state — persisted to localStorage per project
+  const labelStorageKey = projectId ? `helix-label-filter-${projectId}` : null;
+  const [labelFilter, setLabelFilter] = useState<string[]>(() => {
+    if (!labelStorageKey) return [];
+    try {
+      const stored = localStorage.getItem(labelStorageKey);
+      return stored ? JSON.parse(stored) : [];
+    } catch {
+      return [];
+    }
+  });
+  useEffect(() => {
+    if (!labelStorageKey) return;
+    if (labelFilter.length === 0) {
+      localStorage.removeItem(labelStorageKey);
+    } else {
+      localStorage.setItem(labelStorageKey, JSON.stringify(labelFilter));
+    }
+  }, [labelFilter, labelStorageKey]);
+
+  // Assignee filter state — persisted to localStorage per project
+  const assigneeStorageKey = projectId ? `helix-assignee-filter-${projectId}` : null;
+  const [assigneeFilter, setAssigneeFilter] = useState<string[]>(() => {
+    if (!assigneeStorageKey) return [];
+    try {
+      const stored = localStorage.getItem(assigneeStorageKey);
+      return stored ? JSON.parse(stored) : [];
+    } catch {
+      return [];
+    }
+  });
+  useEffect(() => {
+    if (!assigneeStorageKey) return;
+    if (assigneeFilter.length === 0) {
+      localStorage.removeItem(assigneeStorageKey);
+    } else {
+      localStorage.setItem(assigneeStorageKey, JSON.stringify(assigneeFilter));
+    }
+  }, [assigneeFilter, assigneeStorageKey]);
 
   // Backlog table view state
   const [backlogExpanded, setBacklogExpanded] = useState(false);
@@ -671,6 +729,9 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
     refetchInterval: 60000, // Poll every 60 seconds for usage (less frequent than progress)
   });
   const batchUsageData = batchUsageResponse?.tasks;
+
+
+
 
   // Planning form state
   const [newTaskRequirements, setNewTaskRequirements] = useState("");
@@ -748,9 +809,9 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
 
   // Filter tasks based on search filter
   const filterTasks = (
-    taskList: SpecTaskWithExtras[],
+    taskList: BoardTask[],
     filter: string,
-  ): SpecTaskWithExtras[] => {
+  ): BoardTask[] => {
     if (!filter.trim()) return taskList;
     const lowerFilter = filter.toLowerCase();
     // Check if filter is purely numeric (e.g., "1412") for task_number matching
@@ -768,14 +829,52 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
     );
   };
 
-  // Apply search filter to tasks
-  const filteredTasks = useMemo(
-    () => filterTasks(tasks, searchFilter),
-    [tasks, searchFilter],
-  );
+  // Derive available labels from all loaded tasks
+  const availableLabels = useMemo(() => {
+    const labelSet = new Set<string>();
+    tasks.forEach((task) => (task.labels || []).forEach((l) => labelSet.add(l)));
+    return Array.from(labelSet).sort();
+  }, [tasks]);
+
+  // Derive available assignee IDs from all loaded tasks (including "__unassigned__")
+  const availableAssigneeIds = useMemo(() => {
+    const ids = new Set<string>();
+    tasks.forEach((task) => ids.add(task.assignee_id || "__unassigned__"));
+    return Array.from(ids);
+  }, [tasks]);
+
+  // Org members for resolving assignee names/avatars
+  const orgMembers = account.organizationTools.organization?.memberships || [];
+
+  // Apply search + label + assignee filters to tasks
+  const filteredTasks = useMemo(() => {
+    let result = filterTasks(tasks, searchFilter);
+    if (labelFilter.length > 0) {
+      result = result.filter((task) =>
+        labelFilter.every((l) => (task.labels || []).includes(l)),
+      );
+    }
+    if (assigneeFilter.length > 0) {
+      result = result.filter((task) =>
+        assigneeFilter.includes(task.assignee_id || "__unassigned__"),
+      );
+    }
+    return result;
+  }, [tasks, searchFilter, labelFilter, assigneeFilter]);
 
   // Kanban columns configuration - Linear color scheme
   // Pull Request column only shown for external repos (ADO)
+  // Sort helper: tasks needing human attention (agent finished) float to top
+  const sortWithAttentionFirst = (tasks: SpecTaskWithExtras[]) => {
+    return [...tasks].sort((a, b) => {
+      const aNeedsAttention = a.agent_work_state !== undefined && a.agent_work_state !== "working" && !!a.planning_session_id;
+      const bNeedsAttention = b.agent_work_state !== undefined && b.agent_work_state !== "working" && !!b.planning_session_id;
+      if (aNeedsAttention && !bNeedsAttention) return -1;
+      if (!aNeedsAttention && bNeedsAttention) return 1;
+      return 0; // preserve existing order for same-attention tasks
+    });
+  };
+
   const columns: KanbanColumn[] = useMemo(() => {
     const baseColumns: KanbanColumn[] = [
       {
@@ -798,8 +897,8 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
             const priorityB = PRIORITY_ORDER[b.priority || "medium"] ?? 2;
             if (priorityA !== priorityB) return priorityA - priorityB;
             return (
-              new Date(b.created || 0).getTime() -
-              new Date(a.created || 0).getTime()
+              new Date((b.created_at as string) || 0).getTime() -
+              new Date((a.created_at as string) || 0).getTime()
             );
           }),
       },
@@ -810,10 +909,10 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
         backgroundColor: "rgba(245, 158, 11, 0.08)",
         description: "Specs being generated",
         limit: WIP_LIMITS.planning,
-        tasks: filteredTasks.filter(
+        tasks: sortWithAttentionFirst(filteredTasks.filter(
           (t) =>
             (t as any).phase === "planning" || t.planningStatus === "active",
-        ),
+        )),
       },
       {
         id: "review",
@@ -822,9 +921,9 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
         backgroundColor: "rgba(59, 130, 246, 0.08)",
         description: "Ready for review",
         limit: WIP_LIMITS.review,
-        tasks: filteredTasks.filter(
+        tasks: sortWithAttentionFirst(filteredTasks.filter(
           (t) => (t as any).phase === "review" || t.specApprovalNeeded,
-        ),
+        )),
       },
       {
         id: "implementation",
@@ -833,9 +932,9 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
         backgroundColor: "rgba(16, 185, 129, 0.08)",
         description: "Implementation active",
         limit: WIP_LIMITS.implementation,
-        tasks: filteredTasks.filter(
+        tasks: sortWithAttentionFirst(filteredTasks.filter(
           (t) => (t as any).phase === "implementation",
-        ),
+        )),
       },
     ];
 
@@ -847,10 +946,10 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
         color: "#8b5cf6",
         backgroundColor: "rgba(139, 92, 246, 0.08)",
         description: "Awaiting merge in external repo",
-        tasks: filteredTasks.filter(
+        tasks: sortWithAttentionFirst(filteredTasks.filter(
           (t) =>
             (t as any).phase === "pull_request" || t.status === "pull_request",
-        ),
+        )),
       });
     }
 
@@ -901,7 +1000,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
       ? specTasksData
       : [];
 
-    const enhancedTasks: SpecTaskWithExtras[] = specTasks.map((task) => {
+    const enhancedTasks: BoardTask[] = specTasks.map((task) => {
       const {
         phase,
         planningStatus: mappedStatus,
@@ -920,7 +1019,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
         activeSessionsCount: 0,
         completedSessionsCount: 0,
         onReviewDocs: handleReviewDocs,
-      };
+      } as unknown as BoardTask;
     });
 
     setTasks(enhancedTasks);
@@ -955,7 +1054,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
   const createSampleRepoMutation = useCreateSampleRepository();
 
   const startPlanning = async (
-    task: SpecTaskWithExtras,
+    task: BoardTask,
     sampleType?: string,
   ) => {
     try {
@@ -1001,7 +1100,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
 
   // Handle archiving/unarchiving a task
   const handleArchiveTask = async (
-    task: SpecTaskWithExtras,
+    task: BoardTask,
     archived: boolean,
     shiftKey?: boolean,
   ) => {
@@ -1023,7 +1122,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
 
   // Actually perform the archive operation (called after confirmation or for unarchive)
   const performArchive = async (
-    task: SpecTaskWithExtras,
+    task: BoardTask,
     archived: boolean,
   ) => {
     setArchivingTaskId(task.id!);
@@ -1045,7 +1144,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
       const specTasks: SpecTask[] = Array.isArray(tasksData) ? tasksData : [];
 
       // Use consistent phase mapping helper
-      const enhancedTasks: SpecTaskWithExtras[] = specTasks.map((t) => {
+      const enhancedTasks: BoardTask[] = specTasks.map((t) => {
         const { phase, planningStatus, hasSpecs } = mapStatusToPhase(
           t.status || "backlog",
         );
@@ -1057,7 +1156,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
           phase,
           activeSessionsCount: 0,
           completedSessionsCount: 0,
-        };
+        } as unknown as BoardTask;
       });
 
       setTasks(enhancedTasks);
@@ -1070,7 +1169,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
   };
 
   // Handle starting planning for a task
-  const handleStartPlanning = async (task: SpecTaskWithExtras) => {
+  const handleStartPlanning = async (task: BoardTask) => {
     // Check WIP limit
     const planningColumn = columns.find((col) => col.id === "planning");
     const isPlanningFull =
@@ -1132,7 +1231,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
         const specTasks: SpecTask[] = Array.isArray(tasksData) ? tasksData : [];
 
         // Use consistent phase mapping helper
-        const enhancedTasks: SpecTaskWithExtras[] = specTasks.map((t) => {
+        const enhancedTasks: BoardTask[] = specTasks.map((t) => {
           const { phase, planningStatus, hasSpecs } = mapStatusToPhase(
             t.status || "backlog",
           );
@@ -1144,7 +1243,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
             planningStatus,
             activeSessionsCount: 0,
             completedSessionsCount: 0,
-          };
+          } as unknown as BoardTask;
         });
 
         setTasks(enhancedTasks);
@@ -1194,7 +1293,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
   };
 
   // Handle reviewing documents - navigates to the review page
-  const handleReviewDocs = async (task: SpecTaskWithExtras) => {
+  const handleReviewDocs = async (task: BoardTask) => {
     // Fetch the latest design review for this task using generated client
     try {
       const response = await api
@@ -1366,6 +1465,103 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
               ),
             }}
           />
+          {/* Label filter */}
+          {availableLabels.length > 0 && (
+            <Autocomplete
+              multiple
+              size="small"
+              options={availableLabels}
+              value={labelFilter}
+              onChange={(_, value) => setLabelFilter(value)}
+              renderInput={(params) => (
+                <TextField
+                  {...params}
+                  placeholder={labelFilter.length === 0 ? "Filter labels..." : ""}
+                  sx={{
+                    "& .MuiOutlinedInput-root": { height: "auto", minHeight: 36 },
+                  }}
+                />
+              )}
+              renderTags={(value, getTagProps) =>
+                value.map((option, index) => (
+                  <Chip
+                    {...getTagProps({ index })}
+                    key={option}
+                    label={option}
+                    size="small"
+                    sx={{ height: 20, fontSize: "0.7rem" }}
+                  />
+                ))
+              }
+              sx={{ width: 200 }}
+            />
+          )}
+          {/* Assignee filter */}
+          {availableAssigneeIds.length > 1 && (
+            <Autocomplete
+              multiple
+              size="small"
+              options={availableAssigneeIds}
+              value={assigneeFilter}
+              onChange={(_, value) => setAssigneeFilter(value)}
+              getOptionLabel={(id) => {
+                if (id === "__unassigned__") return "Unassigned";
+                const member = orgMembers.find((m: any) => m.user_id === id);
+                const user = member?.user as any;
+                return user?.full_name || user?.username || user?.email || id;
+              }}
+              renderOption={(props, id) => {
+                if (id === "__unassigned__") {
+                  return (
+                    <li {...props} key={id}>
+                      <Avatar sx={{ width: 24, height: 24, mr: 1, fontSize: "0.7rem", bgcolor: "grey.400" }}>?</Avatar>
+                      Unassigned
+                    </li>
+                  );
+                }
+                const member = orgMembers.find((m: any) => m.user_id === id);
+                const user = member?.user as any;
+                const name = user?.full_name || user?.username || user?.email || id;
+                const initials = name.slice(0, 2).toUpperCase();
+                return (
+                  <li {...props} key={id}>
+                    <Avatar sx={{ width: 24, height: 24, mr: 1, fontSize: "0.7rem" }}>{initials}</Avatar>
+                    {name}
+                  </li>
+                );
+              }}
+              renderInput={(params) => (
+                <TextField
+                  {...params}
+                  placeholder={assigneeFilter.length === 0 ? "Filter assignee..." : ""}
+                  sx={{
+                    "& .MuiOutlinedInput-root": { height: "auto", minHeight: 36 },
+                  }}
+                />
+              )}
+              renderTags={(value, getTagProps) =>
+                value.map((id, index) => {
+                  const label = id === "__unassigned__"
+                    ? "Unassigned"
+                    : (() => {
+                        const member = orgMembers.find((m: any) => m.user_id === id);
+                        const user = member?.user as any;
+                        return user?.full_name || user?.username || user?.email || id;
+                      })();
+                  return (
+                    <Chip
+                      {...getTagProps({ index })}
+                      key={id}
+                      label={label}
+                      size="small"
+                      sx={{ height: 20, fontSize: "0.7rem" }}
+                    />
+                  );
+                })
+              }
+              sx={{ width: 200 }}
+            />
+          )}
         </Box>
       </Box>
 
@@ -1413,7 +1609,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
       >
         {backlogExpanded ? (
           <BacklogTableView
-            tasks={columns.find((c) => c.id === "backlog")?.tasks || []}
+            tasks={(columns.find((c) => c.id === "backlog")?.tasks || []) as any}
             onClose={() => setBacklogExpanded(false)}
             autoStartBacklogTasks={autoStartBacklogTasks}
             onToggleAutoStart={handleToggleAutoStart}
@@ -1433,6 +1629,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
                 focusTaskId={focusTaskId}
                 archivingTaskId={archivingTaskId}
                 hasExternalRepo={hasExternalRepo}
+                externalRepoType={externalRepoType}
                 showMetrics={showMetrics}
                 highlightedTaskIds={highlightedDependencyTaskIds}
                 onDependencyHoverStart={setHighlightedDependencyTaskIds}
@@ -1473,6 +1670,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
               focusTaskId={focusTaskId}
               archivingTaskId={archivingTaskId}
               hasExternalRepo={hasExternalRepo}
+              externalRepoType={externalRepoType}
               showMetrics={showMetrics}
               highlightedTaskIds={highlightedDependencyTaskIds}
               onDependencyHoverStart={setHighlightedDependencyTaskIds}

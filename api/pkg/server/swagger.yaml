@@ -1006,6 +1006,13 @@ definitions:
         description: keyed by task_id
         type: object
     type: object
+  server.BatchTaskUsageMetric:
+    properties:
+      date:
+        type: string
+      total_tokens:
+        type: integer
+    type: object
   server.BatchTaskUsageResponse:
     properties:
       project_id:
@@ -1013,7 +1020,7 @@ definitions:
       tasks:
         additionalProperties:
           items:
-            $ref: '#/definitions/types.AggregatedUsageMetric'
+            $ref: '#/definitions/server.BatchTaskUsageMetric'
           type: array
         description: keyed by task_id
         type: object
@@ -1039,6 +1046,9 @@ definitions:
         type: string
       found:
         type: boolean
+      url:
+        description: OAuth URL for native browser
+        type: string
     type: object
   server.ClientBufferStats:
     properties:
@@ -1860,6 +1870,13 @@ definitions:
       status:
         type: string
     type: object
+  server.PinnedProjectsResponse:
+    properties:
+      pinned_project_ids:
+        items:
+          type: string
+        type: array
+    type: object
   server.PromptPinRequest:
     properties:
       pinned:
@@ -2020,6 +2037,16 @@ definitions:
       session_id:
         type: string
       status:
+        type: string
+    type: object
+  server.SessionClaudeCredentialsResponse:
+    properties:
+      credential_type:
+        description: '"oauth" or "setup_token"'
+        type: string
+      oauth_credentials:
+        $ref: '#/definitions/types.ClaudeOAuthCredentials'
+      setup_token:
         type: string
     type: object
   server.SessionSandboxStateResponse:
@@ -2214,6 +2241,11 @@ definitions:
         type: integer
       gop_buffer_size:
         type: integer
+    type: object
+  server.addLabelRequest:
+    properties:
+      label:
+        type: string
     type: object
   services.SampleProjectCode:
     properties:
@@ -2990,6 +3022,67 @@ definitions:
       name:
         type: string
     type: object
+  types.AttentionEvent:
+    properties:
+      acknowledged_at:
+        type: string
+      created_at:
+        type: string
+      description:
+        type: string
+      dismissed_at:
+        type: string
+      event_type:
+        $ref: '#/definitions/types.AttentionEventType'
+      id:
+        type: string
+      idempotency_key:
+        type: string
+      metadata:
+        items:
+          type: integer
+        type: array
+      organization_id:
+        type: string
+      project_id:
+        type: string
+      project_name:
+        description: Denormalized for display without joins
+        type: string
+      snoozed_until:
+        type: string
+      spec_task_id:
+        type: string
+      spec_task_name:
+        type: string
+      title:
+        type: string
+      user_id:
+        type: string
+    type: object
+  types.AttentionEventType:
+    enum:
+    - specs_pushed
+    - agent_interaction_completed
+    - spec_failed
+    - implementation_failed
+    - pr_ready
+    type: string
+    x-enum-varnames:
+    - AttentionEventSpecsPushed
+    - AttentionEventAgentInteractionCompleted
+    - AttentionEventSpecFailed
+    - AttentionEventImplementationFailed
+    - AttentionEventPRReady
+  types.AttentionEventUpdateRequest:
+    properties:
+      acknowledge:
+        type: boolean
+      dismiss:
+        type: boolean
+      snoozed_until:
+        type: string
+    type: object
   types.AuditEventType:
     enum:
     - task_created
@@ -3082,11 +3175,11 @@ definitions:
       project_name:
         description: Project information
         type: string
-      pull_request_id:
+      pull_requests:
         description: Pull request information
-        type: string
-      pull_request_url:
-        type: string
+        items:
+          $ref: '#/definitions/types.RepoPR'
+        type: array
       requirements_spec_hash:
         description: Hash of requirements spec content
         type: string
@@ -3324,6 +3417,9 @@ definitions:
       created:
         type: string
       created_by:
+        type: string
+      credential_type:
+        description: '"oauth" or "setup_token"'
         type: string
       id:
         type: string
@@ -3694,6 +3790,9 @@ definitions:
         allOf:
         - $ref: '#/definitions/types.OwnerType'
         description: '"user" or "org"'
+      setup_token:
+        description: From `claude setup-token` (alternative to credentials)
+        type: string
     type: object
   types.CreatePullRequestRequest:
     properties:
@@ -4512,12 +4611,6 @@ definitions:
       password:
         description: Password for the repository
         type: string
-      project_id:
-        description: |-
-          Deprecated: ProjectID is maintained for backward compatibility only.
-          Use the project_repositories junction table for many-to-many project-repo relationships.
-          This column is kept in the database for rollback compatibility but reads should use the junction table.
-        type: string
       repo_type:
         $ref: '#/definitions/types.GitRepositoryType'
       status:
@@ -4817,6 +4910,16 @@ definitions:
       rag_results:
         items:
           $ref: '#/definitions/types.SessionRAGResult'
+        type: array
+      response_entries:
+        description: |-
+          ResponseEntries holds the structured response as an ordered list of typed entries.
+          Each entry is either "text" (assistant prose) or "tool_call" (tool invocation),
+          preserving the ordering and boundaries that Zed's internal Vec<AgentThreadEntry> has.
+          This is populated on completion alongside ResponseMessage (flat string, backward compat).
+          The frontend uses this to render entries with the correct component in the correct order.
+        items:
+          type: integer
         type: array
       response_format:
         allOf:
@@ -6000,9 +6103,28 @@ definitions:
         description: |-
           Project-level skills - these overlay on top of agent skills
           Useful for project-specific tools like CI integration (e.g., drone-ci-mcp)
+      startup_install:
+        description: |-
+          Startup commands from declarative project YAML (persisted) - DEPRECATED
+          Use StartupScriptYAML instead. Kept for backward compatibility.
+        type: string
       startup_script:
         description: Transient field - loaded from primary code repo's .helix/startup.sh,
           never persisted to database
+        type: string
+      startup_script_from_yaml:
+        description: |-
+          StartupScriptFromYAML indicates the startup script was set via project YAML
+          When true, the UI should show the script as read-only
+        type: boolean
+      startup_script_yaml:
+        description: |-
+          StartupScriptYAML is the startup script content from project YAML (persisted)
+          This is the source of truth when StartupScriptFromYAML is true.
+          At runtime, helix-specs/.helix/startup.sh takes precedence if it exists,
+          otherwise this field is used as fallback.
+        type: string
+      startup_start:
         type: string
       stats:
         allOf:
@@ -6018,6 +6140,63 @@ definitions:
       updated_at:
         type: string
       user_id:
+        type: string
+    type: object
+  types.ProjectAgentDisplay:
+    properties:
+      desktop_type:
+        description: 'Desktop environment: "ubuntu" (default GNOME) or "sway"'
+        type: string
+      fps:
+        description: Display refresh rate in Hz (default 60)
+        type: integer
+      resolution:
+        description: 'Resolution preset: "1080p" (default), "4k", or "5k"'
+        type: string
+    type: object
+  types.ProjectAgentSpec:
+    properties:
+      credentials:
+        type: string
+      display:
+        $ref: '#/definitions/types.ProjectAgentDisplay'
+      model:
+        type: string
+      name:
+        type: string
+      provider:
+        type: string
+      runtime:
+        type: string
+      tools:
+        $ref: '#/definitions/types.ProjectAgentTools'
+    type: object
+  types.ProjectAgentTools:
+    properties:
+      browser:
+        type: boolean
+      calculator:
+        type: boolean
+      web_search:
+        type: boolean
+    type: object
+  types.ProjectApplyRequest:
+    properties:
+      name:
+        type: string
+      organization_id:
+        type: string
+      spec:
+        $ref: '#/definitions/types.ProjectSpec'
+    type: object
+  types.ProjectApplyResponse:
+    properties:
+      agent_app_id:
+        type: string
+      created:
+        description: true if created, false if updated
+        type: boolean
+      project_id:
         type: string
     type: object
   types.ProjectAuditLog:
@@ -6085,6 +6264,11 @@ definitions:
           type: string
         type: array
     type: object
+  types.ProjectKanban:
+    properties:
+      wip_limits:
+        $ref: '#/definitions/types.ProjectWIPLimits'
+    type: object
   types.ProjectMetadata:
     properties:
       auto_warm_docker_cache:
@@ -6093,6 +6277,62 @@ definitions:
         $ref: '#/definitions/types.BoardSettings'
       docker_cache_status:
         $ref: '#/definitions/types.DockerCacheState'
+    type: object
+  types.ProjectRepositorySpec:
+    properties:
+      default_branch:
+        type: string
+      primary:
+        type: boolean
+      url:
+        type: string
+    type: object
+  types.ProjectSpec:
+    properties:
+      agent:
+        $ref: '#/definitions/types.ProjectAgentSpec'
+      auto_start_backlog_tasks:
+        type: boolean
+      description:
+        type: string
+      guidelines:
+        type: string
+      kanban:
+        $ref: '#/definitions/types.ProjectKanban'
+      name:
+        type: string
+      repositories:
+        description: Multi-repo list
+        items:
+          $ref: '#/definitions/types.ProjectRepositorySpec'
+        type: array
+      repository:
+        allOf:
+        - $ref: '#/definitions/types.ProjectRepositorySpec'
+        description: Singular shorthand
+      startup:
+        $ref: '#/definitions/types.ProjectStartup'
+      tasks:
+        items:
+          $ref: '#/definitions/types.ProjectTaskSpec'
+        type: array
+      technologies:
+        items:
+          type: string
+        type: array
+    type: object
+  types.ProjectStartup:
+    properties:
+      install:
+        description: |-
+          Install and Start are deprecated - use Script instead
+          Kept for backward compatibility with existing YAML files
+        type: string
+      script:
+        description: Script is the unified startup script content (preferred)
+        type: string
+      start:
+        type: string
     type: object
   types.ProjectStats:
     properties:
@@ -6112,6 +6352,13 @@ definitions:
         type: integer
       total_tasks:
         type: integer
+    type: object
+  types.ProjectTaskSpec:
+    properties:
+      description:
+        type: string
+      title:
+        type: string
     type: object
   types.ProjectUpdateRequest:
     properties:
@@ -6160,6 +6407,15 @@ definitions:
           type: string
         type: array
     type: object
+  types.ProjectWIPLimits:
+    properties:
+      implementation:
+        type: integer
+      planning:
+        type: integer
+      review:
+        type: integer
+    type: object
   types.PromptHistoryEntry:
     properties:
       content:
@@ -6167,6 +6423,9 @@ definitions:
         type: string
       created_at:
         description: Timestamps
+        type: string
+      deleted_at:
+        description: 'Soft-delete: non-nil means user removed from queue'
         type: string
       id:
         description: 'Composite primary key: ID is globally unique, but we also index
@@ -6176,6 +6435,7 @@ definitions:
         description: |-
           Interrupt indicates this message should interrupt the current conversation
           When false, message waits until current conversation completes
+          Default is false: queue mode is the default, interrupt is explicit
         type: boolean
       is_template:
         description: Saved as a reusable template
@@ -6634,6 +6894,22 @@ definitions:
       password_confirm:
         type: string
     type: object
+  types.RepoPR:
+    properties:
+      pr_id:
+        type: string
+      pr_number:
+        type: integer
+      pr_state:
+        description: '"open", "closed", "merged"'
+        type: string
+      pr_url:
+        type: string
+      repository_id:
+        type: string
+      repository_name:
+        type: string
+    type: object
   types.RepositoryAccessCheck:
     properties:
       can_fork:
@@ -6949,6 +7225,10 @@ definitions:
       gpu_vendor:
         description: GPU configuration
         type: string
+      helix_version:
+        description: Helix version running on this sandbox (git commit hash or release
+          version)
+        type: string
       privileged_mode_enabled:
         description: Privileged mode (host Docker access for development)
         type: boolean
@@ -6972,6 +7252,10 @@ definitions:
         type: object
       gpu_vendor:
         description: GPU configuration
+        type: string
+      helix_version:
+        description: Helix version running on this sandbox (git commit hash or release
+          version)
         type: string
       hostname:
         description: Hostname for DNS resolution
@@ -7479,9 +7763,6 @@ definitions:
       container_name:
         description: Container fields (Hydra executor)
         type: string
-      desired_state:
-        description: '"running" = should be running, "stopped" = can terminate'
-        type: string
       dev_container_id:
         description: Dev container ID for streaming
         type: string
@@ -7601,6 +7882,10 @@ definitions:
         type: string
       work_session_id:
         description: ID of associated WorkSession
+        type: string
+      zed_agent_name:
+        description: Agent name used when thread was created (e.g., "zed-agent", "claude",
+          "qwen")
         type: string
       zed_instance_id:
         description: Associated Zed instance ID
@@ -7722,6 +8007,11 @@ definitions:
         type: string
       loadedAt:
         type: string
+      mcp:
+        allOf:
+        - $ref: '#/definitions/types.SkillMCPSpec'
+        description: MCP configuration (present when this skill is MCP-backed rather
+          than API-backed)
       name:
         type: string
       oauthProvider:
@@ -7759,6 +8049,15 @@ definitions:
         type: string
       type:
         description: e.g., "material-ui", "custom"
+        type: string
+    type: object
+  types.SkillMCPSpec:
+    properties:
+      autoProvision:
+        description: if true, URL+auth are generated server-side
+        type: boolean
+      transport:
+        description: '"http" or "sse"'
         type: string
     type: object
   types.SkillRequiredParameter:
@@ -7828,6 +8127,9 @@ definitions:
       archived:
         description: Archive to hide from main view
         type: boolean
+      assignee_id:
+        description: Team member assigned to work on this task
+        type: string
       base_branch:
         description: The base branch this was created from
         type: string
@@ -7945,13 +8247,20 @@ definitions:
       public_design_docs:
         description: Public sharing
         type: boolean
-      pull_request_id:
-        type: string
-      pull_request_url:
-        description: Computed field, not stored
-        type: string
+      repo_pull_requests:
+        description: 'Multi-repo PR tracking: list of PRs across all project repositories'
+        items:
+          $ref: '#/definitions/types.RepoPR'
+        type: array
       requirements_spec:
         description: User stories + EARS acceptance criteria (markdown)
+        type: string
+      sandbox_state:
+        description: '"absent", "running", "starting" — derived from session config
+          in listTasks'
+        type: string
+      sandbox_status_message:
+        description: Transient startup message e.g. "Unpacking build cache"
         type: string
       session_updated_at:
         description: Agent activity tracking (computed from session/activity data,
@@ -8060,6 +8369,11 @@ definitions:
       agent_response_at:
         description: When agent responded
         type: string
+      agent_response_entries:
+        description: Agent's structured entries (for tool call rendering)
+        items:
+          type: integer
+        type: array
       comment_text:
         description: The actual comment
         type: string
@@ -8307,6 +8621,9 @@ definitions:
     - TaskStatusImplementationFailed
   types.SpecTaskUpdateRequest:
     properties:
+      assignee_id:
+        description: Pointer to allow clearing (set to empty string to unassign)
+        type: string
       depends_on:
         description: IDs of tasks this task depends on
         items:
@@ -8343,6 +8660,9 @@ definitions:
       archived:
         description: Archive to hide from main view
         type: boolean
+      assignee_id:
+        description: Team member assigned to work on this task
+        type: string
       base_branch:
         description: The base branch this was created from
         type: string
@@ -8462,13 +8782,20 @@ definitions:
       public_design_docs:
         description: Public sharing
         type: boolean
-      pull_request_id:
-        type: string
-      pull_request_url:
-        description: Computed field, not stored
-        type: string
+      repo_pull_requests:
+        description: 'Multi-repo PR tracking: list of PRs across all project repositories'
+        items:
+          $ref: '#/definitions/types.RepoPR'
+        type: array
       requirements_spec:
         description: User stories + EARS acceptance criteria (markdown)
+        type: string
+      sandbox_state:
+        description: '"absent", "running", "starting" — derived from session config
+          in listTasks'
+        type: string
+      sandbox_status_message:
+        description: Transient startup message e.g. "Unpacking build cache"
         type: string
       session_updated_at:
         description: Agent activity tracking (computed from session/activity data,
@@ -9624,6 +9951,38 @@ definitions:
       updated:
         type: string
     type: object
+  types.ZFSTree:
+    properties:
+      available:
+        type: boolean
+      golden:
+        $ref: '#/definitions/types.ZFSTreeNode'
+      orphans:
+        items:
+          $ref: '#/definitions/types.ZFSTreeNode'
+        type: array
+      pool_root:
+        type: string
+    type: object
+  types.ZFSTreeNode:
+    properties:
+      children:
+        items:
+          $ref: '#/definitions/types.ZFSTreeNode'
+        type: array
+      mounted:
+        type: boolean
+      name:
+        type: string
+      refer:
+        type: string
+      session_id:
+        type: string
+      type:
+        type: string
+      used:
+        type: string
+    type: object
   types.ZedConfigResponse:
     properties:
       agent:
@@ -10776,6 +11135,31 @@ paths:
       summary: Delete app memory
       tags:
       - memories
+  /api/v1/apps/{id}/skills/{skill}/enable:
+    post:
+      description: Enable a marketplace skill on an app. For autoProvision MCP skills
+        the server generates URL and auth automatically.
+      parameters:
+      - description: App ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Skill name (e.g. code-intelligence)
+        in: path
+        name: skill
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.App'
+      security:
+      - BearerAuth: []
+      summary: Enable a marketplace skill on an app
+      tags:
+      - skills
   /api/v1/apps/{id}/step-info:
     get:
       description: List step info for a specific app and interaction ID, used to build
@@ -10887,6 +11271,105 @@ paths:
       summary: Get app users daily usage
       tags:
       - apps
+  /api/v1/attention-events:
+    get:
+      description: Returns attention events that need human action for the current
+        user. Only returns events that have not been dismissed and are not currently
+        snoozed.
+      parameters:
+      - description: 'Filter to active (non-dismissed, non-snoozed) events only (default:
+          true)'
+        in: query
+        name: active
+        type: boolean
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.AttentionEvent'
+            type: array
+        "401":
+          description: unauthorized
+          schema:
+            type: string
+        "500":
+          description: internal server error
+          schema:
+            type: string
+      summary: List active attention events
+      tags:
+      - attention-events
+  /api/v1/attention-events/{id}:
+    patch:
+      consumes:
+      - application/json
+      description: Acknowledge, dismiss, or snooze an attention event.
+      parameters:
+      - description: Attention event ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Update request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.AttentionEventUpdateRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: bad request
+          schema:
+            type: string
+        "401":
+          description: unauthorized
+          schema:
+            type: string
+        "404":
+          description: not found
+          schema:
+            type: string
+        "500":
+          description: internal server error
+          schema:
+            type: string
+      summary: Update an attention event
+      tags:
+      - attention-events
+  /api/v1/attention-events/dismiss-all:
+    post:
+      description: Bulk-dismiss all active (non-dismissed) attention events for the
+        current user.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: unauthorized
+          schema:
+            type: string
+        "500":
+          description: internal server error
+          schema:
+            type: string
+      summary: Dismiss all active attention events
+      tags:
+      - attention-events
   /api/v1/auth/authenticated:
     get:
       description: Check if the user is authenticated
@@ -14881,6 +15364,28 @@ paths:
       summary: Cancel running golden Docker cache builds
       tags:
       - Projects
+  /api/v1/projects/{id}/docker-cache/zfs-tree:
+    get:
+      description: Returns the ZFS snapshot and clone tree showing golden cache, snapshots,
+        and active session clones.
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.ZFSTree'
+      security:
+      - BearerAuth: []
+      summary: Get ZFS snapshot/clone tree for project's Docker cache
+      tags:
+      - projects
   /api/v1/projects/{id}/exploratory-session:
     delete:
       description: Stop the running exploratory session for a project (stops sandbox
@@ -15101,6 +15606,72 @@ paths:
       security:
       - BearerAuth: []
       summary: Preview moving a project to an organization
+      tags:
+      - Projects
+  /api/v1/projects/{id}/pin:
+    delete:
+      consumes:
+      - application/json
+      description: Remove a project from the current user's pinned projects
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.PinnedProjectsResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Unpin a project
+      tags:
+      - Projects
+    post:
+      consumes:
+      - application/json
+      description: Pin a project for the current user so it appears at the top of
+        the projects board
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.PinnedProjectsResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Pin a project
       tags:
       - Projects
   /api/v1/projects/{id}/repositories:
@@ -15447,6 +16018,76 @@ paths:
       summary: Get project token usage
       tags:
       - Projects
+  /api/v1/projects/{projectId}/labels:
+    get:
+      description: Returns a sorted list of unique labels across all spec tasks in
+        a project
+      parameters:
+      - description: Project ID
+        in: path
+        name: projectId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              type: string
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      summary: List all labels used in a project
+      tags:
+      - spec-driven-tasks
+  /api/v1/projects/apply:
+    put:
+      consumes:
+      - application/json
+      description: Idempotent upsert of a project from a declarative YAML spec
+      parameters:
+      - description: Project apply request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.ProjectApplyRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.ProjectApplyResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Apply a project YAML
+      tags:
+      - Projects
   /api/v1/projects/quick-create:
     post:
       consumes:
@@ -15524,6 +16165,50 @@ paths:
       security:
       - ApiKeyAuth: []
       summary: List prompt history
+      tags:
+      - PromptHistory
+  /api/v1/prompt-history/{id}:
+    delete:
+      description: Soft-deletes a prompt history entry so it is removed from the queue
+        and no longer synced to clients
+      parameters:
+      - description: Prompt ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: boolean
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - ApiKeyAuth: []
+      summary: Delete a prompt history entry
       tags:
       - PromptHistory
   /api/v1/prompt-history/{id}/pin:
@@ -17158,7 +17843,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/types.ClaudeOAuthCredentials'
+            $ref: '#/definitions/server.SessionClaudeCredentialsResponse'
         "401":
           description: Unauthorized
           schema:
@@ -17932,6 +18617,10 @@ paths:
         in: query
         name: with_depends_on
         type: boolean
+      - description: Filter by labels (comma-separated, AND semantics)
+        in: query
+        name: labels
+        type: string
       - default: 50
         description: Limit number of results
         in: query
@@ -18547,6 +19236,90 @@ paths:
       summary: List clone groups for a task
       tags:
       - SpecTasks
+  /api/v1/spec-tasks/{taskId}/labels:
+    post:
+      consumes:
+      - application/json
+      description: Adds a label to a spec task (idempotent - no error if label already
+        exists)
+      parameters:
+      - description: Task ID
+        in: path
+        name: taskId
+        required: true
+        type: string
+      - description: Label to add
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/server.addLabelRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.SpecTask'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      summary: Add a label to a spec task
+      tags:
+      - spec-driven-tasks
+  /api/v1/spec-tasks/{taskId}/labels/{label}:
+    delete:
+      description: Removes a label from a spec task (no-op if label does not exist)
+      parameters:
+      - description: Task ID
+        in: path
+        name: taskId
+        required: true
+        type: string
+      - description: Label to remove
+        in: path
+        name: label
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.SpecTask'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      summary: Remove a label from a spec task
+      tags:
+      - spec-driven-tasks
   /api/v1/spec-tasks/{taskId}/progress:
     get:
       description: Get detailed progress information for a spec-driven task including
@@ -19404,6 +20177,29 @@ paths:
       security:
       - BearerAuth: []
       summary: Complete onboarding
+      tags:
+      - Users
+  /api/v1/users/me/pinned-projects:
+    get:
+      description: Get the list of project IDs pinned by the current user
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.PinnedProjectsResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Get pinned project IDs
       tags:
       - Users
   /api/v1/users/search:

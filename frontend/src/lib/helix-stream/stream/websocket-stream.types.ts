@@ -112,5 +112,7 @@ export type WsStreamInfoEvent = CustomEvent<
   | { type: "agentCursor"; agent: AgentCursorInfo }
   | { type: "remoteTouch"; touch: RemoteTouchInfo }
   | { type: "selfId"; clientId: number }
+  | { type: "reconnectAborted"; reason: string }
+  | { type: "videoStarted" }
 >
 export type WsStreamInfoEventListener = (event: WsStreamInfoEvent) => void

@@ -30,7 +30,8 @@ type PromptHistoryEntry struct {
 
 	// Interrupt indicates this message should interrupt the current conversation
 	// When false, message waits until current conversation completes
-	Interrupt bool `json:"interrupt" gorm:"not null;default:true"`
+	// Default is false: queue mode is the default, interrupt is explicit
+	Interrupt bool `json:"interrupt" gorm:"not null;default:false"`
 
 	// QueuePosition tracks ordering for drag-and-drop reordering
 	// Lower values = earlier in queue. Null for sent messages.
@@ -44,8 +45,9 @@ type PromptHistoryEntry struct {
 	IsTemplate bool       `json:"is_template" gorm:"not null;default:false;index"` // Saved as a reusable template
 
 	// Timestamps
-	CreatedAt time.Time `json:"created_at" gorm:"not null;index"`
-	UpdatedAt time.Time `json:"updated_at" gorm:"not null"`
+	CreatedAt time.Time  `json:"created_at" gorm:"not null;index"`
+	UpdatedAt time.Time  `json:"updated_at" gorm:"not null"`
+	DeletedAt *time.Time `json:"deleted_at,omitempty" gorm:"index"` // Soft-delete: non-nil means user removed from queue
 }
 
 // BeforeCreate sets up the entry before creation

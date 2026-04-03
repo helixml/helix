@@ -12,7 +12,7 @@
 # ====================================================================
 
 # --- Stage 1: Build environment (deps + rustup, no source or compilation) ---
-FROM ubuntu:25.10@sha256:4a9232cc47bf99defcc8860ef6222c99773330367fcecbf21ba2edb0b810a31e AS builder-env
+FROM ubuntu:25.10 AS builder-env
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -71,6 +71,7 @@ ENV PATH="/root/.cargo/bin:${PATH}"
 FROM builder-env AS builder
 
 ARG BUILD_TYPE=release
+ARG ZED_COMMIT_SHA=unknown
 
 # Copy source (filtered by .dockerignore — excludes target/, .git/)
 COPY . /zed
@@ -101,6 +102,7 @@ RUN --mount=type=cache,target=/root/.cargo/registry \
         exit 1; \
     fi && \
     CARGO_TARGET_DIR=target-ubuntu25-v3 \
+    ZED_COMMIT_SHA=${ZED_COMMIT_SHA} \
     RUSTFLAGS='-C link-arg=-s' \
     cargo build \
         $(if [ "$BUILD_TYPE" = "release" ]; then echo "--release"; else echo ""; fi) \

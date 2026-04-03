@@ -3,6 +3,7 @@ package anthropic
 import (
 	"bufio"
 	"bytes"
+	"compress/gzip"
 	"context"
 	"crypto/tls"
 	"encoding/json"
@@ -152,6 +153,13 @@ func (s *Proxy) anthropicAPIProxyDirector(r *http.Request) {
 	r.Header.Del("Authorization")
 	r.Header.Del("x-api-key")
 	r.Header.Del("api-key")
+
+	// Remove Accept-Encoding so the Go transport handles compression transparently.
+	// If the client (e.g. Zed agent) sends Accept-Encoding: gzip, the transport
+	// passes compressed responses through without decompressing. Our SSE parser
+	// and response logger then get raw gzip bytes instead of text, breaking both
+	// streaming event parsing and LLM call logging.
+	r.Header.Del("Accept-Encoding")
 
 	// Vertex AI mode: if the endpoint has a VertexProjectID, transform the request
 	// for Vertex's rawPredict/streamRawPredict API format.
@@ -360,6 +368,19 @@ func (s *Proxy) anthropicAPIProxyModifyResponse(response *http.Response) error {
 		return nil
 	}
 
+	if response.Header.Get("Content-Encoding") == "gzip" {
+		gr, err := gzip.NewReader(response.Body)
+		if err != nil {
+			log.Error().Err(err).Msg("failed to create gzip reader for response")
+			return err
+		}
+		defer gr.Close()
+		response.Body = io.NopCloser(gr)
+		response.Header.Del("Content-Encoding")
+		response.Header.Del("Content-Length")
+		response.ContentLength = -1
+	}
+
 	buf, err := io.ReadAll(response.Body)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to read response body")
@@ -407,7 +428,7 @@ func (s *Proxy) logLLMCall(ctx context.Context, createdAt time.Time, resp []byte
 		return
 	}
 
-	log.Debug().Interface("usage", respMessage.Usage).Msg("anthropic usage information")
+	log.Trace().Interface("usage", respMessage.Usage).Msg("anthropic usage information")
 
 	usage := respMessage.Usage
 	modelName := string(respMessage.Model)
@@ -415,7 +436,7 @@ func (s *Proxy) logLLMCall(ctx context.Context, createdAt time.Time, resp []byte
 	vals, ok := oai.GetContextValues(ctx)
 	if !ok {
 		// Session data will be missing for Discord, Slack, etc.
-		log.Debug().Msg("failed to get context values")
+		log.Trace().Msg("failed to get context values")
 		vals = &oai.ContextValues{}
 	}
 

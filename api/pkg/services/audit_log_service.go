@@ -205,10 +205,9 @@ func (s *AuditLogService) LogTaskApproved(ctx context.Context, task *types.SpecT
 }
 
 // LogPRCreated logs a pull request creation event
-func (s *AuditLogService) LogPRCreated(ctx context.Context, task *types.SpecTask, prID, prURL, userID, userEmail string) {
+func (s *AuditLogService) LogPRCreated(ctx context.Context, task *types.SpecTask, pr types.RepoPR, userID, userEmail string) {
 	metadata := s.buildTaskMetadata(task)
-	metadata.PullRequestID = prID
-	metadata.PullRequestURL = prURL
+	metadata.PullRequests = []types.RepoPR{pr}
 
 	s.LogEvent(ctx, &types.ProjectAuditLog{
 		ProjectID:  task.ProjectID,
@@ -275,13 +274,15 @@ func (s *AuditLogService) LogAgentStarted(ctx context.Context, task *types.SpecT
 
 // buildTaskMetadata creates common task metadata
 func (s *AuditLogService) buildTaskMetadata(task *types.SpecTask) types.AuditMetadata {
-	return types.AuditMetadata{
-		TaskNumber:     task.TaskNumber,
-		TaskName:       task.Name,
-		BranchName:     task.BranchName,
-		PullRequestID:  task.PullRequestID,
-		PullRequestURL: task.PullRequestURL,
+	metadata := types.AuditMetadata{
+		TaskNumber: task.TaskNumber,
+		TaskName:   task.Name,
+		BranchName: task.BranchName,
 	}
+	if len(task.RepoPullRequests) > 0 {
+		metadata.PullRequests = task.RepoPullRequests
+	}
+	return metadata
 }
 
 // hashContent creates a SHA256 hash of content for versioning

@@ -212,7 +212,7 @@ func TestGenerateTaskNameFromPrompt(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := generateTaskNameFromPrompt(tt.prompt)
+			result := GenerateTaskNameFromPrompt(tt.prompt)
 			assert.Equal(t, tt.expected, result)
 
 			// Every result must be valid UTF-8 (the original bug: invalid UTF-8 reaching Postgres)
@@ -240,7 +240,7 @@ func TestGenerateTaskNameFromPrompt_ByteTruncationRegression(t *testing.T) {
 	// New code: runes[:57] = "aaaa...a" + "—" + ... correctly handled
 	prompt := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa—this triggers the old bug"
 
-	result := generateTaskNameFromPrompt(prompt)
+	result := GenerateTaskNameFromPrompt(prompt)
 
 	assert.True(t, utf8.ValidString(result), "result must be valid UTF-8, got: %q (bytes: %x)", result, []byte(result))
 	assert.LessOrEqual(t, len([]rune(result)), 60)

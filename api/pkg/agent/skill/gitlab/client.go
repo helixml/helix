@@ -95,6 +95,17 @@ func (c *Client) CreateMergeRequest(ctx context.Context, projectID int, title, d
 }
 
 // GetMergeRequest gets a merge request by IID
+func (c *Client) UpdateMergeRequest(ctx context.Context, projectID, mrIID int, title, description string) (*gitlab.MergeRequest, error) {
+	mr, _, err := c.client.MergeRequests.UpdateMergeRequest(projectID, mrIID, &gitlab.UpdateMergeRequestOptions{
+		Title:       &title,
+		Description: &description,
+	}, gitlab.WithContext(ctx))
+	if err != nil {
+		return nil, fmt.Errorf("failed to update merge request: %w", err)
+	}
+	return mr, nil
+}
+
 func (c *Client) GetMergeRequest(ctx context.Context, projectID, mrIID int) (*gitlab.MergeRequest, error) {
 	mr, _, err := c.client.MergeRequests.GetMergeRequest(projectID, mrIID, nil, gitlab.WithContext(ctx))
 	if err != nil {

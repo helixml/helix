@@ -11,18 +11,20 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-// koditResult holds everything produced by initKodit.
-type koditResult struct {
-	service    services.KoditServicer
+// KoditResult holds everything produced by InitKodit.
+// It is exported so that serve.go can initialize kodit once and share the
+// service between the RAG factory and the API server.
+type KoditResult struct {
+	Service    services.KoditServicer
 	mcpBackend *KoditMCPBackend
 	closer     io.Closer
 }
 
-// initKodit returns a disabled kodit service when built without kodit support.
-func initKodit(_ *config.ServerConfig, _ *services.GitRepositoryService, _ store.Store) (*koditResult, error) {
+// InitKodit returns a disabled kodit service when built without kodit support.
+func InitKodit(_ *config.ServerConfig, _ *services.GitRepositoryService, _ store.Store) (*KoditResult, error) {
 	log.Info().Msg("Kodit code intelligence service not available (nokodit build)")
-	return &koditResult{
-		service:    services.NewDisabledKoditService(),
+	return &KoditResult{
+		Service:    services.NewDisabledKoditService(),
 		mcpBackend: newKoditMCPBackend(),
 	}, nil
 }

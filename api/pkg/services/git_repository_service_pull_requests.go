@@ -11,6 +11,7 @@ import (
 	"github.com/helixml/helix/api/pkg/agent/skill/bitbucket"
 	"github.com/helixml/helix/api/pkg/agent/skill/github"
 	"github.com/helixml/helix/api/pkg/agent/skill/gitlab"
+	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 
 	gh "github.com/google/go-github/v57/github"
@@ -18,9 +19,40 @@ import (
 	gl "github.com/xanzy/go-gitlab"
 )
 
+// OAuthRequiredError is returned when a user-initiated action requires
+// a GitHub OAuth connection that the acting user does not have.
+type OAuthRequiredError struct {
+	ProviderType string
+}
+
+func (e *OAuthRequiredError) Error() string {
+	return fmt.Sprintf("%s OAuth connection required to open a PR under your account", e.ProviderType)
+}
+
+// ValidateUserGitHubOAuth checks whether the acting user has a GitHub OAuth
+// connection. Returns OAuthRequiredError if the user needs to connect.
+// Returns nil for empty userID (agent path) or non-GitHub repos.
+func (s *GitRepositoryService) ValidateUserGitHubOAuth(ctx context.Context, repo *types.GitRepository, userID string) error {
+	if userID == "" || repo.ExternalType != types.ExternalRepositoryTypeGitHub {
+		return nil
+	}
+	connections, err := s.store.ListOAuthConnections(ctx, &store.ListOAuthConnectionsQuery{
+		UserID: userID,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to check OAuth connections: %w", err)
+	}
+	for _, conn := range connections {
+		if conn.Provider.Type == types.OAuthProviderTypeGitHub && conn.AccessToken != "" {
+			return nil
+		}
+	}
+	return &OAuthRequiredError{ProviderType: "github"}
+}
+
 // CreatePullRequest opens a pull request in the external repository. Should be called after the changes are committed to the local repository and
 // it has been pushed to the external repository.
-func (s *GitRepositoryService) CreatePullRequest(ctx context.Context, repoID string, title string, description string, sourceBranch string, targetBranch string) (string, error) {
+func (s *GitRepositoryService) CreatePullRequest(ctx context.Context, repoID string, title string, description string, sourceBranch string, targetBranch string, userID string) (string, error) {
 	repo, err := s.GetRepository(ctx, repoID)
 	if err != nil {
 		return "", fmt.Errorf("repository not found: %w", err)
@@ -34,7 +66,7 @@ func (s *GitRepositoryService) CreatePullRequest(ctx context.Context, repoID str
 	case types.ExternalRepositoryTypeADO:
 		return s.createAzureDevOpsPullRequest(ctx, repo, title, description, sourceBranch, targetBranch)
 	case types.ExternalRepositoryTypeGitHub:
-		return s.createGitHubPullRequest(ctx, repo, title, description, sourceBranch, targetBranch)
+		return s.createGitHubPullRequest(ctx, repo, title, description, sourceBranch, targetBranch, userID)
 	case types.ExternalRepositoryTypeGitLab:
 		return s.createGitLabMergeRequest(ctx, repo, title, description, sourceBranch, targetBranch)
 	case types.ExternalRepositoryTypeBitbucket:
@@ -42,6 +74,105 @@ func (s *GitRepositoryService) CreatePullRequest(ctx context.Context, repoID str
 	default:
 		return "", fmt.Errorf("unsupported external repository type: %s", repo.ExternalType)
 	}
+}
+
+// UpdatePullRequest updates the title and description of an existing pull request.
+func (s *GitRepositoryService) UpdatePullRequest(ctx context.Context, repoID string, prNumber int, title string, description string) error {
+	repo, err := s.GetRepository(ctx, repoID)
+	if err != nil {
+		return fmt.Errorf("repository not found: %w", err)
+	}
+
+	if repo.ExternalURL == "" {
+		return fmt.Errorf("repository is not external")
+	}
+
+	switch repo.ExternalType {
+	case types.ExternalRepositoryTypeGitHub:
+		return s.updateGitHubPullRequest(ctx, repo, prNumber, title, description)
+	case types.ExternalRepositoryTypeADO:
+		return s.updateAzureDevOpsPullRequest(ctx, repo, prNumber, title, description)
+	case types.ExternalRepositoryTypeGitLab:
+		return s.updateGitLabMergeRequest(ctx, repo, prNumber, title, description)
+	case types.ExternalRepositoryTypeBitbucket:
+		return s.updateBitbucketPullRequest(ctx, repo, prNumber, title, description)
+	default:
+		return fmt.Errorf("unsupported external repository type: %s", repo.ExternalType)
+	}
+}
+
+func (s *GitRepositoryService) updateGitHubPullRequest(ctx context.Context, repo *types.GitRepository, prNumber int, title string, description string) error {
+	client, err := s.getGitHubClient(ctx, repo, "")
+	if err != nil {
+		return err
+	}
+
+	owner, repoName, err := github.ParseGitHubURL(repo.ExternalURL)
+	if err != nil {
+		return fmt.Errorf("failed to parse GitHub URL: %w", err)
+	}
+
+	_, err = client.UpdatePullRequest(ctx, owner, repoName, prNumber, title, description)
+	if err != nil {
+		return fmt.Errorf("failed to update pull request: %w", err)
+	}
+
+	log.Info().Int("pr_number", prNumber).Str("repo", repoName).Msg("Updated pull request title/description")
+	return nil
+}
+
+func (s *GitRepositoryService) updateAzureDevOpsPullRequest(ctx context.Context, repo *types.GitRepository, prNumber int, title string, description string) error {
+	client, err := s.getAzureDevOpsClient(ctx, repo)
+	if err != nil {
+		return err
+	}
+	project, err := s.getAzureDevOpsProject(repo)
+	if err != nil {
+		return fmt.Errorf("failed to get azure devops project: %w", err)
+	}
+	repositoryName, err := s.getAzureDevOpsRepositoryName(repo)
+	if err != nil {
+		return fmt.Errorf("failed to get azure devops repository name: %w", err)
+	}
+	_, err = client.UpdatePullRequest(ctx, repositoryName, project, prNumber, title, description)
+	if err != nil {
+		return fmt.Errorf("failed to update pull request: %w", err)
+	}
+	log.Info().Int("pr_number", prNumber).Str("repo", repositoryName).Msg("Updated ADO pull request")
+	return nil
+}
+
+func (s *GitRepositoryService) updateGitLabMergeRequest(ctx context.Context, repo *types.GitRepository, mrIID int, title string, description string) error {
+	client, err := s.getGitLabClient(ctx, repo)
+	if err != nil {
+		return err
+	}
+	projectID, err := s.getGitLabProjectID(ctx, client, repo)
+	if err != nil {
+		return err
+	}
+	_, err = client.UpdateMergeRequest(ctx, projectID, mrIID, title, description)
+	if err != nil {
+		return fmt.Errorf("failed to update merge request: %w", err)
+	}
+	log.Info().Int("mr_iid", mrIID).Int("project_id", projectID).Msg("Updated GitLab merge request")
+	return nil
+}
+
+func (s *GitRepositoryService) updateBitbucketPullRequest(ctx context.Context, repo *types.GitRepository, prID int, title string, description string) error {
+	client, err := s.getBitbucketClient(ctx, repo)
+	if err != nil {
+		return err
+	}
+	workspace, repoSlug, _, err := bitbucket.ParseBitbucketURL(repo.ExternalURL)
+	if err != nil {
+		return fmt.Errorf("failed to parse Bitbucket URL: %w", err)
+	}
+	if err := client.UpdatePullRequest(ctx, workspace, repoSlug, prID, title, description); err != nil {
+		return fmt.Errorf("failed to update pull request: %w", err)
+	}
+	log.Info().Int("pr_id", prID).Str("repo", repoSlug).Msg("Updated Bitbucket pull request")
+	return nil
 }
 
 func (s *GitRepositoryService) createAzureDevOpsPullRequest(ctx context.Context, repo *types.GitRepository, title string, description string, sourceBranch string, targetBranch string) (string, error) {
@@ -384,12 +515,30 @@ func (s *GitRepositoryService) getAzureDevOpsClient(ctx context.Context, repo *t
 
 // GitHub Pull Request Operations
 
-func (s *GitRepositoryService) getGitHubClient(ctx context.Context, repo *types.GitRepository) (*github.Client, error) {
+func (s *GitRepositoryService) getGitHubClient(ctx context.Context, repo *types.GitRepository, userID string) (*github.Client, error) {
 	// Get GitHub Enterprise base URL if configured
 	var baseURL string
 	if repo.GitHub != nil {
 		baseURL = repo.GitHub.BaseURL
 	}
+
+	// If a specific user is acting, use their OAuth connection or fail
+	if userID != "" {
+		connections, err := s.store.ListOAuthConnections(ctx, &store.ListOAuthConnectionsQuery{
+			UserID: userID,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to look up user OAuth connections: %w", err)
+		}
+		for _, conn := range connections {
+			if conn.Provider.Type == types.OAuthProviderTypeGitHub && conn.AccessToken != "" {
+				return github.NewClientWithOAuthAndBaseURL(conn.AccessToken, baseURL), nil
+			}
+		}
+		return nil, &OAuthRequiredError{ProviderType: "github"}
+	}
+
+	// Agent/automated path: repo-level credential fallback chain
 
 	// First check for GitHub App authentication (service-to-service)
 	// This takes priority as it's the recommended approach for automated systems
@@ -422,8 +571,8 @@ func (s *GitRepositoryService) getGitHubClient(ctx context.Context, repo *types.
 	return nil, fmt.Errorf("no GitHub authentication configured - provide a Personal Access Token, GitHub App, or connect via OAuth")
 }
 
-func (s *GitRepositoryService) createGitHubPullRequest(ctx context.Context, repo *types.GitRepository, title string, description string, sourceBranch string, targetBranch string) (string, error) {
-	client, err := s.getGitHubClient(ctx, repo)
+func (s *GitRepositoryService) createGitHubPullRequest(ctx context.Context, repo *types.GitRepository, title string, description string, sourceBranch string, targetBranch string, userID string) (string, error) {
+	client, err := s.getGitHubClient(ctx, repo, userID)
 	if err != nil {
 		return "", err
 	}
@@ -449,7 +598,7 @@ func (s *GitRepositoryService) createGitHubPullRequest(ctx context.Context, repo
 }
 
 func (s *GitRepositoryService) listGitHubPullRequests(ctx context.Context, repo *types.GitRepository) ([]*types.PullRequest, error) {
-	client, err := s.getGitHubClient(ctx, repo)
+	client, err := s.getGitHubClient(ctx, repo, "")
 	if err != nil {
 		return nil, err
 	}
@@ -496,7 +645,7 @@ func (s *GitRepositoryService) listGitHubPullRequests(ctx context.Context, repo 
 }
 
 func (s *GitRepositoryService) getGitHubPullRequest(ctx context.Context, repo *types.GitRepository, number int) (*types.PullRequest, error) {
-	client, err := s.getGitHubClient(ctx, repo)
+	client, err := s.getGitHubClient(ctx, repo, "")
 	if err != nil {
 		return nil, err
 	}

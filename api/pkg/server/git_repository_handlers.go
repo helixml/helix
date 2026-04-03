@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -330,8 +331,10 @@ func (s *HelixAPIServer) listGitRepositories(w http.ResponseWriter, r *http.Requ
 
 	user := getRequestUser(r)
 
+	var orgMembership *types.OrganizationMembership
 	if orgID != "" {
-		_, err := s.authorizeOrgMember(ctx, user, orgID)
+		var err error
+		orgMembership, err = s.authorizeOrgMember(ctx, user, orgID)
 		if err != nil {
 			writeErrResponse(w, err, http.StatusForbidden)
 			return
@@ -340,20 +343,8 @@ func (s *HelixAPIServer) listGitRepositories(w http.ResponseWriter, r *http.Requ
 
 	// If filtering by project, verify user has access to the project
 	if projectID != "" {
-		project, err := s.Store.GetProject(ctx, projectID)
-		if err != nil {
-			http.Error(w, "Project not found", http.StatusNotFound)
-			return
-		}
-		// Check user has access to this project (owner or org member)
-		if project.UserID != user.ID && project.OrganizationID != "" {
-			_, err := s.authorizeOrgMember(ctx, user, project.OrganizationID)
-			if err != nil {
-				writeErrResponse(w, err, http.StatusForbidden)
-				return
-			}
-		} else if project.UserID != user.ID {
-			http.Error(w, "Access denied", http.StatusForbidden)
+		if err := s.authorizeUserToProjectByID(ctx, user, projectID, types.ActionGet); err != nil {
+			writeErrResponse(w, err, http.StatusForbidden)
 			return
 		}
 	}
@@ -380,8 +371,20 @@ func (s *HelixAPIServer) listGitRepositories(w http.ResponseWriter, r *http.Requ
 		repositories = filtered
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(repositories)
+	// For org-scoped queries, filter repositories by authorization
+	// Org owners see all, others only see repos they have access to
+	if orgID != "" && orgMembership != nil && orgMembership.Role != types.OrganizationRoleOwner {
+		var authorizedRepos []*types.GitRepository
+		for _, repo := range repositories {
+			if err := s.authorizeUserToRepository(ctx, user, repo, types.ActionGet); err != nil {
+				continue
+			}
+			authorizedRepos = append(authorizedRepos, repo)
+		}
+		repositories = authorizedRepos
+	}
+
+	writeResponseWithETag(w, r, repositories)
 }
 
 // createSampleRepository creates a sample/demo repository
@@ -1575,7 +1578,7 @@ func (s *HelixAPIServer) createGitRepositoryPullRequest(w http.ResponseWriter, r
 	// Both push and PR creation should happen atomically.
 	var prID string
 	err = s.gitRepositoryService.WithRepoLock(repoID, func() error {
-		if pushErr := s.gitRepositoryService.PushBranchToRemote(r.Context(), repoID, request.SourceBranch, false); pushErr != nil {
+		if pushErr := s.gitRepositoryService.PushBranchToRemote(r.Context(), repoID, request.SourceBranch, false, user.ID); pushErr != nil {
 			log.Error().Err(pushErr).
 				Str("repo_id", repoID).
 				Str("branch", request.SourceBranch).
@@ -1584,10 +1587,19 @@ func (s *HelixAPIServer) createGitRepositoryPullRequest(w http.ResponseWriter, r
 		}
 
 		var prErr error
-		prID, prErr = s.gitRepositoryService.CreatePullRequest(r.Context(), repoID, request.Title, request.Description, request.SourceBranch, request.TargetBranch)
+		prID, prErr = s.gitRepositoryService.CreatePullRequest(r.Context(), repoID, request.Title, request.Description, request.SourceBranch, request.TargetBranch, user.ID)
 		return prErr
 	})
 	if err != nil {
+		var oauthErr *services.OAuthRequiredError
+		if errors.As(err, &oauthErr) {
+			writeResponse(w, map[string]interface{}{
+				"error":         "oauth_required",
+				"message":       oauthErr.Error(),
+				"provider_type": oauthErr.ProviderType,
+			}, http.StatusUnprocessableEntity)
+			return
+		}
 		log.Error().Err(err).
 			Str("repo_id", repoID).
 			Str("title", request.Title).

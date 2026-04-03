@@ -1,4 +1,4 @@
-import React, { FC } from "react";
+import React, { FC, useEffect } from "react";
 import { useRoute } from "react-router5";
 import {
   Box,
@@ -14,6 +14,7 @@ import SpecTaskDetailContent from "../components/tasks/SpecTaskDetailContent";
 import { useSpecTask } from "../services/specTaskService";
 import { useGetProject } from "../services";
 import useAccount from "../hooks/useAccount";
+import { cacheTaskName } from "../lib/navHistory";
 
 /**
  * SpecTaskDetailPage - Standalone page for viewing spec task details
@@ -33,6 +34,10 @@ const SpecTaskDetailPage: FC = () => {
   const { data: task, isLoading: taskLoading } = useSpecTask(taskId, {
     enabled: !!taskId,
   });
+
+  useEffect(() => {
+    if (taskId && task?.name) cacheTaskName(taskId, task.name)
+  }, [taskId, task?.name])
 
   const { data: project, isLoading: projectLoading } = useGetProject(
     projectId,
@@ -82,6 +87,7 @@ const SpecTaskDetailPage: FC = () => {
         },
         {
           title: task?.name || "Task",
+          tooltip: task?.description || task?.name,
         },
       ]}
       orgBreadcrumbs={true}

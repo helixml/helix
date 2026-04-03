@@ -268,6 +268,77 @@ func Test_getProviderEndpoint(t *testing.T) {
 	}
 }
 
+func Test_isAnthropicCompatible(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		endpoint *types.ProviderEndpoint
+		want     bool
+	}{
+		{
+			name: "anthropic provider by name",
+			endpoint: &types.ProviderEndpoint{
+				Name:    string(types.ProviderAnthropic),
+				BaseURL: "https://something.example.com",
+			},
+			want: true,
+		},
+		{
+			name: "vertex AI endpoint",
+			endpoint: &types.ProviderEndpoint{
+				Name:            "custom-vertex",
+				VertexProjectID: "my-gcp-project",
+			},
+			want: true,
+		},
+		{
+			name: "anthropic.com base URL",
+			endpoint: &types.ProviderEndpoint{
+				Name:    "custom-anthropic",
+				BaseURL: "https://api.anthropic.com/v1",
+			},
+			want: true,
+		},
+		{
+			name: "vertex googleapis base URL",
+			endpoint: &types.ProviderEndpoint{
+				Name:    "vertex-proxy",
+				BaseURL: "https://us-east5-aiplatform.anthropic.googleapis.com",
+			},
+			want: true,
+		},
+		{
+			name: "ollama is not anthropic compatible",
+			endpoint: &types.ProviderEndpoint{
+				Name:    "ollama",
+				BaseURL: "http://ollama:11434",
+			},
+			want: false,
+		},
+		{
+			name: "openrouter is not anthropic compatible",
+			endpoint: &types.ProviderEndpoint{
+				Name:    "openrouter",
+				BaseURL: "https://openrouter.ai/api/v1",
+			},
+			want: false,
+		},
+		{
+			name: "empty endpoint is not anthropic compatible",
+			endpoint: &types.ProviderEndpoint{},
+			want:     false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := isAnthropicCompatible(tt.endpoint)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
 func Test_parseAnthropicRequestModel(t *testing.T) {
 	tests := []struct {
 		name  string

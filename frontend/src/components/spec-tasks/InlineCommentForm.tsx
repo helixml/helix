@@ -1,5 +1,5 @@
 import React, { useRef, useEffect } from "react";
-import { Paper, Box, TextField, Button, Typography } from "@mui/material";
+import { Paper, Box, TextField, Button, Typography, CircularProgress } from "@mui/material";
 
 interface InlineCommentFormProps {
   show: boolean;
@@ -10,6 +10,7 @@ interface InlineCommentFormProps {
   onCreate: () => void;
   onCancel: () => void;
   isNarrowViewport?: boolean;
+  isSubmitting?: boolean;
 }
 
 export default function InlineCommentForm({
@@ -21,6 +22,7 @@ export default function InlineCommentForm({
   onCreate,
   onCancel,
   isNarrowViewport = false,
+  isSubmitting = false,
 }: InlineCommentFormProps) {
   const paperRef = useRef<HTMLDivElement>(null);
 
@@ -53,7 +55,7 @@ export default function InlineCommentForm({
 
   const wideStyles = {
     position: "absolute" as const,
-    left: "670px",
+    left: "820px",
     top: `${yPos}px`,
     width: "300px",
     transform: "none",
@@ -127,7 +129,8 @@ export default function InlineCommentForm({
           size="small"
           variant="contained"
           onClick={onCreate}
-          disabled={!commentText.trim()}
+          disabled={!commentText.trim() || isSubmitting}
+          startIcon={isSubmitting ? <CircularProgress size={16} color="inherit" /> : undefined}
         >
           Comment
         </Button>

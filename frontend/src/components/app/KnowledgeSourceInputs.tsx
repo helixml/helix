@@ -145,7 +145,7 @@ const KnowledgeSourceInputs: FC<KnowledgeSourceInputsProps> = ({
         />
         <TextField
           fullWidth
-          label="Chunk Overflow (optional)"
+          label="Chunk Overlap (optional)"
           value={chunkOverflow}
           onChange={(e) => setChunkOverflow(e.target.value)}
           onBlur={() => {

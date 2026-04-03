@@ -1,7 +1,9 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Box, Button, TextField, Typography, Link, Alert } from "@mui/material";
 import { useAccount } from "../hooks/useAccount";
 import useApi from "../hooks/useApi";
+
+const PENDING_LICENSE_KEY = "helix_pending_license_key";
 
 interface LicenseKeyPromptProps {
   gracePeriodExpired?: boolean;
@@ -12,36 +14,61 @@ export const LicenseKeyPrompt: React.FC<LicenseKeyPromptProps> = ({
 }) => {
   const account = useAccount();
   const api = useApi();
-  const [licenseKey, setLicenseKey] = useState("");
+  const [licenseKey, setLicenseKey] = useState(
+    () => localStorage.getItem(PENDING_LICENSE_KEY) || "",
+  );
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
 
-  // Add debug logging
-  console.log("LicenseKeyPrompt:", {
-    deploymentId: account.serverConfig?.deployment_id,
-    serverConfig: account.serverConfig,
-  });
+  const isLoggedIn = !!account.user;
+
+  const submitLicenseKey = useCallback(
+    async (key: string) => {
+      setLoading(true);
+      setError(null);
+      try {
+        await api.post("/api/v1/license", {
+          license_key: key,
+        });
+        localStorage.removeItem(PENDING_LICENSE_KEY);
+        window.location.reload();
+      } catch (error: any) {
+        console.error("Error setting license key:", error);
+        setError(
+          error?.response?.data || error?.message || "Failed to set license key",
+        );
+      } finally {
+        setLoading(false);
+      }
+    },
+    [api],
+  );
+
+  // Auto-submit pending license key after login
+  const submittedRef = useRef(false);
+  useEffect(() => {
+    if (!isLoggedIn || submittedRef.current) return;
+    const pending = localStorage.getItem(PENDING_LICENSE_KEY);
+    if (pending) {
+      submittedRef.current = true;
+      submitLicenseKey(pending);
+    }
+  }, [isLoggedIn, submitLicenseKey]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true);
-    setError(null);
-    try {
-      await api.post("/api/v1/license", {
-        license_key: licenseKey,
-      });
-      window.location.reload(); // Reload to update config
-    } catch (error: any) {
-      console.error("Error setting license key:", error);
-      setError(
-        error?.response?.data || error?.message || "Failed to set license key",
-      );
-    } finally {
-      setLoading(false);
+    if (!licenseKey.trim()) return;
+
+    if (isLoggedIn) {
+      await submitLicenseKey(licenseKey);
+    } else {
+      // Store for later and prompt login
+      localStorage.setItem(PENDING_LICENSE_KEY, licenseKey);
+      setSaved(true);
+      account.setShowLoginWindow(true);
     }
   };
-
-  const isLoggedIn = !!account.user;
 
   return (
     <Box
@@ -96,9 +123,9 @@ export const LicenseKeyPrompt: React.FC<LicenseKeyPromptProps> = ({
           helix.ml/account/licenses
         </Link>
       </Typography>
-      {!isLoggedIn && (
+      {saved && !isLoggedIn && (
         <Alert severity="info" sx={{ mb: 2 }}>
-          Please log in with an admin account to activate your license key
+          License key saved. Please log in to activate.
         </Alert>
       )}
       {error && (
@@ -111,20 +138,22 @@ export const LicenseKeyPrompt: React.FC<LicenseKeyPromptProps> = ({
           fullWidth
           label="License Key"
           value={licenseKey}
-          onChange={(e) => setLicenseKey(e.target.value)}
+          onChange={(e) => {
+            setLicenseKey(e.target.value);
+            setSaved(false);
+          }}
           margin="normal"
           required
           error={!!error}
-          disabled={!isLoggedIn}
         />
         <Button
           type="submit"
           variant="contained"
           color="primary"
-          disabled={loading || !isLoggedIn}
+          disabled={loading}
           sx={{ mt: 2 }}
         >
-          {loading ? "Saving..." : "Save License Key"}
+          {loading ? "Activating..." : "Save License Key"}
         </Button>
       </form>
     </Box>

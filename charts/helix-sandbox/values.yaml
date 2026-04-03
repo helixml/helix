@@ -36,7 +36,7 @@ podDisruptionBudget:
   # maxUnavailable: 1
 
 image:
-  repository: registry.helixml.tech/helix/helix-sandbox
+  repository: ghcr.io/helixml/helix-sandbox
   pullPolicy: IfNotPresent
   # Overrides the image tag whose default is the chart appVersion.
   tag: ""
@@ -89,7 +89,7 @@ desktopImages:
   # Registry to pull desktop images from
   # Default uses Helix public registry
   # For enterprise/air-gapped: set to your internal registry
-  registry: "registry.helixml.tech"
+  registry: "ghcr.io"
 
   # Default desktop image to use
   # Options: helix-sway (Sway compositor), helix-ubuntu (GNOME)
@@ -229,6 +229,48 @@ persistence:
     storageClassName: ""
     accessModes:
       - ReadWriteOnce
+
+# Health check probes
+# The sandbox uses exec probes by default to verify the nested dockerd is running.
+# On some platforms (e.g., AKS with cgroup v2), exec probes fail because the
+# DinD container modifies cgroup subtrees. In those cases, disable probes or
+# switch to an alternative probe type.
+#
+# To disable probes: --set probes.liveness.enabled=false --set probes.readiness.enabled=false
+#
+# To switch probe type (e.g., to httpGet), use a values file — not --set.
+# Helm's --set merges with defaults rather than replacing, so using --set to add
+# httpGet will leave the default exec block in place, producing an invalid spec.
+# Example values file override:
+#   probes:
+#     liveness:
+#       enabled: true
+#       httpGet:
+#         path: /health
+#         port: 8080
+#       initialDelaySeconds: 60
+#       periodSeconds: 30
+probes:
+  liveness:
+    enabled: true
+    exec:
+      command:
+        - docker
+        - info
+    initialDelaySeconds: 60
+    periodSeconds: 30
+    timeoutSeconds: 10
+    failureThreshold: 3
+  readiness:
+    enabled: true
+    exec:
+      command:
+        - docker
+        - info
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 10
+    failureThreshold: 3
 
 # Debugging options
 debug:

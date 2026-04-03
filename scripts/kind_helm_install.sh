@@ -131,7 +131,7 @@ helm upgrade --install keycloak oci://registry-1.docker.io/bitnamicharts/keycloa
 #   --version "24.3.1" \
 #   --set auth.adminUser=admin \
 #   --set auth.adminPassword=oh-hallo-insecure-password \
-#   --set image.registry=registry.helixml.tech \
+#   --set image.registry=ghcr.io \
 #   --set image.repository=helix/keycloak-bitnami \
 #   --set image.tag="${KEYCLOAK_VERSION}" \
 #   --set httpRelativePath="/auth/"
