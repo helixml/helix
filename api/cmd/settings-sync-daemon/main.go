@@ -186,19 +186,21 @@ func (d *SettingsDaemon) generateAgentServerConfig() map[string]interface{} {
 		// also triggers refresh_if_stale() earlier via has_registry_agents().
 		// Helix sends agent_name="claude" over WebSocket; thread_service.rs
 		// maps it to "claude-acp" before calling server.connect().
+		// Write the model to managed-settings.json so the ACP agent picks it up at
+		// session initialization. The SettingsManager reads this file and passes
+		// settings.model to getAvailableModels(), which calls resolveModelPreference()
+		// to set the correct currentModelId in the new_session response.
+		// This drives the ConfigOptionsView model selector (config_options.current_value),
+		// which is separate from session.models.current_model_id.
+		d.writeClaudeManagedSettings()
+
 		claudeACPConfig := map[string]interface{}{
 			"type":         "registry",
 			"default_mode": "bypassPermissions",
 			"env":          env,
 		}
 		if d.codeAgentConfig.Model != "" {
-			// default_model sets session.models.current_model_id (for non-config-options agents)
 			claudeACPConfig["default_model"] = d.codeAgentConfig.Model
-			// default_config_options sets the "model" config option via set_session_config_option,
-			// which updates config_options.current_value — the value ConfigOptionsView (Claude Code UI) reads.
-			claudeACPConfig["default_config_options"] = map[string]interface{}{
-				"model": d.codeAgentConfig.Model,
-			}
 		}
 		return map[string]interface{}{
 			"claude-acp": claudeACPConfig,
@@ -372,6 +374,32 @@ const (
 	ClaudeSubscriptionMarkerPath = "/tmp/helix-claude-subscription-mode"
 	ClaudeManagedSettingsPath    = "/etc/claude-code/managed-settings.json"
 )
+
+// writeClaudeManagedSettings writes /etc/claude-code/managed-settings.json so the
+// claude-agent-acp SettingsManager picks up the model preference at session init.
+// resolveModelPreference() handles substring matching so "claude-opus-4-6" correctly
+// resolves to the model's canonical value ID (e.g. "claude-opus-4-6-latest").
+func (d *SettingsDaemon) writeClaudeManagedSettings() {
+	settings := map[string]interface{}{}
+	if d.codeAgentConfig != nil && d.codeAgentConfig.Model != "" {
+		settings["model"] = d.codeAgentConfig.Model
+	}
+
+	data, err := json.Marshal(settings)
+	if err != nil {
+		log.Printf("Failed to marshal claude managed settings: %v", err)
+		return
+	}
+	if err := os.MkdirAll(filepath.Dir(ClaudeManagedSettingsPath), 0755); err != nil {
+		log.Printf("Failed to create claude managed settings dir: %v", err)
+		return
+	}
+	if err := os.WriteFile(ClaudeManagedSettingsPath, data, 0644); err != nil {
+		log.Printf("Failed to write claude managed settings: %v", err)
+		return
+	}
+	log.Printf("Wrote claude managed settings: model=%s", d.codeAgentConfig.Model)
+}
 
 // syncClaudeCredentials fetches Claude credentials from the Helix API.
 // For OAuth credentials: writes ~/.claude/.credentials.json (Claude Code reads this).
