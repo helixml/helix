@@ -11,43 +11,16 @@
 - `frontend/src/components/external-agent/ExternalAgentDesktopViewer.tsx` — shows "Starting Desktop..." spinner when `isStarting` is true
 - `frontend/src/services/specTaskService.ts` — `useSpecTask` / `useSpecTasks` hooks; default poll interval 10s
 
-## Solution: Optimistic Session ID in React Query Cache
+## Solution
 
-After the `POST /api/v1/spec-tasks/{id}/start-planning` succeeds, parse the response body. The API likely returns the updated task object (or at least a session ID). If a `planning_session_id` is present in the response, immediately write it into the React Query cache for that task. This causes `ExternalAgentDesktopViewer` to mount immediately without waiting for a poll round.
+In `handleStartPlanning()` in `SpecTaskKanbanBoard.tsx`, after `response.ok`, immediately call:
 
-If the response does not contain the session ID yet (the backend may still be async), fall back to an **optimistic placeholder**: set a local `optimisticPlanningSessionId` state in `SpecTaskKanbanBoard` (or pass it down through props) so `TaskCard` can render `ExternalAgentDesktopViewer` with a temporary ID. The viewer will start polling desktop status on its own (every 3s) and will transition normally once the real session data arrives.
+```ts
+queryClient.invalidateQueries(QUERY_KEYS.specTasks(projectId))
+```
 
-### Preferred approach (check API response first)
+This triggers an immediate refetch of the task list rather than waiting for the 10s background poll interval. The backend populates `planning_session_id` shortly after the POST returns, so this refetch will catch it and cause `ExternalAgentDesktopViewer` to mount and show its "Starting Desktop..." spinner without a perceptible delay.
 
-1. In `handleStartPlanning()`, after `response.ok`, call `response.json()` to parse the returned task/session data.
-2. If `planning_session_id` is present, call `queryClient.setQueryData(QUERY_KEYS.specTask(task.id), updatedTask)` to immediately update the cache — no polling delay at all.
-3. Keep the existing `pollForSessionId` loop as a fallback for the case where the backend hasn't set the ID yet in the response.
+The existing aggressive `pollForSessionId` loop stays in place as a safety net for cases where the first refetch still doesn't see the ID.
 
-### Fallback approach (if response lacks session ID)
-
-If the API doesn't return the session ID synchronously:
-
-1. Add `optimisticPlanningSessionId: string | null` state to `SpecTaskKanbanBoard`.
-2. Set it to a sentinel value (e.g. `"pending"`) immediately after the API call succeeds.
-3. Pass it down to `TaskCard` via props.
-4. In `TaskCard`, if `optimisticPlanningSessionId` is set and the task doesn't yet have a real `planning_session_id`, render `ExternalAgentDesktopViewer` with a "starting" override prop so it shows the spinner.
-5. Clear `optimisticPlanningSessionId` once the real session ID arrives from polling.
-
-### Why not a global loading flag?
-
-A simple `isDesktopStarting` boolean passed to the desktop viewer is simpler but would require `ExternalAgentDesktopViewer` to accept and handle a "forced starting" prop — coupling the viewer to caller state. The React Query cache update is cleaner because it works with the existing data flow.
-
-## Key Constraints
-
-- Follow the CLAUDE.md rule: "Invalidate queries after mutations, don't use `setQueryData`" — **exception**: here we're writing optimistic data, not stale data; this is the canonical React Query optimistic update pattern. If the team prefers, use `queryClient.invalidateQueries` immediately after the API call (triggers a refetch right away rather than waiting for the 10s interval), which is a simpler change.
-- `ExternalAgentDesktopViewer` already handles the `isStarting` state and 120s timeout correctly — no changes needed there.
-
-## Simplest Viable Fix
-
-The simplest approach that avoids any component prop changes:
-
-**After the API call succeeds, immediately call `queryClient.invalidateQueries(QUERY_KEYS.specTasks(projectId))`.**
-
-This triggers an immediate refetch of the task list. If the backend populates `planning_session_id` synchronously (even a few ms after the POST returns), this refetch will catch it. Combined with the existing aggressive polling loop, the desktop viewer will appear much faster than waiting for the 10s background interval.
-
-This is a 1-line change with zero risk of regression.
+`ExternalAgentDesktopViewer` already handles the `isStarting` state and 120s timeout correctly — no changes needed there.
