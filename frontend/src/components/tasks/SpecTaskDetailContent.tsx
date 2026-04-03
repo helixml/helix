@@ -1864,9 +1864,6 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                     projectId={task.project_id}
                     apiClient={api.getApiClient()}
                     onSend={async (message: string, interrupt?: boolean) => {
-                      if (isDesktopPaused) {
-                        handleStartSession();
-                      }
                       await streaming.NewInference({
                         type: SESSION_TYPE_TEXT,
                         message,
@@ -2005,6 +2002,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                       archived: task.archived,
                       just_do_it_mode: justDoItMode,
                       planning_session_id: task.planning_session_id,
+                      metadata: task.metadata as { error?: string },
                     }}
                     variant="inline"
                     onStartPlanning={handleStartPlanning}
@@ -2019,6 +2017,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                     hasExternalRepo={projectRepositories.some(
                       (r) => r.is_external || r.external_type || r.external_url,
                     )}
+                    externalRepoType={projectRepositories.find((r) => r.external_type)?.external_type}
                     isStartingPlanning={isStartingPlanning}
                     isArchiving={isArchiving}
                   />
@@ -2384,6 +2383,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                   archived: task.archived,
                   just_do_it_mode: justDoItMode,
                   planning_session_id: task.planning_session_id,
+                  metadata: task.metadata as { error?: string },
                 }}
                 variant="inline"
                 onStartPlanning={handleStartPlanning}
@@ -2398,6 +2398,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                 hasExternalRepo={projectRepositories.some(
                   (r) => r.is_external || r.external_type || r.external_url,
                 )}
+                externalRepoType={projectRepositories.find((r) => r.external_type)?.external_type}
                 isStartingPlanning={isStartingPlanning}
                 isArchiving={isArchiving}
               />
@@ -2630,9 +2631,6 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                       projectId={task.project_id}
                       apiClient={api.getApiClient()}
                       onSend={async (message: string, interrupt?: boolean) => {
-                        if (isDesktopPaused) {
-                          handleStartSession();
-                        }
                         await streaming.NewInference({
                           type: SESSION_TYPE_TEXT,
                           message,

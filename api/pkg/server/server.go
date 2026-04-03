@@ -103,8 +103,8 @@ type HelixAPIServer struct {
 	externalAgentRunnerManager  *ExternalAgentRunnerManager
 	contextMappings             map[string]string   // Zed context_id -> Helix session_id mapping
 	contextMappingsMutex        sync.RWMutex        // Mutex for contextMappings (and related mappings below)
-	sessionToWaitingInteraction map[string][]string // Helix session_id -> FIFO queue of waiting interaction IDs
-	requestToSessionMapping     map[string]string   // request_id -> Helix session_id mapping (for chat_message routing)
+	requestToSessionMapping     map[string]string // request_id -> Helix session_id mapping (for chat_message routing)
+	requestToInteractionMapping map[string]string // request_id -> interaction_id (for routing message_added/completed to correct interaction)
 	externalAgentSessionMapping map[string]string   // External agent session_id -> Helix session_id mapping
 	externalAgentUserMapping    map[string]string   // External agent session_id -> user_id mapping
 	// Comment processing timeouts - uses database for queue state (QueuedAt/RequestID fields)
@@ -280,6 +280,7 @@ func NewServer(
 		HelixAPIToken:                 cfg.WebServer.RunnerToken,
 		WorkspaceBasePathForContainer: "/workspace",       // Path inside dev container
 		WorkspaceBasePathForCloning:   "/data/workspaces", // Path on sandbox filesystem (not API - Hydra creates dirs)
+		FilestoreLocalPath:            cfg.FileStore.LocalFSPath,
 		Connman:                       connectionManager,
 		GPUVendor:                     os.Getenv("GPU_VENDOR"), // "nvidia", "amd", "intel", or ""
 		LicenseKey:                    licenseKeyForHydra,      // Pass to nested Helix instances
@@ -318,12 +319,12 @@ func NewServer(
 		externalAgentWSManager:      externalAgentWSManager,
 		externalAgentRunnerManager:  externalAgentRunnerManager,
 		contextMappings:             make(map[string]string),
-		sessionToWaitingInteraction: make(map[string][]string),
+
 		requestToSessionMapping:     make(map[string]string),
 		externalAgentSessionMapping: make(map[string]string),
 		externalAgentUserMapping:    make(map[string]string),
-		sessionCommentTimeout:       make(map[string]*time.Timer),
-		requestToCommenterMapping:   make(map[string]string),
+		sessionCommentTimeout:     make(map[string]*time.Timer),
+		requestToCommenterMapping: make(map[string]string),
 		streamingContexts:           make(map[string]*streamingContext),
 		streamingRateLimiter:        make(map[string]time.Time),
 		activeStreamProxies:         make(map[string]*activeStreamProxy),
@@ -364,9 +365,9 @@ func NewServer(
 	}
 
 	contextMappings := &controller.ExternalAgentRequestContextMappings{
-		ContextMappingsMutex:        &apiServer.contextMappingsMutex,
-		SessionToWaitingInteraction: &apiServer.sessionToWaitingInteraction,
-		RequestToSessionMapping:     &apiServer.requestToSessionMapping,
+		ContextMappingsMutex:          &apiServer.contextMappingsMutex,
+		RequestToSessionMapping:       &apiServer.requestToSessionMapping,
+		RequestToInteractionMapping:   &apiServer.requestToInteractionMapping,
 	}
 
 	apiServer.Controller.SetExternalAgentHooks(controller.ExternalAgentHooks{
@@ -375,7 +376,7 @@ func NewServer(
 		SendCommand:               apiServer.sendCommandToExternalAgent,
 		StoreResponseChannel:      apiServer.storeResponseChannel,
 		CleanupResponseChannel:    apiServer.cleanupResponseChannel,
-		SetWaitingInteraction:     contextMappings.SetWaitingInteraction,
+		SetRequestInteractionMapping: contextMappings.SetRequestInteractionMapping,
 		SetRequestSessionMapping:  contextMappings.SetRequestSessionMapping,
 	})
 
@@ -578,6 +579,9 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, _ *system.C
 
 	// Resume comment queue processing for any comments that were pending before restart
 	go apiServer.ResumeCommentQueueProcessing(ctx)
+
+	// Automatically shut down desktops that have been idle for too long
+	go external_agent.RunDesktopIdleChecker(ctx, apiServer.externalAgentExecutor, apiServer.Store, apiServer.Cfg.DesktopIdleTimeout, apiServer.Cfg.DesktopIdleCheckInterval)
 
 	apiServer.startUserWebSocketServer(
 		ctx,

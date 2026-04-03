@@ -55,7 +55,7 @@ const EmbeddedSessionView = forwardRef<
   const lightTheme = useLightTheme();
   const containerRef = useRef<HTMLDivElement>(null);
   const queryClient = useQueryClient();
-  const { NewInference } = useStreaming();
+  const { NewInference, wsConnected } = useStreaming();
 
   // Simple scroll state: are we currently at the bottom?
   // This is the ONLY state we need for sticky scroll behavior
@@ -234,15 +234,16 @@ const EmbeddedSessionView = forwardRef<
     [scrollToBottom],
   );
 
-  // Fetch session data with auto-refresh
-  // 3s keeps chat responsive when agent is active. React Query deduplicates
-  // this with other useGetSession consumers (e.g. useSandboxState), and ETags
-  // mean most responses are 304 (zero bytes) when nothing has changed.
+  // Fetch session data with auto-refresh.
+  // When the WebSocket is connected it is the authoritative real-time source,
+  // so we suppress the poll to prevent stale HTTP responses from racing with
+  // and overwriting fresh WebSocket-delivered data. Polling resumes automatically
+  // whenever the WebSocket drops (network hiccup, server restart, etc.).
   const { data: sessionResponse, refetch: refetchSession } = useGetSession(
     sessionId,
     {
       enabled: !!sessionId,
-      refetchInterval: 3000,
+      refetchInterval: wsConnected ? false : 3000,
     },
   );
 

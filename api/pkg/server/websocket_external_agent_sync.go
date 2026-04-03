@@ -290,7 +290,7 @@ func (apiServer *HelixAPIServer) handleExternalAgentSync(res http.ResponseWriter
 
 	// Register connection with agent ID
 	apiServer.externalAgentWSManager.registerConnection(agentID, wsConn)
-	defer apiServer.externalAgentWSManager.unregisterConnection(agentID)
+	defer apiServer.externalAgentWSManager.unregisterConnection(agentID, wsConn)
 
 	// Check if this agent has a Helix session mapping
 	// agentID could be either agent_session_id (req_*) or helix_session_id (ses_*)
@@ -310,7 +310,7 @@ func (apiServer *HelixAPIServer) handleExternalAgentSync(res http.ResponseWriter
 			// Agent session ID mapping - register connection with BOTH IDs for routing
 			helixSessionID = mappedHelixID
 			apiServer.externalAgentWSManager.registerConnection(helixSessionID, wsConn)
-			defer apiServer.externalAgentWSManager.unregisterConnection(helixSessionID)
+			defer apiServer.externalAgentWSManager.unregisterConnection(helixSessionID, wsConn)
 			log.Info().
 				Str("agent_session_id", agentID).
 				Str("helix_session_id", helixSessionID).
@@ -330,6 +330,12 @@ func (apiServer *HelixAPIServer) handleExternalAgentSync(res http.ResponseWriter
 		// Get the Helix session to find the initial interaction
 		helixSession, err := apiServer.Controller.Options.Store.GetSession(ctx, helixSessionID)
 		if err == nil && helixSession != nil {
+			log.Info().
+				Str("session_id", helixSessionID).
+				Str("zed_thread_id", helixSession.Metadata.ZedThreadID).
+				Str("spec_task_id", helixSession.Metadata.SpecTaskID).
+				Str("agent_type", helixSession.Metadata.AgentType).
+				Msg("[CONNECT] Session loaded for reconnect")
 			// CRITICAL: Rebuild contextMappings from persisted ZedThreadID if present
 			// This ensures message routing works after API server restarts
 			if helixSession.Metadata.ZedThreadID != "" {
@@ -350,8 +356,67 @@ func (apiServer *HelixAPIServer) handleExternalAgentSync(res http.ResponseWriter
 			apiServer.externalAgentWSManager.initReadinessState(helixSessionID, needsContinue, nil)
 			defer apiServer.externalAgentWSManager.cleanupReadinessState(helixSessionID)
 
+			// Clear stale streaming context from previous connection.
+			apiServer.flushAndClearStreamingContext(ctx, helixSessionID)
+
 			// Find and queue the waiting interaction for the agent
 			apiServer.pickupWaitingInteraction(ctx, helixSessionID, helixSession, agentID)
+
+			// Send open_thread BEFORE the agent_ready gate so Zed re-establishes its
+			// thread subscription immediately on connect. If we wait until after
+			// agent_ready, the queued chat_message gets flushed first, and when Zed
+			// opens the thread it replays history as message_added events that corrupt
+			// the current interaction.
+			if helixSession.Metadata.ZedThreadID != "" {
+				targetThreadID := helixSession.Metadata.ZedThreadID
+				if helixSession.Metadata.SpecTaskID != "" {
+					latestThreadID := apiServer.findLatestZedThreadForSpecTask(ctx, helixSession.Metadata.SpecTaskID)
+					if latestThreadID != "" {
+						targetThreadID = latestThreadID
+					}
+				}
+
+				agentNameForOpen := apiServer.getAgentNameForSession(ctx, helixSession)
+				log.Info().
+					Str("session_id", helixSessionID).
+					Str("zed_thread_id", targetThreadID).
+					Str("agent_name", agentNameForOpen).
+					Msg("[CONNECT] Sending open_thread directly on new connection before agent_ready gate")
+
+				// Send directly on the new wsConn rather than going through
+				// sendCommandToExternalAgent — during reconnection, the connection
+				// map may briefly have a stale entry or the channel may be closed
+				// by a racing defer from the old connection handler.
+				data := map[string]interface{}{
+					"acp_thread_id": targetThreadID,
+					"session_id":    helixSessionID,
+				}
+				if agentNameForOpen != "" {
+					data["agent_name"] = agentNameForOpen
+				}
+				openThreadCmd := types.ExternalAgentCommand{
+					Type: "open_thread",
+					Data: data,
+				}
+				// Write directly to the WebSocket, bypassing SendChan and the
+				// sender goroutine. During reconnection, the sender goroutine
+				// may not have started reading from the channel yet, and we
+				// need open_thread to arrive before agent_ready.
+				wsConn.mu.Lock()
+				writeErr := wsConn.Conn.WriteJSON(openThreadCmd)
+				wsConn.mu.Unlock()
+				if writeErr != nil {
+					log.Error().
+						Str("session_id", helixSessionID).
+						Err(writeErr).
+						Msg("[CONNECT] Failed to write open_thread directly to WebSocket")
+				} else {
+					log.Info().
+						Str("session_id", helixSessionID).
+						Str("zed_thread_id", targetThreadID).
+						Msg("[CONNECT] ✅ open_thread written directly to WebSocket")
+				}
+			}
 		}
 	}
 
@@ -399,16 +464,16 @@ func (apiServer *HelixAPIServer) pickupWaitingInteraction(ctx context.Context, h
 				apiServer.requestToSessionMapping = make(map[string]string)
 			}
 			apiServer.requestToSessionMapping[requestID] = helixSessionID
-			if apiServer.sessionToWaitingInteraction == nil {
-				apiServer.sessionToWaitingInteraction = make(map[string][]string)
-			}
-			apiServer.sessionToWaitingInteraction[helixSessionID] = append(
-				apiServer.sessionToWaitingInteraction[helixSessionID], interactionID)
 			log.Info().
 				Str("helix_session_id", helixSessionID).
 				Str("request_id", requestID).
 				Msg("🔧 [HELIX] Created request_id mapping from waiting interaction ID")
 		}
+		// Map request_id → interaction_id for FIFO queue matching
+		if apiServer.requestToInteractionMapping == nil {
+			apiServer.requestToInteractionMapping = make(map[string]string)
+		}
+		apiServer.requestToInteractionMapping[requestID] = interactionID
 		apiServer.contextMappingsMutex.Unlock()
 
 		// Combine system prompt and user message into a single message
@@ -805,13 +870,6 @@ func (apiServer *HelixAPIServer) handleThreadCreated(sessionID string, syncMsg *
 	// Notify frontend immediately so the chat updates without waiting for poll
 	apiServer.publishInteractionUpdateToFrontend(createdSession.ID, createdSession.Owner, createdInteraction)
 
-	// Enqueue the interaction so handleMessageAdded routes responses correctly
-	apiServer.contextMappingsMutex.Lock()
-	if apiServer.sessionToWaitingInteraction == nil {
-		apiServer.sessionToWaitingInteraction = make(map[string][]string)
-	}
-	apiServer.sessionToWaitingInteraction[createdSession.ID] = append(apiServer.sessionToWaitingInteraction[createdSession.ID], createdInteraction.ID)
-	apiServer.contextMappingsMutex.Unlock()
 
 	log.Info().
 		Str("helix_session_id", createdSession.ID).
@@ -900,7 +958,10 @@ func (apiServer *HelixAPIServer) NotifyExternalAgentOfNewInteraction(sessionID s
 		Data: commandData,
 	}
 
-	// Use the unified sendCommandToExternalAgent which handles connection lookup and routing
+	// Use the unified sendCommandToExternalAgent which handles connection lookup and routing.
+	// If no WebSocket connection exists, sendCommandToExternalAgent will auto-start the
+	// dev container via autoStartDevContainerForSession. The waiting interaction will be picked up
+	// by pickupWaitingInteraction when the agent reconnects.
 	return apiServer.sendCommandToExternalAgent(sessionID, command)
 }
 
@@ -935,6 +996,9 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 	// entry_type distinguishes "text" (assistant prose) from "tool_call" (tool invocations).
 	// Optional field — old Zed versions don't send it (defaults to empty string).
 	entryType, _ := syncMsg.Data["entry_type"].(string)
+	// request_id correlates this response to the chat_message that triggered it.
+	// Used to route streaming tokens to the correct interaction.
+	messageRequestID, _ := syncMsg.Data["request_id"].(string)
 	// Structured tool call metadata — sent by Zed for tool_call entries.
 	toolName, _ := syncMsg.Data["tool_name"].(string)
 	toolStatus, _ := syncMsg.Data["tool_status"].(string)
@@ -1032,7 +1096,7 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 		// redundant DB queries during token streaming. GetSession and
 		// ListInteractions are called once on the first token, then cached
 		// for all subsequent tokens until message_completed.
-		sctx := apiServer.getOrCreateStreamingContext(context.Background(), helixSessionID)
+		sctx := apiServer.getOrCreateStreamingContext(context.Background(), helixSessionID, messageRequestID)
 		if sctx == nil {
 			return fmt.Errorf("failed to get or create streaming context for session %s", helixSessionID)
 		}
@@ -1144,11 +1208,17 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 		// Zed echoes the sent user message back as message_added(role=user), which would
 		// otherwise create a duplicate interaction and overwrite the mapping, causing the
 		// assistant response to land in the wrong interaction (Bug 1 fix).
-		// Peek at the front of the FIFO queue (don't pop — message_completed does that)
+		// Check requestToInteractionMapping: if any request maps to this session via
+		// requestToSessionMapping, a pre-created interaction already exists.
 		apiServer.contextMappingsMutex.RLock()
 		var existingInteractionID string
-		if q := apiServer.sessionToWaitingInteraction[helixSessionID]; len(q) > 0 {
-			existingInteractionID = q[0]
+		for reqID, sessID := range apiServer.requestToSessionMapping {
+			if sessID == helixSessionID {
+				if intID, ok := apiServer.requestToInteractionMapping[reqID]; ok {
+					existingInteractionID = intID
+					break
+				}
+			}
 		}
 		apiServer.contextMappingsMutex.RUnlock()
 
@@ -1205,17 +1275,10 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 			// picks the session with the most recent activity.
 			_ = apiServer.Controller.Options.Store.TouchSession(context.Background(), helixSessionID)
 
-			// CRITICAL: Enqueue this interaction so the AI response goes to it
-			apiServer.contextMappingsMutex.Lock()
-			if apiServer.sessionToWaitingInteraction == nil {
-				apiServer.sessionToWaitingInteraction = make(map[string][]string)
-			}
-			apiServer.sessionToWaitingInteraction[helixSessionID] = append(apiServer.sessionToWaitingInteraction[helixSessionID], createdInteraction.ID)
-			apiServer.contextMappingsMutex.Unlock()
 			log.Info().
 				Str("helix_session_id", helixSessionID).
 				Str("interaction_id", createdInteraction.ID).
-				Msg("🗺️ [HELIX] Mapped session to new interaction from Zed user message")
+				Msg("🗺️ [HELIX] Created interaction from Zed user message")
 		}
 	}
 
@@ -1226,20 +1289,20 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 // helix session, or creates one by querying the DB on the first call. This avoids
 // redundant GetSession + ListInteractions queries on every streaming token.
 //
+// requestID is the request_id from the message_added event, used to route tokens
+// to the correct interaction via requestToInteractionMapping.
+//
 // IMPORTANT: Also detects interaction transitions (follow-up messages) and resets
 // previousEntries when the target interaction changes. This prevents patch computation
 // from using stale entries from the old interaction.
-func (apiServer *HelixAPIServer) getOrCreateStreamingContext(ctx context.Context, helixSessionID string) *streamingContext {
-	// Check what interaction we SHOULD be targeting: peek at front of the FIFO queue.
-	// Do NOT pop here — message_completed pops after marking the interaction complete.
-	apiServer.contextMappingsMutex.RLock()
+func (apiServer *HelixAPIServer) getOrCreateStreamingContext(ctx context.Context, helixSessionID string, requestID string) *streamingContext {
+	// Resolve which interaction this request_id maps to
 	var expectedInteractionID string
-	var hasMapping bool
-	if q := apiServer.sessionToWaitingInteraction[helixSessionID]; len(q) > 0 {
-		expectedInteractionID = q[0]
-		hasMapping = true
+	if requestID != "" {
+		apiServer.contextMappingsMutex.RLock()
+		expectedInteractionID = apiServer.requestToInteractionMapping[requestID]
+		apiServer.contextMappingsMutex.RUnlock()
 	}
-	apiServer.contextMappingsMutex.RUnlock()
 
 	apiServer.streamingContextsMu.RLock()
 	sctx, exists := apiServer.streamingContexts[helixSessionID]
@@ -1248,11 +1311,12 @@ func (apiServer *HelixAPIServer) getOrCreateStreamingContext(ctx context.Context
 	if exists {
 		// Check if interaction has changed (follow-up message scenario)
 		sctx.mu.Lock()
-		if hasMapping && sctx.interactionID != "" && sctx.interactionID != expectedInteractionID {
+		if expectedInteractionID != "" && sctx.interactionID != "" && sctx.interactionID != expectedInteractionID {
 			log.Info().
 				Str("session_id", helixSessionID).
 				Str("old_interaction_id", sctx.interactionID).
 				Str("new_interaction_id", expectedInteractionID).
+				Str("request_id", requestID).
 				Msg("🔄 [PERF] Interaction transition detected! Resetting streaming context for new interaction")
 
 			// Flush any dirty state for the old interaction before switching
@@ -1302,28 +1366,20 @@ func (apiServer *HelixAPIServer) getOrCreateStreamingContext(ctx context.Context
 		return nil
 	}
 
-	// Find the target interaction: use front of FIFO queue if available
+	// Find the target interaction: use request_id mapping if available
 	var targetInteraction *types.Interaction
-	apiServer.contextMappingsMutex.RLock()
-	var mappedInteractionID string
-	var hasMappingForLookup bool
-	if q := apiServer.sessionToWaitingInteraction[helixSessionID]; len(q) > 0 {
-		mappedInteractionID = q[0]
-		hasMappingForLookup = true
-	}
-	apiServer.contextMappingsMutex.RUnlock()
-	if hasMappingForLookup {
+	if expectedInteractionID != "" {
 		for i := range interactions {
-			if interactions[i].ID == mappedInteractionID {
+			if interactions[i].ID == expectedInteractionID {
 				targetInteraction = interactions[i]
 				break
 			}
 		}
 	}
+	// Fallback: find most recent waiting interaction (for backward compat / old Zed without request_id)
 	if targetInteraction == nil {
 		for i := len(interactions) - 1; i >= 0; i-- {
-			if interactions[i].State == types.InteractionStateWaiting ||
-				(interactions[i].State == types.InteractionStateComplete && interactions[i].ResponseMessage == "") {
+			if interactions[i].State == types.InteractionStateWaiting {
 				targetInteraction = interactions[i]
 				break
 			}
@@ -1379,8 +1435,6 @@ func (apiServer *HelixAPIServer) getOrCreateStreamingContext(ctx context.Context
 
 // flushAndClearStreamingContext flushes any dirty interaction state to the DB,
 // then removes the cached streaming context for a session.
-// Called on message_completed to ensure the DB has the latest content before
-// the interaction is marked as complete.
 func (apiServer *HelixAPIServer) flushAndClearStreamingContext(ctx context.Context, helixSessionID string) []wsprotocol.ResponseEntry {
 	apiServer.streamingContextsMu.Lock()
 	sctx, exists := apiServer.streamingContexts[helixSessionID]
@@ -1497,12 +1551,13 @@ func (apiServer *HelixAPIServer) sendChatMessageToExternalAgent(sessionID, messa
 			interactionID = createdInteraction.ID
 			// Notify frontend immediately so the chat updates without waiting for poll
 			apiServer.publishInteractionUpdateToFrontend(sessionID, session.Owner, createdInteraction)
+			// Map request_id → interaction_id so handleMessageCompleted can
+			// route responses to the correct interaction.
 			apiServer.contextMappingsMutex.Lock()
-			if apiServer.sessionToWaitingInteraction == nil {
-				apiServer.sessionToWaitingInteraction = make(map[string][]string)
+			if apiServer.requestToInteractionMapping == nil {
+				apiServer.requestToInteractionMapping = make(map[string]string)
 			}
-			apiServer.sessionToWaitingInteraction[sessionID] = append(
-				apiServer.sessionToWaitingInteraction[sessionID], interactionID)
+			apiServer.requestToInteractionMapping[requestID] = interactionID
 			apiServer.contextMappingsMutex.Unlock()
 		}
 
@@ -1536,21 +1591,38 @@ func (apiServer *HelixAPIServer) sendCommandToExternalAgent(sessionID string, co
 	// Get the WebSocket connection for this session
 	wsConn, exists := apiServer.externalAgentWSManager.getConnection(sessionID)
 	if !exists || wsConn == nil {
+		// No connection — auto-start the dev container if this session belongs to a spec task.
+		// The caller's interaction/prompt is already persisted; pickupWaitingInteraction
+		// will deliver it when the agent reconnects via WebSocket.
+		go apiServer.autoStartDevContainerForSession(sessionID)
 		return fmt.Errorf("no WebSocket connection found for session %s", sessionID)
 	}
 
-	// Send command to the specific Zed agent
-	select {
-	case wsConn.SendChan <- command:
-		log.Trace().
-			Str("session_id", sessionID).
-			Str("command_type", command.Type).
-			Msg("Sent command to specific external Zed agent")
-
-		return nil
-	default:
-		return fmt.Errorf("external agent send channel full for session %s", sessionID)
-	}
+	// Send command to the specific Zed agent.
+	// Use a deferred recover to handle the case where the connection's SendChan
+	// was closed between getConnection and the send (race on reconnection).
+	var sendErr error
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Warn().
+					Str("session_id", sessionID).
+					Interface("panic", r).
+					Msg("Recovered from panic sending to external agent (connection likely replaced during reconnect)")
+				sendErr = fmt.Errorf("connection replaced during send for session %s", sessionID)
+			}
+		}()
+		select {
+		case wsConn.SendChan <- command:
+			log.Trace().
+				Str("session_id", sessionID).
+				Str("command_type", command.Type).
+				Msg("Sent command to specific external Zed agent")
+		default:
+			sendErr = fmt.Errorf("external agent send channel full for session %s", sessionID)
+		}
+	}()
+	return sendErr
 }
 
 // registerConnection registers a new external agent connection
@@ -1564,11 +1636,14 @@ func (manager *ExternalAgentWSManager) registerConnection(sessionID string, conn
 		Msg("[HELIX] Registered external agent connection")
 }
 
-// unregisterConnection unregisters an external agent connection
-func (manager *ExternalAgentWSManager) unregisterConnection(sessionID string) {
+// unregisterConnection unregisters an external agent connection.
+// Only removes if it matches the currently registered connection,
+// preventing a stale defer from closing a newer connection's channel
+// after reconnection.
+func (manager *ExternalAgentWSManager) unregisterConnection(sessionID string, conn *ExternalAgentWSConnection) {
 	manager.mu.Lock()
 	defer manager.mu.Unlock()
-	if conn, exists := manager.connections[sessionID]; exists {
+	if current, exists := manager.connections[sessionID]; exists && current == conn {
 		close(conn.SendChan)
 		delete(manager.connections, sessionID)
 	}
@@ -1992,28 +2067,35 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 		Int("interaction_count", len(interactions)).
 		Msg("🔍 [DEBUG] Loaded interactions for message_completed")
 
-	// PRIMARY: use the front of the FIFO queue — the interaction that was being processed.
-	// Pop it now so the next message_completed will target the next queued interaction.
-	// This fixes the off-by-one bug where sendMessageToSpecTaskAgent creates a second
-	// waiting interaction while the first is still streaming.
+	// Match the request_id from message_completed to the correct interaction
+	// in the FIFO queue. The old code blindly popped queue[0], which caused
+	// desynchronization when the agent completed messages out of order
+	// (e.g. a short message completing before a longer one that was sent first).
+	messageRequestID, _ := syncMsg.Data["request_id"].(string)
+
 	var targetInteractionID string
 	apiServer.contextMappingsMutex.Lock()
-	if q := apiServer.sessionToWaitingInteraction[helixSessionID]; len(q) > 0 {
-		targetInteractionID = q[0]
-		if len(q) == 1 {
-			delete(apiServer.sessionToWaitingInteraction, helixSessionID)
-		} else {
-			apiServer.sessionToWaitingInteraction[helixSessionID] = q[1:]
+
+	// Try to find the interaction via request_id → interaction_id mapping
+	if messageRequestID != "" {
+		if mappedID, ok := apiServer.requestToInteractionMapping[messageRequestID]; ok {
+			targetInteractionID = mappedID
+			delete(apiServer.requestToInteractionMapping, messageRequestID)
 		}
+	}
+
+	// Remove the matched interaction from the FIFO queue (by value, not position)
+	if targetInteractionID != "" {
 		log.Info().
 			Str("helix_session_id", helixSessionID).
 			Str("interaction_id", targetInteractionID).
-			Int("remaining_queue", len(apiServer.sessionToWaitingInteraction[helixSessionID])).
-			Msg("✅ [HELIX] Popped interaction from FIFO queue for message_completed")
+			Str("request_id", messageRequestID).
+			Msg("✅ [HELIX] Matched interaction by request_id")
 	}
 	apiServer.contextMappingsMutex.Unlock()
 
-	// FALLBACK: after API restart the in-memory queue is lost — find most recent waiting interaction in DB
+	// FALLBACK: after API restart the in-memory requestToInteractionMapping is lost.
+	// Find the most recent waiting interaction in DB.
 	if targetInteractionID == "" {
 		for i := len(interactions) - 1; i >= 0; i-- {
 			if interactions[i].State == types.InteractionStateWaiting {
@@ -2021,7 +2103,7 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 				log.Info().
 					Str("helix_session_id", helixSessionID).
 					Str("interaction_id", interactions[i].ID).
-					Msg("✅ [HELIX] Fallback: found waiting interaction via DB scan (queue was empty)")
+					Msg("✅ [HELIX] Fallback: found waiting interaction via DB scan (no request_id mapping)")
 				break
 			}
 		}
@@ -2126,7 +2208,7 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 
 	// Extract request_id from message data for commenter notification
 	// This needs to be done before publishing so we can pass it to publishSessionUpdateToFrontend
-	messageRequestID, _ := syncMsg.Data["request_id"].(string)
+	// (messageRequestID already extracted above for FIFO queue matching)
 
 	// FINALIZE COMMENT RESPONSE before notifying the frontend.
 	// Running this synchronously (not in a goroutine) ensures comment.agent_response is
@@ -2432,17 +2514,6 @@ func (apiServer *HelixAPIServer) sendQueuedPromptToSession(ctx context.Context, 
 	// Notify frontend immediately so the chat updates without waiting for poll
 	apiServer.publishInteractionUpdateToFrontend(sessionID, session.Owner, createdInteraction)
 
-	// CRITICAL: Enqueue the interaction so handleMessageAdded routes the response correctly.
-	// Using append (not overwrite) prevents the race where sendMessageToSpecTaskAgent
-	// creates a second interaction while the first is still streaming, which would cause
-	// the first interaction's streaming content to land in the second interaction (off-by-one bug).
-	apiServer.contextMappingsMutex.Lock()
-	if apiServer.sessionToWaitingInteraction == nil {
-		apiServer.sessionToWaitingInteraction = make(map[string][]string)
-	}
-	apiServer.sessionToWaitingInteraction[sessionID] = append(apiServer.sessionToWaitingInteraction[sessionID], createdInteraction.ID)
-	apiServer.contextMappingsMutex.Unlock()
-
 	// Determine agent name
 	agentName := apiServer.getAgentNameForSession(ctx, session)
 
@@ -2456,6 +2527,11 @@ func (apiServer *HelixAPIServer) sendQueuedPromptToSession(ctx context.Context, 
 		apiServer.requestToSessionMapping = make(map[string]string)
 	}
 	apiServer.requestToSessionMapping[requestID] = sessionID
+	// Map request_id → interaction_id for FIFO queue matching
+	if apiServer.requestToInteractionMapping == nil {
+		apiServer.requestToInteractionMapping = make(map[string]string)
+	}
+	apiServer.requestToInteractionMapping[requestID] = createdInteraction.ID
 	apiServer.contextMappingsMutex.Unlock()
 	log.Info().
 		Str("request_id", requestID).
@@ -2493,14 +2569,55 @@ func (apiServer *HelixAPIServer) sendQueuedPromptToSession(ctx context.Context, 
 	// affect the prompt status. The user will see the interaction in the session
 	// and can retry if needed.
 	if err := apiServer.sendCommandToExternalAgent(sessionID, command); err != nil {
-		log.Error().Err(err).
+		log.Warn().Err(err).
 			Str("session_id", sessionID).
 			Str("interaction_id", createdInteraction.ID).
 			Str("prompt_id", prompt.ID).
-			Msg("❌ [QUEUE] Failed to send to agent, but interaction was created - prompt will be marked as sent")
+			Msg("❌ [QUEUE] Failed to send to agent (dev container auto-start triggered by sendCommandToExternalAgent)")
+
+		// Clean up in-memory state so pickupWaitingInteraction can set it up
+		// fresh on reconnect. Without this, stale message_completed events from
+		// the agent's previous context get matched to this interaction.
+		apiServer.contextMappingsMutex.Lock()
+		delete(apiServer.requestToSessionMapping, requestID)
+		delete(apiServer.requestToInteractionMapping, requestID)
+		apiServer.contextMappingsMutex.Unlock()
 	}
 
 	return nil
+}
+
+// autoStartDevContainerForSession checks if a session belongs to a spec task and,
+// if so, auto-starts its dev container. This is fire-and-forget — the caller's
+// message is already persisted and will be picked up by pickupWaitingInteraction
+// when the agent reconnects.
+func (apiServer *HelixAPIServer) autoStartDevContainerForSession(sessionID string) {
+	ctx := context.Background()
+	session, err := apiServer.Controller.Options.Store.GetSession(ctx, sessionID)
+	if err != nil {
+		log.Error().Err(err).Str("session_id", sessionID).Msg("autoStartDevContainerForSession: failed to get session")
+		return
+	}
+	if session == nil {
+		log.Warn().Str("session_id", sessionID).Msg("autoStartDevContainerForSession: session is nil")
+		return
+	}
+	if session.Metadata.SpecTaskID == "" {
+		log.Debug().Str("session_id", sessionID).Msg("autoStartDevContainerForSession: no spec task ID on session, skipping")
+		return
+	}
+	specTask, err := apiServer.Controller.Options.Store.GetSpecTask(ctx, session.Metadata.SpecTaskID)
+	if err != nil {
+		log.Error().Err(err).Str("spec_task_id", session.Metadata.SpecTaskID).Msg("Failed to load spec task for dev container auto-start")
+		return
+	}
+	log.Info().
+		Str("session_id", sessionID).
+		Str("spec_task_id", specTask.ID).
+		Msg("Auto-starting dev container for session with no WebSocket connection")
+	if startErr := apiServer.startDevContainerForSpecTask(ctx, specTask); startErr != nil {
+		log.Error().Err(startErr).Str("spec_task_id", specTask.ID).Msg("Failed to auto-start dev container")
+	}
 }
 
 // truncateString truncates a string to maxLen characters
@@ -2686,43 +2803,10 @@ func (apiServer *HelixAPIServer) handleAgentReady(sessionID string, syncMsg *typ
 	// Mark as ready (this flushes queued messages and calls onReady)
 	apiServer.externalAgentWSManager.markSessionReady(sessionID, onReadyCallback)
 
-	// After container/API restart, Zed reconnects and sends agent_ready with thread_id=null.
-	// At this point, Zed has lost its thread event subscriptions (SUBSCRIBED_THREADS static
-	// is cleared on process restart). Without a subscription, messages the user types directly
-	// into Zed's agent panel won't sync back to Helix over the WebSocket.
-	//
-	// Fix: if the session has an existing ZedThreadID and the agent_ready came without a
-	// thread_id (meaning Zed reconnected fresh), send an open_thread command so Zed loads
-	// the thread and re-establishes its event subscription via ensure_thread_subscription().
-	if threadID == "" && connExists {
-		helixSession, err := apiServer.Controller.Options.Store.GetSession(context.Background(), sessionID)
-		if err == nil && helixSession != nil && helixSession.Metadata.ZedThreadID != "" {
-			// Use the latest thread for this spectask (not necessarily the one stored
-			// on this session). When the user creates new threads in Zed, the latest
-			// thread is the one they're working in — reopening the original thread
-			// would jump them back to stale context.
-			targetThreadID := helixSession.Metadata.ZedThreadID
-			if helixSession.Metadata.SpecTaskID != "" {
-				latestThreadID := apiServer.findLatestZedThreadForSpecTask(context.Background(), helixSession.Metadata.SpecTaskID)
-				if latestThreadID != "" {
-					targetThreadID = latestThreadID
-				}
-			}
-
-			agentNameForOpen := apiServer.getAgentNameForSession(context.Background(), helixSession)
-			log.Trace().
-				Str("session_id", sessionID).
-				Str("zed_thread_id", targetThreadID).
-				Str("agent_name", agentNameForOpen).
-				Msg("[READINESS] Sending open_thread to re-establish Zed subscription after reconnect")
-			if err := apiServer.sendOpenThreadCommand(sessionID, targetThreadID, agentNameForOpen); err != nil {
-				log.Warn().
-					Str("session_id", sessionID).
-					Err(err).
-					Msg("⚠️ [READINESS] Failed to send open_thread for reconnect subscription recovery")
-			}
-		}
-	}
+	// NOTE: open_thread is now sent on connect in handleExternalAgentConnection,
+	// BEFORE the agent_ready gate. This ensures Zed re-establishes its thread
+	// subscription before any queued chat_message is flushed, preventing history
+	// replay message_added events from corrupting the current interaction.
 
 	// Process any pending prompts (including interrupt=true ones)
 	// When agent is ready/idle, we should process ALL pending prompts, not just non-interrupt ones

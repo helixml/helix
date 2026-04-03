@@ -21,7 +21,7 @@ import (
 // EnsurePRsFunc is a callback that creates PRs for all project repos that have
 // the task's feature branch. Set by the server so the orchestrator can retry
 // PR creation for repos whose branches weren't ready at initial "Open PR" time.
-type EnsurePRsFunc func(ctx context.Context, task *types.SpecTask, primaryRepoID string) error
+type EnsurePRsFunc func(ctx context.Context, task *types.SpecTask, primaryRepoID string, userID string) error
 
 type SpecTaskOrchestrator struct {
 	store                 store.Store
@@ -637,7 +637,8 @@ func (o *SpecTaskOrchestrator) handlePullRequest(ctx context.Context, task *type
 	if o.ensurePRs != nil {
 		project, err := o.store.GetProject(ctx, task.ProjectID)
 		if err == nil && project.DefaultRepoID != "" {
-			if err := o.ensurePRs(ctx, task, project.DefaultRepoID); err != nil {
+			// Use the approver's identity so push+PR use their OAuth token
+			if err := o.ensurePRs(ctx, task, project.DefaultRepoID, task.ImplementationApprovedBy); err != nil {
 				log.Debug().Err(err).Str("task_id", task.ID).Msg("Failed to ensure PRs for all repos (will retry)")
 			}
 		}
@@ -647,6 +648,20 @@ func (o *SpecTaskOrchestrator) handlePullRequest(ctx context.Context, task *type
 		log.Warn().
 			Str("task_id", task.ID).
 			Msg("Task in pull_request status but no PRs tracked in RepoPullRequests")
+
+		// If the task has been in pull_request status for over 5 minutes with no
+		// PRs, the agent likely failed to push the branch. Surface an error.
+		if task.StatusUpdatedAt != nil && time.Since(*task.StatusUpdatedAt) > 5*time.Minute {
+			if task.Metadata == nil {
+				task.Metadata = make(map[string]interface{})
+			}
+			if _, hasErr := task.Metadata["error"]; !hasErr {
+				task.Metadata["error"] = "Pull request could not be created - the agent may not have pushed the feature branch. Check the agent session for errors."
+				if err := o.store.UpdateSpecTask(ctx, task); err != nil {
+					log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to save PR timeout error to task metadata")
+				}
+			}
+		}
 	}
 
 	// Always call processExternalPullRequestStatus even with no tracked PRs —

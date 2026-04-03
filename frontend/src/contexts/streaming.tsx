@@ -65,6 +65,7 @@ interface StreamingContextType {
   setCurrentSessionId: (sessionId: string) => void;
   currentResponses: Map<string, StreamingInteraction>;
   stepInfos: Map<string, any[]>;
+  wsConnected: boolean;
   updateCurrentResponse: (
     sessionId: string,
     interaction: Partial<TypesInteraction>,
@@ -92,6 +93,7 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({
   >(new Map());
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [stepInfos, setStepInfos] = useState<Map<string, any[]>>(new Map());
+  const [wsConnected, setWsConnected] = useState(false);
 
   // Add refs for managing streaming state
   const messageBufferRef = useRef<Map<string, string[]>>(new Map());
@@ -393,8 +395,11 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({
               const current = prev.get(currentSessionId) || {};
               const isSameInteraction = current.id === updatedInteraction.id;
 
-              // When complete, use server's response_message directly — do NOT fall
-              // back to current.response_message which may be truncated streaming data
+              // When complete, use server's response_message and response_entries directly.
+              // Do NOT fall back to current values which may be truncated streaming data.
+              // Storing response_entries here prevents the 3s poll from overwriting the
+              // correct final entries with stale pre-completion data from the DB.
+              const serverEntries = (updatedInteraction as any)?.response_entries as ResponseEntry[] | undefined;
               const updated: StreamingInteraction = isSameInteraction
                 ? {
                     ...current,
@@ -407,6 +412,7 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({
                       ? updatedInteraction.response_message // Complete: use server data only
                       : updatedInteraction.response_message ||
                         current.response_message,
+                    ...(isComplete && serverEntries ? { response_entries: serverEntries } : {}),
                   }
                 : {
                     // New interaction - start with clean slate
@@ -414,6 +420,7 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({
                     state: updatedInteraction.state,
                     prompt_message: updatedInteraction.prompt_message,
                     response_message: updatedInteraction.response_message,
+                    ...(isComplete && serverEntries ? { response_entries: serverEntries } : {}),
                   };
 
               const newMap = new Map(prev).set(currentSessionId, updated);
@@ -546,11 +553,19 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({
       }, 500);
     };
 
+    const openHandler = () => setWsConnected(true);
+    const closeHandler = () => setWsConnected(false);
+
     rws.addEventListener("message", messageHandler);
+    rws.addEventListener("open", openHandler);
+    rws.addEventListener("close", closeHandler);
 
     return () => {
       rws.removeEventListener("message", messageHandler);
+      rws.removeEventListener("open", openHandler);
+      rws.removeEventListener("close", closeHandler);
       rws.close();
+      setWsConnected(false);
       // Clear any pending invalidation timer
       if (invalidateTimerRef.current) {
         clearTimeout(invalidateTimerRef.current);
@@ -900,6 +915,7 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({
     currentResponses,
     updateCurrentResponse,
     stepInfos,
+    wsConnected,
   };
 
   return (

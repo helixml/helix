@@ -284,14 +284,16 @@ const SpecTasksPage: FC = () => {
   const defaultRepoId = project?.default_repo_id;
 
   // Check if the default repo is an external repo (e.g., GitHub, Azure DevOps)
-  const hasExternalRepo = useMemo(() => {
-    const defaultRepo = projectRepositories.find((r) => r.id === defaultRepoId);
-    return !!(
-      defaultRepo?.is_external ||
-      defaultRepo?.azure_devops ||
-      defaultRepo?.external_type
-    );
-  }, [projectRepositories, defaultRepoId]);
+  const defaultRepo = useMemo(
+    () => projectRepositories.find((r) => r.id === defaultRepoId),
+    [projectRepositories, defaultRepoId],
+  );
+  const hasExternalRepo = !!(
+    defaultRepo?.is_external ||
+    defaultRepo?.azure_devops ||
+    defaultRepo?.external_type
+  );
+  const externalRepoType = defaultRepo?.external_type;
 
   const boardWipLimits = useMemo(() => {
     const limits = project?.metadata?.board_settings?.wip_limits;
@@ -1144,6 +1146,7 @@ const SpecTasksPage: FC = () => {
                 refreshTrigger={refreshTrigger}
                 focusTaskId={focusTaskId}
                 hasExternalRepo={hasExternalRepo}
+                externalRepoType={externalRepoType}
                 showArchived={showArchived}
                 showMetrics={showMetrics}
                 showMerged={showMerged}

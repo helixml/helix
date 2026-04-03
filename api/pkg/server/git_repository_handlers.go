@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -1577,7 +1578,7 @@ func (s *HelixAPIServer) createGitRepositoryPullRequest(w http.ResponseWriter, r
 	// Both push and PR creation should happen atomically.
 	var prID string
 	err = s.gitRepositoryService.WithRepoLock(repoID, func() error {
-		if pushErr := s.gitRepositoryService.PushBranchToRemote(r.Context(), repoID, request.SourceBranch, false); pushErr != nil {
+		if pushErr := s.gitRepositoryService.PushBranchToRemote(r.Context(), repoID, request.SourceBranch, false, user.ID); pushErr != nil {
 			log.Error().Err(pushErr).
 				Str("repo_id", repoID).
 				Str("branch", request.SourceBranch).
@@ -1586,10 +1587,19 @@ func (s *HelixAPIServer) createGitRepositoryPullRequest(w http.ResponseWriter, r
 		}
 
 		var prErr error
-		prID, prErr = s.gitRepositoryService.CreatePullRequest(r.Context(), repoID, request.Title, request.Description, request.SourceBranch, request.TargetBranch)
+		prID, prErr = s.gitRepositoryService.CreatePullRequest(r.Context(), repoID, request.Title, request.Description, request.SourceBranch, request.TargetBranch, user.ID)
 		return prErr
 	})
 	if err != nil {
+		var oauthErr *services.OAuthRequiredError
+		if errors.As(err, &oauthErr) {
+			writeResponse(w, map[string]interface{}{
+				"error":         "oauth_required",
+				"message":       oauthErr.Error(),
+				"provider_type": oauthErr.ProviderType,
+			}, http.StatusUnprocessableEntity)
+			return
+		}
 		log.Error().Err(err).
 			Str("repo_id", repoID).
 			Str("title", request.Title).

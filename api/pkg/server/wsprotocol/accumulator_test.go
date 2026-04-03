@@ -327,3 +327,51 @@ func TestResumeFromPersistedState(t *testing.T) {
 		t.Errorf("expected %q, got %q", expected, a.Content)
 	}
 }
+
+func TestSanitizeNullBytes(t *testing.T) {
+	a := &MessageAccumulator{}
+
+	// Content with null bytes (from terminal output or binary data)
+	a.AddMessage("msg-1", "Hello\x00World")
+	assert.Equal(t, "HelloWorld", a.Content, "null bytes should be stripped")
+
+	// Content with multiple null bytes
+	a.AddMessage("msg-2", "\x00before\x00middle\x00after\x00")
+	assert.Equal(t, "HelloWorld\n\nbeforemiddleafter", a.Content)
+
+	// Content without null bytes should pass through unchanged
+	a.AddMessage("msg-3", "clean content")
+	assert.Contains(t, a.Content, "clean content")
+}
+
+func TestSanitizeForPostgres(t *testing.T) {
+	// Null bytes
+	assert.Equal(t, "hello", sanitizeForPostgres("hello"))
+	assert.Equal(t, "helloworld", sanitizeForPostgres("hello\x00world"))
+	assert.Equal(t, "", sanitizeForPostgres("\x00"))
+	assert.Equal(t, "", sanitizeForPostgres(""))
+	assert.Equal(t, "abc", sanitizeForPostgres("\x00a\x00b\x00c\x00"))
+
+	// C0 control characters (strip 0x01-0x08, 0x0B, 0x0C, 0x0E-0x1F; keep \t \n \r)
+	assert.Equal(t, "ab", sanitizeForPostgres("a\x01b"))
+	assert.Equal(t, "a\tb", sanitizeForPostgres("a\tb"), "tab preserved")
+	assert.Equal(t, "a\nb", sanitizeForPostgres("a\nb"), "newline preserved")
+	assert.Equal(t, "a\rb", sanitizeForPostgres("a\rb"), "carriage return preserved")
+	assert.Equal(t, "ab", sanitizeForPostgres("a\x0Bb"))  // vertical tab stripped
+	assert.Equal(t, "ab", sanitizeForPostgres("a\x1Fb"))  // unit separator stripped
+
+	// C1 control characters (U+0080–U+009F)
+	assert.Equal(t, "ab", sanitizeForPostgres("a\u0080b"))
+	assert.Equal(t, "ab", sanitizeForPostgres("a\u009Fb"))
+
+	// Unicode non-characters
+	assert.Equal(t, "ab", sanitizeForPostgres("a\uFFFEb"))
+	assert.Equal(t, "ab", sanitizeForPostgres("a\uFFFFb"))
+
+	// Normal Unicode passes through
+	assert.Equal(t, "héllo wörld 🌍", sanitizeForPostgres("héllo wörld 🌍"))
+
+	// Fast path — clean strings return unchanged (same pointer)
+	clean := "nothing to strip here"
+	assert.Equal(t, clean, sanitizeForPostgres(clean))
+}

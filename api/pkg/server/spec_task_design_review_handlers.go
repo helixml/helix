@@ -715,8 +715,9 @@ func (s *HelixAPIServer) processNextCommentInQueue(ctx context.Context, sessionI
 		return
 	}
 
-	// Now actually send the comment to the agent
-	// sendCommentToAgentNow sets RequestID on the comment, marking it as "being processed"
+	// Now actually send the comment to the agent.
+	// sendCommentToAgentNow → sendMessageToSpecTaskAgent, which auto-starts the dev container
+	// and waits up to 90s for the agent to connect if no session is currently active.
 	err = s.sendCommentToAgentNow(ctx, specTask, comment)
 	if err != nil {
 		log.Error().
@@ -828,6 +829,103 @@ func (s *HelixAPIServer) findConnectedSessionForSpecTask(ctx context.Context, sp
 
 	return "", fmt.Errorf("no WebSocket connection found for spec task %s (tried planning session %s and %d other connected sessions)",
 		specTask.ID, specTask.PlanningSessionID, len(connectedSessions))
+}
+
+// startDevContainerForSpecTask auto-starts the dev container for a spec task's planning session.
+// This is the backend equivalent of the frontend auto-start logic in DesignReviewContent.tsx.
+// It extracts the core logic from resumeSession without requiring an HTTP request context.
+func (s *HelixAPIServer) startDevContainerForSpecTask(ctx context.Context, specTask *types.SpecTask) error {
+	if specTask.PlanningSessionID == "" {
+		return fmt.Errorf("spec task %s has no planning session ID", specTask.ID)
+	}
+	if s.externalAgentExecutor == nil {
+		return fmt.Errorf("external agent executor not available")
+	}
+
+	session, err := s.Store.GetSession(ctx, specTask.PlanningSessionID)
+	if err != nil {
+		return fmt.Errorf("failed to get planning session %s: %w", specTask.PlanningSessionID, err)
+	}
+
+	agent := &types.DesktopAgent{
+		SessionID:      session.ID,
+		UserID:         session.Owner,
+		Input:          "Resume session",
+		ProjectPath:    "workspace",
+		SpecTaskID:     specTask.ID,
+		ProjectID:      specTask.ProjectID,
+		OrganizationID: specTask.OrganizationID,
+	}
+
+	// Load project repositories
+	if agent.ProjectID != "" {
+		projectRepos, err := s.Store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
+			ProjectID: agent.ProjectID,
+		})
+		if err == nil && len(projectRepos) > 0 {
+			agent.RepositoryIDs = make([]string, 0, len(projectRepos))
+			for _, repo := range projectRepos {
+				if repo.ID != "" {
+					agent.RepositoryIDs = append(agent.RepositoryIDs, repo.ID)
+				}
+			}
+			project, err := s.Store.GetProject(ctx, agent.ProjectID)
+			if err == nil && project != nil && project.DefaultRepoID != "" {
+				agent.PrimaryRepositoryID = project.DefaultRepoID
+			} else if len(projectRepos) > 0 {
+				agent.PrimaryRepositoryID = projectRepos[0].ID
+			}
+		}
+	}
+
+	// Get display settings from app config
+	if session.ParentApp != "" {
+		app, err := s.Controller.Options.Store.GetApp(ctx, session.ParentApp)
+		if err == nil && app != nil && app.Config.Helix.ExternalAgentConfig != nil {
+			width, height := app.Config.Helix.ExternalAgentConfig.GetEffectiveResolution()
+			agent.DisplayWidth = width
+			agent.DisplayHeight = height
+			if app.Config.Helix.ExternalAgentConfig.DisplayRefreshRate > 0 {
+				agent.DisplayRefreshRate = app.Config.Helix.ExternalAgentConfig.DisplayRefreshRate
+			}
+			agent.Resolution = app.Config.Helix.ExternalAgentConfig.Resolution
+			agent.ZoomLevel = app.Config.Helix.ExternalAgentConfig.GetEffectiveZoomLevel()
+			agent.DesktopType = app.Config.Helix.ExternalAgentConfig.GetEffectiveDesktopType()
+		}
+	}
+
+	if err := s.addUserAPITokenToAgent(ctx, agent, session.Owner); err != nil {
+		return fmt.Errorf("failed to add user API token: %w", err)
+	}
+
+	log.Info().
+		Str("spec_task_id", specTask.ID).
+		Str("session_id", session.ID).
+		Msg("Auto-starting dev container for spec task (backend-initiated resume)")
+
+	response, err := s.externalAgentExecutor.StartDesktop(ctx, agent)
+	if err != nil {
+		return fmt.Errorf("failed to start dev container: %w", err)
+	}
+
+	// Re-fetch session and update metadata (same as resumeSession does)
+	session, err = s.Store.GetSession(ctx, specTask.PlanningSessionID)
+	if err == nil {
+		if response.DevContainerID != "" {
+			session.Metadata.DevContainerID = response.DevContainerID
+		}
+		session.Metadata.PausedScreenshotPath = ""
+		if _, err := s.Store.UpdateSession(ctx, *session); err != nil {
+			log.Warn().Err(err).Str("session_id", session.ID).Msg("Failed to update session metadata after auto-start")
+		}
+	}
+
+	log.Info().
+		Str("spec_task_id", specTask.ID).
+		Str("session_id", specTask.PlanningSessionID).
+		Msg("✅ Dev container auto-started for spec task, agent will reconnect via WebSocket")
+
+	return nil
 }
 
 // sendCommentToAgentNow actually sends a comment to the agent (called from queue processor)
@@ -1290,6 +1388,7 @@ func sanitizeBranchName(name string) string {
 
 // sendMessageToSpecTaskAgent is the unified helper for sending messages to spec task agents via WebSocket
 // It handles: finding connected session, generating request ID, setting up response routing, and sending
+// If no session is connected, it auto-starts the dev container and waits up to 90s for the agent to connect.
 // Returns (requestID, interactionID, error). Both IDs are needed by callers that track comment responses.
 func (s *HelixAPIServer) sendMessageToSpecTaskAgent(
 	ctx context.Context,
@@ -1297,10 +1396,20 @@ func (s *HelixAPIServer) sendMessageToSpecTaskAgent(
 	message string,
 	notifyUserID string, // Optional: user to notify of responses (e.g., commenter). Empty = no extra notification
 ) (string, string, error) {
-	// Find a connected session for this spec task
+	// Find a connected session for this spec task, falling back to PlanningSessionID.
+	// If no session is connected, sendChatMessageToExternalAgent will still create
+	// the interaction. sendCommandToExternalAgent will fail and trigger auto-start;
+	// pickupWaitingInteraction delivers the message when the agent reconnects.
 	sessionID, err := s.findConnectedSessionForSpecTask(ctx, specTask)
 	if err != nil {
-		return "", "", fmt.Errorf("no connected session found: %w", err)
+		if specTask.PlanningSessionID == "" {
+			return "", "", fmt.Errorf("no connected session and no planning session ID: %w", err)
+		}
+		log.Info().
+			Str("spec_task_id", specTask.ID).
+			Str("planning_session_id", specTask.PlanningSessionID).
+			Msg("No connected session, falling back to planning session ID — auto-start will be triggered on send")
+		sessionID = specTask.PlanningSessionID
 	}
 
 	// Generate request ID for tracking

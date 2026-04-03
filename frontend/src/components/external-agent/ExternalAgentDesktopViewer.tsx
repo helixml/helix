@@ -240,7 +240,8 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
       // The useEffect below will reset it when container state changes
     } catch (error: any) {
       console.error("Failed to resume agent:", error);
-      snackbar.error(error?.message || "Failed to start agent");
+      const message = error?.response?.data || error?.message || "Failed to start agent";
+      snackbar.error(typeof message === "string" ? message.trim() : "Failed to start agent");
       // Error - reset so user can retry
       setIsResuming(false);
     }
@@ -345,8 +346,9 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
     }
 
     if (isPaused) {
-      // Don't fetch screenshot when we know sandbox is absent — just show the paused UI.
-      // (The screenshotUrl used to be loaded here, but it's an unnecessary download.)
+      // Show the last screenshot (served from PausedScreenshotPath on the API) behind
+      // a semi-transparent overlay. onError hides the img gracefully if unavailable.
+      const screenshotUrl = `/api/v1/external-agents/${sessionId}/screenshot`;
       return (
         <Box
           sx={{
@@ -358,31 +360,57 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
             borderRadius: 1,
             overflow: "hidden",
             backgroundColor: "#1a1a1a",
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: 2,
           }}
         >
-          <Typography
-            variant="body1"
-            sx={{ color: "rgba(255,255,255,0.9)", fontWeight: 500 }}
+          <Box
+            component="img"
+            src={screenshotUrl}
+            alt="Paused Desktop"
+            sx={{
+              width: "100%",
+              height: "100%",
+              objectFit: "contain",
+              filter: "grayscale(0.5) brightness(0.7) blur(1px)",
+              opacity: 0.6,
+            }}
+            onError={(e: React.SyntheticEvent<HTMLImageElement>) => {
+              e.currentTarget.style.display = "none";
+            }}
+          />
+          <Box
+            sx={{
+              position: "absolute",
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              backgroundColor: "rgba(0,0,0,0.3)",
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 2,
+            }}
           >
-            Desktop Paused
-          </Typography>
-          <Button
-            variant="contained"
-            color="primary"
-            size="large"
-            startIcon={
-              isResuming ? <CircularProgress size={20} /> : <PlayArrow />
-            }
-            onClick={handleResume}
-            disabled={isResuming}
-          >
-            {isResuming ? "Starting..." : "Start Desktop"}
-          </Button>
+            <Typography
+              variant="body1"
+              sx={{ color: "rgba(255,255,255,0.9)", fontWeight: 500 }}
+            >
+              Desktop Paused
+            </Typography>
+            <Button
+              variant="contained"
+              color="primary"
+              size="large"
+              startIcon={
+                isResuming ? <CircularProgress size={20} /> : <PlayArrow />
+              }
+              onClick={handleResume}
+              disabled={isResuming}
+            >
+              {isResuming ? "Starting..." : "Start Desktop"}
+            </Button>
+          </Box>
         </Box>
       );
     }
