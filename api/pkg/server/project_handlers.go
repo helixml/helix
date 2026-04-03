@@ -1475,6 +1475,7 @@ func (s *HelixAPIServer) startExploratorySession(_ http.ResponseWriter, r *http.
 		LoraDir:        "",
 		Owner:          user.ID,
 		OrganizationID: project.OrganizationID, // Inherit org from project
+		ProjectID:      projectID,              // Required for RBAC authorization on shared projects
 		OwnerType:      types.OwnerTypeUser,
 		Metadata:       sessionMetadata,
 	}
