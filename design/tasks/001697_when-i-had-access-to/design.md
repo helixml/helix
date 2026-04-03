@@ -46,5 +46,11 @@ Keeping auth logic simple. The root cause is inconsistent data—fix the data, n
 
 | File | Change |
 |------|--------|
-| `api/pkg/server/session_handlers.go` | Set `session.ProjectID` when creating exploratory sessions |
-| `api/pkg/store/postgres_sessions.go` | Possibly migration to backfill existing sessions |
+| `api/pkg/server/project_handlers.go` | Set `session.ProjectID` when creating exploratory sessions (line 1479) |
+
+## Implementation Notes
+
+- The fix was a one-line change: added `ProjectID: projectID` to the session struct in `startExploratorySession()`
+- No migration needed - exploratory sessions are ephemeral and get recreated; users just need to start a new session
+- The authorization flow is: `authorizeUserToSession()` → checks `session.ProjectID` → calls `authorizeUserToResource()` which does RBAC lookup
+- With the fix, users with project RBAC access can now resume exploratory sessions on shared projects
