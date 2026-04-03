@@ -13,7 +13,10 @@ Tasks currently derive their name from the prompt at creation time (`GenerateTas
 ## Acceptance Criteria
 
 - [ ] When a spec is pushed and the task transitions to `spec_review`, the task's `name` is updated to the first non-empty line of `requirements.md` (stripped of leading `#` and whitespace)
-- [ ] The task name from the spec title is applied regardless of its length (no 60-char truncation applied to spec titles; keep as-is or apply a generous limit like 200 chars)
+- [ ] On every subsequent spec push (re-push), the task name is re-synced from the current first line of `requirements.md` — not just on the initial transition
+- [ ] The task name from the spec title is applied regardless of its length (no 60-char truncation; apply a generous limit like 200 chars)
+- [ ] The spec-derived name is visible in kanban cards and breadcrumbs on both the spec task detail page and the spec review page
+- [ ] Hovering over the task name in the kanban card and in breadcrumbs shows the original prompt as a tooltip
 - [ ] In `spec_review` and all later statuses, the prompt/description field in the task detail form is rendered as read-only (non-editable)
 - [ ] In `backlog` and `spec_generation` statuses, the prompt field remains editable (existing behavior unchanged)
 - [ ] If `requirements.md` has no usable first line, the name is left unchanged

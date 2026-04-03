@@ -11,11 +11,13 @@ The transition happens in `processDesignDocsForBranch()` in `git_http_server.go`
 
 ## Backend Change
 
-In `git_http_server.go` → `processDesignDocsForBranch()`, after reading the design docs and before/alongside the status transition to `spec_review`:
+In `git_http_server.go` → `processDesignDocsForBranch()`, after reading the design docs:
 
 1. Read the first non-empty line from `requirements.md` content
 2. Strip leading `#` characters and trim whitespace
-3. If a title is found, update the task's `Name` field via the existing update path
+3. If a title is found, update the task's `Name` field
+
+This runs on **every push**, not just the initial `spec_review` transition. That way re-pushing an updated `requirements.md` always keeps the task name in sync.
 
 Extract a helper:
 ```go
@@ -30,9 +32,11 @@ func specTitleFromRequirements(content string) string {
 }
 ```
 
-## Frontend Change
+## Frontend Changes
 
-In `SpecTaskDetailContent.tsx`, the prompt/description `TextField` is currently always editable. Gate editability on task status:
+### 1. Read-only prompt field
+
+In `SpecTaskDetailContent.tsx`, gate the description/prompt `TextField` on task status:
 
 ```tsx
 const isPromptEditable = ["backlog", "queued_spec_generation", "spec_generation"].includes(task?.status)
@@ -40,14 +44,37 @@ const isPromptEditable = ["backlog", "queued_spec_generation", "spec_generation"
 
 Render the description as plain text (or a disabled `TextField`) when `!isPromptEditable`.
 
+### 2. Name display — kanban and breadcrumbs
+
+The task name already flows through `task.name` to all the right places:
+
+- **Kanban card**: `TaskCard.tsx` line 770 renders `task.name` — no change needed
+- **Breadcrumb (detail page)**: `SpecTaskDetailPage.tsx` lines 127-130 uses `task?.name || "Task"` — no change needed
+- **Breadcrumb (review page)**: `SpecTaskReviewPage.tsx` lines 92-96 uses `task?.name || "Task"` — no change needed
+
+### 3. Hover tooltip — show original prompt
+
+Currently the hover tooltip on the task name shows `task.description || task.name`. Once the name comes from the spec title, the useful thing to show on hover is the **original prompt**.
+
+Update the tooltip value in these three places to use `task.original_prompt`:
+
+| File | Lines | Current tooltip | Updated tooltip |
+|------|-------|----------------|-----------------|
+| `TaskCard.tsx` | 749-758 | `task.description \|\| task.name` | `task.original_prompt \|\| task.description \|\| task.name` |
+| `SpecTaskDetailPage.tsx` | 127-130 | `task?.description \|\| task?.name` | `task?.original_prompt \|\| task?.description \|\| task?.name` |
+| `SpecTaskReviewPage.tsx` | 92-96 | (no tooltip) | Add `tooltip: task?.original_prompt \|\| task?.description \|\| task?.name` |
+
+The `SpecTaskReviewPage.tsx` breadcrumb entry for the task name currently has no tooltip at all — add one using the same pattern. The `Page.tsx` breadcrumb renderer already supports the optional `tooltip` field on `IPageBreadcrumb`.
+
 ## Decisions
 
-- **First file = `requirements.md`**: it's always the first doc written and its H1 is the natural task title.
-- **No truncation for spec titles**: the 60-char limit on prompt-derived names is a UX affordance for unstructured text; spec titles are intentional and should display in full.
-- **No rename via prompt after spec_review**: if the user dislikes the title, they comment on the spec and edit `requirements.md`. This keeps spec docs as the source of truth.
+- **Update on every push, not just first**: re-pushing a spec with a revised title is the intended workflow for renaming a task from `spec_review` onwards, so every push must sync the name.
+- **First file = `requirements.md`**: always written first; its H1 is the natural task title.
+- **No truncation for spec titles**: the 60-char limit on prompt-derived names is a UX affordance for unstructured text; spec titles are intentional.
+- **Hover shows original prompt**: the name now comes from the spec, not the prompt — showing the original prompt on hover preserves discoverability without cluttering the UI.
 
 ## Notes for Implementors
 
 - `createDesignReviewForPush()` already reads `requirements.md` content — reuse that content rather than reading the file twice.
 - The task status types are in `/api/pkg/types/simple_spec_task.go` lines 279-309.
-- The frontend status constants should match the Go backend string values.
+- `original_prompt` field exists on the `SpecTask` type — confirmed present in `SpecTaskKanbanBoard.tsx` line 203 and used as a fallback in `SpecTaskDetailContent.tsx`.
