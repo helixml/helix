@@ -396,6 +396,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
 
   // Clipboard sync state
   const lastRemoteClipboardHash = useRef<string>(""); // Track changes to avoid unnecessary writes
+  const lastAutoSyncedText = useRef<string>(""); // Track what remote→local auto-sync last wrote
   const [stats, setStats] = useState<StreamStats | null>(null);
 
   // Chart history for visualizing adaptive bitrate behavior (60 seconds of data)
@@ -2697,8 +2698,9 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         } else if (clipboardData.type === "text") {
           // Write text to browser/system clipboard
           await clipboardWriteText(clipboardData.data);
+          lastAutoSyncedText.current = clipboardData.data;
           console.log(
-            `[Clipboard] Auto-synced text from remote (${clipboardData.data.length} chars)`,
+            `[Clipboard] Auto-synced text from remote (${clipboardData.data.length} chars): "${clipboardData.data.substring(0, 40)}"`,
           );
         }
 
@@ -2722,16 +2724,15 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isConnected, sessionId]); // Don't include helixApi - it's not reactive
 
-  // Prevent page scroll on wheel events inside viewer (native listener with passive: false)
+  // Forward wheel events to remote desktop via WebSocketStream.
+  // No preventDefault needed — the container has overflow:hidden so there's nothing
+  // for the browser to scroll, and leaving the event unhandled lets Chrome's native
+  // swipe-to-navigate gesture (two-finger horizontal swipe for back/forward) work.
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
 
     const wheelHandler = (event: WheelEvent) => {
-      event.preventDefault();
-      event.stopPropagation();
-
-      // Send scroll via WebSocketStream
       const input =
         streamRef.current && "getInput" in streamRef.current
           ? (streamRef.current as WebSocketStream).getInput()
@@ -2739,9 +2740,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       input?.onMouseWheel(event);
     };
 
-    // CRITICAL: Use { passive: false } to allow preventDefault() on wheel events
-    // Chrome makes wheel events passive by default, which prevents preventDefault()
-    container.addEventListener("wheel", wheelHandler, { passive: false });
+    container.addEventListener("wheel", wheelHandler);
 
     return () => {
       container.removeEventListener("wheel", wheelHandler);
@@ -3719,6 +3718,99 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     // Track last Escape press for double-Escape reset
     let lastEscapeTime = 0;
 
+    // Track when a native paste event was handled so we can suppress the subsequent
+    // bare 'v' keydown that macOS WKWebView fires after consuming the Cmd modifier.
+    let pasteJustHandled = false;
+
+    // Sync clipboard content to remote and forward Ctrl+V keystroke.
+    // Defined at useEffect scope so both handleKeyDown and handlePaste can use it.
+    const syncAndPaste = (payload: TypesClipboardData, useShift: boolean) => {
+      const sessionId = sessionIdRef.current;
+      console.log(
+        `[Paste DEBUG] syncAndPaste start: sessionId="${sessionId}" payload.type="${payload.type}" payload.data="${(payload.data || "").substring(0, 60)}"`,
+      );
+      const apiClient = helixApi.getApiClient();
+      apiClient
+        .v1ExternalAgentsClipboardCreate(sessionId, payload)
+        .then(() => {
+          console.log(
+            `[Paste DEBUG] syncAndPaste API success — sending Ctrl+${useShift ? "Shift+" : ""}V to remote`,
+          );
+          showClipboardToast("Pasted", "success");
+
+          // Forward Ctrl+V to remote (translate Cmd to Ctrl for Linux)
+          // - User pressed Ctrl/Cmd+V → send Ctrl+V (for Zed, most GUI apps)
+          // - User pressed Ctrl/Cmd+Shift+V → send Ctrl+Shift+V (for terminals)
+          //
+          // Send the full key sequence: LeftCtrl down → V down → V up → LeftCtrl up.
+          // Sending only a synthetic event with ctrlKey:true is not sufficient — the
+          // remote backend requires the modifier key to be pressed as a real key event.
+          const input = getInput();
+          if (input) {
+            const ctrlDown = new KeyboardEvent("keydown", {
+              code: "ControlLeft",
+              key: "Control",
+              ctrlKey: true,
+              shiftKey: useShift,
+              altKey: false,
+              metaKey: false,
+              bubbles: true,
+              cancelable: true,
+            });
+            input.onKeyDown(ctrlDown);
+
+            const pasteKeyDown = new KeyboardEvent("keydown", {
+              code: "KeyV",
+              key: useShift ? "V" : "v",
+              ctrlKey: true,
+              shiftKey: useShift,
+              altKey: false,
+              metaKey: false,
+              bubbles: true,
+              cancelable: true,
+            });
+            input.onKeyDown(pasteKeyDown);
+
+            const pasteKeyUp = new KeyboardEvent("keyup", {
+              code: "KeyV",
+              key: useShift ? "V" : "v",
+              ctrlKey: true,
+              shiftKey: useShift,
+              altKey: false,
+              metaKey: false,
+              bubbles: true,
+              cancelable: true,
+            });
+            input.onKeyUp(pasteKeyUp);
+
+            const ctrlUp = new KeyboardEvent("keyup", {
+              code: "ControlLeft",
+              key: "Control",
+              ctrlKey: false,
+              shiftKey: useShift,
+              altKey: false,
+              metaKey: false,
+              bubbles: true,
+              cancelable: true,
+            });
+            input.onKeyUp(ctrlUp);
+
+            console.log(
+              `[Paste DEBUG] Ctrl+${useShift ? "Shift+" : ""}V key sequence sent to remote desktop`,
+            );
+          } else {
+            console.warn(
+              "[Clipboard] Paste keystroke detected but no input handler available",
+            );
+          }
+        })
+        .catch((err) => {
+          console.error("[Clipboard] Failed to sync clipboard:", err);
+          const errMsg = err instanceof Error ? err.message : String(err);
+          showClipboardToast(`Paste failed: ${errMsg}`, "error");
+        });
+    };
+
     const handleKeyDown = (event: KeyboardEvent) => {
       // Debug: Update visual debug indicator for iPad troubleshooting
       setDebugKeyEvent(
@@ -3739,6 +3831,21 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       // We must NOT forward these to the remote - the remote handles repeat via its own mechanisms.
       // Forwarding browser repeats causes key flooding and stuck key issues.
       if (event.repeat) {
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
+
+      // On macOS, after a native paste event is handled, WKWebView fires a bare 'v' keydown
+      // without metaKey (the Cmd modifier was consumed by the native responder chain).
+      // Suppress it so we don't send a stray 'v' to the remote.
+      if (event.code === "KeyV") {
+        console.log(
+          `[Paste DEBUG] KeyV keydown: metaKey=${event.metaKey} ctrlKey=${event.ctrlKey} shiftKey=${event.shiftKey} altKey=${event.altKey} pasteJustHandled=${pasteJustHandled} key="${event.key}"`,
+        );
+      }
+      if (pasteJustHandled && event.code === "KeyV" && !event.metaKey && !event.ctrlKey) {
+        console.log("[Paste DEBUG] Suppressing bare 'v' keydown after native paste");
         event.preventDefault();
         event.stopPropagation();
         return;
@@ -3791,6 +3898,19 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
             "[Clipboard] Copy keystroke detected, forwarding Ctrl+C to remote",
           );
           // Forward Ctrl+C to remote (Linux uses Ctrl, not Cmd)
+          // Send full sequence: LeftCtrl down → C down → C up → LeftCtrl up
+          const ctrlDownForCopy = new KeyboardEvent("keydown", {
+            code: "ControlLeft",
+            key: "Control",
+            ctrlKey: true,
+            shiftKey: event.shiftKey,
+            altKey: false,
+            metaKey: false,
+            bubbles: true,
+            cancelable: true,
+          });
+          input.onKeyDown(ctrlDownForCopy);
+
           const ctrlCDown = new KeyboardEvent("keydown", {
             code: "KeyC",
             key: "c",
@@ -3814,7 +3934,19 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
             cancelable: true,
           });
           input.onKeyUp(ctrlCUp);
-          console.log("[Clipboard] Ctrl+C sent to remote desktop");
+
+          const ctrlUpForCopy = new KeyboardEvent("keyup", {
+            code: "ControlLeft",
+            key: "Control",
+            ctrlKey: false,
+            shiftKey: event.shiftKey,
+            altKey: false,
+            metaKey: false,
+            bubbles: true,
+            cancelable: true,
+          });
+          input.onKeyUp(ctrlUpForCopy);
+          console.log("[Clipboard] Ctrl+C key sequence sent to remote desktop");
         } else {
           console.warn(
             "[Clipboard] Copy keystroke detected but no input handler available",
@@ -3897,7 +4029,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         // Remember which keystroke the user pressed so we can forward the same one
         const userPressedShift = event.shiftKey;
         console.log(
-          `[Clipboard] Paste keystroke detected (shift=${userPressedShift}), syncing local → remote`,
+          `[Paste DEBUG] Paste keystroke detected: shift=${userPressedShift} isInIframe=${isInIframe} lastAutoSynced="${lastAutoSyncedText.current.substring(0, 60)}"`,
         );
 
         // Skip if clipboard API is not available and not in iframe
@@ -3911,6 +4043,9 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         // navigator.clipboard.read() is blocked in WKWebView iframes.
         if (isInIframe) {
           clipboardReadText().then((text) => {
+            console.log(
+              `[Paste DEBUG] clipboardReadText returned: "${text?.substring(0, 60)}" (length=${text?.length}) lastAutoSynced="${lastAutoSyncedText.current.substring(0, 60)}"`,
+            );
             if (!text) {
               console.warn(
                 "[Clipboard] Empty clipboard from parent, ignoring paste",
@@ -3918,7 +4053,16 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
               showClipboardToast("Clipboard is empty", "error");
               return;
             }
-            syncAndPaste({ type: "text", data: text });
+            if (text === lastAutoSyncedText.current) {
+              // Auto-sync overwrote local clipboard with remote content.
+              // Remote already has this text — skip the re-upload, just send Ctrl+V.
+              console.log(
+                "[Paste DEBUG] Local clipboard matches auto-sync content — skipping upload, sending Ctrl+V directly",
+              );
+              syncAndPaste({ type: "text", data: text }, userPressedShift);
+              return;
+            }
+            syncAndPaste({ type: "text", data: text }, userPressedShift);
           });
         } else {
           // Handle clipboard sync asynchronously (don't block keystroke processing)
@@ -3955,7 +4099,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
                         `[Clipboard] Encoded to base64, length: ${base64.length}`,
                       );
                       clipboardPayload = { type: "image", data: base64 };
-                      syncAndPaste(clipboardPayload);
+                      syncAndPaste(clipboardPayload, userPressedShift);
                     });
                   })
                   .catch((err) => {
@@ -3968,8 +4112,11 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
               } else if (item.types.includes("text/plain")) {
                 item.getType("text/plain").then((blob) => {
                   blob.text().then((text) => {
+                    console.log(
+                      `[Paste DEBUG] navigator.clipboard.read text: "${text?.substring(0, 60)}" (length=${text?.length}) lastAutoSynced="${lastAutoSyncedText.current.substring(0, 60)}"`,
+                    );
                     clipboardPayload = { type: "text", data: text };
-                    syncAndPaste(clipboardPayload);
+                    syncAndPaste(clipboardPayload, userPressedShift);
                   });
                 });
               } else {
@@ -3990,68 +4137,17 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
             });
         }
 
-        // Helper function to sync clipboard and forward keystroke
-        const syncAndPaste = (payload: TypesClipboardData) => {
-          const apiClient = helixApi.getApiClient();
-          apiClient
-            .v1ExternalAgentsClipboardCreate(sessionIdRef.current, payload)
-            .then(() => {
-              console.log(`[Clipboard] Synced ${payload.type} to remote`);
-              showClipboardToast("Pasted", "success");
-
-              // Forward Ctrl+V to remote (translate Cmd to Ctrl for Linux)
-              // - User pressed Ctrl/Cmd+V → send Ctrl+V (for Zed, most GUI apps)
-              // - User pressed Ctrl/Cmd+Shift+V → send Ctrl+Shift+V (for terminals)
-              const input = getInput();
-              if (input) {
-                const pasteKeyDown = new KeyboardEvent("keydown", {
-                  code: "KeyV",
-                  key: userPressedShift ? "V" : "v",
-                  ctrlKey: true,
-                  shiftKey: userPressedShift,
-                  altKey: false,
-                  metaKey: false,
-                  bubbles: true,
-                  cancelable: true,
-                });
-                input.onKeyDown(pasteKeyDown);
-
-                const pasteKeyUp = new KeyboardEvent("keyup", {
-                  code: "KeyV",
-                  key: userPressedShift ? "V" : "v",
-                  ctrlKey: true,
-                  shiftKey: userPressedShift,
-                  altKey: false,
-                  metaKey: false,
-                  bubbles: true,
-                  cancelable: true,
-                });
-                input.onKeyUp(pasteKeyUp);
-
-                console.log(
-                  `[Clipboard] Ctrl+${userPressedShift ? "Shift+" : ""}V sent to remote desktop`,
-                );
-              } else {
-                console.warn(
-                  "[Clipboard] Paste keystroke detected but no input handler available",
-                );
-              }
-            })
-            .catch((err) => {
-              console.error("[Clipboard] Failed to sync clipboard:", err);
-              const errMsg = err instanceof Error ? err.message : String(err);
-              showClipboardToast(`Paste failed: ${errMsg}`, "error");
-            });
-        };
-
         return; // Don't fall through to default handler
       }
 
       console.log(
-        "[DesktopStreamViewer] KeyDown captured:",
-        event.key,
-        event.code,
+        `[DesktopStreamViewer] KeyDown captured: key="${event.key}" code="${event.code}" metaKey=${event.metaKey} ctrlKey=${event.ctrlKey} shiftKey=${event.shiftKey}`,
       );
+      if (event.code === "KeyV") {
+        console.log(
+          `[Paste DEBUG] KeyV FALLING THROUGH TO REMOTE — pasteJustHandled=${pasteJustHandled} metaKey=${event.metaKey} ctrlKey=${event.ctrlKey}`,
+        );
+      }
       getInput()?.onKeyDown(event);
       // Prevent browser default behavior (e.g., Tab moving focus, Ctrl+W closing tab)
       // This ensures all keys are passed through to the remote desktop
@@ -4101,6 +4197,13 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         return;
       }
 
+      // Also suppress the bare 'v' keyup that follows a native paste on macOS
+      if (pasteJustHandled && event.code === "KeyV" && !event.metaKey && !event.ctrlKey) {
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
+
       console.log(
         "[DesktopStreamViewer] KeyUp captured:",
         event.key,
@@ -4122,11 +4225,66 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       }
 
       const inputEvent = event as InputEvent;
+      console.log(
+        `[Paste DEBUG] beforeinput on container: inputType="${inputEvent.inputType}" data="${inputEvent.data}" isComposing=${inputEvent.isComposing}`,
+      );
+
       const input = getInput();
       if (input && input.onBeforeInput(inputEvent)) {
         // Handler consumed the event - prevent default to avoid duplicate input
         event.preventDefault();
       }
+    };
+
+    // Handle native paste events (macOS Edit Menu → Cmd+V fires a 'paste' DOM event,
+    // not a keydown with metaKey=true). This is the primary cause of the "first paste
+    // sends bare 'v'" bug: the OS consumes the Cmd modifier, fires a paste event, then
+    // fires a keydown for 'v' without metaKey. We intercept the paste event here and
+    // set pasteJustHandled so the subsequent bare 'v' keydown/keyup are suppressed.
+    const handlePaste = (event: ClipboardEvent) => {
+      const activeEl = document.activeElement;
+      console.log(
+        `[Paste DEBUG] paste event fired. activeElement=${activeEl?.tagName}#${activeEl?.id}.${activeEl?.className} isContainer=${activeEl === container} hasSession=${!!sessionIdRef.current} clipboardDataTypes=${event.clipboardData ? Array.from(event.clipboardData.types).join(",") : "null"}`,
+      );
+
+      // Only handle when our container is focused
+      if (document.activeElement !== container) {
+        console.log("[Paste DEBUG] Ignoring paste — container not focused");
+        return;
+      }
+      if (!sessionIdRef.current) {
+        console.log("[Paste DEBUG] Ignoring paste — no sessionId");
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+
+      // Mark that we handled a paste so the subsequent bare 'v' keydown can be suppressed
+      pasteJustHandled = true;
+      setTimeout(() => {
+        pasteJustHandled = false;
+      }, 200);
+
+      console.log(
+        "[Clipboard] Native paste event intercepted, syncing local → remote",
+      );
+
+      // event.clipboardData is available synchronously for trusted paste events
+      const text = event.clipboardData?.getData("text/plain");
+      if (text) {
+        syncAndPaste({ type: "text", data: text }, false);
+        return;
+      }
+
+      // No text in clipboardData — fall back to async read (image or empty)
+      clipboardReadText().then((clipText) => {
+        if (!clipText) {
+          showClipboardToast("Clipboard is empty", "error");
+          return;
+        }
+        syncAndPaste({ type: "text", data: clipText }, false);
+      });
     };
 
     // Reset input state when window regains focus (prevents stuck modifiers after Alt+Tab)
@@ -4142,12 +4300,16 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     container.addEventListener("keyup", handleKeyUp);
     container.addEventListener("beforeinput", handleBeforeInput);
     window.addEventListener("focus", handleWindowFocus);
+    // Listen on document to catch native paste events (macOS Edit Menu Cmd+V fires
+    // a 'paste' DOM event rather than a keydown with metaKey=true)
+    document.addEventListener("paste", handlePaste);
 
     return () => {
       container.removeEventListener("keydown", handleKeyDown);
       container.removeEventListener("keyup", handleKeyUp);
       container.removeEventListener("beforeinput", handleBeforeInput);
       window.removeEventListener("focus", handleWindowFocus);
+      document.removeEventListener("paste", handlePaste);
     };
   }, [isConnected, resetInputState]);
 
