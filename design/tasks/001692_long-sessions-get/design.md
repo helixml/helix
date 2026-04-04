@@ -25,27 +25,15 @@ Used by: `PreviewPanel` (Optimus/Project Manager "New Chat", app preview) via `<
 
 **Bad:**
 - Still fetches ALL interactions via `useGetSession` — block system is purely a render limit, not a data limit
-- Reads session ID from URL params (`router.params.session_id`), not a prop — tightly coupled to routing
-- 1727 lines of complexity; difficult to embed as a controlled component
 
-## Decision: Switch SpecTask to Session.tsx (or Port its Scroll Logic)
+## Decision: Switch SpecTask to Session.tsx
 
-`Session.tsx` has working scroll-to-bottom and already has block-based rendering that limits to 20 interactions. The main issues are:
-1. It still fetches all interactions from the API (needs data-level pagination)
-2. It's coupled to URL params (needs prop-based session ID for embedding)
-
-**Recommended: Switch SpecTask chat to use Session.tsx**
-
-`Session.tsx` already has:
+`Session.tsx` already works as an embedded component via `PreviewPanel` (used in app preview and Optimus/Project Manager chat on the kanban board). It has:
 - Working scroll-to-bottom behavior
 - Block-based virtual rendering (`INTERACTIONS_PER_BLOCK = 20`) that only renders recent interactions
 - Auto-loading older interactions when scrolling up
 
-The main work needed:
-1. Make `Session.tsx` work as an embedded component (currently reads session ID from URL params)
-2. Add data-level pagination to avoid fetching all interactions upfront (use the existing paginated API)
-
-This reuses the proven virtual scroll implementation instead of reimplementing it in `EmbeddedSessionView`.
+The only change needed is **data-level pagination** — currently `useGetSession` fetches all interactions upfront. Switch to the paginated API so long sessions don't load hundreds of interactions on mount.
 
 ## API
 
@@ -92,6 +80,6 @@ const PAGE_SIZE = 20  // interactions shown initially / per load-more
 
 | File | Change |
 |------|--------|
-| `frontend/src/pages/Session.tsx` | Add `sessionId` prop for embedded mode (in addition to URL param); add data-level pagination using the existing paginated API |
-| `frontend/src/components/tasks/SpecTaskDetailContent.tsx` | Replace `EmbeddedSessionView` with `Session` component |
+| `frontend/src/pages/Session.tsx` | Add data-level pagination using the existing paginated API (fetch last 20 interactions initially, load more on scroll-up) |
+| `frontend/src/components/tasks/SpecTaskDetailContent.tsx` | Replace `EmbeddedSessionView` with `Session` component (via `PreviewPanel` or directly) |
 | `frontend/src/services/sessionService.ts` | Add `useListInteractions(sessionId, page, perPage)` hook wrapping the existing API endpoint |
