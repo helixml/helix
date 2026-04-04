@@ -1250,6 +1250,16 @@ function TaskCardInner({
                 </Box>
               );
             })()}
+            <Box sx={{ mt: 1 }}>
+              <SpecTaskActionButtons
+                task={{
+                  id: task.id,
+                  status: "spec_generation",
+                  archived: task.archived,
+                }}
+                variant="stacked"
+              />
+            </Box>
           </Box>
         )}
 
