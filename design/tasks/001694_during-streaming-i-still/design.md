@@ -1,61 +1,85 @@
 # Design: Fix Truncated Sentences Before Tool Calls During Streaming
 
-## Architecture Overview
+## Root Cause: Per-Entry Throttling + Tool Call Transition
 
-The streaming pipeline has three stages:
+The "~100ms" issue is not fuzzy — it's the **exact** `STREAMING_THROTTLE_INTERVAL = 100ms` constant in Zed (`thread_service.rs:71`).
 
+### The Problem
+
+When Zed transitions from a **text entry** to a **tool call entry**, the text entry's final content can be stuck in the throttle buffer:
+
+1. **T=0ms**: Zed receives text tokens, emits `EntryUpdated(0)`. The 100ms throttle fires, sends `message_added` to Helix.
+2. **T=50ms**: More tokens arrive. Throttle says "too soon" — content stored in `pending_content`, not sent.
+3. **T=60ms**: Tool call begins. Zed creates a new entry (idx=1), emits `EntryUpdated(1)`. This is a **different entry**, so its throttle fires immediately — sends `message_added` for the tool call.
+4. **Result**: Helix receives the tool call `message_added` **before** the text entry's final content. The frontend sees entry_count=2 and shows the tool call, but entry[0] is still missing its last ~50ms of text.
+
+### Why The Existing Flush-On-Entry-Change Doesn't Fully Work
+
+Zed's `throttled_send_message_added` has code at lines 196-207 that **does** try to flush pending content for **other** entries when a new entry arrives:
+
+```rust
+// Flush pending content for all OTHER entries in this thread.
+for (k, state) in map.iter_mut() {
+    if k.starts_with(&thread_prefix) && *k != key {
+        if let Some(pending) = state.pending_content.take() {
+            stale_pending.push(pending);
+        }
+    }
+}
 ```
-Zed (16ms reveal buffer) → Helix API (50ms publish throttle) → Frontend (patch apply)
+
+However, there are **two issues**:
+
+**Issue A**: The stale pending messages are sent **before** the current entry, but the Helix API's **50ms publish throttle** (`publishInterval = 50ms` at `websocket_external_agent_sync.go:58`) may batch them with the tool call — or delay the text patch while the tool call patch goes through.
+
+**Issue B**: The Zed streaming text buffer (`streaming_text_buffer` in `acp_thread.rs`) is separate from the throttle buffer. `flush_streaming_text()` empties the **streaming buffer** into the Markdown entity, then `EntryUpdated` fires, which hits the **throttle logic**. If the throttle says "too soon", the flushed content sits in `pending_content` and isn't sent until the turn ends (`Stopped` event).
+
+### Verification
+
+The 100ms throttle is at `zed-4/crates/external_websocket_sync/src/thread_service.rs:71`:
+```rust
+const STREAMING_THROTTLE_INTERVAL: Duration = Duration::from_millis(100);
 ```
 
-### Stage 1 — Zed (`zed-4/crates/acp_thread/src/acp_thread.rs`)
+The 50ms publish throttle is at `helix-4/api/pkg/server/websocket_external_agent_sync.go:58`:
+```go
+publishInterval = 50 * time.Millisecond
+```
 
-Zed maintains a `StreamingTextBuffer` that reveals LLM tokens to the UI on a 16ms tick (`TASK_UPDATE_MS = 16`). On each tick it:
-1. Drains pending tokens into the Markdown entity (local UI update)
-2. Sends a `message_added` WebSocket event to the Helix API with the current content
+## Fix Strategy
 
-When a tool call entry is created, `flush_streaming_text()` is called to immediately reveal any buffered text before the tool call entry is added. However, the issue is ordering: the flush sends the final text to Zed's UI, but the corresponding `message_added` WebSocket event to Helix may be sent *after* the `message_added` for the new tool_call entry. The tool call entry creation triggers its own `message_added` immediately (not on the 16ms tick), so it races with the trailing text flush.
+### Option A: Force-Flush in Helix API (Recommended)
 
-### Stage 2 — Helix API (`helix-4/api/pkg/server/websocket_external_agent_sync.go`)
+When Helix receives a `message_added` event with `entry_type=tool_call` for a **new entry index** (higher than the current max), immediately call `publishEntryPatchesToFrontend` for all pending patches **before** processing the tool call. This ensures the frontend sees the complete text entry before the tool call appears.
 
-The API receives `message_added` events and applies two throttles:
-- `publishInterval = 50ms` — minimum time between frontend WebSocket publishes
-- `dbWriteInterval = 200ms` — minimum time between database writes
+**Location**: `handleMessageAdded` in `websocket_external_agent_sync.go`, around line 1186.
 
-When a tool call entry arrives, if the 50ms window hasn't elapsed since the last publish, the patch for the final text entry is **not sent immediately**. The tool call patch may be batched into the *same* publish as the (now-complete) text entry, or into the *next* publish — but if the frontend is tracking entry count, the tool call's arrival can cause the frontend to display the new entry before the text entry's final patch arrives.
+**Why this works**: The Go accumulator already has the final text content from the stale-pending flush that Zed sent. The issue is that Helix's 50ms publish throttle holds it. Force-flushing bypasses the throttle at the critical moment.
 
-At interaction completion, `flushAndClearStreamingContext` fires an unthrottled publish — this is why content is always correct at the end.
+### Option B: Flush Throttle When Entry Type Changes (Zed)
 
-### Stage 3 — Frontend (`helix-4/frontend/src/contexts/streaming.tsx`)
+In `throttled_send_message_added`, after flushing stale pending entries (lines 196-207), also **send** the current entry immediately (bypass the throttle) if:
+- The current entry is `entry_type=tool_call`
+- The previous entry was `entry_type=text`
 
-The frontend applies patches as they arrive. Patches include `entry_count` (the total number of entries). When `entry_count` grows (a new tool call entry appears), the frontend starts rendering the new entry. If the patch for the *previous* text entry hasn't arrived yet, that entry displays truncated content momentarily.
+This ensures the text entry's final content is on the wire before the tool call's first `message_added`.
 
-## Root Cause
+### Option C: Both (Belt and Suspenders)
 
-Two layered issues compound each other:
-
-**Issue A (Helix API):** When a tool call entry is received, the 50ms publish throttle may delay the final patch for the preceding text entry. The tool call entry can arrive in the same or next publish window, causing the frontend to render a new entry before the prior one is complete.
-
-**Fix A:** When the Helix API receives a `message_added` event whose `entry_type` is `tool_call` (i.e., a new entry type that differs from the current entry), force an immediate unthrottled publish of all pending patches before processing the tool call entry.
-
-**Issue B (Zed):** The `flush_streaming_text()` call on tool call creation sends the final text to Zed's local UI but sends its `message_added` asynchronously — potentially after the tool call's `message_added`. If Helix receives the tool call event first, the final text update is processed after and the publish order may be wrong.
-
-**Fix B:** In Zed, after `flush_streaming_text()`, explicitly await or synchronously send the final `message_added` for the text entry *before* sending the `message_added` for the new tool call entry. This guarantees ordering on the wire.
+Apply both fixes. Option A is the safety net on the server side; Option B ensures correct ordering on the wire even before Helix sees the events.
 
 ## Key Files
 
-| File | Relevance |
-|------|-----------|
-| `zed-4/crates/acp_thread/src/acp_thread.rs` | `flush_streaming_text()`, `TASK_UPDATE_MS`, tool call entry creation |
-| `helix-4/api/pkg/server/websocket_external_agent_sync.go` | `handleMessageAdded`, `publishInterval`, `flushAndClearStreamingContext` |
-| `helix-4/api/pkg/server/wsprotocol/accumulator.go` | `MessageAccumulator` — per-entry type tracking |
-| `helix-4/frontend/src/contexts/streaming.tsx` | Patch application, `entry_count` handling |
-| `helix-4/frontend/src/utils/patchUtils.ts` | `applyPatch` utility |
+| File | Line | Purpose |
+|------|------|---------|
+| `zed-4/crates/external_websocket_sync/src/thread_service.rs` | 71 | `STREAMING_THROTTLE_INTERVAL = 100ms` |
+| `zed-4/crates/external_websocket_sync/src/thread_service.rs` | 171-274 | `throttled_send_message_added` — the throttle logic |
+| `zed-4/crates/external_websocket_sync/src/thread_service.rs` | 196-207 | Stale-pending flush for other entries |
+| `zed-4/crates/acp_thread/src/acp_thread.rs` | 1631-1642 | `flush_streaming_text` — flushes streaming buffer to Markdown |
+| `helix-4/api/pkg/server/websocket_external_agent_sync.go` | 58 | `publishInterval = 50ms` |
+| `helix-4/api/pkg/server/websocket_external_agent_sync.go` | 1184-1197 | Throttled frontend publish |
+| `helix-4/api/pkg/server/websocket_external_agent_sync.go` | 1468-1490 | `flushAndClearStreamingContext` — final unthrottled publish |
 
-## Decision: Fix Both Layers
+## Recommendation
 
-Fixing only the Helix API (Issue A) is the safer and more immediately impactful change — it doesn't require changes to the Zed extension and handles cases where ordering is already wrong on the wire. Fix B in Zed is a belt-and-suspenders improvement for correctness.
-
-Recommended implementation order:
-1. Helix API: force-flush before processing a tool call entry type transition
-2. Zed: ensure synchronous/ordered send of final text before tool call message
+Implement **Option A** (Helix API force-flush) as the primary fix. It's a single, contained change in Go that handles the race regardless of Zed's internal timing. Option B can be added later as an optimization.
