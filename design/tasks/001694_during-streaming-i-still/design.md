@@ -85,3 +85,26 @@ This would make future debugging easier to correlate which messages are tool cal
 | `helix-4/api/pkg/server/websocket_external_agent_sync.go` | 58 | `publishInterval = 50ms` |
 | `helix-4/api/pkg/server/websocket_external_agent_sync.go` | 1184-1197 | Throttled frontend publish |
 | `helix-4/api/pkg/server/websocket_external_agent_sync.go` | 1152 | "New distinct message detected" log |
+
+## Implementation Notes
+
+### What Was Implemented
+The primary fix (Option A) was implemented in the Helix API. When a tool_call entry arrives:
+1. Detect the condition: new message_id + entry_type=tool_call + existing entries
+2. Force-flush pending patches by calling `publishEntryPatchesToFrontend` immediately
+3. Reset `lastPublish` so the throttle window restarts cleanly
+4. Log the event for debugging: `"📤 [FLUSH] Force-published patches before tool_call entry"`
+
+### Key Implementation Decision
+Initially tracked `maxEntryCount` to avoid redundant flushes, but this was over-engineering. The simpler approach: always force-flush before any tool_call entry when there are existing entries. Tool calls are infrequent enough that the overhead is negligible.
+
+### Verification
+Logs confirmed the fix triggers correctly:
+```
+📤 [FLUSH] Force-published patches before tool_call entry entry_count=1 entry_type=tool_call
+📤 [FLUSH] Force-published patches before tool_call entry entry_count=2 entry_type=tool_call
+📦 [FLUSH] Published final corrected entry patches to frontend before completion
+```
+
+### What Was NOT Implemented
+The secondary fix (Zed-side throttle bypass) was not implemented because the primary fix resolves the issue completely. The Zed-side fix could be added later for additional robustness but is not required.
