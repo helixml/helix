@@ -52,9 +52,9 @@ The task name already flows through `task.name` to all the right places:
 - **Breadcrumb (detail page)**: `SpecTaskDetailPage.tsx` lines 127-130 uses `task?.name || "Task"` — no change needed
 - **Breadcrumb (review page)**: `SpecTaskReviewPage.tsx` lines 92-96 uses `task?.name || "Task"` — no change needed
 
-### 3. Hover tooltip — show original prompt
+### 3. Hover tooltip — show prompt
 
-Currently the hover tooltip on the task name shows `task.description || task.name`. Once the name comes from the spec title, the useful thing to show on hover is the **original prompt**.
+Currently the hover tooltip on the task name shows `task.description || task.name`. Once the name comes from the spec title, the useful thing to show on hover is the **prompt**.
 
 Update the tooltip value in these three places to use `task.original_prompt`:
 
@@ -71,7 +71,7 @@ The `SpecTaskReviewPage.tsx` breadcrumb entry for the task name currently has no
 - **Update on every push, not just first**: re-pushing a spec with a revised title is the intended workflow for renaming a task from `spec_review` onwards, so every push must sync the name.
 - **First file = `requirements.md`**: always written first; its H1 is the natural task title.
 - **No truncation for spec titles**: the 60-char limit on prompt-derived names is a UX affordance for unstructured text; spec titles are intentional.
-- **Hover shows original prompt**: the name now comes from the spec, not the prompt — showing the original prompt on hover preserves discoverability without cluttering the UI.
+- **Hover shows prompt**: the name now comes from the spec, not the prompt — showing the prompt on hover preserves discoverability without cluttering the UI.
 
 ## Notes for Implementors
 
