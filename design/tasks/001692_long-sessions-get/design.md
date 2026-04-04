@@ -111,3 +111,9 @@ const PAGE_SIZE = 20  // interactions shown initially / per load-more
 - The render-limiting approach (only render last N interactions) solves the main performance issue without needing full data-level pagination
 - Added `setTimeout(100)` for scroll-to-bottom on streaming end, ported from `Session.tsx`'s working pattern
 - The paginated API (`useListInteractions`) is ready for future use but full integration into Session.tsx is a larger refactor
+
+### Bug Fix: React Hooks Order
+
+Initial implementation had `handleLoadOlder = useCallback(...)` defined AFTER the early returns (`if (!session) return ...`). This caused "Rendered more hooks than during the previous render" error because hooks must be called unconditionally and in the same order on every render.
+
+**Fix**: Moved `handleLoadOlder` definition to before all early returns, ensuring consistent hook call order regardless of loading state.
