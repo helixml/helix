@@ -5,8 +5,8 @@
 The SpecTask chat panel (`EmbeddedSessionView`) renders all interactions in a single DOM list. Long-running agentic sessions accumulate dozens (sometimes hundreds) of interactions, making the UI unusably slow. Additionally, scroll-to-bottom after an agent response is unreliable in some scenarios.
 
 There are currently **two separate chat renderers** in the codebase:
-- `EmbeddedSessionView` (used by SpecTask sidebar chat): clean sticky-scroll logic, no pagination
-- `Session.tsx` (used by main Helix chat + Optimus / Project Manager "New Chat" via `PreviewPanel`): has a block-based partial-render concept (`INTERACTIONS_PER_BLOCK = 20`) but still fetches all interactions from the API, and has buggy scroll-to-bottom (setTimeout 200ms + debounce pattern that interferes with streaming)
+- `EmbeddedSessionView` (used by SpecTask sidebar chat): no pagination, and buggy scroll-to-bottom that doesn't reliably keep the user scrolled to the bottom when the agent responds
+- `Session.tsx` (used by main Helix chat + Optimus / Project Manager "New Chat" via `PreviewPanel`): has a block-based partial-render concept (`INTERACTIONS_PER_BLOCK = 20`) but still fetches all interactions from the API; scroll-to-bottom works fine
 
 ## User Stories
 
