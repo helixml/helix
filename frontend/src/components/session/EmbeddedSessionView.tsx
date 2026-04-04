@@ -11,10 +11,15 @@ import React, {
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
 import CircularProgress from "@mui/material/CircularProgress";
+import Button from "@mui/material/Button";
+import ExpandLessIcon from "@mui/icons-material/ExpandLess";
 import { useQueryClient } from "@tanstack/react-query";
 
 // DEBUG: Set to true to show scroll debug overlay
 const DEBUG_SCROLL = false;
+
+// Number of interactions to render initially (and per "load more" click)
+const INTERACTIONS_TO_RENDER = 20;
 
 import Interaction from "./Interaction";
 import InteractionLiveStream from "./InteractionLiveStream";
@@ -60,6 +65,9 @@ const EmbeddedSessionView = forwardRef<
   // Simple scroll state: are we currently at the bottom?
   // This is the ONLY state we need for sticky scroll behavior
   const isAtBottomRef = useRef(true);
+
+  // Track how many interactions to render (for performance with long sessions)
+  const [renderCount, setRenderCount] = useState(INTERACTIONS_TO_RENDER);
   // Guard: when true, scroll events are from programmatic scrollTo, not user interaction.
   // Prevents the scroll handler from unsetting isAtBottom during auto-scroll.
   const isProgrammaticScrollRef = useRef(false);
@@ -279,6 +287,8 @@ const EmbeddedSessionView = forwardRef<
       hasInitiallyScrolled.current = false;
       isAtBottomRef.current = true;
       prevScrollHeightRef.current = 0;
+      // Reset render count for new session
+      setRenderCount(INTERACTIONS_TO_RENDER);
 
       // Remove old session's React Query cache to prevent flash of stale content
       if (oldSessionId) {
@@ -296,12 +306,29 @@ const EmbeddedSessionView = forwardRef<
       !hasInitiallyScrolled.current
     ) {
       hasInitiallyScrolled.current = true;
-      // Small delay to ensure content is rendered
-      requestAnimationFrame(() => {
+      // Use setTimeout to ensure content is fully rendered (RAF may be too early)
+      setTimeout(() => {
         scrollToBottom(true); // Force scroll on initial load
-      });
+      }, 100);
     }
   }, [session?.interactions?.length, scrollToBottom]);
+
+  // Track previous streaming state to detect when streaming ends
+  const prevIsStreamingRef = useRef(isStreaming);
+
+  // Scroll to bottom when streaming ends - critical for reliable scroll behavior
+  useEffect(() => {
+    const wasStreaming = prevIsStreamingRef.current;
+    prevIsStreamingRef.current = isStreaming;
+
+    // When streaming transitions from true to false, scroll to show final content
+    if (wasStreaming && !isStreaming) {
+      // Wait for final content to render before scrolling
+      setTimeout(() => {
+        scrollToBottom(true);
+      }, 100);
+    }
+  }, [isStreaming, scrollToBottom]);
 
   // Maintain sticky scroll when session data updates (e.g., from polling or WebSocket)
   // Use useLayoutEffect to run synchronously after DOM mutations but before browser paint
@@ -404,6 +431,32 @@ const EmbeddedSessionView = forwardRef<
 
   const isOwner = account.user?.id === session.owner;
 
+  // Compute which interactions to render (most recent N)
+  const totalInteractions = session.interactions.length;
+  const hasOlderInteractions = totalInteractions > renderCount;
+  const startIndex = hasOlderInteractions ? totalInteractions - renderCount : 0;
+  const visibleInteractions = session.interactions.slice(startIndex);
+
+  // Handler for loading older interactions
+  const handleLoadOlder = useCallback(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    // Save scroll position before expanding
+    const prevScrollHeight = container.scrollHeight;
+
+    // Increase render count
+    setRenderCount((prev) => prev + INTERACTIONS_TO_RENDER);
+
+    // After state update, restore scroll position so viewport doesn't jump
+    requestAnimationFrame(() => {
+      if (containerRef.current) {
+        const newScrollHeight = containerRef.current.scrollHeight;
+        containerRef.current.scrollTop += newScrollHeight - prevScrollHeight;
+      }
+    });
+  }, []);
+
   return (
     <Box
       ref={containerRef}
@@ -470,8 +523,26 @@ const EmbeddedSessionView = forwardRef<
           boxSizing: "border-box",
         }}
       >
-        {session.interactions.map((interaction, index) => {
-          const isLastInteraction = index === session.interactions!.length - 1;
+        {/* Show "Load older" button when there are more interactions */}
+        {hasOlderInteractions && (
+          <Button
+            variant="text"
+            size="small"
+            startIcon={<ExpandLessIcon />}
+            onClick={handleLoadOlder}
+            sx={{
+              alignSelf: "center",
+              color: "text.secondary",
+              textTransform: "none",
+              mb: 1,
+            }}
+          >
+            Show {Math.min(INTERACTIONS_TO_RENDER, startIndex)} older messages
+          </Button>
+        )}
+        {visibleInteractions.map((interaction, index) => {
+          const absoluteIndex = startIndex + index;
+          const isLastInteraction = absoluteIndex === totalInteractions - 1;
           const isLive =
             isLastInteraction &&
             interaction.state === TypesInteractionState.InteractionStateWaiting;
