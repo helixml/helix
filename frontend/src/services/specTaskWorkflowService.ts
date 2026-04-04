@@ -114,3 +114,63 @@ export function useMoveToBacklog(specTaskId: string) {
     },
   });
 }
+
+export function useSkipSpec(specTaskId: string) {
+  const api = useApi();
+  const apiClient = api.getApiClient();
+  const queryClient = useQueryClient();
+  const snackbar = useSnackbar();
+
+  return useMutation({
+    mutationFn: async () => {
+      // First, try to stop the planning agent (ignore errors if no agent running)
+      try {
+        await apiClient.v1SpecTasksStopAgentCreate(specTaskId);
+      } catch {
+        // Agent may not be running, that's fine
+      }
+      // Then update status to queued_implementation with just_do_it_mode
+      const response = await apiClient.v1SpecTasksUpdate(specTaskId, {
+        status: TypesSpecTaskStatus.TaskStatusQueuedImplementation,
+        just_do_it_mode: true,
+      });
+      return response.data;
+    },
+    onSuccess: () => {
+      snackbar.success("Skipped spec - task will start implementation");
+      queryClient.invalidateQueries({ queryKey: ["spec-tasks", specTaskId] });
+      queryClient.invalidateQueries({ queryKey: ["spec-tasks"] });
+    },
+    onError: (error: any) => {
+      snackbar.error(
+        error?.response?.data?.message || "Failed to skip spec",
+      );
+    },
+  });
+}
+
+export function useReopenTask(specTaskId: string) {
+  const api = useApi();
+  const apiClient = api.getApiClient();
+  const queryClient = useQueryClient();
+  const snackbar = useSnackbar();
+
+  return useMutation({
+    mutationFn: async () => {
+      const response = await apiClient.v1SpecTasksUpdate(specTaskId, {
+        status: TypesSpecTaskStatus.TaskStatusImplementation,
+      });
+      return response.data;
+    },
+    onSuccess: () => {
+      snackbar.success("Task reopened - moved back to in progress");
+      queryClient.invalidateQueries({ queryKey: ["spec-tasks", specTaskId] });
+      queryClient.invalidateQueries({ queryKey: ["spec-tasks"] });
+    },
+    onError: (error: any) => {
+      snackbar.error(
+        error?.response?.data?.message || "Failed to reopen task",
+      );
+    },
+  });
+}
