@@ -22,7 +22,7 @@
 
 **Acceptance Criteria:**
 - [ ] Tasks in `spec_generation` status show "Waiting for agent to push specs..." message
-- [ ] After 30 seconds, show warning: "Agent hasn't pushed specs yet. Please check if the agent is having trouble."
+- [ ] After 2 minutes, show warning: "Agent hasn't pushed specs yet. Please check if the agent is having trouble."
 - [ ] Visual style matches existing PR waiting indicator pattern
 
 ### Story 3: Skip Spec Button (Optional)

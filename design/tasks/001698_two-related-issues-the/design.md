@@ -53,7 +53,7 @@ const specGenerationStartedAt = task.spec_generation_started_at
 const secondsSinceStart = specGenerationStartedAt 
   ? (Date.now() - specGenerationStartedAt) / 1000 
   : 0;
-const isWaitingTooLong = secondsSinceStart > 30;
+const isWaitingTooLong = secondsSinceStart > 120; // 2 minutes
 
 return isWaitingTooLong ? (
   <Alert severity="warning" sx={{ py: 0.5 }}>
