@@ -52,5 +52,5 @@ Browser ← WebSocket → API (ResilientProxy) ← RevDial → desktop-bridge �
 
 1. **reconnectAttempts not properly reset**: The counter may not reset after successful connection, causing premature reconnect abort
 2. **Race condition in proxy deduplication**: New connection cancels old before fully established
-3. **Stale connection detection false positive**: Heartbeat timer triggers during legitimate slow periods
+3. **Stale connection detection false positive**: Heartbeat timeout (10s, checked every 5s) triggers during legitimate slow periods
 4. **Multiple event handlers causing duplicate reconnects**: Both WebSocketStream and DesktopStreamViewer may trigger reconnection
