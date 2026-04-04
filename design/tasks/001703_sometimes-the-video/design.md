@@ -128,3 +128,24 @@ private onOpen() {
 ## Decision: Start with Diagnostics
 
 Given the intermittent nature of the bug, implement Phase 1 (diagnostics) first to identify which scenario is actually occurring. The fix can then be targeted to the specific root cause.
+
+## Implementation Notes (Post-Implementation)
+
+### What was implemented
+
+1. **Connection stability timer** (`websocket-stream.ts`): Added `connectionStabilityTimer`, `lastOpenTime`, and `connectionStabilized` properties. The `reconnectAttempts` counter is only reset after the connection has been stable for 2 seconds.
+
+2. **Reconnection guard**: If `reconnectTimeoutId` is already set when `onClose` fires, we skip scheduling another reconnection. Also clear the timeout at the start of `connect()`.
+
+3. **Enhanced close logging**: The `onClose` handler now logs an object with `code`, `reason`, `wasClean`, `connectionDurationMs`, `wasStabilized`, `reconnectAttempts`, and `explicitlyClosed`.
+
+4. **Type update**: Added optional `code` property to the `disconnected` event in `websocket-stream.types.ts`.
+
+### Backend close codes - Not applicable
+
+The ResilientProxy (`api/pkg/proxy/resilient.go`) is a raw TCP proxy after the WebSocket upgrade. It doesn't understand WebSocket frames, so it can't send proper close codes. The frontend fixes handle this by being resilient to unknown close codes.
+
+### Files modified
+
+- `frontend/src/lib/helix-stream/stream/websocket-stream.ts` - Main fixes
+- `frontend/src/lib/helix-stream/stream/websocket-stream.types.ts` - Type update for close code

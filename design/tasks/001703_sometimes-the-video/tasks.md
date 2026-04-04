@@ -21,7 +21,7 @@ Skipped - ResilientProxy is a raw TCP proxy after WebSocket upgrade, doesn't und
 
 ## Phase 4: Verification
 
-- [ ] Test manual network disconnect/reconnect (should stabilize in 1-2 attempts)
-- [ ] Test rapid toggle (should not create infinite loop)
-- [ ] Test 30+ minute streaming session (no spurious reconnections)
-- [ ] Verify Stats for Nerds shows meaningful close codes (limited by proxy architecture)
+- [x] Test manual network disconnect/reconnect (should stabilize in 1-2 attempts)
+- [x] Test rapid toggle (should not create infinite loop)
+- [ ] Test 30+ minute streaming session (no spurious reconnections) - requires user verification
+- [x] Verify Stats for Nerds shows meaningful close codes (limited by proxy architecture - enhanced logging added)
