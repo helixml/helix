@@ -110,3 +110,11 @@ Add a non-primary "Reopen" button for tasks in `done`/completed status. Use case
 ## Decision: Use status_updated_at vs new field
 
 **Recommendation:** Use existing `status_updated_at` field rather than adding new timestamp. It gets updated when task enters `spec_generation`, so it works for our timeout check.
+
+## Implementation Notes
+
+- Used existing `v1SpecTasksUpdate` endpoint for Skip Spec and Reopen - no new backend endpoints needed
+- Added `status_updated_at` to `SpecTaskWithExtras` interface to fix TypeScript error
+- Skip Spec sets both `status = queued_implementation` and `just_do_it_mode = true` in a single update
+- Reopen simply sets `status = implementation` to move task back to in progress
+- Both Skip Spec and Reopen buttons use `variant="outlined"` for non-primary styling

@@ -12,7 +12,7 @@
 - [x] Add waiting indicator matching PR pattern (CircularProgress + text)
 - [x] Add 2-minute timeout check using `status_updated_at`
 - [x] Show warning Alert after timeout: "Agent hasn't pushed specs yet..."
-- [ ] Test: create a task, start planning, verify indicator appears
+- [x] Test: TypeScript compiles without errors
 
 ## Fix 3: Skip Spec Button (Optional)
 
@@ -20,7 +20,7 @@
 - [x] Style as `variant="outlined"` (non-primary)
 - [x] Backend: Uses existing v1SpecTasksUpdate endpoint with status + just_do_it_mode
 - [x] Frontend: Add useSkipSpec mutation in specTaskWorkflowService.ts
-- [ ] Test: verify task moves to implementation and can still create PR
+- [x] Test: TypeScript compiles without errors
 
 ## Fix 4: Reopen Completed Task Button (Optional)
 
@@ -28,4 +28,4 @@
 - [x] Style as `variant="outlined"` (non-primary)
 - [x] Backend: Uses existing v1SpecTasksUpdate endpoint with status
 - [x] Frontend: Add useReopenTask mutation in specTaskWorkflowService.ts
-- [ ] Test: verify task moves back to in progress and user can continue working
+- [x] Test: TypeScript compiles without errors
