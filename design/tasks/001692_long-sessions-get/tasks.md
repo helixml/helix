@@ -4,8 +4,8 @@
 - [x] Add `INTERACTIONS_TO_RENDER = 20` constant to `EmbeddedSessionView`
 - [x] Slice interactions to show only the most recent N
 - [x] Add "Show older messages" button that expands the rendered slice
-- [~] Fix scroll-to-bottom bug (port pattern from Session.tsx)
-- [ ] Test: confirm long sessions render fast and scroll works
+- [x] Fix scroll-to-bottom bug (port pattern from Session.tsx)
+- [~] Test: confirm long sessions render fast and scroll works
 
 ## Phase 2: Add Data-Level Pagination
 - [ ] Update `session_interaction_handlers.go` to return `totalCount` in the API response (already computed but not returned)
