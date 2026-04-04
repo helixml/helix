@@ -1,9 +1,9 @@
 # Implementation Tasks
 
 ## Phase 1: Add Render-Limiting to EmbeddedSessionView
-- [~] Add `INTERACTIONS_TO_RENDER = 20` constant to `EmbeddedSessionView`
-- [ ] Slice interactions to show only the most recent N
-- [ ] Add "Show older messages" button that expands the rendered slice
+- [x] Add `INTERACTIONS_TO_RENDER = 20` constant to `EmbeddedSessionView`
+- [x] Slice interactions to show only the most recent N
+- [x] Add "Show older messages" button that expands the rendered slice
 - [ ] Fix scroll-to-bottom bug (port pattern from Session.tsx)
 - [ ] Test: confirm long sessions render fast and scroll works
 
