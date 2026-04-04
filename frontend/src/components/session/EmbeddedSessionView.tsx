@@ -25,13 +25,16 @@ import Interaction from "./Interaction";
 import InteractionLiveStream from "./InteractionLiveStream";
 
 import useAccount from "../../hooks/useAccount";
+import useApi from "../../hooks/useApi";
 import {
   useGetSession,
   useListSessionSteps,
+  useListInteractions,
   GET_SESSION_QUERY_KEY,
+  LIST_INTERACTIONS_QUERY_KEY,
 } from "../../services/sessionService";
 import { useStreaming } from "../../contexts/streaming";
-import { TypesInteractionState } from "../../api/api";
+import { TypesInteraction, TypesInteractionState } from "../../api/api";
 import useLightTheme from "../../hooks/useLightTheme";
 import { SESSION_TYPE_TEXT } from "../../types";
 
@@ -57,6 +60,7 @@ const EmbeddedSessionView = forwardRef<
   EmbeddedSessionViewProps
 >(({ sessionId, onScrollToBottom }, ref) => {
   const account = useAccount();
+  const api = useApi();
   const lightTheme = useLightTheme();
   const containerRef = useRef<HTMLDivElement>(null);
   const queryClient = useQueryClient();
@@ -66,8 +70,12 @@ const EmbeddedSessionView = forwardRef<
   // This is the ONLY state we need for sticky scroll behavior
   const isAtBottomRef = useRef(true);
 
-  // Track how many interactions to render (for performance with long sessions)
-  const [renderCount, setRenderCount] = useState(INTERACTIONS_TO_RENDER);
+  // Pagination state: track which page we've loaded up to (page 0 = newest)
+  const [oldestPageLoaded, setOldestPageLoaded] = useState(0);
+  // Store older interactions loaded via pagination (newest first, so prepend older pages)
+  const [olderInteractions, setOlderInteractions] = useState<TypesInteraction[]>([]);
+  // Loading state for fetching older interactions
+  const [isLoadingOlder, setIsLoadingOlder] = useState(false);
   // Guard: when true, scroll events are from programmatic scrollTo, not user interaction.
   // Prevents the scroll handler from unsetting isAtBottom during auto-scroll.
   const isProgrammaticScrollRef = useRef(false);
@@ -257,21 +265,33 @@ const EmbeddedSessionView = forwardRef<
 
   const session = sessionResponse?.data;
 
+  // Fetch paginated interactions (newest first via order=desc)
+  // Page 0 = newest interactions, higher pages = older interactions
+  const { data: paginatedInteractionsResponse } = useListInteractions(
+    sessionId,
+    0, // Always fetch page 0 (newest) - older pages fetched on demand
+    INTERACTIONS_TO_RENDER,
+    'desc',
+    { enabled: !!sessionId }
+  );
+  const paginatedData = paginatedInteractionsResponse?.data;
+
   // Fetch session steps
   const { data: sessionSteps } = useListSessionSteps(sessionId, {
     enabled: !!sessionId,
   });
 
   // Track if we're streaming (last interaction is in waiting state)
+  // Use paginatedData for the most recent interaction state
   const isStreaming = useMemo(() => {
-    if (!session?.interactions || session.interactions.length === 0)
-      return false;
-    const lastInteraction =
-      session.interactions[session.interactions.length - 1];
+    const interactions = paginatedData?.interactions;
+    if (!interactions || interactions.length === 0) return false;
+    // paginatedData.interactions is newest-first, so [0] is the most recent
+    const lastInteraction = interactions[0];
     return (
       lastInteraction.state === TypesInteractionState.InteractionStateWaiting
     );
-  }, [session?.interactions]);
+  }, [paginatedData?.interactions]);
 
   // Scroll to bottom on initial load
   const hasInitiallyScrolled = useRef(false);
@@ -287,13 +307,17 @@ const EmbeddedSessionView = forwardRef<
       hasInitiallyScrolled.current = false;
       isAtBottomRef.current = true;
       prevScrollHeightRef.current = 0;
-      // Reset render count for new session
-      setRenderCount(INTERACTIONS_TO_RENDER);
+      // Reset pagination state for new session
+      setOldestPageLoaded(0);
+      setOlderInteractions([]);
 
       // Remove old session's React Query cache to prevent flash of stale content
       if (oldSessionId) {
         queryClient.removeQueries({
           queryKey: GET_SESSION_QUERY_KEY(oldSessionId),
+        });
+        queryClient.removeQueries({
+          queryKey: LIST_INTERACTIONS_QUERY_KEY(oldSessionId),
         });
       }
     }
@@ -301,8 +325,8 @@ const EmbeddedSessionView = forwardRef<
 
   useEffect(() => {
     if (
-      session?.interactions &&
-      session.interactions.length > 0 &&
+      paginatedData?.interactions &&
+      paginatedData.interactions.length > 0 &&
       !hasInitiallyScrolled.current
     ) {
       hasInitiallyScrolled.current = true;
@@ -311,7 +335,7 @@ const EmbeddedSessionView = forwardRef<
         scrollToBottom(true); // Force scroll on initial load
       }, 100);
     }
-  }, [session?.interactions?.length, scrollToBottom]);
+  }, [paginatedData?.interactions?.length, scrollToBottom]);
 
   // Track previous streaming state to detect when streaming ends
   const prevIsStreamingRef = useRef(isStreaming);
@@ -390,16 +414,34 @@ const EmbeddedSessionView = forwardRef<
     [session, sessionId, NewInference, scrollToBottom],
   );
 
-  // Handler for loading older interactions - must be defined before early returns
-  const handleLoadOlder = useCallback(() => {
+  // Handler for loading older interactions via API pagination
+  const handleLoadOlder = useCallback(async () => {
     const container = containerRef.current;
-    if (!container) return;
+    if (!container || isLoadingOlder) return;
 
     // Save scroll position before expanding
     const prevScrollHeight = container.scrollHeight;
 
-    // Increase render count
-    setRenderCount((prev) => prev + INTERACTIONS_TO_RENDER);
+    setIsLoadingOlder(true);
+    try {
+      const nextPage = oldestPageLoaded + 1;
+      const apiClient = api.getApiClient();
+      const response = await apiClient.v1SessionsInteractionsDetail(sessionId, {
+        page: nextPage,
+        per_page: INTERACTIONS_TO_RENDER,
+        order: 'desc',
+      });
+
+      const newInteractions = response.data?.interactions || [];
+      if (newInteractions.length > 0) {
+        // Prepend older interactions (they come newest-first within the page,
+        // so we need to reverse then prepend)
+        setOlderInteractions(prev => [...newInteractions.reverse(), ...prev]);
+        setOldestPageLoaded(nextPage);
+      }
+    } finally {
+      setIsLoadingOlder(false);
+    }
 
     // After state update, restore scroll position so viewport doesn't jump
     requestAnimationFrame(() => {
@@ -408,7 +450,31 @@ const EmbeddedSessionView = forwardRef<
         containerRef.current.scrollTop += newScrollHeight - prevScrollHeight;
       }
     });
-  }, []);
+  }, [api, sessionId, oldestPageLoaded, isLoadingOlder]);
+
+  // Compute which interactions to render using paginated data
+  // paginatedData.interactions are newest-first (page 0), we reverse for display (oldest first)
+  // olderInteractions are already in oldest-first order from handleLoadOlder
+  // NOTE: These useMemos MUST be before any early returns to maintain consistent hook order
+  const newestInteractions = useMemo(() => {
+    const interactions = paginatedData?.interactions || [];
+    // Reverse to get oldest-first order for display
+    return [...interactions].reverse();
+  }, [paginatedData?.interactions]);
+
+  // Combine older (loaded via pagination) + newest (from initial fetch)
+  const visibleInteractions = useMemo(() => {
+    return [...olderInteractions, ...newestInteractions];
+  }, [olderInteractions, newestInteractions]);
+
+  const totalInteractions = visibleInteractions.length;
+
+  // Check if there are more pages to load
+  const totalCount = paginatedData?.totalCount || 0;
+  const totalPages = paginatedData?.totalPages || 1;
+  const hasOlderInteractions = oldestPageLoaded < totalPages - 1;
+
+  const isOwner = account.user?.id === session?.owner;
 
   // Show loading state while fetching session
   if (!session) {
@@ -431,8 +497,8 @@ const EmbeddedSessionView = forwardRef<
     );
   }
 
-  // Show empty state if no interactions
-  if (!session.interactions || session.interactions.length === 0) {
+  // Show empty state if no interactions (check paginated data, not session.interactions)
+  if (totalInteractions === 0 && !paginatedData?.interactions?.length) {
     return (
       <Box
         sx={{
@@ -448,14 +514,6 @@ const EmbeddedSessionView = forwardRef<
       </Box>
     );
   }
-
-  const isOwner = account.user?.id === session.owner;
-
-  // Compute which interactions to render (most recent N)
-  const totalInteractions = session.interactions.length;
-  const hasOlderInteractions = totalInteractions > renderCount;
-  const startIndex = hasOlderInteractions ? totalInteractions - renderCount : 0;
-  const visibleInteractions = session.interactions.slice(startIndex);
 
   return (
     <Box
@@ -528,8 +586,9 @@ const EmbeddedSessionView = forwardRef<
           <Button
             variant="text"
             size="small"
-            startIcon={<ExpandLessIcon />}
+            startIcon={isLoadingOlder ? <CircularProgress size={16} /> : <ExpandLessIcon />}
             onClick={handleLoadOlder}
+            disabled={isLoadingOlder}
             sx={{
               alignSelf: "center",
               color: "text.secondary",
@@ -537,12 +596,11 @@ const EmbeddedSessionView = forwardRef<
               mb: 1,
             }}
           >
-            Show {Math.min(INTERACTIONS_TO_RENDER, startIndex)} older messages
+            {isLoadingOlder ? 'Loading...' : `Show ${INTERACTIONS_TO_RENDER} older messages`}
           </Button>
         )}
         {visibleInteractions.map((interaction, index) => {
-          const absoluteIndex = startIndex + index;
-          const isLastInteraction = absoluteIndex === totalInteractions - 1;
+          const isLastInteraction = index === totalInteractions - 1;
           const isLive =
             isLastInteraction &&
             interaction.state === TypesInteractionState.InteractionStateWaiting;

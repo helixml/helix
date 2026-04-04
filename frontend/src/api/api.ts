@@ -11921,6 +11921,8 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         page?: number;
         /** Page size (default 100) */
         per_page?: number;
+        /** Sort order: 'asc' (oldest first, default) or 'desc' (newest first) */
+        order?: string;
       },
       params: RequestParams = {},
     ) =>

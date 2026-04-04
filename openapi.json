@@ -15131,6 +15131,14 @@
                         "schema": {
                             "type": "integer"
                         }
+                    },
+                    {
+                        "description": "Sort order: 'asc' (oldest first, default) or 'desc' (newest first)",
+                        "name": "order",
+                        "in": "query",
+                        "schema": {
+                            "type": "string"
+                        }
                     }
                 ],
                 "responses": {

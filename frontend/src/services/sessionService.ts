@@ -24,11 +24,12 @@ export const LIST_SESSIONS_QUERY_KEY = (orgId?: string, page?: number, pageSize?
   appId,
 ];
 
-export const LIST_INTERACTIONS_QUERY_KEY = (sessionId: string, page?: number, perPage?: number) => [
+export const LIST_INTERACTIONS_QUERY_KEY = (sessionId: string, page?: number, perPage?: number, order?: string) => [
   "interactions",
   sessionId,
   page,
   perPage,
+  order,
 ];
 
 // useListSessionSteps returns the steps for a session, it includes
@@ -146,22 +147,25 @@ export function invalidateSessionsQuery(queryClient: QueryClient) {
  * @param sessionId The session ID
  * @param page Page number (0-indexed)
  * @param perPage Number of interactions per page (default 20)
+ * @param order Sort order: 'asc' (oldest first) or 'desc' (newest first)
  * @param options Query options
  */
 export function useListInteractions(
   sessionId: string,
   page?: number,
   perPage?: number,
+  order?: 'asc' | 'desc',
   options?: { enabled?: boolean }
 ) {
   const api = useApi()
   const apiClient = api.getApiClient()
 
   return useQuery({
-    queryKey: LIST_INTERACTIONS_QUERY_KEY(sessionId, page, perPage),
+    queryKey: LIST_INTERACTIONS_QUERY_KEY(sessionId, page, perPage, order),
     queryFn: () => apiClient.v1SessionsInteractionsDetail(sessionId, {
       page: page ?? 0,
       per_page: perPage ?? 20,
+      order: order,
     }),
     enabled: options?.enabled ?? true,
   })

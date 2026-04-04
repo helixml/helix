@@ -19,6 +19,7 @@ import (
 // @Param   id path string true "Session ID"
 // @Param   page query int false "Page number (0-indexed)"
 // @Param   per_page query int false "Page size (default 100)"
+// @Param   order query string false "Sort order: 'asc' (oldest first, default) or 'desc' (newest first)"
 // @Success 200 {object} types.PaginatedInteractions
 // @Router /api/v1/sessions/{id}/interactions [get]
 // @Security BearerAuth
@@ -36,6 +37,12 @@ func (s *HelixAPIServer) listInteractions(_ http.ResponseWriter, req *http.Reque
 		perPage = 100
 	}
 
+	// Support descending order (newest first) for pagination
+	order := "id ASC"
+	if req.URL.Query().Get("order") == "desc" {
+		order = "id DESC"
+	}
+
 	session, err := s.Store.GetSession(ctx, id)
 	if err != nil {
 		return nil, system.NewHTTPError500(fmt.Sprintf("failed to get session %s, error: %s", id, err))
@@ -51,6 +58,7 @@ func (s *HelixAPIServer) listInteractions(_ http.ResponseWriter, req *http.Reque
 		GenerationID: session.GenerationID,
 		Page:         page,
 		PerPage:      perPage,
+		Order:        order,
 	})
 	if err != nil {
 		return nil, system.NewHTTPError500(fmt.Sprintf("failed to get interactions for session %s, error: %s", id, err))

@@ -12482,6 +12482,12 @@ const docTemplate = `{
                         "description": "Page size (default 100)",
                         "name": "per_page",
                         "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Sort order: 'asc' (oldest first, default) or 'desc' (newest first)",
+                        "name": "order",
+                        "in": "query"
                     }
                 ],
                 "responses": {

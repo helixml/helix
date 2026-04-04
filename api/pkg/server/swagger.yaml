@@ -18030,6 +18030,11 @@ paths:
         in: query
         name: per_page
         type: integer
+      - description: 'Sort order: ''asc'' (oldest first, default) or ''desc'' (newest
+          first)'
+        in: query
+        name: order
+        type: string
       produces:
       - application/json
       responses:
