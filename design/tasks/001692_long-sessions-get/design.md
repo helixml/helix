@@ -26,14 +26,22 @@ Used by: `PreviewPanel` (Optimus/Project Manager "New Chat", app preview) via `<
 **Bad:**
 - Still fetches ALL interactions via `useGetSession` — block system is purely a render limit, not a data limit
 
-## Decision: Switch SpecTask to Session.tsx
+## Decision: Switch SpecTask to Session.tsx (Phased)
+
+Both `EmbeddedSessionView` and `Session.tsx` use the same `Interaction` and `InteractionLiveStream` components for rendering tool calls, responses, etc. — so all rendering features are shared.
 
 `Session.tsx` already works as an embedded component via `PreviewPanel` (used in app preview and Optimus/Project Manager chat on the kanban board). It has:
 - Working scroll-to-bottom behavior
 - Block-based virtual rendering (`INTERACTIONS_PER_BLOCK = 20`) that only renders recent interactions
 - Auto-loading older interactions when scrolling up
 
-The only change needed is **data-level pagination** — currently `useGetSession` fetches all interactions upfront. Switch to the paginated API so long sessions don't load hundreds of interactions on mount.
+### Phase 1: Port SpecTask to Session.tsx
+Just switch `SpecTaskDetailContent` to use `Session` (via `PreviewPanel`). This immediately gets the virtual rendering benefits — only 20 interactions rendered at a time, even if all are fetched.
+
+### Phase 2: Add Data-Level Pagination
+Currently `useGetSession` fetches all interactions upfront. Add pagination to avoid downloading hundreds of interactions on mount.
+
+The existing `/api/v1/sessions/{id}/interactions` endpoint already returns `totalCount` (see `store_interactions.go:240`), so no new endpoint is needed — just need to expose that count in the response and use it in the frontend.
 
 ## API
 
@@ -78,8 +86,14 @@ const PAGE_SIZE = 20  // interactions shown initially / per load-more
 
 ## Files to Change
 
+### Phase 1 (Port)
 | File | Change |
 |------|--------|
-| `frontend/src/pages/Session.tsx` | Add data-level pagination using the existing paginated API (fetch last 20 interactions initially, load more on scroll-up) |
-| `frontend/src/components/tasks/SpecTaskDetailContent.tsx` | Replace `EmbeddedSessionView` with `Session` component (via `PreviewPanel` or directly) |
-| `frontend/src/services/sessionService.ts` | Add `useListInteractions(sessionId, page, perPage)` hook wrapping the existing API endpoint |
+| `frontend/src/components/tasks/SpecTaskDetailContent.tsx` | Replace `EmbeddedSessionView` with `Session` component (via `PreviewPanel`) |
+
+### Phase 2 (Pagination)
+| File | Change |
+|------|--------|
+| `api/pkg/server/session_interaction_handlers.go` | Return `totalCount` in response (already computed, just not returned) |
+| `frontend/src/services/sessionService.ts` | Add `useListInteractions(sessionId, page, perPage)` hook |
+| `frontend/src/pages/Session.tsx` | Use paginated API instead of `useGetSession` for interactions |
