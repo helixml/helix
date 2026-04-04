@@ -16,7 +16,7 @@
 
 ## Fix 3: Skip Spec Button (Optional)
 
-- [ ] Add "Skip Spec" button in SpecTaskActionButtons.tsx for `spec_generation` status
+- [~] Add "Skip Spec" button in SpecTaskActionButtons.tsx for `spec_generation` status
 - [ ] Style as `variant="outlined"` (non-primary)
 - [ ] Backend: Add handler to set `status = queued_implementation` and `just_do_it_mode = true`
 - [ ] Frontend: Add mutation to call skip-spec endpoint
