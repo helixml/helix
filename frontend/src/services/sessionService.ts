@@ -24,6 +24,13 @@ export const LIST_SESSIONS_QUERY_KEY = (orgId?: string, page?: number, pageSize?
   appId,
 ];
 
+export const LIST_INTERACTIONS_QUERY_KEY = (sessionId: string, page?: number, perPage?: number) => [
+  "interactions",
+  sessionId,
+  page,
+  perPage,
+];
+
 // useListSessionSteps returns the steps for a session, it includes
 // steps for all interactions in the session
 export function useListSessionSteps(sessionId: string, options?: { enabled?: boolean }) {
@@ -132,4 +139,30 @@ export function useGetSessionIdleStatus(sessionId: string, options?: { enabled?:
 
 export function invalidateSessionsQuery(queryClient: QueryClient) {
   queryClient.invalidateQueries({ queryKey: ["sessions"] })
+}
+
+/**
+ * Hook to list interactions for a session with pagination
+ * @param sessionId The session ID
+ * @param page Page number (0-indexed)
+ * @param perPage Number of interactions per page (default 20)
+ * @param options Query options
+ */
+export function useListInteractions(
+  sessionId: string,
+  page?: number,
+  perPage?: number,
+  options?: { enabled?: boolean }
+) {
+  const api = useApi()
+  const apiClient = api.getApiClient()
+
+  return useQuery({
+    queryKey: LIST_INTERACTIONS_QUERY_KEY(sessionId, page, perPage),
+    queryFn: () => apiClient.v1SessionsInteractionsDetail(sessionId, {
+      page: page ?? 0,
+      per_page: perPage ?? 20,
+    }),
+    enabled: options?.enabled ?? true,
+  })
 }
