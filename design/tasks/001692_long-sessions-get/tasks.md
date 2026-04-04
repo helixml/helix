@@ -1,10 +1,11 @@
 # Implementation Tasks
 
-## Phase 1: Port SpecTask to Session.tsx
-- [~] Replace `EmbeddedSessionView` with `Session` (via `PreviewPanel`) in `SpecTaskDetailContent.tsx`
-- [ ] Port WebSocket-aware polling to `Session.tsx`: suppress 3s polling when WS is connected (prevents data race where stale HTTP overwrites fresh WS data)
-- [ ] Test: confirm tool calls, responses, streaming all render correctly
-- [ ] Test: confirm virtual scroll works (only 20 interactions rendered even with long session)
+## Phase 1: Add Render-Limiting to EmbeddedSessionView
+- [~] Add `INTERACTIONS_TO_RENDER = 20` constant to `EmbeddedSessionView`
+- [ ] Slice interactions to show only the most recent N
+- [ ] Add "Show older messages" button that expands the rendered slice
+- [ ] Fix scroll-to-bottom bug (port pattern from Session.tsx)
+- [ ] Test: confirm long sessions render fast and scroll works
 
 ## Phase 2: Add Data-Level Pagination
 - [ ] Update `session_interaction_handlers.go` to return `totalCount` in the API response (already computed but not returned)

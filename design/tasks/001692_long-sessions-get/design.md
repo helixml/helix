@@ -35,10 +35,16 @@ Both `EmbeddedSessionView` and `Session.tsx` use the same `Interaction` and `Int
 - Block-based virtual rendering (`INTERACTIONS_PER_BLOCK = 20`) that only renders recent interactions
 - Auto-loading older interactions when scrolling up
 
-### Phase 1: Port SpecTask to Session.tsx
-Just switch `SpecTaskDetailContent` to use `Session` (via `PreviewPanel`). This immediately gets the virtual rendering benefits — only 20 interactions rendered at a time, even if all are fetched.
+### Phase 1: Add Render-Limiting to EmbeddedSessionView
+`Session.tsx` is tightly coupled to URL params (`router.params.session_id`) while `EmbeddedSessionView` takes a `sessionId` prop. Rather than fighting this architecture, we'll port the key optimization: **only render the last 20 interactions**.
 
-**Port WebSocket-aware polling**: `EmbeddedSessionView` suppresses the 3s polling when WebSocket is connected to prevent a data race (stale HTTP responses overwriting fresh WebSocket data). This pattern should be ported to `Session.tsx`.
+Add to `EmbeddedSessionView`:
+- `INTERACTIONS_TO_RENDER = 20` constant
+- Slice `session.interactions` to show only the most recent 20
+- Add "Load older messages" click handler that expands the slice
+- Keep existing WebSocket-aware polling (already there)
+
+This gets 80% of the benefit with minimal code change. Phase 2 will add data-level pagination.
 
 ### Phase 2: Add Data-Level Pagination
 Currently `useGetSession` fetches all interactions upfront. Add pagination to avoid downloading hundreds of interactions on mount.
