@@ -7,7 +7,7 @@
 **I want** the "Get AI to fix it" button to start a "just do it" task,  
 **So that** the AI immediately fixes the script without writing specs first.
 
-**Current Behavior:** Button creates a regular spec task that enters planning phase. UI appears stuck because there's no indication the agent is working on specs.
+**Current Behavior:** Button creates a regular spec task that enters planning phase, but the prompt tells the agent to fix the script directly without writing specs. Agent never pushes specs, so task gets stuck in planning forever.
 
 **Acceptance Criteria:**
 - [ ] "Get AI to fix it" button creates task with `just_do_it_mode: true`
