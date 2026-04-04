@@ -1142,6 +1142,39 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 			acc := sctx.accumulator
 			prevMessageID := acc.LastMessageID
 
+			// FORCE-FLUSH on tool_call boundary: When a tool_call entry arrives (a new
+			// message_id that will create a new entry), force-publish any pending patches
+			// BEFORE adding the tool_call to the accumulator. This ensures the frontend
+			// sees the complete text content of the preceding entry before entry_count
+			// increases.
+			//
+			// Without this flush, the tool_call entry is visible while the preceding text
+			// entry's final content is still waiting in the 50ms publish throttle buffer,
+			// causing truncated sentences (e.g., "...with `Hello" followed by a Write
+			// tool call, when it should say "...with `Hello, world!`").
+			isNewEntry := prevMessageID != "" && prevMessageID != messageID
+			currentEntryCount := len(acc.Entries())
+			forceFlushToolCall := isNewEntry && entryType == "tool_call" && currentEntryCount > 0
+			if forceFlushToolCall {
+				// Force-flush before the tool_call: publish the current state (which has
+				// the complete text entry content from Zed's stale-pending flush) before
+				// the tool_call entry is added and entry_count increases.
+				currentEntries := acc.Entries()
+				if err := apiServer.publishEntryPatchesToFrontend(helixSessionID, helixSession.Owner, targetInteraction.ID, sctx.previousEntries, currentEntries, sctx.commenterID); err != nil {
+					log.Error().Err(err).
+						Str("session_id", helixSessionID).
+						Str("interaction_id", targetInteraction.ID).
+						Msg("Failed to force-publish entry patches before tool_call")
+				} else {
+					log.Info().
+						Str("interaction_id", targetInteraction.ID).
+						Int("entry_count", currentEntryCount).
+						Str("entry_type", entryType).
+						Msg("📤 [FLUSH] Force-published patches before tool_call entry")
+				}
+				sctx.previousEntries = currentEntries
+			}
+
 			acc.AddMessageWithToolInfo(messageID, content, entryType, toolName, toolStatus)
 
 			if prevMessageID != "" && prevMessageID != messageID {
@@ -1183,7 +1216,8 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 
 			// THROTTLED FRONTEND PUBLISH: Only publish if enough time has passed.
 			// Uses per-entry patches to reduce wire traffic from O(N) to O(delta).
-			if now.Sub(sctx.lastPublish) >= publishInterval {
+			// Exception: if we just force-flushed before a tool_call, also publish the tool_call.
+			if now.Sub(sctx.lastPublish) >= publishInterval || forceFlushToolCall {
 				currentEntries := acc.Entries()
 				err := apiServer.publishEntryPatchesToFrontend(helixSessionID, helixSession.Owner, targetInteraction.ID, sctx.previousEntries, currentEntries, sctx.commenterID)
 				if err != nil {
