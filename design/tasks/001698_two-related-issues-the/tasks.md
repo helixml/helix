@@ -2,7 +2,7 @@
 
 ## Fix 1: Startup Script Button → Just Do It Mode
 
-- [ ] Update `createSpecTaskMutation` type in ProjectSettings.tsx to include `just_do_it_mode?: boolean`
+- [~] Update `createSpecTaskMutation` type in ProjectSettings.tsx to include `just_do_it_mode?: boolean`
 - [ ] Add `just_do_it_mode: true` to the mutation call (line ~1038)
 - [ ] Update success message to reflect immediate implementation (not "Created task")
 
