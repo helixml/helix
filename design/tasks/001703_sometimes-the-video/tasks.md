@@ -2,9 +2,9 @@
 
 ## Phase 1: Diagnostics
 
-- [ ] Add enhanced close event logging in `websocket-stream.ts` (code, reason, wasClean, time since open)
-- [ ] Add `lastOpenTime` tracking to measure connection duration before close
-- [ ] Log `reconnectAttempts` value on each close/reconnect event
+- [~] Add enhanced close event logging in `websocket-stream.ts` (code, reason, wasClean, time since open)
+- [~] Add `lastOpenTime` tracking to measure connection duration before close
+- [~] Log `reconnectAttempts` value on each close/reconnect event
 - [ ] Add connection state machine logging in `DesktopStreamViewer.tsx`
 - [ ] Verify close codes are propagated from backend to frontend
 
