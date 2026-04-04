@@ -2,6 +2,7 @@
 
 ## Phase 1: Port SpecTask to Session.tsx
 - [ ] Replace `EmbeddedSessionView` with `Session` (via `PreviewPanel`) in `SpecTaskDetailContent.tsx`
+- [ ] Port WebSocket-aware polling to `Session.tsx`: suppress 3s polling when WS is connected (prevents data race where stale HTTP overwrites fresh WS data)
 - [ ] Test: confirm tool calls, responses, streaming all render correctly
 - [ ] Test: confirm virtual scroll works (only 20 interactions rendered even with long session)
 

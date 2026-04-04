@@ -38,6 +38,8 @@ Both `EmbeddedSessionView` and `Session.tsx` use the same `Interaction` and `Int
 ### Phase 1: Port SpecTask to Session.tsx
 Just switch `SpecTaskDetailContent` to use `Session` (via `PreviewPanel`). This immediately gets the virtual rendering benefits — only 20 interactions rendered at a time, even if all are fetched.
 
+**Port WebSocket-aware polling**: `EmbeddedSessionView` suppresses the 3s polling when WebSocket is connected to prevent a data race (stale HTTP responses overwriting fresh WebSocket data). This pattern should be ported to `Session.tsx`.
+
 ### Phase 2: Add Data-Level Pagination
 Currently `useGetSession` fetches all interactions upfront. Add pagination to avoid downloading hundreds of interactions on mount.
 
