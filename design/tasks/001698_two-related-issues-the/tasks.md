@@ -16,16 +16,16 @@
 
 ## Fix 3: Skip Spec Button (Optional)
 
-- [~] Add "Skip Spec" button in SpecTaskActionButtons.tsx for `spec_generation` status
-- [ ] Style as `variant="outlined"` (non-primary)
-- [ ] Backend: Add handler to set `status = queued_implementation` and `just_do_it_mode = true`
-- [ ] Frontend: Add mutation to call skip-spec endpoint
+- [x] Add "Skip Spec" button in SpecTaskActionButtons.tsx for `spec_generation` status
+- [x] Style as `variant="outlined"` (non-primary)
+- [x] Backend: Uses existing v1SpecTasksUpdate endpoint with status + just_do_it_mode
+- [x] Frontend: Add useSkipSpec mutation in specTaskWorkflowService.ts
 - [ ] Test: verify task moves to implementation and can still create PR
 
 ## Fix 4: Reopen Completed Task Button (Optional)
 
-- [ ] Add "Reopen" button in SpecTaskActionButtons.tsx for `done` status
-- [ ] Style as `variant="outlined"` (non-primary)
-- [ ] Backend: Add handler to set `status = implementation`
-- [ ] Frontend: Add mutation to call reopen endpoint
+- [x] Add "Reopen" button in SpecTaskActionButtons.tsx for `done` status
+- [x] Style as `variant="outlined"` (non-primary)
+- [x] Backend: Uses existing v1SpecTasksUpdate endpoint with status
+- [x] Frontend: Add useReopenTask mutation in specTaskWorkflowService.ts
 - [ ] Test: verify task moves back to in progress and user can continue working
