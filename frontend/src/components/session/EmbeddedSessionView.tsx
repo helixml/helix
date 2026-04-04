@@ -390,6 +390,26 @@ const EmbeddedSessionView = forwardRef<
     [session, sessionId, NewInference, scrollToBottom],
   );
 
+  // Handler for loading older interactions - must be defined before early returns
+  const handleLoadOlder = useCallback(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    // Save scroll position before expanding
+    const prevScrollHeight = container.scrollHeight;
+
+    // Increase render count
+    setRenderCount((prev) => prev + INTERACTIONS_TO_RENDER);
+
+    // After state update, restore scroll position so viewport doesn't jump
+    requestAnimationFrame(() => {
+      if (containerRef.current) {
+        const newScrollHeight = containerRef.current.scrollHeight;
+        containerRef.current.scrollTop += newScrollHeight - prevScrollHeight;
+      }
+    });
+  }, []);
+
   // Show loading state while fetching session
   if (!session) {
     return (
@@ -436,26 +456,6 @@ const EmbeddedSessionView = forwardRef<
   const hasOlderInteractions = totalInteractions > renderCount;
   const startIndex = hasOlderInteractions ? totalInteractions - renderCount : 0;
   const visibleInteractions = session.interactions.slice(startIndex);
-
-  // Handler for loading older interactions
-  const handleLoadOlder = useCallback(() => {
-    const container = containerRef.current;
-    if (!container) return;
-
-    // Save scroll position before expanding
-    const prevScrollHeight = container.scrollHeight;
-
-    // Increase render count
-    setRenderCount((prev) => prev + INTERACTIONS_TO_RENDER);
-
-    // After state update, restore scroll position so viewport doesn't jump
-    requestAnimationFrame(() => {
-      if (containerRef.current) {
-        const newScrollHeight = containerRef.current.scrollHeight;
-        containerRef.current.scrollTop += newScrollHeight - prevScrollHeight;
-      }
-    });
-  }, []);
 
   return (
     <Box
