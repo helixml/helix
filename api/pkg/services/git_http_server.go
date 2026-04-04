@@ -1485,6 +1485,19 @@ func (s *GitHTTPServer) createDesignReviewForPush(ctx context.Context, specTaskI
 		return
 	}
 
+	// Update task name from requirements.md title (on every push)
+	if reqContent, ok := docs["requirements.md"]; ok {
+		if specTitle := SpecTitleFromRequirements(reqContent); specTitle != "" && specTitle != task.Name {
+			task.Name = specTitle
+			task.UpdatedAt = time.Now()
+			if err := s.store.UpdateSpecTask(ctx, task); err != nil {
+				log.Error().Err(err).Str("spec_task_id", specTaskID).Msg("Failed to update task name from spec title")
+			} else {
+				log.Info().Str("spec_task_id", specTaskID).Str("new_name", specTitle).Msg("Updated task name from spec title")
+			}
+		}
+	}
+
 	existingReviews, _ := s.store.ListSpecTaskDesignReviews(ctx, specTaskID)
 	var activeReview *types.SpecTaskDesignReview
 	for i := range existingReviews {

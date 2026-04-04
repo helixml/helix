@@ -141,6 +141,7 @@ export interface SpecTaskWithExtras {
   // Task number for display
   task_number?: number;
   description?: string;
+  original_prompt?: string;
   depends_on?: TaskDependency[];
   // Assignee tracking
   assignee_id?: string;
@@ -751,7 +752,7 @@ function TaskCardInner({
           <Tooltip
             title={
               <span style={{ whiteSpace: "pre-wrap" }}>
-                {task.description || task.name}
+                {task.original_prompt || task.description || task.name}
               </span>
             }
             placement="top"

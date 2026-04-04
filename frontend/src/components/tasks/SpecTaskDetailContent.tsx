@@ -201,6 +201,14 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     dependsOnTaskIds: [] as string[],
   });
 
+  // Prompt/description is editable before spec review (backlog, queued_spec_generation, spec_generation)
+  // After spec review, the spec title becomes the name and prompt becomes read-only
+  const isPromptEditable = [
+    TypesSpecTaskStatus.TaskStatusBacklog,
+    TypesSpecTaskStatus.TaskStatusQueuedSpecGeneration,
+    TypesSpecTaskStatus.TaskStatusSpecGeneration,
+  ].includes(task?.status as TypesSpecTaskStatus);
+
   // Agent selection state
   const [selectedAgent, setSelectedAgent] = useState("");
   const [updatingAgent, setUpdatingAgent] = useState(false);
@@ -1024,27 +1032,19 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
           />
         ) : (
           <Box
-            onClick={
-              task?.status === TypesSpecTaskStatus.TaskStatusBacklog
-                ? handleEditToggle
-                : undefined
-            }
+            onClick={isPromptEditable ? handleEditToggle : undefined}
             sx={{
-              cursor:
-                task?.status === TypesSpecTaskStatus.TaskStatusBacklog
-                  ? "pointer"
-                  : "default",
+              cursor: isPromptEditable ? "pointer" : "default",
               borderRadius: 1,
               mx: -1,
               px: 1,
               py: 0.5,
               transition: "background-color 0.15s ease",
-              "&:hover":
-                task?.status === TypesSpecTaskStatus.TaskStatusBacklog
-                  ? {
-                      backgroundColor: "action.hover",
-                    }
-                  : {},
+              "&:hover": isPromptEditable
+                ? {
+                    backgroundColor: "action.hover",
+                  }
+                : {},
             }}
           >
             <Typography

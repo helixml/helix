@@ -91,6 +91,7 @@ const SpecTaskReviewPage: FC = () => {
         },
         {
           title: task?.name || 'Task',
+          tooltip: task?.original_prompt || task?.description || task?.name,
           routeName: 'project-task-detail',
           params: { id: projectId, taskId },
         },
