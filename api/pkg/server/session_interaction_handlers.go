@@ -13,22 +13,22 @@ import (
 
 // listInteractions godoc
 // @Summary List interactions for a session
-// @Description List interactions for a session
+// @Description List interactions for a session with pagination
 // @Tags    interactions
 // @Produce json
 // @Param   id path string true "Session ID"
-// @Param   page query int false "Page number"
-// @Param   page_size query int false "Page size"
-// @Success 200 {array} types.Interaction
+// @Param   page query int false "Page number (0-indexed)"
+// @Param   per_page query int false "Page size (default 100)"
+// @Success 200 {object} types.PaginatedInteractions
 // @Router /api/v1/sessions/{id}/interactions [get]
 // @Security BearerAuth
-func (s *HelixAPIServer) listInteractions(_ http.ResponseWriter, req *http.Request) ([]*types.Interaction, *system.HTTPError) {
+func (s *HelixAPIServer) listInteractions(_ http.ResponseWriter, req *http.Request) (*types.PaginatedInteractions, *system.HTTPError) {
 	ctx := req.Context()
 	user := getRequestUser(req)
 	id := mux.Vars(req)["id"]
 
 	page, err := strconv.Atoi(req.URL.Query().Get("page"))
-	if err != nil || page < 1 {
+	if err != nil || page < 0 {
 		page = 0
 	}
 	perPage, err := strconv.Atoi(req.URL.Query().Get("per_page"))
@@ -46,7 +46,7 @@ func (s *HelixAPIServer) listInteractions(_ http.ResponseWriter, req *http.Reque
 		return nil, system.NewHTTPError403("you are not allowed to access this session")
 	}
 
-	interactions, _, err := s.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
+	interactions, totalCount, err := s.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
 		SessionID:    id,
 		GenerationID: session.GenerationID,
 		Page:         page,
@@ -56,7 +56,18 @@ func (s *HelixAPIServer) listInteractions(_ http.ResponseWriter, req *http.Reque
 		return nil, system.NewHTTPError500(fmt.Sprintf("failed to get interactions for session %s, error: %s", id, err))
 	}
 
-	return interactions, nil
+	totalPages := int(totalCount) / perPage
+	if int(totalCount)%perPage > 0 {
+		totalPages++
+	}
+
+	return &types.PaginatedInteractions{
+		Interactions: interactions,
+		Page:         page,
+		PageSize:     perPage,
+		TotalCount:   totalCount,
+		TotalPages:   totalPages,
+	}, nil
 }
 
 // getInteraction godoc
