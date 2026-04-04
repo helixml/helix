@@ -1,7 +1,7 @@
 # Implementation Tasks
 
 - [x] Create `useDocumentTitle` hook in `frontend/src/hooks/useDocumentTitle.ts`
-- [~] Integrate hook into `Page.tsx` component using computed breadcrumb titles
-- [ ] Add truncation logic for titles exceeding 60 characters
-- [ ] Test on key pages: SpecTaskDetailPage, SpecTasksPage, Projects
-- [ ] Verify title updates correctly when navigating between pages
+- [x] Integrate hook into `Page.tsx` component using computed breadcrumb titles
+- [x] Add truncation logic for titles exceeding 60 characters (built into hook)
+- [~] Test in browser and verify title updates on navigation
+- [ ] Create PR description
