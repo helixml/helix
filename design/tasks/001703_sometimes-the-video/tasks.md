@@ -12,7 +12,7 @@
 
 - [x] Add connection stability timer in `websocket-stream.ts` - only reset `reconnectAttempts` after 2s stable connection
 - [x] Clear stability timer on close to prevent race conditions
-- [~] Add `isReconnecting` guard to prevent concurrent reconnection attempts
+- [x] Add `isReconnecting` guard to prevent concurrent reconnection attempts
 - [ ] Test rapid disconnect/reconnect scenarios
 
 ## Phase 3: Backend Close Code Propagation
