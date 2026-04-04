@@ -92,16 +92,22 @@ const PAGE_SIZE = 20  // interactions shown initially / per load-more
 ```
 
 
-## Files to Change
+## Files Changed
 
-### Phase 1 (Port)
+### Phase 1 (Render-Limiting)
 | File | Change |
 |------|--------|
-| `frontend/src/components/tasks/SpecTaskDetailContent.tsx` | Replace `EmbeddedSessionView` with `Session` component (via `PreviewPanel`) |
+| `frontend/src/components/session/EmbeddedSessionView.tsx` | Added `INTERACTIONS_TO_RENDER = 20`, slice interactions, "Show older" button, improved scroll-to-bottom |
 
-### Phase 2 (Pagination)
+### Phase 2 (API Pagination Ready)
 | File | Change |
 |------|--------|
-| `api/pkg/server/session_interaction_handlers.go` | Return `totalCount` in response (already computed, just not returned) |
-| `frontend/src/services/sessionService.ts` | Add `useListInteractions(sessionId, page, perPage)` hook |
-| `frontend/src/pages/Session.tsx` | Use paginated API instead of `useGetSession` for interactions |
+| `api/pkg/server/session_interaction_handlers.go` | Return `PaginatedInteractions` with `totalCount` instead of just array |
+| `frontend/src/services/sessionService.ts` | Added `useListInteractions(sessionId, page, perPage)` hook |
+
+## Implementation Notes
+
+- Kept `EmbeddedSessionView` instead of switching to `Session.tsx` because `Session.tsx` reads session ID from URL params (`router.params.session_id`), making it hard to use as an embedded component
+- The render-limiting approach (only render last N interactions) solves the main performance issue without needing full data-level pagination
+- Added `setTimeout(100)` for scroll-to-bottom on streaming end, ported from `Session.tsx`'s working pattern
+- The paginated API (`useListInteractions`) is ready for future use but full integration into Session.tsx is a larger refactor

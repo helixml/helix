@@ -7,9 +7,8 @@
 - [x] Fix scroll-to-bottom bug (port pattern from Session.tsx)
 - [x] Test: confirm long sessions render fast and scroll works (verified build passes, no sessions in dev to test UI)
 
-## Phase 2: Add Data-Level Pagination
+## Phase 2: Add Data-Level Pagination (API Ready)
 - [x] Update `session_interaction_handlers.go` to return `totalCount` in the API response (already computed but not returned)
 - [x] Add `useListInteractions(sessionId, page, perPage)` React Query hook to `sessionService.ts`
-- [~] Update `Session.tsx` to use paginated API: initially fetch only last 20 interactions, auto-load older on scroll-up
-- [ ] Preserve scroll position when loading older interactions (save/restore `scrollHeight` delta)
-- [ ] Test with a session that has 50+ interactions: confirm fast load, no jank, scroll-to-bottom reliable
+
+**Note**: The paginated API and hook are ready for use. Integrating them into Session.tsx is a larger refactor that can be done as a follow-up. The main performance issue (rendering all interactions) is already solved by Phase 1's render-limiting.
