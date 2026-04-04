@@ -21,3 +21,11 @@
 - [ ] Backend: Add handler to set `status = queued_implementation` and `just_do_it_mode = true`
 - [ ] Frontend: Add mutation to call skip-spec endpoint
 - [ ] Test: verify task moves to implementation and can still create PR
+
+## Fix 4: Return to Backlog Button (Optional)
+
+- [ ] Add "Return to Backlog" button in SpecTaskActionButtons.tsx for `spec_review` status
+- [ ] Style as `variant="outlined"` (non-primary)
+- [ ] Backend: Add handler to set `status = backlog`
+- [ ] Frontend: Add mutation to call return-to-backlog endpoint
+- [ ] Test: verify task moves back to backlog and can restart planning
