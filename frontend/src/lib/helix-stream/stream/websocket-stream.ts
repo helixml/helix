@@ -78,6 +78,11 @@ export class WebSocketStream {
   private lastMessageTime = 0
   private heartbeatTimeout = 10000  // 10 seconds without data = stale
 
+  // Connection stability tracking - for diagnosing reconnect loops
+  private lastOpenTime = 0  // Timestamp when connection was established
+  private connectionStabilityTimer: ReturnType<typeof setTimeout> | null = null
+  private connectionStabilized = false  // True after connection has been stable for 2s
+
   // Page visibility tracking - prevents false stale detection on iOS when page is backgrounded
   private pageVisible = true
   private visibilityHandler: (() => void) | null = null
@@ -350,6 +355,12 @@ export class WebSocketStream {
       return
     }
 
+    // Clear any pending reconnection timeout since we're connecting now
+    if (this.reconnectTimeoutId) {
+      clearTimeout(this.reconnectTimeoutId)
+      this.reconnectTimeoutId = null
+    }
+
     this.dispatchInfoEvent({ type: "connecting" })
 
     // Clean up old WebSocket if it exists
@@ -411,12 +422,28 @@ export class WebSocketStream {
   private onOpen() {
     console.log("[WebSocketStream] Connected")
     this.connected = true
-    this.reconnectAttempts = 0
+    this.lastOpenTime = Date.now()
     this.lastMessageTime = Date.now()
     this.streamConnectedTime = performance.now() // Track when stream connected for frame drift warmup
+    this.connectionStabilized = false
 
     // Clear connection timeout - we connected successfully
     this.clearConnectionTimeout()
+
+    // Don't reset reconnectAttempts immediately - wait for connection to stabilize
+    // This prevents rapid connect/disconnect loops from resetting the counter
+    if (this.connectionStabilityTimer) {
+      clearTimeout(this.connectionStabilityTimer)
+    }
+    this.connectionStabilityTimer = setTimeout(() => {
+      this.connectionStabilityTimer = null
+      if (this.connected) {
+        const prevAttempts = this.reconnectAttempts
+        this.reconnectAttempts = 0
+        this.connectionStabilized = true
+        console.log(`[WebSocketStream] Connection stabilized after 2s, reset reconnect counter (was ${prevAttempts})`)
+      }
+    }, 2000)
 
     this.dispatchInfoEvent({ type: "connected" })
 
@@ -435,8 +462,25 @@ export class WebSocketStream {
   }
 
   private onClose(event: CloseEvent) {
-    console.log("[WebSocketStream] Disconnected:", event.code, event.reason)
+    // Enhanced close logging for debugging reconnect loops
+    const connectionDuration = this.lastOpenTime > 0 ? Date.now() - this.lastOpenTime : -1
+    console.log("[WebSocketStream] Disconnected:", {
+      code: event.code,
+      reason: event.reason || "(empty)",
+      wasClean: event.wasClean,
+      connectionDurationMs: connectionDuration,
+      wasStabilized: this.connectionStabilized,
+      reconnectAttempts: this.reconnectAttempts,
+      explicitlyClosed: this.closed
+    })
     this.connected = false
+
+    // Clear connection stability timer if connection drops before stabilizing
+    if (this.connectionStabilityTimer) {
+      clearTimeout(this.connectionStabilityTimer)
+      this.connectionStabilityTimer = null
+      console.log("[WebSocketStream] Connection dropped before stabilizing (< 2s)")
+    }
 
     // Clear connection timeout if it's still running
     this.clearConnectionTimeout()
@@ -450,7 +494,7 @@ export class WebSocketStream {
     // Stop event loop tracking
     this.stopEventLoopTracking()
 
-    this.dispatchInfoEvent({ type: "disconnected" })
+    this.dispatchInfoEvent({ type: "disconnected", code: event.code })
 
     // Don't reconnect if explicitly closed
     if (this.closed) {
@@ -463,17 +507,19 @@ export class WebSocketStream {
 
     // Attempt reconnection with exponential backoff + jitter (capped at 30 seconds)
     if (this.reconnectAttempts < this.maxReconnectAttempts) {
+      // Check if a reconnection is already pending - this prevents duplicate reconnections
+      // when a connection opens briefly then closes again before the pending reconnect fires
+      if (this.reconnectTimeoutId) {
+        console.log("[WebSocketStream] Reconnection already pending, not scheduling another")
+        return
+      }
+
       this.reconnectAttempts++
       const baseDelay = Math.min(this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1), 30000)
       const delay = baseDelay * (0.5 + Math.random() * 0.5)
       this.dispatchInfoEvent({ type: "reconnecting", attempt: this.reconnectAttempts })
 
       console.log(`[WebSocketStream] Will reconnect in ${delay}ms (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`)
-
-      // Cancel any pending reconnection
-      if (this.reconnectTimeoutId) {
-        clearTimeout(this.reconnectTimeoutId)
-      }
 
       this.reconnectTimeoutId = setTimeout(() => {
         this.reconnectTimeoutId = null
