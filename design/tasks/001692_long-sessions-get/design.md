@@ -34,19 +34,18 @@ Used by: `PreviewPanel` (Optimus/Project Manager "New Chat", app preview) via `<
 1. It still fetches all interactions from the API (needs data-level pagination)
 2. It's coupled to URL params (needs prop-based session ID for embedding)
 
-**Two options:**
+**Recommended: Switch SpecTask chat to use Session.tsx**
 
-**Option A: Switch SpecTask chat to use Session.tsx**
-- Port the scroll logic from Session.tsx to work embedded (or pass session ID as prop)
-- Add data-level pagination to Session.tsx (use the existing paginated API)
-- Benefits: proven scroll behavior, existing block-based rendering
+`Session.tsx` already has:
+- Working scroll-to-bottom behavior
+- Block-based virtual rendering (`INTERACTIONS_PER_BLOCK = 20`) that only renders recent interactions
+- Auto-loading older interactions when scrolling up
 
-**Option B: Fix EmbeddedSessionView**
-- Fix the scroll-to-bottom bug (port the working pattern from Session.tsx)
-- Add data-level pagination
-- Benefits: simpler component, already embeddable
+The main work needed:
+1. Make `Session.tsx` work as an embedded component (currently reads session ID from URL params)
+2. Add data-level pagination to avoid fetching all interactions upfront (use the existing paginated API)
 
-Either way, the core fix is adding **data-level pagination** (use the existing paginated API) and fixing the scroll bug in EmbeddedSessionView.
+This reuses the proven virtual scroll implementation instead of reimplementing it in `EmbeddedSessionView`.
 
 ## API
 
@@ -76,7 +75,7 @@ The `useGetSession` response embeds all interactions inline. We will continue us
 
 ### Scroll Behavior
 
-Fix the scroll-to-bottom bug in `EmbeddedSessionView` by porting the working pattern from `Session.tsx`. When "Load older" loads new messages prepended at the top:
+Leverage `Session.tsx`'s existing scroll behavior. When older interactions load on scroll-up:
 - Save `scrollHeight` before state update
 - After state update, restore `scrollTop = newScrollHeight - savedScrollHeight` so the user's viewport doesn't jump
 
@@ -93,5 +92,6 @@ const PAGE_SIZE = 20  // interactions shown initially / per load-more
 
 | File | Change |
 |------|--------|
-| `frontend/src/components/session/EmbeddedSessionView.tsx` | Add pagination: `PAGE_SIZE` constant, `olderInteractions` state, "Load older" button, scroll-position-preserving prepend |
+| `frontend/src/pages/Session.tsx` | Add `sessionId` prop for embedded mode (in addition to URL param); add data-level pagination using the existing paginated API |
+| `frontend/src/components/tasks/SpecTaskDetailContent.tsx` | Replace `EmbeddedSessionView` with `Session` component |
 | `frontend/src/services/sessionService.ts` | Add `useListInteractions(sessionId, page, perPage)` hook wrapping the existing API endpoint |

@@ -1,10 +1,8 @@
 # Implementation Tasks
 
-- [ ] Fix scroll-to-bottom bug in `EmbeddedSessionView`: port the working scroll pattern from `Session.tsx` so the chat reliably stays scrolled to bottom when agent responds
-- [ ] Add `useListInteractions(sessionId, page, perPage)` React Query hook to `frontend/src/services/sessionService.ts` calling `GET /api/v1/sessions/{id}/interactions`
-- [ ] Add `PAGE_SIZE = 20` constant and `olderInteractions` state to `EmbeddedSessionView`
-- [ ] On session load, show only `session.interactions.slice(-PAGE_SIZE)` as initial interactions
-- [ ] Track `hasOlderInteractions` (true when `session.interactions.length > PAGE_SIZE` or older pages exist)
-- [ ] Render "Load older messages" button at top of list when `hasOlderInteractions` is true
-- [ ] Implement load-more handler: prepend fetched interactions to `olderInteractions`, preserve scroll position (save/restore `scrollHeight` delta)
-- [ ] Test with a session that has 50+ interactions: confirm no jank on open, load-more works, and scroll-to-bottom is reliable
+- [ ] Add `sessionId` prop to `Session.tsx` for embedded mode (use prop when provided, fall back to URL param)
+- [ ] Add `useListInteractions(sessionId, page, perPage)` React Query hook to `sessionService.ts` calling `GET /api/v1/sessions/{id}/interactions`
+- [ ] Update `Session.tsx` to use paginated API: initially fetch only last 20 interactions, auto-load older on scroll-up
+- [ ] Replace `EmbeddedSessionView` with `Session` in `SpecTaskDetailContent.tsx`
+- [ ] Preserve scroll position when loading older interactions (save/restore `scrollHeight` delta)
+- [ ] Test with a session that has 50+ interactions: confirm no jank on open, virtual scroll works, scroll-to-bottom is reliable
