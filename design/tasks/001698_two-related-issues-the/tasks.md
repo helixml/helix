@@ -22,10 +22,10 @@
 - [ ] Frontend: Add mutation to call skip-spec endpoint
 - [ ] Test: verify task moves to implementation and can still create PR
 
-## Fix 4: Return to Backlog Button (Optional)
+## Fix 4: Reopen Completed Task Button (Optional)
 
-- [ ] Add "Return to Backlog" button in SpecTaskActionButtons.tsx for `spec_review` status
+- [ ] Add "Reopen" button in SpecTaskActionButtons.tsx for `done` status
 - [ ] Style as `variant="outlined"` (non-primary)
-- [ ] Backend: Add handler to set `status = backlog`
-- [ ] Frontend: Add mutation to call return-to-backlog endpoint
-- [ ] Test: verify task moves back to backlog and can restart planning
+- [ ] Backend: Add handler to set `status = implementation`
+- [ ] Frontend: Add mutation to call reopen endpoint
+- [ ] Test: verify task moves back to in progress and user can continue working

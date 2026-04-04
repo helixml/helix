@@ -36,13 +36,13 @@
 - [ ] Clicking moves task directly to `queued_implementation` (or `implementation`)
 - [ ] Task remains functional - user can still open PR later
 
-### Story 4: Return to Backlog Button for Reviewed Specs (Optional)
-**As a** user with finished specs in the review column,  
-**I want** a "Return to Backlog" button (non-primary styling),  
-**So that** I can move the task back if I want to re-spec for a different repo or change direction.
+### Story 4: Reopen Completed Task Button (Optional)
+**As a** user with a task that was prematurely marked as finished,  
+**I want** a "Reopen" or "Continue" button (non-primary styling),  
+**So that** I can move the task back to in progress and carry on working.
 
 **Acceptance Criteria:**
-- [ ] "Return to Backlog" button appears for tasks in `spec_review` status
+- [ ] "Reopen" button appears for tasks in `done`/completed status
 - [ ] Button uses non-primary styling (outlined or text, not contained)
-- [ ] Clicking moves task back to `backlog` status
-- [ ] User can then re-start planning with different parameters if needed
+- [ ] Clicking moves task back to `implementation` (in progress) status
+- [ ] User can continue working and eventually open a PR

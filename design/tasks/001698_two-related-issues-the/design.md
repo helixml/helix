@@ -90,22 +90,22 @@ Add a non-primary "Skip Spec" button for tasks in `spec_generation` status.
 - PUT `/api/v1/spec-tasks/{id}/skip-spec`
 - Sets `status = queued_implementation` and `just_do_it_mode = true`
 
-## Solution 4: Return to Backlog Button (Optional)
+## Solution 4: Reopen Completed Task Button (Optional)
 
-Add a non-primary "Return to Backlog" button for tasks in `spec_review` status. Use case: user has finished specs but wants to re-spec for a different repo or change direction.
+Add a non-primary "Reopen" button for tasks in `done`/completed status. Use case: task was prematurely detected as finished but user wants to continue working.
 
 **Frontend:** In SpecTaskActionButtons.tsx, add:
 ```tsx
-{task.status === "spec_review" && (
-  <Button variant="outlined" size="small" onClick={handleReturnToBacklog}>
-    Return to Backlog
+{task.status === "done" && (
+  <Button variant="outlined" size="small" onClick={handleReopen}>
+    Reopen
   </Button>
 )}
 ```
 
 **Backend:** Either reuse existing endpoint or add:
-- PUT `/api/v1/spec-tasks/{id}/return-to-backlog`
-- Sets `status = backlog`
+- PUT `/api/v1/spec-tasks/{id}/reopen`
+- Sets `status = implementation`
 
 ## Decision: Use status_updated_at vs new field
 
