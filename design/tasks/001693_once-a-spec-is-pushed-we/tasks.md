@@ -5,4 +5,4 @@
 - [x] In `SpecTaskDetailContent.tsx`, make the description/prompt `TextField` read-only when task status is not in `["backlog", "queued_spec_generation", "spec_generation"]`
 - [x] In `TaskCard.tsx` (kanban card), update the name tooltip to use `task.original_prompt || task.description || task.name`
 - [x] In `SpecTaskDetailPage.tsx`, update the breadcrumb tooltip to use `task?.original_prompt || task?.description || task?.name`
-- [~] In `SpecTaskReviewPage.tsx`, add a `tooltip` field to the task-name breadcrumb entry using `task?.original_prompt || task?.description || task?.name`
+- [x] In `SpecTaskReviewPage.tsx`, add a `tooltip` field to the task-name breadcrumb entry using `task?.original_prompt || task?.description || task?.name`
