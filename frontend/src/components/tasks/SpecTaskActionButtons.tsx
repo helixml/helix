@@ -16,10 +16,14 @@ import {
   CheckCircle as ApproveIcon,
   Close as CloseIcon,
   RocketLaunch as LaunchIcon,
+  SkipNext as SkipIcon,
+  Replay as ReopenIcon,
 } from "@mui/icons-material";
 import {
   useApproveImplementation,
   useStopAgent,
+  useSkipSpec,
+  useReopenTask,
 } from "../../services/specTaskWorkflowService";
 import { useListOAuthProviders, useListOAuthConnections } from "../../services/oauthProvidersService";
 import { findOAuthProviderForType, findOAuthConnectionForProvider, hasRequiredScopes } from "../../utils/oauthProviders";
@@ -178,6 +182,8 @@ export default function SpecTaskActionButtons({
 }: SpecTaskActionButtonsProps) {
   const approveImplementationMutation = useApproveImplementation(task.id);
   const stopAgentMutation = useStopAgent(task.id);
+  const skipSpecMutation = useSkipSpec(task.id);
+  const reopenTaskMutation = useReopenTask(task.id);
   const [isReviewingSpec, setIsReviewingSpec] = useState(false);
   const [prMenuAnchor, setPrMenuAnchor] = useState<null | HTMLElement>(null);
   const [showOAuthPrompt, setShowOAuthPrompt] = useState(false);
@@ -312,6 +318,47 @@ export default function SpecTaskActionButtons({
               sx={buttonSx}
             >
               {startLabel}
+            </Button>
+          </span>
+        </Tooltip>
+      </Box>
+    );
+  }
+
+  // Spec generation phase: Skip Spec button
+  if (task.status === "spec_generation") {
+    const isSkipping = skipSpecMutation.isPending;
+    return (
+      <Box
+        sx={{
+          display: "flex",
+          flexDirection: isInline ? "row" : "column",
+          gap: 1,
+          width: isInline ? "auto" : "100%",
+        }}
+      >
+        <Tooltip title={isArchived ? "Task is archived" : "Skip spec generation and start implementation"}>
+          <span>
+            <Button
+              variant="outlined"
+              size="small"
+              color="warning"
+              startIcon={
+                isSkipping ? (
+                  <CircularProgress size={18} color="inherit" />
+                ) : (
+                  <SkipIcon sx={{ fontSize: 18 }} />
+                )
+              }
+              onClick={(e) => {
+                e.stopPropagation();
+                skipSpecMutation.mutate();
+              }}
+              disabled={isArchived || isSkipping}
+              fullWidth={!isInline}
+              sx={buttonSx}
+            >
+              {isSkipping ? "Skipping..." : "Skip Spec"}
             </Button>
           </span>
         </Tooltip>
@@ -752,6 +799,47 @@ export default function SpecTaskActionButtons({
         </Box>
       );
     }
+  }
+
+  // Done phase: Reopen button (for prematurely finished tasks)
+  if (task.status === "done") {
+    const isReopening = reopenTaskMutation.isPending;
+    return (
+      <Box
+        sx={{
+          display: "flex",
+          flexDirection: isInline ? "row" : "column",
+          gap: 1,
+          width: isInline ? "auto" : "100%",
+        }}
+      >
+        <Tooltip title={isArchived ? "Task is archived" : "Reopen task and move back to in progress"}>
+          <span>
+            <Button
+              variant="outlined"
+              size="small"
+              color="info"
+              startIcon={
+                isReopening ? (
+                  <CircularProgress size={18} color="inherit" />
+                ) : (
+                  <ReopenIcon sx={{ fontSize: 18 }} />
+                )
+              }
+              onClick={(e) => {
+                e.stopPropagation();
+                reopenTaskMutation.mutate();
+              }}
+              disabled={isArchived || isReopening}
+              fullWidth={!isInline}
+              sx={buttonSx}
+            >
+              {isReopening ? "Reopening..." : "Reopen"}
+            </Button>
+          </span>
+        </Tooltip>
+      </Box>
+    );
   }
 
   // No action buttons for other statuses
