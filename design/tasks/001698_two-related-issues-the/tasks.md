@@ -8,7 +8,7 @@
 
 ## Fix 2: Planning Task Waiting Indicator
 
-- [ ] In TaskCard.tsx, find where `spec_generation` status is rendered
+- [~] In TaskCard.tsx, find where `spec_generation` status is rendered
 - [ ] Add waiting indicator matching PR pattern (CircularProgress + text)
 - [ ] Add 2-minute timeout check using `status_updated_at`
 - [ ] Show warning Alert after timeout: "Agent hasn't pushed specs yet..."
