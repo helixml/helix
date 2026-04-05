@@ -361,7 +361,7 @@ const EmbeddedSessionView = forwardRef<
 
   useLayoutEffect(() => {
     const container = containerRef.current;
-    if (!container || !session?.interactions) return;
+    if (!container || !session) return;
 
     const prevScrollHeight = prevScrollHeightRef.current;
     const currentScrollHeight = container.scrollHeight;
@@ -470,7 +470,6 @@ const EmbeddedSessionView = forwardRef<
   const totalInteractions = visibleInteractions.length;
 
   // Check if there are more pages to load
-  const totalCount = paginatedData?.totalCount || 0;
   const totalPages = paginatedData?.totalPages || 1;
   const hasOlderInteractions = oldestPageLoaded < totalPages - 1;
 
