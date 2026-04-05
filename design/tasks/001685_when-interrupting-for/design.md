@@ -76,9 +76,31 @@ Zed starts new turn, streams response normally
 **`zed-4/crates/external_websocket_sync/PROTOCOL_SPEC.md`**:
 - Document `cancel_current_turn` command and `turn_cancelled` event.
 
+### Helix Frontend: Cancel Button
+
+Add a "Cancel" button in `RobustPromptInput.tsx`, positioned next to the send button. It is only visible when the session has an active `waiting` interaction (i.e. Zed is working).
+
+**Behavior**:
+1. User clicks Cancel → frontend calls a new API endpoint `POST /api/v1/sessions/{id}/cancel` (or reuses the existing cancel infrastructure from `sendCancelToExternalAgent`).
+2. Button shows a spinner/loading state while awaiting completion.
+3. Once the backend confirms cancellation (interaction state changes to `interrupted` via the existing WebSocket session update stream), the button disappears.
+
+**Placement**: Right next to or replacing the send button when Zed is active. Use the `StopCircle` or `Square` icon from lucide-react (consistent with the existing `StopIcon` pattern in `Session.tsx` DesktopControls at line 74).
+
+**Visibility condition**: The `RobustPromptInput` already receives `sessionId` as a prop. Use the existing streaming context / session state to determine if there's a `waiting` interaction. The component already has a `disabled` prop — the cancel button should be independent of it.
+
 ### Interaction State
 
 Add `interrupted` as a terminal `InteractionState` in `helix-4/api/pkg/types/types.go`. The frontend should render interrupted interactions distinctly (e.g. "Interrupted" label instead of spinner or error icon). This is a minor UI change.
+
+### Helix Backend: Cancel API Endpoint
+
+Add `POST /api/v1/sessions/{id}/cancel` — a thin endpoint that:
+1. Finds the current `waiting` interaction for the session.
+2. Calls `sendCancelToExternalAgent(sessionID, requestID)`.
+3. Returns immediately (202 Accepted). The interaction state update flows to the frontend via the existing WebSocket session update stream.
+
+This endpoint is used by both the cancel button and internally by `processInterruptPrompt`.
 
 ## Key Decisions
 

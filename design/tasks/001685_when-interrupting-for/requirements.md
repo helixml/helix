@@ -10,6 +10,8 @@ When a user has a message in the Helix queue and clicks the interrupt button to 
 
 **US-2**: As a user, I want to see consistent state between Helix and Zed — Helix should not show a new interaction as started while Zed is still responding to the old one.
 
+**US-3**: As a user, I want a visible "Cancel" button near the send button so I can stop Zed's current turn without needing to send a new message.
+
 ## Acceptance Criteria
 
 - AC-1: When a message is promoted from queue to interrupt (or sent directly as interrupt), Helix sends a cancellation signal to Zed over the WebSocket before sending the new `chat_message` command.
@@ -17,3 +19,5 @@ When a user has a message in the Helix queue and clicks the interrupt button to 
 - AC-3: The interrupted interaction in Helix is marked with a terminal state (e.g. `interrupted` or `error`) rather than left in `waiting`.
 - AC-4: The new interrupt message arrives in Zed only after Zed has acknowledged (or completed) the cancellation.
 - AC-5: If Zed is idle (no active turn), receiving the cancellation is a no-op.
+- AC-6: A "Cancel" button is visible in the `RobustPromptInput` area (near the send button) whenever Zed has an active turn. Clicking it sends `cancel_current_turn` to Zed and marks the interaction as `interrupted`.
+- AC-7: The cancel button shows a loading state while awaiting `turn_cancelled` acknowledgement, and disappears once cancellation completes or the turn finishes naturally.
