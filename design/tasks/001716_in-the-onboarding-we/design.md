@@ -68,6 +68,14 @@ This is the same pattern already used for `billing_enabled` / `subscription`. St
 
 After regenerating the OpenAPI client (`./stack update_openapi`), the `TypesServerConfigForFrontend` interface will include the new `has_providers` field automatically.
 
+## Implementation Notes
+
+- Simplified approach: we check if any global provider endpoints exist, rather than checking for enabled chat models. Checking models would require calling `getProviderModels()` which can do HTTP requests to external APIs — too heavy for the config endpoint. If someone has configured a global provider, it's available.
+- The store query `Owner: "system", WithGlobal: true` is the same pattern used by the model cache refresh at `provider_handlers.go:918`.
+- The `visibleSteps` filter in `Onboarding.tsx` follows the exact same pattern as the existing `billing_enabled` / subscription step filter. Step indices auto-adjust because everything uses `getStepIndexByType()`.
+- DB schema: `provider_endpoints` table has `endpoint_type` column with values `global`, `user`, `org`.
+- `swag` CLI needs to be in PATH (`go install github.com/swaggo/swag/cmd/swag@latest`), and `GOPATH/bin` must be on PATH for `./stack update_openapi`.
+
 ## What NOT to change
 
 - The existing auto-complete logic (lines 400-412) stays as-is. It handles org-level provider detection as a separate concern.
