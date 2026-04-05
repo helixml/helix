@@ -1,7 +1,7 @@
 # Implementation Tasks
 
 ## Bug 1: Link colors
-- [ ] Add `"& a"` styles (color, hover, visited) to the `"& .markdown-body"` sx block in `frontend/src/components/spec-tasks/DesignReviewContent.tsx` (~line 1362)
+- [~] Add `"& a"` styles (color, hover, visited) to the `"& .markdown-body"` sx block in `frontend/src/components/spec-tasks/DesignReviewContent.tsx` (~line 1362)
 - [ ] Add `'& a'` styles to the `Box` sx block in `frontend/src/pages/DesignDocPage.tsx` (~line 222)
 
 ## Bug 2: Stale highlight
