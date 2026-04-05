@@ -12455,7 +12455,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "List interactions for a session",
+                "description": "List interactions for a session with pagination",
                 "produces": [
                     "application/json"
                 ],
@@ -12473,14 +12473,20 @@ const docTemplate = `{
                     },
                     {
                         "type": "integer",
-                        "description": "Page number",
+                        "description": "Page number (0-indexed)",
                         "name": "page",
                         "in": "query"
                     },
                     {
                         "type": "integer",
-                        "description": "Page size",
-                        "name": "page_size",
+                        "description": "Page size (default 100)",
+                        "name": "per_page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Sort order: 'asc' (oldest first, default) or 'desc' (newest first)",
+                        "name": "order",
                         "in": "query"
                     }
                 ],
@@ -12488,10 +12494,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "type": "array",
-                            "items": {
-                                "$ref": "#/definitions/types.Interaction"
-                            }
+                            "$ref": "#/definitions/types.PaginatedInteractions"
                         }
                     }
                 }
