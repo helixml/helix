@@ -1,23 +1,18 @@
-# Design: Fix Link Colors in Spec Review Dark Mode
+# Design: Fix Link Colors & Stale Highlight in Spec Review
 
-## Problem
+## Bug 1: Dark link colors on dark background
 
-Links rendered by `ReactMarkdown` in the spec review section use browser-default colors (dark blue `#0000FF` unvisited, dark purple `#800080` visited). These are nearly invisible on the dark grey backgrounds (`#121214` base, `background.paper` for the markdown container).
+### Problem
 
-## Root Cause
+Links rendered by `ReactMarkdown` use browser-default colors (dark blue `#0000FF` unvisited, dark purple `#800080` visited). Nearly invisible on dark grey backgrounds.
 
-Both markdown rendering components define `sx` styles for headings, paragraphs, lists, code, blockquotes, etc. — but completely omit `& a` anchor tag styles. No global anchor override exists in the MUI theme either.
+### Root Cause
 
-## Affected Files
+Both `DesignReviewContent.tsx` (~line 1287) and `DesignDocPage.tsx` (~line 174) define `sx` styles for headings, paragraphs, lists, code, blockquotes — but completely omit `& a` anchor tag styles. No global anchor override exists in the MUI theme either.
 
-1. **`frontend/src/components/spec-tasks/DesignReviewContent.tsx`** (~line 1287) — the `"& .markdown-body"` sx block
-2. **`frontend/src/pages/DesignDocPage.tsx`** (~line 174) — the `Box` sx block
+### Fix
 
-## Fix
-
-Add `"& a"` styles to both markdown containers' `sx` props. Use the theme's teal accent (`#00D5FF` / `primary.main` maps to `#8989a5`, so use a direct teal value or `secondary` depending on theme — the teal `#00D5FF` is already established as an accent color in the theme via `tealRoot`).
-
-Example addition to the existing sx objects:
+Add `"& a"` styles to both markdown containers:
 
 ```tsx
 "& a": {
@@ -32,14 +27,56 @@ Example addition to the existing sx objects:
 },
 ```
 
-Alternatively, use MUI theme tokens: `color: "primary.main"` — but `primary.main` is `#8989a5` (muted purple), which may still be low-contrast. The teal `#00D5FF` is a better choice for readability.
+Uses teal `#00D5FF` (the theme's `tealRoot` accent) — high contrast on dark backgrounds, consistent with existing accent usage (`rgba(0,229,255,0.13)` hover highlights in menus).
 
-## Decision: Use teal `#00D5FF` directly
+---
 
-- Matches the existing accent color used elsewhere in the UI (hover highlights use `rgba(0,229,255,0.13)`)
-- High contrast against dark backgrounds (WCAG AAA on `#121214`)
-- `primary.main` (`#8989a5`) is too muted for link text on dark backgrounds
+## Bug 2: Stale text highlight persists after re-selection
 
-## Light Mode Consideration
+### Problem
 
-The fix uses a hardcoded dark-mode color. If light mode is ever used for these pages, consider wrapping in a theme-aware conditional. For now, the app defaults to dark mode and the spec review is only used in dark mode.
+When you highlight text in the spec reviewer (which opens the comment form), then highlight different text, the first highlight remains visually — you end up with two highlighted regions but only one is the real selection.
+
+### Root Cause
+
+The component uses the CSS Highlight API (`CSS.highlights.set("comment-highlight", ...)`) to preserve the visual selection when the comment form's TextField steals focus (line 210-217).
+
+The clearing logic in `onMouseDown` (line 1257) is:
+```tsx
+onMouseDown={() => { if (!showCommentForm) removeHighlight(); }}
+```
+
+This guard means: when the comment form IS open, `mouseDown` does NOT clear the old highlight. The intent was to keep the highlight visible while the user types a comment. But when the user selects new text while the form is open, `handleTextSelection` (on `mouseUp`) creates a new selection and the `useEffect` on `showCommentForm` applies a new highlight — without ever clearing the old one. `CSS.highlights.delete("comment-highlight")` in `applyHighlight` does run (line 803), but since the Highlight API uses a single named highlight, the old range should be replaced. However, the issue is that `applyHighlight` is called via the `useEffect` which only fires when `showCommentForm` *changes*. Since it's already `true`, the effect doesn't re-run for subsequent selections.
+
+So the flow is:
+1. Select "dog" → `mouseUp` → `handleTextSelection` → `setShowCommentForm(true)` → effect fires → `applyHighlight(range)` ✓
+2. Select "street" → `mouseDown` skipped (form open) → `mouseUp` → `handleTextSelection` → `setShowCommentForm(true)` (already true, no state change) → effect does NOT re-fire → old "dog" highlight stays, new native selection shows "street"
+
+### Fix
+
+Call `removeHighlight()` at the start of `handleTextSelection`, before processing the new selection. This clears any existing CSS Highlight API highlight before the new one gets applied. The `applyHighlight` in the `useEffect` won't re-fire (since `showCommentForm` didn't change), so we also need to call `applyHighlight` directly from `handleTextSelection` when the form is already open.
+
+In `handleTextSelection` (~line 822), add at the top of `processSelection`:
+```tsx
+const processSelection = () => {
+  removeHighlight(); // Clear stale highlight before processing new selection
+  const selection = window.getSelection();
+  // ... existing code ...
+  if (containerRect) {
+    // ... existing position code ...
+    savedRangeRef.current = range.cloneRange();
+    setSelectedText(text);
+    setCommentFormPosition({ x: 0, y: yPosition });
+    setShowCommentForm(true);
+    // Apply highlight immediately (useEffect won't fire if form was already open)
+    applyHighlight(range.cloneRange());
+  }
+};
+```
+
+Also remove the `if (!showCommentForm)` guard from the `onMouseDown` handler so that clicking (without selecting) always clears stale highlights:
+```tsx
+onMouseDown={() => { removeHighlight(); }}
+```
+
+The `useEffect` on `showCommentForm` (line 212-217) still handles the initial case (form going from closed → open), so it remains unchanged.
