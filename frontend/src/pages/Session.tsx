@@ -1380,7 +1380,9 @@ const Session = forwardRef<SessionHandle, SessionProps>(({ previewMode = false, 
     <Box
       sx={{
         width: '100%',
-        height: embedded ? '100%' : (previewMode ? '100%' : '100vh'),
+        height: embedded ? undefined : (previewMode ? '100%' : '100vh'),
+        flex: embedded ? 1 : undefined,
+        minHeight: embedded ? 0 : undefined,
         display: 'flex',
         flexDirection: 'row',
       }}
@@ -1389,7 +1391,7 @@ const Session = forwardRef<SessionHandle, SessionProps>(({ previewMode = false, 
       <Box
         sx={{
           flexGrow: 1,
-          height: embedded ? '100%' : (previewMode ? '100%' : '100vh'),
+          height: embedded ? undefined : (previewMode ? '100%' : '100vh'),
           minHeight: 0,
           display: 'flex',
           flexDirection: 'column',
