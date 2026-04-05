@@ -21,6 +21,15 @@
 
 - [ ] Add `POST /api/v1/sessions/{id}/cancel` endpoint that finds the current `waiting` interaction, calls `sendCancelToExternalAgent`, and returns 202
 
+## Zed E2E Tests (`zed-4/crates/external_websocket_sync/e2e-test`)
+
+- [ ] Add new E2E phase (Phase 13): Helix-initiated cancel via `cancel_current_turn` — send a `chat_message`, then mid-stream send `cancel_current_turn` with the same `request_id`, assert Zed replies with `turn_cancelled` (status `cancelled`) and stops streaming
+- [ ] Add new E2E phase (Phase 14): Cancel no-op — send `cancel_current_turn` with a `request_id` that has already completed (or never existed), assert Zed replies with `turn_cancelled` (status `noop`)
+- [ ] Update `roundState` in `main.go` with phase 13/14 tracking fields
+- [ ] Update `validateRound()` to check phase 13/14 assertions (turn_cancelled received, streaming stopped, interaction marked interrupted in store)
+- [ ] Add `turn_cancelled` event handling to `syncEventCallback()` in the test driver
+- [ ] Update Rust `protocol_test.rs` unit test to cover `cancel_current_turn` command handling and `turn_cancelled` event emission
+
 ## Helix Frontend (`helix-4`)
 
 - [ ] Add a "Cancel" button in `RobustPromptInput.tsx` next to the send button, visible only when the session has a `waiting` interaction

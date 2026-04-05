@@ -102,6 +102,24 @@ Add `POST /api/v1/sessions/{id}/cancel` — a thin endpoint that:
 
 This endpoint is used by both the cancel button and internally by `processInterruptPrompt`.
 
+### Zed E2E Tests: New Phases
+
+The existing E2E test suite (`e2e-test/helix-ws-test-server/main.go`) runs 12 sequential phases per agent round. Phases 8–9 already test Zed-side mid-stream interrupts and rapid cancels, but those are driven by Zed internally — not by a Helix command. Two new phases are needed:
+
+**Phase 13 — Helix-initiated cancel (`cancel_current_turn`)**:
+1. Test driver sends `chat_message` to start a turn.
+2. Waits for `message_added` (streaming has started).
+3. Sends `cancel_current_turn` with the same `request_id`.
+4. Asserts: Zed sends `turn_cancelled` with `status: cancelled`. No further `message_added` events arrive for that `request_id`. The interaction is marked `interrupted` in the store.
+
+**Phase 14 — Cancel no-op**:
+1. Test driver sends `cancel_current_turn` with a `request_id` that has already completed (reuse a `request_id` from an earlier phase) or a fabricated one.
+2. Asserts: Zed sends `turn_cancelled` with `status: noop`. No side effects.
+
+These follow the existing test patterns: `syncEventCallback()` routes the new `turn_cancelled` event, `advanceAfterCompletion()` advances on receipt, and `validateRound()` checks the assertions.
+
+Additionally, `protocol_test.rs` (Rust unit tests) should add a test for `cancel_current_turn` command handling — send the command to the mock external system and assert `turn_cancelled` is emitted back.
+
 ## Key Decisions
 
 - **Synchronous cancel with timeout**: Helix waits up to 3s for `turn_cancelled` before proceeding. This prevents a race where the new `chat_message` arrives at Zed before the old turn has actually stopped.
