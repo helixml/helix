@@ -57,6 +57,7 @@ import RemoteCursorsOverlay from "./RemoteCursorsOverlay";
 import AgentCursorOverlay from "./AgentCursorOverlay";
 import CursorRenderer from "./CursorRenderer";
 import InsecureContextWarning from "./InsecureContextWarning";
+import { isMobileOrTablet } from "../../utils/isMobileOrTablet";
 
 /**
  * Clipboard helpers: WKWebView (macOS Wails app) blocks navigator.clipboard
@@ -5090,7 +5091,13 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           // In screenshot mode: transparent but handles input (screenshot overlays on top)
           display: "block",
           // Transparent in screenshot mode so overlays are visible, but still captures input
-          opacity: qualityMode === "video" ? 1 : 0,
+          // On mobile, use visibility instead of opacity:0 to avoid allocating
+          // a GPU compositing layer for a fully transparent canvas
+          ...(qualityMode === "video"
+            ? { opacity: 1, visibility: "visible" as const }
+            : isMobileOrTablet()
+              ? { visibility: "hidden" as const }
+              : { opacity: 0 }),
           zIndex: 20,
           // Prevent browser from handling touch gestures (no scroll, pan, zoom)
           // This ensures all touch events go to our handlers
@@ -5162,7 +5169,8 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
               left: 0,
               top: 0,
               transform: `translate(${cursorPosition.x}px, ${cursorPosition.y}px)`,
-              willChange: "transform",
+              // willChange creates a GPU compositing layer — skip on mobile to reduce memory
+              ...(isMobileOrTablet() ? {} : { willChange: "transform" as const }),
               pointerEvents: "none",
               zIndex: 1000,
             }}
