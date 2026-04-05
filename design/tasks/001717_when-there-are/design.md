@@ -119,6 +119,30 @@ Both the ErrorBoundary and global handlers call `window.emitError(error)` before
 
 Investigated the desktop streaming code (`DesktopStreamViewer.tsx`, `websocket-stream.ts`) for GPU/memory issues that could trigger the WebKit Jetsam kill on iPad, especially at 4K.
 
+### Baseline Memory: 234MB Before Streaming Even Starts
+
+Heap snapshot taken at the idle org picker page (no streaming session active, Chrome DevTools `performance.memory`):
+
+| Category | Size |
+|----------|------|
+| External strings (JS source text retained by V8) | 66.8 MB |
+| Compiled JS (bytecode) | 58.5 MB |
+| Arrays | 27.1 MB |
+| Other (hidden, shapes, maps) | 26.8 MB |
+| JS objects | 19.1 MB |
+| Closures | 14.2 MB |
+| Source maps (inline base64) | 12.3 MB |
+| JS strings (other) | 8.8 MB |
+| **Total** | **233.7 MB** |
+
+**Key concern:** 125MB is JS code (source text + bytecode) loaded eagerly. The entire app loads upfront — every page's code is in memory even if you're just looking at the org picker. The largest source maps retained in memory: `api.ts` (657KB), `DesktopStreamViewer.tsx` (434KB), `websocket-stream.ts` (233KB), plus 6.4MB of other component source maps.
+
+**iOS Safari memory limits** are ~1-1.5GB per tab (varies by device, much lower on older iPads). Starting at 234MB baseline, then adding a streaming session (canvas GPU buffers + VideoDecoder + WebSocket buffers) means you're eating a significant chunk of the budget before any actual work happens.
+
+**Note:** This measurement is from Chrome's V8 heap — Safari's JavaScriptCore will have different numbers, but the relative proportions (code dominating) should be similar. GPU memory (canvas backing stores, composited layers) is *additional* and not reflected in the JS heap at all.
+
+**Follow-up opportunity (not in this task):** Route-based code splitting would reduce baseline memory by only loading code for the current page. The streaming code (DesktopStreamViewer, websocket-stream) is ~700KB of source maps alone and shouldn't be in memory until the user opens a streaming session.
+
 ### Canvas Memory at High Resolutions
 
 The streaming canvas is dynamically sized to match the remote desktop resolution:
@@ -164,6 +188,25 @@ Each of these creates a separate GPU-composited layer. On iPad at 4K, that's the
 5. **Conditionally render overlays** — Remote cursor overlays, agent cursor overlays, stats panels, and connection overlays should use conditional rendering (`{condition && <Component />}`) rather than rendering with `display: none`. Unrendered components use zero GPU memory.
 
 6. **Simplify paused desktop filter** — `ExternalAgentDesktopViewer.tsx:373` applies `grayscale(0.5) brightness(0.7) blur(1px)` — three GPU filters stacked. On mobile, use a simple dark overlay or CSS `opacity` alone (no blur/grayscale).
+
+### Runtime Memory Monitoring
+
+**Can we monitor our own memory and take evasive action?**
+
+No direct API exists on Safari/iOS:
+- `performance.memory` — Chrome-only, deprecated, never supported on Safari
+- `performance.measureUserAgentSpecificMemory()` — Chrome 89+ only, not supported on Safari (tested through v26.5), also requires cross-origin isolation headers which would break integrations
+
+**Proxy signals we can monitor instead** (we already track most of these in streaming stats):
+- **VideoDecoder `decodeQueueSize`** — if growing, frames are backing up in memory
+- **Frames dropped vs decoded ratio** — rising drop rate = device struggling
+- **FPS drops** — sustained FPS well below target = resource pressure
+- **Canvas pixel count** — we know exactly how much GPU memory the canvas uses (width × height × 4 bytes)
+
+**Evasive actions when proxy signals indicate pressure (follow-up task):**
+- Automatically downscale canvas resolution (e.g. drop from screen-native to 1080p)
+- Flush VideoDecoder queue and request a fresh keyframe
+- Log a warning to sessionStorage (so post-crash overlay can show "memory pressure detected before crash")
 
 ## Codebase Patterns Found
 
