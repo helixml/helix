@@ -2,11 +2,11 @@
 
 ## Bug 1 — Deleted prompts reappear after refresh
 
-- [ ] Add `deleted?: boolean` field to the `PromptHistoryEntry` type in `usePromptHistory.ts`
-- [ ] Update `removeFromQueue` to set `deleted: true` on the entry (instead of filtering it out), then save to localStorage; filter deleted entries from `pendingPrompts` / `failedPrompts` derived values
-- [ ] Update `mergeWithBackend` to skip re-importing entries whose ID exists locally with `deleted: true`
-- [ ] Update `fetchBackendHistory` (initial sync on load) to likewise skip locally-tombstoned IDs
-- [ ] Update `handleRemoveFromQueue` in `RobustPromptInput.tsx` to mark as deleted first (instant UI), then fire backend DELETE (best effort)
+- [~] Add `deleted?: boolean` field to the `PromptHistoryEntry` type in `usePromptHistory.ts`
+- [~] Update `removeFromQueue` to set `deleted: true` on the entry (instead of filtering it out), then save to localStorage; filter deleted entries from `pendingPrompts` / `failedPrompts` derived values
+- [~] Update `mergeWithBackend` to skip re-importing entries whose ID exists locally with `deleted: true`
+- [~] Update `fetchBackendHistory` (initial sync on load) to likewise skip locally-tombstoned IDs
+- [~] Update `handleRemoveFromQueue` in `RobustPromptInput.tsx` to mark as deleted first (instant UI), then fire backend DELETE (best effort)
 - [ ] Add tombstone cleanup: after backend DELETE succeeds, fully remove the entry from localStorage (or on next sync that doesn't return the deleted ID)
 - [ ] Verify: delete a queued prompt, refresh immediately, confirm it does not reappear
 
