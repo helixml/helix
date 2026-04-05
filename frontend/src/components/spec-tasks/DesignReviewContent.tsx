@@ -848,10 +848,16 @@ export default function DesignReviewContent({
           const scrollTop = documentRef.current?.scrollTop || 0;
           const yPosition = rect.top - containerRect.top + scrollTop;
 
+          // Clear stale highlight before applying new selection
+          removeHighlight();
+
           savedRangeRef.current = range.cloneRange();
           setSelectedText(text);
           setCommentFormPosition({ x: 0, y: yPosition });
           setShowCommentForm(true);
+          // Apply highlight immediately — the useEffect won't re-fire
+          // if showCommentForm was already true
+          applyHighlight(range.cloneRange());
         }
       }
     };
@@ -1354,6 +1360,16 @@ export default function DesignReviewContent({
                     marginBottom: "0.75rem",
                     borderRadius: "4px",
                     overflow: "auto",
+                  },
+                  "& a": {
+                    color: "#00D5FF",
+                    textDecoration: "none",
+                    "&:hover": {
+                      textDecoration: "underline",
+                    },
+                    "&:visited": {
+                      color: "#00D5FF",
+                    },
                   },
                   "&::selection": {
                     bgcolor: "#b3d7ff",
