@@ -13,7 +13,7 @@
 
 ## Streaming GPU/Memory Optimizations (Path 2: reduce Jetsam kills)
 
-- [ ] Cap canvas resolution to 1080p on mobile/tablet — either send resolution cap in StreamInit or downscale canvas and let `drawImage` handle it. 4K canvas = ~33MB GPU vs 1080p = ~8MB
+- [ ] Cap canvas rendering resolution to 1080p on mobile/tablet — in `renderVideoFrame()` (`websocket-stream.ts:954-956`), cap canvas dimensions instead of matching decoded frame size. Use `drawImage(frame, 0, 0, cappedWidth, cappedHeight)` to downscale. Server stream is unchanged. 4K canvas = ~33MB GPU vs 1080p = ~8MB
 - [ ] Change `opacity: 0` to `display: none` or `visibility: hidden` on canvas in screenshot mode (`DesktopStreamViewer.tsx:5093`) — `opacity: 0` still allocates GPU memory for compositing
 - [ ] Remove CSS `filter: drop-shadow(...)` from `AgentCursorOverlay.tsx:60` on mobile — use simpler solid-color styling instead
 - [ ] Remove CSS `filter: glowFilter` from `CursorRenderer.tsx:394,430` on mobile — each filter creates a GPU-composited layer

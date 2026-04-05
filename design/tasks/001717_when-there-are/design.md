@@ -128,7 +128,7 @@ The streaming canvas is dynamically sized to match the remote desktop resolution
 
 The canvas uses `desynchronized: true` (low-latency mode), which creates its own composited layer. This is correct for performance, but it's a large GPU allocation that stacks with everything else on the page.
 
-**The canvas resolution is set by the server** (`websocket-stream.ts:954-956` — canvas resizes to match decoded frame dimensions). On iPad, a 4K stream means a 4K canvas even though the iPad display can't show all those pixels when the stream is fitted to screen. This is the single biggest memory optimization opportunity.
+**The canvas resolution is set to match decoded frames** (`websocket-stream.ts:954-956` — canvas resizes to match `frame.displayWidth`/`frame.displayHeight`). On iPad, a 4K stream means a 4K canvas even though the iPad display can't show all those pixels when the stream is fitted to screen. This is the single biggest memory optimization opportunity. Note: we are NOT changing the server's stream resolution — just capping the canvas rendering size on the client side and letting `drawImage` downscale.
 
 ### GPU-Heavy Overlays Stacking on the Canvas
 
@@ -151,7 +151,7 @@ Each of these creates a separate GPU-composited layer. On iPad at 4K, that's the
 
 **High impact (do in this task):**
 
-1. **Cap canvas resolution on mobile/tablet** — When `isMobileOrTablet()`, request a max resolution of 1080p from the server regardless of the configured stream size. iPad can't display 4K at native resolution when the stream is fitted to screen anyway. This alone saves ~25MB of GPU memory. Implementation: send a resolution cap in the StreamInit message, or resize the canvas to a capped size and let `drawImage` downscale.
+1. **Cap canvas rendering resolution on mobile/tablet** — When `isMobileOrTablet()`, cap the canvas size to 1080p in `renderVideoFrame()` instead of matching the decoded frame dimensions. The server still sends the same stream — we just render into a smaller canvas, and `drawImage(frame, 0, 0, cappedWidth, cappedHeight)` downscales the frame. iPad can't display 4K at native resolution when the stream is fitted to screen anyway, so there's no visual quality loss. This alone saves ~25MB of GPU memory (33MB → 8MB).
 
 2. **Use `display: none` instead of `opacity: 0`** — `DesktopStreamViewer.tsx:5093` sets `opacity: 0` on the canvas in screenshot mode. An element with `opacity: 0` is still composited (GPU memory allocated). Switch to `visibility: hidden` or `display: none` when not in video mode. Same for any other hidden-but-composited elements.
 
