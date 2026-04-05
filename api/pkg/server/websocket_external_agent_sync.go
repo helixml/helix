@@ -621,6 +621,8 @@ func (apiServer *HelixAPIServer) processExternalAgentSyncMessage(sessionID strin
 		err = apiServer.handleChatResponseError(sessionID, syncMsg)
 	case "agent_ready":
 		err = apiServer.handleAgentReady(sessionID, syncMsg)
+	case "turn_cancelled":
+		err = apiServer.handleTurnCancelled(sessionID, syncMsg)
 	case "ping":
 		// no-op
 	default:
@@ -1623,6 +1625,100 @@ func (apiServer *HelixAPIServer) sendCommandToExternalAgent(sessionID string, co
 		}
 	}()
 	return sendErr
+}
+
+// sendCancelToExternalAgent sends a cancel_current_turn command to Zed and waits
+// for a turn_cancelled response (up to timeout). Returns the status ("cancelled" or "noop")
+// or an error if the timeout expires or the command can't be sent.
+func (apiServer *HelixAPIServer) sendCancelToExternalAgent(sessionID, requestID string, timeout time.Duration) (string, error) {
+	// Create a channel to receive the turn_cancelled response
+	ch := make(chan string, 1)
+	apiServer.contextMappingsMutex.Lock()
+	apiServer.pendingCancelChannels[requestID] = ch
+	apiServer.contextMappingsMutex.Unlock()
+
+	// Clean up on exit
+	defer func() {
+		apiServer.contextMappingsMutex.Lock()
+		delete(apiServer.pendingCancelChannels, requestID)
+		apiServer.contextMappingsMutex.Unlock()
+	}()
+
+	// Send cancel command
+	command := types.ExternalAgentCommand{
+		Type: "cancel_current_turn",
+		Data: map[string]interface{}{
+			"request_id": requestID,
+		},
+	}
+	if err := apiServer.sendCommandToExternalAgent(sessionID, command); err != nil {
+		return "", fmt.Errorf("failed to send cancel command: %w", err)
+	}
+
+	// Wait for response or timeout
+	select {
+	case status := <-ch:
+		return status, nil
+	case <-time.After(timeout):
+		log.Warn().
+			Str("session_id", sessionID).
+			Str("request_id", requestID).
+			Msg("Timeout waiting for turn_cancelled from Zed")
+		return "", fmt.Errorf("timeout waiting for turn_cancelled")
+	}
+}
+
+// handleTurnCancelled processes the turn_cancelled event from Zed
+func (apiServer *HelixAPIServer) handleTurnCancelled(sessionID string, syncMsg *types.SyncMessage) error {
+	requestID, _ := syncMsg.Data["request_id"].(string)
+	status, _ := syncMsg.Data["status"].(string)
+
+	log.Info().
+		Str("session_id", sessionID).
+		Str("request_id", requestID).
+		Str("status", status).
+		Msg("Received turn_cancelled from Zed")
+
+	// Notify any pending cancel channel
+	apiServer.contextMappingsMutex.RLock()
+	ch, exists := apiServer.pendingCancelChannels[requestID]
+	apiServer.contextMappingsMutex.RUnlock()
+
+	if exists {
+		select {
+		case ch <- status:
+		default:
+			// Channel full or already received — ignore
+		}
+	}
+
+	// If the turn was actually cancelled, mark the interaction as interrupted
+	if status == "cancelled" {
+		apiServer.contextMappingsMutex.RLock()
+		interactionID, hasInteraction := apiServer.requestToInteractionMapping[requestID]
+		apiServer.contextMappingsMutex.RUnlock()
+
+		if hasInteraction {
+			interaction, err := apiServer.Controller.Options.Store.GetInteraction(context.Background(), interactionID)
+			if err == nil && interaction.State == types.InteractionStateWaiting {
+				interaction.State = types.InteractionStateInterrupted
+				interaction.Completed = time.Now()
+				interaction.Updated = time.Now()
+				if _, err := apiServer.Controller.Options.Store.UpdateInteraction(context.Background(), interaction); err != nil {
+					log.Error().Err(err).Str("interaction_id", interactionID).Msg("Failed to mark interaction as interrupted")
+				} else {
+					log.Info().Str("interaction_id", interactionID).Msg("Marked interaction as interrupted")
+					// Publish update to frontend
+					session, sessionErr := apiServer.Controller.Options.Store.GetSession(context.Background(), sessionID)
+					if sessionErr == nil {
+						apiServer.publishInteractionUpdateToFrontend(sessionID, session.Owner, interaction)
+					}
+				}
+			}
+		}
+	}
+
+	return nil
 }
 
 // registerConnection registers a new external agent connection

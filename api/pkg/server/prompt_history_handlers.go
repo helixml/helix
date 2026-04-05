@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/system"
@@ -232,6 +233,10 @@ func (apiServer *HelixAPIServer) processInterruptPrompt(ctx context.Context, ses
 	// No additional ClaimPromptForSending call needed — that would fail because
 	// the status is already 'sending', causing every interrupt to be silently dropped.
 
+	// Cancel the current turn in Zed before sending the interrupt message.
+	// Find the current waiting interaction's request_id and send cancel_current_turn.
+	apiServer.cancelCurrentTurnIfActive(ctx, sessionID)
+
 	// Send the prompt to the session (creates interaction and sends to agent)
 	if err := apiServer.sendQueuedPromptToSession(ctx, sessionID, nextPrompt); err != nil {
 		// Interaction creation failed - revert to 'failed' so it can be retried
@@ -250,6 +255,60 @@ func (apiServer *HelixAPIServer) processInterruptPrompt(ctx context.Context, ses
 		Str("session_id", sessionID).
 		Str("prompt_id", nextPrompt.ID).
 		Msg("✅ [INTERRUPT] Successfully sent interrupt prompt to session")
+}
+
+// cancelCurrentTurnIfActive finds the current waiting interaction for a session
+// and sends cancel_current_turn to Zed. It waits up to 3 seconds for acknowledgement.
+func (apiServer *HelixAPIServer) cancelCurrentTurnIfActive(ctx context.Context, sessionID string) {
+	// Find the current waiting interaction
+	session, err := apiServer.Store.GetSession(ctx, sessionID)
+	if err != nil {
+		log.Warn().Err(err).Str("session_id", sessionID).Msg("[INTERRUPT] Failed to get session for cancel")
+		return
+	}
+
+	// Find the request_id for the waiting interaction
+	var activeRequestID string
+	apiServer.contextMappingsMutex.RLock()
+	for reqID, sessID := range apiServer.requestToSessionMapping {
+		if sessID == sessionID {
+			// Check if this request_id maps to a waiting interaction
+			if interactionID, ok := apiServer.requestToInteractionMapping[reqID]; ok {
+				interaction, err := apiServer.Store.GetInteraction(ctx, interactionID)
+				if err == nil && interaction.State == types.InteractionStateWaiting {
+					activeRequestID = reqID
+					break
+				}
+			}
+		}
+	}
+	apiServer.contextMappingsMutex.RUnlock()
+
+	if activeRequestID == "" {
+		log.Debug().Str("session_id", sessionID).Msg("[INTERRUPT] No active turn to cancel")
+		return
+	}
+
+	log.Info().
+		Str("session_id", sessionID).
+		Str("request_id", activeRequestID).
+		Msg("[INTERRUPT] Cancelling active turn before sending interrupt")
+
+	status, err := apiServer.sendCancelToExternalAgent(sessionID, activeRequestID, 3*time.Second)
+	if err != nil {
+		log.Warn().Err(err).
+			Str("session_id", sessionID).
+			Str("request_id", activeRequestID).
+			Msg("[INTERRUPT] Cancel timed out or failed — proceeding with interrupt anyway")
+	} else {
+		log.Info().
+			Str("session_id", sessionID).
+			Str("request_id", activeRequestID).
+			Str("status", status).
+			Msg("[INTERRUPT] Turn cancelled successfully")
+	}
+
+	_ = session // used above for getting the session
 }
 
 // @Summary List prompt history

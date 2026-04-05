@@ -2083,6 +2083,30 @@ func (s *HelixAPIServer) sendOpenThreadCommand(sessionID string, acpThreadID str
 // @Failure 500 {object} system.HTTPError
 // @Security BearerAuth
 // @Router /api/v1/sessions/{id}/stop-external-agent [delete]
+// cancelSessionTurn cancels the active turn for a session by sending cancel_current_turn to Zed.
+// Returns 202 Accepted immediately; the interaction state update flows to the frontend via WebSocket.
+func (s *HelixAPIServer) cancelSessionTurn(_ http.ResponseWriter, r *http.Request) (map[string]string, *system.HTTPError) {
+	ctx := r.Context()
+	user := getRequestUser(r)
+	vars := mux.Vars(r)
+	sessionID := vars["id"]
+
+	session, err := s.Store.GetSession(ctx, sessionID)
+	if err != nil {
+		return nil, system.NewHTTPError404("session not found")
+	}
+
+	err = s.authorizeUserToSession(ctx, user, session, types.ActionUpdate)
+	if err != nil {
+		return nil, system.NewHTTPError403(err.Error())
+	}
+
+	// Fire cancel in background — don't block the HTTP response
+	go s.cancelCurrentTurnIfActive(context.Background(), sessionID)
+
+	return map[string]string{"status": "accepted"}, nil
+}
+
 func (s *HelixAPIServer) stopExternalAgentSession(_ http.ResponseWriter, r *http.Request) (map[string]string, *system.HTTPError) {
 	ctx := r.Context()
 	user := getRequestUser(r)
