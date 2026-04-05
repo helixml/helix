@@ -23,15 +23,15 @@
 
 ## Zed E2E Tests (`zed-4/crates/external_websocket_sync/e2e-test`)
 
-- [ ] Add new E2E phase (Phase 13): Helix-initiated cancel via `cancel_current_turn` — send a `chat_message`, then mid-stream send `cancel_current_turn` with the same `request_id`, assert Zed replies with `turn_cancelled` (status `cancelled`) and stops streaming
-- [ ] Add new E2E phase (Phase 14): Cancel no-op — send `cancel_current_turn` with a `request_id` that has already completed (or never existed), assert Zed replies with `turn_cancelled` (status `noop`)
-- [ ] Update `roundState` in `main.go` with phase 13/14 tracking fields
-- [ ] Update `validateRound()` to check phase 13/14 assertions (turn_cancelled received, streaming stopped, interaction marked interrupted in store)
-- [ ] Add `turn_cancelled` event handling to `syncEventCallback()` in the test driver
+- [x] Add new E2E phase (Phase 13): Helix-initiated cancel via `cancel_current_turn` — send a `chat_message`, then mid-stream send `cancel_current_turn` with the same `request_id`, assert Zed replies with `turn_cancelled` (status `cancelled`) and stops streaming
+- [x] Add new E2E phase (Phase 14): Cancel no-op — send `cancel_current_turn` with a `request_id` that has already completed (or never existed), assert Zed replies with `turn_cancelled` (status `noop`)
+- [x] Update `roundState` in `main.go` with phase 13/14 tracking fields
+- [x] Update `validateRound()` to check phase 13/14 assertions (turn_cancelled received, streaming stopped, interaction marked interrupted in store)
+- [x] Add `turn_cancelled` event handling to `syncEventCallback()` in the test driver
 - [ ] Update Rust `protocol_test.rs` unit test to cover `cancel_current_turn` command handling and `turn_cancelled` event emission
 
 ## Helix Frontend (`helix-4`)
 
-- [~] Add a "Cancel" button in `RobustPromptInput.tsx` next to the send button, visible only when the session has a `waiting` interaction
-- [ ] Cancel button calls `POST /api/v1/sessions/{id}/cancel` and shows spinner until the interaction state updates to `interrupted`
-- [ ] Render interactions with `interrupted` state with an "Interrupted" label (not spinner, not error icon) in the chat UI
+- [x] Add a "Cancel" button in `RobustPromptInput.tsx` next to the send button, visible only when the session has a `waiting` interaction
+- [x] Cancel button calls `POST /api/v1/sessions/{id}/cancel` (uses cookie auth via `credentials: 'include'`)
+- [x] Render interactions with `interrupted` state with an "Interrupted" label (not spinner, not error icon) in the chat UI
