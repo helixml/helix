@@ -7,6 +7,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/helixml/helix/api/pkg/util/sanitize"
 	"github.com/rs/zerolog/log"
 	"gorm.io/gorm/clause"
 )
@@ -136,6 +137,13 @@ func (s *PostgresStore) UpdateInteraction(ctx context.Context, interaction *type
 	if interaction.ID == "" {
 		return nil, errors.New("id is required")
 	}
+
+	// Sanitize string fields that may contain LLM or agent output with characters
+	// that PostgreSQL rejects in text/jsonb columns (null bytes, surrogates, etc.)
+	interaction.PromptMessage = sanitize.ForPostgres(interaction.PromptMessage)
+	interaction.ResponseMessage = sanitize.ForPostgres(interaction.ResponseMessage)
+	interaction.Error = sanitize.ForPostgres(interaction.Error)
+	interaction.ResponseEntries = sanitize.JSONForPostgres(interaction.ResponseEntries)
 
 	db := s.gdb.WithContext(ctx)
 

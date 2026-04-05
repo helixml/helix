@@ -3,6 +3,7 @@ package wsprotocol
 import (
 	"testing"
 
+	"github.com/helixml/helix/api/pkg/util/sanitize"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -346,32 +347,32 @@ func TestSanitizeNullBytes(t *testing.T) {
 
 func TestSanitizeForPostgres(t *testing.T) {
 	// Null bytes
-	assert.Equal(t, "hello", sanitizeForPostgres("hello"))
-	assert.Equal(t, "helloworld", sanitizeForPostgres("hello\x00world"))
-	assert.Equal(t, "", sanitizeForPostgres("\x00"))
-	assert.Equal(t, "", sanitizeForPostgres(""))
-	assert.Equal(t, "abc", sanitizeForPostgres("\x00a\x00b\x00c\x00"))
+	assert.Equal(t, "hello", sanitize.ForPostgres("hello"))
+	assert.Equal(t, "helloworld", sanitize.ForPostgres("hello\x00world"))
+	assert.Equal(t, "", sanitize.ForPostgres("\x00"))
+	assert.Equal(t, "", sanitize.ForPostgres(""))
+	assert.Equal(t, "abc", sanitize.ForPostgres("\x00a\x00b\x00c\x00"))
 
 	// C0 control characters (strip 0x01-0x08, 0x0B, 0x0C, 0x0E-0x1F; keep \t \n \r)
-	assert.Equal(t, "ab", sanitizeForPostgres("a\x01b"))
-	assert.Equal(t, "a\tb", sanitizeForPostgres("a\tb"), "tab preserved")
-	assert.Equal(t, "a\nb", sanitizeForPostgres("a\nb"), "newline preserved")
-	assert.Equal(t, "a\rb", sanitizeForPostgres("a\rb"), "carriage return preserved")
-	assert.Equal(t, "ab", sanitizeForPostgres("a\x0Bb"))  // vertical tab stripped
-	assert.Equal(t, "ab", sanitizeForPostgres("a\x1Fb"))  // unit separator stripped
+	assert.Equal(t, "ab", sanitize.ForPostgres("a\x01b"))
+	assert.Equal(t, "a\tb", sanitize.ForPostgres("a\tb"), "tab preserved")
+	assert.Equal(t, "a\nb", sanitize.ForPostgres("a\nb"), "newline preserved")
+	assert.Equal(t, "a\rb", sanitize.ForPostgres("a\rb"), "carriage return preserved")
+	assert.Equal(t, "ab", sanitize.ForPostgres("a\x0Bb"))  // vertical tab stripped
+	assert.Equal(t, "ab", sanitize.ForPostgres("a\x1Fb"))  // unit separator stripped
 
 	// C1 control characters (U+0080–U+009F)
-	assert.Equal(t, "ab", sanitizeForPostgres("a\u0080b"))
-	assert.Equal(t, "ab", sanitizeForPostgres("a\u009Fb"))
+	assert.Equal(t, "ab", sanitize.ForPostgres("a\u0080b"))
+	assert.Equal(t, "ab", sanitize.ForPostgres("a\u009Fb"))
 
 	// Unicode non-characters
-	assert.Equal(t, "ab", sanitizeForPostgres("a\uFFFEb"))
-	assert.Equal(t, "ab", sanitizeForPostgres("a\uFFFFb"))
+	assert.Equal(t, "ab", sanitize.ForPostgres("a\uFFFEb"))
+	assert.Equal(t, "ab", sanitize.ForPostgres("a\uFFFFb"))
 
 	// Normal Unicode passes through
-	assert.Equal(t, "héllo wörld 🌍", sanitizeForPostgres("héllo wörld 🌍"))
+	assert.Equal(t, "héllo wörld 🌍", sanitize.ForPostgres("héllo wörld 🌍"))
 
 	// Fast path — clean strings return unchanged (same pointer)
 	clean := "nothing to strip here"
-	assert.Equal(t, clean, sanitizeForPostgres(clean))
+	assert.Equal(t, clean, sanitize.ForPostgres(clean))
 }
