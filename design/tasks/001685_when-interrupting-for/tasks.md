@@ -2,7 +2,7 @@
 
 ## Protocol
 
-- [ ] Add `cancel_current_turn` command and `turn_cancelled` event to `zed-4/crates/external_websocket_sync/PROTOCOL_SPEC.md`
+- [~] Add `cancel_current_turn` command and `turn_cancelled` event to `zed/crates/external_websocket_sync/PROTOCOL_SPEC.md`
 
 ## Zed (`zed-4`)
 
