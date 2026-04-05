@@ -460,24 +460,10 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({
           // Apply each entry patch
           for (const ep of entryPatches) {
             if (ep.index < currentEntries.length) {
-              const prevContent = currentEntries[ep.index].content;
-              // Guard: during streaming, text entries only grow via appends.
-              // If a patch would edit backwards into existing content or shrink
-              // it, the server's patch baseline drifted from our state (e.g. a
-              // re-send from Zed carried slightly shorter content_only() output).
-              // Reject the patch to prevent visible truncation.
-              if (
-                ep.type === "text" &&
-                prevContent.length > 0 &&
-                (ep.patch_offset < prevContent.length ||
-                  ep.total_length < prevContent.length)
-              ) {
-                continue;
-              }
               currentEntries[ep.index] = {
                 type: ep.type as "text" | "tool_call",
                 content: applyPatch(
-                  prevContent,
+                  currentEntries[ep.index].content,
                   ep.patch_offset,
                   ep.patch,
                   ep.total_length,
