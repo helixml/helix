@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react'
 import Box from '@mui/material/Box'
 import IconButton from '@mui/material/IconButton'
+import Avatar from '@mui/material/Avatar'
 import Badge from '@mui/material/Badge'
 
 import Typography from '@mui/material/Typography'
@@ -209,12 +210,21 @@ const BrowserNotificationBanner: React.FC<{
   </Box>
 )
 
+function getInitials(name: string): string {
+  const parts = name.trim().split(' ')
+  if (parts.length >= 2) {
+    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
+  }
+  return name.slice(0, 2).toUpperCase()
+}
+
 const AttentionEventItem: React.FC<{
   event: AttentionEvent
   groupedWith?: AttentionEvent
   onNavigate: (event: AttentionEvent) => void
   onDismiss: (eventId: string) => void
-}> = ({ event, groupedWith, onNavigate, onDismiss }) => {
+  showAssignee?: boolean
+}> = ({ event, groupedWith, onNavigate, onDismiss, showAssignee }) => {
   const accentColor = eventAccentColor(event.event_type)
   const isAcknowledged = !!event.acknowledged_at && (!groupedWith || !!groupedWith.acknowledged_at)
 
@@ -287,6 +297,13 @@ const AttentionEventItem: React.FC<{
           </Typography>
         </Box>
       </Tooltip>
+      {showAssignee && event.assignee_name && (
+        <Tooltip title={event.assignee_name} placement="top" arrow>
+          <Avatar sx={{ width: 18, height: 18, fontSize: '0.5rem', flexShrink: 0, bgcolor: 'rgba(255,255,255,0.15)', color: '#fff' }}>
+            {getInitials(event.assignee_name)}
+          </Avatar>
+        </Tooltip>
+      )}
       <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.65rem', whiteSpace: 'nowrap', flexShrink: 0 }}>
         {timeAgo(event.created_at)}
       </Typography>
@@ -685,6 +702,7 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
                       key={group.primary.id}
                       event={group.primary}
                       groupedWith={group.secondary}
+                      showAssignee={!filterMine}
                       onNavigate={(ev) => {
                         acknowledge(group.secondary.id)
                         handleNavigate(ev)
@@ -700,6 +718,7 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
                   <AttentionEventItem
                     key={group.event.id}
                     event={group.event}
+                    showAssignee={!filterMine}
                     onNavigate={handleNavigate}
                     onDismiss={handleDismiss}
                   />
