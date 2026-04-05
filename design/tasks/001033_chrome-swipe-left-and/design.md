@@ -133,6 +133,7 @@ The issue was that `event.preventDefault()` in JavaScript prevents ALL event pro
 - Clean rebase: `fd43dd373` - "Remove event.preventDefault() from touch handlers"
 - Merged with main: `8b0333b46` - Merge commit
 - iPad regression fix: `4e8e02eb8` - "Fix iPad scrolling regression with scoped preventDefault"
+- Wheel event fix: `b47745927` - "Move overscroll-behavior from global to stream container only"
 
 ## iPad Regression and Fix
 
@@ -159,3 +160,34 @@ Added conditional `preventDefault()` that only triggers when the touch event sta
 - ✅ Chrome swipe navigation works (touching outside the stream container allows browser gestures)
 - ✅ iPad no longer scrolls when keyboard appears (touches on stream container are prevented)
 - ✅ Stream touch controls still work (preventDefault only blocks browser defaults, not our handlers)
+
+## Critical Discovery: Chrome Swipe Uses Wheel Events, Not Touch Events
+
+**Research Finding (via DuckDuckGo search):**
+Chrome's two-finger trackpad swipe for back/forward navigation on macOS is NOT a touch event - it's a **wheel event** with special overscroll handling at the browser level.
+
+**Key Points:**
+1. The gesture is processed as **wheel events**, not touch events or gesture events
+2. Web pages cannot directly detect when swipe navigation is triggered through standard JavaScript events
+3. `preventDefault()` on wheel events often fails to block it
+4. The proper way to control it is via CSS `overscroll-behavior-x: none`
+
+**The Real Problem:**
+Our global CSS had `overscroll-behavior: none` on html/body, which was BLOCKING Chrome swipe navigation on ALL pages (not just the stream viewer).
+
+**The Real Fix:**
+1. Removed `overscroll-behavior: none` from global html/body styles in `index.html`
+2. Added `overscrollBehavior: 'none'` ONLY to the stream viewer container (DesktopStreamViewer.tsx line 4249)
+3. This allows Chrome swipe navigation to work on non-stream pages (project list, settings, etc.)
+4. While still preventing Safari bounce/rubber-band scrolling specifically on the stream viewer
+
+**Why the scoped preventDefault was the wrong approach:**
+- preventDefault() on touch events doesn't affect wheel events
+- Chrome swipe navigation uses wheel events with overscroll behavior
+- The touch event changes were addressing the wrong problem
+- The scoped preventDefault is still useful for iPad touch handling, but it doesn't affect Chrome swipe
+
+**Final Solution Summary:**
+- Scoped `preventDefault()` in touch handlers: Prevents Safari iPad rubber-band scrolling on stream viewer
+- Scoped `overscrollBehavior: 'none'` on stream container: Prevents Safari bounce effects on stream viewer
+- Removed global `overscroll-behavior: none`: Allows Chrome swipe navigation to work everywhere else
