@@ -115,6 +115,56 @@ Both the ErrorBoundary and global handlers call `window.emitError(error)` before
 
 5. **GPU-safe overlay styling** — The error overlay itself avoids all known GPU compositing triggers (`position: fixed`, `filter`, `will-change`, opacity animations). Uses `position: absolute` on the body with `overflow: auto`.
 
+## Desktop Streaming GPU/Memory Analysis
+
+Investigated the desktop streaming code (`DesktopStreamViewer.tsx`, `websocket-stream.ts`) for GPU/memory issues that could trigger the WebKit Jetsam kill on iPad, especially at 4K.
+
+### Canvas Memory at High Resolutions
+
+The streaming canvas is dynamically sized to match the remote desktop resolution:
+- **1080p**: 1920×1080×4 = ~8MB GPU memory (fine)
+- **4K**: 3840×2160×4 = **~33MB GPU memory** (risky on iPad)
+- **5K**: 5120×2880×4 = **~59MB GPU memory** (very risky)
+
+The canvas uses `desynchronized: true` (low-latency mode), which creates its own composited layer. This is correct for performance, but it's a large GPU allocation that stacks with everything else on the page.
+
+**The canvas resolution is set by the server** (`websocket-stream.ts:954-956` — canvas resizes to match decoded frame dimensions). On iPad, a 4K stream means a 4K canvas even though the iPad display can't show all those pixels when the stream is fitted to screen. This is the single biggest memory optimization opportunity.
+
+### GPU-Heavy Overlays Stacking on the Canvas
+
+Multiple composited layers stack on top of the canvas during streaming:
+
+| Element | GPU Trigger | File:Line |
+|---------|-------------|-----------|
+| Main canvas | `position: absolute` + `transform: translate(...)` + `desynchronized` | `DesktopStreamViewer.tsx:5080-5084` |
+| Screenshot overlay `<img>` | `position: absolute` + `transform: translate(...)` | `DesktopStreamViewer.tsx:5127-5131` |
+| Trackpad cursor div | **`willChange: "transform"`** (explicit GPU layer) | `DesktopStreamViewer.tsx:5165` |
+| Agent cursor | **`filter: drop-shadow(0 0 6px ...) drop-shadow(0 0 12px ...)`** (double CSS filter!) | `AgentCursorOverlay.tsx:60` |
+| Cursor glow | **`filter: glowFilter`** (another CSS filter) | `CursorRenderer.tsx:394,430` |
+| Paused desktop img | **`filter: grayscale(0.5) brightness(0.7) blur(1px)`** + `opacity: 0.6` (triple filter!) | `ExternalAgentDesktopViewer.tsx:373` |
+| Clipboard toast | `opacity` + `transform` transition animation | `DesktopStreamViewer.tsx:5280-5281` |
+| Canvas in screenshot mode | `opacity: 0` (still composited — hidden but allocated) | `DesktopStreamViewer.tsx:5093` |
+
+Each of these creates a separate GPU-composited layer. On iPad at 4K, that's the 33MB canvas PLUS multiple filter layers PLUS transform layers — all competing for WebKit's GPU memory budget.
+
+### Specific Optimizations
+
+**High impact (do in this task):**
+
+1. **Cap canvas resolution on mobile/tablet** — When `isMobileOrTablet()`, request a max resolution of 1080p from the server regardless of the configured stream size. iPad can't display 4K at native resolution when the stream is fitted to screen anyway. This alone saves ~25MB of GPU memory. Implementation: send a resolution cap in the StreamInit message, or resize the canvas to a capped size and let `drawImage` downscale.
+
+2. **Use `display: none` instead of `opacity: 0`** — `DesktopStreamViewer.tsx:5093` sets `opacity: 0` on the canvas in screenshot mode. An element with `opacity: 0` is still composited (GPU memory allocated). Switch to `visibility: hidden` or `display: none` when not in video mode. Same for any other hidden-but-composited elements.
+
+3. **Remove CSS `filter` on cursor overlays on mobile** — The `drop-shadow` filter on `AgentCursorOverlay.tsx:60` and the `glowFilter` on `CursorRenderer.tsx:394,430` each create GPU-composited layers. On mobile, replace these with simpler solid-color styling or remove the glow entirely.
+
+4. **Remove `willChange: "transform"` from trackpad cursor** — `DesktopStreamViewer.tsx:5165` uses `willChange: "transform"` which permanently allocates a GPU layer. On iPad, this is unnecessary overhead; the cursor is small and updates are infrequent enough that regular compositing is fine. Remove on mobile.
+
+**Medium impact (consider for follow-up):**
+
+5. **Conditionally render overlays** — Remote cursor overlays, agent cursor overlays, stats panels, and connection overlays should use conditional rendering (`{condition && <Component />}`) rather than rendering with `display: none`. Unrendered components use zero GPU memory.
+
+6. **Simplify paused desktop filter** — `ExternalAgentDesktopViewer.tsx:373` applies `grayscale(0.5) brightness(0.7) blur(1px)` — three GPU filters stacked. On mobile, use a simple dark overlay or CSS `opacity` alone (no blur/grayscale).
+
 ## Codebase Patterns Found
 
 - `frontend/src/index.tsx` — Entry point, already has `window.emitError()` global function
@@ -122,3 +172,8 @@ Both the ErrorBoundary and global handlers call `window.emitError(error)` before
 - `frontend/src/components/system/Snackbar.tsx` — Existing error notification (only for caught errors, not crashes)
 - `frontend/src/hooks/useAnalyticsInit.ts` — Sentry setup, uses `window.emitErrorFunctions`
 - `frontend/index.html` — Has `<div id="root">`, need to add `<div id="error-overlay">`
+- `frontend/src/lib/helix-stream/stream/websocket-stream.ts` — Main streaming engine, canvas resize at lines 954-956, decoder init at 863-936
+- `frontend/src/components/external-agent/DesktopStreamViewer.tsx` — ~5300-line streaming UI component, canvas element at line 5051, overlay stack from line 5080
+- `frontend/src/components/external-agent/AgentCursorOverlay.tsx` — Agent cursor with double drop-shadow filter at line 60
+- `frontend/src/components/external-agent/CursorRenderer.tsx` — Cursor glow filter at lines 394, 430
+- `frontend/src/components/external-agent/ExternalAgentDesktopViewer.tsx` — Paused desktop with triple CSS filter at line 373
