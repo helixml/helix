@@ -28,7 +28,7 @@
 - [x] Update `roundState` in `main.go` with phase 13/14 tracking fields
 - [x] Update `validateRound()` to check phase 13/14 assertions (turn_cancelled received, streaming stopped, interaction marked interrupted in store)
 - [x] Add `turn_cancelled` event handling to `syncEventCallback()` in the test driver
-- [ ] Update Rust `protocol_test.rs` unit test to cover `cancel_current_turn` command handling and `turn_cancelled` event emission
+- [x] Update Rust `protocol_test.rs` unit test to cover `cancel_current_turn` command handling and `turn_cancelled` event emission
 
 ## Helix Frontend (`helix-4`)
 
