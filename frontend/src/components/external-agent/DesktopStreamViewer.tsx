@@ -4246,6 +4246,9 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         userSelect: "none",
         // Clip zoomed content that extends beyond container bounds
         overflow: "hidden",
+        // Prevent Safari bounce/rubber-band scrolling on this container only
+        // This allows Chrome swipe navigation to work on other pages
+        overscrollBehavior: "none",
         // Cursor is hidden only on the canvas element, not the container
         // This ensures the cursor is visible in the black letterbox/pillarbox bars
         // Fallback height for iOS when dvh isn't supported
