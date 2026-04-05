@@ -298,7 +298,7 @@ const TaskProgressDisplay: React.FC<{
   return (
     <Box
       sx={{
-        mt: 1.5,
+        mt: 1,
         mb: 0.5,
         background:
           "linear-gradient(145deg, rgba(255,255,255,0.03) 0%, rgba(255,255,255,0.01) 100%)",
@@ -311,7 +311,7 @@ const TaskProgressDisplay: React.FC<{
       <Box
         sx={{
           px: 1.5,
-          py: 0.75,
+          py: 0.5,
           background:
             "linear-gradient(90deg, rgba(0,0,0,0.15) 0%, rgba(0,0,0,0.05) 100%)",
           borderBottom: "1px solid rgba(255,255,255,0.04)",
@@ -350,7 +350,7 @@ const TaskProgressDisplay: React.FC<{
       </Box>
 
       {/* Task list with fade effect */}
-      <Box sx={{ py: 0.5 }}>
+      <Box sx={{ py: 0.25 }}>
         {visibleTasks.map((task, idx) => {
           const isActive = task.status === "in_progress";
           const isCompleted =
@@ -363,10 +363,10 @@ const TaskProgressDisplay: React.FC<{
               key={task.index}
               sx={{
                 px: 1.5,
-                py: 0.5,
+                py: 0.25,
                 display: "flex",
                 alignItems: "flex-start",
-                gap: 0.75,
+                gap: 0.5,
                 opacity,
                 transition: "opacity 0.3s ease",
               }}
@@ -374,8 +374,8 @@ const TaskProgressDisplay: React.FC<{
               {/* Status indicator */}
               <Box
                 sx={{
-                  width: 16,
-                  height: 16,
+                  width: 14,
+                  height: 14,
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
@@ -385,7 +385,7 @@ const TaskProgressDisplay: React.FC<{
               >
                 {isActive ? (
                   // Animated spinner for active task
-                  <Box sx={{ position: "relative", width: 14, height: 14 }}>
+                  <Box sx={{ position: "relative", width: 12, height: 12 }}>
                     <Box
                       sx={{
                         position: "absolute",
@@ -407,10 +407,10 @@ const TaskProgressDisplay: React.FC<{
                     />
                   </Box>
                 ) : isCompleted ? (
-                  <CheckCircleIcon sx={{ fontSize: 14, color: "#10b981" }} />
+                  <CheckCircleIcon sx={{ fontSize: 12, color: "#10b981" }} />
                 ) : (
                   <UncheckedIcon
-                    sx={{ fontSize: 14, color: "rgba(255,255,255,0.25)" }}
+                    sx={{ fontSize: 12, color: "rgba(255,255,255,0.25)" }}
                   />
                 )}
               </Box>
@@ -1039,7 +1039,7 @@ function TaskCardInner({
 
         {/* Label chips */}
         {task.labels && task.labels.length > 0 && (
-          <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5, mb: 1 }}>
+          <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5, mb: 0.5 }}>
             {task.labels.map((label) => (
               <Chip key={label} label={label} size="small" variant="outlined" sx={{ height: 18, fontSize: "0.65rem" }} />
             ))}

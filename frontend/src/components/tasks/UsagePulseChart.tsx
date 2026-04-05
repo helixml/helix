@@ -55,9 +55,7 @@ const UsagePulseChart: React.FC<UsagePulseChartProps> = ({
       <Box
         sx={{
           width: "100%",
-          height: 50,
-          mt: 0.5,
-          mb: 0.5,
+          height: 30,
         }}
       >
         <LineChart
@@ -83,7 +81,7 @@ const UsagePulseChart: React.FC<UsagePulseChartProps> = ({
               color: accentColor,
             },
           ]}
-          height={50}
+          height={30}
           slotProps={{
             legend: { hidden: true },
           }}
@@ -107,7 +105,7 @@ const UsagePulseChart: React.FC<UsagePulseChartProps> = ({
           }}
           grid={{ horizontal: false, vertical: false }}
           disableAxisListener
-          margin={{ top: 5, bottom: 5, left: 0, right: 0 }}
+          margin={{ top: 2, bottom: 2, left: 0, right: 0 }}
         >
           <defs>
             <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
