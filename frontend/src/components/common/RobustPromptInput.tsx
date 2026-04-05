@@ -595,7 +595,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
   // we delete the old entry locally and re-queue as a new entry.
   const handleStartEdit = useCallback((entry: PromptHistoryEntry) => {
     // Don't allow editing a message that's currently being sent
-    if (entry.id === sendingId || entry.status === 'sending') return
+    if (entry.id === sendingId) return
 
     // Store original content and interrupt mode so we can restore on cancel
     setEditingOriginalContent(entry.content)
