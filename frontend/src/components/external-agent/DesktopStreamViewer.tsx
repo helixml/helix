@@ -3000,14 +3000,6 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   // - Two finger scroll: scroll
   const handleTouchStart = useCallback(
     (event: React.TouchEvent) => {
-      // Only preventDefault if touch starts on the canvas or within the stream container
-      // This allows Chrome swipe navigation to work when touching outside the stream,
-      // while preventing Safari iPad rubber-band scrolling when touching the stream
-      const target = event.target as HTMLElement;
-      if (target && (target.tagName === 'CANVAS' || target.closest('[data-stream-container]'))) {
-        event.preventDefault();
-      }
-      
       const handler = getInputHandler();
       const rect = getStreamRect();
       if (!handler) return;
@@ -3164,12 +3156,6 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
 
   const handleTouchMove = useCallback(
     (event: React.TouchEvent) => {
-      // Only preventDefault if touch is on the canvas or stream container
-      const target = event.target as HTMLElement;
-      if (target && (target.tagName === 'CANVAS' || target.closest('[data-stream-container]'))) {
-        event.preventDefault();
-      }
-      
       const handler = getInputHandler();
       const rect = getStreamRect();
       if (!handler) return;
@@ -3435,12 +3421,6 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
 
   const handleTouchEnd = useCallback(
     (event: React.TouchEvent) => {
-      // Only preventDefault if touch is on the canvas or stream container
-      const target = event.target as HTMLElement;
-      if (target && (target.tagName === 'CANVAS' || target.closest('[data-stream-container]'))) {
-        event.preventDefault();
-      }
-      
       const handler = getInputHandler();
       const rect = getStreamRect();
       if (!handler) return;
@@ -3605,12 +3585,6 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
 
   const handleTouchCancel = useCallback(
     (event: React.TouchEvent) => {
-      // Only preventDefault if touch is on the canvas or stream container
-      const target = event.target as HTMLElement;
-      if (target && (target.tagName === 'CANVAS' || target.closest('[data-stream-container]'))) {
-        event.preventDefault();
-      }
-      
       const handler = getInputHandler();
       const rect = getStreamRect();
       if (!handler) return;
@@ -4196,7 +4170,6 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       ref={containerRef}
       className={`${className} desktop-stream-viewer`}
       data-video-container="true"
-      data-stream-container="true"
       tabIndex={0}
       onClick={handleContainerClick}
       sx={{
