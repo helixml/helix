@@ -1048,6 +1048,7 @@ type ServerConfigForFrontend struct {
 	License                                *FrontendLicenseInfo `json:"license,omitempty"`
 	OrganizationsCreateEnabledForNonAdmins bool                 `json:"organizations_create_enabled_for_non_admins"`
 	ProvidersManagementEnabled             bool                 `json:"providers_management_enabled"` // Controls if users can add their own AI provider API keys
+	HasProviders                           bool                 `json:"has_providers"`                // Whether any global AI provider with enabled chat models exists
 	MaxConcurrentDesktops                  int                  `json:"max_concurrent_desktops"`
 	ActiveConcurrentDesktops               int                  `json:"active_concurrent_desktops"`
 	Edition                                string               `json:"edition,omitempty"` // "mac-desktop", "server", "cloud", etc.
