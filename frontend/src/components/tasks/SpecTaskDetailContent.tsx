@@ -2161,7 +2161,9 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                   </Box>
                 </Box>
 
-                {currentView === "desktop" &&
+                {/* In split-view layout, "chat" falls through to desktop since chat
+                    is already visible in the left panel */}
+                {(currentView === "desktop" || currentView === "chat") &&
                   (isTaskCompleted && isDesktopPaused ? (
                     <Box
                       sx={{

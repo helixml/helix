@@ -471,7 +471,9 @@ const EmbeddedSessionView = forwardRef<
 
   // Check if there are more pages to load
   const totalPages = paginatedData?.totalPages || 1;
+  const totalCount = paginatedData?.totalCount || 0;
   const hasOlderInteractions = oldestPageLoaded < totalPages - 1;
+  const remainingOlderCount = Math.max(0, totalCount - totalInteractions);
 
   const isOwner = account.user?.id === session?.owner;
 
@@ -595,7 +597,7 @@ const EmbeddedSessionView = forwardRef<
               mb: 1,
             }}
           >
-            {isLoadingOlder ? 'Loading...' : `Show ${INTERACTIONS_TO_RENDER} older messages`}
+            {isLoadingOlder ? 'Loading...' : `Show ${remainingOlderCount} older messages`}
           </Button>
         )}
         {visibleInteractions.map((interaction, index) => {

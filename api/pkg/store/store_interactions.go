@@ -189,11 +189,7 @@ func (s *PostgresStore) ListInteractions(ctx context.Context, query *types.ListI
 		query.PerPage = -1
 	}
 
-	var offset int
-
-	if query.Page > 0 {
-		offset = (query.Page - 1) * query.PerPage
-	}
+	offset := query.Page * query.PerPage
 
 	if query.SessionID != "" {
 		q = q.Where("session_id = ?", query.SessionID)
