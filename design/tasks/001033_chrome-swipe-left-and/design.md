@@ -130,4 +130,32 @@ The issue was that `event.preventDefault()` in JavaScript prevents ALL event pro
 
 **Commits:**
 - Initial implementation: `b38908070` (on stale base)
-- Final commit on main: `7362b2765` - "Remove event.preventDefault() from touch handlers"
+- Clean rebase: `fd43dd373` - "Remove event.preventDefault() from touch handlers"
+- Merged with main: `8b0333b46` - Merge commit
+- iPad regression fix: `4e8e02eb8` - "Fix iPad scrolling regression with scoped preventDefault"
+
+## iPad Regression and Fix
+
+**Problem discovered during testing:**
+Removing `event.preventDefault()` entirely fixed Chrome swipe navigation but caused a regression on iPad - the entire window would scroll around when the virtual keyboard popped up.
+
+**Root cause:**
+Without any `preventDefault()`, Safari on iPad interprets touch events on the stream viewer as scrollable content, causing rubber-band/bounce effects and unwanted scrolling.
+
+**Solution - Scoped preventDefault:**
+Added conditional `preventDefault()` that only triggers when the touch event starts on:
+1. The canvas element itself (`target.tagName === 'CANVAS'`)
+2. Any element within the stream container (`target.closest('[data-stream-container]')`)
+
+**Implementation:**
+1. Added `data-stream-container="true"` attribute to the main container Box (line 4199)
+2. Modified all four touch handlers to check event target before calling preventDefault():
+   - `handleTouchStart` (line 3003-3009)
+   - `handleTouchMove` (line 3167-3171)
+   - `handleTouchEnd` (line 3438-3442)
+   - `handleTouchCancel` (line 3608-3612)
+
+**Result:**
+- ✅ Chrome swipe navigation works (touching outside the stream container allows browser gestures)
+- ✅ iPad no longer scrolls when keyboard appears (touches on stream container are prevented)
+- ✅ Stream touch controls still work (preventDefault only blocks browser defaults, not our handlers)
