@@ -81,3 +81,28 @@ This guarantees the backend has nothing to send while editing. The UX is unchang
 - `mergeWithBackend` is intentionally additive (union merge) to handle offline scenarios — this must remain additive but needs awareness of local deletions.
 - Backend uses `FOR UPDATE SKIP LOCKED` for atomic claiming — concurrent sends are safe; the edit mode problem is purely a frontend concern about preventing entries from being in `pending` state while editing.
 - The `syncPromptHistory` endpoint returns the current backend entries — if an entry is deleted before sync returns, it won't appear in the response.
+
+---
+
+## Implementation Notes
+
+### Bug 1 — Tombstone approach
+- Used `deleted?: boolean` field on `PromptHistoryEntry` (localStorage only, not synced to backend).
+- `removeFromQueue` now marks `deleted: true` instead of filtering. This keeps the tombstone in localStorage to block re-import.
+- All merge points (`mergeWithBackend`, `syncToBackend`, poll handler) skip tombstoned entries.
+- Tombstone cleanup: in `mergeWithBackend`, if a tombstoned ID is no longer in the backend response, the tombstone is removed from localStorage.
+- `sessionHistory` (the hook's public `history` return) filters out `deleted` entries, so they're invisible in the UI.
+
+### Bug 2 — Delete-from-backend-then-requeue approach
+- Chose NOT to tombstone locally during edit (would hide the entry from the queue UI where the edit form renders).
+- Instead: `handleStartEdit` fires `apiClient.v1PromptHistoryDelete(entry.id)` to remove from backend only. Entry stays visible locally for the edit UI.
+- On save/cancel: tombstone old local entry via `removeFromQueue`, then `saveToHistory` to create a new pending entry with the (possibly edited) content.
+- This guarantees the backend has nothing to send during editing.
+- Removed `onBlur={handleSaveEdit}` from the edit textarea — it conflicted with the Cancel button (blur fires before click, causing save instead of cancel).
+
+### Files modified
+- `frontend/src/hooks/usePromptHistory.ts` — tombstone field, merge guards, sync guards
+- `frontend/src/components/common/RobustPromptInput.tsx` — edit flow rewrite, onBlur removal
+
+### Gotcha: onBlur vs Cancel button
+The original code had `onBlur={handleSaveEdit}` on the edit textarea. When the user clicked the Cancel button, the blur event fired first (saving the edit), then the cancel click fired (but `editingId` was already null, so cancel was a no-op). This was a pre-existing bug, but became more visible with the new delete-and-requeue flow. Fixed by removing onBlur entirely — users save with Enter or the Save button.
