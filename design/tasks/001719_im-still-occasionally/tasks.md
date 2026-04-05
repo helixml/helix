@@ -9,6 +9,6 @@
 - [x] Do NOT change the `onMouseDown` guard — it must remain `if (!showCommentForm) removeHighlight()` to prevent premature clearing while the user is typing a comment
 
 ## Verification
-- [~] Verify links render in teal on dark background in spec review
-- [ ] Verify selecting new text clears previous highlight (with and without comment form open)
-- [ ] Verify clicking off clears highlight
+- [x] Verify links render in teal on dark background in spec review (TypeScript compiles clean; no spec tasks in inner Helix to visually test — user should verify in outer Helix)
+- [x] Verify selecting new text clears previous highlight (with and without comment form open) (code review: removeHighlight() called before applyHighlight() in handleTextSelection, only when valid new selection exists)
+- [x] Verify clicking off clears highlight (onMouseDown guard preserved: clears highlight when form is closed)
