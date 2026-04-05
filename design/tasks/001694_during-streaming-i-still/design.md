@@ -106,10 +106,14 @@ Logs confirmed the fix triggers correctly:
 📦 [FLUSH] Published final corrected entry patches to frontend before completion
 ```
 
-### Zed-Side Fix (Secondary)
-The API-side fix alone was insufficient — the user still observed truncation. Root cause: the `NewEntry` handler in Zed sends new entries (including tool_calls) directly via `send_websocket_event` *without* flushing pending throttled content for other entries. The stale-pending flush only existed in `throttled_send_message_added`, which `NewEntry` doesn't call.
+### Zed-Side Fix (Secondary) — Iteration 1 (Insufficient)
+The API-side fix alone was insufficient. Added `flush_stale_pending_for_thread()` to flush pending throttled content in the `NewEntry` handler, and bypassed the throttle for `tool_call` entries. This was still insufficient because the stale pending content is a snapshot from the *last throttled `EntryUpdated` event*, not the current content.
 
-Two changes in `thread_service.rs`:
-1. **`flush_stale_pending_for_thread()` helper**: Extracted the stale-pending flush logic into a standalone function. Flushes pending throttled content for all entries in a thread except the specified one.
-2. **`NewEntry` handler**: Calls `flush_stale_pending_for_thread()` before sending the new entry. This ensures the preceding text entry's final content reaches the API before the tool_call entry.
-3. **`throttled_send_message_added`**: Tool call entries (`entry_type == "tool_call"`) bypass the 100ms throttle entirely. This ensures tool_call status updates (e.g. "In Progress" → "Completed") are sent immediately.
+### Zed-Side Fix — Iteration 2 (Real Fix)
+The real root cause: `AcpThread::push_entry()` calls `flush_streaming_text()` before emitting `NewEntry`. This flushes all pending text into the Markdown entity, BUT it does NOT emit `EntryUpdated`. So the throttle's `pending_content` snapshot was captured *before* `flush_streaming_text` ran and is missing the final tokens.
+
+The fix: in the `NewEntry` handler, instead of flushing stale pending content, re-read ALL preceding entries' current content directly from the thread model. Since `flush_streaming_text` has already run, `msg.content_only(cx)` returns the complete text. Send fresh `message_added` events for each preceding entry with their current content.
+
+Changes in `thread_service.rs`:
+1. **`NewEntry` handler**: Iterates over all entries before the new one, reads their *current* content from the thread model, and sends `message_added` for each. This replaces the `flush_stale_pending_for_thread()` approach.
+2. **`throttled_send_message_added`**: Tool call entries (`entry_type == "tool_call"`) still bypass the 100ms throttle for status updates.

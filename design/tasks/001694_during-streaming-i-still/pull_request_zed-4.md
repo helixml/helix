@@ -1,20 +1,22 @@
-# Flush pending text content before sending new entries to prevent truncated streaming
+# Re-read current entry content in NewEntry handler to prevent truncated streaming
 
 ## Summary
-When tool calls arrived during streaming, the preceding text appeared truncated because the `NewEntry` handler sent the tool_call entry without flushing the text entry's pending throttled content first. The stale-pending flush only existed in `throttled_send_message_added`, which `NewEntry` bypasses.
+When tool calls arrived during streaming, the preceding text appeared truncated because the throttle buffer's `pending_content` was stale — captured before `flush_streaming_text()` ran but never updated (no `EntryUpdated` is emitted after the flush).
 
 ## Changes
-- Extract `flush_stale_pending_for_thread()` helper from the inline stale-pending flush in `throttled_send_message_added`
-- Call `flush_stale_pending_for_thread()` in the `NewEntry` handler before sending, ensuring preceding text entry content is fully sent before a tool_call entry
-- Bypass the 100ms throttle for `entry_type=tool_call` in `throttled_send_message_added` — tool calls are infrequent, and their status updates ("In Progress" → "Completed") should arrive promptly
+- **NewEntry handler**: Instead of flushing stale `pending_content` from the throttle buffer, re-read ALL preceding entries' current content directly from the thread model. Since `flush_streaming_text()` has already run by the time `NewEntry` fires, `content_only(cx)` returns complete text.
+- **Throttle bypass**: Tool call entries (`entry_type == "tool_call"`) bypass the 100ms throttle in `throttled_send_message_added` — tool calls are infrequent and their status updates should arrive promptly.
 
-## Root Cause
-The `NewEntry` handler sends new entries directly via `send_websocket_event` (no throttle). When a tool_call entry is created mid-streaming, the preceding text entry may still have unsent content sitting in the 100ms throttle buffer. The tool_call arrives at the API before the text entry's final content, causing truncation visible to the user.
+## Root Cause (Iteration 2 discovery)
+`AcpThread::push_entry()` calls `flush_streaming_text()` before emitting `NewEntry`. This flushes all pending text into the Markdown entity, BUT it does NOT emit `EntryUpdated`. So the throttle's `pending_content` snapshot — captured at the last `EntryUpdated` before `flush_streaming_text` — is missing the final tokens that were in the `StreamingTextBuffer`.
+
+The first fix (`flush_stale_pending_for_thread`) only sent this stale snapshot, which was incomplete. The real fix reads directly from the thread model which always has the current content.
 
 ## Testing
 - Built Zed with fix, deployed to inner Helix
-- Triggered prompts that cause multiple tool calls mid-response
-- Verified text before tool calls is fully visible during streaming, not truncated
+- Created task that triggers multiple tool calls (Find, ls, Write, git commands)
+- API logs confirm force-flush triggered: `📤 [FLUSH] Force-published patches before tool_call entry`
+- Chat panel shows complete text before every tool call — no truncation
 
 Release Notes:
 
