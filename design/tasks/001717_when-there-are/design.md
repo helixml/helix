@@ -119,29 +119,29 @@ Both the ErrorBoundary and global handlers call `window.emitError(error)` before
 
 Investigated the desktop streaming code (`DesktopStreamViewer.tsx`, `websocket-stream.ts`) for GPU/memory issues that could trigger the WebKit Jetsam kill on iPad, especially at 4K.
 
-### Baseline Memory: 234MB Before Streaming Even Starts
+### Baseline Memory
 
-Heap snapshot taken at the idle org picker page (no streaming session active, Chrome DevTools `performance.memory`):
+**Dev mode** (Vite HMR, unminified, source maps): 234MB JS heap at idle org picker page. This is inflated by ~125MB of unminified JS source text + bytecode + 12MB inline source maps. Not representative of production.
 
-| Category | Size |
-|----------|------|
-| External strings (JS source text retained by V8) | 66.8 MB |
-| Compiled JS (bytecode) | 58.5 MB |
-| Arrays | 27.1 MB |
-| Other (hidden, shapes, maps) | 26.8 MB |
-| JS objects | 19.1 MB |
-| Closures | 14.2 MB |
-| Source maps (inline base64) | 12.3 MB |
-| JS strings (other) | 8.8 MB |
-| **Total** | **233.7 MB** |
+**Prod build** bundle sizes (from `yarn build-frontend`):
 
-**Key concern:** 125MB is JS code (source text + bytecode) loaded eagerly. The entire app loads upfront — every page's code is in memory even if you're just looking at the org picker. The largest source maps retained in memory: `api.ts` (657KB), `DesktopStreamViewer.tsx` (434KB), `websocket-stream.ts` (233KB), plus 6.4MB of other component source maps.
+| Chunk | Size (minified) | Loaded |
+|-------|-----------------|--------|
+| **`index.js`** (main app bundle) | **3.3 MB** (990KB gzip) | **Every page** |
+| `monaco.js` | 3.5 MB (946KB gzip) | Lazy (editor) |
+| `pdf.js` | 2.5 MB (870KB gzip) | Lazy (PDF export) |
+| `datagrid.js` | 922 KB | Lazy (data grids) |
+| `mui.js` | 623 KB | Every page |
+| `mermaid.js` | 459 KB | Lazy (diagrams) |
+| `sentry.js` | 237 KB | Conditional |
 
-**iOS Safari memory limits** are ~1-1.5GB per tab (varies by device, much lower on older iPads). Starting at 234MB baseline, then adding a streaming session (canvas GPU buffers + VideoDecoder + WebSocket buffers) means you're eating a significant chunk of the budget before any actual work happens.
+The main `index.js` bundle is **3.3MB minified containing ALL app code** — every page component, the streaming engine (`DesktopStreamViewer.tsx`, `websocket-stream.ts`), all hooks, all pages — in a single chunk. Third-party libraries are properly chunked (monaco, pdf, mermaid lazy-load), but the app's own code is not code-split.
 
-**Note:** This measurement is from Chrome's V8 heap — Safari's JavaScriptCore will have different numbers, but the relative proportions (code dominating) should be similar. GPU memory (canvas backing stores, composited layers) is *additional* and not reflected in the JS heap at all.
+**Estimated prod JS heap**: 3.3MB minified JS → ~10-15MB once V8/JSC parses and compiles it (rough 3-5x expansion). Much smaller than dev mode, but still loaded eagerly regardless of which page the user is on.
 
-**Follow-up opportunity (not in this task):** Route-based code splitting would reduce baseline memory by only loading code for the current page. The streaming code (DesktopStreamViewer, websocket-stream) is ~700KB of source maps alone and shouldn't be in memory until the user opens a streaming session.
+**iOS Safari memory limits** are ~1-1.5GB per tab (varies by device, lower on older iPads). The JS heap baseline is manageable in prod, but add a streaming session (canvas GPU memory: 8-33MB depending on resolution + VideoDecoder internal buffers + WebSocket buffers + GPU composited layer memory for overlays) and the total adds up — especially since GPU memory is separate from and additional to the JS heap.
+
+**Follow-up opportunity (not in this task):** Route-based code splitting of `index.js` would avoid loading streaming code (~700KB source in dev) until the user opens a streaming session. This is the standard Vite/React pattern using `React.lazy()` + `Suspense` per route.
 
 ### Canvas Memory at High Resolutions
 
