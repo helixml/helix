@@ -2,11 +2,11 @@
 
 ## Protocol
 
-- [~] Add `cancel_current_turn` command and `turn_cancelled` event to `zed/crates/external_websocket_sync/PROTOCOL_SPEC.md`
+- [x] Add `cancel_current_turn` command and `turn_cancelled` event to `zed/crates/external_websocket_sync/PROTOCOL_SPEC.md`
 
-## Zed (`zed-4`)
+## Zed (`zed`)
 
-- [ ] Add `cancel_current_turn` handler arm in `websocket_sync.rs` command match block (`~line 400`)
+- [~] Add `cancel_current_turn` handler arm in `websocket_sync.rs` command match block (`~line 400`)
 - [ ] Implement cancellation: look up active ACP task by `request_id`, abort it, send `turn_cancelled` event back to Helix
 - [ ] Handle no-op case: if `request_id` not found or turn already done, send `turn_cancelled` with `status: noop`
 
