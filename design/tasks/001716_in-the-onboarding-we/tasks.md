@@ -5,5 +5,5 @@
 - [ ] Regenerate OpenAPI client: `./stack update_openapi`
 - [ ] In `frontend/src/pages/Onboarding.tsx`, extend `visibleSteps` filter to exclude "provider" step when `serverConfig.has_providers` is true
 - [ ] Verify `cd frontend && yarn build` succeeds
-- [ ] Test: deploy with global providers configured → onboarding should skip provider step
-- [ ] Test: deploy with no global providers → onboarding should show provider step as before
+- [ ] Browser test: register new user with global providers configured → onboarding should not show provider step at all, step numbering correct, full flow completes
+- [ ] Browser test: register new user with no global providers → provider step appears as before, can complete or skip
