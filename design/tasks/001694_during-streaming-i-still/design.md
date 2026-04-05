@@ -106,5 +106,10 @@ Logs confirmed the fix triggers correctly:
 📦 [FLUSH] Published final corrected entry patches to frontend before completion
 ```
 
-### What Was NOT Implemented
-The secondary fix (Zed-side throttle bypass) was not implemented because the primary fix resolves the issue completely. The Zed-side fix could be added later for additional robustness but is not required.
+### Zed-Side Fix (Secondary)
+The API-side fix alone was insufficient — the user still observed truncation. Root cause: the `NewEntry` handler in Zed sends new entries (including tool_calls) directly via `send_websocket_event` *without* flushing pending throttled content for other entries. The stale-pending flush only existed in `throttled_send_message_added`, which `NewEntry` doesn't call.
+
+Two changes in `thread_service.rs`:
+1. **`flush_stale_pending_for_thread()` helper**: Extracted the stale-pending flush logic into a standalone function. Flushes pending throttled content for all entries in a thread except the specified one.
+2. **`NewEntry` handler**: Calls `flush_stale_pending_for_thread()` before sending the new entry. This ensures the preceding text entry's final content reaches the API before the tool_call entry.
+3. **`throttled_send_message_added`**: Tool call entries (`entry_type == "tool_call"`) bypass the 100ms throttle entirely. This ensures tool_call status updates (e.g. "In Progress" → "Completed") are sent immediately.

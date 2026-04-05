@@ -7,11 +7,11 @@
 - [x] After the force-flush, reset `sctx.lastPublish` so the throttle window restarts cleanly
 - [x] Add a debug log: `"📤 [FLUSH] Force-published patches before tool_call entry"`
 
-## Secondary Fix (Optional): Zed Throttle Bypass on Entry Type Change
+## Secondary Fix: Zed Throttle Bypass + NewEntry Flush
 
-- [ ] In `throttled_send_message_added` (`thread_service.rs`), after flushing stale-pending entries, check if the current entry is `tool_call` and the previous entry was `text`
-- [ ] If so, bypass the throttle for the current entry (send immediately, update `last_sent`)
-- [ ] Alternatively, always send immediately when `entry_type=tool_call` (tool calls are infrequent, no need to throttle them)
+- [x] In `throttled_send_message_added` (`thread_service.rs`), bypass the 100ms throttle for `entry_type=tool_call` entries (tool calls are infrequent, no need to throttle them)
+- [x] Extract `flush_stale_pending_for_thread()` helper that flushes pending throttled content for other entries in a thread
+- [x] In the `NewEntry` handler, call `flush_stale_pending_for_thread()` before sending — ensures preceding text entry's final content is sent before tool_call entry
 
 ## Verification
 
