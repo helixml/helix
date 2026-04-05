@@ -90,9 +90,7 @@ import AgentDropdown from "../agent/AgentDropdown";
 import CloneGroupProgressFull from "../specTask/CloneGroupProgress";
 import ArchiveConfirmDialog from "./ArchiveConfirmDialog";
 import RobustPromptInput from "../common/RobustPromptInput";
-import EmbeddedSessionView, {
-  EmbeddedSessionViewHandle,
-} from "../session/EmbeddedSessionView";
+import Session, { SessionHandle } from "../../pages/Session";
 import {
   Panel,
   Group as PanelGroup,
@@ -335,8 +333,8 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     [currentView, router],
   );
 
-  // Ref for EmbeddedSessionView to trigger scroll on height changes
-  const sessionViewRef = useRef<EmbeddedSessionViewHandle>(null);
+  // Ref for Session to trigger scroll on height changes
+  const sessionViewRef = useRef<SessionHandle>(null);
 
   // Design review state
   const [docViewerOpen, setDocViewerOpen] = useState(false);
@@ -1853,9 +1851,10 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                     </IconButton>
                   </Tooltip>
                 </Box>
-                <EmbeddedSessionView
+                <Session
                   ref={sessionViewRef}
                   sessionId={activeSessionId}
+                  embedded
                 />
                 <Box sx={{ p: 1.5, flexShrink: 0 }}>
                   <RobustPromptInput
@@ -2613,9 +2612,10 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                     </Box>
                   );
                 })()}
-                <EmbeddedSessionView
+                <Session
                   ref={sessionViewRef}
                   sessionId={activeSessionId}
+                  embedded
                 />
                 <Box
                   sx={{

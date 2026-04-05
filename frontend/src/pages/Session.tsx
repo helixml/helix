@@ -1,4 +1,4 @@
-import React, { FC, useState, useEffect, useRef, useMemo, useCallback } from 'react'
+import React, { FC, useState, useEffect, useRef, useMemo, useCallback, forwardRef, useImperativeHandle } from 'react'
 import throttle from 'lodash/throttle'
 import Typography from '@mui/material/Typography'
 import Button from '@mui/material/Button'
@@ -226,11 +226,18 @@ const MemoizedInteraction = React.memo((props: MemoizedInteractionProps) => {
 
 
 
-interface SessionProps {
-  previewMode?: boolean;
+export interface SessionHandle {
+  scrollToBottom: () => void;
 }
 
-const Session: FC<SessionProps> = ({ previewMode = false }) => {
+interface SessionProps {
+  previewMode?: boolean;
+  sessionId?: string;       // Override router-based sessionId for embedded use
+  embedded?: boolean;       // Hide all chrome (input, toolbar, modals, paywall)
+  onScrollToBottom?: () => void; // Callback when auto-scroll fires
+}
+
+const Session = forwardRef<SessionHandle, SessionProps>(({ previewMode = false, sessionId: propSessionId, embedded = false, onScrollToBottom }, ref) => {
   const snackbar = useSnackbar()
   const api = useApi()
   const router = useRouter()
@@ -239,7 +246,7 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
   const { data: serverConfigData } = useGetConfig()
   const isCloud = serverConfigData?.edition === 'cloud'
 
-  let sessionID = router.params.session_id
+  let sessionID = propSessionId || router.params.session_id
 
   const { mutate: updateSession } = useUpdateSession(sessionID)
 
@@ -590,8 +597,10 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
   ])
 
   useEffect(() => {
-    setCurrentSessionId(sessionID);
-  }, [sessionID]);
+    if (!embedded) {
+      setCurrentSessionId(sessionID);
+    }
+  }, [sessionID, embedded]);
 
   // Create a wrapper for session.reload to preserve scroll position
   const safeReloadSession = useCallback(async (shouldScrollToBottom = false) => {
@@ -633,6 +642,11 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
       }, waitTime)
     }
   }, [])
+
+  // Expose scrollToBottom via ref for parent components
+  useImperativeHandle(ref, () => ({
+    scrollToBottom,
+  }), [scrollToBottom]);
 
   // Add effect to handle final scroll when streaming ends
   useEffect(() => {
@@ -1233,20 +1247,25 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
   ])
 
   useEffect(() => {
+    if (embedded) return
     if (loading) return
     textFieldRef.current?.focus()
   }, [
     loading,
+    embedded,
   ])
 
   useEffect(() => {
+    if (embedded) return
     textFieldRef.current?.focus()
   }, [
     router.params.session_id,
+    embedded,
   ])
 
   // Focus the text field when the component mounts regardless of loading state
   useEffect(() => {
+    if (embedded) return
     // Initial focus attempt
     textFieldRef.current?.focus()
 
@@ -1268,7 +1287,7 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
 
     // Cleanup all timers on unmount
     return () => focusTimers.forEach(timer => clearTimeout(timer))
-  }, [])
+  }, [embedded])
 
   // this is for where we tried to do something to a shared session
   // but we were not logged in - so now we've gone off and logged in
@@ -1357,12 +1376,11 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
 
   if (!session?.data) return null
 
-  return (
-    <Paywall active={paywallActive} onBillingClick={navigateToBilling}>
+  const content = (
     <Box
       sx={{
         width: '100%',
-        height: previewMode ? '100%' : '100vh',
+        height: embedded ? '100%' : (previewMode ? '100%' : '100vh'),
         display: 'flex',
         flexDirection: 'row',
       }}
@@ -1371,7 +1389,8 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
       <Box
         sx={{
           flexGrow: 1,
-          height: previewMode ? '100%' : '100vh',
+          height: embedded ? '100%' : (previewMode ? '100%' : '100vh'),
+          minHeight: 0,
           display: 'flex',
           flexDirection: 'column',
           overflow: 'hidden',
@@ -1385,7 +1404,7 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
             borderBottom: theme.palette.mode === 'light' ? themeConfig.lightBorder : themeConfig.darkBorder,
           }}
         >
-          {(!previewMode && (isOwner || account.admin)) && (
+          {(!previewMode && !embedded && (isOwner || account.admin)) && (
             <Box sx={{ py: 1, px: 2 }}>
               <SessionToolbar
                 session={session.data}
@@ -1423,7 +1442,8 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
             {renderInteractions()}
           </Box>
 
-          {/* Fixed bottom section */}
+          {/* Fixed bottom section - hidden in embedded mode */}
+          {!embedded && (
           <Box
             sx={{
               flexShrink: 0, // Prevent shrinking
@@ -1603,7 +1623,7 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
                   )} */}
                 </Row>
                 {/* Only show disclaimer if not in preview mode */}
-                {!previewMode && (
+                {!previewMode && !embedded && (
                   <Box sx={{ mt: 2 }}>
                     <Disclaimer />
                   </Box>
@@ -1611,10 +1631,11 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
               </Box>
             </Container>
           </Box>
+          )}
         </Box>
       </Box>
 
-      {showLoginWindow && (
+      {!embedded && showLoginWindow && (
         <Window
           open
           size="md"
@@ -1636,7 +1657,7 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
         </Window>
       )}
 
-      {showCloneWindow && (
+      {!embedded && showCloneWindow && (
         <Window
           open
           size="md"
@@ -1658,7 +1679,7 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
         </Window>
       )}
 
-      {showCloneAllWindow && (
+      {!embedded && showCloneAllWindow && (
         <Window
           open
           size="md"
@@ -1720,8 +1741,10 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
         </Window>
       )}
     </Box>
-    </Paywall>
-  )
-}
+  );
+
+  if (embedded) return content;
+  return <Paywall active={paywallActive} onBillingClick={navigateToBilling}>{content}</Paywall>;
+})
 
 export default Session

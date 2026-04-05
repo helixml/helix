@@ -1,4 +1,4 @@
-import React, { FC, useRef } from 'react'
+import React, { FC } from 'react'
 import { useRoute } from 'react-router5'
 import {
   Box,
@@ -16,7 +16,6 @@ import {
 
 import Page from '../components/system/Page'
 import ExternalAgentDesktopViewer from '../components/external-agent/ExternalAgentDesktopViewer'
-import EmbeddedSessionView, { EmbeddedSessionViewHandle } from '../components/session/EmbeddedSessionView'
 import RobustPromptInput from '../components/common/RobustPromptInput'
 import { useGetProject } from '../services'
 import useAccount from '../hooks/useAccount'
@@ -37,7 +36,6 @@ const TeamDesktopPage: FC = () => {
   const account = useAccount()
   const api = useApi()
   const streaming = useStreaming()
-  const sessionViewRef = useRef<EmbeddedSessionViewHandle>(null)
 
   const projectId = route.params.id as string
   const sessionId = route.params.sessionId as string

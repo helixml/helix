@@ -15,7 +15,7 @@ import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import DesktopStreamViewer from "./DesktopStreamViewer";
 import ScreenshotViewer from "./ScreenshotViewer";
 import SandboxDropZone from "./SandboxDropZone";
-import EmbeddedSessionView from "../session/EmbeddedSessionView";
+import Session from "../../pages/Session";
 import RobustPromptInput from "../common/RobustPromptInput";
 import useApi from "../../hooks/useApi";
 import useSnackbar from "../../hooks/useSnackbar";
@@ -704,7 +704,7 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
                 flexDirection: "column",
               }}
             >
-              <EmbeddedSessionView sessionId={sessionId} />
+              <Session sessionId={sessionId} embedded />
             </Box>
 
             {/* Prompt input */}
