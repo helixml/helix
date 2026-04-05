@@ -52,31 +52,41 @@ So the flow is:
 1. Select "dog" → `mouseUp` → `handleTextSelection` → `setShowCommentForm(true)` → effect fires → `applyHighlight(range)` ✓
 2. Select "street" → `mouseDown` skipped (form open) → `mouseUp` → `handleTextSelection` → `setShowCommentForm(true)` (already true, no state change) → effect does NOT re-fire → old "dog" highlight stays, new native selection shows "street"
 
+### Constraint: Don't clear the highlight prematurely
+
+The `onMouseDown` guard (`if (!showCommentForm) removeHighlight()`) was added intentionally — it prevents a click (e.g., into the comment text field) from clearing the highlight while the user is actively commenting. We must not regress that. The highlight should only be cleared when the user takes an action that **replaces** it (selecting new text) or **dismisses** it (closing the form, pressing Escape).
+
 ### Fix
 
-Call `removeHighlight()` at the start of `handleTextSelection`, before processing the new selection. This clears any existing CSS Highlight API highlight before the new one gets applied. The `applyHighlight` in the `useEffect` won't re-fire (since `showCommentForm` didn't change), so we also need to call `applyHighlight` directly from `handleTextSelection` when the form is already open.
+The fix is scoped to `handleTextSelection` only — when a new text selection is confirmed on `mouseUp`. The `onMouseDown` guard stays exactly as-is.
 
-In `handleTextSelection` (~line 822), add at the top of `processSelection`:
+In `handleTextSelection` (~line 822), inside `processSelection`, after confirming a valid new selection exists but before applying it:
+
 ```tsx
 const processSelection = () => {
-  removeHighlight(); // Clear stale highlight before processing new selection
   const selection = window.getSelection();
-  // ... existing code ...
-  if (containerRect) {
-    // ... existing position code ...
-    savedRangeRef.current = range.cloneRange();
-    setSelectedText(text);
-    setCommentFormPosition({ x: 0, y: yPosition });
-    setShowCommentForm(true);
-    // Apply highlight immediately (useEffect won't fire if form was already open)
-    applyHighlight(range.cloneRange());
+  const text = selection?.toString().trim();
+  if (text && text.length > 0 && selection.rangeCount > 0) {
+    // ... existing isInMarkdown check ...
+
+    if (containerRect) {
+      // Clear stale highlight only now — we know the user made a new valid selection
+      removeHighlight();
+
+      savedRangeRef.current = range.cloneRange();
+      setSelectedText(text);
+      setCommentFormPosition({ x: 0, y: yPosition });
+      setShowCommentForm(true);
+      // Apply highlight immediately — the useEffect won't re-fire
+      // since showCommentForm is already true
+      applyHighlight(range.cloneRange());
+    }
   }
 };
 ```
 
-Also remove the `if (!showCommentForm)` guard from the `onMouseDown` handler so that clicking (without selecting) always clears stale highlights:
-```tsx
-onMouseDown={() => { removeHighlight(); }}
-```
-
-The `useEffect` on `showCommentForm` (line 212-217) still handles the initial case (form going from closed → open), so it remains unchanged.
+Key points:
+- `removeHighlight()` is called **only** when we have a confirmed new selection to replace it with — not on empty clicks
+- `applyHighlight()` is called directly instead of relying on the `useEffect` (which won't re-fire since `showCommentForm` is already `true`)
+- The `onMouseDown` guard remains unchanged — clicking into the comment form or elsewhere while the form is open does NOT clear the highlight
+- The `useEffect` on `showCommentForm` (line 212-217) still handles the initial open case (closed → open transition)
