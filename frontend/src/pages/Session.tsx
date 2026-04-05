@@ -445,7 +445,8 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
     const lastInteraction = session?.data?.interactions[session?.data?.interactions.length - 1]
     const shouldBeStreaming = lastInteraction.state !== INTERACTION_STATE_EDITING &&
                              lastInteraction.state !== INTERACTION_STATE_COMPLETE &&
-                             lastInteraction.state !== INTERACTION_STATE_ERROR
+                             lastInteraction.state !== INTERACTION_STATE_ERROR &&
+                             lastInteraction.state !== 'interrupted'
 
     // Only update streaming state
     setIsStreaming(shouldBeStreaming)
@@ -785,7 +786,7 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
 
       for (const interaction of interactionsBeforeTarget) {
         // If interaction.state is completed, it has both prompt_message and response_message
-        if (interaction.state === 'complete' || interaction.state === 'error') {
+        if (interaction.state === 'complete' || interaction.state === 'error' || interaction.state === 'interrupted') {
           // Add user message (prompt_message)
           if (interaction.prompt_message) {
             messages.push({

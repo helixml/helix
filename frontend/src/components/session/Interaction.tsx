@@ -324,6 +324,23 @@ export const Interaction: FC<InteractionProps> = ({
                     before finishing
                   </Alert>
                 )}
+                {interaction.state === TypesInteractionState.InteractionStateInterrupted && (
+                  <Alert
+                    severity="info"
+                    icon={false}
+                    sx={{
+                      mt: 1,
+                      py: 0.25,
+                      px: 1.5,
+                      fontSize: "0.75rem",
+                      "& .MuiAlert-message": {
+                        padding: "2px 0",
+                      },
+                    }}
+                  >
+                    Interrupted
+                  </Alert>
+                )}
               </>
             )}
           </InteractionContainer>

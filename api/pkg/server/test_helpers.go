@@ -134,6 +134,12 @@ func (s *HelixAPIServer) FindConnectedSessionForSpecTask(ctx context.Context, sp
 	return s.findConnectedSessionForSpecTask(ctx, specTask)
 }
 
+// SendCancelToExternalAgent sends a cancel_current_turn command and waits
+// for the turn_cancelled response. Exposed for E2E tests.
+func (s *HelixAPIServer) SendCancelToExternalAgent(sessionID, requestID string, timeout time.Duration) (string, error) {
+	return s.sendCancelToExternalAgent(sessionID, requestID, timeout)
+}
+
 // SyncEventHook is a callback invoked after each sync event is processed.
 // Set via SetSyncEventHook for test observability. The hook field is on
 // HelixAPIServer (syncEventHook), nil in production.
