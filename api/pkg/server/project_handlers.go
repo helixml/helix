@@ -1415,10 +1415,10 @@ func (s *HelixAPIServer) startExploratorySession(_ http.ResponseWriter, r *http.
 				log.Info().Int("secret_count", len(projectSecrets)).Str("project_id", projectID).Msg("Injected project secrets into exploratory desktop env (restart)")
 			}
 
-			// Add user's API token for git operations
-			if err := s.addUserAPITokenToAgent(r.Context(), zedAgent, user.ID); err != nil {
-				log.Error().Err(err).Str("user_id", user.ID).Msg("Failed to add user API token for restart")
-				return nil, system.NewHTTPError500(fmt.Sprintf("failed to get user API keys: %v", err))
+			// Add user's API token inside session lock via OnBeforeCreate hook
+			userID := user.ID
+			zedAgent.OnBeforeCreate = func(hookCtx context.Context, a *types.DesktopAgent) error {
+				return s.addUserAPITokenToAgent(hookCtx, a, userID)
 			}
 
 			agentResp, err := s.externalAgentExecutor.StartDesktop(r.Context(), zedAgent)
@@ -1580,10 +1580,10 @@ func (s *HelixAPIServer) startExploratorySession(_ http.ResponseWriter, r *http.
 		log.Info().Int("secret_count", len(projectSecrets)).Str("project_id", projectID).Msg("Injected project secrets into exploratory desktop env")
 	}
 
-	// Add user's API token for git operations (RBAC enforced)
-	if err := s.addUserAPITokenToAgent(r.Context(), zedAgent, user.ID); err != nil {
-		log.Error().Err(err).Str("user_id", user.ID).Msg("Failed to add user API token")
-		return nil, system.NewHTTPError500(fmt.Sprintf("failed to get user API keys: %v", err))
+	// Add user's API token inside session lock via OnBeforeCreate hook
+	exploratoryUserID := user.ID
+	zedAgent.OnBeforeCreate = func(hookCtx context.Context, a *types.DesktopAgent) error {
+		return s.addUserAPITokenToAgent(hookCtx, a, exploratoryUserID)
 	}
 
 	// Start the desktop agent
