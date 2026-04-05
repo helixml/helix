@@ -29,6 +29,7 @@ type AttentionEvent struct {
 	// Denormalized for display without joins
 	ProjectName  string `json:"project_name,omitempty" gorm:"size:255"`
 	SpecTaskName string `json:"spec_task_name,omitempty" gorm:"size:500"`
+	AssigneeName string `json:"assignee_name,omitempty" gorm:"size:255"`
 }
 
 type AttentionEventType string

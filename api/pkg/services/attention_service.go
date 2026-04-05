@@ -71,6 +71,17 @@ func (s *AttentionService) EmitEvent(
 		}
 	}
 
+	// Resolve assignee name for display in notification UI.
+	var assigneeName string
+	if task.AssigneeID != "" {
+		if assignee, err := s.store.GetUser(ctx, &store.GetUserQuery{ID: task.AssigneeID}); err == nil {
+			assigneeName = assignee.FullName
+			if assigneeName == "" {
+				assigneeName = assignee.Username
+			}
+		}
+	}
+
 	event := &types.AttentionEvent{
 		ID:             system.GenerateAttentionEventID(),
 		UserID:         userID,
@@ -84,6 +95,7 @@ func (s *AttentionService) EmitEvent(
 		IdempotencyKey: types.BuildAttentionEventIdempotencyKey(task.ID, eventType, qualifier),
 		ProjectName:    project.Name,
 		SpecTaskName:   task.Name,
+		AssigneeName:   assigneeName,
 	}
 	if metadataJSON != nil {
 		event.Metadata = metadataJSON
