@@ -27,7 +27,7 @@ type StreamingState = {
 } | null
 ```
 
-### On Completion (lines ~462–477 and ~521–533 in DesignReviewContent.tsx)
+### On Completion (lines ~484–497 and ~550–557 in DesignReviewContent.tsx)
 
 ```typescript
 // Before (clears immediately):
@@ -73,18 +73,18 @@ This ensures the streaming indicator disappears immediately when the response fi
 
 ## Passing isComplete to Child Components
 
-`InlineCommentBubble` receives `streamingResponse?: string` (just the content string) and `streamingEntries`. It does not currently receive `isComplete`. Options:
-- **Option A** (minimal): Pass `isStreaming` as an explicit prop computed in `DesignReviewContent` using the `isComplete` flag — this matches existing patterns and avoids changing child component interfaces unnecessarily.
-- **Option B**: Pass the full `StreamingResponse` object (including `isComplete`) to the bubble.
+`InlineCommentBubble` receives `streamingResponse?: string` (just the content string) and `streamingEntries`. A new `isStreamingComplete?: boolean` prop is added so the bubble can suppress the streaming indicator while keeping content visible.
 
-Recommend **Option A**: Compute `isStreaming` in `DesignReviewContent` and pass it down, keeping child components simple.
+`CommentLogSidebar` already receives the full `StreamingResponse` object, so its `isComplete` field is accessed directly.
 
-## No Backend Changes Needed
+## Relationship to Prior Backend Fix
 
-The backend correctly populates `agent_response` via `updateCommentWithStreamingResponse()` during streaming and `finalizeCommentResponse()` at completion. The 2-minute timeout is guarded (`RequestID != "" && AgentResponse == ""`). This is a pure frontend display race.
+Commit `ec845a4aa` ("fix: finalize comment before frontend publish") fixed the backend ordering so `finalizeCommentResponse` runs synchronously **before** the completion event is published. This ensures `agent_response` is in the DB when the frontend refetches.
+
+However, the frontend still has a race window between `setStreamingResponse(null)` clearing the content and React Query's async refetch completing. Our fix closes this remaining gap on the frontend side — both fixes are complementary and neither alone fully eliminates the visual glitch.
 
 ## Codebase Pattern Notes
 
 - This project uses React Query with `refetchInterval` for polling and `invalidateQueries` after mutations (per CLAUDE.md — no `setQueryData`).
 - WebSocket streaming uses `accumulatedResponse` + `streamEntries` local variables (inside the `useEffect` closure) for real-time state; the `streamingResponse` React state is updated via `setStreamingResponse`.
-- Both `session_update` (lines ~393–477) and `interaction_update` (lines ~481–533) completion handlers in `DesignReviewContent.tsx` need the same fix.
+- Both `session_update` (lines ~414–497) and `interaction_update` (lines ~500–557) completion handlers in `DesignReviewContent.tsx` need the same fix.
