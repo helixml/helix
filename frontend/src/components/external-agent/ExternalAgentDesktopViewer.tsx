@@ -563,6 +563,7 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
   // Show overlays for state changes instead of unmounting (prevents fullscreen exit)
   const showReconnectingOverlay = !isRunning && hasEverBeenRunning;
 
+
   return (
     <Box
       sx={{
