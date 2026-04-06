@@ -43,6 +43,15 @@ func (c *Client) ListRepositories(ctx context.Context) ([]*github.Repository, er
 }
 ```
 
+## Implementation Notes
+
+- The org filter dropdown only renders when there are 2+ distinct owners — avoids clutter for single-org users
+- `orgFilter` state is reset to `"all"` in all 3 navigation reset paths (back to providers, back to choose-method, default reset)
+- Errors from org/repo listing are non-fatal — if an org can't be listed, we skip it and return what we have
+- The `deduplicateRepos()` function uses `GetID()` (GitHub's stable numeric repo ID), not `full_name`
+- Frontend extracts owner from `full_name.split("/")[0]` — works for GitHub (`org/repo`), GitLab (`group/project`), and Azure DevOps (`project/repo`)
+- The `dist` directory has a pre-existing permission issue (bind mount) preventing `yarn build` from writing output, but `tsc --noEmit` confirms zero type errors
+
 ### Why This Approach
 
 - **`ListByOrg`** (`GET /orgs/{org}/repos`) returns all repos visible to the authenticated user, including public ones — this is the key missing piece

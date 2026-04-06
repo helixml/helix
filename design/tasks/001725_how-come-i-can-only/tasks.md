@@ -10,9 +10,9 @@
 
 ## Frontend — Org filter dropdown
 
-- [~] In `BrowseProvidersDialog.tsx`, add state for selected org filter (default: "All")
-- [~] Extract unique owners from `full_name` field (split on `/`, take first segment) and populate dropdown options
-- [~] Add a `Select` dropdown next to the existing search field
-- [~] Update `filteredRepos` logic to apply org filter before text search
+- [x] In `BrowseProvidersDialog.tsx`, add state for selected org filter (default: "All")
+- [x] Extract unique owners from `full_name` field (split on `/`, take first segment) and populate dropdown options
+- [x] Add a `Select` dropdown next to the existing search field
+- [x] Update `filteredRepos` logic to apply org filter before text search
 - [ ] Verify filter works for GitHub, GitLab, and Azure DevOps repos
 - [ ] Verify no duplicate repos appear in the browser UI
