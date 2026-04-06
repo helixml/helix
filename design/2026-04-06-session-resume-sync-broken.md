@@ -153,16 +153,33 @@ WS events NOT sent: message_added (0), message_completed (0)
 Helix task status: pull_request (stuck in 30s retry loop, no commits on branch)
 ```
 
-## BUG 4: Thread goes completely dead after initial load
+## BUG 4: Zed-side messages don't trigger sync; Helix-side messages do
 
-After the initial `load_session()` and the first few messages (which DID work — ".", "open it in chrome", etc.), the thread stops processing entirely. The user sent a "." message much later and it was **completely swallowed** — never reached claude-acp's JSONL, never generated a Zed log entry. The Zed log stopped writing at 14:49:18 and never resumed despite the Zed process still running (PID active, 4.9% CPU).
+The thread is NOT dead. User can send messages from Zed's agent panel and claude-acp responds correctly. But these messages **never trigger `message_added` WebSocket events**.
 
-The `failed to get old checkpoint` errors at `acp_thread.rs:2147` correlate exactly with the timestamps of user messages:
-- 14:47:14 — matches "open it in chrome" timing
-- 14:47:46 — matches "startup script still loading" timing  
-- 14:49:18 — matches "log in using test creds" timing
+However, when a message is sent from the **Helix side** (via the chat UI), it:
+1. Arrives as a `chat_message` over the WebSocket
+2. Gets injected into the AcpThread via a different code path
+3. **Triggers the subscription correctly** — `message_added` and `message_completed` events flow
+4. Creates a proper interaction in the DB
 
-After that, silence. The checkpoint errors suggest the AcpThread can't save state properly after `load_session()`, and eventually this causes the thread to stop processing entirely.
+**Test at 14:40 UTC:** User sent "new message 7:40" from Helix chat UI. This produced:
+- Interaction `int_01knhks8ffa6axj7qcqh85n95s` created in DB (state: complete)
+- Multiple `message_added` events sent (message IDs 57, 58, 59)
+- `message_completed` event sent with correct request_id
+- Zed log showed full WebSocket sync activity
+
+**Conclusion:** The `ensure_thread_subscription` subscription IS alive and working. The issue is that messages typed directly in Zed's agent panel after `load_session()` don't emit `AcpThreadEvent::NewEntry`/`EntryUpdated`/`Stopped` through the GPUI event system. The chat_message→inject path uses a different mechanism that DOES trigger these events.
+
+This suggests the `Entity<AcpThread>` loaded via `load_session()` has a different internal event wiring than one created normally. The Zed UI can send messages to it (and claude-acp processes them), but the GPUI entity event emissions are broken for locally-initiated messages.
+
+### Swallowed "." message
+
+A "." message sent from Zed was completely swallowed — never reached claude-acp's JSONL, never generated a Zed log entry. Later messages ("new message 7:38") DID reach claude-acp. This is intermittent.
+
+### Checkpoint errors
+
+`failed to get old checkpoint` errors at `acp_thread.rs:2147` fire on every user message. These correlate with message timestamps but don't prevent claude-acp from responding.
 
 ## Impact
 
