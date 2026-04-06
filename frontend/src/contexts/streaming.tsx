@@ -382,12 +382,6 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({
           },
         );
 
-        // Also update the paginated interactions cache (used by EmbeddedSessionView)
-        // Invalidate all pages for this session so they refetch with fresh data
-        queryClient.invalidateQueries({
-          queryKey: ["interactions", currentSessionId],
-        });
-
         // Also update currentResponses for live streaming display
         if (updatedInteraction.id) {
           // When interaction is complete, update synchronously (not via RAF) to avoid
