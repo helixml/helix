@@ -191,10 +191,19 @@ Even when messages DO sync correctly from Zed to the Helix API (as with messages
 - Both interactions appeared correctly after a **page refresh**
 - The user WebSocket endpoint (`/api/v1/ws/user`) is returning repeated **401 errors**: `WebSocket: no authenticated user` — this may be the cause, or may be a different client
 
-The frontend pubsub for this session is broken — the session update channel isn't reaching the browser. This could be:
-1. The user's WebSocket connection dropped and can't re-authenticate
-2. The pubsub topic for this session isn't correctly subscribed by the frontend
-3. A session ownership mismatch causing the published updates to target the wrong WebSocket channel
+**UPDATE:** The user WebSocket IS connected and `interaction_patch` messages ARE flowing to the browser (confirmed by user inspecting WS frames). The 401 errors on `/api/v1/ws/user` in the API logs are from a different client (possibly another tab or the spectask agent).
+
+So the data reaches the browser over the WebSocket, but the **frontend does not render the updates**. The chat view remains stale until a page refresh forces a full re-fetch from the DB. This is a frontend rendering bug — the React components are not reacting to the incoming `interaction_update` and `interaction_patch` WebSocket messages for this session.
+
+**Root cause found:** React Query cache key mismatch.
+
+- `streaming.tsx` (WebSocket handler) updates `GET_SESSION_QUERY_KEY(sessionId)` via `queryClient.setQueryData` (line 362)
+- `EmbeddedSessionView.tsx` (chat renderer) reads from `LIST_INTERACTIONS_QUERY_KEY(sessionId)` via `useListInteractions` (line 270)
+- These are **different React Query caches** — the WebSocket updates go to a cache nobody reads, while the cache the UI reads is never updated by WebSocket events
+- The query invalidation at lines 544-549 in streaming.tsx invalidates `GET_SESSION_QUERY_KEY`, not `LIST_INTERACTIONS_QUERY_KEY`
+- Page refresh works because `useListInteractions` re-fetches from the API
+
+This is likely a regression from when `EmbeddedSessionView` was refactored to use paginated `useListInteractions` instead of the full session endpoint.
 
 ## Impact
 
