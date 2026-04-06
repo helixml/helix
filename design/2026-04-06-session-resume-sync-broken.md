@@ -153,6 +153,17 @@ WS events NOT sent: message_added (0), message_completed (0)
 Helix task status: pull_request (stuck in 30s retry loop, no commits on branch)
 ```
 
+## BUG 4: Thread goes completely dead after initial load
+
+After the initial `load_session()` and the first few messages (which DID work — ".", "open it in chrome", etc.), the thread stops processing entirely. The user sent a "." message much later and it was **completely swallowed** — never reached claude-acp's JSONL, never generated a Zed log entry. The Zed log stopped writing at 14:49:18 and never resumed despite the Zed process still running (PID active, 4.9% CPU).
+
+The `failed to get old checkpoint` errors at `acp_thread.rs:2147` correlate exactly with the timestamps of user messages:
+- 14:47:14 — matches "open it in chrome" timing
+- 14:47:46 — matches "startup script still loading" timing  
+- 14:49:18 — matches "log in using test creds" timing
+
+After that, silence. The checkpoint errors suggest the AcpThread can't save state properly after `load_session()`, and eventually this causes the thread to stop processing entirely.
+
 ## Impact
 
 - User's work in Zed is completely invisible in the Helix chat view
