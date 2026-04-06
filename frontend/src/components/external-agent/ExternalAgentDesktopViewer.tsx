@@ -13,6 +13,7 @@ import ChatIcon from "@mui/icons-material/Chat";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 
 import DesktopStreamViewer from "./DesktopStreamViewer";
+import { isMobileOrTablet } from "../../utils/isMobileOrTablet";
 import ScreenshotViewer from "./ScreenshotViewer";
 import SandboxDropZone from "./SandboxDropZone";
 import EmbeddedSessionView from "../session/EmbeddedSessionView";
@@ -370,8 +371,10 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
               width: "100%",
               height: "100%",
               objectFit: "contain",
-              filter: "grayscale(0.5) brightness(0.7) blur(1px)",
-              opacity: 0.6,
+              // Triple CSS filter + opacity forces GPU compositing — simplify on mobile
+              ...(isMobileOrTablet()
+                ? { opacity: 0.4 }
+                : { filter: "grayscale(0.5) brightness(0.7) blur(1px)", opacity: 0.6 }),
             }}
             onError={(e: React.SyntheticEvent<HTMLImageElement>) => {
               e.currentTarget.style.display = "none";
@@ -559,6 +562,7 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
   // Once running (or has ever been running) - ALWAYS keep DesktopStreamViewer mounted
   // Show overlays for state changes instead of unmounting (prevents fullscreen exit)
   const showReconnectingOverlay = !isRunning && hasEverBeenRunning;
+
 
   return (
     <Box

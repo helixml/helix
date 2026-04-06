@@ -99,18 +99,25 @@ func (h *HydraExecutor) SetQuotaManager(quotaManager QuotaManager) {
 	h.quotaManager = quotaManager
 }
 
-// StartDesktop starts a dev container using Hydra
-func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAgent) (*types.DesktopAgentResponse, error) {
-	// Get or create a per-session lock to prevent concurrent container creation
+// getOrCreateSessionLock returns a per-session mutex, creating one if needed.
+// Used by both StartDesktop and StopDesktop to serialize operations on the same
+// session and prevent races (e.g. key revocation racing with container creation).
+func (h *HydraExecutor) getOrCreateSessionLock(sessionID string) *sync.Mutex {
 	h.creationLocksMutex.Lock()
-	sessionLock, exists := h.creationLocks[agent.SessionID]
+	sessionLock, exists := h.creationLocks[sessionID]
 	if !exists {
 		sessionLock = &sync.Mutex{}
-		h.creationLocks[agent.SessionID] = sessionLock
+		h.creationLocks[sessionID] = sessionLock
 	}
 	h.creationLocksMutex.Unlock()
+	return sessionLock
+}
 
+// StartDesktop starts a dev container using Hydra
+func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAgent) (*types.DesktopAgentResponse, error) {
 	// Lock this specific session to prevent duplicate container creation
+	// and to serialize with StopDesktop (prevents key revocation races).
+	sessionLock := h.getOrCreateSessionLock(agent.SessionID)
 	sessionLock.Lock()
 	defer sessionLock.Unlock()
 
@@ -136,6 +143,15 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 			StreamURL:     fmt.Sprintf("/api/v1/sessions/%s/stream", agent.SessionID),
 			Status:        "running",
 		}, nil
+	}
+
+	// Call OnBeforeCreate hook inside the lock to refresh API keys.
+	// This prevents a race where StopDesktop revokes the key between
+	// addUserAPITokenToAgent (outside the lock) and container creation (inside).
+	if agent.OnBeforeCreate != nil {
+		if err := agent.OnBeforeCreate(ctx, agent); err != nil {
+			return nil, fmt.Errorf("pre-create hook failed: %w", err)
+		}
 	}
 
 	// Check limits for the user/org
@@ -494,6 +510,14 @@ func (h *HydraExecutor) StopDesktop(ctx context.Context, sessionID string) error
 	defer stopCancel()
 	ctx = stopCtx //nolint:govet // intentional shadow — caller ctx not needed
 
+	// Acquire the per-session lock to serialize with StartDesktop.
+	// This prevents a race where StopDesktop revokes API keys while a concurrent
+	// StartDesktop is creating a container with those same keys — leaving the
+	// container with a revoked key and unable to authenticate via RevDial.
+	sessionLock := h.getOrCreateSessionLock(sessionID)
+	sessionLock.Lock()
+	defer sessionLock.Unlock()
+
 	log.Info().Str("session_id", sessionID).Msg("Stopping dev container via Hydra")
 
 	h.mutex.Lock()
@@ -546,10 +570,10 @@ func (h *HydraExecutor) StopDesktop(ctx context.Context, sessionID string) error
 		// Don't fail the stop operation - key cleanup is best-effort
 	}
 
-	// Clean up creation lock
-	h.creationLocksMutex.Lock()
-	delete(h.creationLocks, sessionID)
-	h.creationLocksMutex.Unlock()
+	// Note: we intentionally do NOT delete the creation lock here.
+	// The lock is still held (deferred unlock), and future StartDesktop calls
+	// will reuse or create a new one. The map grows only by number of unique
+	// sessions which is bounded.
 
 	// Clear external_agent_status and persist the paused screenshot path together.
 	if dbSession, err := h.store.GetSession(ctx, sessionID); err == nil {

@@ -710,12 +710,11 @@ If the user asks for information about Helix or installing Helix, refer them to 
 				}
 			}
 
-			// Add user's API token for LLM and git operations (merges with any custom env vars)
+			// Add user's API token inside session lock via OnBeforeCreate hook
 			// This is REQUIRED - without it, Zed's agent won't be able to make LLM calls
-			if addErr := s.addUserAPITokenToAgent(req.Context(), zedAgent, session.Owner); addErr != nil {
-				log.Error().Err(addErr).Str("user_id", session.Owner).Msg("Failed to add user API token")
-				http.Error(rw, fmt.Sprintf("failed to get user API keys: %s", addErr.Error()), http.StatusInternalServerError)
-				return
+			sessionOwner := session.Owner
+			zedAgent.OnBeforeCreate = func(hookCtx context.Context, a *types.DesktopAgent) error {
+				return s.addUserAPITokenToAgent(hookCtx, a, sessionOwner)
 			}
 
 			// Register session in executor so RDP endpoint can find it
@@ -1935,11 +1934,12 @@ func (s *HelixAPIServer) resumeSession(rw http.ResponseWriter, req *http.Request
 		}
 	}
 
-	// Add user's API token to agent environment for git operations
-	if err := s.addUserAPITokenToAgent(ctx, agent, session.Owner); err != nil {
-		log.Error().Err(err).Str("user_id", session.Owner).Msg("Failed to add user API token to agent")
-		http.Error(rw, fmt.Sprintf("failed to get user API keys: %v", err), http.StatusInternalServerError)
-		return
+	// Add user's API token inside the session lock (via OnBeforeCreate hook)
+	// to prevent a race where StopDesktop revokes the key between token creation
+	// and container creation.
+	ownerID := session.Owner
+	agent.OnBeforeCreate = func(hookCtx context.Context, a *types.DesktopAgent) error {
+		return s.addUserAPITokenToAgent(hookCtx, a, ownerID)
 	}
 
 	log.Info().

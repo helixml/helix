@@ -182,6 +182,10 @@ You can test your UI changes and capture screenshots as proof of work:
 
 Screenshots are optional but valuable for UI work - they help reviewers see what changed.
 
+## Web Search
+
+You can use the ` + "`chrome-devtools`" + ` MCP server to search the web via DuckDuckGo. Navigate to ` + "`https://duckduckgo.com`" + `, type your query, and read the results. Use this to look up documentation, APIs, or solutions.
+
 ## Don't Over-Engineer
 
 - "Start a container" → docker-compose.yaml, NOT a Python wrapper

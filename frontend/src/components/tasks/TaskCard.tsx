@@ -136,6 +136,8 @@ export interface SpecTaskWithExtras {
   // Sandbox state — populated by the listTasks backend handler, avoids per-card session polling
   sandbox_state?: string; // "absent" | "running" | "starting"
   sandbox_status_message?: string; // Transient startup message
+  // Status tracking
+  status_updated_at?: string;
   // Task number for display
   task_number?: number;
   description?: string;
@@ -1198,6 +1200,66 @@ function TaskCardInner({
                 Planning column at capacity ({planningColumn?.limit})
               </Typography>
             )}
+          </Box>
+        )}
+
+        {/* Planning phase - waiting for agent to push specs */}
+        {task.status === "spec_generation" && (
+          <Box sx={{ mt: 1.5 }}>
+            {(() => {
+              // Calculate seconds since spec generation started
+              const statusUpdatedAt = task.status_updated_at
+                ? new Date(task.status_updated_at).getTime()
+                : 0;
+              const secondsSinceStart = statusUpdatedAt
+                ? (Date.now() - statusUpdatedAt) / 1000
+                : 0;
+              const isWaitingTooLong = secondsSinceStart > 120; // 2 minutes
+
+              return isWaitingTooLong ? (
+                <Alert severity="warning" sx={{ py: 0.5 }}>
+                  <Typography
+                    variant="caption"
+                    sx={{ fontSize: "0.7rem", display: "block" }}
+                  >
+                    Agent hasn't pushed specs yet. Please check if the agent is
+                    having trouble.
+                  </Typography>
+                </Alert>
+              ) : (
+                <Box
+                  sx={{
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    gap: 1,
+                  }}
+                >
+                  <CircularProgress size={20} />
+                  <Typography
+                    variant="caption"
+                    sx={{
+                      fontSize: "0.7rem",
+                      color: "text.secondary",
+                      fontStyle: "italic",
+                      textAlign: "center",
+                    }}
+                  >
+                    Waiting for agent to push specs...
+                  </Typography>
+                </Box>
+              );
+            })()}
+            <Box sx={{ mt: 1 }}>
+              <SpecTaskActionButtons
+                task={{
+                  id: task.id,
+                  status: "spec_generation",
+                  archived: task.archived,
+                }}
+                variant="stacked"
+              />
+            </Box>
           </Box>
         )}
 

@@ -539,10 +539,10 @@ func (apiServer *HelixAPIServer) startClaudeLogin(_ http.ResponseWriter, req *ht
 		Env:            []string{"HELIX_SKIP_ZED=1"},
 	}
 
-	// Add user's API token
-	if addErr := apiServer.addUserAPITokenToAgent(req.Context(), zedAgent, user.ID); addErr != nil {
-		log.Error().Err(addErr).Str("user_id", user.ID).Msg("Failed to add user API token for Claude login session")
-		return nil, system.NewHTTPError500("failed to configure session")
+	// Add user's API token inside session lock via OnBeforeCreate hook
+	claudeUserID := user.ID
+	zedAgent.OnBeforeCreate = func(hookCtx context.Context, a *types.DesktopAgent) error {
+		return apiServer.addUserAPITokenToAgent(hookCtx, a, claudeUserID)
 	}
 
 	// Start the desktop container

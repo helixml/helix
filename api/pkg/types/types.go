@@ -1,6 +1,7 @@
 package types
 
 import (
+	"context"
 	"database/sql"
 	"database/sql/driver"
 	"encoding/json"
@@ -1992,6 +1993,12 @@ type DesktopAgent struct {
 
 	// Golden build mode: session builds a golden Docker cache snapshot
 	GoldenBuild bool `json:"golden_build,omitempty"`
+
+	// OnBeforeCreate is called inside the session lock, after the "already running"
+	// check passes, right before creating the container. Used to refresh API keys
+	// that may have been revoked by a concurrent StopDesktop.
+	// If nil, no callback is executed.
+	OnBeforeCreate func(ctx context.Context, agent *DesktopAgent) error `json:"-"`
 }
 
 // GetEffectiveResolution returns the display dimensions based on Resolution preset

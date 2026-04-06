@@ -493,18 +493,11 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		primaryRepoID = projectRepos[0].ID
 	}
 
-	// Get session-scoped ephemeral API key for this dev container
-	// Key is minted now and will be revoked when the desktop shuts down
-	userAPIKey, err := s.GetOrCreateSessionAPIKey(ctx, &SessionAPIKeyRequest{
-		OrganizationID: orgID,
-		UserID:         task.CreatedBy,
-		SessionID:      session.ID,
-	})
-	if err != nil {
-		log.Error().Err(err).Str("user_id", task.CreatedBy).Str("session_id", session.ID).Msg("Failed to get session API key for SpecTask")
-		s.markTaskFailed(ctx, task, fmt.Sprintf("Failed to get session API key: %v", err))
-		return
-	}
+	// API key creation is deferred to OnBeforeCreate hook (inside StartDesktop's
+	// session lock) to prevent races with concurrent StopDesktop.
+	launchOrgID := orgID
+	launchTask := task
+	launchSession := session
 
 	// Get display settings from app's ExternalAgentConfig (or use defaults)
 	displayWidth := 1920
@@ -547,8 +540,8 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 
 	// Create ZedAgent struct with session info for Wolf executor
 	log.Debug().Str("task_id", task.ID).Msg("DEBUG: About to create ZedAgent struct")
-	// Build env vars (base + locale + project secrets)
-	envVars := buildEnvWithLocale(userAPIKey, task.PlanningOptions)
+	// Build env vars (locale + project secrets, API key added in OnBeforeCreate hook)
+	envVars := buildEnvWithLocale("", task.PlanningOptions)
 
 	// Inject project secrets as environment variables
 	if s.GetProjectSecrets != nil && task.ProjectID != "" {
@@ -591,7 +584,19 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		Resolution:          resolution,
 		ZoomLevel:           zoomLevel,
 		DesktopType:         desktopType,
-		Env:                 envVars,
+		Env: envVars,
+		OnBeforeCreate: func(hookCtx context.Context, a *types.DesktopAgent) error {
+			apiKey, err := s.GetOrCreateSessionAPIKey(hookCtx, &SessionAPIKeyRequest{
+				OrganizationID: launchOrgID,
+				UserID:         launchTask.CreatedBy,
+				SessionID:      launchSession.ID,
+			})
+			if err != nil {
+				return fmt.Errorf("failed to get session API key: %w", err)
+			}
+			a.Env = append(a.Env, types.DesktopAgentAPIEnvVars(apiKey)...)
+			return nil
+		},
 		// Branch configuration - startup script will checkout correct branch
 		BranchMode:    string(task.BranchMode),
 		BaseBranch:    task.BaseBranch,
@@ -1028,16 +1033,19 @@ Follow these guidelines when making changes:
 }
 
 // buildEnvWithLocale constructs the environment variable array for desktop containers
-// Includes the API token and optional locale settings (keyboard layout, timezone)
+// API token is added separately via OnBeforeCreate hook (inside the session lock)
 func buildEnvWithLocale(userAPIKey string, opts types.StartPlanningOptions) []string {
-	// Use shared helper for API-related env vars (same as addUserAPITokenToAgent in external_agent_handlers.go)
-	env := types.DesktopAgentAPIEnvVars(userAPIKey)
+	var env []string
+	// Only add API env vars if key is provided (legacy callers).
+	// New callers pass "" and use OnBeforeCreate hook for race-safe key injection.
+	if userAPIKey != "" {
+		env = types.DesktopAgentAPIEnvVars(userAPIKey)
+	}
 
-	// Log token injection for debugging helix-in-helix issues
 	log.Info().
 		Int("token_env_vars_count", len(env)).
 		Bool("user_api_key_set", userAPIKey != "").
-		Msg("✅ buildEnvWithLocale: Added API tokens (USER_API_TOKEN, ANTHROPIC_API_KEY, etc.)")
+		Msg("buildEnvWithLocale: env vars prepared")
 
 	// Add keyboard layout if specified (from browser locale detection)
 	if opts.KeyboardLayout != "" {
@@ -1690,16 +1698,9 @@ func (s *SpecDrivenTaskService) ResumeSession(ctx context.Context, task *types.S
 		}
 	}
 
-	// Get or create session-scoped ephemeral API key for this dev container
-	// For resumed sessions, reuse any existing key or mint a new one
-	userAPIKey, err := s.GetOrCreateSessionAPIKey(ctx, &SessionAPIKeyRequest{
-		OrganizationID: task.OrganizationID,
-		UserID:         task.CreatedBy,
-		SessionID:      session.ID,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to get session API key for resume: %w", err)
-	}
+	// API key creation is deferred to OnBeforeCreate hook (inside StartDesktop's
+	// session lock) to prevent a race where StopDesktop revokes the key between
+	// creation and container start.
 
 	// Use display settings from session metadata or defaults
 	displayWidth := session.Metadata.AgentVideoWidth
@@ -1748,9 +1749,18 @@ func (s *SpecDrivenTaskService) ResumeSession(ctx context.Context, task *types.S
 		DisplayRefreshRate:  displayRefreshRate,
 		Resolution:          fmt.Sprintf("%dx%d", displayWidth, displayHeight),
 		ZoomLevel:           1.0,
-		DesktopType:         desktopType,
-		Env: []string{
-			fmt.Sprintf("USER_API_TOKEN=%s", userAPIKey),
+		DesktopType: desktopType,
+		OnBeforeCreate: func(hookCtx context.Context, a *types.DesktopAgent) error {
+			apiKey, err := s.GetOrCreateSessionAPIKey(hookCtx, &SessionAPIKeyRequest{
+				OrganizationID: task.OrganizationID,
+				UserID:         task.CreatedBy,
+				SessionID:      session.ID,
+			})
+			if err != nil {
+				return fmt.Errorf("failed to get session API key for resume: %w", err)
+			}
+			a.Env = append(a.Env, types.DesktopAgentAPIEnvVars(apiKey)...)
+			return nil
 		},
 		BranchMode:    string(task.BranchMode),
 		BaseBranch:    task.BaseBranch,

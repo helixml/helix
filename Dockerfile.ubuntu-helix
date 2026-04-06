@@ -940,11 +940,14 @@ RUN mkdir -p /home/retro/.gemini && \
 
 
 
+# Pre-create managed settings dir so the settings-sync-daemon (running as retro) can write to it
+RUN mkdir -p /etc/claude-code && chown retro:retro /etc/claude-code
+
 # Claude Code settings (bypassPermissions etc.) are written at runtime by
 # helix-workspace-setup.sh after symlinking ~/.claude to persistent storage.
 
 RUN mkdir -p /home/retro/.config/zed/themes && \
-    echo '{"theme":"Ayu Dark","telemetry":{"diagnostics":false,"metrics":false}}' > /home/retro/.config/zed/settings.json
+    echo '{"theme":"Ayu Dark","telemetry":{"diagnostics":false,"metrics":false},"agent_servers":{"claude-acp":{"type":"registry"}}}' > /home/retro/.config/zed/settings.json
 
 ENV GEMINI_TELEMETRY_ENABLED=false \
     CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 \

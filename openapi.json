@@ -15101,7 +15101,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "List interactions for a session",
+                "description": "List interactions for a session with pagination",
                 "tags": [
                     "interactions"
                 ],
@@ -15117,7 +15117,7 @@
                         }
                     },
                     {
-                        "description": "Page number",
+                        "description": "Page number (0-indexed)",
                         "name": "page",
                         "in": "query",
                         "schema": {
@@ -15125,11 +15125,19 @@
                         }
                     },
                     {
-                        "description": "Page size",
-                        "name": "page_size",
+                        "description": "Page size (default 100)",
+                        "name": "per_page",
                         "in": "query",
                         "schema": {
                             "type": "integer"
+                        }
+                    },
+                    {
+                        "description": "Sort order: 'asc' (oldest first, default) or 'desc' (newest first)",
+                        "name": "order",
+                        "in": "query",
+                        "schema": {
+                            "type": "string"
                         }
                     }
                 ],
@@ -15139,10 +15147,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "array",
-                                    "items": {
-                                        "$ref": "#/components/schemas/types.Interaction"
-                                    }
+                                    "$ref": "#/components/schemas/types.PaginatedInteractions"
                                 }
                             }
                         }

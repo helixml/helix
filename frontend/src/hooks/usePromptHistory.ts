@@ -38,6 +38,7 @@ export interface PromptHistoryEntry {
   interrupt?: boolean       // If true, this message interrupts current conversation
   queuePosition?: number    // Position in queue for ordering
   syncedToBackend?: boolean // If true, this entry has been synced to the backend
+  deleted?: boolean          // Tombstone: locally deleted, prevents re-import from backend
   // Retry tracking
   retryCount?: number       // Number of retry attempts
   nextRetryAt?: number      // Timestamp when retry will happen
@@ -186,8 +187,8 @@ export function usePromptHistory({
   const hasSyncedRef = useRef(false)
   const pendingSyncRef = useRef(false)
 
-  // Filter history for current session (for display purposes)
-  const sessionHistory = history.filter(h => h.sessionId === sessionId)
+  // Filter history for current session (for display purposes), excluding tombstoned entries
+  const sessionHistory = history.filter(h => h.sessionId === sessionId && !h.deleted)
   const pendingPrompts = sessionHistory.filter(h => h.status === 'pending')
   const failedPrompts = sessionHistory.filter(h => h.status === 'failed')
 
@@ -197,25 +198,34 @@ export function usePromptHistory({
       // Create a map of existing entries by ID
       const existingIds = new Set(prev.map(e => e.id))
       const backendIds = new Set(backendEntries.map(e => e.id))
+      // IDs that are locally tombstoned — never re-import these from backend
+      const deletedIds = new Set(prev.filter(e => e.deleted).map(e => e.id))
 
-      // Mark existing entries that are in backend as synced
+      // Mark existing entries that are in backend as synced (skip deleted ones)
       const updatedPrev = prev.map(e =>
-        backendIds.has(e.id) ? { ...e, syncedToBackend: true } : e
+        backendIds.has(e.id) && !e.deleted ? { ...e, syncedToBackend: true } : e
       )
 
       // Add any backend entries that don't exist locally (mark as synced)
+      // Also skip entries whose ID is locally tombstoned
       const newEntries = backendEntries
-        .filter(e => !existingIds.has(e.id))
+        .filter(e => !existingIds.has(e.id) && !deletedIds.has(e.id))
         .map(e => ({ ...e, syncedToBackend: true }))
 
+      // Clean up tombstones: if a deleted entry is no longer in the backend,
+      // the backend has confirmed the deletion — we can remove the tombstone.
+      const cleanedPrev = updatedPrev.filter(e =>
+        !e.deleted || backendIds.has(e.id)
+      )
+
       if (newEntries.length === 0) {
-        // Still save if we updated sync status
-        saveHistory(updatedPrev, specTaskId)
-        return updatedPrev
+        // Still save if we updated sync status or cleaned tombstones
+        saveHistory(cleanedPrev, specTaskId)
+        return cleanedPrev
       }
 
       // Merge and sort by timestamp
-      const merged = [...updatedPrev, ...newEntries].sort((a, b) => a.timestamp - b.timestamp)
+      const merged = [...cleanedPrev, ...newEntries].sort((a, b) => a.timestamp - b.timestamp)
 
       // Keep only recent entries
       const trimmed = merged.slice(-MAX_HISTORY_SIZE)
@@ -258,8 +268,8 @@ export function usePromptHistory({
     if (!navigator.onLine) return
 
     try {
-      // Get entries to sync (all non-synced entries with sent/pending/failed status)
-      const toSync = history.filter(h => !h.syncedToBackend)
+      // Get entries to sync (all non-synced, non-deleted entries)
+      const toSync = history.filter(h => !h.syncedToBackend && !h.deleted)
       if (toSync.length === 0) {
         pendingSyncRef.current = false
         return
@@ -279,7 +289,9 @@ export function usePromptHistory({
 
         // Merge backend entry status into local entries (especially important for 'sent' status)
         setHistory(prev => {
+          const deletedIds = new Set(prev.filter(e => e.deleted).map(e => e.id))
           const updated = prev.map(h => {
+            if (h.deleted) return h // Don't update tombstoned entries
             const backendEntry = backendEntriesMap.get(h.id)
             if (backendEntry) {
               // Merge status and retry info from backend - this is critical for queue items
@@ -295,9 +307,9 @@ export function usePromptHistory({
             return h
           })
 
-          // Also merge any new entries from backend
+          // Also merge any new entries from backend (skip tombstoned IDs)
           const existingIds = new Set(updated.map(e => e.id))
-          const newEntries = backendEntries.filter(e => !existingIds.has(e.id))
+          const newEntries = backendEntries.filter(e => !existingIds.has(e.id) && !deletedIds.has(e.id))
 
           if (newEntries.length > 0) {
             const merged = [...updated, ...newEntries.map(e => ({ ...e, syncedToBackend: true }))]
@@ -405,6 +417,7 @@ export function usePromptHistory({
           setHistory(prev => {
             let updated = false
             const newHistory = prev.map(h => {
+              if (h.deleted) return h // Don't update tombstoned entries
               const backendEntry = backendEntriesMap.get(h.id)
               // Check if status or retry info changed
               if (backendEntry && (
@@ -632,10 +645,13 @@ export function usePromptHistory({
     })
   }, [specTaskId])
 
-  // Remove a message from queue entirely
+  // Remove a message from queue by marking it as deleted (tombstone).
+  // The entry stays in localStorage to prevent re-import from backend on sync.
   const removeFromQueue = useCallback((id: string) => {
     setHistory(prev => {
-      const updated = prev.filter(h => h.id !== id)
+      const updated = prev.map(h =>
+        h.id === id ? { ...h, deleted: true, syncedToBackend: true } : h
+      )
       saveHistory(updated, specTaskId)
       return updated
     })
