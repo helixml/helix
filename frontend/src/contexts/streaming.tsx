@@ -288,9 +288,23 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({
         // 2. isLive becomes false, InteractionLiveStream stops rendering
         // 3. Interaction component renders with OLD cached data (before refetch completes)
         // By updating cache immediately, the Interaction component gets fresh data
+        //
+        // IMPORTANT: Preserve the existing session config to prevent desktop stream
+        // reconnection flicker. The session_update WebSocket message may carry a stale
+        // external_agent_status (e.g. "starting" when it's actually "running"), which
+        // would cause useSandboxState to briefly flip isRunning and flash "Reconnecting...".
         queryClient.setQueryData(
           GET_SESSION_QUERY_KEY(currentSessionId),
-          { data: parsedData.session }, // Wrap in { data: ... } to match Axios response format
+          (oldData: { data?: TypesSession } | undefined) => {
+            const existingConfig = oldData?.data?.config;
+            const updatedSession = {
+              ...parsedData.session,
+              // Keep the existing config (polled by useSandboxState) if we have it,
+              // so chat updates don't stomp sandbox state
+              ...(existingConfig ? { config: existingConfig } : {}),
+            };
+            return { data: updatedSession };
+          },
         );
 
         // Update currentResponses with the latest interaction state
