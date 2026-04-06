@@ -894,8 +894,13 @@ func (s *HelixAPIServer) startDevContainerForSpecTask(ctx context.Context, specT
 		}
 	}
 
-	if err := s.addUserAPITokenToAgent(ctx, agent, session.Owner); err != nil {
-		return fmt.Errorf("failed to add user API token: %w", err)
+	// Set up the OnBeforeCreate hook to add API tokens inside the session lock.
+	// This prevents a race where StopDesktop revokes the key between token
+	// creation and container creation — the hook runs inside StartDesktop's
+	// per-session lock, which is also held by StopDesktop during key revocation.
+	ownerID := session.Owner
+	agent.OnBeforeCreate = func(hookCtx context.Context, a *types.DesktopAgent) error {
+		return s.addUserAPITokenToAgent(hookCtx, a, ownerID)
 	}
 
 	log.Info().

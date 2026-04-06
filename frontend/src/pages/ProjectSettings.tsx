@@ -133,6 +133,7 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
       branch_mode?: string;
       base_branch?: string;
       working_branch?: string;
+      just_do_it_mode?: boolean;
     }) => {
       const response = await api.getApiClient().v1SpecTasksFromPromptCreate({
         project_id: projectId,
@@ -140,11 +141,12 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
         branch_mode: request.branch_mode as any,
         base_branch: request.base_branch,
         working_branch: request.working_branch,
+        just_do_it_mode: request.just_do_it_mode,
       });
       return response.data;
     },
     onSuccess: (task) => {
-      snackbar.success("Created task to fix startup script");
+      snackbar.success("Started AI to fix startup script");
       account.orgNavigate("project-specs", {
         id: projectId,
         highlight: task.id,
@@ -1036,6 +1038,7 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
                       prompt: `Fix the project startup script at /home/retro/work/helix-specs/.helix/startup.sh (in the helix-specs worktree). The current script is:\n\n\`\`\`bash\n${startupScript}\n\`\`\`\n\nPlease review and fix any issues. You can run the script to test it and iterate on it until it works. It should be idempotent.\n\nIMPORTANT: The startup script lives in the helix-specs branch, NOT the main code branch. After fixing the script:\n1. Edit /home/retro/work/helix-specs/.helix/startup.sh directly\n2. Commit and push directly to helix-specs branch: cd /home/retro/work/helix-specs && git add -A && git commit -m "Fix startup script" && git push origin helix-specs\n3. The user can then test it in the project settings panel.\n\nNote: A feature branch has been created on the primary repo for any code changes (like fixing bugs in the workspace setup or build scripts), but you probably won't need to use it unless the user specifically asks you to fix something in the codebase itself.`,
                       branch_mode: "new",
                       base_branch: "main",
+                      just_do_it_mode: true,
                     })
                   }
                   disabled={createSpecTaskMutation.isPending}

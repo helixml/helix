@@ -299,7 +299,11 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     ) {
       return viewParam;
     }
-    return "desktop";
+    // On mobile (below md breakpoint / 900px), default to chat view
+    // since the desktop stream is less useful on small screens.
+    // This matches the breakpoint used for split-view switching (isBigScreen).
+    const isMobile = window.matchMedia("(max-width: 899.95px)").matches;
+    return isMobile ? "chat" : "desktop";
   };
   const [currentView, setCurrentView] = useState<
     "chat" | "desktop" | "changes" | "details"

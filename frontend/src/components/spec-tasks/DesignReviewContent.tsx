@@ -142,7 +142,7 @@ export default function DesignReviewContent({
 
   // Refs and state for highlight preservation and hover button
   const savedRangeRef = useRef<Range | null>(null);
-  const highlightMarkRef = useRef<HTMLElement | null>(null);
+  const savedHighlightRangeRef = useRef<Range | null>(null);
   const hoveredElementRef = useRef<Element | null>(null);
   const [hoverButtonPosition, setHoverButtonPosition] = useState<{
     x: number;
@@ -799,23 +799,24 @@ export default function DesignReviewContent({
 
   const applyHighlight = (range: Range) => {
     try {
-      const mark = document.createElement("mark");
-      mark.className = "comment-highlight";
-      const fragment = range.extractContents();
-      mark.appendChild(fragment);
-      range.insertNode(mark);
-      highlightMarkRef.current = mark;
+      // Clear any existing highlight
+      CSS.highlights.delete("comment-highlight");
+
+      // Create highlight from the range - no DOM modification
+      const highlight = new Highlight(range);
+      CSS.highlights.set("comment-highlight", highlight);
+
+      // Store range for cleanup (not a DOM node)
+      savedHighlightRangeRef.current = range;
     } catch {
-      // Fallback: if DOM manipulation fails, skip highlight silently
+      // Fallback: skip visual highlight, comment form still opens
+      savedHighlightRangeRef.current = null;
     }
   };
 
   const removeHighlight = () => {
-    const mark = highlightMarkRef.current;
-    if (mark && mark.parentNode) {
-      mark.replaceWith(...Array.from(mark.childNodes));
-      highlightMarkRef.current = null;
-    }
+    CSS.highlights.delete("comment-highlight");
+    savedHighlightRangeRef.current = null;
   };
 
   const handleTextSelection = (isTouch: boolean = false) => {
@@ -1009,7 +1010,7 @@ export default function DesignReviewContent({
 
   return (
     <Box sx={{ display: "flex", flexDirection: "column", height: "100%" }}>
-      <GlobalStyles styles={{ ".comment-highlight": { backgroundColor: "#b3d7ff", color: "#000", borderRadius: "2px" } }} />
+      <GlobalStyles styles={{ "::highlight(comment-highlight)": { backgroundColor: "#b3d7ff", color: "#000" } }} />
       {/* Main Content Area */}
       <Box display="flex" flex={1} overflow="hidden">
         {/* Document Viewer */}
@@ -1253,7 +1254,7 @@ export default function DesignReviewContent({
 
             {/* Document content */}
             <Box
-              onMouseDown={() => removeHighlight()}
+              onMouseDown={() => { if (!showCommentForm) removeHighlight(); }}
               onMouseUp={() => handleTextSelection(false)}
               onTouchEnd={() => handleTextSelection(true)}
               onMouseMove={(e) => {
