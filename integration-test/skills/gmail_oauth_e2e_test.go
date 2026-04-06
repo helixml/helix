@@ -85,7 +85,7 @@ var GmailOAuthProviderConfig = OAuthProviderConfig{
 	AuthURL:      "https://accounts.google.com/o/oauth2/v2/auth",
 	TokenURL:     "https://oauth2.googleapis.com/token",
 	UserInfoURL:  "https://openidconnect.googleapis.com/v1/userinfo",
-	Scopes:       []string{"openid", "email", "profile", "https://www.googleapis.com/auth/gmail.readonly", "https://www.googleapis.com/auth/gmail.send"},
+	Scopes:       []string{"openid", "email", "profile", "https://www.googleapis.com/auth/gmail.readonly", "https://www.googleapis.com/auth/gmail.compose"},
 	// ClientID, ClientSecret, Username, Password, and functions will be set during test setup
 }
 
@@ -190,7 +190,7 @@ func (suite *GmailOAuthE2ETestSuite) testValidateGmailSkillYAML(t *testing.T) {
 	// Validate OAuth configuration
 	require.Equal(t, "google", skill.OAuthProvider, "OAuth provider should be 'google'")
 	require.Contains(t, skill.OAuthScopes, "https://www.googleapis.com/auth/gmail.readonly", "Should have Gmail readonly scope")
-	require.Contains(t, skill.OAuthScopes, "https://www.googleapis.com/auth/gmail.send", "Should have Gmail send scope")
+	require.Contains(t, skill.OAuthScopes, "https://www.googleapis.com/auth/gmail.compose", "Should have Gmail compose scope")
 
 	// Validate API configuration
 	require.Equal(t, "https://www.googleapis.com", skill.BaseURL, "Base URL should be Gmail API URL")
@@ -200,7 +200,7 @@ func (suite *GmailOAuthE2ETestSuite) testValidateGmailSkillYAML(t *testing.T) {
 	require.Contains(t, skill.Schema, "getGmailProfile", "Schema should contain getGmailProfile operation")
 	require.Contains(t, skill.Schema, "listGmailMessages", "Schema should contain listGmailMessages operation")
 	require.Contains(t, skill.Schema, "getGmailMessage", "Schema should contain getGmailMessage operation")
-	require.Contains(t, skill.Schema, "sendGmailMessage", "Schema should contain sendGmailMessage operation")
+	require.Contains(t, skill.Schema, "createGmailDraft", "Schema should contain createGmailDraft operation")
 
 	// Validate system prompt
 	require.NotEmpty(t, skill.SystemPrompt, "Gmail skill should have system prompt")

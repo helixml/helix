@@ -12,40 +12,85 @@ spec:
 
     This skill provides secure access to Gmail API, allowing you to:
     • Read and search Gmail messages
-    • Send emails
+    • Create draft emails for user review
     • Access Gmail profile information
-    • Manage email threads and labels
+    • Navigate email threads and labels
 
     Example Queries:
     - "Show me my unread emails from today"
     - "Search for emails from john@company.com"
-    - "Send an email to the team"
+    - "Draft a follow-up email to the team"
     - "Find emails about the project deadline"
+    - "Check if anyone replied to my outreach this week"
 
   systemPrompt: |
-    You are a Gmail email assistant. Your expertise is in helping users manage their Gmail inbox, read messages, and send emails efficiently.
+    You are a Gmail email assistant specialized in inbox management, email search, and draft composition for coordination and outreach.
 
-    Key capabilities:
-    - Email reading and searching with Gmail's powerful search syntax
-    - Message composition and sending
-    - Email thread management
-    - Gmail profile and account information
+    ## How the Gmail API Works
 
-    When users ask about emails, inbox management, or email communication:
-    1. Help them search and filter emails using Gmail search operators
-    2. Assist with reading and summarizing email content
-    3. Support email composition and sending
-    4. Provide inbox organization and management tips
-    5. Help with email thread navigation and management
+    **Two-step pattern for reading emails:**
+    1. Use `listGmailMessages` to find message IDs (supports Gmail search via the `q` parameter)
+    2. Use `getGmailMessage` with each ID to get full content (headers, body, attachments)
 
-    Always focus on Gmail email management. If asked about other Google services or non-email topics, politely redirect to Gmail-specific assistance.
+    The list endpoint returns only message IDs and thread IDs — always follow up with `getGmailMessage` for details like subject, sender, body text, etc.
 
-    Examples of what you can help with:
-    - "Show me unread emails from my manager"
-    - "Search for emails about the budget meeting"
-    - "Compose a follow-up email to yesterday's discussion"
-    - "Find all emails with attachments from last week"
-    - "Check my Gmail storage usage"
+    **Reading message bodies:**
+    Messages can be simple or multipart. For multipart messages (most real emails):
+    - Check `payload.mimeType` — if it starts with `multipart/`, the body is in `payload.parts`
+    - Look for the part with `mimeType: "text/plain"` for readable text
+    - The `body.data` field is base64url-encoded — decode it to read the content
+    - Attachments appear as parts with a `filename` field
+
+    ## Gmail Search Operators
+
+    Use these with the `q` parameter in `listGmailMessages`:
+    - `from:jane@acme.com` — emails from a specific person
+    - `to:luke@helix.ml` — emails sent to a specific person
+    - `subject:meeting` — emails with a word in the subject
+    - `after:2026/01/01` or `before:2026/12/31` — date range
+    - `newer_than:7d` or `older_than:30d` — relative time (d=days, m=months, y=years)
+    - `is:unread` — unread messages only
+    - `is:starred` — starred messages
+    - `has:attachment` — messages with attachments
+    - `filename:pdf` — messages with specific attachment types
+    - `in:inbox` — inbox only (default)
+    - `in:sent` — sent mail
+    - `in:drafts` — drafts folder
+    - Combine with spaces (AND) or `OR`: `from:jane@acme.com subject:meeting newer_than:7d`
+
+    ## Coordination Examples
+
+    Common tasks for sales coordination and project management:
+    - Check for prospect replies: `from:jane@acme.com newer_than:7d`
+    - Find meeting-related emails: `subject:meeting OR subject:calendar newer_than:7d`
+    - Check for unread replies to outreach: `in:inbox is:unread newer_than:3d`
+    - Find emails with proposals or contracts: `has:attachment filename:pdf newer_than:30d`
+    - Check what was sent to a prospect: `to:jane@acme.com in:sent newer_than:30d`
+
+    ## Creating Draft Emails
+
+    Use `createGmailDraft` to compose emails. The draft is saved to the user's Gmail Drafts folder — the user must review and send it manually from Gmail. You cannot send emails directly.
+
+    To create a draft:
+    1. Compose an RFC 2822 message with headers: `From`, `To`, `Subject`, `Content-Type: text/plain; charset="UTF-8"`
+    2. For replies, include `In-Reply-To` and `References` headers with the original message's `Message-ID`, and pass the `threadId`
+    3. Base64url-encode the entire message (replace `+` with `-`, `/` with `_`, remove `=` padding)
+    4. Call `createGmailDraft` with the encoded message
+    5. Tell the user the draft is ready for them to review and send from Gmail
+
+    **Example RFC 2822 message before encoding:**
+    ```
+    From: me@example.com
+    To: jane@acme.com
+    Subject: Follow-up on our demo
+    Content-Type: text/plain; charset="UTF-8"
+
+    Hi Jane,
+
+    Thanks for taking the time to see our demo yesterday...
+    ```
+
+    The user must open Gmail and send the draft themselves. Always confirm with the user what the draft should contain before creating it.
 
   icon:
     type: material-ui
@@ -56,7 +101,7 @@ spec:
     provider: google
     scopes:
       - https://www.googleapis.com/auth/gmail.readonly
-      - https://www.googleapis.com/auth/gmail.send
+      - https://www.googleapis.com/auth/gmail.compose
       
   api:
     baseUrl: https://www.googleapis.com
@@ -67,7 +112,7 @@ spec:
       openapi: 3.0.3
       info:
         title: Gmail API
-        description: Access Gmail messages and user profile
+        description: Access Gmail messages, user profile, and draft creation
         version: "v1"
       servers:
         - url: https://www.googleapis.com
@@ -92,10 +137,13 @@ spec:
                           type: integer
                         threadsTotal:
                           type: integer
+                        historyId:
+                          type: string
         /gmail/v1/users/me/messages:
           get:
             summary: List Gmail messages
             operationId: listGmailMessages
+            description: Returns message IDs matching the query. Use getGmailMessage to fetch full content for each ID.
             security:
               - BearerAuth: []
             parameters:
@@ -103,7 +151,7 @@ spec:
                 in: query
                 schema:
                   type: string
-                description: Gmail search query (e.g., "is:unread", "from:example@gmail.com")
+                description: Gmail search query (e.g., "is:unread", "from:example@gmail.com", "subject:meeting newer_than:7d")
               - name: maxResults
                 in: query
                 schema:
@@ -115,9 +163,14 @@ spec:
                 schema:
                   type: string
                 description: Token for pagination
+              - name: labelIds
+                in: query
+                schema:
+                  type: string
+                description: Only return messages with the specified label ID (e.g., INBOX, SENT, DRAFT, STARRED, UNREAD)
             responses:
               '200':
-                description: List of Gmail messages
+                description: List of message IDs. Use getGmailMessage to fetch full content.
                 content:
                   application/json:
                     schema:
@@ -140,6 +193,7 @@ spec:
           get:
             summary: Get Gmail message by ID
             operationId: getGmailMessage
+            description: Returns full message content including headers, body, and attachments. Body data is base64url-encoded.
             security:
               - BearerAuth: []
             parameters:
@@ -154,6 +208,7 @@ spec:
                   type: string
                   enum: [minimal, full, raw, metadata]
                   default: full
+                description: "full = headers + body, metadata = headers only, minimal = IDs only, raw = entire RFC 2822 message"
             responses:
               '200':
                 description: Gmail message details
@@ -172,11 +227,22 @@ spec:
                             type: string
                         snippet:
                           type: string
+                          description: Short plaintext snippet of the message body
+                        internalDate:
+                          type: string
+                          description: Message timestamp in milliseconds since epoch
+                        sizeEstimate:
+                          type: integer
                         payload:
                           type: object
+                          description: "For simple messages, body is in payload.body.data. For multipart messages (mimeType starts with multipart/), body is in payload.parts — look for the text/plain part."
                           properties:
+                            mimeType:
+                              type: string
+                              description: "e.g. text/plain, text/html, multipart/alternative, multipart/mixed"
                             headers:
                               type: array
+                              description: "Email headers (From, To, Subject, Date, Message-ID, In-Reply-To, References, etc.)"
                               items:
                                 type: object
                                 properties:
@@ -186,15 +252,71 @@ spec:
                                     type: string
                             body:
                               type: object
+                              description: "Body data for simple (non-multipart) messages. Data is base64url-encoded."
                               properties:
                                 data:
                                   type: string
+                                  description: Base64url-encoded body content
                                 size:
                                   type: integer
-        /gmail/v1/users/me/messages/send:
+                            parts:
+                              type: array
+                              description: "Parts of a multipart message. Each part has its own mimeType and body. Look for text/plain for readable text, text/html for HTML. Parts with a filename are attachments."
+                              items:
+                                type: object
+                                properties:
+                                  partId:
+                                    type: string
+                                  mimeType:
+                                    type: string
+                                    description: "e.g. text/plain, text/html, application/pdf, image/png"
+                                  filename:
+                                    type: string
+                                    description: "Attachment filename (empty for inline body parts)"
+                                  headers:
+                                    type: array
+                                    items:
+                                      type: object
+                                      properties:
+                                        name:
+                                          type: string
+                                        value:
+                                          type: string
+                                  body:
+                                    type: object
+                                    properties:
+                                      data:
+                                        type: string
+                                        description: Base64url-encoded part content
+                                      size:
+                                        type: integer
+                                      attachmentId:
+                                        type: string
+                                        description: "ID for fetching large attachments separately (present when data is omitted)"
+                                  parts:
+                                    type: array
+                                    description: "Nested parts (for multipart/alternative inside multipart/mixed)"
+                                    items:
+                                      type: object
+                                      properties:
+                                        partId:
+                                          type: string
+                                        mimeType:
+                                          type: string
+                                        filename:
+                                          type: string
+                                        body:
+                                          type: object
+                                          properties:
+                                            data:
+                                              type: string
+                                            size:
+                                              type: integer
+        /gmail/v1/users/me/drafts:
           post:
-            summary: Send Gmail message
-            operationId: sendGmailMessage
+            summary: Create a draft email in the user's Drafts folder
+            operationId: createGmailDraft
+            description: "Creates a draft email that appears in the user's Gmail Drafts folder. The user must open Gmail and send it manually. Use this instead of sending directly — you cannot send emails."
             security:
               - BearerAuth: []
             requestBody:
@@ -203,13 +325,21 @@ spec:
                 application/json:
                   schema:
                     type: object
+                    required:
+                      - message
                     properties:
-                      raw:
-                        type: string
-                        description: Base64url encoded email message
+                      message:
+                        type: object
+                        properties:
+                          raw:
+                            type: string
+                            description: "Base64url-encoded RFC 2822 email message. Must include From, To, Subject, and Content-Type headers."
+                          threadId:
+                            type: string
+                            description: "Thread ID for reply drafts. Include this along with In-Reply-To and References headers to keep the draft in the same thread."
             responses:
               '200':
-                description: Message sent successfully
+                description: Draft created successfully — it now appears in the user's Gmail Drafts folder
                 content:
                   application/json:
                     schema:
@@ -217,12 +347,19 @@ spec:
                       properties:
                         id:
                           type: string
-                        threadId:
-                          type: string
-                        labelIds:
-                          type: array
-                          items:
-                            type: string
+                          description: Draft ID
+                        message:
+                          type: object
+                          properties:
+                            id:
+                              type: string
+                              description: Message ID
+                            threadId:
+                              type: string
+                            labelIds:
+                              type: array
+                              items:
+                                type: string
       components:
         securitySchemes:
           BearerAuth:
@@ -230,4 +367,4 @@ spec:
             scheme: bearer
             bearerFormat: JWT
 
-  configurable: false 
+  configurable: false
