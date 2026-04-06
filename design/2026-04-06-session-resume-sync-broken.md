@@ -6,222 +6,145 @@
 
 ## Summary
 
-After a container restart (auto-expiry), the Zed-to-Helix WebSocket sync completely breaks. The user can chat with claude-acp in Zed's agent panel normally, but **zero `message_added` events** are sent to the Helix server. The Helix chat view appears frozen/disconnected from the Zed thread.
+Two independent issues found:
 
-Additionally, a rogue thread is auto-created on startup that runs on Zed's built-in agent instead of claude-acp.
+1. **Frontend chat not updating in real-time** (BUG 5) — affects ALL sessions, regression from PR #2146
+2. **Zed-to-Helix sync broken after container restart** (BUGs 1-4) — race condition between panel restoration and server's `open_thread` command
 
-## Exact Timeline (all times UTC unless noted)
+## BUG 5: Frontend Chat Not Updating (All Sessions)
 
-### Previous run (Apr 4-5) — working normally
+### Root Cause
 
-- **Apr 4 19:57** — Session created, thread `689dbabf-b498-41c0-9a1c-b834ddb59f84` created in claude-acp
-- **Apr 4-5** — 671 `message_added` events sent from Zed to Helix server, all syncing correctly
-- **Apr 5 17:29** — Last interaction recorded in Helix DB (`int_01knfas67tqhepjjswg7ahp6s8`)
-- Session auto-expires, container stopped
+**Regression from PR #2146** ("long sessions get unusably slow"), merged April 5.
 
-### Container restart (Apr 6) — sync breaks
+PR #2146 switched `EmbeddedSessionView` from `useGetSession` (cache key: `GET_SESSION_QUERY_KEY`) to `useListInteractions` (cache key: `LIST_INTERACTIONS_QUERY_KEY`). But `streaming.tsx` was never updated — it still only invalidated `GET_SESSION_QUERY_KEY`, which nobody reads for rendering anymore.
 
-**13:46:18** — User clicks Resume in Helix UI
-```
-Resume session request — session_id=ses_01knd14n2f7q7gq2y7d029b29a
-```
+WebSocket `interaction_update` and `interaction_patch` messages arrive at the browser, but the React Query cache they update is not the one the chat UI reads from. Page refresh works because `useListInteractions` re-fetches from the API.
 
-**13:46:19** — New container created: `ubuntu-external-01knd14n2f7q7gq2y7d029b29a`
+### Fix (Helix PR)
 
-**13:46:33** — Zed starts inside container
+- Added `["interactions", currentSessionId]` invalidation to the debounced path in `streaming.tsx`
+- Only fires for `interaction_update` events (2x per turn), NOT high-frequency `interaction_patch` (already excluded)
+- Removed `GET_SESSION_QUERY_KEY` from debounced invalidation (no longer needed for chat, was causing desktop stream "Reconnecting..." flicker via `useSandboxState`)
+- Preserved existing session config when `session_update` handler writes to cache (prevents sandbox state stomping)
 
-**13:46:34** — **BUG 1: Thread restoration fails**
-```
-WARN  [agent_ui::agent_panel] last active thread 689dbabf not found in database, skipping restoration
-```
-Thread `689dbabf` was never saved to Zed's sqlite threads.db. Only claude-acp's `.claude-state` has the conversation.
+### Desktop Stream Flicker Fix
 
-**13:46:34** — **BUG 2: Rogue thread created before WebSocket ready**
-```
-ERROR [agent_ui::conversation_view] Failed to send UserCreatedThread WebSocket event: WebSocket service not initialized
-```
-AgentPanel auto-creates new thread `f9113455-8961-4c92-a0f3-8b04c080ac19` using Zed's **built-in** agent (not claude-acp). The creation event fails because WebSocket isn't connected yet. Server never learns about this thread.
+The `session_update` WebSocket handler was overwriting the entire session in the React Query cache, including `config.external_agent_status`. When this carried a stale value (e.g. "starting" instead of "running"), `useSandboxState` briefly flipped `isRunning` to false, flashing "Reconnecting..." on the desktop stream. Fixed by preserving the existing config when updating from chat WebSocket events.
 
-**13:46:34** — WebSocket connects to `ws://api:8080/api/v1/external-agents/sync?session_id=ses_01knd14n2f7q7gq2y7d029b29a`
+## BUGs 1-4: Zed-to-Helix Sync Broken After Container Restart
 
-**13:46:34** — Server sends `open_thread` for `689dbabf` (sent twice due to race, second deduplicated by load lock)
-```
-[CONNECT] Sending open_thread directly on new connection before agent_ready gate
-```
+### What We Observed
 
-**13:46:34** — Thread service begins loading thread from claude-acp agent
-```
-Selected agent: Custom { name: "claude-acp", command: AgentServerCommand { path: "", args: [], env: None } }
-```
+After container restart (auto-expiry):
+- User chats with claude-acp in Zed agent panel — works locally
+- Zero `message_added` WebSocket events sent to Helix server
+- Helix chat view shows nothing new
+- Sending a message FROM Helix to Zed "fixes" the sync — after that, Zed-side messages work
 
-**13:46:36** — Connected to claude-acp agent server, calling `load_session()`
-
-**13:46:42** — Thread loaded from claude-acp's persistent storage (`689dbabf.jsonl`, 13.8MB)
-```
-✅ Loaded ACP thread from agent: 689dbabf (session_id)
-📋 Registered thread: 689dbabf → agent session: 689dbabf
-```
-
-**13:46:42** — `ensure_thread_subscription()` called — subscribes to `Entity<AcpThread>` for `NewEntry`/`EntryUpdated`/`Stopped` events. `.detach()` called on subscription.
-
-**13:46:42** — `agent_ready` sent to server (this is the LAST successful sync event)
-```
-📤 Sending JSON: {"event_type":"agent_ready","data":{"agent_name":"claude","thread_id":"689dbabf"}}
-```
-
-**13:46:42** — `notify_thread_display()` called — AgentPanel creates `ConversationView::from_existing_thread` using the same `Entity<AcpThread>`. The user now sees the claude-acp thread in Zed's agent panel.
-
-**13:46:42** — **BUG 3: Rogue thread receives prompt and title-generates**
-```
-📤 Sending JSON: {"event_type":"thread_title_changed","data":{"acp_thread_id":"f9113455","title":"show me in chrome"}}
-[agent] Received prompt request for session: f9113455
-```
-The rogue thread `f9113455` auto-ran a prompt and generated title "Building Interactive Tower Defense Game App" — completely unrelated to the actual task.
-
-**13:46:42** — Server correctly warns:
-```
-⚠️ Thread title changed but no Helix session found for thread f9113455
-```
-
-### User interaction (Apr 6, 13:46:50+) — messages flow but don't sync
-
-**13:46:50** — User sends "." in Zed agent panel (testing)
-
-**13:46:56** — claude-acp responds: "The Learn module system is now fully functional..."
-- This is a **stale response** from the previous session's context. When `load_session()` loaded the 13.8MB JSONL, it restored the full conversation history. Claude's first response after resumption summarized where it left off, NOT acknowledging the "." input.
-- **This is the "swallowed message"** the user reported — the "." was consumed as a prompt but the response was contextually from the previous session.
-
-**13:47:14** — User sends "open it in chrome"
-
-**13:47:18-25** — claude-acp responds normally (takes screenshot, opens Chrome)
-
-**13:47:46** — User sends "the startup script is still loading, can you see it?"
-
-**13:49:18** — User sends "log in using test creds"
-
-**13:49:44** — claude-acp responds with credentials (last activity in JSONL)
-
-### What the server sees
-
-- **Zero `message_added` events** received after `agent_ready`
-- **Zero new interactions** created in Postgres for this session today
-- The Helix chat view shows the last interaction from Apr 5 17:29
-- PR creation loop runs every 30s, failing because no commits on `feature/001711-build-a-training-module`
-
-## Root Cause Analysis
-
-### BUG 1: Thread not in Zed's sqlite DB
-
-Thread `689dbabf` exists in claude-acp's persistent storage (`.claude-state/projects/-home-retro-work/689dbabf.jsonl`) but NOT in Zed's threads.db (`.zed-state/local-share/threads/threads.db`).
-
-**Evidence:** `sqlite3 threads.db "SELECT id FROM threads"` returns only `f9113455` (the rogue thread).
-
-**Likely cause:** The `load_session()` → `load_thread_from_agent()` code path creates an `Entity<AcpThread>` in memory but never persists it to Zed's sqlite ThreadStore. Only threads created through the normal UI flow get saved to the DB.
-
-### BUG 2: Rogue thread created before WebSocket
-
-The AgentPanel's startup sequence tries to restore the last active thread. When it fails (BUG 1), it creates a new default thread. This happens before the WebSocket service is initialized, so the `UserCreatedThread` event is lost.
-
-**Impact:** Rogue thread `f9113455` receives a prompt from somewhere (possibly auto-prompt from startup script context or stale state) and runs on Zed's built-in Claude agent, producing nonsensical content.
-
-### BUG 3: Subscription doesn't fire after `load_session()`
-
-This is the **critical bug**. `ensure_thread_subscription()` at `thread_service.rs:426` subscribes to the thread entity for `AcpThreadEvent::NewEntry/EntryUpdated/Stopped`. The subscription IS created (verified: no "already has persistent subscription" skip message in logs). But it **never fires**.
-
-**Evidence:**
-- 0 `message_added` events sent after startup (only `agent_ready` + `thread_title_changed` for rogue thread)
-- 0 `send_websocket_event()` calls after startup (its eprintln logging never appears)
-- User's messages DO reach claude-acp and get responses (verified in 689dbabf.jsonl)
-- The `Entity<AcpThread>` IS the same one used by ConversationView (verified: `from_existing_thread` receives `notification.thread_entity.clone()`)
-
-**Hypotheses:**
-
-1. **Subscription scope issue**: `ensure_thread_subscription` is called inside `cx.update(|cx| { ... })` from an async context in `load_thread_from_agent`. The `cx.subscribe().detach()` pattern may not work correctly when `cx` is an `&mut App` obtained via `AsyncApp::update()` — the subscription might be scoped to the update closure and dropped when it returns.
-
-2. **Entity not emitting events**: The `Entity<AcpThread>` loaded via `load_session()` might not emit GPUI events (`cx.emit(AcpThreadEvent::NewEntry)`) the same way as a freshly created thread. The ACP thread module (`acp_thread.rs:2147`) is already erroring with "failed to get old checkpoint — No such file or directory" which suggests the thread is in a partially broken state.
-
-3. **Race between subscription and first event**: The subscription is created at the same time as the thread is being displayed and the user can start typing. If an event fires before the subscription is fully registered in the GPUI event system, it would be lost.
-
-## State at Investigation Time
+### Exact Startup Sequence (from logs)
 
 ```
-threads.db:     f9113455 only (rogue thread, "Building Interactive Tower Defense Game App")
-claude-acp:     689dbabf.jsonl (13.8MB, correct thread, last activity 13:49 UTC today)
-DB interactions: last from Apr 5 17:29 (nothing synced today)
-WS events sent:  agent_ready (1), thread_title_changed for f9113455 (2)
-WS events NOT sent: message_added (0), message_completed (0)
-Helix task status: pull_request (stuck in 30s retry loop, no commits on branch)
+13:46:33  Zed starts
+13:46:34  Panel restoration: "last active thread 689dbabf not found in database, skipping restoration"
+13:46:34  Panel creates rogue thread f9113455 (UserCreatedThread fails - WS not ready)
+13:46:34  WebSocket connects
+13:46:34  Server sends open_thread for 689dbabf IMMEDIATELY (before agent_ready)
+13:46:34  Thread service starts loading 689dbabf from claude-acp
+13:46:42  Thread loaded, ensure_thread_subscription called, agent_ready sent
+13:46:42  notify_thread_display → from_existing_thread replaces rogue thread
+13:46:42  Rogue thread f9113455 auto-generates title "Building Interactive Tower Defense Game App"
+13:46:50+ User sends messages in Zed — claude-acp responds, but ZERO sync events
+15:40:11  User sends message FROM Helix — sync starts working
 ```
 
-## BUG 4: Zed-side messages don't trigger sync; Helix-side messages do
+### Root Cause: Race Condition + Wrong Agent Type Serialization
 
-The thread is NOT dead. User can send messages from Zed's agent panel and claude-acp responds correctly. But these messages **never trigger `message_added` WebSocket events**.
+**Two issues combine to create the race:**
 
-However, when a message is sent from the **Helix side** (via the chat UI), it:
-1. Arrives as a `chat_message` over the WebSocket
-2. Gets injected into the AcpThread via a different code path
-3. **Triggers the subscription correctly** — `message_added` and `message_completed` events flow
-4. Creates a proper interaction in the DB
+#### 1. `selected_agent_type` not updated on `notify_thread_display`
 
-**Test at 14:40 UTC:** User sent "new message 7:40" from Helix chat UI. This produced:
-- Interaction `int_01knhks8ffa6axj7qcqh85n95s` created in DB (state: complete)
-- Multiple `message_added` events sent (message IDs 57, 58, 59)
-- `message_completed` event sent with correct request_id
-- Zed log showed full WebSocket sync activity
+When the `notify_thread_display` handler in `agent_panel.rs` creates `ConversationView::from_existing_thread`, it correctly sets the `connection_agent` to `Agent::Custom { id: "claude-acp" }`. But it does NOT update `self.selected_agent_type`. When the panel serializes, it saves `agent_type: NativeAgent`.
 
-**Conclusion:** The `ensure_thread_subscription` subscription IS alive and working. The issue is that messages typed directly in Zed's agent panel after `load_session()` don't emit `AcpThreadEvent::NewEntry`/`EntryUpdated`/`Stopped` through the GPUI event system. The chat_message→inject path uses a different mechanism that DOES trigger these events.
+On next restart, the restoration code sees a native agent, checks sqlite (which doesn't have ACP threads), fails, and gives up — "not found in database, skipping restoration". This forces the panel to `Uninitialized`, which creates a rogue thread when focused.
 
-This suggests the `Entity<AcpThread>` loaded via `load_session()` has a different internal event wiring than one created normally. The Zed UI can send messages to it (and claude-acp processes them), but the GPUI entity event emissions are broken for locally-initiated messages.
+**The panel restoration SHOULD load the thread directly from claude-acp's persistent storage** (`.claude-state/`), which it does for non-native agents. But because the agent_type was serialized incorrectly, it takes the wrong path.
 
-### Swallowed "." message
+#### 2. `open_thread` sent before panel restoration completes
 
-A "." message sent from Zed was completely swallowed — never reached claude-acp's JSONL, never generated a Zed log entry. Later messages ("new message 7:38") DID reach claude-acp. This is intermittent.
+The server sends `open_thread` immediately on WebSocket connect, before `agent_ready`. This was intentional (to avoid a different race with `chat_message`). But it means:
 
-### Checkpoint errors
+1. Panel restoration starts (or fails and creates rogue thread)
+2. `open_thread` arrives simultaneously
+3. Two parallel loads of the same thread from different code paths
+4. Two entities, two subscriptions, two `register_thread` calls
+5. Subscription ends up on wrong entity → sync breaks
 
-`failed to get old checkpoint` errors at `acp_thread.rs:2147` fire on every user message. These correlate with message timestamps but don't prevent claude-acp from responding.
+#### 3. Panel restoration never sent `agent_ready`
 
-## BUG 5: Helix API → Frontend WebSocket not updating chat view
+The panel restoration path (`initial_state` → `connection.load_session()`) bypasses `thread_service` entirely. It never calls `ensure_thread_subscription` or `send_agent_ready`. Previously this didn't matter because `open_thread` was sent before `agent_ready` anyway. But with the new protocol, `agent_ready` gates the queue.
 
-Even when messages DO sync correctly from Zed to the Helix API (as with messages sent FROM Helix via `chat_message`), the frontend chat view does NOT update in real-time. The data lands in Postgres and the API logs show "Published session update to frontend" and "Published interaction update to frontend", but the browser never receives the update.
+### Fixes
 
-**Evidence:**
-- "new message 7:40" (sent from Helix) — completed in DB, API published update, but chat view didn't update
-- "new message 7:45" (sent from Helix) — same: completed in DB, `message_added` + `message_completed` sent, but chat view didn't update
-- Both interactions appeared correctly after a **page refresh**
-- The user WebSocket endpoint (`/api/v1/ws/user`) is returning repeated **401 errors**: `WebSocket: no authenticated user` — this may be the cause, or may be a different client
+#### Zed Changes (helixml/zed PR `fix/agent-type-serialization-and-debug-logging`)
 
-**UPDATE:** The user WebSocket IS connected and `interaction_patch` messages ARE flowing to the browser (confirmed by user inspecting WS frames). The 401 errors on `/api/v1/ws/user` in the API logs are from a different client (possibly another tab or the spectask agent).
+1. **Fix `selected_agent_type` serialization** (`agent_panel.rs`): Update `selected_agent_type` in the `notify_thread_display` handler so serialization correctly saves `Custom("claude-acp")` instead of `NativeAgent`.
 
-So the data reaches the browser over the WebSocket, but the **frontend does not render the updates**. The chat view remains stale until a page refresh forces a full re-fetch from the DB. This is a frontend rendering bug — the React components are not reacting to the incoming `interaction_update` and `interaction_patch` WebSocket messages for this session.
+2. **Wait for WebSocket before panel restoration** (`agent_panel.rs`): Block panel deserialization until the WebSocket connects (up to 10s timeout). This ensures the `agent_ready` → `open_thread` handshake can complete.
 
-**Root cause found:** React Query cache key mismatch.
+3. **Send `agent_ready` from panel restoration** (`conversation_view.rs`): After `initial_state` completes for a resumed thread, call `ensure_thread_subscription` and `send_agent_ready`. This signals the server to flush its readiness queue.
 
-- `streaming.tsx` (WebSocket handler) updates `GET_SESSION_QUERY_KEY(sessionId)` via `queryClient.setQueryData` (line 362)
-- `EmbeddedSessionView.tsx` (chat renderer) reads from `LIST_INTERACTIONS_QUERY_KEY(sessionId)` via `useListInteractions` (line 270)
-- These are **different React Query caches** — the WebSocket updates go to a cache nobody reads, while the cache the UI reads is never updated by WebSocket events
-- The query invalidation at lines 544-549 in streaming.tsx invalidates `GET_SESSION_QUERY_KEY`, not `LIST_INTERACTIONS_QUERY_KEY`
-- Page refresh works because `useListInteractions` re-fetches from the API
+4. **Share `THREAD_LOAD_IN_PROGRESS` lock** (`conversation_view.rs`, `thread_service.rs`): Panel restoration's `initial_state` now acquires the same lock that `open_existing_thread_sync` uses. Only one thread load can be in progress at a time, preventing duplicate entities. Uses a drop guard for automatic cleanup.
 
-**Regression from PR #2146** ("long sessions get unusably slow in the helix chat ui"), merged April 5 14:45 UTC. This PR switched `EmbeddedSessionView` from reading `session.interactions` (via `GET_SESSION_QUERY_KEY`) to `paginatedData.interactions` (via `LIST_INTERACTIONS_QUERY_KEY` / `useListInteractions`), but did not update `streaming.tsx` to invalidate the new cache key.
+5. **Make `ensure_thread_subscription` public** (`thread_service.rs`): So `conversation_view.rs` can call it from the panel restoration path.
 
-**Fix:** Added `["interactions", currentSessionId]` invalidation to the debounced invalidation path in `streaming.tsx`. This fires only for `interaction_update` events (twice per turn: creation + completion), not for high-frequency `interaction_patch` events which are already excluded.
+6. **Debug logging**: Entity IDs logged on subscription creation/firing and thread registration, to diagnose any remaining issues.
 
-## Impact
+#### Helix Changes (helixml/helix PR `fix/streaming-query-cache-key-mismatch`)
 
-- User's work in Zed is completely invisible in the Helix chat view
-- Session appears stuck/dead from the Helix UI perspective
-- Any session that gets auto-expired and resumed will hit this bug
-- This affects ALL spectask sessions that use container restart/resume
+1. **Queue `open_thread` after `agent_ready`** (`websocket_external_agent_sync.go`): Instead of writing `open_thread` directly to the WebSocket on connect, prepend it to the readiness queue. It's sent after `agent_ready`, when Zed's panel restoration has completed.
+
+2. **`prependToReadinessQueue` method**: Ensures `open_thread` arrives before any queued `chat_message` when the queue is flushed.
+
+### New Startup Protocol
+
+```
+1. Container starts → Zed launches
+2. WebSocket connects (panel restoration WAITS for this)
+3. Server: readiness tracking initialized, open_thread QUEUED (not sent)
+4. Panel restoration: agent_type correctly deserialized as Custom("claude-acp")
+   → initial_state(resume_session_id=689dbabf)
+   → acquires THREAD_LOAD_IN_PROGRESS lock
+   → connection.load_session(689dbabf) from claude-acp .claude-state
+   → Entity created, registered in THREAD_REGISTRY
+   → ensure_thread_subscription(Entity A)
+   → send_agent_ready("claude-acp", "689dbabf")
+   → releases lock
+5. Server receives agent_ready → flushes readiness queue:
+   → open_thread(689dbabf) → already in registry → SKIP (no duplicate)
+   → chat_message (if any) → uses existing Entity A → subscription fires
+```
+
+### What This Eliminates
+
+- No rogue thread (panel restores correctly via ACP path)
+- No parallel thread loads (shared lock)
+- No `open_thread` racing with restoration (queued after `agent_ready`)
+- Subscription set up by panel restoration (not just thread_service)
+- `agent_ready` sent from all paths (not just thread_service)
 
 ## Files Involved
 
-| File | Role |
-|------|------|
-| `zed/crates/external_websocket_sync/src/thread_service.rs:426` | `ensure_thread_subscription()` — creates the subscription that doesn't fire |
-| `zed/crates/external_websocket_sync/src/thread_service.rs:1270` | `load_thread_from_agent()` — loads thread from claude-acp, calls ensure_thread_subscription |
-| `zed/crates/external_websocket_sync/src/thread_service.rs:1322` | `open_existing_thread_sync()` — entry point for open_thread handling |
-| `zed/crates/agent_ui/src/agent_panel.rs:1046` | Thread display callback — creates ConversationView from existing entity |
-| `zed/crates/acp_thread/src/acp_thread.rs:2147` | Checkpoint error — "No such file or directory" |
-| `helix/api/pkg/server/websocket_external_agent_sync.go:338` | Server-side reconnect handling |
-| `helix/api/pkg/server/session_handlers.go:2017` | Server sends open_thread on resume |
+| File | Repo | Role |
+|------|------|------|
+| `frontend/src/contexts/streaming.tsx` | helix | WebSocket handler — cache invalidation fix |
+| `api/pkg/server/websocket_external_agent_sync.go` | helix | Queue `open_thread` after `agent_ready`, `prependToReadinessQueue` |
+| `crates/agent_ui/src/agent_panel.rs` | zed | Fix `selected_agent_type`, wait for WebSocket |
+| `crates/agent_ui/src/conversation_view.rs` | zed | `ensure_thread_subscription` + `send_agent_ready` from panel restore, shared lock |
+| `crates/external_websocket_sync/src/thread_service.rs` | zed | Public `ensure_thread_subscription`, lock helpers, debug logging |
+| `crates/external_websocket_sync/src/websocket_sync.rs` | zed | `wait_for_websocket_connected` |
+
+## PRs
+
+- **Helix**: `fix/streaming-query-cache-key-mismatch` (helixml/helix#2153) — frontend cache fix + `open_thread` after `agent_ready`
+- **Zed**: `fix/agent-type-serialization-and-debug-logging` (helixml/zed) — serialization fix + WebSocket wait + shared lock + `agent_ready` from restore path
