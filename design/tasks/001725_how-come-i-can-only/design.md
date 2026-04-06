@@ -64,3 +64,24 @@ Users in many orgs will see additional API calls (1 for org list + N for each or
 - GitHub API rate limit is 5000/hr for authenticated users
 - Most users are in <10 orgs
 - This is a user-initiated browse action, not a background poll
+
+## Frontend: Org Filter Dropdown
+
+### Current State
+
+`BrowseProvidersDialog.tsx` already has:
+- A text search input filtering by `name`, `full_name`, and `description` (line 620-628)
+- A flat list of repos with `full_name` as primary text (e.g. `gatewaze/repo-name`)
+- No org/owner grouping or filtering
+
+### Enhancement
+
+Add an org/owner filter dropdown alongside the existing search field. This is a **client-side only** change — no new API endpoints needed.
+
+1. **Extract unique owners** from the repo list by splitting `full_name` on `/` and taking the first segment
+2. **Render a dropdown** (MUI `Select` or `Autocomplete`) with options: `["All", "gatewaze", "personal-user", ...]`
+3. **Apply filter** before the existing text search filter — chain both filters together
+
+### Why client-side only
+
+The `full_name` field already contains the owner prefix for all providers (GitHub: `org/repo`, GitLab: `group/project`, Azure DevOps: `project/repo`). No backend changes or new fields are needed — we just parse what's already there.

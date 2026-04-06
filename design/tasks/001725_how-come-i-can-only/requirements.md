@@ -16,10 +16,20 @@ When browsing GitHub repositories via the Helix repo browser (e.g. at `/orgs/hel
 
 2. **As a user**, I want public repos I collaborate on (outside my orgs) to also appear in the browser.
 
+3. **As a user**, I want to filter repos by organization in the browser, so I can quickly find repos without relying on text search (which matches across name, description, etc. and can return false positives).
+
 ## Acceptance Criteria
 
+### Backend — Include public org repos
 - [ ] The GitHub repo browser shows **all** repos the authenticated user can access, including public org repos
 - [ ] Both OAuth and PAT code paths return the same comprehensive repo list
 - [ ] Results are deduplicated (a repo appears only once even if accessible via multiple affiliations)
 - [ ] No performance regression for users with many orgs/repos (pagination still works)
 - [ ] Existing private repo visibility is not affected
+
+### Frontend — Org filter dropdown
+- [ ] An org/owner filter dropdown appears above or alongside the existing search field in `BrowseProvidersDialog`
+- [ ] Dropdown options are derived from the `full_name` field (extract owner prefix), with an "All" default
+- [ ] Selecting an org filters the repo list to only show repos from that org/owner
+- [ ] The org filter works in combination with the existing text search
+- [ ] Works for all providers (GitHub, GitLab, Azure DevOps) since all use `full_name` with an owner prefix
