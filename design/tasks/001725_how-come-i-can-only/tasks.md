@@ -5,8 +5,8 @@
 - [x] Add `listUserOrganizations()` helper to `api/pkg/agent/skill/github/client.go` — paginated call to `client.Organizations.List(ctx, "", opts)`
 - [x] Add `listOrgRepositories(ctx, orgLogin)` helper to `client.go` — paginated call to `client.Repositories.ListByOrg(ctx, orgLogin, opts)`
 - [x] Update `ListRepositories()` to call both helpers after the existing user repos fetch, then deduplicate results by repo ID
-- [ ] Test with OAuth connection: verify public + private org repos both appear in browser
-- [ ] Test with PAT connection: verify same behavior via `browseRemoteRepositories()` path
+- [ ] Test with OAuth connection: verify public + private org repos both appear in browser (requires deployed instance with GitHub OAuth)
+- [ ] Test with PAT connection: verify same behavior via `browseRemoteRepositories()` path (requires deployed instance with GitHub PAT)
 
 ## Frontend — Org filter dropdown
 
