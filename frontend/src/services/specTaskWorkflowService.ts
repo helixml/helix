@@ -123,21 +123,16 @@ export function useSkipSpec(specTaskId: string) {
 
   return useMutation({
     mutationFn: async () => {
-      // First, try to stop the planning agent (ignore errors if no agent running)
-      try {
-        await apiClient.v1SpecTasksStopAgentCreate(specTaskId);
-      } catch {
-        // Agent may not be running, that's fine
-      }
-      // Then update status to queued_implementation with just_do_it_mode
+      // Move directly to implementation without stopping the container.
+      // The running container can keep going; the user drives the agent from here.
       const response = await apiClient.v1SpecTasksUpdate(specTaskId, {
-        status: TypesSpecTaskStatus.TaskStatusQueuedImplementation,
+        status: TypesSpecTaskStatus.TaskStatusImplementation,
         just_do_it_mode: true,
       });
       return response.data;
     },
     onSuccess: () => {
-      snackbar.success("Skipped spec - task will start implementation");
+      snackbar.success("Skipped spec - task moved to implementation");
       queryClient.invalidateQueries({ queryKey: ["spec-tasks", specTaskId] });
       queryClient.invalidateQueries({ queryKey: ["spec-tasks"] });
     },
