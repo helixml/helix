@@ -543,15 +543,21 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({
         clearTimeout(invalidateTimerRef.current);
       }
       invalidateTimerRef.current = setTimeout(() => {
-        queryClient.invalidateQueries({
-          queryKey: GET_SESSION_QUERY_KEY(currentSessionId),
-        });
+        // Invalidate paginated interactions cache so new/completed interactions appear
         queryClient.invalidateQueries({
           queryKey: ["interactions", currentSessionId],
         });
+        // Invalidate session steps (thinking/progress indicators)
         queryClient.invalidateQueries({
           queryKey: SESSION_STEPS_QUERY_KEY(currentSessionId),
         });
+        // NOTE: We intentionally do NOT invalidate GET_SESSION_QUERY_KEY here.
+        // useSandboxState polls the session every 3s for desktop state. Invalidating
+        // the session cache on every chat WebSocket event causes useSandboxState to
+        // refetch, which briefly flips isRunning and flashes the "Reconnecting..."
+        // overlay on the desktop stream. Interactions are now served via
+        // LIST_INTERACTIONS_QUERY_KEY (since PR #2146), so the session cache
+        // invalidation is no longer needed for chat updates.
         invalidateSessionsQuery(queryClient);
         invalidateTimerRef.current = null;
       }, 500);
