@@ -362,11 +362,14 @@ func (apiServer *HelixAPIServer) handleExternalAgentSync(res http.ResponseWriter
 			// Find and queue the waiting interaction for the agent
 			apiServer.pickupWaitingInteraction(ctx, helixSessionID, helixSession, agentID)
 
-			// Send open_thread BEFORE the agent_ready gate so Zed re-establishes its
-			// thread subscription immediately on connect. If we wait until after
-			// agent_ready, the queued chat_message gets flushed first, and when Zed
-			// opens the thread it replays history as message_added events that corrupt
-			// the current interaction.
+			// Queue open_thread to be sent AFTER agent_ready. Zed's panel restoration
+			// loads the thread from ACP agent storage during startup. By waiting for
+			// agent_ready, we ensure Zed has finished loading before we tell it to open
+			// a thread — avoiding a race where two parallel loads create duplicate entities
+			// with broken subscriptions.
+			//
+			// The open_thread is prepended to the readiness queue so it arrives before
+			// any queued chat_message, ensuring Zed opens the correct thread first.
 			if helixSession.Metadata.ZedThreadID != "" {
 				targetThreadID := helixSession.Metadata.ZedThreadID
 				if helixSession.Metadata.SpecTaskID != "" {
@@ -381,12 +384,8 @@ func (apiServer *HelixAPIServer) handleExternalAgentSync(res http.ResponseWriter
 					Str("session_id", helixSessionID).
 					Str("zed_thread_id", targetThreadID).
 					Str("agent_name", agentNameForOpen).
-					Msg("[CONNECT] Sending open_thread directly on new connection before agent_ready gate")
+					Msg("[CONNECT] Queuing open_thread for after agent_ready")
 
-				// Send directly on the new wsConn rather than going through
-				// sendCommandToExternalAgent — during reconnection, the connection
-				// map may briefly have a stale entry or the channel may be closed
-				// by a racing defer from the old connection handler.
 				data := map[string]interface{}{
 					"acp_thread_id": targetThreadID,
 					"session_id":    helixSessionID,
@@ -398,24 +397,10 @@ func (apiServer *HelixAPIServer) handleExternalAgentSync(res http.ResponseWriter
 					Type: "open_thread",
 					Data: data,
 				}
-				// Write directly to the WebSocket, bypassing SendChan and the
-				// sender goroutine. During reconnection, the sender goroutine
-				// may not have started reading from the channel yet, and we
-				// need open_thread to arrive before agent_ready.
-				wsConn.mu.Lock()
-				writeErr := wsConn.Conn.WriteJSON(openThreadCmd)
-				wsConn.mu.Unlock()
-				if writeErr != nil {
-					log.Error().
-						Str("session_id", helixSessionID).
-						Err(writeErr).
-						Msg("[CONNECT] Failed to write open_thread directly to WebSocket")
-				} else {
-					log.Info().
-						Str("session_id", helixSessionID).
-						Str("zed_thread_id", targetThreadID).
-						Msg("[CONNECT] ✅ open_thread written directly to WebSocket")
-				}
+
+				// Prepend to the readiness queue so open_thread arrives before
+				// any chat_message that may also be queued.
+				apiServer.externalAgentWSManager.prependToReadinessQueue(helixSessionID, openThreadCmd)
 			}
 		}
 	}
@@ -1854,6 +1839,46 @@ func (manager *ExternalAgentWSManager) queueOrSend(sessionID string, cmd types.E
 	return true
 }
 
+// prependToReadinessQueue adds a command to the FRONT of the readiness queue.
+// This ensures high-priority commands (like open_thread) arrive before any
+// queued chat_message when the queue is flushed on agent_ready.
+func (manager *ExternalAgentWSManager) prependToReadinessQueue(sessionID string, cmd types.ExternalAgentCommand) {
+	manager.readinessMu.Lock()
+
+	state, exists := manager.readinessState[sessionID]
+	if !exists {
+		manager.readinessMu.Unlock()
+		log.Warn().Str("session_id", sessionID).Msg("[READINESS] No readiness state found for prepend")
+		return
+	}
+
+	if state.IsReady {
+		manager.readinessMu.Unlock()
+		// Session already ready — send directly
+		if conn, connExists := manager.getConnection(sessionID); connExists {
+			select {
+			case conn.SendChan <- cmd:
+				log.Debug().Str("session_id", sessionID).Str("type", cmd.Type).
+					Msg("📤 [READINESS] Session already ready, sent directly")
+			default:
+				log.Warn().Str("session_id", sessionID).Msg("SendChan full, could not send command")
+			}
+		}
+		return
+	}
+
+	// Prepend to queue
+	state.PendingQueue = append([]types.ExternalAgentCommand{cmd}, state.PendingQueue...)
+	queueSize := len(state.PendingQueue)
+	manager.readinessMu.Unlock()
+
+	log.Info().
+		Str("session_id", sessionID).
+		Str("type", cmd.Type).
+		Int("queue_size", queueSize).
+		Msg("📥 [READINESS] Prepended to readiness queue (waiting for agent_ready)")
+}
+
 // cleanupReadinessState removes readiness tracking for a session
 func (manager *ExternalAgentWSManager) cleanupReadinessState(sessionID string) {
 	manager.readinessMu.Lock()
@@ -2837,10 +2862,10 @@ func (apiServer *HelixAPIServer) handleAgentReady(sessionID string, syncMsg *typ
 	// Mark as ready (this flushes queued messages and calls onReady)
 	apiServer.externalAgentWSManager.markSessionReady(sessionID, onReadyCallback)
 
-	// NOTE: open_thread is now sent on connect in handleExternalAgentConnection,
-	// BEFORE the agent_ready gate. This ensures Zed re-establishes its thread
-	// subscription before any queued chat_message is flushed, preventing history
-	// replay message_added events from corrupting the current interaction.
+	// NOTE: open_thread is queued in the readiness queue (prepended before any
+	// chat_message) and sent AFTER agent_ready. This ensures Zed's panel
+	// restoration has finished loading the thread from ACP storage before we
+	// send open_thread, which becomes a no-op if the thread is already loaded.
 
 	// Process any pending prompts (including interrupt=true ones)
 	// When agent is ready/idle, we should process ALL pending prompts, not just non-interrupt ones
