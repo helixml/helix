@@ -181,6 +181,21 @@ A "." message sent from Zed was completely swallowed — never reached claude-ac
 
 `failed to get old checkpoint` errors at `acp_thread.rs:2147` fire on every user message. These correlate with message timestamps but don't prevent claude-acp from responding.
 
+## BUG 5: Helix API → Frontend WebSocket not updating chat view
+
+Even when messages DO sync correctly from Zed to the Helix API (as with messages sent FROM Helix via `chat_message`), the frontend chat view does NOT update in real-time. The data lands in Postgres and the API logs show "Published session update to frontend" and "Published interaction update to frontend", but the browser never receives the update.
+
+**Evidence:**
+- "new message 7:40" (sent from Helix) — completed in DB, API published update, but chat view didn't update
+- "new message 7:45" (sent from Helix) — same: completed in DB, `message_added` + `message_completed` sent, but chat view didn't update
+- Both interactions appeared correctly after a **page refresh**
+- The user WebSocket endpoint (`/api/v1/ws/user`) is returning repeated **401 errors**: `WebSocket: no authenticated user` — this may be the cause, or may be a different client
+
+The frontend pubsub for this session is broken — the session update channel isn't reaching the browser. This could be:
+1. The user's WebSocket connection dropped and can't re-authenticate
+2. The pubsub topic for this session isn't correctly subscribed by the frontend
+3. A session ownership mismatch causing the published updates to target the wrong WebSocket channel
+
 ## Impact
 
 - User's work in Zed is completely invisible in the Helix chat view
