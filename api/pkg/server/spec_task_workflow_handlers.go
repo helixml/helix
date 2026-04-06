@@ -522,6 +522,18 @@ func (s *HelixAPIServer) ensurePullRequestForRepo(ctx context.Context, repo *typ
 		return nil, nil
 	}
 
+	// Check if the branch has any commits ahead of the default branch.
+	// If not, the agent made no changes in this repo — skip PR creation.
+	if repo.LocalPath != "" && repo.DefaultBranch != "" {
+		ahead, _, err := services.GetDivergence(ctx, repo.LocalPath, "refs/heads/"+branch, "refs/heads/"+repo.DefaultBranch)
+		if err != nil {
+			log.Debug().Err(err).Str("repo_id", repo.ID).Str("repo_name", repo.Name).Str("branch", branch).Msg("Failed to check branch divergence, proceeding with PR creation")
+		} else if ahead == 0 {
+			log.Info().Str("repo_id", repo.ID).Str("repo_name", repo.Name).Str("branch", branch).Msg("Branch has no commits ahead of default branch, skipping PR creation")
+			return nil, nil
+		}
+	}
+
 	log.Info().Str("repo_id", repo.ID).Str("repo_name", repo.Name).Str("branch", branch).Str("task_id", task.ID).Msg("Ensuring pull request for repo")
 
 	// Push branch to remote first — use acting user's credentials when available
