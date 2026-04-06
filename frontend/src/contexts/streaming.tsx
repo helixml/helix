@@ -23,6 +23,7 @@ import { ResponseEntry } from "../components/session/InteractionInference";
 import {
   GET_SESSION_QUERY_KEY,
   SESSION_STEPS_QUERY_KEY,
+  LIST_INTERACTIONS_QUERY_KEY,
 } from "../services/sessionService";
 import { useQueryClient } from "@tanstack/react-query";
 import { invalidateSessionsQuery } from "../services/sessionService";
@@ -381,6 +382,12 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({
           },
         );
 
+        // Also update the paginated interactions cache (used by EmbeddedSessionView)
+        // Invalidate all pages for this session so they refetch with fresh data
+        queryClient.invalidateQueries({
+          queryKey: ["interactions", currentSessionId],
+        });
+
         // Also update currentResponses for live streaming display
         if (updatedInteraction.id) {
           // When interaction is complete, update synchronously (not via RAF) to avoid
@@ -544,6 +551,9 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({
       invalidateTimerRef.current = setTimeout(() => {
         queryClient.invalidateQueries({
           queryKey: GET_SESSION_QUERY_KEY(currentSessionId),
+        });
+        queryClient.invalidateQueries({
+          queryKey: ["interactions", currentSessionId],
         });
         queryClient.invalidateQueries({
           queryKey: SESSION_STEPS_QUERY_KEY(currentSessionId),
