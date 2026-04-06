@@ -563,21 +563,6 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
   // Show overlays for state changes instead of unmounting (prevents fullscreen exit)
   const showReconnectingOverlay = !isRunning && hasEverBeenRunning;
 
-  // Debug: log when reconnecting overlay state changes
-  const prevShowReconnectingRef = React.useRef(showReconnectingOverlay);
-  React.useEffect(() => {
-    if (showReconnectingOverlay !== prevShowReconnectingRef.current) {
-      console.log('[ExternalAgentDesktopViewer] showReconnectingOverlay changed:', {
-        from: prevShowReconnectingRef.current,
-        to: showReconnectingOverlay,
-        isRunning,
-        hasEverBeenRunning,
-        sandboxStateValue,
-        polledState: polled.sandboxState,
-      });
-      prevShowReconnectingRef.current = showReconnectingOverlay;
-    }
-  });
 
   return (
     <Box
