@@ -1,7 +1,7 @@
 # Implementation Tasks
 
 ## Frontend
-- [ ] Create `ImageAttachments.tsx` component with drag-and-drop (react-dropzone) and thumbnail preview grid
+- [~] Create `ImageAttachments.tsx` component with drag-and-drop (react-dropzone) and thumbnail preview grid
 - [ ] Add clipboard paste handler to `ImageAttachments` that intercepts Ctrl+V image data and triggers upload
 - [ ] Wire up file uploads using `useUploadFilestoreFiles()` to store images at `/users/{userId}/task-attachments/{sessionId}/{filename}`
 - [ ] Add upload progress indicator and error handling for each image
