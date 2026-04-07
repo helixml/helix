@@ -54,6 +54,7 @@ type ApprovalPromptData struct {
 	TaskName              string   // Human-readable task name
 	OriginalPromptSection string   // Formatted original request section (different for cloned vs normal)
 	ClonedTaskPreamble    string   // Extra instructions for cloned tasks (empty if not cloned)
+	ApprovalComments      string   // Reviewer's comments when approving (may be empty)
 }
 
 // CommentPromptData contains data for design review comment prompts
@@ -305,9 +306,17 @@ cd /home/retro/work/helix-specs && git add -A && git commit -m "Add PR descripti
 **Task:** {{.TaskName}}
 **Feature Branch:** {{.BranchName}} (base: {{.BaseBranch}})
 **Design Docs:** /home/retro/work/helix-specs/design/tasks/{{.TaskDirName}}/
+{{if .ApprovalComments}}
+## Reviewer Comments
 
+The reviewer included these comments when approving the design:
+
+{{.ApprovalComments}}
+
+Take these comments into account during implementation.
+{{end}}{{if .OriginalPromptSection}}
 {{.OriginalPromptSection}}
-
+{{end}}
 **Primary Project Directory:** /home/retro/work/{{.PrimaryRepoName}}/
 `))
 
@@ -425,11 +434,17 @@ The whole point of cloning is to SKIP re-asking questions that were already answ
 	}
 
 	// Format original prompt section - for cloned tasks, reframe as historical context
+	// Only include original prompt for cloned tasks (where the agent hasn't seen it before)
+	// For normal tasks, the agent already has the original prompt from the planning phase
 	var originalPromptSection string
 	if task.ClonedFromID != "" {
 		originalPromptSection = "**Original Request (for context only - any questions have already been resolved in the specs):**\n> \"" + task.OriginalPrompt + "\""
-	} else {
-		originalPromptSection = "**Original Request:**\n" + task.OriginalPrompt
+	}
+
+	// Extract approval comments from the spec approval if available
+	var approvalComments string
+	if task.SpecApproval != nil && task.SpecApproval.Comments != "" {
+		approvalComments = task.SpecApproval.Comments
 	}
 
 	data := ApprovalPromptData{
@@ -444,6 +459,7 @@ The whole point of cloning is to SKIP re-asking questions that were already answ
 		TaskName:              task.Name,
 		OriginalPromptSection: originalPromptSection,
 		ClonedTaskPreamble:    clonedTaskPreamble,
+		ApprovalComments:      approvalComments,
 	}
 
 	var buf bytes.Buffer
