@@ -26999,6 +26999,10 @@ const docTemplate = `{
                 "google_analytics_frontend": {
                     "type": "string"
                 },
+                "has_providers": {
+                    "description": "Whether any global AI provider with enabled chat models exists",
+                    "type": "boolean"
+                },
                 "latest_version": {
                     "type": "string"
                 },

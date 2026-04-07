@@ -4518,6 +4518,8 @@ export interface TypesServerConfigForFrontend {
   eval_user_id?: string;
   filestore_prefix?: string;
   google_analytics_frontend?: string;
+  /** Whether any global AI provider with enabled chat models exists */
+  has_providers?: boolean;
   latest_version?: string;
   license?: TypesFrontendLicenseInfo;
   max_concurrent_desktops?: number;

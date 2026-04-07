@@ -323,13 +323,17 @@ export default function Onboarding() {
     );
   }, [providers]);
 
-  // Filter steps based on billing_enabled - hide subscription step when billing is disabled
+  // Filter steps based on server config - hide steps that aren't needed
   const visibleSteps = useMemo(() => {
+    let steps = ALL_STEPS;
     if (!serverConfig?.billing_enabled) {
-      return ALL_STEPS.filter((step) => step.type !== "subscription");
+      steps = steps.filter((step) => step.type !== "subscription");
     }
-    return ALL_STEPS;
-  }, [serverConfig?.billing_enabled]);
+    if (serverConfig?.has_providers) {
+      steps = steps.filter((step) => step.type !== "provider");
+    }
+    return steps;
+  }, [serverConfig?.billing_enabled, serverConfig?.has_providers]);
 
   // Helper to get step index by type (in the visible steps array)
   const getStepIndexByType = useCallback(
