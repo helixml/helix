@@ -571,3 +571,19 @@ export function getEnrichmentTypeIcon(type: string): string {
 
   return icons[type] || '💡'
 }
+
+// =============================================================================
+// Hooks for kodit repo ID-based endpoints (works for both git and knowledge repos)
+// =============================================================================
+
+export function useKoditRepoEnrichments(koditRepoId: number | undefined, page = 1, perPage = 25, options?: { enabled?: boolean }) {
+  const api = useApi()
+
+  return useQuery({
+    queryKey: ['kodit', 'repositories', koditRepoId, 'enrichments', page, perPage],
+    queryFn: async () => {
+      return api.get(`/api/v1/kodit/repositories/${koditRepoId}/enrichments?page=${page}&per_page=${perPage}`)
+    },
+    enabled: options?.enabled !== false && !!koditRepoId,
+  })
+}

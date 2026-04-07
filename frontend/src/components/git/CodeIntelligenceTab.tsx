@@ -56,6 +56,7 @@ import {
   useKoditGrep,
   useKoditFiles,
   useKoditFileContent,
+  useKoditRepoEnrichments,
   KODIT_SUBTYPE_COMMIT_DESCRIPTION,
   KoditWikiTreeNode,
   KoditFileResult,
@@ -443,7 +444,8 @@ function extractPathFromLink(link: string | undefined, fallback: string): string
   }
 }
 
-const SearchSubTab: FC<{ repoId: string; enabled: boolean }> = ({ repoId, enabled }) => {
+const SearchSubTab: FC<{ repoId: string; enabled: boolean; repository?: any }> = ({ repoId, enabled, repository }) => {
+  const koditRepoId = repository?.metadata?.kodit_repo_id as number | undefined
   const [activeTool, setActiveTool] = useState<SearchTool>('semantic')
   const [searchInput, setSearchInput] = useState('')
   const [globFilter, setGlobFilter] = useState('')
@@ -578,7 +580,7 @@ const SearchSubTab: FC<{ repoId: string; enabled: boolean }> = ({ repoId, enable
         </Box>
       )}
 
-      {/* Results */}
+      {/* Results (shown when there's a query) */}
       {activeTool === 'semantic' && hasQuery && !semanticLoading && (
         <SearchResultsList results={semanticResults} meta={semanticMeta} onFileClick={(path) => { setActiveTool('read'); setSearchInput(path); setSelectedFile(path) }} />
       )}
@@ -598,13 +600,107 @@ const SearchSubTab: FC<{ repoId: string; enabled: boolean }> = ({ repoId, enable
         <Alert severity="info">File not found or empty.</Alert>
       )}
 
-      {/* Empty state */}
-      {!hasQuery && !selectedFile && (
+      {/* Indexed chunks (shown when there's no query, replaces the empty state) */}
+      {!hasQuery && !selectedFile && koditRepoId && (
+        <EnrichmentsPreview koditRepoId={koditRepoId} />
+      )}
+      {!hasQuery && !selectedFile && !koditRepoId && (
         <Box sx={{ textAlign: 'center', py: 6 }}>
           <SearchIcon size={40} color="#656d76" style={{ marginBottom: 12, opacity: 0.4 }} />
           <Typography variant="body1" color="text.secondary">
             {activeToolDef.description}
           </Typography>
+        </Box>
+      )}
+    </Box>
+  )
+}
+
+const EnrichmentsPreview: FC<{ koditRepoId: number }> = ({ koditRepoId }) => {
+  const [page, setPage] = useState(1)
+  const perPage = 5
+  const { data, isLoading } = useKoditRepoEnrichments(koditRepoId, page, perPage)
+  const enrichments = (data as any)?.data ?? []
+  const meta = (data as any)?.meta
+
+  const total = meta?.total ?? 0
+  const totalPages = meta?.total_pages ?? 1
+
+  if (isLoading && enrichments.length === 0) {
+    return (
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, py: 4, justifyContent: 'center' }}>
+        <CircularProgress size={16} />
+        <Typography variant="body2" color="text.secondary">Loading indexed chunks...</Typography>
+      </Box>
+    )
+  }
+
+  if (total === 0) {
+    return (
+      <Box sx={{ textAlign: 'center', py: 6 }}>
+        <SearchIcon size={40} color="#656d76" style={{ marginBottom: 12, opacity: 0.4 }} />
+        <Typography variant="body1" color="text.secondary">
+          No indexed chunks yet. Content will appear here once indexing completes.
+        </Typography>
+      </Box>
+    )
+  }
+
+  return (
+    <Box>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5 }}>
+        <Typography variant="subtitle2">
+          Indexed Chunks
+        </Typography>
+        <Chip label={`${total} total`} size="small" sx={{ fontSize: '0.7rem', height: 20 }} />
+        {isLoading && <CircularProgress size={14} />}
+      </Box>
+      <Stack spacing={1}>
+        {enrichments.map((enrichment: any) => (
+          <Card key={enrichment.id} variant="outlined">
+            <CardContent sx={{ py: 1.5, '&:last-child': { pb: 1.5 } }}>
+              <Box sx={{ display: 'flex', gap: 1, mb: 0.5 }}>
+                <Chip label={enrichment.attributes?.subtype || enrichment.attributes?.type || enrichment.type} size="small" sx={{ fontSize: '0.7rem', height: 20 }} />
+              </Box>
+              <Typography
+                variant="body2"
+                sx={{
+                  whiteSpace: 'pre-wrap',
+                  fontSize: '0.75rem',
+                  maxHeight: 100,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  color: 'text.secondary',
+                }}
+              >
+                {enrichment.attributes?.content?.slice(0, 300) || ''}
+                {enrichment.attributes?.content?.length > 300 ? '...' : ''}
+              </Typography>
+            </CardContent>
+          </Card>
+        ))}
+      </Stack>
+      {totalPages > 1 && (
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 2, mt: 2 }}>
+          <Chip
+            label="Previous"
+            onClick={() => setPage(p => Math.max(1, p - 1))}
+            disabled={page <= 1}
+            variant="outlined"
+            size="small"
+            sx={{ cursor: page <= 1 ? 'default' : 'pointer' }}
+          />
+          <Typography variant="body2" color="text.secondary">
+            Page {page} of {totalPages}
+          </Typography>
+          <Chip
+            label="Next"
+            onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+            disabled={page >= totalPages}
+            variant="outlined"
+            size="small"
+            sx={{ cursor: page >= totalPages ? 'default' : 'pointer' }}
+          />
         </Box>
       )}
     </Box>
@@ -1199,7 +1295,7 @@ const CodeIntelligenceTab: FC<CodeIntelligenceTabProps> = ({ repository, enrichm
         <WikiSubTab repoId={repoId} enabled={!!repoId && repository.kodit_indexing} />
       )}
       {subTab === 'search' && (
-        <SearchSubTab repoId={repoId} enabled={!!repoId && repository.kodit_indexing} />
+        <SearchSubTab repoId={repoId} enabled={!!repoId && repository.kodit_indexing} repository={repository} />
       )}
       {subTab === 'changelog' && (
         <ChangelogSubTab enrichments={enrichments} />

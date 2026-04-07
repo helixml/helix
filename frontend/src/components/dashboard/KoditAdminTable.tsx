@@ -302,7 +302,8 @@ const KoditAdminTable: FC<KoditAdminTableProps> = ({ onViewDetail }) => {
               </TableCell>
               <TableCell>Name</TableCell>
               <TableCell>Status</TableCell>
-              <TableCell>Helix Repository</TableCell>
+              <TableCell>Organization</TableCell>
+              <TableCell>Kodit URL</TableCell>
               <TableCell>Created</TableCell>
               <TableCell align="right">Actions</TableCell>
             </TableRow>
@@ -310,7 +311,7 @@ const KoditAdminTable: FC<KoditAdminTableProps> = ({ onViewDetail }) => {
           <TableBody>
             {repos.length === 0 && (
               <TableRow>
-                <TableCell colSpan={6} align="center" sx={{ py: 4 }}>
+                <TableCell colSpan={7} align="center" sx={{ py: 4 }}>
                   <Typography variant="body2" color="text.secondary">
                     No Kodit repositories found
                   </Typography>
@@ -352,9 +353,14 @@ const KoditAdminTable: FC<KoditAdminTableProps> = ({ onViewDetail }) => {
                     )}
                   </TableCell>
                   <TableCell>
-                    {repo.attributes?.helix_repo_name || (
+                    {repo.attributes?.helix_org_id || (
                       <Typography variant="caption" color="text.secondary">-</Typography>
                     )}
+                  </TableCell>
+                  <TableCell>
+                    <Typography variant="caption" sx={{ wordBreak: 'break-all' }}>
+                      {repo.attributes?.remote_url || '-'}
+                    </Typography>
                   </TableCell>
                   <TableCell>
                     {formatDate(repo.attributes?.created_at)}

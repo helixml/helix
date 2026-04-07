@@ -1285,6 +1285,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/git/repositories/{id}/contents", apiServer.getGitRepositoryFileContents).Methods(http.MethodGet)
 	authRouter.HandleFunc("/git/repositories/{id}/contents", apiServer.createOrUpdateGitRepositoryFileContents).Methods(http.MethodPut)
 	authRouter.HandleFunc("/git/repositories/{id}/enrichments", apiServer.getRepositoryEnrichments).Methods(http.MethodGet)
+	authRouter.HandleFunc("/kodit/repositories/{koditRepoId}/enrichments", apiServer.getKoditRepoEnrichments).Methods(http.MethodGet)
 	authRouter.HandleFunc("/git/repositories/{id}/enrichments/{enrichmentId}", apiServer.getEnrichment).Methods(http.MethodGet)
 	authRouter.HandleFunc("/git/repositories/{id}/kodit-commits", apiServer.getRepositoryKoditCommits).Methods(http.MethodGet)
 	authRouter.HandleFunc("/git/repositories/{id}/search-snippets", apiServer.searchRepositorySnippets).Methods(http.MethodGet)

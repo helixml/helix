@@ -886,6 +886,7 @@ export interface ServerKoditAdminQueueTaskDTO {
 
 export interface ServerKoditAdminRepoAttributes {
   created_at?: string;
+  helix_org_id?: string;
   helix_repo_id?: string;
   helix_repo_name?: string;
   remote_url?: string;
@@ -906,6 +907,8 @@ export interface ServerKoditAdminRepoDetailAttributes {
   created_at?: string;
   default_branch?: string;
   enrichment_count?: number;
+  helix_org_id?: string;
+  helix_org_name?: string;
   helix_repo_id?: string;
   helix_repo_name?: string;
   /** Last time Kodit scanned this repository */
@@ -1000,6 +1003,17 @@ export interface ServerKoditEnrichmentListResponse {
   data?: ServerKoditEnrichmentDTO[];
 }
 
+export interface ServerKoditEnrichmentsMeta {
+  commit_sha?: string;
+  count?: number;
+  enrichment_type?: string;
+  kodit_repo_id?: number;
+  page?: number;
+  per_page?: number;
+  total?: number;
+  total_pages?: number;
+}
+
 export interface ServerKoditFileContentDTO {
   commit_sha?: string;
   content?: string;
@@ -1081,6 +1095,12 @@ export interface ServerKoditIndexingStatusData {
   attributes?: ServerKoditIndexingStatusAttributes;
   id?: string;
   type?: string;
+}
+
+export interface ServerKoditRepoEnrichmentsResponse {
+  data?: ServerKoditEnrichmentDTO[];
+  links?: Record<string, string>;
+  meta?: ServerKoditEnrichmentsMeta;
 }
 
 export interface ServerKoditSearchMeta {
@@ -9202,6 +9222,34 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/knowledge/${id}/versions`,
         method: "GET",
         secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Fetch code intelligence enrichments for any Kodit repository (git or knowledge-backed).
+     *
+     * @tags kodit
+     * @name V1KoditRepositoriesEnrichmentsDetail
+     * @summary Get enrichments by Kodit repo ID
+     * @request GET:/api/v1/kodit/repositories/{koditRepoId}/enrichments
+     * @secure
+     */
+    v1KoditRepositoriesEnrichmentsDetail: (
+      koditRepoId: number,
+      query?: {
+        /** Filter by enrichment type */
+        enrichment_type?: string;
+        /** Filter by commit SHA */
+        commit_sha?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<ServerKoditRepoEnrichmentsResponse, TypesAPIError>({
+        path: `/api/v1/kodit/repositories/${koditRepoId}/enrichments`,
+        method: "GET",
+        query: query,
+        secure: true,
+        format: "json",
         ...params,
       }),
 
