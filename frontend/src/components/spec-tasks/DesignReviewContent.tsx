@@ -221,6 +221,7 @@ export default function DesignReviewContent({
     commentId: string;
     content: string;
     entries: Array<{ type: 'text' | 'tool_call'; content: string; message_id: string; tool_name?: string; tool_status?: string }>;
+    isComplete?: boolean; // true = done streaming, keep content visible until cache refreshes
   } | null>(null);
   const account = useAccount();
   const queryClient = useQueryClient();
@@ -483,7 +484,7 @@ export default function DesignReviewContent({
 
             if (lastInteraction.state === "complete") {
               console.log(
-                "[DRWS-DEBUG] Interaction complete - invalidating queries and clearing state",
+                "[DRWS-DEBUG] Interaction complete - invalidating queries and marking stream complete",
               );
               // Invalidate both comments AND review detail (which contains the design doc content)
               // The agent may have updated the design doc via git push in response to the comment
@@ -493,7 +494,10 @@ export default function DesignReviewContent({
               queryClient.invalidateQueries({
                 queryKey: designReviewKeys.detail(specTaskId, reviewId),
               });
-              setStreamingResponse(null);
+              // Mark as complete rather than clearing immediately — keeps the response content
+              // visible on comment 1 while the React Query cache refreshes. The next comment's
+              // streaming events will naturally overwrite this with the new comment's data.
+              setStreamingResponse(prev => prev ? { ...prev, isComplete: true } : null);
               // Reset entry tracking for next streaming response
               streamEntries = [];
             }
@@ -550,7 +554,8 @@ export default function DesignReviewContent({
             queryClient.invalidateQueries({
               queryKey: designReviewKeys.detail(specTaskId, reviewId),
             });
-            setStreamingResponse(null);
+            // Mark as complete rather than clearing immediately (see session_update handler above)
+            setStreamingResponse(prev => prev ? { ...prev, isComplete: true } : null);
             streamEntries = [];
           }
         }
@@ -1429,6 +1434,11 @@ export default function DesignReviewContent({
                     streamingEntries={
                       isCurrentlyStreaming
                         ? streamingResponse.entries
+                        : undefined
+                    }
+                    isStreamingComplete={
+                      isCurrentlyStreaming
+                        ? !!streamingResponse.isComplete
                         : undefined
                     }
                     commentRef={(el) => {
