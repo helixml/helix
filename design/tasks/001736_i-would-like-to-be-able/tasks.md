@@ -13,9 +13,14 @@
 ## Backend
 - [x] Add `AttachmentPaths []string` field to `CreateTaskRequest` and `SpecTask` model in `simple_spec_task.go`
 - [x] In `spec_driven_task_service.go`, when building the planning Interaction: if attachments exist, read images from filestore, base64-encode them, and use `PromptMessageContent` with `ImageURLPart` entries instead of plain `PromptMessage`
-- [ ] Copy attached images into the agent workspace directory (`helix-specs/design/tasks/{taskDir}/screenshots/`) during workspace setup so the agent can access them locally
+- [x] Regenerated OpenAPI spec and TypeScript API client to include `attachment_paths` field
+- [x] Wired filestore into SpecDrivenTaskService via SetFileStore() for reading uploaded images
+
+## Deferred
+- [ ] Copy attached images into the agent workspace directory — deferred because images are already sent inline via multimodal prompt (base64) and the agent can access the filestore API via USER_API_TOKEN if needed
 
 ## Verification
-- [~] Verify images render correctly on the task detail page via existing react-markdown rendering
-- [ ] Verify the LLM receives images as multimodal content (check agent logs for image parts in prompt)
-- [ ] Verify images are present in the agent's workspace directory inside the dev container
+- [x] Verify image upload appears as thumbnail in form with remove button
+- [x] Verify remove button deletes image from UI and filestore
+- [ ] Verify images render correctly on the task detail page via existing react-markdown rendering (requires creating an actual task with images)
+- [ ] Verify the LLM receives images as multimodal content (requires running agent with attached images)
