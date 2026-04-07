@@ -155,7 +155,7 @@ export function useListInteractions(
   page?: number,
   perPage?: number,
   order?: 'asc' | 'desc',
-  options?: { enabled?: boolean }
+  options?: { enabled?: boolean; refetchInterval?: number | false }
 ) {
   const api = useApi()
   const apiClient = api.getApiClient()
@@ -168,5 +168,6 @@ export function useListInteractions(
       order: order,
     }),
     enabled: options?.enabled ?? true,
+    refetchInterval: options?.refetchInterval,
   })
 }
