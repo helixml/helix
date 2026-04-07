@@ -7,8 +7,10 @@ This feature leverages the **existing filestore infrastructure** for storage and
 ```
 User uploads image → Filestore API (POST /api/v1/filestore/upload)
                    → Stored at /users/{userId}/task-attachments/{uuid}/{filename}
-                   → Markdown reference appended to prompt
-                   → Rendered via react-markdown on task detail page
+                   → Image paths saved in CreateTaskRequest.AttachmentPaths[]
+                   → Rendered via react-markdown on task detail page (via viewer URLs)
+                   → Sent as multimodal ImageURLPart in agent's planning prompt
+                   → Copied to agent workspace for local file access
 ```
 
 ## Key Decisions
@@ -19,11 +21,15 @@ User uploads image → Filestore API (POST /api/v1/filestore/upload)
 **Path format:** `/users/{userId}/task-attachments/{uploadSessionId}/{filename}`
 - `uploadSessionId` is a UUID generated when the form opens, grouping all images for one task creation attempt.
 
-### 2. Prompt integration: Append markdown image references to the prompt text
-**Why:** The `OriginalPrompt` field is plain text/markdown. By appending `![screenshot](viewerUrl)` to the prompt, images are automatically:
-- Sent to the AI agent as part of the prompt context
-- Rendered in the task detail view (react-markdown already handles `![](url)`)
-- No backend changes needed to the `CreateTaskRequest` or `SpecTask` model
+### 2. Prompt integration: Two-layer approach (UI display + agent delivery)
+
+Images need to reach **two consumers** with different capabilities:
+
+**a) UI display (task detail page):** Markdown image references (`![screenshot](viewerUrl)`) are stored in the `OriginalPrompt` field. The existing react-markdown renderer displays them automatically.
+
+**b) Agent LLM delivery:** The planning prompt builder (`spec_driven_task_service.go`) uses `PromptMessageContent` with `ImageURLPart` entries instead of plain `PromptMessage`. This sends images as multimodal content to the LLM so it can actually "see" them. The `MessageContent` struct and OpenAI conversion logic already exist in `types.go` but are currently unused for spec tasks.
+
+**c) Agent local access:** Images are copied into the agent's workspace directory (`helix-specs/design/tasks/{taskDir}/screenshots/`) so the agent can reference them from disk if needed.
 
 ### 3. Upload timing: Upload immediately on drop/paste, not on form submit
 **Why:** Uploading eagerly provides immediate feedback (progress bar, preview thumbnail) and avoids a slow submit step. If the user abandons the form, orphaned files in the filestore are acceptable (can be cleaned up later via a background job if needed).
@@ -48,7 +54,26 @@ User uploads image → Filestore API (POST /api/v1/filestore/upload)
 
 ## Backend Changes
 
-**None required.** The existing filestore upload endpoint and viewer endpoint handle everything. The prompt field already accepts arbitrary text including markdown image syntax.
+### API: Add `AttachmentPaths` to `CreateTaskRequest`
+**File:** `api/pkg/types/simple_spec_task.go`
+
+Add an `AttachmentPaths []string` field to `CreateTaskRequest`. The frontend sends the filestore paths of uploaded images (e.g. `/users/{userId}/task-attachments/{sessionId}/screenshot.png`). These paths are stored on the `SpecTask` record for later use when building the agent prompt.
+
+### Planning prompt: Use multimodal `PromptMessageContent`
+**File:** `api/pkg/services/spec_driven_task_service.go` (around line 439)
+
+When creating the planning Interaction, if the task has attachment paths:
+1. Read each image from the filestore via the `FileStore.OpenFile()` method.
+2. Base64-encode the image data.
+3. Build a `PromptMessageContent` with `ImageURLPart` entries using `data:image/png;base64,...` URIs alongside the text prompt.
+4. Set `Interaction.PromptMessageContent` instead of `Interaction.PromptMessage`.
+
+**Why base64 instead of signed URLs:** The LLM provider (Anthropic/OpenAI) needs to fetch the image. Signed filestore URLs point to the internal Helix API which may not be reachable from the external LLM provider. Base64 data URIs are self-contained and work regardless of network topology.
+
+### Workspace delivery: Copy images to agent workspace
+**File:** `api/pkg/services/spec_driven_task_service.go` or `api/pkg/external-agent/hydra_executor.go`
+
+When setting up the agent workspace, copy attached images into the task's spec directory (`helix-specs/design/tasks/{taskDir}/screenshots/`). The agent can then reference these files locally for inclusion in design docs or further analysis. The filestore `OpenFile()` + workspace `WriteFile()` methods handle this.
 
 ## Codebase Patterns & Notes
 
@@ -60,3 +85,7 @@ User uploads image → Filestore API (POST /api/v1/filestore/upload)
 - **API client:** Auto-generated from OpenAPI spec in `frontend/src/api/api`
 - **Task creation endpoint:** `POST /api/v1/spec-tasks/from-prompt` in `api/pkg/server/spec_driven_task_handlers.go`
 - **Task model:** `SpecTask` in `api/pkg/types/simple_spec_task.go` — `OriginalPrompt` is a TEXT column
+- **Multimodal types:** `MessageContent`, `ImageURLPart` in `api/pkg/types/types.go` — already support image parts, converted to OpenAI format for LLM calls
+- **Planning prompt builder:** `BuildPlanningPrompt()` in `api/pkg/services/spec_task_prompts.go`
+- **Interaction creation:** `spec_driven_task_service.go` lines ~439-450 — where `PromptMessage` is set (change to `PromptMessageContent` for multimodal)
+- **Container env vars:** `hydra_executor.go` — agent gets `USER_API_TOKEN` and `HELIX_API_URL` for API access
