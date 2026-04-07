@@ -6446,65 +6446,6 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v1/kodit/repositories/{koditRepoId}/search": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Search code snippets in any Kodit repository (git or knowledge-backed).",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "kodit"
-                ],
-                "summary": "Search snippets by Kodit repo ID",
-                "parameters": [
-                    {
-                        "type": "integer",
-                        "description": "Kodit Repository ID",
-                        "name": "koditRepoId",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Search query",
-                        "name": "query",
-                        "in": "query",
-                        "required": true
-                    },
-                    {
-                        "type": "integer",
-                        "description": "Max results (default 20, max 100)",
-                        "name": "limit",
-                        "in": "query"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/server.KoditRepoSearchResponse"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/types.APIError"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/types.APIError"
-                        }
-                    }
-                }
-            }
-        },
         "/api/v1/license": {
             "get": {
                 "security": [
@@ -18700,6 +18641,18 @@ const docTemplate = `{
                 },
                 "kodit_repo_id": {
                     "type": "integer"
+                },
+                "page": {
+                    "type": "integer"
+                },
+                "per_page": {
+                    "type": "integer"
+                },
+                "total": {
+                    "type": "integer"
+                },
+                "total_pages": {
+                    "type": "integer"
                 }
             }
         },
@@ -18944,43 +18897,6 @@ const docTemplate = `{
                 },
                 "meta": {
                     "$ref": "#/definitions/server.KoditEnrichmentsMeta"
-                }
-            }
-        },
-        "server.KoditRepoSearchMeta": {
-            "type": "object",
-            "properties": {
-                "count": {
-                    "type": "integer"
-                },
-                "kodit_repo_id": {
-                    "type": "integer"
-                },
-                "limit": {
-                    "type": "integer"
-                },
-                "query": {
-                    "type": "string"
-                }
-            }
-        },
-        "server.KoditRepoSearchResponse": {
-            "type": "object",
-            "properties": {
-                "data": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/server.KoditSearchResultDTO"
-                    }
-                },
-                "links": {
-                    "type": "object",
-                    "additionalProperties": {
-                        "type": "string"
-                    }
-                },
-                "meta": {
-                    "$ref": "#/definitions/server.KoditRepoSearchMeta"
                 }
             }
         },

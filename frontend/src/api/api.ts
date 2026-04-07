@@ -1008,6 +1008,10 @@ export interface ServerKoditEnrichmentsMeta {
   count?: number;
   enrichment_type?: string;
   kodit_repo_id?: number;
+  page?: number;
+  per_page?: number;
+  total?: number;
+  total_pages?: number;
 }
 
 export interface ServerKoditFileContentDTO {
@@ -1097,19 +1101,6 @@ export interface ServerKoditRepoEnrichmentsResponse {
   data?: ServerKoditEnrichmentDTO[];
   links?: Record<string, string>;
   meta?: ServerKoditEnrichmentsMeta;
-}
-
-export interface ServerKoditRepoSearchMeta {
-  count?: number;
-  kodit_repo_id?: number;
-  limit?: number;
-  query?: string;
-}
-
-export interface ServerKoditRepoSearchResponse {
-  data?: ServerKoditSearchResultDTO[];
-  links?: Record<string, string>;
-  meta?: ServerKoditRepoSearchMeta;
 }
 
 export interface ServerKoditSearchMeta {
@@ -9255,34 +9246,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
     ) =>
       this.request<ServerKoditRepoEnrichmentsResponse, TypesAPIError>({
         path: `/api/v1/kodit/repositories/${koditRepoId}/enrichments`,
-        method: "GET",
-        query: query,
-        secure: true,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Search code snippets in any Kodit repository (git or knowledge-backed).
-     *
-     * @tags kodit
-     * @name V1KoditRepositoriesSearchDetail
-     * @summary Search snippets by Kodit repo ID
-     * @request GET:/api/v1/kodit/repositories/{koditRepoId}/search
-     * @secure
-     */
-    v1KoditRepositoriesSearchDetail: (
-      koditRepoId: number,
-      query: {
-        /** Search query */
-        query: string;
-        /** Max results (default 20, max 100) */
-        limit?: number;
-      },
-      params: RequestParams = {},
-    ) =>
-      this.request<ServerKoditRepoSearchResponse, TypesAPIError>({
-        path: `/api/v1/kodit/repositories/${koditRepoId}/search`,
         method: "GET",
         query: query,
         secure: true,

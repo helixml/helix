@@ -220,17 +220,6 @@ export function useAdminKoditRepoEnrichments(koditRepoId: string, options?: { en
   })
 }
 
-export function useAdminKoditRepoSearch(koditRepoId: string, query: string, options?: { enabled?: boolean }) {
-  const api = useApi()
-
-  return useQuery({
-    queryKey: ['kodit', 'repositories', koditRepoId, 'search', query],
-    queryFn: async () => {
-      return api.get(`/api/v1/kodit/repositories/${koditRepoId}/search?query=${encodeURIComponent(query)}`)
-    },
-    enabled: options?.enabled !== false && !!koditRepoId && !!query,
-  })
-}
 
 // =============================================================================
 // Queue hooks (using raw API client instance until generated client is updated)

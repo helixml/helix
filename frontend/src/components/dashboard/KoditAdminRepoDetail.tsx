@@ -1,4 +1,4 @@
-import React, { FC, useState, useCallback, useMemo } from 'react'
+import React, { FC, useCallback, useMemo } from 'react'
 import {
   Box,
   Typography,
@@ -7,7 +7,6 @@ import {
   CircularProgress,
   Paper,
   Grid,
-  TextField,
   Card,
   CardContent,
   Divider,
@@ -36,7 +35,6 @@ import {
   useAdminSyncKoditRepository,
   useAdminRescanKoditRepository,
   useAdminKoditRepoEnrichments,
-  useAdminKoditRepoSearch,
 } from '../../services/koditAdminService'
 
 const statusColor: Record<string, 'success' | 'warning' | 'error' | 'default' | 'info'> = {
@@ -90,9 +88,6 @@ interface KoditAdminRepoDetailProps {
 const KoditAdminRepoDetail: FC<KoditAdminRepoDetailProps> = ({ koditRepoId, onBack }) => {
   const account = useAccount()
   const snackbar = useSnackbar()
-  const [searchQuery, setSearchQuery] = useState('')
-  const [activeSearch, setActiveSearch] = useState('')
-
   const { data, isLoading, error } = useAdminKoditRepositoryDetail(koditRepoId)
   const { data: tasksData } = useAdminKoditRepositoryTasks(koditRepoId)
   const syncMutation = useAdminSyncKoditRepository()
@@ -101,12 +96,9 @@ const KoditAdminRepoDetail: FC<KoditAdminRepoDetailProps> = ({ koditRepoId, onBa
   const attrs = data?.data?.attributes
   const helixRepoId = attrs?.helix_repo_id || ''
 
-  // Enrichments and search use admin endpoints keyed by kodit repo ID
+  // Enrichments use admin endpoints keyed by kodit repo ID
   // (works for both git repos and knowledge-based repos)
   const enrichmentsQuery = useAdminKoditRepoEnrichments(koditRepoId)
-  const searchResults = useAdminKoditRepoSearch(koditRepoId, activeSearch, {
-    enabled: !!activeSearch,
-  })
 
   const handleBack = useCallback(() => {
     if (onBack) {
@@ -127,10 +119,6 @@ const KoditAdminRepoDetail: FC<KoditAdminRepoDetailProps> = ({ koditRepoId, onBa
       onError: (err) => snackbar.error(`Rescan failed: ${err.message}`),
     })
   }, [koditRepoId, rescanMutation, snackbar])
-
-  const handleSearch = useCallback(() => {
-    setActiveSearch(searchQuery)
-  }, [searchQuery])
 
   const taskSummary = useMemo(() => {
     const statuses = tasksData?.statuses || []
@@ -438,59 +426,6 @@ const KoditAdminRepoDetail: FC<KoditAdminRepoDetailProps> = ({ koditRepoId, onBa
             )}
           </AccordionDetails>
         </Accordion>
-      )}
-
-      {/* Search Test Panel */}
-      {koditRepoId && (
-        <Box sx={{ mb: 3 }}>
-          <Typography variant="subtitle1" gutterBottom>Search Test</Typography>
-          <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
-            <TextField
-              size="small"
-              placeholder="Search code snippets..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-              sx={{ flex: 1 }}
-            />
-            <Button variant="contained" onClick={handleSearch} disabled={!searchQuery}>
-              Search
-            </Button>
-          </Box>
-          {searchResults.isLoading && <CircularProgress size={20} />}
-          {(() => {
-            const results = (searchResults.data as any)?.data || []
-            if (results.length > 0) return (
-              <Paper variant="outlined" sx={{ maxHeight: 400, overflow: 'auto' }}>
-                {results.map((result: any, i: number) => (
-                  <Box key={result.id || i} sx={{ p: 2, borderBottom: '1px solid', borderColor: 'divider' }}>
-                    <Box sx={{ display: 'flex', gap: 1, mb: 1 }}>
-                      <Chip label={result.type} size="small" />
-                      {result.language && <Chip label={result.language} size="small" variant="outlined" />}
-                    </Box>
-                    <Typography
-                      variant="body2"
-                      component="pre"
-                      sx={{
-                        whiteSpace: 'pre-wrap',
-                        fontFamily: 'monospace',
-                        fontSize: '0.75rem',
-                        maxHeight: 200,
-                        overflow: 'auto',
-                      }}
-                    >
-                      {result.content}
-                    </Typography>
-                  </Box>
-                ))}
-              </Paper>
-            )
-            if (searchResults.data && activeSearch) return (
-              <Typography variant="body2" color="text.secondary">No results found</Typography>
-            )
-            return null
-          })()}
-        </Box>
       )}
 
       {/* Enrichments Preview */}
