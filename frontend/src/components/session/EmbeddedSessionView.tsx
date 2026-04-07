@@ -272,7 +272,7 @@ const EmbeddedSessionView = forwardRef<
     0, // Always fetch page 0 (newest) - older pages fetched on demand
     INTERACTIONS_TO_RENDER,
     'desc',
-    { enabled: !!sessionId }
+    { enabled: !!sessionId, refetchInterval: 3000 }
   );
   const paginatedData = paginatedInteractionsResponse?.data;
 
