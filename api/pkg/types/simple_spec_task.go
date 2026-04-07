@@ -87,6 +87,9 @@ type CreateTaskRequest struct {
 	BranchPrefix  string     `json:"branch_prefix,omitempty"`  // For new mode: user-specified prefix (task# appended)
 	WorkingBranch string     `json:"working_branch,omitempty"` // For existing mode: branch to continue working on
 
+	// Image attachments (filestore paths uploaded by the user)
+	AttachmentPaths []string `json:"attachment_paths,omitempty"` // Filestore paths of uploaded screenshots
+
 	// Git repositories are now managed at the project level - no task-level repo selection needed
 }
 
@@ -188,8 +191,9 @@ type SpecTask struct {
 	CreatedAt time.Time              `json:"created_at"`
 	UpdatedAt time.Time              `json:"updated_at"`
 	Archived  bool                   `json:"archived" gorm:"default:false;index"` // Archive to hide from main view
-	Labels    []string               `json:"labels" gorm:"type:jsonb;serializer:json"`
-	Metadata  map[string]interface{} `json:"metadata,omitempty" gorm:"type:jsonb;serializer:json"`
+	Labels          []string               `json:"labels" gorm:"type:jsonb;serializer:json"`
+	Metadata        map[string]interface{} `json:"metadata,omitempty" gorm:"type:jsonb;serializer:json"`
+	AttachmentPaths []string               `json:"attachment_paths,omitempty" gorm:"type:jsonb;serializer:json"` // Filestore paths of user-uploaded screenshots
 
 	// Public sharing
 	PublicDesignDocs bool `json:"public_design_docs" gorm:"default:false"` // Allow viewing design docs without login
