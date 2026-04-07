@@ -43,13 +43,15 @@ Images need to reach **two consumers** with different capabilities:
 - Add an `ImageAttachments` component below the prompt textarea.
 - This component uses `react-dropzone` (already a dependency) for drag-and-drop.
 - Registers a `paste` event listener on the form for clipboard images.
-- Shows thumbnails of uploaded images with a remove button.
-- On form submit, appends `\n\n![screenshot-N](viewerUrl)` for each uploaded image to the prompt string before calling the API.
+- Shows thumbnails of uploaded images, each with an "X" remove button.
+- Clicking remove deletes the file from the filestore (via the existing `DELETE /api/v1/filestore/delete` endpoint) and removes the thumbnail from the list immediately.
+- On form submit, only the remaining (non-removed) images are included in the prompt and `AttachmentPaths`.
 
 ### New component: `ImageAttachments.tsx`
 - Props: `onImagesChange(images: UploadedImage[])` callback
-- Internal state: list of `{ id, filename, previewUrl, viewerUrl, uploading, error }`
+- Internal state: list of `{ id, filename, previewUrl, viewerUrl, filestorePath, uploading, error }`
 - Uses `useUploadFilestoreFiles()` from `filestoreService.ts` for uploads
+- Uses the filestore delete API to remove images when the user clicks the remove button
 - Displays upload progress via existing `UploadingOverlay` pattern
 
 ## Backend Changes

@@ -5,7 +5,7 @@
 - [ ] Add clipboard paste handler to `ImageAttachments` that intercepts Ctrl+V image data and triggers upload
 - [ ] Wire up file uploads using `useUploadFilestoreFiles()` to store images at `/users/{userId}/task-attachments/{sessionId}/{filename}`
 - [ ] Add upload progress indicator and error handling for each image
-- [ ] Add remove button on each thumbnail to delete an uploaded image
+- [ ] Add remove button ("X") on each thumbnail that deletes the file from the filestore and removes it from the list, so wrong images can be discarded before submitting
 - [ ] Integrate `ImageAttachments` into `NewSpecTaskForm.tsx` below the prompt textarea
 - [ ] On form submit, send uploaded image filestore paths in `AttachmentPaths` field and append markdown image references to the prompt text
 - [ ] Add file size validation (max 10MB) and file type filtering (PNG, JPEG, GIF, WebP)
