@@ -105,6 +105,10 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({
   // Keyed by interactionId, stores the current ResponseEntry[] built from entry_patches.
   const patchEntriesRef = useRef<Map<string, ResponseEntry[]>>(new Map());
   const patchPendingRef = useRef<boolean>(false);
+  // Track whether the WebSocket has experienced a disconnect since last connect.
+  // Used to detect reconnection events (vs initial connection) so we can refresh
+  // stale state missed during the outage.
+  const wsWasDisconnectedRef = useRef<boolean>(false);
 
   // Clear all streaming state when switching sessions
   const clearSessionData = useCallback(
@@ -577,8 +581,26 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({
       }, 500);
     };
 
-    const openHandler = () => setWsConnected(true);
-    const closeHandler = () => setWsConnected(false);
+    const openHandler = () => {
+      if (wsWasDisconnectedRef.current) {
+        // Reconnection after a dropout: clear stale streaming state and refresh
+        // from the database so any updates missed during the outage are loaded.
+        wsWasDisconnectedRef.current = false;
+        setCurrentResponses((prev) => {
+          const next = new Map(prev);
+          next.delete(currentSessionId!);
+          return next;
+        });
+        patchEntriesRef.current.clear();
+        queryClient.invalidateQueries({ queryKey: ["interactions", currentSessionId] });
+        queryClient.invalidateQueries({ queryKey: SESSION_STEPS_QUERY_KEY(currentSessionId!) });
+      }
+      setWsConnected(true);
+    };
+    const closeHandler = () => {
+      wsWasDisconnectedRef.current = true;
+      setWsConnected(false);
+    };
 
     rws.addEventListener("message", messageHandler);
     rws.addEventListener("open", openHandler);
@@ -589,6 +611,9 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({
       rws.removeEventListener("open", openHandler);
       rws.removeEventListener("close", closeHandler);
       rws.close();
+      // Reset disconnect tracking on intentional session change so the next
+      // session's initial connect is not mistaken for a reconnect.
+      wsWasDisconnectedRef.current = false;
       setWsConnected(false);
       // Clear any pending invalidation timer
       if (invalidateTimerRef.current) {
