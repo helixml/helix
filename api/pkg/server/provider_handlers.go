@@ -350,14 +350,15 @@ func (s *HelixAPIServer) createProviderEndpoint(rw http.ResponseWriter, r *http.
 	user := getRequestUser(r)
 
 	isAdmin := s.isAdmin(r)
+	isRunnerReq := isRunner(user)
 
 	// Check if providers management is enabled
-	if !s.isProvidersManagementEnabled(ctx) && !isAdmin {
+	if !s.isProvidersManagementEnabled(ctx) && !isAdmin && !isRunnerReq {
 		http.Error(rw, "Providers management is not enabled", http.StatusForbidden)
 		return
 	}
 
-	if !isAdmin && !s.Cfg.Providers.EnableCustomUserProviders {
+	if !isAdmin && !isRunnerReq && !s.Cfg.Providers.EnableCustomUserProviders {
 		http.Error(rw, "Custom user providers are not enabled", http.StatusForbidden)
 		return
 	}
@@ -377,6 +378,9 @@ func (s *HelixAPIServer) createProviderEndpoint(rw http.ResponseWriter, r *http.
 			http.Error(rw, "Could not authorize org member: "+err.Error(), http.StatusForbidden)
 			return
 		}
+	} else if endpoint.OwnerType == types.OwnerTypeSystem && isRunnerReq {
+		// Runners may create system-owned global endpoints (e.g., auto-detected Ollama).
+		// Owner stays as set by the caller; no override needed.
 	} else {
 		// Otherwise, default to user
 		endpoint.OwnerType = types.OwnerTypeUser
@@ -403,8 +407,8 @@ func (s *HelixAPIServer) createProviderEndpoint(rw http.ResponseWriter, r *http.
 		endpoint.EndpointType = types.ProviderEndpointTypeUser
 	}
 
-	// Only admins can add global endpoints
-	if endpoint.EndpointType == types.ProviderEndpointTypeGlobal && !isAdmin {
+	// Only admins and runners can add global endpoints
+	if endpoint.EndpointType == types.ProviderEndpointTypeGlobal && !isAdmin && !isRunnerReq {
 		http.Error(rw, "Only admins can add global endpoints", http.StatusForbidden)
 		return
 	}
