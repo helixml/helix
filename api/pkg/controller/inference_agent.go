@@ -264,7 +264,6 @@ func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*agent
 		skills,
 		req.Assistant.MaxIterations,
 	)
-
 	messageHistory := agent.NewMessageList()
 
 	// Add request messages except the last user message

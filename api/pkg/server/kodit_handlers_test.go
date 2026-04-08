@@ -86,6 +86,10 @@ func (f *fakeKoditService) GetWikiTree(_ context.Context, _ int64) ([]services.K
 func (f *fakeKoditService) GetWikiPage(_ context.Context, _ int64, _ string) (*services.KoditWikiPage, error) {
 	return nil, f.err
 }
+func (f *fakeKoditService) VisualSearch(_ context.Context, _ int64, _ string, _ int) ([]services.KoditFileResult, error) {
+	return nil, nil
+}
+
 func (f *fakeKoditService) SemanticSearch(_ context.Context, _ int64, _ string, _ int, _ string) ([]services.KoditFileResult, error) {
 	return nil, f.err
 }
@@ -103,6 +107,9 @@ func (f *fakeKoditService) ReadFile(_ context.Context, _ int64, _ string, _, _ i
 }
 func (f *fakeKoditService) UpdateChunkingConfig(_ context.Context, _ int64, _, _, _ int) error {
 	return f.err
+}
+func (f *fakeKoditService) RenderPageImage(_ context.Context, _ int64, _ string, _ int) ([]byte, error) {
+	return nil, nil
 }
 
 type fakeGitRepositoryStore struct {

@@ -3,9 +3,12 @@
 package services
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"image/png"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -685,6 +688,29 @@ func (s *KoditService) SemanticSearch(ctx context.Context, koditRepoID int64, qu
 	return s.resolveFileResults(ctx, enrichments, scores)
 }
 
+// VisualSearch performs cross-modal visual search against document page images.
+func (s *KoditService) VisualSearch(ctx context.Context, koditRepoID int64, query string, limit int) ([]KoditFileResult, error) {
+	if !s.enabled {
+		return nil, fmt.Errorf("kodit service not enabled")
+	}
+	if query == "" {
+		return nil, nil
+	}
+	if limit <= 0 {
+		limit = 10
+	}
+
+	filterOpts := []search.FiltersOption{search.WithSourceRepos([]int64{koditRepoID})}
+	filters := search.NewFilters(filterOpts...)
+
+	enrichments, scores, err := s.client.Search.SearchVisualWithScores(ctx, query, limit, filters)
+	if err != nil {
+		return nil, fmt.Errorf("visual search: %w", err)
+	}
+
+	return s.resolveFileResults(ctx, enrichments, scores)
+}
+
 // KeywordSearch performs BM25 keyword search against indexed code snippets.
 func (s *KoditService) KeywordSearch(ctx context.Context, koditRepoID int64, keywords string, limit int, language string) ([]KoditFileResult, error) {
 	if !s.enabled {
@@ -836,7 +862,7 @@ func (s *KoditService) resolveFileResults(ctx context.Context, enrichments []enr
 		return nil, fmt.Errorf("resolve source files: %w", err)
 	}
 
-	lineRanges, err := s.client.Enrichments.LineRanges(ctx, ids)
+	lineRanges, err := s.client.Enrichments.SourceLocations(ctx, ids)
 	if err != nil {
 		return nil, fmt.Errorf("resolve line ranges: %w", err)
 	}
@@ -874,8 +900,14 @@ func (s *KoditService) resolveFileResults(ctx context.Context, enrichments []enr
 		filePath := repoRelativePath(file.Path())
 
 		var lines string
-		if lr, found := lineRanges[idStr]; found && lr.StartLine() > 0 {
-			lines = fmt.Sprintf("L%d-L%d", lr.StartLine(), lr.EndLine())
+		var page int
+		if lr, found := lineRanges[idStr]; found {
+			if lr.StartLine() > 0 {
+				lines = fmt.Sprintf("L%d-L%d", lr.StartLine(), lr.EndLine())
+			}
+			if lr.Page() > 0 {
+				page = lr.Page()
+			}
 		}
 
 		content := e.Content()
@@ -889,6 +921,7 @@ func (s *KoditService) resolveFileResults(ctx context.Context, enrichments []enr
 			Path:     filePath,
 			Language: e.Language(),
 			Lines:    lines,
+			Page:     page,
 			Score:    scores[idStr],
 			Preview:  preview,
 			Content:  content,
@@ -896,6 +929,50 @@ func (s *KoditService) resolveFileResults(ctx context.Context, enrichments []enr
 	}
 
 	return results, nil
+}
+
+// RenderPageImage rasterizes a document page and returns the PNG bytes.
+func (s *KoditService) RenderPageImage(ctx context.Context, koditRepoID int64, filePath string, page int) ([]byte, error) {
+	if !s.enabled {
+		return nil, fmt.Errorf("kodit service not enabled")
+	}
+
+	registry := s.client.Rasterizers()
+	if registry == nil {
+		return nil, fmt.Errorf("rasterization not available")
+	}
+
+	ext := strings.ToLower(filepath.Ext(filePath))
+	rast, ok := registry.For(ext)
+	if !ok {
+		return nil, fmt.Errorf("rasterization not supported for %s files", ext)
+	}
+
+	// Get the latest commit to resolve the blob.
+	commits, err := s.client.Commits.Find(ctx, repository.WithRepoID(koditRepoID), repository.WithOrderDesc("date"), repository.WithLimit(1))
+	if err != nil {
+		return nil, fmt.Errorf("find latest commit: %w", err)
+	}
+	if len(commits) == 0 {
+		return nil, fmt.Errorf("no commits found for repository %d", koditRepoID)
+	}
+
+	diskPath, _, err := s.client.Blobs.DiskPath(ctx, koditRepoID, commits[0].SHA(), filePath)
+	if err != nil {
+		return nil, fmt.Errorf("resolve disk path: %w", err)
+	}
+
+	img, err := rast.Render(diskPath, page)
+	if err != nil {
+		return nil, fmt.Errorf("render page %d: %w", page, err)
+	}
+
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, img); err != nil {
+		return nil, fmt.Errorf("encode png: %w", err)
+	}
+
+	return buf.Bytes(), nil
 }
 
 // UpdateChunkingConfig updates a repository's chunking configuration in Kodit.

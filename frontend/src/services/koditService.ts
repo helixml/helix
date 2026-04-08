@@ -42,6 +42,7 @@ export const koditWikiTreeQueryKey = (repoId: string) => ['kodit', 'wiki', 'tree
 export const koditWikiPageQueryKey = (repoId: string, pagePath: string) => ['kodit', 'wiki', 'page', repoId, pagePath]
 export const koditSemanticSearchQueryKey = (repoId: string, query: string) => ['kodit', 'semantic-search', repoId, query]
 export const koditKeywordSearchQueryKey = (repoId: string, keywords: string) => ['kodit', 'keyword-search', repoId, keywords]
+export const koditVisualSearchQueryKey = (repoId: string, query: string) => ['kodit', 'visual-search', repoId, query]
 export const koditGrepQueryKey = (repoId: string, pattern: string) => ['kodit', 'grep', repoId, pattern]
 export const koditFilesQueryKey = (repoId: string, pattern: string) => ['kodit', 'files', repoId, pattern]
 export const koditFileContentQueryKey = (repoId: string, path: string) => ['kodit', 'file-content', repoId, path]
@@ -260,6 +261,7 @@ export interface KoditFileResult {
   path: string
   language: string
   lines: string
+  page?: number
   score: number
   preview: string
   links?: Record<string, string>
@@ -382,6 +384,30 @@ export function useKoditKeywordSearch(
       return { data: response?.data || [], meta: response?.meta }
     },
     enabled: options?.enabled !== false && !!repoId && !!keywords && keywords.trim().length > 0,
+    staleTime: 5 * 60 * 1000,
+  })
+}
+
+/**
+ * Hook for visual (cross-modal document page) search
+ */
+export function useKoditVisualSearch(
+  repoId: string,
+  query: string,
+  limit?: number,
+  options?: { enabled?: boolean }
+) {
+  const api = useApi()
+
+  return useQuery({
+    queryKey: koditVisualSearchQueryKey(repoId, query),
+    queryFn: async () => {
+      const params = new URLSearchParams({ query })
+      if (limit) params.set('limit', String(limit))
+      const response = await api.get<KoditSearchResponse>(`/api/v1/git/repositories/${repoId}/visual-search?${params}`)
+      return { data: response?.data || [], meta: response?.meta }
+    },
+    enabled: options?.enabled !== false && !!repoId && !!query && query.trim().length > 0,
     staleTime: 5 * 60 * 1000,
   })
 }

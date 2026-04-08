@@ -129,7 +129,8 @@ func (s *SkillDirectRunnerTestSuite) Test_SkillDirectRunner_ExecuteSuccess() {
 
 	s.Require().NoError(err)
 	s.Require().NotNil(result)
-	s.Require().Equal(result.Role, openai.ChatMessageRoleTool)
-	s.Require().Equal(result.Content, "test-output")
-	s.Require().Equal(result.ToolCallID, toolCall.ID)
+	s.Require().NotNil(result.Message)
+	s.Require().Equal(result.Message.Role, openai.ChatMessageRoleTool)
+	s.Require().Equal(result.Message.Content, "test-output")
+	s.Require().Equal(result.Message.ToolCallID, toolCall.ID)
 }
