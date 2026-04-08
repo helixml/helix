@@ -226,8 +226,11 @@ gow_log "[start] Remapped Super→Ctrl and CapsLock→Ctrl via XKB (macOS keyboa
 if [ -n "\$HELIX_SCALE_FACTOR" ] && [ "\$HELIX_SCALE_FACTOR" -gt 1 ]; then
     gow_log "[start] Setting global scaling factor to \$HELIX_SCALE_FACTOR via GSettings..."
     gsettings set org.gnome.desktop.interface scaling-factor \$HELIX_SCALE_FACTOR
-    # Also enable fractional scaling feature (needed for the UI to show scale options)
-    gsettings set org.gnome.mutter experimental-features "['scale-monitor-framebuffer']"
+    # Enable fractional scaling + xwayland-native-scaling
+    # xwayland-native-scaling makes XWayland report physical resolution (e.g., 3840x2160)
+    # instead of logical resolution (e.g., 1920x1080 at 2x scale). This fixes X11 apps
+    # like OnlyOffice that only render in the top-left quarter at 4K with scaling.
+    gsettings set org.gnome.mutter experimental-features "['scale-monitor-framebuffer', 'xwayland-native-scaling']"
 fi
 
 # Start Helix services via shared init scripts
