@@ -54,6 +54,7 @@ func InitKodit(cfg *config.ServerConfig, gitRepoService *services.GitRepositoryS
 	if modelDir == "" {
 		modelDir = filepath.Join(dataDir, "models")
 	}
+	koditOpts = append(koditOpts, kodit.WithModelDir(modelDir))
 	embedder := provider.NewHugotEmbedding(modelDir)
 	koditOpts = append(koditOpts, kodit.WithEmbeddingProvider(embedder))
 

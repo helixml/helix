@@ -1295,6 +1295,8 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/git/repositories/{id}/wiki-page", apiServer.getRepositoryWikiPage).Methods(http.MethodGet)
 	authRouter.HandleFunc("/git/repositories/{id}/semantic-search", apiServer.semanticSearchRepository).Methods(http.MethodGet)
 	authRouter.HandleFunc("/git/repositories/{id}/keyword-search", apiServer.keywordSearchRepository).Methods(http.MethodGet)
+	authRouter.HandleFunc("/git/repositories/{id}/visual-search", apiServer.visualSearchRepository).Methods(http.MethodGet)
+	authRouter.HandleFunc("/git/repositories/{id}/page-image", apiServer.pageImageRepository).Methods(http.MethodGet)
 	authRouter.HandleFunc("/git/repositories/{id}/grep", apiServer.grepRepository).Methods(http.MethodGet)
 	authRouter.HandleFunc("/git/repositories/{id}/files", apiServer.listRepositoryFiles).Methods(http.MethodGet)
 	authRouter.HandleFunc("/git/repositories/{id}/file-content", apiServer.readRepositoryFile).Methods(http.MethodGet)

@@ -56,6 +56,10 @@ func (m *koditServiceMock) RegisterRepository(ctx context.Context, params *servi
 	return 0, false, nil
 }
 
+func (m *koditServiceMock) VisualSearch(context.Context, int64, string, int) ([]services.KoditFileResult, error) {
+	return nil, nil
+}
+
 func (m *koditServiceMock) SemanticSearch(ctx context.Context, id int64, query string, limit int, lang string) ([]services.KoditFileResult, error) {
 	if m.semanticSearchFn != nil {
 		return m.semanticSearchFn(ctx, id, query, limit, lang)
@@ -126,6 +130,9 @@ func (m *koditServiceMock) ActiveTasks(context.Context) ([]services.KoditActiveT
 }
 func (m *koditServiceMock) UpdateChunkingConfig(context.Context, int64, int, int, int) error {
 	return nil
+}
+func (m *koditServiceMock) RenderPageImage(context.Context, int64, string, int) ([]byte, error) {
+	return nil, nil
 }
 
 // KoditRAGSuite tests the KoditRAG implementation.

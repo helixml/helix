@@ -454,6 +454,7 @@ func (a *Agent) Run(ctx context.Context, meta Meta, llm *LLM, messageHistory *Me
 
 		// Execute all skill tools in the current response
 		skillCallResults := make(map[string]*openai.ChatCompletionMessage)
+		var collectedImages []openai.ChatMessagePart
 		var wg conc.WaitGroup
 		var mu sync.Mutex
 
@@ -480,28 +481,32 @@ func (a *Agent) Run(ctx context.Context, meta Meta, llm *LLM, messageHistory *Me
 					}
 				}()
 
-				// defer wg.Done()
-				var result *openai.ChatCompletionMessage
-
 				// Basic skill are executed directly, improves performance and reduces the number of tokens used
 				if skill.Direct {
-					result, err = a.SkillDirectRunner(ctx, meta, skill, tool)
-					if err != nil {
-						log.Error().Err(err).Msg("Error running skill")
+					directResult, directErr := a.SkillDirectRunner(ctx, meta, skill, tool)
+					if directErr != nil {
+						log.Error().Err(directErr).Msg("Error running skill")
 						return
 					}
+
+					mu.Lock()
+					skillCallResults[tool.ID] = directResult.Message
+					if len(directResult.Images) > 0 {
+						collectedImages = append(collectedImages, directResult.Images...)
+					}
+					mu.Unlock()
 				} else {
 					// Clone the messages again so all goroutines get different message history
-					result, err = a.SkillContextRunner(ctx, meta, messageHistory.Clone(), llm, outUserChannel, memoryBlock, skill, tool.ID)
-					if err != nil {
-						log.Error().Err(err).Msg("Error running skill")
+					result, contextErr := a.SkillContextRunner(ctx, meta, messageHistory.Clone(), llm, outUserChannel, memoryBlock, skill, tool.ID)
+					if contextErr != nil {
+						log.Error().Err(contextErr).Msg("Error running skill")
 						return
 					}
-				}
 
-				mu.Lock()
-				skillCallResults[tool.ID] = result
-				mu.Unlock()
+					mu.Lock()
+					skillCallResults[tool.ID] = result
+					mu.Unlock()
+				}
 			})
 		}
 
@@ -537,6 +542,23 @@ func (a *Agent) Run(ctx context.Context, meta Meta, llm *LLM, messageHistory *Me
 		// Add tool results to message history
 		for _, result := range skillCallResults {
 			messageHistory.Add(result)
+		}
+
+		// If any tools returned images (e.g. knowledge page images),
+		// inject them as a user message so the LLM can see them.
+		if len(collectedImages) > 0 {
+			// Prepend a text instruction so the LLM knows what the images are.
+			imageParts := []openai.ChatMessagePart{
+				{
+					Type: openai.ChatMessagePartTypeText,
+					Text: "The following images are rendered pages from the knowledge base search results above. Use them to answer the user's question visually where relevant. Cite using [DOC_ID:DocumentID] as instructed.",
+				},
+			}
+			imageParts = append(imageParts, collectedImages...)
+			messageHistory.Add(&openai.ChatCompletionMessage{
+				Role:         openai.ChatMessageRoleUser,
+				MultiContent: imageParts,
+			})
 		}
 
 		// Store results for final processing
