@@ -70,7 +70,7 @@
     "router5": "^8.0.1",
     "router5-plugin-browser": "^8.0.1",
     "uuid": "^11.0.5",
-    "yaml": "^2.5.0",
+    "yaml": "^2.8.2",
     "yup": "^1.1.1"
   },
   "devDependencies": {
