@@ -13,6 +13,7 @@
 - **NEVER** `git checkout -- .`, `git reset --hard`, `git checkout -f` — destroys uncommitted work
 - **NEVER** `git stash drop/pop` — use `git stash apply` (keeps backup)
 - **NEVER** squash merge — always use regular merge commits (`gh pr merge --merge`)
+- **NEVER** `gh pr create` without `--repo helixml/zed` when in the Zed repo — the upstream `zed-industries/zed` remote causes `gh` to target the wrong repo by default
 - **NEVER** push to main, amend commits on main, delete source files, delete `.git/index.lock`
 - **NEVER** `rm -rf *` or `rm -rf .*` in a git repo
 - **NEVER** `git checkout --orphan` then clear files — use a separate temp directory instead
