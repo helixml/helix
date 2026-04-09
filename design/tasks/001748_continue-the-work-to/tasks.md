@@ -9,12 +9,12 @@
 
 ## Phase 2: Code Quality Fixes
 
-- [~] Fix race condition in `recording_handlers.go` lazy init — use `sync.Once` for RecordingManager initialization
-- [ ] Fix non-deferred mutex in `recording.go` `AddSubtitle()` (line 214-220) — use defer
-- [ ] Fix non-deferred mutex in `recording.go` `SetSubtitles()` (line 234-236) — use defer
-- [ ] Check `file.Close()` error in `StopRecording()` (line 167)
-- [ ] Replace `fmt.Printf("[RECORDING]...")` with structured logger (slog) — 4 occurrences in recording.go, match existing codebase patterns
-- [ ] Verify compilation still passes after fixes
+- [x] Fix race condition in `recording_handlers.go` lazy init — use `sync.Once` for RecordingManager initialization
+- [x] Fix non-deferred mutex in `recording.go` `AddSubtitle()` (line 214-220) — use defer
+- [x] Fix non-deferred mutex in `recording.go` `SetSubtitles()` (line 234-236) — use defer
+- [x] Check `file.Close()` error in `StopRecording()` (line 167)
+- [x] Replace `fmt.Printf("[RECORDING]...")` with structured logger (slog) — 4 occurrences in recording.go, match existing codebase patterns
+- [x] Verify compilation still passes after fixes (both CGO and non-CGO builds pass)
 
 ## Phase 3: E2E Testing
 
