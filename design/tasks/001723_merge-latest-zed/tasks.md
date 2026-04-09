@@ -34,8 +34,8 @@
 
 ## Porting Guide Updates (Incremental — During Merge)
 
-- [~] Document new findings from this merge in portingguide.md
-- [ ] Update commit history table in portingguide.md with the merge commit
+- [x] Document new findings from this merge in portingguide.md (AuthRequired, removed crates/flags, renames, AcpServerView vs ConversationView differences, 5 new checklist items 35-39)
+- [x] Update commit history table in portingguide.md with the merge commits
 
 ## Verification — Rebase Checklist (portingguide.md items 1-33)
 
@@ -82,7 +82,7 @@
 
 ## Finalize
 
-- [ ] Push feature branch to origin
+- [x] Push feature branch to origin
 - [ ] Create PR against `main` with summary of notable upstream changes (breaking changes, new features, deprecations)
 - [ ] After PR merge: update `ZED_COMMIT` in `/home/retro/work/helix/sandbox-versions.txt` to new fork HEAD SHA
 - [ ] After PR merge: create PR in helix repo for the `ZED_COMMIT` bump
