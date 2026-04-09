@@ -18,7 +18,7 @@
 
 ## Phase 3: E2E Testing
 
-- [ ] Rebuild desktop-bridge: `./stack build-ubuntu`
+- [~] Rebuild desktop-bridge: `./stack build-ubuntu`
 - [ ] Start a new desktop session
 - [ ] Test `start_recording` MCP tool — verify returns recording ID
 - [ ] Test `add_subtitle` MCP tool — verify accepts subtitle entries
