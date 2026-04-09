@@ -2,7 +2,7 @@ import { createRoot } from 'react-dom/client';
 import App from './App'
 import ErrorBoundary from './components/system/ErrorBoundary'
 import { isMobileOrTablet } from './utils/isMobileOrTablet'
-import { logErrorToSession, getRecentErrors } from './utils/errorSessionLog'
+import { logErrorToSession, getRecentErrors, clearErrorLog } from './utils/errorSessionLog'
 
 const win = (window as any)
 win.setUserFunctions = []
@@ -32,12 +32,15 @@ win.emitEvent = (ev: any) => {
 // cascade where: error → white page → Safari auto-reloads → same error → repeat.
 // On desktop, errors propagate normally (dev tools available).
 if (isMobileOrTablet()) {
-  function renderErrorOverlay(message: string, stack?: string) {
+  function renderErrorOverlay(message: string, stack?: string, skipLog?: boolean) {
     const overlay = document.getElementById('error-overlay')
     if (!overlay) return
 
-    // Log to sessionStorage so errors survive WebKit process crashes
-    logErrorToSession(message, stack)
+    // Log to sessionStorage so errors survive WebKit process crashes.
+    // Recovery replays pass skipLog=true to avoid chaining "(recovered)" entries.
+    if (!skipLog) {
+      logErrorToSession(message, stack)
+    }
 
     // Forward to Sentry/analytics
     try {
@@ -61,9 +64,12 @@ if (isMobileOrTablet()) {
     // GPU-safe: no position:fixed, no filter, no will-change, no opacity animations
     overlay.innerHTML = `
       <div style="position:absolute;top:0;left:0;right:0;bottom:0;z-index:99999;background:#1a1a2e;color:#e0e0e0;font-family:monospace;font-size:13px;overflow:auto;-webkit-overflow-scrolling:touch;padding:16px;box-sizing:border-box">
-        <div style="border-bottom:3px solid #e74c3c;padding-bottom:12px;margin-bottom:12px">
-          <h2 style="margin:0;color:#e74c3c;font-size:18px">JavaScript Error</h2>
-          <p style="margin:4px 0 0;color:#888;font-size:11px">${new Date().toISOString()} &mdash; ${window.location.pathname}</p>
+        <div style="border-bottom:3px solid #e74c3c;padding-bottom:12px;margin-bottom:12px;display:flex;align-items:flex-start;justify-content:space-between">
+          <div>
+            <h2 style="margin:0;color:#e74c3c;font-size:18px">JavaScript Error</h2>
+            <p style="margin:4px 0 0;color:#888;font-size:11px">${new Date().toISOString()} &mdash; ${window.location.pathname}</p>
+          </div>
+          <button id="error-dismiss-btn" style="padding:6px 14px;border:1px solid #555;border-radius:4px;background:#2a2a3e;color:#aaa;font-family:monospace;font-size:13px;cursor:pointer;flex-shrink:0;margin-left:12px">✕ Dismiss</button>
         </div>
         <div style="margin-bottom:16px">
           <strong style="color:#ff6b6b">${message}</strong>
@@ -77,6 +83,10 @@ if (isMobileOrTablet()) {
       </div>
     `
 
+    document.getElementById('error-dismiss-btn')?.addEventListener('click', () => {
+      clearErrorLog()
+      overlay.innerHTML = ''
+    })
     document.getElementById('error-reload-btn')?.addEventListener('click', () => window.location.reload())
     document.getElementById('error-copy-btn')?.addEventListener('click', () => {
       let text = `Error: ${message}\n`
@@ -107,16 +117,19 @@ if (isMobileOrTablet()) {
     )
   })
 
-  // On page load, check for previous errors from a WebKit process crash
+  // On page load, check for previous errors from a WebKit process crash.
+  // Clear the log immediately so the same error doesn't replay on every refresh.
   const previousErrors = getRecentErrors()
   if (previousErrors.length > 0) {
     const lastError = previousErrors[previousErrors.length - 1]
     const timeSinceLastError = Date.now() - new Date(lastError.timestamp).getTime()
     // Only show if the last error was within the last 30 seconds (likely a crash/reload)
     if (timeSinceLastError < 30000) {
+      clearErrorLog() // prevent the same error re-appearing on the next refresh
       renderErrorOverlay(
         `(recovered) ${lastError.message}`,
-        lastError.stack
+        lastError.stack,
+        true // skipLog: don't chain a "(recovered)" entry into sessionStorage
       )
     }
   }
