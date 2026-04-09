@@ -9,7 +9,7 @@
 
 ## Phase 2: Code Quality Fixes
 
-- [ ] Fix race condition in `recording_handlers.go` lazy init — use `sync.Once` for RecordingManager initialization
+- [~] Fix race condition in `recording_handlers.go` lazy init — use `sync.Once` for RecordingManager initialization
 - [ ] Fix non-deferred mutex in `recording.go` `AddSubtitle()` (line 214-220) — use defer
 - [ ] Fix non-deferred mutex in `recording.go` `SetSubtitles()` (line 234-236) — use defer
 - [ ] Check `file.Close()` error in `StopRecording()` (line 167)
