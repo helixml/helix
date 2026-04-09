@@ -2,12 +2,12 @@
 
 ## Setup
 
-- [~] Create feature branch `feature/001723-merge-latest-zed` from current `main`
-- [~] Ensure upstream remote exists: `git remote add upstream https://github.com/zed-industries/zed.git` and `git fetch upstream`
+- [x] Create feature branch `feature/001723-merge-latest-zed` from current `main`
+- [x] Ensure upstream remote exists: `git remote add upstream https://github.com/zed-industries/zed.git` and `git fetch upstream`
 
 ## Merge
 
-- [ ] Run `git merge upstream/main` and begin conflict resolution
+- [~] Run `git merge upstream/main` and begin conflict resolution
 - [ ] Resolve conflicts in `Cargo.toml` (workspace root) — preserve `external_websocket_sync` member and dependency
 - [ ] Resolve conflicts in `crates/zed/Cargo.toml` — preserve `external_websocket_sync` feature flag and optional dep
 - [ ] Resolve conflicts in `crates/zed/src/zed.rs` — preserve cfg-gated WebSocket sync init block
