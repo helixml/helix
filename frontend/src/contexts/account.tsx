@@ -363,7 +363,12 @@ export const useAccountContext = (): IAccountContext => {
       targetRouteName = `org_${routeName}`
     }
 
-    const useOrgID = params.org_id || organizationToolsRef.current.organization?.name
+    // Prefer explicit param → loaded org name → org slug already in the current URL.
+    // The URL fallback handles the race where orgNavigate is called before the org
+    // data has loaded (e.g. during component initialization on mobile), which would
+    // otherwise produce org_id=undefined and a "missing parameter" router error.
+    const currentUrlOrgId = window.location.pathname.match(/^\/orgs\/([^/]+)/)?.[1]
+    const useOrgID = params.org_id || organizationToolsRef.current.organization?.name || currentUrlOrgId
     const targetParams = {
       ...params,
       org_id: useOrgID,

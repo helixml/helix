@@ -1,6 +1,6 @@
 import React from 'react'
 import { isMobileOrTablet } from '../../utils/isMobileOrTablet'
-import { logErrorToSession, getRecentErrors } from '../../utils/errorSessionLog'
+import { logErrorToSession, getRecentErrors, clearErrorLog } from '../../utils/errorSessionLog'
 
 interface Props {
   children: React.ReactNode
@@ -94,6 +94,11 @@ export default class ErrorBoundary extends React.Component<Props, State> {
     })
   }
 
+  handleDismiss = () => {
+    clearErrorLog()
+    this.setState({ hasError: false, error: null, errorInfo: null })
+  }
+
   handleReload = () => {
     window.location.reload()
   }
@@ -113,13 +118,18 @@ export default class ErrorBoundary extends React.Component<Props, State> {
 
     return (
       <div style={overlayStyle}>
-        <div style={headerStyle}>
-          <h2 style={{ margin: 0, color: '#e74c3c', fontSize: '18px' }}>
-            JavaScript Error
-          </h2>
-          <p style={{ margin: '4px 0 0', color: '#888', fontSize: '11px' }}>
-            {new Date().toISOString()} &mdash; {window.location.pathname}
-          </p>
+        <div style={{ ...headerStyle, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+          <div>
+            <h2 style={{ margin: 0, color: '#e74c3c', fontSize: '18px' }}>
+              JavaScript Error
+            </h2>
+            <p style={{ margin: '4px 0 0', color: '#888', fontSize: '11px' }}>
+              {new Date().toISOString()} &mdash; {window.location.pathname}
+            </p>
+          </div>
+          <button style={{ ...buttonStyle, marginLeft: '12px', flexShrink: 0, color: '#aaa' }} onClick={this.handleDismiss}>
+            ✕ Dismiss
+          </button>
         </div>
 
         <div style={{ marginBottom: '16px' }}>
