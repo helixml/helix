@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -13,10 +12,6 @@ import (
 	"gorm.io/gorm"
 )
 
-func newTaskSpecSubject(projectID string) string {
-	return fmt.Sprintf("spec-task.%s", projectID)
-}
-
 // CreateSpecTask creates a new spec-driven task
 func (s *PostgresStore) CreateSpecTask(ctx context.Context, task *types.SpecTask) error {
 	if task.ID == "" {
@@ -25,6 +20,12 @@ func (s *PostgresStore) CreateSpecTask(ctx context.Context, task *types.SpecTask
 
 	if task.ProjectID == "" {
 		return fmt.Errorf("project ID is required")
+	}
+
+	// Set StatusUpdatedAt to CreatedAt so new tasks appear at top of their column in Kanban
+	if task.StatusUpdatedAt == nil {
+		now := time.Now()
+		task.StatusUpdatedAt = &now
 	}
 
 	err := s.gdb.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
@@ -49,7 +50,7 @@ func (s *PostgresStore) CreateSpecTask(ctx context.Context, task *types.SpecTask
 		Str("status", task.Status.String()).
 		Msg("Created spec task")
 
-	_ = s.notifyTaskUpdates(ctx, task)
+	_ = s.notifyTaskUpdates(ctx, StoreEventOperationCreated, task)
 
 	return nil
 }
@@ -136,7 +137,7 @@ func (s *PostgresStore) UpdateSpecTask(ctx context.Context, task *types.SpecTask
 		Str("planning_session_id", task.PlanningSessionID).
 		Msg("Updated spec task")
 
-	s.notifyTaskUpdates(ctx, task)
+	_ = s.notifyTaskUpdates(ctx, StoreEventOperationUpdated, task)
 
 	return nil
 }
@@ -274,6 +275,11 @@ func (s *PostgresStore) DeleteSpecTask(ctx context.Context, id string) error {
 		return fmt.Errorf("task ID is required")
 	}
 
+	task, err := s.GetSpecTask(ctx, id)
+	if err != nil {
+		return err
+	}
+
 	// Clean up junction table entries where this task is either the owner or a dependency
 	if err := s.gdb.WithContext(ctx).Exec(
 		"DELETE FROM spec_task_dependencies WHERE spec_task_id = ? OR depends_on_id = ?", id, id,
@@ -293,6 +299,8 @@ func (s *PostgresStore) DeleteSpecTask(ctx context.Context, id string) error {
 	log.Info().
 		Str("task_id", id).
 		Msg("Deleted spec task")
+
+	_ = s.notifyTaskUpdates(ctx, StoreEventOperationDeleted, task)
 
 	return nil
 }
@@ -341,6 +349,11 @@ func (s *PostgresStore) ListSpecTasks(ctx context.Context, filters *types.SpecTa
 	if filters.PlanningSessionID != "" {
 		db = db.Where("planning_session_id = ?", filters.PlanningSessionID)
 	}
+	// Labels filter - tasks must have ALL specified labels (AND semantics via JSONB containment)
+	for _, label := range filters.Labels {
+		labelJSON := `["` + label + `"]`
+		db = db.Where("labels @> ?::jsonb", labelJSON)
+	}
 
 	if filters.Limit > 0 {
 		db = db.Limit(filters.Limit)
@@ -349,7 +362,9 @@ func (s *PostgresStore) ListSpecTasks(ctx context.Context, filters *types.SpecTa
 		db = db.Offset(filters.Offset)
 	}
 
-	err := db.Order("created_at DESC").Find(&tasks).Error
+	// Sort by status_updated_at first (so recently-moved tasks appear at top of their column),
+	// then by created_at for tasks without status_updated_at set
+	err := db.Order("status_updated_at DESC NULLS LAST, created_at DESC").Find(&tasks).Error
 	if err != nil {
 		return nil, fmt.Errorf("failed to list spec tasks: %w", err)
 	}
@@ -361,17 +376,16 @@ func (s *PostgresStore) ListSpecTasks(ctx context.Context, filters *types.SpecTa
 // Returns a subscription that receives task updates matching the filter criteria.
 // Supports multiple concurrent subscribers in a broadcast style.
 func (s *PostgresStore) SubscribeForTasks(ctx context.Context, filter *SpecTaskSubscriptionFilter, handler func(task *types.SpecTask) error) (pubsub.Subscription, error) {
-	if filter.ProjectID == "" {
-		filter.ProjectID = "*"
+	storeFilter := &StoreEventSubscriptionFilter{
+		ResourceType: StoreEventResourceTypeSpecTask,
 	}
-
-	subject := newTaskSpecSubject(filter.ProjectID)
-
-	sub, err := s.pubsub.Subscribe(ctx, subject, func(payload []byte) error {
+	if filter != nil {
+		storeFilter.ProjectID = filter.ProjectID
+	}
+	return s.subscribeStoreEvents(ctx, storeFilter, func(event *StoreEvent) error {
 		var task types.SpecTask
 
-		err := json.Unmarshal(payload, &task)
-		if err != nil {
+		if err := event.UnmarshalResource(&task); err != nil {
 			return fmt.Errorf("failed to unmarshal task: %w", err)
 		}
 		if !filter.Matches(&task) {
@@ -380,20 +394,10 @@ func (s *PostgresStore) SubscribeForTasks(ctx context.Context, filter *SpecTaskS
 
 		return handler(&task)
 	})
-
-	return sub, err
 }
 
-func (s *PostgresStore) notifyTaskUpdates(ctx context.Context, task *types.SpecTask) error {
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-
-	message, err := json.Marshal(task)
-	if err != nil {
-		return fmt.Errorf("failed to marshal task: %w", err)
-	}
-
-	return s.pubsub.Publish(ctx, newTaskSpecSubject(task.ProjectID), message)
+func (s *PostgresStore) notifyTaskUpdates(ctx context.Context, operation StoreEventOperation, task *types.SpecTask) error {
+	return s.publishStoreEvent(ctx, operation, task)
 }
 
 type SpecTaskSubscriptionFilter struct {
@@ -420,4 +424,79 @@ func (f *SpecTaskSubscriptionFilter) Matches(task *types.SpecTask) bool {
 
 type SpecTaskSubscription interface {
 	Unsubscribe()
+}
+
+// ListProjectLabels returns all unique labels used across spec tasks in a project, sorted alphabetically.
+func (s *PostgresStore) ListProjectLabels(ctx context.Context, projectID string) ([]string, error) {
+	if projectID == "" {
+		return nil, fmt.Errorf("project ID is required")
+	}
+
+	var labels []string
+	err := s.gdb.WithContext(ctx).Raw(`
+		SELECT DISTINCT jsonb_array_elements_text(labels) AS label
+		FROM spec_tasks
+		WHERE project_id = ? AND (archived = false OR archived IS NULL)
+		ORDER BY label
+	`, projectID).Scan(&labels).Error
+	if err != nil {
+		return nil, fmt.Errorf("failed to list project labels: %w", err)
+	}
+	if labels == nil {
+		labels = []string{}
+	}
+	return labels, nil
+}
+
+// AddSpecTaskLabel adds a label to a spec task. No-op if the label already exists.
+func (s *PostgresStore) AddSpecTaskLabel(ctx context.Context, taskID string, label string) error {
+	if taskID == "" {
+		return fmt.Errorf("task ID is required")
+	}
+	if label == "" {
+		return fmt.Errorf("label is required")
+	}
+
+	task, err := s.GetSpecTask(ctx, taskID)
+	if err != nil {
+		return err
+	}
+
+	for _, l := range task.Labels {
+		if l == label {
+			return nil // already present
+		}
+	}
+
+	task.Labels = append(task.Labels, label)
+	return s.UpdateSpecTask(ctx, task)
+}
+
+// RemoveSpecTaskLabel removes a label from a spec task. No-op if the label does not exist.
+func (s *PostgresStore) RemoveSpecTaskLabel(ctx context.Context, taskID string, label string) error {
+	if taskID == "" {
+		return fmt.Errorf("task ID is required")
+	}
+	if label == "" {
+		return fmt.Errorf("label is required")
+	}
+
+	task, err := s.GetSpecTask(ctx, taskID)
+	if err != nil {
+		return err
+	}
+
+	filtered := task.Labels[:0]
+	for _, l := range task.Labels {
+		if l != label {
+			filtered = append(filtered, l)
+		}
+	}
+
+	if len(filtered) == len(task.Labels) {
+		return nil // label not found, no-op
+	}
+
+	task.Labels = filtered
+	return s.UpdateSpecTask(ctx, task)
 }

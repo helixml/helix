@@ -165,6 +165,147 @@ const SystemSettingsTable: FC = () => {
     }
   }
 
+  const handleSelectRAGEmbeddingsModel = async (provider: string, model: string) => {
+    try {
+      await updateSettings.mutateAsync({
+        rag_embeddings_provider: provider,
+        rag_embeddings_model: model,
+      })
+      snackbar.success(`RAG Embedding model set to ${provider}/${model}`)
+    } catch (err: any) {
+      if (err.response?.status === 403) {
+        snackbar.error('Access denied: Admin privileges required')
+      } else {
+        snackbar.error(`Failed to update settings: ${err.message}`)
+      }
+    }
+  }
+
+  const handleClearRAGEmbeddingsSettings = async () => {
+    try {
+      await updateSettings.mutateAsync({
+        rag_embeddings_provider: '',
+        rag_embeddings_model: '',
+      })
+      snackbar.success('RAG Embedding model configuration cleared')
+    } catch (err: any) {
+      snackbar.error(`Failed to clear settings: ${err.message}`)
+    }
+  }
+
+  // Optimus model handlers
+  const handleSelectOptimusReasoningModel = async (provider: string, model: string) => {
+    try {
+      await updateSettings.mutateAsync({
+        optimus_reasoning_model_provider: provider,
+        optimus_reasoning_model: model,
+      })
+      snackbar.success(`Optimus Reasoning model set to ${provider}/${model}`)
+    } catch (err: any) {
+      if (err.response?.status === 403) {
+        snackbar.error('Access denied: Admin privileges required')
+      } else {
+        snackbar.error(`Failed to update settings: ${err.message}`)
+      }
+    }
+  }
+
+  const handleClearOptimusReasoningModel = async () => {
+    try {
+      await updateSettings.mutateAsync({
+        optimus_reasoning_model_provider: '',
+        optimus_reasoning_model: '',
+      })
+      snackbar.success('Optimus Reasoning model configuration cleared')
+    } catch (err: any) {
+      snackbar.error(`Failed to clear settings: ${err.message}`)
+    }
+  }
+
+  const handleSelectOptimusGenerationModel = async (provider: string, model: string) => {
+    try {
+      await updateSettings.mutateAsync({
+        optimus_generation_model_provider: provider,
+        optimus_generation_model: model,
+      })
+      snackbar.success(`Optimus Generation model set to ${provider}/${model}`)
+    } catch (err: any) {
+      if (err.response?.status === 403) {
+        snackbar.error('Access denied: Admin privileges required')
+      } else {
+        snackbar.error(`Failed to update settings: ${err.message}`)
+      }
+    }
+  }
+
+  const handleClearOptimusGenerationModel = async () => {
+    try {
+      await updateSettings.mutateAsync({
+        optimus_generation_model_provider: '',
+        optimus_generation_model: '',
+      })
+      snackbar.success('Optimus Generation model configuration cleared')
+    } catch (err: any) {
+      snackbar.error(`Failed to clear settings: ${err.message}`)
+    }
+  }
+
+  const handleSelectOptimusSmallReasoningModel = async (provider: string, model: string) => {
+    try {
+      await updateSettings.mutateAsync({
+        optimus_small_reasoning_model_provider: provider,
+        optimus_small_reasoning_model: model,
+      })
+      snackbar.success(`Optimus Small Reasoning model set to ${provider}/${model}`)
+    } catch (err: any) {
+      if (err.response?.status === 403) {
+        snackbar.error('Access denied: Admin privileges required')
+      } else {
+        snackbar.error(`Failed to update settings: ${err.message}`)
+      }
+    }
+  }
+
+  const handleClearOptimusSmallReasoningModel = async () => {
+    try {
+      await updateSettings.mutateAsync({
+        optimus_small_reasoning_model_provider: '',
+        optimus_small_reasoning_model: '',
+      })
+      snackbar.success('Optimus Small Reasoning model configuration cleared')
+    } catch (err: any) {
+      snackbar.error(`Failed to clear settings: ${err.message}`)
+    }
+  }
+
+  const handleSelectOptimusSmallGenerationModel = async (provider: string, model: string) => {
+    try {
+      await updateSettings.mutateAsync({
+        optimus_small_generation_model_provider: provider,
+        optimus_small_generation_model: model,
+      })
+      snackbar.success(`Optimus Small Generation model set to ${provider}/${model}`)
+    } catch (err: any) {
+      if (err.response?.status === 403) {
+        snackbar.error('Access denied: Admin privileges required')
+      } else {
+        snackbar.error(`Failed to update settings: ${err.message}`)
+      }
+    }
+  }
+
+  const handleClearOptimusSmallGenerationModel = async () => {
+    try {
+      await updateSettings.mutateAsync({
+        optimus_small_generation_model_provider: '',
+        optimus_small_generation_model: '',
+      })
+      snackbar.success('Optimus Small Generation model configuration cleared')
+    } catch (err: any) {
+      snackbar.error(`Failed to clear settings: ${err.message}`)
+    }
+  }
+
   const getTokenSourceColor = (source: string) => {
     switch (source) {
       case 'database': return 'primary'
@@ -348,6 +489,66 @@ const SystemSettingsTable: FC = () => {
                   </TableCell>
                 </TableRow>
 
+                {/* RAG Embedding Model Row */}
+                <TableRow>
+                  <TableCell>
+                    <Typography variant="body2" fontWeight="medium">
+                      RAG Embedding Model
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Embedding model used by Haystack for knowledge source indexing and retrieval
+                    </Typography>
+                  </TableCell>
+                  <TableCell>
+                    <Chip
+                      label={settings?.rag_embeddings_model_set ? 'Configured' : 'Not Set'}
+                      color={settings?.rag_embeddings_model_set ? 'success' : 'default'}
+                      size="small"
+                    />
+                  </TableCell>
+                  <TableCell>
+                    {settings?.rag_embeddings_model_set ? (
+                      <>
+                        <Typography variant="body2" fontFamily="monospace">
+                          {settings.rag_embeddings_provider}/{settings.rag_embeddings_model}
+                        </Typography>
+                        <Typography variant="caption" display="block" color="text.secondary" mt={0.5}>
+                          Provider: {settings.rag_embeddings_provider}
+                        </Typography>
+                      </>
+                    ) : (
+                      <Typography variant="caption" color="text.secondary">
+                        Not configured - knowledge source indexing will fail
+                      </Typography>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    <Box display="flex" gap={1} alignItems="center">
+                      <AdvancedModelPicker
+                        selectedProvider={settings?.rag_embeddings_provider}
+                        selectedModelId={settings?.rag_embeddings_model}
+                        onSelectModel={handleSelectRAGEmbeddingsModel}
+                        currentType="embed"
+                        buttonVariant="outlined"
+                        disabled={saving}
+                        hint="Select the embedding model that Haystack will use for indexing and querying knowledge sources."
+                        autoSelectFirst={false}
+                      />
+                      {settings?.rag_embeddings_model_set && (
+                        <Button
+                          startIcon={<ClearIcon />}
+                          onClick={handleClearRAGEmbeddingsSettings}
+                          size="small"
+                          color="warning"
+                          disabled={saving}
+                        >
+                          Clear
+                        </Button>
+                      )}
+                    </Box>
+                  </TableCell>
+                </TableRow>
+
                 {/* Max Concurrent Desktops Row */}
                 <TableRow>
                   <TableCell>
@@ -474,6 +675,266 @@ const SystemSettingsTable: FC = () => {
                       onChange={(e) => handleToggleEnforceQuotas(e.target.checked)}
                       disabled={saving}
                     />
+                  </TableCell>
+                </TableRow>
+              </TableBody>
+            </Table>
+          </TableContainer>
+        </CardContent>
+      </Card>
+
+      {/* Optimus (Project Manager) Settings Card */}
+      <Card sx={{ mt: 3 }}>
+        <CardHeader title="Optimus (Project Manager) Settings" />
+        <CardContent>
+          <TableContainer>
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell>Setting</TableCell>
+                  <TableCell>Status</TableCell>
+                  <TableCell>Source</TableCell>
+                  <TableCell>Actions</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {/* Optimus Reasoning Model Row */}
+                <TableRow>
+                  <TableCell>
+                    <Typography variant="body2" fontWeight="medium">
+                      Optimus Reasoning Model
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Main reasoning model for tool calling and complex tasks
+                    </Typography>
+                  </TableCell>
+                  <TableCell>
+                    <Chip
+                      label={(settings?.optimus_reasoning_model_provider && settings?.optimus_reasoning_model) ? 'Configured' : 'Not Set'}
+                      color={(settings?.optimus_reasoning_model_provider && settings?.optimus_reasoning_model) ? 'success' : 'default'}
+                      size="small"
+                    />
+                  </TableCell>
+                  <TableCell>
+                    {(settings?.optimus_reasoning_model_provider && settings?.optimus_reasoning_model) ? (
+                      <>
+                        <Typography variant="body2" fontFamily="monospace">
+                          {settings.optimus_reasoning_model_provider}/{settings.optimus_reasoning_model}
+                        </Typography>
+                        <Typography variant="caption" display="block" color="text.secondary" mt={0.5}>
+                          Provider: {settings.optimus_reasoning_model_provider}
+                        </Typography>
+                      </>
+                    ) : (
+                      <Typography variant="caption" color="text.secondary">
+                        Not configured
+                      </Typography>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    <Box display="flex" gap={1} alignItems="center">
+                      <AdvancedModelPicker
+                        selectedProvider={settings?.optimus_reasoning_model_provider}
+                        selectedModelId={settings?.optimus_reasoning_model}
+                        onSelectModel={handleSelectOptimusReasoningModel}
+                        currentType="chat"
+                        buttonVariant="outlined"
+                        disabled={saving}
+                        hint="Select the main reasoning model for Optimus (requires tool use support)"
+                        autoSelectFirst={false}
+                      />
+                      {(settings?.optimus_reasoning_model_provider && settings?.optimus_reasoning_model) && (
+                        <Button
+                          startIcon={<ClearIcon />}
+                          onClick={handleClearOptimusReasoningModel}
+                          size="small"
+                          color="warning"
+                          disabled={saving}
+                        >
+                          Clear
+                        </Button>
+                      )}
+                    </Box>
+                  </TableCell>
+                </TableRow>
+
+                {/* Optimus Generation Model Row */}
+                <TableRow>
+                  <TableCell>
+                    <Typography variant="body2" fontWeight="medium">
+                      Optimus Generation Model
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Model for planning next actions and generating responses
+                    </Typography>
+                  </TableCell>
+                  <TableCell>
+                    <Chip
+                      label={(settings?.optimus_generation_model_provider && settings?.optimus_generation_model) ? 'Configured' : 'Not Set'}
+                      color={(settings?.optimus_generation_model_provider && settings?.optimus_generation_model) ? 'success' : 'default'}
+                      size="small"
+                    />
+                  </TableCell>
+                  <TableCell>
+                    {(settings?.optimus_generation_model_provider && settings?.optimus_generation_model) ? (
+                      <>
+                        <Typography variant="body2" fontFamily="monospace">
+                          {settings.optimus_generation_model_provider}/{settings.optimus_generation_model}
+                        </Typography>
+                        <Typography variant="caption" display="block" color="text.secondary" mt={0.5}>
+                          Provider: {settings.optimus_generation_model_provider}
+                        </Typography>
+                      </>
+                    ) : (
+                      <Typography variant="caption" color="text.secondary">
+                        Not configured
+                      </Typography>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    <Box display="flex" gap={1} alignItems="center">
+                      <AdvancedModelPicker
+                        selectedProvider={settings?.optimus_generation_model_provider}
+                        selectedModelId={settings?.optimus_generation_model}
+                        onSelectModel={handleSelectOptimusGenerationModel}
+                        currentType="chat"
+                        buttonVariant="outlined"
+                        disabled={saving}
+                        hint="Select the generation model for Optimus (requires tool use support)"
+                        autoSelectFirst={false}
+                      />
+                      {(settings?.optimus_generation_model_provider && settings?.optimus_generation_model) && (
+                        <Button
+                          startIcon={<ClearIcon />}
+                          onClick={handleClearOptimusGenerationModel}
+                          size="small"
+                          color="warning"
+                          disabled={saving}
+                        >
+                          Clear
+                        </Button>
+                      )}
+                    </Box>
+                  </TableCell>
+                </TableRow>
+
+                {/* Optimus Small Reasoning Model Row */}
+                <TableRow>
+                  <TableCell>
+                    <Typography variant="body2" fontWeight="medium">
+                      Optimus Small Reasoning Model
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Smaller model for quick reasoning tasks and tool results interpretation
+                    </Typography>
+                  </TableCell>
+                  <TableCell>
+                    <Chip
+                      label={(settings?.optimus_small_reasoning_model_provider && settings?.optimus_small_reasoning_model) ? 'Configured' : 'Not Set'}
+                      color={(settings?.optimus_small_reasoning_model_provider && settings?.optimus_small_reasoning_model) ? 'success' : 'default'}
+                      size="small"
+                    />
+                  </TableCell>
+                  <TableCell>
+                    {(settings?.optimus_small_reasoning_model_provider && settings?.optimus_small_reasoning_model) ? (
+                      <>
+                        <Typography variant="body2" fontFamily="monospace">
+                          {settings.optimus_small_reasoning_model_provider}/{settings.optimus_small_reasoning_model}
+                        </Typography>
+                        <Typography variant="caption" display="block" color="text.secondary" mt={0.5}>
+                          Provider: {settings.optimus_small_reasoning_model_provider}
+                        </Typography>
+                      </>
+                    ) : (
+                      <Typography variant="caption" color="text.secondary">
+                        Not configured
+                      </Typography>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    <Box display="flex" gap={1} alignItems="center">
+                      <AdvancedModelPicker
+                        selectedProvider={settings?.optimus_small_reasoning_model_provider}
+                        selectedModelId={settings?.optimus_small_reasoning_model}
+                        onSelectModel={handleSelectOptimusSmallReasoningModel}
+                        currentType="chat"
+                        buttonVariant="outlined"
+                        disabled={saving}
+                        hint="Select a smaller reasoning model for Optimus (tool use recommended but not required)"
+                        autoSelectFirst={false}
+                      />
+                      {(settings?.optimus_small_reasoning_model_provider && settings?.optimus_small_reasoning_model) && (
+                        <Button
+                          startIcon={<ClearIcon />}
+                          onClick={handleClearOptimusSmallReasoningModel}
+                          size="small"
+                          color="warning"
+                          disabled={saving}
+                        >
+                          Clear
+                        </Button>
+                      )}
+                    </Box>
+                  </TableCell>
+                </TableRow>
+
+                {/* Optimus Small Generation Model Row */}
+                <TableRow>
+                  <TableCell>
+                    <Typography variant="body2" fontWeight="medium">
+                      Optimus Small Generation Model
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Smaller model for quick response generation
+                    </Typography>
+                  </TableCell>
+                  <TableCell>
+                    <Chip
+                      label={(settings?.optimus_small_generation_model_provider && settings?.optimus_small_generation_model) ? 'Configured' : 'Not Set'}
+                      color={(settings?.optimus_small_generation_model_provider && settings?.optimus_small_generation_model) ? 'success' : 'default'}
+                      size="small"
+                    />
+                  </TableCell>
+                  <TableCell>
+                    {(settings?.optimus_small_generation_model_provider && settings?.optimus_small_generation_model) ? (
+                      <>
+                        <Typography variant="body2" fontFamily="monospace">
+                          {settings.optimus_small_generation_model_provider}/{settings.optimus_small_generation_model}
+                        </Typography>
+                        <Typography variant="caption" display="block" color="text.secondary" mt={0.5}>
+                          Provider: {settings.optimus_small_generation_model_provider}
+                        </Typography>
+                      </>
+                    ) : (
+                      <Typography variant="caption" color="text.secondary">
+                        Not configured
+                      </Typography>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    <Box display="flex" gap={1} alignItems="center">
+                      <AdvancedModelPicker
+                        selectedProvider={settings?.optimus_small_generation_model_provider}
+                        selectedModelId={settings?.optimus_small_generation_model}
+                        onSelectModel={handleSelectOptimusSmallGenerationModel}
+                        currentType="chat"
+                        buttonVariant="outlined"
+                        disabled={saving}
+                        hint="Select a smaller generation model for Optimus"
+                        autoSelectFirst={false}
+                      />
+                      {(settings?.optimus_small_generation_model_provider && settings?.optimus_small_generation_model) && (
+                        <Button
+                          startIcon={<ClearIcon />}
+                          onClick={handleClearOptimusSmallGenerationModel}
+                          size="small"
+                          color="warning"
+                          disabled={saving}
+                        >
+                          Clear
+                        </Button>
+                      )}
+                    </Box>
                   </TableCell>
                 </TableRow>
               </TableBody>

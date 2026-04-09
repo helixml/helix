@@ -3,7 +3,7 @@
 
 services:
   api:
-    image: registry.helixml.tech/helix/controlplane:${HELIX_VERSION:-latest}
+    image: ghcr.io/helixml/controlplane:${HELIX_VERSION:-latest}
     # If you want to run the API on a different port, set the
     # API_PORT environment variable and also updated env variables
     # connect to Helix
@@ -37,6 +37,10 @@ services:
       - RAG_HAYSTACK_URL=http://haystack:8000
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - ANTHROPIC_VERTEX_PROJECT_ID=${ANTHROPIC_VERTEX_PROJECT_ID:-}
+      - ANTHROPIC_VERTEX_REGION=${ANTHROPIC_VERTEX_REGION:-}
+      - ANTHROPIC_VERTEX_CREDENTIALS_JSON=${ANTHROPIC_VERTEX_CREDENTIALS_JSON:-}
+      - ANTHROPIC_VERTEX_CREDENTIALS_FILE=${ANTHROPIC_VERTEX_CREDENTIALS_FILE:-}
       - HF_TOKEN=${HF_TOKEN:-}
       # Dynamic providers: format is "provider1:api_key1:base_url1,provider2:api_key2:base_url2"
       # Only creates providers that don't already exist (won't overwrite existing ones)
@@ -44,13 +48,13 @@ services:
       - DYNAMIC_PROVIDERS=${DYNAMIC_PROVIDERS:-}
       # Sandbox integration for Helix Code (External Agents / PDEs)
       - EXTERNAL_AGENTS_MAX_CONCURRENT_LOBBIES=${EXTERNAL_AGENTS_MAX_CONCURRENT_LOBBIES:-10}
-      - ZED_IMAGE=${ZED_IMAGE:-registry.helixml.tech/helix/zed-agent:latest}
+      - ZED_IMAGE=${ZED_IMAGE:-ghcr.io/helixml/zed-agent:latest}
       - HELIX_HOST_HOME=${HELIX_HOST_HOME:-}
       # Hydra multi-Docker isolation (per-scope dockerd for each agent session)
       - HYDRA_ENABLED=${HYDRA_ENABLED:-true}
       # Kodit code intelligence (in-process library)
       - KODIT_ENABLED=true
-      - KODIT_DB_URL=postgresql://postgres:${PGVECTOR_PASSWORD-postgres}@vectorchord-kodit:5432/kodit
+      - KODIT_DB_URL=postgresql://postgres:${PGVECTOR_PASSWORD-pgvector}@vectorchord-kodit:5432/kodit
       - KODIT_MODEL_DIR=/kodit-models
       - KODIT_LLM_BASE_URL=http://localhost:8080/v1
       - KODIT_LLM_API_KEY=${RUNNER_TOKEN-oh-hallo-insecure-token}
@@ -70,9 +74,9 @@ services:
     #   - 5432:5432
     command: >
       postgres
-      -c shared_buffers=32MB
-      -c work_mem=2MB
-      -c max_connections=50
+      -c shared_buffers=128MB
+      -c work_mem=4MB
+      -c max_connections=200
       -c max_worker_processes=2
       -c maintenance_work_mem=32MB
       -c effective_cache_size=256MB
@@ -91,6 +95,7 @@ services:
     #   - 5433:5432
     command: >
       postgres
+      -c shared_preload_libraries=vchord,vchord_bm25,vector
       -c shared_buffers=32MB
       -c work_mem=2MB
       -c max_connections=50
@@ -121,7 +126,7 @@ services:
       - UWSGI_WORKERS=4
       - UWSGI_THREADS=4
   typesense:
-    image: registry.helixml.tech/helix/typesense:${HELIX_VERSION:-latest}
+    image: ghcr.io/helixml/typesense:${HELIX_VERSION:-latest}
     restart: always
     command: ["--data-dir", "/data", "--api-key", "typesense"]
     # ports:
@@ -137,14 +142,12 @@ services:
     #   - 7317:7317
   haystack:
     profiles: [haystack]
-    image: registry.helixml.tech/helix/haystack:${HELIX_VERSION:-latest}
+    image: ghcr.io/helixml/haystack:${HELIX_VERSION:-latest}
     restart: always
     environment:
       - PGVECTOR_DSN=postgresql://postgres:${PGVECTOR_PASSWORD-pgvector}@pgvector:5432/postgres
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
-      - VLLM_BASE_URL=${RAG_HAYSTACK_EMBEDDINGS_BASE_URL:-}
-      - VLLM_API_KEY=${RAG_HAYSTACK_EMBEDDINGS_API_KEY:-EMPTY}
-      - RAG_HAYSTACK_EMBEDDINGS_MODEL=${RAG_HAYSTACK_EMBEDDINGS_MODEL:-MrLight/dse-qwen2-2b-mrl-v1}
+      - RAG_HAYSTACK_EMBEDDINGS_MODEL=${RAG_HAYSTACK_EMBEDDINGS_MODEL:-rag-embedding}
       - RAG_HAYSTACK_EMBEDDINGS_DIM=${RAG_HAYSTACK_EMBEDDINGS_DIM:-1536}
       - RAG_HAYSTACK_EMBEDDINGS_MAX_TOKENS=${RAG_HAYSTACK_EMBEDDINGS_MAX_TOKENS:-32768}
       - RAG_HAYSTACK_CHUNK_SIZE=${RAG_HAYSTACK_CHUNK_SIZE:-1000}

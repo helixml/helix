@@ -8,6 +8,11 @@ import Paper from "@mui/material/Paper";
 import CircularProgress from "@mui/material/CircularProgress";
 import InputAdornment from "@mui/material/InputAdornment";
 import Alert from "@mui/material/Alert";
+import Dialog from "@mui/material/Dialog";
+import DialogTitle from "@mui/material/DialogTitle";
+import DialogContent from "@mui/material/DialogContent";
+import DialogContentText from "@mui/material/DialogContentText";
+import DialogActions from "@mui/material/DialogActions";
 
 import Page from "../components/system/Page";
 import useAccount from "../hooks/useAccount";
@@ -27,6 +32,8 @@ const OrgSettings: FC = () => {
   const [name, setName] = useState("");
   const [autoJoinDomain, setAutoJoinDomain] = useState("");
   const [loading, setLoading] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [slugManuallyEdited, setSlugManuallyEdited] = useState(false);
   const [errors, setErrors] = useState<{
     slug?: string;
@@ -35,6 +42,13 @@ const OrgSettings: FC = () => {
   }>({});
 
   const organization = account.organizationTools.organization;
+  const isOrgOwner =
+    !!account.user &&
+    !!organization &&
+    !!organization.memberships?.some(
+      (membership) =>
+        membership.user_id === account.user?.id && membership.role === "owner",
+    );
 
   // Generate slug from name for new organizations
   const handleNameBlur = () => {
@@ -140,6 +154,38 @@ const OrgSettings: FC = () => {
       setAutoJoinDomain(organization.auto_join_domain || "");
     }
   }, [organization]);
+
+  const handleDeleteOrganization = async () => {
+    if (!organization?.id) {
+      snackbar.error("Organization not found");
+      return;
+    }
+
+    try {
+      setDeleting(true);
+      const deleted = await account.organizationTools.deleteOrganization(
+        organization.id,
+      );
+      if (deleted) {
+        setDeleteDialogOpen(false);
+        const nextMemberOrg = account.organizationTools.organizations.find(
+          (org) => org.id !== organization.id && org.member,
+        );
+        if (nextMemberOrg) {
+          router.navigate("org_projects", {
+            org_id: nextMemberOrg.name || nextMemberOrg.id || "",
+          });
+          return;
+        }
+        router.navigate("orgs");
+      }
+    } catch (error) {
+      console.error("Error deleting organization:", error);
+      snackbar.error("Failed to delete organization");
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   if (!account.user) return null;
   // if(!account.isOrgMember) return null
@@ -276,6 +322,36 @@ const OrgSettings: FC = () => {
                   </Button>
                 </Box>
               )}
+
+              {isOrgOwner && (
+                <Paper
+                  elevation={0}
+                  sx={{
+                    mt: 4,
+                    p: 3,
+                    border: "1px solid",
+                    borderColor: "error.main",
+                    backgroundColor: "error.50",
+                  }}
+                >
+                  <Typography variant="h6" color="error.main" gutterBottom>
+                    Danger Zone
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                    Deleting this organization permanently removes its projects,
+                    teams, members, and repositories. This action cannot be
+                    undone.
+                  </Typography>
+                  <Button
+                    variant="contained"
+                    color="error"
+                    onClick={() => setDeleteDialogOpen(true)}
+                    disabled={deleting}
+                  >
+                    Delete Organization
+                  </Button>
+                </Paper>
+              )}
             </Box>
           ) : (
             <Box sx={{ display: "flex", justifyContent: "center", p: 3 }}>
@@ -284,6 +360,36 @@ const OrgSettings: FC = () => {
           )}
         </Box>
       </Container>
+
+      <Dialog
+        open={deleteDialogOpen}
+        onClose={() => !deleting && setDeleteDialogOpen(false)}
+      >
+        <DialogTitle>Delete organization?</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            This permanently deletes <strong>{organization?.display_name || organization?.name}</strong> and all of its data.
+            This action cannot be undone.
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button
+            onClick={() => setDeleteDialogOpen(false)}
+            disabled={deleting}
+          >
+            Cancel
+          </Button>
+          <Button
+            onClick={handleDeleteOrganization}
+            color="error"
+            variant="contained"
+            disabled={deleting}
+            startIcon={deleting ? <CircularProgress size={18} /> : null}
+          >
+            Delete
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Page>
   );
 };

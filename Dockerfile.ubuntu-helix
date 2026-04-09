@@ -7,13 +7,13 @@
 # Developers can switch between desktops without version differences.
 # See: design/2025-12-28-kde-vs-sway-compositor-architecture.md
 #
-# BASE IMAGE DIGESTS: Pinned for stable layer caching (2026-01-27).
+# BASE IMAGE DIGESTS: Pinned for stable layer caching (2026-03-30).
 # Update digests when intentionally upgrading base images.
-# - ubuntu:25.10 -> sha256:4a9232cc47bf99defcc8860ef6222c99773330367fcecbf21ba2edb0b810a31e
-# - golang:1.25  -> sha256:ce63a16e0f7063787ebb4eb28e72d477b00b4726f79874b3205a965ffd797ab2
+# - ubuntu:25.10         -> sha256:91e7ac4c041dd191af1b9012fadbf489280894699c3f31e180969c4478781b7b
+# - golang:1.25-bookworm -> sha256:e39bda82b10817cc38b3c8d3ebd64285b44e6d7df09b759ad96a6d75d61cbcac
 
 # Global ARG: must be before the first FROM to be visible to --build-arg
-# amd64 (default): uses nvidia/cuda to extract CUDA runtime libs
+# amd64 (default): pinned nvidia/cuda digest — cache-stable, no silent updates
 # arm64: pipeline passes --build-arg CUDA_BASE_IMAGE=ubuntu:25.10
 ARG CUDA_BASE_IMAGE=nvidia/cuda:12.6.3-runtime-ubuntu24.04
 
@@ -22,9 +22,9 @@ ARG CUDA_BASE_IMAGE=nvidia/cuda:12.6.3-runtime-ubuntu24.04
 # ====================================================================
 # Uses Debian-based golang image for GStreamer development libraries.
 # desktop-bridge requires go-gst bindings (CGO) for in-process GStreamer.
-# Pin to specific digest for stable layer caching (golang:1.25 as of 2026-01-27)
+# Pin to specific digest for stable layer caching (golang:1.25-bookworm as of 2026-03-30)
 # Update digest when intentionally upgrading Go version
-FROM golang:1.25@sha256:ce63a16e0f7063787ebb4eb28e72d477b00b4726f79874b3205a965ffd797ab2 AS go-build-env
+FROM golang:1.25-bookworm AS go-build-env
 
 # Install GStreamer development libraries for go-gst bindings
 # These are required for CGO compilation of desktop-bridge
@@ -44,7 +44,9 @@ WORKDIR /app
 COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod go mod download
 
-# Copy Go source AFTER dependencies are downloaded for better caching
+# Copy Go source AFTER dependencies are downloaded for better caching.
+# Note: any Go file change invalidates this layer, but the go build cache
+# mount below ensures only changed packages are recompiled.
 COPY api ./api
 WORKDIR /app/api
 RUN --mount=type=cache,target=/go/pkg/mod \
@@ -71,7 +73,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 #
 # Uses TARGETARCH to build the right plugins for the current platform.
 # No --platform directive, so this works on any CI runner architecture.
-FROM ubuntu:25.10@sha256:4a9232cc47bf99defcc8860ef6222c99773330367fcecbf21ba2edb0b810a31e AS rust-build-env
+FROM ubuntu:25.10 AS rust-build-env
 ARG TARGETARCH
 WORKDIR /build
 
@@ -102,7 +104,7 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Rust
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.85.0
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.87.0
 ENV PATH="/root/.cargo/bin:${PATH}"
 
 # Copy all plugin sources (needed for both architectures)
@@ -113,7 +115,9 @@ COPY desktop/gst-pipewire-zerocopy ./gst-pipewire-zerocopy/
 # Build plugins conditionally based on architecture.
 # On amd64: build pipewirezerocopysrc with CUDA linkage, create vsockenc placeholder
 # On arm64: build vsockenc + pipewirezerocopysrc without CUDA
-RUN <<_BUILD_PLUGINS
+RUN --mount=type=cache,target=/root/.cargo/registry \
+    --mount=type=cache,target=/root/.cargo/git \
+    --mount=type=cache,target=/build/gst-pipewire-zerocopy/target <<_BUILD_PLUGINS
 set -e
 if [ "${TARGETARCH}" = "arm64" ]; then
     echo "=== Building ARM64 plugins ==="
@@ -127,7 +131,7 @@ if [ "${TARGETARCH}" = "arm64" ]; then
 
     # Build pipewirezerocopysrc (DMA-BUF passthrough for virtio-gpu)
     cd /build/gst-pipewire-zerocopy && \
-        cargo build --release && \
+        cargo build --locked --release && \
         cp target/release/libgstpipewirezerocopy.so /libgstpipewirezerocopy.so
     echo "pipewirezerocopysrc built"
 else
@@ -140,8 +144,7 @@ else
 
     # Build pipewirezerocopysrc with CUDA support
     cd /build/gst-pipewire-zerocopy && \
-        cargo clean && \
-        cargo build --release && \
+        cargo build --locked --release && \
         cp target/release/libgstpipewirezerocopy.so /libgstpipewirezerocopy.so
     echo "pipewirezerocopysrc built (amd64)"
 
@@ -156,6 +159,7 @@ _BUILD_PLUGINS
 # amd64: uses nvidia/cuda image (default) to get real CUDA runtime libs
 # arm64: pipeline passes --build-arg CUDA_BASE_IMAGE=ubuntu:25.10
 #        which creates empty placeholders (no CUDA on ARM, encoding on macOS host)
+# Both variants are SHA-pinned: amd64 via the ARG default, arm64 via --build-arg.
 ARG CUDA_BASE_IMAGE
 FROM ${CUDA_BASE_IMAGE} AS cuda-libs
 # On amd64 (nvidia/cuda base): libnvrtc is in /usr/local/cuda/lib64/
@@ -177,7 +181,7 @@ RUN if [ -f /usr/local/cuda/lib64/libnvrtc.so.12 ]; then \
 #
 # The headless bridge uses GStreamer's pipewiresrc + waylandsink for
 # zero-copy DMA-BUF transfer from GNOME screen-cast to Wolf.
-FROM ubuntu:25.10@sha256:4a9232cc47bf99defcc8860ef6222c99773330367fcecbf21ba2edb0b810a31e
+FROM ubuntu:25.10
 
 # Configure default user and set env (from GOW base-app)
 ENV \
@@ -238,6 +242,7 @@ ARG DE_PACKAGES=" \
     gstreamer1.0-plugins-base \
     gstreamer1.0-plugins-good \
     gstreamer1.0-plugins-bad \
+    libopenh264-8 \
     gstreamer1.0-gl \
     gstreamer1.0-vaapi \
     mesa-va-drivers \
@@ -825,6 +830,14 @@ RUN mkdir -p /etc/skel/.config/google-chrome && \
 # Install chrome-devtools-mcp globally and pre-build fontconfig cache
 RUN npm install -g chrome-devtools-mcp@latest && fc-cache -f -v
 
+# URL capture script for Claude Code OAuth login flow.
+# When BROWSER=/usr/local/bin/helix-capture-browser, `claude auth login` writes
+# the OAuth URL to a file instead of opening a browser. The Helix frontend polls
+# for this file and opens the URL in the user's native browser.
+COPY desktop/shared/helix-capture-browser.sh /usr/local/bin/helix-capture-browser
+COPY desktop/shared/helix-claude-auth-wrapper.sh /usr/local/bin/helix-claude-auth-wrapper
+RUN chmod +x /usr/local/bin/helix-capture-browser /usr/local/bin/helix-claude-auth-wrapper
+
 # Install drone-ci-mcp (Helix's Drone CI MCP server for build log navigation)
 # Build and pack the package, then install globally from the tarball
 COPY mcp-servers/drone-ci/package.json mcp-servers/drone-ci/package-lock.json mcp-servers/drone-ci/tsconfig.json /tmp/drone-ci-mcp/
@@ -925,14 +938,16 @@ RUN mkdir -p /home/retro/.qwen && \
 RUN mkdir -p /home/retro/.gemini && \
     echo '{"privacy":{"usageStatisticsEnabled":false},"general":{"disableAutoUpdate":true,"disableUpdateNag":true}}' > /home/retro/.gemini/settings.json
 
-# Install Claude Code CLI (for ACP agent support)
-RUN npm install -g @anthropic-ai/claude-code@latest
+
+
+# Pre-create managed settings dir so the settings-sync-daemon (running as retro) can write to it
+RUN mkdir -p /etc/claude-code && chown retro:retro /etc/claude-code
 
 # Claude Code settings (bypassPermissions etc.) are written at runtime by
 # helix-workspace-setup.sh after symlinking ~/.claude to persistent storage.
 
-RUN mkdir -p /home/retro/.config/zed && \
-    echo '{"theme":"Ayu Dark","telemetry":{"diagnostics":false,"metrics":false}}' > /home/retro/.config/zed/settings.json
+RUN mkdir -p /home/retro/.config/zed/themes && \
+    echo '{"theme":"Ayu Dark","telemetry":{"diagnostics":false,"metrics":false},"agent_servers":{"claude-acp":{"type":"registry"}}}' > /home/retro/.config/zed/settings.json
 
 ENV GEMINI_TELEMETRY_ENABLED=false \
     CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 \
@@ -975,10 +990,12 @@ echo "=== Installing Ghostty terminal for ${TARGETARCH} ==="
 
 # Ghostty packages are available for both amd64 and arm64
 # Tag format: 1.2.3-0-ppa1, Package naming: ghostty_1.2.3-0.ppa1_{arch}_25.10.deb
-GHOSTTY_TAG="1.2.3-0-ppa1"
-GHOSTTY_DEB="ghostty_1.2.3-0.ppa1_${TARGETARCH}_25.10.deb"
+GHOSTTY_TAG="1.3.1-0-ppa1"
+GHOSTTY_DEB="ghostty_1.3.1-0.ppa1_${TARGETARCH}_25.10.deb"
 wget --progress=dot:giga "https://github.com/mkasberg/ghostty-ubuntu/releases/download/${GHOSTTY_TAG}/${GHOSTTY_DEB}" -O /tmp/ghostty.deb
-apt-get install -y /tmp/ghostty.deb
+# Install dependencies first (the .deb may need libs not in the base image)
+apt-get install -y --no-install-recommends libfreetype6 libfontconfig1 || true
+dpkg -i /tmp/ghostty.deb || apt-get install -f -y
 rm /tmp/ghostty.deb
 echo "=== Ghostty ${GHOSTTY_TAG} installed for ${TARGETARCH} ==="
 

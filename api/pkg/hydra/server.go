@@ -34,6 +34,7 @@ type Server struct {
 	socketPath          string
 	listener            net.Listener
 	server              *http.Server
+	router              *mux.Router
 }
 
 // NewServer creates a new Hydra server
@@ -77,6 +78,7 @@ func (s *Server) Start(ctx context.Context) error {
 
 	// Create router
 	router := mux.NewRouter()
+	s.router = router
 	s.registerRoutes(router)
 
 	// Create HTTP server
@@ -170,9 +172,35 @@ func (s *Server) registerRoutes(router *mux.Router) {
 	api.HandleFunc("/golden-cache/{project_id}", s.handleDeleteGoldenCache).Methods("DELETE")
 	api.HandleFunc("/golden-cache/{project_id}/build-result", s.handleGetGoldenBuildResult).Methods("GET")
 	api.HandleFunc("/golden-cache/{project_id}/copy-progress", s.handleGetGoldenCopyProgress).Methods("GET")
+	api.HandleFunc("/golden-cache/{project_id}/zfs-tree", s.handleGetZFSTree).Methods("GET")
 
 	// System stats (GPU info, active sessions)
 	api.HandleFunc("/system/stats", s.handleSystemStats).Methods("GET")
+
+	// Version and route listing (for diagnosing version mismatches)
+	api.HandleFunc("/version", s.handleVersion).Methods("GET")
+}
+
+// handleVersion returns version info and registered routes for diagnosing mismatches
+func (s *Server) handleVersion(w http.ResponseWriter, r *http.Request) {
+	var routes []string
+	s.router.Walk(func(route *mux.Route, router *mux.Router, ancestors []*mux.Route) error {
+		path, err := route.GetPathTemplate()
+		if err == nil {
+			methods, _ := route.GetMethods()
+			for _, m := range methods {
+				routes = append(routes, m+" "+path)
+			}
+		}
+		return nil
+	})
+
+	resp := &VersionResponse{
+		Version: Version,
+		Routes:  routes,
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
 }
 
 // handleHealth returns server health status
@@ -209,10 +237,11 @@ func (s *Server) handleCreateDevContainer(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), 120*time.Second)
-	defer cancel()
-
-	resp, err := s.devContainerManager.CreateDevContainer(ctx, &req)
+	// Use the request context without a blanket timeout. CreateDevContainer
+	// may copy a large golden cache (50+ GB) before touching Docker, and that
+	// copy reports progress independently. Docker operation timeouts are
+	// applied internally by CreateDevContainer once the copy is done.
+	resp, err := s.devContainerManager.CreateDevContainer(r.Context(), &req)
 	if err != nil {
 		log.Error().Err(err).
 			Str("session_id", req.SessionID).
@@ -820,6 +849,24 @@ func (s *Server) handleDeleteGoldenCache(w http.ResponseWriter, r *http.Request)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "deleted"})
+}
+
+// handleGetZFSTree returns the ZFS snapshot and clone tree for a project's golden cache.
+func (s *Server) handleGetZFSTree(w http.ResponseWriter, r *http.Request) {
+	projectID := mux.Vars(r)["project_id"]
+	if projectID == "" {
+		http.Error(w, "project_id required", http.StatusBadRequest)
+		return
+	}
+
+	tree, err := GetZFSTree(projectID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(tree)
 }
 
 // handleGetGoldenCopyProgress returns the current golden cache copy progress.

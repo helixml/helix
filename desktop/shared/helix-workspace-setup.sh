@@ -462,6 +462,24 @@ if [ -n "$HELIX_PRIMARY_REPO_NAME" ]; then
                 CURRENT_BRANCH=$(git -C "$WORKTREE_PATH" branch --show-current 2>/dev/null || echo "unknown")
                 echo "  Current branch: $CURRENT_BRANCH"
 
+                # Pull latest changes from remote to get updated startup script
+                echo "  Pulling latest changes from remote..."
+                HELIX_SPECS_STASHED=false
+                if ! git -C "$WORKTREE_PATH" diff --quiet 2>/dev/null; then
+                    echo "  Stashing local changes..."
+                    git -C "$WORKTREE_PATH" stash push -m "helix-workspace-setup" 2>&1 && HELIX_SPECS_STASHED=true
+                fi
+
+                if git -C "$WORKTREE_PATH" pull origin helix-specs 2>&1; then
+                    echo "  ✅ helix-specs updated"
+                else
+                    echo "  ⚠️ Failed to pull helix-specs (continuing with local version)"
+                fi
+
+                if [ "$HELIX_SPECS_STASHED" = true ]; then
+                    git -C "$WORKTREE_PATH" stash pop 2>&1 || echo "  ⚠️ Failed to restore stashed changes"
+                fi
+
                 # Pre-create task directory if specified (prevents "parent directory doesn't exist" errors)
                 if [ -n "$HELIX_SPEC_DIR_NAME" ]; then
                     TASK_DIR="$WORKTREE_PATH/design/tasks/$HELIX_SPEC_DIR_NAME"
@@ -501,29 +519,46 @@ echo "========================================="
 echo "Additional setup..."
 echo "========================================="
 
-# Create Claude Code state symlink for persistence across container restarts.
-# The Dockerfile writes settings.json to /home/retro/.claude/ with permissions
-# config (allow all tools). We must preserve it when symlinking to persistent storage.
+# Claude Code ACP state: symlink ~/.claude to persistent storage and write
+# settings.json with bypassPermissions. The ACP adapter (bundled in Zed as an
+# npm package) reads ~/.claude/settings.json for permissions.defaultMode —
+# without it, ACP falls back to "default" mode and prompts for every tool use.
+# NOTE: Don't gate on `command -v claude` — the claude CLI may not be on PATH
+# since ACP uses Zed's bundled npm package, not the standalone binary.
 CLAUDE_STATE_DIR=$WORK_DIR/.claude-state
-if command -v claude &> /dev/null; then
-    mkdir -p $CLAUDE_STATE_DIR
-    # Preserve any files the settings-sync-daemon already wrote to ~/.claude
-    # (e.g., .credentials.json) before replacing with the symlink.
-    # Without this, credentials get deleted and Zed startup blocks for ~20s
-    # waiting for the daemon's next 30s poll to re-write them.
-    if [ -d ~/.claude ] && [ ! -L ~/.claude ]; then
-        cp -a ~/.claude/. $CLAUDE_STATE_DIR/ 2>/dev/null || true
-    fi
-    # Symlink ~/.claude to persistent storage so credentials and state
-    # survive container restarts.
-    rm -rf ~/.claude
-    ln -sf $CLAUDE_STATE_DIR ~/.claude
-    # Write correct permissions before Zed/Claude Code starts.
-    # This runs synchronously before Zed launch, so Claude Code
-    # always sees bypassPermissions on first read.
-    echo '{"permissions":{"allow":["Bash","Read","Edit"],"defaultMode":"bypassPermissions"},"skipDangerousModePermissionPrompt":true,"env":{"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC":"1","DISABLE_TELEMETRY":"1","DISABLE_ERROR_REPORTING":"1","DISABLE_AUTOUPDATER":"1"}}' > ~/.claude/settings.json
-    echo "  Claude: ~/.claude -> $CLAUDE_STATE_DIR (settings written)"
+mkdir -p $CLAUDE_STATE_DIR
+# Preserve any files the settings-sync-daemon already wrote to ~/.claude
+# (e.g., .credentials.json) before replacing with the symlink.
+# Without this, credentials get deleted and Zed startup blocks for ~20s
+# waiting for the daemon's next 30s poll to re-write them.
+if [ -d ~/.claude ] && [ ! -L ~/.claude ]; then
+    cp -a ~/.claude/. $CLAUDE_STATE_DIR/ 2>/dev/null || true
 fi
+# Symlink ~/.claude to persistent storage so credentials and state
+# survive container restarts.
+rm -rf ~/.claude
+ln -sf $CLAUDE_STATE_DIR ~/.claude
+# Write correct permissions before Zed/Claude Code starts.
+# This runs synchronously before Zed launch, so Claude Code ACP
+# always sees bypassPermissions on first read.
+echo '{"permissions":{"defaultMode":"bypassPermissions"},"env":{"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC":"1","DISABLE_TELEMETRY":"1","DISABLE_ERROR_REPORTING":"1","DISABLE_AUTOUPDATER":"1"}}' > ~/.claude/settings.json
+# Also symlink ~/.claude.json (separate from ~/.claude/ directory).
+# Claude Code stores userID and firstStartTime here. Without persistence,
+# it gets a new userID on every container restart, which may affect session
+# storage paths and prevents session resume across restarts.
+if [ ! -L ~/.claude.json ]; then
+    # Preserve existing ephemeral .claude.json if persistent one doesn't exist yet
+    if [ -f ~/.claude.json ] && [ ! -f $CLAUDE_STATE_DIR/.claude.json ]; then
+        mv ~/.claude.json $CLAUDE_STATE_DIR/.claude.json
+    else
+        rm -f ~/.claude.json
+    fi
+    # Create persistent file if it doesn't exist (Claude Code will populate it on first run)
+    [ ! -f $CLAUDE_STATE_DIR/.claude.json ] && echo '{}' > $CLAUDE_STATE_DIR/.claude.json
+    ln -sf $CLAUDE_STATE_DIR/.claude.json ~/.claude.json
+fi
+echo "  Claude: ~/.claude -> $CLAUDE_STATE_DIR (settings written)"
+echo "  Claude: ~/.claude.json -> $CLAUDE_STATE_DIR/.claude.json"
 
 # Initialize workspace with README if empty
 if [ ! -f "$WORK_DIR/README.md" ] && [ -z "$(ls -A "$WORK_DIR" 2>/dev/null | grep -v '^\.')" ]; then
@@ -674,9 +709,42 @@ if [ "${HELIX_GOLDEN_BUILD:-}" = "true" ]; then
         echo ""
         echo "✅ Golden build: startup script completed successfully"
 
-        # Write success marker BEFORE stopping dockerd.
-        # Hydra reads this file from the bind mount to determine promotion.
-        echo "0" | sudo tee /var/lib/docker/.golden-build-result > /dev/null
+        # Clean up Docker artifacts that inflate the golden cache.
+        # Sessions only need the final built images — these intermediates
+        # are push/build artifacts that accumulate across golden builds:
+        #   - Registry-tagged images (10.x.x.x:5000/buildcache/...) from
+        #     the docker wrapper's push-to-registry optimization
+        #   - Dangling (untagged) images from intermediate build steps
+        #   - Unused volumes (build caches, node_modules from build steps)
+        echo "Cleaning Docker build artifacts before golden promotion..."
+
+        # Show before state
+        echo "  Before cleanup:"
+        docker system df 2>/dev/null | sed 's/^/    /' || true
+
+        # Remove images tagged with registry IPs (e.g. 10.213.0.2:5000/buildcache/...)
+        # These are push artifacts — the built images are already tagged locally
+        REGISTRY_IMAGES=$(docker images --format '{{.Repository}}:{{.Tag}}' | grep -E '^\d+\.\d+\.\d+\.\d+:' || true)
+        if [ -n "$REGISTRY_IMAGES" ]; then
+            echo "$REGISTRY_IMAGES" | xargs docker rmi 2>/dev/null || true
+            echo "  Removed registry-tagged images"
+        fi
+
+        # Remove dangling images (intermediate build layers with <none> tag)
+        docker image prune -f 2>/dev/null || true
+
+        # Remove unused volumes (build step caches that won't carry forward)
+        docker volume prune -f 2>/dev/null || true
+
+        # Prune Docker build cache — keep only layers referenced by existing
+        # images. Without this, build cache grows ~5GB per golden build and
+        # the golden zvol balloons from 56GB to 95GB+ over 20 builds.
+        docker builder prune -f --filter 'unused-for=0s' 2>/dev/null || true
+
+        # Show after state
+        echo "  After cleanup:"
+        docker system df 2>/dev/null | sed 's/^/    /' || true
+        echo "✅ Docker cleanup complete"
 
         echo "Stopping dockerd for clean shutdown..."
         # Stop dockerd cleanly so Docker data on disk is consistent
@@ -693,6 +761,13 @@ if [ "${HELIX_GOLDEN_BUILD:-}" = "true" ]; then
             done
             echo "✅ dockerd stopped"
         fi
+
+        # Write success marker AFTER dockerd is stopped.
+        # Hydra's monitorGoldenBuild polls for this file and promotes the
+        # Docker data to the golden cache. Writing it after dockerd stops
+        # ensures the data is quiescent — no active writes during promotion
+        # or when new sessions copy from the golden cache.
+        echo "0" | sudo tee /var/lib/docker/.golden-build-result > /dev/null
     else
         EXIT_CODE=$?
         echo ""
@@ -742,17 +817,85 @@ if [ -f "$STARTUP_SCRIPT" ]; then
     echo ""
 
     # Run startup script but don't fail if it errors (user can debug in terminal)
-    if bash -i "$STARTUP_SCRIPT"; then
+    bash -i "$STARTUP_SCRIPT" 2>&1 | tee /tmp/helix-startup.log
+    STARTUP_EXIT="${PIPESTATUS[0]}"
+    if [ "$STARTUP_EXIT" -eq 0 ]; then
         echo ""
         echo "✅ Startup script completed successfully"
     else
-        EXIT_CODE=$?
         echo ""
-        echo "❌ Startup script failed with exit code $EXIT_CODE"
+        echo "❌ Startup script failed with exit code $STARTUP_EXIT"
         echo ""
         echo "You can debug this in the terminal."
     fi
     echo ""
+elif [ -n "$HELIX_STARTUP_SCRIPT" ]; then
+    # Fallback: run startup script from database (set via project YAML)
+    # This is used when no .helix/startup.sh exists in the helix-specs branch
+    echo ""
+    echo "========================================="
+    echo "Running startup script from project YAML (Zed starting in parallel)..."
+    echo "========================================="
+
+    # Change to primary repo directory
+    if [ -n "$HELIX_PRIMARY_REPO_NAME" ] && [ -d "$WORK_DIR/$HELIX_PRIMARY_REPO_NAME" ]; then
+        cd "$WORK_DIR/$HELIX_PRIMARY_REPO_NAME"
+        echo "Working directory: $HELIX_PRIMARY_REPO_NAME"
+    fi
+    echo ""
+
+    # Write script to temp file and execute it
+    TEMP_SCRIPT=$(mktemp /tmp/helix-startup-XXXXXX.sh)
+    echo "$HELIX_STARTUP_SCRIPT" > "$TEMP_SCRIPT"
+    chmod +x "$TEMP_SCRIPT"
+
+    # Run the script
+    if bash -i "$TEMP_SCRIPT" 2>&1 | tee /tmp/helix-startup.log; then
+        echo ""
+        echo "✅ Startup script completed successfully"
+    else
+        STARTUP_EXIT="${PIPESTATUS[0]}"
+        echo ""
+        echo "❌ Startup script failed with exit code $STARTUP_EXIT"
+        echo ""
+        echo "You can debug this in the terminal."
+    fi
+    rm -f "$TEMP_SCRIPT"
+    echo ""
+elif [ -n "$HELIX_STARTUP_INSTALL" ] || [ -n "$HELIX_STARTUP_START" ]; then
+    # Legacy fallback: run declarative startup commands from project YAML
+    # (deprecated - use startup.script instead)
+    echo ""
+    echo "========================================="
+    echo "Running declarative startup commands (Zed starting in parallel)..."
+    echo "========================================="
+
+    # Change to primary repo directory
+    if [ -n "$HELIX_PRIMARY_REPO_NAME" ] && [ -d "$WORK_DIR/$HELIX_PRIMARY_REPO_NAME" ]; then
+        cd "$WORK_DIR/$HELIX_PRIMARY_REPO_NAME"
+        echo "Working directory: $HELIX_PRIMARY_REPO_NAME"
+    fi
+    echo ""
+
+    if [ -n "$HELIX_STARTUP_INSTALL" ]; then
+        echo "▶ Install: $HELIX_STARTUP_INSTALL"
+        if bash -i -c "$HELIX_STARTUP_INSTALL"; then
+            echo "✅ Install completed"
+        else
+            echo "❌ Install failed (exit $?). You can debug this in the terminal."
+        fi
+        echo ""
+    fi
+
+    if [ -n "$HELIX_STARTUP_START" ]; then
+        echo "▶ Start: $HELIX_STARTUP_START"
+        if bash -i -c "$HELIX_STARTUP_START"; then
+            echo "✅ Start completed"
+        else
+            echo "❌ Start failed (exit $?). You can debug this in the terminal."
+        fi
+        echo ""
+    fi
 fi
 
 echo "========================================="

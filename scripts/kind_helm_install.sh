@@ -131,7 +131,7 @@ helm upgrade --install keycloak oci://registry-1.docker.io/bitnamicharts/keycloa
 #   --version "24.3.1" \
 #   --set auth.adminUser=admin \
 #   --set auth.adminPassword=oh-hallo-insecure-password \
-#   --set image.registry=registry.helixml.tech \
+#   --set image.registry=ghcr.io \
 #   --set image.repository=helix/keycloak-bitnami \
 #   --set image.tag="${KEYCLOAK_VERSION}" \
 #   --set httpRelativePath="/auth/"
@@ -192,3 +192,52 @@ fi
 helm upgrade --install my-helix-controlplane $CHART "${HELM_VALUES[@]}"
 
 wait_for_pod_ready_with_label "app.kubernetes.io/name=helix-controlplane"
+
+# =====================================================
+# Install Helix Sandbox
+# =====================================================
+
+# INSTALL_SANDBOX=1
+# This option deploys the helix-sandbox chart for testing the full
+# controlplane + sandbox stack (Hydra, RevDial, dev containers).
+INSTALL_SANDBOX=${INSTALL_SANDBOX:-""}
+
+if [ -n "$INSTALL_SANDBOX" ] && [ "$INSTALL_SANDBOX" != "false" ] && [ "$INSTALL_SANDBOX" != "" ]; then
+  echo "Installing Helix Sandbox..."
+
+  # Determine sandbox chart source
+  if [ -n "$USE_LOCAL_HELM_CHART" ] && [ "$USE_LOCAL_HELM_CHART" != "false" ] && [ "$USE_LOCAL_HELM_CHART" != "" ]; then
+    SANDBOX_CHART=./charts/helix-sandbox
+  else
+    SANDBOX_CHART=helix/helix-sandbox
+  fi
+
+  # Get the controlplane service URL for sandbox to connect to
+  CONTROLPLANE_SVC="http://my-helix-controlplane:80"
+
+  # Use the same runner token as the controlplane
+  RUNNER_TOKEN=${RUNNER_TOKEN:-"oh-hallo-insecure-token"}
+
+  SANDBOX_VALUES=()
+  SANDBOX_VALUES+=("--set" "sandbox.apiUrl=${CONTROLPLANE_SVC}")
+  SANDBOX_VALUES+=("--set" "sandbox.runnerToken=${RUNNER_TOKEN}")
+  SANDBOX_VALUES+=("--set" "gpu.vendor=none")
+  SANDBOX_VALUES+=("--set" "testing.disableHostPaths=true")
+  # Use emptyDir instead of PVCs for kind (no default StorageClass provisioner needed)
+  SANDBOX_VALUES+=("--set" "persistence.dockerStorage.enabled=false")
+  SANDBOX_VALUES+=("--set" "persistence.hydraData.enabled=false")
+  SANDBOX_VALUES+=("--set" "persistence.workspaceData.enabled=false")
+  # Disable privileged mode for kind (no real Docker socket)
+  SANDBOX_VALUES+=("--set" "securityContext.privileged=true")
+
+  if [ -n "$HELIX_VERSION" ]; then
+    SANDBOX_VALUES+=("--set" "image.tag=${HELIX_VERSION}")
+  fi
+
+  helm upgrade --install my-helix-sandbox $SANDBOX_CHART "${SANDBOX_VALUES[@]}"
+
+  echo "Waiting for sandbox pod to start (may take a while for image pull)..."
+  wait_for_pod_ready_with_label "app.kubernetes.io/name=helix-sandbox"
+
+  echo "Sandbox deployed successfully."
+fi

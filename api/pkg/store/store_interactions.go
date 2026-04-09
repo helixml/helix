@@ -7,6 +7,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/helixml/helix/api/pkg/util/sanitize"
 	"github.com/rs/zerolog/log"
 	"gorm.io/gorm/clause"
 )
@@ -23,6 +24,35 @@ func (s *PostgresStore) ResetRunningInteractions(ctx context.Context) error {
 		return err
 	}
 	return nil
+}
+
+// GetInteractionsSummary returns lightweight metadata (count + max updated) for
+// a session's interactions. Used to compute ETags without loading full rows.
+func (s *PostgresStore) GetInteractionsSummary(ctx context.Context, sessionID string, generationID int) (int64, time.Time, error) {
+	var result struct {
+		Count      int64
+		MaxUpdated *time.Time
+	}
+
+	q := s.gdb.WithContext(ctx).
+		Model(&types.Interaction{}).
+		Select("COUNT(*) as count, MAX(updated) as max_updated").
+		Where("session_id = ?", sessionID)
+
+	if generationID > 0 {
+		q = q.Where("generation_id = ?", generationID)
+	}
+
+	if err := q.Scan(&result).Error; err != nil {
+		return 0, time.Time{}, err
+	}
+
+	maxUpdated := time.Time{}
+	if result.MaxUpdated != nil {
+		maxUpdated = *result.MaxUpdated
+	}
+
+	return result.Count, maxUpdated, nil
 }
 
 func (s *PostgresStore) CreateInteraction(ctx context.Context, interaction *types.Interaction) (*types.Interaction, error) {
@@ -108,6 +138,13 @@ func (s *PostgresStore) UpdateInteraction(ctx context.Context, interaction *type
 		return nil, errors.New("id is required")
 	}
 
+	// Sanitize string fields that may contain LLM or agent output with characters
+	// that PostgreSQL rejects in text/jsonb columns (null bytes, surrogates, etc.)
+	interaction.PromptMessage = sanitize.ForPostgres(interaction.PromptMessage)
+	interaction.ResponseMessage = sanitize.ForPostgres(interaction.ResponseMessage)
+	interaction.Error = sanitize.ForPostgres(interaction.Error)
+	interaction.ResponseEntries = sanitize.JSONForPostgres(interaction.ResponseEntries)
+
 	db := s.gdb.WithContext(ctx)
 
 	// CRITICAL: Use Save() which works with composite PK when struct has both fields populated
@@ -160,11 +197,7 @@ func (s *PostgresStore) ListInteractions(ctx context.Context, query *types.ListI
 		query.PerPage = -1
 	}
 
-	var offset int
-
-	if query.Page > 0 {
-		offset = (query.Page - 1) * query.PerPage
-	}
+	offset := query.Page * query.PerPage
 
 	if query.SessionID != "" {
 		q = q.Where("session_id = ?", query.SessionID)

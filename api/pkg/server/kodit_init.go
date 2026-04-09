@@ -9,26 +9,29 @@ import (
 
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/services"
+	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/kodit"
 	"github.com/helixml/kodit/infrastructure/provider"
 	"github.com/rs/zerolog/log"
 )
 
-// koditResult holds everything produced by initKodit.
-type koditResult struct {
-	service    services.KoditServicer
+// KoditResult holds everything produced by InitKodit.
+// It is exported so that serve.go can initialize kodit once and share the
+// service between the RAG factory and the API server.
+type KoditResult struct {
+	Service    services.KoditServicer
 	mcpBackend *KoditMCPBackend
 	closer     io.Closer
 }
 
-// initKodit creates the kodit client, service, and MCP backend.
+// InitKodit creates the kodit client, service, and MCP backend.
 // When kodit is disabled in config it returns a disabled service and nil closer.
-func initKodit(cfg *config.ServerConfig, gitRepoService *services.GitRepositoryService) (*koditResult, error) {
+func InitKodit(cfg *config.ServerConfig, gitRepoService *services.GitRepositoryService, store store.Store) (*KoditResult, error) {
 	if !cfg.Kodit.Enabled || gitRepoService == nil {
 		log.Info().Msg("Kodit code intelligence service disabled")
-		return &koditResult{
-			service:    services.NewDisabledKoditService(),
-			mcpBackend: NewKoditMCPBackend(nil, false),
+		return &KoditResult{
+			Service:    services.NewDisabledKoditService(),
+			mcpBackend: NewKoditMCPBackend(nil, false, store),
 		}, nil
 	}
 
@@ -51,6 +54,7 @@ func initKodit(cfg *config.ServerConfig, gitRepoService *services.GitRepositoryS
 	if modelDir == "" {
 		modelDir = filepath.Join(dataDir, "models")
 	}
+	koditOpts = append(koditOpts, kodit.WithModelDir(modelDir))
 	embedder := provider.NewHugotEmbedding(modelDir)
 	koditOpts = append(koditOpts, kodit.WithEmbeddingProvider(embedder))
 
@@ -70,6 +74,9 @@ func initKodit(cfg *config.ServerConfig, gitRepoService *services.GitRepositoryS
 		koditOpts = append(koditOpts, kodit.WithWorkerCount(cfg.Kodit.WorkerCount))
 	}
 
+	// Pass helix's zerolog logger to kodit so log output is consistent.
+	koditOpts = append(koditOpts, kodit.WithLogger(log.Logger))
+
 	koditClient, err := kodit.New(koditOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize kodit client: %w", err)
@@ -83,9 +90,9 @@ func initKodit(cfg *config.ServerConfig, gitRepoService *services.GitRepositoryS
 		Str("kodit_git_url", cfg.Kodit.GitURL).
 		Msg("Initialized Kodit code intelligence service (in-process)")
 
-	return &koditResult{
-		service:    svc,
-		mcpBackend: NewKoditMCPBackend(koditClient, true),
+	return &KoditResult{
+		Service:    svc,
+		mcpBackend: NewKoditMCPBackend(koditClient, true, store),
 		closer:     koditClient,
 	}, nil
 }

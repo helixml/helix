@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -43,7 +44,7 @@ func (s *HelixAPIServer) listGitProviderConnections(w http.ResponseWriter, r *ht
 		return
 	}
 
-	json.NewEncoder(w).Encode( connections)
+	json.NewEncoder(w).Encode(connections)
 }
 
 // createGitProviderConnection creates a new PAT-based git provider connection
@@ -154,7 +155,7 @@ func (s *HelixAPIServer) createGitProviderConnection(w http.ResponseWriter, r *h
 	}
 
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode( connection)
+	json.NewEncoder(w).Encode(connection)
 }
 
 // deleteGitProviderConnection deletes a PAT-based git provider connection
@@ -282,7 +283,7 @@ func (s *HelixAPIServer) browseGitProviderConnectionRepositories(w http.Response
 		return
 	}
 
-	json.NewEncoder(w).Encode( types.ListOAuthRepositoriesResponse{
+	json.NewEncoder(w).Encode(types.ListOAuthRepositoriesResponse{
 		Repositories: repos,
 	})
 }
@@ -292,9 +293,37 @@ func (s *HelixAPIServer) validateAndFetchUserInfo(ctx context.Context, providerT
 	switch providerType {
 	case types.ExternalRepositoryTypeGitHub:
 		client := github.NewClientWithPATAndBaseURL(token, baseURL)
-		user, err := client.GetAuthenticatedUser(ctx)
+		user, scopes, scopeHeaderPresent, err := client.GetAuthenticatedUserWithScopes(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("failed to validate GitHub token: %w", err)
+		}
+		if !scopeHeaderPresent {
+			// Fine-grained PATs don't return X-OAuth-Scopes so we can't validate
+			// their permissions. Reject them and ask for a classic token.
+			return nil, fmt.Errorf("Fine-grained GitHub tokens are not supported. Helix requires a classic token with the 'repo' scope. Please create one at https://github.com/settings/tokens")
+		}
+		if len(scopes) == 0 {
+			return nil, fmt.Errorf("GitHub token has no scopes. Helix requires the 'repo' scope for full repository access. Please create a new classic token with the 'repo' scope at https://github.com/settings/tokens")
+		}
+		hasRepo := false
+		hasWorkflow := false
+		for _, s := range scopes {
+			if s == "repo" {
+				hasRepo = true
+			}
+			if s == "workflow" {
+				hasWorkflow = true
+			}
+		}
+		var missingScopes []string
+		if !hasRepo {
+			missingScopes = append(missingScopes, "repo")
+		}
+		if !hasWorkflow {
+			missingScopes = append(missingScopes, "workflow")
+		}
+		if len(missingScopes) > 0 {
+			return nil, fmt.Errorf("GitHub token is missing required scopes: %s. Your token has scopes: %s. Please create a new classic token with the required scopes at https://github.com/settings/tokens", strings.Join(missingScopes, ", "), strings.Join(scopes, ", "))
 		}
 		return &types.OAuthUserInfo{
 			ID:        fmt.Sprintf("%d", user.GetID()),

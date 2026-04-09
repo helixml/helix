@@ -1,4 +1,4 @@
-import React, { FC, useState, useEffect, useCallback, useRef } from "react";
+import React, { FC, useState, useEffect, useCallback, useRef, useMemo } from "react";
 import {
   Box,
   Button,
@@ -13,6 +13,7 @@ import ChatIcon from "@mui/icons-material/Chat";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 
 import DesktopStreamViewer from "./DesktopStreamViewer";
+import { isMobileOrTablet } from "../../utils/isMobileOrTablet";
 import ScreenshotViewer from "./ScreenshotViewer";
 import SandboxDropZone from "./SandboxDropZone";
 import EmbeddedSessionView from "../session/EmbeddedSessionView";
@@ -23,71 +24,53 @@ import { useStreaming } from "../../contexts/streaming";
 import { SESSION_TYPE_TEXT } from "../../types";
 import { Api } from "../../api/api";
 import { useQueryClient } from "@tanstack/react-query";
-import { GET_SESSION_QUERY_KEY } from "../../services/sessionService";
+import { GET_SESSION_QUERY_KEY, useGetSession } from "../../services/sessionService";
 
 // Hook to track sandbox container state for external agent sessions
 // Exported for use in SpecTaskDetailContent.tsx toolbar buttons
+// Uses React Query (useGetSession) for automatic deduplication — multiple components
+// polling the same sessionId share a single network request.
 export const useSandboxState = (sessionId: string, enabled: boolean = true) => {
-  const api = useApi();
-  const [sandboxState, setSandboxState] = React.useState<string>("loading");
-  const [statusMessage, setStatusMessage] = React.useState<string>("");
+  const { data: sessionResponse } = useGetSession(sessionId, {
+    enabled: enabled && !!sessionId,
+    refetchInterval: 3000, // Poll every 3 seconds
+  });
 
-  React.useEffect(() => {
-    // Skip polling when disabled (e.g., card is off-screen)
-    if (!enabled) return;
+  const { sandboxState, statusMessage } = useMemo(() => {
+    if (!sessionResponse?.data) {
+      return { sandboxState: "loading", statusMessage: "" };
+    }
 
-    const apiClient = api.getApiClient();
-    const fetchState = async () => {
-      try {
-        // Get session details and check external agent status from metadata
-        const response = await apiClient.v1SessionsDetail(sessionId);
-        if (response.data) {
-          // Check external agent status from session metadata
-          const status = response.data.config?.external_agent_status || "";
-          const desiredState = response.data.config?.desired_state || "";
-          const hasContainer = !!response.data.config?.container_name;
+    const session = sessionResponse.data;
+    const status = session.config?.external_agent_status || "";
+    const desiredState = (session.config as (typeof session.config & { desired_state?: string }))?.desired_state || "";
+    const hasContainer = !!session.config?.container_name;
+    const msg = session.config?.status_message || "";
 
-          // Pickup transient status message (e.g., "Unpacking build cache (2.1/7.0 GB)")
-          setStatusMessage(response.data.config?.status_message || "");
+    // Map session metadata to sandbox state
+    // Check stopped status first - it takes priority from the backend check
+    let state: string;
+    if (status === "stopped") {
+      state = "absent";
+    } else if (
+      status === "running" ||
+      (hasContainer && desiredState === "running")
+    ) {
+      state = "running";
+    } else if (status === "starting") {
+      state = "starting";
+    } else if (desiredState === "stopped") {
+      state = "absent";
+    } else if (!hasContainer && desiredState === "running") {
+      state = "starting";
+    } else if (!hasContainer) {
+      state = "absent";
+    } else {
+      state = hasContainer ? "running" : "absent";
+    }
 
-          // Map session metadata to sandbox state
-          // Check stopped status first - it takes priority from the backend check
-          if (status === "stopped") {
-            setSandboxState("absent");
-          } else if (
-            status === "running" ||
-            (hasContainer && desiredState === "running")
-          ) {
-            setSandboxState("running");
-          } else if (status === "starting") {
-            setSandboxState("starting");
-          } else if (desiredState === "stopped") {
-            // Explicitly stopped - show paused UI
-            setSandboxState("absent");
-          } else if (!hasContainer && desiredState === "running") {
-            // Container not created yet but we want it running - show starting
-            // This happens immediately after "Start Planning" before container spins up
-            setSandboxState("starting");
-          } else if (!hasContainer) {
-            // No container and no desire to run - paused
-            setSandboxState("absent");
-          } else {
-            // Default to running if we have a container
-            setSandboxState(hasContainer ? "running" : "absent");
-          }
-        }
-      } catch (err) {
-        console.error("Failed to fetch sandbox state:", err);
-      }
-    };
-
-    fetchState();
-    const interval = setInterval(fetchState, 3000); // Poll every 3 seconds
-
-    return () => {
-      clearInterval(interval);
-    };
-  }, [sessionId, enabled]);
+    return { sandboxState: state, statusMessage: msg };
+  }, [sessionResponse?.data]);
 
   // Backend now returns 'starting' state for recently-created containers
   // Include 'loading' in isStarting to prevent DesktopStreamViewer from mounting
@@ -117,6 +100,9 @@ interface ExternalAgentDesktopViewerProps {
   apiClient?: Api<unknown>["api"]; // For prompt history sync
   defaultPanelOpen?: boolean; // Default state of the session panel (default: false)
   startupErrorMessage?: string;
+  // Pre-computed sandbox state from the task list (avoids per-card session polling on Kanban)
+  initialSandboxState?: string;
+  initialSandboxStatusMessage?: string;
 }
 
 const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
@@ -134,12 +120,21 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
   apiClient,
   defaultPanelOpen = false,
   startupErrorMessage,
+  initialSandboxState,
+  initialSandboxStatusMessage,
 }) => {
   const api = useApi();
   const snackbar = useSnackbar();
   const queryClient = useQueryClient();
   const { NewInference, setCurrentSessionId } = useStreaming();
-  const { isRunning, isPaused, isStarting, statusMessage } = useSandboxState(sessionId);
+  // When initialSandboxState is provided (Kanban screenshot mode), skip polling — state comes from the task list.
+  const pollingEnabled = initialSandboxState === undefined;
+  const polled = useSandboxState(sessionId, pollingEnabled);
+  const sandboxStateValue = initialSandboxState ?? polled.sandboxState;
+  const statusMessage = initialSandboxStatusMessage ?? polled.statusMessage;
+  const isRunning = sandboxStateValue === "running" || sandboxStateValue === "resumable";
+  const isStarting = sandboxStateValue === "starting" || sandboxStateValue === "loading";
+  const isPaused = sandboxStateValue === "absent";
   const [isResuming, setIsResuming] = useState(false);
   // Track if we've ever been running - once running, keep stream mounted to avoid fullscreen exit
   const [hasEverBeenRunning, setHasEverBeenRunning] = useState(false);
@@ -154,6 +149,43 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
     startupErrorMessage && startupErrorMessage.toLowerCase().startsWith('desktop limit reached')
       ? startupErrorMessage
       : undefined;
+
+  // Track how long we've been in "starting" state so we can show a recovery UI
+  // if the desktop fails to start within 2 minutes (issue #5 from ZFS deployment).
+  const startingStartTimeRef = useRef<number | null>(null);
+  const [startingTooLong, setStartingTooLong] = useState(false);
+  const [isStopping, setIsStopping] = useState(false);
+
+  useEffect(() => {
+    if (isStarting) {
+      if (startingStartTimeRef.current === null) {
+        startingStartTimeRef.current = Date.now();
+        setStartingTooLong(false);
+      }
+      const check = setInterval(() => {
+        if (startingStartTimeRef.current !== null && Date.now() - startingStartTimeRef.current > 120_000) {
+          setStartingTooLong(true);
+        }
+      }, 5000);
+      return () => clearInterval(check);
+    } else {
+      startingStartTimeRef.current = null;
+      setStartingTooLong(false);
+    }
+  }, [isStarting]);
+
+  const handleStopFromStarting = async (e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    setIsStopping(true);
+    try {
+      await api.getApiClient().v1SessionsStopExternalAgentDelete(sessionId);
+    } catch (error: any) {
+      console.error("Failed to stop session:", error);
+      snackbar.error(error?.message || "Failed to stop desktop");
+    } finally {
+      setIsStopping(false);
+    }
+  };
 
   // NOTE: WebSocket subscription is handled by parent components (SpecTaskDetailContent, etc.)
   // based on whether the chat panel is visible. This component no longer subscribes directly
@@ -209,7 +241,8 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
       // The useEffect below will reset it when container state changes
     } catch (error: any) {
       console.error("Failed to resume agent:", error);
-      snackbar.error(error?.message || "Failed to start agent");
+      const message = error?.response?.data || error?.message || "Failed to start agent";
+      snackbar.error(typeof message === "string" ? message.trim() : "Failed to start agent");
       // Error - reset so user can retry
       setIsResuming(false);
     }
@@ -296,8 +329,17 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
             <>
               <CircularProgress size={32} sx={{ color: 'primary.main' }} />
               <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.7)', fontWeight: 500 }}>
-                {statusMessage || "Starting Desktop..."}
+                {startingTooLong ? "Desktop may have failed to start" : (statusMessage || "Starting Desktop...")}
               </Typography>
+              <Button
+                variant="outlined"
+                size="small"
+                onClick={handleStopFromStarting}
+                disabled={isStopping}
+                sx={{ color: 'rgba(255,255,255,0.6)', borderColor: 'rgba(255,255,255,0.3)', mt: 1 }}
+              >
+                {isStopping ? "Stopping..." : "Stop"}
+              </Button>
             </>
           )}
         </Box>
@@ -305,7 +347,9 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
     }
 
     if (isPaused) {
-      const screenshotUrl = `/api/v1/external-agents/${sessionId}/screenshot?t=${Date.now()}`;
+      // Show the last screenshot (served from PausedScreenshotPath on the API) behind
+      // a semi-transparent overlay. onError hides the img gracefully if unavailable.
+      const screenshotUrl = `/api/v1/external-agents/${sessionId}/screenshot`;
       return (
         <Box
           sx={{
@@ -327,10 +371,12 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
               width: "100%",
               height: "100%",
               objectFit: "contain",
-              filter: "grayscale(0.5) brightness(0.7) blur(1px)",
-              opacity: 0.6,
+              // Triple CSS filter + opacity forces GPU compositing — simplify on mobile
+              ...(isMobileOrTablet()
+                ? { opacity: 0.4 }
+                : { filter: "grayscale(0.5) brightness(0.7) blur(1px)", opacity: 0.6 }),
             }}
-            onError={(e) => {
+            onError={(e: React.SyntheticEvent<HTMLImageElement>) => {
               e.currentTarget.style.display = "none";
             }}
           />
@@ -341,12 +387,12 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
               left: 0,
               right: 0,
               bottom: 0,
+              backgroundColor: "rgba(0,0,0,0.3)",
               display: "flex",
               flexDirection: "column",
               alignItems: "center",
               justifyContent: "center",
               gap: 2,
-              backgroundColor: "rgba(0,0,0,0.3)",
             }}
           >
             <Typography
@@ -387,6 +433,7 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
           enableStreaming={false}
           showToolbar={false}
           showTimestamp={false}
+          quality={5}
         />
       </Box>
     );
@@ -425,8 +472,17 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
           <>
             <CircularProgress size={32} sx={{ color: 'primary.main' }} />
             <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.7)', fontWeight: 500 }}>
-              {statusMessage || "Starting Desktop..."}
+              {startingTooLong ? "Desktop may have failed to start — click Stop to retry" : (statusMessage || "Starting Desktop...")}
             </Typography>
+            <Button
+              variant="outlined"
+              size="small"
+              onClick={handleStopFromStarting}
+              disabled={isStopping}
+              sx={{ color: 'rgba(255,255,255,0.6)', borderColor: 'rgba(255,255,255,0.3)', mt: 1 }}
+            >
+              {isStopping ? "Stopping..." : "Stop"}
+            </Button>
           </>
         )}
       </Box>
@@ -506,6 +562,7 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
   // Once running (or has ever been running) - ALWAYS keep DesktopStreamViewer mounted
   // Show overlays for state changes instead of unmounting (prevents fullscreen exit)
   const showReconnectingOverlay = !isRunning && hasEverBeenRunning;
+
 
   return (
     <Box

@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"hash/fnv"
 	"io"
 	"net"
 	"net/http"
@@ -21,6 +22,7 @@ import (
 	"github.com/helixml/helix/api/pkg/proxy"
 	"github.com/helixml/helix/api/pkg/types"
 )
+
 
 // addUserAPITokenToAgent adds a session-scoped ephemeral API token to agent environment.
 // The token is minted when the desktop starts and revoked when it shuts down.
@@ -137,10 +139,9 @@ func (apiServer *HelixAPIServer) getExternalAgentScreenshot(res http.ResponseWri
 		return
 	}
 
-	// Verify ownership
-	if session.Owner != user.ID {
-		log.Warn().Str("session_id", sessionID).Str("user_id", user.ID).Str("owner_id", session.Owner).Msg("User does not own session")
-		http.Error(res, "Forbidden", http.StatusForbidden)
+	err = apiServer.authorizeUserToSession(req.Context(), user, session, types.ActionGet)
+	if err != nil {
+		http.Error(res, err.Error(), http.StatusForbidden)
 		return
 	}
 
@@ -150,7 +151,7 @@ func (apiServer *HelixAPIServer) getExternalAgentScreenshot(res http.ResponseWri
 		screenshotFile, err := os.Open(session.Metadata.PausedScreenshotPath)
 		if err == nil {
 			defer screenshotFile.Close()
-			res.Header().Set("Content-Type", "image/png")
+			res.Header().Set("Content-Type", "image/jpeg")
 			res.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
 			res.Header().Set("X-Paused-Screenshot", "true") // Indicate this is a paused screenshot
 			res.WriteHeader(http.StatusOK)
@@ -178,11 +179,14 @@ func (apiServer *HelixAPIServer) getExternalAgentScreenshot(res http.ResponseWri
 	defer revDialConn.Close()
 
 	// Send HTTP request over RevDial tunnel
-	// Forward query parameters (format, quality, include_cursor) to the desktop container
+	// Forward query parameters to the desktop container, defaulting to low-quality
+	// JPEG for polling screenshots (quality 40 keeps text readable at ~5x smaller)
 	screenshotURL := "http://localhost:9876/screenshot"
-	if req.URL.RawQuery != "" {
-		screenshotURL += "?" + req.URL.RawQuery
+	query := req.URL.Query()
+	if query.Get("quality") == "" {
+		query.Set("quality", "40")
 	}
+	screenshotURL += "?" + query.Encode()
 	httpReq, err := http.NewRequest("GET", screenshotURL, nil)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to create screenshot request")
@@ -219,17 +223,36 @@ func (apiServer *HelixAPIServer) getExternalAgentScreenshot(res http.ResponseWri
 		return
 	}
 
-	// Return PNG image directly
-	res.Header().Set("Content-Type", "image/png")
-	res.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
-	res.WriteHeader(http.StatusOK)
-
-	// Stream the PNG data from screenshot server to response
-	_, err = io.Copy(res, screenshotResp.Body)
+	// Buffer the screenshot so we can compute an ETag before sending.
+	// Screenshots are large (hundreds of KB) but idle desktops return identical
+	// images, so ETags eliminate most of the bandwidth on slow connections.
+	imageData, err := io.ReadAll(screenshotResp.Body)
 	if err != nil {
-		log.Error().Err(err).Msg("Failed to stream screenshot data")
+		log.Error().Err(err).Msg("Failed to read screenshot data")
+		http.Error(res, "Failed to read screenshot data", http.StatusInternalServerError)
 		return
 	}
+
+	h := fnv.New64a()
+	h.Write(imageData)
+	etag := fmt.Sprintf(`"%x"`, h.Sum64())
+
+	res.Header().Set("ETag", etag)
+	res.Header().Set("Cache-Control", "private, no-cache, must-revalidate")
+
+	if match := req.Header.Get("If-None-Match"); match == etag {
+		res.WriteHeader(http.StatusNotModified)
+		return
+	}
+
+	// Forward the Content-Type from the container's screenshot server
+	// (defaults to image/jpeg at quality 70, supports format=png via query param)
+	contentType := screenshotResp.Header.Get("Content-Type")
+	if contentType == "" {
+		contentType = "image/jpeg"
+	}
+	res.Header().Set("Content-Type", contentType)
+	res.Write(imageData) //nolint:errcheck
 
 }
 
@@ -254,9 +277,9 @@ func (apiServer *HelixAPIServer) getExternalAgentVideoStats(res http.ResponseWri
 	}
 
 	// Verify ownership (or admin access)
-	if session.Owner != user.ID && !isAdmin(user) {
-		log.Warn().Str("session_id", sessionID).Str("user_id", user.ID).Str("owner_id", session.Owner).Msg("User does not have access to session for video stats")
-		http.Error(res, "Forbidden", http.StatusForbidden)
+	err = apiServer.authorizeUserToSession(req.Context(), user, session, types.ActionGet)
+	if err != nil {
+		http.Error(res, err.Error(), http.StatusForbidden)
 		return
 	}
 
@@ -345,12 +368,11 @@ func (apiServer *HelixAPIServer) execInSandbox(res http.ResponseWriter, req *htt
 	log.Info().Str("session_id", session.ID).Str("owner", session.Owner).Msg("🔧 execInSandbox: session found")
 
 	// Verify ownership
-	if session.Owner != user.ID {
-		log.Warn().Str("session_id", sessionID).Str("user_id", user.ID).Str("owner_id", session.Owner).Msg("🔧 execInSandbox: User does not own session")
-		http.Error(res, "Forbidden", http.StatusForbidden)
+	err = apiServer.authorizeUserToSession(req.Context(), user, session, types.ActionGet)
+	if err != nil {
+		http.Error(res, err.Error(), http.StatusForbidden)
 		return
 	}
-	log.Info().Msg("🔧 execInSandbox: ownership verified")
 
 	// Read request body
 	log.Info().Msg("🔧 execInSandbox: reading request body")
@@ -364,7 +386,9 @@ func (apiServer *HelixAPIServer) execInSandbox(res http.ResponseWriter, req *htt
 
 	// Connect to desktop container via RevDial
 	runnerID := fmt.Sprintf("desktop-%s", sessionID)
+
 	log.Info().Str("runner_id", runnerID).Msg("🔧 execInSandbox: connecting via RevDial")
+
 	revDialConn, err := apiServer.connman.Dial(req.Context(), runnerID)
 	if err != nil {
 		log.Error().
@@ -376,6 +400,7 @@ func (apiServer *HelixAPIServer) execInSandbox(res http.ResponseWriter, req *htt
 		return
 	}
 	defer revDialConn.Close()
+
 	log.Info().Msg("🔧 execInSandbox: RevDial connected")
 
 	// Send POST request to /exec over RevDial tunnel
@@ -488,9 +513,9 @@ func (apiServer *HelixAPIServer) getExternalAgentClipboard(res http.ResponseWrit
 	}
 
 	// Verify ownership
-	if session.Owner != user.ID {
-		log.Warn().Str("session_id", sessionID).Str("user_id", user.ID).Str("owner_id", session.Owner).Msg("User does not own session")
-		http.Error(res, "Forbidden", http.StatusForbidden)
+	err = apiServer.authorizeUserToSession(req.Context(), user, session, types.ActionGet)
+	if err != nil {
+		http.Error(res, err.Error(), http.StatusForbidden)
 		return
 	}
 
@@ -599,9 +624,9 @@ func (apiServer *HelixAPIServer) setExternalAgentClipboard(res http.ResponseWrit
 	}
 
 	// Verify ownership
-	if session.Owner != user.ID {
-		log.Warn().Str("session_id", sessionID).Str("user_id", user.ID).Str("owner_id", session.Owner).Msg("User does not own session")
-		http.Error(res, "Forbidden", http.StatusForbidden)
+	err = apiServer.authorizeUserToSession(req.Context(), user, session, types.ActionGet)
+	if err != nil {
+		http.Error(res, err.Error(), http.StatusForbidden)
 		return
 	}
 
@@ -720,9 +745,9 @@ func (apiServer *HelixAPIServer) sendInputToSandbox(res http.ResponseWriter, req
 	}
 
 	// Verify ownership
-	if session.Owner != user.ID {
-		log.Warn().Str("session_id", sessionID).Str("user_id", user.ID).Str("owner_id", session.Owner).Msg("User does not own session for input")
-		http.Error(res, "Forbidden", http.StatusForbidden)
+	err = apiServer.authorizeUserToSession(req.Context(), user, session, types.ActionGet)
+	if err != nil {
+		http.Error(res, err.Error(), http.StatusForbidden)
 		return
 	}
 
@@ -839,9 +864,9 @@ func (apiServer *HelixAPIServer) uploadFileToSandbox(res http.ResponseWriter, re
 	}
 
 	// Verify ownership
-	if session.Owner != user.ID {
-		log.Warn().Str("session_id", sessionID).Str("user_id", user.ID).Str("owner_id", session.Owner).Msg("User does not own session for file upload")
-		http.Error(res, "Forbidden", http.StatusForbidden)
+	err = apiServer.authorizeUserToSession(req.Context(), user, session, types.ActionGet)
+	if err != nil {
+		http.Error(res, err.Error(), http.StatusForbidden)
 		return
 	}
 
@@ -1021,9 +1046,9 @@ func (apiServer *HelixAPIServer) proxyInputWebSocket(res http.ResponseWriter, re
 	}
 
 	// Verify ownership
-	if session.Owner != user.ID {
-		log.Warn().Str("session_id", sessionID).Str("user_id", user.ID).Str("owner_id", session.Owner).Msg("User does not own session for input WebSocket")
-		http.Error(res, "Forbidden", http.StatusForbidden)
+	err = apiServer.authorizeUserToSession(req.Context(), user, session, types.ActionGet)
+	if err != nil {
+		http.Error(res, err.Error(), http.StatusForbidden)
 		return
 	}
 
@@ -1211,18 +1236,60 @@ func (apiServer *HelixAPIServer) proxyStreamWebSocket(res http.ResponseWriter, r
 	}
 
 	// Verify ownership (or streaming access grant)
-	if session.Owner != user.ID && !isAdmin(user) {
-		log.Warn().Str("session_id", sessionID).Str("user_id", user.ID).Str("owner_id", session.Owner).Msg("User does not have access to session for stream WebSocket")
-		http.Error(res, "Forbidden", http.StatusForbidden)
+	err = apiServer.authorizeUserToSession(req.Context(), user, session, types.ActionGet)
+	if err != nil {
+		http.Error(res, err.Error(), http.StatusForbidden)
 		return
 	}
 
 	// Get RevDial connection to desktop container (registered as "desktop-{session_id}")
 	runnerID := fmt.Sprintf("desktop-%s", sessionID)
 
+	// Proxy deduplication: when the same browser tab reconnects (same client_id),
+	// cancel the previous proxy to prevent cascading duplicate connections.
+	// Different browser tabs have different client IDs and can coexist (spectating).
+	clientID := req.URL.Query().Get("client_id")
+	proxyCtx, proxyCancel := context.WithCancel(req.Context())
+	defer proxyCancel()
+
+	proxySessionID := generateProxySessionID()
+
+	if clientID != "" {
+		dedupeKey := "stream:" + sessionID + ":" + clientID
+
+		// Look up and replace any existing proxy for this session+client.
+		// Cancel outside the lock to avoid holding it during teardown.
+		apiServer.activeStreamProxiesMu.Lock()
+		prev := apiServer.activeStreamProxies[dedupeKey]
+		apiServer.activeStreamProxies[dedupeKey] = &activeStreamProxy{
+			proxySessionID: proxySessionID,
+			cancel:         proxyCancel,
+		}
+		apiServer.activeStreamProxiesMu.Unlock()
+
+		if prev != nil {
+			log.Info().
+				Str("session_id", sessionID).
+				Str("client_id", clientID).
+				Str("old_proxy", prev.proxySessionID).
+				Str("new_proxy", proxySessionID).
+				Msg("Superseding previous stream proxy for same client")
+			prev.cancel()
+		}
+
+		defer func() {
+			apiServer.activeStreamProxiesMu.Lock()
+			if cur, ok := apiServer.activeStreamProxies[dedupeKey]; ok && cur.proxySessionID == proxySessionID {
+				delete(apiServer.activeStreamProxies, dedupeKey)
+			}
+			apiServer.activeStreamProxiesMu.Unlock()
+		}()
+	}
+
 	log.Info().
 		Str("session_id", sessionID).
 		Str("runner_id", runnerID).
+		Str("proxy_session_id", proxySessionID).
 		Msg("Proxying stream WebSocket to screenshot-server via RevDial")
 
 	// Hijack the HTTP connection to get the underlying net.Conn
@@ -1242,7 +1309,7 @@ func (apiServer *HelixAPIServer) proxyStreamWebSocket(res http.ResponseWriter, r
 	defer clientConn.Close()
 
 	// Get RevDial connection to the screenshot-server
-	ctx, cancel := context.WithTimeout(req.Context(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(proxyCtx, 30*time.Second)
 	defer cancel()
 
 	serverConn, err := apiServer.connman.Dial(ctx, runnerID)
@@ -1305,9 +1372,6 @@ func (apiServer *HelixAPIServer) proxyStreamWebSocket(res http.ResponseWriter, r
 
 	log.Info().Str("session_id", sessionID).Msg("Stream WebSocket connection established, starting resilient proxy")
 
-	// Generate a unique proxy session ID
-	proxySessionID := generateProxySessionID()
-
 	// Create dial function that uses connman with grace period support
 	dialFunc := func(ctx context.Context) (net.Conn, error) {
 		return apiServer.connman.Dial(ctx, runnerID)
@@ -1328,7 +1392,7 @@ func (apiServer *HelixAPIServer) proxyStreamWebSocket(res http.ResponseWriter, r
 	defer resilientProxy.Close()
 
 	// Run the proxy (blocks until connection closes or error)
-	if err := resilientProxy.Run(req.Context()); err != nil {
+	if err := resilientProxy.Run(proxyCtx); err != nil {
 		log.Warn().
 			Str("session_id", sessionID).
 			Str("proxy_session_id", proxySessionID).

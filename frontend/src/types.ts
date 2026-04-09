@@ -17,6 +17,9 @@ import {
   TypesSession,
   TypesAssistantMCP,
   TypesToolMCPClientConfig,
+  TypesTokenType,
+  TypesAssistantAPI,
+  TypesAssistantZapier,
 } from './api/api'
 
 export type ISessionCreator = 'system' | 'user' | 'assistant'
@@ -43,9 +46,10 @@ export const INTERACTION_STATE_EDITING: IInteractionState = 'editing'
 export const INTERACTION_STATE_COMPLETE: IInteractionState = 'complete'
 export const INTERACTION_STATE_ERROR: IInteractionState = 'error'
 
-export type IWebSocketEventType = 'session_update' | 'interaction_update' | 'worker_task_response' | 'step_info'
+export type IWebSocketEventType = 'session_update' | 'interaction_update' | 'interaction_patch' | 'worker_task_response' | 'step_info'
 export const WEBSOCKET_EVENT_TYPE_SESSION_UPDATE: IWebSocketEventType = 'session_update'
 export const WEBSOCKET_EVENT_TYPE_INTERACTION_UPDATE: IWebSocketEventType = 'interaction_update'
+export const WEBSOCKET_EVENT_TYPE_INTERACTION_PATCH: IWebSocketEventType = 'interaction_patch'
 export const WEBSOCKET_EVENT_TYPE_WORKER_TASK_RESPONSE: IWebSocketEventType = 'worker_task_response'
 export const WEBSOCKET_EVENT_TYPE_STEP_INFO: IWebSocketEventType = 'step_info'
 export type IWorkerTaskResponseType = 'stream' | 'progress' | 'result'
@@ -91,8 +95,8 @@ export const TEXT_DATA_PREP_DISPLAY_STAGES: ITextDataPrepStage[] = [
 export const SESSION_PAGINATION_PAGE_LIMIT = 30
 
 // Agent Types
+// Note: 'helix_basic' kept in type union for backward compatibility with existing agents in DB
 export type IAgentType = 'helix_basic' | 'helix_agent' | 'zed_external'
-export const AGENT_TYPE_HELIX_BASIC: IAgentType = 'helix_basic'
 export const AGENT_TYPE_HELIX_AGENT: IAgentType = 'helix_agent'
 export const AGENT_TYPE_ZED_EXTERNAL: IAgentType = 'zed_external'
 
@@ -121,15 +125,9 @@ export interface IAgentTypeOption {
 
 export const AGENT_TYPE_OPTIONS: IAgentTypeOption[] = [
   {
-    value: AGENT_TYPE_HELIX_BASIC,
-    label: 'Basic Helix Agent',
-    description: 'Simple conversational AI (no multi-turn, useful for RAG)',
-    icon: 'chat',
-  },
-  {
     value: AGENT_TYPE_HELIX_AGENT,
-    label: 'Multi-Turn Helix Agent',
-    description: 'Advanced conversational AI with multi-turn tool use and reasoning',
+    label: 'Helix Agent',
+    description: 'Conversational AI with multi-turn tool use and reasoning',
     icon: 'auto_awesome',
   },
   {
@@ -149,10 +147,12 @@ export interface IKeycloakUser {
   name: string,
   onboarding_completed?: boolean,
   waitlisted?: boolean,
+  admin?: boolean,
 }
 
 export interface IUserConfig {
   // Removed stripe subscription fields - now come from wallet
+  pinned_project_ids?: string[]
 }
 
 export interface IHelixModel {
@@ -324,6 +324,17 @@ export interface IInteractionMessage {
 //   config: IBotConfig,
 // }
 
+export interface IEntryPatch {
+  index: number,
+  message_id: string,
+  type: string,
+  patch: string,
+  patch_offset: number,
+  total_length: number,
+  tool_name?: string,
+  tool_status?: string,
+}
+
 export interface IWebsocketEvent {
   type: IWebSocketEventType,
   session_id: string,
@@ -333,33 +344,13 @@ export interface IWebsocketEvent {
   interaction?: TypesInteraction, // Single interaction for interaction_update events
   worker_task_response?: IWorkerTaskResponse,
   step_info?: TypesStepInfo,
+  // Per-entry structured patches for streaming (interaction_patch events).
+  // Each entry_patch carries a per-entry string patch so the frontend can
+  // maintain a ResponseEntry[] with correct type boundaries during streaming.
+  entry_patches?: IEntryPatch[],
+  entry_count?: number,
 }
 
-export interface IServerConfig {
-  filestore_prefix: string,
-  stripe_enabled: boolean,
-  sentry_dsn_frontend: string,
-  google_analytics_frontend: string,
-  providers_management_enabled: boolean,
-  eval_user_id: string,
-  tools_enabled: boolean,
-  apps_enabled: boolean,
-  version?: string,
-  latest_version?: string,
-  deployment_id?: string,
-  license?: {
-    valid: boolean,
-    organization: string,
-    valid_until: string,
-    features: {
-      users: boolean,
-    },
-    limits: {
-      users: number,
-      machines: number,
-    },
-  },
-}
 
 export interface IConversation {
   from: string,
@@ -671,7 +662,7 @@ export interface IAssistantConfig {
    * Options: "zed_agent" (Zed's built-in agent) or "qwen_code" (qwen command as custom agent).
    * If empty, defaults to "zed_agent".
    */
-  code_agent_runtime?: 'zed_agent' | 'qwen_code';
+  code_agent_runtime?: 'zed_agent' | 'qwen_code' | 'claude_code' | 'gemini_cli' | 'codex_cli';
   /**
    * CodeAgentCredentialType specifies how the code agent authenticates.
    * "api_key" (default): uses an API key routed through the Helix proxy.
@@ -723,10 +714,10 @@ export interface IAssistantConfig {
   lora_id?: string;
   is_actionable_template?: string;
   is_actionable_history_length?: number;
-  apis?: IAssistantApi[];
+  apis?: TypesAssistantAPI[];
   mcps?: TypesAssistantMCP[];
   gptscripts?: IAssistantGPTScript[];
-  zapier?: IAssistantZapier[];
+  zapier?: TypesAssistantZapier[];
   browser?: TypesAssistantBrowser;
   web_search?: TypesAssistantWebSearch;
   calculator?: TypesAssistantCalculator;
@@ -902,7 +893,7 @@ export interface IAppFlatState {
   small_reasoning_model_effort?: string
   small_generation_model?: string
   small_generation_model_provider?: string
-  code_agent_runtime?: 'zed_agent' | 'qwen_code'
+  code_agent_runtime?: 'zed_agent' | 'qwen_code' | 'claude_code' | 'gemini_cli' | 'codex_cli'
   code_agent_credential_type?: 'api_key' | 'subscription'
   context_limit?: number
   frequency_penalty?: number
@@ -915,8 +906,8 @@ export interface IAppFlatState {
   knowledge?: IKnowledgeSource[] // Added knowledge parameter
   is_actionable_template?: string;
   is_actionable_history_length?: number;
-  apiTools?: IAssistantApi[]
-  zapierTools?: IAssistantZapier[]
+  apiTools?: TypesAssistantAPI[]
+  zapierTools?: TypesAssistantZapier[]
   gptscriptTools?: IAssistantGPTScript[]
   mcpTools?: TypesAssistantMCP[]
   browserTool?: TypesAssistantBrowser
@@ -973,7 +964,7 @@ export interface IFeatureAction {
   title: string,
   color: 'primary' | 'secondary',
   variant: 'text' | 'contained' | 'outlined',
-  handler: (navigate: IRouterNavigateFunction) => void,
+  handler: (navigate: IRouterNavigateFunction, openAdminDialog?: () => void) => void,
   id?: string;
 }
 
@@ -1077,6 +1068,7 @@ export interface IDataEntity {
 
 export interface IPageBreadcrumb {
   title: string,
+  tooltip?: string,
   routeName?: string,
   params?: Record<string, any>,
   // Override the page's orgBreadcrumbs setting for this specific breadcrumb
@@ -1136,7 +1128,7 @@ export interface IUser {
   id: string;
   created_at: string;
   updated_at: string;
-  token_type?: string;
+  token_type?: TypesTokenType;
   email?: string;
   username?: string;
   full_name?: string;

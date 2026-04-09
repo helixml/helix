@@ -17,8 +17,8 @@ type GitRepositoryStatus string
 
 const (
 	GitRepositoryStatusActive   GitRepositoryStatus = "active"
-	GitRepositoryStatusCloning  GitRepositoryStatus = "cloning"  // Clone in progress
-	GitRepositoryStatusError    GitRepositoryStatus = "error"    // Clone or sync failed
+	GitRepositoryStatusCloning  GitRepositoryStatus = "cloning" // Clone in progress
+	GitRepositoryStatusError    GitRepositoryStatus = "error"   // Clone or sync failed
 	GitRepositoryStatusArchived GitRepositoryStatus = "archived"
 	GitRepositoryStatusDeleted  GitRepositoryStatus = "deleted"
 )
@@ -37,25 +37,21 @@ type CloneProgress struct {
 // GitRepository represents a git repository
 // Supports both Helix-hosted repositories and external repositories (GitHub, GitLab, ADO, etc.)
 type GitRepository struct {
-	ID             string    `gorm:"primaryKey" json:"id"`
-	CreatedAt      time.Time `json:"created_at"`
-	UpdatedAt      time.Time `json:"updated_at"`
-	Name           string    `gorm:"index" json:"name"`
-	Description    string    `json:"description"`
-	OwnerID        string    `gorm:"index" json:"owner_id"`
-	OrganizationID string    `gorm:"index" json:"organization_id"` // Organization ID - will be backfilled for existing repos
-	// Deprecated: ProjectID is maintained for backward compatibility only.
-	// Use the project_repositories junction table for many-to-many project-repo relationships.
-	// This column is kept in the database for rollback compatibility but reads should use the junction table.
-	ProjectID     string                 `gorm:"index" json:"project_id"`
-	RepoType      GitRepositoryType      `gorm:"index" json:"repo_type"`
-	Status        GitRepositoryStatus    `json:"status"`
-	CloneURL      string                 `json:"clone_url"`  // For Helix-hosted: http://api/git/{repo_id}, For external: https://github.com/org/repo.git
-	LocalPath     string                 `json:"local_path"` // Local filesystem path for Helix-hosted repos (empty for external)
-	DefaultBranch string                 `json:"default_branch"`
-	Branches      []string               `json:"branches" gorm:"type:jsonb;serializer:json"`
-	LastActivity  time.Time              `json:"last_activity" gorm:"index"`
-	Metadata      map[string]interface{} `gorm:"type:jsonb;serializer:json" json:"metadata"` // Stores Metadata as JSON
+	ID             string                 `gorm:"primaryKey" json:"id"`
+	CreatedAt      time.Time              `json:"created_at"`
+	UpdatedAt      time.Time              `json:"updated_at"`
+	Name           string                 `gorm:"index" json:"name"`
+	Description    string                 `json:"description"`
+	OwnerID        string                 `gorm:"index" json:"owner_id"`
+	OrganizationID string                 `gorm:"index" json:"organization_id"` // Organization ID - will be backfilled for existing repos
+	RepoType       GitRepositoryType      `gorm:"index" json:"repo_type"`
+	Status         GitRepositoryStatus    `json:"status"`
+	CloneURL       string                 `json:"clone_url"`  // For Helix-hosted: http://api/git/{repo_id}, For external: https://github.com/org/repo.git
+	LocalPath      string                 `json:"local_path"` // Local filesystem path for Helix-hosted repos (empty for external)
+	DefaultBranch  string                 `json:"default_branch"`
+	Branches       []string               `json:"branches" gorm:"type:jsonb;serializer:json"`
+	LastActivity   time.Time              `json:"last_activity" gorm:"index"`
+	Metadata       map[string]interface{} `gorm:"type:jsonb;serializer:json" json:"metadata"` // Stores Metadata as JSON
 
 	// External repository fields
 	IsExternal   bool                   `gorm:"index" json:"is_external"` // True for GitHub/GitLab/ADO, false for Helix-hosted
@@ -76,13 +72,17 @@ type GitRepository struct {
 	// When set, uses the OAuth access token instead of username/password or PAT
 	OAuthConnectionID string `gorm:"index" json:"oauth_connection_id"`
 
+	// GitProviderConnectionID - references a GitProviderConnection (saved PAT) for authentication
+	// When set, the encrypted token is decrypted and used for clone/push operations
+	GitProviderConnectionID string `gorm:"index" json:"git_provider_connection_id"`
+
 	// TODO: SSH key support
 
 	// Code intelligence fields
 	KoditIndexing bool `gorm:"index" json:"kodit_indexing"` // Enable Kodit indexing for code intelligence (MCP server for snippets/architecture)
 
 	// Clone progress tracking for async cloning
-	CloneError    string         `json:"clone_error,omitempty"`                         // Error message if cloning failed
+	CloneError    string         `json:"clone_error,omitempty"`                                      // Error message if cloning failed
 	CloneProgress *CloneProgress `json:"clone_progress,omitempty" gorm:"type:jsonb;serializer:json"` // Live progress during cloning
 }
 
@@ -163,6 +163,9 @@ type GitRepositoryCreateRequest struct {
 
 	// OAuth connection ID - references an OAuthConnection for authentication
 	OAuthConnectionID string `json:"oauth_connection_id,omitempty"`
+
+	// GitProviderConnectionID - references a saved PAT connection for authentication
+	GitProviderConnectionID string `json:"git_provider_connection_id,omitempty"`
 
 	KoditIndexing bool `json:"kodit_indexing"` // Enable Kodit code intelligence indexing
 

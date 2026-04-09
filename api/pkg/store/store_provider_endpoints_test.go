@@ -108,6 +108,64 @@ func (suite *PostgresStoreTestSuite) TestProviderEndpointList() {
 	assert.Len(suite.T(), anotherOwnerEndpoints, 1)
 }
 
+func (suite *PostgresStoreTestSuite) TestProviderEndpointListWithGlobalFromOtherOwner() {
+	// Verify that WithGlobal returns global endpoints created by other users.
+	// This is the core use case: an admin creates a global provider endpoint,
+	// and all users can see it regardless of who owns it.
+	adminOwner := "admin-" + system.GenerateUUID()
+	userOwner := "user-" + system.GenerateUUID()
+
+	endpoints := []*types.ProviderEndpoint{
+		{
+			Name:         "admin-global-ollama",
+			Owner:        adminOwner,
+			EndpointType: types.ProviderEndpointTypeGlobal,
+			BaseURL:      "http://ollama:11434",
+			APIKey:       "key1",
+		},
+		{
+			Name:         "user-private",
+			Owner:        userOwner,
+			EndpointType: types.ProviderEndpointTypeUser,
+			BaseURL:      "https://my-provider.example.com",
+			APIKey:       "key2",
+		},
+	}
+
+	for _, e := range endpoints {
+		created, err := suite.db.CreateProviderEndpoint(suite.ctx, e)
+		require.NoError(suite.T(), err)
+		suite.T().Cleanup(func() {
+			err := suite.db.DeleteProviderEndpoint(suite.ctx, created.ID)
+			assert.NoError(suite.T(), err)
+		})
+	}
+
+	// User should see their own user endpoint + admin's global endpoint
+	listed, err := suite.db.ListProviderEndpoints(suite.ctx, &ListProviderEndpointsQuery{
+		Owner:      userOwner,
+		WithGlobal: true,
+	})
+	require.NoError(suite.T(), err)
+	assert.Len(suite.T(), listed, 2, "should see own user endpoint + admin's global endpoint")
+
+	names := make(map[string]bool)
+	for _, ep := range listed {
+		names[ep.Name] = true
+	}
+	assert.True(suite.T(), names["user-private"], "should include user's own endpoint")
+	assert.True(suite.T(), names["admin-global-ollama"], "should include admin's global endpoint")
+
+	// Without WithGlobal, user should only see their own endpoint
+	userOnly, err := suite.db.ListProviderEndpoints(suite.ctx, &ListProviderEndpointsQuery{
+		Owner:      userOwner,
+		WithGlobal: false,
+	})
+	require.NoError(suite.T(), err)
+	assert.Len(suite.T(), userOnly, 1, "should only see own user endpoint")
+	assert.Equal(suite.T(), "user-private", userOnly[0].Name)
+}
+
 func (suite *PostgresStoreTestSuite) TestProviderEndpointUpdate() {
 	endpoint := &types.ProviderEndpoint{
 		Name:         "update-test-endpoint",

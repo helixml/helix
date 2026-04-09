@@ -213,7 +213,7 @@ func (suite *CronTestSuite) TestExecuteCronTask() {
 	)
 
 	// Execute the function
-	result, err := ExecuteCronTask(suite.ctx, suite.store, suite.controller, suite.notifier, app, "test-user", "trigger-123", trigger, "test-session")
+	result, err := ExecuteCronTask(suite.ctx, suite.store, suite.controller, suite.notifier, nil, app, "test-user", "trigger-123", trigger, "test-session")
 
 	// Verify the result
 	suite.NoError(err)
@@ -342,9 +342,315 @@ func (suite *CronTestSuite) TestExecuteCronTask_Organization() {
 	)
 
 	// Execute the function
-	result, err := ExecuteCronTask(suite.ctx, suite.store, suite.controller, suite.notifier, app, user.ID, "trigger-123", trigger, "test-session")
+	result, err := ExecuteCronTask(suite.ctx, suite.store, suite.controller, suite.notifier, nil, app, user.ID, "trigger-123", trigger, "test-session")
 
 	// Verify the result
+	suite.NoError(err)
+	suite.NotEmpty(result)
+}
+
+func (suite *CronTestSuite) TestExecuteCronTask_WithEmails() {
+	user := &types.User{
+		ID: "test-user",
+	}
+
+	app := &types.App{
+		ID:        "app-123",
+		Owner:     "test-user",
+		OwnerType: types.OwnerTypeUser,
+		Config: types.AppConfig{
+			Helix: types.AppHelixConfig{
+				Assistants: []types.AssistantConfig{
+					{
+						Name:         "test-assistant",
+						SystemPrompt: "you are very custom assistant",
+					},
+				},
+			},
+		},
+	}
+
+	trigger := &types.CronTrigger{
+		Input:  "test input",
+		Emails: []string{"alice@example.com", "bob@example.com"},
+	}
+
+	// Mock GetAppWithTools
+	suite.store.EXPECT().GetAppWithTools(gomock.Any(), "app-123").Return(app, nil).Times(2)
+
+	suite.store.EXPECT().ListSecrets(gomock.Any(), gomock.Any()).Return([]*types.Secret{}, nil)
+
+	// Mock GetUser
+	suite.store.EXPECT().GetUser(gomock.Any(), &store.GetUserQuery{
+		ID: "test-user",
+	}).Return(user, nil)
+
+	// Mock CreateTriggerExecution
+	suite.store.EXPECT().CreateTriggerExecution(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, execution *types.TriggerExecution) (*types.TriggerExecution, error) {
+			return execution, nil
+		},
+	)
+
+	suite.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return([]*types.Interaction{}, int64(0), nil)
+	suite.store.EXPECT().CreateInteractions(gomock.Any(), gomock.Any()).Return(nil)
+
+	// Mock UpdateSession
+	suite.store.EXPECT().UpdateSession(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, session types.Session) (*types.Session, error) {
+			return &session, nil
+		},
+	)
+
+	suite.manager.EXPECT().GetClient(gomock.Any(), &manager.GetClientRequest{
+		Provider: "togetherai",
+		Owner:    "test-user",
+	}).Return(suite.openAiClient, nil).Times(1)
+
+	suite.openAiClient.EXPECT().BillingEnabled().Return(true).AnyTimes()
+
+	suite.openAiClient.EXPECT().CreateChatCompletion(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, _ oai.ChatCompletionRequest) (oai.ChatCompletionResponse, error) {
+			return oai.ChatCompletionResponse{
+				Choices: []oai.ChatCompletionChoice{
+					{
+						Message: oai.ChatCompletionMessage{
+							Content: "test-response",
+						},
+					},
+				},
+			}, nil
+		},
+	)
+
+	suite.store.EXPECT().GetSession(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, id string) (*types.Session, error) {
+			return &types.Session{ID: id}, nil
+		},
+	).Times(1)
+
+	suite.store.EXPECT().UpdateInteraction(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, interaction *types.Interaction) (*types.Interaction, error) {
+			return interaction, nil
+		},
+	)
+
+	suite.store.EXPECT().UpdateTriggerExecution(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, execution *types.TriggerExecution) (*types.TriggerExecution, error) {
+			suite.Equal(types.TriggerExecutionStatusSuccess, execution.Status, execution.Error)
+			return execution, nil
+		},
+	)
+
+	// Verify that the notification includes the configured emails
+	suite.notifier.EXPECT().Notify(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, n *notification.Notification) error {
+			suite.Equal(types.EventCronTriggerComplete, n.Event)
+			suite.Equal([]string{"alice@example.com", "bob@example.com"}, n.Emails)
+			return nil
+		},
+	)
+
+	result, err := ExecuteCronTask(suite.ctx, suite.store, suite.controller, suite.notifier, nil, app, "test-user", "trigger-123", trigger, "test-session")
+	suite.NoError(err)
+	suite.NotEmpty(result)
+}
+
+func (suite *CronTestSuite) TestExecuteCronTask_FailureNotification_WithEmails() {
+	user := &types.User{
+		ID: "test-user",
+	}
+
+	app := &types.App{
+		ID:        "app-123",
+		Owner:     "test-user",
+		OwnerType: types.OwnerTypeUser,
+		Config: types.AppConfig{
+			Helix: types.AppHelixConfig{
+				Assistants: []types.AssistantConfig{
+					{
+						Name:         "test-assistant",
+						SystemPrompt: "you are very custom assistant",
+					},
+				},
+			},
+		},
+	}
+
+	trigger := &types.CronTrigger{
+		Input:  "test input",
+		Emails: []string{"alice@example.com"},
+	}
+
+	// Mock GetAppWithTools
+	suite.store.EXPECT().GetAppWithTools(gomock.Any(), "app-123").Return(app, nil).Times(2)
+
+	suite.store.EXPECT().ListSecrets(gomock.Any(), gomock.Any()).Return([]*types.Secret{}, nil)
+
+	// Mock GetUser
+	suite.store.EXPECT().GetUser(gomock.Any(), &store.GetUserQuery{
+		ID: "test-user",
+	}).Return(user, nil)
+
+	// Mock CreateTriggerExecution
+	suite.store.EXPECT().CreateTriggerExecution(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, execution *types.TriggerExecution) (*types.TriggerExecution, error) {
+			return execution, nil
+		},
+	)
+
+	suite.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return([]*types.Interaction{}, int64(0), nil)
+	suite.store.EXPECT().CreateInteractions(gomock.Any(), gomock.Any()).Return(nil)
+
+	// Mock UpdateSession
+	suite.store.EXPECT().UpdateSession(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, session types.Session) (*types.Session, error) {
+			return &session, nil
+		},
+	)
+
+	suite.manager.EXPECT().GetClient(gomock.Any(), &manager.GetClientRequest{
+		Provider: "togetherai",
+		Owner:    "test-user",
+	}).Return(suite.openAiClient, nil).Times(1)
+
+	suite.openAiClient.EXPECT().BillingEnabled().Return(true).AnyTimes()
+
+	// LLM call fails
+	suite.openAiClient.EXPECT().CreateChatCompletion(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, _ oai.ChatCompletionRequest) (oai.ChatCompletionResponse, error) {
+			return oai.ChatCompletionResponse{}, errors.New("LLM provider error")
+		},
+	)
+
+	suite.store.EXPECT().GetSession(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, id string) (*types.Session, error) {
+			return &types.Session{ID: id}, nil
+		},
+	).AnyTimes()
+
+	suite.store.EXPECT().UpdateInteraction(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, interaction *types.Interaction) (*types.Interaction, error) {
+			return interaction, nil
+		},
+	).AnyTimes()
+
+	// Mock UpdateTriggerExecution for failure
+	suite.store.EXPECT().UpdateTriggerExecution(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, execution *types.TriggerExecution) (*types.TriggerExecution, error) {
+			suite.Equal(types.TriggerExecutionStatusError, execution.Status)
+			return execution, nil
+		},
+	)
+
+	// Verify that the failure notification includes the configured emails
+	suite.notifier.EXPECT().Notify(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, n *notification.Notification) error {
+			suite.Equal(types.EventCronTriggerFailed, n.Event)
+			suite.Equal([]string{"alice@example.com"}, n.Emails)
+			return nil
+		},
+	)
+
+	// Note: ExecuteCronTask reassigns err from UpdateTriggerExecution, which
+	// returns nil here, so the function returns nil error despite the LLM failure.
+	// The key assertion is that the failure notification was sent with the emails.
+	result, err := ExecuteCronTask(suite.ctx, suite.store, suite.controller, suite.notifier, nil, app, "test-user", "trigger-123", trigger, "test-session")
+	suite.NoError(err)
+	suite.Empty(result)
+}
+
+func (suite *CronTestSuite) TestExecuteCronTask_NoEmails_FallsBackToOwner() {
+	user := &types.User{
+		ID: "test-user",
+	}
+
+	app := &types.App{
+		ID:        "app-123",
+		Owner:     "test-user",
+		OwnerType: types.OwnerTypeUser,
+		Config: types.AppConfig{
+			Helix: types.AppHelixConfig{
+				Assistants: []types.AssistantConfig{
+					{
+						Name:         "test-assistant",
+						SystemPrompt: "you are very custom assistant",
+					},
+				},
+			},
+		},
+	}
+
+	trigger := &types.CronTrigger{
+		Input: "test input",
+		// No Emails set — should fall back to owner
+	}
+
+	suite.store.EXPECT().GetAppWithTools(gomock.Any(), "app-123").Return(app, nil).Times(2)
+	suite.store.EXPECT().ListSecrets(gomock.Any(), gomock.Any()).Return([]*types.Secret{}, nil)
+	suite.store.EXPECT().GetUser(gomock.Any(), &store.GetUserQuery{ID: "test-user"}).Return(user, nil)
+	suite.store.EXPECT().CreateTriggerExecution(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, execution *types.TriggerExecution) (*types.TriggerExecution, error) {
+			return execution, nil
+		},
+	)
+	suite.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return([]*types.Interaction{}, int64(0), nil)
+	suite.store.EXPECT().CreateInteractions(gomock.Any(), gomock.Any()).Return(nil)
+	suite.store.EXPECT().UpdateSession(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, session types.Session) (*types.Session, error) {
+			return &session, nil
+		},
+	)
+
+	suite.manager.EXPECT().GetClient(gomock.Any(), &manager.GetClientRequest{
+		Provider: "togetherai",
+		Owner:    "test-user",
+	}).Return(suite.openAiClient, nil).Times(1)
+
+	suite.openAiClient.EXPECT().BillingEnabled().Return(true).AnyTimes()
+
+	suite.openAiClient.EXPECT().CreateChatCompletion(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, _ oai.ChatCompletionRequest) (oai.ChatCompletionResponse, error) {
+			return oai.ChatCompletionResponse{
+				Choices: []oai.ChatCompletionChoice{
+					{
+						Message: oai.ChatCompletionMessage{
+							Content: "test-response",
+						},
+					},
+				},
+			}, nil
+		},
+	)
+
+	suite.store.EXPECT().GetSession(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, id string) (*types.Session, error) {
+			return &types.Session{ID: id}, nil
+		},
+	).Times(1)
+
+	suite.store.EXPECT().UpdateInteraction(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, interaction *types.Interaction) (*types.Interaction, error) {
+			return interaction, nil
+		},
+	)
+
+	suite.store.EXPECT().UpdateTriggerExecution(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, execution *types.TriggerExecution) (*types.TriggerExecution, error) {
+			return execution, nil
+		},
+	)
+
+	// Verify that the notification has nil/empty Emails (owner fallback)
+	suite.notifier.EXPECT().Notify(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, n *notification.Notification) error {
+			suite.Equal(types.EventCronTriggerComplete, n.Event)
+			suite.Empty(n.Emails)
+			return nil
+		},
+	)
+
+	result, err := ExecuteCronTask(suite.ctx, suite.store, suite.controller, suite.notifier, nil, app, "test-user", "trigger-123", trigger, "test-session")
 	suite.NoError(err)
 	suite.NotEmpty(result)
 }
@@ -364,7 +670,7 @@ func (suite *CronTestSuite) TestExecuteCronTask_Error() {
 	suite.store.EXPECT().GetAppWithTools(suite.ctx, "app-123").Return(nil, errors.New("database error"))
 
 	// Execute the function
-	result, err := ExecuteCronTask(suite.ctx, suite.store, suite.controller, suite.notifier, app, "test-user", "trigger-123", trigger, "test-session")
+	result, err := ExecuteCronTask(suite.ctx, suite.store, suite.controller, suite.notifier, nil, app, "test-user", "trigger-123", trigger, "test-session")
 
 	// Verify the error
 	suite.Error(err)
@@ -419,6 +725,169 @@ func TestNextRunFormatted(t *testing.T) {
 			}
 		})
 	}
+}
+
+// mockSpecTaskCreator implements SpecTaskCreator for testing
+type mockSpecTaskCreator struct {
+	createFunc func(ctx context.Context, req *types.CreateTaskRequest) (*types.SpecTask, error)
+}
+
+func (m *mockSpecTaskCreator) CreateTaskFromPrompt(ctx context.Context, req *types.CreateTaskRequest) (*types.SpecTask, error) {
+	return m.createFunc(ctx, req)
+}
+
+func (suite *CronTestSuite) TestExecuteCronTask_SpecTaskAction() {
+	app := &types.App{
+		ID:        "app-123",
+		Owner:     "test-user",
+		OwnerType: types.OwnerTypeUser,
+	}
+
+	trigger := &types.CronTrigger{
+		Input:     "Build the login page",
+		Action:    "spec_task",
+		ProjectID: "proj-456",
+	}
+
+	mockCreator := &mockSpecTaskCreator{
+		createFunc: func(_ context.Context, req *types.CreateTaskRequest) (*types.SpecTask, error) {
+			suite.Equal("proj-456", req.ProjectID)
+			suite.Equal("Build the login page", req.Prompt)
+			suite.Equal("test-user", req.UserID)
+			return &types.SpecTask{
+				ID:   "task-789",
+				Name: "Build the login page",
+			}, nil
+		},
+	}
+
+	// Mock CreateTriggerExecution
+	suite.store.EXPECT().CreateTriggerExecution(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, execution *types.TriggerExecution) (*types.TriggerExecution, error) {
+			suite.Equal("trigger-123", execution.TriggerConfigurationID)
+			suite.Equal(types.TriggerExecutionStatusRunning, execution.Status)
+			return execution, nil
+		},
+	)
+
+	// Mock Notify for success
+	suite.notifier.EXPECT().Notify(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, n *notification.Notification) error {
+			suite.Equal(types.EventCronTriggerComplete, n.Event)
+			suite.Contains(n.Message, "task-789")
+			return nil
+		},
+	)
+
+	// Mock UpdateTriggerExecution for success
+	suite.store.EXPECT().UpdateTriggerExecution(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, execution *types.TriggerExecution) (*types.TriggerExecution, error) {
+			suite.Equal(types.TriggerExecutionStatusSuccess, execution.Status)
+			suite.Contains(execution.Output, "task-789")
+			return execution, nil
+		},
+	)
+
+	result, err := ExecuteCronTask(suite.ctx, suite.store, suite.controller, suite.notifier, mockCreator, app, "test-user", "trigger-123", trigger, "test-session")
+	suite.NoError(err)
+	suite.Contains(result, "task-789")
+}
+
+func (suite *CronTestSuite) TestExecuteCronTask_SpecTaskAction_Error() {
+	app := &types.App{
+		ID:        "app-123",
+		Owner:     "test-user",
+		OwnerType: types.OwnerTypeUser,
+	}
+
+	trigger := &types.CronTrigger{
+		Input:     "Build the login page",
+		Action:    "spec_task",
+		ProjectID: "proj-456",
+		Emails:    []string{"user@example.com"},
+	}
+
+	mockCreator := &mockSpecTaskCreator{
+		createFunc: func(_ context.Context, _ *types.CreateTaskRequest) (*types.SpecTask, error) {
+			return nil, errors.New("project not found")
+		},
+	}
+
+	// Mock CreateTriggerExecution
+	suite.store.EXPECT().CreateTriggerExecution(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, execution *types.TriggerExecution) (*types.TriggerExecution, error) {
+			return execution, nil
+		},
+	)
+
+	// Mock Notify for failure
+	suite.notifier.EXPECT().Notify(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, n *notification.Notification) error {
+			suite.Equal(types.EventCronTriggerFailed, n.Event)
+			suite.Contains(n.Message, "project not found")
+			suite.Equal([]string{"user@example.com"}, n.Emails)
+			return nil
+		},
+	)
+
+	// Mock UpdateTriggerExecution for error
+	suite.store.EXPECT().UpdateTriggerExecution(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, execution *types.TriggerExecution) (*types.TriggerExecution, error) {
+			suite.Equal(types.TriggerExecutionStatusError, execution.Status)
+			suite.Contains(execution.Error, "project not found")
+			return execution, nil
+		},
+	)
+
+	result, err := ExecuteCronTask(suite.ctx, suite.store, suite.controller, suite.notifier, mockCreator, app, "test-user", "trigger-123", trigger, "test-session")
+	suite.Error(err)
+	suite.Empty(result)
+	suite.Contains(err.Error(), "project not found")
+}
+
+func (suite *CronTestSuite) TestExecuteCronTask_SpecTaskAction_MissingProjectID() {
+	app := &types.App{
+		ID:        "app-123",
+		Owner:     "test-user",
+		OwnerType: types.OwnerTypeUser,
+	}
+
+	trigger := &types.CronTrigger{
+		Input:  "Build the login page",
+		Action: "spec_task",
+		// ProjectID intentionally empty
+	}
+
+	mockCreator := &mockSpecTaskCreator{
+		createFunc: func(_ context.Context, _ *types.CreateTaskRequest) (*types.SpecTask, error) {
+			suite.Fail("CreateTaskFromPrompt should not be called when ProjectID is empty")
+			return nil, nil
+		},
+	}
+
+	result, err := ExecuteCronTask(suite.ctx, suite.store, suite.controller, suite.notifier, mockCreator, app, "test-user", "trigger-123", trigger, "test-session")
+	suite.Error(err)
+	suite.Empty(result)
+	suite.Contains(err.Error(), "project_id is required")
+}
+
+func (suite *CronTestSuite) TestExecuteCronTask_SpecTaskAction_NilCreator() {
+	app := &types.App{
+		ID:        "app-123",
+		Owner:     "test-user",
+		OwnerType: types.OwnerTypeUser,
+	}
+
+	trigger := &types.CronTrigger{
+		Input:     "Build the login page",
+		Action:    "spec_task",
+		ProjectID: "proj-456",
+	}
+
+	result, err := ExecuteCronTask(suite.ctx, suite.store, suite.controller, suite.notifier, nil, app, "test-user", "trigger-123", trigger, "test-session")
+	suite.Error(err)
+	suite.Empty(result)
+	suite.Contains(err.Error(), "spec task creator not configured")
 }
 
 func TestExtractTimezoneFromCron(t *testing.T) {

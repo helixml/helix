@@ -85,6 +85,16 @@ func (apiServer *HelixAPIServer) processPendingPromptsForIdleSessions(ctx contex
 		return
 	}
 
+	// Determine the canonical planning session for this spec task.
+	// We only deliver prompts to the session that is the authoritative planning session
+	// (task.PlanningSessionID). If a duplicate orphan session was created by a race
+	// condition (issue #10), we must not deliver prompts to it — that causes duplicate
+	// message sends (issue #2) and confuses the agent (issue #9).
+	var canonicalSessionID string
+	if specTask, taskErr := apiServer.Store.GetSpecTask(ctx, specTaskID); taskErr == nil && specTask != nil {
+		canonicalSessionID = specTask.PlanningSessionID
+	}
+
 	// Collect pending prompts per session
 	type sessionPending struct {
 		interruptCount int
@@ -97,6 +107,16 @@ func (apiServer *HelixAPIServer) processPendingPromptsForIdleSessions(ctx contex
 			continue
 		}
 		if entry.SessionID == "" {
+			continue
+		}
+		// Skip sessions that are not the canonical planning session (issue #10b).
+		// If we couldn't determine the canonical session, fall through to the old behaviour.
+		if canonicalSessionID != "" && entry.SessionID != canonicalSessionID {
+			log.Debug().
+				Str("spec_task_id", specTaskID).
+				Str("canonical_session_id", canonicalSessionID).
+				Str("skipped_session_id", entry.SessionID).
+				Msg("🔍 [QUEUE] Skipping prompt for non-canonical session (duplicate race session)")
 			continue
 		}
 
@@ -153,13 +173,22 @@ func (apiServer *HelixAPIServer) processPendingPromptsForIdleSessions(ctx contex
 		}
 
 		if isIdle {
-			log.Info().
-				Str("session_id", sessionID).
-				Int("interrupt_count", pending.interruptCount).
-				Int("queue_count", pending.queueCount).
-				Msg("📤 [QUEUE] Session is idle, processing pending prompts")
-			// When session is idle from sync/list, process ALL pending (interrupt first)
-			apiServer.processAnyPendingPrompt(ctx, sessionID)
+			if pending.interruptCount > 0 {
+				log.Info().
+					Str("session_id", sessionID).
+					Int("interrupt_count", pending.interruptCount).
+					Msg("📤 [QUEUE] Session is idle with interrupt prompts, sending interrupt")
+				apiServer.processInterruptPrompt(ctx, sessionID)
+			} else {
+				// Queue-mode messages when idle: use processPromptQueue for consistent semantics.
+				// This ensures queue-mode messages always go through the same code path as
+				// post-message_completed dispatch (Bug 2 fix).
+				log.Info().
+					Str("session_id", sessionID).
+					Int("queue_count", pending.queueCount).
+					Msg("📤 [QUEUE] Session is idle with queue-mode prompts, dispatching via processPromptQueue")
+				apiServer.processPromptQueue(ctx, sessionID)
+			}
 		} else if pending.interruptCount > 0 {
 			// Session is busy but there are interrupt prompts - these should interrupt the agent
 			log.Info().
@@ -199,12 +228,9 @@ func (apiServer *HelixAPIServer) processInterruptPrompt(ctx context.Context, ses
 		Bool("is_retry", isRetry).
 		Msg("📤 [INTERRUPT] Processing interrupt prompt")
 
-	// CRITICAL: Mark as 'sent' IMMEDIATELY to prevent race conditions.
-	// Once we start processing, mark it done so no other process picks it up.
-	if err := apiServer.Store.MarkPromptAsSent(ctx, nextPrompt.ID); err != nil {
-		log.Error().Err(err).Str("prompt_id", nextPrompt.ID).Msg("Failed to mark prompt as sent")
-		// Continue anyway - better to risk duplicate than lose the message
-	}
+	// GetNextInterruptPrompt already atomically claimed this prompt (set status='sending').
+	// No additional ClaimPromptForSending call needed — that would fail because
+	// the status is already 'sending', causing every interrupt to be silently dropped.
 
 	// Send the prompt to the session (creates interaction and sends to agent)
 	if err := apiServer.sendQueuedPromptToSession(ctx, sessionID, nextPrompt); err != nil {
@@ -521,6 +547,51 @@ func (apiServer *HelixAPIServer) incrementPromptUsage(_ http.ResponseWriter, req
 	}
 
 	return map[string]bool{"success": true}, nil
+}
+
+// @Summary Delete a prompt history entry
+// @Description Soft-deletes a prompt history entry so it is removed from the queue and no longer synced to clients
+// @Tags PromptHistory
+// @Produce json
+// @Param id path string true "Prompt ID"
+// @Success 200 {object} map[string]bool
+// @Failure 400 {object} system.HTTPError
+// @Failure 401 {object} system.HTTPError
+// @Failure 403 {object} system.HTTPError
+// @Failure 404 {object} system.HTTPError
+// @Failure 500 {object} system.HTTPError
+// @Security ApiKeyAuth
+// @Router /api/v1/prompt-history/{id} [delete]
+func (apiServer *HelixAPIServer) deletePromptHistoryEntry(_ http.ResponseWriter, req *http.Request) (map[string]bool, *system.HTTPError) {
+	ctx := req.Context()
+	user := getRequestUser(req)
+	if user == nil {
+		return nil, system.NewHTTPError401("user not found")
+	}
+
+	promptID := mux.Vars(req)["id"]
+	if promptID == "" {
+		return nil, system.NewHTTPError400("prompt id is required")
+	}
+
+	prompt, err := apiServer.Store.GetPromptHistoryEntry(ctx, promptID)
+	if err != nil {
+		return nil, system.NewHTTPError500(fmt.Sprintf("failed to get prompt: %v", err))
+	}
+	if prompt == nil {
+		return nil, system.NewHTTPError404("prompt not found")
+	}
+	if prompt.UserID != user.ID {
+		return nil, system.NewHTTPError403("you don't have permission to delete this prompt")
+	}
+
+	if err := apiServer.Store.DeletePromptHistoryEntry(ctx, promptID); err != nil {
+		log.Error().Err(err).Str("prompt_id", promptID).Msg("Failed to delete prompt history entry")
+		return nil, system.NewHTTPError500(fmt.Sprintf("failed to delete prompt: %v", err))
+	}
+
+	log.Info().Str("prompt_id", promptID).Str("user_id", user.ID).Msg("Deleted prompt history entry")
+	return map[string]bool{"deleted": true}, nil
 }
 
 // @Summary Unified search across Helix entities

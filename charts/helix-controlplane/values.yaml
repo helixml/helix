@@ -7,11 +7,23 @@ global:
   imagePullSecrets: []
   storageClass: ""
   serverUrl: http://localhost:8080
+  # Extra environment variables applied to all components (controlplane, chrome, searxng, haystack).
+  # Useful for proxy configuration in environments where all outbound traffic must go through a proxy.
+  # Example:
+  #   extraEnv:
+  #     - name: HTTPS_PROXY
+  #       value: "http://proxy:8080"
+  #     - name: HTTP_PROXY
+  #       value: "http://proxy:8080"
+  #     - name: NO_PROXY
+  #       value: "localhost,127.0.0.1,.svc,.cluster.local"
+  extraEnv: []
 
 image:
-  repository: registry.helixml.tech/helix/controlplane
+  repository: ghcr.io/helixml/controlplane
   pullPolicy: Always
-  tag: "latest"
+  # Overrides the image tag whose default is the chart appVersion.
+  tag: ""
 
 tika:
   enabled: false
@@ -30,12 +42,14 @@ chrome:
   image:
     repository: ghcr.io/go-rod/rod
     tag: "v0.115.0"
+  # Extra environment variables for the Chrome container (in addition to global.extraEnv)
+  extraEnv: []
 
 typesense:
   enabled: false
   apiKey: typesense
   image:
-    repository: registry.helixml.tech/helix/typesense
+    repository: ghcr.io/helixml/typesense
   persistence:
     enabled: true
     storageClass: ""
@@ -82,6 +96,12 @@ pgvector:
     dataSource: {}
 
 controlplane:
+  # Wait for PostgreSQL to be ready before starting the controlplane.
+  # Prevents race conditions where the controlplane starts before the
+  # database is fully initialized, causing migrations to fail silently.
+  waitForPostgres: true
+  # Timeout in seconds for waiting for PostgreSQL to be ready.
+  waitForPostgresTimeout: 300
   logLevel: "INFO"
   runnerToken: ""
   runnerTokenExistingSecret: ""
@@ -131,9 +151,9 @@ controlplane:
     args:
       - 'echo "Hello World"'
   haystack:
-    enabled: false
+    enabled: true
     image:
-      repository: registry.helixml.tech/helix/haystack
+      repository: ghcr.io/helixml/haystack
     embeddingsModel: "MrLight/dse-qwen2-2b-mrl-v1"
     embeddingsDim: "1536"
     chunkSize: "1000"
@@ -154,6 +174,11 @@ controlplane:
       apiKey: ""
       existingSecret: ""
       existingSecretApiKeyKey: ""
+      vertexProjectID: ""
+      vertexRegion: "global"
+      vertexCredentialsJSON: "" # service account JSON string; takes precedence over vertexCredentialsSecret
+      vertexCredentialsSecret: "" # k8s secret name containing service-account.json
+      vertexCredentialsSecretKey: "key" # key within the secret
     togetherai:
       baseUrl: ""
       apiKey: ""
@@ -253,7 +278,7 @@ postgresql:
   image:
     registry: docker.io
     repository: bitnamilegacy/postgresql
-    tag: "latest"
+    tag: "17"
     pullPolicy: IfNotPresent
   auth:
     postgresPassword: ""
@@ -287,8 +312,8 @@ kodit:
 
   # Kodit application image
   image:
-    repository: registry.helixml.tech/helix/kodit
-    tag: "1.0.0"
+    repository: ghcr.io/helixml/kodit
+    tag: "1.2.0"
     pullPolicy: IfNotPresent
 
   # Database authentication (for kodit's vectorchord database)

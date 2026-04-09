@@ -22,12 +22,18 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 )
 
+// SpecTaskCreator creates spec tasks from prompts. Implemented by SpecDrivenTaskService.
+type SpecTaskCreator interface {
+	CreateTaskFromPrompt(ctx context.Context, req *types.CreateTaskRequest) (*types.SpecTask, error)
+}
+
 type Cron struct {
-	cfg        *config.ServerConfig
-	store      store.Store
-	notifier   notification.Notifier
-	controller *controller.Controller
-	cron       gocron.Scheduler
+	cfg             *config.ServerConfig
+	store           store.Store
+	notifier        notification.Notifier
+	controller      *controller.Controller
+	specTaskCreator SpecTaskCreator
+	cron            gocron.Scheduler
 }
 
 func NextRun(cron *types.CronTrigger) time.Time {
@@ -86,18 +92,19 @@ func extractTimezoneFromCron(schedule string) string {
 	return ""
 }
 
-func New(cfg *config.ServerConfig, store store.Store, notifier notification.Notifier, controller *controller.Controller) (*Cron, error) {
+func New(cfg *config.ServerConfig, store store.Store, notifier notification.Notifier, controller *controller.Controller, specTaskCreator SpecTaskCreator) (*Cron, error) {
 	s, err := gocron.NewScheduler()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create scheduler: %w", err)
 	}
 
 	return &Cron{
-		cfg:        cfg,
-		store:      store,
-		notifier:   notifier,
-		controller: controller,
-		cron:       s,
+		cfg:             cfg,
+		store:           store,
+		notifier:        notifier,
+		controller:      controller,
+		specTaskCreator: specTaskCreator,
+		cron:            s,
 	}, nil
 }
 
@@ -362,7 +369,7 @@ func (c *Cron) getCronAppTask(ctx context.Context, cronApp *cronApp) gocron.Task
 			Str("app_id", cronApp.App.ID).
 			Msg("running app cron job")
 
-		_, err := ExecuteCronTask(ctx, c.store, c.controller, c.notifier, cronApp.App, cronApp.UserID, cronApp.ID, cronApp.Trigger, cronApp.Name)
+		_, err := ExecuteCronTask(ctx, c.store, c.controller, c.notifier, c.specTaskCreator, cronApp.App, cronApp.UserID, cronApp.ID, cronApp.Trigger, cronApp.Name)
 		if err != nil {
 			log.Error().Err(err).Msg("failed to execute cron task")
 			return
@@ -414,7 +421,13 @@ func getCronJobSchedule(job gocron.Job) string {
 	return currentSchedule
 }
 
-func ExecuteCronTask(ctx context.Context, str store.Store, ctrl *controller.Controller, notifier notification.Notifier, a *types.App, userID, triggerID string, trigger *types.CronTrigger, sessionName string) (string, error) {
+func ExecuteCronTask(ctx context.Context, str store.Store, ctrl *controller.Controller, notifier notification.Notifier, specTaskCreator SpecTaskCreator, a *types.App, userID, triggerID string, trigger *types.CronTrigger, sessionName string) (string, error) {
+	// Handle spec_task action: create a spec task instead of running a session
+	if trigger.Action == "spec_task" {
+		return executeSpecTaskAction(ctx, str, specTaskCreator, notifier, a, userID, triggerID, trigger, sessionName)
+	}
+
+	// Default action: run a blocking session (existing behavior)
 	app, err := str.GetAppWithTools(ctx, a.ID)
 	if err != nil {
 		log.Error().
@@ -506,6 +519,7 @@ func ExecuteCronTask(ctx context.Context, str store.Store, ctrl *controller.Cont
 			Event:   types.EventCronTriggerFailed,
 			Session: session,
 			Message: err.Error(),
+			Emails:  trigger.Emails,
 		})
 		if notifyErr != nil {
 			log.Error().
@@ -532,12 +546,15 @@ func ExecuteCronTask(ctx context.Context, str store.Store, ctrl *controller.Cont
 		return "", err
 	}
 
+	responseText := types.TextFromInteraction(resp)
+
 	// Send success notification
 	err = notifier.Notify(ctx, &types.Notification{
 		Event:          types.EventCronTriggerComplete,
 		Session:        session,
-		Message:        resp.ResponseMessage,
+		Message:        responseText,
 		RenderMarkdown: true,
+		Emails:         trigger.Emails,
 	})
 	if err != nil {
 		log.Error().
@@ -549,7 +566,7 @@ func ExecuteCronTask(ctx context.Context, str store.Store, ctrl *controller.Cont
 
 	// Update execution with success
 	execution.Status = types.TriggerExecutionStatusSuccess
-	execution.Output = resp.ResponseMessage
+	execution.Output = responseText
 	execution.DurationMs = time.Since(startedAt).Milliseconds()
 
 	execution, err = str.UpdateTriggerExecution(ctx, execution)
@@ -566,5 +583,109 @@ func ExecuteCronTask(ctx context.Context, str store.Store, ctrl *controller.Cont
 		Str("app_id", app.ID).
 		Msg("app cron job completed")
 
-	return resp.ResponseMessage, nil
+	return responseText, nil
+}
+
+func executeSpecTaskAction(ctx context.Context, str store.Store, specTaskCreator SpecTaskCreator, notifier notification.Notifier, a *types.App, userID, triggerID string, trigger *types.CronTrigger, sessionName string) (string, error) {
+	if specTaskCreator == nil {
+		return "", fmt.Errorf("spec task creator not configured, cannot execute spec_task action")
+	}
+
+	if trigger.ProjectID == "" {
+		return "", fmt.Errorf("project_id is required for spec_task action")
+	}
+
+	// Create execution record
+	execution := &types.TriggerExecution{
+		ID:                     system.GenerateUUID(),
+		Name:                   sessionName,
+		TriggerConfigurationID: triggerID,
+		Created:                time.Now(),
+		Updated:                time.Now(),
+		Status:                 types.TriggerExecutionStatusRunning,
+	}
+
+	startedAt := time.Now()
+
+	execution, err := str.CreateTriggerExecution(ctx, execution)
+	if err != nil {
+		return "", fmt.Errorf("failed to create trigger execution: %w", err)
+	}
+
+	task, err := specTaskCreator.CreateTaskFromPrompt(ctx, &types.CreateTaskRequest{
+		ProjectID: trigger.ProjectID,
+		Prompt:    trigger.Input,
+		UserID:    userID,
+	})
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("app_id", a.ID).
+			Str("project_id", trigger.ProjectID).
+			Msg("failed to create spec task from cron trigger")
+
+		// Send failure notification
+		notifyErr := notifier.Notify(ctx, &types.Notification{
+			Event:   types.EventCronTriggerFailed,
+			Message: err.Error(),
+			Emails:  trigger.Emails,
+		})
+		if notifyErr != nil {
+			log.Error().
+				Err(notifyErr).
+				Str("app_id", a.ID).
+				Msg("failed to send failure notification for spec task")
+		}
+
+		// Update execution with error
+		execution.Status = types.TriggerExecutionStatusError
+		execution.Error = err.Error()
+		execution.DurationMs = time.Since(startedAt).Milliseconds()
+
+		_, updateErr := str.UpdateTriggerExecution(ctx, execution)
+		if updateErr != nil {
+			log.Error().
+				Err(updateErr).
+				Str("execution_id", execution.ID).
+				Msg("failed to update execution")
+		}
+
+		return "", err
+	}
+
+	output := fmt.Sprintf("Created spec task %s: %s", task.ID, task.Name)
+
+	// Send success notification
+	err = notifier.Notify(ctx, &types.Notification{
+		Event:   types.EventCronTriggerComplete,
+		Message: output,
+		Emails:  trigger.Emails,
+	})
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("app_id", a.ID).
+			Str("task_id", task.ID).
+			Msg("failed to send success notification for spec task")
+	}
+
+	// Update execution with success
+	execution.Status = types.TriggerExecutionStatusSuccess
+	execution.Output = output
+	execution.DurationMs = time.Since(startedAt).Milliseconds()
+
+	_, err = str.UpdateTriggerExecution(ctx, execution)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("execution_id", execution.ID).
+			Msg("failed to update execution")
+	}
+
+	log.Info().
+		Str("app_id", a.ID).
+		Str("task_id", task.ID).
+		Msg("spec task cron job completed")
+
+	return output, nil
 }

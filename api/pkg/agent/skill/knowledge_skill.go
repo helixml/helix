@@ -3,67 +3,69 @@ package skill
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"fmt"
+	"strconv"
+	"strings"
 
 	"github.com/helixml/helix/api/pkg/agent"
 	"github.com/helixml/helix/api/pkg/rag"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/helixml/helix/api/pkg/util/jsonschema"
+	"github.com/rs/zerolog/log"
 	"github.com/sashabaranov/go-openai"
 )
 
-const knowledgeBaseMainPrompt = `You are an expert at retrieving and synthesizing information from knowledge bases. Your role is to help users find relevant information by crafting effective search queries and presenting the results in a clear, organized manner.
+var knowledgeSkillParameters = jsonschema.Definition{
+	Type: jsonschema.Object,
+	Properties: map[string]jsonschema.Definition{
+		"query": {
+			Type:        jsonschema.String,
+			Description: "A search query string to find relevant information in the knowledge base.",
+		},
+	},
+	Required: []string{"query"},
+}
 
-Key responsibilities:
-1. Query Formulation:
-   - Create concise, focused search queries using key terms and concepts
-   - Avoid overly broad or vague queries that might return irrelevant results
-   - Use specific terminology when available to improve search accuracy
+// RAGResultsCollector is a callback that receives RAG results from knowledge queries.
+// It is called each time a knowledge query executes, allowing the controller to
+// accumulate results for session metadata (citations).
+type RAGResultsCollector func(results []*types.SessionRAGResult)
 
-2. Result Analysis:
-   - Review and synthesize information from multiple sources
-   - Identify the most relevant and reliable information
-   - Present information in a clear, structured format
-
-3. Best Practices:
-   - Always verify information from multiple sources when available
-   - Clearly indicate the source of information
-   - Acknowledge when information is not available or incomplete
-   - Maintain objectivity and avoid making assumptions beyond the provided information
-
-When using the knowledge query tool:
-- Use the tool proactively when users need factual information
-- Craft queries that are specific enough to find relevant information but broad enough to capture related content
-- If initial results are insufficient, refine the query based on the context
-- Present information in a clear, organized manner, citing sources appropriately
-
-Remember: Your goal is to provide accurate, well-sourced information while maintaining clarity and relevance to the user's needs.`
-
-func NewKnowledgeSkill(ragClient rag.RAG, knowledge *types.Knowledge, documentIDs []string) agent.Skill {
+func NewKnowledgeSkill(ragClient rag.RAG, knowledge *types.Knowledge, documentIDs []string, resultsCollector RAGResultsCollector) agent.Skill {
+	description := knowledge.Description
+	if description == "" {
+		description = "Search the '" + knowledge.Name + "' knowledge base."
+	}
 	return agent.Skill{
-		Name:         "Knowledge_" + agent.SanitizeToolName(knowledge.Name),
-		Description:  fmt.Sprintf("Contains expert knowledge on topics: '%s'", knowledge.Description),
-		SystemPrompt: knowledgeBaseMainPrompt,
+		Name:        "Knowledge_" + agent.SanitizeToolName(knowledge.Name),
+		Description: description,
+		Parameters:  knowledgeSkillParameters,
+		Direct:      true,
+		// SystemPrompt: "", // NOTE: This is not used by the agent. It does not work.
 		Tools: []agent.Tool{
 			&KnowledgeQueryTool{
-				toolName:    "KnowledgeQuery",
-				description: "Contains expert knowledge on topics: '" + knowledge.Description + "'",
-				ragClient:   ragClient,
-				knowledge:   knowledge,
-				documentIDs: documentIDs,
+				toolName:         "KnowledgeQuery",
+				description:      description,
+				ragClient:        ragClient,
+				knowledge:        knowledge,
+				documentIDs:      documentIDs,
+				resultsCollector: resultsCollector,
 			}},
 	}
 }
 
 type KnowledgeQueryTool struct {
-	toolName    string
-	description string
-	ragClient   rag.RAG
-	knowledge   *types.Knowledge
-	documentIDs []string // Filter by document IDs
+	toolName         string
+	description      string
+	ragClient        rag.RAG
+	knowledge        *types.Knowledge
+	documentIDs      []string // Filter by document IDs
+	resultsCollector RAGResultsCollector
 }
 
 var _ agent.Tool = &KnowledgeQueryTool{}
+var _ agent.ToolWithImages = &KnowledgeQueryTool{}
 
 func (t *KnowledgeQueryTool) Name() string {
 	return agent.SanitizeToolName(t.toolName)
@@ -107,11 +109,22 @@ func (t *KnowledgeQueryTool) OpenAI() []openai.Tool {
 	}
 }
 
-func (t *KnowledgeQueryTool) Execute(ctx context.Context, _ agent.Meta, args map[string]interface{}) (string, error) {
+func (t *KnowledgeQueryTool) Execute(ctx context.Context, meta agent.Meta, args map[string]interface{}) (string, error) {
+	text, _, err := t.ExecuteWithImages(ctx, meta, args)
+	return text, err
+}
+
+func (t *KnowledgeQueryTool) ExecuteWithImages(ctx context.Context, _ agent.Meta, args map[string]any) (string, []openai.ChatMessagePart, error) {
 	query, ok := args["query"].(string)
 	if !ok {
-		return "", fmt.Errorf("query is required")
+		return "", nil, fmt.Errorf("query is required")
 	}
+
+	log.Debug().
+		Str("knowledge", t.knowledge.Name).
+		Str("query", query).
+		Int("doc_filter_count", len(t.documentIDs)).
+		Msg("executing knowledge query")
 
 	results, err := t.ragClient.Query(ctx, &types.SessionRAGQuery{
 		Prompt:            query,
@@ -122,28 +135,92 @@ func (t *KnowledgeQueryTool) Execute(ctx context.Context, _ agent.Meta, args map
 		DocumentIDList:    t.documentIDs,
 	})
 	if err != nil {
-		return "", fmt.Errorf("error querying RAG for knowledge %s: %w", t.knowledge.ID, err)
+		return "", nil, fmt.Errorf("error querying RAG for knowledge %s: %w", t.knowledge.ID, err)
 	}
 
-	return formatKnowledgeSearchResponse(results), nil
+	log.Debug().
+		Str("knowledge", t.knowledge.Name).
+		Int("result_count", len(results)).
+		Msg("knowledge RAG query completed")
+
+	// Render page images for visual search results.
+	var images []openai.ChatMessagePart
+	if renderer, ok := t.ragClient.(rag.PageImageRenderer); ok {
+		images = renderPageImages(ctx, renderer, t.knowledge.GetDataEntityID(), results)
+	}
+
+	if t.resultsCollector != nil {
+		t.resultsCollector(results)
+	}
+
+	return formatKnowledgeSearchResponse(results), images, nil
 }
 
-// formatKnowledgeSearchResponse formats the results into a text with just Source and Content fields. Each section is separated by an empty line
-//
-// Source: <URL>
-// Content: <Content>
-// ...
-// Source: <URL>
-// Content: <Content>
+// renderPageImages renders document page images for RAG results that have
+// page metadata and returns them as multimodal chat message parts.
+func renderPageImages(ctx context.Context, renderer rag.PageImageRenderer, dataEntityID string, results []*types.SessionRAGResult) []openai.ChatMessagePart {
+	var parts []openai.ChatMessagePart
+	for _, result := range results {
+		pageStr, has := result.Metadata["page_number"]
+		if !has {
+			continue
+		}
+		page, parseErr := strconv.Atoi(pageStr)
+		if parseErr != nil || page <= 0 {
+			log.Warn().
+				Str("page_number", pageStr).
+				Str("source", result.Source).
+				Msg("invalid page_number metadata in RAG result, skipping image render")
+			continue
+		}
+		imgBytes, renderErr := renderer.RenderPageImage(ctx, dataEntityID, result.Source, page)
+		if renderErr != nil {
+			log.Warn().Err(renderErr).
+				Str("source", result.Source).
+				Int("page", page).
+				Msg("failed to render page image, skipping")
+			continue
+		}
+		dataURI := "data:image/jpeg;base64," + base64.StdEncoding.EncodeToString(imgBytes)
+		parts = append(parts, openai.ChatMessagePart{
+			Type: openai.ChatMessagePartTypeText,
+			Text: fmt.Sprintf("Page %d of %s (document_id: %s):", page, result.Source, result.DocumentID),
+		})
+		parts = append(parts, openai.ChatMessagePart{
+			Type:     openai.ChatMessagePartTypeImageURL,
+			ImageURL: &openai.ChatMessageImageURL{URL: dataURI},
+		})
+	}
+	if len(parts) > 0 {
+		log.Info().Int("image_count", len(parts)/2).Msg("rendered page images for knowledge query")
+	}
+	return parts
+}
 
+// formatKnowledgeSearchResponse formats RAG results as chunks with document IDs,
+// content boundary markers, and citation formatting instructions. The formatting
+// instructions are here (not in the system prompt) because they need to be proximate
+// to the data for the LLM to follow them reliably.
 func formatKnowledgeSearchResponse(results []*types.SessionRAGResult) string {
 	if len(results) == 0 {
 		return "No results found"
 	}
 	var buf bytes.Buffer
 	for _, result := range results {
-		buf.WriteString(fmt.Sprintf("Source: %s\nContent: %s\n\n", result.Source, result.Content))
+		// Skip results with empty content (e.g. page_image enrichments
+		// that only carry an embedding vector for visual search).
+		if strings.TrimSpace(result.Content) == "" {
+			continue
+		}
+		buf.WriteString(fmt.Sprintf("<chunk>\n  <document_id>%s</document_id>\n  <content>\n    ### START OF CONTENT FOR DOCUMENT %s ###\n    %s\n    ### END OF CONTENT FOR DOCUMENT %s ###\n  </content>\n</chunk>\n",
+			result.DocumentID, result.DocumentID, result.Content, result.DocumentID))
 	}
+
+	buf.WriteString("\nProvide references in your answer in the format `[DOC_ID:DocumentID]`. " +
+		"For example, \"According to [DOC_ID:f6962c8007], the answer is 42.\"\n\n" +
+		"After your answer, write an excerpts block with an exact quote from each cited document:\n\n" +
+		"<excerpts>\n  <excerpt>\n    <document_id>DocumentID</document_id>\n    <snippet>An exact quote from this document</snippet>\n  </excerpt>\n</excerpts>\n\n" +
+		"Each document_id must appear at most once in the excerpts. No header before the excerpts block.")
 
 	return buf.String()
 }

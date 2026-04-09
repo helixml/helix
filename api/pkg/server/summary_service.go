@@ -48,7 +48,7 @@ func (s *SummaryService) GenerateInteractionSummaryAsync(ctx context.Context, in
 	}
 
 	// Skip if no content to summarize
-	if interaction.PromptMessage == "" && interaction.ResponseMessage == "" {
+	if interaction.PromptMessage == "" && types.TextFromInteraction(interaction) == "" {
 		return
 	}
 
@@ -451,13 +451,12 @@ func buildSummaryPromptContent(interaction *types.Interaction) string {
 		parts = append(parts, "User asked: "+prompt)
 	}
 
-	if interaction.ResponseMessage != "" {
+	if responseText := types.TextFromInteraction(interaction); responseText != "" {
 		// Truncate long responses
-		response := interaction.ResponseMessage
-		if len(response) > 500 {
-			response = response[:500] + "..."
+		if len(responseText) > 500 {
+			responseText = responseText[:500] + "..."
 		}
-		parts = append(parts, "Assistant responded: "+response)
+		parts = append(parts, "Assistant responded: "+responseText)
 	}
 
 	return strings.Join(parts, "\n\n")

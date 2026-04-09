@@ -24,6 +24,14 @@ export const LIST_SESSIONS_QUERY_KEY = (orgId?: string, page?: number, pageSize?
   appId,
 ];
 
+export const LIST_INTERACTIONS_QUERY_KEY = (sessionId: string, page?: number, perPage?: number, order?: string) => [
+  "interactions",
+  sessionId,
+  page,
+  perPage,
+  order,
+];
+
 // useListSessionSteps returns the steps for a session, it includes
 // steps for all interactions in the session
 export function useListSessionSteps(sessionId: string, options?: { enabled?: boolean }) {
@@ -46,6 +54,11 @@ export function useGetSession(sessionId: string, options?: { enabled?: boolean; 
     queryFn: () => apiClient.v1SessionsDetail(sessionId),
     enabled: options?.enabled ?? true,
     refetchInterval: options?.refetchInterval,
+    // Prevent immediate refetches when multiple consumers share this query.
+    // E.g. useSandboxState (3s) and EmbeddedSessionView (5s) both poll the same
+    // session — without staleTime, mounting a new consumer would trigger an
+    // immediate redundant fetch even if data was fetched <1s ago.
+    staleTime: 2000,
   })
 }
 
@@ -119,7 +132,7 @@ export function useGetSessionIdleStatus(sessionId: string, options?: { enabled?:
 
   return useQuery({
     queryKey: ['session-idle-status', sessionId],
-    queryFn: () => apiClient.v1SessionsIdleStatusDetail(sessionId),
+    queryFn: () => apiClient.v1SessionsSandboxStateDetail(sessionId),
     enabled: options?.enabled ?? true,
     refetchInterval: 30000, // Refetch every 30 seconds to update idle time
   })
@@ -127,4 +140,34 @@ export function useGetSessionIdleStatus(sessionId: string, options?: { enabled?:
 
 export function invalidateSessionsQuery(queryClient: QueryClient) {
   queryClient.invalidateQueries({ queryKey: ["sessions"] })
+}
+
+/**
+ * Hook to list interactions for a session with pagination
+ * @param sessionId The session ID
+ * @param page Page number (0-indexed)
+ * @param perPage Number of interactions per page (default 20)
+ * @param order Sort order: 'asc' (oldest first) or 'desc' (newest first)
+ * @param options Query options
+ */
+export function useListInteractions(
+  sessionId: string,
+  page?: number,
+  perPage?: number,
+  order?: 'asc' | 'desc',
+  options?: { enabled?: boolean; refetchInterval?: number | false }
+) {
+  const api = useApi()
+  const apiClient = api.getApiClient()
+
+  return useQuery({
+    queryKey: LIST_INTERACTIONS_QUERY_KEY(sessionId, page, perPage, order),
+    queryFn: () => apiClient.v1SessionsInteractionsDetail(sessionId, {
+      page: page ?? 0,
+      per_page: perPage ?? 20,
+      order: order,
+    }),
+    enabled: options?.enabled ?? true,
+    refetchInterval: options?.refetchInterval,
+  })
 }

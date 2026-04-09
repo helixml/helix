@@ -1,6 +1,7 @@
 package bitbucket
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -635,6 +636,35 @@ func (c *Client) listServerPullRequests(ctx context.Context, projectKey, repoSlu
 }
 
 // GetPullRequest gets a specific pull request by ID
+func (c *Client) UpdatePullRequest(ctx context.Context, workspace, repoSlug string, prID int, title, description string) error {
+	apiURL := c.getAPIURL(fmt.Sprintf("/repositories/%s/%s/pullrequests/%d", workspace, repoSlug, prID))
+	if c.isServer {
+		apiURL = c.getAPIURL(fmt.Sprintf("/projects/%s/repos/%s/pull-requests/%d", workspace, repoSlug, prID))
+	}
+
+	bodyMap := map[string]interface{}{
+		"title":       title,
+		"description": description,
+	}
+	bodyBytes, err := json.Marshal(bodyMap)
+	if err != nil {
+		return fmt.Errorf("failed to marshal request body: %w", err)
+	}
+
+	resp, err := c.doRequest(ctx, "PUT", apiURL, bytes.NewReader(bodyBytes))
+	if err != nil {
+		return fmt.Errorf("failed to update pull request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("failed to update pull request: status %d, body: %s", resp.StatusCode, string(respBody))
+	}
+
+	return nil
+}
+
 func (c *Client) GetPullRequest(ctx context.Context, workspace, repoSlug string, prID int) (*PullRequest, error) {
 	if c.isServer {
 		return c.getServerPullRequest(ctx, workspace, repoSlug, prID)

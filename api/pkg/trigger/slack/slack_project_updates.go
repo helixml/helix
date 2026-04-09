@@ -95,13 +95,25 @@ func (s *SlackBot) postProjectUpdate(ctx context.Context, task *types.SpecTask) 
 
 // postProjectUpdateNew posts the first message for a spec task and creates a thread record
 func (s *SlackBot) postProjectUpdateNew(ctx context.Context, task *types.SpecTask) error {
-	session := shared.NewTriggerSession(ctx, types.TriggerTypeSlack.String(), s.app).Session
-	session.Name = fmt.Sprintf("project update: %s", task.Name)
-	session.Metadata.SpecTaskID = task.ID
-	session.Metadata.ProjectID = task.ProjectID
-	createdSession, err := s.store.CreateSession(ctx, *session)
-	if err != nil {
-		return fmt.Errorf("failed to create session for project update: %w", err)
+	// Reuse the spectask's existing planning session if available, otherwise create a new one.
+	// This maintains the 1:1 session-to-spectask invariant.
+	var createdSession *types.Session
+	if task.PlanningSessionID != "" {
+		existing, err := s.store.GetSession(ctx, task.PlanningSessionID)
+		if err == nil && existing != nil {
+			createdSession = existing
+		}
+	}
+	if createdSession == nil {
+		session := shared.NewTriggerSession(ctx, types.TriggerTypeSlack.String(), s.app).Session
+		session.Name = fmt.Sprintf("project update: %s", task.Name)
+		session.Metadata.SpecTaskID = task.ID
+		session.Metadata.ProjectID = task.ProjectID
+		var err error
+		createdSession, err = s.store.CreateSession(ctx, *session)
+		if err != nil {
+			return fmt.Errorf("failed to create session for project update: %w", err)
+		}
 	}
 
 	attachment := s.buildProjectUpdateAttachment(ctx, task, s.cfg.Notifications.AppURL)
@@ -256,8 +268,9 @@ func (s *SlackBot) buildProjectUpdateAttachment(ctx context.Context, task *types
 	}
 
 	baseURL := strings.TrimRight(appURL, "/")
-	taskLink := fmt.Sprintf("<%s/projects/%s/tasks/%s?view=details|%s>", baseURL, task.ProjectID, task.ID, task.ID)
-	projectLink := s.buildProjectLink(ctx, task, baseURL)
+	orgName := s.getOrgName(ctx, task.OrganizationID)
+	taskLink := s.buildTaskLink(orgName, baseURL, task.ProjectID, task.ID, task.ID)
+	projectLink := s.buildProjectLinkWithOrg(orgName, baseURL, task.ProjectID)
 
 	createdByUserName := ""
 
@@ -307,9 +320,10 @@ func (s *SlackBot) buildProjectUpdateReplyAttachment(ctx context.Context, task *
 	}
 
 	baseURL := strings.TrimRight(appURL, "/")
-	taskLink := fmt.Sprintf("<%s/projects/%s/tasks/%s?view=details|View task>", baseURL, task.ProjectID, task.ID)
+	orgName := s.getOrgName(ctx, task.OrganizationID)
+	taskLink := s.buildTaskLink(orgName, baseURL, task.ProjectID, task.ID, "View task")
 	links := taskLink
-	if projectLink := s.buildProjectLink(ctx, task, baseURL); projectLink != "" {
+	if projectLink := s.buildProjectLinkWithOrg(orgName, baseURL, task.ProjectID); projectLink != "" {
 		links += " | " + projectLink
 	}
 	text := fmt.Sprintf("%s *%s* → *%s*\n%s", statusEmoji, title, humanizeSpecTaskStatus(task.Status), links)
@@ -325,16 +339,30 @@ func (s *SlackBot) buildProjectUpdateReplyAttachment(ctx context.Context, task *
 	}
 }
 
-func (s *SlackBot) buildProjectLink(ctx context.Context, task *types.SpecTask, baseURL string) string {
-	if task.OrganizationID == "" || task.ProjectID == "" {
+func (s *SlackBot) getOrgName(ctx context.Context, orgID string) string {
+	if orgID == "" {
 		return ""
 	}
-	org, err := s.store.GetOrganization(ctx, &store.GetOrganizationQuery{ID: task.OrganizationID})
+	org, err := s.store.GetOrganization(ctx, &store.GetOrganizationQuery{ID: orgID})
 	if err != nil {
-		log.Error().Err(err).Str("organization_id", task.OrganizationID).Msg("failed to get organization for project link")
+		log.Error().Err(err).Str("organization_id", orgID).Msg("failed to get organization")
 		return ""
 	}
-	return fmt.Sprintf("<%s/org/%s/projects/%s/specs|View project>", baseURL, org.Name, task.ProjectID)
+	return org.Name
+}
+
+func (s *SlackBot) buildTaskLink(orgName, baseURL, projectID, taskID, label string) string {
+	if orgName != "" {
+		return fmt.Sprintf("<%s/orgs/%s/projects/%s/tasks/%s?view=details|%s>", baseURL, orgName, projectID, taskID, label)
+	}
+	return fmt.Sprintf("<%s/projects/%s/tasks/%s?view=details|%s>", baseURL, projectID, taskID, label)
+}
+
+func (s *SlackBot) buildProjectLinkWithOrg(orgName, baseURL, projectID string) string {
+	if orgName == "" || projectID == "" {
+		return ""
+	}
+	return fmt.Sprintf("<%s/orgs/%s/projects/%s/specs|View project>", baseURL, orgName, projectID)
 }
 
 // specTaskStatusColor returns the hex color for the colored sidebar based on status

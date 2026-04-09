@@ -69,6 +69,30 @@ export namespace main {
 		    return a;
 		}
 	}
+	export class DiagnosticReport {
+	    system_info: string;
+	    app_version: string;
+	    vm_version: string;
+	    vm_state: string;
+	    console_logs: string;
+	    ssh_logs: string;
+	    container_logs: string;
+
+	    static createFrom(source: any = {}) {
+	        return new DiagnosticReport(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.system_info = source["system_info"];
+	        this.app_version = source["app_version"];
+	        this.vm_version = source["vm_version"];
+	        this.vm_state = source["vm_state"];
+	        this.console_logs = source["console_logs"];
+	        this.ssh_logs = source["ssh_logs"];
+	        this.container_logs = source["container_logs"];
+	    }
+	}
 	export class DesktopQuota {
 	    active: number;
 	    max: number;
@@ -229,6 +253,20 @@ export namespace main {
 	        this.current_version = source["current_version"];
 	        this.dmg_url = source["dmg_url"];
 	        this.vm_manifest_url = source["vm_manifest_url"];
+	    }
+	}
+	export class UserIdentity {
+	    name: string;
+	    email: string;
+
+	    static createFrom(source: any = {}) {
+	        return new UserIdentity(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.email = source["email"];
 	    }
 	}
 	export class VMConfig {

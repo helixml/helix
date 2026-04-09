@@ -57,6 +57,7 @@ import RemoteCursorsOverlay from "./RemoteCursorsOverlay";
 import AgentCursorOverlay from "./AgentCursorOverlay";
 import CursorRenderer from "./CursorRenderer";
 import InsecureContextWarning from "./InsecureContextWarning";
+import { isMobileOrTablet } from "../../utils/isMobileOrTablet";
 
 /**
  * Clipboard helpers: WKWebView (macOS Wails app) blocks navigator.clipboard
@@ -105,6 +106,18 @@ function clipboardReadText(): Promise<string> {
   return Promise.resolve("");
 }
 
+// Returns a stable UUID for a given sessionId in this browser tab.
+// Stored in sessionStorage so it survives component remounts but differs across tabs.
+function getOrCreateStreamUUID(sessionId: string): string {
+  const storageKey = `helix-stream-uuid-${sessionId}`;
+  let id = sessionStorage.getItem(storageKey);
+  if (!id) {
+    id = crypto.randomUUID();
+    sessionStorage.setItem(storageKey, id);
+  }
+  return id;
+}
+
 /**
  * DesktopStreamViewer - Native React component for desktop streaming
  *
@@ -135,20 +148,21 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   const hiddenInputRef = useRef<HTMLInputElement>(null); // Hidden input for iOS/iPad virtual keyboard
   const streamRef = useRef<WebSocketStream | null>(null); // WebSocket stream instance
   const retryAttemptRef = useRef(0); // Use ref to avoid closure issues
+  const retryTimeoutRef = useRef<NodeJS.Timeout | null>(null); // AlreadyStreaming retry timeout
+  const retryIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null); // AlreadyStreaming countdown interval
   const previousLobbyIdRef = useRef<string | undefined>(undefined); // Track lobby changes
   const isExplicitlyClosingRef = useRef(false); // Track explicit close to prevent spurious "Reconnecting..." state
   const pendingReconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null); // Cancel pending reconnects to prevent duplicate streams
   const manualReconnectAttemptsRef = useRef(0); // Track manual reconnect attempts to prevent infinite loops
 
-  // Generate unique UUID for this component instance (persists across re-renders)
-  // This ensures multiple floating windows get different streaming client IDs
-  const componentInstanceIdRef = useRef<string>(
-    "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
-      const r = (Math.random() * 16) | 0;
-      const v = c === "x" ? r : (r & 0x3) | 0x8;
-      return v.toString(16);
-    }),
-  );
+  // Stable UUID for this browser tab + session combination.
+  // Survives component remounts (stored in sessionStorage) but differs across tabs.
+  // The backend uses this to deduplicate clients on reconnect — same UUID = same viewer tab.
+  const componentInstanceIdRef = useRef<string>(getOrCreateStreamUUID(sessionId));
+  const sessionIdRef = useRef<string>(sessionId);
+  useEffect(() => {
+    sessionIdRef.current = sessionId;
+  }, [sessionId]);
 
   const [isConnecting, setIsConnecting] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
@@ -216,6 +230,13 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   const [debugThrottleRatio, setDebugThrottleRatio] = useState<number | null>(
     null,
   ); // Debug override for throttle ratio
+  // Two-finger gesture debug info for trackpad mode (updated during gestures)
+  const [twoFingerDebug, setTwoFingerDebug] = useState<{
+    gestureType: "undecided" | "pinch" | "scroll";
+    distanceChange: number;
+    centerMovement: number;
+    lastScrollDelta: { dx: number; dy: number };
+  } | null>(null);
   // Connection debug log for iPad (no devtools) - shows recent connection events
   const [connectionLog, setConnectionLog] = useState<
     Array<{ time: string; msg: string }>
@@ -225,6 +246,45 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     console.log(`[DesktopStreamViewer] ${msg}`);
     setConnectionLog((prev) => [...prev.slice(-9), { time, msg }]); // Keep last 10 entries
   }, []);
+
+  // Shared retry logic for AlreadyStreaming errors.
+  // Both the stream event handler and catch handler use identical backoff.
+  const scheduleAlreadyStreamingRetry = useCallback((logPrefix: string, onRetry: () => void) => {
+    setIsConnecting(false);
+    retryAttemptRef.current += 1;
+    const nextAttempt = retryAttemptRef.current;
+    const baseDelay = Math.min(Math.pow(2, nextAttempt), 30);
+    const retryDelaySeconds = baseDelay * (0.5 + Math.random() * 0.5);
+
+    console.warn(
+      `[DesktopStreamViewer] ${logPrefix} (attempt ${nextAttempt}), will retry in ${retryDelaySeconds.toFixed(1)} seconds...`,
+    );
+
+    setRetryAttemptDisplay(nextAttempt);
+    setRetryCountdown(retryDelaySeconds);
+
+    if (retryIntervalRef.current) clearInterval(retryIntervalRef.current);
+    if (retryTimeoutRef.current) clearTimeout(retryTimeoutRef.current);
+
+    retryIntervalRef.current = setInterval(() => {
+      setRetryCountdown((prev) => {
+        if (prev === null || prev <= 1) {
+          if (retryIntervalRef.current) clearInterval(retryIntervalRef.current);
+          retryIntervalRef.current = null;
+          return null;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    retryTimeoutRef.current = setTimeout(() => {
+      retryTimeoutRef.current = null;
+      console.log(`[DesktopStreamViewer] ${logPrefix} - retrying now (attempt ${nextAttempt})`);
+      setRetryCountdown(null);
+      onRetry();
+    }, retryDelaySeconds * 1000);
+  }, []);
+
   // Quality mode: video or screenshot-based fallback
   // - 'video': 60fps video over WebSocket (default)
   // - 'screenshot': Screenshot-based polling (for low bandwidth)
@@ -247,6 +307,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   const lastTapTimeRef = useRef<number>(0);
   const touchStartTimeRef = useRef<number>(0); // Track when touch started (for tap vs drag detection)
   const touchMovedRef = useRef<boolean>(false); // Track if finger moved significantly during touch
+  const lastTouchEndTimeRef = useRef<number>(0); // Track when last touch ended (to suppress synthetic mouse events)
   const [isDragging, setIsDragging] = useState(false); // True when in double-tap-drag mode (mouse button held)
   const pendingClickTimeoutRef = useRef<NodeJS.Timeout | null>(null); // Pending single-tap click (for double-tap detection)
   // Trackpad mode constants
@@ -272,7 +333,19 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   const twoFingerGestureTypeRef = useRef<"undecided" | "pinch" | "scroll">(
     "undecided",
   ); // Track gesture type
-  const PINCH_VS_SCROLL_THRESHOLD = 30; // Pixels of distance change to classify as pinch vs scroll
+  // Debug info for two-finger gestures (displayed in stats panel)
+  const twoFingerDebugRef = useRef<{
+    gestureType: "undecided" | "pinch" | "scroll";
+    distanceChange: number;
+    centerMovement: number;
+    lastScrollDelta: { dx: number; dy: number };
+  }>({
+    gestureType: "undecided",
+    distanceChange: 0,
+    centerMovement: 0,
+    lastScrollDelta: { dx: 0, dy: 0 },
+  });
+  const PINCH_VS_SCROLL_THRESHOLD = 50; // Pixels of distance change to classify as pinch vs scroll (increased for better scroll detection)
   const SCROLL_SENSITIVITY = 2.0; // Multiplier for scroll speed
   const MIN_ZOOM = 1; // Minimum zoom (no zoom out beyond 1:1)
   const MAX_ZOOM = 5; // Maximum zoom level
@@ -325,6 +398,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
 
   // Clipboard sync state
   const lastRemoteClipboardHash = useRef<string>(""); // Track changes to avoid unnecessary writes
+  const lastAutoSyncedText = useRef<string>(""); // Track what remote→local auto-sync last wrote
   const [stats, setStats] = useState<StreamStats | null>(null);
 
   // Chart history for visualizing adaptive bitrate behavior (60 seconds of data)
@@ -554,13 +628,9 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     // Reset explicit close flag - we're starting a new connection
     isExplicitlyClosingRef.current = false;
 
-    // Generate fresh UUID for EVERY connection attempt to avoid stale state on reconnect
-    componentInstanceIdRef.current =
-      "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
-        const r = (Math.random() * 16) | 0;
-        const v = c === "x" ? r : (r & 0x3) | 0x8;
-        return v.toString(16);
-      });
+    // componentInstanceIdRef is generated once per component instance (in useRef initializer).
+    // It must NOT be regenerated on reconnect — the backend uses it to deduplicate clients
+    // and evict stale connections from the same viewer tab.
 
     setIsConnecting(true);
     setError(null);
@@ -595,8 +665,9 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         // Try to get from backend config
         try {
           const configResponse = await apiClient.v1ConfigList();
-          if (configResponse.data.streaming_bitrate_mbps) {
-            streamingBitrateMbps = configResponse.data.streaming_bitrate_mbps;
+          const configData = configResponse.data as typeof configResponse.data & { streaming_bitrate_mbps?: number };
+          if (configData.streaming_bitrate_mbps) {
+            streamingBitrateMbps = configData.streaming_bitrate_mbps;
             console.log(
               `[DesktopStreamViewer] Using configured bitrate: ${streamingBitrateMbps} Mbps`,
             );
@@ -677,7 +748,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         supportedFormats,
         [width, height],
         sessionId,
-        undefined, // clientUniqueId
+        componentInstanceIdRef.current, // clientUniqueId — enables server-side deduplication on reconnect
         account.user?.name, // userName for multi-player presence
         undefined, // avatarUrl
       );
@@ -798,40 +869,10 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
             errorMsg.includes("AlreadyStreaming") ||
             errorMsg.includes("already streaming")
           ) {
-            setIsConnecting(false);
-
-            // Progressive retry: 2s, 3s, 4s, 5s... (capped at 10s)
-            // Use ref to avoid closure issues with event listeners
-            retryAttemptRef.current += 1;
-            const nextAttempt = retryAttemptRef.current;
-            const retryDelaySeconds = Math.min(nextAttempt + 1, 10); // +1 to start at 2s
-
-            console.warn(
-              `[DesktopStreamViewer] AlreadyStreaming error from stream (attempt ${nextAttempt}), will retry in ${retryDelaySeconds} seconds...`,
+            scheduleAlreadyStreamingRetry(
+              "AlreadyStreaming error from stream",
+              () => reconnectRef.current(1000, "Reconnecting..."),
             );
-
-            setRetryAttemptDisplay(nextAttempt);
-            setRetryCountdown(retryDelaySeconds);
-
-            // Update countdown every second
-            const countdownInterval = setInterval(() => {
-              setRetryCountdown((prev) => {
-                if (prev === null || prev <= 1) {
-                  clearInterval(countdownInterval);
-                  return null;
-                }
-                return prev - 1;
-              });
-            }, 1000);
-
-            // Retry after delay
-            setTimeout(() => {
-              console.log(
-                `[DesktopStreamViewer] Retrying connection after AlreadyStreaming stream error (attempt ${nextAttempt})`,
-              );
-              setRetryCountdown(null);
-              reconnectRef.current(1000, "Reconnecting...");
-            }, retryDelaySeconds * 1000);
             return;
           }
 
@@ -1094,42 +1135,14 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         errorMsg.includes("AlreadyStreaming") ||
         errorMsg.includes("already streaming")
       ) {
-        setIsConnecting(false);
-
-        // Progressive retry: 2s, 3s, 4s, 5s... (capped at 10s)
-        // Use ref to avoid closure issues
-        retryAttemptRef.current += 1;
-        const nextAttempt = retryAttemptRef.current;
-        const retryDelaySeconds = Math.min(nextAttempt + 1, 10); // +1 to start at 2s
-
-        console.warn(
-          `[DesktopStreamViewer] AlreadyStreaming error detected (attempt ${nextAttempt}), will retry in ${retryDelaySeconds} seconds...`,
+        scheduleAlreadyStreamingRetry(
+          "AlreadyStreaming error detected",
+          () => {
+            setStatus("Reconnecting...");
+            setIsConnecting(true);
+            connectRef.current();
+          },
         );
-
-        setRetryAttemptDisplay(nextAttempt);
-        setRetryCountdown(retryDelaySeconds);
-
-        // Update countdown every second
-        const countdownInterval = setInterval(() => {
-          setRetryCountdown((prev) => {
-            if (prev === null || prev <= 1) {
-              clearInterval(countdownInterval);
-              return null;
-            }
-            return prev - 1;
-          });
-        }, 1000);
-
-        // Retry after delay
-        setTimeout(() => {
-          console.log(
-            `[DesktopStreamViewer] Retrying connection after AlreadyStreaming error (attempt ${nextAttempt})`,
-          );
-          setRetryCountdown(null);
-          setStatus("Reconnecting...");
-          setIsConnecting(true);
-          connectRef.current();
-        }, retryDelaySeconds * 1000);
         return;
       }
 
@@ -1877,6 +1890,9 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       console.log(
         "[DesktopStreamViewer] Component unmounting, calling disconnect()",
       );
+      // Clean up retry timers to prevent state updates on unmounted component
+      if (retryTimeoutRef.current) clearTimeout(retryTimeoutRef.current);
+      if (retryIntervalRef.current) clearInterval(retryIntervalRef.current);
       disconnect();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2684,8 +2700,9 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         } else if (clipboardData.type === "text") {
           // Write text to browser/system clipboard
           await clipboardWriteText(clipboardData.data);
+          lastAutoSyncedText.current = clipboardData.data;
           console.log(
-            `[Clipboard] Auto-synced text from remote (${clipboardData.data.length} chars)`,
+            `[Clipboard] Auto-synced text from remote (${clipboardData.data.length} chars): "${clipboardData.data.substring(0, 40)}"`,
           );
         }
 
@@ -2709,16 +2726,15 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isConnected, sessionId]); // Don't include helixApi - it's not reactive
 
-  // Prevent page scroll on wheel events inside viewer (native listener with passive: false)
+  // Forward wheel events to remote desktop via WebSocketStream.
+  // No preventDefault needed — the container has overflow:hidden so there's nothing
+  // for the browser to scroll, and leaving the event unhandled lets Chrome's native
+  // swipe-to-navigate gesture (two-finger horizontal swipe for back/forward) work.
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
 
     const wheelHandler = (event: WheelEvent) => {
-      event.preventDefault();
-      event.stopPropagation();
-
-      // Send scroll via WebSocketStream
       const input =
         streamRef.current && "getInput" in streamRef.current
           ? (streamRef.current as WebSocketStream).getInput()
@@ -2726,9 +2742,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       input?.onMouseWheel(event);
     };
 
-    // CRITICAL: Use { passive: false } to allow preventDefault() on wheel events
-    // Chrome makes wheel events passive by default, which prevents preventDefault()
-    container.addEventListener("wheel", wheelHandler, { passive: false });
+    container.addEventListener("wheel", wheelHandler);
 
     return () => {
       container.removeEventListener("wheel", wheelHandler);
@@ -2786,9 +2800,9 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           rttMs: wsStats.rttMs,
           encoderLatencyMs: wsStats.encoderLatencyMs,
           isHighLatency: wsStats.isHighLatency,
-          batchingRatio: wsStats.batchingRatio,
-          avgBatchSize: wsStats.avgBatchSize,
-          batchesReceived: wsStats.batchesReceived,
+          batchingRatio: 0,
+          avgBatchSize: 0,
+          batchesReceived: 0,
           frameLatencyMs: wsStats.frameLatencyMs,
           adaptiveThrottleRatio: wsStats.adaptiveThrottleRatio,
           effectiveInputFps: wsStats.effectiveInputFps,
@@ -2954,6 +2968,13 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     (event: React.MouseEvent) => {
       event.preventDefault();
 
+      // In trackpad mode, ignore synthetic mouse events generated by the browser
+      // from touch input. Touch taps fire a mousemove at the tap coordinates,
+      // which would jump the virtual cursor to the physical tap position.
+      // Only suppress events arriving shortly after a touch ended — real mouse
+      // events from an external trackpad (e.g. Magic Keyboard) must still work.
+      if (touchMode === "trackpad" && Date.now() - lastTouchEndTimeRef.current < 500) return;
+
       // Update custom cursor position - must match input coordinate space
       // Input uses getStreamRect() which accounts for letterboxing, so custom cursor
       // must also be positioned relative to stream rect, not container
@@ -2983,7 +3004,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
 
       getInputHandler()?.onMouseMove(event.nativeEvent, getStreamRect());
     },
-    [getStreamRect, hasMouseMoved, getInputHandler],
+    [getStreamRect, hasMouseMoved, getInputHandler, touchMode],
   );
 
   const handleContextMenu = useCallback((event: React.MouseEvent) => {
@@ -3000,7 +3021,6 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   // - Two finger scroll: scroll
   const handleTouchStart = useCallback(
     (event: React.TouchEvent) => {
-      event.preventDefault();
       const handler = getInputHandler();
       const rect = getStreamRect();
       if (!handler) return;
@@ -3019,10 +3039,15 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           // Initialize cursor at center of stream if this is first touch
           if (!hasMouseMoved && containerRef.current) {
             const containerRect = containerRef.current.getBoundingClientRect();
-            setCursorPosition({
-              x: rect.x - containerRect.x + rect.width / 2,
-              y: rect.y - containerRect.y + rect.height / 2,
-            });
+            const centerX = rect.x - containerRect.x + rect.width / 2;
+            const centerY = rect.y - containerRect.y + rect.height / 2;
+            setCursorPosition({ x: centerX, y: centerY });
+            // Also sync the ref so sendCursorPositionToRemote() uses the correct
+            // position on first tap (before any drag has updated the ref)
+            cursorPositionRef.current = { x: centerX, y: centerY };
+            if (trackpadCursorRef.current) {
+              trackpadCursorRef.current.style.transform = `translate(${centerX}px, ${centerY}px)`;
+            }
             setHasMouseMoved(true);
           }
 
@@ -3102,39 +3127,6 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     ],
   );
 
-  // Calculate the visible viewport bounds in container coordinates
-  // When zoomed in, only a portion of the stream is visible
-  const calculateVisibleViewportBounds = useCallback(() => {
-    if (!containerRef.current) return null;
-    const containerRect = containerRef.current.getBoundingClientRect();
-
-    // The visible viewport is the container divided by zoom level, centered
-    // At zoom 2x, we see 50% of the content, centered in the container
-    const visibleWidth = containerRect.width / zoomLevel;
-    const visibleHeight = containerRect.height / zoomLevel;
-
-    // Pan offset shifts what's visible (in screen pixels, divided by zoom for content coords)
-    // The visible area center is at container center minus pan offset (adjusted for zoom)
-    const centerX = containerRect.width / 2;
-    const centerY = containerRect.height / 2;
-
-    // Convert pan offset to the visible region bounds
-    // panOffset is in screen pixels, so we need to account for zoom
-    const left = centerX - visibleWidth / 2 - panOffset.x / zoomLevel;
-    const top = centerY - visibleHeight / 2 - panOffset.y / zoomLevel;
-    const right = left + visibleWidth;
-    const bottom = top + visibleHeight;
-
-    return {
-      left,
-      top,
-      right,
-      bottom,
-      width: visibleWidth,
-      height: visibleHeight,
-    };
-  }, [zoomLevel, panOffset]);
-
   // Start edge-pan animation in a given direction
   // Uses requestAnimationFrame for smooth 60fps panning
   const startEdgePan = useCallback(
@@ -3145,11 +3137,20 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       }
 
       const animate = () => {
-        if (!containerRef.current) return;
+        if (!containerRef.current || !canvasDisplaySize) return;
 
         const containerRect = containerRef.current.getBoundingClientRect();
-        const maxPanX = (containerRect.width * (zoomLevel - 1)) / 2;
-        const maxPanY = (containerRect.height * (zoomLevel - 1)) / 2;
+        // With CSS-based zoom, max pan = (scaled canvas size - container size) / 2
+        const scaledCanvasWidth = canvasDisplaySize.width * zoomLevel;
+        const scaledCanvasHeight = canvasDisplaySize.height * zoomLevel;
+        const maxPanX = Math.max(
+          0,
+          (scaledCanvasWidth - containerRect.width) / 2,
+        );
+        const maxPanY = Math.max(
+          0,
+          (scaledCanvasHeight - containerRect.height) / 2,
+        );
 
         // Apply quadratic easing - intensity is 0-1, squared for smooth acceleration
         const easedIntensity = intensity * intensity;
@@ -3168,7 +3169,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
 
       edgePanAnimationRef.current = requestAnimationFrame(animate);
     },
-    [zoomLevel, EDGE_PAN_SPEED],
+    [zoomLevel, EDGE_PAN_SPEED, canvasDisplaySize],
   );
 
   // Stop any active edge-pan animation
@@ -3181,7 +3182,6 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
 
   const handleTouchMove = useCallback(
     (event: React.TouchEvent) => {
-      event.preventDefault();
       const handler = getInputHandler();
       const rect = getStreamRect();
       if (!handler) return;
@@ -3261,57 +3261,55 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
 
         lastTouchPosRef.current = { x: touch.clientX, y: touch.clientY };
 
-        // Edge-pan: when zoomed in and cursor reaches edge of visible viewport, auto-pan
+        // Edge-pan: when zoomed in and cursor reaches edge of container, auto-pan
+        // Use container edges directly since cursor position (newX/newY) is in
+        // container-relative coordinates
         if (zoomLevel > 1) {
-          const viewportBounds = calculateVisibleViewportBounds();
-          if (viewportBounds) {
-            // Check if cursor is in edge zone of the visible viewport
-            const distFromLeft = newX - viewportBounds.left;
-            const distFromRight = viewportBounds.right - newX;
-            const distFromTop = newY - viewportBounds.top;
-            const distFromBottom = viewportBounds.bottom - newY;
+          const containerRect = containerRef.current.getBoundingClientRect();
 
-            let panDirection = { x: 0, y: 0 };
-            let maxIntensity = 0;
+          // Distance from container edges (cursor is container-relative)
+          const distFromLeft = newX;
+          const distFromRight = containerRect.width - newX;
+          const distFromTop = newY;
+          const distFromBottom = containerRect.height - newY;
 
-            // Check each edge and calculate pan direction/intensity
-            if (distFromLeft < EDGE_PAN_ZONE_PX && distFromLeft >= 0) {
-              panDirection.x = 1; // Pan right (move view left)
-              maxIntensity = Math.max(
-                maxIntensity,
-                1 - distFromLeft / EDGE_PAN_ZONE_PX,
-              );
-            } else if (distFromRight < EDGE_PAN_ZONE_PX && distFromRight >= 0) {
-              panDirection.x = -1; // Pan left (move view right)
-              maxIntensity = Math.max(
-                maxIntensity,
-                1 - distFromRight / EDGE_PAN_ZONE_PX,
-              );
-            }
+          let panDirection = { x: 0, y: 0 };
+          let maxIntensity = 0;
 
-            if (distFromTop < EDGE_PAN_ZONE_PX && distFromTop >= 0) {
-              panDirection.y = 1; // Pan down (move view up)
-              maxIntensity = Math.max(
-                maxIntensity,
-                1 - distFromTop / EDGE_PAN_ZONE_PX,
-              );
-            } else if (
-              distFromBottom < EDGE_PAN_ZONE_PX &&
-              distFromBottom >= 0
-            ) {
-              panDirection.y = -1; // Pan up (move view down)
-              maxIntensity = Math.max(
-                maxIntensity,
-                1 - distFromBottom / EDGE_PAN_ZONE_PX,
-              );
-            }
+          // Check each edge and calculate pan direction/intensity
+          if (distFromLeft < EDGE_PAN_ZONE_PX && distFromLeft >= 0) {
+            panDirection.x = 1; // Pan right (reveal content on left)
+            maxIntensity = Math.max(
+              maxIntensity,
+              1 - distFromLeft / EDGE_PAN_ZONE_PX,
+            );
+          } else if (distFromRight < EDGE_PAN_ZONE_PX && distFromRight >= 0) {
+            panDirection.x = -1; // Pan left (reveal content on right)
+            maxIntensity = Math.max(
+              maxIntensity,
+              1 - distFromRight / EDGE_PAN_ZONE_PX,
+            );
+          }
 
-            // Start or stop edge pan based on whether cursor is in edge zone
-            if (panDirection.x !== 0 || panDirection.y !== 0) {
-              startEdgePan(panDirection, maxIntensity);
-            } else {
-              stopEdgePan();
-            }
+          if (distFromTop < EDGE_PAN_ZONE_PX && distFromTop >= 0) {
+            panDirection.y = 1; // Pan down (reveal content on top)
+            maxIntensity = Math.max(
+              maxIntensity,
+              1 - distFromTop / EDGE_PAN_ZONE_PX,
+            );
+          } else if (distFromBottom < EDGE_PAN_ZONE_PX && distFromBottom >= 0) {
+            panDirection.y = -1; // Pan up (reveal content on bottom)
+            maxIntensity = Math.max(
+              maxIntensity,
+              1 - distFromBottom / EDGE_PAN_ZONE_PX,
+            );
+          }
+
+          // Start or stop edge pan based on whether cursor is in edge zone
+          if (panDirection.x !== 0 || panDirection.y !== 0) {
+            startEdgePan(panDirection, maxIntensity);
+          } else {
+            stopEdgePan();
           }
         } else {
           // Not zoomed - ensure edge pan is stopped
@@ -3355,6 +3353,10 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           centerDx * centerDx + centerDy * centerDy,
         );
 
+        // Update debug info for stats panel (both ref and state)
+        twoFingerDebugRef.current.distanceChange = Math.round(distanceChange);
+        twoFingerDebugRef.current.centerMovement = Math.round(centerMovement);
+
         // Determine gesture type on first significant move
         if (twoFingerGestureTypeRef.current === "undecided") {
           // If distance between fingers changes significantly, it's a pinch
@@ -3367,13 +3369,26 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           }
         }
 
+        // Update debug gesture type
+        twoFingerDebugRef.current.gestureType =
+          twoFingerGestureTypeRef.current;
+
+        // Update state for stats panel display
+        setTwoFingerDebug({ ...twoFingerDebugRef.current });
+
         // Handle scroll gesture - send scroll events to remote
         if (twoFingerGestureTypeRef.current === "scroll") {
+          const scrollDx = -centerDx * SCROLL_SENSITIVITY;
+          const scrollDy = centerDy * SCROLL_SENSITIVITY;
+          // Update debug scroll delta
+          twoFingerDebugRef.current.lastScrollDelta = {
+            dx: Math.round(scrollDx),
+            dy: Math.round(scrollDy),
+          };
+          // Update state for stats panel
+          setTwoFingerDebug({ ...twoFingerDebugRef.current });
           // Send scroll wheel events to remote desktop
-          handler.sendMouseWheel?.(
-            -centerDx * SCROLL_SENSITIVITY, // Invert X for natural scrolling
-            centerDy * SCROLL_SENSITIVITY, // Y is not inverted (swipe up = scroll up)
-          );
+          handler.sendMouseWheel?.(scrollDx, scrollDy);
           lastPinchCenterRef.current = { x: centerX, y: centerY };
           return;
         }
@@ -3392,14 +3407,27 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           setZoomLevel(newZoom);
 
           // Pan while pinching (move the view with the gesture)
-          if (lastPinchCenterRef.current && containerRef.current) {
+          if (
+            lastPinchCenterRef.current &&
+            containerRef.current &&
+            canvasDisplaySize
+          ) {
             const panDx = centerX - lastPinchCenterRef.current.x;
             const panDy = centerY - lastPinchCenterRef.current.y;
 
             // Update pan offset, clamping to bounds
+            // With CSS-based zoom, max pan = (scaled canvas size - container size) / 2
             const containerRect = containerRef.current.getBoundingClientRect();
-            const maxPanX = (containerRect.width * (newZoom - 1)) / 2;
-            const maxPanY = (containerRect.height * (newZoom - 1)) / 2;
+            const scaledCanvasWidth = canvasDisplaySize.width * newZoom;
+            const scaledCanvasHeight = canvasDisplaySize.height * newZoom;
+            const maxPanX = Math.max(
+              0,
+              (scaledCanvasWidth - containerRect.width) / 2,
+            );
+            const maxPanY = Math.max(
+              0,
+              (scaledCanvasHeight - containerRect.height) / 2,
+            );
 
             setPanOffset((prev) => ({
               x: Math.max(-maxPanX, Math.min(maxPanX, prev.x + panDx)),
@@ -3427,19 +3455,22 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       zoomLevel,
       MIN_ZOOM,
       MAX_ZOOM,
-      calculateVisibleViewportBounds,
       startEdgePan,
       stopEdgePan,
       EDGE_PAN_ZONE_PX,
+      canvasDisplaySize,
     ],
   );
 
   const handleTouchEnd = useCallback(
     (event: React.TouchEvent) => {
-      event.preventDefault();
       const handler = getInputHandler();
       const rect = getStreamRect();
       if (!handler) return;
+
+      // Record when touch ended so handleMouseMove can suppress synthetic
+      // mouse events that the browser fires after touch interactions
+      lastTouchEndTimeRef.current = Date.now();
 
       const now = Date.now();
       const touchDuration = now - touchStartTimeRef.current;
@@ -3449,13 +3480,15 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       // In trackpad mode, handle gestures
       if (touchMode === "trackpad") {
         // Helper to send current cursor position to remote before clicks
+        // Uses cursorPositionRef (not state) to get the latest position synchronously
         const sendCursorPositionToRemote = () => {
           if (!containerRef.current) return;
           const containerRect = containerRef.current.getBoundingClientRect();
           const streamOffsetX = rect.x - containerRect.x;
           const streamOffsetY = rect.y - containerRect.y;
-          const streamRelativeX = cursorPosition.x - streamOffsetX;
-          const streamRelativeY = cursorPosition.y - streamOffsetY;
+          const currentPos = cursorPositionRef.current;
+          const streamRelativeX = currentPos.x - streamOffsetX;
+          const streamRelativeY = currentPos.y - streamOffsetY;
           const streamX = (streamRelativeX / rect.width) * width;
           const streamY = (streamRelativeY / rect.height) * height;
           handler.sendMousePosition?.(streamX, streamY, width, height);
@@ -3592,7 +3625,6 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       getInputHandler,
       touchMode,
       isDragging,
-      cursorPosition,
       width,
       height,
       stopEdgePan,
@@ -3601,10 +3633,11 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
 
   const handleTouchCancel = useCallback(
     (event: React.TouchEvent) => {
-      event.preventDefault();
       const handler = getInputHandler();
       const rect = getStreamRect();
       if (!handler) return;
+
+      lastTouchEndTimeRef.current = Date.now();
 
       // Cancel any pending click
       if (pendingClickTimeoutRef.current) {
@@ -3694,6 +3727,99 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     // Track last Escape press for double-Escape reset
     let lastEscapeTime = 0;
 
+    // Track when a native paste event was handled so we can suppress the subsequent
+    // bare 'v' keydown that macOS WKWebView fires after consuming the Cmd modifier.
+    let pasteJustHandled = false;
+
+    // Sync clipboard content to remote and forward Ctrl+V keystroke.
+    // Defined at useEffect scope so both handleKeyDown and handlePaste can use it.
+    const syncAndPaste = (payload: TypesClipboardData, useShift: boolean) => {
+      const sessionId = sessionIdRef.current;
+      console.log(
+        `[Paste DEBUG] syncAndPaste start: sessionId="${sessionId}" payload.type="${payload.type}" payload.data="${(payload.data || "").substring(0, 60)}"`,
+      );
+      const apiClient = helixApi.getApiClient();
+      apiClient
+        .v1ExternalAgentsClipboardCreate(sessionId, payload)
+        .then(() => {
+          console.log(
+            `[Paste DEBUG] syncAndPaste API success — sending Ctrl+${useShift ? "Shift+" : ""}V to remote`,
+          );
+          showClipboardToast("Pasted", "success");
+
+          // Forward Ctrl+V to remote (translate Cmd to Ctrl for Linux)
+          // - User pressed Ctrl/Cmd+V → send Ctrl+V (for Zed, most GUI apps)
+          // - User pressed Ctrl/Cmd+Shift+V → send Ctrl+Shift+V (for terminals)
+          //
+          // Send the full key sequence: LeftCtrl down → V down → V up → LeftCtrl up.
+          // Sending only a synthetic event with ctrlKey:true is not sufficient — the
+          // remote backend requires the modifier key to be pressed as a real key event.
+          const input = getInput();
+          if (input) {
+            const ctrlDown = new KeyboardEvent("keydown", {
+              code: "ControlLeft",
+              key: "Control",
+              ctrlKey: true,
+              shiftKey: useShift,
+              altKey: false,
+              metaKey: false,
+              bubbles: true,
+              cancelable: true,
+            });
+            input.onKeyDown(ctrlDown);
+
+            const pasteKeyDown = new KeyboardEvent("keydown", {
+              code: "KeyV",
+              key: useShift ? "V" : "v",
+              ctrlKey: true,
+              shiftKey: useShift,
+              altKey: false,
+              metaKey: false,
+              bubbles: true,
+              cancelable: true,
+            });
+            input.onKeyDown(pasteKeyDown);
+
+            const pasteKeyUp = new KeyboardEvent("keyup", {
+              code: "KeyV",
+              key: useShift ? "V" : "v",
+              ctrlKey: true,
+              shiftKey: useShift,
+              altKey: false,
+              metaKey: false,
+              bubbles: true,
+              cancelable: true,
+            });
+            input.onKeyUp(pasteKeyUp);
+
+            const ctrlUp = new KeyboardEvent("keyup", {
+              code: "ControlLeft",
+              key: "Control",
+              ctrlKey: false,
+              shiftKey: useShift,
+              altKey: false,
+              metaKey: false,
+              bubbles: true,
+              cancelable: true,
+            });
+            input.onKeyUp(ctrlUp);
+
+            console.log(
+              `[Paste DEBUG] Ctrl+${useShift ? "Shift+" : ""}V key sequence sent to remote desktop`,
+            );
+          } else {
+            console.warn(
+              "[Clipboard] Paste keystroke detected but no input handler available",
+            );
+          }
+        })
+        .catch((err) => {
+          console.error("[Clipboard] Failed to sync clipboard:", err);
+          const errMsg = err instanceof Error ? err.message : String(err);
+          showClipboardToast(`Paste failed: ${errMsg}`, "error");
+        });
+    };
+
     const handleKeyDown = (event: KeyboardEvent) => {
       // Debug: Update visual debug indicator for iPad troubleshooting
       setDebugKeyEvent(
@@ -3714,6 +3840,21 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       // We must NOT forward these to the remote - the remote handles repeat via its own mechanisms.
       // Forwarding browser repeats causes key flooding and stuck key issues.
       if (event.repeat) {
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
+
+      // On macOS, after a native paste event is handled, WKWebView fires a bare 'v' keydown
+      // without metaKey (the Cmd modifier was consumed by the native responder chain).
+      // Suppress it so we don't send a stray 'v' to the remote.
+      if (event.code === "KeyV") {
+        console.log(
+          `[Paste DEBUG] KeyV keydown: metaKey=${event.metaKey} ctrlKey=${event.ctrlKey} shiftKey=${event.shiftKey} altKey=${event.altKey} pasteJustHandled=${pasteJustHandled} key="${event.key}"`,
+        );
+      }
+      if (pasteJustHandled && event.code === "KeyV" && !event.metaKey && !event.ctrlKey) {
+        console.log("[Paste DEBUG] Suppressing bare 'v' keydown after native paste");
         event.preventDefault();
         event.stopPropagation();
         return;
@@ -3758,7 +3899,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         return; // Don't preventDefault, let browser copy the selected text
       }
 
-      if (isCopyKeystroke && sessionId) {
+      if (isCopyKeystroke && sessionIdRef.current) {
         // Send the copy keystroke to remote first (translate Cmd to Ctrl for Linux)
         const input = getInput();
         if (input) {
@@ -3766,6 +3907,19 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
             "[Clipboard] Copy keystroke detected, forwarding Ctrl+C to remote",
           );
           // Forward Ctrl+C to remote (Linux uses Ctrl, not Cmd)
+          // Send full sequence: LeftCtrl down → C down → C up → LeftCtrl up
+          const ctrlDownForCopy = new KeyboardEvent("keydown", {
+            code: "ControlLeft",
+            key: "Control",
+            ctrlKey: true,
+            shiftKey: event.shiftKey,
+            altKey: false,
+            metaKey: false,
+            bubbles: true,
+            cancelable: true,
+          });
+          input.onKeyDown(ctrlDownForCopy);
+
           const ctrlCDown = new KeyboardEvent("keydown", {
             code: "KeyC",
             key: "c",
@@ -3789,7 +3943,19 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
             cancelable: true,
           });
           input.onKeyUp(ctrlCUp);
-          console.log("[Clipboard] Ctrl+C sent to remote desktop");
+
+          const ctrlUpForCopy = new KeyboardEvent("keyup", {
+            code: "ControlLeft",
+            key: "Control",
+            ctrlKey: false,
+            shiftKey: event.shiftKey,
+            altKey: false,
+            metaKey: false,
+            bubbles: true,
+            cancelable: true,
+          });
+          input.onKeyUp(ctrlUpForCopy);
+          console.log("[Clipboard] Ctrl+C key sequence sent to remote desktop");
         } else {
           console.warn(
             "[Clipboard] Copy keystroke detected but no input handler available",
@@ -3801,7 +3967,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           try {
             const apiClient = helixApi.getApiClient();
             const response =
-              await apiClient.v1ExternalAgentsClipboardDetail(sessionId);
+              await apiClient.v1ExternalAgentsClipboardDetail(sessionIdRef.current);
             const clipboardData: TypesClipboardData = response.data;
 
             if (!clipboardData || !clipboardData.type || !clipboardData.data) {
@@ -3865,14 +4031,14 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         event.metaKey && event.shiftKey && event.code === "KeyV";
       const isPasteKeystroke = isCtrlV || isCmdV || isCtrlShiftV || isCmdShiftV;
 
-      if (isPasteKeystroke && sessionId) {
+      if (isPasteKeystroke && sessionIdRef.current) {
         event.preventDefault();
         event.stopPropagation();
 
         // Remember which keystroke the user pressed so we can forward the same one
         const userPressedShift = event.shiftKey;
         console.log(
-          `[Clipboard] Paste keystroke detected (shift=${userPressedShift}), syncing local → remote`,
+          `[Paste DEBUG] Paste keystroke detected: shift=${userPressedShift} isInIframe=${isInIframe} lastAutoSynced="${lastAutoSyncedText.current.substring(0, 60)}"`,
         );
 
         // Skip if clipboard API is not available and not in iframe
@@ -3886,6 +4052,9 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         // navigator.clipboard.read() is blocked in WKWebView iframes.
         if (isInIframe) {
           clipboardReadText().then((text) => {
+            console.log(
+              `[Paste DEBUG] clipboardReadText returned: "${text?.substring(0, 60)}" (length=${text?.length}) lastAutoSynced="${lastAutoSyncedText.current.substring(0, 60)}"`,
+            );
             if (!text) {
               console.warn(
                 "[Clipboard] Empty clipboard from parent, ignoring paste",
@@ -3893,7 +4062,16 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
               showClipboardToast("Clipboard is empty", "error");
               return;
             }
-            syncAndPaste({ type: "text", data: text });
+            if (text === lastAutoSyncedText.current) {
+              // Auto-sync overwrote local clipboard with remote content.
+              // Remote already has this text — skip the re-upload, just send Ctrl+V.
+              console.log(
+                "[Paste DEBUG] Local clipboard matches auto-sync content — skipping upload, sending Ctrl+V directly",
+              );
+              syncAndPaste({ type: "text", data: text }, userPressedShift);
+              return;
+            }
+            syncAndPaste({ type: "text", data: text }, userPressedShift);
           });
         } else {
           // Handle clipboard sync asynchronously (don't block keystroke processing)
@@ -3930,7 +4108,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
                         `[Clipboard] Encoded to base64, length: ${base64.length}`,
                       );
                       clipboardPayload = { type: "image", data: base64 };
-                      syncAndPaste(clipboardPayload);
+                      syncAndPaste(clipboardPayload, userPressedShift);
                     });
                   })
                   .catch((err) => {
@@ -3943,8 +4121,11 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
               } else if (item.types.includes("text/plain")) {
                 item.getType("text/plain").then((blob) => {
                   blob.text().then((text) => {
+                    console.log(
+                      `[Paste DEBUG] navigator.clipboard.read text: "${text?.substring(0, 60)}" (length=${text?.length}) lastAutoSynced="${lastAutoSyncedText.current.substring(0, 60)}"`,
+                    );
                     clipboardPayload = { type: "text", data: text };
-                    syncAndPaste(clipboardPayload);
+                    syncAndPaste(clipboardPayload, userPressedShift);
                   });
                 });
               } else {
@@ -3965,68 +4146,17 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
             });
         }
 
-        // Helper function to sync clipboard and forward keystroke
-        const syncAndPaste = (payload: TypesClipboardData) => {
-          const apiClient = helixApi.getApiClient();
-          apiClient
-            .v1ExternalAgentsClipboardCreate(sessionId, payload)
-            .then(() => {
-              console.log(`[Clipboard] Synced ${payload.type} to remote`);
-              showClipboardToast("Pasted", "success");
-
-              // Forward Ctrl+V to remote (translate Cmd to Ctrl for Linux)
-              // - User pressed Ctrl/Cmd+V → send Ctrl+V (for Zed, most GUI apps)
-              // - User pressed Ctrl/Cmd+Shift+V → send Ctrl+Shift+V (for terminals)
-              const input = getInput();
-              if (input) {
-                const pasteKeyDown = new KeyboardEvent("keydown", {
-                  code: "KeyV",
-                  key: userPressedShift ? "V" : "v",
-                  ctrlKey: true,
-                  shiftKey: userPressedShift,
-                  altKey: false,
-                  metaKey: false,
-                  bubbles: true,
-                  cancelable: true,
-                });
-                input.onKeyDown(pasteKeyDown);
-
-                const pasteKeyUp = new KeyboardEvent("keyup", {
-                  code: "KeyV",
-                  key: userPressedShift ? "V" : "v",
-                  ctrlKey: true,
-                  shiftKey: userPressedShift,
-                  altKey: false,
-                  metaKey: false,
-                  bubbles: true,
-                  cancelable: true,
-                });
-                input.onKeyUp(pasteKeyUp);
-
-                console.log(
-                  `[Clipboard] Ctrl+${userPressedShift ? "Shift+" : ""}V sent to remote desktop`,
-                );
-              } else {
-                console.warn(
-                  "[Clipboard] Paste keystroke detected but no input handler available",
-                );
-              }
-            })
-            .catch((err) => {
-              console.error("[Clipboard] Failed to sync clipboard:", err);
-              const errMsg = err instanceof Error ? err.message : String(err);
-              showClipboardToast(`Paste failed: ${errMsg}`, "error");
-            });
-        };
-
         return; // Don't fall through to default handler
       }
 
       console.log(
-        "[DesktopStreamViewer] KeyDown captured:",
-        event.key,
-        event.code,
+        `[DesktopStreamViewer] KeyDown captured: key="${event.key}" code="${event.code}" metaKey=${event.metaKey} ctrlKey=${event.ctrlKey} shiftKey=${event.shiftKey}`,
       );
+      if (event.code === "KeyV") {
+        console.log(
+          `[Paste DEBUG] KeyV FALLING THROUGH TO REMOTE — pasteJustHandled=${pasteJustHandled} metaKey=${event.metaKey} ctrlKey=${event.ctrlKey}`,
+        );
+      }
       getInput()?.onKeyDown(event);
       // Prevent browser default behavior (e.g., Tab moving focus, Ctrl+W closing tab)
       // This ensures all keys are passed through to the remote desktop
@@ -4076,6 +4206,13 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         return;
       }
 
+      // Also suppress the bare 'v' keyup that follows a native paste on macOS
+      if (pasteJustHandled && event.code === "KeyV" && !event.metaKey && !event.ctrlKey) {
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
+
       console.log(
         "[DesktopStreamViewer] KeyUp captured:",
         event.key,
@@ -4097,11 +4234,66 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       }
 
       const inputEvent = event as InputEvent;
+      console.log(
+        `[Paste DEBUG] beforeinput on container: inputType="${inputEvent.inputType}" data="${inputEvent.data}" isComposing=${inputEvent.isComposing}`,
+      );
+
       const input = getInput();
       if (input && input.onBeforeInput(inputEvent)) {
         // Handler consumed the event - prevent default to avoid duplicate input
         event.preventDefault();
       }
+    };
+
+    // Handle native paste events (macOS Edit Menu → Cmd+V fires a 'paste' DOM event,
+    // not a keydown with metaKey=true). This is the primary cause of the "first paste
+    // sends bare 'v'" bug: the OS consumes the Cmd modifier, fires a paste event, then
+    // fires a keydown for 'v' without metaKey. We intercept the paste event here and
+    // set pasteJustHandled so the subsequent bare 'v' keydown/keyup are suppressed.
+    const handlePaste = (event: ClipboardEvent) => {
+      const activeEl = document.activeElement;
+      console.log(
+        `[Paste DEBUG] paste event fired. activeElement=${activeEl?.tagName}#${activeEl?.id}.${activeEl?.className} isContainer=${activeEl === container} hasSession=${!!sessionIdRef.current} clipboardDataTypes=${event.clipboardData ? Array.from(event.clipboardData.types).join(",") : "null"}`,
+      );
+
+      // Only handle when our container is focused
+      if (document.activeElement !== container) {
+        console.log("[Paste DEBUG] Ignoring paste — container not focused");
+        return;
+      }
+      if (!sessionIdRef.current) {
+        console.log("[Paste DEBUG] Ignoring paste — no sessionId");
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+
+      // Mark that we handled a paste so the subsequent bare 'v' keydown can be suppressed
+      pasteJustHandled = true;
+      setTimeout(() => {
+        pasteJustHandled = false;
+      }, 200);
+
+      console.log(
+        "[Clipboard] Native paste event intercepted, syncing local → remote",
+      );
+
+      // event.clipboardData is available synchronously for trusted paste events
+      const text = event.clipboardData?.getData("text/plain");
+      if (text) {
+        syncAndPaste({ type: "text", data: text }, false);
+        return;
+      }
+
+      // No text in clipboardData — fall back to async read (image or empty)
+      clipboardReadText().then((clipText) => {
+        if (!clipText) {
+          showClipboardToast("Clipboard is empty", "error");
+          return;
+        }
+        syncAndPaste({ type: "text", data: clipText }, false);
+      });
     };
 
     // Reset input state when window regains focus (prevents stuck modifiers after Alt+Tab)
@@ -4117,12 +4309,16 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     container.addEventListener("keyup", handleKeyUp);
     container.addEventListener("beforeinput", handleBeforeInput);
     window.addEventListener("focus", handleWindowFocus);
+    // Listen on document to catch native paste events (macOS Edit Menu Cmd+V fires
+    // a 'paste' DOM event rather than a keydown with metaKey=true)
+    document.addEventListener("paste", handlePaste);
 
     return () => {
       container.removeEventListener("keydown", handleKeyDown);
       container.removeEventListener("keyup", handleKeyUp);
       container.removeEventListener("beforeinput", handleBeforeInput);
       window.removeEventListener("focus", handleWindowFocus);
+      document.removeEventListener("paste", handlePaste);
     };
   }, [isConnected, resetInputState]);
 
@@ -4234,6 +4430,8 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         WebkitTouchCallout: "none",
         WebkitUserSelect: "none",
         userSelect: "none",
+        // Clip zoomed content that extends beyond container bounds
+        overflow: "hidden",
         // Cursor is hidden only on the canvas element, not the container
         // This ensures the cursor is visible in the black letterbox/pillarbox bars
         // Fallback height for iOS when dvh isn't supported
@@ -4867,19 +5065,24 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
         onTouchCancel={handleTouchCancel}
-        onSelectStart={(e) => e.preventDefault()}
         onDragStart={(e) => e.preventDefault()}
         style={{
-          // Use calculated dimensions to maintain aspect ratio
-          // Canvas doesn't support objectFit like video, so we calculate size manually
-          width: canvasDisplaySize ? `${canvasDisplaySize.width}px` : "100%",
-          height: canvasDisplaySize ? `${canvasDisplaySize.height}px` : "100%",
-          // Center the canvas within the container, with pinch-zoom and pan transform
+          userSelect: "none",
+          // Use calculated dimensions to maintain aspect ratio, scaled by zoom level
+          // By scaling CSS dimensions (not CSS transform), the browser renders more pixels
+          // from the canvas's internal buffer, giving access to native resolution detail
+          width: canvasDisplaySize
+            ? `${canvasDisplaySize.width * zoomLevel}px`
+            : "100%",
+          height: canvasDisplaySize
+            ? `${canvasDisplaySize.height * zoomLevel}px`
+            : "100%",
+          // Center the canvas within the container, with pan offset for navigation
           position: "absolute",
           left: "50%",
           top: "50%",
-          // Order: translate to center, then apply zoom, then apply pan offset
-          transform: `translate(-50%, -50%) scale(${zoomLevel}) translate(${panOffset.x / zoomLevel}px, ${panOffset.y / zoomLevel}px)`,
+          // Only centering and pan - no scale transform (zoom is via CSS dimensions)
+          transform: `translate(calc(-50% + ${panOffset.x}px), calc(-50% + ${panOffset.y}px))`,
           transformOrigin: "center center",
           backgroundColor: "#000",
           cursor: nativeCursorStyle, // Use native cursor (custom image or CSS name from server)
@@ -4888,13 +5091,18 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           // In screenshot mode: transparent but handles input (screenshot overlays on top)
           display: "block",
           // Transparent in screenshot mode so overlays are visible, but still captures input
-          opacity: qualityMode === "video" ? 1 : 0,
+          // On mobile, use visibility instead of opacity:0 to avoid allocating
+          // a GPU compositing layer for a fully transparent canvas
+          ...(qualityMode === "video"
+            ? { opacity: 1, visibility: "visible" as const }
+            : isMobileOrTablet()
+              ? { visibility: "hidden" as const }
+              : { opacity: 0 }),
           zIndex: 20,
           // Prevent browser from handling touch gestures (no scroll, pan, zoom)
           // This ensures all touch events go to our handlers
           touchAction: "none",
           // Prevent text selection on double-click in Safari iPad
-          userSelect: "none",
           WebkitUserSelect: "none",
           WebkitTouchCallout: "none",
         }}
@@ -4913,19 +5121,21 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           src={screenshotUrl}
           alt="Remote Desktop Screenshot"
           style={{
-            width: "100%",
-            height: "100%",
+            // Scale dimensions by zoom level for sharper rendering (same as canvas)
+            width: canvasDisplaySize
+              ? `${canvasDisplaySize.width * zoomLevel}px`
+              : "100%",
+            height: canvasDisplaySize
+              ? `${canvasDisplaySize.height * zoomLevel}px`
+              : "100%",
             position: "absolute",
-            left: 0,
-            top: 0,
+            left: "50%",
+            top: "50%",
             objectFit: "contain",
             pointerEvents: "none", // Allow clicks to pass through to canvas for input
             zIndex: 10, // Above canvas but below UI elements
-            // Apply same pinch-zoom and pan as canvas
-            transform:
-              zoomLevel > 1
-                ? `scale(${zoomLevel}) translate(${panOffset.x / zoomLevel}px, ${panOffset.y / zoomLevel}px)`
-                : undefined,
+            // Only centering and pan - no scale transform (zoom is via CSS dimensions)
+            transform: `translate(calc(-50% + ${panOffset.x}px), calc(-50% + ${panOffset.y}px))`,
             transformOrigin: "center center",
           }}
         />
@@ -4959,7 +5169,8 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
               left: 0,
               top: 0,
               transform: `translate(${cursorPosition.x}px, ${cursorPosition.y}px)`,
-              willChange: "transform",
+              // willChange creates a GPU compositing layer — skip on mobile to reduce memory
+              ...(isMobileOrTablet() ? {} : { willChange: "transform" as const }),
               pointerEvents: "none",
               zIndex: 1000,
             }}
@@ -5044,6 +5255,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           connectionLog={connectionLog}
           isConnected={isConnected}
           isConnecting={isConnecting}
+          twoFingerDebug={twoFingerDebug}
         />
       )}
 

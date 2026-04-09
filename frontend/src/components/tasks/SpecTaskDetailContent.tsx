@@ -49,8 +49,11 @@ import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import LinkIcon from "@mui/icons-material/Link";
 import ArchiveIcon from "@mui/icons-material/Archive";
 import AccountTree from "@mui/icons-material/AccountTree";
+import UndoIcon from "@mui/icons-material/Undo";
 import { TypesSpecTaskPriority, TypesSpecTaskStatus } from "../../api/api";
-import ExternalAgentDesktopViewer, { useSandboxState } from "../external-agent/ExternalAgentDesktopViewer";
+import ExternalAgentDesktopViewer, {
+  useSandboxState,
+} from "../external-agent/ExternalAgentDesktopViewer";
 import DiffViewer from "./DiffViewer";
 import { getCSRFToken } from "../../utils/csrf";
 import SpecTaskActionButtons from "./SpecTaskActionButtons";
@@ -73,11 +76,15 @@ import {
   useCloneGroups,
   useZedThreads,
   useSpecTasks,
+  useProjectLabels,
+  useAddLabel,
+  useRemoveLabel,
 } from "../../services/specTaskService";
 import {
   useGetProject,
   useGetProjectRepositories,
 } from "../../services/projectService";
+import { useMoveToBacklog } from "../../services/specTaskWorkflowService";
 import CloneTaskDialog from "../specTask/CloneTaskDialog";
 import AgentDropdown from "../agent/AgentDropdown";
 import CloneGroupProgressFull from "../specTask/CloneGroupProgress";
@@ -102,6 +109,18 @@ import {
   Wand2,
   Copy,
 } from "lucide-react";
+
+// Module-level set: tracks which task IDs have already had their spec auto-opened
+// in this SPA session. Persists across component unmount/remount so that navigating
+// back from the spec review page does not immediately redirect the user again.
+const AUTO_OPENED_KEY = "helix_auto_opened_spec_tasks";
+const getAutoOpenedSpecTasks = (): Set<string> =>
+  new Set(JSON.parse(sessionStorage.getItem(AUTO_OPENED_KEY) || "[]"));
+const addAutoOpenedSpecTask = (id: string) => {
+  const set = getAutoOpenedSpecTasks();
+  set.add(id);
+  sessionStorage.setItem(AUTO_OPENED_KEY, JSON.stringify([...set]));
+};
 
 interface SpecTaskDetailContentProps {
   taskId: string;
@@ -128,6 +147,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   const streaming = useStreaming();
   const apps = useApps();
   const updateSpecTask = useUpdateSpecTask();
+  const moveToBacklogMutation = useMoveToBacklog(taskId);
   const queryClient = useQueryClient();
   const router = useRouter();
   // Use md breakpoint (900px) to enable split view on tablets
@@ -143,6 +163,14 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     withDependsOn: true,
     enabled: !!task?.project_id,
   });
+
+  // Label state
+  const { data: projectLabels = [] } = useProjectLabels(
+    task?.project_id || "",
+  );
+  const addLabelMutation = useAddLabel();
+  const removeLabelMutation = useRemoveLabel();
+  const [labelInput, setLabelInput] = useState("");
 
   // Fetch zed threads for thread switching
   const { data: zedThreadsData } = useZedThreads(taskId);
@@ -245,6 +273,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
       return null;
     const sub = claudeSubscriptions?.[0];
     if (!sub) return null;
+    if (sub.credential_type === 'setup_token') return null; // Setup tokens don't expire
     return getTokenExpiryStatus(sub.access_token_expires_at);
   }, [task?.helix_app_id, apps.apps, claudeSubscriptions]);
 
@@ -272,7 +301,11 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     ) {
       return viewParam;
     }
-    return "desktop";
+    // On mobile (below md breakpoint / 900px), default to chat view
+    // since the desktop stream is less useful on small screens.
+    // This matches the breakpoint used for split-view switching (isBigScreen).
+    const isMobile = window.matchMedia("(max-width: 899.95px)").matches;
+    return isMobile ? "chat" : "desktop";
   };
   const [currentView, setCurrentView] = useState<
     "chat" | "desktop" | "changes" | "details"
@@ -331,6 +364,8 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isUploading, setIsUploading] = useState(false);
 
+  // (auto-open tracking is handled by sessionStorage so it persists across page refreshes)
+
   // Clone dialog state
   const [showCloneDialog, setShowCloneDialog] = useState(false);
   const [selectedCloneGroupId, setSelectedCloneGroupId] = useState<
@@ -342,7 +377,9 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   const [isArchiving, setIsArchiving] = useState(false);
 
   // Public design docs state
-  const [isPublicDesignDocs, setIsPublicDesignDocs] = useState(task?.public_design_docs ?? false);
+  const [isPublicDesignDocs, setIsPublicDesignDocs] = useState(
+    task?.public_design_docs ?? false,
+  );
   const [updatingPublic, setUpdatingPublic] = useState(false);
 
   // Sync public state when task data changes
@@ -354,7 +391,9 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
 
   const publicLink = `${window.location.origin}/spec-tasks/${taskId}/view`;
 
-  const handlePublicToggle = async (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handlePublicToggle = async (
+    event: React.ChangeEvent<HTMLInputElement>,
+  ) => {
     const newValue = event.target.checked;
     setUpdatingPublic(true);
     try {
@@ -362,9 +401,11 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
         public_design_docs: newValue,
       });
       setIsPublicDesignDocs(newValue);
-      snackbar.success(newValue ? 'Design docs are now public' : 'Design docs are now private');
+      snackbar.success(
+        newValue ? "Design docs are now public" : "Design docs are now private",
+      );
     } catch (err: any) {
-      snackbar.error(err.message || 'Failed to update visibility');
+      snackbar.error(err.message || "Failed to update visibility");
     } finally {
       setUpdatingPublic(false);
     }
@@ -373,9 +414,9 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   const copyPublicLink = async () => {
     try {
       await navigator.clipboard.writeText(publicLink);
-      snackbar.success('Link copied to clipboard!');
+      snackbar.success("Link copied to clipboard!");
     } catch (err) {
-      snackbar.error('Failed to copy link');
+      snackbar.error("Failed to copy link");
     }
   };
 
@@ -395,14 +436,18 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
 
   const currentTaskDependencies = useMemo(
     () =>
-      projectTasks.find((projectTask) => projectTask.id === task?.id)?.depends_on ||
+      projectTasks.find((projectTask) => projectTask.id === task?.id)
+        ?.depends_on ||
       task?.depends_on ||
       [],
     [projectTasks, task?.id, task?.depends_on],
   );
 
   const dependencyTaskLookup = useMemo(() => {
-    const tasksForLookup = [...dependencyTaskOptions, ...currentTaskDependencies];
+    const tasksForLookup = [
+      ...dependencyTaskOptions,
+      ...currentTaskDependencies,
+    ];
     return new Map(
       tasksForLookup
         .filter((projectTask) => !!projectTask.id)
@@ -414,7 +459,10 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     () =>
       editFormData.dependsOnTaskIds
         .map((taskDependencyId) => dependencyTaskLookup.get(taskDependencyId))
-        .filter((projectTask): projectTask is NonNullable<typeof projectTask> => !!projectTask),
+        .filter(
+          (projectTask): projectTask is NonNullable<typeof projectTask> =>
+            !!projectTask,
+        ),
     [editFormData.dependsOnTaskIds, dependencyTaskLookup],
   );
 
@@ -438,14 +486,35 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   // Check if task is archived/rejected - container is shut down so desktop view won't work
   const isTaskArchived = task?.archived;
 
+  // Check if task can be moved to backlog (not in backlog or queued)
+  const isQueued =
+    task?.status === "queued_implementation" ||
+    task?.status === "queued_spec_generation" ||
+    task?.status === "spec_approved";
+  const canMoveToBacklog =
+    task && !isQueued && task.status !== "backlog" && !isTaskArchived;
+
   // Thread selection state for switching between planning and implementation threads
-  const [selectedThreadSessionId, setSelectedThreadSessionId] = useState<string | null>(null);
+  const [selectedThreadSessionId, setSelectedThreadSessionId] = useState<
+    string | null
+  >(null);
 
   // Get the active session ID - keep it available for chat history even when task is completed
   const activeSessionId = selectedThreadSessionId || task?.planning_session_id;
 
   // Track sandbox/desktop state for stop/start buttons
-  const { isRunning: isDesktopRunning, isPaused: isDesktopPaused, isStarting: isDesktopStarting } = useSandboxState(activeSessionId || '');
+  const {
+    isRunning: isDesktopRunning,
+    isPaused: isDesktopPaused,
+    isStarting: isDesktopStarting,
+  } = useSandboxState(activeSessionId || "");
+
+  // When the task is queued for planning, the backend hasn't created the session yet (or the
+  // planning_session_id still points to a previously-stopped session). In either case, suppress
+  // the "paused/stopped" UI and treat the desktop as starting so the user sees "Starting Desktop"
+  // immediately after clicking "Start Planning" rather than a confusing flash of the stopped state.
+  const isQueuedForPlanning = task?.status === "queued_spec_generation";
+  const effectiveIsDesktopPaused = isDesktopPaused && !isQueuedForPlanning;
 
   // Subscribe to WebSocket updates for the active session when chat is visible
   // On big screens: chat is visible unless collapsed
@@ -742,6 +811,10 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   const handleReviewSpec = useCallback(async () => {
     if (!task?.id) return;
 
+    // Mark immediately (before async) so the auto-open effect won't re-trigger
+    // if the user returns to the chat view after visiting spec.
+    addAutoOpenedSpecTask(task.id);
+
     try {
       const response = await api
         .getApiClient()
@@ -767,6 +840,23 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
       snackbar.error("Failed to load design review");
     }
   }, [task?.id, task?.name, task?.project_id, onOpenReview, account]);
+
+  // Auto-open spec review when task is in spec_review or spec_revision status
+  // and design docs are available - triggers once per SPA session per task ID.
+  // handleReviewSpec itself writes to sessionStorage before the async call, so returning
+  // to chat (which remounts this component) never re-triggers the auto-open.
+  useEffect(() => {
+    if (
+      task?.id &&
+      !getAutoOpenedSpecTasks().has(task.id) &&
+      task?.design_docs_pushed_at &&
+      account.organizationTools.organization?.name &&
+      (task?.status === TypesSpecTaskStatus.TaskStatusSpecReview ||
+        task?.status === TypesSpecTaskStatus.TaskStatusSpecRevision)
+    ) {
+      handleReviewSpec();
+    }
+  }, [task?.id, task?.status, task?.design_docs_pushed_at, handleReviewSpec, account.organizationTools.organization?.name]);
 
   // Handle file upload to sandbox
   const handleUploadClick = useCallback(() => {
@@ -1022,6 +1112,84 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
         )}
       </Box>
 
+      {/* Labels */}
+      <Box sx={{ mb: 4 }}>
+        <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+          Labels
+        </Typography>
+        <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5, mb: 1 }}>
+          {(task?.labels || []).map((label) => (
+            <Chip
+              key={label}
+              label={label}
+              size="small"
+              onDelete={() =>
+                removeLabelMutation.mutate({ taskId, label })
+              }
+            />
+          ))}
+        </Box>
+        <Autocomplete
+          freeSolo
+          options={projectLabels.filter(
+            (l) => !(task?.labels || []).includes(l),
+          )}
+          inputValue={labelInput}
+          onInputChange={(_, value) => setLabelInput(value)}
+          filterOptions={(options, params) => {
+            const filtered = options.filter((o) =>
+              o.toLowerCase().includes(params.inputValue.toLowerCase()),
+            );
+            const trimmed = params.inputValue.trim();
+            if (
+              trimmed &&
+              !options.some((o) => o.toLowerCase() === trimmed.toLowerCase())
+            ) {
+              filtered.push(`__create__:${trimmed}`);
+            }
+            return filtered;
+          }}
+          onChange={(_, value) => {
+            if (value && typeof value === "string") {
+              const label = value.startsWith("__create__:")
+                ? value.slice("__create__:".length)
+                : value.trim();
+              if (label) {
+                addLabelMutation.mutate({ taskId, label });
+                setLabelInput("");
+              }
+            }
+          }}
+          getOptionLabel={(option) =>
+            option.startsWith("__create__:")
+              ? option.slice("__create__:".length)
+              : option
+          }
+          renderOption={(props, option) => {
+            if (option.startsWith("__create__:")) {
+              const label = option.slice("__create__:".length);
+              return (
+                <li {...props} key="__create__">
+                  <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                    <Typography variant="body2" color="primary">
+                      + Create &ldquo;{label}&rdquo;
+                    </Typography>
+                  </Box>
+                </li>
+              );
+            }
+            return <li {...props} key={option}>{option}</li>;
+          }}
+          renderInput={(params) => (
+            <TextField
+              {...params}
+              size="small"
+              placeholder="Add label..."
+            />
+          )}
+        />
+      </Box>
+
       <Box sx={{ mb: 4 }}>
         {isEditMode ? (
           <Autocomplete
@@ -1057,9 +1225,13 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
             )}
             renderOption={(props, option) => (
               <li {...props} key={option.id}>
-                <Box sx={{ display: "flex", flexDirection: "column", py: 0.25 }}>
+                <Box
+                  sx={{ display: "flex", flexDirection: "column", py: 0.25 }}
+                >
                   <Typography variant="body2">
-                    {option.name || option.short_title || `Task #${option.task_number || "?"}`}
+                    {option.name ||
+                      option.short_title ||
+                      `Task #${option.task_number || "?"}`}
                   </Typography>
                   <Typography variant="caption" color="text.secondary">
                     {`#${option.task_number || "?"} • ${option.status || "unknown"}`}
@@ -1135,6 +1307,11 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
 
       {/* Timestamps */}
       <Box sx={{ mt: 3 }}>
+        {task?.created_by && (
+          <Typography variant="caption" color="text.secondary" display="block">
+            Author: {task.created_by}
+          </Typography>
+        )}
         <Typography variant="caption" color="text.secondary" display="block">
           Created:{" "}
           {task?.created_at
@@ -1201,7 +1378,9 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                     setSelectedCloneGroupId(task.clone_group_id || null)
                   }
                 >
-                  <AccountTree sx={{ fontSize: 16, color: "inherit", opacity: 0.7 }} />
+                  <AccountTree
+                    sx={{ fontSize: 16, color: "inherit", opacity: 0.7 }}
+                  />
                   <Typography variant="caption" color="text.secondary">
                     Batch Progress
                   </Typography>
@@ -1353,11 +1532,16 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
 
         {/* Public Design Docs Toggle */}
         <Divider sx={{ my: 2 }} />
-        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 0.5 }}>
+        <Box
+          sx={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            mb: 0.5,
+          }}
+        >
           <Box>
-            <Typography variant="subtitle2">
-              Share Design Docs
-            </Typography>
+            <Typography variant="subtitle2">Share Design Docs</Typography>
             <Typography variant="caption" color="text.secondary">
               Anyone with the link can view
             </Typography>
@@ -1370,24 +1554,26 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
           />
         </Box>
         {isPublicDesignDocs && (
-          <Box sx={{ 
-            display: 'flex', 
-            alignItems: 'center', 
-            gap: 1, 
-            mb: 1,
-            p: 1,
-            bgcolor: 'action.hover',
-            borderRadius: 1,
-          }}>
-            <Typography 
-              variant="caption" 
-              sx={{ 
-                flex: 1, 
-                fontFamily: 'monospace',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
-                color: 'text.secondary',
+          <Box
+            sx={{
+              display: "flex",
+              alignItems: "center",
+              gap: 1,
+              mb: 1,
+              p: 1,
+              bgcolor: "action.hover",
+              borderRadius: 1,
+            }}
+          >
+            <Typography
+              variant="caption"
+              sx={{
+                flex: 1,
+                fontFamily: "monospace",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+                color: "text.secondary",
               }}
             >
               {publicLink}
@@ -1397,6 +1583,31 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                 <Copy size={14} />
               </IconButton>
             </Tooltip>
+          </Box>
+        )}
+
+        {/* Move to Backlog button */}
+        {canMoveToBacklog && (
+          <Box sx={{ mt: 2 }}>
+            <Button
+              size="small"
+              variant="outlined"
+              color="warning"
+              startIcon={
+                moveToBacklogMutation.isPending ? (
+                  <CircularProgress size={14} color="inherit" />
+                ) : (
+                  <UndoIcon />
+                )
+              }
+              onClick={() => moveToBacklogMutation.mutate()}
+              disabled={moveToBacklogMutation.isPending}
+              sx={{ fontSize: "0.75rem" }}
+            >
+              {moveToBacklogMutation.isPending
+                ? "Moving..."
+                : "Move to Backlog"}
+            </Button>
           </Box>
         )}
 
@@ -1510,56 +1721,126 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "space-between",
-                    px: 1.5,
-                    py: 0.75,
-                    minHeight: 40,
+                    px: 1,
+                    minHeight: 48,
                     borderBottom: "1px solid",
                     borderColor: "divider",
                     backgroundColor: "background.paper",
                     flexShrink: 0,
                   }}
                 >
-                  {zedThreadsData?.zed_threads && zedThreadsData.zed_threads.length > 0 ? (
-                    <Select
-                      size="small"
-                      variant="standard"
-                      value={selectedThreadSessionId || "planning"}
-                      onChange={(e) => {
-                        const val = e.target.value as string;
-                        setSelectedThreadSessionId(val === "planning" ? null : val);
-                      }}
-                      sx={{
-                        fontSize: "0.875rem",
-                        fontWeight: 500,
-                        color: "text.secondary",
-                        minWidth: 100,
-                        "&:before": { display: "none" },
-                        "&:after": { display: "none" },
-                        "& .MuiSelect-select": { py: 0 },
-                      }}
-                    >
-                      <MenuItem value="planning">Main thread</MenuItem>
-                      {zedThreadsData.zed_threads.map((thread, index) => {
-                        const sessionId = thread.work_session?.helix_session_id;
-                        if (!sessionId) return null;
-                        const label = thread.work_session?.name
-                          || thread.work_session?.implementation_task_title
-                          || `Thread ${index + 2}`;
-                        return (
-                          <MenuItem key={sessionId} value={sessionId}>
-                            {label}
-                          </MenuItem>
-                        );
-                      })}
-                    </Select>
-                  ) : (
-                    <Typography
-                      variant="body2"
-                      sx={{ fontWeight: 500, color: "text.secondary" }}
-                    >
-                      Chat
-                    </Typography>
-                  )}
+                  <Box sx={{ display: "flex", alignItems: "center", gap: 1, flex: 1, minWidth: 0 }}>
+                    {/* Chat / Spec tab strip */}
+                    {task?.design_docs_pushed_at ? (
+                      <ToggleButtonGroup
+                        value="chat"
+                        exclusive
+                        onChange={(_, val) => {
+                          if (val === "spec") handleReviewSpec();
+                        }}
+                        size="small"
+                        sx={{
+                          flexShrink: 0,
+                          "& .MuiToggleButton-root": {
+                            px: 1.25,
+                            py: 0.25,
+                            fontSize: "0.8rem",
+                            fontWeight: 500,
+                            textTransform: "none",
+                            border: "1px solid",
+                            borderColor: "divider",
+                            color: "text.secondary",
+                            "&.Mui-selected": {
+                              color: "text.primary",
+                              backgroundColor: "action.selected",
+                            },
+                          },
+                        }}
+                      >
+                        <ToggleButton value="chat" disableRipple={false}>
+                          Chat
+                        </ToggleButton>
+                        <ToggleButton value="spec" disableRipple={false}>
+                          <Description sx={{ fontSize: 14, mr: 0.5 }} />
+                          Spec
+                        </ToggleButton>
+                      </ToggleButtonGroup>
+                    ) : (
+                      <ToggleButtonGroup
+                        value="chat"
+                        exclusive
+                        size="small"
+                        sx={{
+                          flexShrink: 0,
+                          "& .MuiToggleButton-root": {
+                            px: 1.25,
+                            py: 0.25,
+                            fontSize: "0.8rem",
+                            fontWeight: 500,
+                            textTransform: "none",
+                            border: "1px solid",
+                            borderColor: "divider",
+                            color: "text.secondary",
+                            "&.Mui-selected": {
+                              color: "text.primary",
+                              backgroundColor: "action.selected",
+                            },
+                          },
+                        }}
+                      >
+                        <ToggleButton value="chat" disableRipple disabled sx={{ '&.Mui-disabled': { color: 'text.primary', borderColor: 'divider' } }}>
+                          Chat
+                        </ToggleButton>
+                      </ToggleButtonGroup>
+                    )}
+                    {/* Thread selector (shown alongside tabs when multiple threads exist) */}
+                    {(() => {
+                      // Filter out threads that point to the same session as planning (they're the same conversation)
+                      const extraThreads = zedThreadsData?.zed_threads?.filter(
+                        t => t.work_session?.helix_session_id && t.work_session.helix_session_id !== task?.planning_session_id
+                      ) || [];
+                      if (extraThreads.length === 0) return null;
+                      return (
+                        <Select
+                          size="small"
+                          variant="standard"
+                          value={selectedThreadSessionId || "planning"}
+                          onChange={(e) => {
+                            const val = e.target.value as string;
+                            setSelectedThreadSessionId(
+                              val === "planning" ? null : val,
+                            );
+                          }}
+                          sx={{
+                            fontSize: "0.8rem",
+                            fontWeight: 500,
+                            color: "text.secondary",
+                            minWidth: 80,
+                            maxWidth: 140,
+                            ml: 1,
+                            "&:before": { display: "none" },
+                            "&:after": { display: "none" },
+                            "& .MuiSelect-select": { py: 0 },
+                          }}
+                        >
+                          <MenuItem value="planning">Main thread</MenuItem>
+                          {extraThreads.map((thread, index) => {
+                            const sessionId = thread.work_session?.helix_session_id;
+                            if (!sessionId) return null;
+                            const label =
+                              thread.work_session?.name ||
+                              thread.work_session?.implementation_task_title ||
+                              `Thread ${index + 2}`;
+                            return (
+                              <MenuItem key={sessionId} value={sessionId}>
+                                {label}
+                              </MenuItem>
+                            );
+                          })}
+                        </Select>
+                      );
+                    })()}
+                  </Box>
                   <Tooltip title="Collapse chat panel">
                     <IconButton
                       size="small"
@@ -1570,7 +1851,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                           handleViewChange("desktop");
                         }
                       }}
-                      sx={{ p: 0.25 }}
+                      sx={{ p: 0.25, flexShrink: 0 }}
                     >
                       <ChevronLeftIcon sx={{ fontSize: 18 }} />
                     </IconButton>
@@ -1719,12 +2000,13 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                       id: task.id || "",
                       status: task.status || "",
                       design_docs_pushed_at: task.design_docs_pushed_at,
-                      pull_request_url: task.pull_request_url,
+                      repo_pull_requests: task.repo_pull_requests,
                       base_branch: task.base_branch,
                       branch_name: task.branch_name,
                       archived: task.archived,
                       just_do_it_mode: justDoItMode,
                       planning_session_id: task.planning_session_id,
+                      metadata: task.metadata as { error?: string },
                     }}
                     variant="inline"
                     onStartPlanning={handleStartPlanning}
@@ -1739,6 +2021,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                     hasExternalRepo={projectRepositories.some(
                       (r) => r.is_external || r.external_type || r.external_url,
                     )}
+                    externalRepoType={projectRepositories.find((r) => r.external_type)?.external_type}
                     isStartingPlanning={isStartingPlanning}
                     isArchiving={isArchiving}
                   />
@@ -1805,7 +2088,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                           </Tooltip>
                         )}
                         {/* Show Start button when desktop is paused */}
-                        {isDesktopPaused && (
+                        {effectiveIsDesktopPaused && (
                           <Tooltip title="Start desktop">
                             <IconButton
                               size="small"
@@ -1882,8 +2165,10 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                   </Box>
                 </Box>
 
-                {currentView === "desktop" &&
-                  (isTaskCompleted ? (
+                {/* In split-view layout, "chat" falls through to desktop since chat
+                    is already visible in the left panel */}
+                {(currentView === "desktop" || currentView === "chat") &&
+                  (isTaskCompleted && isDesktopPaused ? (
                     <Box
                       sx={{
                         flex: 1,
@@ -1901,9 +2186,26 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                           Task finished
                         </Typography>
                         <Typography variant="body2" color="text.secondary">
-                          This task has been merged to the default branch. The
-                          agent session has ended.
+                          This task has been merged to the default branch.
                         </Typography>
+                        <Button
+                          variant="outlined"
+                          size="small"
+                          startIcon={
+                            isStarting || isDesktopStarting ? (
+                              <CircularProgress size={16} />
+                            ) : (
+                              <PlayArrow />
+                            )
+                          }
+                          onClick={handleStartSession}
+                          disabled={isStarting || isDesktopStarting}
+                          sx={{ mt: 2 }}
+                        >
+                          {isStarting || isDesktopStarting
+                            ? "Starting..."
+                            : "Start Desktop"}
+                        </Button>
                       </Alert>
                     </Box>
                   ) : isTaskArchived ? (
@@ -1939,6 +2241,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                       displayHeight={displaySettings.height}
                       displayFps={displaySettings.fps}
                       startupErrorMessage={taskMetadataError}
+                      initialSandboxState={isQueuedForPlanning ? "starting" : undefined}
                     />
                   ))}
                 {currentView === "changes" && (
@@ -2080,12 +2383,13 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                   id: task.id || "",
                   status: task.status || "",
                   design_docs_pushed_at: task.design_docs_pushed_at,
-                  pull_request_url: task.pull_request_url,
+                  repo_pull_requests: task.repo_pull_requests,
                   base_branch: task.base_branch,
                   branch_name: task.branch_name,
                   archived: task.archived,
                   just_do_it_mode: justDoItMode,
                   planning_session_id: task.planning_session_id,
+                  metadata: task.metadata as { error?: string },
                 }}
                 variant="inline"
                 onStartPlanning={handleStartPlanning}
@@ -2100,6 +2404,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                 hasExternalRepo={projectRepositories.some(
                   (r) => r.is_external || r.external_type || r.external_url,
                 )}
+                externalRepoType={projectRepositories.find((r) => r.external_type)?.external_type}
                 isStartingPlanning={isStartingPlanning}
                 isArchiving={isArchiving}
               />
@@ -2170,7 +2475,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                       </Tooltip>
                     )}
                     {/* Show Start button when desktop is paused */}
-                    {activeSessionId && isDesktopPaused && (
+                    {activeSessionId && effectiveIsDesktopPaused && (
                       <Tooltip title="Start desktop">
                         <IconButton
                           size="small"
@@ -2258,50 +2563,60 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                   overflow: "hidden",
                 }}
               >
-                {zedThreadsData?.zed_threads && zedThreadsData.zed_threads.length > 0 && (
-                  <Box
-                    sx={{
-                      px: 1.5,
-                      py: 0.5,
-                      borderBottom: "1px solid",
-                      borderColor: "divider",
-                      flexShrink: 0,
-                    }}
-                  >
-                    <Select
-                      size="small"
-                      variant="standard"
-                      value={selectedThreadSessionId || "planning"}
-                      onChange={(e) => {
-                        const val = e.target.value as string;
-                        setSelectedThreadSessionId(val === "planning" ? null : val);
-                      }}
+                {(() => {
+                  const extraThreads = zedThreadsData?.zed_threads?.filter(
+                    t => t.work_session?.helix_session_id && t.work_session.helix_session_id !== task?.planning_session_id
+                  ) || [];
+                  if (extraThreads.length === 0) return null;
+                  return (
+                    <Box
                       sx={{
-                        fontSize: "0.875rem",
-                        fontWeight: 500,
-                        color: "text.secondary",
-                        minWidth: 100,
-                        "&:before": { display: "none" },
-                        "&:after": { display: "none" },
-                        "& .MuiSelect-select": { py: 0 },
+                        px: 1.5,
+                        py: 0.5,
+                        borderBottom: "1px solid",
+                        borderColor: "divider",
+                        flexShrink: 0,
                       }}
                     >
-                      <MenuItem value="planning">Main thread</MenuItem>
-                      {zedThreadsData.zed_threads.map((thread, index) => {
-                        const sessionId = thread.work_session?.helix_session_id;
-                        if (!sessionId) return null;
-                        const label = thread.work_session?.name
-                          || thread.work_session?.implementation_task_title
-                          || `Thread ${index + 2}`;
-                        return (
-                          <MenuItem key={sessionId} value={sessionId}>
-                            {label}
-                          </MenuItem>
-                        );
-                      })}
-                    </Select>
-                  </Box>
-                )}
+                      <Select
+                        size="small"
+                        variant="standard"
+                        value={selectedThreadSessionId || "planning"}
+                        onChange={(e) => {
+                          const val = e.target.value as string;
+                          setSelectedThreadSessionId(
+                            val === "planning" ? null : val,
+                          );
+                        }}
+                        sx={{
+                          fontSize: "0.875rem",
+                          fontWeight: 500,
+                          color: "text.secondary",
+                          minWidth: 100,
+                          "&:before": { display: "none" },
+                          "&:after": { display: "none" },
+                          "& .MuiSelect-select": { py: 0 },
+                        }}
+                      >
+                        <MenuItem value="planning">Main thread</MenuItem>
+                        {extraThreads.map((thread, index) => {
+                          const sessionId =
+                            thread.work_session?.helix_session_id;
+                          if (!sessionId) return null;
+                          const label =
+                            thread.work_session?.name ||
+                            thread.work_session?.implementation_task_title ||
+                            `Thread ${index + 2}`;
+                          return (
+                            <MenuItem key={sessionId} value={sessionId}>
+                              {label}
+                            </MenuItem>
+                          );
+                        })}
+                      </Select>
+                    </Box>
+                  );
+                })()}
                 <EmbeddedSessionView
                   ref={sessionViewRef}
                   sessionId={activeSessionId}
@@ -2349,7 +2664,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                   overflow: "hidden",
                 }}
               >
-                {isTaskCompleted ? (
+                {isTaskCompleted && isDesktopPaused ? (
                   <Box
                     sx={{
                       flex: 1,
@@ -2364,9 +2679,26 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                         Task finished
                       </Typography>
                       <Typography variant="body2" color="text.secondary">
-                        This task has been merged to the default branch. The
-                        agent session has ended.
+                        This task has been merged to the default branch.
                       </Typography>
+                      <Button
+                        variant="outlined"
+                        size="small"
+                        startIcon={
+                          isStarting || isDesktopStarting ? (
+                            <CircularProgress size={16} />
+                          ) : (
+                            <PlayArrow />
+                          )
+                        }
+                        onClick={handleStartSession}
+                        disabled={isStarting || isDesktopStarting}
+                        sx={{ mt: 2 }}
+                      >
+                        {isStarting || isDesktopStarting
+                          ? "Starting..."
+                          : "Start Desktop"}
+                      </Button>
                     </Alert>
                   </Box>
                 ) : isTaskArchived ? (
@@ -2399,6 +2731,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                     displayHeight={displaySettings.height}
                     displayFps={displaySettings.fps}
                     startupErrorMessage={taskMetadataError}
+                    initialSandboxState={isQueuedForPlanning ? "starting" : undefined}
                   />
                 )}
               </Box>
@@ -2454,10 +2787,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
       </Dialog>
 
       {/* Stop Session Confirmation */}
-      <Dialog
-        open={stopConfirmOpen}
-        onClose={() => setStopConfirmOpen(false)}
-      >
+      <Dialog open={stopConfirmOpen} onClose={() => setStopConfirmOpen(false)}>
         <DialogTitle>Stop Desktop?</DialogTitle>
         <DialogContent>
           <DialogContentText>

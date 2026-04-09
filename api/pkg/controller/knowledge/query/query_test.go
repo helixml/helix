@@ -46,7 +46,7 @@ func (suite *QuerySuite) SetupTest() {
 		ragCfg.Typesense.APIKey = os.Getenv("TYPESENSE_API_KEY")
 	}
 
-	ts, err := rag.NewTypesense(ragCfg)
+	ts, err := rag.NewTypesense(context.Background(), ragCfg)
 	suite.Require().NoError(err)
 
 	suite.rag = ts

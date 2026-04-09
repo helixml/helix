@@ -3,51 +3,144 @@
 package server
 
 import (
+	"context"
 	"net/http"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/rs/zerolog/log"
+
+	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/helixml/kodit"
-	koditapi "github.com/helixml/kodit/infrastructure/api"
-	"github.com/rs/zerolog/log"
 )
 
-// KoditMCPBackend implements MCPBackend for Kodit code intelligence
-// using the in-process kodit library's built-in HTTP handler.
+// KoditMCPBackend implements MCPBackend for Kodit code intelligence.
+// It creates a per-session HTTP handler scoped to the repositories
+// the session's project has access to.
 type KoditMCPBackend struct {
-	handler http.Handler
-	enabled bool
+	koditClient *kodit.Client
+	store       store.Store
+	enabled     bool
+
+	handlers   map[string]*sessionHandler
+	handlersMu sync.RWMutex
+
+	cleanupCtx    context.Context
+	cleanupCancel context.CancelFunc
 }
 
-// NewKoditMCPBackend creates a new Kodit MCP backend using the kodit library's HTTP handler.
-func NewKoditMCPBackend(koditClient *kodit.Client, enabled bool) *KoditMCPBackend {
+type sessionHandler struct {
+	handler   http.Handler
+	lastUsed  time.Time
+	mu        sync.Mutex
+}
+
+func (h *sessionHandler) touch() {
+	h.mu.Lock()
+	h.lastUsed = time.Now()
+	h.mu.Unlock()
+}
+
+func (h *sessionHandler) isExpired(ttl time.Duration) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return time.Since(h.lastUsed) > ttl
+}
+
+// NewKoditMCPBackend creates a new Kodit MCP backend with session-aware scoping.
+func NewKoditMCPBackend(koditClient *kodit.Client, enabled bool, store store.Store) *KoditMCPBackend {
 	if !enabled || koditClient == nil {
 		return &KoditMCPBackend{enabled: false}
 	}
 
-	apiServer := koditapi.NewAPIServer(koditClient, nil)
-	apiServer.MountRoutes()
+	ctx, cancel := context.WithCancel(context.Background())
+	b := &KoditMCPBackend{
+		koditClient:   koditClient,
+		store:         store,
+		enabled:       true,
+		handlers:      make(map[string]*sessionHandler),
+		cleanupCtx:    ctx,
+		cleanupCancel: cancel,
+	}
+	go b.cleanupLoop()
+	return b
+}
 
-	return &KoditMCPBackend{
-		handler: apiServer.Handler(),
-		enabled: true,
+// Stop stops the background cleanup.
+func (b *KoditMCPBackend) Stop() {
+	if b.cleanupCancel != nil {
+		b.cleanupCancel()
 	}
 }
 
-// ServeHTTP implements MCPBackend
+func (b *KoditMCPBackend) cleanupLoop() {
+	ticker := time.NewTicker(1 * time.Minute)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-b.cleanupCtx.Done():
+			return
+		case <-ticker.C:
+			b.cleanupExpired(5 * time.Minute)
+		}
+	}
+}
+
+func (b *KoditMCPBackend) cleanupExpired(ttl time.Duration) {
+	var expired []string
+
+	b.handlersMu.RLock()
+	for key, h := range b.handlers {
+		if h.isExpired(ttl) {
+			expired = append(expired, key)
+		}
+	}
+	b.handlersMu.RUnlock()
+
+	if len(expired) == 0 {
+		return
+	}
+
+	b.handlersMu.Lock()
+	for _, key := range expired {
+		delete(b.handlers, key)
+	}
+	b.handlersMu.Unlock()
+
+	log.Debug().Int("count", len(expired)).Msg("cleaned up expired Kodit MCP session handlers")
+}
+
+// ServeHTTP implements MCPBackend.
 func (b *KoditMCPBackend) ServeHTTP(w http.ResponseWriter, r *http.Request, user *types.User) {
 	if !b.enabled {
 		http.Error(w, "Kodit is not enabled", http.StatusNotImplemented)
 		return
 	}
 
-	// Get the path suffix after /api/v1/mcp/kodit
+	sessionID := r.URL.Query().Get("session_id")
+	if sessionID == "" {
+		sessionID = user.SessionID
+	}
+	if sessionID == "" {
+		http.Error(w, "session_id is required for Kodit MCP access", http.StatusBadRequest)
+		return
+	}
+
+	handler, err := b.handlerForSession(r.Context(), sessionID, user)
+	if err != nil {
+		log.Error().Err(err).Str("session_id", sessionID).Msg("failed to resolve Kodit MCP scope")
+		http.Error(w, "failed to initialize Kodit MCP: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Rewrite the request path from /api/v1/mcp/kodit/{path} to /mcp/{path}
 	vars := mux.Vars(r)
 	pathSuffix := vars["path"]
 
-	// Build the target path: /mcp or /mcp/{path}
-	// Preserve trailing slash from original request to avoid redirect loops
 	targetPath := "/mcp"
 	if pathSuffix != "" {
 		targetPath = "/mcp/" + pathSuffix
@@ -55,13 +148,6 @@ func (b *KoditMCPBackend) ServeHTTP(w http.ResponseWriter, r *http.Request, user
 		targetPath = "/mcp/"
 	}
 
-	log.Debug().
-		Str("user_id", user.ID).
-		Str("method", r.Method).
-		Str("target_path", targetPath).
-		Msg("routing MCP request to in-process Kodit handler")
-
-	// Create a modified request with the rewritten path
 	r2 := r.Clone(r.Context())
 	r2.URL.Path = targetPath
 	r2.URL.RawPath = targetPath
@@ -70,5 +156,39 @@ func (b *KoditMCPBackend) ServeHTTP(w http.ResponseWriter, r *http.Request, user
 		r2.RequestURI = targetPath + "?" + r.URL.RawQuery
 	}
 
-	b.handler.ServeHTTP(w, r2)
+	handler.ServeHTTP(w, r2)
+}
+
+func (b *KoditMCPBackend) handlerForSession(ctx context.Context, sessionID string, user *types.User) (http.Handler, error) {
+	ttl := 5 * time.Minute
+
+	b.handlersMu.RLock()
+	if h, ok := b.handlers[sessionID]; ok && !h.isExpired(ttl) {
+		h.touch()
+		b.handlersMu.RUnlock()
+		return h.handler, nil
+	}
+	b.handlersMu.RUnlock()
+
+	scope, err := resolveKoditRepoScope(ctx, b.store, sessionID, user)
+	if err != nil {
+		return nil, err
+	}
+
+	handler := kodit.NewScopedMCPHandler(b.koditClient, scope.idSlice)
+
+	now := time.Now()
+	b.handlersMu.Lock()
+	b.handlers[sessionID] = &sessionHandler{
+		handler:  handler,
+		lastUsed: now,
+	}
+	b.handlersMu.Unlock()
+
+	log.Info().
+		Str("session_id", sessionID).
+		Int("allowed_repos", len(scope.idSlice)).
+		Msg("created session-scoped Kodit MCP handler")
+
+	return handler, nil
 }

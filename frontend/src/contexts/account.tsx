@@ -1,4 +1,3 @@
-import bluebird from 'bluebird'
 import { createContext, FC, useCallback, useEffect, useMemo, useRef, useState, useContext, ReactNode } from 'react'
 import useApi from '../hooks/useApi'
 import { extractErrorMessage } from '../hooks/useErrorCallback'
@@ -6,15 +5,16 @@ import useLoading from '../hooks/useLoading'
 import useRouter from '../hooks/useRouter'
 import useSnackbar from '../hooks/useSnackbar'
 import useOrganizations, { IOrganizationTools, defaultOrganizationTools } from '../hooks/useOrganizations'
+import { useGetConfig } from '../services/userService'
 
 import {
   IApiKey,
   IHelixModel,
   IKeycloakUser,
-  IServerConfig,
   IUserConfig,
   IProviderEndpoint,
 } from '../types'
+import { TypesServerConfigForFrontend } from '../api/api'
 
 export interface IAccountContext {
   initialized: boolean,
@@ -26,7 +26,7 @@ export interface IAccountContext {
   user?: IKeycloakUser,
   userMeta?: { slug: string },  // User metadata including slug for GitHub-style URLs
   loggingOut?: boolean,
-  serverConfig: IServerConfig,
+  serverConfig: TypesServerConfigForFrontend,
   userConfig: IUserConfig,
   appApiKeys: IApiKey[],
   mobileMenuOpen: boolean,
@@ -55,15 +55,7 @@ export const AccountContext = createContext<IAccountContext>({
   isOrgAdmin: false,
   isOrgMember: false,
   loggingOut: false,
-  serverConfig: {
-    filestore_prefix: '',
-    stripe_enabled: false,
-    sentry_dsn_frontend: '',
-    google_analytics_frontend: '',
-    eval_user_id: '',
-    tools_enabled: true,
-    apps_enabled: true,
-  },
+  serverConfig: {},
   userConfig: {},
   appApiKeys: [],
   mobileMenuOpen: false,
@@ -91,6 +83,11 @@ export const useAccountContext = (): IAccountContext => {
   const loading = useLoading()
   const router = useRouter()
   const organizationTools = useOrganizations()
+  // Keep a ref to organizationTools so that orgNavigate always reads the latest
+  // state, even when called from stale closures (e.g. React.memo'd components
+  // that captured an old onTaskClick → old orgNavigate).
+  const organizationToolsRef = useRef(organizationTools)
+  organizationToolsRef.current = organizationTools
   const [ admin, setAdmin ] = useState(false)
   const [ mobileMenuOpen, setMobileMenuOpen ] = useState(false)
   const [ showLoginWindow, setShowLoginWindow ] = useState(false)
@@ -100,15 +97,12 @@ export const useAccountContext = (): IAccountContext => {
   const [ credits, setCredits ] = useState(0)
   const [ loggingOut, setLoggingOut ] = useState(false)
   const [ userConfig, setUserConfig ] = useState<IUserConfig>({})
-  const [ serverConfig, setServerConfig ] = useState<IServerConfig>({
-    filestore_prefix: '',
-    stripe_enabled: false,
-    sentry_dsn_frontend: '',
-    google_analytics_frontend: '',
-    eval_user_id: '',
-    tools_enabled: true,
-    apps_enabled: true,
-  })
+
+  // Server config via React Query — single source of truth.
+  // Default staleTime=0 means data refetches on mount (e.g. Login page after logout).
+  const { data: configData } = useGetConfig()
+  const serverConfig: TypesServerConfigForFrontend = configData ?? {}
+
   const [apiKeys, setApiKeys] = useState<IApiKey[]>([])
   const [appApiKeys, setAppApiKeys] = useState<IApiKey[]>([])
   const [models, setModels] = useState<IHelixModel[]>([])
@@ -162,12 +156,6 @@ export const useAccountContext = (): IAccountContext => {
     }
   }, [])
 
-  const loadServerConfig = useCallback(async () => {
-    const configResult = await api.get('/api/v1/config')
-    if (!configResult) return
-    setServerConfig(configResult)
-  }, [])
-
   const loadApiKeys = useCallback(async (params: Record<string, string> = {}) => {
     // This function is kept for backward compatibility but now relies on React Query
     // The actual loading is handled by the useGetUserAPIKeys hook
@@ -211,21 +199,6 @@ export const useAccountContext = (): IAccountContext => {
     snackbar,
     apiKeys,
     loadAppApiKeys,
-  ])
-
-  const loadAll = useCallback(async () => {
-    try {
-      await bluebird.all([
-        loadStatus(),
-        loadServerConfig(),
-      ])
-    } catch (error) {
-      console.error('Error loading data:', error)
-      // Don't crash the app on data loading errors
-    }
-  }, [
-    loadStatus,
-    loadServerConfig,
   ])
 
   const onLogin = useCallback(async () => {
@@ -384,39 +357,22 @@ export const useAccountContext = (): IAccountContext => {
   }, [])
 
   const orgNavigate = (routeName: string, params: Record<string, string | undefined> = {}, queryParams?: Record<string, string>) => {
-    // Current menu type for triggering animations
-    const currentResourceType = router.params.resource_type || 'chat'
-    const isOrgRoute = routeName.startsWith('org_')
-    const targetIsOrgRoute = isOrgRoute || params.org_id
-
-    // Determine if we're transitioning between org and non-org routes or vice versa
-    const isOrgTransition = (router.meta.menu === 'orgs' && !targetIsOrgRoute) ||
-                           (router.meta.menu !== 'orgs' && targetIsOrgRoute)
-
-    // Get the target route name and params
+    // All routes are now org-scoped, so always prepend org_ and include org_id
     let targetRouteName = routeName
-    let targetParams = {...params}
+    if (!routeName.startsWith('org_')) {
+      targetRouteName = `org_${routeName}`
+    }
 
-    if(organizationTools.organization || params.org_id) {
-      const useOrgID = params.org_id || organizationTools.organization?.name
-      // Only prepend org_ if not already present
-      if (!routeName.startsWith('org_')) {
-        targetRouteName = `org_${routeName}`
-      }
-      targetParams = {
-        ...params,
-        org_id: useOrgID,
-      }
+    const useOrgID = params.org_id || organizationToolsRef.current.organization?.name
+    const targetParams = {
+      ...params,
+      org_id: useOrgID,
     }
 
     // Add query params if provided
     const finalParams = queryParams ? { ...targetParams, ...queryParams } : targetParams
 
-    // Navigate first, then trigger animations after a very small delay
-    // This ensures components are mounted before animations run
     router.navigate(targetRouteName, finalParams)
-
-
   }
 
   useEffect(() => {
@@ -425,17 +381,27 @@ export const useAccountContext = (): IAccountContext => {
 
 
   useEffect(() => {
-    try {
-      if (user) {
-        loadAll()
-      } else {
-        loadServerConfig()
-      }
-    } catch (error) {
-      console.error('Error in data loading useEffect:', error)
-      // Ensure any loading states are cleared even on error
+    if (user) {
+      loadStatus()
     }
+    // Server config is loaded via React Query (useGetConfig) automatically
   }, [user])
+
+  // Redirect to login page if not authenticated
+  useEffect(() => {
+    if (!initialized) return
+    if (user) return
+    const publicRoutes = ['login', 'password-reset', 'password-reset-complete']
+    if (publicRoutes.includes(router.name)) return
+
+    // Save current URL for post-login redirect
+    const currentPath = window.location.pathname + window.location.search
+    if (currentPath !== '/' && currentPath !== '/notfound' && currentPath !== '/login') {
+      localStorage.setItem('login_redirect_url', currentPath)
+    }
+
+    router.navigateReplace('login')
+  }, [initialized, user, router.name])
 
   // Redirect to waitlist page immediately if user is waitlisted (before loading anything else)
   useEffect(() => {
@@ -463,13 +429,29 @@ export const useAccountContext = (): IAccountContext => {
     if (user.onboarding_completed) return
     // Don't redirect if user dismissed onboarding this session
     if (onboardingDismissedRef.current) return
+    // Wait for organizations to be loaded before deciding
+    if (!organizationTools.initialized) return
     // Don't redirect if user already has organizations (not a fresh account)
     if (organizationTools.organizations.length > 0) return
-    // Wait for organizations to be loaded before deciding
-    if (organizationTools.loading) return
 
     router.navigateReplace('onboarding')
-  }, [initialized, user, router.name, organizationTools.organizations.length, organizationTools.loading])
+  }, [initialized, user, router.name, organizationTools.organizations.length, organizationTools.initialized])
+
+  // Redirect to orgs page if user has no org memberships
+  // Only redirect if onboarding is completed (or dismissed) to avoid a loop with /onboarding
+  useEffect(() => {
+    if (!initialized || !user) return
+    if (user.waitlisted) return
+    if (!organizationTools.initialized) return
+    if (router.name === 'orgs') return
+    // Don't redirect to /orgs if onboarding hasn't been completed yet — let the
+    // onboarding redirect above handle the flow instead
+    if (!user.onboarding_completed && !onboardingDismissedRef.current) return
+    const hasMembership = organizationTools.organizations.some(org => org.member !== false)
+    if (hasMembership) return
+
+    router.navigateReplace('orgs')
+  }, [initialized, user, router.name, organizationTools.organizations, organizationTools.initialized])
 
   return {
     initialized,

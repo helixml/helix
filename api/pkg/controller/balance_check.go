@@ -23,6 +23,17 @@ func (c *Controller) HasEnoughBalance(ctx context.Context, user *types.User, org
 		return true, nil
 	}
 
+	// If require active subscription is enabled, check if the user has an active subscription
+	if c.Options.Config.Stripe.RequireActiveSubscription {
+		subscription, err := c.Options.Store.GetWalletByOrg(ctx, orgID)
+		if err != nil {
+			return false, fmt.Errorf("failed to get subscription: %w", err)
+		}
+		if !subscription.IsSubscriptionActive() {
+			return false, fmt.Errorf("organization '%s' does not have an active subscription", orgID)
+		}
+	}
+
 	if !clientBillingEnabled {
 		// Billing not enabled for this client
 		return true, nil

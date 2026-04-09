@@ -8,6 +8,7 @@ import AWSLogo from './logos/aws';
 // Direct image imports
 import togetheraiLogo from '../../../assets/img/together-logo.png'
 import googleLogo from '../../../assets/img/providers/google.svg';
+import fireworksLogo from '../../../assets/img/providers/fireworks.png';
 import { OllamaIcon } from "../icons/ProviderIcons";
 
 export interface Provider {
@@ -86,9 +87,18 @@ export const PROVIDERS: Provider[] = [
     alias: ['togetherai', 'togetherai-api'],
     name: 'TogetherAI',
     description: 'Integrate with TogetherAI for ultra-fast LLM inference.',
-    logo: togetheraiLogo, 
+    logo: togetheraiLogo,
     base_url: "https://api.together.xyz/v1",
     setup_instructions: "Get your API key from https://api.together.xyz/"
+  },
+  {
+    id: 'user/fireworks',
+    alias: ['fireworks', 'fireworks-api'],
+    name: 'Fireworks AI',
+    description: 'Fireworks AI offers cheap and fast LLM infernece.',
+    logo: fireworksLogo,
+    base_url: "https://api.fireworks.ai/inference/v1",
+    setup_instructions: "Register at https://fireworks.ai and get your API key from https://app.fireworks.ai/settings/users/api-keys"
   },
   {
     id: 'user/ollama',

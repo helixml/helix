@@ -5,7 +5,7 @@ set -euo pipefail
 # Helix Desktop VM - Lightweight Provisioning (Pre-built ARM64 Images)
 # =============================================================================
 #
-# Creates a VM using install.sh + pre-built ARM64 images from registry.helixml.tech
+# Creates a VM using install.sh + pre-built ARM64 images from ghcr.io/helixml
 # instead of building all Docker images from source.
 #
 # Savings vs provision-vm.sh:
@@ -285,7 +285,7 @@ write_files:
           "max-file": "3"
         }
       }
-  - path: /etc/ssh/sshd_config.d/helix.conf
+  - path: /etc/ssh/sshd_config.d/50-helix.conf
     content: |
       PasswordAuthentication yes
       PubkeyAuthentication yes
@@ -406,6 +406,26 @@ write_files:
           chown ubuntu:ubuntu /home/ubuntu/helix/.env.vm
       fi
 
+      # Restore console password from ZFS config (set by injectDesktopSecret)
+      if [ -f /helix/config/console_password ]; then
+          PASS=\$(cat /helix/config/console_password 2>/dev/null)
+          if [ -n "\$PASS" ]; then
+              echo "ubuntu:\$PASS" | chpasswd
+              log "Restored console password from /helix/config/console_password"
+          fi
+      fi
+
+      # Fix sshd config ordering: 50-helix.conf must sort before 60-cloudimg-settings.conf
+      # so PasswordAuthentication yes takes effect (sshd uses first-match-wins)
+      if [ -f /etc/ssh/sshd_config.d/helix.conf ]; then
+          mv /etc/ssh/sshd_config.d/helix.conf /etc/ssh/sshd_config.d/50-helix.conf
+          log "Renamed helix.conf -> 50-helix.conf for sshd ordering"
+      fi
+      if [ -f /etc/ssh/sshd_config.d/60-cloudimg-settings.conf ]; then
+          sed -i '/^PasswordAuthentication/d' /etc/ssh/sshd_config.d/60-cloudimg-settings.conf
+          log "Removed PasswordAuthentication override from 60-cloudimg-settings.conf"
+      fi
+
       # Docker starts automatically via systemd ordering (Before=docker.service).
       # Do NOT call "systemctl start docker" here — it deadlocks because this
       # service must complete before docker.service can start.
@@ -491,7 +511,7 @@ run_ssh() { $SSH_CMD "$@"; }
 # =============================================================================
 
 if ! step_done "install_zfs"; then
-    log "Installing ZFS 2.4.0 from arter97 PPA..."
+    log "Installing ZFS 2.4.1+ from arter97 PPA..."
     run_ssh "sudo add-apt-repository -y ppa:arter97/zfs && sudo apt-get update && sudo apt-get install -y zfsutils-linux" || {
         log "ZFS install may need a reboot for DKMS. Continuing..."
     }
@@ -557,7 +577,8 @@ if ! step_done "run_install_sh"; then
     if [ "${COMPOSE_SIZE:-0}" -lt 100 ]; then
         log "docker-compose.yaml is missing or empty — copying from local repo checkout..."
         scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-            -P "$SSH_PORT" "$REPO_ROOT/docker-compose.yaml" "${VM_USER}@localhost:/opt/HelixML/docker-compose.yaml"
+            -P "$SSH_PORT" "$REPO_ROOT/docker-compose.yaml" "${VM_USER}@localhost:/tmp/docker-compose.yaml"
+        run_ssh "sudo cp /tmp/docker-compose.yaml /opt/HelixML/docker-compose.yaml && rm /tmp/docker-compose.yaml"
         # Replace ${HELIX_VERSION:-latest} with the actual version (same as release-backend does)
         run_ssh "cd /opt/HelixML && sed -i 's/\${HELIX_VERSION:-latest}/${HELIX_VERSION}/g' docker-compose.yaml"
         COMPOSE_SIZE=$(run_ssh "wc -c < /opt/HelixML/docker-compose.yaml 2>/dev/null || echo 0")
@@ -666,20 +687,20 @@ if ! step_done "fix_arm64_images"; then
     run_ssh "sudo systemctl start docker" || true
 
     # Get all helix registry images from the compose file
-    COMPOSE_IMAGES=$(run_ssh "cd ~/helix && docker compose config --images 2>/dev/null" 2>/dev/null | grep "registry.helixml.tech/helix/" || echo "")
+    COMPOSE_IMAGES=$(run_ssh "cd ~/helix && docker compose config --images 2>/dev/null" 2>/dev/null | grep -E "(registry\.helixml\.tech/helix|ghcr\.io/helixml)/" || echo "")
     if [ -z "$COMPOSE_IMAGES" ]; then
         # Fallback: known images
-        COMPOSE_IMAGES="registry.helixml.tech/helix/controlplane:${HELIX_VERSION}
-registry.helixml.tech/helix/typesense:${HELIX_VERSION}
-registry.helixml.tech/helix/haystack:${HELIX_VERSION}
-registry.helixml.tech/helix/helix-sandbox:${HELIX_VERSION}"
+        COMPOSE_IMAGES="ghcr.io/helixml/controlplane:${HELIX_VERSION}
+ghcr.io/helixml/typesense:${HELIX_VERSION}
+ghcr.io/helixml/haystack:${HELIX_VERSION}
+ghcr.io/helixml/helix-sandbox:${HELIX_VERSION}"
     fi
 
     for FULL in $COMPOSE_IMAGES; do
         # Extract image name for logging
-        IMAGE_NAME=$(echo "$FULL" | sed 's|registry.helixml.tech/helix/||' | cut -d: -f1)
+        IMAGE_NAME=$(echo "$FULL" | sed 's|ghcr.io/helixml/||' | cut -d: -f1)
         TAG=$(echo "$FULL" | cut -d: -f2)
-        ARM64="registry.helixml.tech/helix/${IMAGE_NAME}:${TAG}-linux-arm64"
+        ARM64="ghcr.io/helixml/${IMAGE_NAME}:${TAG}-linux-arm64"
         log "  Checking ${IMAGE_NAME}..."
         if ! run_ssh "docker pull ${FULL} 2>/dev/null"; then
             log "  Multi-arch pull failed for ${IMAGE_NAME}, trying arm64-specific tag..."
@@ -693,8 +714,8 @@ registry.helixml.tech/helix/helix-sandbox:${HELIX_VERSION}"
     done
 
     # Also handle sandbox (may not be in compose file since sandbox.sh runs it separately)
-    SANDBOX_FULL="registry.helixml.tech/helix/helix-sandbox:${HELIX_VERSION}"
-    SANDBOX_ARM64="registry.helixml.tech/helix/helix-sandbox:${HELIX_VERSION}-linux-arm64"
+    SANDBOX_FULL="ghcr.io/helixml/helix-sandbox:${HELIX_VERSION}"
+    SANDBOX_ARM64="ghcr.io/helixml/helix-sandbox:${HELIX_VERSION}-linux-arm64"
     if ! run_ssh "docker image inspect ${SANDBOX_FULL} >/dev/null 2>&1"; then
         log "  Checking helix-sandbox (standalone)..."
         if ! run_ssh "docker pull ${SANDBOX_FULL} 2>/dev/null"; then
@@ -785,9 +806,9 @@ if ! step_done "prime_stack"; then
         log "Pulling helix-ubuntu into sandbox's inner dockerd..."
         # Try multi-arch tag first, fall back to arm64-specific tag
         PULL_TAG=""
-        if run_ssh "docker exec helix-sandbox docker pull registry.helixml.tech/helix/helix-ubuntu:${HELIX_VERSION} 2>&1"; then
+        if run_ssh "docker exec helix-sandbox docker pull ghcr.io/helixml/helix-ubuntu:${HELIX_VERSION} 2>&1"; then
             PULL_TAG="${HELIX_VERSION}"
-        elif run_ssh "docker exec helix-sandbox docker pull registry.helixml.tech/helix/helix-ubuntu:${HELIX_VERSION}-linux-arm64 2>&1"; then
+        elif run_ssh "docker exec helix-sandbox docker pull ghcr.io/helixml/helix-ubuntu:${HELIX_VERSION}-linux-arm64 2>&1"; then
             PULL_TAG="${HELIX_VERSION}-linux-arm64"
         else
             log "WARNING: Failed to pull helix-ubuntu into sandbox"
@@ -795,7 +816,7 @@ if ! step_done "prime_stack"; then
 
         if [ -n "$PULL_TAG" ]; then
             # Tag with version for Hydra to find (never use :latest — Hydra rejects it)
-            run_ssh "docker exec helix-sandbox docker tag registry.helixml.tech/helix/helix-ubuntu:${PULL_TAG} helix-ubuntu:${HELIX_VERSION}" || true
+            run_ssh "docker exec helix-sandbox docker tag ghcr.io/helixml/helix-ubuntu:${PULL_TAG} helix-ubuntu:${HELIX_VERSION}" || true
             log "helix-ubuntu tagged as ${HELIX_VERSION}"
 
             # Create version file so the sandbox heartbeat reports available desktop images.
@@ -805,7 +826,7 @@ if ! step_done "prime_stack"; then
 
             # Create .ref file so sandbox startup can re-pull the image if it's missing
             # (e.g., if the disk image was compressed before Docker fully flushed)
-            run_ssh "echo 'registry.helixml.tech/helix/helix-ubuntu:${PULL_TAG}' > ~/helix/sandbox-images/helix-ubuntu.ref"
+            run_ssh "echo 'ghcr.io/helixml/helix-ubuntu:${PULL_TAG}' > ~/helix/sandbox-images/helix-ubuntu.ref"
             log "Created sandbox-images/helix-ubuntu.version and .ref"
         fi
     fi
@@ -818,6 +839,11 @@ if ! step_done "prime_stack"; then
 
     # Stop Docker (will be started by the desktop app on user's first boot)
     run_ssh "sudo systemctl stop docker"
+
+    # Clean up /helix — docker compose creates bind mount targets here
+    # (e.g. /helix/container-docker) which would conflict with ZFS pool
+    # creation on the user's first boot.
+    run_ssh "sudo rm -rf /helix" || true
 
     # List cached images for verification
     run_ssh "sudo systemctl start docker && docker images --format 'table {{.Repository}}\t{{.Tag}}\t{{.Size}}' && sudo systemctl stop docker"

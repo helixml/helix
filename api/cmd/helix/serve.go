@@ -203,6 +203,11 @@ func getFilestore(ctx context.Context, cfg *config.ServerConfig) (filestore.File
 }
 
 func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
+	// Ensure all internal service hosts (Chrome, Typesense, Tika, SearXNG, etc.)
+	// bypass any configured HTTP proxy. This must run before any HTTP requests
+	// so that Go's proxy configuration includes these hosts.
+	cfg.EnsureNoProxyForInternalHosts()
+
 	// Validate license key if provided
 	var userLicense *license.License
 	if cfg.LicenseKey != "" {
@@ -413,6 +418,22 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 	// Will run async and watch for changes in the API keys, non-blocking
 	providerManager.StartRefresh(ctx)
 
+	// gitRepositoryService is created early so it can be passed to InitKodit.
+	gitRepositoryService := services.NewGitRepositoryService(
+		postgresStore,
+		cfg.FileStore.LocalFSPath,
+		cfg.WebServer.URL,
+		"Helix System",
+		"system@helix.ml",
+	)
+
+	// Initialize kodit once here so that the kodit RAG provider and the API server
+	// share a single kodit instance (and therefore a single embedding model / worker pool).
+	koditInit, err := server.InitKodit(cfg, gitRepositoryService, postgresStore)
+	if err != nil {
+		return fmt.Errorf("failed to initialize kodit: %w", err)
+	}
+
 	var ragClient rag.RAG
 
 	switch cfg.RAG.DefaultRagProvider {
@@ -420,7 +441,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		ragSettings := &types.RAGSettings{}
 		ragSettings.Typesense.URL = cfg.RAG.Typesense.URL
 		ragSettings.Typesense.APIKey = cfg.RAG.Typesense.APIKey
-		ragClient, err = rag.NewTypesense(ragSettings)
+		ragClient, err = rag.NewTypesense(ctx, ragSettings)
 		if err != nil {
 			return fmt.Errorf("failed to create typesense RAG client: %v", err)
 		}
@@ -435,6 +456,12 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 	case config.RAGProviderHaystack:
 		ragClient = rag.NewHaystackRAG(cfg.RAG.Haystack.URL)
 		log.Info().Msgf("Using Haystack for RAG")
+	case config.RAGProviderKodit:
+		if !cfg.Kodit.Enabled {
+			return fmt.Errorf("RAG provider 'kodit' requires KODIT_ENABLED=true")
+		}
+		ragClient = rag.NewKoditRAG(koditInit.Service, postgresStore, cfg.FileStore)
+		log.Info().Msgf("Using Kodit for RAG")
 	default:
 		return fmt.Errorf("unknown RAG provider: %s", cfg.RAG.DefaultRagProvider)
 	}
@@ -448,14 +475,6 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 	searchProvider := searxng.NewSearXNG(&searxng.Config{
 		BaseURL: cfg.Search.SearXNGBaseURL,
 	})
-
-	gitRepositoryService := services.NewGitRepositoryService(
-		postgresStore,
-		cfg.FileStore.LocalFSPath,
-		cfg.WebServer.URL,
-		"Helix System",
-		"system@helix.ml",
-	)
 
 	controllerOptions := controller.Options{
 		Config:                cfg,
@@ -498,7 +517,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		return err
 	}
 
-	knowledgeReconciler, err := knowledge.New(cfg, postgresStore, fs, extractor, ragClient, browserPool, oauthManager)
+	knowledgeReconciler, err := knowledge.New(cfg, postgresStore, fs, extractor, ragClient, browserPool, oauthManager, koditInit.Service)
 	if err != nil {
 		return err
 	}
@@ -560,6 +579,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		trigger,
 		anthropicProxy,
 		gitRepositoryService,
+		koditInit,
 	)
 	if err != nil {
 		return err

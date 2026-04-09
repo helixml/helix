@@ -28,30 +28,10 @@ import useAccount from '../../hooks/useAccount'
 
 import { AppsContext, CodeAgentRuntime, generateAgentName } from '../../contexts/apps'
 import { IApp, AGENT_TYPE_ZED_EXTERNAL } from '../../types'
-import { useClaudeSubscriptions } from '../account/ClaudeSubscriptionConnect'
-import { useListProviders } from '../../services/providersService'
-import { TypesProviderEndpointType } from '../../api/api'
+import { RECOMMENDED_CODING_MODELS } from '../../constants/models'
 import CodingAgentForm, { CodingAgentFormHandle } from '../agent/CodingAgentForm'
 
-// Recommended models for zed_external agents (state-of-the-art coding models)
-const RECOMMENDED_MODELS = [
-  // Anthropic
-  'claude-opus-4-5-20251101',
-  'claude-sonnet-4-5-20250929',
-  'claude-haiku-4-5-20251001',
-  // OpenAI
-  'openai/gpt-5.1-codex',
-  'openai/gpt-oss-120b',
-  // Google Gemini
-  'gemini-2.5-pro',
-  'gemini-2.5-flash',
-  // Zhipu GLM
-  'glm-4.6',
-  // Qwen (Coder + Large)
-  'Qwen/Qwen3-Coder-480B-A35B-Instruct',
-  'Qwen/Qwen3-Coder-30B-A3B-Instruct',
-  'Qwen/Qwen3-235B-A22B-fp8-tput',
-]
+
 interface AgentSelectionModalProps {
   open: boolean
   onClose: () => void
@@ -73,19 +53,6 @@ const AgentSelectionModal: FC<AgentSelectionModalProps> = ({
   const [isLoading, setIsLoading] = useState(false)
   const [showCreateForm, setShowCreateForm] = useState(false)
   const codingAgentFormRef = useRef<CodingAgentFormHandle>(null)
-
-  // Claude subscription + provider state
-  const { data: claudeSubscriptions } = useClaudeSubscriptions()
-  const hasClaudeSubscription = (claudeSubscriptions?.length ?? 0) > 0
-  const { data: providerEndpoints } = useListProviders({ loadModels: false })
-  const hasAnthropicProvider = useMemo(() => {
-    if (!providerEndpoints) return false
-    return providerEndpoints.some(p => p.endpoint_type === TypesProviderEndpointType.ProviderEndpointTypeUser && p.name === 'anthropic')
-  }, [providerEndpoints])
-  const userProviderCount = useMemo(() => {
-    if (!providerEndpoints) return 0
-    return providerEndpoints.filter(p => p.endpoint_type === TypesProviderEndpointType.ProviderEndpointTypeUser).length
-  }, [providerEndpoints])
 
   // Create agent form state
   const [codeAgentRuntime, setCodeAgentRuntime] = useState<CodeAgentRuntime>('zed_agent')
@@ -110,27 +77,14 @@ const AgentSelectionModal: FC<AgentSelectionModalProps> = ({
     }
   }, [open, loadApps])
 
-  // Sort apps: zed_external first, then others
+  // Only show external agents — helix_agent types don't support project workflows
   const sortedApps = useMemo(() => {
     if (!apps) return []
-
-    const zedExternalApps: IApp[] = []
-    const otherApps: IApp[] = []
-
-    apps.forEach((app) => {
-      // Check if app has zed_external assistant type
-      const hasZedExternal = app.config?.helix?.assistants?.some(
+    return apps.filter((app) =>
+      app.config?.helix?.assistants?.some(
         (assistant) => assistant.agent_type === AGENT_TYPE_ZED_EXTERNAL
       ) || app.config?.helix?.default_agent_type === AGENT_TYPE_ZED_EXTERNAL
-
-      if (hasZedExternal) {
-        zedExternalApps.push(app)
-      } else {
-        otherApps.push(app)
-      }
-    })
-
-    return [...zedExternalApps, ...otherApps]
+    )
   }, [apps])
 
   // Auto-select first zed_external agent if available
@@ -146,14 +100,6 @@ const AgentSelectionModal: FC<AgentSelectionModalProps> = ({
       setShowCreateForm(true)
     }
   }, [open, apps])
-
-  // Auto-default to Claude Code when it's the only available AI provider
-  useEffect(() => {
-    if (hasClaudeSubscription && !hasAnthropicProvider && userProviderCount === 0) {
-      setCodeAgentRuntime('claude_code')
-      setClaudeCodeMode('subscription')
-    }
-  }, [hasClaudeSubscription, hasAnthropicProvider, userProviderCount])
 
   const handleSelect = () => {
     if (selectedAgentId) {
@@ -229,7 +175,7 @@ const AgentSelectionModal: FC<AgentSelectionModalProps> = ({
                               size="small"
                               onClick={(e) => {
                                 e.stopPropagation()
-                                account.orgNavigate('app', { app_id: app.id })
+                                account.orgNavigate('agent', { app_id: app.id })
                               }}
                             >
                               <EditIcon fontSize="small" />
@@ -289,9 +235,7 @@ const AgentSelectionModal: FC<AgentSelectionModalProps> = ({
                 setNewAgentName(nextValue.agentName)
               }}
               disabled={isCreating}
-              hasClaudeSubscription={hasClaudeSubscription}
-              hasAnthropicProvider={hasAnthropicProvider}
-              recommendedModels={RECOMMENDED_MODELS}
+              recommendedModels={RECOMMENDED_CODING_MODELS}
               createAgentDescription="Code development agent for spec tasks"
               onCreateStateChange={setIsCreating}
               showCreateButton={false}

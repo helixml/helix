@@ -2,23 +2,30 @@ import React from 'react'
 import { Box, Typography, Paper, Chip, IconButton } from '@mui/material'
 import CloseIcon from '@mui/icons-material/Close'
 import CheckCircleIcon from '@mui/icons-material/CheckCircle'
-import InteractionMarkdown from '../session/Markdown'
+import { MessageWithToolCalls, ResponseEntry } from '../session/InteractionInference'
 import { DesignReviewComment } from '../../services/designReviewService'
 import { TypesSession } from '../../api/api'
 
-// Empty session object for markdown rendering (no RAG/citation features needed)
 const EMPTY_SESSION: TypesSession = {}
+
+interface StreamingResponse {
+  commentId: string
+  content: string
+  entries: ResponseEntry[]
+}
 
 interface CommentLogSidebarProps {
   show: boolean
   comments: DesignReviewComment[]
   onResolveComment: (commentId: string) => void
+  streamingResponse?: StreamingResponse | null
 }
 
 export default function CommentLogSidebar({
   show,
   comments,
   onResolveComment,
+  streamingResponse,
 }: CommentLogSidebarProps) {
   if (!show) return null
 
@@ -48,84 +55,96 @@ export default function CommentLogSidebar({
             No comments yet. Select text in the document to add a comment.
           </Typography>
         ) : (
-          comments.map(comment => (
-            <Paper key={comment.id} sx={{ mb: 2, p: 2, opacity: comment.resolved ? 0.6 : 1 }}>
-              <Box display="flex" alignItems="flex-start" justifyContent="space-between" mb={1}>
-                <Chip
-                  label={comment.quoted_text ? "Inline" : "General"}
-                  size="small"
-                  color={comment.quoted_text ? "primary" : "default"}
-                />
-                {!comment.resolved && (
-                  <IconButton size="small" onClick={() => onResolveComment(comment.id!)}>
-                    <CloseIcon fontSize="small" />
-                  </IconButton>
-                )}
-              </Box>
+          comments.map(comment => {
+            const isActiveStream = streamingResponse?.commentId === comment.id
+            const displayResponse = isActiveStream ? streamingResponse!.content : comment.agent_response
+            const displayEntries = isActiveStream
+              ? streamingResponse!.entries
+              : comment.agent_response_entries
+            const isStreaming = isActiveStream && !comment.agent_response
 
-              {comment.quoted_text && (
-                <Box
-                  sx={{
-                    bgcolor: 'action.hover',
-                    p: 1,
-                    borderLeft: '3px solid',
-                    borderColor: 'primary.main',
-                    mb: 1,
-                    fontStyle: 'italic',
-                    fontSize: '0.875rem',
-                  }}
-                >
-                  "{comment.quoted_text.length > 80 ? comment.quoted_text.substring(0, 80) + '...' : comment.quoted_text}"
-                </Box>
-              )}
-
-              <Typography variant="body2" sx={{ mb: 1 }}>{comment.comment_text}</Typography>
-
-              {comment.agent_response && (
-                <Box
-                  sx={{
-                    mt: 2,
-                    p: 2,
-                    bgcolor: 'action.hover',
-                    borderLeft: '3px solid',
-                    borderColor: 'success.main',
-                    borderRadius: 1,
-                  }}
-                >
-                  <Typography variant="caption" color="text.primary" fontWeight="bold" display="block" mb={1}>
-                    Agent Response:
-                  </Typography>
-                  <Box sx={{ '& > div': { fontSize: '0.875rem' } }}>
-                    <InteractionMarkdown
-                      text={comment.agent_response}
-                      session={EMPTY_SESSION}
-                      getFileURL={() => '#'}
-                      isStreaming={false}
-                    />
-                  </Box>
-                  {comment.agent_response_at && (
-                    <Typography variant="caption" color="text.secondary" display="block" mt={1}>
-                      {new Date(comment.agent_response_at).toLocaleString()}
-                    </Typography>
+            return (
+              <Paper key={comment.id} sx={{ mb: 2, p: 2, opacity: comment.resolved ? 0.6 : 1 }}>
+                <Box display="flex" alignItems="flex-start" justifyContent="space-between" mb={1}>
+                  <Chip
+                    label={comment.quoted_text ? "Inline" : "General"}
+                    size="small"
+                    color={comment.quoted_text ? "primary" : "default"}
+                  />
+                  {!comment.resolved && (
+                    <IconButton size="small" onClick={() => onResolveComment(comment.id!)}>
+                      <CloseIcon fontSize="small" />
+                    </IconButton>
                   )}
                 </Box>
-              )}
 
-              {comment.resolved && (
-                <Chip
-                  label={comment.resolution_reason === 'auto_text_removed' ? 'Resolved (text updated)' : 'Resolved'}
-                  size="small"
-                  color="success"
-                  icon={<CheckCircleIcon />}
-                  sx={{ mt: 1 }}
-                />
-              )}
+                {comment.quoted_text && (
+                  <Box
+                    sx={{
+                      bgcolor: 'action.hover',
+                      p: 1,
+                      borderLeft: '3px solid',
+                      borderColor: 'primary.main',
+                      mb: 1,
+                      fontStyle: 'italic',
+                      fontSize: '0.875rem',
+                    }}
+                  >
+                    "{comment.quoted_text.length > 80 ? comment.quoted_text.substring(0, 80) + '...' : comment.quoted_text}"
+                  </Box>
+                )}
 
-              <Typography variant="caption" color="text.secondary" display="block" mt={1}>
-                {new Date(comment.created_at).toLocaleString()}
-              </Typography>
-            </Paper>
-          ))
+                <Typography variant="body2" sx={{ mb: 1 }}>{comment.comment_text}</Typography>
+
+                {displayResponse && (
+                  <Box
+                    sx={{
+                      mt: 2,
+                      p: 2,
+                      bgcolor: 'action.hover',
+                      borderLeft: '3px solid',
+                      borderColor: isStreaming ? 'warning.main' : 'success.main',
+                      borderRadius: 1,
+                    }}
+                  >
+                    <Typography variant="caption" color="text.primary" fontWeight="bold" display="block" mb={1}>
+                      Agent Response:
+                    </Typography>
+                    <Box sx={{ '& > div': { fontSize: '0.875rem' } }}>
+                      <MessageWithToolCalls
+                        text={displayResponse}
+                        responseEntries={displayEntries}
+                        session={EMPTY_SESSION}
+                        getFileURL={() => '#'}
+                        isStreaming={isStreaming}
+                        showBlinker={isStreaming}
+                        compactThinking={true}
+                      />
+                    </Box>
+                    {comment.agent_response_at && !isStreaming && (
+                      <Typography variant="caption" color="text.secondary" display="block" mt={1}>
+                        {new Date(comment.agent_response_at).toLocaleString()}
+                      </Typography>
+                    )}
+                  </Box>
+                )}
+
+                {comment.resolved && (
+                  <Chip
+                    label={comment.resolution_reason === 'auto_text_removed' ? 'Resolved (text updated)' : 'Resolved'}
+                    size="small"
+                    color="success"
+                    icon={<CheckCircleIcon />}
+                    sx={{ mt: 1 }}
+                  />
+                )}
+
+                <Typography variant="caption" color="text.secondary" display="block" mt={1}>
+                  {new Date(comment.created_at).toLocaleString()}
+                </Typography>
+              </Paper>
+            )
+          })
         )}
       </Box>
     </Box>

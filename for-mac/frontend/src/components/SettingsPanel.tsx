@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { main } from '../../wailsjs/go/models';
-import { SaveSettings, GetSettings, ResizeDataDisk, GetAutoLoginURL, FactoryReset as FactoryResetGo, GetLANAddress, ValidateLicenseKey, GetLicenseStatus, CheckForUpdate, ApplyAppUpdate, ApplyVMUpdate, RedownloadVMImage, DownloadVMUpdate, StartCombinedUpdate, ApplyCombinedUpdate, CancelUpdate } from '../../wailsjs/go/main/App';
+import { SaveSettings, GetSettings, ResizeDataDisk, GetAutoLoginURL, FactoryReset as FactoryResetGo, GetLANAddress, ValidateLicenseKey, GetLicenseStatus, CheckForUpdate, ApplyAppUpdate, ApplyVMUpdate, RedownloadVMImage, DownloadVMUpdate, StartCombinedUpdate, ApplyCombinedUpdate, CancelUpdate, CollectDiagnostics, GetUserIdentity } from '../../wailsjs/go/main/App';
 import { BrowserOpenURL } from '../../wailsjs/runtime/runtime';
 import { formatBytes } from '../lib/helpers';
 
@@ -112,6 +112,10 @@ export function SettingsPanel({
   const [appUpdating, setAppUpdating] = useState(false);
   const [vmApplying, setVmApplying] = useState(false);
   const [redownloading, setRedownloading] = useState(false);
+  const [reportDialogOpen, setReportDialogOpen] = useState(false);
+  const [diagnosticsLoading, setDiagnosticsLoading] = useState(false);
+  const [diagnosticsReport, setDiagnosticsReport] = useState('');
+  const [userDescription, setUserDescription] = useState('');
 
   useEffect(() => {
     // Re-fetch settings in case license key was added outside the panel
@@ -166,6 +170,71 @@ export function SettingsPanel({
     }
   }
 
+  async function handleReportIssue() {
+    setUserDescription('');
+    setDiagnosticsReport('');
+    setReportDialogOpen(true);
+    setDiagnosticsLoading(true);
+    try {
+      const report = await CollectDiagnostics();
+      const formatted = [
+        '=== System Info ===',
+        report.system_info,
+        '',
+        '=== App Info ===',
+        `App Version: ${report.app_version}`,
+        `VM Version: ${report.vm_version || 'unknown'}`,
+        `VM State: ${report.vm_state}`,
+        '',
+        '=== VM Console Logs (last 200 lines) ===',
+        report.console_logs || '(empty)',
+        '',
+        '=== VM Command Logs (last 200 lines) ===',
+        report.ssh_logs || '(empty)',
+        '',
+        '=== Container Logs ===',
+        report.container_logs || '(empty)',
+      ].join('\n');
+      setDiagnosticsReport(formatted);
+    } catch (err) {
+      setDiagnosticsReport('Failed to collect diagnostics: ' + err);
+    } finally {
+      setDiagnosticsLoading(false);
+    }
+  }
+
+  async function openCrispWithDiagnostics() {
+    const win = window as any;
+    if (!win.$crisp || !win.CRISP_WEBSITE_ID) {
+      showToast('Live chat is not available - check your internet connection');
+      return;
+    }
+    // Push user identity so the Helix team can contact them back
+    try {
+      const identity = await GetUserIdentity();
+      if (identity.email) {
+        win.$crisp.push(['set', 'user:email', identity.email]);
+      }
+      if (identity.name) {
+        win.$crisp.push(['set', 'user:nickname', identity.name]);
+      }
+    } catch (err) {
+      console.error('Failed to get user identity:', err);
+    }
+    const description = userDescription ? `Issue: ${userDescription}\n\n` : '';
+    // Crisp has a ~10k char limit per message; truncate diagnostics if needed
+    const maxLen = 9000 - description.length;
+    const truncatedDiag = diagnosticsReport.length > maxLen
+      ? diagnosticsReport.slice(0, maxLen) + '\n\n[truncated]'
+      : diagnosticsReport;
+    const message = `${description}Diagnostics:\n${truncatedDiag}`;
+    win.$crisp.push(['do', 'chat:show']);
+    win.$crisp.push(['do', 'chat:open']);
+    win.$crisp.push(['do', 'message:send', ['text', message]]);
+    showToast('Report sent - continue the conversation in the chat window');
+    setReportDialogOpen(false);
+  }
+
   async function handleResizeDataDisk() {
     const newSize = parseInt(dataDiskSize);
     if (!newSize || newSize <= currentDiskSize) {
@@ -195,6 +264,77 @@ export function SettingsPanel({
 
   return (
     <>
+      {reportDialogOpen && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 1000,
+          background: 'rgba(0,0,0,0.6)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>
+          <div style={{
+            background: 'var(--bg-panel)',
+            borderRadius: 10,
+            padding: 24,
+            width: 580,
+            maxHeight: '80vh',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 12,
+            boxShadow: '0 8px 32px rgba(0,0,0,0.4)',
+          }}>
+            <h3 style={{ margin: 0, fontSize: 15, fontWeight: 600 }}>Report Issue</h3>
+            {diagnosticsLoading ? (
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '24px 0' }}>
+                <div className="spinner" />
+                <span style={{ color: 'var(--text-secondary)', fontSize: 13 }}>Collecting diagnostics...</span>
+              </div>
+            ) : (
+              <>
+                <div>
+                  <label style={{ fontSize: 12, color: 'var(--text-secondary)', display: 'block', marginBottom: 4 }}>
+                    Describe the issue (optional)
+                  </label>
+                  <textarea
+                    value={userDescription}
+                    onChange={(e) => setUserDescription(e.target.value)}
+                    placeholder="What went wrong? Steps to reproduce?"
+                    style={{
+                      width: '100%', height: 72, resize: 'vertical',
+                      background: 'var(--bg-tertiary)', color: 'var(--text-primary)',
+                      border: '1px solid var(--border)', borderRadius: 6,
+                      padding: '6px 8px', fontSize: 12, fontFamily: 'inherit',
+                      boxSizing: 'border-box',
+                    }}
+                  />
+                </div>
+                <div>
+                  <label style={{ fontSize: 12, color: 'var(--text-secondary)', display: 'block', marginBottom: 4 }}>
+                    Diagnostic information (included automatically)
+                  </label>
+                  <textarea
+                    readOnly
+                    value={diagnosticsReport}
+                    style={{
+                      width: '100%', height: 200, resize: 'vertical',
+                      background: 'var(--bg-tertiary)', color: 'var(--text-secondary)',
+                      border: '1px solid var(--border)', borderRadius: 6,
+                      padding: '6px 8px', fontSize: 11, fontFamily: 'monospace',
+                      boxSizing: 'border-box',
+                    }}
+                  />
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--text-faded)' }}>
+                  Please review the diagnostic data above -- it may contain sensitive information.
+                  Clicking "Send Report" will open a live chat with the Helix team and send the diagnostics.
+                </div>
+                <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                  <button className="btn btn-secondary" onClick={() => setReportDialogOpen(false)}>Cancel</button>
+                  <button className="btn btn-primary" onClick={openCrispWithDiagnostics}>Send Report</button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
       <div className="panel-overlay" onClick={onClose} />
       <div className="settings-panel">
         <div className="panel-header" style={{ ['--wails-draggable' as any]: 'drag' }}>
@@ -339,7 +479,9 @@ export function SettingsPanel({
             {vmUpdateProgress && !combinedUpdateProgress && (
               <div style={{ marginBottom: 12 }}>
                 <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 6 }}>
-                  Downloading system update...
+                  {vmUpdateProgress.phase === 'decompressing_vm' ? 'Unpacking system update...' :
+                   vmUpdateProgress.phase === 'verifying_vm' ? 'Verifying system update...' :
+                   'Downloading system update...'}
                 </div>
                 <div className="progress-bar">
                   <div
@@ -787,7 +929,7 @@ export function SettingsPanel({
           <div className="panel-section">
             <div className="panel-section-title">License</div>
             <div className="form-group">
-              <label className="form-label" htmlFor="settingLicenseKey">License Key{licenseInfo?.state !== 'licensed' && (<> — <span onClick={() => BrowserOpenURL('https://deploy.helix.ml/licenses')} style={{ color: 'var(--teal)', cursor: 'pointer' }}>Buy a license</span></>)}</label>
+              <label className="form-label" htmlFor="settingLicenseKey">License Key{licenseInfo?.state !== 'licensed' && (<> — <span onClick={() => BrowserOpenURL('https://helix.ml/account/licenses')} style={{ color: 'var(--teal)', cursor: 'pointer' }}>Buy a license</span></>)}</label>
               <div style={{ display: 'flex', gap: 6 }}>
                 <input
                   className="form-input"
@@ -845,7 +987,7 @@ export function SettingsPanel({
                   )}
                   <div style={{ marginTop: 4 }}>
                     <span
-                      onClick={() => BrowserOpenURL('https://deploy.helix.ml/licenses')}
+                      onClick={() => BrowserOpenURL('https://helix.ml/account/licenses')}
                       style={{ color: 'var(--warning)', cursor: 'pointer', fontSize: 11 }}
                     >
                       Manage license
@@ -866,7 +1008,7 @@ export function SettingsPanel({
                     <span style={{ color: 'var(--error)', fontWeight: 600, fontSize: 13 }}>License expired</span>
                   </div>
                   <div style={{ color: 'var(--text-secondary)', fontSize: 11, marginTop: 2 }}>
-                    <span onClick={() => BrowserOpenURL('https://deploy.helix.ml/licenses')} style={{ color: 'var(--teal)', cursor: 'pointer' }}>Renew your license</span> to continue using Helix.
+                    <span onClick={() => BrowserOpenURL('https://helix.ml/account/licenses')} style={{ color: 'var(--teal)', cursor: 'pointer' }}>Renew your license</span> to continue using Helix.
                   </div>
                 </div>
               )}
@@ -887,6 +1029,19 @@ export function SettingsPanel({
                   </div>
                 </div>
               )}
+            </div>
+          </div>
+
+          {/* Support */}
+          <div className="panel-section">
+            <div className="panel-section-title">Support</div>
+            <div className="form-group">
+              <div className="form-hint" style={{ marginBottom: 12 }}>
+                Collect diagnostic information and send it to the Helix team via live chat.
+              </div>
+              <button className="btn btn-secondary" onClick={handleReportIssue}>
+                Report Issue
+              </button>
             </div>
           </div>
 

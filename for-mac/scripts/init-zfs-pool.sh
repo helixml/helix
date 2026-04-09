@@ -28,12 +28,10 @@ else
     fi
     echo "Creating ZFS pool on $DATA_DISK..."
     sudo mkdir -p /helix
-    if [ "$(ls -A /helix 2>/dev/null)" ]; then
-        echo "ERROR: /helix exists and is not empty (stale golden image data?). Contents:"
-        ls -la /helix
-        echo "Remove manually: sudo rm -rf /helix/*"
-        exit 1
-    fi
+    # /helix may have stale data from the root disk (e.g. Docker creating
+    # /helix/container-docker before ZFS is mounted). The ZFS mount will
+    # overlay these contents — they remain on the root disk but are hidden
+    # under the mountpoint. No cleanup needed.
     sudo zpool create -f -m /helix helix "$DATA_DISK"
 fi
 
@@ -136,6 +134,26 @@ else
         sudo chmod 600 /home/ubuntu/.ssh/authorized_keys
         sudo chown ubuntu:ubuntu /home/ubuntu/.ssh/authorized_keys
     fi
+fi
+
+# Restore console password from ZFS config (set by injectDesktopSecret)
+if [ -f /helix/config/console_password ]; then
+    PASS=$(sudo cat /helix/config/console_password 2>/dev/null)
+    if [ -n "$PASS" ]; then
+        echo "ubuntu:$PASS" | sudo chpasswd
+        echo 'Restored console password from /helix/config/console_password'
+    fi
+fi
+
+# Fix sshd config ordering: 50-helix.conf must sort before 60-cloudimg-settings.conf
+# so PasswordAuthentication yes takes effect (sshd uses first-match-wins)
+if [ -f /etc/ssh/sshd_config.d/helix.conf ]; then
+    sudo mv /etc/ssh/sshd_config.d/helix.conf /etc/ssh/sshd_config.d/50-helix.conf
+    echo 'Renamed helix.conf -> 50-helix.conf for sshd ordering'
+fi
+if [ -f /etc/ssh/sshd_config.d/60-cloudimg-settings.conf ]; then
+    sudo sed -i '/^PasswordAuthentication/d' /etc/ssh/sshd_config.d/60-cloudimg-settings.conf
+    echo 'Removed PasswordAuthentication override from 60-cloudimg-settings.conf'
 fi
 
 # Machine ID

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -13,6 +14,7 @@ import (
 	azuredevops "github.com/helixml/helix/api/pkg/agent/skill/azure_devops"
 	"github.com/helixml/helix/api/pkg/agent/skill/github"
 	"github.com/helixml/helix/api/pkg/agent/skill/gitlab"
+	"github.com/helixml/helix/api/pkg/crypto"
 	"github.com/helixml/helix/api/pkg/services"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -61,9 +63,8 @@ func (s *HelixAPIServer) createGitRepository(w http.ResponseWriter, r *http.Requ
 		request.RepoType = types.GitRepositoryTypeCode
 	}
 
-	// Pass API key for Kodit to clone local repos (non-external repos)
-	if request.KoditIndexing && request.ExternalURL == "" {
-		// User authenticated via session - look up or create an API key
+	// Pass API key for Kodit to clone repos via Helix's internal git server
+	if request.KoditIndexing {
 		apiKey, err := s.getOrCreateUserAPIKey(r.Context(), user)
 		if err != nil {
 			http.Error(w, fmt.Sprintf("Failed to get/create API key for Kodit indexing: %s", err.Error()), http.StatusInternalServerError)
@@ -76,6 +77,72 @@ func (s *HelixAPIServer) createGitRepository(w http.ResponseWriter, r *http.Requ
 	// Enterprise ADO deployments reject commits with non-corporate email addresses
 	request.CreatorName = user.FullName
 	request.CreatorEmail = user.Email
+
+	// If a saved PAT connection is referenced, look up the connection, decrypt the
+	// token, and populate the provider-specific settings so the service layer can
+	// build an authenticated clone URL without needing encryption key access.
+	if request.GitProviderConnectionID != "" {
+		connection, err := s.Store.GetGitProviderConnection(r.Context(), request.GitProviderConnectionID)
+		if err != nil {
+			http.Error(w, "Referenced git provider connection not found", http.StatusBadRequest)
+			return
+		}
+		if connection.UserID != user.ID {
+			http.Error(w, "Git provider connection does not belong to this user", http.StatusForbidden)
+			return
+		}
+		encryptionKey, err := s.getEncryptionKey()
+		if err != nil {
+			log.Error().Err(err).Msg("Failed to get encryption key for git provider connection")
+			http.Error(w, "Failed to decrypt connection credentials", http.StatusInternalServerError)
+			return
+		}
+		decryptedToken, err := crypto.DecryptAES256GCM(connection.Token, encryptionKey)
+		if err != nil {
+			log.Error().Err(err).Msg("Failed to decrypt git provider connection token")
+			http.Error(w, "Failed to decrypt connection credentials", http.StatusInternalServerError)
+			return
+		}
+		token := string(decryptedToken)
+
+		switch connection.ProviderType {
+		case types.ExternalRepositoryTypeGitHub:
+			if request.GitHub == nil {
+				request.GitHub = &types.GitHub{}
+			}
+			request.GitHub.PersonalAccessToken = token
+			if connection.BaseURL != "" && request.GitHub.BaseURL == "" {
+				request.GitHub.BaseURL = connection.BaseURL
+			}
+		case types.ExternalRepositoryTypeGitLab:
+			if request.GitLab == nil {
+				request.GitLab = &types.GitLab{}
+			}
+			request.GitLab.PersonalAccessToken = token
+			if connection.BaseURL != "" && request.GitLab.BaseURL == "" {
+				request.GitLab.BaseURL = connection.BaseURL
+			}
+		case types.ExternalRepositoryTypeADO:
+			if request.AzureDevOps == nil {
+				request.AzureDevOps = &types.AzureDevOps{}
+			}
+			request.AzureDevOps.PersonalAccessToken = token
+			if connection.OrganizationURL != "" && request.AzureDevOps.OrganizationURL == "" {
+				request.AzureDevOps.OrganizationURL = connection.OrganizationURL
+			}
+		case types.ExternalRepositoryTypeBitbucket:
+			if request.Bitbucket == nil {
+				request.Bitbucket = &types.Bitbucket{}
+			}
+			request.Bitbucket.AppPassword = token
+			if connection.AuthUsername != "" {
+				decryptedUsername, err := crypto.DecryptAES256GCM(connection.AuthUsername, encryptionKey)
+				if err == nil {
+					request.Bitbucket.Username = string(decryptedUsername)
+				}
+			}
+		}
+	}
 
 	// Create repository
 	repository, err := s.gitRepositoryService.CreateRepository(r.Context(), &request)
@@ -264,8 +331,10 @@ func (s *HelixAPIServer) listGitRepositories(w http.ResponseWriter, r *http.Requ
 
 	user := getRequestUser(r)
 
+	var orgMembership *types.OrganizationMembership
 	if orgID != "" {
-		_, err := s.authorizeOrgMember(ctx, user, orgID)
+		var err error
+		orgMembership, err = s.authorizeOrgMember(ctx, user, orgID)
 		if err != nil {
 			writeErrResponse(w, err, http.StatusForbidden)
 			return
@@ -274,20 +343,8 @@ func (s *HelixAPIServer) listGitRepositories(w http.ResponseWriter, r *http.Requ
 
 	// If filtering by project, verify user has access to the project
 	if projectID != "" {
-		project, err := s.Store.GetProject(ctx, projectID)
-		if err != nil {
-			http.Error(w, "Project not found", http.StatusNotFound)
-			return
-		}
-		// Check user has access to this project (owner or org member)
-		if project.UserID != user.ID && project.OrganizationID != "" {
-			_, err := s.authorizeOrgMember(ctx, user, project.OrganizationID)
-			if err != nil {
-				writeErrResponse(w, err, http.StatusForbidden)
-				return
-			}
-		} else if project.UserID != user.ID {
-			http.Error(w, "Access denied", http.StatusForbidden)
+		if err := s.authorizeUserToProjectByID(ctx, user, projectID, types.ActionGet); err != nil {
+			writeErrResponse(w, err, http.StatusForbidden)
 			return
 		}
 	}
@@ -314,8 +371,20 @@ func (s *HelixAPIServer) listGitRepositories(w http.ResponseWriter, r *http.Requ
 		repositories = filtered
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(repositories)
+	// For org-scoped queries, filter repositories by authorization
+	// Org owners see all, others only see repos they have access to
+	if orgID != "" && orgMembership != nil && orgMembership.Role != types.OrganizationRoleOwner {
+		var authorizedRepos []*types.GitRepository
+		for _, repo := range repositories {
+			if err := s.authorizeUserToRepository(ctx, user, repo, types.ActionGet); err != nil {
+				continue
+			}
+			authorizedRepos = append(authorizedRepos, repo)
+		}
+		repositories = authorizedRepos
+	}
+
+	writeResponseWithETag(w, r, repositories)
 }
 
 // createSampleRepository creates a sample/demo repository
@@ -1509,7 +1578,7 @@ func (s *HelixAPIServer) createGitRepositoryPullRequest(w http.ResponseWriter, r
 	// Both push and PR creation should happen atomically.
 	var prID string
 	err = s.gitRepositoryService.WithRepoLock(repoID, func() error {
-		if pushErr := s.gitRepositoryService.PushBranchToRemote(r.Context(), repoID, request.SourceBranch, false); pushErr != nil {
+		if pushErr := s.gitRepositoryService.PushBranchToRemote(r.Context(), repoID, request.SourceBranch, false, user.ID); pushErr != nil {
 			log.Error().Err(pushErr).
 				Str("repo_id", repoID).
 				Str("branch", request.SourceBranch).
@@ -1518,10 +1587,19 @@ func (s *HelixAPIServer) createGitRepositoryPullRequest(w http.ResponseWriter, r
 		}
 
 		var prErr error
-		prID, prErr = s.gitRepositoryService.CreatePullRequest(r.Context(), repoID, request.Title, request.Description, request.SourceBranch, request.TargetBranch)
+		prID, prErr = s.gitRepositoryService.CreatePullRequest(r.Context(), repoID, request.Title, request.Description, request.SourceBranch, request.TargetBranch, user.ID)
 		return prErr
 	})
 	if err != nil {
+		var oauthErr *services.OAuthRequiredError
+		if errors.As(err, &oauthErr) {
+			writeResponse(w, map[string]interface{}{
+				"error":         "oauth_required",
+				"message":       oauthErr.Error(),
+				"provider_type": oauthErr.ProviderType,
+			}, http.StatusUnprocessableEntity)
+			return
+		}
 		log.Error().Err(err).
 			Str("repo_id", repoID).
 			Str("title", request.Title).
@@ -1574,6 +1652,18 @@ func (s *HelixAPIServer) getOrCreateUserAPIKey(ctx context.Context, user *types.
 // @Failure 500 {object} types.APIError
 // @Router /api/v1/git/browse-remote [post]
 // @Security BearerAuth
+// isAuthenticationError checks if an error from a git provider API call is an
+// authentication/authorization failure (bad token, expired token, missing scopes, etc.)
+func isAuthenticationError(err error) bool {
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "401") ||
+		strings.Contains(msg, "403") ||
+		strings.Contains(msg, "bad credentials") ||
+		strings.Contains(msg, "unauthorized") ||
+		strings.Contains(msg, "authentication") ||
+		strings.Contains(msg, "invalid token")
+}
+
 func (s *HelixAPIServer) browseRemoteRepositories(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
@@ -1594,10 +1684,49 @@ func (s *HelixAPIServer) browseRemoteRepositories(w http.ResponseWriter, r *http
 	switch request.ProviderType {
 	case types.ExternalRepositoryTypeGitHub:
 		ghClient := github.NewClientWithPATAndBaseURL(request.Token, request.BaseURL)
+
+		// Validate token scopes before listing repos. Classic PATs with no scopes
+		// or missing 'repo' can still list public repos, but Helix needs write access.
+		_, scopes, scopeHeaderPresent, err := ghClient.GetAuthenticatedUserWithScopes(ctx)
+		if err != nil {
+			if isAuthenticationError(err) {
+				http.Error(w, "Invalid GitHub token. Please check your token and try again.", http.StatusBadRequest)
+				return
+			}
+			log.Error().Err(err).Msg("Failed to validate GitHub token")
+			http.Error(w, "Failed to validate GitHub token. Please try again.", http.StatusInternalServerError)
+			return
+		}
+		if !scopeHeaderPresent {
+			// Fine-grained PATs don't return X-OAuth-Scopes so we can't validate
+			// their permissions. Reject them and ask for a classic token.
+			http.Error(w, "Fine-grained GitHub tokens are not supported. Helix requires a classic token with the 'repo' scope. Please create one at https://github.com/settings/tokens", http.StatusBadRequest)
+			return
+		}
+		if len(scopes) == 0 {
+			http.Error(w, "GitHub token has no scopes. Helix requires the 'repo' scope for full repository access. Please create a new classic token with the 'repo' scope at https://github.com/settings/tokens", http.StatusBadRequest)
+			return
+		}
+		hasRepo := false
+		for _, s := range scopes {
+			if s == "repo" {
+				hasRepo = true
+				break
+			}
+		}
+		if !hasRepo {
+			http.Error(w, fmt.Sprintf("GitHub token is missing required scope 'repo'. Your token has scopes: %s. Please create a new classic token with the 'repo' scope at https://github.com/settings/tokens", strings.Join(scopes, ", ")), http.StatusBadRequest)
+			return
+		}
+
 		ghRepos, err := ghClient.ListRepositories(ctx)
 		if err != nil {
+			if isAuthenticationError(err) {
+				http.Error(w, "Invalid GitHub token. Please check your token and try again.", http.StatusBadRequest)
+				return
+			}
 			log.Error().Err(err).Msg("Failed to list GitHub repositories")
-			http.Error(w, fmt.Sprintf("Failed to list GitHub repositories: %s", err.Error()), http.StatusInternalServerError)
+			http.Error(w, "Failed to list GitHub repositories. Please try again.", http.StatusInternalServerError)
 			return
 		}
 
@@ -1616,15 +1745,23 @@ func (s *HelixAPIServer) browseRemoteRepositories(w http.ResponseWriter, r *http
 	case types.ExternalRepositoryTypeGitLab:
 		glClient, err := gitlab.NewClientWithPAT(request.BaseURL, request.Token)
 		if err != nil {
+			if isAuthenticationError(err) {
+				http.Error(w, "Invalid GitLab token. Please check your token and try again.", http.StatusBadRequest)
+				return
+			}
 			log.Error().Err(err).Msg("Failed to create GitLab client")
-			http.Error(w, fmt.Sprintf("Failed to create GitLab client: %s", err.Error()), http.StatusInternalServerError)
+			http.Error(w, "Failed to create GitLab client. Please try again.", http.StatusInternalServerError)
 			return
 		}
 
 		glProjects, err := glClient.ListProjects(ctx)
 		if err != nil {
+			if isAuthenticationError(err) {
+				http.Error(w, "Invalid GitLab token. Please check your token and try again.", http.StatusBadRequest)
+				return
+			}
 			log.Error().Err(err).Msg("Failed to list GitLab projects")
-			http.Error(w, fmt.Sprintf("Failed to list GitLab projects: %s", err.Error()), http.StatusInternalServerError)
+			http.Error(w, "Failed to list GitLab projects. Please try again.", http.StatusInternalServerError)
 			return
 		}
 
@@ -1649,8 +1786,12 @@ func (s *HelixAPIServer) browseRemoteRepositories(w http.ResponseWriter, r *http
 		adoClient := azuredevops.NewAzureDevOpsClient(request.OrganizationURL, request.Token)
 		adoRepos, err := adoClient.ListRepositories(ctx, "") // Empty string = all projects
 		if err != nil {
+			if isAuthenticationError(err) {
+				http.Error(w, "Invalid Azure DevOps token. Please check your token and try again.", http.StatusBadRequest)
+				return
+			}
 			log.Error().Err(err).Msg("Failed to list Azure DevOps repositories")
-			http.Error(w, fmt.Sprintf("Failed to list Azure DevOps repositories: %s", err.Error()), http.StatusInternalServerError)
+			http.Error(w, "Failed to list Azure DevOps repositories. Please try again.", http.StatusInternalServerError)
 			return
 		}
 

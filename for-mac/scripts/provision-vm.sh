@@ -13,7 +13,7 @@ set -euo pipefail
 #   2. Creates qcow2 disk + cloud-init seed
 #   3. Boots headless VM with QEMU for provisioning
 #   4. Waits for cloud-init, then SSHs in to run setup
-#   5. Installs: Docker, Go 1.25, ZFS 2.4.0, helix-drm-manager
+#   5. Installs: Docker, Go 1.25, ZFS 2.4.1+, helix-drm-manager
 #   6. Clones helix repo, builds desktop Docker image
 #   7. Sets up docker-compose for Helix control plane
 #   8. Primes the stack (pull/build/start/verify/stop)
@@ -551,7 +551,7 @@ write_files:
           "max-file": "3"
         }
       }
-  - path: /etc/ssh/sshd_config.d/helix.conf
+  - path: /etc/ssh/sshd_config.d/50-helix.conf
     content: |
       PasswordAuthentication yes
       PubkeyAuthentication yes
@@ -672,6 +672,26 @@ write_files:
           chown ubuntu:ubuntu /home/ubuntu/helix/.env.vm
       fi
 
+      # Restore console password from ZFS config (set by injectDesktopSecret)
+      if [ -f /helix/config/console_password ]; then
+          PASS=\$(cat /helix/config/console_password 2>/dev/null)
+          if [ -n "\$PASS" ]; then
+              echo "ubuntu:\$PASS" | chpasswd
+              log "Restored console password from /helix/config/console_password"
+          fi
+      fi
+
+      # Fix sshd config ordering: 50-helix.conf must sort before 60-cloudimg-settings.conf
+      # so PasswordAuthentication yes takes effect (sshd uses first-match-wins)
+      if [ -f /etc/ssh/sshd_config.d/helix.conf ]; then
+          mv /etc/ssh/sshd_config.d/helix.conf /etc/ssh/sshd_config.d/50-helix.conf
+          log "Renamed helix.conf -> 50-helix.conf for sshd ordering"
+      fi
+      if [ -f /etc/ssh/sshd_config.d/60-cloudimg-settings.conf ]; then
+          sed -i '/^PasswordAuthentication/d' /etc/ssh/sshd_config.d/60-cloudimg-settings.conf
+          log "Removed PasswordAuthentication override from 60-cloudimg-settings.conf"
+      fi
+
       # Docker starts automatically via systemd ordering (Before=docker.service).
       # Do NOT call "systemctl start docker" here — it deadlocks because this
       # service must complete before docker.service can start.
@@ -757,7 +777,7 @@ run_ssh() {
 }
 
 if ! step_done "install_zfs"; then
-    log "Installing ZFS 2.4.0 from arter97 PPA..."
+    log "Installing ZFS 2.4.1+ from arter97 PPA..."
     run_ssh "sudo add-apt-repository -y ppa:arter97/zfs && sudo apt-get update && sudo apt-get install -y zfsutils-linux" || {
         log "ZFS install may need a reboot for DKMS. Continuing..."
     }

@@ -294,8 +294,8 @@ function build-runner-image() {
   # Use 'latest-small' for production builds that need full base image
   local BASE_TAG="${2:-latest-empty}"
 
-  echo "  Output: registry.helixml.tech/helix/runner:$IMAGE_TAG"
-  echo "  Base: registry.helixml.tech/helix/runner-base:$BASE_TAG"
+  echo "  Output: ghcr.io/helixml/runner:$IMAGE_TAG"
+  echo "  Base: ghcr.io/helixml/runner-base:$BASE_TAG"
   echo "  Version: $APP_VERSION"
   echo "  Note: ROCm vLLM build takes ~10 minutes"
   echo ""
@@ -304,7 +304,7 @@ function build-runner-image() {
     -f Dockerfile.runner \
     --build-arg TAG="$BASE_TAG" \
     --build-arg APP_VERSION="$APP_VERSION" \
-    -t "registry.helixml.tech/helix/runner:$IMAGE_TAG" \
+    -t "ghcr.io/helixml/runner:$IMAGE_TAG" \
     .
 }
 
@@ -500,10 +500,11 @@ function _start_services() {
   # Setup sandbox profile based on GPU detection
   setup_sandbox_profile
 
-  # Stop sandbox if running to ensure fresh start
-  docker compose -f docker-compose.dev.yaml stop "$SANDBOX_SERVICE" 2>/dev/null || true
-
   # Start services based on enabled profiles
+  # NOTE: do NOT stop the sandbox before `up -d` — `docker compose up -d` already
+  # recreates the container when the image changes, and an explicit stop causes a
+  # race with the NVIDIA driver that leaves the container in an unstoppable state
+  # (especially when build-sandbox just started it moments before).
   if [[ -n "$WITH_RUNNER" ]]; then
     if [[ -n "$WITH_DEMOS" ]]; then
       # Both runner and demos
@@ -1043,10 +1044,9 @@ function build-desktop() {
   echo "${IMAGE_TAG}" > "sandbox-images/${IMAGE_NAME}.version"
   echo "📦 Version file: ${IMAGE_TAG}"
 
-  # Check if image actually changed
+  # Log whether image changed (transfer function handles dedup via sandbox tag check)
   if [ -n "$IMAGE_HASH_BEFORE" ] && [ "$IMAGE_HASH_BEFORE" = "$IMAGE_HASH_AFTER" ]; then
-    echo "✅ Image unchanged - skipping transfer"
-    return 0
+    echo "ℹ️  Image unchanged (layers cached)"
   fi
 
   # Transfer to running sandbox via local registry
@@ -1157,20 +1157,56 @@ function transfer-desktop-to-sandbox() {
     return 1
   fi
 
-  # Pull from registry inside sandbox
+  # Pull from registry inside sandbox (with retry)
   _tx_elapsed "📥 Sandbox pulling from registry..."
-  if ! sandbox_docker exec "$SANDBOX_CONTAINER_NAME" docker pull "$SANDBOX_REGISTRY_TAG" 2>&1 | grep -v "^$"; then
-    echo "❌ Failed to pull from registry inside sandbox"
+  local PULL_OK=false
+  for attempt in 1 2 3; do
+    if sandbox_docker exec "$SANDBOX_CONTAINER_NAME" docker pull "$SANDBOX_REGISTRY_TAG" 2>&1 | grep -v "^$"; then
+      PULL_OK=true
+      break
+    fi
+    echo "⚠️  Pull attempt $attempt failed, retrying in 3s..."
+    sleep 3
+  done
+  if [ "$PULL_OK" = false ]; then
+    echo "❌ Failed to pull from registry inside sandbox after 3 attempts"
     return 1
   fi
 
   # Tag with the expected names inside sandbox (Hydra uses helix-${desktop}:${tag})
-  sandbox_docker exec "$SANDBOX_CONTAINER_NAME" docker tag "$SANDBOX_REGISTRY_TAG" "${IMAGE_NAME}:${IMAGE_TAG}"
-  sandbox_docker exec "$SANDBOX_CONTAINER_NAME" docker tag "$SANDBOX_REGISTRY_TAG" "${IMAGE_NAME}:latest"
+  # Retry tagging — Docker daemon may be briefly busy after pull
+  local TAG_OK=false
+  for attempt in 1 2 3; do
+    if sandbox_docker exec "$SANDBOX_CONTAINER_NAME" docker tag "$SANDBOX_REGISTRY_TAG" "${IMAGE_NAME}:${IMAGE_TAG}" 2>&1 && \
+       sandbox_docker exec "$SANDBOX_CONTAINER_NAME" docker tag "$SANDBOX_REGISTRY_TAG" "${IMAGE_NAME}:latest" 2>&1; then
+      TAG_OK=true
+      break
+    fi
+    echo "⚠️  Tag attempt $attempt failed, retrying in 2s..."
+    sleep 2
+  done
+  if [ "$TAG_OK" = false ]; then
+    echo "❌ Failed to tag image inside sandbox after 3 attempts"
+    return 1
+  fi
 
-  # Remove the registry-prefixed tag to allow proper cleanup later
-  # (layers are shared, so this just removes the tag, not the data)
+  # Verify the non-registry tags exist before removing the registry tag
+  if ! sandbox_docker exec "$SANDBOX_CONTAINER_NAME" docker inspect "${IMAGE_NAME}:${IMAGE_TAG}" >/dev/null 2>&1; then
+    echo "❌ CRITICAL: ${IMAGE_NAME}:${IMAGE_TAG} not found after tagging — aborting (keeping registry tag)"
+    return 1
+  fi
+
+  # Remove the registry-prefixed tag (layers shared, just removes the tag)
   sandbox_docker exec "$SANDBOX_CONTAINER_NAME" docker rmi "$SANDBOX_REGISTRY_TAG" 2>/dev/null || true
+
+  # Post-rmi verification — if removing the registry tag also removed the image, re-pull and re-tag
+  if ! sandbox_docker exec "$SANDBOX_CONTAINER_NAME" docker inspect "${IMAGE_NAME}:${IMAGE_TAG}" >/dev/null 2>&1; then
+    echo "⚠️  Image disappeared after rmi — re-pulling and re-tagging..."
+    sandbox_docker exec "$SANDBOX_CONTAINER_NAME" docker pull "$SANDBOX_REGISTRY_TAG" 2>&1 | grep -v "^$" || true
+    sandbox_docker exec "$SANDBOX_CONTAINER_NAME" docker tag "$SANDBOX_REGISTRY_TAG" "${IMAGE_NAME}:${IMAGE_TAG}" 2>/dev/null || true
+    sandbox_docker exec "$SANDBOX_CONTAINER_NAME" docker tag "$SANDBOX_REGISTRY_TAG" "${IMAGE_NAME}:latest" 2>/dev/null || true
+    # Don't rmi the registry tag this time — leave it as a safety net
+  fi
 
   _tx_elapsed "✅ ${IMAGE_NAME}:${IMAGE_TAG} transferred via registry"
 
@@ -1199,6 +1235,21 @@ function transfer-desktop-to-sandbox() {
 
   # Prune dangling images in sandbox
   sandbox_docker exec "$SANDBOX_CONTAINER_NAME" docker image prune -f 2>/dev/null || true
+
+  # Final verification — if the image is gone after cleanup, re-pull as last resort
+  if ! sandbox_docker exec "$SANDBOX_CONTAINER_NAME" docker inspect "${IMAGE_NAME}:${IMAGE_TAG}" >/dev/null 2>&1; then
+    echo "❌ Image disappeared after cleanup! Re-pulling as last resort..."
+    sandbox_docker exec "$SANDBOX_CONTAINER_NAME" docker pull "$SANDBOX_REGISTRY_TAG" 2>&1 | grep -v "^$" || true
+    sandbox_docker exec "$SANDBOX_CONTAINER_NAME" docker tag "$SANDBOX_REGISTRY_TAG" "${IMAGE_NAME}:${IMAGE_TAG}" 2>/dev/null || true
+    sandbox_docker exec "$SANDBOX_CONTAINER_NAME" docker tag "$SANDBOX_REGISTRY_TAG" "${IMAGE_NAME}:latest" 2>/dev/null || true
+    if ! sandbox_docker exec "$SANDBOX_CONTAINER_NAME" docker inspect "${IMAGE_NAME}:${IMAGE_TAG}" >/dev/null 2>&1; then
+      echo "❌ CRITICAL: ${IMAGE_NAME}:${IMAGE_TAG} still missing after re-pull. Transfer failed."
+      return 1
+    fi
+    echo "✅ Recovered: ${IMAGE_NAME}:${IMAGE_TAG} restored after re-pull"
+  else
+    echo "✅ VERIFIED: ${IMAGE_NAME}:${IMAGE_TAG} exists in sandbox"
+  fi
 
   # Registry cleanup
   # Clean up old registry-tagged images on host

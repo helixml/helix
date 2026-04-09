@@ -1,4 +1,4 @@
-{{- if and .Values.typesense.persistence.enabled (not .Values.typesense.persistence.existingClaim) -}}
+{{- if and .Values.typesense.enabled .Values.typesense.persistence.enabled (not .Values.typesense.persistence.existingClaim) -}}
 kind: PersistentVolumeClaim
 apiVersion: v1
 metadata:

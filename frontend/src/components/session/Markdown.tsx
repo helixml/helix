@@ -13,7 +13,6 @@ import Markdown from "react-markdown";
 import { Prism as SyntaxHighlighterTS } from "react-syntax-highlighter";
 import remarkGfm from "remark-gfm";
 import rehypeRaw from "rehype-raw";
-import { keyframes } from "@mui/material/styles";
 // you can change the theme by picking one from here
 // https://react-syntax-highlighter.github.io/react-syntax-highlighter/demo/prism.html
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
@@ -23,6 +22,7 @@ import DOMPurify from "dompurify";
 
 // Import the new Citation component
 import Citation, { Excerpt } from "./Citation";
+import StreamingIndicator from "./StreamingIndicator";
 import IconButton from "@mui/material/IconButton";
 import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import Tooltip from "@mui/material/Tooltip";
@@ -32,12 +32,6 @@ import ThinkingWidget from "./ThinkingWidget";
 import { getGlobalStatsCollector } from "./ChatStatsOverlay";
 
 const SyntaxHighlighter = SyntaxHighlighterTS as any;
-
-// Create a blinking animation for the cursor
-const blink = keyframes`
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0; }
-`;
 
 export interface MessageProcessorOptions {
   session: TypesSession;
@@ -104,12 +98,9 @@ export class MessageProcessor {
     // Sanitize HTML
     processedMessage = this.sanitizeHtml(processedMessage);
 
-    // Add blinker if requested and appropriate
-    if (this.options.showBlinker && !this.citationData) {
-      if (this.options.isStreaming) {
-        processedMessage = this.addBlinker(processedMessage);
-      }
-    }
+    // Note: Blinker is now rendered as a separate React component (StreamingIndicator)
+    // instead of being injected into the markdown content. This fixes issues where
+    // the blinker HTML would appear inside code blocks.
 
     // Add citation data as a special marker if present
     if (this.citationData) {
@@ -410,6 +401,9 @@ export class MessageProcessor {
   }
 
   private processThinkingTags(message: string): string {
+    // Normalise <thinking> tags (emitted by Claude Code) to <think>
+    message = message.replace(/<thinking>/g, "<think>").replace(/<\/thinking>/g, "</think>");
+
     // Check for any <think> tags
     if (!message.includes("<think>")) {
       return message;
@@ -579,19 +573,6 @@ export class MessageProcessor {
     });
 
     return processedMessage;
-  }
-
-  private addBlinker(message: string): string {
-    // Check if we're in the middle of a code block
-    const openCodeBlockCount = (message.match(/```/g) || []).length;
-    // If the count of ``` is odd, we're in the middle of a code block
-    if (openCodeBlockCount % 2 !== 0) {
-      // Don't add blinker in the middle of a code block
-      return message;
-    }
-
-    // Add blinker at the end of content
-    return message + '<span class="blinker-class">┃</span>';
   }
 
   private addCitationData(message: string): string {
@@ -781,6 +762,7 @@ export interface InteractionMarkdownProps {
   showBlinker?: boolean;
   isStreaming: boolean;
   onFilterDocument?: (docId: string) => void;
+  compactThinking?: boolean;
 }
 
 // Add this new component for the code block with copy button
@@ -882,6 +864,7 @@ const InteractionMarkdown: FC<InteractionMarkdownProps> = ({
   showBlinker = false,
   isStreaming = false,
   onFilterDocument,
+  compactThinking = false,
 }) => {
   const theme = useTheme();
   const [processedContent, setProcessedContent] = useState<string>("");
@@ -1067,16 +1050,7 @@ const InteractionMarkdown: FC<InteractionMarkdownProps> = ({
           "& a": {
             color: theme.palette.mode === "light" ? "#333" : "#bbb",
           },
-          "& .blinker-class": {
-            animation: `${blink} 1.2s step-end infinite`,
-            marginLeft: "2px",
-            color:
-              theme.palette.mode === "light"
-                ? "rgba(0, 0, 0, 0.7)"
-                : "rgba(255, 255, 255, 0.7)",
-            fontWeight: "normal",
-            userSelect: "none",
-          },
+
           "& .doc-citation": {
             color: theme.palette.mode === "light" ? "#333" : "#fff",
             backgroundColor:
@@ -1145,6 +1119,7 @@ const InteractionMarkdown: FC<InteractionMarkdownProps> = ({
           <ThinkingWidget
             text={thinkingWidgetContent}
             isStreaming={isStreaming}
+            compact={compactThinking}
           />
         )}
         {citationData &&
@@ -1158,6 +1133,7 @@ const InteractionMarkdown: FC<InteractionMarkdownProps> = ({
             />
           )}
         <MemoizedMarkdownRenderer processedContent={processedContent} />
+        {showBlinker && isStreaming && <StreamingIndicator />}
       </Box>
     </>
   );
@@ -1175,7 +1151,7 @@ const MemoizedMarkdownRenderer: FC<{ processedContent: string }> = React.memo(
     const markdownComponents = useMemo(
       () => ({
         code(props: any) {
-          const { children, className, node, ...rest } = props;
+          const { children, className, node, ref, ...rest } = props;
           const match = /language-(\w+)/.exec(className || "");
           return match ? (
             <CodeBlockWithCopy language={match[1]}>

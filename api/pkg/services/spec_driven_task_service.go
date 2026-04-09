@@ -9,7 +9,6 @@ import (
 
 	external_agent "github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/notification"
-	"github.com/helixml/helix/api/pkg/ptr"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
@@ -48,6 +47,7 @@ type SpecDrivenTaskService struct {
 	ZedToHelixSessionService *ZedToHelixSessionService // Service for Zed→Helix session creation
 	SessionContextService    *SessionContextService    // Service for inter-session coordination
 	auditLogService          *AuditLogService          // Service for audit logging
+	koditService             KoditServicer             // Kodit code intelligence (for MCP documentation in prompts)
 	GetProjectSecrets        ProjectSecretsGetter      // Callback to get project secrets as env vars
 	wg                       sync.WaitGroup
 }
@@ -62,6 +62,7 @@ func NewSpecDrivenTaskService(
 	externalAgentExecutor external_agent.Executor,
 	gitRepositoryService *GitRepositoryService,
 	registerRequestMapping RequestMappingRegistrar,
+	koditService KoditServicer,
 ) *SpecDrivenTaskService {
 	service := &SpecDrivenTaskService{
 		store:                  store,
@@ -70,6 +71,7 @@ func NewSpecDrivenTaskService(
 		RegisterRequestMapping: registerRequestMapping,
 		helixAgentID:           helixAgentID,
 		zedAgentPool:           zedAgentPool,
+		koditService:           koditService,
 		testMode:               false,
 		auditLogService:        NewAuditLogService(store),
 	}
@@ -90,6 +92,11 @@ func NewSpecDrivenTaskService(
 	)
 
 	return service
+}
+
+// SetKoditService replaces the kodit service after late initialization.
+func (s *SpecDrivenTaskService) SetKoditService(svc KoditServicer) {
+	s.koditService = svc
 }
 
 // SetTestMode enables or disables test mode (prevents async operations)
@@ -163,7 +170,7 @@ func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *t
 		ProjectID:      req.ProjectID,
 		UserID:         req.UserID,
 		OrganizationID: organizationID,
-		Name:           generateTaskNameFromPrompt(req.Prompt),
+		Name:           GenerateTaskNameFromPrompt(req.Prompt),
 		Description:    req.Prompt,
 		Type:           req.Type,
 		Priority:       req.Priority,
@@ -221,7 +228,7 @@ func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *t
 			log.Info().
 				Str("task_id", task.ID).
 				Str("branch", req.WorkingBranch).
-				Str("pr_id", task.PullRequestID).
+				Bool("has_pr", task.HasAnyPR()).
 				Msg("Detected existing PR for branch, task starts in pull_request column")
 		}
 	}
@@ -318,9 +325,11 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 	}
 
 	// Update task status (SpecAgent already set in CreateTaskFromPrompt)
+	now := time.Now()
 	task.Status = types.TaskStatusSpecGeneration
-	task.PlanningStartedAt = ptr.To(time.Now())
-	task.UpdatedAt = time.Now()
+	task.StatusUpdatedAt = &now
+	task.PlanningStartedAt = &now
+	task.UpdatedAt = now
 
 	err := s.store.UpdateSpecTask(ctx, task)
 	if err != nil {
@@ -334,7 +343,14 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 	}
 
 	// Build planning instructions as the message (not system prompt - agent has its own system prompt)
-	planningPrompt := BuildPlanningPrompt(task, guidelines)
+	koditDoc := ""
+	if project != nil && project.KoditEnabled {
+		koditDoc = s.koditService.MCPDocumentation()
+	}
+
+	// Build repository section listing local + Kodit repos for the agent
+	repoSection := s.buildRepositorySectionForTask(ctx, task, project)
+	planningPrompt := BuildPlanningPrompt(task, guidelines, koditDoc, repoSection)
 
 	// Get CodeAgentRuntime from the app config (needed for session resume to select correct agent)
 	codeAgentRuntime := s.getCodeAgentRuntimeForTask(ctx, task)
@@ -343,9 +359,8 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		SystemPrompt:     "",             // Don't override agent's system prompt
 		AgentType:        "zed_external", // Use Zed agent for git access
 		Stream:           false,
-		SpecTaskID:       task.ID,                   // CRITICAL: Set SpecTaskID so session restore uses correct workspace path
-		CodeAgentRuntime: codeAgentRuntime,          // For open_thread on resume
-		DesiredState:     types.DesiredStateRunning, // Session should be running (for reconciler)
+		SpecTaskID:       task.ID,          // CRITICAL: Set SpecTaskID so session restore uses correct workspace path
+		CodeAgentRuntime: codeAgentRuntime, // For open_thread on resume
 	}
 
 	session := &types.Session{
@@ -363,6 +378,17 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		ProjectID:      task.ProjectID, // For project-level skills
 		Metadata:       sessionMetadata,
 		OwnerType:      types.OwnerTypeUser,
+	}
+
+	// Guard against duplicate session creation (issue #10 from ZFS deployment).
+	// Two concurrent requests can both reach this point before either has written
+	// planning_session_id to the DB. Re-read the task to see if a sibling already won the race.
+	if freshTask, readErr := s.store.GetSpecTask(ctx, task.ID); readErr == nil && freshTask.PlanningSessionID != "" {
+		log.Info().
+			Str("task_id", task.ID).
+			Str("existing_session_id", freshTask.PlanningSessionID).
+			Msg("Planning session already created by concurrent request — skipping duplicate creation")
+		return
 	}
 
 	session, err = s.store.CreateSession(ctx, *session)
@@ -467,18 +493,11 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		primaryRepoID = projectRepos[0].ID
 	}
 
-	// Get session-scoped ephemeral API key for this dev container
-	// Key is minted now and will be revoked when the desktop shuts down
-	userAPIKey, err := s.GetOrCreateSessionAPIKey(ctx, &SessionAPIKeyRequest{
-		OrganizationID: orgID,
-		UserID:         task.CreatedBy,
-		SessionID:      session.ID,
-	})
-	if err != nil {
-		log.Error().Err(err).Str("user_id", task.CreatedBy).Str("session_id", session.ID).Msg("Failed to get session API key for SpecTask")
-		s.markTaskFailed(ctx, task, fmt.Sprintf("Failed to get session API key: %v", err))
-		return
-	}
+	// API key creation is deferred to OnBeforeCreate hook (inside StartDesktop's
+	// session lock) to prevent races with concurrent StopDesktop.
+	launchOrgID := orgID
+	launchTask := task
+	launchSession := session
 
 	// Get display settings from app's ExternalAgentConfig (or use defaults)
 	displayWidth := 1920
@@ -521,8 +540,8 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 
 	// Create ZedAgent struct with session info for Wolf executor
 	log.Debug().Str("task_id", task.ID).Msg("DEBUG: About to create ZedAgent struct")
-	// Build env vars (base + locale + project secrets)
-	envVars := buildEnvWithLocale(userAPIKey, task.PlanningOptions)
+	// Build env vars (locale + project secrets, API key added in OnBeforeCreate hook)
+	envVars := buildEnvWithLocale("", task.PlanningOptions)
 
 	// Inject project secrets as environment variables
 	if s.GetProjectSecrets != nil && task.ProjectID != "" {
@@ -533,6 +552,20 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 			envVars = append(envVars, projectSecrets...)
 			log.Info().Int("secret_count", len(projectSecrets)).Str("project_id", task.ProjectID).Msg("Injected project secrets into desktop env")
 		}
+	}
+
+	// Inject startup script from project YAML (stored in database).
+	// helix-workspace-setup.sh uses this as a fallback when no .helix/startup.sh
+	// exists in the helix-specs branch (typical for externally-applied projects).
+	if project.StartupScriptYAML != "" {
+		envVars = append(envVars, "HELIX_STARTUP_SCRIPT="+project.StartupScriptYAML)
+	}
+	// Legacy: also pass install/start for backward compatibility
+	if project.StartupInstall != "" {
+		envVars = append(envVars, "HELIX_STARTUP_INSTALL="+project.StartupInstall)
+	}
+	if project.StartupStart != "" {
+		envVars = append(envVars, "HELIX_STARTUP_START="+project.StartupStart)
 	}
 
 	zedAgent := &types.DesktopAgent{
@@ -551,7 +584,19 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		Resolution:          resolution,
 		ZoomLevel:           zoomLevel,
 		DesktopType:         desktopType,
-		Env:                 envVars,
+		Env: envVars,
+		OnBeforeCreate: func(hookCtx context.Context, a *types.DesktopAgent) error {
+			apiKey, err := s.GetOrCreateSessionAPIKey(hookCtx, &SessionAPIKeyRequest{
+				OrganizationID: launchOrgID,
+				UserID:         launchTask.CreatedBy,
+				SessionID:      launchSession.ID,
+			})
+			if err != nil {
+				return fmt.Errorf("failed to get session API key: %w", err)
+			}
+			a.Env = append(a.Env, types.DesktopAgentAPIEnvVars(apiKey)...)
+			return nil
+		},
 		// Branch configuration - startup script will checkout correct branch
 		BranchMode:    string(task.BranchMode),
 		BaseBranch:    task.BaseBranch,
@@ -692,10 +737,11 @@ func (s *SpecDrivenTaskService) StartJustDoItMode(ctx context.Context, task *typ
 
 	// Update task status directly to implementation (skip all spec phases)
 	// NOTE: If HelixAppID was inherited from project, it will be persisted here
-	task.Status = types.TaskStatusImplementation
-	task.BranchName = branchName
-	task.UpdatedAt = time.Now()
 	now := time.Now()
+	task.Status = types.TaskStatusImplementation
+	task.StatusUpdatedAt = &now
+	task.BranchName = branchName
+	task.UpdatedAt = now
 	task.StartedAt = &now
 
 	err := s.store.UpdateSpecTask(ctx, task)
@@ -711,9 +757,8 @@ func (s *SpecDrivenTaskService) StartJustDoItMode(ctx context.Context, task *typ
 		SystemPrompt:     "",             // Don't override agent's system prompt
 		AgentType:        "zed_external", // Use Zed agent for git access
 		Stream:           false,
-		SpecTaskID:       task.ID,                   // CRITICAL: Set SpecTaskID so session restore uses correct workspace path
-		CodeAgentRuntime: codeAgentRuntimeJDI,       // For open_thread on resume
-		DesiredState:     types.DesiredStateRunning, // Session should be running (for reconciler)
+		SpecTaskID:       task.ID,             // CRITICAL: Set SpecTaskID so session restore uses correct workspace path
+		CodeAgentRuntime: codeAgentRuntimeJDI, // For open_thread on resume
 	}
 
 	session := &types.Session{
@@ -731,6 +776,15 @@ func (s *SpecDrivenTaskService) StartJustDoItMode(ctx context.Context, task *typ
 		ProjectID:      task.ProjectID, // For project-level skills
 		Metadata:       sessionMetadata,
 		OwnerType:      types.OwnerTypeUser,
+	}
+
+	// Guard against duplicate session creation (issue #10 from ZFS deployment).
+	if freshTask, readErr := s.store.GetSpecTask(ctx, task.ID); readErr == nil && freshTask.PlanningSessionID != "" {
+		log.Info().
+			Str("task_id", task.ID).
+			Str("existing_session_id", freshTask.PlanningSessionID).
+			Msg("Planning session already created by concurrent request — skipping duplicate Just Do It creation")
+		return
 	}
 
 	session, err = s.store.CreateSession(ctx, *session)
@@ -812,6 +866,9 @@ Follow these guidelines when making changes:
 - Make your changes
 - Push: `+"`git push origin %s`", branchName, branchName)
 
+	// Build repository section listing local + Kodit repos for the agent
+	repoSection := s.buildRepositorySectionForTask(ctx, task, project)
+
 	promptWithBranch := fmt.Sprintf(`%s
 %s
 ---
@@ -819,13 +876,13 @@ Follow these guidelines when making changes:
 **Working in /home/retro/work/:** All code repositories are in /home/retro/work/. That's where you make changes.
 
 **Primary Project Directory:** /home/retro/work/%s/
-
+%s
 **Shell commands:** Specify is_background (true or false) on all shell commands - it's required. Use true for long-running operations (builds, servers, installs).
 
 %s
 
 **For persistent installs:** Add commands to /home/retro/work/helix-specs/.helix/startup.sh (runs at sandbox startup, must be idempotent). Push directly to helix-specs branch.
-`, userPrompt, guidelinesSection, primaryRepoName, gitInstructions)
+`, userPrompt, guidelinesSection, primaryRepoName, repoSection, gitInstructions)
 
 	interaction := &types.Interaction{
 		ID:            system.GenerateInteractionID(),
@@ -917,6 +974,18 @@ Follow these guidelines when making changes:
 		}
 	}
 
+	// Inject startup script from project YAML (same as planning phase)
+	if project.StartupScriptYAML != "" {
+		envVarsJDI = append(envVarsJDI, "HELIX_STARTUP_SCRIPT="+project.StartupScriptYAML)
+	}
+	// Legacy: also pass install/start for backward compatibility
+	if project.StartupInstall != "" {
+		envVarsJDI = append(envVarsJDI, "HELIX_STARTUP_INSTALL="+project.StartupInstall)
+	}
+	if project.StartupStart != "" {
+		envVarsJDI = append(envVarsJDI, "HELIX_STARTUP_START="+project.StartupStart)
+	}
+
 	// Create ZedAgent struct with session info for Wolf executor
 	zedAgent := &types.DesktopAgent{
 		OrganizationID:      orgID,
@@ -964,16 +1033,19 @@ Follow these guidelines when making changes:
 }
 
 // buildEnvWithLocale constructs the environment variable array for desktop containers
-// Includes the API token and optional locale settings (keyboard layout, timezone)
+// API token is added separately via OnBeforeCreate hook (inside the session lock)
 func buildEnvWithLocale(userAPIKey string, opts types.StartPlanningOptions) []string {
-	// Use shared helper for API-related env vars (same as addUserAPITokenToAgent in external_agent_handlers.go)
-	env := types.DesktopAgentAPIEnvVars(userAPIKey)
+	var env []string
+	// Only add API env vars if key is provided (legacy callers).
+	// New callers pass "" and use OnBeforeCreate hook for race-safe key injection.
+	if userAPIKey != "" {
+		env = types.DesktopAgentAPIEnvVars(userAPIKey)
+	}
 
-	// Log token injection for debugging helix-in-helix issues
 	log.Info().
 		Int("token_env_vars_count", len(env)).
 		Bool("user_api_key_set", userAPIKey != "").
-		Msg("✅ buildEnvWithLocale: Added API tokens (USER_API_TOKEN, ANTHROPIC_API_KEY, etc.)")
+		Msg("buildEnvWithLocale: env vars prepared")
 
 	// Add keyboard layout if specified (from browser locale detection)
 	if opts.KeyboardLayout != "" {
@@ -998,11 +1070,13 @@ func (s *SpecDrivenTaskService) HandleSpecGenerationComplete(ctx context.Context
 	}
 
 	// Update task with generated specs
+	now := time.Now()
 	task.RequirementsSpec = specs.RequirementsSpec
 	task.TechnicalDesign = specs.TechnicalDesign
 	task.ImplementationPlan = specs.ImplementationPlan
 	task.Status = types.TaskStatusSpecReview
-	task.UpdatedAt = time.Now()
+	task.StatusUpdatedAt = &now
+	task.UpdatedAt = now
 
 	err = s.store.UpdateSpecTask(ctx, task)
 	if err != nil {
@@ -1137,7 +1211,7 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, task *types.Sp
 
 		if sessionID != "" && !s.testMode {
 			// Create agent instruction service
-			agentInstructionService := NewAgentInstructionService(s.store, s.SendMessageToAgent)
+			agentInstructionService := NewAgentInstructionService(s.store, s.SendMessageToAgent, s.koditService)
 
 			err := agentInstructionService.SendApprovalInstruction(
 				context.Background(),
@@ -1168,9 +1242,11 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, task *types.Sp
 				Msg("No planning session ID found - agent will not receive implementation instruction")
 		}
 
+		now := time.Now()
 		task.Status = types.TaskStatusImplementation
+		task.StatusUpdatedAt = &now
 		task.BranchName = branchName
-		task.StartedAt = ptr.To(time.Now())
+		task.StartedAt = &now
 
 		err = s.store.UpdateSpecTask(ctx, task)
 		if err != nil {
@@ -1179,7 +1255,9 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, task *types.Sp
 
 	} else {
 		// Specs need revision
+		now := time.Now()
 		task.Status = types.TaskStatusSpecRevision
+		task.StatusUpdatedAt = &now
 		task.SpecRevisionCount++
 
 		// Ensure HelixAppID is set - inherit from project default for old tasks
@@ -1216,7 +1294,7 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, task *types.Sp
 		if s.SendMessageToAgent != nil && !s.testMode {
 			go func(t *types.SpecTask, comments string) {
 				message := BuildRevisionInstructionPrompt(t, comments)
-				_, err := s.SendMessageToAgent(context.Background(), t, message, "")
+				_, _, err := s.SendMessageToAgent(context.Background(), t, message, "")
 				if err != nil {
 					log.Error().
 						Err(err).
@@ -1246,6 +1324,43 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, task *types.Sp
 	return nil
 }
 
+// buildRepositorySectionForTask fetches project and org repos, then builds the repository section
+func (s *SpecDrivenTaskService) buildRepositorySectionForTask(ctx context.Context, task *types.SpecTask, project *types.Project) string {
+	if task.ProjectID == "" {
+		return ""
+	}
+
+	// Fetch project repos
+	projectRepos, err := s.store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
+		ProjectID: task.ProjectID,
+	})
+	if err != nil {
+		return ""
+	}
+
+	// Fetch Kodit org repos if enabled
+	var koditOrgRepos []*types.GitRepository
+	if project != nil && project.KoditEnabled && project.OrganizationID != "" {
+		orgRepos, err := s.store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
+			OrganizationID: project.OrganizationID,
+		})
+		if err == nil {
+			for _, repo := range orgRepos {
+				if repo.KoditIndexing {
+					koditOrgRepos = append(koditOrgRepos, repo)
+				}
+			}
+		}
+	}
+
+	primaryRepoID := ""
+	if project != nil {
+		primaryRepoID = project.DefaultRepoID
+	}
+
+	return BuildRepositorySection(projectRepos, koditOrgRepos, primaryRepoID)
+}
+
 // Helper functions
 func (s *SpecDrivenTaskService) selectZedAgent() string {
 	// Simple round-robin for now
@@ -1258,8 +1373,10 @@ func (s *SpecDrivenTaskService) selectZedAgent() string {
 
 func (s *SpecDrivenTaskService) markTaskFailed(ctx context.Context, task *types.SpecTask, errorMessage string) {
 	// Keep task in backlog status but set error metadata
+	now := time.Now()
 	task.Status = types.TaskStatusBacklog
-	task.UpdatedAt = time.Now()
+	task.StatusUpdatedAt = &now
+	task.UpdatedAt = now
 
 	// Store error in metadata
 	if task.Metadata == nil {
@@ -1278,7 +1395,7 @@ func generateTaskID() string {
 	return system.GenerateSpecTaskID()
 }
 
-func generateTaskNameFromPrompt(prompt string) string {
+func GenerateTaskNameFromPrompt(prompt string) string {
 	// Replace newlines and other whitespace with spaces to create clean task names
 	// (prompts can contain newlines from multi-line input)
 	name := strings.ReplaceAll(prompt, "\n", " ")
@@ -1290,8 +1407,9 @@ func generateTaskNameFromPrompt(prompt string) string {
 	}
 	name = strings.TrimSpace(name)
 
-	if len(name) > 60 {
-		return name[:57] + "..."
+	runes := []rune(name)
+	if len(runes) > 60 {
+		return string(runes[:57]) + "..."
 	}
 	return name
 }
@@ -1351,10 +1469,25 @@ func (s *SpecDrivenTaskService) detectAndLinkExistingPR(ctx context.Context, tas
 				Str("target_branch", pr.TargetBranch).
 				Msg("Found existing PR for branch")
 
-			// Update task with PR info
-			task.PullRequestID = pr.ID
-			task.PullRequestURL = pr.URL
+			// Get repo details for RepoPullRequests
+			repo, repoErr := s.store.GetGitRepository(ctx, project.DefaultRepoID)
+			repoName := ""
+			if repoErr == nil && repo != nil {
+				repoName = repo.Name
+			}
+
+			// Update task with PR info via RepoPullRequests
+			now := time.Now()
+			task.RepoPullRequests = append(task.RepoPullRequests, types.RepoPR{
+				RepositoryID:   project.DefaultRepoID,
+				RepositoryName: repoName,
+				PRID:           pr.ID,
+				PRNumber:       pr.Number,
+				PRURL:          pr.URL,
+				PRState:        string(pr.State),
+			})
 			task.Status = types.TaskStatusPullRequest
+			task.StatusUpdatedAt = &now
 
 			// Save updated task
 			err = s.store.UpdateSpecTask(ctx, task)
@@ -1565,16 +1698,9 @@ func (s *SpecDrivenTaskService) ResumeSession(ctx context.Context, task *types.S
 		}
 	}
 
-	// Get or create session-scoped ephemeral API key for this dev container
-	// For resumed sessions, reuse any existing key or mint a new one
-	userAPIKey, err := s.GetOrCreateSessionAPIKey(ctx, &SessionAPIKeyRequest{
-		OrganizationID: task.OrganizationID,
-		UserID:         task.CreatedBy,
-		SessionID:      session.ID,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to get session API key for resume: %w", err)
-	}
+	// API key creation is deferred to OnBeforeCreate hook (inside StartDesktop's
+	// session lock) to prevent a race where StopDesktop revokes the key between
+	// creation and container start.
 
 	// Use display settings from session metadata or defaults
 	displayWidth := session.Metadata.AgentVideoWidth
@@ -1623,9 +1749,18 @@ func (s *SpecDrivenTaskService) ResumeSession(ctx context.Context, task *types.S
 		DisplayRefreshRate:  displayRefreshRate,
 		Resolution:          fmt.Sprintf("%dx%d", displayWidth, displayHeight),
 		ZoomLevel:           1.0,
-		DesktopType:         desktopType,
-		Env: []string{
-			fmt.Sprintf("USER_API_TOKEN=%s", userAPIKey),
+		DesktopType: desktopType,
+		OnBeforeCreate: func(hookCtx context.Context, a *types.DesktopAgent) error {
+			apiKey, err := s.GetOrCreateSessionAPIKey(hookCtx, &SessionAPIKeyRequest{
+				OrganizationID: task.OrganizationID,
+				UserID:         task.CreatedBy,
+				SessionID:      session.ID,
+			})
+			if err != nil {
+				return fmt.Errorf("failed to get session API key for resume: %w", err)
+			}
+			a.Env = append(a.Env, types.DesktopAgentAPIEnvVars(apiKey)...)
+			return nil
 		},
 		BranchMode:    string(task.BranchMode),
 		BaseBranch:    task.BaseBranch,

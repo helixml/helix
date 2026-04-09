@@ -2,6 +2,7 @@ package slack
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/helixml/helix/api/pkg/config"
@@ -317,9 +318,9 @@ func TestBuildProjectUpdateAttachment(t *testing.T) {
 	assert.Len(t, attachment.Fields, 5)
 	assert.Equal(t, "Status", attachment.Fields[0].Title)
 	assert.Contains(t, attachment.Fields[0].Value, "Implementation")
-	assert.Contains(t, attachment.Fields[2].Value, "https://app.helix.ml/projects/proj_123/tasks/task_123?view=details")
+	assert.Contains(t, attachment.Fields[2].Value, "https://app.helix.ml/orgs/my-org/projects/proj_123/tasks/task_123?view=details")
 	assert.Equal(t, "Project", attachment.Fields[4].Title)
-	assert.Contains(t, attachment.Fields[4].Value, "https://app.helix.ml/org/my-org/projects/proj_123/specs")
+	assert.Contains(t, attachment.Fields[4].Value, "https://app.helix.ml/orgs/my-org/projects/proj_123/specs")
 }
 
 func TestBuildProjectUpdateReplyAttachment(t *testing.T) {
@@ -352,8 +353,8 @@ func TestBuildProjectUpdateReplyAttachment(t *testing.T) {
 	assert.Contains(t, attachment.Text, "🔀")
 	assert.Contains(t, attachment.Text, "Implement light mode")
 	assert.Contains(t, attachment.Text, "Pull Request")
-	assert.Contains(t, attachment.Text, "https://app.helix.ml/projects/proj_123/tasks/task_123?view=details")
-	assert.Contains(t, attachment.Text, "https://app.helix.ml/org/my-org/projects/proj_123/specs")
+	assert.Contains(t, attachment.Text, "https://app.helix.ml/orgs/my-org/projects/proj_123/tasks/task_123?view=details")
+	assert.Contains(t, attachment.Text, "https://app.helix.ml/orgs/my-org/projects/proj_123/specs")
 }
 
 func TestSpecTaskStatusColor(t *testing.T) {
@@ -782,6 +783,228 @@ func TestIsBotOwnedThread_WhenRootDoesNotMentionBot(t *testing.T) {
 	}
 
 	assert.False(t, bot.isBotOwnedThread(context.Background(), "C123", "1771675557.541279"))
+}
+
+// --- Tests for Fix 1: Reconcile checks Enabled field ---
+
+func TestReconcile_StopsBotWhenTriggerDisabled(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockStore := store.NewMockStore(ctrl)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Pre-populate with a running bot
+	botCtx, botCancel := context.WithCancel(ctx)
+	existingBot := &SlackBot{
+		cfg:       &config.ServerConfig{},
+		store:     mockStore,
+		app:       &types.App{ID: "app_1"},
+		trigger:   &types.SlackTrigger{Enabled: true, BotToken: "xoxb-old"},
+		ctx:       botCtx,
+		ctxCancel: botCancel,
+	}
+
+	s := &Slack{
+		cfg:   &config.ServerConfig{},
+		store: mockStore,
+		bot:   map[string]*SlackBot{"app_1": existingBot},
+	}
+
+	// Return app with Enabled=false (trigger disabled)
+	mockStore.EXPECT().ListApps(gomock.Any(), gomock.Any()).Return([]*types.App{
+		{
+			ID: "app_1",
+			Config: types.AppConfig{
+				Helix: types.AppHelixConfig{
+					Triggers: []types.Trigger{
+						{
+							Slack: &types.SlackTrigger{
+								Enabled:  false,
+								BotToken: "xoxb-old",
+							},
+						},
+					},
+				},
+			},
+		},
+	}, nil)
+
+	err := s.reconcile(ctx)
+	require.NoError(t, err)
+
+	// Bot should be removed from map
+	assert.Empty(t, s.bot)
+	// Bot context should be cancelled
+	assert.Error(t, existingBot.ctx.Err())
+}
+
+func TestReconcile_DoesNotStartBotWhenDisabled(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockStore := store.NewMockStore(ctrl)
+
+	s := &Slack{
+		cfg:   &config.ServerConfig{},
+		store: mockStore,
+		bot:   make(map[string]*SlackBot),
+	}
+
+	// Return app with Enabled=false
+	mockStore.EXPECT().ListApps(gomock.Any(), gomock.Any()).Return([]*types.App{
+		{
+			ID: "app_1",
+			Config: types.AppConfig{
+				Helix: types.AppHelixConfig{
+					Triggers: []types.Trigger{
+						{
+							Slack: &types.SlackTrigger{
+								Enabled:  false,
+								BotToken: "xoxb-token",
+							},
+						},
+					},
+				},
+			},
+		},
+	}, nil)
+
+	err := s.reconcile(context.Background())
+	require.NoError(t, err)
+
+	// No bot should be started
+	assert.Empty(t, s.bot)
+}
+
+func TestReconcile_EnabledFieldIncludedInConfigComparison(t *testing.T) {
+	s := &Slack{}
+
+	a := &types.SlackTrigger{Enabled: true, BotToken: "xoxb-token", AppToken: "xapp-token"}
+	b := &types.SlackTrigger{Enabled: false, BotToken: "xoxb-token", AppToken: "xapp-token"}
+
+	assert.False(t, s.triggerConfigEqual(a, b), "triggers with different Enabled should not be equal")
+
+	b.Enabled = true
+	assert.True(t, s.triggerConfigEqual(a, b), "triggers with same config should be equal")
+}
+
+// --- Tests for Fix 2: handleAppMentionThread reuses existing threads ---
+
+func TestHandleAppMentionThread_ReusesExistingThread(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockStore := store.NewMockStore(ctrl)
+
+	existingSession := &types.Session{
+		ID: "existing_session_123",
+	}
+
+	bot := &SlackBot{
+		cfg:   &config.ServerConfig{},
+		store: mockStore,
+		app:   &types.App{ID: "app_1"},
+		ctx:   context.Background(),
+	}
+
+	// Thread already exists
+	mockStore.EXPECT().GetSlackThread(gomock.Any(), "app_1", "C123", "thread_ts_1").Return(&types.SlackThread{
+		ThreadKey: "thread_ts_1",
+		AppID:     "app_1",
+		Channel:   "C123",
+		SessionID: "existing_session_123",
+	}, nil)
+
+	// Should fetch existing session, NOT create a new one
+	mockStore.EXPECT().GetSession(gomock.Any(), "existing_session_123").Return(existingSession, nil)
+
+	session, err := bot.handleAppMentionThread(context.Background(), bot.app, "C123", "msg_ts_1", "thread_ts_1")
+	require.NoError(t, err)
+	assert.Equal(t, "existing_session_123", session.ID)
+}
+
+func TestHandleAppMentionThread_UsesMessageTsAsThreadKeyWhenNoThread(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockStore := store.NewMockStore(ctrl)
+
+	bot := &SlackBot{
+		cfg:   &config.ServerConfig{},
+		store: mockStore,
+		app:   &types.App{ID: "app_1"},
+		ctx:   context.Background(),
+	}
+
+	// When threadTimestamp is empty, messageTimestamp should be used as the thread key
+	// Verify by checking GetSlackThread is called with the message timestamp
+	mockStore.EXPECT().GetSlackThread(gomock.Any(), "app_1", "C123", "msg_ts_1").Return(&types.SlackThread{
+		ThreadKey: "msg_ts_1",
+		AppID:     "app_1",
+		Channel:   "C123",
+		SessionID: "session_for_msg",
+	}, nil)
+
+	mockStore.EXPECT().GetSession(gomock.Any(), "session_for_msg").Return(&types.Session{
+		ID: "session_for_msg",
+	}, nil)
+
+	// threadTimestamp="" means bot was mentioned in a top-level message
+	session, err := bot.handleAppMentionThread(context.Background(), bot.app, "C123", "msg_ts_1", "")
+	require.NoError(t, err)
+	assert.Equal(t, "session_for_msg", session.ID)
+}
+
+// --- Tests for Fix 3: Thread message prompt wrapper ---
+
+func TestThreadMessagePromptWrapper_AppliedForNonMentions(t *testing.T) {
+	// Verify the prompt wrapper constant is applied for thread messages
+	assert.Contains(t, threadMessagePrompt, noResponseMarker)
+	assert.Contains(t, threadMessagePrompt, "NOT directed at you")
+}
+
+func TestNoResponseMarker_DetectedInResponse(t *testing.T) {
+	tests := []struct {
+		name     string
+		response string
+		expected bool
+	}{
+		{
+			name:     "exact marker",
+			response: "[NO_RESPONSE]",
+			expected: true,
+		},
+		{
+			name:     "marker with whitespace",
+			response: "  [NO_RESPONSE]  ",
+			expected: true,
+		},
+		{
+			name:     "marker in sentence",
+			response: "This is not for me. [NO_RESPONSE]",
+			expected: true,
+		},
+		{
+			name:     "normal response",
+			response: "Here's the answer to your question...",
+			expected: false,
+		},
+		{
+			name:     "empty response",
+			response: "",
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			contains := strings.Contains(strings.TrimSpace(tt.response), noResponseMarker)
+			assert.Equal(t, tt.expected, contains)
+		})
+	}
 }
 
 // TODO: re-enable these tests once resolveSessionForIncomingMessage is restored or replaced

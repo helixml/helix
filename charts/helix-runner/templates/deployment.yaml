@@ -99,7 +99,10 @@ spec:
               value: {{ .Values.runner.huggingfaceToken | quote }}
             {{- end }}
             - name: RUNTIME_OLLAMA_ENABLED
-              value: "true"
+              value: {{ ne (.Values.runner.ollamaEnabled | toString) "false" | quote }}
+            {{- with .Values.runner.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
           resources:
             {{- if hasKey .Values "gpuCount" }}
               {{- if gt (.Values.gpuCount | int) 0 }}

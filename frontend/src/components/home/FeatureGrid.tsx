@@ -28,6 +28,7 @@ import Row from '../widgets/Row'
 import Cell from '../widgets/Cell'
 
 import useAccount from '../../hooks/useAccount'
+import { useSettingsDialog } from '../../contexts/settingsDialog'
 import useRouter from '../../hooks/useRouter'
 
 
@@ -147,11 +148,11 @@ const JS_APP_FEATURE: IFeature = {
   icon: <WebIcon sx={{color: '#ef2ec6'}} />,
   // image: '/img/servers.png',
   actions: [{
-    title: 'Apps',
+    title: 'Agents',
     color: 'secondary',
     variant: 'outlined',
-    handler: (navigate) => {navigate('apps')},
-    id: 'apps-button'
+    handler: (navigate) => {navigate('agents')},
+    id: 'agents-button'
     
     
   }, {
@@ -171,7 +172,7 @@ const API_FEATURE: IFeature = {
     title: 'API Tools',
     color: 'secondary',
     variant: 'outlined',
-    handler: (navigate) => {navigate('apps')},
+    handler: (navigate) => {navigate('agents')},
   }, {
     title: 'Docs (coming soon)',
     color: 'primary',
@@ -189,7 +190,7 @@ const GPTSCRIPT_FEATURE: IFeature = {
     title: 'GPTScript Tools',
     color: 'secondary',
     variant: 'outlined',
-    handler: (navigate) => {navigate('apps')},
+    handler: (navigate) => {navigate('agents')},
   }, {
     title: 'Docs',
     color: 'primary',
@@ -207,7 +208,7 @@ const DASHBOARD_FEATURE: IFeature = {
     title: 'Dashboard',
     color: 'secondary',
     variant: 'outlined',
-    handler: (navigate) => {navigate('dashboard')},
+    handler: (_navigate, openAdminDialog) => { if (openAdminDialog) openAdminDialog() },
   }, {
     title: 'Docs',
     color: 'primary',
@@ -255,12 +256,14 @@ const HomeFeatureCard: FC<{
   feature,
 }) => {
   const router = useRouter()
+  const settingsDialog = useSettingsDialog()
+  const openAdminDialog = () => settingsDialog.openDialog('admin')
   return (
     <Card>
       <CardActionArea
         disabled={feature.disabled}
         onClick={() => {
-          feature.actions[0].handler(router.navigate)
+          feature.actions[0].handler(router.navigate, openAdminDialog)
         }}
       >
         {
@@ -326,7 +329,7 @@ const HomeFeatureCard: FC<{
                   size="small"
                   variant={ action.variant }
                   color={ action.color }
-                  onClick={ () => action.handler(router.navigate) }
+                  onClick={ () => action.handler(router.navigate, openAdminDialog) }
                   disabled={ feature.disabled } 
                  >
                   { action.title }

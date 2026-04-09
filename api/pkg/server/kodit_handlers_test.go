@@ -32,8 +32,9 @@ type fakeKoditService struct {
 	err         error
 }
 
-func (f *fakeKoditService) IsEnabled() bool { return f.enabled }
-func (f *fakeKoditService) RegisterRepository(_ context.Context, _ string) (int64, bool, error) {
+func (f *fakeKoditService) IsEnabled() bool          { return f.enabled }
+func (f *fakeKoditService) MCPDocumentation() string { return "" }
+func (f *fakeKoditService) RegisterRepository(_ context.Context, _ *services.RegisterRepositoryParams) (int64, bool, error) {
 	return f.repoID, f.isNew, f.err
 }
 func (f *fakeKoditService) GetRepositoryEnrichments(_ context.Context, _ int64, _, _ string) ([]enrichment.Enrichment, error) {
@@ -52,6 +53,64 @@ func (f *fakeKoditService) GetRepositoryStatus(_ context.Context, _ int64) (trac
 	return f.status, f.err
 }
 func (f *fakeKoditService) RescanCommit(_ context.Context, _ int64, _ string) error { return f.err }
+func (f *fakeKoditService) DeleteRepository(_ context.Context, _ int64) error       { return f.err }
+func (f *fakeKoditService) ListRepositories(_ context.Context, _, _ int) ([]repository.Repository, int64, error) {
+	return nil, 0, f.err
+}
+func (f *fakeKoditService) RepositorySummary(_ context.Context, _ int64) (repository.RepositorySummary, error) {
+	return repository.RepositorySummary{}, f.err
+}
+func (f *fakeKoditService) SyncRepository(_ context.Context, _ int64) error { return f.err }
+func (f *fakeKoditService) EnrichmentCount(_ context.Context, _ int64) (int64, error) {
+	return 0, f.err
+}
+func (f *fakeKoditService) SystemStats(_ context.Context) (services.KoditSystemStats, error) {
+	return services.KoditSystemStats{}, f.err
+}
+func (f *fakeKoditService) RepositoryTasks(_ context.Context, _ int64) (services.KoditRepositoryTasks, error) {
+	return services.KoditRepositoryTasks{}, f.err
+}
+func (f *fakeKoditService) ListAllTasks(_ context.Context, _, _ int) ([]services.KoditPendingTask, int64, error) {
+	return nil, 0, f.err
+}
+func (f *fakeKoditService) ActiveTasks(_ context.Context) ([]services.KoditActiveTask, error) {
+	return nil, f.err
+}
+func (f *fakeKoditService) DeleteTask(_ context.Context, _ int64) error { return f.err }
+func (f *fakeKoditService) UpdateTaskPriority(_ context.Context, _ int64, _ int) error {
+	return f.err
+}
+func (f *fakeKoditService) GetWikiTree(_ context.Context, _ int64) ([]services.KoditWikiTreeNode, error) {
+	return nil, f.err
+}
+func (f *fakeKoditService) GetWikiPage(_ context.Context, _ int64, _ string) (*services.KoditWikiPage, error) {
+	return nil, f.err
+}
+func (f *fakeKoditService) VisualSearch(_ context.Context, _ int64, _ string, _ int) ([]services.KoditFileResult, error) {
+	return nil, nil
+}
+
+func (f *fakeKoditService) SemanticSearch(_ context.Context, _ int64, _ string, _ int, _ string) ([]services.KoditFileResult, error) {
+	return nil, f.err
+}
+func (f *fakeKoditService) KeywordSearch(_ context.Context, _ int64, _ string, _ int, _ string) ([]services.KoditFileResult, error) {
+	return nil, f.err
+}
+func (f *fakeKoditService) GrepSearch(_ context.Context, _ int64, _ string, _ string, _ int) ([]services.KoditGrepResult, error) {
+	return nil, f.err
+}
+func (f *fakeKoditService) ListFiles(_ context.Context, _ int64, _ string) ([]services.KoditFileEntry, error) {
+	return nil, f.err
+}
+func (f *fakeKoditService) ReadFile(_ context.Context, _ int64, _ string, _, _ int) (*services.KoditFileContent, error) {
+	return nil, f.err
+}
+func (f *fakeKoditService) UpdateChunkingConfig(_ context.Context, _ int64, _, _, _ int) error {
+	return f.err
+}
+func (f *fakeKoditService) RenderPageImage(_ context.Context, _ int64, _ string, _ int) ([]byte, error) {
+	return nil, nil
+}
 
 type fakeGitRepositoryStore struct {
 	store.Store

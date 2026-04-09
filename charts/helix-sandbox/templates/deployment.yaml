@@ -125,7 +125,7 @@ spec:
               value: {{ .Values.desktopImages.imageOverride | quote }}
             {{- else }}
             - name: ZED_IMAGE
-              value: "{{ .Values.desktopImages.registry }}/helix/{{ .Values.desktopImages.default }}:{{ .Values.desktopImages.tag }}"
+              value: "{{ .Values.desktopImages.registry }}/helixml/{{ .Values.desktopImages.default }}:{{ .Values.desktopImages.tag }}"
             {{- end }}
             - name: HELIX_SANDBOX_REGISTRY
               value: {{ .Values.desktopImages.registry | quote }}
@@ -234,27 +234,17 @@ spec:
             {{- end }}
             {{- toYaml $resources | nindent 12 }}
 
-          # Health check: verify nested dockerd is running
-          # The sandbox doesn't expose ports (uses RevDial for outbound connection)
+          {{- if .Values.probes.liveness.enabled }}
           livenessProbe:
-            exec:
-              command:
-                - docker
-                - info
-            initialDelaySeconds: 60
-            periodSeconds: 30
-            timeoutSeconds: 10
-            failureThreshold: 3
+            {{- $livenessProbe := omit .Values.probes.liveness "enabled" }}
+            {{- toYaml $livenessProbe | nindent 12 }}
+          {{- end }}
 
+          {{- if .Values.probes.readiness.enabled }}
           readinessProbe:
-            exec:
-              command:
-                - docker
-                - info
-            initialDelaySeconds: 30
-            periodSeconds: 10
-            timeoutSeconds: 10
-            failureThreshold: 3
+            {{- $readinessProbe := omit .Values.probes.readiness "enabled" }}
+            {{- toYaml $readinessProbe | nindent 12 }}
+          {{- end }}
 
       volumes:
         - name: docker-storage

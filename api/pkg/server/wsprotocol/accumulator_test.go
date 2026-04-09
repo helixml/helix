@@ -1,0 +1,378 @@
+package wsprotocol
+
+import (
+	"testing"
+
+	"github.com/helixml/helix/api/pkg/util/sanitize"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+func TestFirstMessage(t *testing.T) {
+	a := &MessageAccumulator{}
+	a.AddMessage("msg-1", "Hello world")
+
+	if a.Content != "Hello world" {
+		t.Errorf("expected 'Hello world', got %q", a.Content)
+	}
+	if a.LastMessageID != "msg-1" {
+		t.Errorf("expected LastMessageID 'msg-1', got %q", a.LastMessageID)
+	}
+	if a.Offset != 0 {
+		t.Errorf("expected Offset 0, got %d", a.Offset)
+	}
+}
+
+func TestSameMessageStreaming(t *testing.T) {
+	a := &MessageAccumulator{}
+	a.AddMessage("msg-1", "He")
+	a.AddMessage("msg-1", "Hello")
+	a.AddMessage("msg-1", "Hello world")
+
+	if a.Content != "Hello world" {
+		t.Errorf("expected 'Hello world', got %q", a.Content)
+	}
+}
+
+func TestTwoDistinctMessages(t *testing.T) {
+	a := &MessageAccumulator{}
+	a.AddMessage("msg-1", "Hello world")
+	a.AddMessage("msg-2", "Tool call result")
+
+	expected := "Hello world\n\nTool call result"
+	if a.Content != expected {
+		t.Errorf("expected %q, got %q", expected, a.Content)
+	}
+	if a.Offset != len("Hello world")+2 {
+		t.Errorf("expected offset %d, got %d", len("Hello world")+2, a.Offset)
+	}
+}
+
+func TestMultiMessageWithStreaming(t *testing.T) {
+	// This is the exact bug scenario:
+	// 1. message_added(id="1", content="Hello world")     → "Hello world"
+	// 2. message_added(id="2", content="[tool]")           → "Hello world\n\n[tool]"
+	// 3. message_added(id="2", content="[tool: edit.py]")  → should be "Hello world\n\n[tool: edit.py]"
+	a := &MessageAccumulator{}
+	a.AddMessage("msg-1", "Hello world")
+	a.AddMessage("msg-2", "[tool]")
+	a.AddMessage("msg-2", "[tool: edit.py]")
+
+	expected := "Hello world\n\n[tool: edit.py]"
+	if a.Content != expected {
+		t.Errorf("expected %q, got %q", expected, a.Content)
+	}
+}
+
+func TestThreeDistinctMessages(t *testing.T) {
+	a := &MessageAccumulator{}
+	a.AddMessage("msg-1", "Hello world")
+	a.AddMessage("msg-2", "Tool call")
+	a.AddMessage("msg-3", "Final response")
+
+	expected := "Hello world\n\nTool call\n\nFinal response"
+	if a.Content != expected {
+		t.Errorf("expected %q, got %q", expected, a.Content)
+	}
+}
+
+func TestInterleavedStreamingAndNewMessages(t *testing.T) {
+	// Simulate a realistic Zed response:
+	// msg-1: assistant message (streams)
+	// msg-2: tool call (streams)
+	// msg-3: assistant follow-up (streams)
+	a := &MessageAccumulator{}
+
+	// msg-1 streams
+	a.AddMessage("msg-1", "I'll help")
+	a.AddMessage("msg-1", "I'll help you with that.")
+
+	// msg-2 (tool call)
+	a.AddMessage("msg-2", "```tool\nedit file.py")
+	a.AddMessage("msg-2", "```tool\nedit file.py\n```")
+
+	// msg-3 (follow-up)
+	a.AddMessage("msg-3", "Done!")
+
+	expected := "I'll help you with that.\n\n```tool\nedit file.py\n```\n\nDone!"
+	if a.Content != expected {
+		t.Errorf("expected:\n%s\n\ngot:\n%s", expected, a.Content)
+	}
+}
+
+func TestStreamingAfterAppendPreservesPrefix(t *testing.T) {
+	// Key regression test: streaming update of msg-2 must not destroy msg-1's content
+	a := &MessageAccumulator{}
+	a.AddMessage("msg-1", "First message content")
+	a.AddMessage("msg-2", "Second partial")
+	a.AddMessage("msg-2", "Second complete message")
+
+	expected := "First message content\n\nSecond complete message"
+	if a.Content != expected {
+		t.Errorf("expected %q, got %q", expected, a.Content)
+	}
+
+	// Verify the prefix is intact
+	prefix := a.Content[:len("First message content")]
+	if prefix != "First message content" {
+		t.Errorf("prefix corrupted: %q", prefix)
+	}
+}
+
+func TestEmptyContent(t *testing.T) {
+	a := &MessageAccumulator{}
+	a.AddMessage("msg-1", "")
+
+	if a.Content != "" {
+		t.Errorf("expected empty content, got %q", a.Content)
+	}
+}
+
+func TestOutOfOrderFlushUpdates(t *testing.T) {
+	// THE BUG: Zed's Stopped flush sends corrected content for earlier message_ids
+	// after later ones have already been processed. The old accumulator treated
+	// these as new appends instead of in-place replacements.
+	//
+	// Real scenario from Zed logs:
+	// During streaming (throttled, content truncated mid-word):
+	//   id="2"  "I'll start...understand the c"
+	//   id="3"  "**Tool Call: List the `clea` directory's contents**"
+	//   id="4"  "**Tool Call: List the `helix-specs/d`..."
+	//   ...
+	//   id="18" "The design docs have been pushed..."
+	//
+	// During Stopped flush (complete content, OUT OF ORDER):
+	//   id="2"  "I'll start...understand the codebase structure..."  ← MUST REPLACE, not append
+	//   id="3"  "**Tool Call: List the `clean-truncation-test`..."   ← MUST REPLACE, not append
+	a := &MessageAccumulator{}
+
+	// Streaming phase: entries arrive in order but with truncated content
+	a.AddMessage("2", "I'll start...understand the c")
+	a.AddMessage("3", "**Tool Call: List the `clea`**\nStatus: Pending")
+	a.AddMessage("4", "**Tool Call: List the `helix-specs/d`**\nStatus: Pending")
+	a.AddMessage("6", "The repo is very")
+	a.AddMessage("18", "The design docs")
+
+	// Verify truncated state
+	if a.Content != "I'll start...understand the c\n\n**Tool Call: List the `clea`**\nStatus: Pending\n\n**Tool Call: List the `helix-specs/d`**\nStatus: Pending\n\nThe repo is very\n\nThe design docs" {
+		t.Fatalf("unexpected truncated state:\n%s", a.Content)
+	}
+
+	// Flush phase: corrected content arrives for earlier message_ids
+	a.AddMessage("2", "I'll start...understand the codebase structure")
+	a.AddMessage("3", "**Tool Call: List the `clean-truncation-test`**\nStatus: Completed")
+	a.AddMessage("6", "The repo is very minimal — just a README.")
+	a.AddMessage("18", "The design docs have been pushed and are ready for review.")
+
+	expected := "I'll start...understand the codebase structure\n\n**Tool Call: List the `clean-truncation-test`**\nStatus: Completed\n\n**Tool Call: List the `helix-specs/d`**\nStatus: Pending\n\nThe repo is very minimal — just a README.\n\nThe design docs have been pushed and are ready for review."
+	if a.Content != expected {
+		t.Errorf("out-of-order flush failed.\nexpected:\n%s\n\ngot:\n%s", expected, a.Content)
+	}
+}
+
+func TestFlushDoesNotDuplicateContent(t *testing.T) {
+	// Verify that updating an earlier message_id does NOT append a duplicate —
+	// it must replace the content at the original position.
+	a := &MessageAccumulator{}
+	a.AddMessage("1", "first")
+	a.AddMessage("2", "second")
+	a.AddMessage("3", "third")
+
+	// "Update" message 1 with new content
+	a.AddMessage("1", "FIRST (corrected)")
+
+	expected := "FIRST (corrected)\n\nsecond\n\nthird"
+	if a.Content != expected {
+		t.Errorf("expected %q, got %q", expected, a.Content)
+	}
+
+	// Verify no duplication: count occurrences of "FIRST"
+	count := 0
+	for i := 0; i < len(a.Content)-4; i++ {
+		if a.Content[i:i+5] == "FIRST" {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Errorf("expected 'FIRST' to appear once, appeared %d times in: %q", count, a.Content)
+	}
+}
+
+func TestEntriesWithTypes(t *testing.T) {
+	a := &MessageAccumulator{}
+	a.AddMessageWithType("1", "I'll help you with that.", "text")
+	a.AddMessageWithType("2", "**Tool Call: list_files**\nStatus: Completed\n\nfile1.txt\nfile2.txt", "tool_call")
+	a.AddMessageWithType("3", "Here are the files I found.", "text")
+
+	entries := a.Entries()
+	require.Len(t, entries, 3)
+
+	assert.Equal(t, "text", entries[0].Type)
+	assert.Equal(t, "I'll help you with that.", entries[0].Content)
+	assert.Equal(t, "1", entries[0].MessageID)
+
+	assert.Equal(t, "tool_call", entries[1].Type)
+	assert.Contains(t, entries[1].Content, "list_files")
+	assert.Equal(t, "2", entries[1].MessageID)
+
+	assert.Equal(t, "text", entries[2].Type)
+	assert.Equal(t, "Here are the files I found.", entries[2].Content)
+	assert.Equal(t, "3", entries[2].MessageID)
+}
+
+func TestEntriesTypeInference(t *testing.T) {
+	// When entry_type is empty (old Zed without entry_type support),
+	// Entries() should infer type from content.
+	a := &MessageAccumulator{}
+	a.AddMessage("1", "Some assistant text")
+	a.AddMessage("2", "**Tool Call: edit_file**\nStatus: Running")
+	a.AddMessage("3", "More text after the tool call")
+
+	entries := a.Entries()
+	require.Len(t, entries, 3)
+
+	assert.Equal(t, "text", entries[0].Type, "plain text should be inferred as 'text'")
+	assert.Equal(t, "tool_call", entries[1].Type, "content starting with **Tool Call: should be inferred as 'tool_call'")
+	assert.Equal(t, "text", entries[2].Type)
+}
+
+func TestEntriesPreserveOrderAfterFlush(t *testing.T) {
+	// Entries must maintain insertion order even when earlier entries
+	// are updated out of order during the Stopped flush.
+	a := &MessageAccumulator{}
+	a.AddMessageWithType("1", "truncated tex", "text")
+	a.AddMessageWithType("2", "**Tool Call: List the `clea`**", "tool_call")
+	a.AddMessageWithType("3", "**Tool Call: Read file `heli`**", "tool_call")
+	a.AddMessageWithType("4", "Follow-up text", "text")
+
+	// Flush corrects earlier entries out of order
+	a.AddMessageWithType("1", "truncated text is now complete", "text")
+	a.AddMessageWithType("2", "**Tool Call: List the `clean-truncation-test`**\nStatus: Completed", "tool_call")
+
+	entries := a.Entries()
+	require.Len(t, entries, 4)
+
+	// Order must be 1, 2, 3, 4 — insertion order, not update order
+	assert.Equal(t, "1", entries[0].MessageID)
+	assert.Equal(t, "truncated text is now complete", entries[0].Content)
+	assert.Equal(t, "text", entries[0].Type)
+
+	assert.Equal(t, "2", entries[1].MessageID)
+	assert.Contains(t, entries[1].Content, "clean-truncation-test")
+	assert.Equal(t, "tool_call", entries[1].Type)
+
+	assert.Equal(t, "3", entries[2].MessageID, "entry 3 should still be at index 2")
+	assert.Equal(t, "4", entries[3].MessageID, "entry 4 should still be at index 3")
+}
+
+func TestEntriesEmptyContentOmitted(t *testing.T) {
+	a := &MessageAccumulator{}
+	a.AddMessageWithType("1", "text content", "text")
+	a.AddMessageWithType("2", "", "text") // empty
+	a.AddMessageWithType("3", "more text", "text")
+
+	entries := a.Entries()
+	require.Len(t, entries, 2, "empty entries should be omitted")
+	assert.Equal(t, "1", entries[0].MessageID)
+	assert.Equal(t, "3", entries[1].MessageID)
+}
+
+func TestEntriesStreamingGrowth(t *testing.T) {
+	// Simulate streaming: same message_id gets progressively longer content.
+	// Entries() should always reflect the latest content.
+	a := &MessageAccumulator{}
+	a.AddMessageWithType("1", "I", "text")
+
+	entries := a.Entries()
+	require.Len(t, entries, 1)
+	assert.Equal(t, "I", entries[0].Content)
+
+	a.AddMessageWithType("1", "I'll help", "text")
+	entries = a.Entries()
+	assert.Equal(t, "I'll help", entries[0].Content)
+
+	a.AddMessageWithType("1", "I'll help you with that.", "text")
+	entries = a.Entries()
+	assert.Equal(t, "I'll help you with that.", entries[0].Content)
+
+	// New entry appears
+	a.AddMessageWithType("2", "**Tool Call: ls**", "tool_call")
+	entries = a.Entries()
+	require.Len(t, entries, 2)
+	assert.Equal(t, "I'll help you with that.", entries[0].Content)
+	assert.Equal(t, "**Tool Call: ls**", entries[1].Content)
+	assert.Equal(t, "tool_call", entries[1].Type)
+}
+
+func TestResumeFromPersistedState(t *testing.T) {
+	// Simulate restoring state from DB after API restart
+	a := &MessageAccumulator{
+		Content:       "Previous message\n\nStreaming...",
+		LastMessageID: "msg-2",
+		Offset:        len("Previous message") + 2,
+	}
+
+	// Continue streaming msg-2
+	a.AddMessage("msg-2", "Streaming complete")
+
+	expected := "Previous message\n\nStreaming complete"
+	if a.Content != expected {
+		t.Errorf("expected %q, got %q", expected, a.Content)
+	}
+
+	// New msg-3
+	a.AddMessage("msg-3", "Final")
+
+	expected = "Previous message\n\nStreaming complete\n\nFinal"
+	if a.Content != expected {
+		t.Errorf("expected %q, got %q", expected, a.Content)
+	}
+}
+
+func TestSanitizeNullBytes(t *testing.T) {
+	a := &MessageAccumulator{}
+
+	// Content with null bytes (from terminal output or binary data)
+	a.AddMessage("msg-1", "Hello\x00World")
+	assert.Equal(t, "HelloWorld", a.Content, "null bytes should be stripped")
+
+	// Content with multiple null bytes
+	a.AddMessage("msg-2", "\x00before\x00middle\x00after\x00")
+	assert.Equal(t, "HelloWorld\n\nbeforemiddleafter", a.Content)
+
+	// Content without null bytes should pass through unchanged
+	a.AddMessage("msg-3", "clean content")
+	assert.Contains(t, a.Content, "clean content")
+}
+
+func TestSanitizeForPostgres(t *testing.T) {
+	// Null bytes
+	assert.Equal(t, "hello", sanitize.ForPostgres("hello"))
+	assert.Equal(t, "helloworld", sanitize.ForPostgres("hello\x00world"))
+	assert.Equal(t, "", sanitize.ForPostgres("\x00"))
+	assert.Equal(t, "", sanitize.ForPostgres(""))
+	assert.Equal(t, "abc", sanitize.ForPostgres("\x00a\x00b\x00c\x00"))
+
+	// C0 control characters (strip 0x01-0x08, 0x0B, 0x0C, 0x0E-0x1F; keep \t \n \r)
+	assert.Equal(t, "ab", sanitize.ForPostgres("a\x01b"))
+	assert.Equal(t, "a\tb", sanitize.ForPostgres("a\tb"), "tab preserved")
+	assert.Equal(t, "a\nb", sanitize.ForPostgres("a\nb"), "newline preserved")
+	assert.Equal(t, "a\rb", sanitize.ForPostgres("a\rb"), "carriage return preserved")
+	assert.Equal(t, "ab", sanitize.ForPostgres("a\x0Bb"))  // vertical tab stripped
+	assert.Equal(t, "ab", sanitize.ForPostgres("a\x1Fb"))  // unit separator stripped
+
+	// C1 control characters (U+0080–U+009F)
+	assert.Equal(t, "ab", sanitize.ForPostgres("a\u0080b"))
+	assert.Equal(t, "ab", sanitize.ForPostgres("a\u009Fb"))
+
+	// Unicode non-characters
+	assert.Equal(t, "ab", sanitize.ForPostgres("a\uFFFEb"))
+	assert.Equal(t, "ab", sanitize.ForPostgres("a\uFFFFb"))
+
+	// Normal Unicode passes through
+	assert.Equal(t, "héllo wörld 🌍", sanitize.ForPostgres("héllo wörld 🌍"))
+
+	// Fast path — clean strings return unchanged (same pointer)
+	clean := "nothing to strip here"
+	assert.Equal(t, clean, sanitize.ForPostgres(clean))
+}

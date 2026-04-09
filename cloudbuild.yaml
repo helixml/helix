@@ -2,6 +2,8 @@ steps:
 
 # Generate Helm packages
 - name: 'ubuntu'
+  env:
+  - 'TAG_NAME=$TAG_NAME'
   args: ['bash', './scripts/gen_packages.sh']
   id: 'gen_packages'
 
@@ -20,3 +22,8 @@ steps:
 - name: gcr.io/cloud-builders/gsutil
   args: ['rsync', 'temp/', 'gs://charts.helixml.tech']
   id: 'upload_charts'
+
+# Disable caching on index.yaml so helm clients see updates immediately
+- name: 'gcr.io/cloud-builders/gsutil'
+  args: ['setmeta', '-h', 'Cache-Control:no-cache,no-store,max-age=0', 'gs://charts.helixml.tech/index.yaml']
+  id: 'disable_index_cache'

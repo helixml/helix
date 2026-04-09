@@ -9,7 +9,8 @@ import { Api } from "../api"
 import { StreamSettings } from "../component/settings_menu"
 import { defaultStreamInputConfig, StreamInput } from "./input"
 import { createSupportedVideoFormatsBits, VideoCodecSupport } from "./video"
-import { WsVideoCodec, codecToWebCodecsString, codecToDisplayName } from "./codecs"
+import { WsVideoCodec, WsVideoCodecType, codecToWebCodecsString, codecToDisplayName } from "./codecs"
+import { isMobileOrTablet } from "../../../utils/isMobileOrTablet"
 import {
   WsMessageType,
   CursorImageData,
@@ -78,6 +79,11 @@ export class WebSocketStream {
   private lastMessageTime = 0
   private heartbeatTimeout = 10000  // 10 seconds without data = stale
 
+  // Connection stability tracking - for diagnosing reconnect loops
+  private lastOpenTime = 0  // Timestamp when connection was established
+  private connectionStabilityTimer: ReturnType<typeof setTimeout> | null = null
+  private connectionStabilized = false  // True after connection has been stable for 2s
+
   // Page visibility tracking - prevents false stale detection on iOS when page is backgrounded
   private pageVisible = true
   private visibilityHandler: (() => void) | null = null
@@ -108,6 +114,7 @@ export class WebSocketStream {
   private currentTotalBitrateMbps = 0
   private framesDecoded = 0
   private framesDropped = 0
+  private framesReceived = 0
 
   // RTT (Round-Trip Time) measurement for latency tracking
   private pingSeq = 0
@@ -349,6 +356,12 @@ export class WebSocketStream {
       return
     }
 
+    // Clear any pending reconnection timeout since we're connecting now
+    if (this.reconnectTimeoutId) {
+      clearTimeout(this.reconnectTimeoutId)
+      this.reconnectTimeoutId = null
+    }
+
     this.dispatchInfoEvent({ type: "connecting" })
 
     // Clean up old WebSocket if it exists
@@ -371,7 +384,8 @@ export class WebSocketStream {
     // Uses /api/v1/external-agents/{sessionId}/ws/stream
     // Auth is handled via cookies (same-origin WebSocket includes cookies automatically)
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const wsUrl = `${protocol}//${window.location.host}/api/v1/external-agents/${encodeURIComponent(this.sessionId || '')}/ws/stream`
+    const clientIdParam = this.clientUniqueId ? `?client_id=${encodeURIComponent(this.clientUniqueId)}` : ''
+    const wsUrl = `${protocol}//${window.location.host}/api/v1/external-agents/${encodeURIComponent(this.sessionId || '')}/ws/stream${clientIdParam}`
 
     console.log("[WebSocketStream] Connecting to:", wsUrl)
     this.ws = new WebSocket(wsUrl)
@@ -409,12 +423,28 @@ export class WebSocketStream {
   private onOpen() {
     console.log("[WebSocketStream] Connected")
     this.connected = true
-    this.reconnectAttempts = 0
+    this.lastOpenTime = Date.now()
     this.lastMessageTime = Date.now()
     this.streamConnectedTime = performance.now() // Track when stream connected for frame drift warmup
+    this.connectionStabilized = false
 
     // Clear connection timeout - we connected successfully
     this.clearConnectionTimeout()
+
+    // Don't reset reconnectAttempts immediately - wait for connection to stabilize
+    // This prevents rapid connect/disconnect loops from resetting the counter
+    if (this.connectionStabilityTimer) {
+      clearTimeout(this.connectionStabilityTimer)
+    }
+    this.connectionStabilityTimer = setTimeout(() => {
+      this.connectionStabilityTimer = null
+      if (this.connected) {
+        const prevAttempts = this.reconnectAttempts
+        this.reconnectAttempts = 0
+        this.connectionStabilized = true
+        console.log(`[WebSocketStream] Connection stabilized after 2s, reset reconnect counter (was ${prevAttempts})`)
+      }
+    }, 2000)
 
     this.dispatchInfoEvent({ type: "connected" })
 
@@ -433,8 +463,25 @@ export class WebSocketStream {
   }
 
   private onClose(event: CloseEvent) {
-    console.log("[WebSocketStream] Disconnected:", event.code, event.reason)
+    // Enhanced close logging for debugging reconnect loops
+    const connectionDuration = this.lastOpenTime > 0 ? Date.now() - this.lastOpenTime : -1
+    console.log("[WebSocketStream] Disconnected:", {
+      code: event.code,
+      reason: event.reason || "(empty)",
+      wasClean: event.wasClean,
+      connectionDurationMs: connectionDuration,
+      wasStabilized: this.connectionStabilized,
+      reconnectAttempts: this.reconnectAttempts,
+      explicitlyClosed: this.closed
+    })
     this.connected = false
+
+    // Clear connection stability timer if connection drops before stabilizing
+    if (this.connectionStabilityTimer) {
+      clearTimeout(this.connectionStabilityTimer)
+      this.connectionStabilityTimer = null
+      console.log("[WebSocketStream] Connection dropped before stabilizing (< 2s)")
+    }
 
     // Clear connection timeout if it's still running
     this.clearConnectionTimeout()
@@ -448,7 +495,7 @@ export class WebSocketStream {
     // Stop event loop tracking
     this.stopEventLoopTracking()
 
-    this.dispatchInfoEvent({ type: "disconnected" })
+    this.dispatchInfoEvent({ type: "disconnected", code: event.code })
 
     // Don't reconnect if explicitly closed
     if (this.closed) {
@@ -459,18 +506,21 @@ export class WebSocketStream {
       return
     }
 
-    // Attempt reconnection with exponential backoff (capped at 10 seconds)
+    // Attempt reconnection with exponential backoff + jitter (capped at 30 seconds)
     if (this.reconnectAttempts < this.maxReconnectAttempts) {
+      // Check if a reconnection is already pending - this prevents duplicate reconnections
+      // when a connection opens briefly then closes again before the pending reconnect fires
+      if (this.reconnectTimeoutId) {
+        console.log("[WebSocketStream] Reconnection already pending, not scheduling another")
+        return
+      }
+
       this.reconnectAttempts++
-      const delay = Math.min(this.reconnectDelay * this.reconnectAttempts, 10000)
+      const baseDelay = Math.min(this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1), 30000)
+      const delay = baseDelay * (0.5 + Math.random() * 0.5)
       this.dispatchInfoEvent({ type: "reconnecting", attempt: this.reconnectAttempts })
 
       console.log(`[WebSocketStream] Will reconnect in ${delay}ms (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`)
-
-      // Cancel any pending reconnection
-      if (this.reconnectTimeoutId) {
-        clearTimeout(this.reconnectTimeoutId)
-      }
 
       this.reconnectTimeoutId = setTimeout(() => {
         this.reconnectTimeoutId = null
@@ -902,9 +952,22 @@ export class WebSocketStream {
     }
 
     // Resize canvas if needed
-    if (this.canvas.width !== frame.displayWidth || this.canvas.height !== frame.displayHeight) {
-      this.canvas.width = frame.displayWidth
-      this.canvas.height = frame.displayHeight
+    // On mobile/tablet, cap canvas to the device's screen resolution to avoid
+    // allocating a full 4K GPU texture (width × height × 4 bytes RGBA ≈ 33MB)
+    // when the screen can't display those extra pixels anyway.
+    let targetWidth = frame.displayWidth
+    let targetHeight = frame.displayHeight
+    if (isMobileOrTablet()) {
+      const maxDim = Math.max(screen.width, screen.height) * (window.devicePixelRatio || 1)
+      if (targetWidth > maxDim || targetHeight > maxDim) {
+        const scale = maxDim / Math.max(targetWidth, targetHeight)
+        targetWidth = Math.round(targetWidth * scale)
+        targetHeight = Math.round(targetHeight * scale)
+      }
+    }
+    if (this.canvas.width !== targetWidth || this.canvas.height !== targetHeight) {
+      this.canvas.width = targetWidth
+      this.canvas.height = targetHeight
     }
 
     // Draw frame to canvas
@@ -1624,6 +1687,19 @@ export class WebSocketStream {
   }
 
   sendMouseButton(isDown: boolean, button: number) {
+    // Flush any pending (throttled) mouse position before sending a button event.
+    // This ensures the remote cursor is at the correct position before receiving the click,
+    // even if the position update from sendCursorPositionToRemote was throttled.
+    if (this.pendingMousePosition) {
+      const { x, y, refW, refH } = this.pendingMousePosition
+      this.pendingMousePosition = null
+      if (this.mouseThrottleTimeoutId) {
+        clearTimeout(this.mouseThrottleTimeoutId)
+        this.mouseThrottleTimeoutId = null
+      }
+      this.sendMousePositionImmediate(x, y, refW, refH)
+      this.lastMouseSendTime = performance.now()
+    }
     // Format: subType(1) + isDown(1) + button(1)
     this.inputBuffer[0] = 2 // sub-type for button
     this.inputBuffer[1] = isDown ? 1 : 0
@@ -1874,6 +1950,8 @@ export class WebSocketStream {
     renderJitterMs: string           // "min-max" interval between frames rendering
     avgReceiveIntervalMs: number     // Average receive interval (16.7ms = 60fps)
     avgRenderIntervalMs: number      // Average render interval
+    // FPS timestamp
+    fpsUpdatedAt: number             // Wall clock timestamp of last FPS update
     // Debug flags
     usingSoftwareDecoder: boolean    // True if software decoding was forced (?softdecode=1)
     // Frame health monitoring (for iOS Safari stall detection)

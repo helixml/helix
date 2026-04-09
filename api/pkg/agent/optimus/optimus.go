@@ -13,31 +13,69 @@ type OptimusConfig struct {
 	OwnerID        string
 	OwnerType      types.OwnerType
 	DefaultApp     *types.App
+	SystemSettings *types.SystemSettings
 }
 
 func NewOptimusAgentApp(cfg OptimusConfig) *types.App {
 	appName := "Optimus (" + cfg.ProjectName + ")"
 
 	defaultAssistant := cfg.DefaultApp.Config.Helix.Assistants[0]
+	systemSettings := cfg.SystemSettings
+	if systemSettings == nil {
+		systemSettings = &types.SystemSettings{}
+	}
+	reasoningModelProvider := systemSettings.OptimusReasoningModelProvider
+	reasoningModel := systemSettings.OptimusReasoningModel
+	generationModelProvider := systemSettings.OptimusGenerationModelProvider
+	generationModel := systemSettings.OptimusGenerationModel
+	smallReasoningModelProvider := systemSettings.OptimusSmallReasoningModelProvider
+	smallReasoningModel := systemSettings.OptimusSmallReasoningModel
+	smallGenerationModelProvider := systemSettings.OptimusSmallGenerationModelProvider
+	smallGenerationModel := systemSettings.OptimusSmallGenerationModel
+
+	if reasoningModelProvider == "" {
+		reasoningModelProvider = defaultAssistant.Provider
+	}
+	if reasoningModel == "" {
+		reasoningModel = defaultAssistant.Model
+	}
+	if generationModelProvider == "" {
+		generationModelProvider = defaultAssistant.Provider
+	}
+	if generationModel == "" {
+		generationModel = defaultAssistant.Model
+	}
+	if smallReasoningModelProvider == "" {
+		smallReasoningModelProvider = defaultAssistant.Provider
+	}
+	if smallReasoningModel == "" {
+		smallReasoningModel = defaultAssistant.Model
+	}
+	if smallGenerationModelProvider == "" {
+		smallGenerationModelProvider = defaultAssistant.Provider
+	}
+	if smallGenerationModel == "" {
+		smallGenerationModel = defaultAssistant.Model
+	}
 
 	assistant := types.AssistantConfig{
 		Name:     appName,
 		Provider: defaultAssistant.Provider,
 		Model:    defaultAssistant.Model,
 
-		ReasoningModelProvider: defaultAssistant.ReasoningModelProvider,
-		ReasoningModel:         defaultAssistant.ReasoningModel,
-		ReasoningModelEffort:   defaultAssistant.ReasoningModelEffort,
+		ReasoningModelProvider: reasoningModelProvider,
+		ReasoningModel:         reasoningModel,
+		ReasoningModelEffort:   systemSettings.OptimusReasoningModelEffort,
 
-		GenerationModelProvider: defaultAssistant.GenerationModelProvider,
-		GenerationModel:         defaultAssistant.GenerationModel,
+		GenerationModelProvider: generationModelProvider,
+		GenerationModel:         generationModel,
 
-		SmallReasoningModelProvider: defaultAssistant.SmallReasoningModelProvider,
-		SmallReasoningModel:         defaultAssistant.SmallReasoningModel,
-		SmallReasoningModelEffort:   defaultAssistant.SmallReasoningModelEffort,
+		SmallReasoningModelProvider: smallReasoningModelProvider,
+		SmallReasoningModel:         smallReasoningModel,
+		SmallReasoningModelEffort:   systemSettings.OptimusSmallReasoningModelEffort,
 
-		SmallGenerationModelProvider: defaultAssistant.SmallGenerationModelProvider,
-		SmallGenerationModel:         defaultAssistant.SmallGenerationModel,
+		SmallGenerationModelProvider: smallGenerationModelProvider,
+		SmallGenerationModel:         smallGenerationModel,
 
 		AgentType:    types.AgentTypeHelixAgent,
 		SystemPrompt: templates.OptimusTemplate,

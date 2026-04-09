@@ -1,6 +1,7 @@
 package types
 
 import (
+	"context"
 	"database/sql"
 	"database/sql/driver"
 	"encoding/json"
@@ -43,7 +44,7 @@ type Interaction struct {
 
 	// TODO: add the full multi-part response content
 	// ResponseMessageContent MessageContent `json:"response_message_content"` // LLM response
-	ResponseMessage        string         `json:"response_message"`                                  // LLM response
+	ResponseMessage        string         `json:"response_message,omitempty"`                        // LLM response (legacy — omit from wire when empty)
 	ResponseFormat         ResponseFormat `json:"response_format" gorm:"type:jsonb;serializer:json"` // e.g. json
 	ResponseFormatResponse string         `json:"response_format_response"`                          // e.g. json
 
@@ -74,6 +75,18 @@ type Interaction struct {
 	// different ID = new distinct message (append). Persisted in DB for restart resilience.
 	LastZedMessageID string `json:"last_zed_message_id,omitempty"`
 
+	// LastZedMessageOffset is the byte offset in ResponseMessage where the current
+	// message_id's content begins. Used by the accumulator to replace only the
+	// current message's portion during streaming updates, preserving earlier messages.
+	LastZedMessageOffset int `json:"last_zed_message_offset,omitempty"`
+
+	// ResponseEntries holds the structured response as an ordered list of typed entries.
+	// Each entry is either "text" (assistant prose) or "tool_call" (tool invocation),
+	// preserving the ordering and boundaries that Zed's internal Vec<AgentThreadEntry> has.
+	// This is populated on completion alongside ResponseMessage (flat string, backward compat).
+	// The frontend uses this to render entries with the correct component in the correct order.
+	ResponseEntries datatypes.JSON `json:"response_entries,omitempty" gorm:"type:jsonb"`
+
 	// Summary is a one-line description of this interaction for search/indexing.
 	// Generated lazily on first access or via background job.
 	Summary          string     `json:"summary,omitempty"`
@@ -95,12 +108,6 @@ type Feedback string
 const (
 	FeedbackLike    Feedback = "like"
 	FeedbackDislike Feedback = "dislike"
-)
-
-// DesiredState constants for session reconciliation
-const (
-	DesiredStateRunning = "running" // Container should exist, reconciler will restart if missing
-	DesiredStateStopped = "stopped" // Container can be terminated, no auto-restart
 )
 
 func InteractionsToOpenAIMessages(systemPrompt string, interactions []*Interaction) []openai.ChatCompletionMessage {
@@ -387,12 +394,12 @@ type SessionMetadata struct {
 	SessionRole             string               `json:"session_role,omitempty"`              // "planning", "implementation", "coordination", "exploratory"
 	ImplementationTaskIndex int                  `json:"implementation_task_index,omitempty"` // Index of implementation task this session handles
 	ZedThreadID             string               `json:"zed_thread_id,omitempty"`             // Associated Zed thread ID
+	ZedAgentName            string               `json:"zed_agent_name,omitempty"`            // Agent name used when thread was created (e.g., "zed-agent", "claude", "qwen")
 	ZedInstanceID           string               `json:"zed_instance_id,omitempty"`           // Associated Zed instance ID
 	ExternalAgentConfig     *ExternalAgentConfig `json:"external_agent_config,omitempty"`     // Configuration for external agents
 	ExternalAgentID         string               `json:"external_agent_id,omitempty"`         // NEW: External agent ID for this session
 	ExternalAgentStatus     string               `json:"external_agent_status,omitempty"`     // NEW: External agent status (running, stopped, terminated_idle)
-	DesiredState            string               `json:"desired_state,omitempty"`             // "running" = should be running, "stopped" = can terminate
-	Phase                   string               `json:"phase,omitempty"`                     // NEW: SpecTask phase (planning, implementation)
+Phase                   string               `json:"phase,omitempty"`                     // NEW: SpecTask phase (planning, implementation)
 	DevContainerID          string               `json:"dev_container_id,omitempty"`          // Dev container ID for streaming
 	SwayVersion             string               `json:"sway_version,omitempty"`              // helix-sway image version (commit hash) running in this session
 	GPUVendor               string               `json:"gpu_vendor,omitempty"`                // GPU vendor of sandbox running this session (nvidia, amd, intel, none)
@@ -869,6 +876,27 @@ type WebsocketEvent struct {
 	WorkerTaskResponse *RunnerTaskResponse         `json:"worker_task_response"`
 	InferenceResponse  *RunnerLLMInferenceResponse `json:"inference_response"`
 	StepInfo           *StepInfo                   `json:"step_info"`
+	// Per-entry structured patches for streaming (interaction_patch events).
+	// Each EntryPatch carries a per-entry string patch (offset/patch/length) so the
+	// frontend can maintain a ResponseEntry[] with correct type boundaries during
+	// streaming. EntryCount is the total number of entries so the frontend can grow
+	// its array when new entries appear.
+	EntryPatches []EntryPatch `json:"entry_patches,omitempty"`
+	EntryCount   int          `json:"entry_count,omitempty"`
+}
+
+// EntryPatch is a per-entry delta for structured streaming. The frontend
+// applies the same patch logic as the flat content patch, but scoped to a
+// single ResponseEntry's content.
+type EntryPatch struct {
+	Index       int    `json:"index"`                  // Position in the entries array
+	MessageID   string `json:"message_id"`             // Zed message_id for this entry
+	Type        string `json:"type"`                   // "text" or "tool_call"
+	Patch       string `json:"patch,omitempty"`        // Content delta from PatchOffset onwards
+	PatchOffset int    `json:"patch_offset,omitempty"` // UTF-16 offset of first change in this entry
+	TotalLength int    `json:"total_length,omitempty"` // Final content length of this entry after patch
+	ToolName    string `json:"tool_name,omitempty"`    // For tool_call: the tool label
+	ToolStatus  string `json:"tool_status,omitempty"`  // For tool_call: "Completed", "In Progress", etc.
 }
 
 type StepInfoType string
@@ -1004,8 +1032,9 @@ type ServerConfigForFrontend struct {
 	RegistrationEnabled                    bool                 `json:"registration_enabled"`
 	AuthProvider                           AuthProvider         `json:"auth_provider"`
 	FilestorePrefix                        string               `json:"filestore_prefix"`
-	StripeEnabled                          bool                 `json:"stripe_enabled"`  // Stripe top-ups enabled
-	BillingEnabled                         bool                 `json:"billing_enabled"` // Charging for usage
+	StripeEnabled                          bool                 `json:"stripe_enabled"`              // Stripe top-ups enabled
+	BillingEnabled                         bool                 `json:"billing_enabled"`             // Charging for usage
+	RequireActiveSubscription              bool                 `json:"require_active_subscription"` // Require an active subscription before allowing to use the product
 	SentryDSNFrontend                      string               `json:"sentry_dsn_frontend"`
 	GoogleAnalyticsFrontend                string               `json:"google_analytics_frontend"`
 	EvalUserID                             string               `json:"eval_user_id"`
@@ -1020,6 +1049,7 @@ type ServerConfigForFrontend struct {
 	License                                *FrontendLicenseInfo `json:"license,omitempty"`
 	OrganizationsCreateEnabledForNonAdmins bool                 `json:"organizations_create_enabled_for_non_admins"`
 	ProvidersManagementEnabled             bool                 `json:"providers_management_enabled"` // Controls if users can add their own AI provider API keys
+	HasProviders                           bool                 `json:"has_providers"`                // Whether any global AI provider with enabled chat models exists
 	MaxConcurrentDesktops                  int                  `json:"max_concurrent_desktops"`
 	ActiveConcurrentDesktops               int                  `json:"active_concurrent_desktops"`
 	Edition                                string               `json:"edition,omitempty"` // "mac-desktop", "server", "cloud", etc.
@@ -1814,9 +1844,12 @@ type CrispTrigger struct {
 }
 
 type CronTrigger struct {
-	Enabled  bool   `json:"enabled,omitempty" yaml:"enabled,omitempty"`
-	Schedule string `json:"schedule,omitempty" yaml:"schedule,omitempty"`
-	Input    string `json:"input,omitempty" yaml:"input,omitempty"`
+	Enabled   bool     `json:"enabled,omitempty" yaml:"enabled,omitempty"`
+	Schedule  string   `json:"schedule,omitempty" yaml:"schedule,omitempty"`
+	Input     string   `json:"input,omitempty" yaml:"input,omitempty"`
+	Emails    []string `json:"emails,omitempty" yaml:"emails,omitempty"`
+	Action    string   `json:"action,omitempty" yaml:"action,omitempty"`         // "session" (default) or "spec_task"
+	ProjectID string   `json:"project_id,omitempty" yaml:"project_id,omitempty"` // Target project for spec_task action
 }
 
 // AzureDevOpsTrigger - once enabled, a trigger in the database will be created
@@ -1961,6 +1994,12 @@ type DesktopAgent struct {
 
 	// Golden build mode: session builds a golden Docker cache snapshot
 	GoldenBuild bool `json:"golden_build,omitempty"`
+
+	// OnBeforeCreate is called inside the session lock, after the "already running"
+	// check passes, right before creating the container. Used to refresh API keys
+	// that may have been revoked by a concurrent StopDesktop.
+	// If nil, no callback is executed.
+	OnBeforeCreate func(ctx context.Context, agent *DesktopAgent) error `json:"-"`
 }
 
 // GetEffectiveResolution returns the display dimensions based on Resolution preset
@@ -2105,6 +2144,9 @@ type DataEntity struct {
 	// of a lora dataset.
 	ParentDataEntity string           `json:"parent_entity"`
 	Config           DataEntityConfig `json:"config" gorm:"jsonb"`
+	// KoditRepositoryID is the Kodit repository ID associated with this data entity's
+	// filestore path. Null when no Kodit repository has been registered for this entity.
+	KoditRepositoryID *int64 `json:"kodit_repository_id,omitempty" gorm:"column:kodit_repository_id"`
 }
 
 type ScriptRunType string
@@ -2936,6 +2978,9 @@ type Notification struct {
 	// Populated by the provider
 	Email     string
 	FirstName string
+
+	// If set, send to these emails instead of the session owner
+	Emails []string
 }
 
 // StreamingTokenResponse contains token for accessing streaming session
@@ -3087,6 +3132,9 @@ type SandboxInstance struct {
 	ActiveSandboxes int  `json:"active_sandboxes" gorm:"default:0"` // Number of active desktop containers
 	MaxSandboxes    int  `json:"max_sandboxes" gorm:"default:10"`   // Maximum allowed containers
 	PrivilegedMode  bool `json:"privileged_mode" gorm:"default:false"`
+
+	// Helix version running on this sandbox (git commit hash or release version)
+	HelixVersion string `json:"helix_version,omitempty" gorm:"type:varchar(255)"`
 }
 
 // TableName returns the table name for GORM
@@ -3113,6 +3161,9 @@ type SandboxHeartbeatRequest struct {
 
 	// Privileged mode (host Docker access for development)
 	PrivilegedModeEnabled bool `json:"privileged_mode_enabled,omitempty"`
+
+	// Helix version running on this sandbox (git commit hash or release version)
+	HelixVersion string `json:"helix_version,omitempty"`
 }
 
 // DiskUsageMetric represents disk usage for a single mount point
@@ -3148,4 +3199,36 @@ type DiskUsageHistory struct {
 // TableName returns the table name for GORM
 func (DiskUsageHistory) TableName() string {
 	return "disk_usage_history"
+}
+
+// TextFromInteraction returns the plain-text response for an interaction,
+// preferring ResponseEntries (structured) over ResponseMessage (legacy flat string).
+// TextFromEntries reconstructs plain text from a ResponseEntries JSON blob,
+// falling back to fallback when entries are absent or contain no text.
+func TextFromEntries(responseEntries json.RawMessage, fallback string) string {
+	if len(responseEntries) > 0 {
+		var entries []struct {
+			Type    string `json:"type"`
+			Content string `json:"content"`
+		}
+		if err := json.Unmarshal(responseEntries, &entries); err == nil {
+			var sb strings.Builder
+			for _, e := range entries {
+				if e.Type == "text" {
+					sb.WriteString(e.Content)
+				}
+			}
+			if sb.Len() > 0 {
+				return sb.String()
+			}
+		}
+	}
+	return fallback
+}
+
+// TextFromInteraction returns the plain-text response for an interaction.
+// ResponseEntries became the primary source in the response_entries migration;
+// ResponseMessage is kept only for backwards compat with old interactions.
+func TextFromInteraction(i *Interaction) string {
+	return TextFromEntries(json.RawMessage(i.ResponseEntries), i.ResponseMessage)
 }

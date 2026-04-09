@@ -24,7 +24,7 @@ import remarkGfm from 'remark-gfm'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import { useDesignReview } from '../services/designReviewService'
-import useRouter from '../hooks/useRouter'
+import useAccount from '../hooks/useAccount'
 
 type DocumentType = 'requirements' | 'technical_design' | 'implementation_plan'
 
@@ -36,7 +36,7 @@ const DOCUMENT_LABELS: Record<DocumentType, string> = {
 
 export default function DesignDocPage() {
   const { route } = useRoute()
-  const router = useRouter()
+  const account = useAccount()
   const specTaskId = route.params.specTaskId as string
   const reviewId = route.params.reviewId as string
 
@@ -52,7 +52,7 @@ export default function DesignDocPage() {
   }
 
   const handleGoBack = () => {
-    router.navigateToHome()
+    account.orgNavigate('projects')
   }
 
   const getDocumentContent = (type: DocumentType): string => {
@@ -88,7 +88,7 @@ export default function DesignDocPage() {
   }
 
   const taskName = data.spec_task?.name || 'Design Document'
-  const projectName = data.spec_task?.project?.name || ''
+  const projectName = ''
 
   return (
     <Container maxWidth="lg" sx={{ py: 4 }}>

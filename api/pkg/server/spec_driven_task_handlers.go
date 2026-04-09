@@ -5,14 +5,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"hash/fnv"
 	"net/http"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/gorilla/mux"
-	"github.com/helixml/helix/api/pkg/ptr"
 	"github.com/helixml/helix/api/pkg/services"
+	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
@@ -29,7 +30,6 @@ import (
 // @Failure 500 {object} types.APIError
 // @Router  /api/v1/spec-tasks/from-prompt [post]
 func (s *HelixAPIServer) createTaskFromPrompt(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
 	user := getRequestUser(r)
 	if user == nil {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
@@ -42,6 +42,10 @@ func (s *HelixAPIServer) createTaskFromPrompt(w http.ResponseWriter, r *http.Req
 		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
+
+	// Detach from request context so DB mutations complete even if client disconnects
+	ctx, cancel := detachContext(r.Context(), 30*time.Second)
+	defer cancel()
 
 	// Authorize user to create task in the project
 	if err := s.authorizeUserToProjectByID(ctx, user, req.ProjectID, types.ActionCreate); err != nil {
@@ -122,13 +126,12 @@ func (s *HelixAPIServer) getTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Compute PullRequestURL for tasks with PullRequestID (external repos)
-	if task.PullRequestID != "" && task.PullRequestURL == "" {
-		project, err := s.Store.GetProject(ctx, task.ProjectID)
-		if err == nil && project.DefaultRepoID != "" {
-			repo, err := s.Store.GetGitRepository(ctx, project.DefaultRepoID)
+	// Compute PR URLs for RepoPullRequests array
+	for i, repoPR := range task.RepoPullRequests {
+		if repoPR.PRURL == "" && repoPR.PRID != "" {
+			repo, err := s.Store.GetGitRepository(ctx, repoPR.RepositoryID)
 			if err == nil && repo.ExternalURL != "" {
-				task.PullRequestURL = services.GetPullRequestURL(repo, task.PullRequestID)
+				task.RepoPullRequests[i].PRURL = services.GetPullRequestURL(repo, repoPR.PRID)
 			}
 		}
 	}
@@ -147,6 +150,7 @@ func (s *HelixAPIServer) getTask(w http.ResponseWriter, r *http.Request) {
 // @Param   user_id query string false "Filter by user ID"
 // @Param   include_archived query bool false "Include archived tasks" default(false)
 // @Param   with_depends_on query bool false "Include depends on tasks" default(false)
+// @Param   labels query string false "Filter by labels (comma-separated, AND semantics)"
 // @Param   limit query int false "Limit number of results" default(50)
 // @Param   offset query int false "Offset for pagination" default(0)
 // @Success 200 {array} types.SpecTask
@@ -175,6 +179,15 @@ func (s *HelixAPIServer) listTasks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var labelFilter []string
+	if labelsParam := query.Get("labels"); labelsParam != "" {
+		for _, l := range strings.Split(labelsParam, ",") {
+			if trimmed := strings.TrimSpace(l); trimmed != "" {
+				labelFilter = append(labelFilter, trimmed)
+			}
+		}
+	}
+
 	filters := &types.SpecTaskFilters{
 		ProjectID:       projectID,
 		Status:          types.SpecTaskStatus(query.Get("status")),
@@ -184,6 +197,7 @@ func (s *HelixAPIServer) listTasks(w http.ResponseWriter, r *http.Request) {
 		Offset:          parseIntQuery(query.Get("offset"), 0),
 		IncludeArchived: query.Get("include_archived") == "true",
 		ArchivedOnly:    query.Get("archived_only") == "true",
+		Labels:          labelFilter,
 	}
 
 	tasks, err := s.Store.ListSpecTasks(ctx, filters)
@@ -198,15 +212,34 @@ func (s *HelixAPIServer) listTasks(w http.ResponseWriter, r *http.Request) {
 		tasks = []*types.SpecTask{}
 	}
 
-	// Compute PullRequestURL for tasks with PullRequestID (external repos)
+	// Compute PR URLs for RepoPullRequests array
 	if projectID != "" {
-		project, err := s.Store.GetProject(ctx, projectID)
-		if err == nil && project.DefaultRepoID != "" {
-			repo, err := s.Store.GetGitRepository(ctx, project.DefaultRepoID)
-			if err == nil && repo.ExternalURL != "" {
-				for _, task := range tasks {
-					if task.PullRequestID != "" && task.PullRequestURL == "" {
-						task.PullRequestURL = services.GetPullRequestURL(repo, task.PullRequestID)
+		// Batch load repos for RepoPullRequests URL computation
+		// Collect all unique repo IDs from all tasks
+		repoIDsMap := make(map[string]bool)
+		for _, task := range tasks {
+			for _, repoPR := range task.RepoPullRequests {
+				if repoPR.PRURL == "" && repoPR.PRID != "" {
+					repoIDsMap[repoPR.RepositoryID] = true
+				}
+			}
+		}
+
+		// Load repos and build lookup map
+		repoMap := make(map[string]*types.GitRepository)
+		for repoID := range repoIDsMap {
+			repo, err := s.Store.GetGitRepository(ctx, repoID)
+			if err == nil {
+				repoMap[repoID] = repo
+			}
+		}
+
+		// Compute URLs for RepoPullRequests
+		for _, task := range tasks {
+			for i, repoPR := range task.RepoPullRequests {
+				if repoPR.PRURL == "" && repoPR.PRID != "" {
+					if repo, ok := repoMap[repoPR.RepositoryID]; ok && repo.ExternalURL != "" {
+						task.RepoPullRequests[i].PRURL = services.GetPullRequestURL(repo, repoPR.PRID)
 					}
 				}
 			}
@@ -229,17 +262,67 @@ func (s *HelixAPIServer) listTasks(w http.ResponseWriter, r *http.Request) {
 			for _, session := range sessions {
 				sessionMap[session.ID] = session
 			}
-			// Populate SessionUpdatedAt on each task
+			// Populate SessionUpdatedAt and SandboxState on each task.
+			// Live-check the executor to avoid stale DB metadata after sandbox restarts
+			// (same pattern as getSession in session_handlers.go).
 			for _, task := range tasks {
 				if session, ok := sessionMap[task.PlanningSessionID]; ok {
 					task.SessionUpdatedAt = &session.Updated
+
+					// Live-check container status against the executor, overriding stale DB values.
+					cfg := session.Metadata
+					if cfg.ContainerName != "" && s.externalAgentExecutor != nil {
+						_, err := s.externalAgentExecutor.GetSession(session.ID)
+						if err != nil {
+							cfg.ExternalAgentStatus = "stopped"
+						} else {
+							cfg.ExternalAgentStatus = "running"
+						}
+					} else if cfg.ContainerName != "" {
+						cfg.ExternalAgentStatus = "stopped"
+					}
+
+					status := cfg.ExternalAgentStatus
+					hasContainer := cfg.ContainerName != ""
+					switch {
+					case status == "stopped":
+						task.SandboxState = "absent"
+					case status == "running":
+						task.SandboxState = "running"
+					case hasContainer:
+						task.SandboxState = "running"
+					case status == "starting":
+						task.SandboxState = "starting"
+					default:
+						task.SandboxState = "absent"
+					}
+					task.SandboxStatusMessage = cfg.StatusMessage
 				}
 			}
 		}
 	}
 
+	// ETag support: hash the response to avoid sending unchanged data
+	jsonBytes, err := json.Marshal(tasks)
+	if err != nil {
+		http.Error(w, "failed to encode response", http.StatusInternalServerError)
+		return
+	}
+
+	h := fnv.New64a()
+	h.Write(jsonBytes)
+	etag := fmt.Sprintf(`"%x"`, h.Sum64())
+
+	w.Header().Set("ETag", etag)
+	w.Header().Set("Cache-Control", "private, no-cache, must-revalidate")
+
+	if match := r.Header.Get("If-None-Match"); match == etag {
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(tasks)
+	w.Write(jsonBytes) //nolint:errcheck
 }
 
 // approveSpecs godoc
@@ -256,7 +339,6 @@ func (s *HelixAPIServer) listTasks(w http.ResponseWriter, r *http.Request) {
 // @Failure 500 {object} types.APIError
 // @Router  /api/v1/spec-tasks/{taskId}/approve-specs [post]
 func (s *HelixAPIServer) approveSpecs(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
 	user := getRequestUser(r)
 	if user == nil {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
@@ -270,6 +352,10 @@ func (s *HelixAPIServer) approveSpecs(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "task ID is required", http.StatusBadRequest)
 		return
 	}
+
+	// Detach from request context so DB mutations complete even if client disconnects
+	ctx, cancel := detachContext(r.Context(), 30*time.Second)
+	defer cancel()
 
 	// Return updated task
 	existingTask, err := s.Store.GetSpecTask(ctx, taskID)
@@ -292,10 +378,17 @@ func (s *HelixAPIServer) approveSpecs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	existingTask.SpecApprovedBy = user.ID
-	existingTask.SpecApprovedAt = ptr.To(time.Now())
-	existingTask.Status = types.TaskStatusSpecApproved
+	now := time.Now()
 	existingTask.SpecApproval = &req
+	existingTask.StatusUpdatedAt = &now
+	if req.Approved {
+		existingTask.SpecApprovedBy = user.ID
+		existingTask.SpecApprovedAt = &now
+		existingTask.Status = types.TaskStatusSpecApproved
+	} else {
+		// Rejection — don't set approval tracking fields, go straight to revision
+		existingTask.Status = types.TaskStatusSpecRevision
+	}
 
 	err = s.Store.UpdateSpecTask(ctx, existingTask)
 	if err != nil {
@@ -556,6 +649,15 @@ func (s *HelixAPIServer) getBatchTaskProgress(w http.ResponseWriter, r *http.Req
 		semaphore := make(chan struct{}, 10)
 
 		for _, task := range tasks {
+			// Skip checklist parsing for finished tasks — the UI doesn't show
+			// checklists for done/pull_request/failed tasks, and parsing git
+			// files for 169+ completed tasks is expensive and wasteful.
+			switch task.Status {
+			case types.TaskStatusDone, types.TaskStatusPullRequest,
+				types.TaskStatusSpecFailed, types.TaskStatusImplementationFailed:
+				continue
+			}
+
 			wg.Add(1)
 			go func(t *types.SpecTask) {
 				defer wg.Done()
@@ -579,8 +681,7 @@ func (s *HelixAPIServer) getBatchTaskProgress(w http.ResponseWriter, r *http.Req
 		wg.Wait()
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	writeResponseWithETag(w, r, response)
 }
 
 // Helper functions
@@ -612,7 +713,6 @@ func parseIntQuery(value string, defaultValue int) int {
 // @Router /api/v1/spec-tasks/{taskId}/start-planning [post]
 // @Security BearerAuth
 func (s *HelixAPIServer) startPlanning(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
 	user := getRequestUser(r)
 	if user == nil {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
@@ -625,6 +725,10 @@ func (s *HelixAPIServer) startPlanning(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "task ID is required", http.StatusBadRequest)
 		return
 	}
+
+	// Detach from request context so DB mutations complete even if client disconnects
+	ctx, cancel := detachContext(r.Context(), 60*time.Second)
+	defer cancel()
 
 	// Parse optional query parameters for browser locale settings
 	// These allow testing keyboard layout detection via ?keyboard=fr&timezone=Europe/Paris
@@ -657,12 +761,14 @@ func (s *HelixAPIServer) startPlanning(w http.ResponseWriter, r *http.Request) {
 	task.UpdatedAt = time.Now()
 
 	// Check if Just Do It mode is enabled - skip spec and go straight to implementation
+	now := time.Now()
 	if task.JustDoItMode {
 		task.Status = types.TaskStatusQueuedImplementation
 	} else {
 		// Normal mode: Start spec generation
 		task.Status = types.TaskStatusQueuedSpecGeneration
 	}
+	task.StatusUpdatedAt = &now
 
 	// Save the task with queued status first (so response reflects immediate status)
 	err = s.Store.UpdateSpecTask(ctx, task)
@@ -692,13 +798,16 @@ func (s *HelixAPIServer) startPlanning(w http.ResponseWriter, r *http.Request) {
 // @Router /api/v1/spec-tasks/{taskId} [put]
 // @Security BearerAuth
 func (s *HelixAPIServer) updateSpecTask(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
 	vars := mux.Vars(r)
 	taskID := vars["taskId"]
 	if taskID == "" {
 		http.Error(w, "task ID is required", http.StatusBadRequest)
 		return
 	}
+
+	// Detach from request context so DB mutations complete even if client disconnects
+	ctx, cancel := detachContext(r.Context(), 30*time.Second)
+	defer cancel()
 
 	var updateReq types.SpecTaskUpdateRequest
 	if err := json.NewDecoder(r.Body).Decode(&updateReq); err != nil {
@@ -730,15 +839,46 @@ func (s *HelixAPIServer) updateSpecTask(w http.ResponseWriter, r *http.Request) 
 	// Update fields if provided
 	if updateReq.Status != "" {
 		task.Status = updateReq.Status
+		// Update StatusUpdatedAt so task appears at top of new column in Kanban
+		now := time.Now()
+		task.StatusUpdatedAt = &now
+
+		// When moving back to backlog, clear lifecycle fields so the task
+		// starts fresh. Without this, the orchestrator sees old specs and
+		// immediately transitions to spec_review without generating new ones.
+		if updateReq.Status == types.TaskStatusBacklog {
+			task.RequirementsSpec = ""
+			task.TechnicalDesign = ""
+			task.ImplementationPlan = ""
+			task.DesignDocsPushedAt = nil
+			task.DesignDocPath = ""
+			task.SpecApprovedBy = ""
+			task.SpecApprovedAt = nil
+			task.SpecApproval = nil
+			task.SpecRevisionCount = 0
+			task.ImplementationApprovedBy = ""
+			task.ImplementationApprovedAt = nil
+			task.PlanningSessionID = ""
+			task.ExternalAgentID = ""
+			task.ZedInstanceID = ""
+			task.LastPushCommitHash = ""
+			task.LastPushAt = nil
+			task.StartedAt = nil
+			task.CompletedAt = nil
+			task.PlanningStartedAt = nil
+			task.MergedToMain = false
+			task.MergedAt = nil
+			task.MergeCommitHash = ""
+			task.RepoPullRequests = nil
+			task.BranchName = "" // Force fresh branch so orchestrator doesn't see the old merged branch
+		}
 	}
 	if updateReq.Priority != "" {
 		task.Priority = updateReq.Priority
 	}
-	if updateReq.Name != "" {
-		task.Name = updateReq.Name
-	}
 	if updateReq.Description != "" {
 		task.Description = updateReq.Description
+		task.Name = services.GenerateTaskNameFromPrompt(updateReq.Description)
 	}
 	if updateReq.JustDoItMode != nil {
 		task.JustDoItMode = *updateReq.JustDoItMode
@@ -772,6 +912,29 @@ func (s *HelixAPIServer) updateSpecTask(w http.ResponseWriter, r *http.Request) 
 	// Update public design docs setting (pointer allows explicit false)
 	if updateReq.PublicDesignDocs != nil {
 		task.PublicDesignDocs = *updateReq.PublicDesignDocs
+	}
+	// Update assignee (pointer allows clearing with empty string to unassign)
+	if updateReq.AssigneeID != nil {
+		newAssigneeID := *updateReq.AssigneeID
+		// Only validate if assigning (not when clearing)
+		if newAssigneeID != "" {
+			// Validate that assignee is an organization member
+			_, err := s.Store.GetOrganizationMembership(ctx, &store.GetOrganizationMembershipQuery{
+				OrganizationID: task.OrganizationID,
+				UserID:         newAssigneeID,
+			})
+			if err != nil {
+				log.Warn().
+					Str("task_id", taskID).
+					Str("assignee_id", newAssigneeID).
+					Str("org_id", task.OrganizationID).
+					Err(err).
+					Msg("Assignee is not an organization member")
+				http.Error(w, "assignee must be an organization member", http.StatusBadRequest)
+				return
+			}
+		}
+		task.AssigneeID = newAssigneeID
 	}
 
 	// If depends_on is provided, pass IDs to store via task.DependsOn and let UpdateSpecTask sync associations.
@@ -828,8 +991,12 @@ func (s *HelixAPIServer) deleteSpecTask(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// Detach from request context so DB mutations complete even if client disconnects
+	ctx, cancel := detachContext(r.Context(), 30*time.Second)
+	defer cancel()
+
 	// Get existing task
-	task, err := s.Store.GetSpecTask(r.Context(), taskID)
+	task, err := s.Store.GetSpecTask(ctx, taskID)
 	if err != nil {
 		log.Error().Err(err).Str("task_id", taskID).Msg("Failed to get SpecTask for archiving")
 		http.Error(w, "SpecTask not found", http.StatusNotFound)
@@ -842,8 +1009,8 @@ func (s *HelixAPIServer) deleteSpecTask(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// Authorize user to archive task in the project
-	if err := s.authorizeUserToProjectByID(r.Context(), user, task.ProjectID, types.ActionUpdate); err != nil {
+	// Authorize user to delete task in the project
+	if err := s.authorizeUserToProjectByID(ctx, user, task.ProjectID, types.ActionUpdate); err != nil {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
@@ -855,7 +1022,7 @@ func (s *HelixAPIServer) deleteSpecTask(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// Delete the task
-	err = s.Store.DeleteSpecTask(r.Context(), taskID)
+	err = s.Store.DeleteSpecTask(ctx, taskID)
 	if err != nil {
 		log.Error().Err(err).Str("task_id", taskID).Msg("Failed to delete SpecTask")
 		http.Error(w, fmt.Sprintf("failed to delete SpecTask: %v", err), http.StatusInternalServerError)
@@ -895,8 +1062,12 @@ func (s *HelixAPIServer) archiveSpecTask(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	// Detach from request context so DB mutations complete even if client disconnects
+	ctx, cancel := detachContext(r.Context(), 30*time.Second)
+	defer cancel()
+
 	// Get existing task
-	task, err := s.Store.GetSpecTask(r.Context(), taskID)
+	task, err := s.Store.GetSpecTask(ctx, taskID)
 	if err != nil {
 		log.Error().Err(err).Str("task_id", taskID).Msg("Failed to get SpecTask for archiving")
 		http.Error(w, "SpecTask not found", http.StatusNotFound)
@@ -910,7 +1081,7 @@ func (s *HelixAPIServer) archiveSpecTask(w http.ResponseWriter, r *http.Request)
 	}
 
 	// Authorize user to archive task in the project
-	if err := s.authorizeUserToProjectByID(r.Context(), user, task.ProjectID, types.ActionUpdate); err != nil {
+	if err := s.authorizeUserToProjectByID(ctx, user, task.ProjectID, types.ActionUpdate); err != nil {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
@@ -919,9 +1090,9 @@ func (s *HelixAPIServer) archiveSpecTask(w http.ResponseWriter, r *http.Request)
 	if req.Archived {
 		// Stop the external agent if it's running
 		if task.PlanningSessionID != "" {
-			session, sessionErr := s.Store.GetSession(r.Context(), task.PlanningSessionID)
+			session, sessionErr := s.Store.GetSession(ctx, task.PlanningSessionID)
 			if sessionErr == nil && session.Metadata.AgentType == "zed_external" {
-				stopErr := s.externalAgentExecutor.StopDesktop(r.Context(), task.PlanningSessionID)
+				stopErr := s.externalAgentExecutor.StopDesktop(ctx, task.PlanningSessionID)
 				if stopErr != nil {
 					log.Warn().
 						Err(stopErr).
@@ -939,9 +1110,9 @@ func (s *HelixAPIServer) archiveSpecTask(w http.ResponseWriter, r *http.Request)
 
 		// Stop any implementation session agents
 		// Get all sessions for this task's project and stop ones related to this task
-		externalAgent, agentErr := s.Store.GetSpecTaskExternalAgent(r.Context(), taskID)
+		externalAgent, agentErr := s.Store.GetSpecTaskExternalAgent(ctx, taskID)
 		if agentErr == nil && externalAgent != nil && externalAgent.Status == "running" {
-			stopErr := s.externalAgentExecutor.StopDesktop(r.Context(), externalAgent.ID)
+			stopErr := s.externalAgentExecutor.StopDesktop(ctx, externalAgent.ID)
 			if stopErr != nil {
 				log.Warn().
 					Err(stopErr).
@@ -951,7 +1122,7 @@ func (s *HelixAPIServer) archiveSpecTask(w http.ResponseWriter, r *http.Request)
 			} else {
 				// Update agent status
 				externalAgent.Status = "stopped"
-				_ = s.Store.UpdateSpecTaskExternalAgent(r.Context(), externalAgent)
+				_ = s.Store.UpdateSpecTaskExternalAgent(ctx, externalAgent)
 
 				log.Info().
 					Str("task_id", taskID).
@@ -965,7 +1136,7 @@ func (s *HelixAPIServer) archiveSpecTask(w http.ResponseWriter, r *http.Request)
 	task.Archived = req.Archived
 
 	// Update in store
-	err = s.Store.UpdateSpecTask(r.Context(), task)
+	err = s.Store.UpdateSpecTask(ctx, task)
 	if err != nil {
 		log.Error().Err(err).Str("task_id", taskID).Msg("Failed to archive SpecTask")
 		http.Error(w, fmt.Sprintf("failed to archive SpecTask: %v", err), http.StatusInternalServerError)
@@ -981,9 +1152,9 @@ func (s *HelixAPIServer) archiveSpecTask(w http.ResponseWriter, r *http.Request)
 	// Log audit event for archive/unarchive
 	if s.auditLogService != nil {
 		if req.Archived {
-			s.auditLogService.LogTaskArchived(r.Context(), task, user.ID, user.Email)
+			s.auditLogService.LogTaskArchived(ctx, task, user.ID, user.Email)
 		} else {
-			s.auditLogService.LogTaskUnarchived(r.Context(), task, user.ID, user.Email)
+			s.auditLogService.LogTaskUnarchived(ctx, task, user.ID, user.Email)
 		}
 	}
 

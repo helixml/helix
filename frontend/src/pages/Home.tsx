@@ -147,6 +147,7 @@ const Home: FC = () => {
   const [selectedImageName, setSelectedImageName] = useState<string | null>(null)
   const [showExamples, setShowExamples] = useState(false)
   const [isFirstLoginToday, setIsFirstLoginToday] = useState(false)
+  const [greeting, setGreeting] = useState('')
 
   const { data: triggers, isLoading, refetch } = useListUserCronTriggers(
     account.organizationTools.organization?.id || ''
@@ -201,6 +202,7 @@ const Home: FC = () => {
     if (account.user) {
       const firstLogin = checkFirstLoginToday()
       setIsFirstLoginToday(firstLogin)
+      setGreeting(getTimeBasedGreeting(account.user.name, firstLogin))
     }
   }, [account.user])
 
@@ -243,6 +245,14 @@ const Home: FC = () => {
 
   const openApp = async (appId: string) => {
     account.orgNavigate('new', { app_id: appId });
+  }
+
+  const handleNewAgent = async () => {
+    if (!account.user) {
+      account.setShowLoginWindow(true)
+      return
+    }
+    await createBlankAgent()
   }
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -338,7 +348,7 @@ const Home: FC = () => {
                       mb: 2,
                     }}
                   >
-                    {getTimeBasedGreeting(account.user?.name, isFirstLoginToday)}
+                    {greeting}
                   </Typography>
                 </Row>
                 <Row>
@@ -963,7 +973,7 @@ const Home: FC = () => {
                           textDecoration: 'underline',
                         },
                       }}
-                      onClick={() => account.orgNavigate('apps')}
+                      onClick={() => account.orgNavigate('agents')}
                     >
                       Agents
                     </Typography>
@@ -1080,7 +1090,7 @@ const Home: FC = () => {
                           alignItems: 'flex-start',
                           gap: 1,
                         }}
-                        onClick={createBlankAgent}
+                        onClick={handleNewAgent}
                       >
                         <Box
                           sx={{

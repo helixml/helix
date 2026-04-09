@@ -1,85 +1,84 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, viewport-fit=cover" />
-    <meta name="color-scheme" content="dark light" />
-    <meta name="description" content="Helix - AI-powered development platform" />
+    <head>
+        <meta charset="UTF-8" />
+        <meta
+            name="viewport"
+            content="width=device-width, initial-scale=1, minimum-scale=1, viewport-fit=cover"
+        />
+        <meta name="color-scheme" content="dark light" />
+        <meta
+            name="description"
+            content="Helix - AI-powered development platform"
+        />
 
-    <!-- PWA Meta Tags -->
-    <meta name="mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <meta name="apple-mobile-web-app-title" content="Helix" />
-    <meta name="theme-color" content="#4ade80" />
-    <meta name="msapplication-TileColor" content="#0d0d0d" />
+        <!-- PWA Meta Tags -->
+        <meta name="mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta
+            name="apple-mobile-web-app-status-bar-style"
+            content="black-translucent"
+        />
+        <meta name="apple-mobile-web-app-title" content="Helix" />
+        <meta name="theme-color" content="#4ade80" />
+        <meta name="msapplication-TileColor" content="#0d0d0d" />
 
-    <!-- Icons -->
-    <link rel="icon" href="/img/logo.png" />
-    <link rel="apple-touch-icon" href="/img/logo.png" />
+        <!-- Icons -->
+        <link rel="icon" href="/img/favicon.png" />
+        <link rel="apple-touch-icon" href="/img/favicon.png" />
 
-    <!-- PWA Manifest -->
-    <link rel="manifest" href="/manifest.json" />
-    <link
-      rel="stylesheet"
-      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:ital,wght@0,100;0,200;0,300;0,400;0,500;0,600;0,700;1,100;1,200;1,300;1,400;1,500;1,600;1,700&display=swap"
-    />
-    <link
-      rel="stylesheet"
-      href="https://fonts.googleapis.com/icon?family=Material+Icons"
-    />
-    <style>
-      html, body, #root {
-        height: 100%;
-        margin: 0;
-        padding: 0;
-        overflow: hidden;
-        overscroll-behavior: none;
-      }
-      .blinker-class {
-        animation: blink 1s linear infinite;
-        color: yellow; font-weight:bold;
-      }
-
-      @keyframes blink {
-        25% {
-          opacity: 0.5;
-        }
-        50% {
-          opacity: 0;
-        }
-        75% {
-          opacity: 0.5;
-        }
-      }
-    </style>
-    <script type="text/javascript">window.$crisp=[];window.CRISP_WEBSITE_ID="d69e5955-fa6a-4fe6-b1bb-c87cf7515d09";(function(){d=document;s=d.createElement("script");s.src="https://client.crisp.chat/l.js";s.async=1;d.getElementsByTagName("head")[0].appendChild(s);})();</script>
-    <script type="text/javascript">
-      window.$crisp.push(["do", "chat:hide"])
-      window.$crisp.push(["on", "chat:closed", () => {
-        window.$crisp.push(["do", "chat:hide"])
-      }])
-    </script>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/file-icon-vectors@1.0.0/dist/file-icon-vivid.min.css" />
-    <title>Helix</title>
-    <script src="/api/v1/config/js"></script>
-    <script>
-      if(window.HELIX_GOOGLE_ANALYTICS != '') {
-        document.write('<script async src="https://www.googletagmanager.com/gtag/js?id=' + window.HELIX_GOOGLE_ANALYTICS + '"><\/script>')
-      }
-    </script>
-    <script>
-      if(window.HELIX_GOOGLE_ANALYTICS != '') {
-        window.dataLayer = window.dataLayer || []
-        function gtag(){dataLayer.push(arguments)}
-        gtag('js', new Date())
-        gtag('config', window.HELIX_GOOGLE_ANALYTICS)
-      }
-    </script>
-  </head>
-  <body>
-    <noscript>You need to enable JavaScript to run this app.</noscript>
-    <div id="root"></div>
-    <script type="module" src="/src/index.tsx"></script>
-  </body>
+        <!-- PWA Manifest -->
+        <link rel="manifest" href="/manifest.json" />
+        <link
+            rel="stylesheet"
+            href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:ital,wght@0,100;0,200;0,300;0,400;0,500;0,600;0,700;1,100;1,200;1,300;1,400;1,500;1,600;1,700&display=swap"
+        />
+        <link
+            rel="stylesheet"
+            href="https://fonts.googleapis.com/icon?family=Material+Icons"
+        />
+        <style>
+            html,
+            body,
+            #root {
+                height: 100%;
+                margin: 0;
+                padding: 0;
+                overflow: hidden;
+                overscroll-behavior: none;
+            }
+        </style>
+        <script type="text/javascript">
+            window.$crisp = [];
+            window.CRISP_WEBSITE_ID = "d69e5955-fa6a-4fe6-b1bb-c87cf7515d09";
+            (function () {
+                d = document;
+                s = d.createElement("script");
+                s.src = "https://client.crisp.chat/l.js";
+                s.async = 1;
+                d.getElementsByTagName("head")[0].appendChild(s);
+            })();
+        </script>
+        <script type="text/javascript">
+            window.$crisp.push(["do", "chat:hide"]);
+            window.$crisp.push([
+                "on",
+                "chat:closed",
+                () => {
+                    window.$crisp.push(["do", "chat:hide"]);
+                },
+            ]);
+        </script>
+        <link
+            rel="stylesheet"
+            href="https://cdn.jsdelivr.net/npm/file-icon-vectors@1.0.0/dist/file-icon-vivid.min.css"
+        />
+        <title>Helix</title>
+    </head>
+    <body>
+        <noscript>You need to enable JavaScript to run this app.</noscript>
+        <div id="root"></div>
+        <div id="error-overlay"></div>
+        <script type="module" src="/src/index.tsx"></script>
+    </body>
 </html>

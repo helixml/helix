@@ -1,0 +1,29 @@
+# Build qwen-code from source with BuildKit cache for npm deps.
+#
+# Usage:
+#   docker build --output type=local,dest=qwen-code-build -f Dockerfile.qwen-build <qwen-source-dir>
+#
+# The output contains everything needed at runtime:
+#   dist/         — bundled code
+#   node_modules/ — native bindings (tiktoken)
+#   packages/     — workspace packages (if present)
+#   package.json, package-lock.json
+
+FROM node:20-slim@sha256:7129e1780341f8dff603243d2b0cb9179c1716291ff6a86706946b629d3c544a AS builder
+
+RUN apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*
+
+COPY . /app
+WORKDIR /app
+
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci --ignore-scripts && \
+    npm run bundle
+
+# Collect runtime files into /output
+RUN mkdir -p /output && \
+    cp -r dist/ node_modules/ package.json package-lock.json /output/ && \
+    cp -r packages/ /output/ 2>/dev/null || true
+
+FROM scratch
+COPY --from=builder /output /

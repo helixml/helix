@@ -70,6 +70,12 @@ func (s *PostgresStore) UpdateSystemSettings(ctx context.Context, req *types.Sys
 	if req.KoditEnrichmentModel != nil {
 		settings.KoditEnrichmentModel = *req.KoditEnrichmentModel
 	}
+	if req.RAGEmbeddingsProvider != nil {
+		settings.RAGEmbeddingsProvider = *req.RAGEmbeddingsProvider
+	}
+	if req.RAGEmbeddingsModel != nil {
+		settings.RAGEmbeddingsModel = *req.RAGEmbeddingsModel
+	}
 	if req.MaxConcurrentDesktops != nil {
 		settings.MaxConcurrentDesktops = *req.MaxConcurrentDesktops
 	}
@@ -78,6 +84,36 @@ func (s *PostgresStore) UpdateSystemSettings(ctx context.Context, req *types.Sys
 	}
 	if req.EnforceQuotas != nil {
 		settings.EnforceQuotas = *req.EnforceQuotas
+	}
+	if req.OptimusReasoningModelProvider != nil {
+		settings.OptimusReasoningModelProvider = *req.OptimusReasoningModelProvider
+	}
+	if req.OptimusReasoningModel != nil {
+		settings.OptimusReasoningModel = *req.OptimusReasoningModel
+	}
+	if req.OptimusReasoningModelEffort != nil {
+		settings.OptimusReasoningModelEffort = *req.OptimusReasoningModelEffort
+	}
+	if req.OptimusGenerationModelProvider != nil {
+		settings.OptimusGenerationModelProvider = *req.OptimusGenerationModelProvider
+	}
+	if req.OptimusGenerationModel != nil {
+		settings.OptimusGenerationModel = *req.OptimusGenerationModel
+	}
+	if req.OptimusSmallReasoningModelProvider != nil {
+		settings.OptimusSmallReasoningModelProvider = *req.OptimusSmallReasoningModelProvider
+	}
+	if req.OptimusSmallReasoningModel != nil {
+		settings.OptimusSmallReasoningModel = *req.OptimusSmallReasoningModel
+	}
+	if req.OptimusSmallReasoningModelEffort != nil {
+		settings.OptimusSmallReasoningModelEffort = *req.OptimusSmallReasoningModelEffort
+	}
+	if req.OptimusSmallGenerationModelProvider != nil {
+		settings.OptimusSmallGenerationModelProvider = *req.OptimusSmallGenerationModelProvider
+	}
+	if req.OptimusSmallGenerationModel != nil {
+		settings.OptimusSmallGenerationModel = *req.OptimusSmallGenerationModel
 	}
 
 	settings.Updated = time.Now()

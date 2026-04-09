@@ -216,7 +216,7 @@ export const getNewSessionBreadcrumbs = ({
         return [
             {
                 title: 'Agents',
-                routeName: 'apps',
+                routeName: 'agents',
             },
             {
                 title: getAppName(app),

@@ -28,6 +28,7 @@ import vllmLogo from '../../../assets/img/vllm-logo.png';
 import helixLogo from '../../../assets/img/logo.png';
 import googleLogo from '../../../assets/img/providers/google.svg';
 import anthropicLogo from '../../../assets/img/providers/anthropic.png';
+import fireworksLogo from '../../../assets/img/providers/fireworks.png';
 import { Bot } from 'lucide-react';
 
 interface ModelWithProvider extends TypesOpenAIModel {
@@ -48,6 +49,9 @@ const getProviderIcon = (provider: TypesProviderEndpoint): React.ReactNode => {
     }
     if (provider.name === 'anthropic' || provider.base_url?.startsWith('https://api.anthropic.com/')) {
         return <Avatar src={anthropicLogo} sx={{ width: 24, height: 24 }} variant="square" />;
+    }
+    if (provider.base_url?.startsWith('https://api.fireworks.ai/')) {
+        return <Avatar src={fireworksLogo} sx={{ width: 24, height: 24 }} variant="square" />;
     }
     if (provider.available_models?.length && provider.available_models[0].owned_by === "vllm") {
         return <Avatar src={vllmLogo} sx={{ width: 24, height: 24, bgcolor: '#fff' }} variant="square" />;

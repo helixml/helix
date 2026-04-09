@@ -35,54 +35,88 @@ import (
 // @Param id path string true "Session ID"
 // @Router /api/v1/sessions/{id} [get]
 // @Security BearerAuth
-func (apiServer *HelixAPIServer) getSession(_ http.ResponseWriter, req *http.Request) (*types.Session, *system.HTTPError) {
+func (apiServer *HelixAPIServer) getSession(rw http.ResponseWriter, req *http.Request) {
 	id := mux.Vars(req)["id"]
 	if id == "" {
-		return nil, system.NewHTTPError400("cannot load session without id")
+		http.Error(rw, "cannot load session without id", http.StatusBadRequest)
+		return
 	}
 	ctx := req.Context()
 	user := getRequestUser(req)
 
 	session, err := apiServer.Store.GetSession(ctx, id)
 	if err != nil {
-		return nil, system.NewHTTPError500(err.Error())
+		http.Error(rw, err.Error(), http.StatusInternalServerError)
+		return
 	}
 
 	err = apiServer.authorizeUserToSession(ctx, user, session, types.ActionGet)
 	if err != nil {
-		return nil, system.NewHTTPError403(err.Error())
+		http.Error(rw, err.Error(), http.StatusForbidden)
+		return
 	}
 
-	// Load interactions
+	// Determine external agent status (cheap RPC, no DB)
+	agentStatus := ""
+	if session.Metadata.ContainerName != "" {
+		if apiServer.externalAgentExecutor != nil {
+			_, execErr := apiServer.externalAgentExecutor.GetSession(session.ID)
+			if execErr != nil {
+				agentStatus = "stopped"
+			} else {
+				agentStatus = "running"
+			}
+		} else {
+			agentStatus = "stopped"
+		}
+	}
+
+	// Compute a lightweight ETag from cheap metadata — avoids loading full interactions
+	// on cache hits (the expensive part). Components: session row updated_at, interaction
+	// count + max updated_at (single aggregate query), and runtime agent status.
+	interactionCount, maxInteractionUpdated, err := apiServer.Store.GetInteractionsSummary(ctx, id, session.GenerationID)
+	if err != nil {
+		http.Error(rw, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	etag := fmt.Sprintf(`"%x-%x-%d-%x-%s"`,
+		session.Updated.UnixNano(),
+		maxInteractionUpdated.UnixNano(),
+		interactionCount,
+		session.GenerationID,
+		agentStatus,
+	)
+
+	rw.Header().Set("ETag", etag)
+	// must-revalidate: cache the response but always revalidate with the server.
+	// private: only the browser cache (not shared proxies like Caddy) may cache it.
+	// must-revalidate is required (not just no-cache) because responses to requests
+	// with Authorization headers are not cacheable otherwise per RFC 7234 §3.2.
+	rw.Header().Set("Cache-Control", "private, no-cache, must-revalidate")
+
+	if match := req.Header.Get("If-None-Match"); match == etag {
+		rw.WriteHeader(http.StatusNotModified)
+		return
+	}
+
+	// Cache miss — load full interactions
 	interactions, _, err := apiServer.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
 		SessionID:    id,
 		GenerationID: session.GenerationID,
 		PerPage:      1000,
 	})
 	if err != nil {
-		return nil, system.NewHTTPError500(err.Error())
+		http.Error(rw, err.Error(), http.StatusInternalServerError)
+		return
 	}
 	session.Interactions = interactions
+	session.Metadata.ExternalAgentStatus = agentStatus
 
-	// Check if the external agent (sandbox container) is actually running
-	// If not running, update status to "stopped"
-	if session.Metadata.ContainerName != "" {
-		if apiServer.externalAgentExecutor != nil {
-			_, err := apiServer.externalAgentExecutor.GetSession(session.ID)
-			if err != nil {
-				// External agent not running - mark as stopped
-				session.Metadata.ExternalAgentStatus = "stopped"
-			} else {
-				// External agent is running
-				session.Metadata.ExternalAgentStatus = "running"
-			}
-		} else {
-			// No external agent executor available - assume stopped
-			session.Metadata.ExternalAgentStatus = "stopped"
-		}
+	rw.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(rw).Encode(session); err != nil {
+		log.Ctx(ctx).Error().Err(err).Msg("failed to encode session response")
 	}
-
-	return session, nil
 }
 
 // listSessions godoc
@@ -676,12 +710,11 @@ If the user asks for information about Helix or installing Helix, refer them to 
 				}
 			}
 
-			// Add user's API token for LLM and git operations (merges with any custom env vars)
+			// Add user's API token inside session lock via OnBeforeCreate hook
 			// This is REQUIRED - without it, Zed's agent won't be able to make LLM calls
-			if addErr := s.addUserAPITokenToAgent(req.Context(), zedAgent, session.Owner); addErr != nil {
-				log.Error().Err(addErr).Str("user_id", session.Owner).Msg("Failed to add user API token")
-				http.Error(rw, fmt.Sprintf("failed to get user API keys: %s", addErr.Error()), http.StatusInternalServerError)
-				return
+			sessionOwner := session.Owner
+			zedAgent.OnBeforeCreate = func(hookCtx context.Context, a *types.DesktopAgent) error {
+				return s.addUserAPITokenToAgent(hookCtx, a, sessionOwner)
 			}
 
 			// Register session in executor so RDP endpoint can find it
@@ -1144,6 +1177,12 @@ func (s *HelixAPIServer) handleBlockingSession(
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
+	// Update session.Updated so the frontend can detect session changes
+	session.Updated = time.Now()
+	if _, err := s.Store.UpdateSession(ctx, *session); err != nil {
+		log.Warn().Err(err).Str("session_id", session.ID).Msg("failed to update session timestamp after blocking completion")
+	}
+
 	err = s.Controller.UpdateInteraction(ctx, session, interaction)
 	if err != nil {
 		return err
@@ -1185,6 +1224,7 @@ func (s *HelixAPIServer) handleStreamingSession(ctx context.Context, user *types
 	rw.Header().Set("Content-Type", "text/event-stream")
 	rw.Header().Set("Cache-Control", "no-cache")
 	rw.Header().Set("Connection", "keep-alive")
+	rw.Header().Set("X-Interaction-ID", interaction.ID)
 
 	// Write an empty response to start chunk that contains the session id
 	bts, err := json.Marshal(&openai.ChatCompletionStreamResponse{
@@ -1364,6 +1404,12 @@ func (s *HelixAPIServer) handleStreamingSession(ctx context.Context, user *types
 			Str("session_id", session.ID).
 			Interface("document_ids", session.Metadata.DocumentIDs).
 			Msg("reloaded session metadata before final WebSocket update")
+	}
+
+	// Update session.Updated so the frontend can detect session changes
+	session.Updated = time.Now()
+	if _, err := s.Store.UpdateSession(ctx, *session); err != nil {
+		log.Warn().Err(err).Str("session_id", session.ID).Msg("failed to update session timestamp after streaming")
 	}
 
 	err = s.Controller.UpdateInteraction(ctx, session, interaction)
@@ -1777,14 +1823,9 @@ func (s *HelixAPIServer) resumeSession(rw http.ResponseWriter, req *http.Request
 		return
 	}
 
-	// Check if user owns this session
-	if session.Owner != user.ID {
-		log.Warn().
-			Str("session_id", id).
-			Str("user_id", user.ID).
-			Str("owner_id", session.Owner).
-			Msg("User not authorized to resume session")
-		http.Error(rw, "unauthorized", http.StatusUnauthorized)
+	err = s.authorizeUserToSession(ctx, user, session, types.ActionUpdate)
+	if err != nil {
+		http.Error(rw, err.Error(), http.StatusForbidden)
 		return
 	}
 
@@ -1839,7 +1880,7 @@ func (s *HelixAPIServer) resumeSession(rw http.ResponseWriter, req *http.Request
 			Msg("Loading project context for exploratory session resume")
 	}
 
-	_, err = s.Controller.Options.Store.GetProject(ctx, agent.ProjectID)
+	project, err := s.Controller.Options.Store.GetProject(ctx, agent.ProjectID)
 	if err != nil {
 		http.Error(rw, fmt.Sprintf("failed to get project '%s': %s", agent.ProjectID, err.Error()), http.StatusInternalServerError)
 		return
@@ -1857,11 +1898,12 @@ func (s *HelixAPIServer) resumeSession(rw http.ResponseWriter, req *http.Request
 			}
 		}
 
-		// Set primary repository from project (repos are now managed at project level)
-		if len(projectRepos) > 0 {
-			// Use first repo as fallback if no default set
-			agent.PrimaryRepositoryID = projectRepos[0].ID
+		// Set primary repository: prefer project's configured default, fall back to first repo
+		primaryRepoID := project.DefaultRepoID
+		if primaryRepoID == "" {
+			primaryRepoID = projectRepos[0].ID
 		}
+		agent.PrimaryRepositoryID = primaryRepoID
 	}
 
 	// Get display settings from app's ExternalAgentConfig (or use defaults)
@@ -1892,11 +1934,12 @@ func (s *HelixAPIServer) resumeSession(rw http.ResponseWriter, req *http.Request
 		}
 	}
 
-	// Add user's API token to agent environment for git operations
-	if err := s.addUserAPITokenToAgent(ctx, agent, session.Owner); err != nil {
-		log.Error().Err(err).Str("user_id", session.Owner).Msg("Failed to add user API token to agent")
-		http.Error(rw, fmt.Sprintf("failed to get user API keys: %v", err), http.StatusInternalServerError)
-		return
+	// Add user's API token inside the session lock (via OnBeforeCreate hook)
+	// to prevent a race where StopDesktop revokes the key between token creation
+	// and container creation.
+	ownerID := session.Owner
+	agent.OnBeforeCreate = func(hookCtx context.Context, a *types.DesktopAgent) error {
+		return s.addUserAPITokenToAgent(hookCtx, a, ownerID)
 	}
 
 	log.Info().
@@ -2053,9 +2096,9 @@ func (s *HelixAPIServer) stopExternalAgentSession(_ http.ResponseWriter, r *http
 		return nil, system.NewHTTPError404("session not found")
 	}
 
-	// Verify user owns this session
-	if user == nil || session.Owner != user.ID {
-		return nil, system.NewHTTPError403("access denied")
+	err = s.authorizeUserToSession(ctx, user, session, types.ActionUpdate)
+	if err != nil {
+		return nil, system.NewHTTPError403(err.Error())
 	}
 
 	// Check if this is an external agent session

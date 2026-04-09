@@ -13,7 +13,6 @@ import (
 	"text/template"
 	"time"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/helixml/helix/api/pkg/crypto"
 	"github.com/helixml/helix/api/pkg/data"
 	"github.com/helixml/helix/api/pkg/filestore"
@@ -83,9 +82,6 @@ func (c *Controller) ChatCompletion(ctx context.Context, user *types.User, req o
 		log.Info().Msg("no assistant found")
 		return nil, nil, err
 	}
-
-	fmt.Println("XX ASSISTANT LOADED", req.Messages[0].Content)
-	spew.Dump(assistant)
 
 	if assistant.Provider != "" {
 		opts.Provider = assistant.Provider

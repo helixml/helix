@@ -40,6 +40,7 @@ steps:
     commands:
       - cd frontend
       - yarn install --frozen-lockfile --check-files
+      - npx tsc --noEmit -p tsconfig.json
       - yarn test
       - yarn build
     depends_on: []
@@ -59,14 +60,40 @@ steps:
   #        - push
   #    depends_on: []
 
-  - name: check-for-secrets
-    image: ghcr.io/gitleaks/gitleaks:v8.24.0
+  - name: helm-lint
+    image: alpine/helm:3.16.4
     commands:
-      - gitleaks dir -v
+      # Fetch subchart dependencies (postgresql, common) before lint/template
+      - helm dependency build charts/helix-controlplane
+      # Lint all three charts with default values
+      - helm lint charts/helix-controlplane
+      - helm lint charts/helix-runner
+      - helm lint charts/helix-sandbox
+      # Lint controlplane with production-like example values
+      - helm lint charts/helix-controlplane -f charts/helix-controlplane/values-example.yaml
+      - helm lint charts/helix-runner -f charts/helix-runner/values-example.yaml
+      # Template render to catch runtime errors (missing helpers, bad references)
+      - helm template test-release charts/helix-controlplane -f charts/helix-controlplane/values-example.yaml > /dev/null
+      - helm template test-release charts/helix-runner -f charts/helix-runner/values-example.yaml > /dev/null
+      - helm template test-release charts/helix-sandbox > /dev/null
+      # Template with each sandbox values variant
+      - helm template test-release charts/helix-sandbox -f charts/helix-sandbox/values-bare-metal.yaml > /dev/null
+      - helm template test-release charts/helix-sandbox -f charts/helix-sandbox/values-eks.yaml > /dev/null
+      - helm template test-release charts/helix-sandbox -f charts/helix-sandbox/values-gke.yaml > /dev/null
+      - helm template test-release charts/helix-sandbox -f charts/helix-sandbox/values-aks.yaml > /dev/null
     when:
       event:
         - push
     depends_on: []
+
+  - name: check-for-secrets
+    image: ghcr.io/gitleaks/gitleaks:v8.24.0
+    commands:
+      - gitleaks dir -v; rc=$?; if [ $rc -eq 1 ]; then echo "LEAKS FOUND"; exit 1; fi
+    when:
+      event:
+        - push
+    depends_on: [helm-lint]
 
   - name: shell-script-tests
     image: alpine:3.21
@@ -84,15 +111,16 @@ steps:
   # Build API binary once for migrations and integration tests.
   # This avoids recompiling in each step that needs the binary.
   - name: build-api-binary
-    image: golang:1.25-alpine
+    image: golang:1.25-bookworm
     volumes:
       - name: go-build-cache
         path: /root/.cache/go-build
       - name: go-mod-cache
         path: /go/pkg/mod
     commands:
-      - apk add --no-cache gcc g++ musl-dev
-      - CGO_ENABLED=1 go build -ldflags "-s -w" -o ./helix-bin ./api
+      - apt-get update && apt-get install -y --no-install-recommends build-essential && rm -rf /var/lib/apt/lists/*
+      - ORT_LIB_DIR=/usr/lib go run github.com/helixml/kodit/tools/download-ort
+      - CGO_ENABLED=1 go build -tags ORT -ldflags "-s -w" -o ./helix-bin ./api
     when:
       event:
         - push
@@ -102,7 +130,7 @@ steps:
   # This prevents race conditions where multiple test steps try to create
   # ENUM types simultaneously, causing "duplicate key" constraint errors.
   - name: run-migrations
-    image: golang:1.25-alpine
+    image: golang:1.25-bookworm
     environment:
       POSTGRES_HOST: postgres
       POSTGRES_PORT: "5432"
@@ -117,7 +145,7 @@ steps:
     depends_on: [build-api-binary]
 
   - name: unit-test
-    image: golang:1.25-alpine
+    image: golang:1.25-bookworm
     volumes:
       - name: go-build-cache
         path: /root/.cache/go-build
@@ -130,16 +158,19 @@ steps:
       DISABLE_AGENT_TESTS: "true"
       # Skip migrations - already run by run-migrations step
       HELIX_SKIP_AUTOMIGRATE: "1"
+      GEMINI_API_KEY:
+        from_secret: GEMINI_API_KEY
       OPENAI_API_KEY:
         from_secret: openai_tools
       TOGETHER_API_KEY:
         from_secret: openai_api_key
       TOGETHER_BASE_URL:
         from_secret: openai_base_url
-      CI_ADO_TOKEN:
-        from_secret: ci_ado_token
-      CI_ADO_REPO:
-        from_secret: ci_ado_repo
+      # TODO: reenable
+      # CI_ADO_TOKEN:
+      #   from_secret: ci_ado_token
+      # CI_ADO_REPO:
+      #   from_secret: ci_ado_repo
       # Database config (running in a sidecar)
       POSTGRES_HOST: postgres
       POSTGRES_PORT: "5432"
@@ -152,12 +183,13 @@ steps:
       RAG_CRAWLER_LAUNCHER_URL: http://chrome:7317
 
     commands:
-      - apk add --no-cache gcc g++ musl-dev git
+      - apt-get update && apt-get install -y --no-install-recommends build-essential git && rm -rf /var/lib/apt/lists/*
+      - ORT_LIB_DIR=/usr/lib go run github.com/helixml/kodit/tools/download-ort
       - git config --global user.email "ci@helix.ml"
       - git config --global user.name "CI"
       - chmod +x ./scripts/run-tests-with-timeout.sh
       # Run tests excluding GStreamer-dependent packages (tested separately with CGO disabled)
-      - go list ./api/... | grep -v '/desktop' | grep -v '/desktop-bridge' | xargs ./scripts/run-tests-with-timeout.sh -timeout 8m -v
+      - go list ./api/... | grep -v '/desktop' | grep -v '/desktop-bridge' | xargs ./scripts/run-tests-with-timeout.sh -tags ORT -timeout 8m -v
     when:
       event:
         - push
@@ -180,7 +212,7 @@ steps:
     depends_on: []
 
   - name: api-integration-test
-    image: golang:1.25-alpine
+    image: golang:1.25-bookworm
     volumes:
       - name: go-build-cache
         path: /root/.cache/go-build
@@ -222,7 +254,8 @@ steps:
       SMALL_GENERATION_MODEL: gpt-4o-mini
 
     commands:
-      - apk add --no-cache gcc g++ musl-dev git
+      - apt-get update && apt-get install -y --no-install-recommends build-essential git && rm -rf /var/lib/apt/lists/*
+      - ORT_LIB_DIR=/usr/lib go run github.com/helixml/kodit/tools/download-ort
       - git config --global user.email "ci@helix.ml"
       - git config --global user.name "CI"
       - chmod +x ./scripts/run-tests-with-timeout.sh
@@ -232,7 +265,7 @@ steps:
       - which helix && helix version
       - timeout 5 helix serve 2>&1 || echo "Server exited (expected - checking for startup errors)"
       # Run tests
-      - pwd && ./scripts/run-tests-with-timeout.sh -timeout 8m -v ./integration-test/api/...
+      - pwd && ./scripts/run-tests-with-timeout.sh -tags ORT -timeout 8m -v ./integration-test/api/...
     when:
       event:
         - push
@@ -769,7 +802,7 @@ steps:
           RELEASE=$(gh release list | awk -v tag="$DRONE_TAG" '$1 == tag || $1 ~ "^"tag" " {print $1; exit}')
           if [ -n "$RELEASE" ]; then
             echo "Uploading helix binaries, installer, and docker-compose.yaml to release $RELEASE"
-            gh release upload "$RELEASE" helix-linux-amd64 helix-linux-arm64 helix-darwin-amd64 helix-darwin-arm64 helix-windows-amd64.exe docker-compose.yaml
+            gh release upload --clobber "$RELEASE" helix-linux-amd64 helix-linux-arm64 helix-darwin-amd64 helix-darwin-arm64 helix-windows-amd64.exe docker-compose.yaml
           else
             echo "No matching release found for tag $DRONE_TAG"
           fi
@@ -789,7 +822,7 @@ steps:
       GITHUB_TOKEN:
         from_secret: github_token
     commands:
-      - cd operator && go build ./...
+      - cd operator && go mod tidy && go build ./...
     depends_on: []
 
   - name: run-linter-operator
@@ -800,7 +833,7 @@ steps:
       - name: go-mod-cache
         path: /go/pkg/mod
     commands:
-      - cd operator && golangci-lint run ./...
+      - cd operator && go mod tidy && golangci-lint run ./...
     when:
       event:
         - push
@@ -890,9 +923,12 @@ steps:
           .
         echo "$${REGISTRY_PASSWORD}" | docker login registry.helixml.tech -u admin --password-stdin
         docker push registry.helixml.tech/helix/controlplane:$${VERSION}-linux-amd64
+        scripts/ghcr-push.sh registry.helixml.tech/helix/controlplane:$${VERSION}-linux-amd64
     environment:
       REGISTRY_PASSWORD:
         from_secret: helix_registry_password
+      GITHUB_TOKEN:
+        from_secret: github_token
     volumes:
       - name: dockersocket
         path: /var/run/docker.sock
@@ -923,6 +959,8 @@ steps:
     environment:
       REGISTRY_PASSWORD:
         from_secret: helix_registry_password
+      GITHUB_TOKEN:
+        from_secret: github_token
     commands:
       - echo "$${REGISTRY_PASSWORD}" | docker login registry.helixml.tech -u admin --password-stdin
       - |
@@ -937,6 +975,7 @@ steps:
           -t registry.helixml.tech/helix/controlplane:$${VERSION}-linux-arm64 \
           .
         docker push registry.helixml.tech/helix/controlplane:$${VERSION}-linux-arm64
+        scripts/ghcr-push.sh registry.helixml.tech/helix/controlplane:$${VERSION}-linux-arm64
     volumes:
       - name: dockersocket
         path: /var/run/docker.sock
@@ -967,6 +1006,8 @@ steps:
     environment:
       REGISTRY_PASSWORD:
         from_secret: helix_registry_password
+      GITHUB_TOKEN:
+        from_secret: github_token
     commands:
       - echo "$${REGISTRY_PASSWORD}" | docker login registry.helixml.tech -u admin --password-stdin
       - |
@@ -981,6 +1022,7 @@ steps:
           $${REPO}:$${VERSION}-linux-arm64
         docker manifest push $${REPO}:$${VERSION}
         echo "Multi-arch manifest pushed: $${REPO}:$${VERSION}"
+        scripts/ghcr-manifest.sh $${REPO} $${VERSION}
     volumes:
       - name: dockersocket
         path: /var/run/docker.sock
@@ -1023,9 +1065,12 @@ steps:
           haystack_service
         echo "$${REGISTRY_PASSWORD}" | docker login registry.helixml.tech -u admin --password-stdin
         docker push registry.helixml.tech/helix/haystack:$${VERSION}-linux-amd64
+        scripts/ghcr-push.sh registry.helixml.tech/helix/haystack:$${VERSION}-linux-amd64
     environment:
       REGISTRY_PASSWORD:
         from_secret: helix_registry_password
+      GITHUB_TOKEN:
+        from_secret: github_token
     volumes:
       - name: dockersocket
         path: /var/run/docker.sock
@@ -1056,6 +1101,8 @@ steps:
     environment:
       REGISTRY_PASSWORD:
         from_secret: helix_registry_password
+      GITHUB_TOKEN:
+        from_secret: github_token
     commands:
       - echo "$${REGISTRY_PASSWORD}" | docker login registry.helixml.tech -u admin --password-stdin
       - |
@@ -1070,6 +1117,7 @@ steps:
           -t registry.helixml.tech/helix/haystack:$${VERSION}-linux-arm64 \
           haystack_service
         docker push registry.helixml.tech/helix/haystack:$${VERSION}-linux-arm64
+        scripts/ghcr-push.sh registry.helixml.tech/helix/haystack:$${VERSION}-linux-arm64
     volumes:
       - name: dockersocket
         path: /var/run/docker.sock
@@ -1100,6 +1148,8 @@ steps:
     environment:
       REGISTRY_PASSWORD:
         from_secret: helix_registry_password
+      GITHUB_TOKEN:
+        from_secret: github_token
     commands:
       - echo "$${REGISTRY_PASSWORD}" | docker login registry.helixml.tech -u admin --password-stdin
       - |
@@ -1114,6 +1164,7 @@ steps:
           $${REPO}:$${VERSION}-linux-arm64
         docker manifest push $${REPO}:$${VERSION}
         echo "Multi-arch manifest pushed: $${REPO}:$${VERSION}"
+        scripts/ghcr-manifest.sh $${REPO} $${VERSION}
     volumes:
       - name: dockersocket
         path: /var/run/docker.sock
@@ -1135,28 +1186,30 @@ volumes:
       path: /var/run/docker.sock
 
 steps:
-  - name: publish-runner
-    image: plugins/docker
-    pull: always
-    settings:
-      dockerfile: Dockerfile.runner
-      auto_tag: true
-      daemon_off: true
-      pull_image: true
-      registry: registry.helixml.tech
-      repo: registry.helixml.tech/helix/runner
-      build_args:
-        # Runner with no baked models = empty
-        # See https://github.com/helixml/base-images
-        # and https://github.com/helixml/base-images/releases
-        - TAG=2025-11-22f-empty
-        - APP_VERSION=${DRONE_TAG:-${DRONE_COMMIT_SHA:-latest}}
-      username: admin
-      password:
-        from_secret: helix_registry_password
+  # Retag 2.7.12 runner images instead of rebuilding.
+  # All runner tags after 2.7.12 are identical to 2.7.12.
+  - name: retag-runner
+    image: docker
     volumes:
       - name: dockersocket
         path: /var/run/docker.sock
+    environment:
+      REGISTRY_PASSWORD:
+        from_secret: helix_registry_password
+      GITHUB_TOKEN:
+        from_secret: github_token
+    commands:
+      - docker login registry.helixml.tech -u admin -p "$REGISTRY_PASSWORD"
+      - docker pull registry.helixml.tech/helix/runner:2.7.12
+      - |
+        if [ -n "$DRONE_TAG" ]; then
+          docker tag registry.helixml.tech/helix/runner:2.7.12 registry.helixml.tech/helix/runner:$DRONE_TAG
+          docker push registry.helixml.tech/helix/runner:$DRONE_TAG
+          scripts/ghcr-push.sh registry.helixml.tech/helix/runner:$DRONE_TAG
+        fi
+      - docker tag registry.helixml.tech/helix/runner:2.7.12 registry.helixml.tech/helix/runner:latest
+      - docker push registry.helixml.tech/helix/runner:latest
+      - scripts/ghcr-push.sh registry.helixml.tech/helix/runner:latest
     when:
       ref:
         include:
@@ -1180,59 +1233,51 @@ volumes:
       path: /var/run/docker.sock
 
 steps:
-  - name: publish-runner
-    image: plugins/docker
-    pull: always
-    settings:
-      dockerfile: Dockerfile.runner
-      tags:
-        - "${DRONE_TAG:-main}-small" # Default to branch
-        - "latest-small"
-      daemon_off: true
-      pull_image: true
-      registry: registry.helixml.tech
-      repo: registry.helixml.tech/helix/runner
-      build_args:
-        # Runner with small models = small
-        # See https://github.com/helixml/base-images
-        # and https://github.com/helixml/base-images/releases
-        - TAG=2025-11-22f-small
-        - APP_VERSION=${DRONE_TAG:-${DRONE_COMMIT_SHA:-latest}}
-      username: admin
-      password:
-        from_secret: helix_registry_password
+  # Retag 2.7.12-small runner images instead of rebuilding.
+  - name: retag-runner
+    image: docker
     volumes:
       - name: dockersocket
         path: /var/run/docker.sock
+    environment:
+      REGISTRY_PASSWORD:
+        from_secret: helix_registry_password
+      GITHUB_TOKEN:
+        from_secret: github_token
+    commands:
+      - docker login registry.helixml.tech -u admin -p "$REGISTRY_PASSWORD"
+      - docker pull registry.helixml.tech/helix/runner:2.7.12-small
+      - |
+        if [ -n "$DRONE_TAG" ]; then
+          docker tag registry.helixml.tech/helix/runner:2.7.12-small registry.helixml.tech/helix/runner:${DRONE_TAG}-small
+          docker push registry.helixml.tech/helix/runner:${DRONE_TAG}-small
+          scripts/ghcr-push.sh registry.helixml.tech/helix/runner:${DRONE_TAG}-small
+        fi
+      - docker tag registry.helixml.tech/helix/runner:2.7.12-small registry.helixml.tech/helix/runner:latest-small
+      - docker push registry.helixml.tech/helix/runner:latest-small
+      - scripts/ghcr-push.sh registry.helixml.tech/helix/runner:latest-small
     when:
       ref:
         include:
           - refs/heads/main
           - refs/tags/*
 
-  - name: publish-runner-branch
-    image: plugins/docker
-    pull: always
-    settings:
-      dockerfile: Dockerfile.runner
-      tags:
-        - "${DRONE_COMMIT_SHA:-main}-small" # Default to branch
-      daemon_off: true
-      pull_image: true
-      registry: registry.helixml.tech
-      repo: registry.helixml.tech/helix/runner
-      build_args:
-        # Runner with small models = small
-        # See https://github.com/helixml/base-images
-        # and https://github.com/helixml/base-images/releases
-        - TAG=2025-11-22f-small
-        - APP_VERSION=${DRONE_TAG:-${DRONE_COMMIT_SHA:-latest}}
-      username: admin
-      password:
-        from_secret: helix_registry_password
+  - name: retag-runner-branch
+    image: docker
     volumes:
       - name: dockersocket
         path: /var/run/docker.sock
+    environment:
+      REGISTRY_PASSWORD:
+        from_secret: helix_registry_password
+      GITHUB_TOKEN:
+        from_secret: github_token
+    commands:
+      - docker login registry.helixml.tech -u admin -p "$REGISTRY_PASSWORD"
+      - docker pull registry.helixml.tech/helix/runner:2.7.12-small
+      - docker tag registry.helixml.tech/helix/runner:2.7.12-small registry.helixml.tech/helix/runner:${DRONE_COMMIT_SHA}-small
+      - docker push registry.helixml.tech/helix/runner:${DRONE_COMMIT_SHA}-small
+      - scripts/ghcr-push.sh registry.helixml.tech/helix/runner:${DRONE_COMMIT_SHA}-small
     when:
       branch:
         exclude:
@@ -1255,59 +1300,51 @@ volumes:
       path: /var/run/docker.sock
 
 steps:
-  - name: publish-runner
-    image: plugins/docker
-    pull: always
-    settings:
-      dockerfile: Dockerfile.runner
-      tags:
-        - "${DRONE_TAG:-main}-large"
-        - "latest-large"
-      daemon_off: true
-      pull_image: true
-      registry: registry.helixml.tech
-      repo: registry.helixml.tech/helix/runner
-      build_args:
-        # Runner with large models = large
-        # See https://github.com/helixml/base-images
-        # and https://github.com/helixml/base-images/releases
-        - TAG=2025-11-22f-large
-        - APP_VERSION=${DRONE_TAG:-${DRONE_COMMIT_SHA:-latest}}
-      username: admin
-      password:
-        from_secret: helix_registry_password
+  # Retag 2.7.12-large runner images instead of rebuilding.
+  - name: retag-runner
+    image: docker
     volumes:
       - name: dockersocket
         path: /var/run/docker.sock
+    environment:
+      REGISTRY_PASSWORD:
+        from_secret: helix_registry_password
+      GITHUB_TOKEN:
+        from_secret: github_token
+    commands:
+      - docker login registry.helixml.tech -u admin -p "$REGISTRY_PASSWORD"
+      - docker pull registry.helixml.tech/helix/runner:2.7.12-large
+      - |
+        if [ -n "$DRONE_TAG" ]; then
+          docker tag registry.helixml.tech/helix/runner:2.7.12-large registry.helixml.tech/helix/runner:${DRONE_TAG}-large
+          docker push registry.helixml.tech/helix/runner:${DRONE_TAG}-large
+          scripts/ghcr-push.sh registry.helixml.tech/helix/runner:${DRONE_TAG}-large
+        fi
+      - docker tag registry.helixml.tech/helix/runner:2.7.12-large registry.helixml.tech/helix/runner:latest-large
+      - docker push registry.helixml.tech/helix/runner:latest-large
+      - scripts/ghcr-push.sh registry.helixml.tech/helix/runner:latest-large
     when:
       ref:
         include:
           - refs/heads/main
           - refs/tags/*
 
-  - name: publish-runner-branch
-    image: plugins/docker
-    pull: always
-    settings:
-      dockerfile: Dockerfile.runner
-      tags:
-        - "${DRONE_COMMIT_SHA:-main}-large"
-      daemon_off: true
-      pull_image: true
-      registry: registry.helixml.tech
-      repo: registry.helixml.tech/helix/runner
-      build_args:
-        # Runner with large models = large
-        # See https://github.com/helixml/base-images
-        # and https://github.com/helixml/base-images/releases
-        - TAG=2025-11-22f-large
-        - APP_VERSION=${DRONE_TAG:-${DRONE_COMMIT_SHA:-latest}}
-      username: admin
-      password:
-        from_secret: helix_registry_password
+  - name: retag-runner-branch
+    image: docker
     volumes:
       - name: dockersocket
         path: /var/run/docker.sock
+    environment:
+      REGISTRY_PASSWORD:
+        from_secret: helix_registry_password
+      GITHUB_TOKEN:
+        from_secret: github_token
+    commands:
+      - docker login registry.helixml.tech -u admin -p "$REGISTRY_PASSWORD"
+      - docker pull registry.helixml.tech/helix/runner:2.7.12-large
+      - docker tag registry.helixml.tech/helix/runner:2.7.12-large registry.helixml.tech/helix/runner:${DRONE_COMMIT_SHA}-large
+      - docker push registry.helixml.tech/helix/runner:${DRONE_COMMIT_SHA}-large
+      - scripts/ghcr-push.sh registry.helixml.tech/helix/runner:${DRONE_COMMIT_SHA}-large
     when:
       branch:
         exclude:
@@ -1350,9 +1387,12 @@ steps:
           .
         echo "$${REGISTRY_PASSWORD}" | docker login registry.helixml.tech -u admin --password-stdin
         docker push registry.helixml.tech/helix/typesense:$${VERSION}-linux-amd64
+        scripts/ghcr-push.sh registry.helixml.tech/helix/typesense:$${VERSION}-linux-amd64
     environment:
       REGISTRY_PASSWORD:
         from_secret: helix_registry_password
+      GITHUB_TOKEN:
+        from_secret: github_token
     volumes:
       - name: dockersocket
         path: /var/run/docker.sock
@@ -1383,6 +1423,8 @@ steps:
     environment:
       REGISTRY_PASSWORD:
         from_secret: helix_registry_password
+      GITHUB_TOKEN:
+        from_secret: github_token
     commands:
       - echo "$${REGISTRY_PASSWORD}" | docker login registry.helixml.tech -u admin --password-stdin
       - |
@@ -1396,6 +1438,7 @@ steps:
           -t registry.helixml.tech/helix/typesense:$${VERSION}-linux-arm64 \
           .
         docker push registry.helixml.tech/helix/typesense:$${VERSION}-linux-arm64
+        scripts/ghcr-push.sh registry.helixml.tech/helix/typesense:$${VERSION}-linux-arm64
     volumes:
       - name: dockersocket
         path: /var/run/docker.sock
@@ -1426,6 +1469,8 @@ steps:
     environment:
       REGISTRY_PASSWORD:
         from_secret: helix_registry_password
+      GITHUB_TOKEN:
+        from_secret: github_token
     commands:
       - echo "$${REGISTRY_PASSWORD}" | docker login registry.helixml.tech -u admin --password-stdin
       - |
@@ -1440,6 +1485,7 @@ steps:
           $${REPO}:$${VERSION}-linux-arm64
         docker manifest push $${REPO}:$${VERSION}
         echo "Multi-arch manifest pushed: $${REPO}:$${VERSION}"
+        scripts/ghcr-manifest.sh $${REPO} $${VERSION}
     volumes:
       - name: dockersocket
         path: /var/run/docker.sock
@@ -1482,6 +1528,34 @@ steps:
         include:
           - refs/heads/main
           - refs/tags/*
+
+  - name: mirror-demos-to-ghcr
+    image: docker:cli
+    environment:
+      GITHUB_TOKEN:
+        from_secret: github_token
+      REGISTRY_PASSWORD:
+        from_secret: helix_registry_password
+    commands:
+      - echo "$${REGISTRY_PASSWORD}" | docker login registry.helixml.tech -u admin --password-stdin
+      - |
+        # auto_tag produces "latest" on main, semver tags on git tags
+        if [ -n "${DRONE_TAG}" ]; then
+          VERSION="${DRONE_TAG}"
+        else
+          VERSION="latest"
+        fi
+        docker pull registry.helixml.tech/helix/demos:$${VERSION}
+        scripts/ghcr-push.sh registry.helixml.tech/helix/demos:$${VERSION}
+    volumes:
+      - name: dockersocket
+        path: /var/run/docker.sock
+    when:
+      ref:
+        include:
+          - refs/heads/main
+          - refs/tags/*
+    depends_on: [publish-demos]
 
 ---
 # See integration-test/smoke/README.md
@@ -1544,6 +1618,65 @@ services:
     volumes:
       - name: integration-test
         path: /integration-test
+
+---
+# Helm Upgrade Compatibility Test
+# Catches backwards-incompatible Helm chart changes before they reach customers.
+# Installs the previous published chart version then upgrades to the latest.
+# Run locally: ./scripts/helm-upgrade-test.sh
+kind: pipeline
+type: docker
+name: helm-upgrade-test
+
+concurrency:
+  limit: 1
+
+platform:
+  os: linux
+  arch: amd64
+
+trigger:
+  event:
+    - cron
+  cron:
+    - helm-upgrade-nightly
+    - developer
+
+steps:
+  - name: helm-upgrade-test
+    image: docker:27-cli
+    volumes:
+      - name: dockersocket
+        path: /var/run/docker.sock
+    commands:
+      # Install tools
+      - apk add --no-cache bash curl git helm kubectl jq
+      # Install kind
+      - curl -Lo /usr/local/bin/kind https://kind.sigs.k8s.io/dl/v0.27.0/kind-linux-amd64
+      - chmod +x /usr/local/bin/kind
+      # Verify Docker is accessible via host socket
+      - docker info >/dev/null 2>&1 || (echo "Cannot access Docker socket" && exit 1)
+      # Pre-flight cleanup: remove any orphaned Kind containers from previous failed runs
+      - docker rm -f helm-upgrade-test-control-plane 2>/dev/null || true
+      # Run upgrade test
+      - bash scripts/helm-upgrade-test.sh
+    depends_on: []
+
+  - name: slack-notification
+    image: plugins/slack
+    settings:
+      webhook:
+        from_secret: JANITOR_SLACK_WEBHOOK_URL
+      channel: helix-janitor
+      message: "❌ Helm upgrade test failed — possible breaking chart change. (<https://drone.lukemarsden.net/helixml/helix/${DRONE_BUILD_NUMBER}|Build>)"
+    when:
+      status:
+        - failure
+
+volumes:
+  - name: dockersocket
+    host:
+      path: /var/run/docker.sock
 
 # ---
 # Spectask/Sandbox Integration Tests
@@ -1667,10 +1800,9 @@ services:
 #   - Tags: use git tag (e.g., v1.2.3)
 #   - Branches: use commit hash (e.g., abc123f)
 #
-# Concurrency:
-#   Steps use shared host volumes for caching. To prevent race conditions
-#   when multiple builds run concurrently, we use flock for file-based locking.
-#   flock auto-releases on process death (no stale locks).
+# Caching:
+#   Zed and qwen-code builds use Docker BuildKit cache mounts for
+#   cargo/npm dependencies. No shared host volumes for build artifacts.
 #
 # No GPU required - builds work on standard runners.
 # ====================================================================
@@ -1683,9 +1815,10 @@ platform:
   arch: amd64
 
 trigger:
-  event:
-    - push
-    - tag
+  ref:
+    include:
+      - refs/heads/main
+      - refs/tags/*
 
 volumes:
   - name: dockersocket
@@ -1694,24 +1827,15 @@ volumes:
   - name: sandbox-build-cache
     host:
       path: /var/cache/drone/sandbox-build
-  - name: cargo-cache
-    host:
-      path: /var/cache/drone/cargo
-  - name: npm-cache
-    host:
-      path: /var/cache/drone/npm
 
 steps:
   # Step 1: Clone external repositories (pinned commits from sandbox-versions.txt)
   # Pinned for reproducibility - update sandbox-versions.txt when upgrading deps
   # Optional: CI warns if pinned version is behind upstream HEAD
   #
-  # CONCURRENCY: Uses flock to prevent race conditions when multiple builds
-  # access shared cache. flock auto-releases on process death (no stale locks).
   - name: clone-dependencies
     image: alpine/git:latest
     commands:
-      - apk add --no-cache flock
       - mkdir -p /drone/src/external /drone/src/cache
       # Read pinned versions
       - |
@@ -1730,38 +1854,27 @@ steps:
         if [ "$${QWEN_COMMIT}" != "$${QWEN_HEAD}" ]; then
           echo "⚠️  QWEN_COMMIT is behind upstream HEAD ($${QWEN_HEAD:0:12})"
         fi
-      # Clone Zed only if not cached (flock prevents concurrent clone race)
+      # Always clone Zed source fresh at the pinned commit.
+      # BuildKit handles caching of cargo deps and build artifacts.
       - |
         . /drone/src/sandbox-versions.txt
-        ZED_SHORT=$${ZED_COMMIT:0:12}
-        flock /drone/src/cache/zed-source.lock -c "
-          if [ -f '/drone/src/cache/zed-$${ZED_SHORT}/zed' ] && [ -f '/drone/src/cache/zed-$${ZED_SHORT}/app-icon.png' ]; then
-            echo '✓ Zed binary+icon cached for $${ZED_SHORT}'
-          else
-            echo 'Cloning Zed at commit $${ZED_COMMIT}...'
-            cd /
-            rm -rf /drone/src/cache/zed-source
-            git init /drone/src/cache/zed-source
-            git -C /drone/src/cache/zed-source fetch --depth 1 https://github.com/helixml/zed.git $${ZED_COMMIT}
-            git -C /drone/src/cache/zed-source checkout FETCH_HEAD
-          fi
-        "
-      # Clone qwen-code only if not cached (flock prevents concurrent clone race)
+        echo "Cloning Zed at commit $${ZED_COMMIT}..."
+        cd /
+        rm -rf /drone/src/cache/zed-source
+        git init /drone/src/cache/zed-source
+        git -C /drone/src/cache/zed-source fetch --depth 1 https://github.com/helixml/zed.git $${ZED_COMMIT}
+        git -C /drone/src/cache/zed-source checkout FETCH_HEAD
+        echo "✓ Zed source at $$(git -C /drone/src/cache/zed-source rev-parse HEAD)"
+      # Always clone qwen-code fresh at the pinned commit.
       - |
         . /drone/src/sandbox-versions.txt
-        QWEN_SHORT=$${QWEN_COMMIT:0:12}
-        flock /drone/src/cache/qwen-source.lock -c "
-          if [ -f '/drone/src/cache/qwen-$${QWEN_SHORT}/dist/cli.js' ]; then
-            echo '✓ qwen-code cached for $${QWEN_SHORT}'
-          else
-            echo 'Cloning qwen-code at commit $${QWEN_COMMIT}...'
-            cd /
-            rm -rf /drone/src/cache/qwen-source
-            git init /drone/src/cache/qwen-source
-            git -C /drone/src/cache/qwen-source fetch --depth 1 https://github.com/helixml/qwen-code.git $${QWEN_COMMIT}
-            git -C /drone/src/cache/qwen-source checkout FETCH_HEAD
-          fi
-        "
+        echo "Cloning qwen-code at commit $${QWEN_COMMIT}..."
+        cd /
+        rm -rf /drone/src/cache/qwen-source
+        git init /drone/src/cache/qwen-source
+        git -C /drone/src/cache/qwen-source fetch --depth 1 https://github.com/helixml/qwen-code.git $${QWEN_COMMIT}
+        git -C /drone/src/cache/qwen-source checkout FETCH_HEAD
+        echo "✓ qwen-code source at $$(git -C /drone/src/cache/qwen-source rev-parse HEAD)"
       - echo "=== Dependency versions ==="
       - echo "Zed:" && cat /drone/src/zed-commit.txt
       - echo "qwen-code:" && cat /drone/src/qwen-code-commit.txt
@@ -1770,132 +1883,108 @@ steps:
         path: /drone/src/cache
 
   # Step 2: Build qwen-code (with caching)
-  # Uses flock to prevent concurrent builds from racing on shared cache
+  # Builds qwen-code using Dockerfile.qwen-build with BuildKit cache for npm.
   - name: build-qwen-code
-    image: node:20-slim
-    commands:
-      - apt-get update && apt-get install -y git flock && rm -rf /var/lib/apt/lists/*
-      - |
-        QWEN_COMMIT=$$(cat /drone/src/qwen-code-commit.txt | head -c 12)
-        # Use flock for entire build to prevent races on qwen-source and cache
-        flock /drone/src/cache/qwen-build.lock -c "
-          # Double-check cache after acquiring lock (another build may have finished)
-          if [ -f '/drone/src/cache/qwen-$${QWEN_COMMIT}/dist/cli.js' ]; then
-            echo 'Using cached qwen-code for commit $${QWEN_COMMIT}'
-            mkdir -p /drone/src/qwen-code-build
-            cp -r /drone/src/cache/qwen-$${QWEN_COMMIT}/* /drone/src/qwen-code-build/
-            exit 0
-          fi
-
-          echo 'Building qwen-code for commit $${QWEN_COMMIT}...'
-          mkdir -p /drone/src/qwen-code-build
-          cd /drone/src/cache/qwen-source
-          npm ci --ignore-scripts
-          npm run bundle
-
-          # Copy everything needed for runtime (matching ./stack build-qwen-code)
-          # node_modules is required because tiktoken has native bindings that can't be bundled
-          cp -r package.json package-lock.json dist/ /drone/src/qwen-code-build/
-          cp -r packages/ /drone/src/qwen-code-build/ 2>/dev/null || true
-          cp -r node_modules/ /drone/src/qwen-code-build/
-          cat /drone/src/qwen-code-commit.txt > /drone/src/qwen-code-build/.git-commit-hash
-          echo 'qwen-code build complete'
-          ls -la /drone/src/qwen-code-build/
-
-          # Cache the build
-          mkdir -p /drone/src/cache/qwen-$${QWEN_COMMIT}
-          cp -r /drone/src/qwen-code-build/* /drone/src/cache/qwen-$${QWEN_COMMIT}/
-        "
-      # Copy from workspace (flock wrote here)
-      - mkdir -p qwen-code-build && cp -r /drone/src/qwen-code-build/* qwen-code-build/ 2>/dev/null || true
-    volumes:
-      - name: sandbox-build-cache
-        path: /drone/src/cache
-      - name: npm-cache
-        path: /root/.npm
-    depends_on:
-      - clone-dependencies
-
-  # Step 3: Build Zed binary
-  # Uses flock to prevent concurrent builds from racing on shared cache
-  - name: build-zed
     image: docker:cli
     environment:
       DOCKER_HOST: unix:///var/run/docker.sock
     commands:
-      - apk add --no-cache flock
       - |
-        ZED_COMMIT=$$(cat /drone/src/zed-commit.txt | head -c 12)
-        CACHE_KEY="zed-$${ZED_COMMIT}"
-        # Use flock for entire build to prevent races on cache
-        flock /drone/src/cache/zed-build.lock -c "
-          # Double-check cache after acquiring lock (another build may have finished)
-          if [ -f '/drone/src/cache/$${CACHE_KEY}/zed' ] && [ -f '/drone/src/cache/$${CACHE_KEY}/app-icon.png' ]; then
-            echo 'Using cached Zed binary + icon for commit $${ZED_COMMIT}'
-            mkdir -p zed-build
-            cp /drone/src/cache/$${CACHE_KEY}/zed zed-build/zed
-            cp /drone/src/cache/$${CACHE_KEY}/app-icon.png zed-build/app-icon.png
-            chmod +x zed-build/zed
-            exit 0
-          fi
+        QWEN_SOURCE="/drone/src/cache/qwen-source"
 
-          echo 'Building Zed binary (this may take 15-20 minutes on first run)...'
+        if [ ! -f "$${QWEN_SOURCE}/package.json" ]; then
+          echo "ERROR: qwen-code source not found at $${QWEN_SOURCE}"
+          exit 1
+        fi
 
-          # Build the Zed builder image
-          docker build --pull -t zed-builder:ubuntu25 -f Dockerfile.zed-build .
+        echo "Building qwen-code from source..."
+        mkdir -p qwen-code-build
+        docker build \
+          --output type=local,dest=qwen-code-build \
+          -f Dockerfile.qwen-build \
+          "$${QWEN_SOURCE}"
 
-          # Run Zed build in container, output directly to cache directory
-          # Note: Zed source is cloned to /drone/src/cache/zed-source (inside Drone container)
-          #       which maps to /var/cache/drone/sandbox-build/zed-source on the HOST.
-          #       Docker-in-Docker mounts use HOST paths, not container paths.
-          mkdir -p /drone/src/cache/$${CACHE_KEY}
-          docker run --rm \\
-            -v '/var/cache/drone/sandbox-build/zed-source:/zed:ro' \\
-            -v '/var/cache/drone/cargo/registry:/root/.cargo/registry' \\
-            -v '/var/cache/drone/cargo/git:/root/.cargo/git' \\
-            -v '/var/cache/drone/cargo/zed-target:/zed-target' \\
-            -v \"/var/cache/drone/sandbox-build/$${CACHE_KEY}:/output\" \\
-            -w /zed \\
-            zed-builder:ubuntu25 \\
-            bash -c '
-              export CARGO_TARGET_DIR=/zed-target
-              RUSTFLAGS=\"-C link-arg=-s\" cargo build --locked --release --features external_websocket_sync
-              cp /zed-target/release/zed /output/zed
-              cp /zed/crates/zed/resources/app-icon.png /output/app-icon.png
-            '
-
-          ls -la /drone/src/cache/$${CACHE_KEY}/
-
-          # Copy from cache to workspace
-          mkdir -p zed-build
-          cp /drone/src/cache/$${CACHE_KEY}/zed zed-build/zed
-          cp /drone/src/cache/$${CACHE_KEY}/app-icon.png zed-build/app-icon.png
-          chmod +x zed-build/zed
-        "
-      - chmod +x zed-build/zed
+        cat /drone/src/qwen-code-commit.txt > qwen-code-build/.git-commit-hash
+        echo "qwen-code build complete"
+        ls -la qwen-code-build/
     volumes:
       - name: dockersocket
         path: /var/run/docker.sock
       - name: sandbox-build-cache
         path: /drone/src/cache
-      - name: cargo-cache
-        path: /drone/src/cargo-registry
+    depends_on:
+      - clone-dependencies
+
+  # Step 3: Build Zed binary
+  # Builds Zed using the full Dockerfile.zed-build with BuildKit cache mounts.
+  # No shared volumes, no flock — BuildKit handles caching and concurrency.
+  - name: build-zed
+    image: docker:cli
+    environment:
+      DOCKER_HOST: unix:///var/run/docker.sock
+    commands:
+      - |
+        ZED_SOURCE="/drone/src/cache/zed-source"
+
+        if [ ! -f "$${ZED_SOURCE}/Cargo.toml" ]; then
+          echo "ERROR: Zed source not found at $${ZED_SOURCE}"
+          exit 1
+        fi
+
+        ZED_SHA=$$(git -C "$${ZED_SOURCE}" rev-parse HEAD)
+        if [ -z "$${ZED_SHA}" ]; then
+          echo "ERROR: Could not determine Zed source commit"
+          exit 1
+        fi
+
+        # Check binary cache (keyed by full commit hash)
+        CACHE_DIR="/drone/src/cache/zed-bin-$${ZED_SHA}"
+        if [ -f "$${CACHE_DIR}/zed" ]; then
+          echo "✓ Using cached Zed binary for $${ZED_SHA}"
+          mkdir -p zed-build
+          cp "$${CACHE_DIR}/zed" zed-build/zed
+          cp "$${CACHE_DIR}/app-icon.png" zed-build/app-icon.png
+          chmod +x zed-build/zed
+        else
+          echo "Building Zed from source commit: $${ZED_SHA}"
+          mkdir -p zed-build
+          docker build \
+            --build-arg BUILD_TYPE=release \
+            --build-arg ZED_COMMIT_SHA=$${ZED_SHA} \
+            --output type=local,dest=zed-build \
+            -f Dockerfile.zed-build \
+            "$${ZED_SOURCE}"
+
+          cp "$${ZED_SOURCE}/crates/zed/resources/app-icon.png" zed-build/app-icon.png
+          chmod +x zed-build/zed
+
+          # Cache the binary for future builds with same commit
+          mkdir -p "$${CACHE_DIR}"
+          cp zed-build/zed "$${CACHE_DIR}/zed"
+          cp zed-build/app-icon.png "$${CACHE_DIR}/app-icon.png"
+          echo "✓ Cached Zed binary at $${CACHE_DIR}"
+        fi
+        ls -la zed-build/
+    volumes:
+      - name: dockersocket
+        path: /var/run/docker.sock
+      - name: sandbox-build-cache
+        path: /drone/src/cache
     depends_on:
       - clone-dependencies
 
   # Step 3b: Run Zed WebSocket E2E test
-  # Builds a lightweight runtime image with the pre-built Zed binary and runs
-  # the multi-phase E2E test (thread creation, follow-ups, thread transitions).
-  # Runs in parallel with build-desktops since it only needs the Zed binary.
+  # Builds a Go test server (imports real Helix server code) + runtime image,
+  # then runs the multi-phase E2E test (thread creation, follow-ups, thread
+  # transitions, UI state queries, open_thread). Uses multi-stage Docker build
+  # to compile the Go test server with the current helix source.
   - name: zed-e2e-test
-    failure: ignore
     image: docker:cli
     environment:
       DOCKER_HOST: unix:///var/run/docker.sock
       ANTHROPIC_API_KEY:
         from_secret: anthropic_api_key
     commands:
-      - apk add --no-cache flock
       - |
         ZED_COMMIT=$$(cat /drone/src/zed-commit.txt | head -c 12)
         ZED_SOURCE="/drone/src/cache/zed-source"
@@ -1906,54 +1995,68 @@ steps:
           exit 1
         fi
 
-        # Copy pre-built binary into Zed source tree for Docker context
-        cp zed-build/zed "$${ZED_SOURCE}/zed-prebuilt"
+        # Use the Zed e2e-test dir as Docker context — only external inputs
+        # are the pre-built zed binary and Helix Go source (for test server build)
+        E2E_DIR="$${ZED_SOURCE}/crates/external_websocket_sync/e2e-test"
 
-        # Build runtime-only E2E image (skips Rust compilation)
-        # Uses a Dockerfile that just sets up runtime deps + copies the binary
-        cat > "$${ZED_SOURCE}/Dockerfile.e2e-runtime" << 'DOCKERFILE'
-        FROM ubuntu:25.10
-        ENV DEBIAN_FRONTEND=noninteractive
-        RUN apt-get update && apt-get install -y --no-install-recommends \
-            libxkbcommon0 libxkbcommon-x11-0 libwayland-client0 libvulkan1 \
-            libx11-xcb1 libxcb-shape0 libxcb-xfixes0 \
-            libxcb-randr0 libxcb-render0 \
-            libxcb-shm0 libxcb-glx0 libxcb-xkb1 \
-            libxcb1 libx11-6 \
-            libfontconfig1 libfreetype6 \
-            libssl3t64 libsqlite3-0 libzstd1 ca-certificates \
-            libasound2t64 \
-            libatk1.0-0t64 libgtk-3-0t64 \
-            xvfb x11-utils dbus \
-            mesa-vulkan-drivers \
-            python3 python3-websockets \
-            && rm -rf /var/lib/apt/lists/*
-        COPY zed-prebuilt /usr/local/bin/zed
-        RUN chmod +x /usr/local/bin/zed
-        COPY crates/external_websocket_sync/e2e-test/run_e2e.sh /test/run_e2e.sh
-        RUN chmod +x /test/run_e2e.sh
-        ENV DISPLAY=:99
-        ENV VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.json
-        ENV LIBGL_ALWAYS_SOFTWARE=1
-        ENV ZED_ALLOW_EMULATED_GPU=1
-        ENV ZED_ALLOW_ROOT=true
-        WORKDIR /test
-        RUN mkdir -p /test/project && echo "# Test Project" > /test/project/README.md
-        ENTRYPOINT ["/test/run_e2e.sh"]
-        DOCKERFILE
+        # Clean up stale files from previous builds BEFORE copying.
+        # Critical: if helix-api/ already exists from a failed build,
+        # cp -r nests api/ inside it (creating helix-api/api/) which
+        # breaks Go module resolution in the Docker build.
+        # Use docker to remove as root — files may be root-owned from previous docker builds.
+        docker run --rm -v "/var/cache/drone/sandbox-build/zed-source:/zed-source" alpine \
+          rm -rf \
+            "/zed-source/crates/external_websocket_sync/e2e-test/helix-api" \
+            "/zed-source/crates/external_websocket_sync/e2e-test/helix-go.mod" \
+            "/zed-source/crates/external_websocket_sync/e2e-test/helix-go.sum" \
+            "/zed-source/crates/external_websocket_sync/e2e-test/zed-binary"
 
-        echo "Building E2E runtime image..."
+        cp zed-build/zed "$${E2E_DIR}/zed-binary"
+        cp /drone/src/go.mod "$${E2E_DIR}/helix-go.mod"
+        cp /drone/src/go.sum "$${E2E_DIR}/helix-go.sum"
+        cp -r /drone/src/api "$${E2E_DIR}/helix-api"
+
+        # Sync kodit version from helix into the E2E test server's go.mod.
+        # The E2E test server has its own go.mod that may pin an older kodit;
+        # go mod tidy in the Docker build will update go.sum automatically.
+        KODIT_VERSION=$$(grep 'github.com/helixml/kodit' /drone/src/go.mod | awk '{print $$2}')
+        if [ -n "$${KODIT_VERSION}" ]; then
+          sed -i "s|github.com/helixml/kodit v[^ ]*|github.com/helixml/kodit $${KODIT_VERSION}|" \
+            "$${E2E_DIR}/helix-ws-test-server/go.mod"
+          echo "Synced kodit to $${KODIT_VERSION} in E2E test server go.mod"
+        fi
+
+        # Verify helix-api has expected structure (not nested from stale cp -r)
+        if [ ! -d "$${E2E_DIR}/helix-api/pkg" ]; then
+          echo "ERROR: helix-api structure is wrong — expected helix-api/pkg/ at top level"
+          echo "Contents of helix-api/:"
+          ls -la "$${E2E_DIR}/helix-api/" || true
+          exit 1
+        fi
+
+        echo "Building E2E runtime image (multi-stage: Go builder + runtime)..."
         docker build -t zed-ws-e2e:$${ZED_COMMIT} \
-          -f "$${ZED_SOURCE}/Dockerfile.e2e-runtime" \
-          "$${ZED_SOURCE}"
+          -f "$${E2E_DIR}/Dockerfile.ci" \
+          "$${E2E_DIR}"
 
-        echo "Running E2E test..."
+        # Clean up external files from cached Zed source
+        # Use || true because stale files from previous builds on the shared
+        # Docker volume cache may fail to remove (root-owned from docker build)
+        rm -f "$${E2E_DIR}/zed-binary" "$${E2E_DIR}/helix-go.mod" "$${E2E_DIR}/helix-go.sum" || true
+        rm -rf "$${E2E_DIR}/helix-api" || true
+
+        # Run both agents in a single invocation (all 10 phases each).
+        # Both zed-agent and claude rounds must pass to gate the build.
+        # The cancel drop fix in acp_thread.rs ensures Phase 8 (mid-stream
+        # interrupt) works with Claude Code despite agent-side cancel bugs.
+        echo "Running E2E test: zed-agent + claude (all 10 phases each)..."
         docker run --rm \
           -e ANTHROPIC_API_KEY="$${ANTHROPIC_API_KEY}" \
-          -e TEST_TIMEOUT=240 \
+          -e E2E_AGENTS="zed-agent,claude" \
+          -e TEST_TIMEOUT=600 \
           zed-ws-e2e:$${ZED_COMMIT}
 
-        echo "✅ Zed WebSocket E2E test passed"
+        echo "Zed WebSocket E2E test passed (both agents)"
     volumes:
       - name: dockersocket
         path: /var/run/docker.sock
@@ -1969,6 +2072,8 @@ steps:
       DOCKER_HOST: unix:///var/run/docker.sock
       REGISTRY_PASSWORD:
         from_secret: helix_registry_password
+      GITHUB_TOKEN:
+        from_secret: github_token
     commands:
       - |
         # Determine version tag
@@ -1988,6 +2093,7 @@ steps:
           -t registry.helixml.tech/helix/helix-sway:$${VERSION}-linux-amd64 \
           .
         docker push registry.helixml.tech/helix/helix-sway:$${VERSION}-linux-amd64
+        scripts/ghcr-push.sh registry.helixml.tech/helix/helix-sway:$${VERSION}-linux-amd64
         echo "helix-sway:$${VERSION}-linux-amd64 pushed to registry"
       # Build and push helix-ubuntu
       - |
@@ -1995,17 +2101,18 @@ steps:
         echo "Building helix-ubuntu..."
         docker build --pull --provenance=false \
           -f Dockerfile.ubuntu-helix \
-          --build-arg CUDA_BASE_IMAGE=nvidia/cuda:12.6.3-runtime-ubuntu24.04 \
+          --build-arg CUDA_BASE_IMAGE=nvidia/cuda:12.6.3-runtime-ubuntu24.04@sha256:2c8193530ecc423e0f123d0c85b68a15d1395adcddabfc943e2523dbfde172e1 \
           -t registry.helixml.tech/helix/helix-ubuntu:$${VERSION}-linux-amd64 \
           .
         docker push registry.helixml.tech/helix/helix-ubuntu:$${VERSION}-linux-amd64
+        scripts/ghcr-push.sh registry.helixml.tech/helix/helix-ubuntu:$${VERSION}-linux-amd64
         echo "helix-ubuntu:$${VERSION}-linux-amd64 pushed to registry"
       # Write version refs for sandbox
       - |
         VERSION=$$(if [ -n "${DRONE_TAG}" ]; then echo ${DRONE_TAG}; else echo ${DRONE_COMMIT_SHA} | head -c 7; fi)
         mkdir -p sandbox-images
-        echo "registry.helixml.tech/helix/helix-sway:$${VERSION}-linux-amd64" > sandbox-images/helix-sway.ref
-        echo "registry.helixml.tech/helix/helix-ubuntu:$${VERSION}-linux-amd64" > sandbox-images/helix-ubuntu.ref
+        echo "ghcr.io/helixml/helix-sway:$${VERSION}-linux-amd64" > sandbox-images/helix-sway.ref
+        echo "ghcr.io/helixml/helix-ubuntu:$${VERSION}-linux-amd64" > sandbox-images/helix-ubuntu.ref
         echo "$${VERSION}-linux-amd64" > sandbox-images/helix-sway.version
         echo "$${VERSION}-linux-amd64" > sandbox-images/helix-ubuntu.version
     volumes:
@@ -2050,6 +2157,8 @@ steps:
       DOCKER_HOST: unix:///var/run/docker.sock
       REGISTRY_PASSWORD:
         from_secret: helix_registry_password
+      GITHUB_TOKEN:
+        from_secret: github_token
     commands:
       - |
         # Determine version tag
@@ -2065,9 +2174,11 @@ steps:
         echo "$${REGISTRY_PASSWORD}" | docker login registry.helixml.tech -u admin --password-stdin
         echo "Pushing helix-sandbox:$${COMMIT}-linux-amd64..."
         docker push registry.helixml.tech/helix/helix-sandbox:$${COMMIT}-linux-amd64
+        scripts/ghcr-push.sh registry.helixml.tech/helix/helix-sandbox:$${COMMIT}-linux-amd64
         if [ "$${IS_RELEASE}" = "true" ]; then
           echo "Pushing release tag: $${VERSION}-linux-amd64..."
           docker push registry.helixml.tech/helix/helix-sandbox:$${VERSION}-linux-amd64
+          scripts/ghcr-push.sh registry.helixml.tech/helix/helix-sandbox:$${VERSION}-linux-amd64
         fi
         echo "Push complete!"
     volumes:
@@ -2098,9 +2209,10 @@ platform:
   arch: arm64
 
 trigger:
-  event:
-    - push
-    - tag
+  ref:
+    include:
+      - refs/heads/main
+      - refs/tags/*
 
 volumes:
   - name: dockersocket
@@ -2109,19 +2221,12 @@ volumes:
   - name: sandbox-build-cache
     host:
       path: /Volumes/Big/drone-cache/sandbox-build
-  - name: cargo-cache
-    host:
-      path: /Volumes/Big/drone-cache/cargo
-  - name: npm-cache
-    host:
-      path: /Volumes/Big/drone-cache/npm
 
 steps:
   # Step 1: Clone external repositories (same as amd64)
   - name: clone-dependencies
     image: alpine/git:latest
     commands:
-      - apk add --no-cache flock
       - mkdir -p /drone/src/external /drone/src/cache
       - |
         . /drone/src/sandbox-versions.txt
@@ -2140,34 +2245,22 @@ steps:
         fi
       - |
         . /drone/src/sandbox-versions.txt
-        ZED_SHORT=$${ZED_COMMIT:0:12}
-        flock /drone/src/cache/zed-source.lock -c "
-          if [ -f '/drone/src/cache/zed-$${ZED_SHORT}/zed' ] && [ -f '/drone/src/cache/zed-$${ZED_SHORT}/app-icon.png' ]; then
-            echo '✓ Zed binary+icon cached for $${ZED_SHORT}'
-          else
-            echo 'Cloning Zed at commit $${ZED_COMMIT}...'
-            cd /
-            rm -rf /drone/src/cache/zed-source
-            git init /drone/src/cache/zed-source
-            git -C /drone/src/cache/zed-source fetch --depth 1 https://github.com/helixml/zed.git $${ZED_COMMIT}
-            git -C /drone/src/cache/zed-source checkout FETCH_HEAD
-          fi
-        "
+        echo "Cloning Zed at commit $${ZED_COMMIT}..."
+        cd /
+        rm -rf /drone/src/cache/zed-source
+        git init /drone/src/cache/zed-source
+        git -C /drone/src/cache/zed-source fetch --depth 1 https://github.com/helixml/zed.git $${ZED_COMMIT}
+        git -C /drone/src/cache/zed-source checkout FETCH_HEAD
+        echo "✓ Zed source at $$(git -C /drone/src/cache/zed-source rev-parse HEAD)"
       - |
         . /drone/src/sandbox-versions.txt
-        QWEN_SHORT=$${QWEN_COMMIT:0:12}
-        flock /drone/src/cache/qwen-source.lock -c "
-          if [ -f '/drone/src/cache/qwen-$${QWEN_SHORT}/dist/cli.js' ]; then
-            echo '✓ qwen-code cached for $${QWEN_SHORT}'
-          else
-            echo 'Cloning qwen-code at commit $${QWEN_COMMIT}...'
-            cd /
-            rm -rf /drone/src/cache/qwen-source
-            git init /drone/src/cache/qwen-source
-            git -C /drone/src/cache/qwen-source fetch --depth 1 https://github.com/helixml/qwen-code.git $${QWEN_COMMIT}
-            git -C /drone/src/cache/qwen-source checkout FETCH_HEAD
-          fi
-        "
+        echo "Cloning qwen-code at commit $${QWEN_COMMIT}..."
+        cd /
+        rm -rf /drone/src/cache/qwen-source
+        git init /drone/src/cache/qwen-source
+        git -C /drone/src/cache/qwen-source fetch --depth 1 https://github.com/helixml/qwen-code.git $${QWEN_COMMIT}
+        git -C /drone/src/cache/qwen-source checkout FETCH_HEAD
+        echo "✓ qwen-code source at $$(git -C /drone/src/cache/qwen-source rev-parse HEAD)"
       - echo "=== Dependency versions ==="
       - echo "Zed:" && cat /drone/src/zed-commit.txt
       - echo "qwen-code:" && cat /drone/src/qwen-code-commit.txt
@@ -2175,101 +2268,92 @@ steps:
       - name: sandbox-build-cache
         path: /drone/src/cache
 
-  # Step 2: Build qwen-code (same as amd64)
+  # Step 2: Build qwen-code using Dockerfile.qwen-build with BuildKit cache.
   - name: build-qwen-code
-    image: node:20-slim
-    commands:
-      - apt-get update && apt-get install -y git flock && rm -rf /var/lib/apt/lists/*
-      - |
-        QWEN_COMMIT=$$(cat /drone/src/qwen-code-commit.txt | head -c 12)
-        flock /drone/src/cache/qwen-build.lock -c "
-          if [ -f '/drone/src/cache/qwen-$${QWEN_COMMIT}/dist/cli.js' ]; then
-            echo 'Using cached qwen-code for commit $${QWEN_COMMIT}'
-            mkdir -p /drone/src/qwen-code-build
-            cp -r /drone/src/cache/qwen-$${QWEN_COMMIT}/* /drone/src/qwen-code-build/
-            exit 0
-          fi
-
-          echo 'Building qwen-code for commit $${QWEN_COMMIT}...'
-          mkdir -p /drone/src/qwen-code-build
-          cd /drone/src/cache/qwen-source
-          npm ci --ignore-scripts
-          npm run bundle
-
-          cp -r package.json package-lock.json dist/ /drone/src/qwen-code-build/
-          cp -r packages/ /drone/src/qwen-code-build/ 2>/dev/null || true
-          cp -r node_modules/ /drone/src/qwen-code-build/
-          cat /drone/src/qwen-code-commit.txt > /drone/src/qwen-code-build/.git-commit-hash
-          echo 'qwen-code build complete'
-          ls -la /drone/src/qwen-code-build/
-
-          mkdir -p /drone/src/cache/qwen-$${QWEN_COMMIT}
-          cp -r /drone/src/qwen-code-build/* /drone/src/cache/qwen-$${QWEN_COMMIT}/
-        "
-      - mkdir -p qwen-code-build && cp -r /drone/src/qwen-code-build/* qwen-code-build/ 2>/dev/null || true
-    volumes:
-      - name: sandbox-build-cache
-        path: /drone/src/cache
-      - name: npm-cache
-        path: /root/.npm
-    depends_on:
-      - clone-dependencies
-
-  # Step 3: Build Zed binary (DinD with macOS Docker Desktop paths)
-  - name: build-zed
     image: docker:cli
     environment:
       DOCKER_HOST: unix:///var/run/docker.sock
     commands:
-      - apk add --no-cache flock
       - |
-        ZED_COMMIT=$$(cat /drone/src/zed-commit.txt | head -c 12)
-        CACHE_KEY="zed-$${ZED_COMMIT}"
-        flock /drone/src/cache/zed-build.lock -c "
-          if [ -f '/drone/src/cache/$${CACHE_KEY}/zed' ] && [ -f '/drone/src/cache/$${CACHE_KEY}/app-icon.png' ]; then
-            echo 'Using cached Zed binary + icon for commit $${ZED_COMMIT}'
-            mkdir -p zed-build
-            cp /drone/src/cache/$${CACHE_KEY}/zed zed-build/zed
-            cp /drone/src/cache/$${CACHE_KEY}/app-icon.png zed-build/app-icon.png
-            chmod +x zed-build/zed
-            exit 0
-          fi
+        QWEN_SOURCE="/drone/src/cache/qwen-source"
 
-          echo 'Building Zed binary (this may take 15-20 minutes on first run)...'
+        if [ ! -f "$${QWEN_SOURCE}/package.json" ]; then
+          echo "ERROR: qwen-code source not found at $${QWEN_SOURCE}"
+          exit 1
+        fi
 
-          docker build --pull --provenance=false -t zed-builder:ubuntu25 -f Dockerfile.zed-build .
+        echo "Building qwen-code from source..."
+        mkdir -p qwen-code-build
+        docker build \
+          --provenance=false \
+          --output type=local,dest=qwen-code-build \
+          -f Dockerfile.qwen-build \
+          "$${QWEN_SOURCE}"
 
-          mkdir -p /drone/src/cache/$${CACHE_KEY}
-          docker run --rm \\
-            -v '/Volumes/Big/drone-cache/sandbox-build/zed-source:/zed:ro' \\
-            -v '/Volumes/Big/drone-cache/cargo/registry:/root/.cargo/registry' \\
-            -v '/Volumes/Big/drone-cache/cargo/git:/root/.cargo/git' \\
-            -v '/Volumes/Big/drone-cache/cargo/zed-target:/zed-target' \\
-            -v \"/Volumes/Big/drone-cache/sandbox-build/$${CACHE_KEY}:/output\" \\
-            -w /zed \\
-            zed-builder:ubuntu25 \\
-            bash -c '
-              export CARGO_TARGET_DIR=/zed-target
-              RUSTFLAGS=\"-C link-arg=-s\" cargo build --locked --release --features external_websocket_sync
-              cp /zed-target/release/zed /output/zed
-              cp /zed/crates/zed/resources/app-icon.png /output/app-icon.png
-            '
-
-          ls -la /drone/src/cache/$${CACHE_KEY}/
-
-          mkdir -p zed-build
-          cp /drone/src/cache/$${CACHE_KEY}/zed zed-build/zed
-          cp /drone/src/cache/$${CACHE_KEY}/app-icon.png zed-build/app-icon.png
-          chmod +x zed-build/zed
-        "
-      - chmod +x zed-build/zed
+        cat /drone/src/qwen-code-commit.txt > qwen-code-build/.git-commit-hash
+        echo "qwen-code build complete"
+        ls -la qwen-code-build/
     volumes:
       - name: dockersocket
         path: /var/run/docker.sock
       - name: sandbox-build-cache
         path: /drone/src/cache
-      - name: cargo-cache
-        path: /drone/src/cargo-registry
+    depends_on:
+      - clone-dependencies
+
+  # Step 3: Build Zed binary (DinD with macOS Docker Desktop paths)
+  # Builds Zed using the full Dockerfile.zed-build with BuildKit cache mounts.
+  - name: build-zed
+    image: docker:cli
+    environment:
+      DOCKER_HOST: unix:///var/run/docker.sock
+    commands:
+      - |
+        ZED_SOURCE="/drone/src/cache/zed-source"
+
+        if [ ! -f "$${ZED_SOURCE}/Cargo.toml" ]; then
+          echo "ERROR: Zed source not found at $${ZED_SOURCE}"
+          exit 1
+        fi
+
+        ZED_SHA=$$(git -C "$${ZED_SOURCE}" rev-parse HEAD)
+        if [ -z "$${ZED_SHA}" ]; then
+          echo "ERROR: Could not determine Zed source commit"
+          exit 1
+        fi
+
+        CACHE_DIR="/drone/src/cache/zed-bin-$${ZED_SHA}"
+        if [ -f "$${CACHE_DIR}/zed" ]; then
+          echo "✓ Using cached Zed binary for $${ZED_SHA}"
+          mkdir -p zed-build
+          cp "$${CACHE_DIR}/zed" zed-build/zed
+          cp "$${CACHE_DIR}/app-icon.png" zed-build/app-icon.png
+          chmod +x zed-build/zed
+        else
+          echo "Building Zed from source commit: $${ZED_SHA}"
+          mkdir -p zed-build
+          docker build \
+            --provenance=false \
+            --build-arg BUILD_TYPE=release \
+            --build-arg ZED_COMMIT_SHA=$${ZED_SHA} \
+            --output type=local,dest=zed-build \
+            -f Dockerfile.zed-build \
+            "$${ZED_SOURCE}"
+
+          cp "$${ZED_SOURCE}/crates/zed/resources/app-icon.png" zed-build/app-icon.png
+          chmod +x zed-build/zed
+
+          mkdir -p "$${CACHE_DIR}"
+          cp zed-build/zed "$${CACHE_DIR}/zed"
+          cp zed-build/app-icon.png "$${CACHE_DIR}/app-icon.png"
+          echo "✓ Cached Zed binary at $${CACHE_DIR}"
+        fi
+        ls -la zed-build/
+    volumes:
+      - name: dockersocket
+        path: /var/run/docker.sock
+      - name: sandbox-build-cache
+        path: /drone/src/cache
     depends_on:
       - clone-dependencies
 
@@ -2280,6 +2364,8 @@ steps:
       DOCKER_HOST: unix:///var/run/docker.sock
       REGISTRY_PASSWORD:
         from_secret: helix_registry_password
+      GITHUB_TOKEN:
+        from_secret: github_token
     commands:
       - |
         if [ -n "${DRONE_TAG}" ]; then
@@ -2298,6 +2384,7 @@ steps:
           -t registry.helixml.tech/helix/helix-sway:$${VERSION}-linux-arm64 \
           .
         docker push registry.helixml.tech/helix/helix-sway:$${VERSION}-linux-arm64
+        scripts/ghcr-push.sh registry.helixml.tech/helix/helix-sway:$${VERSION}-linux-arm64
         echo "helix-sway:$${VERSION}-linux-arm64 pushed to registry"
       # Build and push helix-ubuntu (arm64, no CUDA)
       - |
@@ -2305,17 +2392,18 @@ steps:
         echo "Building helix-ubuntu (arm64, no CUDA)..."
         docker build --pull --provenance=false \
           -f Dockerfile.ubuntu-helix \
-          --build-arg CUDA_BASE_IMAGE=ubuntu:25.10 \
+          --build-arg CUDA_BASE_IMAGE=ubuntu:25.10@sha256:91e7ac4c041dd191af1b9012fadbf489280894699c3f31e180969c4478781b7b \
           -t registry.helixml.tech/helix/helix-ubuntu:$${VERSION}-linux-arm64 \
           .
         docker push registry.helixml.tech/helix/helix-ubuntu:$${VERSION}-linux-arm64
+        scripts/ghcr-push.sh registry.helixml.tech/helix/helix-ubuntu:$${VERSION}-linux-arm64
         echo "helix-ubuntu:$${VERSION}-linux-arm64 pushed to registry"
       # Write version refs for sandbox
       - |
         VERSION=$$(if [ -n "${DRONE_TAG}" ]; then echo ${DRONE_TAG}; else echo ${DRONE_COMMIT_SHA} | head -c 7; fi)
         mkdir -p sandbox-images
-        echo "registry.helixml.tech/helix/helix-sway:$${VERSION}-linux-arm64" > sandbox-images/helix-sway.ref
-        echo "registry.helixml.tech/helix/helix-ubuntu:$${VERSION}-linux-arm64" > sandbox-images/helix-ubuntu.ref
+        echo "ghcr.io/helixml/helix-sway:$${VERSION}-linux-arm64" > sandbox-images/helix-sway.ref
+        echo "ghcr.io/helixml/helix-ubuntu:$${VERSION}-linux-arm64" > sandbox-images/helix-ubuntu.ref
         echo "$${VERSION}-linux-arm64" > sandbox-images/helix-sway.version
         echo "$${VERSION}-linux-arm64" > sandbox-images/helix-ubuntu.version
     volumes:
@@ -2358,6 +2446,8 @@ steps:
       DOCKER_HOST: unix:///var/run/docker.sock
       REGISTRY_PASSWORD:
         from_secret: helix_registry_password
+      GITHUB_TOKEN:
+        from_secret: github_token
     commands:
       - |
         if [ -n "${DRONE_TAG}" ]; then
@@ -2372,9 +2462,11 @@ steps:
         echo "$${REGISTRY_PASSWORD}" | docker login registry.helixml.tech -u admin --password-stdin
         echo "Pushing helix-sandbox:$${COMMIT}-linux-arm64..."
         docker push registry.helixml.tech/helix/helix-sandbox:$${COMMIT}-linux-arm64
+        scripts/ghcr-push.sh registry.helixml.tech/helix/helix-sandbox:$${COMMIT}-linux-arm64
         if [ "$${IS_RELEASE}" = "true" ]; then
           echo "Pushing release tag: $${VERSION}-linux-arm64..."
           docker push registry.helixml.tech/helix/helix-sandbox:$${VERSION}-linux-arm64
+          scripts/ghcr-push.sh registry.helixml.tech/helix/helix-sandbox:$${VERSION}-linux-arm64
         fi
         echo "ARM64 push complete!"
     volumes:
@@ -2412,6 +2504,8 @@ steps:
     environment:
       REGISTRY_PASSWORD:
         from_secret: helix_registry_password
+      GITHUB_TOKEN:
+        from_secret: github_token
     commands:
       - echo "$${REGISTRY_PASSWORD}" | docker login registry.helixml.tech -u admin --password-stdin
       - |
@@ -2427,6 +2521,7 @@ steps:
           $${REPO}:$${VERSION}-linux-arm64
         docker manifest push $${REPO}:$${VERSION}
         echo "Multi-arch manifest pushed: $${REPO}:$${VERSION}"
+        scripts/ghcr-manifest.sh $${REPO} $${VERSION}
     volumes:
       - name: dockersocket
         path: /var/run/docker.sock
@@ -2436,6 +2531,8 @@ steps:
     environment:
       REGISTRY_PASSWORD:
         from_secret: helix_registry_password
+      GITHUB_TOKEN:
+        from_secret: github_token
     commands:
       - echo "$${REGISTRY_PASSWORD}" | docker login registry.helixml.tech -u admin --password-stdin
       - |
@@ -2451,6 +2548,7 @@ steps:
           $${REPO}:$${VERSION}-linux-arm64
         docker manifest push $${REPO}:$${VERSION}
         echo "Multi-arch manifest pushed: $${REPO}:$${VERSION}"
+        scripts/ghcr-manifest.sh $${REPO} $${VERSION}
     volumes:
       - name: dockersocket
         path: /var/run/docker.sock
@@ -2460,6 +2558,8 @@ steps:
     environment:
       REGISTRY_PASSWORD:
         from_secret: helix_registry_password
+      GITHUB_TOKEN:
+        from_secret: github_token
     commands:
       - echo "$${REGISTRY_PASSWORD}" | docker login registry.helixml.tech -u admin --password-stdin
       - |
@@ -2475,9 +2575,11 @@ steps:
           $${REPO}:$${VERSION}-linux-arm64
         docker manifest push $${REPO}:$${VERSION}
         echo "Multi-arch manifest pushed: $${REPO}:$${VERSION}"
+        scripts/ghcr-manifest.sh $${REPO} $${VERSION}
     volumes:
       - name: dockersocket
         path: /var/run/docker.sock
+
 
 # ====================================================================
 # macOS DMG Build Pipeline
@@ -2613,3 +2715,78 @@ steps:
               --content-type "application/json" \
               --no-progress
         fi
+
+---
+# ====================================================================
+# Release Rollback Pipeline
+# ====================================================================
+# Runs ONLY on tag events when any release pipeline fails.
+# Cleans up partially-published user-visible artifacts:
+#   - GitHub release and uploaded assets
+#   - Remote git tag
+#   - Helm chart packages from GCS bucket
+#   - macOS DMG and VM disk from R2/Cloudflare
+#   - latest.json pointer (reverted to previous good release)
+#
+# Docker images are NOT cleaned up (harmless — nobody pulls a failed
+# version tag unless explicitly referencing it).
+#
+# Can also be run manually: scripts/release-rollback.sh VERSION
+# ====================================================================
+kind: pipeline
+type: docker
+name: release-rollback
+
+depends_on:
+  - default
+  - build-controlplane-amd64
+  - build-controlplane-arm64
+  - manifest-controlplane
+  - build-haystack-amd64
+  - build-haystack-arm64
+  - manifest-haystack
+  - build-runner
+  - build-runner-small
+  - build-runner-large
+  - build-typesense-amd64
+  - build-typesense-arm64
+  - manifest-typesense
+  - build-demos
+  - build-sandbox-amd64
+  - build-sandbox-arm64
+  - manifest-sandbox
+  - build-macos-dmg
+
+trigger:
+  ref:
+    include:
+      - refs/tags/*
+  status:
+    - failure
+
+steps:
+  - name: rollback-release
+    image: google/cloud-sdk:slim
+    environment:
+      GITHUB_TOKEN:
+        from_secret: github_token
+      R2_ACCESS_KEY_ID:
+        from_secret: r2_access_key_id
+      R2_SECRET_ACCESS_KEY:
+        from_secret: r2_secret_access_key
+      GCS_SERVICE_ACCOUNT_KEY:
+        from_secret: gcs_service_account_key
+      SLACK_WEBHOOK_URL:
+        from_secret: JANITOR_SLACK_WEBHOOK_URL
+    commands:
+      - apt-get update -qq && apt-get install -y -qq curl jq > /dev/null
+      # Install gh CLI
+      - curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg 2>/dev/null
+      - echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null
+      - apt-get update -qq && apt-get install -y -qq gh > /dev/null
+      # Install helm
+      - curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash > /dev/null 2>&1
+      # Install awscli
+      - pip3 install -q awscli 2>/dev/null
+      # Run rollback
+      - scripts/release-rollback.sh "$DRONE_TAG"

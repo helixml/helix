@@ -15,7 +15,13 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks: {
-          vendor: ['react', 'react-dom'],
+          mui: ['@mui/material', '@mui/icons-material', '@mui/styles'],
+          'mui-charts': ['@mui/x-charts'],
+          monaco: ['monaco-editor'],
+          mermaid: ['mermaid'],
+          pdf: ['@react-pdf/renderer', '@uiw/react-md-editor'],
+          datagrid: ['@inovua/reactdatagrid-community'],
+          sentry: ['@sentry/browser', '@sentry/react'],
         },
       },
     },

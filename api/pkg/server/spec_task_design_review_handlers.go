@@ -4,13 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"hash/fnv"
 	"net/http"
 	"os/exec"
 	"strings"
 	"time"
 
 	"github.com/gorilla/mux"
-	"github.com/helixml/helix/api/pkg/ptr"
 	"github.com/helixml/helix/api/pkg/services"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
@@ -199,8 +199,26 @@ func (s *HelixAPIServer) getDesignReview(w http.ResponseWriter, r *http.Request)
 		SpecTask: *specTask,
 	}
 
+	jsonBytes, err := json.Marshal(response)
+	if err != nil {
+		http.Error(w, "failed to encode response", http.StatusInternalServerError)
+		return
+	}
+
+	h := fnv.New64a()
+	h.Write(jsonBytes)
+	etag := fmt.Sprintf(`"%x"`, h.Sum64())
+
+	w.Header().Set("ETag", etag)
+	w.Header().Set("Cache-Control", "private, no-cache, must-revalidate")
+
+	if match := r.Header.Get("If-None-Match"); match == etag {
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	w.Write(jsonBytes) //nolint:errcheck
 }
 
 // submitDesignReview approves or requests changes for a design review
@@ -219,7 +237,6 @@ func (s *HelixAPIServer) getDesignReview(w http.ResponseWriter, r *http.Request)
 // @Router /api/v1/spec-tasks/{spec_task_id}/design-reviews/{review_id}/submit [post]
 // @Security BearerAuth
 func (s *HelixAPIServer) submitDesignReview(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
 	user := getRequestUser(r)
 	vars := mux.Vars(r)
 	specTaskID := vars["spec_task_id"]
@@ -230,6 +247,10 @@ func (s *HelixAPIServer) submitDesignReview(w http.ResponseWriter, r *http.Reque
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+
+	// Detach from request context so DB mutations complete even if client disconnects
+	ctx, cancel := detachContext(r.Context(), 30*time.Second)
+	defer cancel()
 
 	specTask, err := s.Store.GetSpecTask(ctx, specTaskID)
 	if err != nil {
@@ -267,10 +288,12 @@ func (s *HelixAPIServer) submitDesignReview(w http.ResponseWriter, r *http.Reque
 
 	case "request_changes":
 		review.Status = types.SpecTaskDesignReviewStatusChangesRequested
-		review.RejectedAt = ptr.To(time.Now())
+		now := time.Now()
+		review.RejectedAt = &now
 		review.OverallComment = req.OverallComment
 
 		specTask.Status = types.TaskStatusSpecRevision
+		specTask.StatusUpdatedAt = &now
 		specTask.SpecRevisionCount++
 
 		if err := s.Store.UpdateSpecTask(ctx, specTask); err != nil {
@@ -280,7 +303,7 @@ func (s *HelixAPIServer) submitDesignReview(w http.ResponseWriter, r *http.Reque
 
 		// Notify agent of requested changes via WebSocket
 		message := services.BuildRevisionInstructionPrompt(specTask, req.OverallComment)
-		_, err = s.sendMessageToSpecTaskAgent(ctx, specTask, message, user.ID)
+		_, _, err = s.sendMessageToSpecTaskAgent(ctx, specTask, message, user.ID)
 		if err != nil {
 			log.Error().
 				Err(err).
@@ -326,7 +349,6 @@ func (s *HelixAPIServer) submitDesignReview(w http.ResponseWriter, r *http.Reque
 // @Router /api/v1/spec-tasks/{spec_task_id}/design-reviews/{review_id}/comments [post]
 // @Security BearerAuth
 func (s *HelixAPIServer) createDesignReviewComment(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
 	user := getRequestUser(r)
 	vars := mux.Vars(r)
 	specTaskID := vars["spec_task_id"]
@@ -337,6 +359,10 @@ func (s *HelixAPIServer) createDesignReviewComment(w http.ResponseWriter, r *htt
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+
+	// Detach from request context so DB mutations complete even if client disconnects
+	ctx, cancel := detachContext(r.Context(), 30*time.Second)
+	defer cancel()
 
 	specTask, err := s.Store.GetSpecTask(ctx, specTaskID)
 	if err != nil {
@@ -485,11 +511,14 @@ func (s *HelixAPIServer) listDesignReviewComments(w http.ResponseWriter, r *http
 // @Router /api/v1/spec-tasks/{spec_task_id}/design-reviews/{review_id}/comments/{comment_id}/resolve [post]
 // @Security BearerAuth
 func (s *HelixAPIServer) resolveDesignReviewComment(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
 	user := getRequestUser(r)
 	vars := mux.Vars(r)
 	specTaskID := vars["spec_task_id"]
 	commentID := vars["comment_id"]
+
+	// Detach from request context so DB mutations complete even if client disconnects
+	ctx, cancel := detachContext(r.Context(), 30*time.Second)
+	defer cancel()
 
 	specTask, err := s.Store.GetSpecTask(ctx, specTaskID)
 	if err != nil {
@@ -686,8 +715,9 @@ func (s *HelixAPIServer) processNextCommentInQueue(ctx context.Context, sessionI
 		return
 	}
 
-	// Now actually send the comment to the agent
-	// sendCommentToAgentNow sets RequestID on the comment, marking it as "being processed"
+	// Now actually send the comment to the agent.
+	// sendCommentToAgentNow → sendMessageToSpecTaskAgent, which auto-starts the dev container
+	// and waits up to 90s for the agent to connect if no session is currently active.
 	err = s.sendCommentToAgentNow(ctx, specTask, comment)
 	if err != nil {
 		log.Error().
@@ -760,35 +790,147 @@ func (s *HelixAPIServer) findConnectedSessionForSpecTask(ctx context.Context, sp
 		}
 	}
 
-	// PlanningSessionID not connected - search for any connected session with this spec task ID
+	// PlanningSessionID not connected - search for the most recently updated
+	// connected session with this spec task ID. A spectask can have multiple
+	// Zed threads (sessions), so we pick the most recent to route messages
+	// to the thread the agent is most likely actively working in.
 	log.Info().
 		Str("spec_task_id", specTask.ID).
 		Str("planning_session_id", specTask.PlanningSessionID).
 		Msg("PlanningSessionID not connected, searching for alternate connected session")
 
-	// Get all connected session IDs
 	connectedSessions := s.externalAgentWSManager.listConnections()
 
+	var bestSession *types.Session
+	var bestSessionConnID string
 	for _, conn := range connectedSessions {
-		// Look up the session to check its SpecTaskID
 		session, err := s.Store.GetSession(ctx, conn.SessionID)
 		if err != nil {
-			continue // Session not found or error, skip
+			continue
 		}
+		if session.Metadata.SpecTaskID != specTask.ID {
+			continue
+		}
+		if bestSession == nil || session.Updated.After(bestSession.Updated) {
+			bestSession = session
+			bestSessionConnID = conn.SessionID
+		}
+	}
 
-		// Check if this session is for our spec task
-		if session.Metadata.SpecTaskID == specTask.ID {
-			log.Info().
-				Str("spec_task_id", specTask.ID).
-				Str("found_session_id", conn.SessionID).
-				Str("original_planning_session_id", specTask.PlanningSessionID).
-				Msg("✅ Found alternate connected session for spec task")
-			return conn.SessionID, nil
-		}
+	if bestSession != nil {
+		log.Info().
+			Str("spec_task_id", specTask.ID).
+			Str("found_session_id", bestSessionConnID).
+			Str("original_planning_session_id", specTask.PlanningSessionID).
+			Time("session_updated", bestSession.Updated).
+			Msg("✅ Found most recently updated connected session for spec task")
+		return bestSessionConnID, nil
 	}
 
 	return "", fmt.Errorf("no WebSocket connection found for spec task %s (tried planning session %s and %d other connected sessions)",
 		specTask.ID, specTask.PlanningSessionID, len(connectedSessions))
+}
+
+// startDevContainerForSpecTask auto-starts the dev container for a spec task's planning session.
+// This is the backend equivalent of the frontend auto-start logic in DesignReviewContent.tsx.
+// It extracts the core logic from resumeSession without requiring an HTTP request context.
+func (s *HelixAPIServer) startDevContainerForSpecTask(ctx context.Context, specTask *types.SpecTask) error {
+	if specTask.PlanningSessionID == "" {
+		return fmt.Errorf("spec task %s has no planning session ID", specTask.ID)
+	}
+	if s.externalAgentExecutor == nil {
+		return fmt.Errorf("external agent executor not available")
+	}
+
+	session, err := s.Store.GetSession(ctx, specTask.PlanningSessionID)
+	if err != nil {
+		return fmt.Errorf("failed to get planning session %s: %w", specTask.PlanningSessionID, err)
+	}
+
+	agent := &types.DesktopAgent{
+		SessionID:      session.ID,
+		UserID:         session.Owner,
+		Input:          "Resume session",
+		ProjectPath:    "workspace",
+		SpecTaskID:     specTask.ID,
+		ProjectID:      specTask.ProjectID,
+		OrganizationID: specTask.OrganizationID,
+	}
+
+	// Load project repositories
+	if agent.ProjectID != "" {
+		projectRepos, err := s.Store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
+			ProjectID: agent.ProjectID,
+		})
+		if err == nil && len(projectRepos) > 0 {
+			agent.RepositoryIDs = make([]string, 0, len(projectRepos))
+			for _, repo := range projectRepos {
+				if repo.ID != "" {
+					agent.RepositoryIDs = append(agent.RepositoryIDs, repo.ID)
+				}
+			}
+			project, err := s.Store.GetProject(ctx, agent.ProjectID)
+			if err == nil && project != nil && project.DefaultRepoID != "" {
+				agent.PrimaryRepositoryID = project.DefaultRepoID
+			} else if len(projectRepos) > 0 {
+				agent.PrimaryRepositoryID = projectRepos[0].ID
+			}
+		}
+	}
+
+	// Get display settings from app config
+	if session.ParentApp != "" {
+		app, err := s.Controller.Options.Store.GetApp(ctx, session.ParentApp)
+		if err == nil && app != nil && app.Config.Helix.ExternalAgentConfig != nil {
+			width, height := app.Config.Helix.ExternalAgentConfig.GetEffectiveResolution()
+			agent.DisplayWidth = width
+			agent.DisplayHeight = height
+			if app.Config.Helix.ExternalAgentConfig.DisplayRefreshRate > 0 {
+				agent.DisplayRefreshRate = app.Config.Helix.ExternalAgentConfig.DisplayRefreshRate
+			}
+			agent.Resolution = app.Config.Helix.ExternalAgentConfig.Resolution
+			agent.ZoomLevel = app.Config.Helix.ExternalAgentConfig.GetEffectiveZoomLevel()
+			agent.DesktopType = app.Config.Helix.ExternalAgentConfig.GetEffectiveDesktopType()
+		}
+	}
+
+	// Set up the OnBeforeCreate hook to add API tokens inside the session lock.
+	// This prevents a race where StopDesktop revokes the key between token
+	// creation and container creation — the hook runs inside StartDesktop's
+	// per-session lock, which is also held by StopDesktop during key revocation.
+	ownerID := session.Owner
+	agent.OnBeforeCreate = func(hookCtx context.Context, a *types.DesktopAgent) error {
+		return s.addUserAPITokenToAgent(hookCtx, a, ownerID)
+	}
+
+	log.Info().
+		Str("spec_task_id", specTask.ID).
+		Str("session_id", session.ID).
+		Msg("Auto-starting dev container for spec task (backend-initiated resume)")
+
+	response, err := s.externalAgentExecutor.StartDesktop(ctx, agent)
+	if err != nil {
+		return fmt.Errorf("failed to start dev container: %w", err)
+	}
+
+	// Re-fetch session and update metadata (same as resumeSession does)
+	session, err = s.Store.GetSession(ctx, specTask.PlanningSessionID)
+	if err == nil {
+		if response.DevContainerID != "" {
+			session.Metadata.DevContainerID = response.DevContainerID
+		}
+		session.Metadata.PausedScreenshotPath = ""
+		if _, err := s.Store.UpdateSession(ctx, *session); err != nil {
+			log.Warn().Err(err).Str("session_id", session.ID).Msg("Failed to update session metadata after auto-start")
+		}
+	}
+
+	log.Info().
+		Str("spec_task_id", specTask.ID).
+		Str("session_id", specTask.PlanningSessionID).
+		Msg("✅ Dev container auto-started for spec task, agent will reconnect via WebSocket")
+
+	return nil
 }
 
 // sendCommentToAgentNow actually sends a comment to the agent (called from queue processor)
@@ -800,8 +942,11 @@ func (s *HelixAPIServer) sendCommentToAgentNow(
 	// Build prompt for agent using the shared helper
 	promptText := services.BuildCommentPrompt(specTask, comment)
 
-	// Send via the unified helper, notifying the commenter of responses
-	requestID, err := s.sendMessageToSpecTaskAgent(ctx, specTask, promptText, comment.CommentedBy)
+	// Send via the unified helper, notifying the commenter of responses.
+	// interactionID is returned directly — avoids the fragile session-based queue
+	// lookup that breaks when the connected session differs from PlanningSessionID
+	// (e.g. after Zed thread compaction creates a new work session).
+	requestID, interactionID, err := s.sendMessageToSpecTaskAgent(ctx, specTask, promptText, comment.CommentedBy)
 	if err != nil {
 		log.Error().
 			Err(err).
@@ -811,8 +956,11 @@ func (s *HelixAPIServer) sendCommentToAgentNow(
 		return err
 	}
 
-	// Store the requestID on the comment in the database for persistent linking
+	// Store both IDs on the comment: requestID links to message_completed for finalization,
+	// interactionID lets finalizeCommentResponse copy the streamed response at completion time.
 	comment.RequestID = requestID
+	comment.InteractionID = interactionID
+
 	if err := s.Store.UpdateSpecTaskDesignReviewComment(ctx, comment); err != nil {
 		log.Error().
 			Err(err).
@@ -888,7 +1036,8 @@ func (s *HelixAPIServer) linkAgentResponseToComment(
 	}
 
 	// Update comment with agent response
-	comment.AgentResponse = interaction.ResponseMessage
+	comment.AgentResponse = types.TextFromInteraction(interaction)
+	comment.AgentResponseEntries = interaction.ResponseEntries
 	now := time.Now()
 	comment.AgentResponseAt = &now
 
@@ -899,7 +1048,7 @@ func (s *HelixAPIServer) linkAgentResponseToComment(
 	log.Info().
 		Str("comment_id", comment.ID).
 		Str("interaction_id", interaction.ID).
-		Int("response_length", len(interaction.ResponseMessage)).
+		Int("response_length", len(comment.AgentResponse)).
 		Msg("Linked agent response to design review comment")
 
 	return nil
@@ -957,6 +1106,32 @@ func (s *HelixAPIServer) finalizeCommentResponse(
 		return fmt.Errorf("no comment found for request %s: %w", requestID, err)
 	}
 
+	// If the comment doesn't have an AgentResponse yet, try to populate it from the interaction.
+	// The message_added events update the interaction's ResponseMessage but not the comment's
+	// AgentResponse directly. We need to copy it over at finalization time.
+	if comment.AgentResponse == "" && comment.InteractionID != "" {
+		interaction, interactionErr := s.Store.GetInteraction(ctx, comment.InteractionID)
+		if interactionErr == nil {
+			text := types.TextFromInteraction(interaction)
+			if text != "" {
+				comment.AgentResponse = text
+				comment.AgentResponseEntries = interaction.ResponseEntries
+				now := time.Now()
+				comment.AgentResponseAt = &now
+				log.Info().
+					Str("comment_id", comment.ID).
+					Str("interaction_id", comment.InteractionID).
+					Int("response_length", len(text)).
+					Msg("📝 [HELIX] Populated comment AgentResponse from interaction at finalization")
+			}
+		}
+	}
+
+	// If we still don't have a response AND we have a session, try the latest interaction
+	if comment.AgentResponse == "" {
+		s.populateAgentResponseFromSession(ctx, comment)
+	}
+
 	// Clear both request_id and queued_at to mark as fully processed
 	comment.RequestID = ""
 	comment.QueuedAt = nil
@@ -1008,6 +1183,14 @@ func (s *HelixAPIServer) finalizeCommentResponse(
 	}
 	s.sessionCommentMutex.Unlock()
 
+	// Clean up sessionToCommenterMapping now that response is complete
+	s.contextMappingsMutex.Lock()
+	if s.sessionToCommenterMapping != nil {
+		delete(s.sessionToCommenterMapping, sessionID)
+		log.Debug().Str("session_id", sessionID).Msg("🧹 [HELIX] Cleaned up sessionToCommenterMapping")
+	}
+	s.contextMappingsMutex.Unlock()
+
 	log.Info().
 		Str("session_id", sessionID).
 		Str("completed_comment", comment.ID).
@@ -1029,6 +1212,39 @@ func (s *HelixAPIServer) linkAgentResponseToCommentByRequestID(
 ) error {
 	// For backwards compatibility, this now just updates the streaming response
 	return s.updateCommentWithStreamingResponse(ctx, requestID, responseContent)
+}
+
+// populateAgentResponseFromSession is a fallback that finds the agent's response
+// from the session's latest interaction when streaming didn't populate it directly.
+func (s *HelixAPIServer) populateAgentResponseFromSession(ctx context.Context, comment *types.SpecTaskDesignReviewComment) {
+	review, err := s.Store.GetSpecTaskDesignReview(ctx, comment.ReviewID)
+	if err != nil {
+		return
+	}
+	specTask, err := s.Store.GetSpecTask(ctx, review.SpecTaskID)
+	if err != nil || specTask.PlanningSessionID == "" {
+		return
+	}
+	session, err := s.Store.GetSession(ctx, specTask.PlanningSessionID)
+	if err != nil || len(session.Interactions) == 0 {
+		return
+	}
+	// Walk backwards to find the most recent interaction with a response
+	for i := len(session.Interactions) - 1; i >= 0; i-- {
+		text := types.TextFromInteraction(session.Interactions[i])
+		if text != "" {
+			comment.AgentResponse = text
+			comment.AgentResponseEntries = session.Interactions[i].ResponseEntries
+			now := time.Now()
+			comment.AgentResponseAt = &now
+			log.Info().
+				Str("comment_id", comment.ID).
+				Str("interaction_id", session.Interactions[i].ID).
+				Int("response_length", len(text)).
+				Msg("📝 [HELIX] Populated comment AgentResponse from latest session interaction")
+			return
+		}
+	}
 }
 
 // backfillDesignReviewFromGit creates a design review from the current state of helix-specs branch
@@ -1177,92 +1393,67 @@ func sanitizeBranchName(name string) string {
 
 // sendMessageToSpecTaskAgent is the unified helper for sending messages to spec task agents via WebSocket
 // It handles: finding connected session, generating request ID, setting up response routing, and sending
-// Returns the generated requestID for callers that need to track responses
+// If no session is connected, it auto-starts the dev container and waits up to 90s for the agent to connect.
+// Returns (requestID, interactionID, error). Both IDs are needed by callers that track comment responses.
 func (s *HelixAPIServer) sendMessageToSpecTaskAgent(
 	ctx context.Context,
 	specTask *types.SpecTask,
 	message string,
 	notifyUserID string, // Optional: user to notify of responses (e.g., commenter). Empty = no extra notification
-) (string, error) {
-	// Find a connected session for this spec task
+) (string, string, error) {
+	// Find a connected session for this spec task, falling back to PlanningSessionID.
+	// If no session is connected, sendChatMessageToExternalAgent will still create
+	// the interaction. sendCommandToExternalAgent will fail and trigger auto-start;
+	// pickupWaitingInteraction delivers the message when the agent reconnects.
 	sessionID, err := s.findConnectedSessionForSpecTask(ctx, specTask)
 	if err != nil {
-		return "", fmt.Errorf("no connected session found: %w", err)
-	}
-
-	// Get the session to access owner and generation ID
-	session, err := s.Store.GetSession(ctx, sessionID)
-	if err != nil {
-		return "", fmt.Errorf("failed to get session: %w", err)
+		if specTask.PlanningSessionID == "" {
+			return "", "", fmt.Errorf("no connected session and no planning session ID: %w", err)
+		}
+		log.Info().
+			Str("spec_task_id", specTask.ID).
+			Str("planning_session_id", specTask.PlanningSessionID).
+			Msg("No connected session, falling back to planning session ID — auto-start will be triggered on send")
+		sessionID = specTask.PlanningSessionID
 	}
 
 	// Generate request ID for tracking
 	requestID := "req_" + system.GenerateUUID()
 
-	// Create an interaction so handleMessageAdded can find it and update with the response
-	// This unifies the code path with other message types
-	interaction := &types.Interaction{
-		Created:       time.Now(),
-		Updated:       time.Now(),
-		SessionID:     sessionID,
-		UserID:        session.Owner,
-		GenerationID:  session.GenerationID,
-		Mode:          types.SessionModeInference,
-		PromptMessage: message,
-		State:         types.InteractionStateWaiting,
-	}
-
-	createdInteraction, err := s.Store.CreateInteraction(ctx, interaction)
-	if err != nil {
-		return "", fmt.Errorf("failed to create interaction: %w", err)
-	}
-
-	// Store session->interaction mapping so handleMessageAdded finds the right interaction
-	s.contextMappingsMutex.Lock()
-	if s.sessionToWaitingInteraction == nil {
-		s.sessionToWaitingInteraction = make(map[string]string)
-	}
-	s.sessionToWaitingInteraction[sessionID] = createdInteraction.ID
-	s.contextMappingsMutex.Unlock()
-
-	log.Info().
-		Str("session_id", sessionID).
-		Str("interaction_id", createdInteraction.ID).
-		Msg("🔗 [HELIX] Created interaction for spec task message")
-
-	// Store the requestID -> sessionID mapping for response routing
-	if s.requestToSessionMapping == nil {
-		s.requestToSessionMapping = make(map[string]string)
-	}
-	s.requestToSessionMapping[requestID] = sessionID
-
 	// If a notifyUserID is provided, store it for response notification
 	if notifyUserID != "" {
+		s.contextMappingsMutex.Lock()
 		if s.requestToCommenterMapping == nil {
 			s.requestToCommenterMapping = make(map[string]string)
 		}
 		s.requestToCommenterMapping[requestID] = notifyUserID
+		if s.sessionToCommenterMapping == nil {
+			s.sessionToCommenterMapping = make(map[string]string)
+		}
+		s.sessionToCommenterMapping[sessionID] = notifyUserID
+		s.contextMappingsMutex.Unlock()
 	}
 
-	// Send the message via WebSocket
-	err = s.sendChatMessageToExternalAgent(sessionID, message, requestID)
+	// Send the message via the canonical path which creates an interaction,
+	// enqueues it, and sends the WebSocket command.
+	interactionID, err := s.sendChatMessageToExternalAgent(sessionID, message, requestID)
 	if err != nil {
-		// Clean up mappings on failure
-		delete(s.requestToSessionMapping, requestID)
 		if notifyUserID != "" {
+			s.contextMappingsMutex.Lock()
 			delete(s.requestToCommenterMapping, requestID)
+			s.contextMappingsMutex.Unlock()
 		}
-		return "", fmt.Errorf("failed to send message via WebSocket: %w", err)
+		return "", "", fmt.Errorf("failed to send message via WebSocket: %w", err)
 	}
 
 	log.Info().
 		Str("spec_task_id", specTask.ID).
 		Str("session_id", sessionID).
-		Str("interaction_id", createdInteraction.ID).
+		Str("interaction_id", interactionID).
 		Str("request_id", requestID).
 		Msg("✅ Sent message to spec task agent via WebSocket")
 
-	return requestID, nil
+	return requestID, interactionID, nil
 }
 
 // sendApprovalInstructionToAgent sends the detailed implementation instruction to the agent via WebSocket
@@ -1275,12 +1466,34 @@ func (s *HelixAPIServer) sendApprovalInstructionToAgent(
 	primaryRepoName string,
 ) error {
 	// Fetch guidelines from project and organization
-	guidelines := s.getGuidelinesForSpecTask(ctx, specTask)
+	guidelines, project := s.getGuidelinesForSpecTask(ctx, specTask)
+	koditDoc := ""
+	if project != nil && project.KoditEnabled {
+		koditDoc = s.koditService.MCPDocumentation()
+	}
+
+	// Build repository section listing local + Kodit repos for the agent
+	repoSection := s.buildRepositorySectionForSpecTask(ctx, specTask, project)
+
+	// Gather non-primary repo names for per-repo PR descriptions
+	var nonPrimaryRepoNames []string
+	if specTask.ProjectID != "" {
+		projectRepos, err := s.Store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
+			ProjectID: specTask.ProjectID,
+		})
+		if err == nil {
+			for _, repo := range projectRepos {
+				if repo.Name != primaryRepoName && repo.ExternalURL != "" {
+					nonPrimaryRepoNames = append(nonPrimaryRepoNames, repo.Name)
+				}
+			}
+		}
+	}
 
 	// Build the prompt using the shared function from services package
-	message := services.BuildApprovalInstructionPrompt(specTask, branchName, baseBranch, guidelines, primaryRepoName)
+	message := services.BuildApprovalInstructionPrompt(specTask, branchName, baseBranch, guidelines, primaryRepoName, koditDoc, repoSection, nonPrimaryRepoNames)
 
-	_, err := s.sendMessageToSpecTaskAgent(ctx, specTask, message, "")
+	_, _, err := s.sendMessageToSpecTaskAgent(ctx, specTask, message, "")
 	if err != nil {
 		return err
 	}
@@ -1294,14 +1507,14 @@ func (s *HelixAPIServer) sendApprovalInstructionToAgent(
 }
 
 // getGuidelinesForSpecTask fetches concatenated organization + project guidelines
-func (s *HelixAPIServer) getGuidelinesForSpecTask(ctx context.Context, task *types.SpecTask) string {
+func (s *HelixAPIServer) getGuidelinesForSpecTask(ctx context.Context, task *types.SpecTask) (string, *types.Project) {
 	if task.ProjectID == "" {
-		return ""
+		return "", nil
 	}
 
 	project, err := s.Store.GetProject(ctx, task.ProjectID)
 	if err != nil || project == nil {
-		return ""
+		return "", nil
 	}
 
 	guidelines := ""
@@ -1322,5 +1535,42 @@ func (s *HelixAPIServer) getGuidelinesForSpecTask(ctx context.Context, task *typ
 		guidelines += project.Guidelines
 	}
 
-	return guidelines
+	return guidelines, project
+}
+
+// buildRepositorySectionForSpecTask fetches project and org repos, then builds the repository section
+func (s *HelixAPIServer) buildRepositorySectionForSpecTask(ctx context.Context, task *types.SpecTask, project *types.Project) string {
+	if task.ProjectID == "" {
+		return ""
+	}
+
+	// Fetch project repos
+	projectRepos, err := s.Store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
+		ProjectID: task.ProjectID,
+	})
+	if err != nil {
+		return ""
+	}
+
+	// Fetch Kodit org repos if enabled
+	var koditOrgRepos []*types.GitRepository
+	if project != nil && project.KoditEnabled && project.OrganizationID != "" {
+		orgRepos, err := s.Store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
+			OrganizationID: project.OrganizationID,
+		})
+		if err == nil {
+			for _, repo := range orgRepos {
+				if repo.KoditIndexing {
+					koditOrgRepos = append(koditOrgRepos, repo)
+				}
+			}
+		}
+	}
+
+	primaryRepoID := ""
+	if project != nil {
+		primaryRepoID = project.DefaultRepoID
+	}
+
+	return services.BuildRepositorySection(projectRepos, koditOrgRepos, primaryRepoID)
 }

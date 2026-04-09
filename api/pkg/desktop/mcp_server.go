@@ -23,7 +23,7 @@ import (
 // It exposes screenshot, clipboard, and input tools to AI agents.
 type MCPServer struct {
 	mcpServer     *server.MCPServer
-	sseServer     *server.SSEServer
+	httpServer    *server.StreamableHTTPServer
 	screenshotURL string // URL to the local screenshot HTTP endpoint
 	desktopURL    string // Base URL for desktop HTTP endpoints (recording, etc.)
 	logger        *slog.Logger
@@ -31,7 +31,7 @@ type MCPServer struct {
 
 // MCPConfig holds configuration for the MCP server
 type MCPConfig struct {
-	// Port for the MCP SSE server (default: 9877)
+	// Port for the MCP server (default: 9877)
 	Port string
 	// ScreenshotURL is the local screenshot endpoint (default: http://localhost:9876/screenshot)
 	ScreenshotURL string
@@ -157,6 +157,18 @@ func NewMCPServer(cfg MCPConfig, logger *slog.Logger) *MCPServer {
 	)
 	m.mcpServer.AddTool(maximizeWindowTool, m.handleMaximizeWindow)
 
+	// minimize_window - Minimize a window
+	minimizeWindowTool := mcp.NewTool("minimize_window",
+		mcp.WithDescription("Minimize a window to taskbar/dock. If no window specified, minimizes the focused window."),
+		mcp.WithString("window_id",
+			mcp.Description("Window ID from list_windows"),
+		),
+		mcp.WithString("title",
+			mcp.Description("Window title to match (alternative to window_id)"),
+		),
+	)
+	m.mcpServer.AddTool(minimizeWindowTool, m.handleMinimizeWindow)
+
 	// tile_window - Tile a window left or right
 	tileWindowTool := mcp.NewTool("tile_window",
 		mcp.WithDescription("Tile a window to the left or right half of the screen."),
@@ -252,9 +264,9 @@ func NewMCPServer(cfg MCPConfig, logger *slog.Logger) *MCPServer {
 	)
 	m.mcpServer.AddTool(getRecordingStatusTool, m.handleGetRecordingStatus)
 
-	// Create SSE server
-	m.sseServer = server.NewSSEServer(m.mcpServer,
-		server.WithBasePath("/mcp"),
+	// Create Streamable HTTP server for direct POST support (compatible with Zed's HttpTransport)
+	m.httpServer = server.NewStreamableHTTPServer(m.mcpServer,
+		server.WithStateLess(true),
 	)
 
 	return m
@@ -537,22 +549,33 @@ func (m *MCPServer) handleListWindows(ctx context.Context, request mcp.CallToolR
 		return mcp.NewToolResultText(formatted), nil
 
 	case "gnome":
-		// Use wmctrl for GNOME/X11 or gdbus for Wayland GNOME
-		cmd := exec.CommandContext(ctx, "wmctrl", "-l", "-p")
-		output, err = cmd.Output()
+		// Use gdbus to execute JavaScript in GNOME Shell (Wayland-compatible)
+		script := `
+			let result = [];
+			global.get_window_actors().forEach(a => {
+				let w = a.meta_window;
+				let id = w.get_id();
+				let title = w.get_title() || '(no title)';
+				let workspace = w.get_workspace() ? w.get_workspace().index() + 1 : 0;
+				result.push('ID: ' + id + ' | Workspace: ' + workspace + ' | Title: ' + title);
+			});
+			result.join('\\n');
+		`
+
+		cmd := exec.CommandContext(ctx, "gdbus", "call", "--session",
+			"--dest=org.gnome.Shell",
+			"--object-path=/org/gnome/Shell",
+			"--method=org.gnome.Shell.Eval",
+			script)
+		output, err = cmd.CombinedOutput()
 		if err != nil {
-			// Try qdbus as fallback
-			cmd = exec.CommandContext(ctx, "gdbus", "call", "--session",
-				"--dest=org.gnome.Shell",
-				"--object-path=/org/gnome/Shell",
-				"--method=org.gnome.Shell.Eval",
-				"global.get_window_actors().map(a=>a.meta_window.get_title()).join('\\n')")
-			output, err = cmd.Output()
-			if err != nil {
-				return mcp.NewToolResultError("failed to get window list: " + err.Error()), nil
-			}
+			return mcp.NewToolResultError("failed to get window list: " + err.Error() + " - " + string(output)), nil
 		}
-		return mcp.NewToolResultText(string(output)), nil
+
+		// gdbus returns: (bool success, 'result')
+		// We need to parse the result string from the gdbus output
+		result := string(output)
+		return mcp.NewToolResultText(result), nil
 
 	default:
 		return mcp.NewToolResultError("unsupported desktop environment"), nil
@@ -586,16 +609,38 @@ func (m *MCPServer) handleFocusWindow(ctx context.Context, request mcp.CallToolR
 		return mcp.NewToolResultText("Window focused"), nil
 
 	case "gnome":
-		if windowID != "" {
-			cmd := exec.CommandContext(ctx, "wmctrl", "-i", "-a", windowID)
-			if err := cmd.Run(); err != nil {
-				return mcp.NewToolResultError("failed to focus window: " + err.Error()), nil
-			}
-		} else {
-			cmd := exec.CommandContext(ctx, "wmctrl", "-a", title)
-			if err := cmd.Run(); err != nil {
-				return mcp.NewToolResultError("failed to focus window: " + err.Error()), nil
-			}
+		// Use gdbus to execute JavaScript in GNOME Shell (Wayland-compatible)
+		var script string
+		if title != "" {
+			// Focus by window title
+			script = fmt.Sprintf(`
+				global.get_window_actors().forEach(a => {
+					let w = a.meta_window;
+					if (w.get_title() && w.get_title().includes('%s')) {
+						w.focus(global.get_current_time());
+					}
+				});
+			`, title)
+		} else if windowID != "" {
+			// Focus by window ID
+			script = fmt.Sprintf(`
+				global.get_window_actors().forEach(a => {
+					let w = a.meta_window;
+					if (w.get_id().toString() === '%s') {
+						w.focus(global.get_current_time());
+					}
+				});
+			`, windowID)
+		}
+
+		cmd := exec.CommandContext(ctx, "gdbus", "call", "--session",
+			"--dest=org.gnome.Shell",
+			"--object-path=/org/gnome/Shell",
+			"--method=org.gnome.Shell.Eval",
+			script)
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			return mcp.NewToolResultError("failed to focus window: " + err.Error() + " - " + string(output)), nil
 		}
 		return mcp.NewToolResultText("Window focused"), nil
 
@@ -632,18 +677,113 @@ func (m *MCPServer) handleMaximizeWindow(ctx context.Context, request mcp.CallTo
 		return mcp.NewToolResultText("Window maximized"), nil
 
 	case "gnome":
+		// Use gdbus to execute JavaScript in GNOME Shell (Wayland-compatible)
+		var script string
+		action := "maximize"
+		if fullscreen {
+			action = "make_fullscreen"
+		}
+
 		if windowID != "" {
-			cmd := exec.CommandContext(ctx, "wmctrl", "-i", "-r", windowID, "-b", "add,maximized_vert,maximized_horz")
-			if err := cmd.Run(); err != nil {
-				return mcp.NewToolResultError("failed to maximize window: " + err.Error()), nil
-			}
+			// Maximize by window ID
+			script = fmt.Sprintf(`
+				global.get_window_actors().forEach(a => {
+					let w = a.meta_window;
+					if (w.get_id().toString() === '%s') {
+						w.%s();
+					}
+				});
+			`, windowID, action)
 		} else {
-			cmd := exec.CommandContext(ctx, "wmctrl", "-r", ":ACTIVE:", "-b", "add,maximized_vert,maximized_horz")
-			if err := cmd.Run(); err != nil {
-				return mcp.NewToolResultError("failed to maximize window: " + err.Error()), nil
-			}
+			// Maximize focused window
+			script = fmt.Sprintf(`
+				let w = global.display.get_focus_window();
+				if (w) { w.%s(); }
+			`, action)
+		}
+
+		cmd := exec.CommandContext(ctx, "gdbus", "call", "--session",
+			"--dest=org.gnome.Shell",
+			"--object-path=/org/gnome/Shell",
+			"--method=org.gnome.Shell.Eval",
+			script)
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			return mcp.NewToolResultError("failed to maximize window: " + err.Error() + " - " + string(output)), nil
 		}
 		return mcp.NewToolResultText("Window maximized"), nil
+
+	default:
+		return mcp.NewToolResultError("unsupported desktop environment"), nil
+	}
+}
+
+// handleMinimizeWindow minimizes a window
+func (m *MCPServer) handleMinimizeWindow(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	windowID, _ := request.RequireString("window_id")
+	title, _ := request.RequireString("title")
+
+	m.logger.Info("minimizing window via MCP", "window_id", windowID, "title", title)
+
+	de := m.detectDesktopEnvironment()
+
+	switch de {
+	case "sway":
+		// In Sway, we can move windows to scratchpad (similar to minimize)
+		var cmd *exec.Cmd
+		if windowID != "" {
+			cmd = exec.CommandContext(ctx, "swaymsg", fmt.Sprintf("[con_id=%s]", windowID), "move", "scratchpad")
+		} else if title != "" {
+			cmd = exec.CommandContext(ctx, "swaymsg", fmt.Sprintf("[title=\"%s\"]", title), "move", "scratchpad")
+		} else {
+			cmd = exec.CommandContext(ctx, "swaymsg", "move", "scratchpad")
+		}
+		if err := cmd.Run(); err != nil {
+			return mcp.NewToolResultError("failed to minimize window: " + err.Error()), nil
+		}
+		return mcp.NewToolResultText("Window minimized (moved to scratchpad)"), nil
+
+	case "gnome":
+		// Use gdbus to execute JavaScript in GNOME Shell
+		var script string
+		if title != "" {
+			// Minimize by window title
+			script = fmt.Sprintf(`
+				global.get_window_actors().forEach(a => {
+					let w = a.meta_window;
+					if (w.get_title() && w.get_title().includes('%s')) {
+						w.minimize();
+					}
+				});
+			`, title)
+		} else if windowID != "" {
+			// Minimize by window ID (convert to integer for comparison)
+			script = fmt.Sprintf(`
+				global.get_window_actors().forEach(a => {
+					let w = a.meta_window;
+					if (w.get_id().toString() === '%s') {
+						w.minimize();
+					}
+				});
+			`, windowID)
+		} else {
+			// Minimize focused window
+			script = `
+				let w = global.display.get_focus_window();
+				if (w) { w.minimize(); }
+			`
+		}
+
+		cmd := exec.CommandContext(ctx, "gdbus", "call", "--session",
+			"--dest=org.gnome.Shell",
+			"--object-path=/org/gnome/Shell",
+			"--method=org.gnome.Shell.Eval",
+			script)
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			return mcp.NewToolResultError("failed to minimize window: " + err.Error() + " - " + string(output)), nil
+		}
+		return mcp.NewToolResultText("Window minimized"), nil
 
 	default:
 		return mcp.NewToolResultError("unsupported desktop environment"), nil
@@ -688,19 +828,40 @@ func (m *MCPServer) handleTileWindow(ctx context.Context, request mcp.CallToolRe
 		return mcp.NewToolResultText(fmt.Sprintf("Window tiled to %s", direction)), nil
 
 	case "gnome":
-		// Use xdotool key for GNOME tiling shortcuts (Super+Left/Right)
-		key := "super+Left"
+		// Use gdbus to tile window via GNOME Shell (Wayland-compatible)
+		// GNOME uses tile_left() and tile_right() methods on Meta.Window
+		var script string
+		action := "tile_left"
 		if direction == "right" {
-			key = "super+Right"
+			action = "tile_right"
 		}
+
 		if windowID != "" {
-			// Focus window first
-			cmd := exec.CommandContext(ctx, "wmctrl", "-i", "-a", windowID)
-			_ = cmd.Run()
+			// Tile by window ID
+			script = fmt.Sprintf(`
+				global.get_window_actors().forEach(a => {
+					let w = a.meta_window;
+					if (w.get_id().toString() === '%s') {
+						w.%s();
+					}
+				});
+			`, windowID, action)
+		} else {
+			// Tile focused window
+			script = fmt.Sprintf(`
+				let w = global.display.get_focus_window();
+				if (w) { w.%s(); }
+			`, action)
 		}
-		cmd := exec.CommandContext(ctx, "xdotool", "key", key)
-		if err := cmd.Run(); err != nil {
-			return mcp.NewToolResultError("failed to tile window: " + err.Error()), nil
+
+		cmd := exec.CommandContext(ctx, "gdbus", "call", "--session",
+			"--dest=org.gnome.Shell",
+			"--object-path=/org/gnome/Shell",
+			"--method=org.gnome.Shell.Eval",
+			script)
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			return mcp.NewToolResultError("failed to tile window: " + err.Error() + " - " + string(output)), nil
 		}
 		return mcp.NewToolResultText(fmt.Sprintf("Window tiled to %s", direction)), nil
 
@@ -735,18 +896,41 @@ func (m *MCPServer) handleMoveToWorkspace(ctx context.Context, request mcp.CallT
 		return mcp.NewToolResultText(fmt.Sprintf("Window moved to workspace %d", int(workspace))), nil
 
 	case "gnome":
+		// Use gdbus to execute JavaScript in GNOME Shell (Wayland-compatible)
 		// GNOME uses 0-indexed workspaces internally, but we use 1-indexed for UX
 		gnomeWorkspace := int(workspace) - 1
+		var script string
+
 		if windowID != "" {
-			cmd := exec.CommandContext(ctx, "wmctrl", "-i", "-r", windowID, "-t", fmt.Sprintf("%d", gnomeWorkspace))
-			if err := cmd.Run(); err != nil {
-				return mcp.NewToolResultError("failed to move window to workspace: " + err.Error()), nil
-			}
+			// Move by window ID
+			script = fmt.Sprintf(`
+				let ws = global.workspace_manager.get_workspace_by_index(%d);
+				if (ws) {
+					global.get_window_actors().forEach(a => {
+						let w = a.meta_window;
+						if (w.get_id().toString() === '%s') {
+							w.change_workspace(ws);
+						}
+					});
+				}
+			`, gnomeWorkspace, windowID)
 		} else {
-			cmd := exec.CommandContext(ctx, "wmctrl", "-r", ":ACTIVE:", "-t", fmt.Sprintf("%d", gnomeWorkspace))
-			if err := cmd.Run(); err != nil {
-				return mcp.NewToolResultError("failed to move window to workspace: " + err.Error()), nil
-			}
+			// Move focused window
+			script = fmt.Sprintf(`
+				let ws = global.workspace_manager.get_workspace_by_index(%d);
+				let w = global.display.get_focus_window();
+				if (ws && w) { w.change_workspace(ws); }
+			`, gnomeWorkspace)
+		}
+
+		cmd := exec.CommandContext(ctx, "gdbus", "call", "--session",
+			"--dest=org.gnome.Shell",
+			"--object-path=/org/gnome/Shell",
+			"--method=org.gnome.Shell.Eval",
+			script)
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			return mcp.NewToolResultError("failed to move window to workspace: " + err.Error() + " - " + string(output)), nil
 		}
 		return mcp.NewToolResultText(fmt.Sprintf("Window moved to workspace %d", int(workspace))), nil
 
@@ -775,11 +959,22 @@ func (m *MCPServer) handleSwitchToWorkspace(ctx context.Context, request mcp.Cal
 		return mcp.NewToolResultText(fmt.Sprintf("Switched to workspace %d", int(workspace))), nil
 
 	case "gnome":
+		// Use gdbus to execute JavaScript in GNOME Shell (Wayland-compatible)
 		// GNOME uses 0-indexed workspaces internally
 		gnomeWorkspace := int(workspace) - 1
-		cmd := exec.CommandContext(ctx, "wmctrl", "-s", fmt.Sprintf("%d", gnomeWorkspace))
-		if err := cmd.Run(); err != nil {
-			return mcp.NewToolResultError("failed to switch workspace: " + err.Error()), nil
+		script := fmt.Sprintf(`
+			let ws = global.workspace_manager.get_workspace_by_index(%d);
+			if (ws) { ws.activate(global.get_current_time()); }
+		`, gnomeWorkspace)
+
+		cmd := exec.CommandContext(ctx, "gdbus", "call", "--session",
+			"--dest=org.gnome.Shell",
+			"--object-path=/org/gnome/Shell",
+			"--method=org.gnome.Shell.Eval",
+			script)
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			return mcp.NewToolResultError("failed to switch workspace: " + err.Error() + " - " + string(output)), nil
 		}
 		return mcp.NewToolResultText(fmt.Sprintf("Switched to workspace %d", int(workspace))), nil
 
@@ -806,12 +1001,32 @@ func (m *MCPServer) handleGetWorkspaces(ctx context.Context, request mcp.CallToo
 		return mcp.NewToolResultText(formatted), nil
 
 	case "gnome":
-		cmd := exec.CommandContext(ctx, "wmctrl", "-d")
-		output, err := cmd.Output()
+		// Use gdbus to execute JavaScript in GNOME Shell (Wayland-compatible)
+		script := `
+			let wm = global.workspace_manager;
+			let result = [];
+			for (let i = 0; i < wm.get_n_workspaces(); i++) {
+				let ws = wm.get_workspace_by_index(i);
+				let active = ws === wm.get_active_workspace();
+				result.push((i + 1) + (active ? ' *' : '  ') + ' Workspace ' + (i + 1));
+			}
+			result.join('\\n');
+		`
+
+		cmd := exec.CommandContext(ctx, "gdbus", "call", "--session",
+			"--dest=org.gnome.Shell",
+			"--object-path=/org/gnome/Shell",
+			"--method=org.gnome.Shell.Eval",
+			script)
+		output, err := cmd.CombinedOutput()
 		if err != nil {
-			return mcp.NewToolResultError("failed to get workspaces: " + err.Error()), nil
+			return mcp.NewToolResultError("failed to get workspaces: " + err.Error() + " - " + string(output)), nil
 		}
-		return mcp.NewToolResultText(string(output)), nil
+
+		// gdbus returns: (bool success, 'result')
+		// We need to parse the result string from the gdbus output
+		result := string(output)
+		return mcp.NewToolResultText(result), nil
 
 	default:
 		return mcp.NewToolResultError("unsupported desktop environment"), nil
@@ -918,10 +1133,10 @@ func formatSwayWorkspaces(data []byte) string {
 
 // ServeHTTP serves MCP requests
 func (m *MCPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	m.sseServer.ServeHTTP(w, r)
+	m.httpServer.ServeHTTP(w, r)
 }
 
-// Run starts the MCP SSE server
+// Run starts the MCP server
 func (m *MCPServer) Run(ctx context.Context, port string) error {
 	if port == "" {
 		port = "9877"
@@ -929,7 +1144,7 @@ func (m *MCPServer) Run(ctx context.Context, port string) error {
 
 	httpServer := &http.Server{
 		Addr:    ":" + port,
-		Handler: m.sseServer,
+		Handler: m.httpServer,
 	}
 
 	m.logger.Info("MCP server starting", "port", port)

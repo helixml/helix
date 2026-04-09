@@ -52,6 +52,21 @@ func (s *PostgresStore) GetRepositoriesCount(ctx context.Context, query *GetRepo
 	return count, nil
 }
 
+// GetGitRepositoryByExternalURL looks up an external repository by its URL within an organization.
+func (s *PostgresStore) GetGitRepositoryByExternalURL(ctx context.Context, orgID, externalURL string) (*types.GitRepository, error) {
+	var repo types.GitRepository
+	err := s.gdb.WithContext(ctx).
+		Where("organization_id = ? AND external_url = ? AND is_external = true", orgID, externalURL).
+		First(&repo).Error
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	return &repo, nil
+}
+
 // ListGitRepositories lists all git repositories, optionally filtered by owner
 func (s *PostgresStore) ListGitRepositories(ctx context.Context, request *types.ListGitRepositoriesRequest) ([]*types.GitRepository, error) {
 	var repos []*types.GitRepository
@@ -86,6 +101,21 @@ func (s *PostgresStore) UpdateGitRepository(ctx context.Context, repo *types.Git
 
 	repo.UpdatedAt = time.Now()
 	return s.gdb.WithContext(ctx).Model(&types.GitRepository{}).Where("id = ?", repo.ID).Save(repo).Error
+}
+
+// CountGitRepositoriesByKoditRepoID counts how many git repositories (excluding
+// excludeRepoID) reference the given kodit_repo_id in their JSONB metadata.
+func (s *PostgresStore) CountGitRepositoriesByKoditRepoID(ctx context.Context, koditRepoID int64, excludeRepoID string) (int64, error) {
+	var count int64
+	err := s.gdb.WithContext(ctx).
+		Model(&types.GitRepository{}).
+		Where("id != ?", excludeRepoID).
+		Where("(metadata->>'kodit_repo_id')::bigint = ?", koditRepoID).
+		Count(&count).Error
+	if err != nil {
+		return 0, fmt.Errorf("count git repositories by kodit repo ID: %w", err)
+	}
+	return count, nil
 }
 
 // DeleteGitRepository deletes a git repository record

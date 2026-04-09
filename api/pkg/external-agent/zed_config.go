@@ -42,14 +42,14 @@ type AgentConfig struct {
 	InlineAssistantModel   *ModelConfig `json:"inline_assistant_model,omitempty"`
 	CommitMessageModel     *ModelConfig `json:"commit_message_model,omitempty"`
 	ThreadSummaryModel     *ModelConfig `json:"thread_summary_model,omitempty"`
-	AlwaysAllowToolActions bool         `json:"always_allow_tool_actions"`
+	AlwaysAllowToolActions bool         `json:"always_allow_tool_actions"` // Deprecated: mapped to tool_permissions.default="allow" by handler
 	ShowOnboarding         bool         `json:"show_onboarding"`
 	AutoOpenPanel          bool         `json:"auto_open_panel"`
 }
 
 type LanguageModelConfig struct {
 	APIURL string `json:"api_url"`           // Custom API URL (empty = use default provider URL)
-	APIKey string `json:"api_key,omitempty"` // API key for authentication
+	APIKey string `json:"api_key,omitempty"` // Deprecated: Zed reads from env vars (ANTHROPIC_API_KEY, OPENAI_API_KEY)
 }
 
 type AssistantSettings struct {
@@ -69,10 +69,8 @@ type ContextServerConfig struct {
 	Env     map[string]string `json:"env,omitempty"`
 
 	// HTTP-based MCP server (direct connection)
-	// Zed uses "source" field to distinguish transport type:
-	// - "http" = Streamable HTTP transport (MCP 2025-03-26+)
-	// - "sse" = Legacy SSE transport (MCP 2024-11-05)
-	Source  string            `json:"source,omitempty"`
+	// Upstream Zed uses untagged enum — presence of "url" field indicates Http variant.
+	// The "source" field is no longer used (deprecated in upstream Zed).
 	URL     string            `json:"url,omitempty"`
 	Headers map[string]string `json:"headers,omitempty"`
 }
@@ -177,14 +175,14 @@ func GenerateZedMCPConfig(
 	// IMPORTANT: Anthropic and OpenAI have different URL conventions in Zed:
 	// - Anthropic: base URL only (Zed appends /v1/messages)
 	// - OpenAI: base URL + /v1 (Zed appends /chat/completions)
+	// api_key is NOT set here — Zed reads ANTHROPIC_API_KEY / OPENAI_API_KEY from
+	// container env vars (set by DesktopAgentAPIEnvVars). Only api_url routing is needed.
 	config.LanguageModels = map[string]LanguageModelConfig{
 		"anthropic": {
 			APIURL: helixAPIURL, // Zed appends /v1/messages
-			APIKey: helixToken,  // Helix token for authentication
 		},
 		"openai": {
 			APIURL: helixAPIURL + "/v1", // Zed appends /chat/completions
-			APIKey: helixToken,          // Helix token for authentication
 		},
 	}
 
@@ -205,10 +203,9 @@ func GenerateZedMCPConfig(
 	// Only add if Kodit is enabled - otherwise Zed will get 501 errors
 	if koditEnabled {
 		// The Helix MCP gateway at /api/v1/mcp/kodit authenticates users and forwards to Kodit
-		koditMCPURL := fmt.Sprintf("%s/api/v1/mcp/kodit", helixAPIURL)
+		koditMCPURL := fmt.Sprintf("%s/api/v1/mcp/kodit?session_id=%s", helixAPIURL, sessionID)
 		config.ContextServers["kodit"] = ContextServerConfig{
-			Source: "http",
-			URL:    koditMCPURL,
+			URL: koditMCPURL,
 			Headers: map[string]string{
 				"Authorization": fmt.Sprintf("Bearer %s", helixToken),
 			},
@@ -216,12 +213,17 @@ func GenerateZedMCPConfig(
 	}
 
 	// 3. Add desktop MCP server (screenshot, clipboard, input, window management tools)
-	// This runs locally in the sandbox container on port 9878 (desktop-bridge MCP server)
+	// Proxied through the Helix API gateway so it works in both local dev and SaaS (app.helix.ml).
+	// The gateway authenticates the request and forwards it via RevDial to the desktop HTTP
+	// server's /mcp route inside the sandbox container.
 	// Provides take_screenshot, save_screenshot, type_text, mouse_click, get_clipboard, set_clipboard,
 	// list_windows, focus_window, maximize_window, tile_window, move_to_workspace, switch_to_workspace, get_workspaces
+	desktopMCPURL := fmt.Sprintf("%s/api/v1/mcp/desktop?session_id=%s", helixAPIURL, sessionID)
 	config.ContextServers["helix-desktop"] = ContextServerConfig{
-		Source: "http",
-		URL:    "http://localhost:9878/mcp", // Desktop MCP server (desktop-bridge runs on 9878)
+		URL: desktopMCPURL,
+		Headers: map[string]string{
+			"Authorization": fmt.Sprintf("Bearer %s", helixToken),
+		},
 	}
 
 	// 4. Add session MCP server (session navigation and context tools)
@@ -230,8 +232,7 @@ func GenerateZedMCPConfig(
 	// search_all_sessions, list_sessions, get_turn, get_turns, get_interaction
 	sessionMCPURL := fmt.Sprintf("%s/api/v1/mcp/session?session_id=%s", helixAPIURL, sessionID)
 	config.ContextServers["helix-session"] = ContextServerConfig{
-		Source: "http",
-		URL:    sessionMCPURL,
+		URL: sessionMCPURL,
 		Headers: map[string]string{
 			"Authorization": fmt.Sprintf("Bearer %s", helixToken),
 		},
@@ -244,7 +245,16 @@ func GenerateZedMCPConfig(
 	// See: https://developer.chrome.com/blog/chrome-devtools-mcp
 	config.ContextServers["chrome-devtools"] = ContextServerConfig{
 		Command: "npx",
-		Args:    []string{"chrome-devtools-mcp@latest"},
+		// Stealth flags: make Chrome less detectable as automation.
+		// Disables navigator.webdriver, suppresses "Chrome is being controlled" infobar,
+		// and prevents extension probing (e.g. LinkedIn bot detection).
+		Args: []string{
+			"chrome-devtools-mcp@latest",
+			"--chrome-arg=--disable-blink-features=AutomationControlled",
+			"--chrome-arg=--no-first-run",
+			"--chrome-arg=--disable-infobars",
+			"--chrome-arg=--disable-extensions",
+		},
 		Env: map[string]string{
 			// Use headless mode in sandbox containers (no visible browser window)
 			"CHROME_DEVTOOLS_MCP_HEADLESS": "true",
@@ -367,8 +377,7 @@ func mcpToContextServerWithProxy(ctx context.Context, mcp types.AssistantMCP, us
 		// The proxy always exposes as Streamable HTTP (the modern protocol)
 		// It handles SSE transport internally when connecting to legacy servers
 		return ContextServerConfig{
-			Source: "http",
-			URL:    proxyURL,
+			URL: proxyURL,
 			Headers: map[string]string{
 				"Authorization": fmt.Sprintf("Bearer %s", helixToken),
 			},
@@ -452,7 +461,15 @@ func normalizeModelIDForZed(modelID string) string {
 		return modelID
 	}
 
-	// Claude 4.5 models (new naming: claude-opus-4-5, claude-sonnet-4-5, claude-haiku-4-5)
+	// Claude 4.6 models
+	if strings.HasPrefix(modelID, "claude-opus-4-6") {
+		return "claude-opus-4-6-latest"
+	}
+	if strings.HasPrefix(modelID, "claude-sonnet-4-6") {
+		return "claude-sonnet-4-6-latest"
+	}
+
+	// Claude 4.5 models
 	if strings.HasPrefix(modelID, "claude-opus-4-5") {
 		return "claude-opus-4-5-latest"
 	}
@@ -461,6 +478,19 @@ func normalizeModelIDForZed(modelID string) string {
 	}
 	if strings.HasPrefix(modelID, "claude-haiku-4-5") {
 		return "claude-haiku-4-5-latest"
+	}
+
+	// Claude 4.1 models (must come before generic claude-opus-4 / claude-sonnet-4)
+	if strings.HasPrefix(modelID, "claude-opus-4-1") {
+		return "claude-opus-4-1-latest"
+	}
+
+	// Claude 4.0 models (generic — catches claude-opus-4-20250514, claude-sonnet-4-20250514, etc.)
+	if strings.HasPrefix(modelID, "claude-opus-4") {
+		return "claude-opus-4-latest"
+	}
+	if strings.HasPrefix(modelID, "claude-sonnet-4") {
+		return "claude-sonnet-4-latest"
 	}
 
 	// Claude 3.x models (old naming: claude-3-5-sonnet, claude-3-5-haiku, etc.)

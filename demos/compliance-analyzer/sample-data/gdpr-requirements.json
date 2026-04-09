@@ -1,0 +1,72 @@
+[
+  {
+    "id": "Art.6",
+    "category": "Lawful Basis for Processing",
+    "title": "Lawful Basis for Processing",
+    "description": "The privacy policy must specify the lawful basis for each type of personal data processing (e.g., consent, contract, legitimate interest, legal obligation).",
+    "coveredLooksLike": "Clear statement of which legal basis applies to each processing activity, such as 'We process your payment data to fulfil our contract with you' or 'We rely on your consent to send marketing emails.'"
+  },
+  {
+    "id": "Art.7",
+    "category": "Lawful Basis for Processing",
+    "title": "Conditions for Consent",
+    "description": "Where consent is the lawful basis, the policy must explain how consent is obtained, that it can be withdrawn at any time, and how to withdraw it.",
+    "coveredLooksLike": "Description of how users give consent (e.g., opt-in checkbox), a statement that consent can be withdrawn at any time, and clear instructions on how to withdraw (e.g., 'Click unsubscribe or email privacy@company.com')."
+  },
+  {
+    "id": "Art.13.1a",
+    "category": "Transparency and Information",
+    "title": "Identity and Contact Details of Controller",
+    "description": "The privacy policy must identify who the data controller is, including company name and contact details.",
+    "coveredLooksLike": "Company legal name, registered address, and a contact email or phone number for data protection enquiries, e.g., 'Acme Ltd, 123 High Street, London. Contact: privacy@acme.com.'"
+  },
+  {
+    "id": "Art.13.1c",
+    "category": "Transparency and Information",
+    "title": "Purposes of Processing",
+    "description": "The privacy policy must clearly describe all purposes for which personal data is collected and processed.",
+    "coveredLooksLike": "A list or table explaining each processing purpose, such as 'to process your orders,' 'to personalise your experience,' 'to send marketing communications,' 'to detect fraud.'"
+  },
+  {
+    "id": "Art.13.1f",
+    "category": "Data Sharing and Transfers",
+    "title": "International Data Transfers",
+    "description": "If personal data is transferred outside the EEA, the policy must disclose the countries involved and the safeguards in place (e.g., adequacy decisions, Standard Contractual Clauses).",
+    "coveredLooksLike": "Statement such as 'Your data may be transferred to the United States. We rely on Standard Contractual Clauses approved by the European Commission to protect your data.'"
+  },
+  {
+    "id": "Art.13.2a",
+    "category": "Data Retention",
+    "title": "Data Retention Periods",
+    "description": "The policy must state how long personal data is retained, or the criteria used to determine the retention period.",
+    "coveredLooksLike": "Specific retention periods per data type, e.g., 'Account data: retained for the duration of your account plus 2 years. Transaction records: 7 years for tax purposes. Marketing preferences: until you unsubscribe.'"
+  },
+  {
+    "id": "Art.15",
+    "category": "Data Subject Rights",
+    "title": "Right of Access",
+    "description": "The policy must inform individuals of their right to request a copy of their personal data held by the organisation.",
+    "coveredLooksLike": "Statement that users can request access to their data, how to make the request, expected response time (within 30 days), and that the first copy is provided free of charge."
+  },
+  {
+    "id": "Art.17",
+    "category": "Data Subject Rights",
+    "title": "Right to Erasure (Right to be Forgotten)",
+    "description": "The policy must inform individuals of their right to request deletion of their personal data, and the circumstances under which this right applies.",
+    "coveredLooksLike": "Explanation that users can request deletion of their data, circumstances where this applies (e.g., data no longer necessary, consent withdrawn), and any exceptions (e.g., legal retention obligations)."
+  },
+  {
+    "id": "Art.32",
+    "category": "Security and Privacy by Design",
+    "title": "Security of Processing",
+    "description": "The policy must describe the technical and organisational security measures in place to protect personal data.",
+    "coveredLooksLike": "Description of security measures such as encryption (at rest and in transit), access controls, regular security testing, staff training, and incident response procedures."
+  },
+  {
+    "id": "Art.33",
+    "category": "Security and Privacy by Design",
+    "title": "Data Breach Notification",
+    "description": "The policy should explain what happens in the event of a personal data breach, including notification to authorities and affected individuals.",
+    "coveredLooksLike": "Statement that the organisation will notify the supervisory authority within 72 hours of becoming aware of a breach, and will notify affected individuals without undue delay if the breach poses a high risk."
+  }
+]

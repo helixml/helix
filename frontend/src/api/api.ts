@@ -114,20 +114,13 @@ export interface HydraGPUInfo {
   vendor?: string;
 }
 
-export interface KoditRepositoryStatusSummaryAttributes {
-  /** Message Error message if failed */
-  message?: string;
-  /** Status Overall indexing status */
-  status?: string;
-  /** UpdatedAt Most recent activity timestamp */
-  updated_at?: string;
-}
-
-export interface KoditRepositoryStatusSummaryData {
-  /** Attributes Attributes for repository status summary. */
-  attributes?: KoditRepositoryStatusSummaryAttributes;
-  id?: string;
-  type?: string;
+export interface McpIcon {
+  /** Optional MIME type (e.g., "image/png", "image/svg+xml") */
+  mimeType?: string;
+  /** Optional size specifications (e.g., ["48x48"], ["any"] for SVG) */
+  sizes?: string[];
+  /** URI pointing to the icon resource (HTTPS URL or data URI) */
+  src?: string;
 }
 
 export interface McpMeta {
@@ -147,17 +140,31 @@ export interface McpMeta {
   progressToken?: any;
 }
 
+export enum McpTaskSupport {
+  TaskSupportForbidden = "forbidden",
+  TaskSupportOptional = "optional",
+  TaskSupportRequired = "required",
+}
+
 export interface McpTool {
   /** Meta is a metadata object that is reserved by MCP for storing additional information. */
   _meta?: McpMeta;
   /** Optional properties describing tool behavior */
   annotations?: McpToolAnnotation;
+  /** Support for deferred loading */
+  defer_loading?: boolean;
   /** A human-readable description of the tool. */
   description?: string;
+  /** Execution describes execution behavior for the tool */
+  execution?: McpToolExecution;
+  /** Icons provides visual identifiers for the tool */
+  icons?: McpIcon[];
   /** A JSON Schema object defining the expected parameters for the tool. */
   inputSchema?: McpToolInputSchema;
   /** The name of the tool. */
   name?: string;
+  /** A JSON Schema object defining the expected output returned by the tool . */
+  outputSchema?: McpToolOutputSchema;
 }
 
 export interface McpToolAnnotation {
@@ -173,8 +180,22 @@ export interface McpToolAnnotation {
   title?: string;
 }
 
+export interface McpToolExecution {
+  /** TaskSupport indicates whether the tool supports task augmentation. */
+  taskSupport?: McpTaskSupport;
+}
+
 export interface McpToolInputSchema {
   $defs?: Record<string, any>;
+  additionalProperties?: any;
+  properties?: Record<string, any>;
+  required?: string[];
+  type?: string;
+}
+
+export interface McpToolOutputSchema {
+  $defs?: Record<string, any>;
+  additionalProperties?: any;
   properties?: Record<string, any>;
   required?: string[];
   type?: string;
@@ -289,6 +310,13 @@ export interface OpenaiChatCompletionMessage {
    * - https://github.com/openai/openai-cookbook/blob/main/examples/How_to_count_tokens_with_tiktoken.ipynb
    */
   name?: string;
+  /**
+   * This property is used for the "reasoning" feature supported by deepseek-reasoner
+   * which is not in the official documentation.
+   * the doc from deepseek:
+   * - https://api-docs.deepseek.com/api/create-chat-completion#responses
+   */
+  reasoning_content?: string;
   refusal?: string;
   role?: string;
   /** For Role=tool prompts this should be set to the ID given in the assistant's prior request to call a tool. */
@@ -298,11 +326,26 @@ export interface OpenaiChatCompletionMessage {
 }
 
 export interface OpenaiChatCompletionRequest {
+  /**
+   * ChatTemplateKwargs provides a way to add non-standard parameters to the request body.
+   * Additional kwargs to pass to the template renderer. Will be accessible by the chat template.
+   * Such as think mode for qwen3. "chat_template_kwargs": {"enable_thinking": false}
+   * https://qwen.readthedocs.io/en/latest/deployment/vllm.html#thinking-non-thinking-modes
+   */
+  chat_template_kwargs?: Record<string, any>;
   frequency_penalty?: number;
   /** Deprecated: use ToolChoice instead. */
   function_call?: any;
   /** Deprecated: use Tools instead. */
   functions?: OpenaiFunctionDefinition[];
+  /**
+   * GuidedChoice is a vLLM-specific extension that restricts the model's output
+   * to one of the predefined string choices provided in this field. This feature
+   * is used to constrain the model's responses to a controlled set of options,
+   * ensuring predictable and consistent outputs in scenarios where specific
+   * choices are required.
+   */
+  guided_choice?: string[];
   /**
    * LogitBias is must be a token id string (specified by their token ID in the tokenizer), not a word string.
    * incorrect: `"logit_bias":{"You": 6}`, correct: `"logit_bias":{"1639": 6}`
@@ -323,7 +366,7 @@ export interface OpenaiChatCompletionRequest {
   /**
    * MaxTokens The maximum number of tokens that can be generated in the chat completion.
    * This value can be used to control costs for text generated via API.
-   * This value is now deprecated in favor of max_completion_tokens, and is not compatible with o1 series models.
+   * Deprecated: use MaxCompletionTokens. Not compatible with o1-series models.
    * refs: https://platform.openai.com/docs/api-reference/chat/create#chat-create-max_tokens
    */
   max_tokens?: number;
@@ -334,11 +377,22 @@ export interface OpenaiChatCompletionRequest {
   n?: number;
   /** Disable the default behavior of parallel tool calls by setting it: false. */
   parallel_tool_calls?: any;
+  /** Configuration for a predicted output. */
+  prediction?: OpenaiPrediction;
   presence_penalty?: number;
   /** Controls effort on reasoning for reasoning models. It can be set to "low", "medium", or "high". */
   reasoning_effort?: string;
   response_format?: OpenaiChatCompletionResponseFormat;
+  /**
+   * A stable identifier used to help detect users of your application that may be violating OpenAI's usage policies.
+   * The IDs should be a string that uniquely identifies each user.
+   * We recommend hashing their username or email address, in order to avoid sending us any identifying information.
+   * https://platform.openai.com/docs/api-reference/chat/create#chat_create-safety_identifier
+   */
+  safety_identifier?: string;
   seed?: number;
+  /** Specifies the latency tier to use for processing the request. */
+  service_tier?: OpenaiServiceTier;
   stop?: string[];
   /**
    * Store can be set to true to store the output of this completion request for use in distillations and evals.
@@ -360,6 +414,14 @@ export interface OpenaiChatCompletionRequest {
   top_logprobs?: number;
   top_p?: number;
   user?: string;
+  /**
+   * Verbosity determines how many output tokens are generated. Lowering the number of
+   * tokens reduces overall latency. It can be set to "low", "medium", or "high".
+   * Note: This field is only confirmed to work with gpt-5, gpt-5-mini and gpt-5-nano.
+   * Also, it is not in the API reference of chat completion at the time of writing,
+   * though it is supported by the API.
+   */
+  verbosity?: string;
 }
 
 export interface OpenaiChatCompletionResponse {
@@ -369,6 +431,7 @@ export interface OpenaiChatCompletionResponse {
   model?: string;
   object?: string;
   prompt_filter_results?: OpenaiPromptFilterResult[];
+  service_tier?: OpenaiServiceTier;
   system_fingerprint?: string;
   usage?: OpenaiUsage;
 }
@@ -408,8 +471,10 @@ export enum OpenaiChatMessagePartType {
 }
 
 export interface OpenaiCompletionTokensDetails {
+  accepted_prediction_tokens?: number;
   audio_tokens?: number;
   reasoning_tokens?: number;
+  rejected_prediction_tokens?: number;
 }
 
 export interface OpenaiContentFilterResults {
@@ -483,6 +548,11 @@ export interface OpenaiLogProbs {
   content?: OpenaiLogProb[];
 }
 
+export interface OpenaiPrediction {
+  content?: string;
+  type?: string;
+}
+
 export interface OpenaiProfanity {
   detected?: boolean;
   filtered?: boolean;
@@ -501,6 +571,13 @@ export interface OpenaiPromptTokensDetails {
 export interface OpenaiSelfHarm {
   filtered?: boolean;
   severity?: string;
+}
+
+export enum OpenaiServiceTier {
+  ServiceTierAuto = "auto",
+  ServiceTierDefault = "default",
+  ServiceTierFlex = "flex",
+  ServiceTierPriority = "priority",
 }
 
 export interface OpenaiSexual {
@@ -583,10 +660,15 @@ export interface ServerBatchTaskProgressResponse {
   tasks?: Record<string, ServerTaskProgressResponse>;
 }
 
+export interface ServerBatchTaskUsageMetric {
+  date?: string;
+  total_tokens?: number;
+}
+
 export interface ServerBatchTaskUsageResponse {
   project_id?: string;
   /** keyed by task_id */
-  tasks?: Record<string, TypesAggregatedUsageMetric[]>;
+  tasks?: Record<string, ServerBatchTaskUsageMetric[]>;
 }
 
 export interface ServerClaudeLoginSessionResponse {
@@ -603,6 +685,8 @@ export interface ServerClaudePollLoginResponse {
   /** Raw credentials JSON */
   credentials?: string;
   found?: boolean;
+  /** OAuth URL for native browser */
+  url?: string;
 }
 
 export interface ServerClientBufferStats {
@@ -741,6 +825,328 @@ export interface ServerInteractionWithContext {
   turn?: number;
 }
 
+export interface ServerKoditAdminActiveTaskDTO {
+  current?: number;
+  message?: string;
+  operation?: string;
+  repo_name?: string;
+  repository_id?: number;
+  state?: string;
+  total?: number;
+  updated_at?: string;
+}
+
+export interface ServerKoditAdminBatchRequest {
+  ids?: number[];
+}
+
+export interface ServerKoditAdminBatchResponse {
+  failed?: ServerKoditBatchError[];
+  succeeded?: number[];
+}
+
+export interface ServerKoditAdminPaginationMeta {
+  page?: number;
+  per_page?: number;
+  total?: number;
+  total_pages?: number;
+}
+
+export interface ServerKoditAdminPendingTaskDTO {
+  created_at?: string;
+  id?: number;
+  operation?: string;
+  priority?: number;
+}
+
+export interface ServerKoditAdminQueueListResponse {
+  active_tasks?: ServerKoditAdminActiveTaskDTO[];
+  data?: ServerKoditAdminQueueTaskDTO[];
+  meta?: ServerKoditAdminPaginationMeta;
+  stats?: ServerKoditAdminQueueStats;
+}
+
+export interface ServerKoditAdminQueueStats {
+  by_operation?: Record<string, number>;
+  by_priority_level?: Record<string, number>;
+  newest_task_time?: string;
+  oldest_task_age?: string;
+  oldest_task_time?: string;
+  total?: number;
+}
+
+export interface ServerKoditAdminQueueTaskDTO {
+  created_at?: string;
+  id?: number;
+  operation?: string;
+  priority?: number;
+  repo_name?: string;
+  repository_id?: number;
+}
+
+export interface ServerKoditAdminRepoAttributes {
+  created_at?: string;
+  helix_org_id?: string;
+  helix_repo_id?: string;
+  helix_repo_name?: string;
+  remote_url?: string;
+  status?: string;
+  status_message?: string;
+  updated_at?: string;
+}
+
+export interface ServerKoditAdminRepoDTO {
+  attributes?: ServerKoditAdminRepoAttributes;
+  id?: string;
+  type?: string;
+}
+
+export interface ServerKoditAdminRepoDetailAttributes {
+  branch_count?: number;
+  commit_count?: number;
+  created_at?: string;
+  default_branch?: string;
+  enrichment_count?: number;
+  helix_org_id?: string;
+  helix_org_name?: string;
+  helix_repo_id?: string;
+  helix_repo_name?: string;
+  /** Last time Kodit scanned this repository */
+  last_scanned_at?: string;
+  latest_commit_author?: string;
+  latest_commit_date?: string;
+  latest_commit_message?: string;
+  /** Latest commit tracked by Kodit */
+  latest_commit_sha?: string;
+  remote_url?: string;
+  status?: string;
+  status_message?: string;
+  tag_count?: number;
+  updated_at?: string;
+}
+
+export interface ServerKoditAdminRepoDetailDTO {
+  attributes?: ServerKoditAdminRepoDetailAttributes;
+  id?: string;
+  type?: string;
+}
+
+export interface ServerKoditAdminRepoDetailResponse {
+  data?: ServerKoditAdminRepoDetailDTO;
+}
+
+export interface ServerKoditAdminRepoListResponse {
+  data?: ServerKoditAdminRepoDTO[];
+  meta?: ServerKoditAdminPaginationMeta;
+}
+
+export interface ServerKoditAdminRepositoryTasksResponse {
+  pending_tasks?: ServerKoditAdminPendingTaskDTO[];
+  statuses?: ServerKoditAdminTaskStatusDTO[];
+}
+
+export interface ServerKoditAdminStatsResponse {
+  commits?: number;
+  enrichments?: number;
+  pending_tasks?: number;
+  repositories?: number;
+}
+
+export interface ServerKoditAdminTaskStatusDTO {
+  current?: number;
+  error?: string;
+  message?: string;
+  operation?: string;
+  state?: string;
+  total?: number;
+  updated_at?: string;
+}
+
+export interface ServerKoditAdminUpdatePriorityRequest {
+  priority?: number;
+}
+
+export interface ServerKoditBatchError {
+  id?: number;
+  message?: string;
+}
+
+export interface ServerKoditCommitAttributes {
+  authored_at?: string;
+  committed_at?: string;
+  message?: string;
+  sha?: string;
+}
+
+export interface ServerKoditCommitDTO {
+  attributes?: ServerKoditCommitAttributes;
+  id?: string;
+  type?: string;
+}
+
+export interface ServerKoditEnrichmentAttributes {
+  content?: string;
+  created_at?: string;
+  subtype?: string;
+  type?: string;
+  updated_at?: string;
+}
+
+export interface ServerKoditEnrichmentDTO {
+  attributes?: ServerKoditEnrichmentAttributes;
+  commit_sha?: string;
+  id?: string;
+  type?: string;
+}
+
+export interface ServerKoditEnrichmentListResponse {
+  data?: ServerKoditEnrichmentDTO[];
+}
+
+export interface ServerKoditEnrichmentsMeta {
+  commit_sha?: string;
+  count?: number;
+  enrichment_type?: string;
+  kodit_repo_id?: number;
+  page?: number;
+  per_page?: number;
+  total?: number;
+  total_pages?: number;
+}
+
+export interface ServerKoditFileContentDTO {
+  commit_sha?: string;
+  content?: string;
+  path?: string;
+}
+
+export interface ServerKoditFileContentResponse {
+  data?: ServerKoditFileContentDTO;
+  links?: Record<string, string>;
+}
+
+export interface ServerKoditFileEntryDTO {
+  links?: Record<string, string>;
+  path?: string;
+  size?: number;
+}
+
+export interface ServerKoditFileResultDTO {
+  language?: string;
+  lines?: string;
+  links?: Record<string, string>;
+  path?: string;
+  preview?: string;
+  score?: number;
+}
+
+export interface ServerKoditFilesMeta {
+  count?: number;
+  pattern?: string;
+}
+
+export interface ServerKoditFilesResponse {
+  data?: ServerKoditFileEntryDTO[];
+  links?: Record<string, string>;
+  meta?: ServerKoditFilesMeta;
+}
+
+export interface ServerKoditGrepMatchDTO {
+  content?: string;
+  line?: number;
+}
+
+export interface ServerKoditGrepMeta {
+  count?: number;
+  glob?: string;
+  limit?: number;
+  pattern?: string;
+}
+
+export interface ServerKoditGrepResponse {
+  data?: ServerKoditGrepResultDTO[];
+  links?: Record<string, string>;
+  meta?: ServerKoditGrepMeta;
+}
+
+export interface ServerKoditGrepResultDTO {
+  language?: string;
+  links?: Record<string, string>;
+  matches?: ServerKoditGrepMatchDTO[];
+  path?: string;
+}
+
+export interface ServerKoditIndexingStatusAttributes {
+  message?: string;
+  status?: string;
+  tasks_active?: number;
+  tasks_completed?: number;
+  tasks_failed?: number;
+  tasks_pending?: number;
+  tasks_total?: number;
+  updated_at?: string;
+}
+
+export interface ServerKoditIndexingStatusDTO {
+  data?: ServerKoditIndexingStatusData;
+}
+
+export interface ServerKoditIndexingStatusData {
+  attributes?: ServerKoditIndexingStatusAttributes;
+  id?: string;
+  type?: string;
+}
+
+export interface ServerKoditRepoEnrichmentsResponse {
+  data?: ServerKoditEnrichmentDTO[];
+  links?: Record<string, string>;
+  meta?: ServerKoditEnrichmentsMeta;
+}
+
+export interface ServerKoditSearchMeta {
+  count?: number;
+  language?: string;
+  limit?: number;
+  query?: string;
+}
+
+export interface ServerKoditSearchResponse {
+  data?: ServerKoditFileResultDTO[];
+  links?: Record<string, string>;
+  meta?: ServerKoditSearchMeta;
+}
+
+export interface ServerKoditSearchResultDTO {
+  content?: string;
+  id?: string;
+  language?: string;
+  type?: string;
+}
+
+export interface ServerKoditWikiPageDTO {
+  content?: string;
+  slug?: string;
+  title?: string;
+}
+
+export interface ServerKoditWikiPageResponse {
+  data?: ServerKoditWikiPageDTO;
+  links?: Record<string, string>;
+}
+
+export interface ServerKoditWikiTreeNodeDTO {
+  children?: ServerKoditWikiTreeNodeDTO[];
+  links?: Record<string, string>;
+  path?: string;
+  slug?: string;
+  title?: string;
+}
+
+export interface ServerKoditWikiTreeResponse {
+  data?: ServerKoditWikiTreeNodeDTO[];
+  links?: Record<string, string>;
+}
+
 export interface ServerLicenseKeyRequest {
   license_key?: string;
 }
@@ -781,6 +1187,10 @@ export interface ServerPhaseProgress {
   session_id?: string;
   started_at?: string;
   status?: string;
+}
+
+export interface ServerPinnedProjectsResponse {
+  pinned_project_ids?: string[];
 }
 
 export interface ServerPromptPinRequest {
@@ -878,6 +1288,13 @@ export interface ServerSandboxInstanceInfo {
   id?: string;
   session_id?: string;
   status?: string;
+}
+
+export interface ServerSessionClaudeCredentialsResponse {
+  /** "oauth" or "setup_token" */
+  credential_type?: string;
+  oauth_credentials?: TypesClaudeOAuthCredentials;
+  setup_token?: string;
 }
 
 export interface ServerSessionSandboxStateResponse {
@@ -1002,38 +1419,8 @@ export interface ServerVideoStreamingStats {
   gop_buffer_size?: number;
 }
 
-export interface ServicesKoditEnrichmentAttributes {
-  content?: string;
-  created_at?: string;
-  subtype?: string;
-  type?: string;
-  updated_at?: string;
-}
-
-export interface ServicesKoditEnrichmentData {
-  attributes?: ServicesKoditEnrichmentAttributes;
-  /** Added for frontend */
-  commit_sha?: string;
-  id?: string;
-  type?: string;
-}
-
-export interface ServicesKoditEnrichmentListResponse {
-  data?: ServicesKoditEnrichmentData[];
-}
-
-export interface ServicesKoditIndexingStatus {
-  /** Data Data for repository status summary response. */
-  data?: KoditRepositoryStatusSummaryData;
-}
-
-export interface ServicesKoditSearchResult {
-  content?: string;
-  /** File path from DerivesFrom */
-  file_path?: string;
-  id?: string;
-  language?: string;
-  type?: string;
+export interface ServerAddLabelRequest {
+  label?: string;
 }
 
 export interface ServicesSampleProjectCode {
@@ -1306,8 +1693,6 @@ export interface TypesAssistantCalculator {
 }
 
 export interface TypesAssistantConfig {
-  /** AgentMode triggers the use of the agent loop (deprecated - use AgentType instead) */
-  agent_mode?: boolean;
   /** AgentType specifies the type of agent to use */
   agent_type?: TypesAgentType;
   apis?: TypesAssistantAPI[];
@@ -1503,6 +1888,40 @@ export interface TypesAssistantZapier {
   name?: string;
 }
 
+export interface TypesAttentionEvent {
+  acknowledged_at?: string;
+  created_at?: string;
+  description?: string;
+  dismissed_at?: string;
+  event_type?: TypesAttentionEventType;
+  id?: string;
+  idempotency_key?: string;
+  metadata?: number[];
+  organization_id?: string;
+  project_id?: string;
+  /** Denormalized for display without joins */
+  project_name?: string;
+  snoozed_until?: string;
+  spec_task_id?: string;
+  spec_task_name?: string;
+  title?: string;
+  user_id?: string;
+}
+
+export enum TypesAttentionEventType {
+  AttentionEventSpecsPushed = "specs_pushed",
+  AttentionEventAgentInteractionCompleted = "agent_interaction_completed",
+  AttentionEventSpecFailed = "spec_failed",
+  AttentionEventImplementationFailed = "implementation_failed",
+  AttentionEventPRReady = "pr_ready",
+}
+
+export interface TypesAttentionEventUpdateRequest {
+  acknowledge?: boolean;
+  dismiss?: boolean;
+  snoozed_until?: string;
+}
+
 export enum TypesAuditEventType {
   AuditEventTaskCreated = "task_created",
   AuditEventTaskCloned = "task_cloned",
@@ -1547,8 +1966,7 @@ export interface TypesAuditMetadata {
   /** Project information */
   project_name?: string;
   /** Pull request information */
-  pull_request_id?: string;
-  pull_request_url?: string;
+  pull_requests?: TypesRepoPR[];
   /** Hash of requirements spec content */
   requirements_spec_hash?: string;
   /** Helix session/interaction linking */
@@ -1698,6 +2116,8 @@ export interface TypesClaudeSubscription {
   access_token_expires_at?: string;
   created?: string;
   created_by?: string;
+  /** "oauth" or "setup_token" */
+  credential_type?: string;
   id?: string;
   last_error?: string;
   last_refreshed_at?: string;
@@ -1925,6 +2345,8 @@ export interface TypesCreateClaudeSubscriptionRequest {
   owner_id?: string;
   /** "user" or "org" */
   owner_type?: TypesOwnerType;
+  /** From `claude setup-token` (alternative to credentials) */
+  setup_token?: string;
 }
 
 export interface TypesCreatePullRequestRequest {
@@ -2006,8 +2428,13 @@ export interface TypesCrispTrigger {
 }
 
 export interface TypesCronTrigger {
+  /** "session" (default) or "spec_task" */
+  action?: string;
+  emails?: string[];
   enabled?: boolean;
   input?: string;
+  /** Target project for spec_task action */
+  project_id?: string;
   schedule?: string;
 }
 
@@ -2393,6 +2820,11 @@ export interface TypesGitRepository {
   external_type?: TypesExternalRepositoryType;
   /** Full URL to external repo (e.g., https://github.com/org/repo) */
   external_url?: string;
+  /**
+   * GitProviderConnectionID - references a GitProviderConnection (saved PAT) for authentication
+   * When set, the encrypted token is decrypted and used for clone/push operations
+   */
+  git_provider_connection_id?: string;
   github?: TypesGitHub;
   gitlab?: TypesGitLab;
   id?: string;
@@ -2416,12 +2848,6 @@ export interface TypesGitRepository {
   owner_id?: string;
   /** Password for the repository */
   password?: string;
-  /**
-   * Deprecated: ProjectID is maintained for backward compatibility only.
-   * Use the project_repositories junction table for many-to-many project-repo relationships.
-   * This column is kept in the database for rollback compatibility but reads should use the junction table.
-   */
-  project_id?: string;
   repo_type?: TypesGitRepositoryType;
   status?: TypesGitRepositoryStatus;
   updated_at?: string;
@@ -2439,6 +2865,8 @@ export interface TypesGitRepositoryCreateRequest {
   external_type?: TypesExternalRepositoryType;
   /** Full URL to external repo (e.g., https://github.com/org/repo) */
   external_url?: string;
+  /** GitProviderConnectionID - references a saved PAT connection for authentication */
+  git_provider_connection_id?: string;
   github?: TypesGitHub;
   gitlab?: TypesGitLab;
   initial_files?: Record<string, string>;
@@ -2582,12 +3010,26 @@ export interface TypesInteraction {
    * different ID = new distinct message (append). Persisted in DB for restart resilience.
    */
   last_zed_message_id?: string;
+  /**
+   * LastZedMessageOffset is the byte offset in ResponseMessage where the current
+   * message_id's content begins. Used by the accumulator to replace only the
+   * current message's portion during streaming updates, preserving earlier messages.
+   */
+  last_zed_message_offset?: number;
   mode?: TypesSessionMode;
   /** User prompt (text) */
   prompt_message?: string;
   /** User prompt (multi-part) */
   prompt_message_content?: TypesMessageContent;
   rag_results?: TypesSessionRAGResult[];
+  /**
+   * ResponseEntries holds the structured response as an ordered list of typed entries.
+   * Each entry is either "text" (assistant prose) or "tool_call" (tool invocation),
+   * preserving the ordering and boundaries that Zed's internal Vec<AgentThreadEntry> has.
+   * This is populated on completion alongside ResponseMessage (flat string, backward compat).
+   * The frontend uses this to render entries with the correct component in the correct order.
+   */
+  response_entries?: number[];
   /** e.g. json */
   response_format?: TypesResponseFormat;
   /** e.g. json */
@@ -3149,11 +3591,15 @@ export interface TypesOrganization {
   /** Incremented on each update */
   guidelines_version?: number;
   id?: string;
+  /** Whether the current user is a member of the organization */
+  member?: boolean;
   /** Memberships in the organization */
   memberships?: TypesOrganizationMembership[];
   name?: string;
   /** Who created the org */
   owner?: string;
+  /** Number of projects in the organization */
+  project_count?: number;
   /** Roles in the organization */
   roles?: TypesRole[];
   /** Teams in the organization */
@@ -3271,6 +3717,7 @@ export interface TypesProject {
   /** Incremented on each update */
   guidelines_version?: number;
   id?: string;
+  kodit_enabled?: boolean;
   metadata?: TypesProjectMetadata;
   /** Indexed for search prefix matching */
   name?: string;
@@ -3288,8 +3735,26 @@ export interface TypesProject {
    * Useful for project-specific tools like CI integration (e.g., drone-ci-mcp)
    */
   skills?: TypesAssistantSkills;
+  /**
+   * Startup commands from declarative project YAML (persisted) - DEPRECATED
+   * Use StartupScriptYAML instead. Kept for backward compatibility.
+   */
+  startup_install?: string;
   /** Transient field - loaded from primary code repo's .helix/startup.sh, never persisted to database */
   startup_script?: string;
+  /**
+   * StartupScriptFromYAML indicates the startup script was set via project YAML
+   * When true, the UI should show the script as read-only
+   */
+  startup_script_from_yaml?: boolean;
+  /**
+   * StartupScriptYAML is the startup script content from project YAML (persisted)
+   * This is the source of truth when StartupScriptFromYAML is true.
+   * At runtime, helix-specs/.helix/startup.sh takes precedence if it exists,
+   * otherwise this field is used as fallback.
+   */
+  startup_script_yaml?: string;
+  startup_start?: string;
   /** Computed */
   stats?: TypesProjectStats;
   /** "active", "archived", "completed" */
@@ -3297,6 +3762,44 @@ export interface TypesProject {
   technologies?: string[];
   updated_at?: string;
   user_id?: string;
+}
+
+export interface TypesProjectAgentDisplay {
+  /** Desktop environment: "ubuntu" (default GNOME) or "sway" */
+  desktop_type?: string;
+  /** Display refresh rate in Hz (default 60) */
+  fps?: number;
+  /** Resolution preset: "1080p" (default), "4k", or "5k" */
+  resolution?: string;
+}
+
+export interface TypesProjectAgentSpec {
+  credentials?: string;
+  display?: TypesProjectAgentDisplay;
+  model?: string;
+  name?: string;
+  provider?: string;
+  runtime?: string;
+  tools?: TypesProjectAgentTools;
+}
+
+export interface TypesProjectAgentTools {
+  browser?: boolean;
+  calculator?: boolean;
+  web_search?: boolean;
+}
+
+export interface TypesProjectApplyRequest {
+  name?: string;
+  organization_id?: string;
+  spec?: TypesProjectSpec;
+}
+
+export interface TypesProjectApplyResponse {
+  agent_app_id?: string;
+  /** true if created, false if updated */
+  created?: boolean;
+  project_id?: string;
 }
 
 export interface TypesProjectAuditLog {
@@ -3335,10 +3838,47 @@ export interface TypesProjectCreateRequest {
   technologies?: string[];
 }
 
+export interface TypesProjectKanban {
+  wip_limits?: TypesProjectWIPLimits;
+}
+
 export interface TypesProjectMetadata {
   auto_warm_docker_cache?: boolean;
   board_settings?: TypesBoardSettings;
   docker_cache_status?: TypesDockerCacheState;
+}
+
+export interface TypesProjectRepositorySpec {
+  default_branch?: string;
+  primary?: boolean;
+  url?: string;
+}
+
+export interface TypesProjectSpec {
+  agent?: TypesProjectAgentSpec;
+  auto_start_backlog_tasks?: boolean;
+  description?: string;
+  guidelines?: string;
+  kanban?: TypesProjectKanban;
+  name?: string;
+  /** Multi-repo list */
+  repositories?: TypesProjectRepositorySpec[];
+  /** Singular shorthand */
+  repository?: TypesProjectRepositorySpec;
+  startup?: TypesProjectStartup;
+  tasks?: TypesProjectTaskSpec[];
+  technologies?: string[];
+}
+
+export interface TypesProjectStartup {
+  /**
+   * Install and Start are deprecated - use Script instead
+   * Kept for backward compatibility with existing YAML files
+   */
+  install?: string;
+  /** Script is the unified startup script content (preferred) */
+  script?: string;
+  start?: string;
 }
 
 export interface TypesProjectStats {
@@ -3352,6 +3892,11 @@ export interface TypesProjectStats {
   total_tasks?: number;
 }
 
+export interface TypesProjectTaskSpec {
+  description?: string;
+  title?: string;
+}
+
 export interface TypesProjectUpdateRequest {
   auto_start_backlog_tasks?: boolean;
   default_branch?: string;
@@ -3362,6 +3907,8 @@ export interface TypesProjectUpdateRequest {
   github_repo_url?: string;
   /** Project-specific AI agent guidelines */
   guidelines?: string;
+  /** Whether Kodit code intelligence is enabled */
+  kodit_enabled?: boolean;
   metadata?: TypesProjectMetadata;
   name?: string;
   /** Project manager agent */
@@ -3377,16 +3924,25 @@ export interface TypesProjectUpdateRequest {
   technologies?: string[];
 }
 
+export interface TypesProjectWIPLimits {
+  implementation?: number;
+  planning?: number;
+  review?: number;
+}
+
 export interface TypesPromptHistoryEntry {
   /** Content */
   content?: string;
   /** Timestamps */
   created_at?: string;
+  /** Soft-delete: non-nil means user removed from queue */
+  deleted_at?: string;
   /** Composite primary key: ID is globally unique, but we also index by user+spec_task */
   id?: string;
   /**
    * Interrupt indicates this message should interrupt the current conversation
    * When false, message waits until current conversation completes
+   * Default is false: queue mode is the default, interrupt is explicit
    */
   interrupt?: boolean;
   /** Saved as a reusable template */
@@ -3497,6 +4053,12 @@ export interface TypesProviderEndpoint {
   /** If we can't fetch models */
   status?: TypesProviderEndpointStatus;
   updated?: string;
+  vertex_credentials_file?: string;
+  /** Service account JSON string; takes precedence over file */
+  vertex_credentials_json?: string;
+  /** Google Vertex AI fields — when VertexProjectID is set, this endpoint routes through Vertex */
+  vertex_project_id?: string;
+  vertex_region?: string;
 }
 
 export enum TypesProviderEndpointStatus {
@@ -3655,6 +4217,16 @@ export interface TypesRegisterRequest {
   full_name?: string;
   password?: string;
   password_confirm?: string;
+}
+
+export interface TypesRepoPR {
+  pr_id?: string;
+  pr_number?: number;
+  /** "open", "closed", "merged" */
+  pr_state?: string;
+  pr_url?: string;
+  repository_id?: string;
+  repository_name?: string;
 }
 
 export interface TypesRepositoryAccessCheck {
@@ -3837,6 +4409,8 @@ export interface TypesSandboxHeartbeatRequest {
   disk_usage?: TypesDiskUsageMetric[];
   /** GPU configuration */
   gpu_vendor?: string;
+  /** Helix version running on this sandbox (git commit hash or release version) */
+  helix_version?: string;
   /** Privileged mode (host Docker access for development) */
   privileged_mode_enabled?: boolean;
   /** /dev/dri/renderD128 or SOFTWARE */
@@ -3854,6 +4428,8 @@ export interface TypesSandboxInstance {
   desktop_versions?: Record<string, string>;
   /** GPU configuration */
   gpu_vendor?: string;
+  /** Helix version running on this sandbox (git commit hash or release version) */
+  helix_version?: string;
   /** Hostname for DNS resolution */
   hostname?: string;
   id?: string;
@@ -3942,6 +4518,8 @@ export interface TypesServerConfigForFrontend {
   eval_user_id?: string;
   filestore_prefix?: string;
   google_analytics_frontend?: string;
+  /** Whether any global AI provider with enabled chat models exists */
+  has_providers?: boolean;
   latest_version?: string;
   license?: TypesFrontendLicenseInfo;
   max_concurrent_desktops?: number;
@@ -3956,6 +4534,8 @@ export interface TypesServerConfigForFrontend {
    * can be the prefix to the bucket
    */
   registration_enabled?: boolean;
+  /** Require an active subscription before allowing to use the product */
+  require_active_subscription?: boolean;
   rudderstack_data_plane_url?: string;
   rudderstack_write_key?: string;
   sentry_dsn_frontend?: string;
@@ -4151,8 +4731,6 @@ export interface TypesSessionMetadata {
   container_ip?: string;
   /** Container fields (Hydra executor) */
   container_name?: string;
-  /** "running" = should be running, "stopped" = can terminate */
-  desired_state?: string;
   /** Dev container ID for streaming */
   dev_container_id?: string;
   document_group_id?: string;
@@ -4225,6 +4803,8 @@ export interface TypesSessionMetadata {
   uploaded_data_entity_id?: string;
   /** ID of associated WorkSession */
   work_session_id?: string;
+  /** Agent name used when thread was created (e.g., "zed-agent", "claude", "qwen") */
+  zed_agent_name?: string;
   /** Associated Zed instance ID */
   zed_instance_id?: string;
   /** Associated Zed thread ID */
@@ -4292,6 +4872,8 @@ export interface TypesSkillDefinition {
   icon?: TypesSkillIcon;
   id?: string;
   loadedAt?: string;
+  /** MCP configuration (present when this skill is MCP-backed rather than API-backed) */
+  mcp?: TypesSkillMCPSpec;
   name?: string;
   /** OAuth configuration */
   oauthProvider?: string;
@@ -4317,6 +4899,13 @@ export interface TypesSkillIcon {
   name?: string;
   /** e.g., "material-ui", "custom" */
   type?: string;
+}
+
+export interface TypesSkillMCPSpec {
+  /** if true, URL+auth are generated server-side */
+  autoProvision?: boolean;
+  /** "http" or "sse" */
+  transport?: string;
 }
 
 export interface TypesSkillRequiredParameter {
@@ -4358,6 +4947,8 @@ export interface TypesSpecTask {
   agent_work_state?: TypesAgentWorkState;
   /** Archive to hide from main view */
   archived?: boolean;
+  /** Team member assigned to work on this task */
+  assignee_id?: string;
   /** The base branch this was created from */
   base_branch?: string;
   /** "new" or "existing" */
@@ -4428,11 +5019,14 @@ export interface TypesSpecTask {
   project_path?: string;
   /** Public sharing */
   public_design_docs?: boolean;
-  pull_request_id?: string;
-  /** Computed field, not stored */
-  pull_request_url?: string;
+  /** Multi-repo PR tracking: list of PRs across all project repositories */
+  repo_pull_requests?: TypesRepoPR[];
   /** User stories + EARS acceptance criteria (markdown) */
   requirements_spec?: string;
+  /** "absent", "running", "starting" — derived from session config in listTasks */
+  sandbox_state?: string;
+  /** Transient startup message e.g. "Unpacking build cache" */
+  sandbox_status_message?: string;
   /** Agent activity tracking (computed from session/activity data, not stored) */
   session_updated_at?: string;
   /**
@@ -4449,6 +5043,8 @@ export interface TypesSpecTask {
   started_at?: string;
   /** Spec-driven workflow statuses - see constants below */
   status?: TypesSpecTaskStatus;
+  /** When status last changed (for Kanban column sorting) */
+  status_updated_at?: string;
   /**
    * Human-readable directory naming for design docs in helix-specs branch
    * TaskNumber is auto-assigned from project.NextTaskNumber when task starts
@@ -4501,6 +5097,8 @@ export interface TypesSpecTaskDesignReviewComment {
   agent_response?: string;
   /** When agent responded */
   agent_response_at?: string;
+  /** Agent's structured entries (for tool call rendering) */
+  agent_response_entries?: number[];
   /** The actual comment */
   comment_text?: string;
   /** Made optional - simplified to single type */
@@ -4624,6 +5222,8 @@ export enum TypesSpecTaskStatus {
 }
 
 export interface TypesSpecTaskUpdateRequest {
+  /** Pointer to allow clearing (set to empty string to unassign) */
+  assignee_id?: string;
   /** IDs of tasks this task depends on */
   depends_on?: string[];
   description?: string;
@@ -4645,6 +5245,8 @@ export interface TypesSpecTaskWithProject {
   agent_work_state?: TypesAgentWorkState;
   /** Archive to hide from main view */
   archived?: boolean;
+  /** Team member assigned to work on this task */
+  assignee_id?: string;
   /** The base branch this was created from */
   base_branch?: string;
   /** "new" or "existing" */
@@ -4716,11 +5318,14 @@ export interface TypesSpecTaskWithProject {
   project_path?: string;
   /** Public sharing */
   public_design_docs?: boolean;
-  pull_request_id?: string;
-  /** Computed field, not stored */
-  pull_request_url?: string;
+  /** Multi-repo PR tracking: list of PRs across all project repositories */
+  repo_pull_requests?: TypesRepoPR[];
   /** User stories + EARS acceptance criteria (markdown) */
   requirements_spec?: string;
+  /** "absent", "running", "starting" — derived from session config in listTasks */
+  sandbox_state?: string;
+  /** Transient startup message e.g. "Unpacking build cache" */
+  sandbox_status_message?: string;
   /** Agent activity tracking (computed from session/activity data, not stored) */
   session_updated_at?: string;
   /**
@@ -4737,6 +5342,8 @@ export interface TypesSpecTaskWithProject {
   started_at?: string;
   /** Spec-driven workflow statuses - see constants below */
   status?: TypesSpecTaskStatus;
+  /** When status last changed (for Kanban column sorting) */
+  status_updated_at?: string;
   /**
    * Human-readable directory naming for design docs in helix-specs branch
    * TaskNumber is auto-assigned from project.NextTaskNumber when task starts
@@ -4877,7 +5484,20 @@ export interface TypesSystemSettingsRequest {
   /** Kodit enrichment model configuration */
   kodit_enrichment_provider?: string;
   max_concurrent_desktops?: number;
+  optimus_generation_model?: string;
+  optimus_generation_model_provider?: string;
+  optimus_reasoning_model?: string;
+  optimus_reasoning_model_effort?: string;
+  optimus_reasoning_model_provider?: string;
+  optimus_small_generation_model?: string;
+  optimus_small_generation_model_provider?: string;
+  optimus_small_reasoning_model?: string;
+  optimus_small_reasoning_model_effort?: string;
+  optimus_small_reasoning_model_provider?: string;
   providers_management_enabled?: boolean;
+  rag_embeddings_model?: string;
+  /** RAG embedding model configuration */
+  rag_embeddings_provider?: string;
 }
 
 export interface TypesSystemSettingsResponse {
@@ -4895,7 +5515,23 @@ export interface TypesSystemSettingsResponse {
   kodit_enrichment_provider?: string;
   /** Per user */
   max_concurrent_desktops?: number;
+  optimus_generation_model?: string;
+  optimus_generation_model_provider?: string;
+  optimus_reasoning_model?: string;
+  optimus_reasoning_model_effort?: string;
+  /** Optimus configuration */
+  optimus_reasoning_model_provider?: string;
+  optimus_small_generation_model?: string;
+  optimus_small_generation_model_provider?: string;
+  optimus_small_reasoning_model?: string;
+  optimus_small_reasoning_model_effort?: string;
+  optimus_small_reasoning_model_provider?: string;
   providers_management_enabled?: boolean;
+  rag_embeddings_model?: string;
+  /** true if both provider and model are configured */
+  rag_embeddings_model_set?: boolean;
+  /** RAG embedding model configuration (not sensitive, returned as-is) */
+  rag_embeddings_provider?: string;
   updated?: string;
 }
 
@@ -5241,6 +5877,11 @@ export interface TypesUpdateProviderEndpoint {
   headers?: Record<string, string>;
   models?: string[];
   name?: string;
+  vertex_credentials_file?: string;
+  vertex_credentials_json?: string;
+  /** Google Vertex AI fields */
+  vertex_project_id?: string;
+  vertex_region?: string;
 }
 
 export interface TypesUpdateTeamRequest {
@@ -5277,8 +5918,6 @@ export interface TypesUser {
   onboarding_completed_at?: string;
   /** Organization this API key is scoped to (ephemeral keys) */
   organization_id?: string;
-  /** bcrypt hash of the password */
-  password_hash?: number[];
   /** When running in Helix Code sandbox */
   project_id?: string;
   sb?: boolean;
@@ -5358,6 +5997,7 @@ export interface TypesWallet {
   org_id?: string;
   stripe_customer_id?: string;
   stripe_subscription_id?: string;
+  subscription_cancel_at_period_end?: boolean;
   subscription_created?: number;
   subscription_current_period_end?: number;
   subscription_current_period_start?: number;
@@ -5386,6 +6026,23 @@ export interface TypesWorkloadSummary {
   runtime?: string;
   summary?: string;
   updated?: string;
+}
+
+export interface TypesZFSTree {
+  available?: boolean;
+  golden?: TypesZFSTreeNode;
+  orphans?: TypesZFSTreeNode[];
+  pool_root?: string;
+}
+
+export interface TypesZFSTreeNode {
+  children?: TypesZFSTreeNode[];
+  mounted?: boolean;
+  name?: string;
+  refer?: string;
+  session_id?: string;
+  type?: string;
+  used?: string;
 }
 
 export interface TypesZedConfigResponse {
@@ -5607,6 +6264,250 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         method: "GET",
         secure: true,
         type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * @description List all pending tasks across all repositories with pagination. Admin only.
+     *
+     * @tags admin
+     * @name V1AdminKoditQueueList
+     * @summary List Kodit task queue (admin)
+     * @request GET:/api/v1/admin/kodit/queue
+     * @secure
+     */
+    v1AdminKoditQueueList: (
+      query?: {
+        /** Page number (default 1) */
+        page?: number;
+        /** Items per page (default 25, max 100) */
+        per_page?: number;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<ServerKoditAdminQueueListResponse, TypesAPIError>({
+        path: `/api/v1/admin/kodit/queue`,
+        method: "GET",
+        query: query,
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Delete a specific task from the Kodit task queue by ID. Admin only.
+     *
+     * @tags admin
+     * @name V1AdminKoditQueueDelete
+     * @summary Delete Kodit queue task (admin)
+     * @request DELETE:/api/v1/admin/kodit/queue/{taskId}
+     * @secure
+     */
+    v1AdminKoditQueueDelete: (taskId: number, params: RequestParams = {}) =>
+      this.request<Record<string, string>, TypesAPIError>({
+        path: `/api/v1/admin/kodit/queue/${taskId}`,
+        method: "DELETE",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Update the priority of a specific task in the Kodit task queue. Admin only.
+     *
+     * @tags admin
+     * @name V1AdminKoditQueuePriorityPartialUpdate
+     * @summary Update Kodit queue task priority (admin)
+     * @request PATCH:/api/v1/admin/kodit/queue/{taskId}/priority
+     * @secure
+     */
+    v1AdminKoditQueuePriorityPartialUpdate: (
+      taskId: number,
+      body: ServerKoditAdminUpdatePriorityRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<Record<string, string>, TypesAPIError>({
+        path: `/api/v1/admin/kodit/queue/${taskId}/priority`,
+        method: "PATCH",
+        body: body,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description List all Kodit-indexed repositories with pagination. Admin only.
+     *
+     * @tags admin
+     * @name V1AdminKoditRepositoriesList
+     * @summary List Kodit repositories (admin)
+     * @request GET:/api/v1/admin/kodit/repositories
+     * @secure
+     */
+    v1AdminKoditRepositoriesList: (
+      query?: {
+        /** Page number (default 1) */
+        page?: number;
+        /** Items per page (default 25, max 100) */
+        per_page?: number;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<ServerKoditAdminRepoListResponse, TypesAPIError>({
+        path: `/api/v1/admin/kodit/repositories`,
+        method: "GET",
+        query: query,
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Queue a Kodit repository for deletion. Admin only.
+     *
+     * @tags admin
+     * @name V1AdminKoditRepositoriesDelete
+     * @summary Delete Kodit repository (admin)
+     * @request DELETE:/api/v1/admin/kodit/repositories/{koditRepoId}
+     * @secure
+     */
+    v1AdminKoditRepositoriesDelete: (koditRepoId: number, params: RequestParams = {}) =>
+      this.request<Record<string, string>, TypesAPIError>({
+        path: `/api/v1/admin/kodit/repositories/${koditRepoId}`,
+        method: "DELETE",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Get detailed information about a Kodit repository including summary stats. Admin only.
+     *
+     * @tags admin
+     * @name V1AdminKoditRepositoriesDetail
+     * @summary Get Kodit repository detail (admin)
+     * @request GET:/api/v1/admin/kodit/repositories/{koditRepoId}
+     * @secure
+     */
+    v1AdminKoditRepositoriesDetail: (koditRepoId: number, params: RequestParams = {}) =>
+      this.request<ServerKoditAdminRepoDetailResponse, TypesAPIError>({
+        path: `/api/v1/admin/kodit/repositories/${koditRepoId}`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Trigger a rescan of the HEAD commit for a Kodit repository. Admin only.
+     *
+     * @tags admin
+     * @name V1AdminKoditRepositoriesRescanCreate
+     * @summary Rescan Kodit repository HEAD (admin)
+     * @request POST:/api/v1/admin/kodit/repositories/{koditRepoId}/rescan
+     * @secure
+     */
+    v1AdminKoditRepositoriesRescanCreate: (koditRepoId: number, params: RequestParams = {}) =>
+      this.request<Record<string, string>, TypesAPIError>({
+        path: `/api/v1/admin/kodit/repositories/${koditRepoId}/rescan`,
+        method: "POST",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Trigger a full sync (git fetch + branch scan + re-index) for a Kodit repository. Admin only.
+     *
+     * @tags admin
+     * @name V1AdminKoditRepositoriesSyncCreate
+     * @summary Sync Kodit repository (admin)
+     * @request POST:/api/v1/admin/kodit/repositories/{koditRepoId}/sync
+     * @secure
+     */
+    v1AdminKoditRepositoriesSyncCreate: (koditRepoId: number, params: RequestParams = {}) =>
+      this.request<Record<string, string>, TypesAPIError>({
+        path: `/api/v1/admin/kodit/repositories/${koditRepoId}/sync`,
+        method: "POST",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Returns tracking statuses and pending queue tasks for a Kodit repository. Admin only.
+     *
+     * @tags admin
+     * @name V1AdminKoditRepositoriesTasksDetail
+     * @summary Get Kodit repository tasks (admin)
+     * @request GET:/api/v1/admin/kodit/repositories/{koditRepoId}/tasks
+     * @secure
+     */
+    v1AdminKoditRepositoriesTasksDetail: (koditRepoId: number, params: RequestParams = {}) =>
+      this.request<ServerKoditAdminRepositoryTasksResponse, TypesAPIError>({
+        path: `/api/v1/admin/kodit/repositories/${koditRepoId}/tasks`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Queue multiple Kodit repositories for deletion. Admin only.
+     *
+     * @tags admin
+     * @name V1AdminKoditRepositoriesBatchDeleteCreate
+     * @summary Batch delete Kodit repositories (admin)
+     * @request POST:/api/v1/admin/kodit/repositories/batch/delete
+     * @secure
+     */
+    v1AdminKoditRepositoriesBatchDeleteCreate: (body: ServerKoditAdminBatchRequest, params: RequestParams = {}) =>
+      this.request<ServerKoditAdminBatchResponse, TypesAPIError>({
+        path: `/api/v1/admin/kodit/repositories/batch/delete`,
+        method: "POST",
+        body: body,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Trigger a HEAD commit rescan for multiple Kodit repositories. Admin only.
+     *
+     * @tags admin
+     * @name V1AdminKoditRepositoriesBatchRescanCreate
+     * @summary Batch rescan Kodit repositories (admin)
+     * @request POST:/api/v1/admin/kodit/repositories/batch/rescan
+     * @secure
+     */
+    v1AdminKoditRepositoriesBatchRescanCreate: (body: ServerKoditAdminBatchRequest, params: RequestParams = {}) =>
+      this.request<ServerKoditAdminBatchResponse, TypesAPIError>({
+        path: `/api/v1/admin/kodit/repositories/batch/rescan`,
+        method: "POST",
+        body: body,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Returns aggregate counts: repositories, enrichments, commits, pending tasks. Admin only.
+     *
+     * @tags admin
+     * @name V1AdminKoditStatsList
+     * @summary Get Kodit system stats (admin)
+     * @request GET:/api/v1/admin/kodit/stats
+     * @secure
+     */
+    v1AdminKoditStatsList: (params: RequestParams = {}) =>
+      this.request<ServerKoditAdminStatsResponse, TypesAPIError>({
+        path: `/api/v1/admin/kodit/stats`,
+        method: "GET",
+        secure: true,
+        format: "json",
         ...params,
       }),
 
@@ -6133,6 +7034,23 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Enable a marketplace skill on an app. For autoProvision MCP skills the server generates URL and auth automatically.
+     *
+     * @tags skills
+     * @name V1AppsSkillsEnableCreate
+     * @summary Enable a marketplace skill on an app
+     * @request POST:/api/v1/apps/{id}/skills/{skill}/enable
+     * @secure
+     */
+    v1AppsSkillsEnableCreate: (id: string, skill: string, params: RequestParams = {}) =>
+      this.request<TypesApp, any>({
+        path: `/api/v1/apps/${id}/skills/${skill}/enable`,
+        method: "POST",
+        secure: true,
+        ...params,
+      }),
+
+    /**
      * @description List step info for a specific app and interaction ID, used to build the timeline of events
      *
      * @tags step_info
@@ -6225,6 +7143,67 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         query: query,
         secure: true,
         type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Returns attention events that need human action for the current user. Only returns events that have not been dismissed and are not currently snoozed.
+     *
+     * @tags attention-events
+     * @name V1AttentionEventsList
+     * @summary List active attention events
+     * @request GET:/api/v1/attention-events
+     */
+    v1AttentionEventsList: (
+      query?: {
+        /** Filter to active (non-dismissed, non-snoozed) events only (default: true) */
+        active?: boolean;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesAttentionEvent[], string>({
+        path: `/api/v1/attention-events`,
+        method: "GET",
+        query: query,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Acknowledge, dismiss, or snooze an attention event.
+     *
+     * @tags attention-events
+     * @name V1AttentionEventsPartialUpdate
+     * @summary Update an attention event
+     * @request PATCH:/api/v1/attention-events/{id}
+     */
+    v1AttentionEventsPartialUpdate: (
+      id: string,
+      request: TypesAttentionEventUpdateRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<Record<string, string>, string>({
+        path: `/api/v1/attention-events/${id}`,
+        method: "PATCH",
+        body: request,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Bulk-dismiss all active (non-dismissed) attention events for the current user.
+     *
+     * @tags attention-events
+     * @name V1AttentionEventsDismissAllCreate
+     * @summary Dismiss all active attention events
+     * @request POST:/api/v1/attention-events/dismiss-all
+     */
+    v1AttentionEventsDismissAllCreate: (params: RequestParams = {}) =>
+      this.request<Record<string, any>, string>({
+        path: `/api/v1/attention-events/dismiss-all`,
+        method: "POST",
         format: "json",
         ...params,
       }),
@@ -7505,7 +8484,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       },
       params: RequestParams = {},
     ) =>
-      this.request<ServicesKoditEnrichmentListResponse, TypesAPIError>({
+      this.request<ServerKoditEnrichmentListResponse, TypesAPIError>({
         path: `/api/v1/git/repositories/${id}/enrichments`,
         method: "GET",
         query: query,
@@ -7526,9 +8505,125 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1GitRepositoriesEnrichmentsDetail2: (id: string, enrichmentId: string, params: RequestParams = {}) =>
-      this.request<ServicesKoditEnrichmentData, TypesAPIError>({
+      this.request<ServerKoditEnrichmentDTO, TypesAPIError>({
         path: `/api/v1/git/repositories/${id}/enrichments/${enrichmentId}`,
         method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Read the content of a file from the repository, optionally with line range filtering
+     *
+     * @tags git-repositories
+     * @name V1GitRepositoriesFileContentDetail
+     * @summary Read repository file
+     * @request GET:/api/v1/git/repositories/{id}/file-content
+     * @secure
+     */
+    v1GitRepositoriesFileContentDetail: (
+      id: string,
+      query: {
+        /** File path within the repository */
+        path: string;
+        /** Start line (1-indexed, inclusive) */
+        start_line?: number;
+        /** End line (1-indexed, inclusive) */
+        end_line?: number;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<ServerKoditFileContentResponse, TypesAPIError>({
+        path: `/api/v1/git/repositories/${id}/file-content`,
+        method: "GET",
+        query: query,
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description List files in a repository matching a glob pattern
+     *
+     * @tags git-repositories
+     * @name V1GitRepositoriesFilesDetail
+     * @summary List repository files
+     * @request GET:/api/v1/git/repositories/{id}/files
+     * @secure
+     */
+    v1GitRepositoriesFilesDetail: (
+      id: string,
+      query?: {
+        /** Glob pattern to filter files */
+        pattern?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<ServerKoditFilesResponse, TypesAPIError>({
+        path: `/api/v1/git/repositories/${id}/files`,
+        method: "GET",
+        query: query,
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Run pattern matching (grep) against repository files
+     *
+     * @tags git-repositories
+     * @name V1GitRepositoriesGrepDetail
+     * @summary Grep repository
+     * @request GET:/api/v1/git/repositories/{id}/grep
+     * @secure
+     */
+    v1GitRepositoriesGrepDetail: (
+      id: string,
+      query: {
+        /** Search pattern (regex) */
+        pattern: string;
+        /** Glob pattern to filter files (e.g. *.go) */
+        glob?: string;
+        /** Maximum results (default 50, max 200) */
+        limit?: number;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<ServerKoditGrepResponse, TypesAPIError>({
+        path: `/api/v1/git/repositories/${id}/grep`,
+        method: "GET",
+        query: query,
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Search repository code using BM25 keyword matching
+     *
+     * @tags git-repositories
+     * @name V1GitRepositoriesKeywordSearchDetail
+     * @summary Keyword search repository
+     * @request GET:/api/v1/git/repositories/{id}/keyword-search
+     * @secure
+     */
+    v1GitRepositoriesKeywordSearchDetail: (
+      id: string,
+      query: {
+        /** Keywords to search for */
+        keywords: string;
+        /** Maximum results (default 10, max 100) */
+        limit?: number;
+        /** Filter by language extension (e.g. .go, .ts) */
+        language?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<ServerKoditSearchResponse, TypesAPIError>({
+        path: `/api/v1/git/repositories/${id}/keyword-search`,
+        method: "GET",
+        query: query,
         secure: true,
         format: "json",
         ...params,
@@ -7551,7 +8646,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       },
       params: RequestParams = {},
     ) =>
-      this.request<Record<string, any>[], TypesAPIError>({
+      this.request<ServerKoditCommitDTO[], TypesAPIError>({
         path: `/api/v1/git/repositories/${id}/kodit-commits`,
         method: "GET",
         query: query,
@@ -7596,7 +8691,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1GitRepositoriesKoditStatusDetail: (id: string, params: RequestParams = {}) =>
-      this.request<ServicesKoditIndexingStatus, TypesAPIError>({
+      this.request<ServerKoditIndexingStatusDTO, TypesAPIError>({
         path: `/api/v1/git/repositories/${id}/kodit-status`,
         method: "GET",
         secure: true,
@@ -7738,13 +8833,41 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         query: string;
         /** Limit number of results (default 20) */
         limit?: number;
-        /** Filter by commit SHA */
-        commit_sha?: string;
       },
       params: RequestParams = {},
     ) =>
-      this.request<ServicesKoditSearchResult[], TypesAPIError>({
+      this.request<ServerKoditSearchResultDTO[], TypesAPIError>({
         path: `/api/v1/git/repositories/${id}/search-snippets`,
+        method: "GET",
+        query: query,
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Search repository code using vector similarity (semantic meaning)
+     *
+     * @tags git-repositories
+     * @name V1GitRepositoriesSemanticSearchDetail
+     * @summary Semantic search repository
+     * @request GET:/api/v1/git/repositories/{id}/semantic-search
+     * @secure
+     */
+    v1GitRepositoriesSemanticSearchDetail: (
+      id: string,
+      query: {
+        /** Natural language search query */
+        query: string;
+        /** Maximum results (default 10, max 100) */
+        limit?: number;
+        /** Filter by language extension (e.g. .go, .ts) */
+        language?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<ServerKoditSearchResponse, TypesAPIError>({
+        path: `/api/v1/git/repositories/${id}/semantic-search`,
         method: "GET",
         query: query,
         secure: true,
@@ -7799,6 +8922,50 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
     ) =>
       this.request<TypesGitRepositoryTreeResponse, TypesAPIError>({
         path: `/api/v1/git/repositories/${id}/tree`,
+        method: "GET",
+        query: query,
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Get the wiki navigation tree (titles and paths, no content) for a repository. Each node includes a link to fetch the full page content.
+     *
+     * @tags git-repositories
+     * @name V1GitRepositoriesWikiDetail
+     * @summary Get repository wiki tree
+     * @request GET:/api/v1/git/repositories/{id}/wiki
+     * @secure
+     */
+    v1GitRepositoriesWikiDetail: (id: string, params: RequestParams = {}) =>
+      this.request<ServerKoditWikiTreeResponse, TypesAPIError>({
+        path: `/api/v1/git/repositories/${id}/wiki`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Get a wiki page by hierarchical path as markdown content
+     *
+     * @tags git-repositories
+     * @name V1GitRepositoriesWikiPageDetail
+     * @summary Get wiki page
+     * @request GET:/api/v1/git/repositories/{id}/wiki-page
+     * @secure
+     */
+    v1GitRepositoriesWikiPageDetail: (
+      id: string,
+      query: {
+        /** Wiki page path (e.g. architecture/database-layer.md) */
+        path: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<ServerKoditWikiPageResponse, TypesAPIError>({
+        path: `/api/v1/git/repositories/${id}/wiki-page`,
         method: "GET",
         query: query,
         secure: true,
@@ -8057,6 +9224,34 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/knowledge/${id}/versions`,
         method: "GET",
         secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Fetch code intelligence enrichments for any Kodit repository (git or knowledge-backed).
+     *
+     * @tags kodit
+     * @name V1KoditRepositoriesEnrichmentsDetail
+     * @summary Get enrichments by Kodit repo ID
+     * @request GET:/api/v1/kodit/repositories/{koditRepoId}/enrichments
+     * @secure
+     */
+    v1KoditRepositoriesEnrichmentsDetail: (
+      koditRepoId: number,
+      query?: {
+        /** Filter by enrichment type */
+        enrichment_type?: string;
+        /** Filter by commit SHA */
+        commit_sha?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<ServerKoditRepoEnrichmentsResponse, TypesAPIError>({
+        path: `/api/v1/kodit/repositories/${koditRepoId}/enrichments`,
+        method: "GET",
+        query: query,
+        secure: true,
+        format: "json",
         ...params,
       }),
 
@@ -8490,6 +9685,59 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/organizations/${id}`,
         method: "PUT",
         body: request,
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description List API keys for an organization. Owners see all keys, members see only their own.
+     *
+     * @tags organizations
+     * @name V1OrganizationsApiKeysDetail
+     * @summary List organization API keys
+     * @request GET:/api/v1/organizations/{id}/api_keys
+     * @secure
+     */
+    v1OrganizationsApiKeysDetail: (id: string, params: RequestParams = {}) =>
+      this.request<TypesApiKey[], any>({
+        path: `/api/v1/organizations/${id}/api_keys`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Create a new API key scoped to the organization. Any member can create keys.
+     *
+     * @tags organizations
+     * @name V1OrganizationsApiKeysCreate
+     * @summary Create an organization API key
+     * @request POST:/api/v1/organizations/{id}/api_keys
+     * @secure
+     */
+    v1OrganizationsApiKeysCreate: (id: string, request: object, params: RequestParams = {}) =>
+      this.request<TypesApiKey, any>({
+        path: `/api/v1/organizations/${id}/api_keys`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * @description Delete an API key. Owners can delete any org key, members only their own.
+     *
+     * @tags organizations
+     * @name V1OrganizationsApiKeysDelete
+     * @summary Delete an organization API key
+     * @request DELETE:/api/v1/organizations/{id}/api_keys/{key}
+     * @secure
+     */
+    v1OrganizationsApiKeysDelete: (id: string, key: string, params: RequestParams = {}) =>
+      this.request<string, any>({
+        path: `/api/v1/organizations/${id}/api_keys/${key}`,
+        method: "DELETE",
         secure: true,
         ...params,
       }),
@@ -8968,6 +10216,24 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Returns the ZFS snapshot and clone tree showing golden cache, snapshots, and active session clones.
+     *
+     * @tags projects
+     * @name V1ProjectsDockerCacheZfsTreeDetail
+     * @summary Get ZFS snapshot/clone tree for project's Docker cache
+     * @request GET:/api/v1/projects/{id}/docker-cache/zfs-tree
+     * @secure
+     */
+    v1ProjectsDockerCacheZfsTreeDetail: (id: string, params: RequestParams = {}) =>
+      this.request<TypesZFSTree, any>({
+        path: `/api/v1/projects/${id}/docker-cache/zfs-tree`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Stop the running exploratory session for a project (stops sandbox container, keeps session record)
      *
      * @tags Projects
@@ -9074,6 +10340,44 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/projects/${id}/move/preview`,
         method: "POST",
         body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Remove a project from the current user's pinned projects
+     *
+     * @tags Projects
+     * @name V1ProjectsPinDelete
+     * @summary Unpin a project
+     * @request DELETE:/api/v1/projects/{id}/pin
+     * @secure
+     */
+    v1ProjectsPinDelete: (id: string, params: RequestParams = {}) =>
+      this.request<ServerPinnedProjectsResponse, SystemHTTPError>({
+        path: `/api/v1/projects/${id}/pin`,
+        method: "DELETE",
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Pin a project for the current user so it appears at the top of the projects board
+     *
+     * @tags Projects
+     * @name V1ProjectsPinCreate
+     * @summary Pin a project
+     * @request POST:/api/v1/projects/{id}/pin
+     * @secure
+     */
+    v1ProjectsPinCreate: (id: string, params: RequestParams = {}) =>
+      this.request<ServerPinnedProjectsResponse, SystemHTTPError>({
+        path: `/api/v1/projects/${id}/pin`,
+        method: "POST",
         secure: true,
         type: ContentType.Json,
         format: "json",
@@ -9287,6 +10591,42 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Returns a sorted list of unique labels across all spec tasks in a project
+     *
+     * @tags spec-driven-tasks
+     * @name V1ProjectsLabelsDetail
+     * @summary List all labels used in a project
+     * @request GET:/api/v1/projects/{projectId}/labels
+     */
+    v1ProjectsLabelsDetail: (projectId: string, params: RequestParams = {}) =>
+      this.request<string[], TypesAPIError>({
+        path: `/api/v1/projects/${projectId}/labels`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Idempotent upsert of a project from a declarative YAML spec
+     *
+     * @tags Projects
+     * @name V1ProjectsApplyUpdate
+     * @summary Apply a project YAML
+     * @request PUT:/api/v1/projects/apply
+     * @secure
+     */
+    v1ProjectsApplyUpdate: (request: TypesProjectApplyRequest, params: RequestParams = {}) =>
+      this.request<TypesProjectApplyResponse, SystemHTTPError>({
+        path: `/api/v1/projects/apply`,
+        method: "PUT",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Create a minimal project for a repository that doesn't have one
      *
      * @tags Projects
@@ -9336,6 +10676,24 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         query: query,
         secure: true,
         type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Soft-deletes a prompt history entry so it is removed from the queue and no longer synced to clients
+     *
+     * @tags PromptHistory
+     * @name V1PromptHistoryDelete
+     * @summary Delete a prompt history entry
+     * @request DELETE:/api/v1/prompt-history/{id}
+     * @secure
+     */
+    v1PromptHistoryDelete: (id: string, params: RequestParams = {}) =>
+      this.request<Record<string, boolean>, SystemHTTPError>({
+        path: `/api/v1/prompt-history/${id}`,
+        method: "DELETE",
+        secure: true,
         format: "json",
         ...params,
       }),
@@ -10519,7 +11877,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1SessionsClaudeCredentialsDetail: (id: string, params: RequestParams = {}) =>
-      this.request<TypesClaudeOAuthCredentials, SystemHTTPError>({
+      this.request<ServerSessionClaudeCredentialsResponse, SystemHTTPError>({
         path: `/api/v1/sessions/${id}/claude-credentials`,
         method: "GET",
         secure: true,
@@ -10598,7 +11956,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description List interactions for a session
+     * @description List interactions for a session with pagination
      *
      * @tags interactions
      * @name V1SessionsInteractionsDetail
@@ -10609,14 +11967,16 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
     v1SessionsInteractionsDetail: (
       id: string,
       query?: {
-        /** Page number */
+        /** Page number (0-indexed) */
         page?: number;
-        /** Page size */
-        page_size?: number;
+        /** Page size (default 100) */
+        per_page?: number;
+        /** Sort order: 'asc' (oldest first, default) or 'desc' (newest first) */
+        order?: string;
       },
       params: RequestParams = {},
     ) =>
-      this.request<TypesInteraction[], any>({
+      this.request<TypesPaginatedInteractions, any>({
         path: `/api/v1/sessions/${id}/interactions`,
         method: "GET",
         query: query,
@@ -11020,6 +12380,8 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
          * @default false
          */
         with_depends_on?: boolean;
+        /** Filter by labels (comma-separated, AND semantics) */
+        labels?: string;
         /**
          * Limit number of results
          * @default 50
@@ -11384,6 +12746,40 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Adds a label to a spec task (idempotent - no error if label already exists)
+     *
+     * @tags spec-driven-tasks
+     * @name V1SpecTasksLabelsCreate
+     * @summary Add a label to a spec task
+     * @request POST:/api/v1/spec-tasks/{taskId}/labels
+     */
+    v1SpecTasksLabelsCreate: (taskId: string, request: ServerAddLabelRequest, params: RequestParams = {}) =>
+      this.request<TypesSpecTask, TypesAPIError>({
+        path: `/api/v1/spec-tasks/${taskId}/labels`,
+        method: "POST",
+        body: request,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Removes a label from a spec task (no-op if label does not exist)
+     *
+     * @tags spec-driven-tasks
+     * @name V1SpecTasksLabelsDelete
+     * @summary Remove a label from a spec task
+     * @request DELETE:/api/v1/spec-tasks/{taskId}/labels/{label}
+     */
+    v1SpecTasksLabelsDelete: (taskId: string, label: string, params: RequestParams = {}) =>
+      this.request<TypesSpecTask, TypesAPIError>({
+        path: `/api/v1/spec-tasks/${taskId}/labels/${label}`,
+        method: "DELETE",
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Get detailed progress information for a spec-driven task including specification and implementation phases
      *
      * @tags spec-driven-tasks
@@ -11641,6 +13037,8 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       query?: {
         /** Organization ID */
         org_id?: string;
+        /** Custom return URL path (e.g. /onboarding) */
+        return_url?: string;
       },
       params: RequestParams = {},
     ) =>
@@ -12033,6 +13431,24 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Get the list of project IDs pinned by the current user
+     *
+     * @tags Users
+     * @name V1UsersMePinnedProjectsList
+     * @summary Get pinned project IDs
+     * @request GET:/api/v1/users/me/pinned-projects
+     * @secure
+     */
+    v1UsersMePinnedProjectsList: (params: RequestParams = {}) =>
+      this.request<ServerPinnedProjectsResponse, SystemHTTPError>({
+        path: `/api/v1/users/me/pinned-projects`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Search users by email, name, or username
      *
      * @tags users
@@ -12252,9 +13668,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * No description
+     * @description List models from a specific provider, or aggregate from all providers if none specified. If the request includes an anthropic-version header, proxies to the upstream Anthropic provider.
      *
+     * @tags models
      * @name ModelsList
+     * @summary List models
      * @request GET:/v1/models
      * @secure
      */

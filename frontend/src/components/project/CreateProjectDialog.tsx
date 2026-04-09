@@ -48,31 +48,11 @@ import useApi from '../../hooks/useApi'
 import { AppsContext, CodeAgentRuntime, generateAgentName } from '../../contexts/apps'
 import { IApp, AGENT_TYPE_ZED_EXTERNAL } from '../../types'
 import { findOAuthConnectionForProvider, findOAuthProviderForType, hasRequiredScopes, PROVIDER_TYPES } from '../../utils/oauthProviders'
-import { useClaudeSubscriptions } from '../account/ClaudeSubscriptionConnect'
-import { useListProviders } from '../../services/providersService'
-import { TypesProviderEndpointType } from '../../api/api'
+import { RECOMMENDED_CODING_MODELS } from '../../constants/models'
 import CodingAgentForm from '../agent/CodingAgentForm'
 import type { CodingAgentFormHandle } from '../agent/CodingAgentForm'
 
-// Recommended models for zed_external agents (state-of-the-art coding models)
-const RECOMMENDED_MODELS = [
-  // Anthropic
-  'claude-opus-4-5-20251101',
-  'claude-sonnet-4-5-20250929',
-  'claude-haiku-4-5-20251001',
-  // OpenAI
-  'openai/gpt-5.1-codex',
-  'openai/gpt-oss-120b',
-  // Google Gemini
-  'gemini-2.5-pro',
-  'gemini-2.5-flash',
-  // Zhipu GLM
-  'glm-4.6',
-  // Qwen (Coder + Large)
-  'Qwen/Qwen3-Coder-480B-A35B-Instruct',
-  'Qwen/Qwen3-Coder-30B-A3B-Instruct',
-  'Qwen/Qwen3-235B-A22B-fp8-tput',
-]
+
 
 type RepoMode = 'auto' | 'select' | 'create' | 'link'
 
@@ -107,19 +87,6 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
   const queryClient = useQueryClient()
   const { apps, loadApps } = useContext(AppsContext)
   const createProjectMutation = useCreateProject()
-
-  // Claude subscription + provider state
-  const { data: claudeSubscriptions } = useClaudeSubscriptions()
-  const hasClaudeSubscription = (claudeSubscriptions?.length ?? 0) > 0
-  const { data: providerEndpoints } = useListProviders({ loadModels: false })
-  const hasAnthropicProvider = useMemo(() => {
-    if (!providerEndpoints) return false
-    return providerEndpoints.some(p => p.endpoint_type === TypesProviderEndpointType.ProviderEndpointTypeUser && p.name === 'anthropic')
-  }, [providerEndpoints])
-  const userProviderCount = useMemo(() => {
-    if (!providerEndpoints) return 0
-    return providerEndpoints.filter(p => p.endpoint_type === TypesProviderEndpointType.ProviderEndpointTypeUser).length
-  }, [providerEndpoints])
 
   // OAuth connections for GitHub browse
   const { data: oauthConnections } = useListOAuthConnections()
@@ -170,7 +137,7 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
   }, [oauthProviders])
 
   // Fetch GitHub repos when connected with repo scope
-  const { data: githubReposData, isLoading: githubReposLoading, error: githubReposError } =
+  const { data: githubReposData, isLoading: githubReposLoading, isFetching: githubReposFetching, error: githubReposError } =
     useListOAuthConnectionRepositories(
       githubHasRepoScope && externalType === TypesExternalRepositoryType.ExternalRepositoryTypeGitHub
         ? (githubConnection?.id || '')
@@ -252,21 +219,14 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
   }, [name, userModifiedRepoName, repoMode])
 
   // Sort apps: zed_external first, then others
+  // Only show external agents — helix_agent types don't support project workflows
   const sortedApps = useMemo(() => {
     if (!apps) return []
-    const zedExternalApps: IApp[] = []
-    const otherApps: IApp[] = []
-    apps.forEach((app) => {
-      const hasZedExternal = app.config?.helix?.assistants?.some(
+    return apps.filter((app) =>
+      app.config?.helix?.assistants?.some(
         (assistant) => assistant.agent_type === AGENT_TYPE_ZED_EXTERNAL
       ) || app.config?.helix?.default_agent_type === AGENT_TYPE_ZED_EXTERNAL
-      if (hasZedExternal) {
-        zedExternalApps.push(app)
-      } else {
-        otherApps.push(app)
-      }
-    })
-    return [...zedExternalApps, ...otherApps]
+    )
   }, [apps])
 
   // Filter out internal repos - they're deprecated
@@ -337,14 +297,6 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
       }
     }
   }, [open, apps, sortedApps, selectedAgentId])
-
-  // Auto-default to Claude Code when it's the only available AI provider
-  useEffect(() => {
-    if (hasClaudeSubscription && !hasAnthropicProvider && userProviderCount === 0) {
-      setCodeAgentRuntime('claude_code')
-      setClaudeCodeMode('subscription')
-    }
-  }, [hasClaudeSubscription, hasAnthropicProvider, userProviderCount])
 
   // Detect OAuth popup closure and refresh connections
   useEffect(() => {
@@ -711,21 +663,33 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
                     {/* CASE 1: GitHub + OAuth with repo scope - Inline repo browser */}
                     {externalType === TypesExternalRepositoryType.ExternalRepositoryTypeGitHub && githubHasRepoScope && (
                       <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                        {/* Search field */}
-                        <TextField
-                          fullWidth
-                          size="small"
-                          placeholder="Search your repositories..."
-                          value={repoSearchQuery}
-                          onChange={(e) => setRepoSearchQuery(e.target.value)}
-                          InputProps={{
-                            startAdornment: (
-                              <InputAdornment position="start">
-                                <Search size={18} />
-                              </InputAdornment>
-                            ),
-                          }}
-                        />
+                        {/* Search field with refresh */}
+                        <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                          <TextField
+                            fullWidth
+                            size="small"
+                            placeholder="Search your repositories..."
+                            value={repoSearchQuery}
+                            onChange={(e) => setRepoSearchQuery(e.target.value)}
+                            InputProps={{
+                              startAdornment: (
+                                <InputAdornment position="start">
+                                  <Search size={18} />
+                                </InputAdornment>
+                              ),
+                            }}
+                          />
+                          <Tooltip title="Refresh repository list">
+                            <IconButton
+                              size="small"
+                              onClick={() => queryClient.invalidateQueries({ queryKey: ["oauth-connection-repositories"] })}
+                              disabled={githubReposFetching}
+                              sx={githubReposFetching ? { animation: 'spin 1s linear infinite', '@keyframes spin': { '100%': { transform: 'rotate(360deg)' } } } : {}}
+                            >
+                              <RefreshCw size={18} />
+                            </IconButton>
+                          </Tooltip>
+                        </Box>
 
                         {/* Error state */}
                         {githubReposError && (
@@ -759,10 +723,10 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
                             dense
                           >
                             {filteredGithubRepos.map((repo, index) => {
-                              const isSelected = selectedOAuthRepo?.full_name === repo.full_name ||
-                                selectedOAuthRepo?.id === repo.id
+                              const isSelected = selectedOAuthRepo?.full_name === repo.full_name
+
                               return (
-                                <ListItem key={repo.id || repo.full_name || index} disablePadding>
+                                <ListItem key={repo.full_name || index} disablePadding>
                                   <ListItemButton
                                     selected={isSelected}
                                     onClick={() => handleSelectGitHubRepo(repo)}
@@ -1058,7 +1022,7 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
                             size="small"
                             onClick={(e) => {
                               e.stopPropagation()
-                              account.orgNavigate('app', { app_id: app.id })
+                              account.orgNavigate('agent', { app_id: app.id })
                             }}
                             sx={{ ml: 'auto' }}
                           >
@@ -1105,9 +1069,7 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
                   setNewAgentName(nextValue.agentName)
                 }}
                 disabled={creatingAgent || createProjectMutation.isPending || creatingRepo}
-                hasClaudeSubscription={hasClaudeSubscription}
-                hasAnthropicProvider={hasAnthropicProvider}
-                recommendedModels={RECOMMENDED_MODELS}
+                recommendedModels={RECOMMENDED_CODING_MODELS}
                 createAgentDescription="Code development agent for spec tasks"
                 onCreateStateChange={setCreatingAgent}
                 onAgentCreated={(app) => {

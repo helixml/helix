@@ -260,63 +260,81 @@ func (s *HelixAPIServer) getProviderModels(ctx context.Context, providerEndpoint
 		return models, nil
 	}
 
-	provider, err := s.providerManager.GetClient(ctx, &manager.GetClientRequest{
-		Provider: providerEndpoint.Name,
-		Owner:    providerEndpoint.Owner,
+	// Use singleflight keyed on BaseURL to deduplicate concurrent fetches hitting
+	// the same provider — different endpoints (names/owners) can share a URL.
+	flightKey := providerEndpoint.BaseURL
+	result, err, _ := s.modelFetchGroup.Do(flightKey, func() (interface{}, error) {
+		// Double-check cache inside singleflight — another caller may have populated it.
+		if cached, found := s.cache.Get(cacheKey); found {
+			var models []types.OpenAIModel
+			if err := json.Unmarshal([]byte(cached), &models); err == nil {
+				return models, nil
+			}
+		}
+
+		provider, err := s.providerManager.GetClient(ctx, &manager.GetClientRequest{
+			Provider: providerEndpoint.Name,
+			Owner:    providerEndpoint.Owner,
+		})
+		if err != nil {
+			log.Err(err).
+				Str("provider", providerEndpoint.Name).
+				Str("owner", providerEndpoint.Owner).
+				Msg("error getting provider")
+			return nil, err
+		}
+
+		// Models should respond in 5 seconds or less, otherwise we'll kill the request
+		fetchCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+		defer cancel()
+
+		models, err := provider.ListModels(fetchCtx)
+		if err != nil {
+			log.Err(err).
+				Str("provider", providerEndpoint.Name).
+				Str("owner", providerEndpoint.Owner).
+				Msg("error listing models")
+			return nil, err
+		}
+
+		for idx, m := range models {
+			modelInfo, err := s.modelInfoProvider.GetModelInfo(fetchCtx, &model.ModelInfoRequest{
+				BaseURL:  providerEndpoint.BaseURL,
+				Provider: providerEndpoint.Name,
+				Model:    m.ID,
+			})
+			if err == nil {
+				models[idx].ModelInfo = modelInfo
+			}
+
+			// If billing is enabled and we don't have pricing, disable the model
+			if providerEndpoint.BillingEnabled {
+				if modelInfo == nil {
+					models[idx].Enabled = false
+					continue
+				}
+				// Got model info, checking the price
+				promptCost, completionCost, _ := pricing.CalculateTokenPrice(modelInfo, 10, 10)
+				if promptCost == 0 && completionCost == 0 {
+					models[idx].Enabled = false
+				}
+			}
+		}
+
+		// Cache the models
+		modelsJSON, err := json.Marshal(models)
+		if err != nil {
+			return nil, err
+		}
+		s.cache.SetWithTTL(cacheKey, string(modelsJSON), 1, s.Cfg.WebServer.ModelsCacheTTL)
+
+		return models, nil
 	})
 	if err != nil {
-		log.Err(err).
-			Str("provider", providerEndpoint.Name).
-			Str("owner", providerEndpoint.Owner).
-			Msg("error getting provider")
 		return nil, err
 	}
 
-	// Models should respond in 5 seconds or less, otherwise we'll kill the request
-	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
-	defer cancel()
-
-	models, err := provider.ListModels(ctx)
-	if err != nil {
-		log.Err(err).
-			Str("provider", providerEndpoint.Name).
-			Str("owner", providerEndpoint.Owner).
-			Msg("error listing models")
-		return nil, err
-	}
-
-	for idx, m := range models {
-		modelInfo, err := s.modelInfoProvider.GetModelInfo(ctx, &model.ModelInfoRequest{
-			BaseURL:  providerEndpoint.BaseURL,
-			Provider: providerEndpoint.Name,
-			Model:    m.ID,
-		})
-		if err == nil {
-			models[idx].ModelInfo = modelInfo
-		}
-
-		// If billing is enabled and we don't have pricing, disable the model
-		if providerEndpoint.BillingEnabled {
-			if modelInfo == nil {
-				models[idx].Enabled = false
-				continue
-			}
-			// Got model info, checking the price
-			promptCost, completionCost, _ := pricing.CalculateTokenPrice(modelInfo, 10, 10)
-			if promptCost == 0 && completionCost == 0 {
-				models[idx].Enabled = false
-			}
-		}
-	}
-
-	// Cache the models
-	modelsJSON, err := json.Marshal(models)
-	if err != nil {
-		return nil, err
-	}
-	s.cache.SetWithTTL(cacheKey, string(modelsJSON), 1, s.Cfg.WebServer.ModelsCacheTTL)
-
-	return models, nil
+	return result.([]types.OpenAIModel), nil
 }
 
 // createProviderEndpoint godoc
@@ -404,8 +422,19 @@ func (s *HelixAPIServer) createProviderEndpoint(rw http.ResponseWriter, r *http.
 		return
 	}
 
-	// Mask API key in response
+	// Mask API key before any concurrent access to createdEndpoint.
+	endpointForWarm := *createdEndpoint // copy — goroutine needs the real API key
 	createdEndpoint.APIKey = "*****"
+
+	// Warm the model cache asynchronously so the first ?with_models=true request is instant.
+	// Use a detached context so the HTTP request completing doesn't cancel the fetch.
+	go func() {
+		warmCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if _, err := s.getProviderModels(warmCtx, &endpointForWarm); err != nil {
+			log.Warn().Err(err).Str("provider", endpointForWarm.Name).Msg("model cache warm failed after provider create (provider may not be reachable yet)")
+		}
+	}()
 
 	rw.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(rw).Encode(createdEndpoint); err != nil {
@@ -525,6 +554,20 @@ func (s *HelixAPIServer) updateProviderEndpoint(rw http.ResponseWriter, r *http.
 		// If from file, clear the API key
 		existingEndpoint.APIKeyFromFile = strings.TrimSpace(*updatedEndpoint.APIKeyFromFile)
 		existingEndpoint.APIKey = ""
+	}
+
+	// Update Vertex AI fields if provided
+	if updatedEndpoint.VertexProjectID != nil {
+		existingEndpoint.VertexProjectID = strings.TrimSpace(*updatedEndpoint.VertexProjectID)
+	}
+	if updatedEndpoint.VertexRegion != nil {
+		existingEndpoint.VertexRegion = strings.TrimSpace(*updatedEndpoint.VertexRegion)
+	}
+	if updatedEndpoint.VertexCredentialsJSON != nil {
+		existingEndpoint.VertexCredentialsJSON = strings.TrimSpace(*updatedEndpoint.VertexCredentialsJSON)
+	}
+	if updatedEndpoint.VertexCredentialsFile != nil {
+		existingEndpoint.VertexCredentialsFile = strings.TrimSpace(*updatedEndpoint.VertexCredentialsFile)
 	}
 
 	// Update the endpoint
