@@ -7,17 +7,17 @@
 
 ## Merge
 
-- [~] Run `git merge upstream/main` and begin conflict resolution
-- [ ] Resolve conflicts in `Cargo.toml` (workspace root) — preserve `external_websocket_sync` member and dependency
-- [ ] Resolve conflicts in `crates/zed/Cargo.toml` — preserve `external_websocket_sync` feature flag and optional dep
-- [ ] Resolve conflicts in `crates/zed/src/zed.rs` — preserve cfg-gated WebSocket sync init block
-- [ ] Resolve conflicts in `crates/agent_ui/src/agent_panel.rs` — preserve all 6 cfg-gated blocks: thread display callback (with correct `ConnectedServerState` fields), UI state query callback (match on `conversation_view` not `server_view`), thread creation callback, thread open callback, onboarding dismissal, `acp_history_store()` accessor, entity-level split-brain detection, auto-follow activation, history from `connection_store`
-- [ ] Resolve conflicts in `crates/agent_ui/src/conversation_view.rs` — preserve `HeadlessConnection` (must implement any new `AgentConnection` methods), `from_existing_thread()` constructor, `THREAD_REGISTRY` integration, history refresh via `self.history()` method, `is_resume = load_session_id.is_some()`, `unregister_thread()` on reset/drop
-- [ ] Resolve conflicts in `crates/acp_thread/src/acp_thread.rs` — preserve `content_only()` on `AssistantMessage`, verify `Stopped` is still a tuple variant `Stopped(StopReason)`, preserve `cancel()` using `drop(turn.send_task)` not `cx.background_spawn`
-- [ ] Resolve conflicts in `crates/agent/src/agent.rs` — preserve `load_session()` entity lifetime fix (clone `Entity<NativeAgent>`), verify multi-project `projects.values().next()` pattern
-- [ ] Resolve conflicts in `crates/acp_thread/src/connection.rs` — verify `AgentConnection` trait; if new methods added, update `HeadlessConnection` in `conversation_view.rs`
-- [ ] Resolve conflicts in `crates/workspace/src/workspace.rs` — re-apply `CollaboratorId::Agent` focus-stealing guard in `follow()` and `update_follower_items()`
-- [ ] Resolve any other conflicting files (feature_flags, extensions_ui, title_bar, agent_settings, etc.)
+- [x] Run `git merge upstream/main` and begin conflict resolution
+- [x] Resolve conflicts in `Cargo.toml` (workspace root) — auto-merged, no conflict
+- [x] Resolve conflicts in `crates/zed/Cargo.toml` — kept external_websocket_sync + upstream track-project-leak
+- [x] Resolve conflicts in `crates/zed/src/zed.rs` — auto-merged, no conflict
+- [x] Resolve conflicts in `crates/agent_ui/src/agent_panel.rs` — preserved all cfg-gated WebSocket blocks, migrated onboarding, added agent_layout_onboarding
+- [x] Resolve conflicts in `crates/agent_ui/src/conversation_view.rs` — auto-merged, no conflict
+- [x] Resolve conflicts in `crates/acp_thread/src/acp_thread.rs` — auto-merged, no conflict
+- [x] Resolve conflicts in `crates/agent/src/agent.rs` — auto-merged, no conflict
+- [x] Resolve conflicts in `crates/acp_thread/src/connection.rs` — auto-merged, no conflict
+- [x] Resolve conflicts in `crates/workspace/src/workspace.rs` — added new upstream re-exports
+- [x] Resolve any other conflicting files (context_server_registry.rs AuthRequired, title_bar connection indicator, dev_container_suggest, workflows, keymaps, editor)
 
 ## Porting Guide Updates (Incremental — During Merge)
 
