@@ -328,7 +328,17 @@ func (r *Recording) captureFrames(ctx context.Context) {
 
 // convertToMP4 uses ffmpeg to mux raw H.264 into an MP4 container.
 func (r *Recording) convertToMP4() error {
+	// Calculate actual framerate from captured frames and duration.
+	// Raw H.264 has no timestamps, so ffmpeg needs to be told the framerate
+	// to produce correct duration in the MP4.
+	fps := "60" // default fallback
+	if r.durationMs > 0 && r.frameCount > 0 {
+		actualFPS := float64(r.frameCount) / (float64(r.durationMs) / 1000.0)
+		fps = fmt.Sprintf("%.2f", actualFPS)
+	}
+
 	cmd := exec.Command("ffmpeg", "-y",
+		"-framerate", fps,
 		"-f", "h264",
 		"-i", r.rawH264Path,
 		"-c:v", "copy",
