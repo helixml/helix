@@ -8,6 +8,7 @@ package desktop
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -68,13 +69,15 @@ type RecordingManager struct {
 	nodeID    uint32
 	active    *Recording
 	mu        sync.Mutex
+	logger    *slog.Logger
 }
 
 // NewRecordingManager creates a new RecordingManager for a session.
-func NewRecordingManager(sessionID string, nodeID uint32) *RecordingManager {
+func NewRecordingManager(sessionID string, nodeID uint32, logger *slog.Logger) *RecordingManager {
 	return &RecordingManager{
 		sessionID: sessionID,
 		nodeID:    nodeID,
+		logger:    logger,
 	}
 }
 
@@ -140,7 +143,7 @@ func (m *RecordingManager) StartRecording(title string) (*Recording, error) {
 	go recording.captureFrames(ctx)
 
 	m.active = recording
-	fmt.Printf("[RECORDING] Started recording %s for session %s\n", recordingID, m.sessionID)
+	m.logger.Info("started recording", "recording_id", recordingID, "session_id", m.sessionID)
 
 	return recording, nil
 }
@@ -164,13 +167,14 @@ func (m *RecordingManager) StopRecording() (*RecordingResult, error) {
 	recording.source.Unsubscribe(recording.clientID)
 
 	// Close the raw file
-	recording.file.Close()
+	if err := recording.file.Close(); err != nil {
+		m.logger.Warn("failed to close raw H.264 file", "err", err)
+	}
 
 	recording.EndTime = time.Now()
 	recording.durationMs = recording.EndTime.Sub(recording.StartTime).Milliseconds()
 
-	fmt.Printf("[RECORDING] Stopped recording %s: %d frames, %dms\n",
-		recording.ID, recording.frameCount, recording.durationMs)
+	m.logger.Info("stopped recording", "recording_id", recording.ID, "frame_count", recording.frameCount, "duration_ms", recording.durationMs)
 
 	// Convert raw H.264 to MP4
 	if err := recording.convertToMP4(); err != nil {
@@ -180,7 +184,7 @@ func (m *RecordingManager) StopRecording() (*RecordingResult, error) {
 	// Generate WebVTT if there are subtitles
 	if len(recording.Subtitles) > 0 {
 		if err := recording.generateWebVTT(); err != nil {
-			fmt.Printf("[RECORDING] Warning: failed to generate WebVTT: %v\n", err)
+			m.logger.Warn("failed to generate WebVTT", "err", err)
 		}
 	}
 
@@ -212,12 +216,12 @@ func (m *RecordingManager) AddSubtitle(text string, startMs, endMs int64) error 
 	}
 
 	m.active.mu.Lock()
+	defer m.active.mu.Unlock()
 	m.active.Subtitles = append(m.active.Subtitles, Subtitle{
 		Text:    text,
 		StartMs: startMs,
 		EndMs:   endMs,
 	})
-	m.active.mu.Unlock()
 
 	return nil
 }
@@ -232,8 +236,8 @@ func (m *RecordingManager) SetSubtitles(subtitles []Subtitle) error {
 	}
 
 	m.active.mu.Lock()
+	defer m.active.mu.Unlock()
 	m.active.Subtitles = subtitles
-	m.active.mu.Unlock()
 
 	return nil
 }
@@ -315,7 +319,7 @@ func (r *Recording) captureFrames(ctx context.Context) {
 				r.mu.Lock()
 				r.lastFrameErr = err
 				r.mu.Unlock()
-				fmt.Printf("[RECORDING] Video source error: %v\n", err)
+				// Note: no logger available on Recording struct; error is stored in lastFrameErr
 				return
 			}
 		}

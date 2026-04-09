@@ -121,7 +121,9 @@ type Server struct {
 	cursorName string // CSS cursor name (e.g., "default", "pointer", "text")
 
 	// Recording manager for agent screencasts
-	recordingManager *RecordingManager
+	recordingManager     *RecordingManager
+	recordingManagerOnce sync.Once
+	recordingManagerErr  error
 
 	// macOS keyboard remapping state
 

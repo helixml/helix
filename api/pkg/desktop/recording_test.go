@@ -3,6 +3,7 @@
 package desktop
 
 import (
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -134,7 +135,7 @@ func TestRecordingResultStruct(t *testing.T) {
 }
 
 func TestRecordingManagerNewRecordingManager(t *testing.T) {
-	manager := NewRecordingManager("ses_test123", 42)
+	manager := NewRecordingManager("ses_test123", 42, slog.Default())
 
 	assert.NotNil(t, manager)
 	assert.Equal(t, "ses_test123", manager.sessionID)
@@ -144,7 +145,7 @@ func TestRecordingManagerNewRecordingManager(t *testing.T) {
 }
 
 func TestRecordingManagerGetStatus(t *testing.T) {
-	manager := NewRecordingManager("ses_test", 1)
+	manager := NewRecordingManager("ses_test", 1, slog.Default())
 
 	status := manager.GetStatus()
 	assert.False(t, status["recording"].(bool))

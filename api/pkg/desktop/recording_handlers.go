@@ -4,6 +4,7 @@ package desktop
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 )
 
@@ -16,17 +17,21 @@ func (s *Server) handleRecordingStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Initialize recording manager if needed
-	if s.recordingManager == nil {
+	// Initialize recording manager if needed (thread-safe via sync.Once)
+	s.recordingManagerOnce.Do(func() {
 		nodeID := s.nodeID
 		if nodeID == 0 {
 			nodeID = s.videoNodeID
 		}
 		if nodeID == 0 {
-			http.Error(w, "no video source available", http.StatusServiceUnavailable)
+			s.recordingManagerErr = fmt.Errorf("no video source available")
 			return
 		}
-		s.recordingManager = NewRecordingManager(s.config.SessionID, nodeID)
+		s.recordingManager = NewRecordingManager(s.config.SessionID, nodeID, s.logger)
+	})
+	if s.recordingManagerErr != nil {
+		http.Error(w, s.recordingManagerErr.Error(), http.StatusServiceUnavailable)
+		return
 	}
 
 	// Parse request body

@@ -2,7 +2,10 @@
 
 package desktop
 
-import "fmt"
+import (
+	"fmt"
+	"log/slog"
+)
 
 // Subtitle represents a single subtitle entry with timing information.
 type Subtitle struct {
@@ -35,7 +38,7 @@ type RecordingManager struct {
 }
 
 // NewRecordingManager creates a new RecordingManager for a session.
-func NewRecordingManager(sessionID string, nodeID uint32) *RecordingManager {
+func NewRecordingManager(sessionID string, nodeID uint32, _ *slog.Logger) *RecordingManager {
 	return &RecordingManager{
 		sessionID: sessionID,
 		nodeID:    nodeID,
