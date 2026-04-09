@@ -2,8 +2,8 @@
 
 ## Setup
 
-- [ ] Create feature branch `feature/001723-merge-latest-zed` from current `main`
-- [ ] Ensure upstream remote exists: `git remote add upstream https://github.com/zed-industries/zed.git` and `git fetch upstream`
+- [~] Create feature branch `feature/001723-merge-latest-zed` from current `main`
+- [~] Ensure upstream remote exists: `git remote add upstream https://github.com/zed-industries/zed.git` and `git fetch upstream`
 
 ## Merge
 
