@@ -49,7 +49,7 @@
 
 ## Build & Test
 
-- [ ] `cargo check --package zed --features external_websocket_sync` compiles
+- [~] `cargo check --package zed --features external_websocket_sync` compiles
 - [ ] `cargo test -p external_websocket_sync` — all unit tests pass
 - [ ] `cargo test -p acp_thread test_second_send` — Stopped invariant test passes
 - [ ] Docker E2E test: all 10 phases pass for `zed-agent`
