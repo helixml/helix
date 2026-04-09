@@ -84,3 +84,45 @@ Focus on making the existing implementation mergeable:
 2. Verify compilation after merge
 3. Attempt E2E test if environment permits
 4. Do NOT add new features (filestore upload, burned-in subtitles, etc.)
+
+## Implementation Notes
+
+### Bug Found: MP4 Duration Incorrect
+
+Raw H.264 streams have no PTS/DTS timestamps. The original implementation used:
+```
+ffmpeg -y -f h264 -i input.h264 -c:v copy -movflags +faststart output.mp4
+```
+This produced MP4s with ~0.04s duration because ffmpeg used the SPS VUI timing from the H.264 stream (tbr=1200k) instead of the actual framerate.
+
+**Tested approaches:**
+1. `-framerate 60 -f h264` — SPS VUI overrides, still wrong duration
+2. `-fflags +genpts -r 60` — **Works!** Forces ffmpeg to generate PTS, correct duration
+3. Re-encode with `-c:v libx264 -preset ultrafast` — Works but slow and lossy
+4. `-r 60` on output only — Doesn't work with `-c:v copy`
+
+**Fix:** Calculate actual FPS from `frame_count / (duration_ms / 1000)` and pass to ffmpeg:
+```
+ffmpeg -y -fflags +genpts -r <calculated_fps> -f h264 -i input.h264 -c:v copy -movflags +faststart output.mp4
+```
+
+### SharedVideoSource Lifecycle
+
+Recording requires an active `SharedVideoSource`. This source is only created when a client connects to watch the video stream (via WebSocket). Without a streaming client, `/recording/start` fails with "no active video source for node X". This is by design — recording taps into the existing video pipeline.
+
+**Implication for agent usage:** The agent's Zed session always has an active video stream (the browser shows the desktop), so this is not a problem in practice.
+
+### sync.Once for RecordingManager
+
+The `RecordingManager` is lazily initialized on first `/recording/start` call. Without synchronization, concurrent requests could create multiple managers. Fixed with `sync.Once` on the `Server` struct, plus `recordingManagerErr` to propagate initialization errors.
+
+### Files Modified
+
+| File | Changes |
+|------|---------|
+| `recording.go` | Added slog.Logger, fixed mutex patterns (defer), file.Close() error check, ffmpeg genpts fix |
+| `recording_nocgo.go` | Updated constructor signature to accept *slog.Logger |
+| `recording_handlers.go` | Replaced lazy init with sync.Once |
+| `recording_test.go` | Updated constructor calls |
+| `desktop.go` | Added recordingManagerOnce/recordingManagerErr fields, kept both recording endpoints and MCP handler mount from merge |
+| `mcp_server.go` | Kept recording tools, switched to StreamableHTTPServer from merge |
