@@ -124,3 +124,37 @@ From task 001560:
 From task 001554:
 - Upstream file modifications can go undocumented — catalog every conflict resolution in portingguide.md
 - E2E test phases have grown over time (4 → 7 → 8 → 10) — if adding new scenarios, increment accordingly
+
+## Implementation Notes (from this merge)
+
+### Conflict Resolution Summary
+- 25 files conflicted, all resolved across 3 commits after the merge commit
+- `agent_panel.rs` was the most complex (5 conflicts), followed by `title_bar.rs` and `workspace.rs`
+- Many files auto-merged cleanly (conversation_view.rs, acp_thread.rs, agent.rs, connection.rs)
+
+### Key Discoveries
+1. **Two ConnectedServerState types**: `AcpServerView` (in thread_view.rs) still has `login` and `history` fields; `ConversationView` (in conversation_view.rs) does not. Initially removed them from AcpServerView by mistake — had to restore.
+2. **assistant_text_thread crate fully removed** by upstream #52757. The `History` enum, `TextThreadHistory`, `TextThreadHistoryEvent`, `SlashCommandWorkingSet`, `TextThreadStore::new()` — all dead code after the removal.
+3. **AgentV2FeatureFlag fully removed** by upstream #52792. Code that used `cx.has_flag::<AgentV2FeatureFlag>()` must be simplified to remove the check.
+4. **selected_agent_type → selected_agent** rename: Helix cfg-gated block in agent_panel.rs set `this.selected_agent_type = ...`, which silently compiles as a new local variable (Rust shadowing). Must use current field name.
+5. **ContextServerStatus::AuthRequired** added: Match arms handling `Stopped | Error(_)` must also include `AuthRequired`.
+
+### Gotchas
+- **No Rust toolchain** in the merge environment — cannot run `cargo check/test`. All build verification requires CI or a different machine.
+- **Origin is internal git server**, not GitHub — `gh` CLI doesn't work. PR creation must happen through the internal UI.
+- **Upstream removed the notification panel entirely** — no impact on Helix code (we don't use it).
+- **`should_render_onboarding` → `should_render_new_user_onboarding`** rename — the Helix cfg-gated onboarding dismissal calls this method and must track the current name.
+
+### New Rebase Checklist Items Added (35-39)
+Added to portingguide.md to watch for in future merges:
+- 35: Check for removed upstream crates/imports
+- 36: Check for removed upstream feature flags
+- 37: Check agent_panel.rs field renames
+- 38: Check context_server_registry.rs match arms for new variants
+- 39: Check agent_panel.rs onboarding method renames
+
+### Post-Merge Workflow
+The merge is complete. Remaining steps:
+1. CI must verify compilation and tests (pushed to `feature/001723-merge-latest-zed`)
+2. PR created via internal git UI (description at `pull_request_zed.md`)
+3. After PR merge: update `ZED_COMMIT` in helix repo's `sandbox-versions.txt` to new fork HEAD SHA

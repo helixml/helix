@@ -83,6 +83,7 @@
 ## Finalize
 
 - [x] Push feature branch to origin
-- [ ] Create PR against `main` with summary of notable upstream changes (breaking changes, new features, deprecations)
+- [x] Create PR description (see `pull_request_zed.md`) — actual PR must be created via internal git UI (origin is not GitHub)
+- [x] Create helix repo PR description (see `pull_request_helix.md`)
 - [ ] After PR merge: update `ZED_COMMIT` in `/home/retro/work/helix/sandbox-versions.txt` to new fork HEAD SHA
 - [ ] After PR merge: create PR in helix repo for the `ZED_COMMIT` bump
