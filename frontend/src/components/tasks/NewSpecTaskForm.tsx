@@ -732,7 +732,10 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
                             onChange={(e) => setBaseBranch(e.target.value)}
                             label="Base branch"
                           >
-                            {branchesData?.map((branch: string) => (
+                            {branchesData
+                              ?.slice()
+                              .sort((a: string, b: string) => a.localeCompare(b, undefined, { sensitivity: 'base' }))
+                              .map((branch: string) => (
                               <MenuItem key={branch} value={branch}>
                                 {branch}
                                 {branch === defaultBranchName && (
@@ -796,6 +799,7 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
                   >
                     {branchesData
                       ?.filter((branch: string) => branch !== defaultBranchName)
+                      .sort((a: string, b: string) => a.localeCompare(b, undefined, { sensitivity: 'base' }))
                       .map((branch: string) => (
                         <MenuItem key={branch} value={branch}>
                           {branch}
