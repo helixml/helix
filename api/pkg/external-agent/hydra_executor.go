@@ -474,6 +474,10 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 		dbSession.Metadata.ExecutorMode = "hydra"
 		// CRITICAL: Set DevContainerID - used by exploratory session to check if container is running
 		dbSession.Metadata.DevContainerID = resp.ContainerID
+		// Mark as running — StartDesktop sets "starting" earlier but never clears it on success.
+		// The discovery loop only updates sessions not already in h.sessions, so without this
+		// the DB stays "starting" permanently even though the container is up.
+		dbSession.Metadata.ExternalAgentStatus = "running"
 
 		// Store debug info in Metadata (serialized as "config" in JSON for frontend)
 		dbSession.Metadata.SwayVersion = resp.DesktopVersion
