@@ -29,7 +29,13 @@
 - [x] Test error cases: stop without start ("no active recording"), double start ("recording already in progress")
 - [x] **Bug found and fixed**: Raw H.264 has no timestamps — ffmpeg produced 0.04s MP4 instead of correct duration. Fixed with `-fflags +genpts -r <fps>` approach.
 
-## Phase 4: Push & PR (DONE)
+## Phase 4: SPS/PPS Bug Fix
+
+- [x] **Bug found**: Recording fails when no SPS/PPS in raw H.264 file — replay frames (which contain SPS/PPS) are all skipped
+- [x] Fix: extract SPS/PPS NAL units from first replay keyframe, write to start of file
+- [~] Rebuild desktop-bridge and re-test recording with motion
+
+## Phase 5: Push & PR
 
 - [x] Push feature branch to origin
-- [x] Create PR description
+- [ ] Create final PR description
