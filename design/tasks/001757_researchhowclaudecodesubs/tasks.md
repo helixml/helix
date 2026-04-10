@@ -1,6 +1,6 @@
 # Implementation Tasks
 
-## Phase 1: CLI + tmux + JSONL Tailing (Option D — Primary)
+## Phase 1: Pure Claude Mode (Subscription — tmux + JSONL)
 
 ### Container Setup
 
@@ -9,14 +9,19 @@
 - [ ] Configure container entrypoint to keep tmux server running (e.g. `tini` as PID 1)
 - [ ] Set `TERM=xterm-256color` and tmux `history-limit 50000` in the container
 
-### Auth: User Logs In Themselves
+### Auth: Login Once, Persist Across Sessions
 
-Helix is a Linux VM from the user's perspective. They log in to Claude the same way they would on any machine — Helix doesn't manage credentials.
+User logs in once with `claude auth login`. Helix persists the auth state so they don't have to re-login for every new session.
 
-- [ ] Ensure `claude auth login` works in the container terminal (headless OAuth: CLI shows URL, user clicks it in browser, pastes code back)
-- [ ] Mount `~/.claude/` on a persistent volume so auth survives container restarts
-- [ ] Test: does `claude auth status` correctly report login state after container restart?
-- [ ] Document for users: "Open a terminal, run `claude auth login`, follow the prompts"
+- [ ] Ensure `claude auth login` works in the container terminal (headless OAuth: CLI shows URL, user clicks in browser, pastes code back)
+- [ ] Identify which files in `~/.claude/` hold OAuth tokens (likely `.credentials.json` or similar — investigate at implementation time)
+- [ ] After successful `claude auth login`, snapshot the auth files to Helix user profile storage (encrypted at rest)
+- [ ] On new session start, restore the auth snapshot into `~/.claude/` before the user starts Claude
+- [ ] Also persist `~/.claude/settings.json` (user preferences)
+- [ ] Do NOT persist `~/.claude/projects/` (session transcripts) or `~/.claude/sessions/` (ephemeral PIDs)
+- [ ] On session start, run `claude auth status` to verify the restored token is still valid
+- [ ] If token expired, prompt user to re-login (should be rare — OAuth tokens appear long-lived)
+- [ ] Test: full cycle — login in session 1, destroy container, start session 2, verify `claude auth status` shows logged in
 
 ### tmux Session Management
 
@@ -61,18 +66,21 @@ Helix is a Linux VM from the user's perspective. They log in to Claude the same 
 - [ ] Test container restart: can we resume a session with `claude -c` or `claude -r <session-id>`?
 - [ ] Test `claude auth login` end-to-end in a Docker container with no browser
 
-## Phase 2: Contact Anthropic / Zed (Parallel)
+## Phase 2: Zed ACP Mode (API Key — Richer UI)
+
+Keep existing Zed ACP integration for users who have API keys and want the richer IDE experience.
+
+- [ ] Add option for users to provide `ANTHROPIC_API_KEY` in Helix settings
+- [ ] Inject as env var in container — Zed ACP + Agent SDK picks it up automatically
+- [ ] Build mode selector in Helix UI: "Claude Subscription (terminal)" vs "API Key (Zed integration)"
+- [ ] Add cost comparison info so users understand subscription vs API key pricing
+
+## Phase 3: Contact Anthropic / Zed (Parallel)
 
 - [ ] Ask Zed whether they have a formal partner agreement with Anthropic for subscription OAuth
 - [ ] Contact Anthropic sales: `https://www.anthropic.com/contact-sales?utm_source=claude_code&utm_medium=docs&utm_content=legal_compliance_contact_sales`
 - [ ] Frame Helix as a cloud dev environment (like Codespaces), not a Claude wrapper
-- [ ] If approved, evaluate switching back to ACP integration for richer UX
-
-## Phase 3: API Key Auth (Fallback)
-
-- [ ] Add option for users to provide `ANTHROPIC_API_KEY` instead of subscription token
-- [ ] Inject as env var in container — works with both CLI and ACP/Agent SDK paths
-- [ ] Add cost comparison info so users understand subscription vs API key pricing
+- [ ] If approved, evaluate whether Zed ACP mode can also support subscription auth (collapsing the two modes)
 
 ## Monitoring
 

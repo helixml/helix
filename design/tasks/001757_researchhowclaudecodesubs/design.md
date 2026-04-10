@@ -372,15 +372,56 @@ Full URL: `https://www.anthropic.com/contact-sales?utm_source=claude_code&utm_me
 
 **Parallel channel: Ask Zed directly.** Since Helix uses Zed's ACP integration, Zed may have already navigated this question. They may have a partner agreement, or they may be able to introduce Helix to their Anthropic contact. Nathan Sobo (Zed CEO) or the Zed team would be the people to ask.
 
-## Recommendation
+## Recommendation: Two Modes
 
-**Build Option D (CLI + tmux + JSONL tailing) as the primary technical path.** This is the only approach that is both unambiguously compliant with Anthropic's policy AND preserves subscription-based auth for users. The JSONL session files provide rich structured data that can power a good Helix UI.
+Helix offers two Claude integration modes, matching auth type to integration approach:
 
-**In parallel:** Still pursue Option A (contact Anthropic/Zed about partner approval). If approved, Helix could switch back to the ACP integration for a richer UX. But don't block on this — Option D works today.
+### Mode 1: "Pure Claude" (Subscription auth — tmux + JSONL)
 
-**Also support:** Option B (API key auth) as an alternative for users who prefer pay-per-token or need Team/Enterprise compliance.
+For users with Claude Pro/Max subscriptions. Runs the Claude Code CLI directly in a tmux session. Helix provides prompt templates via send-keys, and powers a richer UI by tailing the JSONL session files. User logs in once with `claude auth login`; Helix persists `~/.claude/` across sessions (see below).
 
-**Avoid:** Option E (hybrid CLI auth + ACP) — too fragile, likely violates policy spirit.
+**Auth:** User's own subscription. Helix never touches credentials.
+**UX:** Terminal-based Claude with Helix UI overlay powered by JSONL tailing.
+**Policy:** Unambiguously compliant — user running CLI on their own machine.
+
+### Mode 2: "Zed ACP" (API key auth — full IDE integration)
+
+For users with Anthropic API keys. Uses the existing Zed ACP → Agent SDK integration for the richer IDE experience (inline diffs, tool approvals in UI, etc.). User provides an `ANTHROPIC_API_KEY` which Helix injects into the container.
+
+**Auth:** API key via console.anthropic.com. Per-token billing.
+**UX:** Full Zed ACP integration — richer than pure CLI mode.
+**Policy:** Fully compliant — API key auth is the documented path for Agent SDK.
+
+### Auth Persistence: Copy `~/.claude/` Across Sessions
+
+Users should not have to run `claude auth login` every time they start a new Helix session. The auth state lives in `~/.claude/` (OAuth tokens, config). Helix needs to persist this across container lifecycles.
+
+**Approach:** When a user completes `claude auth login` in a container, Helix snapshots the relevant auth files from `~/.claude/` and stores them in the user's Helix profile (encrypted at rest). On subsequent session starts, Helix copies the snapshot back into `~/.claude/` in the new container before the user starts Claude.
+
+**What to persist:**
+- `~/.claude/.credentials.json` or equivalent OAuth token file (need to identify exact file — investigate during implementation)
+- `~/.claude/settings.json` (user preferences)
+- NOT session data or project-specific files — those are per-workspace
+
+**What NOT to persist:**
+- `~/.claude/projects/` — session transcripts, workspace-specific
+- `~/.claude/sessions/` — process-level PIDs, ephemeral
+
+**This is equivalent to:** a user who has a dotfiles repo that syncs `~/.claude/` across machines. Or a cloud dev environment like Codespaces that persists the home directory. Helix is just preserving the user's home directory state across container restarts — standard VM/container behaviour.
+
+**Token refresh:** OAuth tokens may expire. If `claude auth status` reports the user is not logged in after restoring the snapshot, Helix should prompt them to re-authenticate. This should be rare — Claude's OAuth tokens appear to be long-lived.
+
+### Summary
+
+| | Pure Claude (Mode 1) | Zed ACP (Mode 2) |
+|---|---|---|
+| **Auth** | Claude subscription (Pro/Max) | Anthropic API key |
+| **Cost model** | Flat-rate subscription | Per-token billing |
+| **Integration** | tmux + JSONL tailing | Zed ACP + Agent SDK |
+| **UX richness** | Terminal + Helix overlay | Full IDE integration |
+| **Policy risk** | None — user on their VM | None — API key is documented path |
+
+**In parallel:** Still pursue contacting Anthropic/Zed about partner approval. If approved, Mode 2 could also support subscription auth, collapsing both modes into one.
 
 ## Key Learnings
 
