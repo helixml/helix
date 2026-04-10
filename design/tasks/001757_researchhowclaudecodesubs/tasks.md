@@ -9,14 +9,14 @@
 - [ ] Configure container entrypoint to keep tmux server running (e.g. `tini` as PID 1)
 - [ ] Set `TERM=xterm-256color` and tmux `history-limit 50000` in the container
 
-### Auth: Setup Token Flow
+### Auth: User Logs In Themselves
 
-- [ ] Build Helix UI for users to generate & provide a `claude setup-token` value
-- [ ] Document the flow: user runs `claude setup-token` locally → pastes token into Helix
-- [ ] Securely store the token (encrypted at rest)
-- [ ] Inject the token into `~/.claude/` config in the container at startup
-- [ ] Verify: does the setup-token work with the interactive CLI in a container? (Test this early — it's a critical assumption)
-- [ ] Fallback: test `claude auth login` headless flow (displays URL, user pastes code back)
+Helix is a Linux VM from the user's perspective. They log in to Claude the same way they would on any machine — Helix doesn't manage credentials.
+
+- [ ] Ensure `claude auth login` works in the container terminal (headless OAuth: CLI shows URL, user clicks it in browser, pastes code back)
+- [ ] Mount `~/.claude/` on a persistent volume so auth survives container restarts
+- [ ] Test: does `claude auth status` correctly report login state after container restart?
+- [ ] Document for users: "Open a terminal, run `claude auth login`, follow the prompts"
 
 ### tmux Session Management
 
@@ -59,7 +59,7 @@
 - [ ] Test tool execution: Claude edits a file, verify JSONL captures the full tool_use + tool_result cycle
 - [ ] Test long sessions: verify JSONL tailing handles sessions with 100+ turns
 - [ ] Test container restart: can we resume a session with `claude -c` or `claude -r <session-id>`?
-- [ ] Test `claude setup-token` end-to-end in a Docker container
+- [ ] Test `claude auth login` end-to-end in a Docker container with no browser
 
 ## Phase 2: Contact Anthropic / Zed (Parallel)
 

@@ -102,22 +102,29 @@ This is the approach the reviewer favoured. Detailed technical investigation bel
 #### Architecture
 
 ```
-Helix Container
+Helix Container (user's Linux VM)
 ├── tmux server
-│   └── pane 0: claude (interactive mode, subscription auth)
+│   └── pane 0: claude (interactive mode, user's own subscription)
 ├── Helix sync daemon
 │   ├── INPUT:  tmux send-keys → inject prompts/approvals into claude
 │   └── OUTPUT: tail -f ~/.claude/projects/<cwd>/<session>.jsonl → parse & relay to Helix UI
-└── Auth: user runs `claude login` or `claude setup-token` for subscription OAuth
+├── Auth: user runs `claude auth login` in their terminal (standard OAuth, same as any machine)
+└── ~/.claude/ (persistent volume — auth + session data survives container restarts)
 ```
 
 #### Authentication in the Container
 
-The CLI supports subscription auth via two paths:
+**Helix is a Linux VM from the user's perspective.** The user has a terminal in their Helix session. They log in to Claude exactly the same way they would on any machine:
 
-1. **`claude auth login`** — Interactive OAuth flow. Opens a browser for login. In a headless container, this requires a URL to be displayed that the user clicks in their local browser, then a code is pasted back. The CLI already supports this headless flow.
+```bash
+claude auth login
+```
 
-2. **`claude setup-token`** — *"Generate a long-lived OAuth token for CI and scripts. Prints the token to the terminal without saving it. Requires a Claude subscription."* The user generates this on their local machine and provides it to Helix. This is the cleanest path for containers — no browser needed inside the container. The token gets saved to `~/.claude/` config.
+The CLI displays a URL. The user clicks it in their browser, authenticates with their Claude subscription (Pro/Max/etc.), and pastes the code back into the terminal. This is the standard headless OAuth flow — identical to SSHing into any remote machine and running `claude login`. **Helix doesn't manage, store, or proxy any credentials.** The user is an ordinary user running Claude Code on their own machine, which happens to be a Helix container.
+
+The auth state persists in `~/.claude/` inside the container. As long as the container persists (or `~/.claude/` is on a persistent volume), the user stays logged in across sessions.
+
+Alternative for power users: `claude setup-token` generates a long-lived token on a local machine that can be pasted into the container. But the interactive login is simpler and doesn't require the user to have Claude installed locally.
 
 #### Session JSONL Files — The Data Path
 
@@ -248,36 +255,25 @@ claude -p "Fix the bug" --output-format stream-json --input-format stream-json
 
 This emits typed JSON events to stdout including partial messages, tool calls, and results. However, print mode (`-p`) is documented as the "SDK mode" and may be subject to the same Agent SDK restrictions on subscription auth. **Interactive mode is safer for subscription compliance** — it's the primary way individual users run Claude Code.
 
-#### Auth Token Management
+#### Pros
 
-The CLI has `claude setup-token` which generates a long-lived OAuth token for CI/scripts. This is the cleanest path for Helix containers:
+- **Unambiguously allowed** — user running CLI with their own subscription is the primary supported use case. Helix is just the VM.
+- **No credential management by Helix** — user logs in themselves, Helix never touches their tokens
+- **Rich structured data via JSONL tailing** — full access to thinking, text, tool calls, usage stats, subagent transcripts
+- **No cost change for users** — subscription pricing preserved
+- **Session files give more data than ACP** — thinking blocks, token usage, subagent transcripts all in JSONL
 
-1. User generates a setup token on their own machine: `claude setup-token`
-2. User provides the token to Helix (stored securely)
-3. Helix injects the token into the container's `~/.claude/` config at startup
-4. Claude CLI in the container picks up the token — no interactive login needed
+#### Cons
 
-This avoids the browser-redirect problem entirely. The user authenticates on their own machine with their own subscription, and the container gets a derived token.
-
-#### Pros (updated)
-
-- Unambiguously allowed — CLI + subscription is the primary supported use case
-- **Rich structured data via JSONL tailing** — full access to thinking, text, tool calls, usage stats
-- No cost change for users
-- `claude setup-token` solves the container auth problem cleanly
-- Session files give more data than the ACP integration (e.g., thinking blocks, usage stats, subagent transcripts)
-
-#### Cons (updated)
-
-- Loses Zed ACP integration (inline diffs, tool approvals in UI)
+- Loses Zed ACP integration (inline diffs, tool approvals in UI, etc.)
 - tmux injection is "good enough" but less robust than a proper API
 - Need to build the JSONL tailing daemon and Helix UI sync layer
-- TUI-based — harder to embed in a polished UI than structured ACP events
-- `--dangerously-skip-permissions` bypasses all safety checks — need to evaluate risk
+- Need persistent volume for `~/.claude/` to survive container restarts
+- `--dangerously-skip-permissions` bypasses all safety checks — need to evaluate whether this is acceptable for users, or if Helix should detect and relay approval prompts
 
 #### Risk: Low policy risk, medium engineering effort.
 
-The JSONL tailing gives Helix nearly as much data as the ACP integration, in a structured format. The main engineering effort is building the sync daemon and mapping JSONL events to Helix's UI.
+The JSONL tailing gives Helix nearly as much data as the ACP integration, in a structured format. The main engineering effort is building the sync daemon and mapping JSONL events to Helix's UI. The auth story is trivial — user logs in, same as any machine.
 
 ### Option E: Hybrid — CLI for Auth, ACP for UX
 
