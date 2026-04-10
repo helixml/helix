@@ -118,15 +118,38 @@ This approach reinforces Helix's positioning as a cloud computer provider: the u
 #### Architecture
 
 ```
-Helix Container (user's cloud computer)
-├── tmux server
-│   └── pane 0: claude (interactive mode, user's own subscription)
-├── Helix sync daemon
-│   ├── INPUT:  tmux paste-buffer → inject prompts (like clipboard paste)
-│   └── OUTPUT: tail -f ~/.claude/projects/<cwd>/<session>.jsonl → parse & relay to Helix UI
-├── Auth: user runs `claude auth login` in their terminal (standard OAuth, same as any machine)
-└── ~/.claude/ (persisted via general dotfile backup/restore, like any cloud dev environment)
+                         Helix API (Go)
+                              │
+                    WebSocket sync protocol
+                     (same as current Zed)
+                              │
+    ┌─────────────────────────┼──────────────────────────────────┐
+    │  Helix Container (user's cloud computer)                   │
+    │                         │                                  │
+    │                   helix-claude-sync                         │
+    │                   (guest daemon)                            │
+    │                    ┌────┴────┐                              │
+    │                    │         │                              │
+    │              JSONL tailing   tmux paste-buffer/send-keys    │
+    │                    │         │                              │
+    │                    ▼         ▼                              │
+    │               ~/.claude/   tmux server                     │
+    │               projects/    └── pane 0: claude               │
+    │               <cwd>/           (interactive mode,           │
+    │               <session>.jsonl   user's own subscription)   │
+    │                                                            │
+    │  Auth: user runs `claude auth login` in their terminal     │
+    │  ~/.claude/ persisted via general dotfile backup/restore    │
+    └────────────────────────────────────────────────────────────┘
 ```
+
+**`helix-claude-sync` is a guest daemon** — a lightweight process that runs inside the user's container alongside Claude. It replaces Zed's role in the WebSocket sync protocol:
+
+- **Upstream (to Helix API):** Connects to the Helix API via the same WebSocket sync protocol that Zed currently uses. Sends `thread_created`, `message_added`, `message_completed`, `agent_ready`, etc.
+- **Downstream (to Claude CLI):** Tails JSONL session files for structured output, injects prompts via tmux `paste-buffer`/`send-keys`.
+- **It is part of Helix's guest tools** — the same way Helix already ships `desktop-bridge`, `settings-sync-daemon`, and other guest processes in the container image. It's infrastructure, not an agent.
+
+This means the Helix API server-side code (`websocket_external_agent_sync.go`) changes minimally — the guest daemon speaks the same protocol Zed speaks. The major work is building the guest daemon itself.
 
 #### Authentication in the Container
 
@@ -275,72 +298,106 @@ def tail_session(jsonl_path):
 - Watch for a `queue-operation` with `operation: "dequeue"` — this signals the turn is complete
 - Alternatively, watch for an `assistant` message with `message.stop_reason: "end_turn"` — this means Claude has finished responding and is waiting for input
 
-#### Feature Parity: WebSocket Sync Protocol → JSONL + tmux
+#### Feature Parity: WebSocket Sync Protocol → Guest Daemon
 
-Helix currently syncs Claude state between the container and the Helix UI via a WebSocket protocol (`websocket_external_agent_sync.go`). The tmux + JSONL approach must achieve full feature parity. The table below maps every WebSocket protocol feature to its JSONL/tmux equivalent.
+The `helix-claude-sync` guest daemon connects to the Helix API via the **same WebSocket sync protocol** that Zed currently uses. It speaks the same event types. The Helix API server-side code (`websocket_external_agent_sync.go`) changes minimally — it just has a different client on the other end.
 
-**Helix → Claude (prompt injection):**
+The daemon's job is to translate between Claude's JSONL session files / tmux interface and the WebSocket protocol events the Helix API expects.
 
-| WebSocket Event | Purpose | JSONL/tmux Equivalent |
+**Helix API → Guest Daemon (commands received via WebSocket):**
+
+| WebSocket Command | Purpose | Guest Daemon Action |
 |---|---|---|
-| `chat_message` | Send user prompt to Claude | `tmux set-buffer "<prompt>" && tmux paste-buffer -t claude && tmux send-keys -t claude Enter` |
-| `open_thread` | Open/resume a conversation thread | `claude -c` (continue last session) or `claude -r <session-id>` (resume specific session). Map Helix thread IDs to Claude session UUIDs |
-| `query_ui_state` | Ask Zed for current UI state | Not needed — JSONL files are the source of truth. Read the JSONL directly |
+| `chat_message` | Send user prompt to Claude | `tmux set-buffer "<prompt>" && tmux paste-buffer -t claude && tmux send-keys -t claude Enter`. If Claude process not running, start it first |
+| `chat_message` (with `acp_thread_id`) | Send follow-up to existing thread | Look up Claude session UUID from thread mapping, ensure correct session is active, inject prompt via paste-buffer |
+| `chat_message` (with `is_continue`) | Recovery prompt after container restart | Start Claude with `claude -r <session-id>`, wait for ready, inject continue prompt |
+| `open_thread` | Open/resume a conversation thread | Start `claude -r <session-id>` (resume specific session) or `claude -c` (continue last). Map Helix thread IDs ↔ Claude session UUIDs |
 
-**Claude → Helix (state sync):**
+**Guest Daemon → Helix API (events sent via WebSocket):**
 
-| WebSocket Event | Purpose | JSONL Equivalent |
+| WebSocket Event | Purpose | JSONL Source |
 |---|---|---|
-| `agent_ready` | Agent loaded and ready for prompts | Claude process started + first `queue-operation` with `operation: "dequeue"` (idle, waiting for input) |
-| `thread_created` | New conversation thread started | New session JSONL file created at `~/.claude/projects/<cwd>/<session-uuid>.jsonl`. Map session UUID → Helix thread ID |
-| `message_added` | New assistant message (streaming) | `assistant` JSONL lines with `message.content` blocks. Lines are emitted incrementally — one per content block. Group by `message.id` |
-| `message_updated` | Updated assistant message (mid-stream) | Subsequent `assistant` JSONL lines with same `message.id` but updated content. Track `uuid`/`parentUuid` chain |
-| `message_completed` | Assistant turn finished | `queue-operation` with `operation: "dequeue"`, or `assistant` line with `message.stop_reason: "end_turn"` |
-| `thread_title_changed` | Conversation title updated | Not directly in JSONL. Can be read from `~/.claude/projects/<cwd>/sessions.jsonl` which tracks session metadata |
-| `thread_load_error` | Error loading conversation | Monitor claude process stderr or detect absence of expected JSONL output after prompt injection |
-| `ping` / `pong` | Connection keepalive | Monitor claude process liveness (`kill -0 <pid>`) and JSONL file modification time |
+| `agent_ready` | Claude loaded and ready for prompts | Claude process started + first `queue-operation:dequeue` detected in JSONL |
+| `thread_created` | New conversation thread started | New JSONL file appears at `~/.claude/projects/<cwd>/<session-uuid>.jsonl`. Send `acp_thread_id` = session UUID, `request_id` from pending prompt |
+| `message_added` (role=assistant) | Streaming assistant response | Each new `assistant` JSONL line → extract content blocks → send as `message_added` with `entry_type` ("text" or "tool_call"), `tool_name`, `tool_status` |
+| `message_added` (role=user) | Echo user message / tool results | `user` JSONL lines (non-meta) → send as `message_added` with role=user |
+| `message_completed` | Assistant turn finished | `queue-operation:dequeue` or `assistant` line with `stop_reason: "end_turn"` → send `message_completed` with `request_id` |
+| `thread_title_changed` | Conversation title updated | Poll `~/.claude/projects/<cwd>/sessions.jsonl` for session metadata changes |
+| `thread_load_error` | Failed to load/resume session | Claude process exits with error, or session file not found → send `thread_load_error` with error message |
+| `user_created_thread` | User started a new Claude session directly in terminal | Detect new JSONL file creation that wasn't initiated by a Helix `chat_message` (no pending `request_id`) → send `user_created_thread` |
+| `ping` | Keepalive | Standard WebSocket ping, same as Zed |
 
-**Content block mapping (within `message_added`/`message_updated`):**
+**Content block mapping (within `message_added`):**
 
-| WebSocket Content | Purpose | JSONL Content Block |
-|---|---|---|
-| Text response | Assistant's text output | `{"type": "text", "text": "..."}` in `message.content` array |
-| Tool call (start) | Tool invocation with name + input | `{"type": "tool_use", "id": "toolu_...", "name": "Edit", "input": {...}}` in `message.content` array |
-| Tool result | Tool execution output | `{"type": "tool_result", "tool_use_id": "toolu_...", "content": "..."}` in the next `user` JSONL line |
-| Thinking | Extended thinking content | `{"type": "thinking", "thinking": "...", "signature": "..."}` in `message.content` array |
-| Token usage | Input/output token counts | `message.usage` field: `{"input_tokens": N, "output_tokens": N, "cache_creation_input_tokens": N, "cache_read_input_tokens": N}` |
-| Model info | Which model responded | `message.model` field (e.g., `"claude-opus-4-20250514"`) |
-| Cost display | Per-turn cost | Derived from `message.usage` + known model pricing |
-
-**Streaming and throttling:**
-
-| WebSocket Feature | JSONL Equivalent |
+| JSONL Content Block | WebSocket `message_added` Fields |
 |---|---|
-| 200ms DB write throttle | Same — buffer JSONL events, write to Helix DB at most every 200ms |
-| 50ms frontend publish throttle | Same — relay JSONL events to Helix frontend at most every 50ms |
-| Message accumulator (dedup by message_id) | Group JSONL lines by `message.id`. Multiple lines share the same `message.id` — each represents one content block. Accumulate into a single message |
-| Per-entry delta tracking | Track which content blocks have been sent to the frontend. On new JSONL lines, compute delta and send only new blocks |
-| Streaming chunks | JSONL lines are emitted in real-time as Claude generates. `tail -f` with 100ms poll gives effective streaming |
+| `{"type": "text", "text": "..."}` | `entry_type: "text"`, `content: "..."` |
+| `{"type": "tool_use", "id": "toolu_...", "name": "Edit", "input": {...}}` | `entry_type: "tool_call"`, `tool_name: "Edit"`, `tool_status: "running"`, `content: <formatted summary>` |
+| `{"type": "tool_result", "tool_use_id": "toolu_...", "content": "..."}` | Update previous tool_call entry: `tool_status: "completed"`, append result to content |
+| `{"type": "thinking", "thinking": "..."}` | `entry_type: "text"`, `content: <thinking content>` (or separate entry type if Helix UI supports it) |
+| `message.usage` | Not sent via `message_added` — included in `message_completed` or tracked separately for cost display |
+| `message.model` | Not sent via `message_added` — available for display but not part of current protocol |
 
-**Session management:**
+**Streaming, throttling, and accumulation:**
 
-| WebSocket Feature | JSONL Equivalent |
+The guest daemon does NOT need to implement DB throttling or frontend publish throttling — that's the Helix API server's job (it already does this in `websocket_external_agent_sync.go`). The daemon just needs to:
+
+| Concern | Guest Daemon Responsibility | Helix API Responsibility |
+|---|---|---|
+| JSONL polling interval | Poll at ~100ms. Send `message_added` for each new line | — |
+| Message grouping | Group JSONL lines by `message.id`. Send one `message_added` per content block, with consistent `message_id` | Accumulate by `message_id` (existing `MessageAccumulator`) |
+| DB write throttle | — | Buffer and write at most every 200ms (existing) |
+| Frontend publish throttle | — | Publish at most every 50ms (existing `publishInterval`) |
+| Per-entry delta patches | — | Compute UTF-16 deltas (existing `computePatch`) |
+| Duplicate completion dedup | Send exactly one `message_completed` per turn. Guard against both `queue-operation:dequeue` AND `stop_reason: end_turn` firing | Dedup via `completedRequestIDs` (existing) |
+
+**Session lifecycle and state recovery:**
+
+| Feature | Guest Daemon Implementation |
 |---|---|
-| Session readiness (60s timeout) | Start claude process, wait for first `queue-operation:dequeue` or stdout "Claude Code" banner. Timeout if neither within 60s |
-| Session → thread mapping | Map Helix session IDs to Claude session UUIDs. Discover UUID via `~/.claude/sessions/<pid>.json` |
-| Continue/resume session | `claude -c` (last session) or `claude -r <session-id>` (specific session) |
-| Interrupt mid-turn | `tmux send-keys -t claude C-c` (Ctrl+C) — same as user pressing Ctrl+C. Then send `queue-operation:dequeue` equivalent when Claude re-prompts |
-| Subagent transcripts | Tail `~/.claude/projects/<cwd>/<session-uuid>/subagents/agent-*.jsonl` — same format as main JSONL |
+| Session readiness (60s timeout) | Start claude process → tail JSONL → wait for first `queue-operation:dequeue`. If not seen within 60s, send `thread_load_error`. On success, send `agent_ready` |
+| Session ↔ thread mapping | Maintain `helix_thread_id ↔ claude_session_uuid` map. Persist to disk for crash recovery. Discover UUID via `~/.claude/sessions/<pid>.json` |
+| Reconnection to Helix API | On WS disconnect, reconnect with backoff. On reconnect, re-send `agent_ready`. Helix API handles `pickupWaitingInteraction` and `open_thread` |
+| Container restart recovery | On startup, check for running claude process (tmux session). If found, resume tailing. If not, wait for `chat_message` from Helix API |
+| Continue prompt after restart | When Helix sends `chat_message` with `is_continue: true`, start claude with `-r <session-id>`, wait for ready, inject the continue prompt |
+| Interaction state transitions | Track pending `request_id` → when `message_completed` fires, include the `request_id` so Helix API can transition the interaction from `Waiting` → `Complete` |
+| Auto-complete stale interactions | If a new prompt arrives while a previous turn is still active, send `message_completed` for the old turn before injecting the new prompt (handles interrupt race) |
+| Claude process crash | Monitor claude PID (`kill -0`). If dead, send `thread_load_error` to Helix API. On next `chat_message`, restart claude |
 
-**What we gain over WebSocket/ACP:**
+**SpecTask integration:**
+
+| Feature | Guest Daemon Implementation |
+|---|---|
+| SpecTask thread tracking | Helix API handles `SpecTaskWorkSession`/`SpecTaskZedThread` creation on `thread_created` — no daemon changes needed |
+| SpecTask activity updates | Helix API updates `LastActivityAt` on `message_completed` — no daemon changes needed |
+| SpecTask phase detection | Helix API handles this server-side — no daemon changes needed |
+
+**Design review comment streaming:**
+
+| Feature | Guest Daemon Implementation |
+|---|---|
+| Dual-publish to commenter | Helix API handles `sessionToCommenterMapping` and dual-publish — no daemon changes needed |
+| Comment finalization | Helix API handles `finalizeCommentResponse` on `message_completed` — no daemon changes needed |
+
+**Prompt queue:**
+
+| Feature | Guest Daemon Implementation |
+|---|---|
+| Queue processing after completion | Helix API calls `processPromptQueue` after `message_completed` → sends next `chat_message` to daemon — no daemon changes needed |
+| Interrupt prompts | Helix API sends `chat_message` with interrupt flag. Daemon sends `Ctrl+C` via `tmux send-keys -t claude C-c`, waits for JSONL to show turn ended, then injects new prompt |
+
+**Key insight: most complexity stays server-side.** The existing `websocket_external_agent_sync.go` handles DB operations, throttling, delta computation, prompt queuing, spectask tracking, design review integration, and frontend publishing. The guest daemon is a relatively thin translator between JSONL/tmux and the WebSocket protocol.
+
+**What we gain over Zed/ACP:**
 
 - **Thinking blocks** — full extended thinking content (ACP doesn't expose this)
 - **Token usage per turn** — exact input/output/cache token counts
-- **Subagent transcripts** — full visibility into delegated agent work
+- **Subagent transcripts** — tail `<session>/subagents/agent-*.jsonl` for full visibility into delegated agent work
 - **Tool input details** — exact arguments passed to every tool (file paths, search patterns, edit diffs)
 - **Session history** — all JSONL files persist on disk, queryable after the fact
+- **User direct access** — user can attach to tmux session from desktop stream, SSH, or web terminal at any time
 
-**What we lose vs WebSocket/ACP:**
+**What we lose vs Zed/ACP:**
 
 - **Inline diffs in Zed** — tmux mode has no IDE integration for showing diffs
 - **Tool approval UI in Zed** — mitigated by `--dangerously-skip-permissions` or `--permission-mode acceptEdits`
