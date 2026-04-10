@@ -6,8 +6,14 @@ import {
   Menu,
   MenuItem,
   CircularProgress,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogContentText,
+  DialogActions,
 } from "@mui/material";
 import SettingsIcon from "@mui/icons-material/Settings";
+import DeleteForeverIcon from "@mui/icons-material/DeleteForever";
 import { Plus, Link, FolderSearch } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -39,6 +45,7 @@ import {
   usePinnedProjectIds,
   usePinProject,
   useUnpinProject,
+  useDeleteProject,
 } from "../services";
 import { useGitRepositories } from "../services/gitRepositoryService";
 import type {
@@ -140,6 +147,9 @@ const Projects: FC = () => {
     null,
   );
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [projectToDelete, setProjectToDelete] = useState<TypesProject | null>(null);
+  const deleteProjectMutation = useDeleteProject();
 
   // Repository management
   const currentOrg = account.organizationTools.organization;
@@ -307,6 +317,28 @@ const Projects: FC = () => {
       openDialog('project-settings', { projectId: selectedProject.id });
     }
     handleMenuClose();
+  };
+
+  const handleDeleteProjectMenu = () => {
+    if (selectedProject) {
+      setProjectToDelete(selectedProject);
+      setDeleteConfirmOpen(true);
+    }
+    handleMenuClose();
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!projectToDelete?.id) return;
+    try {
+      await deleteProjectMutation.mutateAsync(projectToDelete.id);
+      snackbar.success("Project deleted successfully");
+      await queryClient.invalidateQueries({ queryKey: ["projects"] });
+    } catch {
+      snackbar.error("Failed to delete project");
+    } finally {
+      setDeleteConfirmOpen(false);
+      setProjectToDelete(null);
+    }
   };
 
   const handleNewProject = () => {
@@ -794,7 +826,48 @@ const Projects: FC = () => {
           <SettingsIcon sx={{ mr: 1 }} fontSize="small" />
           Settings
         </MenuItem>
+        <MenuItem onClick={handleDeleteProjectMenu} sx={{ color: "error.main" }}>
+          <DeleteForeverIcon sx={{ mr: 1 }} fontSize="small" />
+          Delete Project
+        </MenuItem>
       </Menu>
+
+      {/* Delete Project Confirmation Dialog */}
+      <Dialog
+        open={deleteConfirmOpen}
+        onClose={() => {
+          setDeleteConfirmOpen(false);
+          setProjectToDelete(null);
+        }}
+        maxWidth="xs"
+        fullWidth
+      >
+        <DialogTitle>Delete Project</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            Are you sure you want to delete <strong>{projectToDelete?.name}</strong>? This action cannot be undone.
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button
+            onClick={() => {
+              setDeleteConfirmOpen(false);
+              setProjectToDelete(null);
+            }}
+          >
+            Cancel
+          </Button>
+          <Button
+            onClick={handleConfirmDelete}
+            color="error"
+            variant="contained"
+            disabled={deleteProjectMutation.isPending}
+            startIcon={<DeleteForeverIcon />}
+          >
+            {deleteProjectMutation.isPending ? "Deleting..." : "Delete"}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Create Project Dialog */}
       <CreateProjectDialog
