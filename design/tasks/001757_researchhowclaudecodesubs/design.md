@@ -397,12 +397,14 @@ The guest daemon does NOT need to implement DB throttling or frontend publish th
 - **Session history** — all JSONL files persist on disk, queryable after the fact
 - **User direct access** — user can attach to tmux session from desktop stream, SSH, or web terminal at any time
 
-**What we lose vs Zed/ACP:**
+**What Mode 1 (CLI) trades off vs Mode 2 (Zed ACP):**
 
-- **Inline diffs in Zed** — tmux mode has no IDE integration for showing diffs
-- **Tool approval UI in Zed** — mitigated by `--dangerously-skip-permissions` or `--permission-mode acceptEdits`
-- **Zed panel integration** — the Claude panel in Zed's sidebar is replaced by Helix's own UI
-- **Sub-second streaming** — JSONL tailing has ~100ms poll latency vs WebSocket's near-instant delivery (acceptable for UI)
+Note: Zed ACP remains fully supported for API key users. These are trade-offs specific to subscription users who use Mode 1 instead.
+
+- **No inline diffs in Zed** — CLI mode doesn't have IDE integration for showing diffs (Zed ACP does, for API key users)
+- **No tool approval UI in Zed** — mitigated by `--dangerously-skip-permissions` or `--permission-mode acceptEdits`
+- **Helix UI overlay instead of Zed panel** — the Claude panel in Zed's sidebar is replaced by Helix's own JSONL-powered UI
+- **~100ms streaming latency** — JSONL tailing polls at ~100ms vs WebSocket's near-instant delivery (acceptable for UI)
 
 #### Why Interactive Mode, Not Print Mode (`--output-format stream-json`)
 
@@ -442,7 +444,7 @@ All of these work simultaneously. The tmux session is the single source of truth
 
 #### Cons
 
-- Loses Zed ACP integration (inline diffs, tool approvals in UI, etc.) — mitigated by richer JSONL data
+- Mode 1 users don't get Zed ACP features (inline diffs, tool approvals in UI) — but Zed ACP remains available for API key users in Mode 2
 - tmux prompt injection is "good enough" but less robust than a typed API
 - Need to build the JSONL tailing daemon and Helix UI sync layer (see feature parity mapping above)
 - Need dotfile backup/restore for `~/.claude/` persistence across container lifecycles
