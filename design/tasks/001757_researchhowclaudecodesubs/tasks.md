@@ -6,8 +6,8 @@
 
 ### Container Setup (the user's cloud computer)
 
-- [ ] Add Claude Code CLI to the container image (`npm install -g @anthropic-ai/claude-code`)
-- [ ] Install tmux in the container image
+- [~] Add Claude Code CLI to the container image (`npm install -g @anthropic-ai/claude-code`)
+- [x] Install tmux in the container image (ALREADY DONE — tmux is in APT package list in both Dockerfiles)
 - [ ] Configure container entrypoint to keep tmux server running (e.g. `tini` as PID 1)
 - [ ] Set `TERM=xterm-256color` and tmux `history-limit 50000` in the container
 
