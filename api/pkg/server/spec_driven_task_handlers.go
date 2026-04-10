@@ -57,6 +57,9 @@ func (s *HelixAPIServer) createTaskFromPrompt(w http.ResponseWriter, r *http.Req
 	req.UserID = user.ID
 	req.UserEmail = user.Email
 
+	// Strip null bytes that Postgres rejects (SQLSTATE 22021)
+	req.Prompt = strings.ReplaceAll(req.Prompt, "\x00", "")
+
 	// Validate request
 	if req.Prompt == "" {
 		http.Error(w, "prompt is required", http.StatusBadRequest)
