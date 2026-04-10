@@ -9,18 +9,20 @@
 - [ ] Configure container entrypoint to keep tmux server running (e.g. `tini` as PID 1)
 - [ ] Set `TERM=xterm-256color` and tmux `history-limit 50000` in the container
 
-### Auth: Login Once, Persist Across Sessions
+### Dotfile Backup/Restore (General Purpose)
 
-User logs in once with `claude auth login`. Helix persists the auth state so they don't have to re-login for every new session.
+Helix backs up and restores all user dotfiles across container sessions — not Claude-specific. Claude auth persistence is just a natural consequence.
+
+- [ ] Implement general dotfile backup/restore for user home directories across container lifecycles
+- [ ] Cover: `~/.claude/`, `~/.gitconfig`, `~/.ssh/`, `~/.config/`, shell rc files, etc.
+- [ ] Exclude ephemeral/large directories (e.g. `~/.claude/projects/`, `~/.claude/sessions/`, caches)
+- [ ] Store backups in Helix user profile storage (encrypted at rest)
+
+### Claude Auth
 
 - [ ] Ensure `claude auth login` works in the container terminal (headless OAuth: CLI shows URL, user clicks in browser, pastes code back)
-- [ ] Identify which files in `~/.claude/` hold OAuth tokens (likely `.credentials.json` or similar — investigate at implementation time)
-- [ ] Back up auth files + `settings.json` from `~/.claude/` when container stops (standard home directory backup/restore, same as Docker volumes or Codespaces)
-- [ ] Restore the backup into `~/.claude/` when a new container starts, before user launches Claude
-- [ ] Do NOT back up `~/.claude/projects/` (session transcripts) or `~/.claude/sessions/` (ephemeral PIDs)
-- [ ] On restore, run `claude auth status` to verify the token is still valid
-- [ ] If token expired, prompt user to re-login (should be rare — tokens appear long-lived)
-- [ ] Test: full cycle — login in session 1, destroy container, start session 2, verify `claude auth status` shows logged in
+- [ ] Verify auth survives dotfile restore: login in session 1, destroy container, start session 2, run `claude auth status`
+- [ ] If token expired after restore, prompt user to re-login (should be rare)
 
 ### tmux Session Management
 

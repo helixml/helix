@@ -396,17 +396,9 @@ For users with Anthropic API keys. Uses the existing Zed ACP → Agent SDK integ
 
 Users should not have to run `claude auth login` every time they start a new Helix session. The auth state lives in `~/.claude/` (OAuth tokens, config). Helix needs to persist this across container lifecycles.
 
-**Approach:** Standard backup/restore of the user's home directory state. Helix backs up `~/.claude/` when a container stops and restores it when a new container starts — the same thing Docker volumes, Codespaces persistent home directories, and cloud VM snapshots do.
+**Approach:** Helix backs up and restores the user's dotfiles across container sessions — a general-purpose feature, not Claude-specific. This covers `~/.claude/`, `~/.gitconfig`, `~/.ssh/`, `~/.config/`, shell rc files, and anything else the user has in their home directory. Claude auth persistence is just a natural consequence of dotfile backup/restore, the same way any cloud dev environment (Codespaces, Gitpod, DevPod) handles it.
 
-**What to back up:**
-- `~/.claude/.credentials.json` or equivalent OAuth token file (need to identify exact file — investigate during implementation)
-- `~/.claude/settings.json` (user preferences)
-
-**What NOT to back up:**
-- `~/.claude/projects/` — session transcripts, workspace-specific
-- `~/.claude/sessions/` — process-level PIDs, ephemeral
-
-**Token refresh:** OAuth tokens may expire. If `claude auth status` reports the user is not logged in after a restore, Helix prompts them to re-login. Should be rare — tokens appear long-lived.
+No Claude-specific auth code needed. The user logs in once, their `~/.claude/` directory is preserved like any other dotfile, and it's there next session.
 
 ### Summary
 
