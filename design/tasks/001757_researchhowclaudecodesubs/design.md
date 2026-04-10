@@ -271,6 +271,52 @@ This emits typed JSON events to stdout including partial messages, tool calls, a
 - Need persistent volume for `~/.claude/` to survive container restarts
 - `--dangerously-skip-permissions` bypasses all safety checks — need to evaluate whether this is acceptable for users, or if Helix should detect and relay approval prompts
 
+#### Interaction Model: User-Initiated Actions with Prompt Templates
+
+Helix provides a guided development flow. Every claude session and every prompt is initiated by a user action (clicking a button, selecting a task). Helix sends prompt templates into the tmux session via `send-keys` — this is functionally identical to a user pasting a saved snippet, shell alias, or slash command into their terminal.
+
+**What Helix does:**
+- User clicks "Start task" → Helix opens a tmux pane, starts `claude`
+- User clicks "Write specs" → Helix pastes a prompt template into the terminal
+- User clicks "Run tests" → Helix pastes another prompt template
+- JSONL tailing powers a richer view of what Claude is doing
+
+**What Helix does NOT do:**
+- Auto-start sessions without user action
+- Chain prompts automatically (each step requires user initiation)
+- Run headless batch jobs against the subscription
+- Multiplex one subscription across multiple users
+- Pool or proxy credentials
+
+The usage pattern is indistinguishable from a user on a VM who has shell aliases or saved snippets for common Claude prompts. The user is always in the driver's seat.
+
+#### Policy Risk Assessment
+
+**Reading JSONL files:** No risk. These are local files on the user's filesystem. Any tool can read files — VS Code, backup scripts, monitoring tools. No policy prohibits reading files Claude writes to disk.
+
+**tmux send-keys for prompt injection:** Low risk, with caveats. There's a spectrum:
+
+| Action | Risk |
+|--------|------|
+| User types in terminal | None |
+| User pastes text into terminal | None |
+| User clicks Helix button → send-keys pastes a prompt | Low — equivalent to clipboard paste |
+| Helix auto-sends prompts without user action | Higher — looks like programmatic automation |
+
+Helix stays at the "user clicks button" level. Every prompt is user-initiated.
+
+**The economic argument is the strongest defence.** Anthropic's stated concern is that third-party tools bypass prompt cache optimizations and consume disproportionate compute. A user running interactive Claude in a tmux session has the same compute profile as a user running it in any terminal. Helix isn't wrapping the API, isn't bypassing caching, isn't multiplexing subscriptions.
+
+**If Anthropic ever questions it, the defence is:** "We provide Linux containers. The user installed Claude Code, logged in with their own account, and runs it in their terminal. We read the session files to show a richer UI. Every Claude session is started by a user action, every prompt is sent by a user action."
+
+**Risk escalates if** Helix later adds:
+- Fully autonomous agent loops (prompts sent without user clicks)
+- Multiple concurrent Claude sessions per user
+- Print mode (`-p`) instead of interactive mode
+- Any credential management by Helix itself
+
+Keep these as lines not to cross without legal review or Anthropic partner approval.
+
 #### Risk: Low policy risk, medium engineering effort.
 
 The JSONL tailing gives Helix nearly as much data as the ACP integration, in a structured format. The main engineering effort is building the sync daemon and mapping JSONL events to Helix's UI. The auth story is trivial — user logs in, same as any machine.
