@@ -2110,6 +2110,27 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 	var targetInteractionID string
 	apiServer.contextMappingsMutex.Lock()
 
+	// Deduplicate: Zed (Claude Code) can send two message_completed events for the
+	// same request_id when an interrupt races with the cancelled turn's completion.
+	// The second duplicate has no requestToInteractionMapping entry (deleted by the
+	// first), falls through to the DB fallback, finds the interrupt's waiting
+	// interaction, and incorrectly marks it complete — causing the isolation
+	// violation and leaving the interrupt's message_completed unmatched.
+	if messageRequestID != "" {
+		if apiServer.completedRequestIDs == nil {
+			apiServer.completedRequestIDs = make(map[string]bool)
+		}
+		if apiServer.completedRequestIDs[messageRequestID] {
+			apiServer.contextMappingsMutex.Unlock()
+			log.Warn().
+				Str("helix_session_id", helixSessionID).
+				Str("request_id", messageRequestID).
+				Msg("⚠️ [HELIX] Duplicate message_completed for already-processed request_id — ignoring")
+			return nil
+		}
+		apiServer.completedRequestIDs[messageRequestID] = true
+	}
+
 	// Try to find the interaction via request_id → interaction_id mapping
 	if messageRequestID != "" {
 		if mappedID, ok := apiServer.requestToInteractionMapping[messageRequestID]; ok {
