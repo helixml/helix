@@ -105,6 +105,7 @@ type HelixAPIServer struct {
 	contextMappingsMutex        sync.RWMutex        // Mutex for contextMappings (and related mappings below)
 	requestToSessionMapping     map[string]string // request_id -> Helix session_id mapping (for chat_message routing)
 	requestToInteractionMapping map[string]string // request_id -> interaction_id (for routing message_added/completed to correct interaction)
+	completedRequestIDs         map[string]bool   // request_ids already processed by handleMessageCompleted (dedup guard)
 	externalAgentSessionMapping map[string]string   // External agent session_id -> Helix session_id mapping
 	externalAgentUserMapping    map[string]string   // External agent session_id -> user_id mapping
 	// Comment processing timeouts - uses database for queue state (QueuedAt/RequestID fields)
