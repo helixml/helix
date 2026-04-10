@@ -24,6 +24,13 @@ Helix backs up and restores all user dotfiles across container sessions — not 
 - [ ] Verify auth survives dotfile restore: login in session 1, destroy container, start session 2, run `claude auth status`
 - [ ] If token expired after restore, prompt user to re-login (should be rare)
 
+### Remove Legacy Claude Token UI
+
+- [ ] Remove the existing claude get-token UI and flow from the Helix platform (naive initial implementation)
+- [ ] Remove any associated API endpoints, token storage, and frontend components
+- [ ] Update any documentation or onboarding flows that reference the old token mechanism
+- [ ] Auth is now handled entirely inside the container via `claude auth login` — Helix platform doesn't touch it
+
 ### tmux Session Management
 
 - [ ] Create tmux session with wide terminal: `tmux new-session -d -s claude -x 220 -y 50`
