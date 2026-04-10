@@ -6,10 +6,10 @@
 
 ### Container Setup (the user's cloud computer)
 
-- [~] Add Claude Code CLI to the container image (`npm install -g @anthropic-ai/claude-code`)
-- [x] Install tmux in the container image (ALREADY DONE — tmux is in APT package list in both Dockerfiles)
-- [ ] Configure container entrypoint to keep tmux server running (e.g. `tini` as PID 1)
-- [ ] Set `TERM=xterm-256color` and tmux `history-limit 50000` in the container
+- [x] Add Claude Code CLI to the container image (`npm install -g @anthropic-ai/claude-code@latest` in both Dockerfiles)
+- [x] Install tmux in the container image (already in APT package list in both Dockerfiles)
+- [x] Configure container entrypoint to keep tmux server running (GOW entrypoint pattern already handles this — tmux is a daemon managed by the guest daemon, not PID 1)
+- [x] Set `TERM=xterm-256color` and tmux `history-limit 50000` in the container (`/etc/tmux.conf` added to both Dockerfiles)
 
 ### Dotfile Backup/Restore (General Purpose)
 
