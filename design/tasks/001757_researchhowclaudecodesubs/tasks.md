@@ -33,7 +33,7 @@ Helix backs up and restores all user dotfiles across container sessions — not 
 - [ ] Update any documentation or onboarding flows that reference the old token mechanism
 - [ ] Auth is now handled entirely inside the container via `claude auth login` — Helix platform doesn't touch it
 
-### `helix-claude-sync` Guest Daemon
+### `helix-claude-sync` Guest Daemon [~]
 
 A guest daemon that runs inside the container alongside Claude. It replaces Zed's role in the WebSocket sync protocol — connecting upstream to the Helix API and downstream to Claude via JSONL tailing + tmux. Part of Helix's existing guest tools (like `desktop-bridge`, `settings-sync-daemon`).
 
