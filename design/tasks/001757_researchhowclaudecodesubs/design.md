@@ -179,28 +179,41 @@ To find the session UUID for a running claude process:
 
 #### Injecting Prompts via tmux
 
+Two approaches for sending prompts into the claude session:
+
+**Option 1: `paste-buffer` (preferred for prompts)**
+
 ```bash
-# Create session with wide terminal (avoids line wrapping in output)
-tmux new-session -d -s claude -x 220 -y 50
+# Load prompt into tmux buffer and paste it — simulates clipboard paste
+tmux set-buffer "Fix the bug in auth.py"
+tmux paste-buffer -t claude
+tmux send-keys -t claude Enter
+```
 
-# Start claude in interactive mode
-tmux send-keys -t claude "claude --dangerously-skip-permissions" Enter
+Advantages over `send-keys`:
+- Handles multiline prompts cleanly (Claude Code accepts pasted blocks natively)
+- No issues with special characters (`$`, `"`, `\`, etc.)
+- Sends the entire block at once, like a real user paste
 
-# Send a prompt (use -l for literal text to avoid escape char issues)
-tmux send-keys -t claude -l "Fix the bug in auth.py" 
+**Option 2: `send-keys` (for simple commands and keypresses)**
+
+```bash
+# Simple text + enter
+tmux send-keys -t claude -l "Fix the bug in auth.py"
 tmux send-keys -t claude Enter
 
-# Send a tool approval (y/n)
+# Tool approval
 tmux send-keys -t claude "y" Enter
 
-# Send Ctrl+C to interrupt
+# Ctrl+C to interrupt
 tmux send-keys -t claude C-c
 ```
 
+**Recommended pattern:** Use `paste-buffer` for prompt templates (multiline, may contain special chars). Use `send-keys` for simple keypresses (Enter, y/n, Ctrl+C).
+
 **Key tmux considerations:**
-- **`-l` flag is critical** — without it, special chars like `$`, `"`, `\` are interpreted as key names
 - **Terminal width matters** — set `-x 220` or wider to prevent line wrapping in the TUI
-- **Timing:** `send-keys` is fire-and-forget with no acknowledgement. Before sending, poll `capture-pane` or check the JSONL to confirm Claude is ready for input
+- **Timing:** Both are fire-and-forget with no acknowledgement. Check the JSONL for `queue-operation:dequeue` to confirm Claude finished the previous turn before sending the next prompt
 - **Permission mode:** Use `--dangerously-skip-permissions` or `--permission-mode acceptEdits` to minimize interactive approval prompts. This is the biggest simplification — without it, you need to detect and respond to every tool approval prompt
 
 #### Detecting State from JSONL (Not tmux capture-pane)

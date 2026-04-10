@@ -35,8 +35,8 @@ Helix backs up and restores all user dotfiles across container sessions — not 
 
 - [ ] Create tmux session with wide terminal: `tmux new-session -d -s claude -x 220 -y 50`
 - [ ] Launch Claude CLI: `tmux send-keys -t claude "claude --dangerously-skip-permissions" Enter`
-- [ ] Build prompt injection function: `tmux send-keys -t claude -l "<prompt>" Enter`
-- [ ] Build interrupt function: `tmux send-keys -t claude C-c`
+- [ ] Build prompt injection via paste-buffer: `tmux set-buffer "<prompt>" && tmux paste-buffer -t claude && tmux send-keys -t claude Enter` (handles multiline and special chars)
+- [ ] Use send-keys for simple keypresses: `y`/`n` approvals, `Enter`, `C-c` interrupt
 - [ ] Determine how to detect "Claude is ready for input" — check JSONL for `queue-operation:dequeue` or `stop_reason: "end_turn"`
 - [ ] Evaluate `--permission-mode acceptEdits` vs `--dangerously-skip-permissions` — what's the right safety level for Helix users?
 
