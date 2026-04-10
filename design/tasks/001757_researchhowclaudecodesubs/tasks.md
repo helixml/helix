@@ -1,12 +1,15 @@
 # Implementation Tasks
 
-## Immediate: Partner Approval (Option A)
+## Immediate: Clarify Zed's Status & Contact Anthropic
 
-- [ ] Draft email/request to Anthropic sales (anthropic.com/contact-sales) explaining Helix's use case as a cloud dev environment, not a Claude wrapper
+- [ ] **Ask Zed directly** whether they have a formal partner agreement with Anthropic for subscription OAuth in their ACP integration. Contact Nathan Sobo or the Zed team — they may already have navigated this question.
+- [ ] **Check if Helix can piggyback** on any Zed-Anthropic agreement, since Helix consumes Zed's ACP integration
+- [ ] **Contact Anthropic sales** via the official link: `https://www.anthropic.com/contact-sales?utm_source=claude_code&utm_medium=docs&utm_content=legal_compliance_contact_sales`
+- [ ] In the sales request, frame Helix as a cloud dev environment (like Codespaces), not a Claude wrapper
 - [ ] Emphasize: users auth with own credentials, Helix doesn't pool/manage subscriptions, experience is equivalent to running Claude in a VM
 - [ ] Reference the "unless previously approved" language from the Agent SDK docs
 - [ ] Ask specifically: does a container-based dev environment where users run their own Claude session qualify for an exception?
-- [ ] Include willingness to comply with branding guidelines, usage reporting, or other conditions
+- [ ] Note that Anthropic already actively supports the Zed ACP integration (cite issue #205 fixed by Anthropic employee `blois`)
 
 ## Parallel: API Key Auth Fallback (Option B)
 

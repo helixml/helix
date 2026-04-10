@@ -135,6 +135,37 @@ Use the Claude Code CLI for authentication (which validates the subscription), b
 
 **Risk: High.** This is likely the same thing Anthropic is blocking — it's just a different path to the same prohibited outcome.
 
+## Is Zed an Approved Partner?
+
+**No confirmed formal partnership.** No public announcement of a Zed-Anthropic partnership was found. However, there is strong evidence of an active working relationship:
+
+**Evidence of close collaboration:**
+- Anthropic employee `blois` was **assigned to and fixed** [issue #205](https://github.com/anthropics/claude-agent-sdk-typescript/issues/205), which was explicitly about the Zed ACP integration (`@zed-industries/claude-agent-acp`). They didn't say "this isn't a supported use case" — they fixed the bug.
+- Multiple ACP-related issues ([#117](https://github.com/anthropics/claude-agent-sdk-typescript/issues/117), [#254](https://github.com/anthropics/claude-agent-sdk-typescript/issues/254), [#261](https://github.com/anthropics/claude-agent-sdk-typescript/issues/261), [#265](https://github.com/anthropics/claude-agent-sdk-typescript/issues/265)) are actively triaged by Anthropic, all referencing `claude-agent-acp`.
+- Zed has a [dedicated Claude Code page](https://zed.dev/acp/agent/claude-code) on their ACP registry, describing it as *"Anthropic's Claude integrated through Zed's SDK adapter"*.
+- The `@zed-industries/claude-code-acp` package has 189K+ npm downloads.
+
+**However:**
+- Zed's own ACP page already instructs users to use API key auth: *"If this is your first time using Claude Code, you'll be prompted to add your Anthropic API key."*
+- No public blog post or announcement from either Zed or Anthropic describes a formal partnership or approved status.
+- Zed may itself be in the same grey area as Helix, or may have a private agreement we can't see.
+
+**Bottom line:** Zed appears to be a **de facto** partner (Anthropic actively supports their integration) but whether they have formal "previously approved" status for subscription OAuth is unknown. This is worth asking Zed directly — they may already have clarity on this, and if they have an agreement, Helix (as a Zed consumer) may be able to piggyback on it.
+
+## How to Contact Anthropic
+
+The legal page provides a direct link for auth questions:
+
+> **For questions about permitted authentication methods for your use case, please [contact sales](https://www.anthropic.com/contact-sales).**
+
+Full URL: `https://www.anthropic.com/contact-sales?utm_source=claude_code&utm_medium=docs&utm_content=legal_compliance_contact_sales`
+
+**Key people:**
+- **Boris Cherny** — Head of Claude Code at Anthropic. Announced the April 4 enforcement on X. He's the decision-maker on this policy.
+- **Anthropic Sales team** — The docs explicitly route auth questions through sales. This is the official path.
+
+**Parallel channel: Ask Zed directly.** Since Helix uses Zed's ACP integration, Zed may have already navigated this question. They may have a partner agreement, or they may be able to introduce Helix to their Anthropic contact. Nathan Sobo (Zed CEO) or the Zed team would be the people to ask.
+
 ## Recommendation
 
 **Short-term (immediate):** Pursue **Option A** (partner approval). The "unless previously approved" language is a clear invitation. Frame the request as: Helix is a cloud dev environment, not a Claude wrapper. Include willingness to comply with branding guidelines, usage caps, or reporting.
