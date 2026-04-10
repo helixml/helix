@@ -15,12 +15,11 @@ User logs in once with `claude auth login`. Helix persists the auth state so the
 
 - [ ] Ensure `claude auth login` works in the container terminal (headless OAuth: CLI shows URL, user clicks in browser, pastes code back)
 - [ ] Identify which files in `~/.claude/` hold OAuth tokens (likely `.credentials.json` or similar — investigate at implementation time)
-- [ ] After successful `claude auth login`, snapshot the auth files to Helix user profile storage (encrypted at rest)
-- [ ] On new session start, restore the auth snapshot into `~/.claude/` before the user starts Claude
-- [ ] Also persist `~/.claude/settings.json` (user preferences)
-- [ ] Do NOT persist `~/.claude/projects/` (session transcripts) or `~/.claude/sessions/` (ephemeral PIDs)
-- [ ] On session start, run `claude auth status` to verify the restored token is still valid
-- [ ] If token expired, prompt user to re-login (should be rare — OAuth tokens appear long-lived)
+- [ ] Back up auth files + `settings.json` from `~/.claude/` when container stops (standard home directory backup/restore, same as Docker volumes or Codespaces)
+- [ ] Restore the backup into `~/.claude/` when a new container starts, before user launches Claude
+- [ ] Do NOT back up `~/.claude/projects/` (session transcripts) or `~/.claude/sessions/` (ephemeral PIDs)
+- [ ] On restore, run `claude auth status` to verify the token is still valid
+- [ ] If token expired, prompt user to re-login (should be rare — tokens appear long-lived)
 - [ ] Test: full cycle — login in session 1, destroy container, start session 2, verify `claude auth status` shows logged in
 
 ### tmux Session Management

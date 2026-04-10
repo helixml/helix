@@ -396,20 +396,17 @@ For users with Anthropic API keys. Uses the existing Zed ACP → Agent SDK integ
 
 Users should not have to run `claude auth login` every time they start a new Helix session. The auth state lives in `~/.claude/` (OAuth tokens, config). Helix needs to persist this across container lifecycles.
 
-**Approach:** When a user completes `claude auth login` in a container, Helix snapshots the relevant auth files from `~/.claude/` and stores them in the user's Helix profile (encrypted at rest). On subsequent session starts, Helix copies the snapshot back into `~/.claude/` in the new container before the user starts Claude.
+**Approach:** Standard backup/restore of the user's home directory state. Helix backs up `~/.claude/` when a container stops and restores it when a new container starts — the same thing Docker volumes, Codespaces persistent home directories, and cloud VM snapshots do.
 
-**What to persist:**
+**What to back up:**
 - `~/.claude/.credentials.json` or equivalent OAuth token file (need to identify exact file — investigate during implementation)
 - `~/.claude/settings.json` (user preferences)
-- NOT session data or project-specific files — those are per-workspace
 
-**What NOT to persist:**
+**What NOT to back up:**
 - `~/.claude/projects/` — session transcripts, workspace-specific
 - `~/.claude/sessions/` — process-level PIDs, ephemeral
 
-**This is equivalent to:** a user who has a dotfiles repo that syncs `~/.claude/` across machines. Or a cloud dev environment like Codespaces that persists the home directory. Helix is just preserving the user's home directory state across container restarts — standard VM/container behaviour.
-
-**Token refresh:** OAuth tokens may expire. If `claude auth status` reports the user is not logged in after restoring the snapshot, Helix should prompt them to re-authenticate. This should be rare — Claude's OAuth tokens appear to be long-lived.
+**Token refresh:** OAuth tokens may expire. If `claude auth status` reports the user is not logged in after a restore, Helix prompts them to re-login. Should be rare — tokens appear long-lived.
 
 ### Summary
 
