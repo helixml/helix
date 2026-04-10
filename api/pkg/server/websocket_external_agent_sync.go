@@ -1354,12 +1354,40 @@ func (apiServer *HelixAPIServer) getOrCreateStreamingContext(ctx context.Context
 				Msg("🔄 [PERF] Interaction transition detected! Resetting streaming context for new interaction")
 
 			// Flush any dirty state for the old interaction before switching
-			if sctx.dirty && sctx.interaction != nil {
-				_, err := apiServer.Controller.Options.Store.UpdateInteraction(ctx, sctx.interaction)
-				if err != nil {
-					log.Error().Err(err).
-						Str("interaction_id", sctx.interactionID).
-						Msg("Failed to flush old interaction during transition")
+			if sctx.interaction != nil {
+				// Auto-complete the old interaction if it's still Waiting.
+				// Claude Code (via the Anthropic API) sometimes starts sending interrupt
+				// tokens BEFORE emitting message_completed for the cancelled turn.
+				// Without this, the cancelled interaction stays Waiting forever and the
+				// E2E ordering check fails ("interrupt tokens before first message_completed").
+				if sctx.interaction.State == types.InteractionStateWaiting {
+					sctx.interaction.State = types.InteractionStateComplete
+					sctx.interaction.Completed = time.Now()
+					sctx.interaction.Updated = time.Now()
+					// Store accumulated response entries if any
+					if sctx.accumulator != nil {
+						entries := sctx.accumulator.Entries()
+						if len(entries) > 0 {
+							if entriesJSON, err := json.Marshal(entries); err == nil {
+								_ = json.Unmarshal(entriesJSON, &sctx.interaction.ResponseEntries)
+							}
+						}
+					}
+					if _, err := apiServer.Controller.Options.Store.UpdateInteraction(ctx, sctx.interaction); err != nil {
+						log.Error().Err(err).
+							Str("interaction_id", sctx.interactionID).
+							Msg("Failed to auto-complete old interaction during interrupt transition")
+					} else {
+						log.Info().
+							Str("interaction_id", sctx.interactionID).
+							Msg("⚡ [TRANSITION] Auto-completed cancelled interaction (interrupt arrived before message_completed)")
+					}
+				} else if sctx.dirty {
+					if _, err := apiServer.Controller.Options.Store.UpdateInteraction(ctx, sctx.interaction); err != nil {
+						log.Error().Err(err).
+							Str("interaction_id", sctx.interactionID).
+							Msg("Failed to flush old interaction during transition")
+					}
 				}
 			}
 
