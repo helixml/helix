@@ -39,25 +39,25 @@ A guest daemon that runs inside the container alongside Claude. It replaces Zed'
 
 #### tmux Management (downstream → Claude)
 
-- [ ] Create tmux session with wide terminal: `tmux new-session -d -s claude -x 220 -y 50`
-- [ ] Launch Claude CLI: `tmux send-keys -t claude "claude --dangerously-skip-permissions" Enter`
-- [ ] Build prompt injection via paste-buffer: `tmux set-buffer "<prompt>" && tmux paste-buffer -t claude && tmux send-keys -t claude Enter` (handles multiline and special chars)
-- [ ] Use send-keys for simple keypresses: `y`/`n` approvals, `Enter`, `C-c` interrupt
-- [ ] Evaluate `--permission-mode acceptEdits` vs `--dangerously-skip-permissions` — what's the right safety level for Helix users?
+- [x] Create tmux session with wide terminal: `tmux new-session -d -s claude -x 220 -y 50`
+- [x] Launch Claude CLI: `tmux send-keys -t claude "claude --dangerously-skip-permissions" Enter`
+- [x] Build prompt injection via paste-buffer: `tmux set-buffer "<prompt>" && tmux paste-buffer -t claude && tmux send-keys -t claude Enter` (handles multiline and special chars)
+- [x] Use send-keys for simple keypresses: `y`/`n` approvals, `Enter`, `C-c` interrupt
+- [x] Evaluate `--permission-mode acceptEdits` vs `--dangerously-skip-permissions` — using `--dangerously-skip-permissions` for now, can be changed later
 
 #### JSONL Tailing (downstream → Claude)
 
-- [ ] Build process to find session UUID: read `~/.claude/sessions/<pid>.json` to get the sessionId for the running claude process
-- [ ] Build JSONL tailer: `tail -f ~/.claude/projects/<encoded-cwd>/<session-uuid>.jsonl` with ~100ms poll
-- [ ] Parse each line as JSON, dispatch by `type` field:
+- [x] Build process to find session UUID: read `~/.claude/sessions/<pid>.json` to get the sessionId for the running claude process
+- [x] Build JSONL tailer: poll-based reader with ~100ms interval, seeks to end on start
+- [x] Parse each line as JSON, dispatch by `type` field:
   - `assistant` → extract `message.content` blocks (thinking, text, tool_use)
   - `user` → track tool results, user messages
   - `queue-operation` → detect turn start/end
-  - `attachment` → handle skill listings, system attachments
-- [ ] Handle incremental assistant messages: multiple JSONL lines share one `message.id`, group by it
+  - `attachment` → skip for now (skills, system attachments)
+- [x] Handle incremental assistant messages: multiple JSONL lines share one `message.id`, group by it
 - [ ] Handle large tool results stored in `<session>/tool-results/toolu_*.json`
 - [ ] Handle subagent transcripts in `<session>/subagents/agent-*.jsonl`
-- [ ] Build CWD encoding function: replace all `/` with `-` in absolute path
+- [x] Build CWD encoding function: replace all `/` with `-` in absolute path
 - [ ] Detect user-created sessions: new JSONL file appears without a pending `request_id` → user started Claude directly in terminal
 
 #### WebSocket Protocol (upstream → Helix API)
@@ -65,30 +65,30 @@ A guest daemon that runs inside the container alongside Claude. It replaces Zed'
 The daemon speaks the same WebSocket sync protocol as Zed. These are the events it sends/receives.
 
 **Events sent TO Helix API:**
-- [ ] `agent_ready` — send when claude process starts and first `queue-operation:dequeue` is detected in JSONL
-- [ ] `thread_created` — send when new JSONL session file appears, with `acp_thread_id` = claude session UUID and `request_id` from pending prompt
+- [x] `agent_ready` — send when claude process starts and first `queue-operation:dequeue` is detected in JSONL
+- [x] `thread_created` — send when new JSONL session file appears, with `acp_thread_id` = claude session UUID and `request_id` from pending prompt
 - [ ] `user_created_thread` — send when user starts a new claude session directly (not Helix-initiated)
-- [ ] `message_added` (role=assistant) — translate JSONL `assistant` lines into `message_added` events with `entry_type`, `tool_name`, `tool_status`
-- [ ] `message_added` (role=user) — translate JSONL `user` lines (non-meta) into `message_added` events
-- [ ] `message_completed` — send on `queue-operation:dequeue` or `stop_reason: end_turn`. Include `request_id`. Guard against double-send
+- [x] `message_added` (role=assistant) — translate JSONL `assistant` lines into `message_added` events with `entry_type`, `tool_name`, `tool_status`
+- [x] `message_added` (role=user) — translate JSONL `user` lines (non-meta) into `message_added` events
+- [x] `message_completed` — send on `queue-operation:dequeue` or `stop_reason: end_turn`. Include `request_id`. Guard against double-send
 - [ ] `thread_title_changed` — poll `sessions.jsonl` for title updates
-- [ ] `thread_load_error` — send when claude process exits with error, session file not found, or 60s readiness timeout
+- [x] `thread_load_error` — send when claude process exits with error, session file not found, or 60s readiness timeout
 
 **Commands received FROM Helix API:**
-- [ ] `chat_message` — inject prompt via paste-buffer. If no claude process running, start one first. Track `request_id` for response correlation
-- [ ] `chat_message` (with `acp_thread_id`) — ensure correct claude session is active, inject prompt
-- [ ] `chat_message` (with `is_continue`) — start claude with `-r <session-id>`, wait for ready, inject continue prompt
-- [ ] `open_thread` — start/resume claude session for the given thread ID
+- [x] `chat_message` — inject prompt via paste-buffer. If no claude process running, start one first. Track `request_id` for response correlation
+- [x] `chat_message` (with `acp_thread_id`) — ensure correct claude session is active, inject prompt
+- [x] `chat_message` (with `is_continue`) — start claude with `-r <session-id>`, wait for ready, inject continue prompt
+- [x] `open_thread` — start/resume claude session for the given thread ID
 
 #### Session Lifecycle & State Recovery
 
-- [ ] Maintain `helix_thread_id ↔ claude_session_uuid` mapping, persist to disk for crash recovery
-- [ ] On WebSocket reconnect to Helix API, re-send `agent_ready`. Helix API handles `pickupWaitingInteraction` and `open_thread`
-- [ ] On container restart, check for existing tmux/claude process. If found, resume tailing. If not, wait for `chat_message`
-- [ ] Handle continue prompt after container restart (`is_continue: true` → `claude -r <session-id>`)
-- [ ] Track pending `request_id`s for response correlation (interaction state transitions)
+- [x] Maintain `helix_thread_id ↔ claude_session_uuid` mapping (in-memory, persists across reconnects)
+- [x] On WebSocket reconnect to Helix API, re-send `agent_ready`. Helix API handles `pickupWaitingInteraction` and `open_thread`
+- [x] On container restart, check for existing tmux/claude process. If found, resume tailing. If not, wait for `chat_message`
+- [x] Handle continue prompt after container restart (`is_continue: true` → `claude -r <session-id>`)
+- [x] Track pending `request_id`s for response correlation (interaction state transitions)
 - [ ] If new prompt arrives while previous turn active, send `Ctrl+C` → wait for turn end → send `message_completed` for old turn → inject new prompt
-- [ ] Monitor claude PID liveness (`kill -0`). If dead, send `thread_load_error`. Restart on next `chat_message`
+- [x] Monitor claude PID liveness (`kill -0`). If dead, send `thread_load_error`. Restart on next `chat_message`
 
 ### Testing
 
