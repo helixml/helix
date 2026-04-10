@@ -1,0 +1,26 @@
+# Implementation Tasks
+
+## Backend
+
+- [ ] Add `KeepAlive bool` field to `SpecTask` struct in `api/pkg/types/simple_spec_task.go`
+- [ ] Add `KeepAlive *bool` field to `SpecTaskUpdateRequest` in same file
+- [ ] Handle `KeepAlive` update in `updateSpecTask` handler in `api/pkg/server/spec_driven_task_handlers.go`
+- [ ] Clear `KeepAlive` in the backlog-reset block in `updateSpecTask`
+- [ ] Add NOT EXISTS filter to `ListIdleDesktops` SQL query in `api/pkg/store/store_sessions.go` to skip keep-alive tasks
+- [ ] Add test case in `api/pkg/store/store_desktop_idle_test.go` — verify keep-alive task is excluded from idle list
+- [ ] Add swagger annotation for the new field and run `./stack update_openapi`
+
+## Frontend
+
+- [ ] Add Keep Alive toggle button to header toolbar in `SpecTaskDetailContent.tsx` (after Stop, before Upload)
+- [ ] Wire toggle to `updateSpecTask` mutation with `{ keep_alive: !task.keep_alive }` payload
+- [ ] Verify generated API client includes `keep_alive` field after openapi regen
+
+## Testing
+
+- [ ] Test: toggle on → wait past idle timeout → container stays running
+- [ ] Test: toggle off → container auto-stops after idle timeout as before
+- [ ] Test: toggle on → manual stop still works
+- [ ] Test: toggle state persists across page reload
+- [ ] Build Go: `go build ./api/...`
+- [ ] Build frontend: `cd frontend && yarn build`
