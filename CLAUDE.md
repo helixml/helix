@@ -5,6 +5,7 @@
 - If uncertain, investigate rather than confirming beliefs
 - **Current year: 2026** — include "2026" in web searches for current info
 - If you find yourself adding hacks or workarounds, **stop** — take a step back, root cause the issue, understand the wider context, and fix it properly. Don't always take the path of least resistance — we need maintainable code.
+- **Always give full URLs for PRs and issues** — never use the `owner/repo#123` shorthand format. Use `https://github.com/helixml/helix/pull/123` etc.
 - See also: `.cursor/rules/*.mdc`
 
 ## FORBIDDEN ACTIONS
