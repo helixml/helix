@@ -288,6 +288,8 @@ func (m *RecordingManager) GetActiveRecordingID() string {
 func (r *Recording) captureFrames(ctx context.Context) {
 	defer close(r.done)
 
+	gotSPSPPS := false
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -298,8 +300,20 @@ func (r *Recording) captureFrames(ctx context.Context) {
 				return
 			}
 
-			// Skip replay frames (GOP warmup frames shouldn't be recorded)
 			if frame.IsReplay {
+				// Extract SPS/PPS from the first replay keyframe so ffmpeg
+				// can parse the stream. h264parse inserts SPS/PPS before
+				// every keyframe, so the first replay frame (which is always
+				// a keyframe) contains the stream parameters we need.
+				if !gotSPSPPS && frame.IsKeyframe {
+					spsPPS := extractSPSPPS(frame.Data)
+					if len(spsPPS) > 0 {
+						r.mu.Lock()
+						r.file.Write(spsPPS)
+						r.mu.Unlock()
+						gotSPSPPS = true
+					}
+				}
 				continue
 			}
 
@@ -319,11 +333,33 @@ func (r *Recording) captureFrames(ctx context.Context) {
 				r.mu.Lock()
 				r.lastFrameErr = err
 				r.mu.Unlock()
-				// Note: no logger available on Recording struct; error is stored in lastFrameErr
 				return
 			}
 		}
 	}
+}
+
+// extractSPSPPS extracts SPS and PPS NAL units from H.264 Annex B data.
+// Returns the raw bytes of SPS+PPS with their start codes, or nil if not found.
+func extractSPSPPS(data []byte) []byte {
+	var result []byte
+	nalUnits := parseAnnexBNALUnits(data)
+	for _, nal := range nalUnits {
+		if len(nal.data) == 0 {
+			continue
+		}
+		nalType := nal.data[0] & 0x1F
+		if nalType == 7 || nalType == 8 { // SPS=7, PPS=8
+			// Write start code + NAL data
+			if nal.startCodeLen == 4 {
+				result = append(result, 0, 0, 0, 1)
+			} else {
+				result = append(result, 0, 0, 1)
+			}
+			result = append(result, nal.data...)
+		}
+	}
+	return result
 }
 
 // convertToMP4 uses ffmpeg to mux raw H.264 into an MP4 container.
