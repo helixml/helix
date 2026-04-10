@@ -27,9 +27,9 @@ Helix backs up and restores all user dotfiles across container sessions — not 
 - [x] Auth survives across sessions — `~/.claude` symlinked to persistent storage by workspace setup
 - [x] Token expiry handling — existing `settings-sync-daemon` monitors and refreshes OAuth tokens (to be simplified when legacy system is removed)
 
-### Remove Legacy Claude Token UI
+### Remove Legacy Claude Token UI [~]
 
-- [ ] Remove the existing claude get-token UI and flow from the Helix platform (naive initial implementation)
+- [~] Remove the existing claude subscription UI and flow from the Helix platform
 - [ ] Remove any associated API endpoints, token storage, and frontend components
 - [ ] Update any documentation or onboarding flows that reference the old token mechanism
 - [ ] Auth is now handled entirely inside the container via `claude auth login` — Helix platform doesn't touch it
