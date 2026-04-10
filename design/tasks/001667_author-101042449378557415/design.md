@@ -36,4 +36,3 @@ const getDisplayName = (user: TypesUser | undefined): string => {
 ### Edge Cases
 
 - User not found in org members (e.g., deleted user or cross-org task): show truncated ID or "Unknown User"
-- Single-user orgs: still works, user is in their own org membership list
