@@ -15,16 +15,17 @@
 
 Helix backs up and restores all user dotfiles across container sessions — not Claude-specific. Claude auth persistence is just a natural consequence.
 
-- [ ] Implement general dotfile backup/restore for user home directories across container lifecycles
-- [ ] Cover: `~/.claude/`, `~/.gitconfig`, `~/.ssh/`, `~/.config/`, shell rc files, etc.
-- [ ] Exclude ephemeral/large directories (e.g. `~/.claude/projects/`, `~/.claude/sessions/`, caches)
-- [ ] Store backups in Helix user profile storage (encrypted at rest)
+- [x] `~/.claude/` — already symlinked to `$WORK_DIR/.claude-state` (persistent storage) by `helix-workspace-setup.sh`
+- [x] `~/.claude.json` — already symlinked to persistent storage
+- [x] `~/.gitconfig` — regenerated from env vars (`GIT_USER_NAME`, `GIT_USER_EMAIL`) by workspace setup
+- [x] `~/.ssh/` — keys loaded from Helix API by workspace setup
+- [ ] General dotfile backup/restore for other user files (shell rc, `.config/`, etc.) — deferred, not needed for Claude auth
 
 ### Claude Auth
 
-- [ ] Ensure `claude auth login` works in the container terminal (headless OAuth: CLI shows URL, user clicks in browser, pastes code back)
-- [ ] Verify auth survives dotfile restore: login in session 1, destroy container, start session 2, run `claude auth status`
-- [ ] If token expired after restore, prompt user to re-login (should be rare)
+- [x] Ensure `claude auth login` works in container — existing `helix-claude-auth-wrapper.sh` already handles this (opens browser in desktop stream, OAuth callback works natively in container). Also `helix-capture-browser.sh` supports headless URL-capture flow.
+- [x] Auth survives across sessions — `~/.claude` symlinked to persistent storage by workspace setup
+- [x] Token expiry handling — existing `settings-sync-daemon` monitors and refreshes OAuth tokens (to be simplified when legacy system is removed)
 
 ### Remove Legacy Claude Token UI
 

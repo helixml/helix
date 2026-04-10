@@ -599,3 +599,29 @@ Claude auth persistence is a natural consequence: the user logs in once, their `
 4. **Enforcement is real and recent.** April 4, 2026 enforcement confirmed by Boris Cherny. OpenClaw/OpenCode broken. This isn't theoretical.
 5. **The economic rationale matters.** Anthropic says third-party tools bypass prompt cache optimizations and consume more compute. If Helix can demonstrate it doesn't cause this problem (or is willing to work with Anthropic on it), that strengthens the partner approval case.
 6. **Team and Enterprise plans may be different.** The legal page mentions Team and Enterprise under OAuth but the restriction language focuses on "Free, Pro, or Max plan credentials." Enterprise customers with commercial agreements may have more flexibility — worth investigating.
+
+## Implementation Notes
+
+### What Already Existed
+
+- **tmux** — already installed via APT in both desktop Dockerfiles
+- **Claude auth wrapper** — `helix-claude-auth-wrapper.sh` already installs Claude CLI on-demand and handles `claude auth login` with browser-in-desktop OAuth flow
+- **URL capture** — `helix-capture-browser.sh` captures OAuth URLs to `/tmp/claude-auth-url.txt` for headless flow
+- **`.claude` persistence** — `helix-workspace-setup.sh` already symlinks `~/.claude` to `$WORK_DIR/.claude-state` (persistent storage across container restarts)
+- **Settings-sync-daemon** — existing daemon handles Claude credential syncing (fetches OAuth creds from Helix API, writes `.credentials.json`). This is part of the legacy system being replaced.
+- **WebSocket sync protocol** — `/api/v1/external-agents/sync` endpoint already exists for Zed. The guest daemon connects to the same endpoint.
+
+### New Components
+
+- **`api/cmd/helix-claude-sync/main.go`** — new Go binary, follows same pattern as `settings-sync-daemon` (env vars: `HELIX_API_URL`, `HELIX_SESSION_ID`, `USER_API_TOKEN`)
+- **`desktop/shared/start-helix-claude-sync.sh`** — start script, launched alongside other guest tools in startup-app.sh
+- **Claude CLI baked into image** — `npm install -g @anthropic-ai/claude-code@latest` in both Dockerfiles (previously installed on-demand)
+- **`/etc/tmux.conf`** — global tmux config with history-limit 50000 and xterm-256color
+
+### Architecture Decisions
+
+- **JSONL tailing uses file polling (100ms)** not inotify — simpler, cross-platform, and 100ms latency is acceptable for UI streaming. The scanner re-opens the file on each poll cycle to handle file growth.
+- **Guest daemon speaks existing WebSocket protocol** — no changes needed to `websocket_external_agent_sync.go`. The daemon is just a different client (replacing Zed).
+- **`--dangerously-skip-permissions` chosen over `--permission-mode acceptEdits`** — simplest path, avoids needing to detect and respond to approval prompts. Can be reconsidered later.
+- **Thread map kept in-memory** — not persisted to disk. On daemon restart, the Helix API handles `pickupWaitingInteraction` which re-establishes the mapping.
+- **Completion dedup** — `completedRequests` map guards against double `message_completed` (from both `queue-operation:dequeue` and `stop_reason: end_turn`).
