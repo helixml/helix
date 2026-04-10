@@ -426,7 +426,8 @@ This emits typed JSON events to stdout including partial messages, tool calls, a
 | Helix UI (primary) | Helix reads JSONL for display, sends prompts via paste-buffer. Rich overlay UX |
 | Desktop stream | User opens a terminal in their streamed desktop, runs `tmux attach -t claude`. Full interactive TUI |
 | SSH / terminal PTY | User SSHes into their container, runs `tmux attach -t claude`. Full interactive TUI |
-| Helix terminal panel | If Helix exposes a web terminal (xterm.js), user can attach to the tmux session directly |
+| Helix web terminal | If Helix exposes a web terminal (xterm.js), user can attach to the tmux session directly |
+| Helix TUI (future) | A TUI client with an embedded PTY session can stream the tmux pane directly — no desktop stream needed |
 
 All of these work simultaneously. The tmux session is the single source of truth — Helix's UI overlay and the user's direct terminal access are both views into the same session. The user can watch Claude work in the Helix UI, then switch to the terminal to type something directly, and both views stay in sync via the JSONL file.
 
