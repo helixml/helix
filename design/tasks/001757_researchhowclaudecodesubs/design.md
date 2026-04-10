@@ -347,14 +347,31 @@ Helix currently syncs Claude state between the container and the Helix UI via a 
 - **Zed panel integration** — the Claude panel in Zed's sidebar is replaced by Helix's own UI
 - **Sub-second streaming** — JSONL tailing has ~100ms poll latency vs WebSocket's near-instant delivery (acceptable for UI)
 
-#### Alternative: `--output-format stream-json` (Print Mode)
+#### Why Interactive Mode, Not Print Mode (`--output-format stream-json`)
 
 The CLI also supports structured I/O in print mode:
 ```bash
 claude -p "Fix the bug" --output-format stream-json --input-format stream-json
 ```
 
-This emits typed JSON events to stdout including partial messages, tool calls, and results. However, print mode (`-p`) is documented as the "SDK mode" and may be subject to the same Agent SDK restrictions on subscription auth. **Interactive mode is safer for subscription compliance** — it's the primary way individual users run Claude Code.
+This emits typed JSON events to stdout including partial messages, tool calls, and results. However, interactive mode is the right choice for three reasons:
+
+1. **Policy compliance.** Print mode (`-p`) is documented as the "SDK mode" and may be subject to the same Agent SDK restrictions on subscription auth. Interactive mode is the primary way individual users run Claude Code — it's unambiguously allowed.
+
+2. **User direct access.** The user must be able to interact with Claude directly at any time — via the desktop streaming session (opening a terminal), or by attaching to the tmux session from any PTY. This is a core part of the "cloud computer" story: the user can always walk up to their machine and use it. Print mode is headless and non-interactive — there's no TUI for the user to attach to.
+
+3. **The JSONL files provide the same structured data.** Everything print mode's stream-json gives us (typed events, tool calls, partial messages), the JSONL session files already provide. We don't need stdout parsing when we have the session transcript on disk.
+
+**User access paths to the Claude session:**
+
+| Access method | How it works |
+|---|---|
+| Helix UI (primary) | Helix reads JSONL for display, sends prompts via paste-buffer. Rich overlay UX |
+| Desktop stream | User opens a terminal in their streamed desktop, runs `tmux attach -t claude`. Full interactive TUI |
+| SSH / terminal PTY | User SSHes into their container, runs `tmux attach -t claude`. Full interactive TUI |
+| Helix terminal panel | If Helix exposes a web terminal (xterm.js), user can attach to the tmux session directly |
+
+All of these work simultaneously. The tmux session is the single source of truth — Helix's UI overlay and the user's direct terminal access are both views into the same session. The user can watch Claude work in the Helix UI, then switch to the terminal to type something directly, and both views stay in sync via the JSONL file.
 
 #### Pros
 
