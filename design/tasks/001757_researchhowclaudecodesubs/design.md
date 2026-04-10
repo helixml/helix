@@ -1,5 +1,21 @@
 # Design: Claude Code Subscription Auth — Options for Helix
 
+## Positioning: Helix Provides Computers for Agents to Run On
+
+Helix is **not** an agent harness, a Claude wrapper, or an alternative Claude frontend. Helix provides **cloud computers** (Linux containers) for AI agents to run on — the same way Codespaces, Gitpod, or any cloud VM provider does. The user logs into their Helix container, installs their tools, and runs them. Claude Code is one of those tools.
+
+This distinction is critical for Anthropic compliance:
+
+| Agent harness (NOT Helix) | Cloud computer (Helix) |
+|---|---|
+| Wraps Claude's API in a custom UX | Provides a Linux environment where users run CLI tools |
+| Manages/proxies user credentials | User authenticates directly — Helix never sees tokens |
+| Routes API requests through its backend | Claude CLI talks directly to api.anthropic.com |
+| Orchestrates prompts programmatically | User initiates every session and prompt |
+| Brands itself as "powered by Claude" | Brands itself as a dev environment |
+
+Every architectural decision below reinforces this positioning: Helix provides the infrastructure, the user runs Claude themselves.
+
 ## Current Architecture
 
 ```
@@ -20,9 +36,9 @@ The user's subscription OAuth token flows through this entire chain. From Anthro
 
 ## Why Helix Feels Like a Grey Area
 
-Helix's model is closer to a **cloud dev environment** (like Codespaces, Gitpod, or a remote VM) than a **third-party Claude wrapper** (like OpenClaw). The user isn't using an alternative Claude frontend — they're using Zed IDE inside a container that Helix provides. If the user SSHed into a VM and ran `claude` from the terminal with their own subscription, that would be unambiguously fine.
+Helix's model is closer to a **cloud dev environment** (like Codespaces, Gitpod, or a remote VM) than a **third-party Claude wrapper** (like OpenClaw). Helix provides computers for agents to run on — the user isn't using an alternative Claude frontend, they're running Claude Code inside their own container. If the user SSHed into a VM and ran `claude` from the terminal with their own subscription, that would be unambiguously fine.
 
-But the integration goes through the Agent SDK rather than the CLI directly, which crosses the policy line.
+But the current integration goes through the Agent SDK rather than the CLI directly, which crosses the policy line. The recommended architecture (Option D) eliminates this by having the user run the CLI directly — Helix just provides the Linux container and a richer UI layer on top.
 
 ## Options Analysis
 
@@ -95,32 +111,32 @@ Route through AWS Bedrock or Google Vertex AI instead of direct Anthropic API. U
 
 ### Option D: Run Claude Code CLI Directly — tmux + JSONL Tailing (RECOMMENDED TECHNICAL PATH)
 
-Instead of going through Zed ACP → Agent SDK, run the Claude Code CLI directly in a tmux session inside the container. Inject prompts via `tmux send-keys` and sync state back to Helix by tailing the session JSONL files.
+Instead of going through Zed ACP → Agent SDK, the user runs the Claude Code CLI directly in a tmux session inside the container. Helix provides prompt templates via `tmux paste-buffer` (equivalent to clipboard paste) and syncs state back to the Helix UI by tailing the session JSONL files.
 
-This is the approach the reviewer favoured. Detailed technical investigation below.
+This approach reinforces Helix's positioning as a cloud computer provider: the user is running Claude Code CLI on their own machine (which happens to be a Helix container), authenticated with their own subscription. Helix reads local files and relays keystrokes — the same things any terminal multiplexer, IDE, or shell integration does.
 
 #### Architecture
 
 ```
-Helix Container (user's Linux VM)
+Helix Container (user's cloud computer)
 ├── tmux server
 │   └── pane 0: claude (interactive mode, user's own subscription)
 ├── Helix sync daemon
-│   ├── INPUT:  tmux send-keys → inject prompts/approvals into claude
+│   ├── INPUT:  tmux paste-buffer → inject prompts (like clipboard paste)
 │   └── OUTPUT: tail -f ~/.claude/projects/<cwd>/<session>.jsonl → parse & relay to Helix UI
 ├── Auth: user runs `claude auth login` in their terminal (standard OAuth, same as any machine)
-└── ~/.claude/ (persistent volume — auth + session data survives container restarts)
+└── ~/.claude/ (persisted via general dotfile backup/restore, like any cloud dev environment)
 ```
 
 #### Authentication in the Container
 
-**Helix is a Linux VM from the user's perspective.** The user has a terminal in their Helix session. They log in to Claude exactly the same way they would on any machine:
+**Helix provides a Linux computer. The user runs Claude on it.** The user has a terminal in their Helix session. They log in to Claude exactly the same way they would on any machine:
 
 ```bash
 claude auth login
 ```
 
-The CLI displays a URL. The user clicks it in their browser, authenticates with their Claude subscription (Pro/Max/etc.), and pastes the code back into the terminal. This is the standard headless OAuth flow — identical to SSHing into any remote machine and running `claude login`. **Helix doesn't manage, store, or proxy any credentials.** The user is an ordinary user running Claude Code on their own machine, which happens to be a Helix container.
+The CLI displays a URL. The user clicks it in their browser, authenticates with their Claude subscription (Pro/Max/etc.), and pastes the code back into the terminal. This is the standard headless OAuth flow — identical to SSHing into any remote machine and running `claude login`. **Helix doesn't manage, store, or proxy any credentials.** The user is an ordinary user running Claude Code on their own cloud computer.
 
 The auth state persists in `~/.claude/` inside the container. As long as the container persists (or `~/.claude/` is on a persistent volume), the user stays logged in across sessions.
 
@@ -259,6 +275,78 @@ def tail_session(jsonl_path):
 - Watch for a `queue-operation` with `operation: "dequeue"` — this signals the turn is complete
 - Alternatively, watch for an `assistant` message with `message.stop_reason: "end_turn"` — this means Claude has finished responding and is waiting for input
 
+#### Feature Parity: WebSocket Sync Protocol → JSONL + tmux
+
+Helix currently syncs Claude state between the container and the Helix UI via a WebSocket protocol (`websocket_external_agent_sync.go`). The tmux + JSONL approach must achieve full feature parity. The table below maps every WebSocket protocol feature to its JSONL/tmux equivalent.
+
+**Helix → Claude (prompt injection):**
+
+| WebSocket Event | Purpose | JSONL/tmux Equivalent |
+|---|---|---|
+| `chat_message` | Send user prompt to Claude | `tmux set-buffer "<prompt>" && tmux paste-buffer -t claude && tmux send-keys -t claude Enter` |
+| `open_thread` | Open/resume a conversation thread | `claude -c` (continue last session) or `claude -r <session-id>` (resume specific session). Map Helix thread IDs to Claude session UUIDs |
+| `query_ui_state` | Ask Zed for current UI state | Not needed — JSONL files are the source of truth. Read the JSONL directly |
+
+**Claude → Helix (state sync):**
+
+| WebSocket Event | Purpose | JSONL Equivalent |
+|---|---|---|
+| `agent_ready` | Agent loaded and ready for prompts | Claude process started + first `queue-operation` with `operation: "dequeue"` (idle, waiting for input) |
+| `thread_created` | New conversation thread started | New session JSONL file created at `~/.claude/projects/<cwd>/<session-uuid>.jsonl`. Map session UUID → Helix thread ID |
+| `message_added` | New assistant message (streaming) | `assistant` JSONL lines with `message.content` blocks. Lines are emitted incrementally — one per content block. Group by `message.id` |
+| `message_updated` | Updated assistant message (mid-stream) | Subsequent `assistant` JSONL lines with same `message.id` but updated content. Track `uuid`/`parentUuid` chain |
+| `message_completed` | Assistant turn finished | `queue-operation` with `operation: "dequeue"`, or `assistant` line with `message.stop_reason: "end_turn"` |
+| `thread_title_changed` | Conversation title updated | Not directly in JSONL. Can be read from `~/.claude/projects/<cwd>/sessions.jsonl` which tracks session metadata |
+| `thread_load_error` | Error loading conversation | Monitor claude process stderr or detect absence of expected JSONL output after prompt injection |
+| `ping` / `pong` | Connection keepalive | Monitor claude process liveness (`kill -0 <pid>`) and JSONL file modification time |
+
+**Content block mapping (within `message_added`/`message_updated`):**
+
+| WebSocket Content | Purpose | JSONL Content Block |
+|---|---|---|
+| Text response | Assistant's text output | `{"type": "text", "text": "..."}` in `message.content` array |
+| Tool call (start) | Tool invocation with name + input | `{"type": "tool_use", "id": "toolu_...", "name": "Edit", "input": {...}}` in `message.content` array |
+| Tool result | Tool execution output | `{"type": "tool_result", "tool_use_id": "toolu_...", "content": "..."}` in the next `user` JSONL line |
+| Thinking | Extended thinking content | `{"type": "thinking", "thinking": "...", "signature": "..."}` in `message.content` array |
+| Token usage | Input/output token counts | `message.usage` field: `{"input_tokens": N, "output_tokens": N, "cache_creation_input_tokens": N, "cache_read_input_tokens": N}` |
+| Model info | Which model responded | `message.model` field (e.g., `"claude-opus-4-20250514"`) |
+| Cost display | Per-turn cost | Derived from `message.usage` + known model pricing |
+
+**Streaming and throttling:**
+
+| WebSocket Feature | JSONL Equivalent |
+|---|---|
+| 200ms DB write throttle | Same — buffer JSONL events, write to Helix DB at most every 200ms |
+| 50ms frontend publish throttle | Same — relay JSONL events to Helix frontend at most every 50ms |
+| Message accumulator (dedup by message_id) | Group JSONL lines by `message.id`. Multiple lines share the same `message.id` — each represents one content block. Accumulate into a single message |
+| Per-entry delta tracking | Track which content blocks have been sent to the frontend. On new JSONL lines, compute delta and send only new blocks |
+| Streaming chunks | JSONL lines are emitted in real-time as Claude generates. `tail -f` with 100ms poll gives effective streaming |
+
+**Session management:**
+
+| WebSocket Feature | JSONL Equivalent |
+|---|---|
+| Session readiness (60s timeout) | Start claude process, wait for first `queue-operation:dequeue` or stdout "Claude Code" banner. Timeout if neither within 60s |
+| Session → thread mapping | Map Helix session IDs to Claude session UUIDs. Discover UUID via `~/.claude/sessions/<pid>.json` |
+| Continue/resume session | `claude -c` (last session) or `claude -r <session-id>` (specific session) |
+| Interrupt mid-turn | `tmux send-keys -t claude C-c` (Ctrl+C) — same as user pressing Ctrl+C. Then send `queue-operation:dequeue` equivalent when Claude re-prompts |
+| Subagent transcripts | Tail `~/.claude/projects/<cwd>/<session-uuid>/subagents/agent-*.jsonl` — same format as main JSONL |
+
+**What we gain over WebSocket/ACP:**
+
+- **Thinking blocks** — full extended thinking content (ACP doesn't expose this)
+- **Token usage per turn** — exact input/output/cache token counts
+- **Subagent transcripts** — full visibility into delegated agent work
+- **Tool input details** — exact arguments passed to every tool (file paths, search patterns, edit diffs)
+- **Session history** — all JSONL files persist on disk, queryable after the fact
+
+**What we lose vs WebSocket/ACP:**
+
+- **Inline diffs in Zed** — tmux mode has no IDE integration for showing diffs
+- **Tool approval UI in Zed** — mitigated by `--dangerously-skip-permissions` or `--permission-mode acceptEdits`
+- **Zed panel integration** — the Claude panel in Zed's sidebar is replaced by Helix's own UI
+- **Sub-second streaming** — JSONL tailing has ~100ms poll latency vs WebSocket's near-instant delivery (acceptable for UI)
+
 #### Alternative: `--output-format stream-json` (Print Mode)
 
 The CLI also supports structured I/O in print mode:
@@ -270,69 +358,72 @@ This emits typed JSON events to stdout including partial messages, tool calls, a
 
 #### Pros
 
-- **Unambiguously allowed** — user running CLI with their own subscription is the primary supported use case. Helix is just the VM.
-- **No credential management by Helix** — user logs in themselves, Helix never touches their tokens
+- **Unambiguously allowed** — user running CLI with their own subscription on their own cloud computer. Helix provides the computer, not the agent
+- **No credential management by Helix** — user logs in themselves, Helix never sees or touches their tokens
 - **Rich structured data via JSONL tailing** — full access to thinking, text, tool calls, usage stats, subagent transcripts
 - **No cost change for users** — subscription pricing preserved
-- **Session files give more data than ACP** — thinking blocks, token usage, subagent transcripts all in JSONL
+- **More data than ACP** — thinking blocks, token usage, subagent transcripts all in JSONL
+- **Clean architectural story** — Claude CLI talks directly to api.anthropic.com from the user's container. No intermediary
 
 #### Cons
 
-- Loses Zed ACP integration (inline diffs, tool approvals in UI, etc.)
-- tmux injection is "good enough" but less robust than a proper API
-- Need to build the JSONL tailing daemon and Helix UI sync layer
-- Need persistent volume for `~/.claude/` to survive container restarts
+- Loses Zed ACP integration (inline diffs, tool approvals in UI, etc.) — mitigated by richer JSONL data
+- tmux prompt injection is "good enough" but less robust than a typed API
+- Need to build the JSONL tailing daemon and Helix UI sync layer (see feature parity mapping above)
+- Need dotfile backup/restore for `~/.claude/` persistence across container lifecycles
 - `--dangerously-skip-permissions` bypasses all safety checks — need to evaluate whether this is acceptable for users, or if Helix should detect and relay approval prompts
 
 #### Interaction Model: User-Initiated Actions with Prompt Templates
 
-Helix provides a guided development flow. Every claude session and every prompt is initiated by a user action (clicking a button, selecting a task). Helix sends prompt templates into the tmux session via `send-keys` — this is functionally identical to a user pasting a saved snippet, shell alias, or slash command into their terminal.
+Helix provides a cloud computer with a guided development flow. Every Claude session and every prompt is initiated by a user action (clicking a button, selecting a task). Helix sends prompt templates into the tmux session via clipboard paste (paste-buffer) — this is functionally identical to a user pasting a saved snippet, shell alias, or slash command into their own terminal.
 
-**What Helix does:**
-- User clicks "Start task" → Helix opens a tmux pane, starts `claude`
-- User clicks "Write specs" → Helix pastes a prompt template into the terminal
+**What Helix does (as a cloud computer provider):**
+- User clicks "Start task" → Helix opens a tmux pane on the user's container, user's Claude starts
+- User clicks "Write specs" → Helix pastes a prompt template into the terminal (like clipboard paste)
 - User clicks "Run tests" → Helix pastes another prompt template
-- JSONL tailing powers a richer view of what Claude is doing
+- Helix reads local JSONL files to show a richer view of what Claude is doing (like any file reader)
 
-**What Helix does NOT do:**
-- Auto-start sessions without user action
-- Chain prompts automatically (each step requires user initiation)
-- Run headless batch jobs against the subscription
-- Multiplex one subscription across multiple users
-- Pool or proxy credentials
+**What Helix does NOT do (not an agent harness):**
+- Does NOT start Claude sessions without user action
+- Does NOT chain prompts automatically (each step requires user initiation)
+- Does NOT run headless batch jobs against the subscription
+- Does NOT multiplex one subscription across multiple users
+- Does NOT pool, proxy, or manage credentials
+- Does NOT route API requests through Helix's backend — Claude talks directly to api.anthropic.com
 
-The usage pattern is indistinguishable from a user on a VM who has shell aliases or saved snippets for common Claude prompts. The user is always in the driver's seat.
+The usage pattern is indistinguishable from a user on a VM who has shell aliases or saved snippets for common Claude prompts. The user is always in the driver's seat. Helix is the computer, not the driver.
 
 #### Policy Risk Assessment
 
-**Reading JSONL files:** No risk. These are local files on the user's filesystem. Any tool can read files — VS Code, backup scripts, monitoring tools. No policy prohibits reading files Claude writes to disk.
+**Reading JSONL files:** No risk. These are local files on the user's own filesystem inside their container. Any tool can read local files — VS Code, backup scripts, monitoring tools, terminal emulators. No policy prohibits reading files Claude writes to disk on the user's machine.
 
-**tmux send-keys for prompt injection:** Low risk, with caveats. There's a spectrum:
+**Prompt injection via tmux paste-buffer:** Low risk, with caveats. There's a spectrum:
 
-| Action | Risk |
-|--------|------|
-| User types in terminal | None |
-| User pastes text into terminal | None |
-| User clicks Helix button → send-keys pastes a prompt | Low — equivalent to clipboard paste |
-| Helix auto-sends prompts without user action | Higher — looks like programmatic automation |
+| Action | Risk | Helix equivalent |
+|--------|------|---|
+| User types in terminal | None | — |
+| User pastes text into terminal | None | This is what paste-buffer does |
+| User clicks Helix button → paste-buffer sends a prompt | Low — clipboard paste triggered by user action | **Helix operates here** |
+| Helix auto-sends prompts without user action | Higher — looks like programmatic automation | **NOT what Helix does** |
 
-Helix stays at the "user clicks button" level. Every prompt is user-initiated.
+Helix stays at the "user clicks button → clipboard paste" level. Every prompt is user-initiated.
 
-**The economic argument is the strongest defence.** Anthropic's stated concern is that third-party tools bypass prompt cache optimizations and consume disproportionate compute. A user running interactive Claude in a tmux session has the same compute profile as a user running it in any terminal. Helix isn't wrapping the API, isn't bypassing caching, isn't multiplexing subscriptions.
+**The economic argument is the strongest defence.** Anthropic's stated concern is that third-party tools bypass prompt cache optimizations and consume disproportionate compute. A user running interactive Claude Code in a tmux session has the exact same compute profile as a user running it in any terminal. The Claude CLI manages its own prompt caching, context window, and session state. Helix isn't wrapping the API, isn't bypassing caching, isn't multiplexing subscriptions. It's providing a computer for the user to run Claude on.
 
-**If Anthropic ever questions it, the defence is:** "We provide Linux containers. The user installed Claude Code, logged in with their own account, and runs it in their terminal. We read the session files to show a richer UI. Every Claude session is started by a user action, every prompt is sent by a user action."
+**If Anthropic ever questions it, the defence is:** "Helix provides cloud computers for agents to run on — Linux containers with a desktop environment. The user installed Claude Code on their machine, logged in with their own account, and runs it in their terminal. We read the local session files to show a richer UI overlay, the same way VS Code or any terminal emulator reads local files. Every Claude session is started by a user action, every prompt is sent by a user action. We don't wrap the API, we don't manage credentials, we don't route requests through our backend. Claude talks directly to api.anthropic.com from the user's container."
 
-**Risk escalates if** Helix later adds:
-- Fully autonomous agent loops (prompts sent without user clicks)
-- Multiple concurrent Claude sessions per user
-- Print mode (`-p`) instead of interactive mode
-- Any credential management by Helix itself
+**Risk escalates if** Helix crosses the line from "cloud computer" to "agent harness":
+- Fully autonomous agent loops (prompts sent without user clicks) — this is orchestration, not computing
+- Multiple concurrent Claude sessions per user — this is multiplexing, not personal computing
+- Print mode (`-p`) instead of interactive mode — this is programmatic API usage, not terminal usage
+- Any credential management by Helix itself — this is proxying, not providing a computer
+- Auto-chaining prompts based on Claude's output — this is an agent loop, not a user-driven flow
 
-Keep these as lines not to cross without legal review or Anthropic partner approval.
+Keep these as lines not to cross without legal review or Anthropic partner approval. The positioning — "computers for agents to run on" — only holds if every Claude interaction traces back to a user action.
 
 #### Risk: Low policy risk, medium engineering effort.
 
-The JSONL tailing gives Helix nearly as much data as the ACP integration, in a structured format. The main engineering effort is building the sync daemon and mapping JSONL events to Helix's UI. The auth story is trivial — user logs in, same as any machine.
+The JSONL tailing gives Helix *more* data than the ACP integration (thinking blocks, token usage, subagent transcripts), in a structured format. The main engineering effort is building the sync daemon and mapping JSONL events to Helix's UI — see the feature parity mapping above for the complete mapping. The auth story is trivial — user logs in on their own computer, same as any machine.
 
 ### Option E: Hybrid — CLI for Auth, ACP for UX
 
@@ -387,15 +478,15 @@ Full URL: `https://www.anthropic.com/contact-sales?utm_source=claude_code&utm_me
 
 ## Recommendation: Two Modes
 
-Helix offers two Claude integration modes, matching auth type to integration approach:
+Helix provides cloud computers. Users choose how to run Claude on them.
 
 ### Mode 1: "Pure Claude" (Subscription auth — tmux + JSONL)
 
-For users with Claude Pro/Max subscriptions. Runs the Claude Code CLI directly in a tmux session. Helix provides prompt templates via send-keys, and powers a richer UI by tailing the JSONL session files. User logs in once with `claude auth login`; Helix persists `~/.claude/` across sessions (see below).
+For users with Claude Pro/Max subscriptions. The user runs Claude Code CLI directly in their Helix container — Helix just provides the computer. Helix offers prompt templates via clipboard paste (tmux paste-buffer) and powers a richer UI by reading the local JSONL session files. User logs in once with `claude auth login`; dotfiles are preserved across sessions via standard backup/restore (like any cloud dev environment).
 
-**Auth:** User's own subscription. Helix never touches credentials.
-**UX:** Terminal-based Claude with Helix UI overlay powered by JSONL tailing.
-**Policy:** Unambiguously compliant — user running CLI on their own machine.
+**Auth:** User's own subscription. User authenticates directly with Anthropic — Helix never sees or touches credentials.
+**UX:** Terminal-based Claude with Helix UI overlay powered by JSONL file tailing.
+**Policy:** Unambiguously compliant — user running CLI on their own cloud computer. No different from running Claude in Codespaces or a remote VM.
 
 ### Mode 2: "Zed ACP" (API key auth — full IDE integration)
 
@@ -405,13 +496,11 @@ For users with Anthropic API keys. Uses the existing Zed ACP → Agent SDK integ
 **UX:** Full Zed ACP integration — richer than pure CLI mode.
 **Policy:** Fully compliant — API key auth is the documented path for Agent SDK.
 
-### Auth Persistence: Copy `~/.claude/` Across Sessions
+### Dotfile Persistence Across Sessions
 
-Users should not have to run `claude auth login` every time they start a new Helix session. The auth state lives in `~/.claude/` (OAuth tokens, config). Helix needs to persist this across container lifecycles.
+Users shouldn't have to reconfigure their environment every time they start a new Helix session. Helix backs up and restores the user's dotfiles across container lifecycles — a general-purpose feature of any cloud dev environment, not Claude-specific. This covers `~/.claude/`, `~/.gitconfig`, `~/.ssh/`, `~/.config/`, shell rc files, and anything else the user has in their home directory.
 
-**Approach:** Helix backs up and restores the user's dotfiles across container sessions — a general-purpose feature, not Claude-specific. This covers `~/.claude/`, `~/.gitconfig`, `~/.ssh/`, `~/.config/`, shell rc files, and anything else the user has in their home directory. Claude auth persistence is just a natural consequence of dotfile backup/restore, the same way any cloud dev environment (Codespaces, Gitpod, DevPod) handles it.
-
-No Claude-specific auth code needed. The user logs in once, their `~/.claude/` directory is preserved like any other dotfile, and it's there next session.
+Claude auth persistence is a natural consequence: the user logs in once, their `~/.claude/` directory is preserved like any other dotfile. No Claude-specific auth code. This is the same approach used by Codespaces (dotfiles repo), Gitpod (user settings sync), and DevPod (persistent volumes).
 
 ### Summary
 
@@ -421,7 +510,7 @@ No Claude-specific auth code needed. The user logs in once, their `~/.claude/` d
 | **Cost model** | Flat-rate subscription | Per-token billing |
 | **Integration** | tmux + JSONL tailing | Zed ACP + Agent SDK |
 | **UX richness** | Terminal + Helix overlay | Full IDE integration |
-| **Policy risk** | None — user on their VM | None — API key is documented path |
+| **Policy risk** | None — user on their cloud computer | None — API key is documented path |
 
 **In parallel:** Still pursue contacting Anthropic/Zed about partner approval. If approved, Mode 2 could also support subscription auth, collapsing both modes into one.
 

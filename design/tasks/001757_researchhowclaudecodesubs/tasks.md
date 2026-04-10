@@ -1,8 +1,10 @@
 # Implementation Tasks
 
+> **Positioning reminder:** Helix provides cloud computers for agents to run on — NOT an agent harness. Every implementation decision should reinforce this: the user runs Claude on their own machine, Helix provides the infrastructure.
+
 ## Phase 1: Pure Claude Mode (Subscription — tmux + JSONL)
 
-### Container Setup
+### Container Setup (the user's cloud computer)
 
 - [ ] Add Claude Code CLI to the container image (`npm install -g @anthropic-ai/claude-code`)
 - [ ] Install tmux in the container image
@@ -54,25 +56,35 @@ Helix backs up and restores all user dotfiles across container sessions — not 
 - [ ] Handle subagent transcripts in `<session>/subagents/agent-*.jsonl`
 - [ ] Build CWD encoding function: replace all `/` with `-` in absolute path
 
-### Helix UI Sync
+### Helix UI Sync (feature parity with WebSocket protocol)
 
-- [ ] Map JSONL events to Helix's UI components:
-  - `text` blocks → chat messages
-  - `tool_use` blocks → tool call displays (show name, input, status)
+- [ ] Map JSONL events to Helix's UI components (see design.md feature parity table):
+  - `text` blocks → chat messages (replaces `message_added` WebSocket event)
+  - `tool_use` blocks → tool call displays with name, input, status (replaces tool call streaming)
   - `tool_result` blocks → tool result displays
-  - `thinking` blocks → collapsible thinking sections (optional)
-  - `message.usage` → token usage / cost display
-- [ ] Show real-time streaming: relay JSONL lines as they appear
-- [ ] Show "Claude is working..." / "Claude is waiting for input" based on queue-operation events
-- [ ] Build prompt input UI that sends text via tmux send-keys
+  - `thinking` blocks → collapsible thinking sections (NEW — not available in ACP mode)
+  - `message.usage` → token usage / cost display (NEW — not available in ACP mode)
+  - `queue-operation:enqueue` → "Claude is working..." (replaces `message_added` start)
+  - `queue-operation:dequeue` → "Claude is waiting for input" (replaces `message_completed`)
+- [ ] Implement streaming with throttling: 200ms DB write throttle, 50ms frontend publish throttle (same as current WebSocket protocol)
+- [ ] Implement message accumulator: group JSONL lines by `message.id`, compute per-entry deltas, send only new content blocks to frontend
+- [ ] Implement session readiness detection: wait for claude process start + first `queue-operation:dequeue` (replaces `agent_ready` WebSocket event, same 60s timeout)
+- [ ] Implement thread mapping: map Helix thread IDs ↔ Claude session UUIDs (replaces `thread_created` WebSocket event)
+- [ ] Implement session resume: `claude -c` or `claude -r <session-id>` (replaces `open_thread` WebSocket event)
+- [ ] Implement mid-turn interrupt: `tmux send-keys -t claude C-c` (replaces cancel handling in WebSocket protocol)
+- [ ] Build prompt input UI that sends text via tmux paste-buffer
 
 ### Testing
 
 - [ ] Test full flow: auth → start session → send prompt → receive response → send follow-up
 - [ ] Test tool execution: Claude edits a file, verify JSONL captures the full tool_use + tool_result cycle
 - [ ] Test long sessions: verify JSONL tailing handles sessions with 100+ turns
-- [ ] Test container restart: can we resume a session with `claude -c` or `claude -r <session-id>`?
+- [ ] Test container restart: dotfile backup/restore → resume session with `claude -c` or `claude -r <session-id>`
 - [ ] Test `claude auth login` end-to-end in a Docker container with no browser
+- [ ] Test feature parity: verify every WebSocket protocol feature has a working JSONL equivalent (see design.md mapping table)
+- [ ] Test streaming throttle: verify DB writes at <=200ms and frontend publishes at <=50ms
+- [ ] Test mid-turn interrupt: `Ctrl+C` via send-keys, verify Claude re-prompts and JSONL reflects the interruption
+- [ ] Test subagent tailing: verify subagent JSONL files in `<session>/subagents/` are tailed and relayed
 
 ## Phase 2: Zed ACP Mode (API Key — Richer UI)
 
@@ -87,7 +99,8 @@ Keep existing Zed ACP integration for users who have API keys and want the riche
 
 - [ ] Ask Zed whether they have a formal partner agreement with Anthropic for subscription OAuth
 - [ ] Contact Anthropic sales: `https://www.anthropic.com/contact-sales?utm_source=claude_code&utm_medium=docs&utm_content=legal_compliance_contact_sales`
-- [ ] Frame Helix as a cloud dev environment (like Codespaces), not a Claude wrapper
+- [ ] Frame Helix as providing cloud computers for agents to run on (like Codespaces) — NOT an agent harness or Claude wrapper
+- [ ] Emphasise: user authenticates directly, Claude CLI talks directly to api.anthropic.com, Helix doesn't route/proxy/manage credentials, every session is user-initiated
 - [ ] If approved, evaluate whether Zed ACP mode can also support subscription auth (collapsing the two modes)
 
 ## Monitoring
