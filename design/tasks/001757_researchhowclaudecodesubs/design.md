@@ -93,27 +93,191 @@ Route through AWS Bedrock or Google Vertex AI instead of direct Anthropic API. U
 
 **Risk: Low.** Fully supported path but doesn't solve the cost problem.
 
-### Option D: Bypass Agent SDK — Run Claude Code CLI Directly
+### Option D: Run Claude Code CLI Directly — tmux + JSONL Tailing (RECOMMENDED TECHNICAL PATH)
 
-Instead of going through Zed ACP → Agent SDK, have the container run the Claude Code CLI directly in a terminal. The user authenticates via `claude login` with their own subscription in the container's terminal.
+Instead of going through Zed ACP → Agent SDK, run the Claude Code CLI directly in a tmux session inside the container. Inject prompts via `tmux send-keys` and sync state back to Helix by tailing the session JSONL files.
 
-**Implementation:**
-- Install Claude Code CLI in the container (`npm install -g @anthropic-ai/claude-code` or equivalent)
-- User runs `claude` directly in Zed's terminal
-- No ACP, no Agent SDK — just the CLI that Anthropic explicitly allows with subscriptions
+This is the approach the reviewer favoured. Detailed technical investigation below.
 
-**Pros:**
+#### Architecture
+
+```
+Helix Container
+├── tmux server
+│   └── pane 0: claude (interactive mode, subscription auth)
+├── Helix sync daemon
+│   ├── INPUT:  tmux send-keys → inject prompts/approvals into claude
+│   └── OUTPUT: tail -f ~/.claude/projects/<cwd>/<session>.jsonl → parse & relay to Helix UI
+└── Auth: user runs `claude login` or `claude setup-token` for subscription OAuth
+```
+
+#### Authentication in the Container
+
+The CLI supports subscription auth via two paths:
+
+1. **`claude auth login`** — Interactive OAuth flow. Opens a browser for login. In a headless container, this requires a URL to be displayed that the user clicks in their local browser, then a code is pasted back. The CLI already supports this headless flow.
+
+2. **`claude setup-token`** — *"Generate a long-lived OAuth token for CI and scripts. Prints the token to the terminal without saving it. Requires a Claude subscription."* The user generates this on their local machine and provides it to Helix. This is the cleanest path for containers — no browser needed inside the container. The token gets saved to `~/.claude/` config.
+
+#### Session JSONL Files — The Data Path
+
+Claude Code writes a real-time session transcript as JSONL (newline-delimited JSON) at:
+
+```
+~/.claude/projects/<encoded-cwd>/<session-uuid>.jsonl
+```
+
+Where `<encoded-cwd>` replaces all `/` with `-` (e.g., `/home/user/work` → `-home-user-work`).
+
+To find the session UUID for a running claude process:
+```
+~/.claude/sessions/<pid>.json
+→ {"pid":1234,"sessionId":"550e8400-...","cwd":"/workspace","kind":"interactive"}
+```
+
+**Each JSONL line is one of four types:**
+
+| Type | Purpose | Key Fields |
+|------|---------|------------|
+| `queue-operation` | Session start/end markers | `operation` ("enqueue"/"dequeue"), `timestamp` |
+| `user` | User messages + tool results | `message.content` (string or content blocks), `permissionMode`, `cwd` |
+| `assistant` | Model responses | `message.content` (array of thinking/text/tool_use blocks), `message.model`, `message.usage` |
+| `attachment` | System attachments (skills, etc.) | `attachment.type`, `attachment.content` |
+
+**Assistant message content blocks:**
+
+```json
+{"type": "thinking", "thinking": "...", "signature": "..."}
+{"type": "text", "text": "Here's what I found..."}
+{"type": "tool_use", "id": "toolu_...", "name": "Edit", "input": {"file_path": "...", "old_string": "...", "new_string": "..."}}
+```
+
+**Tool results (in user messages):**
+
+```json
+{"type": "tool_result", "tool_use_id": "toolu_...", "content": "File edited successfully"}
+```
+
+**Important:** Assistant messages are emitted incrementally — one JSONL line per content block. A single API response with thinking + text + tool_use produces 3 lines sharing the same `message.id` but different `uuid`s. All messages carry `uuid` and `parentUuid` forming a linked list.
+
+**Large tool results** are stored separately in:
+```
+~/.claude/projects/<cwd>/<session-uuid>/tool-results/toolu_vrtx_XXXX.json
+```
+
+**Subagent transcripts** are stored in:
+```
+~/.claude/projects/<cwd>/<session-uuid>/subagents/agent-XXXX.jsonl
+```
+
+#### Injecting Prompts via tmux
+
+```bash
+# Create session with wide terminal (avoids line wrapping in output)
+tmux new-session -d -s claude -x 220 -y 50
+
+# Start claude in interactive mode
+tmux send-keys -t claude "claude --dangerously-skip-permissions" Enter
+
+# Send a prompt (use -l for literal text to avoid escape char issues)
+tmux send-keys -t claude -l "Fix the bug in auth.py" 
+tmux send-keys -t claude Enter
+
+# Send a tool approval (y/n)
+tmux send-keys -t claude "y" Enter
+
+# Send Ctrl+C to interrupt
+tmux send-keys -t claude C-c
+```
+
+**Key tmux considerations:**
+- **`-l` flag is critical** — without it, special chars like `$`, `"`, `\` are interpreted as key names
+- **Terminal width matters** — set `-x 220` or wider to prevent line wrapping in the TUI
+- **Timing:** `send-keys` is fire-and-forget with no acknowledgement. Before sending, poll `capture-pane` or check the JSONL to confirm Claude is ready for input
+- **Permission mode:** Use `--dangerously-skip-permissions` or `--permission-mode acceptEdits` to minimize interactive approval prompts. This is the biggest simplification — without it, you need to detect and respond to every tool approval prompt
+
+#### Detecting State from JSONL (Not tmux capture-pane)
+
+**The JSONL file is the primary data channel, NOT `tmux capture-pane`.**
+
+`capture-pane` returns raw terminal output with ANSI escape codes, spinner characters, and TUI redraws. It's messy to parse. Use it only as a fallback for detecting prompt readiness.
+
+The JSONL file gives you structured, machine-readable data:
+
+```python
+# Pseudocode for JSONL tailing
+import json, time
+
+def tail_session(jsonl_path):
+    with open(jsonl_path, 'r') as f:
+        f.seek(0, 2)  # seek to end
+        while True:
+            line = f.readline()
+            if not line:
+                time.sleep(0.1)
+                continue
+            msg = json.loads(line)
+            
+            if msg['type'] == 'assistant':
+                for block in msg['message']['content']:
+                    if block['type'] == 'text':
+                        yield ('text', block['text'])
+                    elif block['type'] == 'tool_use':
+                        yield ('tool_call', block['name'], block['input'])
+                    elif block['type'] == 'thinking':
+                        yield ('thinking', block['thinking'])
+            
+            elif msg['type'] == 'user' and not msg.get('isMeta'):
+                yield ('user_message', msg['message']['content'])
+            
+            elif msg['type'] == 'queue-operation':
+                if msg['operation'] == 'dequeue':
+                    yield ('turn_complete', None)
+```
+
+**Detecting "Claude is done with this turn":**
+- Watch for a `queue-operation` with `operation: "dequeue"` — this signals the turn is complete
+- Alternatively, watch for an `assistant` message with `message.stop_reason: "end_turn"` — this means Claude has finished responding and is waiting for input
+
+#### Alternative: `--output-format stream-json` (Print Mode)
+
+The CLI also supports structured I/O in print mode:
+```bash
+claude -p "Fix the bug" --output-format stream-json --input-format stream-json
+```
+
+This emits typed JSON events to stdout including partial messages, tool calls, and results. However, print mode (`-p`) is documented as the "SDK mode" and may be subject to the same Agent SDK restrictions on subscription auth. **Interactive mode is safer for subscription compliance** — it's the primary way individual users run Claude Code.
+
+#### Auth Token Management
+
+The CLI has `claude setup-token` which generates a long-lived OAuth token for CI/scripts. This is the cleanest path for Helix containers:
+
+1. User generates a setup token on their own machine: `claude setup-token`
+2. User provides the token to Helix (stored securely)
+3. Helix injects the token into the container's `~/.claude/` config at startup
+4. Claude CLI in the container picks up the token — no interactive login needed
+
+This avoids the browser-redirect problem entirely. The user authenticates on their own machine with their own subscription, and the container gets a derived token.
+
+#### Pros (updated)
+
 - Unambiguously allowed — CLI + subscription is the primary supported use case
-- User experience is similar (Claude in a terminal within their Zed IDE)
+- **Rich structured data via JSONL tailing** — full access to thinking, text, tool calls, usage stats
 - No cost change for users
+- `claude setup-token` solves the container auth problem cleanly
+- Session files give more data than the ACP integration (e.g., thinking blocks, usage stats, subagent transcripts)
 
-**Cons:**
-- Loses the deep Zed ACP integration (inline diffs, tool approvals in UI, etc.)
-- User experience is terminal-based rather than IDE-integrated
-- Helix has less control/visibility over the Claude session
-- May need to handle `claude login` OAuth flow inside the container (browser redirect)
+#### Cons (updated)
 
-**Risk: Low policy risk, medium UX risk.** The integration quality drops but the auth is unambiguously fine.
+- Loses Zed ACP integration (inline diffs, tool approvals in UI)
+- tmux injection is "good enough" but less robust than a proper API
+- Need to build the JSONL tailing daemon and Helix UI sync layer
+- TUI-based — harder to embed in a polished UI than structured ACP events
+- `--dangerously-skip-permissions` bypasses all safety checks — need to evaluate risk
+
+#### Risk: Low policy risk, medium engineering effort.
+
+The JSONL tailing gives Helix nearly as much data as the ACP integration, in a structured format. The main engineering effort is building the sync daemon and mapping JSONL events to Helix's UI.
 
 ### Option E: Hybrid — CLI for Auth, ACP for UX
 
@@ -168,13 +332,13 @@ Full URL: `https://www.anthropic.com/contact-sales?utm_source=claude_code&utm_me
 
 ## Recommendation
 
-**Short-term (immediate):** Pursue **Option A** (partner approval). The "unless previously approved" language is a clear invitation. Frame the request as: Helix is a cloud dev environment, not a Claude wrapper. Include willingness to comply with branding guidelines, usage caps, or reporting.
+**Build Option D (CLI + tmux + JSONL tailing) as the primary technical path.** This is the only approach that is both unambiguously compliant with Anthropic's policy AND preserves subscription-based auth for users. The JSONL session files provide rich structured data that can power a good Helix UI.
 
-**Parallel track:** Implement **Option B** (API key auth) as a fallback. The Agent SDK already supports it, so minimal engineering effort. Offer it as an alternative for users who can't or don't want to use subscriptions.
+**In parallel:** Still pursue Option A (contact Anthropic/Zed about partner approval). If approved, Helix could switch back to the ACP integration for a richer UX. But don't block on this — Option D works today.
 
-**Evaluate:** Investigate **Option D** (direct CLI) as a degraded-but-safe fallback. If the ACP integration adds enough value, the UX difference may be unacceptable. If users primarily care about "Claude in my IDE", the terminal experience might be sufficient.
+**Also support:** Option B (API key auth) as an alternative for users who prefer pay-per-token or need Team/Enterprise compliance.
 
-**Avoid:** Option E (hybrid) is too fragile and likely violates the spirit of the policy even if it works technically.
+**Avoid:** Option E (hybrid CLI auth + ACP) — too fragile, likely violates policy spirit.
 
 ## Key Learnings
 
