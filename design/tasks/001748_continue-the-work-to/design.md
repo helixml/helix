@@ -116,11 +116,32 @@ Recording requires an active `SharedVideoSource`. This source is only created wh
 
 The `RecordingManager` is lazily initialized on first `/recording/start` call. Without synchronization, concurrent requests could create multiple managers. Fixed with `sync.Once` on the `Server` struct, plus `recordingManagerErr` to propagate initialization errors.
 
+### Bug Found: Missing SPS/PPS in Recording
+
+The recording skipped ALL replay frames (including the initial IDR keyframe with SPS/PPS). Without SPS/PPS NAL units, ffmpeg cannot parse the raw H.264 file at all — every frame fails with "non-existing PPS 0 referenced".
+
+**Root cause:** `h264parse config-interval=-1` inserts SPS/PPS before every keyframe in the GStreamer pipeline. When a new client subscribes to SharedVideoSource, it receives GOP replay frames starting from the last keyframe. The recording code skipped all replay frames unconditionally.
+
+**Fix:** Extract SPS (NAL type 7) and PPS (NAL type 8) from the first replay keyframe and write them at the start of the raw H.264 file. Uses the existing `parseAnnexBNALUnits()` function from `ws_stream.go`.
+
+```go
+if frame.IsReplay {
+    if !gotSPSPPS && frame.IsKeyframe {
+        spsPPS := extractSPSPPS(frame.Data)
+        if len(spsPPS) > 0 {
+            r.file.Write(spsPPS)
+            gotSPSPPS = true
+        }
+    }
+    continue  // still skip replay frame video data
+}
+```
+
 ### Files Modified
 
 | File | Changes |
 |------|---------|
-| `recording.go` | Added slog.Logger, fixed mutex patterns (defer), file.Close() error check, ffmpeg genpts fix |
+| `recording.go` | Added slog.Logger, fixed mutex patterns (defer), file.Close() error check, ffmpeg genpts fix, SPS/PPS extraction from replay keyframe |
 | `recording_nocgo.go` | Updated constructor signature to accept *slog.Logger |
 | `recording_handlers.go` | Replaced lazy init with sync.Once |
 | `recording_test.go` | Updated constructor calls |
