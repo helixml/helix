@@ -360,6 +360,12 @@ WITH desktop_last_activity AS (
       AND s.config->>'external_agent_status' = 'running'
       AND s.config->>'dev_container_id' IS NOT NULL
       AND s.config->>'dev_container_id' != ''
+      AND NOT EXISTS (
+          SELECT 1 FROM spec_tasks st
+          WHERE st.planning_session_id = s.id
+            AND st.keep_alive = true
+            AND st.deleted_at IS NULL
+      )
     GROUP BY s.config->>'dev_container_id'
 )
 SELECT DISTINCT ON (s.config->>'dev_container_id') s.*

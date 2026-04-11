@@ -126,6 +126,63 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_ListIdleDesktops_SkipsSto
 	}
 }
 
+// TestPostgresStore_ListIdleDesktops_SkipsKeepAliveTask verifies that a
+// desktop whose parent spec task has keep_alive=true is excluded from idle results.
+func (suite *PostgresStoreTestSuite) TestPostgresStore_ListIdleDesktops_SkipsKeepAliveTask() {
+	ctx := context.Background()
+	containerID := "container-keepalive-" + system.GenerateUUID()
+
+	session := types.Session{
+		ID:      system.GenerateSessionID(),
+		Owner:   "user_id",
+		Created: time.Now(),
+		Updated: time.Now(),
+		Metadata: types.SessionMetadata{
+			ExternalAgentStatus: "running",
+			DevContainerID:      containerID,
+		},
+	}
+	_, err := suite.db.CreateSession(ctx, session)
+	suite.NoError(err)
+	suite.T().Cleanup(func() { _, _ = suite.db.DeleteSession(ctx, session.ID) })
+
+	// Interaction updated 2 hours ago — would normally be idle
+	oldTime := time.Now().Add(-2 * time.Hour)
+	interaction := &types.Interaction{
+		ID:           system.GenerateInteractionID(),
+		SessionID:    session.ID,
+		GenerationID: 1,
+		UserID:       "user_id",
+		Created:      oldTime,
+		Updated:      oldTime,
+	}
+	_, err = suite.db.CreateInteraction(ctx, interaction)
+	suite.NoError(err)
+
+	// Create a spec task with keep_alive=true pointing at this session
+	specTask := &types.SpecTask{
+		ID:                "st_keepalive_" + system.GenerateUUID(),
+		ProjectID:         "proj_test_" + system.GenerateUUID(),
+		UserID:            "user_id",
+		Name:              "keep-alive-test",
+		PlanningSessionID: session.ID,
+		KeepAlive:         true,
+		CreatedAt:         time.Now(),
+		UpdatedAt:         time.Now(),
+	}
+	err = suite.db.CreateSpecTask(ctx, specTask)
+	suite.NoError(err)
+	suite.T().Cleanup(func() { _ = suite.db.gdb.WithContext(ctx).Delete(specTask).Error })
+
+	idleSince := time.Now().Add(-1 * time.Hour)
+	results, err := suite.db.ListIdleDesktops(ctx, idleSince)
+	suite.NoError(err)
+
+	for _, s := range results {
+		suite.NotEqual(session.ID, s.ID, "desktop with keep_alive spec task must not be returned")
+	}
+}
+
 // TestPostgresStore_ListIdleDesktops_SkipsRecentSessionWithNoInteractions
 // verifies that a brand-new desktop (no interactions, recently updated) is
 // not considered idle — the session's own updated timestamp is used as the

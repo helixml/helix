@@ -50,6 +50,8 @@ import LinkIcon from "@mui/icons-material/Link";
 import ArchiveIcon from "@mui/icons-material/Archive";
 import AccountTree from "@mui/icons-material/AccountTree";
 import UndoIcon from "@mui/icons-material/Undo";
+import LockIcon from "@mui/icons-material/Lock";
+import LockOpenIcon from "@mui/icons-material/LockOpen";
 import { TypesSpecTaskPriority, TypesSpecTaskStatus } from "../../api/api";
 import ExternalAgentDesktopViewer, {
   useSandboxState,
@@ -714,6 +716,27 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
       setIsStarting(false);
     }
   }, [activeSessionId, isStarting, api, snackbar, queryClient]);
+
+  // Toggle keep alive (prevent auto-idle-shutdown)
+  const handleToggleKeepAlive = useCallback(async () => {
+    if (!task?.id) return;
+
+    const newValue = !task.keep_alive;
+    try {
+      await updateSpecTask.mutateAsync({
+        taskId: task.id,
+        updates: { keep_alive: newValue },
+      });
+      snackbar.success(
+        newValue
+          ? "Keep Alive enabled — container won't auto-sleep"
+          : "Keep Alive disabled — container will auto-sleep when idle",
+      );
+    } catch (err) {
+      console.error("Failed to toggle Keep Alive:", err);
+      snackbar.error("Failed to toggle Keep Alive");
+    }
+  }, [task?.id, task?.keep_alive, updateSpecTask, snackbar]);
 
   // Toggle Just Do It mode
   const handleToggleJustDoIt = useCallback(async () => {
@@ -2134,6 +2157,33 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                                 <CircularProgress size={16} />
                               ) : (
                                 <RestartAltIcon sx={{ fontSize: 18 }} />
+                              )}
+                            </IconButton>
+                          </Tooltip>
+                        )}
+                        {/* Show Keep Alive toggle when desktop is running */}
+                        {isDesktopRunning && (
+                          <Tooltip
+                            title={
+                              task.keep_alive
+                                ? "Keep Alive ON — won't auto-sleep"
+                                : "Keep Alive OFF — will auto-sleep when idle"
+                            }
+                          >
+                            <IconButton
+                              size="small"
+                              onClick={handleToggleKeepAlive}
+                              disabled={updateSpecTask.isPending}
+                              sx={{
+                                color: task.keep_alive
+                                  ? "success.main"
+                                  : "text.secondary",
+                              }}
+                            >
+                              {task.keep_alive ? (
+                                <LockIcon sx={{ fontSize: 18 }} />
+                              ) : (
+                                <LockOpenIcon sx={{ fontSize: 18 }} />
                               )}
                             </IconButton>
                           </Tooltip>

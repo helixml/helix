@@ -880,6 +880,7 @@ func (s *HelixAPIServer) updateSpecTask(w http.ResponseWriter, r *http.Request) 
 			task.MergeCommitHash = ""
 			task.RepoPullRequests = nil
 			task.BranchName = "" // Force fresh branch so orchestrator doesn't see the old merged branch
+			task.KeepAlive = false
 		}
 	}
 	if updateReq.Priority != "" {
@@ -921,6 +922,10 @@ func (s *HelixAPIServer) updateSpecTask(w http.ResponseWriter, r *http.Request) 
 	// Update public design docs setting (pointer allows explicit false)
 	if updateReq.PublicDesignDocs != nil {
 		task.PublicDesignDocs = *updateReq.PublicDesignDocs
+	}
+	// Update keep alive setting (pointer allows explicit false)
+	if updateReq.KeepAlive != nil {
+		task.KeepAlive = *updateReq.KeepAlive
 	}
 	// Update assignee (pointer allows clearing with empty string to unassign)
 	if updateReq.AssigneeID != nil {
