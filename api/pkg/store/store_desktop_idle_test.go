@@ -14,11 +14,13 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_ListIdleDesktops_ReturnsI
 	ctx := context.Background()
 	containerID := "container-idle-" + system.GenerateUUID()
 
+	// Both session and interaction must be older than the idle threshold
+	oldTime := time.Now().Add(-2 * time.Hour)
 	session := types.Session{
 		ID:      system.GenerateSessionID(),
 		Owner:   "user_id",
-		Created: time.Now(),
-		Updated: time.Now(),
+		Created: oldTime,
+		Updated: oldTime,
 		Metadata: types.SessionMetadata{
 			ExternalAgentStatus: "running",
 			DevContainerID:      containerID,
@@ -29,7 +31,6 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_ListIdleDesktops_ReturnsI
 	suite.T().Cleanup(func() { _, _ = suite.db.DeleteSession(ctx, session.ID) })
 
 	// Interaction updated 2 hours ago — outside the 1-hour threshold
-	oldTime := time.Now().Add(-2 * time.Hour)
 	interaction := &types.Interaction{
 		ID:           system.GenerateInteractionID(),
 		SessionID:    session.ID,
