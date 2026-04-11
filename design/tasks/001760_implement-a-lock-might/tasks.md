@@ -8,13 +8,13 @@
 - [x] Clear `KeepAlive` in the backlog-reset block in `updateSpecTask`
 - [x] Add NOT EXISTS filter to `ListIdleDesktops` SQL query in `api/pkg/store/store_sessions.go` to skip keep-alive tasks
 - [x] Add test case in `api/pkg/store/store_desktop_idle_test.go` — verify keep-alive task is excluded from idle list
-- [~] Add swagger annotation for the new field and run `./stack update_openapi`
+- [x] Add swagger annotation for the new field and run `./stack update_openapi`
 
 ## Frontend
 
-- [ ] Add Keep Alive toggle button to header toolbar in `SpecTaskDetailContent.tsx` (after Stop, before Upload)
-- [ ] Wire toggle to `updateSpecTask` mutation with `{ keep_alive: !task.keep_alive }` payload
-- [ ] Verify generated API client includes `keep_alive` field after openapi regen
+- [~] Add Keep Alive toggle button to header toolbar in `SpecTaskDetailContent.tsx` (after Stop, before Upload)
+- [~] Wire toggle to `updateSpecTask` mutation with `{ keep_alive: !task.keep_alive }` payload
+- [x] Verify generated API client includes `keep_alive` field after openapi regen
 
 ## Testing
 
