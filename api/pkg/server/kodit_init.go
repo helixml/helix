@@ -5,6 +5,7 @@ package server
 import (
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 
 	"github.com/helixml/helix/api/pkg/config"
@@ -76,6 +77,17 @@ func InitKodit(cfg *config.ServerConfig, gitRepoService *services.GitRepositoryS
 
 	// Pass helix's zerolog logger to kodit so log output is consistent.
 	koditOpts = append(koditOpts, kodit.WithLogger(log.Logger))
+
+	// Pre-flight: verify the ONNX Runtime shared library is present before
+	// attempting to create the kodit client. The hugot error is cryptic;
+	// this gives operators a clear, actionable message.
+	ortLibDir := os.Getenv("ORT_LIB_DIR")
+	if ortLibDir != "" {
+		ortPath := filepath.Join(ortLibDir, "libonnxruntime.so")
+		if _, err := os.Stat(ortPath); os.IsNotExist(err) {
+			return nil, fmt.Errorf("kodit is enabled but %s not found — ensure the container image was built with the ORT build stage (see Dockerfile)", ortPath)
+		}
+	}
 
 	koditClient, err := kodit.New(koditOpts...)
 	if err != nil {
