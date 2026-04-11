@@ -22,6 +22,10 @@
 - [x] Test: toggle off → idle checker SQL includes session again (verified)
 - [x] Test: API toggle on/off via PUT /api/v1/spec-tasks/{id} with keep_alive field (verified)
 - [x] Test: toggle state persists across API re-fetch (verified)
+- [x] Test: UI toggle button visible when desktop running, hidden when paused (verified with screenshots)
+- [x] Test: UI toggle ON shows green lock + "Keep Alive ON — won't auto-sleep" tooltip + success snackbar (verified)
+- [x] Test: UI toggle OFF shows grey unlock + "Keep Alive OFF — will auto-sleep when idle" tooltip + snackbar (verified)
+- [x] Test: manual stop works with keep-alive enabled (verified — desktop stopped normally)
 - [x] Build Go: `go build ./api/...`
 - [x] Build frontend: `cd frontend && tsc --noEmit` (dist permissions issue prevents full build, transform succeeds)
 - [x] Fix: removed `deleted_at IS NULL` from NOT EXISTS subquery (spec_tasks has no deleted_at column)
