@@ -4,6 +4,6 @@
 - [x] Dockerfile: add `ENV ORT_LIB_DIR=/usr/lib` to the production image stage to bypass fragile auto-detection
 - [x] Dockerfile: add `ENV ORT_LIB_DIR=/usr/lib` to the dev stage for consistency
 - [x] `api/pkg/server/kodit_init.go`: add a pre-flight check before `kodit.New()` that verifies the ORT library exists and returns a clear error message if missing
-- [~] Build the image locally and verify the controlplane starts with `KODIT_ENABLED=true`
-- [ ] Push and verify CI (Drone) builds and passes
-- [ ] Write PR description
+- [x] Build the image locally and verify the controlplane starts with `KODIT_ENABLED=true`
+- [x] Push and verify CI (Drone) builds and passes
+- [x] Write PR description
