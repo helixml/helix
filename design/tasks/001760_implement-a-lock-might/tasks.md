@@ -2,10 +2,10 @@
 
 ## Backend
 
-- [ ] Add `KeepAlive bool` field to `SpecTask` struct in `api/pkg/types/simple_spec_task.go`
-- [ ] Add `KeepAlive *bool` field to `SpecTaskUpdateRequest` in same file
-- [ ] Handle `KeepAlive` update in `updateSpecTask` handler in `api/pkg/server/spec_driven_task_handlers.go`
-- [ ] Clear `KeepAlive` in the backlog-reset block in `updateSpecTask`
+- [~] Add `KeepAlive bool` field to `SpecTask` struct in `api/pkg/types/simple_spec_task.go`
+- [~] Add `KeepAlive *bool` field to `SpecTaskUpdateRequest` in same file
+- [~] Handle `KeepAlive` update in `updateSpecTask` handler in `api/pkg/server/spec_driven_task_handlers.go`
+- [~] Clear `KeepAlive` in the backlog-reset block in `updateSpecTask`
 - [ ] Add NOT EXISTS filter to `ListIdleDesktops` SQL query in `api/pkg/store/store_sessions.go` to skip keep-alive tasks
 - [ ] Add test case in `api/pkg/store/store_desktop_idle_test.go` — verify keep-alive task is excluded from idle list
 - [ ] Add swagger annotation for the new field and run `./stack update_openapi`
