@@ -110,6 +110,7 @@ Uses the existing `updateSpecTask` mutation from `specTaskService.ts` — the sa
 - Button is placed between Restart and Upload in the toolbar — logically grouped with session controls
 - `tsc --noEmit` passes clean; `vite build` has a pre-existing permissions issue on the dist directory (not related to this change)
 - The `keep_alive` field auto-migrates via GORM AutoMigrate — no manual migration needed
+- **Gotcha**: `spec_tasks` table has NO `deleted_at` column (uses `archived` bool instead). The NOT EXISTS subquery must NOT include `st.deleted_at IS NULL` — this was caught during testing and fixed
 
 ## Decisions
 
