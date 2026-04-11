@@ -122,6 +122,8 @@ COPY --from=api-build-env /helix /helix
 COPY --from=ui-build-env /app/dist /www
 # Embedding model files for kodit code intelligence
 COPY --from=embedding-model /build/models/ /kodit-models/
+# ONNX Runtime library required by kodit's Hugot embedding provider (built with -tags ORT)
+COPY --from=tokenizers-lib /app/lib/libonnxruntime.so /usr/lib/
 
 ENV FRONTEND_URL=/www
 
