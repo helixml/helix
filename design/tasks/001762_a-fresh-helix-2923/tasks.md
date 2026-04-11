@@ -1,8 +1,9 @@
 # Implementation Tasks
 
-- [~] Verify root cause: run the 2.9.23 production image and confirm `libonnxruntime.so` is missing from `/lib/` and/or `/usr/lib/` — determine whether the file is absent entirely or just at the wrong path
-- [ ] Dockerfile: add `RUN ln -sf /usr/lib/libonnxruntime.so /lib/libonnxruntime.so` after the ORT library COPY in the production image stage (line ~126)
-- [ ] Dockerfile: apply the same symlink fix to the dev stage (line ~49) for consistency
-- [ ] `api/pkg/server/kodit_init.go`: add a pre-flight check before `kodit.New()` that stats the expected ORT library path and returns a clear error message if missing (e.g., "kodit is enabled but libonnxruntime.so not found — ensure image was built with ORT stage")
+- [x] Verify root cause: trace how kodit resolves the ORT library path — found that `resolveORTLibDir()` in kodit resolves to `/lib` because the binary is at `/helix`, and the library is genuinely missing from the image
+- [~] Dockerfile: add `ENV ORT_LIB_DIR=/usr/lib` to the production image stage to bypass fragile auto-detection
+- [ ] Dockerfile: add `ENV ORT_LIB_DIR=/usr/lib` to the dev stage for consistency
+- [ ] `api/pkg/server/kodit_init.go`: add a pre-flight check before `kodit.New()` that verifies the ORT library exists and returns a clear error message if missing
 - [ ] Build the image locally and verify the controlplane starts with `KODIT_ENABLED=true`
 - [ ] Push and verify CI (Drone) builds and passes
+- [ ] Write PR description
