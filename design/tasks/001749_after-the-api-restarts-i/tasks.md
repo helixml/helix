@@ -13,7 +13,13 @@
 - [ ] In the `chat_message` handler, before dispatching work, check if `request_id` is in `COMPLETED_REQUESTS` — if yes, log it and re-send `message_completed`, skip re-processing
 - [ ] Test: send a chat_message, let it complete, then send the same chat_message again (same request_id) — verify Zed replies with message_completed without re-invoking Claude Code
 
-## Change 3: Timeout stuck waiting interactions (API)
+## Change 3: Exclude zed_external from ResetRunningInteractions (API)
+- [ ] In `store_interactions.go:ResetRunningInteractions`, add a WHERE clause to exclude interactions belonging to `zed_external` sessions: `WHERE session_id NOT IN (SELECT id FROM sessions WHERE config->>'agent_type' = 'zed_external')`
+- [ ] Verify that non-zed_external interactions are still reset as before
+- [ ] Test: create a waiting interaction for a zed_external session, restart the API, verify it remains in `waiting` state
+- [ ] Test: create a waiting interaction for a non-zed_external session, restart the API, verify it is reset to `error`
+
+## Change 4: Timeout stuck waiting interactions (API)
 - [ ] In `pickupWaitingInteraction` (`websocket_external_agent_sync.go`), after queuing the chat_message for the agent, start a goroutine with a 120-second timeout
 - [ ] If no `message_completed` arrives for that request_id within the timeout, mark the interaction as `error` state with message "Response interrupted by system restart"
 - [ ] Ensure the timeout goroutine is cancelled if `message_completed` does arrive (use a channel or context)
