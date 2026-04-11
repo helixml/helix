@@ -1,4 +1,5 @@
 import React, { useRef, useEffect, useState, useCallback } from "react";
+import { v4 as uuidv4 } from "uuid";
 import {
   Box,
   Typography,
@@ -112,7 +113,7 @@ function getOrCreateStreamUUID(sessionId: string): string {
   const storageKey = `helix-stream-uuid-${sessionId}`;
   let id = sessionStorage.getItem(storageKey);
   if (!id) {
-    id = crypto.randomUUID();
+    id = uuidv4();
     sessionStorage.setItem(storageKey, id);
   }
   return id;
