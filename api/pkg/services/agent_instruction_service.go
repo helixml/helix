@@ -300,6 +300,13 @@ cd /home/retro/work/helix-specs && git add -A && git commit -m "Add PR descripti
 - Summary explains the "what" and "why"
 - Changes list the key modifications
 - Keep it concise - reviewers appreciate brevity
+- **For UI/frontend changes:** Include a "Screenshots" section in the PR description referencing screenshots you saved to the ` + "`screenshots/`" + ` folder in your task directory. These are pushed to the helix-specs branch and visible to reviewers. Example:
+  ` + "```" + `
+  ## Screenshots
+  See screenshots in helix-specs branch: design/tasks/{{.TaskDirName}}/screenshots/
+  - 01-feature-before.png — before the change
+  - 02-feature-after.png — after the change
+  ` + "```" + `
 
 ---
 
