@@ -364,7 +364,6 @@ WITH desktop_last_activity AS (
           SELECT 1 FROM spec_tasks st
           WHERE st.planning_session_id = s.id
             AND st.keep_alive = true
-            AND st.deleted_at IS NULL
       )
     GROUP BY s.config->>'dev_container_id'
 )
