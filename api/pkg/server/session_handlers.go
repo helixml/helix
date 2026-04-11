@@ -1959,15 +1959,16 @@ func (s *HelixAPIServer) resumeSession(rw http.ResponseWriter, req *http.Request
 	}
 
 	// Re-fetch the session after StartDesktop to get updated metadata (SwayVersion, GPUVendor, etc.)
-	// StartDesktop updates the session in DB - using the stale session would overwrite those changes
-	session, err = s.Controller.Options.Store.GetSession(ctx, id)
-	if err != nil {
+	// StartDesktop updates the session in DB - using the stale session would overwrite those changes.
+	// Use a temporary variable so session is never overwritten with nil on error.
+	if refetched, refetchErr := s.Controller.Options.Store.GetSession(ctx, id); refetchErr != nil {
 		log.Error().
-			Err(err).
+			Err(refetchErr).
 			Str("session_id", id).
 			Msg("Failed to re-fetch session after StartDesktop")
-		// Continue with response - container is running, just metadata might be stale
+		// Continue with stale session — container is running, just metadata might be slightly stale
 	} else {
+		session = refetched
 		// Update session metadata with new container info (only if non-empty)
 		// Don't overwrite existing metadata with empty values from lobby reuse
 		if response.DevContainerID != "" {
@@ -1976,10 +1977,9 @@ func (s *HelixAPIServer) resumeSession(rw http.ResponseWriter, req *http.Request
 		// CRITICAL: Clear PausedScreenshotPath when resuming
 		// Otherwise the screenshot API returns the old saved screenshot instead of live RevDial fetch
 		session.Metadata.PausedScreenshotPath = ""
-		_, err = s.Controller.Options.Store.UpdateSession(ctx, *session)
-		if err != nil {
+		if _, updateErr := s.Controller.Options.Store.UpdateSession(ctx, *session); updateErr != nil {
 			log.Error().
-				Err(err).
+				Err(updateErr).
 				Str("session_id", id).
 				Msg("Failed to update session metadata with new lobby info")
 			// Don't fail the request - the agent is running
