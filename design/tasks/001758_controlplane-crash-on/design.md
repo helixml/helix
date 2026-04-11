@@ -39,3 +39,10 @@ COPY --from=tokenizers-lib /app/lib/libonnxruntime.so /usr/lib/
 - **Config**: `api/pkg/config/config.go` — `KODIT_ENABLED` env var (default: `false`)
 - **docker-compose.yaml** sets `KODIT_ENABLED=true` (line 56)
 - The `tokenizers-lib` stage (lines 33-36) already downloads the library — we just need to copy it to the final image
+
+## Implementation Notes
+
+- The library (22MB) is loaded at runtime via `dlopen`, not linked at compile time — so `ldd /helix` won't show it, but it must be on the filesystem at `/usr/lib/`
+- The dev stack (`docker-compose.dev.yaml`) uses the `api-dev-env` stage which already has the COPY — so the bug only manifests in production images
+- Verified: production image now contains `/usr/lib/libonnxruntime.so` (22044576 bytes)
+- The fix pattern mirrors exactly what the dev and build stages already do (line 47 and line 72)
