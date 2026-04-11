@@ -278,7 +278,10 @@ func (s *HelixAPIServer) listTasks(w http.ResponseWriter, r *http.Request) {
 					// but RevDial hasn't connected yet, causing ScreenshotViewer 503 errors.
 					cfg := session.Metadata
 					if cfg.ContainerName != "" && s.externalAgentExecutor != nil {
-						if cfg.ExternalAgentStatus == "running" {
+						// Live-check the executor for "running" and "" (stopped-but-not-yet-labelled)
+						// sessions. Skip "starting" (RevDial not yet connected — upgrading it to
+						// "running" causes ScreenshotViewer 503s) and "stopped" (already terminal).
+						if cfg.ExternalAgentStatus == "running" || cfg.ExternalAgentStatus == "" {
 							_, err := s.externalAgentExecutor.GetSession(session.ID)
 							if err != nil {
 								cfg.ExternalAgentStatus = "stopped"
