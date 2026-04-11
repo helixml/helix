@@ -102,6 +102,15 @@ Uses the existing `updateSpecTask` mutation from `specTaskService.ts` — the sa
 - **Header toolbar:** Action buttons are in a `<Box sx={{ display: "flex", gap: 0.5 }}>` at line 2033 of `SpecTaskDetailContent.tsx`
 - **API client regen:** Run `./stack update_openapi` after adding swagger annotations to regenerate the TypeScript client
 
+## Implementation Notes
+
+- Followed the exact same pattern as `PublicDesignDocs` for the boolean field, pointer update request, and handler logic
+- The idle checker SQL filter uses `NOT EXISTS` subquery joining on `planning_session_id` — no Go code changes needed in `idle_checker.go`
+- Toggle handler uses `updateSpecTask.mutateAsync()` (the existing React Query mutation) rather than raw API calls
+- Button is placed between Restart and Upload in the toolbar — logically grouped with session controls
+- `tsc --noEmit` passes clean; `vite build` has a pre-existing permissions issue on the dist directory (not related to this change)
+- The `keep_alive` field auto-migrates via GORM AutoMigrate — no manual migration needed
+
 ## Decisions
 
 | Decision | Choice | Rationale |

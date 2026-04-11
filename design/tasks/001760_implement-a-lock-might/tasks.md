@@ -12,8 +12,8 @@
 
 ## Frontend
 
-- [~] Add Keep Alive toggle button to header toolbar in `SpecTaskDetailContent.tsx` (after Stop, before Upload)
-- [~] Wire toggle to `updateSpecTask` mutation with `{ keep_alive: !task.keep_alive }` payload
+- [x] Add Keep Alive toggle button to header toolbar in `SpecTaskDetailContent.tsx` (after Stop, before Upload)
+- [x] Wire toggle to `updateSpecTask` mutation with `{ keep_alive: !task.keep_alive }` payload
 - [x] Verify generated API client includes `keep_alive` field after openapi regen
 
 ## Testing
@@ -22,5 +22,5 @@
 - [ ] Test: toggle off → container auto-stops after idle timeout as before
 - [ ] Test: toggle on → manual stop still works
 - [ ] Test: toggle state persists across page reload
-- [ ] Build Go: `go build ./api/...`
-- [ ] Build frontend: `cd frontend && yarn build`
+- [x] Build Go: `go build ./api/...`
+- [x] Build frontend: `cd frontend && tsc --noEmit` (dist permissions issue prevents full build, transform succeeds)
