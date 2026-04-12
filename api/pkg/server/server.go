@@ -487,6 +487,8 @@ func NewServer(
 	apiServer.specDrivenTaskService.SendMessageToAgent = apiServer.sendMessageToSpecTaskAgent
 	// Set the project secrets callback for injecting secrets as env vars into desktop containers
 	apiServer.specDrivenTaskService.GetProjectSecrets = apiServer.GetProjectSecretsAsEnvVars
+	// Set the filestore for reading uploaded image attachments
+	apiServer.specDrivenTaskService.SetFileStore(appController.Options.Filestore)
 
 	// Initialize Attention Service for human-needed event notifications
 	apiServer.attentionService = services.NewAttentionService(store, cfg)

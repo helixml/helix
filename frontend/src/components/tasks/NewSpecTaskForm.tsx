@@ -4,6 +4,7 @@ import React, {
   useRef,
   useMemo,
   useCallback,
+  useId,
 } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -46,6 +47,8 @@ import useSnackbar from "../../hooks/useSnackbar";
 import useApps from "../../hooks/useApps";
 import { useGetProject, useGetProjectRepositories } from "../../services";
 import { useSpecTasks, useProjectLabels, useAddLabel } from "../../services/specTaskService";
+import ImageAttachments, { UploadedImage } from "./ImageAttachments";
+import { getFilestoreViewerUrl } from "../../services/filestoreService";
 
 const LAST_LABELS_KEY = "helix_last_task_labels";
 const DRAFT_KEY_PREFIX = "helix_new_spectask_draft_";
@@ -189,6 +192,10 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
   const codingAgentFormRef = useRef<CodingAgentFormHandle>(null);
   // Ref for task prompt text field
   const taskPromptRef = useRef<HTMLTextAreaElement>(null);
+  // Image attachments
+  const [uploadSessionId] = useState(() => crypto.randomUUID());
+  const [attachedImages, setAttachedImages] = useState<UploadedImage[]>([]);
+  const formContainerRef = useRef<HTMLDivElement>(null);
 
   // Sort apps: project default first, then zed_external, then others
   const sortedApps = useMemo(() => {
@@ -324,8 +331,20 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
         agentId = createdAgent.id;
       }
 
+      // Append image references to prompt if any images are attached
+      let finalPrompt = taskPrompt;
+      if (attachedImages.length > 0) {
+        const imageRefs = attachedImages
+          .map((img, i) => `![screenshot-${i + 1}](${img.viewerUrl})`)
+          .join("\n");
+        finalPrompt = taskPrompt + "\n\n" + imageRefs;
+      }
+
       const createTaskRequest = {
-        prompt: taskPrompt,
+        prompt: finalPrompt,
+        attachment_paths: attachedImages.length > 0
+          ? attachedImages.map((img) => img.filestorePath)
+          : undefined,
         priority: taskPriority as TypesSpecTaskPriority,
         project_id: projectId,
         app_id: agentId || undefined,
@@ -442,7 +461,7 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
       )}
 
       {/* Content */}
-      <Box sx={{ flex: 1, overflow: "auto", p: 2 }}>
+      <Box ref={formContainerRef} sx={{ flex: 1, overflow: "auto", p: 2 }}>
         <Stack spacing={2}>
           {/* Priority Selector */}
           <FormControl fullWidth size="small">
@@ -575,6 +594,13 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
             }
             inputRef={taskPromptRef}
             size="small"
+          />
+
+          {/* Screenshot Attachments */}
+          <ImageAttachments
+            onImagesChange={setAttachedImages}
+            uploadPath={`task-attachments/${uploadSessionId}`}
+            pasteTargetRef={formContainerRef}
           />
 
           <Autocomplete
