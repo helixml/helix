@@ -366,17 +366,35 @@ func (g *GstPipeline) Frames() <-chan VideoFrame {
 }
 
 // Stop stops the pipeline and closes the frame channel.
+// This explicitly unrefs the GStreamer pipeline to immediately free GPU resources
+// (CUDA contexts, NVENC sessions, DMA-BUF allocations). Without explicit Unref,
+// these resources would only be freed when Go's GC collects the pipeline object,
+// which may never happen since Go's GC doesn't know about GPU memory pressure.
 func (g *GstPipeline) Stop() {
 	g.stopOnce.Do(func() {
-		g.running.Store(false)
+		// Only decrement active count if Start() had succeeded (set running=true).
+		// Without this check, Stop() on a pipeline that failed to start would
+		// drive the counter negative.
+		wasRunning := g.running.Swap(false)
 
 		if g.pipeline != nil {
 			g.pipeline.SetState(gst.StateNull)
+			// Explicitly unref to free GPU resources (CUDA contexts, NVENC sessions)
+			// immediately rather than waiting for Go's GC finalizer.
+			// The go-gst TransferNone/Take wrapper adds its own ref+finalizer, so
+			// this Unref releases our usage ref; the GC finalizer releases the other.
+			g.pipeline.Unref()
+			g.pipeline = nil
 		}
+		g.appsink = nil
+		g.realtimeClock = nil
 
-		// Decrement active pipeline count
-		remaining := activePipelineCount.Add(-1)
-		fmt.Printf("[GST_PIPELINE] Pipeline %s stopped (active pipelines: %d)\n", g.pipelineID, remaining)
+		if wasRunning {
+			remaining := activePipelineCount.Add(-1)
+			fmt.Printf("[GST_PIPELINE] Pipeline %s stopped (active pipelines: %d)\n", g.pipelineID, remaining)
+		} else {
+			fmt.Printf("[GST_PIPELINE] Pipeline %s cleaned up (was never started)\n", g.pipelineID)
+		}
 
 		close(g.frameCh)
 	})

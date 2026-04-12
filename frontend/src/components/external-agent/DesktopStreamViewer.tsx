@@ -1901,34 +1901,22 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
 
   // iOS Safari fix: Force reconnect when page becomes visible
   // iOS Safari can suspend WebSockets without properly closing them, leaving the stream black
-  useEffect(() => {
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === "visible" && isConnected) {
-        console.log(
-          "[DesktopStreamViewer] Page became visible, checking stream health...",
-        );
-        // Check if the stream is still healthy by looking at the WebSocket state
-        const stream = streamRef.current;
-        if (stream) {
-          const ws = (stream as any).ws as WebSocket | undefined;
-          if (
-            ws &&
-            (ws.readyState === WebSocket.CLOSED ||
-              ws.readyState === WebSocket.CLOSING)
-          ) {
-            console.log(
-              "[DesktopStreamViewer] WebSocket was closed while page was hidden, forcing reconnect",
-            );
-            reconnect(500, "Reconnecting after page visibility change...");
-          }
-        }
-      }
-    };
-
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-    return () =>
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
-  }, [isConnected, reconnect]);
+  // NOTE: Uses reconnectRef to avoid re-registering this listener every time the reconnect
+  // function changes (which happens on bitrate/connect changes). Without this, each
+  // reconnect function change would remove+add the listener, and on iPad the rapid
+  // re-registration caused reconnect storms.
+  // NOTE: We previously had a visibility change handler here that checked
+  // ws.readyState === CLOSED when the page became visible and forced a reconnect.
+  // This was REMOVED because it caused reconnect loops:
+  //
+  // WebSocketStream already handles page visibility changes internally:
+  //   1. Its heartbeat resets lastMessageTime on visibility change (line 2119)
+  //   2. Its onClose handler auto-reconnects with exponential backoff
+  //   3. iOS Safari JS suspension is handled by skipping stale detection when hidden
+  //
+  // The component-level visibility check would see a CLOSED WebSocket during
+  // WebSocketStream's internal reconnect backoff, create a brand new stream,
+  // and cancel the pending backoff — causing a reconnect loop.
 
   // iOS Safari frame stall detection
   // iOS Safari can silently break the VideoDecoder without triggering error callbacks,
@@ -1938,6 +1926,10 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   const FRAME_STALL_CHECK_INTERVAL_MS = 3000; // Check every 3 seconds
   const DECODER_CRASH_RECONNECT_COOLDOWN_MS = 10000; // Don't reconnect more than once per 10 seconds
   const lastDecoderCrashReconnectRef = useRef<number>(0);
+  // Frame health check: monitors WebSocket data flow and decoder state.
+  // Uses reconnectRef to avoid restarting the interval every time the reconnect
+  // function changes. Without this, bitrate changes would clear+restart the interval,
+  // creating parallel health check timers that all trigger reconnects independently.
   useEffect(() => {
     // Only run health check in video mode when connected
     if (!isConnected || qualityMode === "screenshot" || isConnecting) {
@@ -1948,19 +1940,21 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       const stream = streamRef.current;
       if (!stream || !(stream instanceof WebSocketStream)) return;
 
-      // Check WebSocket state first (belt and suspenders with visibility handler)
-      const ws = (stream as any).ws as WebSocket | undefined;
-      if (
-        ws &&
-        (ws.readyState === WebSocket.CLOSED ||
-          ws.readyState === WebSocket.CLOSING)
-      ) {
-        console.log(
-          "[DesktopStreamViewer] Frame health check: WebSocket closed, forcing reconnect",
-        );
-        reconnect(500, "Reconnecting (connection lost)...");
-        return;
-      }
+      // NOTE: We intentionally do NOT check ws.readyState === CLOSED here.
+      // WebSocketStream has its own onClose handler with exponential backoff
+      // reconnection (1s, 2s, 4s, 8s... up to 30s, max 10 attempts).
+      // If we detect CLOSED here and call reconnect(), we create a BRAND NEW
+      // WebSocketStream, which:
+      //   1. Kills the pending internal reconnect (stream.close() cancels it)
+      //   2. Resets the backoff counter to 0
+      //   3. Creates a new pipeline on the backend
+      // This causes the reconnect loop: health check fires every 3s, sees CLOSED
+      // during backoff wait, creates new stream, repeat. Each cycle leaks GPU memory.
+      //
+      // Instead, this health check ONLY detects:
+      //   - Decoder crash (state=closed) — needs full reconnect
+      //   - Stale connection (WS appears OPEN but no data) — WebSocketStream's
+      //     10s heartbeat might be too slow, so we catch it at 5s
 
       // Check decoder health
       const stats = stream.getStats();
@@ -1984,7 +1978,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         console.log(`[DesktopStreamViewer] ${crashMsg}, forcing reconnect`);
         addConnectionLog(crashMsg);
         lastDecoderCrashReconnectRef.current = now;
-        reconnect(500, "Reconnecting (decoder crashed)...");
+        reconnectRef.current(500, "Reconnecting (decoder crashed)...");
         return;
       }
 
@@ -2012,7 +2006,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         console.log(`[DesktopStreamViewer] ${stallMsg}, forcing reconnect`);
         addConnectionLog(stallMsg);
         lastDecoderCrashReconnectRef.current = now;
-        reconnect(500, "Reconnecting (connection stalled)...");
+        reconnectRef.current(500, "Reconnecting (connection stalled)...");
         return;
       }
     };
@@ -2022,7 +2016,8 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       FRAME_STALL_CHECK_INTERVAL_MS,
     );
     return () => clearInterval(intervalId);
-  }, [isConnected, qualityMode, isConnecting, reconnect]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isConnected, qualityMode, isConnecting]);
 
   // NOTE: We intentionally do NOT auto-focus the container when stream connects.
   // Auto-focusing steals focus from wherever the user was (e.g., typing in a text field)
