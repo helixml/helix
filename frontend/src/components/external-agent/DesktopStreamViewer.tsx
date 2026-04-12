@@ -1900,6 +1900,10 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
 
   // iOS Safari fix: Force reconnect when page becomes visible
   // iOS Safari can suspend WebSockets without properly closing them, leaving the stream black
+  // NOTE: Uses reconnectRef to avoid re-registering this listener every time the reconnect
+  // function changes (which happens on bitrate/connect changes). Without this, each
+  // reconnect function change would remove+add the listener, and on iPad the rapid
+  // re-registration caused reconnect storms.
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (document.visibilityState === "visible" && isConnected) {
@@ -1918,7 +1922,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
             console.log(
               "[DesktopStreamViewer] WebSocket was closed while page was hidden, forcing reconnect",
             );
-            reconnect(500, "Reconnecting after page visibility change...");
+            reconnectRef.current(500, "Reconnecting after page visibility change...");
           }
         }
       }
@@ -1927,7 +1931,8 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     document.addEventListener("visibilitychange", handleVisibilityChange);
     return () =>
       document.removeEventListener("visibilitychange", handleVisibilityChange);
-  }, [isConnected, reconnect]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isConnected]);
 
   // iOS Safari frame stall detection
   // iOS Safari can silently break the VideoDecoder without triggering error callbacks,
@@ -1937,6 +1942,10 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   const FRAME_STALL_CHECK_INTERVAL_MS = 3000; // Check every 3 seconds
   const DECODER_CRASH_RECONNECT_COOLDOWN_MS = 10000; // Don't reconnect more than once per 10 seconds
   const lastDecoderCrashReconnectRef = useRef<number>(0);
+  // Frame health check: monitors WebSocket data flow and decoder state.
+  // Uses reconnectRef to avoid restarting the interval every time the reconnect
+  // function changes. Without this, bitrate changes would clear+restart the interval,
+  // creating parallel health check timers that all trigger reconnects independently.
   useEffect(() => {
     // Only run health check in video mode when connected
     if (!isConnected || qualityMode === "screenshot" || isConnecting) {
@@ -1957,7 +1966,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         console.log(
           "[DesktopStreamViewer] Frame health check: WebSocket closed, forcing reconnect",
         );
-        reconnect(500, "Reconnecting (connection lost)...");
+        reconnectRef.current(500, "Reconnecting (connection lost)...");
         return;
       }
 
@@ -1983,7 +1992,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         console.log(`[DesktopStreamViewer] ${crashMsg}, forcing reconnect`);
         addConnectionLog(crashMsg);
         lastDecoderCrashReconnectRef.current = now;
-        reconnect(500, "Reconnecting (decoder crashed)...");
+        reconnectRef.current(500, "Reconnecting (decoder crashed)...");
         return;
       }
 
@@ -2011,7 +2020,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         console.log(`[DesktopStreamViewer] ${stallMsg}, forcing reconnect`);
         addConnectionLog(stallMsg);
         lastDecoderCrashReconnectRef.current = now;
-        reconnect(500, "Reconnecting (connection stalled)...");
+        reconnectRef.current(500, "Reconnecting (connection stalled)...");
         return;
       }
     };
@@ -2021,7 +2030,8 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       FRAME_STALL_CHECK_INTERVAL_MS,
     );
     return () => clearInterval(intervalId);
-  }, [isConnected, qualityMode, isConnecting, reconnect]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isConnected, qualityMode, isConnecting]);
 
   // NOTE: We intentionally do NOT auto-focus the container when stream connects.
   // Auto-focusing steals focus from wherever the user was (e.g., typing in a text field)
