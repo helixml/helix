@@ -1904,35 +1904,18 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   // function changes (which happens on bitrate/connect changes). Without this, each
   // reconnect function change would remove+add the listener, and on iPad the rapid
   // re-registration caused reconnect storms.
-  useEffect(() => {
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === "visible" && isConnected) {
-        console.log(
-          "[DesktopStreamViewer] Page became visible, checking stream health...",
-        );
-        // Check if the stream is still healthy by looking at the WebSocket state
-        const stream = streamRef.current;
-        if (stream) {
-          const ws = (stream as any).ws as WebSocket | undefined;
-          if (
-            ws &&
-            (ws.readyState === WebSocket.CLOSED ||
-              ws.readyState === WebSocket.CLOSING)
-          ) {
-            console.log(
-              "[DesktopStreamViewer] WebSocket was closed while page was hidden, forcing reconnect",
-            );
-            reconnectRef.current(500, "Reconnecting after page visibility change...");
-          }
-        }
-      }
-    };
-
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-    return () =>
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isConnected]);
+  // NOTE: We previously had a visibility change handler here that checked
+  // ws.readyState === CLOSED when the page became visible and forced a reconnect.
+  // This was REMOVED because it caused reconnect loops:
+  //
+  // WebSocketStream already handles page visibility changes internally:
+  //   1. Its heartbeat resets lastMessageTime on visibility change (line 2119)
+  //   2. Its onClose handler auto-reconnects with exponential backoff
+  //   3. iOS Safari JS suspension is handled by skipping stale detection when hidden
+  //
+  // The component-level visibility check would see a CLOSED WebSocket during
+  // WebSocketStream's internal reconnect backoff, create a brand new stream,
+  // and cancel the pending backoff — causing a reconnect loop.
 
   // iOS Safari frame stall detection
   // iOS Safari can silently break the VideoDecoder without triggering error callbacks,
@@ -1956,19 +1939,21 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       const stream = streamRef.current;
       if (!stream || !(stream instanceof WebSocketStream)) return;
 
-      // Check WebSocket state first (belt and suspenders with visibility handler)
-      const ws = (stream as any).ws as WebSocket | undefined;
-      if (
-        ws &&
-        (ws.readyState === WebSocket.CLOSED ||
-          ws.readyState === WebSocket.CLOSING)
-      ) {
-        console.log(
-          "[DesktopStreamViewer] Frame health check: WebSocket closed, forcing reconnect",
-        );
-        reconnectRef.current(500, "Reconnecting (connection lost)...");
-        return;
-      }
+      // NOTE: We intentionally do NOT check ws.readyState === CLOSED here.
+      // WebSocketStream has its own onClose handler with exponential backoff
+      // reconnection (1s, 2s, 4s, 8s... up to 30s, max 10 attempts).
+      // If we detect CLOSED here and call reconnect(), we create a BRAND NEW
+      // WebSocketStream, which:
+      //   1. Kills the pending internal reconnect (stream.close() cancels it)
+      //   2. Resets the backoff counter to 0
+      //   3. Creates a new pipeline on the backend
+      // This causes the reconnect loop: health check fires every 3s, sees CLOSED
+      // during backoff wait, creates new stream, repeat. Each cycle leaks GPU memory.
+      //
+      // Instead, this health check ONLY detects:
+      //   - Decoder crash (state=closed) — needs full reconnect
+      //   - Stale connection (WS appears OPEN but no data) — WebSocketStream's
+      //     10s heartbeat might be too slow, so we catch it at 5s
 
       // Check decoder health
       const stats = stream.getStats();
