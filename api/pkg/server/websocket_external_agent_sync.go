@@ -2630,7 +2630,8 @@ func (apiServer *HelixAPIServer) sendQueuedPromptToSession(ctx context.Context, 
 			"message":       prompt.Content,
 			"request_id":    requestID,
 			"agent_name":    agentName,
-			"from_queue":    true, // Indicate this came from the queue
+			"from_queue":    true,         // Indicate this came from the queue
+			"interrupt":     prompt.Interrupt, // Tell Zed to cancel the current turn before sending
 		},
 	}
 
