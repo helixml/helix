@@ -68,8 +68,9 @@ func InitKodit(cfg *config.ServerConfig, gitRepoService *services.GitRepositoryS
 	if err != nil {
 		return nil, fmt.Errorf("failed to load system settings for kodit init: %w", err)
 	}
-	useExternalText := settings.KoditTextEmbeddingProvider != "" && settings.KoditTextEmbeddingModel != ""
-	useExternalVision := settings.KoditVisionEmbeddingProvider != "" && settings.KoditVisionEmbeddingModel != ""
+	decision := decideKoditEmbedding(settings)
+	useExternalText := decision.UseExternalText
+	useExternalVision := decision.UseExternalVision
 
 	// Text embedding provider.
 	if useExternalText {
