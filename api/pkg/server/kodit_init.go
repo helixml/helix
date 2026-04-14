@@ -9,7 +9,6 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
-	"time"
 
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/services"
@@ -35,17 +34,19 @@ type KoditResult struct {
 	cfg            *config.ServerConfig
 	store          store.Store
 	gitRepoService *services.GitRepositoryService
-	modelDir       string
 
-	// mu serialises Reinit calls and protects client. client is the currently
-	// active kodit.Client (may be nil during a reinit or before the first
-	// async init completes).
+	// mu serialises Reinit calls and protects client.
 	mu     sync.Mutex
 	client *kodit.Client
 }
 
-// InitKodit creates the kodit client, service, and MCP backend.
-// When kodit is disabled in config it returns a disabled service and nil closer.
+// InitKodit creates the kodit client, service, and MCP backend. When kodit is
+// disabled in config it returns a disabled service and nil closer.
+//
+// kodit.New is called synchronously. Since the season-valley branch of kodit
+// defers its embedding-dimension probe to first use, we have no listener
+// dependency at startup even when the embedding provider is configured to
+// call back into Helix's own /v1/embeddings proxy.
 func InitKodit(cfg *config.ServerConfig, gitRepoService *services.GitRepositoryService, store store.Store) (*KoditResult, error) {
 	if !cfg.Kodit.Enabled || gitRepoService == nil {
 		log.Info().Msg("Kodit code intelligence service disabled")
@@ -60,8 +61,8 @@ func InitKodit(cfg *config.ServerConfig, gitRepoService *services.GitRepositoryS
 	}
 
 	// Use a deferred (atomically-swappable) service everywhere so that Reinit
-	// can swap the real inner service without having to rewire downstream
-	// consumers that hold a reference to KoditResult.Service.
+	// can replace the real inner service without rewiring downstream consumers
+	// that hold a reference to KoditResult.Service.
 	deferred := services.NewDeferredKoditService()
 	mcpBackend := NewKoditMCPBackend(nil, true, store)
 	gitRepoService.SetKoditGitURL(cfg.Kodit.GitURL)
@@ -76,65 +77,38 @@ func InitKodit(cfg *config.ServerConfig, gitRepoService *services.GitRepositoryS
 		gitRepoService: gitRepoService,
 	}
 
-	opts, modelDir, decision, err := buildKoditOpts(cfg, store)
+	opts, decision, err := buildKoditOpts(cfg, store)
 	if err != nil {
 		return nil, err
 	}
-	result.modelDir = modelDir
-
 	if err := preflightORT(decision); err != nil {
 		return nil, err
 	}
 
-	// Fast path: no external embedding configured, so kodit.New() only touches
-	// local files — no listener dependency, run synchronously.
-	if !decision.UseExternalText && !decision.UseExternalVision {
-		client, err := kodit.New(opts...)
-		if err != nil {
-			return nil, fmt.Errorf("failed to initialize kodit client: %w", err)
-		}
-		result.installClient(client)
-		log.Info().
-			Str("kodit_git_url", cfg.Kodit.GitURL).
-			Msg("Initialized Kodit code intelligence service")
-		return result, nil
+	client, err := kodit.New(opts...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize kodit client: %w", err)
 	}
-
-	// External embedding configured: kodit.New()'s dimension probe hits the
-	// configured endpoint. When that endpoint is Helix's own proxy (the usual
-	// case) the listener isn't bound yet at init time, so run kodit.New
-	// asynchronously with a retry loop.
-	go func() {
-		client, err := newKoditClientWithRetry(opts)
-		if err != nil {
-			log.Error().Err(err).Msg("kodit init failed — code intelligence will remain disabled until reconfigured")
-			return
-		}
-		result.installClient(client)
-		log.Info().
-			Str("kodit_git_url", cfg.Kodit.GitURL).
-			Msg("Initialized Kodit code intelligence service (external embedding)")
-	}()
-
+	result.installClient(client)
+	log.Info().
+		Str("kodit_git_url", cfg.Kodit.GitURL).
+		Msg("Initialized Kodit code intelligence service")
 	return result, nil
 }
 
 // Reinit rebuilds the kodit client from the current System Settings. Called
 // when an admin changes the kodit embedding provider/model so the new choice
 // takes effect without a process restart. kodit itself detects any embedding
-// dimension change and drops + rebuilds the vector tables, re-queuing each
-// registered repository for indexing.
+// dimension change on first use and drops + rebuilds the vector tables,
+// re-queuing each registered repository for indexing.
 //
 // The swap is ordered to keep things safe:
 //  1. Park the public service on a disabled service so new queries get a
 //     clean "unavailable" response while the swap is in flight.
-//  2. Close the old kodit client (drains workers, closes DB) so old writes
-//     can't race with the new client's table rebuild.
-//  3. Build new opts from current config + settings.
-//  4. Call kodit.New — if embedding dim changed, this drops and recreates
-//     the vector tables and enqueues a sync for every registered repo.
-//  5. Install the new client into the deferred service and MCP backend.
-func (k *KoditResult) Reinit(ctx context.Context) error {
+//  2. Close the old kodit client (drains workers, closes DB).
+//  3. kodit.New with fresh opts.
+//  4. Install the new client into the deferred service and MCP backend.
+func (k *KoditResult) Reinit(_ context.Context) error {
 	if k == nil || k.deferred == nil {
 		return fmt.Errorf("kodit reinit: not initialised")
 	}
@@ -143,11 +117,8 @@ func (k *KoditResult) Reinit(ctx context.Context) error {
 
 	log.Info().Msg("kodit reinit requested")
 
-	// Park service on disabled for the duration of the swap.
 	k.deferred.Set(services.NewDisabledKoditService())
 
-	// Close old client to drain workers and free DB connections before the
-	// new client probes dimensions (which may drop/recreate vector tables).
 	if k.client != nil {
 		if err := k.client.Close(); err != nil {
 			log.Warn().Err(err).Msg("error closing old kodit client during reinit (continuing)")
@@ -156,7 +127,7 @@ func (k *KoditResult) Reinit(ctx context.Context) error {
 		k.closer = nil
 	}
 
-	opts, _, decision, err := buildKoditOpts(k.cfg, k.store)
+	opts, decision, err := buildKoditOpts(k.cfg, k.store)
 	if err != nil {
 		return fmt.Errorf("kodit reinit: build opts: %w", err)
 	}
@@ -164,14 +135,7 @@ func (k *KoditResult) Reinit(ctx context.Context) error {
 		return fmt.Errorf("kodit reinit: preflight: %w", err)
 	}
 
-	// Use retry only when an external embedding endpoint is involved. For a
-	// pure-local reconfiguration there's no listener dependency to wait on.
-	var newClient *kodit.Client
-	if decision.UseExternalText || decision.UseExternalVision {
-		newClient, err = newKoditClientWithRetry(opts)
-	} else {
-		newClient, err = kodit.New(opts...)
-	}
+	newClient, err := kodit.New(opts...)
 	if err != nil {
 		return fmt.Errorf("kodit reinit: new client: %w", err)
 	}
@@ -181,9 +145,8 @@ func (k *KoditResult) Reinit(ctx context.Context) error {
 	return nil
 }
 
-// installClient atomically promotes the given kodit client to the active one.
-// Safe to call either under mu (from Reinit) or once from the async init
-// goroutine; callers coordinate ownership themselves.
+// installClient promotes the given kodit client to the active one. Callers
+// either hold k.mu (Reinit) or run exactly once from InitKodit.
 func (k *KoditResult) installClient(client *kodit.Client) {
 	k.client = client
 	k.closer = client
@@ -192,10 +155,9 @@ func (k *KoditResult) installClient(client *kodit.Client) {
 }
 
 // buildKoditOpts reads the current System Settings and returns the kodit
-// options needed to start a client, along with the model directory (so the
-// caller can run a pre-flight ORT check) and the decision about which
+// options needed to start a client, along with the decision about which
 // embedding providers are external vs built-in.
-func buildKoditOpts(cfg *config.ServerConfig, s store.Store) ([]kodit.Option, string, koditEmbeddingDecision, error) {
+func buildKoditOpts(cfg *config.ServerConfig, s store.Store) ([]kodit.Option, koditEmbeddingDecision, error) {
 	var koditOpts []kodit.Option
 	koditOpts = append(koditOpts, kodit.WithPostgresVectorchord(cfg.Kodit.DatabaseURL))
 
@@ -213,7 +175,7 @@ func buildKoditOpts(cfg *config.ServerConfig, s store.Store) ([]kodit.Option, st
 
 	settings, err := s.GetSystemSettings(context.Background())
 	if err != nil {
-		return nil, "", koditEmbeddingDecision{}, fmt.Errorf("load system settings for kodit: %w", err)
+		return nil, koditEmbeddingDecision{}, fmt.Errorf("load system settings for kodit: %w", err)
 	}
 	decision := decideKoditEmbedding(settings)
 
@@ -285,7 +247,7 @@ func buildKoditOpts(cfg *config.ServerConfig, s store.Store) ([]kodit.Option, st
 
 	koditOpts = append(koditOpts, kodit.WithLogger(log.Logger))
 
-	return koditOpts, modelDir, decision, nil
+	return koditOpts, decision, nil
 }
 
 // preflightORT verifies the ONNX Runtime shared library is present whenever
@@ -305,31 +267,4 @@ func preflightORT(decision koditEmbeddingDecision) error {
 		return fmt.Errorf("kodit is enabled but %s not found — ensure the container image was built with the ORT build stage (see Dockerfile)", ortPath)
 	}
 	return nil
-}
-
-// newKoditClientWithRetry calls kodit.New with a retry loop. Used when the
-// embedding endpoint is Helix's own listener — the first few attempts hit
-// connection-refused while the listener binds.
-func newKoditClientWithRetry(opts []kodit.Option) (*kodit.Client, error) {
-	const maxAttempts = 30
-	const delay = 2 * time.Second
-
-	var lastErr error
-	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		client, err := kodit.New(opts...)
-		if err == nil {
-			return client, nil
-		}
-		lastErr = err
-		if attempt < maxAttempts {
-			log.Warn().
-				Err(err).
-				Int("attempt", attempt).
-				Int("max_attempts", maxAttempts).
-				Dur("retry_in", delay).
-				Msg("kodit.New failed, retrying")
-			time.Sleep(delay)
-		}
-	}
-	return nil, lastErr
 }
