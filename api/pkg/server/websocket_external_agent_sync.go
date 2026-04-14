@@ -1447,6 +1447,29 @@ func (apiServer *HelixAPIServer) getOrCreateStreamingContext(ctx context.Context
 			}
 		}
 	}
+	// After an API restart, the most recent interaction may have been marked as
+	// "error"/"Interrupted" by ResetRunningInteractions. If Zed reconnects and
+	// resumes sending messages, recover by reusing that interaction — reset its
+	// state back to Waiting so it can continue accumulating responses.
+	if targetInteraction == nil && len(interactions) > 0 {
+		last := interactions[len(interactions)-1]
+		if last.State == types.InteractionStateError && last.Error == "Interrupted" {
+			last.State = types.InteractionStateWaiting
+			last.Error = ""
+			last.Completed = time.Time{}
+			if _, err := apiServer.Controller.Options.Store.UpdateInteraction(ctx, last); err != nil {
+				log.Error().Err(err).
+					Str("interaction_id", last.ID).
+					Msg("Failed to recover interrupted interaction")
+			} else {
+				log.Info().
+					Str("interaction_id", last.ID).
+					Str("session_id", helixSessionID).
+					Msg("🔄 [HELIX] Recovered interrupted interaction after API restart")
+			}
+			targetInteraction = last
+		}
+	}
 
 	// Set interactionID for tracking transitions
 	var newInteractionID string
