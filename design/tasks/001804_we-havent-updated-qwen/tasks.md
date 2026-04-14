@@ -18,11 +18,11 @@
 
 ## Validation
 
-- [~] Run `npm install` successfully
-- [ ] Run `npm run build` successfully
-- [ ] Run existing tests (`npm test`)
+- [x] Run `npm install` successfully
+- [x] Run `npm run build` successfully
+- [x] Run existing tests (`npm test`) — 28 test files, 188 tests pass
 
 ## Finalize
 
-- [ ] Commit the merge with a clear message documenting what was kept/dropped/adapted
+- [~] Commit the merge with a clear message documenting what was kept/dropped/adapted
 - [ ] Push to origin and create PR description
