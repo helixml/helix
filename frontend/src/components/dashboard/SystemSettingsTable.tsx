@@ -199,7 +199,7 @@ const SystemSettingsTable: FC = () => {
         kodit_text_embedding_provider: provider,
         kodit_text_embedding_model: model,
       })
-      snackbar.success(`Code Intelligence Text Embedding model set to ${provider}/${model}`)
+      snackbar.success(`Code Intelligence Text Embedding model set to ${provider}/${model}. Restart Helix and re-index repositories for the change to take effect.`)
     } catch (err: any) {
       if (err.response?.status === 403) {
         snackbar.error('Access denied: Admin privileges required')
@@ -215,7 +215,7 @@ const SystemSettingsTable: FC = () => {
         kodit_text_embedding_provider: '',
         kodit_text_embedding_model: '',
       })
-      snackbar.success('Code Intelligence Text Embedding configuration cleared')
+      snackbar.success('Code Intelligence Text Embedding configuration cleared. Restart Helix and re-index repositories for the change to take effect.')
     } catch (err: any) {
       snackbar.error(`Failed to clear settings: ${err.message}`)
     }
@@ -227,7 +227,7 @@ const SystemSettingsTable: FC = () => {
         kodit_vision_embedding_provider: provider,
         kodit_vision_embedding_model: model,
       })
-      snackbar.success(`Code Intelligence Vision Embedding model set to ${provider}/${model}`)
+      snackbar.success(`Code Intelligence Vision Embedding model set to ${provider}/${model}. Restart Helix and re-index repositories for the change to take effect.`)
     } catch (err: any) {
       if (err.response?.status === 403) {
         snackbar.error('Access denied: Admin privileges required')
@@ -243,7 +243,7 @@ const SystemSettingsTable: FC = () => {
         kodit_vision_embedding_provider: '',
         kodit_vision_embedding_model: '',
       })
-      snackbar.success('Code Intelligence Vision Embedding configuration cleared')
+      snackbar.success('Code Intelligence Vision Embedding configuration cleared. Restart Helix and re-index repositories for the change to take effect.')
     } catch (err: any) {
       snackbar.error(`Failed to clear settings: ${err.message}`)
     }
