@@ -1,4 +1,4 @@
-# Design: Mid-Session Agent Switching via ACP
+# Design: Mid-Session Agent Switching via Helix-Level Transcript Injection
 
 ## Investigation Summary
 
@@ -6,146 +6,127 @@ Investigated three systems: ACP (Agent Communication Protocol) between Zed and e
 
 ## Core Insight
 
-Zed's thread format is the consistent interchange format. `Thread.messages` stores user messages, agent responses, tool calls, and tool results in an agent-agnostic `Vec<Message>`. When Agent A runs a session, its output gets captured in this format. That same format can be replayed into Agent B. Agent-specific features that don't translate (e.g., sub-agent runs) degrade into opaque markdown blobs — acceptable for context continuity.
+Helix already has the full conversation history as Interactions (PromptMessage, ResponseMessage, ResponseEntries). Instead of having Zed handle transcript serialization and agent switching internally, Helix can serialize the interaction history into a markdown transcript and prepend it to the next `chat_message` sent to Zed with the new agent. Zed sees a normal message with an empty `acp_thread_id`, creates a new thread with the target agent automatically, and the existing `handleThreadCreated` flow stores the new thread ID. Zero Zed-side changes required. This also supports switching to non-Zed agents in the future.
 
 ## How ACP Works Today
 
 ### Agents are stateful
-- `PromptRequest` sends **only the current user message**, not the full history (`acp_thread.rs:2096-2147`)
+- `PromptRequest` sends **only the current user message**, not the full history
 - The agent process maintains its own session state (message buffer)
 - `new_session()` creates a fresh empty session in the agent process
 
-### Session loading replays via SessionUpdate
-- `load_session(session_id)` asks the agent to load a session from its own storage
-- The agent replays history by streaming `SessionUpdate` messages back to Zed: `UserMessageChunk`, `AgentMessageChunk`, `ToolCall`, `ToolCallUpdate`, etc. (`acp_thread.rs:1383-1434`)
-- These populate `AcpThread.entries` for display
-- **Limitation:** `load_session` only loads sessions that exist in that specific agent's storage — it can't load another agent's sessions
-
 ### AcpThread.connection is immutable
-- Each thread is permanently bound to one agent connection (`acp_thread.rs:1049`)
+- Each thread is permanently bound to one agent connection
 - Switching agents requires a new thread, not modifying the existing one
 
-## Proposed Approach
+### Zed creates new threads automatically
+- When `chat_message` is sent with an empty `acp_thread_id`, Zed creates a new thread
+- The `thread_created` event fires back to Helix, which stores the new `ZedThreadID` on the session
+- This existing flow handles the new-thread-after-switch case perfectly
 
-### The replay path
+## Approach: Helix-Level Transcript Injection
 
 ```
-Agent A session running in Zed
+User requests switch to Agent B via Helix API
   ↓
-User requests switch to Agent B
+Helix updates session metadata (ZedAgentName, CodeAgentRuntime)
+Helix clears ZedThreadID, drains old thread
   ↓
-Zed already has the full conversation in Thread.messages (agent-agnostic format)
+On next user message, Helix detects ZedThreadID is empty + completed interactions exist
   ↓
-Create new AcpThread bound to Agent B's connection
+Helix serializes interactions into markdown transcript, prepends to message
   ↓
-Replay old thread's messages into Agent B's session
+Helix sends chat_message with new agent_name + empty acp_thread_id + transcript
   ↓
-Agent B now has the conversation context, user continues
+Zed creates new thread with Agent B, processes the large first message
+  ↓
+Agent B has the conversation context, user continues
 ```
 
-The key question is step 5: how does Agent B's process get the conversation context?
+### Why Helix-level, not Zed-level?
 
-### Getting history into Agent B
+The original design had Zed doing the heavy lifting: serialize `Thread.messages` in Rust, handle a new `switch_agent` WebSocket command, create a new AcpThread, send back a `thread_switched` confirmation. This required:
+- New Rust code in Zed (transcript serializer, command handler)
+- New WebSocket protocol (switch_agent command, thread_switched confirmation)
+- Two-phase thread ID swapping with timeout rollback
 
-The conversation already exists in Zed's thread as `Vec<Message>` — user text, agent text, tool calls with results. To get this into Agent B's stateful session:
+The Helix-level approach eliminates all of this. Helix already has the data (interactions), already controls message routing (agent_name in chat_message), and already handles new thread creation (handleThreadCreated). The entire switch is just: clear the thread ID, prepend the history to the next message.
 
-**Approach: First-turn history injection (Zed-side, no agent forks)**
+This also supports non-Zed agents in the future — any agent backend that accepts messages can receive the transcript.
 
-On the first `PromptRequest` after the switch, Zed serializes the old thread's conversation into the message content and prepends it to the user's next message. The agent process sees a single large first message containing the conversation transcript, treats it as context, and incorporates it into its session state going forward.
+### How the switch endpoint works
 
-This works with **any ACP agent unmodified** — no forks, no protocol extension, no `import_session` handler to implement per-agent. The agent just sees a big first message.
+`POST /api/v1/sessions/{id}/switch-agent` with `{"code_agent_runtime": "claude_code"}`:
 
-**How Zed constructs the first-turn message:**
+1. Validate: session ownership, zed_external type, not already on target, no interactions in "waiting" state
+2. Update `ZedAgentName` + `CodeAgentRuntime` on session
+3. **Clear `ZedThreadID`** — so next message creates a new thread
+4. Clean up old thread from `contextMappings`, add to draining set
+5. Create system interaction with trigger `"agent_switch"` as visual marker
+6. Return success — the actual switch happens on the next message
 
-1. Extract messages from old thread's `Vec<Message>`
-2. Serialize to a readable transcript format (user/agent turns, tool calls with results, sub-agent runs as markdown)
-3. Wrap in a context preamble, e.g.: `"The following is the conversation history from a previous agent session. Continue from where it left off.\n\n[transcript]"`
-4. Prepend to the user's actual new message in the `PromptRequest`
+### How transcript injection works
 
-The agent processes this as a normal (large) user message. On subsequent turns, the agent has the transcript in its session buffer and `PromptRequest` sends only the new message as usual.
+When Helix sends a `chat_message`, it checks if `ZedThreadID` is empty AND completed interactions exist. If so:
 
-**Format mapping:**
+1. Load all interactions for the session
+2. Serialize into markdown transcript (user turns, agent responses with tool calls)
+3. Prepend to the user's message with a preamble
+4. Send with empty `acp_thread_id` → Zed creates new thread
 
-| Zed Thread Message | Serialized As |
+The `ResponseEntries` JSON gives structured text/tool_call data. For legacy interactions without ResponseEntries, fall back to `ResponseMessage`. System interactions (trigger == "agent_switch") are skipped.
+
+**Transcript format:**
+
+| Interaction Field | Serialized As |
 |---|---|
-| `Message::User` (text, mentions, images) | `**User:** [text]` |
-| `Message::Agent` text | `**Agent:** [text]` |
-| `Message::Agent` tool_use + result | `**Agent used tool** [name]: [input]\n**Result:** [output]` |
-| `Message::Agent` thinking | Omitted |
-| `Message::Resume` | Omitted |
-| Sub-agent runs | Flattened to markdown summary |
+| `PromptMessage` | `**User:** [text]` |
+| ResponseEntry type=text | `**Agent:** [text]` |
+| ResponseEntry type=tool_call | `**Tool Call: [name]** Status: [status]` with fenced content |
+| `ResponseMessage` (fallback) | `**Agent:** [text]` |
+| Trigger == "agent_switch" | Omitted |
 
-**Tradeoffs:**
-- The first turn after a switch uses more tokens (full transcript + new message). For long conversations, we may need to truncate or summarize older turns.
-- The agent doesn't have "native" history — it has a text transcript. It can't re-execute old tool calls, but it understands what happened. This is acceptable.
-- Works with every ACP agent today — Claude Code, Qwen Code, Codex, Gemini — without forking any of them.
+**Truncation:** When transcript exceeds 100KB, oldest turns are dropped with a notice: `[Earlier conversation history truncated — N turns omitted]`
 
 ### Pre-configure all agents in the container
 
-Today, `generateAgentServerConfig()` in the settings-sync-daemon returns config for **one** agent (`settings-sync-daemon/main.go:102-215`). Change it to return configs for all agents simultaneously:
+`generateAgentServerConfig()` in the settings-sync-daemon returns configs for all agents simultaneously (qwen + claude-acp). All credentials already exist in the container. Zed lazily connects to agent servers, so idle agents shouldn't spawn processes until first use.
 
-- `qwen` — custom type, stdio command
-- `claude-acp` — registry type
-- `codex` — when available
-- `gemini` — when available
+### Old thread cleanup
 
-All credentials already exist in the container (`USER_API_TOKEN` is set as both `ANTHROPIC_API_KEY` and `OPENAI_API_KEY`). Zed lazily connects to agent servers (via `AgentConnectionStore.request_connection()`), so idle agents shouldn't spawn processes until first use. Needs verification.
+When `switchAgentSession` clears `ZedThreadID`, it also:
+- Removes the old thread from `contextMappings` (in-memory routing map)
+- Adds the old thread ID to a 60-second draining set
 
-### Helix coordination and thread ID mapping (critical risk area)
-
-An agent switch produces a **new Zed thread ID** while keeping the **same Helix session ID**. This is the most fragile part of the design. Multiple places in the codebase maintain the Helix session ↔ Zed thread mapping, and all must be updated atomically:
-
-1. **`Session.Metadata.ZedThreadID`** — persisted in Postgres, used to route `open_thread` commands on reconnect
-2. **`apiServer.contextMappings[threadID] → sessionID`** — in-memory map used to route incoming Zed WebSocket events (`message_added`, `message_completed`) to the correct Helix session
-3. **`apiServer.requestToSessionMapping`** — maps in-flight request IDs to sessions
-4. **Old thread ID cleanup** — the old mapping must be removed or subsequent events from the old thread (e.g., late-arriving completions) would route to the wrong session
-
-**Race conditions to guard against:**
-- A `message_completed` event from Agent A arrives *after* the switch but *before* the mapping is updated → would be attributed to Agent B's thread or dropped
-- The `switch_agent` command is sent while an interaction is still in `waiting` state → Agent A responds after the switch, corrupting the timeline
-- Helix API updates session metadata but Zed fails to create the new thread → session is in a broken state with a stale `ZedThreadID`
-
-**Proposed safeguards:**
-- Reject the switch if any interaction is in `waiting` state (agent must be idle)
-- Use a two-phase update: Helix sends the switch command, then waits for `thread_switched` confirmation from Zed before updating mappings. If Zed fails, the switch is rolled back.
-- Add the old thread ID to a short-lived "draining" set — events from it are silently dropped rather than routed to the new thread
-- The `thread_switched` WebSocket event must include both old and new thread IDs so Helix can atomically swap the mappings
-
-**New endpoint:** `POST /api/v1/sessions/{id}/switch-agent`
-
-Updates `Session.Metadata.ZedAgentName` + `CodeAgentRuntime`, creates a system interaction marker, sends `switch_agent` WebSocket command to Zed. Does NOT update `ZedThreadID` yet — waits for confirmation.
-
-**Confirmation event:** `thread_switched` from Zed → Helix atomically updates `Session.Metadata.ZedThreadID`, swaps `contextMappings`, drains old thread ID.
+Events from draining threads are silently dropped at the top of `processExternalAgentSyncMessage`. After the draining TTL expires, the old thread ID is cleaned up. Late events that arrive after TTL expiry will fail both the contextMappings lookup and the DB fallback (no session has that ZedThreadID anymore), so they're safely dropped with a warning.
 
 ## Key Decisions
 
 ### Why first-turn injection instead of an ACP protocol extension?
-An `import_session` ACP message would be cleaner from a protocol standpoint, but it requires forking every agent runtime to implement the handler. We control Claude Code and Qwen Code, but Codex and Gemini are third-party. First-turn injection works with any ACP agent unmodified — the agent just sees a large first message. We can always add `import_session` to ACP later as an optimization for agents we control, but the injection approach ships without blocking on agent forks.
+An `import_session` ACP message would be cleaner from a protocol standpoint, but it requires forking every agent runtime to implement the handler. First-turn injection works with any ACP agent unmodified — the agent just sees a large first message. We can always add `import_session` to ACP later as an optimization.
 
 ### Why not just switch the model behind a single agent?
-Each ACP agent has a `SetSessionModelRequest` that can change the LLM mid-session. Claude Code reads its model preference from `managed-settings.json` and exposes available models via `NewSessionResponse.models`. So switching between Anthropic models (Sonnet ↔ Opus) within Claude Code is trivial and doesn't require any of this machinery.
+Each ACP agent has a `SetSessionModelRequest` that can change the LLM mid-session. So switching between Anthropic models (Sonnet ↔ Opus) within Claude Code is trivial.
 
-But switching to a different **provider** (e.g., pointing Claude Code at Qwen) doesn't work. Claude Code constructs Anthropic Messages API requests — not OpenAI format. Helix's API proxy could translate on the fly, but prompt caching is Anthropic-specific (cache breakpoints, `cache_control` headers) and wouldn't translate to other providers. The caching mismatch alone would degrade performance significantly.
+But switching to a different **provider** (e.g., pointing Claude Code at Qwen) doesn't work — different API formats, different caching strategies. So there are two tiers:
+- **Same-provider model switch** (Sonnet ↔ Opus): Use `SetSessionModelRequest`. Already works.
+- **Cross-provider agent switch** (Claude Code ↔ Qwen Code): Requires the full agent switch with transcript injection described here.
 
-So there are two tiers of "switching":
-- **Same-provider model switch** (Sonnet ↔ Opus): Use `SetSessionModelRequest`. No agent switch needed. Already works.
-- **Cross-provider agent switch** (Claude Code ↔ Qwen Code): Requires the full agent switch with transcript injection described in this design. Different programs, different API formats, different caching strategies.
-
-### Why new thread instead of swapping connection?
-`AcpThread.connection` is `Rc<dyn AgentConnection>` — immutable by design. The Rc is shared across multiple owners. Mutating it would require rethinking the ownership model. Creating a new thread with import is the idiomatic path.
+### Why clear ZedThreadID instead of a flag?
+Clearing `ZedThreadID` serves double duty: it signals that the next message should create a new thread (existing behavior when `acp_thread_id` is empty), and it enables transcript injection detection (empty thread ID + completed interactions = post-switch state). No new flag needed.
 
 ## Codebase Patterns
 
-- **Thread messages (agent-agnostic):** `Thread.messages: Vec<Message>` in `agent/src/thread.rs`
-- **ACP session creation:** `AcpConnection::new_session()` in `agent_servers/src/acp.rs:556-688`
-- **SessionUpdate handling:** `AcpThread::handle_session_update()` in `acp_thread/src/acp_thread.rs:1383-1434`
-- **Thread replay:** `Thread.replay()` in `agent/src/thread.rs:1102-1134`
-- **AgentConnection trait:** `load_session()`, `resume_session()` in `acp_thread/src/connection.rs:59-107`
-- **Settings daemon agent config:** `generateAgentServerConfig()` in `settings-sync-daemon/main.go:102-215`
-- **WebSocket commands:** `ExternalAgentCommand` in `types.go:2176`
+- **Switch endpoint:** `switchAgentSession()` in `session_handlers.go`
+- **Transcript serializer:** `serializeTranscript()` in `websocket_external_agent_sync.go`
+- **Transcript injection:** `maybePrependTranscript()` in `websocket_external_agent_sync.go`
+- **Message paths (3):** `NotifyExternalAgentOfNewInteraction`, `pickupWaitingInteraction`, `sendChatMessageToExternalAgent`
+- **Thread creation:** `handleThreadCreated()` in `websocket_external_agent_sync.go`
+- **Draining set:** `isThreadDraining()`, `addDrainingThread()` in `websocket_external_agent_sync.go`
+- **Settings daemon:** `generateAgentServerConfig()` in `settings-sync-daemon/main.go`
+- **Runtime mapping:** `agentNameForRuntime()` in `session_handlers.go`
 
 ## Open Questions
 
 1. **Does Zed eagerly spawn all configured agent_servers processes?** Need to verify lazy spawning — if eager, four agents = four processes at boot.
-2. **How large is a typical conversation transcript?** Long conversations may exceed the agent's context window on the first turn after a switch. May need to truncate or summarize older turns.
-3. **How should the transcript be formatted?** The serialization format (markdown vs structured text) affects how well the new agent can parse the history. Needs experimentation with each agent to find what works best.
+2. **How large is a typical conversation transcript?** The 100KB limit should cover most conversations, but very long sessions may lose older context.
