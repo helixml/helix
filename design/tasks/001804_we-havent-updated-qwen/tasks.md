@@ -2,7 +2,7 @@
 
 ## Preparation
 
-- [ ] Add upstream remote: `git remote add upstream https://github.com/QwenLM/qwen-code.git`
+- [~] Add upstream remote: `git remote add upstream https://github.com/QwenLM/qwen-code.git`
 - [ ] Fetch upstream: `git fetch upstream`
 - [ ] Create a merge branch: `git checkout -b merge-upstream-v0.14.4`
 - [ ] Review upstream's ACP SDK types to decide if our `schema.ts` is still needed
