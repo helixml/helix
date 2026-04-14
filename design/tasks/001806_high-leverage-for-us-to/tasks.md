@@ -20,11 +20,11 @@
 
 ## Helix API + thread ID mapping (critical)
 
-- [~] Add `POST /api/v1/sessions/{id}/switch-agent` endpoint — validate idle state (reject if any interaction is `waiting`), update `ZedAgentName` + `CodeAgentRuntime`, create system interaction marker, send `switch_agent` WebSocket command. Do NOT update `ZedThreadID` yet.
-- [ ] Implement two-phase thread ID swap: on receiving `thread_switched` from Zed, atomically update `Session.Metadata.ZedThreadID`, swap `contextMappings[old] → contextMappings[new]`, and remove old mapping
-- [ ] Add old thread ID to a short-lived draining set — silently drop any late-arriving events from the old thread instead of routing them
-- [ ] Handle switch failure: if Zed doesn't confirm `thread_switched` within timeout, roll back `ZedAgentName` + `CodeAgentRuntime` to previous values
-- [ ] Ensure `requestToSessionMapping` entries for in-flight requests are cleaned up on switch
+- [x] Add `POST /api/v1/sessions/{id}/switch-agent` endpoint — validate idle state (reject if any interaction is `waiting`), update `ZedAgentName` + `CodeAgentRuntime`, create system interaction marker, send `switch_agent` WebSocket command. Do NOT update `ZedThreadID` yet.
+- [x] Implement two-phase thread ID swap: on receiving `thread_switched` from Zed, atomically update `Session.Metadata.ZedThreadID`, swap `contextMappings[old] → contextMappings[new]`, and remove old mapping
+- [x] Add old thread ID to a short-lived draining set — silently drop any late-arriving events from the old thread instead of routing them
+- [x] Handle switch failure: if Zed doesn't confirm `thread_switched` within timeout, roll back `ZedAgentName` + `CodeAgentRuntime` to previous values
+- [x] Ensure `requestToSessionMapping` entries for in-flight requests are cleaned up on switch
 
 ## Helix Frontend
 
