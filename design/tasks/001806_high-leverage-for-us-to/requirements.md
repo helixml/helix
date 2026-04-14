@@ -13,7 +13,7 @@
 - The new agent receives conversation history via ACP `import_session`
 - The new agent can immediately continue with full context
 - Workspace (files, git state) is unchanged
-- Helix session ID remains the same
+- Helix session ID remains the same (but Zed thread ID changes — see design doc for mapping risks)
 - MCP tools remain available
 
 ### 2. All agents pre-configured in container

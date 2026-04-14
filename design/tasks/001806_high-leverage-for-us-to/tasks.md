@@ -25,10 +25,13 @@
 - [ ] Implement switch flow: save current thread → extract messages → get new agent connection → call `import_session()` with extracted messages → report new thread ID back via WebSocket
 - [ ] Build message extraction: convert `Thread.messages` to `Vec<ImportedMessage>`, gracefully degrading agent-specific features to text
 
-## Helix API
+## Helix API + thread ID mapping (critical)
 
-- [ ] Add `POST /api/v1/sessions/{id}/switch-agent` endpoint — validate idle state, update `ZedAgentName` + `CodeAgentRuntime`, create system interaction marker, send `switch_agent` WebSocket command
-- [ ] Handle `thread_switched` event from Zed — update `Session.Metadata.ZedThreadID` and context mappings
+- [ ] Add `POST /api/v1/sessions/{id}/switch-agent` endpoint — validate idle state (reject if any interaction is `waiting`), update `ZedAgentName` + `CodeAgentRuntime`, create system interaction marker, send `switch_agent` WebSocket command. Do NOT update `ZedThreadID` yet.
+- [ ] Implement two-phase thread ID swap: on receiving `thread_switched` from Zed, atomically update `Session.Metadata.ZedThreadID`, swap `contextMappings[old] → contextMappings[new]`, and remove old mapping
+- [ ] Add old thread ID to a short-lived draining set — silently drop any late-arriving events from the old thread instead of routing them
+- [ ] Handle switch failure: if Zed doesn't confirm `thread_switched` within timeout, roll back `ZedAgentName` + `CodeAgentRuntime` to previous values
+- [ ] Ensure `requestToSessionMapping` entries for in-flight requests are cleaned up on switch
 
 ## Helix Frontend
 

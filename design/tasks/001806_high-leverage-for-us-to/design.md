@@ -87,13 +87,31 @@ Today, `generateAgentServerConfig()` in the settings-sync-daemon returns config 
 
 All credentials already exist in the container (`USER_API_TOKEN` is set as both `ANTHROPIC_API_KEY` and `OPENAI_API_KEY`). Zed lazily connects to agent servers (via `AgentConnectionStore.request_connection()`), so idle agents shouldn't spawn processes until first use. Needs verification.
 
-### Helix coordination
+### Helix coordination and thread ID mapping (critical risk area)
+
+An agent switch produces a **new Zed thread ID** while keeping the **same Helix session ID**. This is the most fragile part of the design. Multiple places in the codebase maintain the Helix session ↔ Zed thread mapping, and all must be updated atomically:
+
+1. **`Session.Metadata.ZedThreadID`** — persisted in Postgres, used to route `open_thread` commands on reconnect
+2. **`apiServer.contextMappings[threadID] → sessionID`** — in-memory map used to route incoming Zed WebSocket events (`message_added`, `message_completed`) to the correct Helix session
+3. **`apiServer.requestToSessionMapping`** — maps in-flight request IDs to sessions
+4. **Old thread ID cleanup** — the old mapping must be removed or subsequent events from the old thread (e.g., late-arriving completions) would route to the wrong session
+
+**Race conditions to guard against:**
+- A `message_completed` event from Agent A arrives *after* the switch but *before* the mapping is updated → would be attributed to Agent B's thread or dropped
+- The `switch_agent` command is sent while an interaction is still in `waiting` state → Agent A responds after the switch, corrupting the timeline
+- Helix API updates session metadata but Zed fails to create the new thread → session is in a broken state with a stale `ZedThreadID`
+
+**Proposed safeguards:**
+- Reject the switch if any interaction is in `waiting` state (agent must be idle)
+- Use a two-phase update: Helix sends the switch command, then waits for `thread_switched` confirmation from Zed before updating mappings. If Zed fails, the switch is rolled back.
+- Add the old thread ID to a short-lived "draining" set — events from it are silently dropped rather than routed to the new thread
+- The `thread_switched` WebSocket event must include both old and new thread IDs so Helix can atomically swap the mappings
 
 **New endpoint:** `POST /api/v1/sessions/{id}/switch-agent`
 
-Updates `Session.Metadata.ZedAgentName` + `CodeAgentRuntime`, creates a system interaction marker, sends `switch_agent` WebSocket command to Zed.
+Updates `Session.Metadata.ZedAgentName` + `CodeAgentRuntime`, creates a system interaction marker, sends `switch_agent` WebSocket command to Zed. Does NOT update `ZedThreadID` yet — waits for confirmation.
 
-**Thread mapping update:** When Zed creates the new thread, it sends `thread_switched` back via WebSocket. Helix updates `Session.Metadata.ZedThreadID` and `contextMappings` to point to the new thread.
+**Confirmation event:** `thread_switched` from Zed → Helix atomically updates `Session.Metadata.ZedThreadID`, swaps `contextMappings`, drains old thread ID.
 
 ### Message format translation
 
