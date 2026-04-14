@@ -262,6 +262,7 @@ const EmbeddedSessionView = forwardRef<
     {
       enabled: !!sessionId,
       refetchInterval: wsConnected ? false : 3000,
+      skipInteractions: true,
     },
   );
 

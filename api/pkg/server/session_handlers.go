@@ -33,6 +33,7 @@ import (
 // @Tags    sessions
 // @Success 200 {object} types.Session
 // @Param id path string true "Session ID"
+// @Param skipInteractions query string false "Set to '1' to omit interactions from the response"
 // @Router /api/v1/sessions/{id} [get]
 // @Security BearerAuth
 func (apiServer *HelixAPIServer) getSession(rw http.ResponseWriter, req *http.Request) {
@@ -100,32 +101,21 @@ func (apiServer *HelixAPIServer) getSession(rw http.ResponseWriter, req *http.Re
 		return
 	}
 
-	// Cache miss — load full interactions
-	interactions, _, err := apiServer.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
-		SessionID:    id,
-		GenerationID: session.GenerationID,
-		PerPage:      1000,
-	})
-	if err != nil {
-		http.Error(rw, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	// Cap response_entries and strip redundant response_message to avoid
-	// sending multi-MB payloads. Same truncation as listInteractions.
-	const maxEntriesPerInteraction = 50
-	for _, interaction := range interactions {
-		if interaction.ResponseEntries != nil {
-			interaction.ResponseMessage = ""
-			var entries []json.RawMessage
-			if err := json.Unmarshal(interaction.ResponseEntries, &entries); err == nil && len(entries) > maxEntriesPerInteraction {
-				truncated := entries[len(entries)-maxEntriesPerInteraction:]
-				if truncatedJSON, err := json.Marshal(truncated); err == nil {
-					interaction.ResponseEntries = truncatedJSON
-				}
-			}
+	// Cache miss — load interactions unless caller opts out.
+	// EmbeddedSessionView passes skipInteractions=1 and fetches interactions
+	// separately via the paginated interactions endpoint.
+	if req.URL.Query().Get("skipInteractions") != "1" {
+		interactions, _, err := apiServer.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
+			SessionID:    id,
+			GenerationID: session.GenerationID,
+			PerPage:      1000,
+		})
+		if err != nil {
+			http.Error(rw, err.Error(), http.StatusInternalServerError)
+			return
 		}
+		session.Interactions = interactions
 	}
-	session.Interactions = interactions
 	session.Metadata.ExternalAgentStatus = agentStatus
 
 	rw.Header().Set("Content-Type", "application/json")
