@@ -193,6 +193,62 @@ const SystemSettingsTable: FC = () => {
     }
   }
 
+  const handleSelectKoditTextEmbeddingModel = async (provider: string, model: string) => {
+    try {
+      await updateSettings.mutateAsync({
+        kodit_text_embedding_provider: provider,
+        kodit_text_embedding_model: model,
+      })
+      snackbar.success(`Code Intelligence Text Embedding model set to ${provider}/${model}`)
+    } catch (err: any) {
+      if (err.response?.status === 403) {
+        snackbar.error('Access denied: Admin privileges required')
+      } else {
+        snackbar.error(`Failed to update settings: ${err.message}`)
+      }
+    }
+  }
+
+  const handleClearKoditTextEmbeddingSettings = async () => {
+    try {
+      await updateSettings.mutateAsync({
+        kodit_text_embedding_provider: '',
+        kodit_text_embedding_model: '',
+      })
+      snackbar.success('Code Intelligence Text Embedding configuration cleared')
+    } catch (err: any) {
+      snackbar.error(`Failed to clear settings: ${err.message}`)
+    }
+  }
+
+  const handleSelectKoditVisionEmbeddingModel = async (provider: string, model: string) => {
+    try {
+      await updateSettings.mutateAsync({
+        kodit_vision_embedding_provider: provider,
+        kodit_vision_embedding_model: model,
+      })
+      snackbar.success(`Code Intelligence Vision Embedding model set to ${provider}/${model}`)
+    } catch (err: any) {
+      if (err.response?.status === 403) {
+        snackbar.error('Access denied: Admin privileges required')
+      } else {
+        snackbar.error(`Failed to update settings: ${err.message}`)
+      }
+    }
+  }
+
+  const handleClearKoditVisionEmbeddingSettings = async () => {
+    try {
+      await updateSettings.mutateAsync({
+        kodit_vision_embedding_provider: '',
+        kodit_vision_embedding_model: '',
+      })
+      snackbar.success('Code Intelligence Vision Embedding configuration cleared')
+    } catch (err: any) {
+      snackbar.error(`Failed to clear settings: ${err.message}`)
+    }
+  }
+
   // Optimus model handlers
   const handleSelectOptimusReasoningModel = async (provider: string, model: string) => {
     try {
@@ -538,6 +594,126 @@ const SystemSettingsTable: FC = () => {
                         <Button
                           startIcon={<ClearIcon />}
                           onClick={handleClearRAGEmbeddingsSettings}
+                          size="small"
+                          color="warning"
+                          disabled={saving}
+                        >
+                          Clear
+                        </Button>
+                      )}
+                    </Box>
+                  </TableCell>
+                </TableRow>
+
+                {/* Code Intelligence Text Embedding Model Row */}
+                <TableRow>
+                  <TableCell>
+                    <Typography variant="body2" fontWeight="medium">
+                      Code Intelligence Text Embedding
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Embedding model used by Kodit for indexing code and text snippets
+                    </Typography>
+                  </TableCell>
+                  <TableCell>
+                    <Chip
+                      label={settings?.kodit_text_embedding_model_set ? 'Configured' : 'Not Set'}
+                      color={settings?.kodit_text_embedding_model_set ? 'success' : 'default'}
+                      size="small"
+                    />
+                  </TableCell>
+                  <TableCell>
+                    {settings?.kodit_text_embedding_model_set ? (
+                      <>
+                        <Typography variant="body2" fontFamily="monospace">
+                          {settings.kodit_text_embedding_provider}/{settings.kodit_text_embedding_model}
+                        </Typography>
+                        <Typography variant="caption" display="block" color="text.secondary" mt={0.5}>
+                          Provider: {settings.kodit_text_embedding_provider}
+                        </Typography>
+                      </>
+                    ) : (
+                      <Typography variant="caption" color="text.secondary">
+                        Not configured - falls back to local ONNX model
+                      </Typography>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    <Box display="flex" gap={1} alignItems="center">
+                      <AdvancedModelPicker
+                        selectedProvider={settings?.kodit_text_embedding_provider}
+                        selectedModelId={settings?.kodit_text_embedding_model}
+                        onSelectModel={handleSelectKoditTextEmbeddingModel}
+                        currentType="embed"
+                        buttonVariant="outlined"
+                        disabled={saving}
+                        hint="Select the text embedding model Kodit will use for code and text snippet indexing."
+                        autoSelectFirst={false}
+                      />
+                      {settings?.kodit_text_embedding_model_set && (
+                        <Button
+                          startIcon={<ClearIcon />}
+                          onClick={handleClearKoditTextEmbeddingSettings}
+                          size="small"
+                          color="warning"
+                          disabled={saving}
+                        >
+                          Clear
+                        </Button>
+                      )}
+                    </Box>
+                  </TableCell>
+                </TableRow>
+
+                {/* Code Intelligence Vision Embedding Model Row */}
+                <TableRow>
+                  <TableCell>
+                    <Typography variant="body2" fontWeight="medium">
+                      Code Intelligence Vision Embedding
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Vision embedding model used by Kodit for indexing document pages and images
+                    </Typography>
+                  </TableCell>
+                  <TableCell>
+                    <Chip
+                      label={settings?.kodit_vision_embedding_model_set ? 'Configured' : 'Not Set'}
+                      color={settings?.kodit_vision_embedding_model_set ? 'success' : 'default'}
+                      size="small"
+                    />
+                  </TableCell>
+                  <TableCell>
+                    {settings?.kodit_vision_embedding_model_set ? (
+                      <>
+                        <Typography variant="body2" fontFamily="monospace">
+                          {settings.kodit_vision_embedding_provider}/{settings.kodit_vision_embedding_model}
+                        </Typography>
+                        <Typography variant="caption" display="block" color="text.secondary" mt={0.5}>
+                          Provider: {settings.kodit_vision_embedding_provider}
+                        </Typography>
+                      </>
+                    ) : (
+                      <Typography variant="caption" color="text.secondary">
+                        Not configured - falls back to local SigLIP2 model
+                      </Typography>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    <Box display="flex" gap={1} alignItems="center">
+                      <AdvancedModelPicker
+                        selectedProvider={settings?.kodit_vision_embedding_provider}
+                        selectedModelId={settings?.kodit_vision_embedding_model}
+                        onSelectModel={handleSelectKoditVisionEmbeddingModel}
+                        currentType="embed"
+                        buttonVariant="outlined"
+                        disabled={saving}
+                        hint="Select the vision embedding model Kodit will use for document pages and image indexing (e.g. Qwen3-VL-Embedding)."
+                        autoSelectFirst={false}
+                      />
+                      {settings?.kodit_vision_embedding_model_set && (
+                        <Button
+                          startIcon={<ClearIcon />}
+                          onClick={handleClearKoditVisionEmbeddingSettings}
                           size="small"
                           color="warning"
                           disabled={saving}

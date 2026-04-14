@@ -105,6 +105,16 @@ services:
       - KODIT_MODEL_DIR=/kodit-models
       - KODIT_LLM_BASE_URL=http://localhost:8080/v1
       - KODIT_LLM_API_KEY=${RUNNER_TOKEN-oh-hallo-insecure-token}
+      # Kodit embedding providers proxied through Helix's /v1/embeddings endpoint.
+      # When set, kodit sends requests with placeholder model names "kodit-text-embedding" /
+      # "kodit-vision-embedding" which Helix substitutes with the real provider/model
+      # configured in Admin > System Settings.
+      - KODIT_TEXT_EMBEDDING_BASE_URL=${KODIT_TEXT_EMBEDDING_BASE_URL-http://localhost:8080/v1}
+      - KODIT_TEXT_EMBEDDING_API_KEY=${KODIT_TEXT_EMBEDDING_API_KEY-${RUNNER_TOKEN-oh-hallo-insecure-token}}
+      - KODIT_TEXT_EMBEDDING_MODEL=${KODIT_TEXT_EMBEDDING_MODEL-kodit-text-embedding}
+      - KODIT_VISION_EMBEDDING_BASE_URL=${KODIT_VISION_EMBEDDING_BASE_URL-http://localhost:8080/v1}
+      - KODIT_VISION_EMBEDDING_API_KEY=${KODIT_VISION_EMBEDDING_API_KEY-${RUNNER_TOKEN-oh-hallo-insecure-token}}
+      - KODIT_VISION_EMBEDDING_MODEL=${KODIT_VISION_EMBEDDING_MODEL-kodit-vision-embedding}
       # which desktop image to use for code agents
       - HELIX_DESKTOP=${HELIX_DESKTOP:-sway}
     volumes:
