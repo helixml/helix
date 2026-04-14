@@ -47,34 +47,38 @@ The key question is step 5: how does Agent B's process get the conversation cont
 
 ### Getting history into Agent B
 
-The conversation already exists in Zed's thread as `Vec<Message>` — user text, agent text, tool calls with results. To get this into Agent B's stateful session, there are two viable approaches:
+The conversation already exists in Zed's thread as `Vec<Message>` — user text, agent text, tool calls with results. To get this into Agent B's stateful session:
 
-**Option A: Extend ACP with `import_session`**
+**Approach: First-turn history injection (Zed-side, no agent forks)**
 
-Add a new ACP request that combines `new_session` + pre-populated history:
+On the first `PromptRequest` after the switch, Zed serializes the old thread's conversation into the message content and prepends it to the user's next message. The agent process sees a single large first message containing the conversation transcript, treats it as context, and incorporates it into its session state going forward.
 
-```
-ImportSessionRequest {
-    cwd: PathBuf,
-    messages: Vec<ImportedMessage>,  // The conversation history from Zed's thread
-}
-```
+This works with **any ACP agent unmodified** — no forks, no protocol extension, no `import_session` handler to implement per-agent. The agent just sees a big first message.
 
-The agent process creates a new session, seeds its internal buffer with the messages, and responds. This is a clean, first-class protocol operation. Each agent runtime (Claude Code, Qwen Code, etc.) implements the handler by populating its internal message buffer.
+**How Zed constructs the first-turn message:**
 
-The `ImportedMessage` format maps directly from Zed's thread messages:
-- User messages → user role + content blocks
-- Agent text responses → agent role + text content
-- Tool calls + results → tool_use + tool_result content blocks
-- Sub-agent runs, agent-specific features → flattened into text/markdown blobs
+1. Extract messages from old thread's `Vec<Message>`
+2. Serialize to a readable transcript format (user/agent turns, tool calls with results, sub-agent runs as markdown)
+3. Wrap in a context preamble, e.g.: `"The following is the conversation history from a previous agent session. Continue from where it left off.\n\n[transcript]"`
+4. Prepend to the user's actual new message in the `PromptRequest`
 
-**Option B: First-turn history injection**
+The agent processes this as a normal (large) user message. On subsequent turns, the agent has the transcript in its session buffer and `PromptRequest` sends only the new message as usual.
 
-On the first `PromptRequest` after the switch, include the full conversation history alongside the new user message. The agent treats the history as context for this turn and incorporates it into its session state going forward.
+**Format mapping:**
 
-This requires no new ACP message type but may not work well with all agents (some may not handle a massive first message gracefully).
+| Zed Thread Message | Serialized As |
+|---|---|
+| `Message::User` (text, mentions, images) | `**User:** [text]` |
+| `Message::Agent` text | `**Agent:** [text]` |
+| `Message::Agent` tool_use + result | `**Agent used tool** [name]: [input]\n**Result:** [output]` |
+| `Message::Agent` thinking | Omitted |
+| `Message::Resume` | Omitted |
+| Sub-agent runs | Flattened to markdown summary |
 
-**Recommendation:** Option A. It's cleaner, explicit, and each agent can handle the import in the way that best fits its internal architecture.
+**Tradeoffs:**
+- The first turn after a switch uses more tokens (full transcript + new message). For long conversations, we may need to truncate or summarize older turns.
+- The agent doesn't have "native" history — it has a text transcript. It can't re-execute old tool calls, but it understands what happened. This is acceptable.
+- Works with every ACP agent today — Claude Code, Qwen Code, Codex, Gemini — without forking any of them.
 
 ### Pre-configure all agents in the container
 
@@ -113,26 +117,10 @@ Updates `Session.Metadata.ZedAgentName` + `CodeAgentRuntime`, creates a system i
 
 **Confirmation event:** `thread_switched` from Zed → Helix atomically updates `Session.Metadata.ZedThreadID`, swaps `contextMappings`, drains old thread ID.
 
-### Message format translation
-
-Zed's `Message` enum maps to `ImportedMessage` roughly 1:1:
-
-| Zed Thread Message | Imported As |
-|---|---|
-| `Message::User` (text, mentions, images) | User role, text + image content blocks |
-| `Message::Agent` text | Agent role, text content blocks |
-| `Message::Agent` tool_use | Agent role, tool_use content block |
-| Tool results (in `AgentMessage.tool_results`) | tool_result content block |
-| `Message::Agent` thinking | Omitted or flattened to text (agent-specific) |
-| `Message::Resume` | Omitted |
-| Sub-agent runs | Flattened to markdown text blob |
-
-Agent-specific features that don't have a clean mapping degrade to readable text. The new agent gets the gist even if it can't re-execute sub-agent runs or parse thinking blocks.
-
 ## Key Decisions
 
-### Why is this feasible?
-Zed's thread format is already the common denominator. Every agent's output gets normalized into `Thread.messages` when captured via `SessionUpdate`. The format translation from thread messages to importable messages is straightforward — it's mostly identity mapping with graceful degradation for agent-specific features.
+### Why first-turn injection instead of an ACP protocol extension?
+An `import_session` ACP message would be cleaner from a protocol standpoint, but it requires forking every agent runtime to implement the handler. We control Claude Code and Qwen Code, but Codex and Gemini are third-party. First-turn injection works with any ACP agent unmodified — the agent just sees a large first message. We can always add `import_session` to ACP later as an optimization for agents we control, but the injection approach ships without blocking on agent forks.
 
 ### Why not just use Zed's built-in model switching?
 Model switching (changing the LLM behind Zed's built-in agent) is trivial — `Thread.set_model()`. But switching between external ACP agents (Claude Code ↔ Qwen Code) means switching between entire agent **processes** with different capabilities, tools, and runtimes. These are fundamentally different programs, not just different models.
@@ -153,5 +141,5 @@ Model switching (changing the LLM behind Zed's built-in agent) is trivial — `T
 ## Open Questions
 
 1. **Does Zed eagerly spawn all configured agent_servers processes?** Need to verify lazy spawning — if eager, four agents = four processes at boot.
-2. **Which agents do we control?** We control Claude Code (via claude-acp) and Qwen Code. Codex and Gemini are third-party — they'd need upstream ACP `import_session` support or a wrapper.
-3. **How large is a typical conversation for import?** If conversations are very large, we may need to truncate or summarize older messages to fit within agent context windows.
+2. **How large is a typical conversation transcript?** Long conversations may exceed the agent's context window on the first turn after a switch. May need to truncate or summarize older turns.
+3. **How should the transcript be formatted?** The serialization format (markdown vs structured text) affects how well the new agent can parse the history. Needs experimentation with each agent to find what works best.

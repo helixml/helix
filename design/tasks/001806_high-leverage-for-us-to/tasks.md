@@ -1,29 +1,22 @@
 # Implementation Tasks
 
-## ACP protocol extension
+## Zed: conversation transcript serialization
 
-- [ ] Define `ImportSessionRequest` / `ImportSessionResponse` message types in the ACP spec — request contains `cwd`, `mcp_servers`, and `messages: Vec<ImportedMessage>` with chronologically ordered conversation history
-- [ ] Add `import_session` capability flag to agent capabilities
-- [ ] Add `import_session()` to `AgentConnection` trait in `crates/acp_thread/src/connection.rs`
-- [ ] Implement `import_session()` in `AcpConnection` (`crates/agent_servers/src/acp.rs`) — sends the request, creates AcpThread, receives SessionUpdate replay stream
+- [ ] Build transcript serializer: convert `Thread.messages` (Vec<Message>) to a readable markdown transcript — user turns, agent turns, tool calls with results, sub-agent runs as summaries
+- [ ] Handle truncation for long conversations — if transcript exceeds a size threshold, summarize or trim older turns to fit within agent context windows
+- [ ] Test transcript quality: verify Claude Code, Qwen Code, and Zed built-in agent can parse the transcript and continue coherently
 
-## Agent runtimes: implement import_session
+## Zed: handle switch_agent command
 
-- [ ] Implement `import_session` handler in Claude Code (claude-acp) — create session, seed internal message buffer with imported messages
-- [ ] Implement `import_session` handler in Qwen Code — same pattern
-- [ ] Define message format mapping: Zed `Thread.messages` → `ImportedMessage` (user text, agent text, tool calls/results as content blocks; sub-agent runs and thinking flattened to markdown)
+- [ ] Handle `switch_agent` WebSocket command in external sync module — parse command, dispatch to agent system
+- [ ] Implement switch flow: save current thread → serialize transcript from thread messages → get new agent connection → call `new_session()` → populate new AcpThread with old messages for UI display → on first user turn, prepend transcript to `PromptRequest` content
+- [ ] Send `thread_switched` event back via WebSocket with old and new thread IDs
 
 ## Settings-sync-daemon: pre-configure all agents
 
 - [ ] Modify `generateAgentServerConfig()` in `api/cmd/settings-sync-daemon/main.go` to return configs for all agents (qwen, claude-acp, and future codex/gemini) instead of just the selected runtime
 - [ ] Verify Zed lazily spawns agent_servers processes (not all at boot)
 - [ ] Ensure credentials are correctly set for all agent configs
-
-## Zed: handle switch_agent command
-
-- [ ] Handle `switch_agent` WebSocket command in external sync module — parse command, dispatch to agent system
-- [ ] Implement switch flow: save current thread → extract messages → get new agent connection → call `import_session()` with extracted messages → report new thread ID back via WebSocket
-- [ ] Build message extraction: convert `Thread.messages` to `Vec<ImportedMessage>`, gracefully degrading agent-specific features to text
 
 ## Helix API + thread ID mapping (critical)
 

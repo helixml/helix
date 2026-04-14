@@ -10,7 +10,7 @@
 **Acceptance Criteria:**
 - User can trigger an agent switch from the Helix UI while a session is active
 - Available agents: Claude Code, Qwen Code, Codex, Gemini, Zed built-in
-- The new agent receives conversation history via ACP `import_session`
+- The new agent receives conversation history via first-turn transcript injection (no agent forks needed)
 - The new agent can immediately continue with full context
 - Workspace (files, git state) is unchanged
 - Helix session ID remains the same (but Zed thread ID changes — see design doc for mapping risks)
@@ -32,9 +32,9 @@
 **So that** I get useful context even across very different agents.
 
 **Acceptance Criteria:**
-- Core messages (user prompts, agent text, tool calls/results) transfer 1:1
+- Core messages (user prompts, agent text, tool calls/results) are serialized into a readable transcript
 - Agent-specific features (sub-agent runs, thinking blocks) degrade to readable text/markdown
-- The new agent can still understand the conversation flow
+- The new agent can parse the transcript and continue the conversation coherently
 
 ### 4. Visual indicator of agent switch
 **As a** user viewing my session,
