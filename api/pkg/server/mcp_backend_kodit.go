@@ -69,27 +69,6 @@ func NewKoditMCPBackend(koditClient *kodit.Client, enabled bool, store store.Sto
 	return b
 }
 
-// SetClient installs a kodit client after construction. Used when kodit init
-// is deferred (e.g. because the embedding provider points at Helix's own
-// API and the HTTP listener needs to bind first). Idempotent for repeated
-// nil calls; the first non-nil call enables the backend.
-func (b *KoditMCPBackend) SetClient(koditClient *kodit.Client, enabled bool) {
-	if !enabled || koditClient == nil {
-		return
-	}
-	b.koditClient = koditClient
-	b.enabled = true
-	if b.handlers == nil {
-		b.handlers = make(map[string]*sessionHandler)
-	}
-	if b.cleanupCtx == nil {
-		ctx, cancel := context.WithCancel(context.Background())
-		b.cleanupCtx = ctx
-		b.cleanupCancel = cancel
-		go b.cleanupLoop()
-	}
-}
-
 // Stop stops the background cleanup.
 func (b *KoditMCPBackend) Stop() {
 	if b.cleanupCancel != nil {

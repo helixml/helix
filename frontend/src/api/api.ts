@@ -1035,7 +1035,6 @@ export interface ServerKoditFileResultDTO {
   language?: string;
   lines?: string;
   links?: Record<string, string>;
-  page?: number;
   path?: string;
   preview?: string;
   score?: number;
@@ -8715,34 +8714,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Rasterizes a document page (PDF, etc.) and returns it as a PNG image
-     *
-     * @tags git-repositories
-     * @name V1GitRepositoriesPageImageDetail
-     * @summary Render document page image
-     * @request GET:/api/v1/git/repositories/{id}/page-image
-     * @secure
-     */
-    v1GitRepositoriesPageImageDetail: (
-      id: string,
-      query: {
-        /** File path within the repository */
-        path: string;
-        /** 1-based page number */
-        page: number;
-      },
-      params: RequestParams = {},
-    ) =>
-      this.request<File, TypesAPIError>({
-        path: `/api/v1/git/repositories/${id}/page-image`,
-        method: "GET",
-        query: query,
-        secure: true,
-        format: "blob",
-        ...params,
-      }),
-
-    /**
      * @description Pulls latest commits from remote repository
      *
      * @tags git-repositories
@@ -8965,34 +8936,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
     ) =>
       this.request<TypesGitRepositoryTreeResponse, TypesAPIError>({
         path: `/api/v1/git/repositories/${id}/tree`,
-        method: "GET",
-        query: query,
-        secure: true,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Search document pages (PDFs, etc.) using cross-modal visual similarity
-     *
-     * @tags git-repositories
-     * @name V1GitRepositoriesVisualSearchDetail
-     * @summary Visual search repository
-     * @request GET:/api/v1/git/repositories/{id}/visual-search
-     * @secure
-     */
-    v1GitRepositoriesVisualSearchDetail: (
-      id: string,
-      query: {
-        /** Natural language search query */
-        query: string;
-        /** Maximum results (default 10, max 100) */
-        limit?: number;
-      },
-      params: RequestParams = {},
-    ) =>
-      this.request<ServerKoditSearchResponse, TypesAPIError>({
-        path: `/api/v1/git/repositories/${id}/visual-search`,
         method: "GET",
         query: query,
         secure: true,

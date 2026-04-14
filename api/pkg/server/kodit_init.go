@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/services"
@@ -23,22 +24,6 @@ type KoditResult struct {
 	Service    services.KoditServicer
 	mcpBackend *KoditMCPBackend
 	closer     io.Closer
-
-	// deferredStart is non-nil when kodit.New() was deferred to run in a
-	// goroutine (e.g. because the embedding provider points at Helix's own
-	// API, which is not yet listening). Call it AFTER the HTTP server is up.
-	deferredStart func()
-}
-
-// StartDeferred runs any pending deferred kodit.New() call. Safe to call
-// multiple times; subsequent calls are no-ops.
-func (k *KoditResult) StartDeferred() {
-	if k == nil || k.deferredStart == nil {
-		return
-	}
-	start := k.deferredStart
-	k.deferredStart = nil
-	start()
 }
 
 // InitKodit creates the kodit client, service, and MCP backend.
@@ -158,109 +143,52 @@ func InitKodit(cfg *config.ServerConfig, gitRepoService *services.GitRepositoryS
 		}
 	}
 
-	// Determine whether kodit needs to call back into Helix's own /v1/embeddings
-	// endpoint for its embedding provider. If so, kodit.New()'s dimension probe
-	// will fail unless the HTTP listener is up — so we defer the kodit.New()
-	// call to a goroutine that runs once StartDeferred is called (typically
-	// right after the HTTP listener binds).
-	needsDeferredStart := false
-	if !useLocalTextEmbedding && isLoopbackURL(textEmbedBaseURL) {
-		needsDeferredStart = true
-	}
-	if visionEmbedBaseURL != "" && isLoopbackURL(visionEmbedBaseURL) {
-		needsDeferredStart = true
-	}
-
-	// Register Git URL and common service wiring now, regardless of deferral.
 	gitRepoService.SetKoditGitURL(cfg.Kodit.GitURL)
 
-	if !needsDeferredStart {
-		koditClient, err := kodit.New(koditOpts...)
-		if err != nil {
-			return nil, fmt.Errorf("failed to initialize kodit client: %w", err)
-		}
-		svc := services.NewKoditService(koditClient)
-		gitRepoService.SetKoditService(svc)
-		log.Info().
-			Str("kodit_git_url", cfg.Kodit.GitURL).
-			Msg("Initialized Kodit code intelligence service (in-process)")
-		return &KoditResult{
-			Service:    svc,
-			mcpBackend: NewKoditMCPBackend(koditClient, true, store),
-			closer:     koditClient,
-		}, nil
+	// Initialize the kodit client. When the embedding provider is configured
+	// to call an external HTTP endpoint (including Helix's own /v1/embeddings
+	// proxy), kodit.New() runs a dimension probe that may transiently fail if
+	// the upstream is still warming up — retry a few times before giving up.
+	koditClient, err := newKoditClientWithRetry(koditOpts)
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize kodit client: %w", err)
 	}
-
-	// Deferred path: return a placeholder service that swaps to the real one
-	// once kodit.New() completes in a goroutine (after the HTTP server is up).
-	deferred := services.NewDeferredKoditService()
-	mcpBackend := NewKoditMCPBackend(nil, true, store)
-	gitRepoService.SetKoditService(deferred)
-
-	result := &KoditResult{
-		Service:    deferred,
-		mcpBackend: mcpBackend,
-	}
-
-	result.deferredStart = func() {
-		go func() {
-			log.Info().Msg("Starting deferred kodit init (external embedding provider via Helix proxy)")
-			koditClient, err := kodit.New(koditOpts...)
-			if err != nil {
-				log.Error().Err(err).Msg("deferred kodit init failed — Code Intelligence will remain disabled until reconfigured and restarted")
-				return
-			}
-			svc := services.NewKoditService(koditClient)
-			deferred.Set(svc)
-			mcpBackend.SetClient(koditClient, true)
-			log.Info().
-				Str("kodit_git_url", cfg.Kodit.GitURL).
-				Msg("Deferred Kodit init completed — Code Intelligence enabled")
-		}()
-	}
-
-	return result, nil
+	svc := services.NewKoditService(koditClient)
+	gitRepoService.SetKoditService(svc)
+	log.Info().
+		Str("kodit_git_url", cfg.Kodit.GitURL).
+		Msg("Initialized Kodit code intelligence service (in-process)")
+	return &KoditResult{
+		Service:    svc,
+		mcpBackend: NewKoditMCPBackend(koditClient, true, store),
+		closer:     koditClient,
+	}, nil
 }
 
-// isLoopbackURL returns true when the given URL's host resolves to localhost
-// (or 127.0.0.1/[::1]). When kodit's embedding provider points at such a host
-// it targets Helix's own API, which requires deferred init so the HTTP
-// listener can bind first.
-func isLoopbackURL(rawURL string) bool {
-	// Simple substring checks to avoid importing net/url for a one-liner.
-	// The env var is controlled by operators so exotic schemes are unlikely.
-	for _, host := range []string{"localhost", "127.0.0.1", "::1"} {
-		if containsHost(rawURL, host) {
-			return true
-		}
-	}
-	return false
-}
+// newKoditClientWithRetry calls kodit.New with a small backoff retry loop.
+// kodit.New probes the configured embedding endpoint to discover its vector
+// dimension; if the upstream is briefly unavailable we want to give it a
+// chance to come up rather than hard-failing the whole server.
+func newKoditClientWithRetry(opts []kodit.Option) (*kodit.Client, error) {
+	const maxAttempts = 5
+	const delay = 2 * time.Second
 
-func containsHost(url, host string) bool {
-	// Match "://host" or "://host:" or "@host" to avoid false positives on paths.
-	for _, prefix := range []string{"://", "@"} {
-		idx := indexOf(url, prefix+host)
-		if idx < 0 {
-			continue
+	var lastErr error
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		client, err := kodit.New(opts...)
+		if err == nil {
+			return client, nil
 		}
-		after := idx + len(prefix) + len(host)
-		if after == len(url) {
-			return true
-		}
-		c := url[after]
-		if c == ':' || c == '/' || c == '?' || c == '#' {
-			return true
-		}
-	}
-	return false
-}
-
-func indexOf(s, substr string) int {
-	for i := 0; i+len(substr) <= len(s); i++ {
-		if s[i:i+len(substr)] == substr {
-			return i
+		lastErr = err
+		if attempt < maxAttempts {
+			log.Warn().
+				Err(err).
+				Int("attempt", attempt).
+				Int("max_attempts", maxAttempts).
+				Dur("retry_in", delay).
+				Msg("kodit.New failed, retrying")
+			time.Sleep(delay)
 		}
 	}
-	return -1
+	return nil, lastErr
 }

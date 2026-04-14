@@ -20,9 +20,6 @@ type KoditResult struct {
 	closer     io.Closer
 }
 
-// StartDeferred is a no-op for the nokodit build.
-func (k *KoditResult) StartDeferred() {}
-
 // InitKodit returns a disabled kodit service when built without kodit support.
 func InitKodit(_ *config.ServerConfig, _ *services.GitRepositoryService, _ store.Store) (*KoditResult, error) {
 	log.Info().Msg("Kodit code intelligence service not available (nokodit build)")

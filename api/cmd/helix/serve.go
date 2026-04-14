@@ -596,11 +596,6 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		}
 	}()
 
-	// Kick off any deferred kodit init (e.g. when kodit's embedding provider
-	// points at Helix's own /v1/embeddings endpoint, kodit.New() can't run
-	// until the HTTP listener is bound). Runs in its own goroutine.
-	koditInit.StartDeferred()
-
 	<-ctx.Done()
 	return nil
 }

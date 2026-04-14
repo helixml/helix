@@ -5247,72 +5247,6 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v1/git/repositories/{id}/page-image": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Rasterizes a document page (PDF, etc.) and returns it as a PNG image",
-                "produces": [
-                    "image/png"
-                ],
-                "tags": [
-                    "git-repositories"
-                ],
-                "summary": "Render document page image",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Repository ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "File path within the repository",
-                        "name": "path",
-                        "in": "query",
-                        "required": true
-                    },
-                    {
-                        "type": "integer",
-                        "description": "1-based page number",
-                        "name": "page",
-                        "in": "query",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "file"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/types.APIError"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/types.APIError"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/types.APIError"
-                        }
-                    }
-                }
-            }
-        },
         "/api/v1/git/repositories/{id}/pull": {
             "post": {
                 "security": [
@@ -5857,71 +5791,6 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/types.GitRepositoryTreeResponse"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/types.APIError"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/types.APIError"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/git/repositories/{id}/visual-search": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Search document pages (PDFs, etc.) using cross-modal visual similarity",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "git-repositories"
-                ],
-                "summary": "Visual search repository",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Repository ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Natural language search query",
-                        "name": "query",
-                        "in": "query",
-                        "required": true
-                    },
-                    {
-                        "type": "integer",
-                        "description": "Maximum results (default 10, max 100)",
-                        "name": "limit",
-                        "in": "query"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/server.KoditSearchResponse"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/types.APIError"
                         }
                     },
                     "404": {
@@ -18847,9 +18716,6 @@ const docTemplate = `{
                         "type": "string"
                     }
                 },
-                "page": {
-                    "type": "integer"
-                },
                 "path": {
                     "type": "string"
                 },
@@ -29379,20 +29245,6 @@ const docTemplate = `{
                     "description": "Kodit enrichment model configuration",
                     "type": "string"
                 },
-                "kodit_text_embedding_model": {
-                    "type": "string"
-                },
-                "kodit_text_embedding_provider": {
-                    "description": "Kodit text embedding model configuration",
-                    "type": "string"
-                },
-                "kodit_vision_embedding_model": {
-                    "type": "string"
-                },
-                "kodit_vision_embedding_provider": {
-                    "description": "Kodit vision embedding model configuration",
-                    "type": "string"
-                },
                 "max_concurrent_desktops": {
                     "type": "integer"
                 },
@@ -29467,26 +29319,6 @@ const docTemplate = `{
                 },
                 "kodit_enrichment_provider": {
                     "description": "Kodit enrichment model configuration (not sensitive, returned as-is)",
-                    "type": "string"
-                },
-                "kodit_text_embedding_model": {
-                    "type": "string"
-                },
-                "kodit_text_embedding_model_set": {
-                    "type": "boolean"
-                },
-                "kodit_text_embedding_provider": {
-                    "description": "Kodit text embedding model configuration",
-                    "type": "string"
-                },
-                "kodit_vision_embedding_model": {
-                    "type": "string"
-                },
-                "kodit_vision_embedding_model_set": {
-                    "type": "boolean"
-                },
-                "kodit_vision_embedding_provider": {
-                    "description": "Kodit vision embedding model configuration",
                     "type": "string"
                 },
                 "max_concurrent_desktops": {
