@@ -110,6 +110,21 @@ func (apiServer *HelixAPIServer) getSession(rw http.ResponseWriter, req *http.Re
 		http.Error(rw, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	// Cap response_entries and strip redundant response_message to avoid
+	// sending multi-MB payloads. Same truncation as listInteractions.
+	const maxEntriesPerInteraction = 50
+	for _, interaction := range interactions {
+		if interaction.ResponseEntries != nil {
+			interaction.ResponseMessage = ""
+			var entries []json.RawMessage
+			if err := json.Unmarshal(interaction.ResponseEntries, &entries); err == nil && len(entries) > maxEntriesPerInteraction {
+				truncated := entries[len(entries)-maxEntriesPerInteraction:]
+				if truncatedJSON, err := json.Marshal(truncated); err == nil {
+					interaction.ResponseEntries = truncatedJSON
+				}
+			}
+		}
+	}
 	session.Interactions = interactions
 	session.Metadata.ExternalAgentStatus = agentStatus
 
