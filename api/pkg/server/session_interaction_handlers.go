@@ -64,6 +64,27 @@ func (s *HelixAPIServer) listInteractions(_ http.ResponseWriter, req *http.Reque
 		return nil, system.NewHTTPError500(fmt.Sprintf("failed to get interactions for session %s, error: %s", id, err))
 	}
 
+	// Cap response_entries to the last 50 per interaction and strip the
+	// redundant flat response_message when entries exist. Long-running agent
+	// sessions can have 600+ entries per interaction (20+ MB of JSON).
+	// The frontend renders from response_entries and reconstructs the flat
+	// text for copy-to-clipboard from entries client-side.
+	const maxEntries = 50
+	for _, interaction := range interactions {
+		if interaction.ResponseEntries != nil {
+			// Strip the redundant flat string — frontend uses entries
+			interaction.ResponseMessage = ""
+
+			var entries []json.RawMessage
+			if err := json.Unmarshal(interaction.ResponseEntries, &entries); err == nil && len(entries) > maxEntries {
+				truncated := entries[len(entries)-maxEntries:]
+				if truncatedJSON, err := json.Marshal(truncated); err == nil {
+					interaction.ResponseEntries = truncatedJSON
+				}
+			}
+		}
+	}
+
 	totalPages := int(totalCount) / perPage
 	if int(totalCount)%perPage > 0 {
 		totalPages++
