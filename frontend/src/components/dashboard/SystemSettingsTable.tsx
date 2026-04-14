@@ -199,7 +199,7 @@ const SystemSettingsTable: FC = () => {
         kodit_text_embedding_provider: provider,
         kodit_text_embedding_model: model,
       })
-      snackbar.success(`Code Intelligence Text Embedding model set to ${provider}/${model}. Restart Helix and re-index repositories for the change to take effect.`)
+      snackbar.success(`Code Intelligence Text Embedding model set to ${provider}/${model}. Kodit is re-initialising; repositories will be re-indexed automatically in the background.`)
     } catch (err: any) {
       if (err.response?.status === 403) {
         snackbar.error('Access denied: Admin privileges required')
@@ -215,7 +215,7 @@ const SystemSettingsTable: FC = () => {
         kodit_text_embedding_provider: '',
         kodit_text_embedding_model: '',
       })
-      snackbar.success('Code Intelligence Text Embedding configuration cleared. Restart Helix and re-index repositories for the change to take effect.')
+      snackbar.success('Code Intelligence Text Embedding configuration cleared. Kodit is re-initialising on the built-in local model; repositories will be re-indexed automatically in the background.')
     } catch (err: any) {
       snackbar.error(`Failed to clear settings: ${err.message}`)
     }
@@ -227,7 +227,7 @@ const SystemSettingsTable: FC = () => {
         kodit_vision_embedding_provider: provider,
         kodit_vision_embedding_model: model,
       })
-      snackbar.success(`Code Intelligence Vision Embedding model set to ${provider}/${model}. Restart Helix and re-index repositories for the change to take effect.`)
+      snackbar.success(`Code Intelligence Vision Embedding model set to ${provider}/${model}. Kodit is re-initialising; repositories will be re-indexed automatically in the background.`)
     } catch (err: any) {
       if (err.response?.status === 403) {
         snackbar.error('Access denied: Admin privileges required')
@@ -243,7 +243,7 @@ const SystemSettingsTable: FC = () => {
         kodit_vision_embedding_provider: '',
         kodit_vision_embedding_model: '',
       })
-      snackbar.success('Code Intelligence Vision Embedding configuration cleared. Restart Helix and re-index repositories for the change to take effect.')
+      snackbar.success('Code Intelligence Vision Embedding configuration cleared. Kodit is re-initialising on the built-in local model; repositories will be re-indexed automatically in the background.')
     } catch (err: any) {
       snackbar.error(`Failed to clear settings: ${err.message}`)
     }
@@ -615,7 +615,7 @@ const SystemSettingsTable: FC = () => {
                       Embedding model used by Kodit for indexing code and text snippets.
                     </Typography>
                     <Typography variant="caption" color="text.secondary" display="block" mt={0.5}>
-                      Leave unset to use the built-in local ONNX model — it works out of the box but configuring a dedicated embedding model is recommended for better quality. Changing this requires a restart and a full re-index.
+                      Leave unset to use the built-in local ONNX model — it works out of the box but configuring a dedicated embedding model is recommended for better quality. Changing this reinitialises Kodit and triggers a full re-index in the background.
                     </Typography>
                   </TableCell>
                   <TableCell>
@@ -678,7 +678,7 @@ const SystemSettingsTable: FC = () => {
                       Vision embedding model used by Kodit for indexing document pages and images.
                     </Typography>
                     <Typography variant="caption" color="text.secondary" display="block" mt={0.5}>
-                      Leave unset to use the built-in local SigLIP2 model — it works out of the box but configuring a dedicated vision embedding model is recommended for better quality. Changing this requires a restart and a full re-index.
+                      Leave unset to use the built-in local SigLIP2 model — it works out of the box but configuring a dedicated vision embedding model is recommended for better quality. Changing this reinitialises Kodit and triggers a full re-index in the background.
                     </Typography>
                   </TableCell>
                   <TableCell>
