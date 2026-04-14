@@ -130,9 +130,17 @@ export const Interaction: FC<InteractionProps> = ({
       }
     }
 
-    // Extract assistant response from response_message
+    // Extract assistant response from response_message, or derive from
+    // response_entries when the API strips the redundant flat string.
     if (interaction?.response_message) {
       assistantMessage = interaction.response_message;
+    } else if ((interaction as any)?.response_entries?.length > 0) {
+      // Reconstruct flat text from entries for display guards and copy
+      const entries = (interaction as any).response_entries as Array<{ type: string; content: string }>;
+      assistantMessage = entries
+        .filter((e) => e.type === "text")
+        .map((e) => e.content)
+        .join("\n\n");
     }
 
     // Check for images in content
