@@ -145,32 +145,43 @@ func InitKodit(cfg *config.ServerConfig, gitRepoService *services.GitRepositoryS
 
 	gitRepoService.SetKoditGitURL(cfg.Kodit.GitURL)
 
-	// Initialize the kodit client. When the embedding provider is configured
-	// to call an external HTTP endpoint (including Helix's own /v1/embeddings
-	// proxy), kodit.New() runs a dimension probe that may transiently fail if
-	// the upstream is still warming up — retry a few times before giving up.
-	koditClient, err := newKoditClientWithRetry(koditOpts)
-	if err != nil {
-		return nil, fmt.Errorf("failed to initialize kodit client: %w", err)
-	}
-	svc := services.NewKoditService(koditClient)
+	// kodit.New() probes the configured embedding endpoint to discover its
+	// vector dimension. When that endpoint is Helix's own /v1/embeddings
+	// proxy, the HTTP listener may not be up yet at this point — so run
+	// kodit.New asynchronously with a retry loop and hand back a placeholder
+	// service that swaps to the real one once ready.
+	svc := services.NewDeferredKoditService()
+	mcpBackend := NewKoditMCPBackend(nil, true, store)
 	gitRepoService.SetKoditService(svc)
-	log.Info().
-		Str("kodit_git_url", cfg.Kodit.GitURL).
-		Msg("Initialized Kodit code intelligence service (in-process)")
-	return &KoditResult{
+
+	result := &KoditResult{
 		Service:    svc,
-		mcpBackend: NewKoditMCPBackend(koditClient, true, store),
-		closer:     koditClient,
-	}, nil
+		mcpBackend: mcpBackend,
+	}
+
+	go func() {
+		client, err := newKoditClientWithRetry(koditOpts)
+		if err != nil {
+			log.Error().Err(err).Msg("kodit init failed — code intelligence will remain disabled until reconfigured and restarted")
+			return
+		}
+		svc.Set(services.NewKoditService(client))
+		mcpBackend.setClient(client)
+		result.closer = client
+		log.Info().
+			Str("kodit_git_url", cfg.Kodit.GitURL).
+			Msg("Initialized Kodit code intelligence service")
+	}()
+
+	return result, nil
 }
 
-// newKoditClientWithRetry calls kodit.New with a small backoff retry loop.
-// kodit.New probes the configured embedding endpoint to discover its vector
-// dimension; if the upstream is briefly unavailable we want to give it a
-// chance to come up rather than hard-failing the whole server.
+// newKoditClientWithRetry calls kodit.New with a retry loop. kodit.New probes
+// the configured embedding endpoint, which in dev setups is Helix's own
+// listener — so the first few attempts will hit connection-refused while the
+// listener comes up.
 func newKoditClientWithRetry(opts []kodit.Option) (*kodit.Client, error) {
-	const maxAttempts = 5
+	const maxAttempts = 30
 	const delay = 2 * time.Second
 
 	var lastErr error
