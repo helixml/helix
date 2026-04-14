@@ -1190,9 +1190,6 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 			}
 
 			targetInteraction.ResponseMessage = acc.Content
-			if entriesJSON, entErr := json.Marshal(acc.Entries()); entErr == nil {
-				_ = json.Unmarshal(entriesJSON, &targetInteraction.ResponseEntries)
-			}
 			targetInteraction.LastZedMessageID = acc.LastMessageID
 			targetInteraction.LastZedMessageOffset = acc.Offset
 			targetInteraction.Updated = time.Now()
@@ -1200,8 +1197,13 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 
 			// THROTTLED DB WRITE: Only flush to DB if enough time has passed.
 			// The in-memory interaction always has the latest content.
+			// Marshal response_entries only when we're actually writing to avoid
+			// serializing multi-MB JSON on every message (~16 MB at 211 entries).
 			now := time.Now()
 			if now.Sub(sctx.lastDBWrite) >= dbWriteInterval {
+				if entriesJSON, entErr := json.Marshal(acc.Entries()); entErr == nil {
+					_ = json.Unmarshal(entriesJSON, &targetInteraction.ResponseEntries)
+				}
 				_, err := apiServer.Controller.Options.Store.UpdateInteraction(context.Background(), targetInteraction)
 				if err != nil {
 					return fmt.Errorf("failed to update interaction %s: %w", targetInteraction.ID, err)
@@ -1539,6 +1541,13 @@ func (apiServer *HelixAPIServer) flushAndClearStreamingContext(ctx context.Conte
 
 	if sctx.interaction != nil {
 		if sctx.dirty {
+			// Marshal response_entries before flushing — the streaming loop
+			// defers marshaling to the DB write throttle, so it may be stale.
+			if sctx.accumulator != nil {
+				if entriesJSON, err := json.Marshal(sctx.accumulator.Entries()); err == nil {
+					_ = json.Unmarshal(entriesJSON, &sctx.interaction.ResponseEntries)
+				}
+			}
 			_, err := apiServer.Controller.Options.Store.UpdateInteraction(ctx, sctx.interaction)
 			if err != nil {
 				log.Error().Err(err).
