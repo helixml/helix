@@ -83,3 +83,27 @@ Upstream uses a Docker sandbox image (`ghcr.io/qwenlm/qwen-code:0.14.4`) and `sa
 - Check if upstream's sandbox config has a flag to disable security checks
 - If yes, use that instead of our code-level patches
 - If no, re-apply our security disabling patches on top of the merged code
+
+## Implementation Notes
+
+### Merge approach
+Standard `git merge upstream/main --no-commit` worked well. The merge base was exactly the v0.4.1 commit (`5fddcd50`). Of 1966 files touched, only 11 had conflicts.
+
+### Pre-commit hook catches
+The project has a pre-commit hook (`scripts/pre-commit.js`) that runs prettier + eslint with `--max-warnings 0`. This caught our fork's `console.error` debug statements in 4 files that auto-merged without conflicts but violated the `no-console` eslint rule. Had to clean up:
+- `HistoryReplayer.ts` — 6 console.error statements removed, also removed unused `replayedCount` variable
+- `Session.ts` — 2 console.error statements removed
+- `config.ts` — 3 console.error statements removed
+- `sessionService.ts` — 8 console.error statements removed
+
+### schema.ts decision
+Our custom `schema.ts` with Zod-based ACP type definitions was fully superseded by upstream's adoption of `@agentclientprotocol/sdk` (v0.14.1). The SDK provides proper TypeScript types for all ACP messages, so maintaining a parallel Zod schema was unnecessary.
+
+### Path normalization is still needed
+The `normalizeProjectPath()` function in `paths.ts` is critical for our container deployment. It maps `/data/workspace` → `/home/retro/work` which is needed for bind-mount path equivalence. This has no upstream equivalent since upstream doesn't run in our specific container setup.
+
+### QWEN_DATA_DIR vs QWEN_RUNTIME_DIR
+Our fork has `QWEN_DATA_DIR` in `storage.ts`. Upstream added `QWEN_RUNTIME_DIR` serving a similar purpose. Both auto-merged without conflict (they're at different code locations). A follow-up task should unify these.
+
+### getErrorMessage retention
+Upstream removed `getErrorMessage` from most places, inlining `error instanceof Error ? error.message : String(error)` instead. However, `ls.ts` still uses it at line 292, so the import was retained there.

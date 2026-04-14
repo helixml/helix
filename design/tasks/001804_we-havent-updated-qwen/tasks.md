@@ -14,7 +14,7 @@
   - Take upstream: acpAgent.ts, cli/errors.ts, edit.ts, glob.ts, shell-utils.ts, tools.ts
   - Delete (upstream removed): schema.ts, smart-edit.ts
   - Manual merge: chatRecordingService.ts (both imports), ls.ts (both imports), paths.ts (keep normalizeProjectPath + add sanitizeCwd)
-- [x] Debug logging commits effectively dropped (upstream code supersedes)
+- [x] Clean up fork debug logging (console.error in HistoryReplayer.ts, Session.ts, config.ts, sessionService.ts)
 
 ## Validation
 
@@ -24,5 +24,6 @@
 
 ## Finalize
 
-- [~] Commit the merge with a clear message documenting what was kept/dropped/adapted
-- [ ] Push to origin and create PR description
+- [x] Commit the merge with detailed message documenting what was kept/dropped/adapted
+- [x] Push to origin: `feature/001804-we-havent-updated-qwen`
+- [x] Create PR description
