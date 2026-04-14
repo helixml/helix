@@ -122,8 +122,14 @@ Updates `Session.Metadata.ZedAgentName` + `CodeAgentRuntime`, creates a system i
 ### Why first-turn injection instead of an ACP protocol extension?
 An `import_session` ACP message would be cleaner from a protocol standpoint, but it requires forking every agent runtime to implement the handler. We control Claude Code and Qwen Code, but Codex and Gemini are third-party. First-turn injection works with any ACP agent unmodified — the agent just sees a large first message. We can always add `import_session` to ACP later as an optimization for agents we control, but the injection approach ships without blocking on agent forks.
 
-### Why not just use Zed's built-in model switching?
-Model switching (changing the LLM behind Zed's built-in agent) is trivial — `Thread.set_model()`. But switching between external ACP agents (Claude Code ↔ Qwen Code) means switching between entire agent **processes** with different capabilities, tools, and runtimes. These are fundamentally different programs, not just different models.
+### Why not just switch the model behind a single agent?
+Each ACP agent has a `SetSessionModelRequest` that can change the LLM mid-session. Claude Code reads its model preference from `managed-settings.json` and exposes available models via `NewSessionResponse.models`. So switching between Anthropic models (Sonnet ↔ Opus) within Claude Code is trivial and doesn't require any of this machinery.
+
+But switching to a different **provider** (e.g., pointing Claude Code at Qwen) doesn't work. Claude Code constructs Anthropic Messages API requests — not OpenAI format. Helix's API proxy could translate on the fly, but prompt caching is Anthropic-specific (cache breakpoints, `cache_control` headers) and wouldn't translate to other providers. The caching mismatch alone would degrade performance significantly.
+
+So there are two tiers of "switching":
+- **Same-provider model switch** (Sonnet ↔ Opus): Use `SetSessionModelRequest`. No agent switch needed. Already works.
+- **Cross-provider agent switch** (Claude Code ↔ Qwen Code): Requires the full agent switch with transcript injection described in this design. Different programs, different API formats, different caching strategies.
 
 ### Why new thread instead of swapping connection?
 `AcpThread.connection` is `Rc<dyn AgentConnection>` — immutable by design. The Rc is shared across multiple owners. Mutating it would require rethinking the ownership model. Creating a new thread with import is the idiomatic path.
