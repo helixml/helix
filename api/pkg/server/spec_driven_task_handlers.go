@@ -294,7 +294,7 @@ func (s *HelixAPIServer) listTasks(w http.ResponseWriter, r *http.Request) {
 					status := cfg.ExternalAgentStatus
 					hasContainer := cfg.ContainerName != ""
 					switch {
-					case status == "stopped":
+					case status == "stopped" || status == "terminated_idle":
 						task.SandboxState = "absent"
 					case status == "starting":
 						task.SandboxState = "starting"
