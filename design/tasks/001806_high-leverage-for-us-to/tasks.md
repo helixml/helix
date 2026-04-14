@@ -1,37 +1,37 @@
 # Implementation Tasks
 
-## Settings-sync-daemon: Pre-configure all agents
+## ACP protocol extension
 
-- [ ] Modify `generateAgentServerConfig()` in `api/cmd/settings-sync-daemon/main.go` to return configs for ALL supported agents simultaneously (qwen, claude-acp, codex, gemini) instead of just the selected runtime
-- [ ] Verify Zed lazily connects to agent_servers (doesn't eagerly spawn all processes at startup) — if not, investigate deferred registration
-- [ ] Ensure credentials (API keys, OAuth tokens) are correctly set for all agent configs
-- [ ] Test that all agents appear in Zed's agent selector dropdown inside the container
+- [ ] Define `ImportSessionRequest` / `ImportSessionResponse` message types in the ACP spec — request contains `cwd`, `mcp_servers`, and `messages: Vec<ImportedMessage>` with chronologically ordered conversation history
+- [ ] Add `import_session` capability flag to agent capabilities
+- [ ] Add `import_session()` to `AgentConnection` trait in `crates/acp_thread/src/connection.rs`
+- [ ] Implement `import_session()` in `AcpConnection` (`crates/agent_servers/src/acp.rs`) — sends the request, creates AcpThread, receives SessionUpdate replay stream
 
-## Helix API: Switch endpoint + WebSocket command
+## Agent runtimes: implement import_session
 
-- [ ] Add `ExternalAgentCommandSwitchAgent` constant to `api/pkg/types/types.go`
-- [ ] Add `POST /api/v1/sessions/{id}/switch-agent` endpoint: validate idle state, update `ZedAgentName` + `CodeAgentRuntime` in session metadata, create system interaction marker, send `switch_agent` command via WebSocket
-- [ ] Add `switch_agent` WebSocket command construction and sending in `api/pkg/server/websocket_external_agent_sync.go`
-- [ ] Handle `thread_switched` event from Zed — update `Session.Metadata.ZedThreadID` and context mappings to point to the new thread ID
-- [ ] Add system interaction creation for agent switch events with `Trigger: "agent_switch"`
+- [ ] Implement `import_session` handler in Claude Code (claude-acp) — create session, seed internal message buffer with imported messages
+- [ ] Implement `import_session` handler in Qwen Code — same pattern
+- [ ] Define message format mapping: Zed `Thread.messages` → `ImportedMessage` (user text, agent text, tool calls/results as content blocks; sub-agent runs and thinking flattened to markdown)
 
-## Zed: Handle switch_agent command
+## Settings-sync-daemon: pre-configure all agents
 
-- [ ] Handle `switch_agent` command in external WebSocket sync module — parse command, dispatch to agent system
-- [ ] Implement agent switch flow: save current thread → get new agent connection → create new AcpThread → replay old thread messages → report new thread ID back via WebSocket
-- [ ] Verify that `replay()` + `handle_thread_events()` correctly populates the new AcpThread with old conversation history
-- [ ] Verify that external agent `run_turn()` sends full replayed message history to the new agent process (ACP protocol check)
+- [ ] Modify `generateAgentServerConfig()` in `api/cmd/settings-sync-daemon/main.go` to return configs for all agents (qwen, claude-acp, and future codex/gemini) instead of just the selected runtime
+- [ ] Verify Zed lazily spawns agent_servers processes (not all at boot)
+- [ ] Ensure credentials are correctly set for all agent configs
+
+## Zed: handle switch_agent command
+
+- [ ] Handle `switch_agent` WebSocket command in external sync module — parse command, dispatch to agent system
+- [ ] Implement switch flow: save current thread → extract messages → get new agent connection → call `import_session()` with extracted messages → report new thread ID back via WebSocket
+- [ ] Build message extraction: convert `Thread.messages` to `Vec<ImportedMessage>`, gracefully degrading agent-specific features to text
+
+## Helix API
+
+- [ ] Add `POST /api/v1/sessions/{id}/switch-agent` endpoint — validate idle state, update `ZedAgentName` + `CodeAgentRuntime`, create system interaction marker, send `switch_agent` WebSocket command
+- [ ] Handle `thread_switched` event from Zed — update `Session.Metadata.ZedThreadID` and context mappings
 
 ## Helix Frontend
 
-- [ ] Add agent selector dropdown to session controls showing all available agents with active indicator
-- [ ] Wire selector to call `POST /sessions/{id}/switch-agent` and show "Switching..." loading state
-- [ ] Render "Agent switched" system interaction as a visual divider in conversation timeline
-
-## Testing
-
-- [ ] Test full switch flow: send prompts with Agent A → switch to Agent B → verify Agent B sees prior history and can continue
-- [ ] Test switch is rejected while an interaction is in `waiting` state
-- [ ] Test workspace persistence: files and git state unchanged after switch
-- [ ] Test MCP tools remain functional after switch
-- [ ] Measure resource usage with all agents pre-configured vs single agent
+- [ ] Add agent selector dropdown to session controls showing available agents
+- [ ] Wire selector to call switch-agent endpoint with loading state
+- [ ] Render "Agent switched" system interaction as visual divider in timeline

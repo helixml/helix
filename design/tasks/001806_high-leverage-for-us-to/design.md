@@ -1,232 +1,139 @@
-# Design: Mid-Session Agent Switching
+# Design: Mid-Session Agent Switching via ACP
 
 ## Investigation Summary
 
-Investigated three systems: Helix session database, Zed's thread/agent architecture, and the MCP protocol layer. The goal is switching between external code agents (Claude Code, Qwen Code, Codex, Gemini) within a running Zed session inside a Helix container.
+Investigated three systems: ACP (Agent Communication Protocol) between Zed and external agents, Zed's thread/agent architecture, and the Helix session database. The goal is switching between external code agents (Claude Code, Qwen Code, Codex, Gemini) within a running Zed session.
 
-## Current Architecture (Constraints)
+## Core Insight
 
-### One agent per container, configured at startup
-- `settings-sync-daemon` calls `generateAgentServerConfig()` which returns config for **one** runtime only (`zed_config.go:81-293`)
-- `qwen_code` → injects `agent_servers.qwen` (custom type, stdio)
-- `claude_code` → injects `agent_servers.claude-acp` (registry type)
-- `zed_agent` → injects nothing (uses built-in agent with env vars)
-- The daemon polls `/api/v1/sessions/{id}/zed-config` every 30s and writes to `/home/retro/.config/zed/settings.json`
+Zed's thread format is the consistent interchange format. `Thread.messages` stores user messages, agent responses, tool calls, and tool results in an agent-agnostic `Vec<Message>`. When Agent A runs a session, its output gets captured in this format. That same format can be replayed into Agent B. Agent-specific features that don't translate (e.g., sub-agent runs) degrade into opaque markdown blobs — acceptable for context continuity.
+
+## How ACP Works Today
+
+### Agents are stateful
+- `PromptRequest` sends **only the current user message**, not the full history (`acp_thread.rs:2096-2147`)
+- The agent process maintains its own session state (message buffer)
+- `new_session()` creates a fresh empty session in the agent process
+
+### Session loading replays via SessionUpdate
+- `load_session(session_id)` asks the agent to load a session from its own storage
+- The agent replays history by streaming `SessionUpdate` messages back to Zed: `UserMessageChunk`, `AgentMessageChunk`, `ToolCall`, `ToolCallUpdate`, etc. (`acp_thread.rs:1383-1434`)
+- These populate `AcpThread.entries` for display
+- **Limitation:** `load_session` only loads sessions that exist in that specific agent's storage — it can't load another agent's sessions
 
 ### AcpThread.connection is immutable
-- `AcpThread` stores `connection: Rc<dyn AgentConnection>` set once in `new()` (`acp_thread.rs:1049`)
-- There is no `set_connection()` — a thread is permanently bound to the agent that created it
-- Each external agent (Claude Code, Qwen Code) is a separate ACP process with its own `AgentConnection`
+- Each thread is permanently bound to one agent connection (`acp_thread.rs:1049`)
+- Switching agents requires a new thread, not modifying the existing one
 
-### But threads are agent-agnostic
-- `Thread.messages` stores `Vec<Message>` — user text, agent text, tool calls, tool results
-- Nothing in the message format is agent-specific
-- `Thread.replay()` can reconstruct the full conversation as a `ThreadEvent` stream
-- `SharedThread` can serialize/deserialize threads (zstd-compressed JSON)
+## Proposed Approach
 
-### All credentials are already available
-- `DesktopAgentAPIEnvVars()` sets `USER_API_TOKEN`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `ZED_HELIX_TOKEN` on every container
-- The single ephemeral API key works for all providers (Helix proxies LLM requests)
-- No credential changes needed for switching
-
-### MCP servers are container-level, not agent-level
-- `context_servers` (helix-native, kodit, helix-desktop, helix-session, chrome-devtools) are configured in settings.json
-- `ContextServerRegistry` is per-project, not per-agent
-- All MCP tools survive agent switches automatically
-
-## Proposed Architecture
-
-### Strategy: Pre-configure all agents, new thread on switch with replay
-
-Since `AcpThread.connection` is immutable, we cannot swap the agent on an existing thread. Instead:
-
-1. **Configure all agents upfront** in the container's settings.json
-2. **On switch**: close the current thread, create a new thread with the target agent, replay conversation history into it
-3. **Helix session stays the same** — the Helix session ID, workspace, and container are unchanged
-
-### Flow
+### The replay path
 
 ```
-User clicks "Switch to Qwen" in Helix UI
+Agent A session running in Zed
   ↓
-Helix API: POST /sessions/{id}/switch-agent {agent: "qwen_code"}
+User requests switch to Agent B
   ↓
-Helix updates Session.Metadata.ZedAgentName + CodeAgentRuntime
+Zed already has the full conversation in Thread.messages (agent-agnostic format)
   ↓
-Helix sends WebSocket command: switch_agent {agent_name: "qwen", acp_thread_id: "thread_xyz"}
+Create new AcpThread bound to Agent B's connection
   ↓
-Zed receives switch_agent:
-  1. Saves current thread to DB
-  2. Gets connection to target agent (from AgentConnectionStore)
-  3. Creates new AcpThread with new connection
-  4. Replays old thread's messages into new thread via ThreadEvent stream
-  5. Maps new thread ID back to Helix session via WebSocket
+Replay old thread's messages into Agent B's session
   ↓
-User sees conversation history, can continue with new agent
+Agent B now has the conversation context, user continues
 ```
 
-### Component Changes
+The key question is step 5: how does Agent B's process get the conversation context?
 
-#### 1. Settings-sync-daemon: Configure ALL agents
+### Getting history into Agent B
 
-Change `generateAgentServerConfig()` to return configs for **all** available agents simultaneously, not just the selected one.
+The conversation already exists in Zed's thread as `Vec<Message>` — user text, agent text, tool calls with results. To get this into Agent B's stateful session, there are two viable approaches:
 
-**Current** (returns one):
-```go
-switch d.codeAgentConfig.Runtime {
-case "qwen_code":
-    return map[string]interface{}{"qwen": {...}}
-case "claude_code":
-    return map[string]interface{}{"claude-acp": {...}}
+**Option A: Extend ACP with `import_session`**
+
+Add a new ACP request that combines `new_session` + pre-populated history:
+
+```
+ImportSessionRequest {
+    cwd: PathBuf,
+    messages: Vec<ImportedMessage>,  // The conversation history from Zed's thread
 }
 ```
 
-**Proposed** (returns all):
-```go
-func (d *SettingsDaemon) generateAgentServerConfig() map[string]interface{} {
-    servers := map[string]interface{}{}
+The agent process creates a new session, seeds its internal buffer with the messages, and responds. This is a clean, first-class protocol operation. Each agent runtime (Claude Code, Qwen Code, etc.) implements the handler by populating its internal message buffer.
 
-    // Always configure Qwen
-    servers["qwen"] = map[string]interface{}{
-        "name": "qwen", "type": "custom",
-        "command": "qwen",
-        "args": []string{"--experimental-acp", "--no-telemetry", "--include-directories", "/home/retro/work"},
-        "env": map[string]interface{}{
-            "OPENAI_BASE_URL": baseURL,
-            "OPENAI_API_KEY":  d.userAPIKey,
-            "OPENAI_MODEL":    "nebius/Qwen/Qwen3-Coder",
-        },
-    }
+The `ImportedMessage` format maps directly from Zed's thread messages:
+- User messages → user role + content blocks
+- Agent text responses → agent role + text content
+- Tool calls + results → tool_use + tool_result content blocks
+- Sub-agent runs, agent-specific features → flattened into text/markdown blobs
 
-    // Always configure Claude (registry type)
-    servers["claude-acp"] = map[string]interface{}{
-        "type": "registry",
-        "default_mode": "bypassPermissions",
-        "env": map[string]interface{}{...},
-    }
+**Option B: First-turn history injection**
 
-    // Always configure Codex, Gemini (when available)
-    // servers["codex"] = ...
-    // servers["gemini"] = ...
+On the first `PromptRequest` after the switch, include the full conversation history alongside the new user message. The agent treats the history as context for this turn and incorporates it into its session state going forward.
 
-    return servers
-}
-```
+This requires no new ACP message type but may not work well with all agents (some may not handle a massive first message gracefully).
 
-**File:** `api/cmd/settings-sync-daemon/main.go` — modify `generateAgentServerConfig()`
+**Recommendation:** Option A. It's cleaner, explicit, and each agent can handle the import in the way that best fits its internal architecture.
 
-**Tradeoff:** This starts all agent processes at once. Zed lazily connects to agents (only on `connect()`), so idle agents shouldn't consume significant resources. But we should verify that Zed doesn't eagerly spawn all configured agent_servers processes.
+### Pre-configure all agents in the container
 
-#### 2. Helix API: Switch-agent endpoint + WebSocket command
+Today, `generateAgentServerConfig()` in the settings-sync-daemon returns config for **one** agent (`settings-sync-daemon/main.go:102-215`). Change it to return configs for all agents simultaneously:
+
+- `qwen` — custom type, stdio command
+- `claude-acp` — registry type
+- `codex` — when available
+- `gemini` — when available
+
+All credentials already exist in the container (`USER_API_TOKEN` is set as both `ANTHROPIC_API_KEY` and `OPENAI_API_KEY`). Zed lazily connects to agent servers (via `AgentConnectionStore.request_connection()`), so idle agents shouldn't spawn processes until first use. Needs verification.
+
+### Helix coordination
 
 **New endpoint:** `POST /api/v1/sessions/{id}/switch-agent`
-```json
-{"code_agent_runtime": "qwen_code"}
-```
 
-This endpoint:
-- Validates the session exists and belongs to the user
-- Validates no interaction is currently in `waiting` state
-- Updates `Session.Metadata.ZedAgentName` and `CodeAgentRuntime`
-- Creates a system interaction marking the switch (audit trail)
-- Sends `switch_agent` WebSocket command to Zed
+Updates `Session.Metadata.ZedAgentName` + `CodeAgentRuntime`, creates a system interaction marker, sends `switch_agent` WebSocket command to Zed.
 
-**New WebSocket command:** `switch_agent`
-```json
-{
-  "type": "switch_agent",
-  "data": {
-    "agent_name": "qwen",
-    "acp_thread_id": "thread_xyz"
-  }
-}
-```
+**Thread mapping update:** When Zed creates the new thread, it sends `thread_switched` back via WebSocket. Helix updates `Session.Metadata.ZedThreadID` and `contextMappings` to point to the new thread.
 
-**Files:**
-- `api/pkg/server/websocket_external_agent_sync.go` — send command
-- `api/pkg/types/types.go` — add command constant
+### Message format translation
 
-#### 3. Zed: Handle switch_agent command
+Zed's `Message` enum maps to `ImportedMessage` roughly 1:1:
 
-This is the core change. When Zed receives `switch_agent`:
+| Zed Thread Message | Imported As |
+|---|---|
+| `Message::User` (text, mentions, images) | User role, text + image content blocks |
+| `Message::Agent` text | Agent role, text content blocks |
+| `Message::Agent` tool_use | Agent role, tool_use content block |
+| Tool results (in `AgentMessage.tool_results`) | tool_result content block |
+| `Message::Agent` thinking | Omitted or flattened to text (agent-specific) |
+| `Message::Resume` | Omitted |
+| Sub-agent runs | Flattened to markdown text blob |
 
-```rust
-// In external_websocket_sync handler:
-fn handle_switch_agent(agent_name: &str, old_thread_id: &str) {
-    // 1. Save current thread
-    let old_thread = agent.sessions.get(old_thread_id);
-    old_thread.save_to_db();
-
-    // 2. Get connection to new agent
-    let new_agent_key = map_agent_name_to_key(agent_name); // "qwen" → Agent::Custom("qwen")
-    let new_connection = connection_store.request_connection(new_agent_key);
-
-    // 3. Create new session with new agent
-    let new_acp_thread = new_connection.new_session(project, work_dirs);
-
-    // 4. Replay old messages into new thread
-    let events = old_thread.replay(); // ThreadEvent stream
-    NativeAgentConnection::handle_thread_events(events, new_acp_thread);
-
-    // 5. Map new thread back to same Helix session
-    send_ws_event("thread_switched", {
-        old_thread_id,
-        new_thread_id: new_acp_thread.session_id,
-    });
-}
-```
-
-**Key question: Does the new external agent (Claude Code, Qwen) receive the replayed history?**
-
-No — `replay()` feeds events to the `AcpThread` (Zed's UI layer), not to the external agent process. The external agent starts fresh. On the next user prompt, the external agent will see the full message history because `AcpThread` includes all messages when calling `run_turn()`. This is how external agents already work — they're stateless per-turn; the full conversation is sent each time.
-
-**Important:** Verify that external agent `run_turn()` sends the full `AcpThread.entries` (including replayed history) to the agent process. If the ACP protocol supports this, no additional work is needed. If external agents maintain their own state and ignore the thread history, we'd need a different approach (e.g., system prompt injection).
-
-**Files:**
-- `crates/external_websocket_sync/` — handle new command
-- `crates/agent/src/agent.rs` — add `switch_agent()` method
-
-#### 4. Helix Frontend: Agent selector
-
-Add agent selector dropdown to session controls:
-- Shows all available agents (Claude Code, Qwen Code, Codex, Gemini)
-- Indicates which is currently active
-- Calls `POST /sessions/{id}/switch-agent`
-- Shows "Switching to {agent}..." loading state
-- Renders "Agent switched" marker in conversation timeline
-
-#### 5. Thread-to-session mapping update
-
-When the Zed thread changes (new thread_id after switch), Helix needs to update its mapping:
-- `Session.Metadata.ZedThreadID` → new thread ID
-- `apiServer.contextMappings[newThreadID]` → sessionID
-- Remove old mapping
+Agent-specific features that don't have a clean mapping degrade to readable text. The new agent gets the gist even if it can't re-execute sub-agent runs or parse thinking blocks.
 
 ## Key Decisions
 
-### Why pre-configure all agents instead of hot-injecting one?
-The settings-sync-daemon already writes settings.json every 30s. We could update it to inject a different agent on switch. But Zed watches settings.json for changes and would need to handle agent_servers additions gracefully (spawn new process, register connection). Pre-configuring all agents avoids this timing-sensitive dance and makes switching instant.
+### Why is this feasible?
+Zed's thread format is already the common denominator. Every agent's output gets normalized into `Thread.messages` when captured via `SessionUpdate`. The format translation from thread messages to importable messages is straightforward — it's mostly identity mapping with graceful degradation for agent-specific features.
+
+### Why not just use Zed's built-in model switching?
+Model switching (changing the LLM behind Zed's built-in agent) is trivial — `Thread.set_model()`. But switching between external ACP agents (Claude Code ↔ Qwen Code) means switching between entire agent **processes** with different capabilities, tools, and runtimes. These are fundamentally different programs, not just different models.
 
 ### Why new thread instead of swapping connection?
-`AcpThread.connection` is `Rc<dyn AgentConnection>` — immutable by design. Adding a `set_connection()` would require rethinking the ownership model (Rc references are shared). Creating a new thread with replay is the idiomatic Zed approach and uses existing, tested code paths.
-
-### What about conversation context for the new agent?
-External ACP agents (Claude Code, Qwen Code) are invoked per-turn with the full message history. When `run_turn()` is called on the new thread, the ACP protocol sends all prior messages (including replayed ones) to the agent process. The new agent doesn't need to "know" about the switch — it just sees a conversation history and continues from there.
-
-### What about agent-specific internal state?
-Claude Code maintains `~/.claude/` memory files. Qwen Code has its own state. These persist on the container filesystem and aren't affected by the switch. The new agent won't read the old agent's state, but the conversation history (tool calls, file edits, etc.) provides sufficient context. Out of scope for v1.
+`AcpThread.connection` is `Rc<dyn AgentConnection>` — immutable by design. The Rc is shared across multiple owners. Mutating it would require rethinking the ownership model. Creating a new thread with import is the idiomatic path.
 
 ## Codebase Patterns
 
-- `generateAgentServerConfig()` in `settings-sync-daemon/main.go:102-215` — currently returns one agent config
-- `AgentConnectionStore` in `agent_ui/src/agent_connection_store.rs` — caches one connection per Agent key, lazy-connects on `request_connection()`
-- `Thread.replay()` in `agent/src/thread.rs:1102-1134` — emits ThreadEvent stream from stored messages
-- `NativeAgentConnection::handle_thread_events()` in `agent/src/agent.rs:1164-1287` — feeds events to AcpThread
-- `ExternalAgentCommand` in `types.go:2176` — WebSocket command struct with `Type` string discriminator
-- `getAgentNameForSession()` in `zed_config_handlers.go` — maps CodeAgentRuntime → Zed agent name
+- **Thread messages (agent-agnostic):** `Thread.messages: Vec<Message>` in `agent/src/thread.rs`
+- **ACP session creation:** `AcpConnection::new_session()` in `agent_servers/src/acp.rs:556-688`
+- **SessionUpdate handling:** `AcpThread::handle_session_update()` in `acp_thread/src/acp_thread.rs:1383-1434`
+- **Thread replay:** `Thread.replay()` in `agent/src/thread.rs:1102-1134`
+- **AgentConnection trait:** `load_session()`, `resume_session()` in `acp_thread/src/connection.rs:59-107`
+- **Settings daemon agent config:** `generateAgentServerConfig()` in `settings-sync-daemon/main.go:102-215`
+- **WebSocket commands:** `ExternalAgentCommand` in `types.go:2176`
 
 ## Open Questions
 
-1. **Does Zed eagerly spawn all configured agent_servers processes?** If so, pre-configuring all four agents would start four processes at container boot. Need to verify lazy spawning behavior.
-2. **Does the ACP `run_turn()` protocol send full message history to external agents?** If external agents are truly stateless per-turn, replay works seamlessly. If they maintain internal session state, we may need to call `load_session()` or inject a system prompt.
-3. **Resource impact of multiple idle agent processes.** Claude Code and Qwen Code CLIs may have non-trivial idle memory usage. Need to measure.
+1. **Does Zed eagerly spawn all configured agent_servers processes?** Need to verify lazy spawning — if eager, four agents = four processes at boot.
+2. **Which agents do we control?** We control Claude Code (via claude-acp) and Qwen Code. Codex and Gemini are third-party — they'd need upstream ACP `import_session` support or a wrapper.
+3. **How large is a typical conversation for import?** If conversations are very large, we may need to truncate or summarize older messages to fit within agent context windows.
