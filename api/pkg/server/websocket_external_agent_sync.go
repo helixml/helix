@@ -51,7 +51,11 @@ const (
 	// Intermediate content is buffered in the streamingContext.
 	// Risk: up to dbWriteInterval of content lost on crash. Acceptable because
 	// message_completed always writes the final state, and Zed has the full content.
-	dbWriteInterval = 200 * time.Millisecond
+	// Note: long-running agent sessions can accumulate 10+ MB of response_entries.
+	// Each DB write replaces the entire JSONB blob (TOAST rewrite), so frequent
+	// writes cause massive autovacuum pressure. 5s keeps crash-loss minimal while
+	// reducing TOAST churn ~25x vs the previous 200ms interval.
+	dbWriteInterval = 5 * time.Second
 
 	// publishInterval is the minimum time between frontend pubsub events during streaming.
 	// Frontend batches to requestAnimationFrame (~16ms), so faster is wasted work.
