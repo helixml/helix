@@ -14,13 +14,13 @@
 
 ## Settings-sync-daemon: pre-configure all agents
 
-- [~] Modify `generateAgentServerConfig()` in `api/cmd/settings-sync-daemon/main.go` to return configs for all agents (qwen, claude-acp, and future codex/gemini) instead of just the selected runtime
+- [x] Modify `generateAgentServerConfig()` in `api/cmd/settings-sync-daemon/main.go` to return configs for all agents (qwen, claude-acp, and future codex/gemini) instead of just the selected runtime
 - [ ] Verify Zed lazily spawns agent_servers processes (not all at boot)
 - [ ] Ensure credentials are correctly set for all agent configs
 
 ## Helix API + thread ID mapping (critical)
 
-- [ ] Add `POST /api/v1/sessions/{id}/switch-agent` endpoint — validate idle state (reject if any interaction is `waiting`), update `ZedAgentName` + `CodeAgentRuntime`, create system interaction marker, send `switch_agent` WebSocket command. Do NOT update `ZedThreadID` yet.
+- [~] Add `POST /api/v1/sessions/{id}/switch-agent` endpoint — validate idle state (reject if any interaction is `waiting`), update `ZedAgentName` + `CodeAgentRuntime`, create system interaction marker, send `switch_agent` WebSocket command. Do NOT update `ZedThreadID` yet.
 - [ ] Implement two-phase thread ID swap: on receiving `thread_switched` from Zed, atomically update `Session.Metadata.ZedThreadID`, swap `contextMappings[old] → contextMappings[new]`, and remove old mapping
 - [ ] Add old thread ID to a short-lived draining set — silently drop any late-arriving events from the old thread instead of routing them
 - [ ] Handle switch failure: if Zed doesn't confirm `thread_switched` within timeout, roll back `ZedAgentName` + `CodeAgentRuntime` to previous values
