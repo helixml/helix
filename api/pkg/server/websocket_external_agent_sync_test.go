@@ -1662,9 +1662,11 @@ func (s *WebSocketSyncSuite) TestStreamingThrottle_DBWriteAfterInterval() {
 	s.server.streamingContextsMu.RUnlock()
 	sctx.mu.Lock()
 	s.True(sctx.dirty, "should be dirty after throttled write")
-	s.Equal("Token 1 Token 2", sctx.interaction.ResponseMessage)
+	// ResponseMessage is deferred to DB write, so it may still hold the
+	// first token's value. The accumulator always has the latest content.
+	s.Equal("Token 1 Token 2", sctx.accumulator.Content)
 	// Artificially expire the throttle interval
-	sctx.lastDBWrite = time.Now().Add(-300 * time.Millisecond)
+	sctx.lastDBWrite = time.Now().Add(-10 * time.Second)
 	sctx.mu.Unlock()
 
 	// Now expect another DB write since interval expired
