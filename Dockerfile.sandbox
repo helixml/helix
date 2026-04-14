@@ -11,7 +11,7 @@
 # ====================================================================
 # Pin to specific digest for stable layer caching.
 # Update digest when intentionally upgrading Go version.
-FROM golang:1.25-bookworm AS go-builder
+FROM golang:1.25-bookworm@sha256:29e59af995c51a5bf63d072eca973b918e0e7af4db0e4667aa73f1b8da1a6d8c AS go-builder
 WORKDIR /build
 COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod \
@@ -31,7 +31,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 # ====================================================================
 # Pin to specific digest for stable layer caching.
 # Update digest when intentionally upgrading Ubuntu version.
-FROM ubuntu:25.04 AS sandbox
+FROM ubuntu:25.04@sha256:27771fb7b40a58237c98e8d3e6b9ecdd9289cec69a857fccfb85ff36294dac20 AS sandbox
 
 # Configure default user and set env (from GOW base)
 ENV \
