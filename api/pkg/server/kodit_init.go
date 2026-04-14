@@ -3,6 +3,7 @@
 package server
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -58,57 +59,66 @@ func InitKodit(cfg *config.ServerConfig, gitRepoService *services.GitRepositoryS
 	}
 	koditOpts = append(koditOpts, kodit.WithModelDir(modelDir))
 
-	// Text embedding provider: either external (proxied through Helix) or local ONNX.
-	textEmbedBaseURL := cfg.Kodit.TextEmbeddingBaseURL
-	if textEmbedBaseURL == "" {
-		textEmbedBaseURL = cfg.Kodit.LLMBaseURL
+	// External embedding is opt-in: only activates when an admin has set both a
+	// provider AND a model in Admin > System Settings. Out of the box (no
+	// settings configured), kodit uses its built-in local models — ONNX for
+	// text and SigLIP2 for vision. These are not state-of-the-art but work
+	// without any external dependency.
+	settings, err := store.GetSystemSettings(context.Background())
+	if err != nil {
+		return nil, fmt.Errorf("failed to load system settings for kodit init: %w", err)
 	}
-	textEmbedAPIKey := cfg.Kodit.TextEmbeddingAPIKey
-	if textEmbedAPIKey == "" {
-		textEmbedAPIKey = cfg.Kodit.LLMAPIKey
-	}
-	useLocalTextEmbedding := textEmbedBaseURL == ""
-	if useLocalTextEmbedding {
-		embedder := provider.NewHugotEmbedding(modelDir)
-		koditOpts = append(koditOpts, kodit.WithEmbeddingProvider(embedder))
-		log.Info().Str("model_dir", modelDir).Msg("Kodit text embedding: local ONNX HugotEmbedding")
-	} else {
-		textEmbedModel := cfg.Kodit.TextEmbeddingModel
-		if textEmbedModel == "" {
-			textEmbedModel = "kodit-text-embedding"
+	useExternalText := settings.KoditTextEmbeddingProvider != "" && settings.KoditTextEmbeddingModel != ""
+	useExternalVision := settings.KoditVisionEmbeddingProvider != "" && settings.KoditVisionEmbeddingModel != ""
+
+	// Text embedding provider.
+	if useExternalText {
+		textEmbedBaseURL := cfg.Kodit.TextEmbeddingBaseURL
+		if textEmbedBaseURL == "" {
+			textEmbedBaseURL = cfg.Kodit.LLMBaseURL
+		}
+		textEmbedAPIKey := cfg.Kodit.TextEmbeddingAPIKey
+		if textEmbedAPIKey == "" {
+			textEmbedAPIKey = cfg.Kodit.LLMAPIKey
 		}
 		textEmbedder := provider.NewOpenAIProviderFromConfig(provider.OpenAIConfig{
 			APIKey:         textEmbedAPIKey,
 			BaseURL:        textEmbedBaseURL,
-			EmbeddingModel: textEmbedModel,
+			EmbeddingModel: cfg.Kodit.TextEmbeddingModel, // "kodit-text-embedding" placeholder routed by Helix
 		})
 		koditOpts = append(koditOpts, kodit.WithEmbeddingProvider(textEmbedder))
-		log.Info().Str("base_url", textEmbedBaseURL).Str("model", textEmbedModel).Msg("Kodit text embedding: external provider via Helix proxy")
+		log.Info().
+			Str("provider", settings.KoditTextEmbeddingProvider).
+			Str("model", settings.KoditTextEmbeddingModel).
+			Msg("Kodit text embedding: external provider via Helix proxy")
+	} else {
+		embedder := provider.NewHugotEmbedding(modelDir)
+		koditOpts = append(koditOpts, kodit.WithEmbeddingProvider(embedder))
+		log.Info().Str("model_dir", modelDir).Msg("Kodit text embedding: built-in local ONNX model (configure external in System Settings for better results)")
 	}
 
-	// Vision embedding provider: either external (proxied through Helix) or local SigLIP2 fallback.
-	visionEmbedBaseURL := cfg.Kodit.VisionEmbeddingBaseURL
-	if visionEmbedBaseURL == "" {
-		visionEmbedBaseURL = cfg.Kodit.LLMBaseURL
-	}
-	visionEmbedAPIKey := cfg.Kodit.VisionEmbeddingAPIKey
-	if visionEmbedAPIKey == "" {
-		visionEmbedAPIKey = cfg.Kodit.LLMAPIKey
-	}
-	if visionEmbedBaseURL != "" {
-		visionEmbedModel := cfg.Kodit.VisionEmbeddingModel
-		if visionEmbedModel == "" {
-			visionEmbedModel = "kodit-vision-embedding"
+	// Vision embedding provider.
+	if useExternalVision {
+		visionEmbedBaseURL := cfg.Kodit.VisionEmbeddingBaseURL
+		if visionEmbedBaseURL == "" {
+			visionEmbedBaseURL = cfg.Kodit.LLMBaseURL
+		}
+		visionEmbedAPIKey := cfg.Kodit.VisionEmbeddingAPIKey
+		if visionEmbedAPIKey == "" {
+			visionEmbedAPIKey = cfg.Kodit.LLMAPIKey
 		}
 		visionEmbedder := provider.NewOpenAIVisionProvider(provider.OpenAIConfig{
 			APIKey:         visionEmbedAPIKey,
 			BaseURL:        visionEmbedBaseURL,
-			EmbeddingModel: visionEmbedModel,
+			EmbeddingModel: cfg.Kodit.VisionEmbeddingModel, // "kodit-vision-embedding" placeholder routed by Helix
 		})
 		koditOpts = append(koditOpts, kodit.WithVisionEmbedder(visionEmbedder))
-		log.Info().Str("base_url", visionEmbedBaseURL).Str("model", visionEmbedModel).Msg("Kodit vision embedding: external provider via Helix proxy")
+		log.Info().
+			Str("provider", settings.KoditVisionEmbeddingProvider).
+			Str("model", settings.KoditVisionEmbeddingModel).
+			Msg("Kodit vision embedding: external provider via Helix proxy")
 	} else {
-		log.Info().Msg("Kodit vision embedding: local SigLIP2 (default)")
+		log.Info().Msg("Kodit vision embedding: built-in local SigLIP2 (configure external in System Settings for better results)")
 	}
 
 	// LLM text provider for enrichments (separate from embedding).
@@ -132,11 +142,10 @@ func InitKodit(cfg *config.ServerConfig, gitRepoService *services.GitRepositoryS
 
 	// Pre-flight: verify the ONNX Runtime shared library is present before
 	// attempting to create the kodit client. The hugot error is cryptic;
-	// this gives operators a clear, actionable message.
-	// Only needed when using local ONNX text embedding (and always needed for
-	// local SigLIP2 vision fallback).
+	// this gives operators a clear, actionable message. Needed whenever we
+	// fall back to a local model (text ONNX or vision SigLIP2).
 	ortLibDir := os.Getenv("ORT_LIB_DIR")
-	if ortLibDir != "" && (useLocalTextEmbedding || visionEmbedBaseURL == "") {
+	if ortLibDir != "" && (!useExternalText || !useExternalVision) {
 		ortPath := filepath.Join(ortLibDir, "libonnxruntime.so")
 		if _, err := os.Stat(ortPath); os.IsNotExist(err) {
 			return nil, fmt.Errorf("kodit is enabled but %s not found — ensure the container image was built with the ORT build stage (see Dockerfile)", ortPath)
@@ -145,11 +154,30 @@ func InitKodit(cfg *config.ServerConfig, gitRepoService *services.GitRepositoryS
 
 	gitRepoService.SetKoditGitURL(cfg.Kodit.GitURL)
 
-	// kodit.New() probes the configured embedding endpoint to discover its
-	// vector dimension. When that endpoint is Helix's own /v1/embeddings
-	// proxy, the HTTP listener may not be up yet at this point — so run
-	// kodit.New asynchronously with a retry loop and hand back a placeholder
-	// service that swaps to the real one once ready.
+	// Fast path: no external embedding configured, so kodit.New() only touches
+	// local files — no listener dependency, run synchronously.
+	if !useExternalText && !useExternalVision {
+		client, err := kodit.New(koditOpts...)
+		if err != nil {
+			return nil, fmt.Errorf("failed to initialize kodit client: %w", err)
+		}
+		svc := services.NewKoditService(client)
+		gitRepoService.SetKoditService(svc)
+		log.Info().
+			Str("kodit_git_url", cfg.Kodit.GitURL).
+			Msg("Initialized Kodit code intelligence service")
+		return &KoditResult{
+			Service:    svc,
+			mcpBackend: NewKoditMCPBackend(client, true, store),
+			closer:     client,
+		}, nil
+	}
+
+	// External embedding configured: kodit.New()'s dimension probe hits the
+	// configured endpoint. When that endpoint is Helix's own proxy (the usual
+	// case) the listener isn't bound yet, so run kodit.New asynchronously with
+	// a retry loop and hand back a placeholder service that swaps in once the
+	// probe succeeds.
 	svc := services.NewDeferredKoditService()
 	mcpBackend := NewKoditMCPBackend(nil, true, store)
 	gitRepoService.SetKoditService(svc)
@@ -170,16 +198,15 @@ func InitKodit(cfg *config.ServerConfig, gitRepoService *services.GitRepositoryS
 		result.closer = client
 		log.Info().
 			Str("kodit_git_url", cfg.Kodit.GitURL).
-			Msg("Initialized Kodit code intelligence service")
+			Msg("Initialized Kodit code intelligence service (external embedding)")
 	}()
 
 	return result, nil
 }
 
-// newKoditClientWithRetry calls kodit.New with a retry loop. kodit.New probes
-// the configured embedding endpoint, which in dev setups is Helix's own
-// listener — so the first few attempts will hit connection-refused while the
-// listener comes up.
+// newKoditClientWithRetry calls kodit.New with a retry loop. Used when the
+// embedding endpoint is Helix's own listener — the first few attempts hit
+// connection-refused while the listener binds.
 func newKoditClientWithRetry(opts []kodit.Option) (*kodit.Client, error) {
 	const maxAttempts = 30
 	const delay = 2 * time.Second

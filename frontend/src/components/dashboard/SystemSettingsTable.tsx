@@ -611,8 +611,11 @@ const SystemSettingsTable: FC = () => {
                     <Typography variant="body2" fontWeight="medium">
                       Code Intelligence Text Embedding
                     </Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      Embedding model used by Kodit for indexing code and text snippets
+                    <Typography variant="caption" color="text.secondary" display="block">
+                      Embedding model used by Kodit for indexing code and text snippets.
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary" display="block" mt={0.5}>
+                      Leave unset to use the built-in local ONNX model — it works out of the box but configuring a dedicated embedding model is recommended for better quality. Changing this requires a restart and a full re-index.
                     </Typography>
                   </TableCell>
                   <TableCell>
@@ -671,8 +674,11 @@ const SystemSettingsTable: FC = () => {
                     <Typography variant="body2" fontWeight="medium">
                       Code Intelligence Vision Embedding
                     </Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      Vision embedding model used by Kodit for indexing document pages and images
+                    <Typography variant="caption" color="text.secondary" display="block">
+                      Vision embedding model used by Kodit for indexing document pages and images.
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary" display="block" mt={0.5}>
+                      Leave unset to use the built-in local SigLIP2 model — it works out of the box but configuring a dedicated vision embedding model is recommended for better quality. Changing this requires a restart and a full re-index.
                     </Typography>
                   </TableCell>
                   <TableCell>
