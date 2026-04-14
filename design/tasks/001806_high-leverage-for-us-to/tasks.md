@@ -14,7 +14,7 @@
 
 ## Settings-sync-daemon: pre-configure all agents
 
-- [ ] Modify `generateAgentServerConfig()` in `api/cmd/settings-sync-daemon/main.go` to return configs for all agents (qwen, claude-acp, and future codex/gemini) instead of just the selected runtime
+- [~] Modify `generateAgentServerConfig()` in `api/cmd/settings-sync-daemon/main.go` to return configs for all agents (qwen, claude-acp, and future codex/gemini) instead of just the selected runtime
 - [ ] Verify Zed lazily spawns agent_servers processes (not all at boot)
 - [ ] Ensure credentials are correctly set for all agent configs
 
