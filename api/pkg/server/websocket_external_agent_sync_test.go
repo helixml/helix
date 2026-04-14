@@ -1666,6 +1666,7 @@ func (s *WebSocketSyncSuite) TestStreamingThrottle_DBWriteAfterInterval() {
 	s.server.streamingContextsMu.RUnlock()
 	sctx.mu.Lock()
 	s.True(sctx.dirty, "should be dirty after throttled write")
+	// ResponseMessage is deferred to DB write, so check accumulator instead.
 	sctx.accumulator.Rebuild()
 	s.Equal("Token 1 Token 2", sctx.accumulator.Content)
 	// Artificially expire the throttle interval
