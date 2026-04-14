@@ -1189,18 +1189,20 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 					Msg("📝 [HELIX] New distinct message detected (different message_id)")
 			}
 
-			targetInteraction.ResponseMessage = acc.Content
 			targetInteraction.LastZedMessageID = acc.LastMessageID
-			targetInteraction.LastZedMessageOffset = acc.Offset
 			targetInteraction.Updated = time.Now()
 			sctx.dirty = true
 
 			// THROTTLED DB WRITE: Only flush to DB if enough time has passed.
 			// The in-memory interaction always has the latest content.
-			// Marshal response_entries only when we're actually writing to avoid
-			// serializing multi-MB JSON on every message (~16 MB at 211 entries).
+			// Rebuild Content/Offset and marshal response_entries only when
+			// actually writing — avoids joining 17 MB of strings and
+			// serializing multi-MB JSON on every message.
 			now := time.Now()
 			if now.Sub(sctx.lastDBWrite) >= dbWriteInterval {
+				acc.Rebuild()
+				targetInteraction.ResponseMessage = acc.Content
+				targetInteraction.LastZedMessageOffset = acc.Offset
 				if entriesJSON, entErr := json.Marshal(acc.Entries()); entErr == nil {
 					_ = json.Unmarshal(entriesJSON, &targetInteraction.ResponseEntries)
 				}
@@ -1370,8 +1372,11 @@ func (apiServer *HelixAPIServer) getOrCreateStreamingContext(ctx context.Context
 					sctx.interaction.State = types.InteractionStateComplete
 					sctx.interaction.Completed = time.Now()
 					sctx.interaction.Updated = time.Now()
-					// Store accumulated response entries if any
+					// Store accumulated response entries and content
 					if sctx.accumulator != nil {
+						sctx.accumulator.Rebuild()
+						sctx.interaction.ResponseMessage = sctx.accumulator.Content
+						sctx.interaction.LastZedMessageOffset = sctx.accumulator.Offset
 						entries := sctx.accumulator.Entries()
 						if len(entries) > 0 {
 							if entriesJSON, err := json.Marshal(entries); err == nil {
@@ -1541,9 +1546,12 @@ func (apiServer *HelixAPIServer) flushAndClearStreamingContext(ctx context.Conte
 
 	if sctx.interaction != nil {
 		if sctx.dirty {
-			// Marshal response_entries before flushing — the streaming loop
-			// defers marshaling to the DB write throttle, so it may be stale.
+			// Rebuild Content/ResponseEntries before flushing — the streaming
+			// loop defers these to the DB write throttle, so they may be stale.
 			if sctx.accumulator != nil {
+				sctx.accumulator.Rebuild()
+				sctx.interaction.ResponseMessage = sctx.accumulator.Content
+				sctx.interaction.LastZedMessageOffset = sctx.accumulator.Offset
 				if entriesJSON, err := json.Marshal(sctx.accumulator.Entries()); err == nil {
 					_ = json.Unmarshal(entriesJSON, &sctx.interaction.ResponseEntries)
 				}

@@ -40,6 +40,11 @@ type MessageAccumulator struct {
 	LastMessageID string
 	Offset        int // kept for DB backward compat; not used in new logic
 
+	// contentDirty tracks whether Content/Offset need rebuilding.
+	// rebuild() is deferred until Content is actually needed (DB write or
+	// completion) to avoid joining 17 MB of strings on every message.
+	contentDirty bool
+
 	// Ordered list of message IDs (insertion order)
 	messageOrder []string
 	// Map from message_id to its content
@@ -132,7 +137,7 @@ func (a *MessageAccumulator) AddMessageWithToolInfo(messageID, content, entryTyp
 	}
 
 	a.LastMessageID = messageID
-	a.rebuild()
+	a.contentDirty = true
 }
 
 // Entries returns the structured response entries in insertion order,
@@ -163,6 +168,17 @@ func (a *MessageAccumulator) Entries() []ResponseEntry {
 		})
 	}
 	return entries
+}
+
+// Rebuild reconstructs Content and Offset from the accumulated messages.
+// Call this before reading Content (e.g. before a DB write or completion).
+// No-op if content hasn't changed since the last rebuild.
+func (a *MessageAccumulator) Rebuild() {
+	if !a.contentDirty {
+		return
+	}
+	a.rebuild()
+	a.contentDirty = false
 }
 
 // rebuild reconstructs Content by joining all messages in insertion order.
