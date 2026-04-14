@@ -1510,9 +1510,13 @@ func (s *WebSocketSyncSuite) TestStreamingContextCache_SecondTokenSkipsDBQueries
 	err = s.server.handleMessageAdded("agent-1", syncMsg2)
 	s.NoError(err)
 
-	// Verify in-memory content is updated despite no DB write
+	// Verify accumulator has latest content despite no DB write.
+	// ResponseMessage is only updated on DB write (deferred), so check
+	// the accumulator which always has the latest content.
 	sctx.mu.Lock()
-	s.Equal("Hello, world!", sctx.interaction.ResponseMessage)
+	s.NotNil(sctx.accumulator, "accumulator should exist")
+	sctx.accumulator.Rebuild()
+	s.Equal("Hello, world!", sctx.accumulator.Content)
 	s.True(sctx.dirty, "interaction should be dirty (not yet flushed)")
 	sctx.mu.Unlock()
 }
@@ -1656,14 +1660,14 @@ func (s *WebSocketSyncSuite) TestStreamingThrottle_DBWriteAfterInterval() {
 	err = s.server.handleMessageAdded("agent-1", syncMsg)
 	s.NoError(err)
 
-	// Verify dirty flag
+	// Verify dirty flag — ResponseMessage is deferred to DB write, so check accumulator
 	s.server.streamingContextsMu.RLock()
 	sctx := s.server.streamingContexts["ses_throttle"]
 	s.server.streamingContextsMu.RUnlock()
 	sctx.mu.Lock()
 	s.True(sctx.dirty, "should be dirty after throttled write")
-	// ResponseMessage is deferred to DB write, so it may still hold the
-	// first token's value. The accumulator always has the latest content.
+	// ResponseMessage is deferred to DB write, so check accumulator instead.
+	sctx.accumulator.Rebuild()
 	s.Equal("Token 1 Token 2", sctx.accumulator.Content)
 	// Artificially expire the throttle interval
 	sctx.lastDBWrite = time.Now().Add(-10 * time.Second)
@@ -1814,13 +1818,15 @@ func (s *WebSocketSyncSuite) TestStreamingThrottle_MultiMessageAccumulation() {
 	err = s.server.handleMessageAdded("agent-1", syncMsg)
 	s.NoError(err)
 
-	// Verify accumulated content in memory
+	// Verify accumulated content in memory — ResponseMessage is deferred to DB
+	// write, so check the accumulator which always has the latest content.
 	s.server.streamingContextsMu.RLock()
 	sctx := s.server.streamingContexts["ses_multi"]
 	s.server.streamingContextsMu.RUnlock()
 
 	sctx.mu.Lock()
-	s.Equal("Let me help\n\n[Running: ls -la]", sctx.interaction.ResponseMessage)
+	sctx.accumulator.Rebuild()
+	s.Equal("Let me help\n\n[Running: ls -la]", sctx.accumulator.Content)
 	s.Equal("msg-tool", sctx.interaction.LastZedMessageID)
 
 	// Third update: tool call status changes (same message_id, content replaces from offset)
@@ -1831,7 +1837,8 @@ func (s *WebSocketSyncSuite) TestStreamingThrottle_MultiMessageAccumulation() {
 	s.NoError(err)
 
 	sctx.mu.Lock()
-	s.Equal("Let me help\n\n[Finished: ls -la]\nfile1.txt\nfile2.txt", sctx.interaction.ResponseMessage)
+	sctx.accumulator.Rebuild()
+	s.Equal("Let me help\n\n[Finished: ls -la]\nfile1.txt\nfile2.txt", sctx.accumulator.Content)
 	s.True(sctx.dirty)
 	sctx.mu.Unlock()
 }
