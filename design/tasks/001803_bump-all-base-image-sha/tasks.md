@@ -2,7 +2,7 @@
 
 ## Phase 1: Resolve All Multi-Arch Manifest Digests
 
-- [ ] Run `docker buildx imagetools inspect` for each of the 17 unique image tags listed in design.md and record the multi-arch manifest digest for each
+- [~] Run `docker buildx imagetools inspect` for each of the 17 unique image tags listed in design.md and record the multi-arch manifest digest for each
 - [ ] For `nvidia/cuda:12.6.3-runtime-ubuntu24.04`: confirm whether it publishes a multi-arch manifest list (amd64 + arm64) or is amd64-only; if amd64-only, document with a comment on the ARG line
 
 ## Phase 2: Update Group A — Already Pinned, Refresh Digest
