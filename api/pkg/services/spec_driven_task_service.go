@@ -1121,6 +1121,22 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, task *types.Sp
 		return fmt.Errorf("failed to get task: %w", err)
 	}
 
+	// Idempotency guard: the HTTP handler fires a goroutine calling
+	// ApproveSpecs immediately, but the orchestrator polling loop can
+	// also pick up tasks in spec_approved status and call it again.
+	// Without this check the implementation instruction is sent twice,
+	// creating two interactions with different request_ids that poison
+	// the completedRequestIDs dedup map and stall all follow-ups.
+	if task.Status == types.TaskStatusImplementation ||
+		task.Status == types.TaskStatusImplementationQueued ||
+		task.Status == types.TaskStatusQueuedImplementation {
+		log.Info().
+			Str("task_id", task.ID).
+			Str("status", string(task.Status)).
+			Msg("[ApproveSpecs] Task already past approval — skipping (idempotency guard)")
+		return nil
+	}
+
 	if task.SpecApproval == nil {
 		return fmt.Errorf("spec approval not found")
 	}
