@@ -30,21 +30,20 @@ type KoditResult struct {
 
 	// Fields below support in-process reinit when the admin changes the kodit
 	// embedding model in System Settings. They are nil when kodit is disabled.
-	deferred       *services.DeferredKoditService
+	koditService   *services.KoditService
 	cfg            *config.ServerConfig
 	store          store.Store
 	gitRepoService *services.GitRepositoryService
 
-	// mu serialises Reinit calls and protects client.
-	mu     sync.Mutex
-	client *kodit.Client
+	// mu serialises Reinit calls.
+	mu sync.Mutex
 }
 
 // InitKodit creates the kodit client, service, and MCP backend. When kodit is
 // disabled in config it returns a disabled service and nil closer.
 //
-// kodit.New is called synchronously. Since the season-valley branch of kodit
-// defers its embedding-dimension probe to first use, we have no listener
+// kodit.New is called synchronously. The season-valley kodit branch defers
+// the embedding-dimension probe to first use, so there is no listener
 // dependency at startup even when the embedding provider is configured to
 // call back into Helix's own /v1/embeddings proxy.
 func InitKodit(cfg *config.ServerConfig, gitRepoService *services.GitRepositoryService, store store.Store) (*KoditResult, error) {
@@ -60,23 +59,6 @@ func InitKodit(cfg *config.ServerConfig, gitRepoService *services.GitRepositoryS
 		return nil, fmt.Errorf("KODIT_DB_URL is required when kodit is enabled")
 	}
 
-	// Use a deferred (atomically-swappable) service everywhere so that Reinit
-	// can replace the real inner service without rewiring downstream consumers
-	// that hold a reference to KoditResult.Service.
-	deferred := services.NewDeferredKoditService()
-	mcpBackend := NewKoditMCPBackend(nil, true, store)
-	gitRepoService.SetKoditGitURL(cfg.Kodit.GitURL)
-	gitRepoService.SetKoditService(deferred)
-
-	result := &KoditResult{
-		Service:        deferred,
-		mcpBackend:     mcpBackend,
-		deferred:       deferred,
-		cfg:            cfg,
-		store:          store,
-		gitRepoService: gitRepoService,
-	}
-
 	opts, decision, err := buildKoditOpts(cfg, store)
 	if err != nil {
 		return nil, err
@@ -89,11 +71,28 @@ func InitKodit(cfg *config.ServerConfig, gitRepoService *services.GitRepositoryS
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize kodit client: %w", err)
 	}
-	result.installClient(client)
+
+	// KoditService wraps the *kodit.Client in an atomic pointer so Reinit can
+	// swap it in place — downstream consumers keep their KoditServicer
+	// reference, the client under the hood changes.
+	svc := services.NewKoditService(client)
+	mcpBackend := NewKoditMCPBackend(client, true, store)
+	gitRepoService.SetKoditGitURL(cfg.Kodit.GitURL)
+	gitRepoService.SetKoditService(svc)
+
 	log.Info().
 		Str("kodit_git_url", cfg.Kodit.GitURL).
 		Msg("Initialized Kodit code intelligence service")
-	return result, nil
+
+	return &KoditResult{
+		Service:        svc,
+		mcpBackend:     mcpBackend,
+		closer:         client,
+		koditService:   svc,
+		cfg:            cfg,
+		store:          store,
+		gitRepoService: gitRepoService,
+	}, nil
 }
 
 // Reinit rebuilds the kodit client from the current System Settings. Called
@@ -102,30 +101,21 @@ func InitKodit(cfg *config.ServerConfig, gitRepoService *services.GitRepositoryS
 // dimension change on first use and drops + rebuilds the vector tables,
 // re-queuing each registered repository for indexing.
 //
-// The swap is ordered to keep things safe:
-//  1. Park the public service on a disabled service so new queries get a
-//     clean "unavailable" response while the swap is in flight.
-//  2. Close the old kodit client (drains workers, closes DB).
-//  3. kodit.New with fresh opts.
-//  4. Install the new client into the deferred service and MCP backend.
+// Ordering:
+//  1. Build new opts from fresh settings + call kodit.New — if this fails
+//     the live client is untouched.
+//  2. Atomically swap the new client into the KoditService pointer so new
+//     queries hit the new client.
+//  3. Update the MCP backend to use the new client.
+//  4. Close the old client to drain workers and release its DB handle.
 func (k *KoditResult) Reinit(_ context.Context) error {
-	if k == nil || k.deferred == nil {
+	if k == nil || k.koditService == nil {
 		return fmt.Errorf("kodit reinit: not initialised")
 	}
 	k.mu.Lock()
 	defer k.mu.Unlock()
 
 	log.Info().Msg("kodit reinit requested")
-
-	k.deferred.Set(services.NewDisabledKoditService())
-
-	if k.client != nil {
-		if err := k.client.Close(); err != nil {
-			log.Warn().Err(err).Msg("error closing old kodit client during reinit (continuing)")
-		}
-		k.client = nil
-		k.closer = nil
-	}
 
 	opts, decision, err := buildKoditOpts(k.cfg, k.store)
 	if err != nil {
@@ -140,18 +130,18 @@ func (k *KoditResult) Reinit(_ context.Context) error {
 		return fmt.Errorf("kodit reinit: new client: %w", err)
 	}
 
-	k.installClient(newClient)
+	oldClient := k.koditService.SwapClient(newClient)
+	k.mcpBackend.setClient(newClient)
+	k.closer = newClient
+
+	if oldClient != nil {
+		if err := oldClient.Close(); err != nil {
+			log.Warn().Err(err).Msg("error closing old kodit client during reinit")
+		}
+	}
+
 	log.Info().Msg("kodit reinit complete; repositories will be re-indexed in background")
 	return nil
-}
-
-// installClient promotes the given kodit client to the active one. Callers
-// either hold k.mu (Reinit) or run exactly once from InitKodit.
-func (k *KoditResult) installClient(client *kodit.Client) {
-	k.client = client
-	k.closer = client
-	k.deferred.Set(services.NewKoditService(client))
-	k.mcpBackend.setClient(client)
 }
 
 // buildKoditOpts reads the current System Settings and returns the kodit
