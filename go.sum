@@ -554,8 +554,8 @@ github.com/hashicorp/go-version v1.9.0/go.mod h1:fltr4n8CU8Ke44wwGCBoEymUuxUHl09
 github.com/hashicorp/golang-lru/v2 v2.0.7 h1:a+bsQ5rvGLjzHuww6tVxozPZFVghXaHOwFs4luLUK2k=
 github.com/hashicorp/golang-lru/v2 v2.0.7/go.mod h1:QeFd9opnmA6QUJc5vARoKUSoFhyfM2/ZepoAG6RGpeM=
 github.com/hashicorp/hcl v1.0.0/go.mod h1:E5yfLk+7swimpb2L/Alb/PJmXilQ/rhwaUYs4T20WEQ=
-github.com/helixml/kodit v1.3.2-0.20260415142837-6a672eadb94e h1:AvN1jk1QtMpgd2VgdlUamird3L6p7k56hjjFkJhBxZc=
-github.com/helixml/kodit v1.3.2-0.20260415142837-6a672eadb94e/go.mod h1:NhT1+0j9LZk6u0mZzuMbyc/P/Rfheh8OYLUxANN9JTg=
+github.com/helixml/kodit v1.3.2 h1:f0tPl9JUFu4gN/IfCOWphMsb/lw6nkvv1LnOZMWaCYs=
+github.com/helixml/kodit v1.3.2/go.mod h1:NhT1+0j9LZk6u0mZzuMbyc/P/Rfheh8OYLUxANN9JTg=
 github.com/helixml/langchaingo v0.1.15 h1:6cEwRQgEri4aDrvDnSESmsMY9H35UUoWuOEukSP3lJw=
 github.com/helixml/langchaingo v0.1.15/go.mod h1:EeervIv/DNYhSfQSMaql20wMFvhgF7lDaVaatp8lVPw=
 github.com/hpcloud/tail v1.0.0/go.mod h1:ab1qPbhIpdTxEkNHXyeSf5vhxWSCs/tWer42PpOxQnU=
