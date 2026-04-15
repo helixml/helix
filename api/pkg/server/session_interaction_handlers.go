@@ -82,7 +82,7 @@ func (s *HelixAPIServer) listInteractions(_ http.ResponseWriter, req *http.Reque
 				}
 				for i, entry := range entries {
 					if content, ok := entry["content"].(string); ok && len(content) > maxEntryContentLen {
-						entries[i]["content"] = content[len(content)-maxEntryContentLen:]
+						entries[i]["content"] = content[:maxEntryContentLen] + "\n\n[content truncated]"
 					}
 				}
 				if truncatedJSON, err := json.Marshal(entries); err == nil {
