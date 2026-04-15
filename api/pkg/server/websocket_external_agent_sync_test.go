@@ -407,7 +407,7 @@ func (s *WebSocketSyncSuite) TestMessageAdded_AssistantNewMessageID_MultiEntry()
 	}
 	s.store.EXPECT().GetSession(gomock.Any(), "ses_3").Return(session, nil)
 
-	// Interaction already has content from msg-A
+	// Interaction already has content from msg-A (with structured entries)
 	existingInteraction := &types.Interaction{
 		ID:                   "int-3",
 		SessionID:            "ses_3",
@@ -415,6 +415,7 @@ func (s *WebSocketSyncSuite) TestMessageAdded_AssistantNewMessageID_MultiEntry()
 		ResponseMessage:      "First message",
 		LastZedMessageID:     "msg-A",
 		LastZedMessageOffset: 0,
+		ResponseEntries:      []byte(`[{"type":"text","content":"First message","message_id":"msg-A"}]`),
 	}
 	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(
 		[]*types.Interaction{existingInteraction}, int64(1), nil,

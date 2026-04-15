@@ -1,10 +1,58 @@
 package wsprotocol
 
 import (
+	"encoding/json"
 	"strings"
 
 	"github.com/helixml/helix/api/pkg/util/sanitize"
+	"gorm.io/datatypes"
 )
+
+// RestoreAccumulator rebuilds an accumulator from persisted DB state.
+// If structured response_entries are available, it restores the full
+// message_id→content map with correct types. Otherwise falls back to
+// the legacy Content/LastMessageID/Offset restore which loses structure.
+func RestoreAccumulator(content string, lastMessageID string, offset int, responseEntries datatypes.JSON) *MessageAccumulator {
+	// Try structured restore from response_entries
+	if len(responseEntries) > 0 {
+		var entries []ResponseEntry
+		if err := json.Unmarshal(responseEntries, &entries); err == nil && len(entries) > 0 {
+			acc := &MessageAccumulator{
+				Content:        content,
+				LastMessageID:  lastMessageID,
+				Offset:         offset,
+				contentDirty:   false,
+				messageOrder:   make([]string, 0, len(entries)),
+				messageContent: make(map[string]string, len(entries)),
+				messageType:    make(map[string]string, len(entries)),
+				messageToolName:   make(map[string]string),
+				messageToolStatus: make(map[string]string),
+			}
+			for _, entry := range entries {
+				id := entry.MessageID
+				if id == "" {
+					continue
+				}
+				acc.messageOrder = append(acc.messageOrder, id)
+				acc.messageContent[id] = entry.Content
+				acc.messageType[id] = entry.Type
+				if entry.ToolName != "" {
+					acc.messageToolName[id] = entry.ToolName
+				}
+				if entry.ToolStatus != "" {
+					acc.messageToolStatus[id] = entry.ToolStatus
+				}
+			}
+			if lastMessageID == "" && len(acc.messageOrder) > 0 {
+				acc.LastMessageID = acc.messageOrder[len(acc.messageOrder)-1]
+			}
+			return acc
+		}
+	}
+
+	// No structured entries — start fresh.
+	return &MessageAccumulator{}
+}
 
 // ResponseEntry represents a single typed entry in the response.
 // Used to preserve the structural boundary between assistant text and tool calls.
@@ -89,23 +137,6 @@ func (a *MessageAccumulator) AddMessageWithToolInfo(messageID, content, entryTyp
 	}
 	if a.messageToolStatus == nil {
 		a.messageToolStatus = make(map[string]string)
-	}
-
-	// Migrate legacy state: if we have Content but no messageOrder, this
-	// accumulator was restored from DB (only LastMessageID/Offset persisted).
-	// Treat the existing Content as belonging to LastMessageID so we don't
-	// lose it. This only runs once on first AddMessage after restore.
-	if len(a.messageOrder) == 0 && a.Content != "" && a.LastMessageID != "" {
-		a.messageOrder = []string{a.LastMessageID}
-		a.messageContent[a.LastMessageID] = a.Content[a.Offset:]
-		if a.Offset > 2 {
-			// There was a prefix before this message. We can't recover individual
-			// message_ids for the prefix, so store it under a synthetic key that
-			// sorts before any real message_id.
-			const prefixKey = "\x00__prefix__"
-			a.messageOrder = append([]string{prefixKey}, a.messageOrder...)
-			a.messageContent[prefixKey] = a.Content[:a.Offset-2] // subtract "\n\n"
-		}
 	}
 
 	if _, exists := a.messageContent[messageID]; exists {

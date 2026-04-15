@@ -1137,11 +1137,12 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 			// Creating a new accumulator per call would lose this mapping because
 			// the DB only stores the joined Content string + LastMessageID/Offset.
 			if sctx.accumulator == nil {
-				sctx.accumulator = &wsprotocol.MessageAccumulator{
-					Content:       targetInteraction.ResponseMessage,
-					LastMessageID: targetInteraction.LastZedMessageID,
-					Offset:        targetInteraction.LastZedMessageOffset,
-				}
+				sctx.accumulator = wsprotocol.RestoreAccumulator(
+					targetInteraction.ResponseMessage,
+					targetInteraction.LastZedMessageID,
+					targetInteraction.LastZedMessageOffset,
+					targetInteraction.ResponseEntries,
+				)
 			}
 			acc := sctx.accumulator
 			prevMessageID := acc.LastMessageID

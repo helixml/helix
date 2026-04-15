@@ -316,19 +316,21 @@ func TestEntriesStreamingGrowth(t *testing.T) {
 }
 
 func TestResumeFromPersistedState(t *testing.T) {
-	// Simulate restoring state from DB after API restart
-	a := &MessageAccumulator{
-		Content:       "Previous message\n\nStreaming...",
-		LastMessageID: "msg-2",
-		Offset:        len("Previous message") + 2,
-	}
+	// Simulate restoring state from DB after API restart using structured entries
+	entries := []byte(`[{"type":"text","content":"Previous message","message_id":"msg-1"},{"type":"text","content":"Streaming...","message_id":"msg-2"}]`)
+	a := RestoreAccumulator(
+		"Previous message\n\nStreaming...",
+		"msg-2",
+		len("Previous message")+2,
+		entries,
+	)
 
 	// Continue streaming msg-2
 	a.AddMessage("msg-2", "Streaming complete")
 
 	expected := "Previous message\n\nStreaming complete"
 	a.Rebuild()
-	if a.Content !=expected {
+	if a.Content != expected {
 		t.Errorf("expected %q, got %q", expected, a.Content)
 	}
 
@@ -337,7 +339,7 @@ func TestResumeFromPersistedState(t *testing.T) {
 
 	expected = "Previous message\n\nStreaming complete\n\nFinal"
 	a.Rebuild()
-	if a.Content !=expected {
+	if a.Content != expected {
 		t.Errorf("expected %q, got %q", expected, a.Content)
 	}
 }

@@ -1,4 +1,4 @@
-import React, { FC, useState, useEffect } from "react";
+import React, { FC, useState, useEffect, useMemo } from "react";
 import { styled } from "@mui/system";
 import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
@@ -267,6 +267,18 @@ export const InteractionInference: FC<{
       },
     }));
 
+  // Derive copy text from response_entries when response_message is empty
+  // (the API strips it to save bandwidth when entries exist)
+  const copyText = useMemo(() => {
+    if (message) return message;
+    const entries = (interaction as any)?.response_entries as ResponseEntry[] | undefined;
+    if (!entries || entries.length === 0) return "";
+    return entries
+      .filter((e: ResponseEntry) => e.type === "text")
+      .map((e: ResponseEntry) => e.content)
+      .join("\n\n");
+  }, [message, interaction]);
+
   if (!serverConfig || !serverConfig.filestore_prefix) return null;
   if (!interaction) return null;
 
@@ -306,7 +318,7 @@ export const InteractionInference: FC<{
       {toolSteps.length > 0 && isFromAssistant && (
         <ToolStepsWidget steps={toolSteps} />
       )}
-      {message && (
+      {(message || (interaction as any)?.response_entries?.length > 0) && (
         <Box
           sx={{
             my: 0.5,
@@ -416,7 +428,7 @@ export const InteractionInference: FC<{
                       </Tooltip>
 
                       <CopyButtonWithCheck
-                        text={message || ""}
+                        text={copyText}
                         alwaysVisible={isLastInteraction}
                       />
 

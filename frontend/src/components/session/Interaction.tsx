@@ -267,7 +267,7 @@ export const Interaction: FC<InteractionProps> = ({
       )}
 
       {/* Assistant Response Container */}
-      {(assistantMessage || isLive) && (
+      {(assistantMessage || (interaction as any)?.response_entries?.length > 0 || isLive) && (
         <Box
           sx={{
             display: "flex",
