@@ -1638,6 +1638,8 @@ definitions:
         additionalProperties:
           type: string
         type: object
+      page:
+        type: integer
       path:
         type: string
       preview:
@@ -13464,6 +13466,50 @@ paths:
       summary: Get repository indexing status
       tags:
       - git-repositories
+  /api/v1/git/repositories/{id}/page-image:
+    get:
+      description: Rasterizes a document page (PDF, etc.) and returns it as a PNG
+        image
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: File path within the repository
+        in: query
+        name: path
+        required: true
+        type: string
+      - description: 1-based page number
+        in: query
+        name: page
+        required: true
+        type: integer
+      produces:
+      - image/png
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: file
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Render document page image
+      tags:
+      - git-repositories
   /api/v1/git/repositories/{id}/pull:
     post:
       description: Pulls latest commits from remote repository
@@ -13828,6 +13874,48 @@ paths:
       security:
       - BearerAuth: []
       summary: Browse repository tree
+      tags:
+      - git-repositories
+  /api/v1/git/repositories/{id}/visual-search:
+    get:
+      description: Search document pages (PDFs, etc.) using cross-modal visual similarity
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Natural language search query
+        in: query
+        name: query
+        required: true
+        type: string
+      - description: Maximum results (default 10, max 100)
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.KoditSearchResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Visual search repository
       tags:
       - git-repositories
   /api/v1/git/repositories/{id}/wiki:
@@ -17866,6 +17954,10 @@ paths:
         in: path
         name: id
         required: true
+        type: string
+      - description: Set to '1' to omit interactions from the response
+        in: query
+        name: skipInteractions
         type: string
       responses:
         "200":
