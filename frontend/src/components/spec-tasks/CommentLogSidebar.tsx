@@ -12,6 +12,7 @@ interface StreamingResponse {
   commentId: string
   content: string
   entries: ResponseEntry[]
+  isComplete?: boolean
 }
 
 interface CommentLogSidebarProps {
@@ -61,7 +62,8 @@ export default function CommentLogSidebar({
             const displayEntries = isActiveStream
               ? streamingResponse!.entries
               : comment.agent_response_entries
-            const isStreaming = isActiveStream && !comment.agent_response
+            // isComplete: stream done, keep content visible but hide spinner
+            const isStreaming = isActiveStream && !comment.agent_response && !streamingResponse?.isComplete
 
             return (
               <Paper key={comment.id} sx={{ mb: 2, p: 2, opacity: comment.resolved ? 0.6 : 1 }}>
