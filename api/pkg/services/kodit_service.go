@@ -1036,3 +1036,22 @@ func (s *KoditService) RescanCommit(ctx context.Context, koditRepoID int64, comm
 	log.Info().Int64("kodit_repo_id", koditRepoID).Str("commit_sha", commitSHA).Msg("Triggered commit rescan in Kodit")
 	return nil
 }
+
+// RescanAllRepositories triggers a rescan of every registered repository in
+// Kodit. Unlike SyncRepository, which skips commits that already have
+// enrichments, a rescan clears each commit's enrichments/files and forces
+// the pipeline to re-embed everything. Needed after an embedding-provider
+// change so stale-dimension vectors in vectorchord_* tables get replaced
+// before a user can run a search that would otherwise hit a SQL dim
+// mismatch.
+func (s *KoditService) RescanAllRepositories(ctx context.Context) error {
+	c := s.client.Load()
+	if c == nil {
+		return fmt.Errorf("kodit service not enabled")
+	}
+	if err := c.Repositories.RescanAll(ctx); err != nil {
+		return fmt.Errorf("failed to rescan all repositories: %w", err)
+	}
+	log.Info().Msg("Triggered rescan of all repositories in Kodit")
+	return nil
+}

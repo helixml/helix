@@ -145,50 +145,21 @@ func (k *KoditResult) Reinit(ctx context.Context) error {
 		}
 	}
 
-	// Fire-and-forget: enqueue a rescan for every registered repository so
-	// every embedding table gets rebuilt before a user searches. The loop
-	// can take a while against a big install; don't block the HTTP handler.
-	go k.resyncAllRepositories(context.Background())
-
-	log.Info().Msg("kodit reinit complete; repositories will be re-synced in background")
-	return nil
-}
-
-// resyncAllRepositories triggers a sync for every repository kodit knows
-// about. Used after Reinit so the new embedder actually writes to every
-// vector table and triggers the lazy dim-change probe — otherwise a table
-// that isn't touched can still hold stale-dimension vectors and fail the
-// next search with a SQL dimension mismatch.
-func (k *KoditResult) resyncAllRepositories(ctx context.Context) {
-	const pageSize = 500
-	var total, synced, failed int
-	for offset := 0; ; offset += pageSize {
-		repos, _, err := k.koditService.ListRepositories(ctx, pageSize, offset)
-		if err != nil {
-			log.Error().Err(err).Msg("kodit reinit: list repositories for resync failed")
+	// Fire-and-forget: rescan every repository so every embedding table
+	// gets rebuilt before a user searches. Rescan (not Sync) is required —
+	// Sync skips commits whose enrichments already exist, which would leave
+	// stale-dimension vectors in the tables untouched and fail the next
+	// vector query with a SQL dimension mismatch.
+	go func() {
+		if err := k.koditService.RescanAllRepositories(context.Background()); err != nil {
+			log.Error().Err(err).Msg("kodit reinit: rescan-all failed")
 			return
 		}
-		if len(repos) == 0 {
-			break
-		}
-		total += len(repos)
-		for _, r := range repos {
-			if err := k.koditService.SyncRepository(ctx, r.ID()); err != nil {
-				failed++
-				log.Warn().Err(err).Int64("repo_id", r.ID()).Msg("kodit reinit: failed to enqueue sync for repository")
-				continue
-			}
-			synced++
-		}
-		if len(repos) < pageSize {
-			break
-		}
-	}
-	log.Info().
-		Int("total", total).
-		Int("synced", synced).
-		Int("failed", failed).
-		Msg("kodit reinit: resync enqueue complete")
+		log.Info().Msg("kodit reinit: rescan-all enqueued")
+	}()
+
+	log.Info().Msg("kodit reinit complete; repositories will be re-indexed in background")
+	return nil
 }
 
 // buildKoditOpts reads the current System Settings and returns the kodit

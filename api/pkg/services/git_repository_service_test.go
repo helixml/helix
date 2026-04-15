@@ -69,6 +69,7 @@ func (f *fakeKodit) GetRepositoryStatus(_ context.Context, _ int64) (tracking.Re
 	return tracking.RepositoryStatusSummary{}, f.err
 }
 func (f *fakeKodit) RescanCommit(_ context.Context, _ int64, _ string) error { return f.err }
+func (f *fakeKodit) RescanAllRepositories(_ context.Context) error            { return f.err }
 func (f *fakeKodit) ListRepositories(_ context.Context, _, _ int) ([]repository.Repository, int64, error) {
 	return nil, 0, f.err
 }
