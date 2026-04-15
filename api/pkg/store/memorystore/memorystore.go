@@ -103,6 +103,7 @@ func (m *MemoryStore) CreateSession(_ context.Context, session types.Session) (*
 func (m *MemoryStore) UpdateSession(_ context.Context, session types.Session) (*types.Session, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	session.Updated = time.Now()
 	cp := session
 	m.sessions[session.ID] = &cp
 	return &cp, nil

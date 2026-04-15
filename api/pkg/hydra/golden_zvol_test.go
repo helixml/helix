@@ -870,6 +870,26 @@ func (s *GoldenZvolSuite) TestGCOrphanedZvols_KeepsRecentInactive() {
 	assert.Equal(s.T(), 0, cleaned, "should keep active zvol")
 }
 
+func (s *GoldenZvolSuite) TestGCOrphanedZvols_CleansNoMarker() {
+	zfsParentDataset = "prod/helix-zvols"
+	zfsAvailableFlag = true
+
+	// Override sessionsBaseDir to use temp dir (no markers will exist)
+	oldSessionsBaseDir := sessionsBaseDir
+	sessionsBaseDir = filepath.Join(s.tmpDir, "sessions")
+	defer func() { sessionsBaseDir = oldSessionsBaseDir }()
+
+	// Session with no marker and no running container — should be GC'd
+	s.mock.addDataset("prod/helix-zvols/ses-ses_no_marker")
+
+	active := map[string]bool{} // nothing running
+
+	cleaned, err := GCOrphanedZvols(active)
+	require.NoError(s.T(), err)
+	assert.Equal(s.T(), 1, cleaned)
+	assert.True(s.T(), s.mock.hasCommand("zfs destroy prod/helix-zvols/ses-ses_no_marker"))
+}
+
 // -----------------------------------------------------------------------
 // zfsDatasetExists / isMounted
 // -----------------------------------------------------------------------

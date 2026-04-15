@@ -17964,6 +17964,10 @@ paths:
         name: id
         required: true
         type: string
+      - description: Set to '1' to omit interactions from the response
+        in: query
+        name: skipInteractions
+        type: string
       responses:
         "200":
           description: OK

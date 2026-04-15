@@ -45,13 +45,17 @@ export function useListSessionSteps(sessionId: string, options?: { enabled?: boo
   })
 }
 
-export function useGetSession(sessionId: string, options?: { enabled?: boolean; refetchInterval?: number | false }) {
+export function useGetSession(sessionId: string, options?: { enabled?: boolean; refetchInterval?: number | false; skipInteractions?: boolean }) {
   const api = useApi()
   const apiClient = api.getApiClient()
+  const skipInteractions = options?.skipInteractions ?? false
 
   return useQuery({
-    queryKey: GET_SESSION_QUERY_KEY(sessionId),
-    queryFn: () => apiClient.v1SessionsDetail(sessionId),
+    queryKey: [...GET_SESSION_QUERY_KEY(sessionId), skipInteractions ? 'skip' : 'full'],
+    queryFn: () => apiClient.v1SessionsDetail(
+      sessionId,
+      skipInteractions ? { skipInteractions: '1' } : undefined,
+    ),
     enabled: options?.enabled ?? true,
     refetchInterval: options?.refetchInterval,
     // Prevent immediate refetches when multiple consumers share this query.

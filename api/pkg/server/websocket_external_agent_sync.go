@@ -51,7 +51,11 @@ const (
 	// Intermediate content is buffered in the streamingContext.
 	// Risk: up to dbWriteInterval of content lost on crash. Acceptable because
 	// message_completed always writes the final state, and Zed has the full content.
-	dbWriteInterval = 200 * time.Millisecond
+	// Note: long-running agent sessions can accumulate 10+ MB of response_entries.
+	// Each DB write replaces the entire JSONB blob (TOAST rewrite), so frequent
+	// writes cause massive autovacuum pressure. 5s keeps crash-loss minimal while
+	// reducing TOAST churn ~25x vs the previous 200ms interval.
+	dbWriteInterval = 5 * time.Second
 
 	// publishInterval is the minimum time between frontend pubsub events during streaming.
 	// Frontend batches to requestAnimationFrame (~16ms), so faster is wasted work.
@@ -1133,11 +1137,12 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 			// Creating a new accumulator per call would lose this mapping because
 			// the DB only stores the joined Content string + LastMessageID/Offset.
 			if sctx.accumulator == nil {
-				sctx.accumulator = &wsprotocol.MessageAccumulator{
-					Content:       targetInteraction.ResponseMessage,
-					LastMessageID: targetInteraction.LastZedMessageID,
-					Offset:        targetInteraction.LastZedMessageOffset,
-				}
+				sctx.accumulator = wsprotocol.RestoreAccumulator(
+					targetInteraction.ResponseMessage,
+					targetInteraction.LastZedMessageID,
+					targetInteraction.LastZedMessageOffset,
+					targetInteraction.ResponseEntries,
+				)
 			}
 			acc := sctx.accumulator
 			prevMessageID := acc.LastMessageID
@@ -1185,19 +1190,23 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 					Msg("📝 [HELIX] New distinct message detected (different message_id)")
 			}
 
-			targetInteraction.ResponseMessage = acc.Content
-			if entriesJSON, entErr := json.Marshal(acc.Entries()); entErr == nil {
-				_ = json.Unmarshal(entriesJSON, &targetInteraction.ResponseEntries)
-			}
 			targetInteraction.LastZedMessageID = acc.LastMessageID
-			targetInteraction.LastZedMessageOffset = acc.Offset
 			targetInteraction.Updated = time.Now()
 			sctx.dirty = true
 
 			// THROTTLED DB WRITE: Only flush to DB if enough time has passed.
 			// The in-memory interaction always has the latest content.
+			// Rebuild Content/Offset and marshal response_entries only when
+			// actually writing — avoids joining 17 MB of strings and
+			// serializing multi-MB JSON on every message.
 			now := time.Now()
 			if now.Sub(sctx.lastDBWrite) >= dbWriteInterval {
+				acc.Rebuild()
+				targetInteraction.ResponseMessage = acc.Content
+				targetInteraction.LastZedMessageOffset = acc.Offset
+				if entriesJSON, entErr := json.Marshal(acc.Entries()); entErr == nil {
+					_ = json.Unmarshal(entriesJSON, &targetInteraction.ResponseEntries)
+				}
 				_, err := apiServer.Controller.Options.Store.UpdateInteraction(context.Background(), targetInteraction)
 				if err != nil {
 					return fmt.Errorf("failed to update interaction %s: %w", targetInteraction.ID, err)
@@ -1364,8 +1373,11 @@ func (apiServer *HelixAPIServer) getOrCreateStreamingContext(ctx context.Context
 					sctx.interaction.State = types.InteractionStateComplete
 					sctx.interaction.Completed = time.Now()
 					sctx.interaction.Updated = time.Now()
-					// Store accumulated response entries if any
+					// Store accumulated response entries and content
 					if sctx.accumulator != nil {
+						sctx.accumulator.Rebuild()
+						sctx.interaction.ResponseMessage = sctx.accumulator.Content
+						sctx.interaction.LastZedMessageOffset = sctx.accumulator.Offset
 						entries := sctx.accumulator.Entries()
 						if len(entries) > 0 {
 							if entriesJSON, err := json.Marshal(entries); err == nil {
@@ -1447,6 +1459,29 @@ func (apiServer *HelixAPIServer) getOrCreateStreamingContext(ctx context.Context
 			}
 		}
 	}
+	// After an API restart, the most recent interaction may have been marked as
+	// "error"/"Interrupted" by ResetRunningInteractions. If Zed reconnects and
+	// resumes sending messages, recover by reusing that interaction — reset its
+	// state back to Waiting so it can continue accumulating responses.
+	if targetInteraction == nil && len(interactions) > 0 {
+		last := interactions[len(interactions)-1]
+		if last.State == types.InteractionStateError && last.Error == "Interrupted" {
+			last.State = types.InteractionStateWaiting
+			last.Error = ""
+			last.Completed = time.Time{}
+			if _, err := apiServer.Controller.Options.Store.UpdateInteraction(ctx, last); err != nil {
+				log.Error().Err(err).
+					Str("interaction_id", last.ID).
+					Msg("Failed to recover interrupted interaction")
+			} else {
+				log.Info().
+					Str("interaction_id", last.ID).
+					Str("session_id", helixSessionID).
+					Msg("🔄 [HELIX] Recovered interrupted interaction after API restart")
+			}
+			targetInteraction = last
+		}
+	}
 
 	// Set interactionID for tracking transitions
 	var newInteractionID string
@@ -1512,6 +1547,16 @@ func (apiServer *HelixAPIServer) flushAndClearStreamingContext(ctx context.Conte
 
 	if sctx.interaction != nil {
 		if sctx.dirty {
+			// Rebuild Content/ResponseEntries before flushing — the streaming
+			// loop defers these to the DB write throttle, so they may be stale.
+			if sctx.accumulator != nil {
+				sctx.accumulator.Rebuild()
+				sctx.interaction.ResponseMessage = sctx.accumulator.Content
+				sctx.interaction.LastZedMessageOffset = sctx.accumulator.Offset
+				if entriesJSON, err := json.Marshal(sctx.accumulator.Entries()); err == nil {
+					_ = json.Unmarshal(entriesJSON, &sctx.interaction.ResponseEntries)
+				}
+			}
 			_, err := apiServer.Controller.Options.Store.UpdateInteraction(ctx, sctx.interaction)
 			if err != nil {
 				log.Error().Err(err).

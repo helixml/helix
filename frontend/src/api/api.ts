@@ -11903,10 +11903,18 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/sessions/{id}
      * @secure
      */
-    v1SessionsDetail: (id: string, params: RequestParams = {}) =>
+    v1SessionsDetail: (
+      id: string,
+      query?: {
+        /** Set to '1' to omit interactions from the response */
+        skipInteractions?: string;
+      },
+      params: RequestParams = {},
+    ) =>
       this.request<TypesSession, any>({
         path: `/api/v1/sessions/${id}`,
         method: "GET",
+        query: query,
         secure: true,
         ...params,
       }),

@@ -171,6 +171,13 @@ func (s *PostgresStore) UpdateSession(ctx context.Context, session types.Session
 		session.Name = string([]rune(session.Name)[:255])
 	}
 
+	// Always bump the updated timestamp. The field is named "Updated" (not
+	// "UpdatedAt") so GORM doesn't auto-update it. Without this, callers
+	// that read-modify-write a session (e.g. StartDesktop) silently
+	// preserve the old timestamp, which causes the idle checker to
+	// immediately kill just-restarted sessions.
+	session.Updated = time.Now()
+
 	// Log session metadata before update
 	ragResultsCount := 0
 	if session.Metadata.SessionRAGResults != nil {
@@ -353,7 +360,7 @@ func (s *PostgresStore) ListIdleDesktops(ctx context.Context, idleSince time.Tim
 WITH desktop_last_activity AS (
     SELECT
         s.config->>'dev_container_id' AS container_id,
-        COALESCE(MAX(i.updated), MAX(s.updated)) AS last_activity
+        GREATEST(COALESCE(MAX(i.updated), '1970-01-01'::timestamptz), MAX(s.updated)) AS last_activity
     FROM sessions s
     LEFT JOIN interactions i ON i.session_id = s.id
     WHERE s.deleted_at IS NULL

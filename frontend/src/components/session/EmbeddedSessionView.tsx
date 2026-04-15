@@ -18,8 +18,10 @@ import { useQueryClient } from "@tanstack/react-query";
 // DEBUG: Set to true to show scroll debug overlay
 const DEBUG_SCROLL = false;
 
-// Number of interactions to render initially (and per "load more" click)
-const INTERACTIONS_TO_RENDER = 20;
+// Number of interactions to render initially (and per "load more" click).
+// Keep this low — long-running agent sessions can have interactions with
+// hundreds of entries, each rendered as a Markdown component.
+const INTERACTIONS_TO_RENDER = 5;
 
 import Interaction from "./Interaction";
 import InteractionLiveStream from "./InteractionLiveStream";
@@ -260,6 +262,7 @@ const EmbeddedSessionView = forwardRef<
     {
       enabled: !!sessionId,
       refetchInterval: wsConnected ? false : 3000,
+      skipInteractions: true,
     },
   );
 

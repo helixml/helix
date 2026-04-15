@@ -12274,6 +12274,12 @@ const docTemplate = `{
                         "name": "id",
                         "in": "path",
                         "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Set to '1' to omit interactions from the response",
+                        "name": "skipInteractions",
+                        "in": "query"
                     }
                 ],
                 "responses": {

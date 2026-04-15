@@ -14,11 +14,13 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_ListIdleDesktops_ReturnsI
 	ctx := context.Background()
 	containerID := "container-idle-" + system.GenerateUUID()
 
+	// Both session and interaction must be older than the idle threshold
+	oldTime := time.Now().Add(-2 * time.Hour)
 	session := types.Session{
 		ID:      system.GenerateSessionID(),
 		Owner:   "user_id",
-		Created: time.Now(),
-		Updated: time.Now(),
+		Created: oldTime,
+		Updated: oldTime,
 		Metadata: types.SessionMetadata{
 			ExternalAgentStatus: "running",
 			DevContainerID:      containerID,
@@ -29,7 +31,6 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_ListIdleDesktops_ReturnsI
 	suite.T().Cleanup(func() { _, _ = suite.db.DeleteSession(ctx, session.ID) })
 
 	// Interaction updated 2 hours ago — outside the 1-hour threshold
-	oldTime := time.Now().Add(-2 * time.Hour)
 	interaction := &types.Interaction{
 		ID:           system.GenerateInteractionID(),
 		SessionID:    session.ID,
@@ -211,5 +212,60 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_ListIdleDesktops_SkipsRec
 
 	for _, s := range results {
 		suite.NotEqual(session.ID, s.ID, "recently created desktop with no interactions must not be returned")
+	}
+}
+
+// TestPostgresStore_ListIdleDesktops_SkipsRestartedSessionWithOldInteractions
+// verifies that restarting a stopped session (via UpdateSession) bumps the
+// Updated timestamp, preventing the idle checker from killing it immediately.
+// This is the exact scenario from the bug: a session with stale interactions
+// gets restarted → UpdateSession must bump s.updated so GREATEST picks the
+// fresh timestamp.
+func (suite *PostgresStoreTestSuite) TestPostgresStore_ListIdleDesktops_SkipsRestartedSessionWithOldInteractions() {
+	ctx := context.Background()
+	containerID := "container-restarted-" + system.GenerateUUID()
+
+	// Session created and last updated 3 hours ago (idle)
+	oldTime := time.Now().Add(-3 * time.Hour)
+	session := types.Session{
+		ID:      system.GenerateSessionID(),
+		Owner:   "user_id",
+		Created: oldTime,
+		Updated: oldTime,
+		Metadata: types.SessionMetadata{
+			ExternalAgentStatus: "stopped",
+			DevContainerID:      containerID,
+		},
+	}
+	_, err := suite.db.CreateSession(ctx, session)
+	suite.NoError(err)
+	suite.T().Cleanup(func() { _, _ = suite.db.DeleteSession(ctx, session.ID) })
+
+	// Old interaction from 3 hours ago
+	interaction := &types.Interaction{
+		ID:           system.GenerateInteractionID(),
+		SessionID:    session.ID,
+		GenerationID: 1,
+		UserID:       "user_id",
+		Created:      oldTime,
+		Updated:      oldTime,
+	}
+	_, err = suite.db.CreateInteraction(ctx, interaction)
+	suite.NoError(err)
+
+	// Simulate restart: read-modify-write via UpdateSession (like StartDesktop does)
+	dbSession, err := suite.db.GetSession(ctx, session.ID)
+	suite.NoError(err)
+	dbSession.Metadata.ExternalAgentStatus = "running"
+	_, err = suite.db.UpdateSession(ctx, *dbSession)
+	suite.NoError(err)
+
+	// The session was just restarted — it must NOT be considered idle
+	idleSince := time.Now().Add(-1 * time.Hour)
+	results, err := suite.db.ListIdleDesktops(ctx, idleSince)
+	suite.NoError(err)
+
+	for _, s := range results {
+		suite.NotEqual(session.ID, s.ID, "just-restarted desktop must not be returned as idle")
 	}
 }

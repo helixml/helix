@@ -47,6 +47,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # - Copy tokenizers library for CGo
 COPY --from=tokenizers-lib /app/lib/libtokenizers.a /usr/lib/
 COPY --from=tokenizers-lib /app/lib/libonnxruntime.so /usr/lib/
+# Tell kodit where to find the ORT library (see production stage comment for details)
+ENV ORT_LIB_DIR=/usr/lib
 # - Copy embedding models for kodit code intelligence
 COPY --from=embedding-model /build/models/ /kodit-models/
 # - Copy the files and run a build to make startup faster
@@ -122,6 +124,12 @@ COPY --from=api-build-env /helix /helix
 COPY --from=ui-build-env /app/dist /www
 # Embedding model files for kodit code intelligence
 COPY --from=embedding-model /build/models/ /kodit-models/
+# ONNX Runtime library required by kodit's Hugot embedding provider (built with -tags ORT)
+COPY --from=tokenizers-lib /app/lib/libonnxruntime.so /usr/lib/
+# Tell kodit where to find the ORT library. Without this, kodit's auto-detection
+# resolves to /lib (because the binary is at /helix → filepath.Dir = /) which
+# may fail depending on usrmerge symlink state and library availability.
+ENV ORT_LIB_DIR=/usr/lib
 
 ENV FRONTEND_URL=/www
 
