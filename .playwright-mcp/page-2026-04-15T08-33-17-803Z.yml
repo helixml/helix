@@ -1,0 +1,129 @@
+- generic [ref=e1]:
+  - generic [ref=e3]:
+    - main [ref=e4]:
+      - generic [ref=e6]:
+        - generic [ref=e10]:
+          - button [ref=e12] [cursor=pointer]:
+            - img [ref=e13]
+          - heading [level=1] [ref=e15]:
+            - generic [ref=e18]: Projects
+          - generic [ref=e19]:
+            - generic [ref=e21] [cursor=pointer]:
+              - img [ref=e23]
+              - textbox [ref=e25]:
+                - /placeholder: Search...
+              - generic [ref=e27]:
+                - generic [ref=e28]: Ctrl
+                - generic [ref=e29]: K
+              - group
+            - generic [ref=e30]:
+              - button [ref=e31] [cursor=pointer]:
+                - img [ref=e33]
+              - generic:
+                - generic:
+                  - generic:
+                    - heading [level=6]: Needs Attention
+                    - generic:
+                      - generic: mine
+                      - generic: all
+                  - generic:
+                    - button:
+                      - img
+                - generic:
+                  - img
+                  - generic: Enable desktop alerts?
+                  - button: Enable
+                  - button:
+                    - img
+                - generic:
+                  - generic:
+                    - paragraph: All clear
+                    - text: Nothing needs your attention
+        - generic [ref=e39]:
+          - img [ref=e41]
+          - heading [level=6] [ref=e42]: No projects yet
+          - paragraph [ref=e43]: Project has a Team of Agents working in parallel to perform tasks, collaborate, or build software.
+          - group [ref=e44]:
+            - button [ref=e45] [cursor=pointer]:
+              - img [ref=e47]
+              - text: New Project
+            - button [ref=e50] [cursor=pointer]:
+              - img [ref=e51]
+              - img [ref=e55]
+    - generic [ref=e61]:
+      - progressbar [ref=e62]:
+        - img [ref=e63]
+      - heading [level=6] [ref=e65]: loading...
+  - dialog [ref=e68]:
+    - generic [ref=e69]:
+      - heading "Admin Panel" [level=6] [ref=e70]
+      - button [ref=e71] [cursor=pointer]:
+        - img [ref=e72]
+    - list [ref=e79]:
+      - generic [ref=e80]:
+        - listitem [ref=e81]:
+          - heading "Analytics & Monitoring" [level=6] [ref=e82]
+        - listitem [ref=e83] [cursor=pointer]:
+          - button "LLM Calls" [ref=e84]:
+            - img [ref=e86]
+            - generic [ref=e89]: LLM Calls
+      - generic [ref=e90]:
+        - listitem [ref=e91]:
+          - heading "Infrastructure" [level=6] [ref=e92]
+        - listitem [ref=e93] [cursor=pointer]:
+          - button "Inference Providers" [ref=e94]:
+            - img [ref=e96]
+            - generic [ref=e99]: Inference Providers
+        - listitem [ref=e100] [cursor=pointer]:
+          - button "OAuth Providers" [ref=e101]:
+            - img [ref=e103]
+            - generic [ref=e106]: OAuth Providers
+        - listitem [ref=e107] [cursor=pointer]:
+          - button "Service Connections" [ref=e108]:
+            - img [ref=e110]
+            - generic [ref=e113]: Service Connections
+        - listitem [ref=e114] [cursor=pointer]:
+          - button "GPU Runners" [ref=e115]:
+            - img [ref=e117]
+            - generic [ref=e120]: GPU Runners
+        - listitem [ref=e121] [cursor=pointer]:
+          - button "Agent Sandboxes" [ref=e122]:
+            - img [ref=e124]
+            - generic [ref=e127]: Agent Sandboxes
+      - generic [ref=e128]:
+        - listitem [ref=e129]:
+          - heading "Models & Configuration" [level=6] [ref=e130]
+        - listitem [ref=e131] [cursor=pointer]:
+          - button "Helix Models" [ref=e132]:
+            - img [ref=e134]
+            - generic [ref=e137]: Helix Models
+        - listitem [ref=e138] [cursor=pointer]:
+          - button "Pricing" [ref=e139]:
+            - img [ref=e141]
+            - generic [ref=e144]: Pricing
+        - listitem [ref=e145] [cursor=pointer]:
+          - button "System Settings" [ref=e146]:
+            - img [ref=e148]
+            - generic [ref=e151]: System Settings
+      - generic [ref=e152]:
+        - listitem [ref=e153]:
+          - heading "Code Intelligence" [level=6] [ref=e154]
+        - listitem [ref=e155] [cursor=pointer]:
+          - button "Kodit Repositories" [ref=e156]:
+            - img [ref=e158]
+            - generic [ref=e161]: Kodit Repositories
+        - listitem [ref=e162] [cursor=pointer]:
+          - button "Kodit Queue" [ref=e163]:
+            - img [ref=e165]
+            - generic [ref=e168]: Kodit Queue
+      - generic [ref=e169]:
+        - listitem [ref=e170]:
+          - heading "User Management" [level=6] [ref=e171]
+        - listitem [ref=e172] [cursor=pointer]:
+          - button "Users" [ref=e173]:
+            - img [ref=e175]
+            - generic [ref=e181]: Users
+        - listitem [ref=e182] [cursor=pointer]:
+          - button "Organizations" [ref=e183]:
+            - img [ref=e185]
+            - generic [ref=e189]: Organizations

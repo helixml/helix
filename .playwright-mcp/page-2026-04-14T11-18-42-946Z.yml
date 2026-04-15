@@ -1,0 +1,387 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e3]:
+    - generic [ref=e6]:
+      - generic [ref=e8]:
+        - generic [ref=e9]:
+          - generic [ref=e10] [cursor=pointer]:
+            - generic [ref=e279]: T
+            - generic [ref=e280]: T
+          - generic [ref=e12] [cursor=pointer]:
+            - img [ref=e14]
+            - generic [ref=e15]: Projects
+          - generic [ref=e16] [cursor=pointer]:
+            - img [ref=e18]
+            - generic [ref=e20]: Chat
+          - generic [ref=e21] [cursor=pointer]:
+            - img [ref=e23]
+            - generic [ref=e26]: Agents
+          - generic [ref=e27] [cursor=pointer]:
+            - img [ref=e29]
+            - generic [ref=e32]: Q&A
+          - generic [ref=e33] [cursor=pointer]:
+            - img [ref=e35]
+            - generic [ref=e38]: Tasks
+          - generic [ref=e281] [cursor=pointer]:
+            - img [ref=e283]
+            - generic [ref=e286]: Settings
+        - generic [ref=e40]:
+          - generic [ref=e287]:
+            - generic [ref=e288] [cursor=pointer]:
+              - img [ref=e289]
+              - paragraph [ref=e291]: Admin Panel
+            - generic [ref=e292] [cursor=pointer]:
+              - img [ref=e293]
+              - paragraph [ref=e297]: Account Settings
+            - generic [ref=e298] [cursor=pointer]:
+              - img [ref=e299]
+              - paragraph [ref=e302]: Connected Services
+          - generic [ref=e41] [cursor=pointer]:
+            - img [ref=e44]
+            - generic [ref=e303]:
+              - paragraph [ref=e304]: test
+              - text: test@test.com
+            - img [ref=e51]
+            - img [ref=e306]
+      - generic [ref=e56]:
+        - heading [level=6] [ref=e310] [cursor=pointer]: test
+        - separator [ref=e58]
+        - separator [ref=e59]
+        - list [ref=e63]:
+          - generic [ref=e64]:
+            - listitem [ref=e65] [cursor=pointer]:
+              - button [ref=e66]:
+                - img [ref=e68]
+                - generic [ref=e70]: Projects
+            - listitem [ref=e71] [cursor=pointer]:
+              - button [ref=e72]:
+                - img [ref=e74]
+                - generic [ref=e79]: Repositories
+            - listitem [ref=e80] [cursor=pointer]:
+              - button [ref=e81]:
+                - img [ref=e83]
+                - generic [ref=e87]: Guidelines
+            - listitem [ref=e88] [cursor=pointer]:
+              - button [ref=e89]:
+                - img [ref=e91]
+                - generic [ref=e94]: Prompts
+    - main [ref=e95]:
+      - generic [ref=e97]:
+        - generic [ref=e101]:
+          - heading [level=1] [ref=e103]:
+            - generic [ref=e104]:
+              - generic [ref=e105]:
+                - generic [ref=e106]: test
+                - generic [ref=e311]: /
+              - generic [ref=e313]: Projects
+          - generic [ref=e107]:
+            - generic [ref=e315] [cursor=pointer]:
+              - img [ref=e317]
+              - textbox [ref=e319]:
+                - /placeholder: Search...
+              - generic [ref=e321]:
+                - generic [ref=e322]: Ctrl
+                - generic [ref=e323]: K
+              - group
+            - generic [ref=e118]:
+              - button [ref=e119] [cursor=pointer]:
+                - img [ref=e121]
+              - generic:
+                - generic:
+                  - generic:
+                    - heading [level=6]: Needs Attention
+                    - generic:
+                      - generic: mine
+                      - generic: all
+                  - generic:
+                    - button:
+                      - img
+                - generic:
+                  - img
+                  - generic: Enable desktop alerts?
+                  - button: Enable
+                  - button:
+                    - img
+                - generic:
+                  - generic:
+                    - paragraph: All clear
+                    - text: Nothing needs your attention
+        - generic [ref=e325]:
+          - img [ref=e327]
+          - heading [level=6] [ref=e328]: No projects yet
+          - paragraph [ref=e329]: Project has a Team of Agents working in parallel to perform tasks, collaborate, or build software.
+          - group [ref=e330]:
+            - button [ref=e331] [cursor=pointer]:
+              - img [ref=e333]
+              - text: New Project
+            - button [ref=e336] [cursor=pointer]:
+              - img [ref=e337]
+              - img [ref=e341]
+    - alert [ref=e8498]:
+      - img [ref=e8500]
+      - generic [ref=e8502]: Code Intelligence Text Embedding model set to qwen-text-embedding/Qwen/Qwen3-Embedding-8B. Kodit is re-initialising; repositories will be re-indexed automatically in the background.
+      - button [ref=e8504] [cursor=pointer]:
+        - img [ref=e8505]
+  - generic: Email
+  - generic: Password
+  - dialog [ref=e156]:
+    - generic [ref=e157]:
+      - heading "Admin Panel" [level=6] [ref=e8507]
+      - button [ref=e159] [cursor=pointer]:
+        - img [ref=e160]
+    - generic [ref=e163]:
+      - list [ref=e167]:
+        - generic [ref=e168]:
+          - listitem [ref=e169]:
+            - heading "Analytics & Monitoring" [level=6] [ref=e8508]
+          - listitem [ref=e171] [cursor=pointer]:
+            - button "LLM Calls" [ref=e8509]:
+              - img [ref=e174]
+              - generic [ref=e177]: LLM Calls
+        - generic [ref=e178]:
+          - listitem [ref=e179]:
+            - heading "Infrastructure" [level=6] [ref=e8510]
+          - listitem [ref=e181] [cursor=pointer]:
+            - button "Inference Providers" [ref=e8511]:
+              - img [ref=e184]
+              - generic [ref=e187]: Inference Providers
+          - listitem [ref=e188] [cursor=pointer]:
+            - button "OAuth Providers" [ref=e8512]:
+              - img [ref=e191]
+              - generic [ref=e194]: OAuth Providers
+          - listitem [ref=e195] [cursor=pointer]:
+            - button "Service Connections" [ref=e8513]:
+              - img [ref=e198]
+              - generic [ref=e201]: Service Connections
+          - listitem [ref=e202] [cursor=pointer]:
+            - button "GPU Runners" [ref=e8514]:
+              - img [ref=e205]
+              - generic [ref=e208]: GPU Runners
+          - listitem [ref=e209] [cursor=pointer]:
+            - button "Agent Sandboxes" [ref=e8515]:
+              - img [ref=e212]
+              - generic [ref=e215]: Agent Sandboxes
+        - generic [ref=e216]:
+          - listitem [ref=e217]:
+            - heading "Models & Configuration" [level=6] [ref=e8516]
+          - listitem [ref=e219] [cursor=pointer]:
+            - button "Helix Models" [ref=e8517]:
+              - img [ref=e222]
+              - generic [ref=e225]: Helix Models
+          - listitem [ref=e226] [cursor=pointer]:
+            - button "Pricing" [ref=e8518]:
+              - img [ref=e229]
+              - generic [ref=e232]: Pricing
+          - listitem [ref=e233] [cursor=pointer]:
+            - button "System Settings" [ref=e8519]:
+              - img [ref=e236]
+              - generic [ref=e239]: System Settings
+        - generic [ref=e240]:
+          - listitem [ref=e241]:
+            - heading "Code Intelligence" [level=6] [ref=e8520]
+          - listitem [ref=e243] [cursor=pointer]:
+            - button "Kodit Repositories" [ref=e8521]:
+              - img [ref=e246]
+              - generic [ref=e249]: Kodit Repositories
+          - listitem [ref=e250] [cursor=pointer]:
+            - button "Kodit Queue" [ref=e8522]:
+              - img [ref=e253]
+              - generic [ref=e256]: Kodit Queue
+        - generic [ref=e257]:
+          - listitem [ref=e258]:
+            - heading "User Management" [level=6] [ref=e8523]
+          - listitem [ref=e260] [cursor=pointer]:
+            - button "Users" [ref=e8524]:
+              - img [ref=e263]
+              - generic [ref=e269]: Users
+          - listitem [ref=e270] [cursor=pointer]:
+            - button "Organizations" [ref=e8525]:
+              - img [ref=e273]
+              - generic [ref=e277]: Organizations
+      - generic [ref=e343]:
+        - paragraph [ref=e345]: "Helix Control Plane version: <unknown>"
+        - generic [ref=e347]:
+          - generic [ref=e348]:
+            - generic [ref=e349]:
+              - generic [ref=e351]: System Settings
+              - button "Refresh" [ref=e8526] [cursor=pointer]:
+                - img [ref=e355]
+                - text: Refresh
+            - table [ref=e359]:
+              - rowgroup [ref=e360]:
+                - row "Setting Status Source Actions" [ref=e8527]:
+                  - columnheader "Setting" [ref=e8528]
+                  - columnheader "Status" [ref=e8529]
+                  - columnheader "Source" [ref=e8530]
+                  - columnheader "Actions" [ref=e8531]
+              - rowgroup [ref=e366]:
+                - row "Hugging Face Token Global token for accessing private Hugging Face models Not Set none No token configured - only public models accessible Edit" [ref=e8532]:
+                  - cell "Hugging Face Token Global token for accessing private Hugging Face models" [ref=e8533]:
+                    - paragraph [ref=e369]: Hugging Face Token
+                    - text: Global token for accessing private Hugging Face models
+                  - cell "Not Set" [ref=e8534]:
+                    - generic [ref=e372]: Not Set
+                  - cell "none No token configured - only public models accessible" [ref=e8535]:
+                    - generic [ref=e375]: none
+                    - generic [ref=e376]: No token configured - only public models accessible
+                  - cell "Edit" [ref=e8536]:
+                    - button "Edit" [ref=e8537] [cursor=pointer]:
+                      - img [ref=e381]
+                      - text: Edit
+                - 'row "Code Intelligence Model LLM used by Kodit for generating code documentation and enrichments Configured OpenRouter/mistralai/ministral-8b-2512 Provider: OpenRouter mistralai/ministral-8b-2512 (OpenRouter) Clear" [ref=e8538]':
+                  - cell "Code Intelligence Model LLM used by Kodit for generating code documentation and enrichments" [ref=e8539]:
+                    - paragraph [ref=e385]: Code Intelligence Model
+                    - text: LLM used by Kodit for generating code documentation and enrichments
+                  - cell "Configured" [ref=e8540]:
+                    - generic [ref=e388]: Configured
+                  - 'cell "OpenRouter/mistralai/ministral-8b-2512 Provider: OpenRouter" [ref=e8541]':
+                    - paragraph [ref=e390]: OpenRouter/mistralai/ministral-8b-2512
+                    - generic [ref=e391]: "Provider: OpenRouter"
+                  - cell "mistralai/ministral-8b-2512 (OpenRouter) Clear" [ref=e8542]:
+                    - generic [ref=e393]:
+                      - generic "mistralai/ministral-8b-2512 (OpenRouter)" [ref=e8543] [cursor=pointer]:
+                        - button "mistralai/ministral-8b-2512" [ref=e8544]:
+                          - generic [ref=e396]: mistralai/ministral-8b-2512
+                          - img [ref=e398]
+                      - button "Clear" [ref=e8545] [cursor=pointer]:
+                        - img [ref=e402]
+                        - text: Clear
+                - 'row "RAG Embedding Model Embedding model used by Haystack for knowledge source indexing and retrieval Configured openai/text-embedding-3-small Provider: openai text-embedding-3-small (openai) Clear" [ref=e8546]':
+                  - cell "RAG Embedding Model Embedding model used by Haystack for knowledge source indexing and retrieval" [ref=e8547]:
+                    - paragraph [ref=e406]: RAG Embedding Model
+                    - text: Embedding model used by Haystack for knowledge source indexing and retrieval
+                  - cell "Configured" [ref=e8548]:
+                    - generic [ref=e409]: Configured
+                  - 'cell "openai/text-embedding-3-small Provider: openai" [ref=e8549]':
+                    - paragraph [ref=e411]: openai/text-embedding-3-small
+                    - generic [ref=e412]: "Provider: openai"
+                  - cell "text-embedding-3-small (openai) Clear" [ref=e8550]:
+                    - generic [ref=e414]:
+                      - generic "text-embedding-3-small (openai)" [ref=e8551] [cursor=pointer]:
+                        - button "text-embedding-3-small" [ref=e8552]:
+                          - generic [ref=e417]: text-embedding-3-small
+                          - img [ref=e419]
+                      - button "Clear" [ref=e8553] [cursor=pointer]:
+                        - img [ref=e423]
+                        - text: Clear
+                - 'row "Code Intelligence Text Embedding Embedding model used by Kodit for indexing code and text snippets. Leave unset to use the built-in local ONNX model — it works out of the box but configuring a dedicated embedding model is recommended for better quality. Changing this reinitialises Kodit and triggers a full re-index in the background. Configured qwen-text-embedding/Qwen/Qwen3-Embedding-8B Provider: qwen-text-embedding Qwen/Qwen3-Embedding-8B (qwen-text-embedding) Clear" [ref=e8554]':
+                  - cell "Code Intelligence Text Embedding Embedding model used by Kodit for indexing code and text snippets. Leave unset to use the built-in local ONNX model — it works out of the box but configuring a dedicated embedding model is recommended for better quality. Changing this reinitialises Kodit and triggers a full re-index in the background." [ref=e8555]:
+                    - paragraph [ref=e427]: Code Intelligence Text Embedding
+                    - generic [ref=e428]: Embedding model used by Kodit for indexing code and text snippets.
+                    - generic [ref=e429]: Leave unset to use the built-in local ONNX model — it works out of the box but configuring a dedicated embedding model is recommended for better quality. Changing this reinitialises Kodit and triggers a full re-index in the background.
+                  - cell "Configured" [ref=e8556]:
+                    - generic [ref=e432]: Configured
+                  - 'cell "qwen-text-embedding/Qwen/Qwen3-Embedding-8B Provider: qwen-text-embedding" [ref=e8557]':
+                    - paragraph [ref=e8558]: qwen-text-embedding/Qwen/Qwen3-Embedding-8B
+                    - generic [ref=e8559]: "Provider: qwen-text-embedding"
+                  - cell "Qwen/Qwen3-Embedding-8B (qwen-text-embedding) Clear" [ref=e8560]:
+                    - generic [ref=e435]:
+                      - generic "Qwen/Qwen3-Embedding-8B (qwen-text-embedding)" [ref=e8561] [cursor=pointer]:
+                        - button "Qwen/Qwen3-Embedding-8B" [ref=e8562]:
+                          - generic [ref=e438]: Qwen/Qwen3-Embedding-8B
+                          - img [ref=e440]
+                      - button "Clear" [ref=e8563] [cursor=pointer]:
+                        - img [ref=e8565]
+                        - text: Clear
+                - row "Code Intelligence Vision Embedding Vision embedding model used by Kodit for indexing document pages and images. Leave unset to use the built-in local SigLIP2 model — it works out of the box but configuring a dedicated vision embedding model is recommended for better quality. Changing this reinitialises Kodit and triggers a full re-index in the background. Not Set Not configured - falls back to local SigLIP2 model Select Model" [ref=e8567]:
+                  - cell "Code Intelligence Vision Embedding Vision embedding model used by Kodit for indexing document pages and images. Leave unset to use the built-in local SigLIP2 model — it works out of the box but configuring a dedicated vision embedding model is recommended for better quality. Changing this reinitialises Kodit and triggers a full re-index in the background." [ref=e8568]:
+                    - paragraph [ref=e444]: Code Intelligence Vision Embedding
+                    - generic [ref=e445]: Vision embedding model used by Kodit for indexing document pages and images.
+                    - generic [ref=e446]: Leave unset to use the built-in local SigLIP2 model — it works out of the box but configuring a dedicated vision embedding model is recommended for better quality. Changing this reinitialises Kodit and triggers a full re-index in the background.
+                  - cell "Not Set" [ref=e8569]:
+                    - generic [ref=e449]: Not Set
+                  - cell "Not configured - falls back to local SigLIP2 model" [ref=e8570]
+                  - cell "Select Model" [ref=e8571]:
+                    - generic "Select Model" [ref=e8572] [cursor=pointer]:
+                      - button "Select Model" [ref=e8573]:
+                        - generic [ref=e455]: Select Model
+                        - img [ref=e457]
+                - row "Max Concurrent Desktops Maximum number of concurrent desktop sessions per user (0 = unlimited) Unlimited 0 Edit" [ref=e8574]:
+                  - cell "Max Concurrent Desktops Maximum number of concurrent desktop sessions per user (0 = unlimited)" [ref=e8575]:
+                    - paragraph [ref=e461]: Max Concurrent Desktops
+                    - text: Maximum number of concurrent desktop sessions per user (0 = unlimited)
+                  - cell "Unlimited" [ref=e8576]:
+                    - generic [ref=e464]: Unlimited
+                  - cell "0" [ref=e8577]:
+                    - paragraph [ref=e466]: "0"
+                  - cell "Edit" [ref=e8578]:
+                    - button "Edit" [ref=e8579] [cursor=pointer]:
+                      - img [ref=e471]
+                      - text: Edit
+                - row "Providers Management Allow users to manage their own model providers Disabled Disabled" [ref=e8580]:
+                  - cell "Providers Management Allow users to manage their own model providers" [ref=e8581]:
+                    - paragraph [ref=e475]: Providers Management
+                    - text: Allow users to manage their own model providers
+                  - cell "Disabled" [ref=e8582]:
+                    - generic [ref=e478]: Disabled
+                  - cell "Disabled" [ref=e8583]:
+                    - paragraph [ref=e480]: Disabled
+                  - cell [ref=e481]:
+                    - checkbox [ref=e484] [cursor=pointer]
+                - row "Enforce Quotas Enforce usage quotas and limits for users and organizations Disabled Disabled" [ref=e8584]:
+                  - cell "Enforce Quotas Enforce usage quotas and limits for users and organizations" [ref=e8585]:
+                    - paragraph [ref=e489]: Enforce Quotas
+                    - text: Enforce usage quotas and limits for users and organizations
+                  - cell "Disabled" [ref=e8586]:
+                    - generic [ref=e492]: Disabled
+                  - cell "Disabled" [ref=e8587]:
+                    - paragraph [ref=e494]: Disabled
+                  - cell [ref=e495]:
+                    - checkbox [ref=e498] [cursor=pointer]
+          - generic [ref=e501]:
+            - generic [ref=e504]: Optimus (Project Manager) Settings
+            - table [ref=e507]:
+              - rowgroup [ref=e508]:
+                - row "Setting Status Source Actions" [ref=e8588]:
+                  - columnheader "Setting" [ref=e8589]
+                  - columnheader "Status" [ref=e8590]
+                  - columnheader "Source" [ref=e8591]
+                  - columnheader "Actions" [ref=e8592]
+              - rowgroup [ref=e514]:
+                - row "Optimus Reasoning Model Main reasoning model for tool calling and complex tasks Not Set Not configured Select Model" [ref=e8593]:
+                  - cell "Optimus Reasoning Model Main reasoning model for tool calling and complex tasks" [ref=e8594]:
+                    - paragraph [ref=e517]: Optimus Reasoning Model
+                    - text: Main reasoning model for tool calling and complex tasks
+                  - cell "Not Set" [ref=e8595]:
+                    - generic [ref=e520]: Not Set
+                  - cell "Not configured" [ref=e8596]
+                  - cell "Select Model" [ref=e8597]:
+                    - generic "Select Model" [ref=e8598] [cursor=pointer]:
+                      - button "Select Model" [ref=e8599]:
+                        - generic [ref=e526]: Select Model
+                        - img [ref=e528]
+                - row "Optimus Generation Model Model for planning next actions and generating responses Not Set Not configured Select Model" [ref=e8600]:
+                  - cell "Optimus Generation Model Model for planning next actions and generating responses" [ref=e8601]:
+                    - paragraph [ref=e532]: Optimus Generation Model
+                    - text: Model for planning next actions and generating responses
+                  - cell "Not Set" [ref=e8602]:
+                    - generic [ref=e535]: Not Set
+                  - cell "Not configured" [ref=e8603]
+                  - cell "Select Model" [ref=e8604]:
+                    - generic "Select Model" [ref=e8605] [cursor=pointer]:
+                      - button "Select Model" [ref=e8606]:
+                        - generic [ref=e541]: Select Model
+                        - img [ref=e543]
+                - row "Optimus Small Reasoning Model Smaller model for quick reasoning tasks and tool results interpretation Not Set Not configured Select Model" [ref=e8607]:
+                  - cell "Optimus Small Reasoning Model Smaller model for quick reasoning tasks and tool results interpretation" [ref=e8608]:
+                    - paragraph [ref=e547]: Optimus Small Reasoning Model
+                    - text: Smaller model for quick reasoning tasks and tool results interpretation
+                  - cell "Not Set" [ref=e8609]:
+                    - generic [ref=e550]: Not Set
+                  - cell "Not configured" [ref=e8610]
+                  - cell "Select Model" [ref=e8611]:
+                    - generic "Select Model" [ref=e8612] [cursor=pointer]:
+                      - button "Select Model" [ref=e8613]:
+                        - generic [ref=e556]: Select Model
+                        - img [ref=e558]
+                - row "Optimus Small Generation Model Smaller model for quick response generation Not Set Not configured Select Model" [ref=e8614]:
+                  - cell "Optimus Small Generation Model Smaller model for quick response generation" [ref=e8615]:
+                    - paragraph [ref=e562]: Optimus Small Generation Model
+                    - text: Smaller model for quick response generation
+                  - cell "Not Set" [ref=e8616]:
+                    - generic [ref=e565]: Not Set
+                  - cell "Not configured" [ref=e8617]
+                  - cell "Select Model" [ref=e8618]:
+                    - generic "Select Model" [ref=e8619] [cursor=pointer]:
+                      - button "Select Model" [ref=e8620]:
+                        - generic [ref=e571]: Select Model
+                        - img [ref=e573]
