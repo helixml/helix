@@ -1037,63 +1037,21 @@ func (s *KoditService) RescanCommit(ctx context.Context, koditRepoID int64, comm
 	return nil
 }
 
-// RescanAllRepositories triggers a rescan of every registered repository's
-// HEAD commit. Unlike SyncRepository, which skips commits that already have
-// enrichments, a rescan clears each commit's enrichments/files and forces
-// the pipeline to re-embed everything — needed after an embedding-provider
+// RescanAllRepositories triggers a rescan of every registered repository in
+// Kodit. Unlike SyncRepository — which skips commits that already have
+// enrichments — a rescan clears each commit's enrichments/files and forces
+// the pipeline to re-embed everything. Needed after an embedding-provider
 // change so stale-dimension vectors in vectorchord_* tables get replaced
 // before a user can run a search that would otherwise hit a SQL dim
 // mismatch.
-//
-// Implemented as list-then-rescan-per-repo rather than calling kodit's
-// client.Repositories.RescanAll() directly, because the latter enqueues
-// rescan tasks with an empty commit_sha — the downstream scan handler
-// then fails with "get commit: object does not exist [id: ]". Matching
-// the admin rescan handler: take the latest commit per repo and call
-// Rescan with that SHA.
 func (s *KoditService) RescanAllRepositories(ctx context.Context) error {
-	if !s.IsEnabled() {
+	c := s.client.Load()
+	if c == nil {
 		return fmt.Errorf("kodit service not enabled")
 	}
-
-	const pageSize = 500
-	var total, rescanned, failed int
-	for offset := 0; ; offset += pageSize {
-		repos, _, err := s.ListRepositories(ctx, pageSize, offset)
-		if err != nil {
-			return fmt.Errorf("list repositories: %w", err)
-		}
-		if len(repos) == 0 {
-			break
-		}
-		total += len(repos)
-		for _, r := range repos {
-			commits, err := s.GetRepositoryCommits(ctx, r.ID(), 1)
-			if err != nil {
-				failed++
-				log.Warn().Err(err).Int64("repo_id", r.ID()).Msg("rescan all: failed to load latest commit")
-				continue
-			}
-			if len(commits) == 0 {
-				// Nothing to rescan yet (e.g. repo still being cloned).
-				continue
-			}
-			sha := commits[0].SHA()
-			if err := s.RescanCommit(ctx, r.ID(), sha); err != nil {
-				failed++
-				log.Warn().Err(err).Int64("repo_id", r.ID()).Str("commit_sha", sha).Msg("rescan all: failed to enqueue rescan")
-				continue
-			}
-			rescanned++
-		}
-		if len(repos) < pageSize {
-			break
-		}
+	if err := c.Repositories.RescanAll(ctx); err != nil {
+		return fmt.Errorf("failed to rescan all repositories: %w", err)
 	}
-	log.Info().
-		Int("total", total).
-		Int("rescanned", rescanned).
-		Int("failed", failed).
-		Msg("Triggered rescan of repositories in Kodit")
+	log.Info().Msg("Triggered rescan of all repositories in Kodit")
 	return nil
 }
