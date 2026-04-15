@@ -67,3 +67,11 @@ async fn request_permission(
 1. **Auto-approve in `conversation_view.rs` on `ToolAuthorizationRequested` event**: Would work but creates and immediately resolves a `WaitingForConfirmation` state — unnecessary churn. The ACP server level is cleaner.
 2. **Add a new setting**: Over-engineered for this use case. The `external_websocket_sync` feature already means "Helix autonomous mode."
 3. **Only auto-approve `ExitPlanMode`**: Would need to inspect tool name from meta. But any permission prompt blocks autonomous execution, so all should be auto-approved.
+
+## Implementation Notes
+
+- **Gotcha**: `agent_servers` crate did NOT have the `external_websocket_sync` feature defined — had to add `external_websocket_sync = []` to its `Cargo.toml` `[features]` section
+- **Feature propagation**: Also had to add `"agent_servers/external_websocket_sync"` to the `external_websocket_sync` feature in `crates/zed/Cargo.toml` so the flag reaches `agent_servers` at compile time
+- `agent_servers` is optional in `zed` but non-optional in `agent` and `agent_ui`, so it's always compiled — adding it to the feature propagation just ensures the feature flag is set
+- All ACP types used (`PermissionOptionKind::AllowOnce`, `SelectedPermissionOutcome::new`, `RequestPermissionOutcome::Selected`) confirmed via grep to match existing usage patterns throughout the codebase
+- No Rust toolchain available in this environment; build/test verification deferred to CI
