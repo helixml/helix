@@ -50,8 +50,7 @@ func RestoreAccumulator(content string, lastMessageID string, offset int, respon
 		}
 	}
 
-	// No structured entries — start fresh. The old flat Content is discarded
-	// rather than creating a __prefix__ blob that loses type information.
+	// No structured entries — start fresh.
 	return &MessageAccumulator{}
 }
 
