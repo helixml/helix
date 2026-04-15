@@ -6,10 +6,10 @@ Adds a toggle button to the spectask detail page that prevents the container fro
 ## Screenshots
 
 **Keep Alive OFF** (default — grey unlock icon in toolbar):
-![Keep Alive OFF](screenshots/01-keep-alive-off.png)
+![Keep Alive OFF](https://raw.githubusercontent.com/helixml/helix/helix-specs/design/tasks/001760_implement-a-lock-might/screenshots/01-keep-alive-off.png)
 
 **Keep Alive ON** (green lock icon, tooltip confirms):
-![Keep Alive ON](screenshots/02-keep-alive-on.png)
+![Keep Alive ON](https://raw.githubusercontent.com/helixml/helix/helix-specs/design/tasks/001760_implement-a-lock-might/screenshots/02-keep-alive-on.png)
 
 ## Changes
 - **Model**: Added `KeepAlive` bool field to `SpecTask` struct and `SpecTaskUpdateRequest`
