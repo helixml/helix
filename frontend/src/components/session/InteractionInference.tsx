@@ -318,7 +318,7 @@ export const InteractionInference: FC<{
       {toolSteps.length > 0 && isFromAssistant && (
         <ToolStepsWidget steps={toolSteps} />
       )}
-      {message && (
+      {(message || (interaction as any)?.response_entries?.length > 0) && (
         <Box
           sx={{
             my: 0.5,
