@@ -97,9 +97,7 @@ func InitKodit(cfg *config.ServerConfig, gitRepoService *services.GitRepositoryS
 
 // Reinit rebuilds the kodit client from the current System Settings. Called
 // when an admin changes the kodit embedding provider/model so the new choice
-// takes effect without a process restart. kodit itself detects any embedding
-// dimension change on first use and drops + rebuilds the vector tables,
-// re-queuing each registered repository for indexing.
+// takes effect without a process restart.
 //
 // Ordering:
 //  1. Build new opts from fresh settings + call kodit.New — if this fails
@@ -108,7 +106,14 @@ func InitKodit(cfg *config.ServerConfig, gitRepoService *services.GitRepositoryS
 //     queries hit the new client.
 //  3. Update the MCP backend to use the new client.
 //  4. Close the old client to drain workers and release its DB handle.
-func (k *KoditResult) Reinit(_ context.Context) error {
+//  5. Enqueue a sync for every registered repository. kodit's dim-change
+//     detection is lazy — per embedding table, on first store method call
+//     — so if we rely on the first user action to trigger it, a search
+//     against a table that hasn't been touched yet since the swap (e.g.
+//     vision after switching only-text users) fails with a SQL dimension
+//     mismatch. Forcing a sync exercises every embedder and rebuilds every
+//     stale table before a user can query against it.
+func (k *KoditResult) Reinit(ctx context.Context) error {
 	if k == nil || k.koditService == nil {
 		return fmt.Errorf("kodit reinit: not initialised")
 	}
@@ -140,8 +145,50 @@ func (k *KoditResult) Reinit(_ context.Context) error {
 		}
 	}
 
-	log.Info().Msg("kodit reinit complete; repositories will be re-indexed in background")
+	// Fire-and-forget: enqueue a rescan for every registered repository so
+	// every embedding table gets rebuilt before a user searches. The loop
+	// can take a while against a big install; don't block the HTTP handler.
+	go k.resyncAllRepositories(context.Background())
+
+	log.Info().Msg("kodit reinit complete; repositories will be re-synced in background")
 	return nil
+}
+
+// resyncAllRepositories triggers a sync for every repository kodit knows
+// about. Used after Reinit so the new embedder actually writes to every
+// vector table and triggers the lazy dim-change probe — otherwise a table
+// that isn't touched can still hold stale-dimension vectors and fail the
+// next search with a SQL dimension mismatch.
+func (k *KoditResult) resyncAllRepositories(ctx context.Context) {
+	const pageSize = 500
+	var total, synced, failed int
+	for offset := 0; ; offset += pageSize {
+		repos, _, err := k.koditService.ListRepositories(ctx, pageSize, offset)
+		if err != nil {
+			log.Error().Err(err).Msg("kodit reinit: list repositories for resync failed")
+			return
+		}
+		if len(repos) == 0 {
+			break
+		}
+		total += len(repos)
+		for _, r := range repos {
+			if err := k.koditService.SyncRepository(ctx, r.ID()); err != nil {
+				failed++
+				log.Warn().Err(err).Int64("repo_id", r.ID()).Msg("kodit reinit: failed to enqueue sync for repository")
+				continue
+			}
+			synced++
+		}
+		if len(repos) < pageSize {
+			break
+		}
+	}
+	log.Info().
+		Int("total", total).
+		Int("synced", synced).
+		Int("failed", failed).
+		Msg("kodit reinit: resync enqueue complete")
 }
 
 // buildKoditOpts reads the current System Settings and returns the kodit
