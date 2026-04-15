@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"net/url"
 	"strings"
 	"text/template"
 	"time"
@@ -53,18 +52,17 @@ func GetRawScreenshotBaseURL(repo *types.GitRepository, taskDirName string) stri
 
 	switch repo.ExternalType {
 	case types.ExternalRepositoryTypeGitHub:
-		// https://github.com/owner/repo -> https://raw.githubusercontent.com/owner/repo/helix-specs/path/SCREENSHOT_FILENAME
-		u, err := url.Parse(baseURL)
-		if err != nil {
-			return ""
-		}
-		u.Host = "raw.githubusercontent.com"
-		return fmt.Sprintf("%s/helix-specs/%s/SCREENSHOT_FILENAME", u.String(), screenshotPath)
+		// {baseURL}/raw/branch/path works on both github.com (redirects to raw.githubusercontent.com)
+		// and GitHub Enterprise (serves raw content natively)
+		return fmt.Sprintf("%s/raw/helix-specs/%s/SCREENSHOT_FILENAME", baseURL, screenshotPath)
 	case types.ExternalRepositoryTypeGitLab:
+		// Works for both gitlab.com and self-hosted GitLab
 		return fmt.Sprintf("%s/-/raw/helix-specs/%s/SCREENSHOT_FILENAME", baseURL, screenshotPath)
 	case types.ExternalRepositoryTypeADO:
-		// ADO needs filename in query parameter, not path segment
-		return fmt.Sprintf("%s/items?path=/%s/SCREENSHOT_FILENAME&versionDescriptor.version=helix-specs&versionDescriptor.versionType=branch", baseURL, screenshotPath)
+		// Transform _git/repo to _apis/git/repositories/repo/items for raw content
+		// e.g. https://dev.azure.com/org/project/_git/repo -> .../org/project/_apis/git/repositories/repo/items?path=...
+		adoURL := strings.Replace(baseURL, "/_git/", "/_apis/git/repositories/", 1)
+		return fmt.Sprintf("%s/items?path=/%s/SCREENSHOT_FILENAME&versionDescriptor.version=helix-specs&versionDescriptor.versionType=branch", adoURL, screenshotPath)
 	case types.ExternalRepositoryTypeBitbucket:
 		return fmt.Sprintf("%s/raw/helix-specs/%s/SCREENSHOT_FILENAME", baseURL, screenshotPath)
 	default:
