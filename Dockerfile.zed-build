@@ -13,7 +13,7 @@
 
 # --- Stage 1: Build environment (deps + rustup, no source or compilation) ---
 FROM ubuntu:25.10 AS builder-env
-RUN sed -i 's|http://archive.ubuntu.com|http://gb.archive.ubuntu.com|g; s|http://security.ubuntu.com|http://gb.archive.ubuntu.com|g; s|http://ports.ubuntu.com|http://gb.ports.ubuntu.com|g' /etc/apt/sources.list.d/ubuntu.sources
+RUN sed -i 's|http://archive.ubuntu.com|http://mirror.ox.ac.uk/sites/archive.ubuntu.com|g; s|http://security.ubuntu.com|http://mirror.ox.ac.uk/sites/archive.ubuntu.com|g; s|http://ports.ubuntu.com/ubuntu-ports|http://mirror.ox.ac.uk/sites/archive.ubuntu.com/ubuntu|g' /etc/apt/sources.list.d/ubuntu.sources
 
 ENV DEBIAN_FRONTEND=noninteractive
 
