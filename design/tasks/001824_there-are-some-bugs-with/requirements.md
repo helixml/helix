@@ -28,7 +28,19 @@ Sending interrupt messages from the Robust Prompt input widget is broken for two
 - The message is processed as an interrupt by the backend
 - The agent's current turn is interrupted and the new message is processed
 
-### US-3: Existing "switch to interrupt" on queued message continues to work
+### US-3: Empty Enter promotes oldest queue message to interrupt
+**As a** user with messages waiting in the queue,
+**I want to** press Enter with an empty text field to promote the oldest queue-mode message to interrupt mode,
+**So that** I can quickly escalate a queued message without finding and clicking its toggle button.
+
+**Acceptance Criteria:**
+- Pressing Enter with an empty textarea (no text, no attachments) promotes the oldest `interrupt: false` pending message to `interrupt: true`
+- The message's icon updates from queue to zap in the UI
+- The backend receives the updated interrupt flag and processes it as an interrupt
+- If there are no queue-mode pending messages, pressing Enter with empty input does nothing
+- Ctrl+Enter with empty input does nothing (only plain Enter triggers promotion)
+
+### US-4: Existing "switch to interrupt" on queued message continues to work
 **As a** user,
 **I want** the existing toggle-interrupt button on a queued message to continue working,
 **So that** I can change a queued message to interrupt after the fact.

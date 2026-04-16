@@ -16,11 +16,20 @@
 - [ ] Fix the root cause identified during debugging (most likely in the CREATE path of `SyncPromptHistory` or in the frontend sync flow)
 - [ ] Fix `processInterruptPrompt` (prompt_history_handlers.go:208-253) to call `MarkPromptAsSent` after successful delivery — matching the pattern used by `processPromptQueue` (websocket_external_agent_sync.go:2540-2543) and `processAnyPendingPrompt` (websocket_external_agent_sync.go:2593-2596)
 
+## New Feature: Empty Enter promotes oldest queue message
+
+- [ ] In `handleKeyDown` (RobustPromptInput.tsx), when Enter is pressed with empty draft, no attachments, and no Ctrl/Cmd key: find the oldest pending entry with `interrupt === false` from `pendingPrompts`, and call `updateInterrupt(entryId, true)` to promote it — this reuses the existing working Path C mechanism
+- [ ] Skip promotion if Ctrl/Cmd is held (Ctrl+Enter with empty input should do nothing)
+- [ ] Skip promotion if there are no queue-mode (`interrupt: false`) pending messages
+
 ## Testing
 
 - [ ] Test Ctrl+Enter sends as interrupt (message interrupts current agent turn)
 - [ ] Test toggle to interrupt mode + Enter sends as interrupt
 - [ ] Test toggle to interrupt mode + click Send button sends as interrupt
 - [ ] Test existing "switch to interrupt" button on queued message still works (regression check)
-- [ ] Test that normal Enter (no Ctrl) sends as queue mode (interrupt=false)
+- [ ] Test that normal Enter (no Ctrl) with text sends as queue mode (interrupt=false)
+- [ ] Test that Enter with empty input promotes the oldest queue-mode message to interrupt
+- [ ] Test that Enter with empty input does nothing when there are no queue-mode pending messages
+- [ ] Test that Ctrl+Enter with empty input does nothing (no promotion)
 - [ ] Remove debug logging added during investigation

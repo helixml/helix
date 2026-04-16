@@ -44,6 +44,16 @@ updateInterrupt(entryId, true) → marks syncedToBackend=false
 → SyncPromptHistory UPDATES existing entry → go processPendingPromptsForIdleSessions
 ```
 
+#### Path D: Empty Enter promotes oldest queue message (NEW FEATURE)
+```
+handleKeyDown → Enter with empty draft, no Ctrl →
+  find oldest pending entry with interrupt=false →
+  updateInterrupt(entryId, true) → marks syncedToBackend=false
+→ debounced syncToBackend() → same flow as Path C
+```
+
+This reuses the existing `updateInterrupt` from the hook (same mechanism as Path C / the "switch to interrupt" button on queued messages). The only new code is the conditional logic in `handleKeyDown` to detect empty-input Enter and find the right entry to promote.
+
 ### Root Cause Analysis
 
 After tracing all three paths through the entire stack, the data flow for setting `interrupt: true` appears correct at every layer — the frontend correctly passes the flag, the service correctly serializes it, the backend correctly deserializes and stores it, and the processing logic correctly distinguishes interrupt from queue prompts.
