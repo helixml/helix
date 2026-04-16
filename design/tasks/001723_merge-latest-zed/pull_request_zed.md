@@ -30,6 +30,7 @@ Merges 692 upstream commits from `zed-industries/zed` into the Helix fork, bring
 7. `AuthRequired` added to `pending_server_starts` tracking in context_server_registry
 8. `thread_id` and `root_session_id` fields added to `from_existing_thread()`
 9. `load_session_id`→`resume_session_id` in cfg-gated blocks (upstream renamed the variable)
+10. `should_render_trial_end_upsell()` guarded with `cfg!(feature = "external_websocket_sync")` (upstream added end-of-trial "Upgrade to Zed Pro" upsell without Helix guard)
 
 **Verification:**
 - All 9 post-merge fixes verified present
