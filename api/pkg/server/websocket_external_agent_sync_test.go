@@ -870,6 +870,10 @@ func (s *WebSocketSyncSuite) TestAgentReady_WithPendingPrompt() {
 		Owner: "user-1",
 	}
 	s.store.EXPECT().GetSession(gomock.Any(), "ses_pending").Return(session, nil).AnyTimes()
+	// Re-check idle state before creating interaction
+	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(
+		[]*types.Interaction{}, int64(0), nil,
+	)
 	s.store.EXPECT().CreateInteraction(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, interaction *types.Interaction) (*types.Interaction, error) {
 			return &types.Interaction{ID: "int-prompt", SessionID: "ses_pending"}, nil
@@ -1000,6 +1004,10 @@ func (s *WebSocketSyncSuite) TestProcessPromptQueue_HasPending() {
 		Owner: "user-1",
 	}
 	s.store.EXPECT().GetSession(gomock.Any(), "ses_pq").Return(session, nil).AnyTimes()
+	// Re-check idle state before creating interaction
+	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(
+		[]*types.Interaction{}, int64(0), nil,
+	)
 	s.store.EXPECT().CreateInteraction(gomock.Any(), gomock.Any()).Return(
 		&types.Interaction{ID: "int-pq", SessionID: "ses_pq"}, nil,
 	)
@@ -1062,6 +1070,10 @@ func (s *WebSocketSyncSuite) TestProcessAnyPendingPrompt_HasPending() {
 		Owner: "user-1",
 	}
 	s.store.EXPECT().GetSession(gomock.Any(), "ses_any").Return(session, nil).AnyTimes()
+	// Re-check idle state before creating interaction
+	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(
+		[]*types.Interaction{}, int64(0), nil,
+	)
 	s.store.EXPECT().CreateInteraction(gomock.Any(), gomock.Any()).Return(
 		&types.Interaction{ID: "int-any", SessionID: "ses_any"}, nil,
 	)
@@ -1103,6 +1115,10 @@ func (s *WebSocketSyncSuite) TestSendQueuedPrompt_SendFails_CleansUpInMemoryStat
 		Owner: "user-1",
 	}
 	s.store.EXPECT().GetSession(gomock.Any(), "ses_cleanup").Return(session, nil).AnyTimes()
+	// Re-check idle state before creating interaction
+	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(
+		[]*types.Interaction{}, int64(0), nil,
+	)
 	s.store.EXPECT().CreateInteraction(gomock.Any(), gomock.Any()).Return(
 		&types.Interaction{ID: "int-cleanup", SessionID: "ses_cleanup"}, nil,
 	)
