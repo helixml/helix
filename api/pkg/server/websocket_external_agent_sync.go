@@ -2259,9 +2259,38 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 		Str("state_before", string(targetInteraction.State)).
 		Msg("🔄 [HELIX] Reloaded interaction with latest response content")
 
-	// Warn if the response is suspiciously empty — likely indicates content was lost
-	// during the streaming→flush→reload pipeline
-	if targetInteraction.ResponseMessage == "" {
+	// If the response is empty AND the interaction was created very recently (within 5s),
+	// this is an "immediate bounce" — the agent rejected the message without processing
+	// it (e.g. because it was busy with a Zed user-typed message). Mark the interaction
+	// as error instead of complete so the prompt can be retried.
+	// See: design/2026-04-16-lost-responses-race-condition.md
+	if targetInteraction.ResponseMessage == "" && len(responseEntries) == 0 {
+		timeSinceCreation := time.Since(targetInteraction.Created)
+		if timeSinceCreation < 10*time.Second {
+			log.Warn().
+				Str("helix_session_id", helixSessionID).
+				Str("interaction_id", targetInteraction.ID).
+				Dur("age", timeSinceCreation).
+				Msg("⚠️ [HELIX] message_completed with EMPTY response within 10s of creation — treating as bounce, marking error instead of complete")
+
+			targetInteraction.State = types.InteractionStateError
+			targetInteraction.Error = "Agent returned empty response (message bounced). The prompt will be retried."
+			targetInteraction.Updated = time.Now()
+
+			if _, err := apiServer.Controller.Options.Store.UpdateInteraction(context.Background(), targetInteraction); err != nil {
+				return fmt.Errorf("failed to update bounced interaction %s: %w", targetInteraction.ID, err)
+			}
+
+			// Publish the error state to frontend
+			apiServer.publishInteractionUpdateToFrontend(helixSessionID, helixSession.Owner, targetInteraction)
+			_ = apiServer.publishSessionUpdateToFrontend(helixSession, targetInteraction)
+
+			// Trigger queue processing so the prompt gets retried when the session is idle
+			go apiServer.processPromptQueue(context.Background(), helixSessionID)
+
+			return nil
+		}
+
 		log.Warn().
 			Str("helix_session_id", helixSessionID).
 			Str("interaction_id", targetInteraction.ID).
@@ -2611,6 +2640,21 @@ func (apiServer *HelixAPIServer) sendQueuedPromptToSession(ctx context.Context, 
 	session, err := apiServer.Store.GetSession(ctx, sessionID)
 	if err != nil {
 		return fmt.Errorf("failed to get session: %w", err)
+	}
+
+	// Re-check session idle state right before creating the interaction.
+	// A Zed user message may have arrived between processPromptQueue's initial
+	// check and now, creating a new Waiting interaction. Without this guard the
+	// queue prompt would be sent while the agent is already processing the Zed
+	// user message, causing the agent to bounce it with an empty response.
+	// See: design/2026-04-16-lost-responses-race-condition.md
+	latestInteractions, _, recheckErr := apiServer.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
+		SessionID:    sessionID,
+		GenerationID: session.GenerationID,
+		PerPage:      1,
+	})
+	if recheckErr == nil && len(latestInteractions) > 0 && latestInteractions[len(latestInteractions)-1].State == types.InteractionStateWaiting {
+		return fmt.Errorf("session %s became busy (interaction %s is Waiting), deferring queue prompt", sessionID, latestInteractions[len(latestInteractions)-1].ID)
 	}
 
 	// CRITICAL: Create an interaction BEFORE sending the message
