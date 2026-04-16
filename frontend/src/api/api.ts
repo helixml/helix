@@ -4987,6 +4987,8 @@ export interface TypesSpecTask {
   implementation_plan?: string;
   /** Skip spec planning, go straight to implementation */
   just_do_it_mode?: boolean;
+  /** Keep alive — prevent auto-idle-shutdown of desktop container */
+  keep_alive?: boolean;
   labels?: string[];
   /** Last prompt sent to agent (for continue functionality) */
   last_prompt_content?: string;
@@ -5232,6 +5234,8 @@ export interface TypesSpecTaskUpdateRequest {
   helix_app_id?: string;
   /** Pointer to allow explicit false */
   just_do_it_mode?: boolean;
+  /** Pointer to allow explicit false — prevent auto-idle-shutdown */
+  keep_alive?: boolean;
   name?: string;
   priority?: TypesSpecTaskPriority;
   /** Pointer to allow explicit false */
@@ -5285,6 +5289,8 @@ export interface TypesSpecTaskWithProject {
   implementation_plan?: string;
   /** Skip spec planning, go straight to implementation */
   just_do_it_mode?: boolean;
+  /** Keep alive — prevent auto-idle-shutdown of desktop container */
+  keep_alive?: boolean;
   labels?: string[];
   /** Last prompt sent to agent (for continue functionality) */
   last_prompt_content?: string;

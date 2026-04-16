@@ -28218,6 +28218,10 @@ const docTemplate = `{
                     "description": "Skip spec planning, go straight to implementation",
                     "type": "boolean"
                 },
+                "keep_alive": {
+                    "description": "Keep alive — prevent auto-idle-shutdown of desktop container",
+                    "type": "boolean"
+                },
                 "labels": {
                     "type": "array",
                     "items": {
@@ -28807,6 +28811,10 @@ const docTemplate = `{
                     "description": "Pointer to allow explicit false",
                     "type": "boolean"
                 },
+                "keep_alive": {
+                    "description": "Pointer to allow explicit false — prevent auto-idle-shutdown",
+                    "type": "boolean"
+                },
                 "name": {
                     "type": "string"
                 },
@@ -28931,6 +28939,10 @@ const docTemplate = `{
                 },
                 "just_do_it_mode": {
                     "description": "Skip spec planning, go straight to implementation",
+                    "type": "boolean"
+                },
+                "keep_alive": {
+                    "description": "Keep alive — prevent auto-idle-shutdown of desktop container",
                     "type": "boolean"
                 },
                 "labels": {
