@@ -30,7 +30,6 @@ config.ContextServers["chrome-devtools"] = ContextServerConfig{
     Args: []string{
         "chrome-devtools-mcp@latest",
         "--viewport", "1920x1080",
-        "--headless",
     },
     Env: map[string]string{
         "CHROME_PATH": "/usr/bin/google-chrome-stable",
@@ -38,7 +37,9 @@ config.ContextServers["chrome-devtools"] = ContextServerConfig{
 }
 ```
 
-Note: `CHROME_PATH` stays as an env var — Puppeteer reads it to locate the Chrome binary.
+Notes:
+- `CHROME_PATH` stays as an env var — Puppeteer reads it to locate the Chrome binary
+- Do NOT add `--headless` — Helix Desktop is a visible environment where the user watches the browser. Chrome should remain visible so the user can see what the AI agent is doing. The old `CHROME_DEVTOOLS_MCP_HEADLESS=true` env var was never actually read, so Chrome has always been launching visible (the correct behavior)
 
 ## Key Findings
 
