@@ -2766,7 +2766,7 @@ trigger:
 
 steps:
   - name: rollback-release
-    image: google/cloud-sdk:slim
+    image: golang:1.25-bookworm
     environment:
       GITHUB_TOKEN:
         from_secret: github_token
@@ -2779,14 +2779,16 @@ steps:
       SLACK_WEBHOOK_URL:
         from_secret: JANITOR_SLACK_WEBHOOK_URL
     commands:
-      - apt-get update -qq && apt-get install -y -qq curl jq > /dev/null
-      # Install gh CLI
+      # Add gh CLI apt repo
       - curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg 2>/dev/null
-      - echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null
-      - apt-get update -qq && apt-get install -y -qq gh > /dev/null
-      # Install helm
-      - curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash > /dev/null 2>&1
-      # Install awscli
-      - pip3 install -q awscli 2>/dev/null
+      - echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/github-cli.list
+      # Add Google Cloud SDK apt repo (for gsutil used by the helm rollback path)
+      - curl -fsSL https://packages.cloud.google.com/apt/doc/apt-key.gpg | gpg --dearmor -o /usr/share/keyrings/cloud.google.gpg
+      - echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt cloud-sdk main" > /etc/apt/sources.list.d/google-cloud-sdk.list
+      # Install tooling (awscli and jq from Debian, gh + gcloud from added repos)
+      - apt-get update -qq
+      - apt-get install -y -qq jq awscli gh google-cloud-cli > /dev/null
+      # Install helm (not packaged in Debian)
+      - curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash > /dev/null
       # Run rollback
       - scripts/release-rollback.sh "$DRONE_TAG"
