@@ -111,6 +111,11 @@ type Providers struct {
 	EnableCustomUserProviders bool   `envconfig:"ENABLE_CUSTOM_USER_PROVIDERS" default:"false"` // Allow users to configure their own providers, if "false" then only admins can add them
 	DynamicProviders          string `envconfig:"DYNAMIC_PROVIDERS"`                            // Format: "provider1:api_key1:base_url1,provider2:api_key2:base_url2"
 	BillingEnabled            bool   `envconfig:"PROVIDERS_BILLING_ENABLED" default:"false"`    // Enable usage tracking/billing for built-in providers (from env vars)
+	// LocalhostRewrite rewrites localhost/127.0.0.1 in provider base URLs to the
+	// given address before making requests. Set to "10.0.2.2" by the macOS desktop
+	// app so that user-configured "http://localhost:11434/v1" URLs reach the host
+	// from inside the QEMU VM. Has no effect when empty.
+	LocalhostRewrite string `envconfig:"PROVIDER_LOCALHOST_REWRITE"`
 }
 
 type OpenAI struct {
