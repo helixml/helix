@@ -1125,8 +1125,7 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, task *types.Sp
 	// ApproveSpecs immediately, but the orchestrator polling loop can
 	// also pick up tasks in spec_approved status and call it again.
 	// Without this check the implementation instruction is sent twice,
-	// creating two interactions with different request_ids that poison
-	// the completedRequestIDs dedup map and stall all follow-ups.
+	// creating two interactions with different request_ids.
 	if task.Status == types.TaskStatusImplementation ||
 		task.Status == types.TaskStatusImplementationQueued ||
 		task.Status == types.TaskStatusQueuedImplementation {

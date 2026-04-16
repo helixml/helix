@@ -715,9 +715,10 @@ func (s *WebSocketSyncSuite) TestMessageCompleted_ContextMappingMiss_DBFallback(
 	s.store.EXPECT().GetSession(gomock.Any(), "ses_mc_fb").Return(session, nil).AnyTimes()
 
 	waitingInteraction := &types.Interaction{
-		ID:        "int-mc-fb",
-		SessionID: "ses_mc_fb",
-		State:     types.InteractionStateWaiting,
+		ID:              "int-mc-fb",
+		SessionID:       "ses_mc_fb",
+		State:           types.InteractionStateWaiting,
+		ResponseMessage: "partial response flushed before restart",
 	}
 	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(
 		[]*types.Interaction{waitingInteraction}, int64(1), nil,
@@ -769,9 +770,10 @@ func (s *WebSocketSyncSuite) TestMessageCompleted_WithCommentFinalization() {
 	s.store.EXPECT().GetSession(gomock.Any(), "ses_cf").Return(session, nil).AnyTimes()
 
 	waitingInteraction := &types.Interaction{
-		ID:        "int-cf",
-		SessionID: "ses_cf",
-		State:     types.InteractionStateWaiting,
+		ID:              "int-cf",
+		SessionID:       "ses_cf",
+		State:           types.InteractionStateWaiting,
+		ResponseMessage: "I've reviewed the design and it looks good.",
 	}
 	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(
 		[]*types.Interaction{waitingInteraction}, int64(1), nil,

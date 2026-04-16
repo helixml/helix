@@ -275,7 +275,8 @@ func (m *MemoryStore) GetNextInterruptPrompt(_ context.Context, _ string) (*type
 
 func (m *MemoryStore) MarkPromptAsPending(_ context.Context, _ string) error    { return nil }
 func (m *MemoryStore) MarkPromptAsSent(_ context.Context, _ string) error       { return nil }
-func (m *MemoryStore) MarkPromptAsFailed(_ context.Context, _ string) error     { return nil }
+func (m *MemoryStore) MarkPromptAsFailed(_ context.Context, _ string) error       { return nil }
+func (m *MemoryStore) RequeueBouncedPrompt(_ context.Context, _ string) error     { return nil }
 func (m *MemoryStore) DeletePromptHistoryEntry(_ context.Context, _ string) error { return nil }
 func (m *MemoryStore) ClaimPromptForSending(_ context.Context, _ string) (bool, error) {
 	return true, nil // In-memory: always succeed (no concurrency in tests)
