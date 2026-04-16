@@ -188,6 +188,80 @@ func resolveRegistryImageWithBase(image string, baseDir string) string {
 	return ref
 }
 
+// tryRecoverImage attempts to pull a missing desktop image from available registries.
+// It tries the production registry (.ref file), then the local shared registry.
+// Returns true if the image was recovered and is available for container creation.
+func (dm *DevContainerManager) tryRecoverImage(ctx context.Context, dockerClient *client.Client, resolvedImage, originalImage string) bool {
+	log.Warn().
+		Str("resolved_image", resolvedImage).
+		Str("original_image", originalImage).
+		Msg("Image missing from Docker — attempting recovery")
+
+	// Extract image name without tag for looking up registry sources
+	imageName := originalImage
+	if idx := strings.LastIndex(originalImage, ":"); idx != -1 {
+		imageName = originalImage[:idx]
+	}
+
+	// Build list of registry sources to try, in priority order:
+	// 1. Production registry ref (.ref file, e.g., ghcr.io/helixml/helix-ubuntu:VERSION)
+	// 2. Local shared registry (registry:5000/IMAGE:TAG)
+	var pullSources []string
+
+	// Check for production registry ref
+	refFile := filepath.Join("/opt/images", imageName+".ref")
+	if refData, err := os.ReadFile(refFile); err == nil {
+		ref := strings.TrimSpace(string(refData))
+		if ref != "" {
+			// Replace the tag with the requested version
+			tag := imageTag(originalImage)
+			if baseRef := strings.LastIndex(ref, ":"); baseRef != -1 && tag != "" {
+				ref = ref[:baseRef] + ":" + tag
+			}
+			pullSources = append(pullSources, ref)
+		}
+	}
+
+	// Try the local shared registry
+	registryHost := GetRegistryHost()
+	if registryHost != "" {
+		pullSources = append(pullSources, registryHost+"/"+originalImage)
+	}
+	// Also try the DNS name (works when registry is on the same Docker network)
+	pullSources = append(pullSources, "registry:5000/"+originalImage)
+
+	for _, source := range pullSources {
+		log.Info().Str("source", source).Msg("Trying recovery pull")
+		pullOut, pullErr := dockerClient.ImagePull(ctx, source, dockertypes.ImagePullOptions{})
+		if pullErr != nil {
+			log.Debug().Err(pullErr).Str("source", source).Msg("Recovery pull failed, trying next source")
+			continue
+		}
+		// Drain the pull output to completion
+		_, _ = io.Copy(io.Discard, pullOut)
+		pullOut.Close()
+
+		// Tag as the expected local name so the container creation succeeds
+		if source != resolvedImage {
+			_ = dockerClient.ImageTag(ctx, source, resolvedImage)
+		}
+		if source != originalImage {
+			_ = dockerClient.ImageTag(ctx, source, originalImage)
+		}
+		log.Info().
+			Str("image", resolvedImage).
+			Str("source", source).
+			Msg("Image recovered successfully")
+		return true
+	}
+
+	log.Error().
+		Str("image", resolvedImage).
+		Strs("sources_tried", pullSources).
+		Msg("Failed to recover image from any registry source")
+	return false
+}
+
 // CreateDevContainer creates and starts a dev container
 func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *CreateDevContainerRequest) (*DevContainerResponse, error) {
 	// Validate that image has a specific version tag - never accept :latest
@@ -395,6 +469,15 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 
 	// Create container
 	resp, err := dockerClient.ContainerCreate(dockerCtx, containerConfig, hostConfig, networkConfig, nil, req.ContainerName)
+	if err != nil && strings.Contains(err.Error(), "No such image") {
+		// Image disappeared from Docker (possible containerd GC or Docker daemon issue).
+		// Try to recover by pulling from whatever registry source is available.
+		recovered := dm.tryRecoverImage(dockerCtx, dockerClient, resolvedImage, req.Image)
+		if recovered {
+			// Retry container creation with the recovered image
+			resp, err = dockerClient.ContainerCreate(dockerCtx, containerConfig, hostConfig, networkConfig, nil, req.ContainerName)
+		}
+	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to create container: %w", err)
 	}
