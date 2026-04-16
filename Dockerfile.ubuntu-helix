@@ -196,6 +196,12 @@ ENV \
 
 ARG TARGETARCH TARGETVARIANT
 
+# Disable AppStream (DEP-11) metadata downloads — not needed in Docker containers,
+# and questing-security/restricted doesn't publish icons indices (404 errors)
+RUN echo 'Acquire::IndexTargets::deb::DEP-11 "false";' > /etc/apt/apt.conf.d/99no-appstream && \
+    echo 'Acquire::IndexTargets::deb::DEP-11-icons "false";' >> /etc/apt/apt.conf.d/99no-appstream && \
+    echo 'Acquire::IndexTargets::deb::DEP-11-icons-hidpi "false";' >> /etc/apt/apt.conf.d/99no-appstream
+
 # Install GOW base requirements + GNOME packages
 ARG GOSU_VERSION=1.14
 
