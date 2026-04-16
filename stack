@@ -1039,11 +1039,6 @@ function build-desktop() {
   _dt_elapsed "✅ ${DESKTOP_NAME} container built successfully"
   echo "📦 Image hash: ${IMAGE_HASH_FULL} (tag: ${IMAGE_TAG})"
 
-  # Always write version file (even if image unchanged, fixes stale version files)
-  mkdir -p sandbox-images
-  echo "${IMAGE_TAG}" > "sandbox-images/${IMAGE_NAME}.version"
-  echo "📦 Version file: ${IMAGE_TAG}"
-
   # Log whether image changed (transfer function handles dedup via sandbox tag check)
   if [ -n "$IMAGE_HASH_BEFORE" ] && [ "$IMAGE_HASH_BEFORE" = "$IMAGE_HASH_AFTER" ]; then
     echo "ℹ️  Image unchanged (layers cached)"
@@ -1052,7 +1047,28 @@ function build-desktop() {
   # Transfer to running sandbox via local registry
   # Skip if SKIP_DESKTOP_TRANSFER is set (called from build-sandbox)
   if [ -z "${SKIP_DESKTOP_TRANSFER:-}" ]; then
+    # Write version file AFTER transfer so the heartbeat (which reads the
+    # bind-mounted version file) doesn't report a version before the image
+    # is available inside the sandbox. This prevents the race condition where
+    # the API tries to create a container with a version tag whose image
+    # hasn't been pulled into the sandbox's Docker yet.
     transfer-desktop-to-sandbox "$DESKTOP_NAME" "$IMAGE_TAG"
+    mkdir -p sandbox-images
+    echo "${IMAGE_TAG}" > "sandbox-images/${IMAGE_NAME}.version"
+    echo "📦 Version file: ${IMAGE_TAG}"
+    # Restart heartbeat again now that the version file is written.
+    # transfer-desktop-to-sandbox already restarted it, but at that point
+    # the version file still had the old tag. This second restart ensures
+    # the heartbeat picks up the new version immediately.
+    get_sandbox_names
+    docker exec "$SANDBOX_CONTAINER" pkill -f sandbox-heartbeat 2>/dev/null || true
+  else
+    # When skipping transfer (build-sandbox rebuilds the sandbox container
+    # itself), write the version file immediately — no heartbeat race since
+    # the sandbox isn't running yet.
+    mkdir -p sandbox-images
+    echo "${IMAGE_TAG}" > "sandbox-images/${IMAGE_NAME}.version"
+    echo "📦 Version file: ${IMAGE_TAG}"
   fi
 
   echo ""
@@ -1210,12 +1226,14 @@ function transfer-desktop-to-sandbox() {
 
   _tx_elapsed "✅ ${IMAGE_NAME}:${IMAGE_TAG} transferred via registry"
 
-  # Version files are bind-mounted from host (updated by build-desktop)
+  # Version files are bind-mounted from host. When called from build-desktop,
+  # the version file is written AFTER this function returns (to avoid a race
+  # condition). For standalone calls, it should already be up to date.
   if [ -f "sandbox-images/${IMAGE_NAME}.version" ]; then
     echo "📦 Version file: $(cat sandbox-images/${IMAGE_NAME}.version)"
   fi
 
-  # Restart heartbeat to pick up the new version immediately
+  # Restart heartbeat to pick up the current version file
   echo "🔄 Restarting heartbeat daemon to report new version..."
   sandbox_docker exec "$SANDBOX_CONTAINER_NAME" pkill -f sandbox-heartbeat 2>/dev/null || true
   echo "✅ Image transferred and heartbeat restarted"
