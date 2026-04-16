@@ -5,7 +5,17 @@
 - [x] Create feature branch `feature/001723-merge-latest-zed` from current `main`
 - [x] Ensure upstream remote exists: `git remote add upstream https://github.com/zed-industries/zed.git` and `git fetch upstream`
 
-## Merge
+## Second Merge Pass (April 16 — origin/main advanced +12 commits, upstream +183 more)
+
+- [~] Reset feature branch to origin/main, merge upstream/main again
+- [ ] Resolve all conflicts
+- [ ] Post-merge fixes
+- [ ] Verify all rebase checklist items
+- [ ] Review portingguide.md carefully for correctness
+- [ ] E2E test review — ensure tests are up to date with new Helix commits
+- [ ] Push and finalize
+
+## First Merge Pass (completed, now superseded)
 
 - [x] Run `git merge upstream/main` and begin conflict resolution
 - [x] Resolve conflicts in `Cargo.toml` (workspace root) — auto-merged, no conflict
