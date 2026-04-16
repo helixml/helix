@@ -8,6 +8,7 @@ package desktop
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -386,7 +387,11 @@ func (g *GstPipeline) Stop() {
 			g.pipeline.SetState(gst.StateNull)
 			ret, _ := g.pipeline.GetState(gst.StateNull, gst.ClockTime(5*time.Second))
 			if ret != gst.StateChangeSuccess {
-				fmt.Printf("[GST_PIPELINE] Warning: GetState after SetState(Null) returned %v (timeout or error), proceeding with Unref\n", ret)
+				// Pipeline is stuck — Unref in this state would crash (nvh264enc
+				// abort()s when disposed while PLAYING). Exit the process and let
+				// the restart loop in start-desktop-bridge.sh bring us back clean.
+				fmt.Printf("[GST_PIPELINE] FATAL: pipeline stuck (GetState returned %v after 5s), exiting to let restart loop recover\n", ret)
+				os.Exit(1)
 			}
 			// Explicitly unref to free GPU resources (CUDA contexts, NVENC sessions)
 			// immediately rather than waiting for Go's GC finalizer.
