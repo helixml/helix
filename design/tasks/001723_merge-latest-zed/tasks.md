@@ -9,10 +9,10 @@
 
 - [x] Reset feature branch to origin/main, merge upstream/main (692 total upstream commits)
 - [x] Resolve all 29 conflicts (workflows, keymaps, settings, Cargo.tomls, agent_panel, conversation_view, workspace, title_bar, acp_thread, context_server_registry, dev_container_suggest, editor)
-- [x] Post-merge fixes: ActiveView→BaseView rename, root_session_id, AuthRequired, selected_agent
+- [x] Post-merge fixes: ActiveView→BaseView rename, root_session_id, AuthRequired, selected_agent, load_session_id→resume_session_id
 - [x] Verify all 8 critical fixes survived (entity lifetime, no dups, content_only, notify_thread_display, stale flush, Stopped invariant, unregister, cancel drop)
 - [x] Verify E2E test infrastructure intact (all Go code, Dockerfiles, scripts, slow-mcp-server)
-- [x] Review and update portingguide.md (fix stale references, add 6 new checklist items 35-40, update commit history with 20 new Helix commits)
+- [x] Review and update portingguide.md (fix stale references, add 6 new checklist items 35-40, update commit history with 20 new Helix commits, remove stale HeadlessConnection claims)
 - [x] Push feature branch to origin
 
 ## Build & Test (requires CI)
