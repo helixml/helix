@@ -1039,15 +1039,15 @@ function build-desktop() {
   _dt_elapsed "✅ ${DESKTOP_NAME} container built successfully"
   echo "📦 Image hash: ${IMAGE_HASH_FULL} (tag: ${IMAGE_TAG})"
 
-  # Always write version file (even if image unchanged, fixes stale version files)
-  mkdir -p sandbox-images
-  echo "${IMAGE_TAG}" > "sandbox-images/${IMAGE_NAME}.version"
-  echo "📦 Version file: ${IMAGE_TAG}"
-
   # Log whether image changed (transfer function handles dedup via sandbox tag check)
   if [ -n "$IMAGE_HASH_BEFORE" ] && [ "$IMAGE_HASH_BEFORE" = "$IMAGE_HASH_AFTER" ]; then
     echo "ℹ️  Image unchanged (layers cached)"
   fi
+
+  # Always write version file (even if image unchanged, fixes stale version files)
+  mkdir -p sandbox-images
+  echo "${IMAGE_TAG}" > "sandbox-images/${IMAGE_NAME}.version"
+  echo "📦 Version file: ${IMAGE_TAG}"
 
   # Transfer to running sandbox via local registry
   # Skip if SKIP_DESKTOP_TRANSFER is set (called from build-sandbox)
