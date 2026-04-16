@@ -91,6 +91,55 @@ func (s *HelixAPIServer) createEmbeddings(rw http.ResponseWriter, r *http.Reques
 		embeddingRequest.EncodingFormat = "float"
 	}
 
+	// Special handling for kodit-text-embedding placeholder model
+	// When Kodit sends requests with model "kodit-text-embedding", substitute with the configured text embedding model from SystemSettings
+	if embeddingRequest.Model == "kodit-text-embedding" {
+		settings, err := s.Store.GetEffectiveSystemSettings(r.Context())
+		if err != nil {
+			log.Error().Err(err).Msg("failed to get system settings for kodit-text-embedding substitution")
+			http.Error(rw, "Failed to get system settings", http.StatusInternalServerError)
+			return
+		}
+		if settings.KoditTextEmbeddingProvider == "" || settings.KoditTextEmbeddingModel == "" {
+			log.Warn().Msg("kodit-text-embedding requested but no text embedding model configured in system settings")
+			http.Error(rw, "Kodit text embedding model not configured. Please configure the text embedding model in Admin > System Settings.", http.StatusBadRequest)
+			return
+		}
+		embeddingsProvider = settings.KoditTextEmbeddingProvider
+		log.Debug().
+			Str("original_model", "kodit-text-embedding").
+			Str("provider", settings.KoditTextEmbeddingProvider).
+			Str("model", settings.KoditTextEmbeddingModel).
+			Msg("substituted kodit-text-embedding with configured text embedding model")
+		embeddingRequest.Model = settings.KoditTextEmbeddingModel
+		embeddingRequest.EncodingFormat = "float"
+	}
+
+	// Special handling for kodit-vision-embedding placeholder model
+	// When Kodit sends vision embedding requests (with messages containing image_url parts)
+	// using model "kodit-vision-embedding", substitute with the configured vision embedding model.
+	if embeddingRequest.Model == "kodit-vision-embedding" {
+		settings, err := s.Store.GetEffectiveSystemSettings(r.Context())
+		if err != nil {
+			log.Error().Err(err).Msg("failed to get system settings for kodit-vision-embedding substitution")
+			http.Error(rw, "Failed to get system settings", http.StatusInternalServerError)
+			return
+		}
+		if settings.KoditVisionEmbeddingProvider == "" || settings.KoditVisionEmbeddingModel == "" {
+			log.Warn().Msg("kodit-vision-embedding requested but no vision embedding model configured in system settings")
+			http.Error(rw, "Kodit vision embedding model not configured. Please configure the vision embedding model in Admin > System Settings.", http.StatusBadRequest)
+			return
+		}
+		embeddingsProvider = settings.KoditVisionEmbeddingProvider
+		log.Debug().
+			Str("original_model", "kodit-vision-embedding").
+			Str("provider", settings.KoditVisionEmbeddingProvider).
+			Str("model", settings.KoditVisionEmbeddingModel).
+			Msg("substituted kodit-vision-embedding with configured vision embedding model")
+		embeddingRequest.Model = settings.KoditVisionEmbeddingModel
+		embeddingRequest.EncodingFormat = "float"
+	}
+
 	// Get the appropriate client for the provider
 	client, err := s.providerManager.GetClient(r.Context(), &manager.GetClientRequest{
 		Provider: embeddingsProvider,

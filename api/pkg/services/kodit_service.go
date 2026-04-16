@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync/atomic"
 
 	"github.com/helixml/kodit"
 	"github.com/helixml/kodit/application/service"
@@ -33,24 +34,39 @@ func repoRelativePath(fullPath string) string {
 	return fullPath
 }
 
-// KoditService handles communication with Kodit code intelligence library
+// KoditService handles communication with Kodit code intelligence library.
+// The underlying *kodit.Client is held in an atomic.Pointer so admins can
+// change the embedding provider in System Settings and SwapClient the live
+// client without restarting Helix. Downstream consumers that hold a
+// KoditServicer interface value keep working — the interface points at the
+// same *KoditService throughout its lifetime; only the client swaps.
 type KoditService struct {
-	enabled bool
-	client  *kodit.Client
+	client atomic.Pointer[kodit.Client]
 }
 
-// NewKoditService creates a new Kodit service wrapping a kodit.Client
+// NewKoditService creates a new Kodit service wrapping a kodit.Client. A nil
+// client produces a service that reports as not-enabled; use SwapClient later
+// to install a real client.
 func NewKoditService(client *kodit.Client) *KoditService {
-	if client == nil {
+	s := &KoditService{}
+	if client != nil {
+		s.client.Store(client)
+	} else {
 		log.Info().Msg("Kodit service not configured (no client)")
-		return &KoditService{enabled: false}
 	}
-	return &KoditService{enabled: true, client: client}
+	return s
+}
+
+// SwapClient atomically replaces the underlying kodit client and returns the
+// old one (if any) so the caller can Close() it. Used by KoditResult.Reinit
+// when the admin changes the embedding provider in System Settings.
+func (s *KoditService) SwapClient(new *kodit.Client) (old *kodit.Client) {
+	return s.client.Swap(new)
 }
 
 // IsEnabled returns whether the Kodit service is enabled
 func (s *KoditService) IsEnabled() bool {
-	return s != nil && s.enabled
+	return s != nil && s.client.Load() != nil
 }
 
 // MCPDocumentation returns a markdown section describing the kodit MCP server
@@ -63,12 +79,12 @@ func (s *KoditService) MCPDocumentation() string {
 
 	var b strings.Builder
 	b.WriteString("## Code Intelligence — Kodit MCP Server\n\n")
-	b.WriteString(s.client.MCPServer.Instructions())
+	b.WriteString(s.client.Load().MCPServer.Instructions())
 	b.WriteString("\n\n### Tool Reference\n\n")
 	b.WriteString("| Tool | Description | Required Params | Optional Params |\n")
 	b.WriteString("|------|-------------|-----------------|------------------|\n")
 
-	for _, tool := range s.client.MCPServer.Tools() {
+	for _, tool := range s.client.Load().MCPServer.Tools() {
 		var required, optional []string
 		for _, p := range tool.Parameters() {
 			entry := fmt.Sprintf("`%s` (%s)", p.Name(), p.Type())
@@ -105,11 +121,11 @@ func wrapNotFound(err error) error {
 // RegisterRepository registers a repository with Kodit for indexing.
 // Returns the source ID (int64), whether it was newly created, and any error.
 func (s *KoditService) RegisterRepository(ctx context.Context, params *RegisterRepositoryParams) (int64, bool, error) {
-	if !s.enabled {
+	if !s.IsEnabled() {
 		return 0, false, fmt.Errorf("kodit service not enabled")
 	}
 
-	source, isNew, err := s.client.Repositories.Add(ctx, &service.RepositoryAddParams{
+	source, isNew, err := s.client.Load().Repositories.Add(ctx, &service.RepositoryAddParams{
 		URL:         params.CloneURL,
 		UpstreamURL: params.UpstreamURL,
 		Pipeline:    params.Pipeline,
@@ -138,7 +154,7 @@ func (s *KoditService) RegisterRepository(ctx context.Context, params *RegisterR
 // GetRepositoryEnrichments fetches enrichments for a repository from Kodit,
 // filtering out internal summary types (snippet_summary, example_summary).
 func (s *KoditService) GetRepositoryEnrichments(ctx context.Context, koditRepoID int64, enrichmentType, commitSHA string) ([]enrichment.Enrichment, error) {
-	if !s.enabled {
+	if !s.IsEnabled() {
 		return nil, fmt.Errorf("kodit service not enabled")
 	}
 
@@ -157,7 +173,7 @@ func (s *KoditService) GetRepositoryEnrichments(ctx context.Context, koditRepoID
 		// If no commit SHA provided, get enrichments for latest commits of this repo.
 		// We MUST scope by commit SHAs because EnrichmentListParams has no repo ID
 		// field — without commit scoping the query returns enrichments from all repos.
-		commits, err := s.client.Commits.Find(ctx, repository.WithRepoID(koditRepoID), repository.WithLimit(50))
+		commits, err := s.client.Load().Commits.Find(ctx, repository.WithRepoID(koditRepoID), repository.WithLimit(50))
 		if err != nil {
 			return nil, fmt.Errorf("failed to list commits for repo: %w", err)
 		}
@@ -171,7 +187,7 @@ func (s *KoditService) GetRepositoryEnrichments(ctx context.Context, koditRepoID
 		params.CommitSHAs = shas
 	}
 
-	enrichments, err := s.client.Enrichments.List(ctx, params)
+	enrichments, err := s.client.Load().Enrichments.List(ctx, params)
 	if err != nil {
 		if errors.Is(err, kodit.ErrNotFound) {
 			return nil, nil
@@ -193,7 +209,7 @@ func (s *KoditService) GetRepositoryEnrichments(ctx context.Context, koditRepoID
 
 // GetEnrichment fetches a single enrichment by ID from Kodit
 func (s *KoditService) GetEnrichment(ctx context.Context, enrichmentID string) (enrichment.Enrichment, error) {
-	if !s.enabled {
+	if !s.IsEnabled() {
 		return enrichment.Enrichment{}, fmt.Errorf("kodit service not enabled")
 	}
 
@@ -202,7 +218,7 @@ func (s *KoditService) GetEnrichment(ctx context.Context, enrichmentID string) (
 		return enrichment.Enrichment{}, fmt.Errorf("invalid enrichment ID %q: %w", enrichmentID, err)
 	}
 
-	e, err := s.client.Enrichments.Get(ctx, repository.WithID(id))
+	e, err := s.client.Load().Enrichments.Get(ctx, repository.WithID(id))
 	if err != nil {
 		return enrichment.Enrichment{}, wrapNotFound(err)
 	}
@@ -212,7 +228,7 @@ func (s *KoditService) GetEnrichment(ctx context.Context, enrichmentID string) (
 
 // GetRepositoryCommits fetches commits for a repository from Kodit
 func (s *KoditService) GetRepositoryCommits(ctx context.Context, koditRepoID int64, limit int) ([]repository.Commit, error) {
-	if !s.enabled {
+	if !s.IsEnabled() {
 		return nil, fmt.Errorf("kodit service not enabled")
 	}
 
@@ -222,7 +238,7 @@ func (s *KoditService) GetRepositoryCommits(ctx context.Context, koditRepoID int
 	}
 	opts = append(opts, repository.WithOrderDesc("date"))
 
-	commits, err := s.client.Commits.Find(ctx, opts...)
+	commits, err := s.client.Load().Commits.Find(ctx, opts...)
 	if err != nil {
 		if errors.Is(err, kodit.ErrNotFound) {
 			return nil, nil
@@ -235,7 +251,7 @@ func (s *KoditService) GetRepositoryCommits(ctx context.Context, koditRepoID int
 
 // SearchSnippets searches for code snippets in a repository from Kodit
 func (s *KoditService) SearchSnippets(ctx context.Context, koditRepoID int64, query string, limit int) ([]enrichment.Enrichment, error) {
-	if !s.enabled {
+	if !s.IsEnabled() {
 		return nil, fmt.Errorf("kodit service not enabled")
 	}
 
@@ -257,7 +273,7 @@ func (s *KoditService) SearchSnippets(ctx context.Context, koditRepoID int64, qu
 	)
 	request := search.NewMultiRequest(limit, query, query, nil, filters)
 
-	result, err := s.client.Search.Search(ctx, request)
+	result, err := s.client.Load().Search.Search(ctx, request)
 	if err != nil {
 		return nil, fmt.Errorf("failed to search snippets: %w", err)
 	}
@@ -267,11 +283,11 @@ func (s *KoditService) SearchSnippets(ctx context.Context, koditRepoID int64, qu
 
 // GetRepositoryStatus fetches indexing status for a repository from Kodit
 func (s *KoditService) GetRepositoryStatus(ctx context.Context, koditRepoID int64) (tracking.RepositoryStatusSummary, error) {
-	if !s.enabled {
+	if !s.IsEnabled() {
 		return tracking.RepositoryStatusSummary{}, fmt.Errorf("kodit service not enabled")
 	}
 
-	summary, err := s.client.Tracking.Summary(ctx, koditRepoID)
+	summary, err := s.client.Load().Tracking.Summary(ctx, koditRepoID)
 	if err != nil {
 		return tracking.RepositoryStatusSummary{}, wrapNotFound(err)
 	}
@@ -281,7 +297,7 @@ func (s *KoditService) GetRepositoryStatus(ctx context.Context, koditRepoID int6
 
 // ListRepositories returns all Kodit repositories with pagination.
 func (s *KoditService) ListRepositories(ctx context.Context, limit, offset int) ([]repository.Repository, int64, error) {
-	if !s.enabled {
+	if !s.IsEnabled() {
 		return nil, 0, fmt.Errorf("kodit service not enabled")
 	}
 
@@ -291,12 +307,12 @@ func (s *KoditService) ListRepositories(ctx context.Context, limit, offset int) 
 		repository.WithOrderDesc("created_at"),
 	}
 
-	repos, err := s.client.Repositories.Find(ctx, opts...)
+	repos, err := s.client.Load().Repositories.Find(ctx, opts...)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to list repositories: %w", err)
 	}
 
-	total, err := s.client.Repositories.Count(ctx)
+	total, err := s.client.Load().Repositories.Count(ctx)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to count repositories: %w", err)
 	}
@@ -306,11 +322,11 @@ func (s *KoditService) ListRepositories(ctx context.Context, limit, offset int) 
 
 // RepositorySummary returns a detailed summary for a repository.
 func (s *KoditService) RepositorySummary(ctx context.Context, koditRepoID int64) (repository.RepositorySummary, error) {
-	if !s.enabled {
+	if !s.IsEnabled() {
 		return repository.RepositorySummary{}, fmt.Errorf("kodit service not enabled")
 	}
 
-	summary, err := s.client.Repositories.SummaryByID(ctx, koditRepoID)
+	summary, err := s.client.Load().Repositories.SummaryByID(ctx, koditRepoID)
 	if err != nil {
 		return repository.RepositorySummary{}, wrapNotFound(err)
 	}
@@ -320,11 +336,11 @@ func (s *KoditService) RepositorySummary(ctx context.Context, koditRepoID int64)
 
 // SyncRepository triggers a full sync (git fetch + branch scan + re-index).
 func (s *KoditService) SyncRepository(ctx context.Context, koditRepoID int64) error {
-	if !s.enabled {
+	if !s.IsEnabled() {
 		return fmt.Errorf("kodit service not enabled")
 	}
 
-	if err := s.client.Repositories.Sync(ctx, koditRepoID); err != nil {
+	if err := s.client.Load().Repositories.Sync(ctx, koditRepoID); err != nil {
 		return fmt.Errorf("failed to sync repository: %w", wrapNotFound(err))
 	}
 
@@ -334,11 +350,11 @@ func (s *KoditService) SyncRepository(ctx context.Context, koditRepoID int64) er
 
 // DeleteRepository queues a repository for deletion.
 func (s *KoditService) DeleteRepository(ctx context.Context, koditRepoID int64) error {
-	if !s.enabled {
+	if !s.IsEnabled() {
 		return fmt.Errorf("kodit service not enabled")
 	}
 
-	if err := s.client.Repositories.Delete(ctx, koditRepoID); err != nil {
+	if err := s.client.Load().Repositories.Delete(ctx, koditRepoID); err != nil {
 		return fmt.Errorf("failed to delete repository from kodit: %w", wrapNotFound(err))
 	}
 
@@ -348,11 +364,11 @@ func (s *KoditService) DeleteRepository(ctx context.Context, koditRepoID int64) 
 
 // EnrichmentCount returns the total number of enrichments for a repository.
 func (s *KoditService) EnrichmentCount(ctx context.Context, koditRepoID int64) (int64, error) {
-	if !s.enabled {
+	if !s.IsEnabled() {
 		return 0, fmt.Errorf("kodit service not enabled")
 	}
 
-	commits, err := s.client.Commits.Find(ctx, repository.WithRepoID(koditRepoID))
+	commits, err := s.client.Load().Commits.Find(ctx, repository.WithRepoID(koditRepoID))
 	if err != nil {
 		return 0, fmt.Errorf("failed to list commits for repo: %w", err)
 	}
@@ -365,7 +381,7 @@ func (s *KoditService) EnrichmentCount(ctx context.Context, koditRepoID int64) (
 		shas[i] = c.SHA()
 	}
 
-	count, err := s.client.Enrichments.Count(ctx, &service.EnrichmentListParams{
+	count, err := s.client.Load().Enrichments.Count(ctx, &service.EnrichmentListParams{
 		CommitSHAs: shas,
 	})
 	if err != nil {
@@ -377,12 +393,12 @@ func (s *KoditService) EnrichmentCount(ctx context.Context, koditRepoID int64) (
 
 // RepositoryTasks returns tracking statuses and pending queue tasks for a repository.
 func (s *KoditService) RepositoryTasks(ctx context.Context, koditRepoID int64) (KoditRepositoryTasks, error) {
-	if !s.enabled {
+	if !s.IsEnabled() {
 		return KoditRepositoryTasks{}, fmt.Errorf("kodit service not enabled")
 	}
 
 	// Get tracking statuses (operation-level status for this repo)
-	trackingStatuses, err := s.client.Tracking.Statuses(ctx, koditRepoID)
+	trackingStatuses, err := s.client.Load().Tracking.Statuses(ctx, koditRepoID)
 	if err != nil {
 		return KoditRepositoryTasks{}, fmt.Errorf("failed to get tracking statuses: %w", err)
 	}
@@ -401,7 +417,7 @@ func (s *KoditService) RepositoryTasks(ctx context.Context, koditRepoID int64) (
 	}
 
 	// Get pending queue tasks and filter by this repo
-	allPending, err := s.client.Tasks.List(ctx, &service.TaskListParams{Limit: 500})
+	allPending, err := s.client.Load().Tasks.List(ctx, &service.TaskListParams{Limit: 500})
 	if err != nil {
 		return KoditRepositoryTasks{}, fmt.Errorf("failed to list pending tasks: %w", err)
 	}
@@ -441,26 +457,26 @@ func (s *KoditService) RepositoryTasks(ctx context.Context, koditRepoID int64) (
 
 // SystemStats returns aggregate counts for the Kodit system.
 func (s *KoditService) SystemStats(ctx context.Context) (KoditSystemStats, error) {
-	if !s.enabled {
+	if !s.IsEnabled() {
 		return KoditSystemStats{}, fmt.Errorf("kodit service not enabled")
 	}
 
-	repos, err := s.client.Repositories.Count(ctx)
+	repos, err := s.client.Load().Repositories.Count(ctx)
 	if err != nil {
 		return KoditSystemStats{}, fmt.Errorf("failed to count repositories: %w", err)
 	}
 
-	enrichments, err := s.client.Enrichments.Count(ctx, &service.EnrichmentListParams{})
+	enrichments, err := s.client.Load().Enrichments.Count(ctx, &service.EnrichmentListParams{})
 	if err != nil {
 		return KoditSystemStats{}, fmt.Errorf("failed to count enrichments: %w", err)
 	}
 
-	commits, err := s.client.Commits.Count(ctx)
+	commits, err := s.client.Load().Commits.Count(ctx)
 	if err != nil {
 		return KoditSystemStats{}, fmt.Errorf("failed to count commits: %w", err)
 	}
 
-	pendingTasks, err := s.client.Tasks.Count(ctx)
+	pendingTasks, err := s.client.Load().Tasks.Count(ctx)
 	if err != nil {
 		return KoditSystemStats{}, fmt.Errorf("failed to count pending tasks: %w", err)
 	}
@@ -475,16 +491,16 @@ func (s *KoditService) SystemStats(ctx context.Context) (KoditSystemStats, error
 
 // ListAllTasks returns a paginated list of all pending tasks across all repositories.
 func (s *KoditService) ListAllTasks(ctx context.Context, limit, offset int) ([]KoditPendingTask, int64, error) {
-	if !s.enabled {
+	if !s.IsEnabled() {
 		return nil, 0, fmt.Errorf("kodit service not enabled")
 	}
 
-	tasks, err := s.client.Tasks.List(ctx, &service.TaskListParams{Limit: limit, Offset: offset})
+	tasks, err := s.client.Load().Tasks.List(ctx, &service.TaskListParams{Limit: limit, Offset: offset})
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to list tasks: %w", err)
 	}
 
-	total, err := s.client.Tasks.Count(ctx)
+	total, err := s.client.Load().Tasks.Count(ctx)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to count tasks: %w", err)
 	}
@@ -516,11 +532,11 @@ func (s *KoditService) ListAllTasks(ctx context.Context, limit, offset int) ([]K
 
 // ActiveTasks returns all tasks currently being worked on (started or in_progress).
 func (s *KoditService) ActiveTasks(ctx context.Context) ([]KoditActiveTask, error) {
-	if !s.enabled {
+	if !s.IsEnabled() {
 		return nil, fmt.Errorf("kodit service not enabled")
 	}
 
-	statuses, err := s.client.Tracking.ActiveStatuses(ctx)
+	statuses, err := s.client.Load().Tracking.ActiveStatuses(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get active statuses: %w", err)
 	}
@@ -542,23 +558,23 @@ func (s *KoditService) ActiveTasks(ctx context.Context) ([]KoditActiveTask, erro
 
 // DeleteTask removes a specific task from the queue by ID.
 func (s *KoditService) DeleteTask(ctx context.Context, taskID int64) error {
-	if !s.enabled {
+	if !s.IsEnabled() {
 		return fmt.Errorf("kodit service not enabled")
 	}
-	return s.client.Tasks.Remove(ctx, taskID)
+	return s.client.Load().Tasks.Remove(ctx, taskID)
 }
 
 // UpdateTaskPriority updates the priority of a specific task by ID.
 func (s *KoditService) UpdateTaskPriority(ctx context.Context, taskID int64, priority int) error {
-	if !s.enabled {
+	if !s.IsEnabled() {
 		return fmt.Errorf("kodit service not enabled")
 	}
-	return s.client.Tasks.Reprioritize(ctx, taskID, priority)
+	return s.client.Load().Tasks.Reprioritize(ctx, taskID, priority)
 }
 
 // GetWikiTree returns the wiki navigation tree for a repository.
 func (s *KoditService) GetWikiTree(ctx context.Context, koditRepoID int64) ([]KoditWikiTreeNode, error) {
-	if !s.enabled {
+	if !s.IsEnabled() {
 		return nil, fmt.Errorf("kodit service not enabled")
 	}
 
@@ -577,7 +593,7 @@ func (s *KoditService) GetWikiTree(ctx context.Context, koditRepoID int64) ([]Ko
 
 // GetWikiPage returns a single wiki page by its hierarchical path.
 func (s *KoditService) GetWikiPage(ctx context.Context, koditRepoID int64, pagePath string) (*KoditWikiPage, error) {
-	if !s.enabled {
+	if !s.IsEnabled() {
 		return nil, fmt.Errorf("kodit service not enabled")
 	}
 
@@ -610,7 +626,7 @@ func (s *KoditService) GetWikiPage(ctx context.Context, koditRepoID int64, pageP
 
 // latestWiki finds the most recent wiki enrichment for a repository and parses it.
 func (s *KoditService) latestWiki(ctx context.Context, koditRepoID int64) (wiki.Wiki, error) {
-	commits, err := s.client.Commits.Find(ctx, repository.WithRepoID(koditRepoID))
+	commits, err := s.client.Load().Commits.Find(ctx, repository.WithRepoID(koditRepoID))
 	if err != nil {
 		return wiki.Wiki{}, fmt.Errorf("find commits: %w", err)
 	}
@@ -626,7 +642,7 @@ func (s *KoditService) latestWiki(ctx context.Context, koditRepoID int64) (wiki.
 
 	wikiType := enrichment.TypeUsage
 	wikiSubtype := enrichment.SubtypeWiki
-	enrichments, err := s.client.Enrichments.List(ctx, &service.EnrichmentListParams{
+	enrichments, err := s.client.Load().Enrichments.List(ctx, &service.EnrichmentListParams{
 		CommitSHAs: shas,
 		Type:       &wikiType,
 		Subtype:    &wikiSubtype,
@@ -663,7 +679,7 @@ func wikiPageToTreeNode(p wiki.Page, pathIndex map[string]string) KoditWikiTreeN
 
 // SemanticSearch performs vector similarity search against indexed code snippets.
 func (s *KoditService) SemanticSearch(ctx context.Context, koditRepoID int64, query string, limit int, language string) ([]KoditFileResult, error) {
-	if !s.enabled {
+	if !s.IsEnabled() {
 		return nil, fmt.Errorf("kodit service not enabled")
 	}
 	if query == "" {
@@ -680,7 +696,7 @@ func (s *KoditService) SemanticSearch(ctx context.Context, koditRepoID int64, qu
 	}
 	filters := search.NewFilters(filterOpts...)
 
-	enrichments, scores, err := s.client.Search.SearchCodeWithScores(ctx, query, limit, filters)
+	enrichments, scores, err := s.client.Load().Search.SearchCodeWithScores(ctx, query, limit, filters)
 	if err != nil {
 		return nil, fmt.Errorf("semantic search: %w", err)
 	}
@@ -690,7 +706,7 @@ func (s *KoditService) SemanticSearch(ctx context.Context, koditRepoID int64, qu
 
 // VisualSearch performs cross-modal visual search against document page images.
 func (s *KoditService) VisualSearch(ctx context.Context, koditRepoID int64, query string, limit int) ([]KoditFileResult, error) {
-	if !s.enabled {
+	if !s.IsEnabled() {
 		return nil, fmt.Errorf("kodit service not enabled")
 	}
 	if query == "" {
@@ -703,7 +719,7 @@ func (s *KoditService) VisualSearch(ctx context.Context, koditRepoID int64, quer
 	filterOpts := []search.FiltersOption{search.WithSourceRepos([]int64{koditRepoID})}
 	filters := search.NewFilters(filterOpts...)
 
-	enrichments, scores, err := s.client.Search.SearchVisualWithScores(ctx, query, limit, filters)
+	enrichments, scores, err := s.client.Load().Search.SearchVisualWithScores(ctx, query, limit, filters)
 	if err != nil {
 		return nil, fmt.Errorf("visual search: %w", err)
 	}
@@ -713,7 +729,7 @@ func (s *KoditService) VisualSearch(ctx context.Context, koditRepoID int64, quer
 
 // KeywordSearch performs BM25 keyword search against indexed code snippets.
 func (s *KoditService) KeywordSearch(ctx context.Context, koditRepoID int64, keywords string, limit int, language string) ([]KoditFileResult, error) {
-	if !s.enabled {
+	if !s.IsEnabled() {
 		return nil, fmt.Errorf("kodit service not enabled")
 	}
 	if keywords == "" {
@@ -730,7 +746,7 @@ func (s *KoditService) KeywordSearch(ctx context.Context, koditRepoID int64, key
 	}
 	filters := search.NewFilters(filterOpts...)
 
-	enrichments, scores, err := s.client.Search.SearchKeywordsWithScores(ctx, keywords, limit, filters)
+	enrichments, scores, err := s.client.Load().Search.SearchKeywordsWithScores(ctx, keywords, limit, filters)
 	if err != nil {
 		return nil, fmt.Errorf("keyword search: %w", err)
 	}
@@ -740,7 +756,7 @@ func (s *KoditService) KeywordSearch(ctx context.Context, koditRepoID int64, key
 
 // GrepSearch runs git grep against a repository.
 func (s *KoditService) GrepSearch(ctx context.Context, koditRepoID int64, pattern string, glob string, limit int) ([]KoditGrepResult, error) {
-	if !s.enabled {
+	if !s.IsEnabled() {
 		return nil, fmt.Errorf("kodit service not enabled")
 	}
 	if pattern == "" {
@@ -753,7 +769,7 @@ func (s *KoditService) GrepSearch(ctx context.Context, koditRepoID int64, patter
 		limit = 200
 	}
 
-	results, err := s.client.Grep.Search(ctx, koditRepoID, pattern, glob, limit)
+	results, err := s.client.Load().Grep.Search(ctx, koditRepoID, pattern, glob, limit)
 	if err != nil {
 		return nil, fmt.Errorf("grep search: %w", err)
 	}
@@ -778,14 +794,14 @@ func (s *KoditService) GrepSearch(ctx context.Context, koditRepoID int64, patter
 
 // ListFiles lists files matching a glob pattern in a repository.
 func (s *KoditService) ListFiles(ctx context.Context, koditRepoID int64, pattern string) ([]KoditFileEntry, error) {
-	if !s.enabled {
+	if !s.IsEnabled() {
 		return nil, fmt.Errorf("kodit service not enabled")
 	}
 	if pattern == "" {
 		pattern = "**/*"
 	}
 
-	entries, err := s.client.Blobs.ListFiles(ctx, koditRepoID, pattern)
+	entries, err := s.client.Load().Blobs.ListFiles(ctx, koditRepoID, pattern)
 	if err != nil {
 		return nil, fmt.Errorf("list files: %w", err)
 	}
@@ -802,7 +818,7 @@ func (s *KoditService) ListFiles(ctx context.Context, koditRepoID int64, pattern
 
 // ReadFile reads the content of a file from the repository.
 func (s *KoditService) ReadFile(ctx context.Context, koditRepoID int64, filePath string, startLine, endLine int) (*KoditFileContent, error) {
-	if !s.enabled {
+	if !s.IsEnabled() {
 		return nil, fmt.Errorf("kodit service not enabled")
 	}
 	if filePath == "" {
@@ -810,7 +826,7 @@ func (s *KoditService) ReadFile(ctx context.Context, koditRepoID int64, filePath
 	}
 
 	// Use "main" as blob name — Content() resolves branches to commit SHAs
-	blob, err := s.client.Blobs.Content(ctx, koditRepoID, "main", filePath)
+	blob, err := s.client.Load().Blobs.Content(ctx, koditRepoID, "main", filePath)
 	if err != nil {
 		return nil, fmt.Errorf("read file: %w", wrapNotFound(err))
 	}
@@ -857,12 +873,12 @@ func (s *KoditService) resolveFileResults(ctx context.Context, enrichments []enr
 		ids[i] = e.ID()
 	}
 
-	sourceFiles, err := s.client.Enrichments.SourceFiles(ctx, ids)
+	sourceFiles, err := s.client.Load().Enrichments.SourceFiles(ctx, ids)
 	if err != nil {
 		return nil, fmt.Errorf("resolve source files: %w", err)
 	}
 
-	lineRanges, err := s.client.Enrichments.SourceLocations(ctx, ids)
+	lineRanges, err := s.client.Load().Enrichments.SourceLocations(ctx, ids)
 	if err != nil {
 		return nil, fmt.Errorf("resolve line ranges: %w", err)
 	}
@@ -875,7 +891,7 @@ func (s *KoditService) resolveFileResults(ctx context.Context, enrichments []enr
 
 	filesByID := make(map[int64]repository.File)
 	if len(allFileIDs) > 0 {
-		files, fileErr := s.client.Files.Find(ctx, repository.WithIDIn(allFileIDs))
+		files, fileErr := s.client.Load().Files.Find(ctx, repository.WithIDIn(allFileIDs))
 		if fileErr != nil {
 			return nil, fmt.Errorf("fetch files: %w", fileErr)
 		}
@@ -933,11 +949,11 @@ func (s *KoditService) resolveFileResults(ctx context.Context, enrichments []enr
 
 // RenderPageImage rasterizes a document page and returns the PNG bytes.
 func (s *KoditService) RenderPageImage(ctx context.Context, koditRepoID int64, filePath string, page int) ([]byte, error) {
-	if !s.enabled {
+	if !s.IsEnabled() {
 		return nil, fmt.Errorf("kodit service not enabled")
 	}
 
-	registry := s.client.Rasterizers()
+	registry := s.client.Load().Rasterizers()
 	if registry == nil {
 		return nil, fmt.Errorf("rasterization not available")
 	}
@@ -949,7 +965,7 @@ func (s *KoditService) RenderPageImage(ctx context.Context, koditRepoID int64, f
 	}
 
 	// Get the latest commit to resolve the blob.
-	commits, err := s.client.Commits.Find(ctx, repository.WithRepoID(koditRepoID), repository.WithOrderDesc("date"), repository.WithLimit(1))
+	commits, err := s.client.Load().Commits.Find(ctx, repository.WithRepoID(koditRepoID), repository.WithOrderDesc("date"), repository.WithLimit(1))
 	if err != nil {
 		return nil, fmt.Errorf("find latest commit: %w", err)
 	}
@@ -957,7 +973,7 @@ func (s *KoditService) RenderPageImage(ctx context.Context, koditRepoID int64, f
 		return nil, fmt.Errorf("no commits found for repository %d", koditRepoID)
 	}
 
-	diskPath, _, err := s.client.Blobs.DiskPath(ctx, koditRepoID, commits[0].SHA(), filePath)
+	diskPath, _, err := s.client.Load().Blobs.DiskPath(ctx, koditRepoID, commits[0].SHA(), filePath)
 	if err != nil {
 		return nil, fmt.Errorf("resolve disk path: %w", err)
 	}
@@ -977,11 +993,11 @@ func (s *KoditService) RenderPageImage(ctx context.Context, koditRepoID int64, f
 
 // UpdateChunkingConfig updates a repository's chunking configuration in Kodit.
 func (s *KoditService) UpdateChunkingConfig(ctx context.Context, koditRepoID int64, chunkSize, chunkOverlap, minChunkSize int) error {
-	if !s.enabled {
+	if !s.IsEnabled() {
 		return fmt.Errorf("kodit service not enabled")
 	}
 
-	_, err := s.client.Repositories.UpdateChunkingConfig(ctx, koditRepoID, &service.ChunkingConfigParams{
+	_, err := s.client.Load().Repositories.UpdateChunkingConfig(ctx, koditRepoID, &service.ChunkingConfigParams{
 		Size:    chunkSize,
 		Overlap: chunkOverlap,
 		MinSize: minChunkSize,
@@ -1001,7 +1017,7 @@ func (s *KoditService) UpdateChunkingConfig(ctx context.Context, koditRepoID int
 
 // RescanCommit triggers a rescan of a specific commit in Kodit.
 func (s *KoditService) RescanCommit(ctx context.Context, koditRepoID int64, commitSHA string) error {
-	if !s.enabled {
+	if !s.IsEnabled() {
 		return fmt.Errorf("kodit service not enabled")
 	}
 
@@ -1009,7 +1025,7 @@ func (s *KoditService) RescanCommit(ctx context.Context, koditRepoID int64, comm
 		return fmt.Errorf("commit SHA is required")
 	}
 
-	err := s.client.Repositories.Rescan(ctx, &service.RescanParams{
+	err := s.client.Load().Repositories.Rescan(ctx, &service.RescanParams{
 		RepositoryID: koditRepoID,
 		CommitSHA:    commitSHA,
 	})
@@ -1018,5 +1034,24 @@ func (s *KoditService) RescanCommit(ctx context.Context, koditRepoID int64, comm
 	}
 
 	log.Info().Int64("kodit_repo_id", koditRepoID).Str("commit_sha", commitSHA).Msg("Triggered commit rescan in Kodit")
+	return nil
+}
+
+// RescanAllRepositories triggers a rescan of every registered repository in
+// Kodit. Unlike SyncRepository — which skips commits that already have
+// enrichments — a rescan clears each commit's enrichments/files and forces
+// the pipeline to re-embed everything. Needed after an embedding-provider
+// change so stale-dimension vectors in vectorchord_* tables get replaced
+// before a user can run a search that would otherwise hit a SQL dim
+// mismatch.
+func (s *KoditService) RescanAllRepositories(ctx context.Context) error {
+	c := s.client.Load()
+	if c == nil {
+		return fmt.Errorf("kodit service not enabled")
+	}
+	if err := c.Repositories.RescanAll(ctx); err != nil {
+		return fmt.Errorf("failed to rescan all repositories: %w", err)
+	}
+	log.Info().Msg("Triggered rescan of all repositories in Kodit")
 	return nil
 }

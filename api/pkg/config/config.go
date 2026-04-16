@@ -84,6 +84,18 @@ type Kodit struct {
 	LLMBaseURL   string `envconfig:"KODIT_LLM_BASE_URL" default:""`              // OpenAI-compatible endpoint for enrichments
 	LLMAPIKey    string `envconfig:"KODIT_LLM_API_KEY" default:""`               // API key for LLM endpoint
 	LLMChatModel string `envconfig:"KODIT_LLM_CHAT_MODEL" default:"kodit-model"` // LLM model name
+	// Text embedding (proxied through Helix via the "kodit-text-embedding" special model name).
+	// When BaseURL is set (or falls back to LLMBaseURL), kodit uses an external OpenAI-compatible
+	// embedding provider instead of the local ONNX model.
+	TextEmbeddingBaseURL string `envconfig:"KODIT_TEXT_EMBEDDING_BASE_URL" default:""`                  // Defaults to LLMBaseURL
+	TextEmbeddingAPIKey  string `envconfig:"KODIT_TEXT_EMBEDDING_API_KEY" default:""`                   // Defaults to LLMAPIKey
+	TextEmbeddingModel   string `envconfig:"KODIT_TEXT_EMBEDDING_MODEL" default:"kodit-text-embedding"` // Placeholder model name sent to Helix
+	// Vision embedding (proxied through Helix via the "kodit-vision-embedding" special model name).
+	// When BaseURL is set (or falls back to LLMBaseURL), kodit uses an external vision embedding
+	// provider (e.g. Qwen3-VL-Embedding) instead of the local SigLIP2 model.
+	VisionEmbeddingBaseURL string `envconfig:"KODIT_VISION_EMBEDDING_BASE_URL" default:""`                    // Defaults to LLMBaseURL
+	VisionEmbeddingAPIKey  string `envconfig:"KODIT_VISION_EMBEDDING_API_KEY" default:""`                     // Defaults to LLMAPIKey
+	VisionEmbeddingModel   string `envconfig:"KODIT_VISION_EMBEDDING_MODEL" default:"kodit-vision-embedding"` // Placeholder model name sent to Helix
 	// GitURL is the URL Kodit uses to access the git server (for cloning local repos)
 	// Defaults to http://api:8080 for Docker Compose, but may differ in Kubernetes or local dev
 	GitURL string `envconfig:"KODIT_GIT_URL" default:"http://api:8080"`

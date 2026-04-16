@@ -40,6 +40,7 @@ func (k *koditSvcE2E) IsEnabled() bool                                          
 func (k *koditSvcE2E) MCPDocumentation() string                                                                      { return "" }
 func (k *koditSvcE2E) DeleteRepository(context.Context, int64) error                                                 { return nil }
 func (k *koditSvcE2E) RescanCommit(context.Context, int64, string) error                                             { return nil }
+func (k *koditSvcE2E) RescanAllRepositories(context.Context) error                                                   { return nil }
 func (k *koditSvcE2E) SyncRepository(context.Context, int64) error                                                   { return nil }
 func (k *koditSvcE2E) EnrichmentCount(context.Context, int64) (int64, error)                                         { return 0, nil }
 func (k *koditSvcE2E) DeleteTask(context.Context, int64) error                                                       { return nil }

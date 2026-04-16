@@ -3,6 +3,7 @@
 package server
 
 import (
+	"context"
 	"io"
 
 	"github.com/helixml/helix/api/pkg/config"
@@ -28,3 +29,6 @@ func InitKodit(_ *config.ServerConfig, _ *services.GitRepositoryService, _ store
 		mcpBackend: newKoditMCPBackend(),
 	}, nil
 }
+
+// Reinit is a no-op for the nokodit build.
+func (k *KoditResult) Reinit(_ context.Context) error { return nil }

@@ -38,6 +38,7 @@ var _ services.KoditServicer = (*koditServiceMock)(nil)
 
 func (m *koditServiceMock) IsEnabled() bool                                { return true }
 func (m *koditServiceMock) MCPDocumentation() string                       { return "" }
+func (m *koditServiceMock) RescanAllRepositories(_ context.Context) error  { return nil }
 func (m *koditServiceMock) RescanCommit(ctx context.Context, id int64, sha string) error {
 	if m.rescanCommitFn != nil {
 		return m.rescanCommitFn(ctx, id, sha)

@@ -129,6 +129,7 @@ type KoditServicer interface {
 	SearchSnippets(ctx context.Context, koditRepoID int64, query string, limit int) ([]enrichment.Enrichment, error)
 	GetRepositoryStatus(ctx context.Context, koditRepoID int64) (tracking.RepositoryStatusSummary, error)
 	RescanCommit(ctx context.Context, koditRepoID int64, commitSHA string) error
+	RescanAllRepositories(ctx context.Context) error
 	DeleteRepository(ctx context.Context, koditRepoID int64) error
 
 	// MCP documentation for agent prompts
@@ -191,6 +192,9 @@ func (d *disabledKoditService) GetRepositoryStatus(context.Context, int64) (trac
 	return tracking.RepositoryStatusSummary{}, errors.New("kodit service not enabled")
 }
 func (d *disabledKoditService) RescanCommit(context.Context, int64, string) error {
+	return errors.New("kodit service not enabled")
+}
+func (d *disabledKoditService) RescanAllRepositories(context.Context) error {
 	return errors.New("kodit service not enabled")
 }
 func (d *disabledKoditService) DeleteRepository(context.Context, int64) error {

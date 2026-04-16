@@ -5490,6 +5490,12 @@ export interface TypesSystemSettingsRequest {
   kodit_enrichment_model?: string;
   /** Kodit enrichment model configuration */
   kodit_enrichment_provider?: string;
+  kodit_text_embedding_model?: string;
+  /** Kodit text embedding model configuration */
+  kodit_text_embedding_provider?: string;
+  kodit_vision_embedding_model?: string;
+  /** Kodit vision embedding model configuration */
+  kodit_vision_embedding_provider?: string;
   max_concurrent_desktops?: number;
   optimus_generation_model?: string;
   optimus_generation_model_provider?: string;
@@ -5520,6 +5526,14 @@ export interface TypesSystemSettingsResponse {
   kodit_enrichment_model_set?: boolean;
   /** Kodit enrichment model configuration (not sensitive, returned as-is) */
   kodit_enrichment_provider?: string;
+  kodit_text_embedding_model?: string;
+  kodit_text_embedding_model_set?: boolean;
+  /** Kodit text embedding model configuration */
+  kodit_text_embedding_provider?: string;
+  kodit_vision_embedding_model?: string;
+  kodit_vision_embedding_model_set?: boolean;
+  /** Kodit vision embedding model configuration */
+  kodit_vision_embedding_provider?: string;
   /** Per user */
   max_concurrent_desktops?: number;
   optimus_generation_model?: string;
