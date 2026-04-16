@@ -1489,6 +1489,24 @@ func (apiServer *HelixAPIServer) getOrCreateStreamingContext(ctx context.Context
 		newInteractionID = targetInteraction.ID
 	}
 
+	// Populate requestToInteractionMapping for Zed-initiated messages.
+	// When the user types in Zed, the interaction is created without a mapping.
+	// Zed reuses the same request_id for the response, so we need to register
+	// it here so handleMessageCompleted can route correctly.
+	if requestID != "" && newInteractionID != "" && newInteractionID != expectedInteractionID {
+		apiServer.contextMappingsMutex.Lock()
+		if apiServer.requestToInteractionMapping == nil {
+			apiServer.requestToInteractionMapping = make(map[string]string)
+		}
+		apiServer.requestToInteractionMapping[requestID] = newInteractionID
+		apiServer.contextMappingsMutex.Unlock()
+		log.Info().
+			Str("session_id", helixSessionID).
+			Str("request_id", requestID).
+			Str("interaction_id", newInteractionID).
+			Msg("🗺️ [HELIX] Populated requestToInteractionMapping from streaming context (Zed-initiated message)")
+	}
+
 	// If we have an existing context (from a transition), update it instead of creating new
 	if exists && sctx != nil {
 		sctx.mu.Lock()
@@ -2147,84 +2165,76 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 		Str("helix_session_id", helixSessionID).
 		Msg("✅ [HELIX] Found Helix session mapping for message_completed")
 
-	// Flush any dirty streaming context to DB before clearing.
-	// The throttled DB writes in handleMessageAdded may have left unflushed content.
-	// Also extract the structured response entries (typed, ordered) from the accumulator
-	// before it's destroyed — these are stored on the interaction for structured rendering.
-	responseEntries := apiServer.flushAndClearStreamingContext(context.Background(), helixSessionID)
-
-	// Get the session
-	helixSession, err := apiServer.Controller.Options.Store.GetSession(context.Background(), helixSessionID)
-	if err != nil {
-		return fmt.Errorf("failed to get Helix session %s: %w", helixSessionID, err)
-	}
-
-	// Load interactions for this session (GetSession doesn't load them)
-	interactions, _, err := apiServer.Controller.Options.Store.ListInteractions(context.Background(), &types.ListInteractionsQuery{
-		SessionID:    helixSessionID,
-		GenerationID: helixSession.GenerationID,
-		PerPage:      1000,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to list interactions for session %s: %w", helixSessionID, err)
-	}
-
-	log.Info().
-		Str("helix_session_id", helixSessionID).
-		Int("interaction_count", len(interactions)).
-		Msg("🔍 [DEBUG] Loaded interactions for message_completed")
-
-	// Match the request_id from message_completed to the correct interaction
-	// in the FIFO queue. The old code blindly popped queue[0], which caused
-	// desynchronization when the agent completed messages out of order
-	// (e.g. a short message completing before a longer one that was sent first).
+	// Match the request_id from message_completed to the correct interaction.
+	//
+	// Strategy (no timing — purely state-based):
+	// 1. Try requestToInteractionMapping (populated by both sendMessageToSpecTaskAgent
+	//    and getOrCreateStreamingContext for Zed-initiated messages).
+	// 2. If no mapping, peek at the streaming context: if the agent is actively
+	//    streaming to a different interaction, this message_completed is stale → skip.
+	// 3. If no mapping AND no streaming context, DB fallback — but only match
+	//    interactions that have response content (API restart recovery). Empty
+	//    interactions are freshly-created and the message_completed is stale.
 	messageRequestID, _ := syncMsg.Data["request_id"].(string)
 
 	var targetInteractionID string
+
+	// Step 1: Try the authoritative request_id → interaction_id mapping.
+	// Consumed mappings are stored as empty strings — a stale duplicate will find
+	// the consumed entry and be dropped. getOrCreateStreamingContext overwrites
+	// consumed entries when a request_id is reused for a new turn.
 	apiServer.contextMappingsMutex.Lock()
-
-	// Deduplicate: Zed (Claude Code) can send two message_completed events for the
-	// same request_id when an interrupt races with the cancelled turn's completion.
-	// The second duplicate has no requestToInteractionMapping entry (deleted by the
-	// first), falls through to the DB fallback, finds the interrupt's waiting
-	// interaction, and incorrectly marks it complete — causing the isolation
-	// violation and leaving the interrupt's message_completed unmatched.
-	if messageRequestID != "" {
-		if apiServer.completedRequestIDs == nil {
-			apiServer.completedRequestIDs = make(map[string]bool)
-		}
-		if apiServer.completedRequestIDs[messageRequestID] {
-			apiServer.contextMappingsMutex.Unlock()
-			log.Warn().
-				Str("helix_session_id", helixSessionID).
-				Str("request_id", messageRequestID).
-				Msg("⚠️ [HELIX] Duplicate message_completed for already-processed request_id — ignoring")
-			return nil
-		}
-		apiServer.completedRequestIDs[messageRequestID] = true
-	}
-
-	// Try to find the interaction via request_id → interaction_id mapping
+	var mappingConsumed bool // true if request_id was previously processed (stale duplicate)
 	if messageRequestID != "" {
 		if mappedID, ok := apiServer.requestToInteractionMapping[messageRequestID]; ok {
-			targetInteractionID = mappedID
-			delete(apiServer.requestToInteractionMapping, messageRequestID)
+			if mappedID == "" {
+				// This request_id was already consumed by a previous message_completed.
+				// This is a stale duplicate (e.g. interrupt race sending two completions
+				// for the same cancelled turn). Skip it.
+				mappingConsumed = true
+			} else {
+				targetInteractionID = mappedID
+				// Mark consumed (keep the key so subsequent duplicates are caught)
+				apiServer.requestToInteractionMapping[messageRequestID] = ""
+			}
 		}
 	}
+	apiServer.contextMappingsMutex.Unlock()
 
-	// Remove the matched interaction from the FIFO queue (by value, not position)
+	if mappingConsumed {
+		log.Warn().
+			Str("helix_session_id", helixSessionID).
+			Str("request_id", messageRequestID).
+			Msg("⚠️ [HELIX] Duplicate message_completed for consumed request_id mapping — ignoring")
+		return nil
+	}
+
 	if targetInteractionID != "" {
 		log.Info().
 			Str("helix_session_id", helixSessionID).
 			Str("interaction_id", targetInteractionID).
 			Str("request_id", messageRequestID).
-			Msg("✅ [HELIX] Matched interaction by request_id")
+			Msg("✅ [HELIX] Matched interaction by request_id mapping")
 	}
-	apiServer.contextMappingsMutex.Unlock()
 
-	// FALLBACK: after API restart the in-memory requestToInteractionMapping is lost.
-	// Find the most recent waiting interaction in DB.
+	// Step 2: No mapping found at all — DB fallback (API restart recovery, or
+	// request_id was never registered in the mapping system).
+	// Find the most recent waiting interaction.
 	if targetInteractionID == "" {
+		helixSession, err := apiServer.Controller.Options.Store.GetSession(context.Background(), helixSessionID)
+		if err != nil {
+			return fmt.Errorf("failed to get Helix session %s: %w", helixSessionID, err)
+		}
+
+		interactions, _, err := apiServer.Controller.Options.Store.ListInteractions(context.Background(), &types.ListInteractionsQuery{
+			SessionID:    helixSessionID,
+			GenerationID: helixSession.GenerationID,
+			PerPage:      1000,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to list interactions for session %s: %w", helixSessionID, err)
+		}
+
 		for i := len(interactions) - 1; i >= 0; i-- {
 			if interactions[i].State == types.InteractionStateWaiting {
 				targetInteractionID = interactions[i].ID
@@ -2240,8 +2250,20 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 	if targetInteractionID == "" {
 		log.Warn().
 			Str("helix_session_id", helixSessionID).
-			Msg("⚠️ [HELIX] No waiting interaction found to mark as complete")
+			Str("request_id", messageRequestID).
+			Msg("⚠️ [HELIX] No matching interaction found for message_completed — skipping")
 		return nil
+	}
+
+	// Now that we have the target, flush the streaming context to DB.
+	// This ensures the latest streamed content is persisted before we reload.
+	responseEntries := apiServer.flushAndClearStreamingContext(context.Background(), helixSessionID)
+
+	// Get the session (may already be loaded from fallback path above, but the
+	// mapping path skips session loading, so load it here unconditionally).
+	helixSession, err := apiServer.Controller.Options.Store.GetSession(context.Background(), helixSessionID)
+	if err != nil {
+		return fmt.Errorf("failed to get Helix session %s: %w", helixSessionID, err)
 	}
 
 	// CRITICAL: Reload the interaction from database to get latest response_message
@@ -2259,42 +2281,48 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 		Str("state_before", string(targetInteraction.State)).
 		Msg("🔄 [HELIX] Reloaded interaction with latest response content")
 
-	// If the response is empty AND the interaction was created very recently (within 5s),
-	// this is an "immediate bounce" — the agent rejected the message without processing
-	// it (e.g. because it was busy with a Zed user-typed message). Mark the interaction
-	// as error instead of complete so the prompt can be retried.
-	// See: design/2026-04-16-lost-responses-race-condition.md
+	// If the interaction was already completed (e.g. auto-completed by the streaming
+	// context transition logic during an interrupt), skip redundant completion.
+	if targetInteraction.State == types.InteractionStateComplete {
+		log.Info().
+			Str("helix_session_id", helixSessionID).
+			Str("interaction_id", targetInteraction.ID).
+			Msg("ℹ️ [HELIX] Interaction already complete (auto-completed during transition) — skipping")
+		return nil
+	}
+
+	// If the response is empty, something went wrong — either the agent bounced the
+	// message (busy with another turn) or content was lost during the streaming flush.
+	// Mark as error and re-queue the prompt so it will be retried.
 	if targetInteraction.ResponseMessage == "" && len(responseEntries) == 0 {
-		timeSinceCreation := time.Since(targetInteraction.Created)
-		if timeSinceCreation < 10*time.Second {
-			log.Warn().
-				Str("helix_session_id", helixSessionID).
-				Str("interaction_id", targetInteraction.ID).
-				Dur("age", timeSinceCreation).
-				Msg("⚠️ [HELIX] message_completed with EMPTY response within 10s of creation — treating as bounce, marking error instead of complete")
-
-			targetInteraction.State = types.InteractionStateError
-			targetInteraction.Error = "Agent returned empty response (message bounced). The prompt will be retried."
-			targetInteraction.Updated = time.Now()
-
-			if _, err := apiServer.Controller.Options.Store.UpdateInteraction(context.Background(), targetInteraction); err != nil {
-				return fmt.Errorf("failed to update bounced interaction %s: %w", targetInteraction.ID, err)
-			}
-
-			// Publish the error state to frontend
-			apiServer.publishInteractionUpdateToFrontend(helixSessionID, helixSession.Owner, targetInteraction)
-			_ = apiServer.publishSessionUpdateToFrontend(helixSession, targetInteraction)
-
-			// Trigger queue processing so the prompt gets retried when the session is idle
-			go apiServer.processPromptQueue(context.Background(), helixSessionID)
-
-			return nil
-		}
-
 		log.Warn().
 			Str("helix_session_id", helixSessionID).
 			Str("interaction_id", targetInteraction.ID).
-			Msg("⚠️ [HELIX] message_completed but response_message is EMPTY — content may have been lost during streaming flush")
+			Msg("⚠️ [HELIX] message_completed with EMPTY response — marking as error and re-queuing")
+
+		targetInteraction.State = types.InteractionStateError
+		targetInteraction.Error = "Agent returned empty response (message bounced or content lost). The prompt will be retried."
+		targetInteraction.Updated = time.Now()
+
+		if _, err := apiServer.Controller.Options.Store.UpdateInteraction(context.Background(), targetInteraction); err != nil {
+			return fmt.Errorf("failed to update bounced interaction %s: %w", targetInteraction.ID, err)
+		}
+
+		// Re-queue the bounced prompt so it will be retried (non-fatal if no matching prompt)
+		if err := apiServer.Controller.Options.Store.RequeueBouncedPrompt(context.Background(), helixSessionID); err != nil {
+			log.Debug().Err(err).
+				Str("session_id", helixSessionID).
+				Msg("No prompt_history_entry to re-queue (Zed user message or already retried)")
+		}
+
+		// Publish the error state to frontend
+		apiServer.publishInteractionUpdateToFrontend(helixSessionID, helixSession.Owner, targetInteraction)
+		_ = apiServer.publishSessionUpdateToFrontend(helixSession, targetInteraction)
+
+		// Trigger queue processing so the re-queued prompt gets picked up
+		go apiServer.processPromptQueue(context.Background(), helixSessionID)
+
+		return nil
 	}
 
 	// Mark the interaction as complete

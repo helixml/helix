@@ -4687,6 +4687,20 @@ func (mr *MockStoreMockRecorder) MarkPromptAsFailed(ctx, promptID any) *gomock.C
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkPromptAsFailed", reflect.TypeOf((*MockStore)(nil).MarkPromptAsFailed), ctx, promptID)
 }
 
+// RequeueBouncedPrompt mocks base method.
+func (m *MockStore) RequeueBouncedPrompt(ctx context.Context, sessionID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RequeueBouncedPrompt", ctx, sessionID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// RequeueBouncedPrompt indicates an expected call of RequeueBouncedPrompt.
+func (mr *MockStoreMockRecorder) RequeueBouncedPrompt(ctx, sessionID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RequeueBouncedPrompt", reflect.TypeOf((*MockStore)(nil).RequeueBouncedPrompt), ctx, sessionID)
+}
+
 // MarkPromptAsPending mocks base method.
 func (m *MockStore) MarkPromptAsPending(ctx context.Context, promptID string) error {
 	m.ctrl.T.Helper()

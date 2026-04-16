@@ -682,6 +682,10 @@ type Store interface {
 	MarkPromptAsPending(ctx context.Context, promptID string) error
 	MarkPromptAsSent(ctx context.Context, promptID string) error
 	MarkPromptAsFailed(ctx context.Context, promptID string) error
+	// RequeueBouncedPrompt finds the most recent "sent" prompt for a session and marks
+	// it as "failed" so the retry mechanism picks it up. Used when message_completed
+	// arrives with an empty response (bounce).
+	RequeueBouncedPrompt(ctx context.Context, sessionID string) error
 	// ClaimPromptForSending atomically transitions a prompt from pending/failed→sending.
 	// Returns true if this caller won the claim (rows affected > 0). If false, another
 	// goroutine already claimed it and the caller must not send the prompt.

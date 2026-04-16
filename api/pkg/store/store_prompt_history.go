@@ -256,6 +256,20 @@ func (s *PostgresStore) ClaimPromptForSending(ctx context.Context, promptID stri
 	return result.RowsAffected > 0, nil
 }
 
+// RequeueBouncedPrompt finds the most recent "sent" prompt for a session and marks
+// it as "failed" so the retry mechanism picks it up.
+func (s *PostgresStore) RequeueBouncedPrompt(ctx context.Context, sessionID string) error {
+	var prompt types.PromptHistoryEntry
+	err := s.gdb.WithContext(ctx).
+		Where("session_id = ? AND status = 'sent'", sessionID).
+		Order("created_at DESC").
+		First(&prompt).Error
+	if err != nil {
+		return err // no matching prompt found (e.g. Zed user message, not from queue)
+	}
+	return s.MarkPromptAsFailed(ctx, prompt.ID)
+}
+
 // MarkPromptAsFailed marks a prompt as failed with exponential backoff retry
 func (s *PostgresStore) MarkPromptAsFailed(ctx context.Context, promptID string) error {
 	// First get the current prompt to read retry count
