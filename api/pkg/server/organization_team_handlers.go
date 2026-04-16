@@ -89,6 +89,18 @@ func (apiServer *HelixAPIServer) createTeam(rw http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	// Auto-add creator as a team member
+	_, err = apiServer.Store.CreateTeamMembership(r.Context(), &types.TeamMembership{
+		TeamID:         createdTeam.ID,
+		UserID:         user.ID,
+		OrganizationID: orgID,
+	})
+	if err != nil {
+		log.Err(err).Msg("error creating team membership for creator")
+		http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
 	writeResponse(rw, createdTeam, http.StatusCreated)
 }
 
@@ -241,6 +253,8 @@ func (apiServer *HelixAPIServer) addTeamMember(rw http.ResponseWriter, r *http.R
 	_, err := apiServer.authorizeOrgOwner(r.Context(), user, orgID)
 	if err != nil {
 		log.Err(err).Msg("error authorizing org owner")
+		http.Error(rw, "Could not authorize org owner: "+err.Error(), http.StatusForbidden)
+		return
 	}
 
 	// Get team
@@ -328,10 +342,12 @@ func (apiServer *HelixAPIServer) removeTeamMember(rw http.ResponseWriter, r *htt
 	teamID := mux.Vars(r)["team_id"]
 	memberUserID := mux.Vars(r)["user_id"]
 
-	// Check if user has access to add members to the team (needs to be an owner)
+	// Check if user has access to remove members from the team (needs to be an owner)
 	_, err := apiServer.authorizeOrgOwner(r.Context(), user, orgID)
 	if err != nil {
 		log.Err(err).Msg("error authorizing org owner")
+		http.Error(rw, "Could not authorize org owner: "+err.Error(), http.StatusForbidden)
+		return
 	}
 
 	// Check whether we have this team in the organization
