@@ -32,7 +32,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 # Pin to specific digest for stable layer caching.
 # Update digest when intentionally upgrading Ubuntu version.
 FROM ubuntu:25.04 AS sandbox
-RUN sed -i 's|http://archive.ubuntu.com|http://mirror.ox.ac.uk/sites/archive.ubuntu.com|g; s|http://security.ubuntu.com|http://mirror.ox.ac.uk/sites/archive.ubuntu.com|g; s|http://ports.ubuntu.com/ubuntu-ports|http://mirror.ox.ac.uk/sites/archive.ubuntu.com/ubuntu|g' /etc/apt/sources.list.d/ubuntu.sources
+RUN sed -i 's|http://archive.ubuntu.com|http://mirror.ox.ac.uk/sites/archive.ubuntu.com|g; s|http://security.ubuntu.com|http://mirror.ox.ac.uk/sites/archive.ubuntu.com|g' /etc/apt/sources.list.d/ubuntu.sources
 
 # Configure default user and set env (from GOW base)
 ENV \
