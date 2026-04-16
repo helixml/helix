@@ -29,9 +29,10 @@ Merges 692 upstream commits from `zed-industries/zed` into the Helix fork, bring
 6. `AuthRequired` added to `ContextServerStatus` match in UI state query
 7. `AuthRequired` added to `pending_server_starts` tracking in context_server_registry
 8. `thread_id` and `root_session_id` fields added to `from_existing_thread()`
+9. `load_session_id`→`resume_session_id` in cfg-gated blocks (upstream renamed the variable)
 
 **Verification:**
-- All 8 critical fixes verified present
+- All 9 post-merge fixes verified present
 - E2E test infrastructure verified intact
 - Portingguide updated with 6 new checklist items (35-40)
 
