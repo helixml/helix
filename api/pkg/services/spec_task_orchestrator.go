@@ -628,13 +628,56 @@ func (o *SpecTaskOrchestrator) handleSpecApproved(ctx context.Context, task *typ
 	return nil
 }
 
+// taskHasPRsForAllRepos returns true if the task already has a PR tracked for
+// every external repo in the project. When true, we can skip the expensive
+// ensurePRs call (which pushes branches + lists PRs from GitHub on every poll).
+func (o *SpecTaskOrchestrator) taskHasPRsForAllRepos(ctx context.Context, task *types.SpecTask) bool {
+	if len(task.RepoPullRequests) == 0 {
+		return false
+	}
+
+	project, err := o.store.GetProject(ctx, task.ProjectID)
+	if err != nil {
+		return false
+	}
+
+	repos, err := o.store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
+		ProjectID: project.ID,
+	})
+	if err != nil {
+		return false
+	}
+
+	// Build set of repo IDs that already have PRs
+	hasPR := make(map[string]bool, len(task.RepoPullRequests))
+	for _, rp := range task.RepoPullRequests {
+		hasPR[rp.RepositoryID] = true
+	}
+
+	// Check every external repo has a PR tracked
+	for _, repo := range repos {
+		if !repo.IsExternal || repo.ExternalURL == "" {
+			continue
+		}
+		if !hasPR[repo.ID] {
+			return false
+		}
+	}
+
+	return true
+}
+
 // handlePullRequest polls external repo for PR merge status
 // Called from the dedicated PR polling loop (runs every 1 minute)
 func (o *SpecTaskOrchestrator) handlePullRequest(ctx context.Context, task *types.SpecTask) error {
 	// Try to create PRs for repos that didn't have the branch ready when the
 	// user first clicked "Open PR". This covers the case where the agent pushes
 	// to a secondary repo after the initial PR creation.
-	if o.ensurePRs != nil {
+	//
+	// Skip if the task already has PRs for all external repos — no need to
+	// push + list PRs from GitHub on every 30s poll cycle. This is the main
+	// source of GitHub API rate limit exhaustion.
+	if o.ensurePRs != nil && !o.taskHasPRsForAllRepos(ctx, task) {
 		project, err := o.store.GetProject(ctx, task.ProjectID)
 		if err == nil && project.DefaultRepoID != "" {
 			// Use the approver's identity so push+PR use their OAuth token

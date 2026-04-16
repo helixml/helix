@@ -677,6 +677,17 @@ func (s *HelixAPIServer) ensurePullRequestsForAllRepos(ctx context.Context, task
 				task.Metadata["error"] = "GitHub OAuth connection required to open a PR. Please connect your GitHub account and try again."
 			} else if strings.Contains(err.Error(), "Permission") && strings.Contains(err.Error(), "denied") {
 				task.Metadata["error"] = fmt.Sprintf("Permission denied: your GitHub account does not have write access to %s. Ask the repository owner to add you as a collaborator.", repo.Name)
+			} else if strings.Contains(err.Error(), "rate limit") {
+				// GitHub API rate limit — transient, don't alarm the user
+				log.Warn().Err(err).Str("repo_name", repo.Name).Str("task_id", task.ID).Msg("GitHub API rate limit hit, will retry on next cycle")
+				// Preserve existing PR data but don't set a scary error message
+				for _, existing := range task.RepoPullRequests {
+					if existing.RepositoryID == repo.ID {
+						repoPRs = append(repoPRs, existing)
+						break
+					}
+				}
+				continue
 			} else if strings.Contains(err.Error(), "403") {
 				task.Metadata["error"] = fmt.Sprintf("Access denied when pushing to %s. Check that your GitHub account has write access to this repository.", repo.Name)
 			} else {
