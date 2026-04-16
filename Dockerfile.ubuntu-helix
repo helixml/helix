@@ -74,6 +74,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 # Uses TARGETARCH to build the right plugins for the current platform.
 # No --platform directive, so this works on any CI runner architecture.
 FROM ubuntu:25.10 AS rust-build-env
+RUN sed -i 's|http://archive.ubuntu.com|http://gb.archive.ubuntu.com|g; s|http://security.ubuntu.com|http://gb.archive.ubuntu.com|g; s|http://ports.ubuntu.com|http://gb.ports.ubuntu.com|g' /etc/apt/sources.list.d/ubuntu.sources
 ARG TARGETARCH
 WORKDIR /build
 
@@ -182,6 +183,7 @@ RUN if [ -f /usr/local/cuda/lib64/libnvrtc.so.12 ]; then \
 # The headless bridge uses GStreamer's pipewiresrc + waylandsink for
 # zero-copy DMA-BUF transfer from GNOME screen-cast to Wolf.
 FROM ubuntu:25.10
+RUN sed -i 's|http://archive.ubuntu.com|http://gb.archive.ubuntu.com|g; s|http://security.ubuntu.com|http://gb.archive.ubuntu.com|g; s|http://ports.ubuntu.com|http://gb.ports.ubuntu.com|g' /etc/apt/sources.list.d/ubuntu.sources
 
 # Configure default user and set env (from GOW base-app)
 ENV \
