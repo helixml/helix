@@ -4,9 +4,11 @@ import {
   Box,
   Button,
   CircularProgress,
+  FormControlLabel,
   Menu,
   MenuItem,
   ListItemText,
+  Switch,
   Tooltip,
   Typography,
 } from "@mui/material";
@@ -25,6 +27,7 @@ import {
   useSkipSpec,
   useReopenTask,
 } from "../../services/specTaskWorkflowService";
+import { useUpdateSpecTask } from "../../services/specTaskService";
 import { useListOAuthProviders, useListOAuthConnections } from "../../services/oauthProvidersService";
 import { findOAuthProviderForType, findOAuthConnectionForProvider, hasRequiredScopes } from "../../utils/oauthProviders";
 import { useOAuthFlow } from "../../hooks/useOAuthFlow";
@@ -185,6 +188,7 @@ export default function SpecTaskActionButtons({
   const stopAgentMutation = useStopAgent(task.id);
   const skipSpecMutation = useSkipSpec(task.id);
   const reopenTaskMutation = useReopenTask(task.id);
+  const updateSpecTaskMutation = useUpdateSpecTask();
   const [isReviewingSpec, setIsReviewingSpec] = useState(false);
   const [prMenuAnchor, setPrMenuAnchor] = useState<null | HTMLElement>(null);
   const [showOAuthPrompt, setShowOAuthPrompt] = useState(false);
@@ -266,15 +270,44 @@ export default function SpecTaskActionButtons({
           ? "Queue Planning"
           : task.metadata?.error
             ? task.just_do_it_mode
-              ? "Retry"
+              ? "Retry Implementation"
               : "Retry Planning"
             : task.just_do_it_mode
-              ? "Just Do It"
+              ? "Start Implementation"
               : "Start Planning";
+
+    const skipSpecToggle = (
+      <Tooltip title="Skip planning and go straight to implementation" placement="top">
+        <FormControlLabel
+          control={
+            <Switch
+              size="small"
+              checked={!!task.just_do_it_mode}
+              onChange={(e) => {
+                e.stopPropagation();
+                updateSpecTaskMutation.mutate({
+                  taskId: task.id,
+                  updates: { just_do_it_mode: e.target.checked },
+                });
+              }}
+              disabled={isArchived || updateSpecTaskMutation.isPending}
+            />
+          }
+          label={
+            <Typography variant="caption" sx={{ whiteSpace: "nowrap" }}>
+              Skip planning
+            </Typography>
+          }
+          sx={{ mr: 0 }}
+          onClick={(e) => e.stopPropagation()}
+        />
+      </Tooltip>
+    );
 
     if (isInline) {
       return (
-        <Box sx={{ display: "flex", gap: 1 }}>
+        <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
+          {skipSpecToggle}
           <CompactActionButton
             tooltip={startTooltip}
             color={task.just_do_it_mode ? "success" : "warning"}
@@ -297,9 +330,9 @@ export default function SpecTaskActionButtons({
     }
 
     return (
-      <Box sx={isInline ? { display: "flex", gap: 1 } : { mt: 1.5 }}>
+      <Box sx={{ mt: 1.5 }}>
         <Tooltip title={startTooltip} placement="top">
-          <span style={{ width: isInline ? "auto" : "100%" }}>
+          <span style={{ width: "100%" }}>
             <Button
               ref={startPlanningButtonRef}
               size={buttonSize}
@@ -317,13 +350,16 @@ export default function SpecTaskActionButtons({
                 onStartPlanning?.();
               }}
               disabled={isStartDisabled}
-              fullWidth={!isInline}
+              fullWidth
               sx={buttonSx}
             >
               {startLabel}
             </Button>
           </span>
         </Tooltip>
+        <Box sx={{ mt: 0.5, display: "flex", justifyContent: "center" }}>
+          {skipSpecToggle}
+        </Box>
       </Box>
     );
   }
@@ -340,7 +376,7 @@ export default function SpecTaskActionButtons({
           width: isInline ? "auto" : "100%",
         }}
       >
-        <Tooltip title={isArchived ? "Task is archived" : "Skip spec generation and start implementation"}>
+        <Tooltip title={isArchived ? "Task is archived" : "Skip planning and start implementation"}>
           <span>
             <Button
               variant="outlined"
@@ -361,7 +397,7 @@ export default function SpecTaskActionButtons({
               fullWidth={!isInline}
               sx={buttonSx}
             >
-              {isSkipping ? "Skipping..." : "Skip Spec"}
+              {isSkipping ? "Skipping..." : "Skip Planning"}
             </Button>
           </span>
         </Tooltip>
