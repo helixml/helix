@@ -104,6 +104,16 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 		return
 	}
 
+	// Reject approval if the agent has not pushed any commits to the feature
+	// branch. Without this guard, approve-implementation would open an empty PR
+	// (external repos) or merge a zero-commit diff (internal repos). The UI
+	// disables the button in this state; this check is the defense-in-depth
+	// for direct API callers.
+	if specTask.LastPushAt == nil {
+		http.Error(w, "Agent has not pushed any commits yet", http.StatusConflict)
+		return
+	}
+
 	if project.DefaultRepoID == "" {
 		http.Error(w, "Default repository not set for project", http.StatusBadRequest)
 		return
