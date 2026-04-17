@@ -521,7 +521,7 @@ kodit:
   # Kodit application image
   image:
     repository: ghcr.io/helixml/kodit
-    tag: "1.3.4" # Pin to specific version
+    tag: "1.2.0" # Pin to specific version
     # Use custom registry if needed
     # repository: "my-registry.example.com/helix/kodit"
 
