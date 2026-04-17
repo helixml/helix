@@ -565,12 +565,12 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
             }}
             placeholder={
               justDoItMode
-                ? "Describe what you want the agent to do. It will start immediately without planning."
+                ? "Describe what you want the agent to do. It will start immediately without spec generation."
                 : "Describe the task - the AI will generate specs from this."
             }
             helperText={
               justDoItMode
-                ? "Agent will start working immediately"
+                ? "Spec generation will be skipped — agent starts implementation immediately"
                 : "Planning agent extracts task name, description, and generates specifications"
             }
             inputRef={taskPromptRef}
@@ -887,10 +887,10 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
             )}
           </Box>
 
-          {/* Just Do It Mode Checkbox */}
+          {/* Skip Spec Checkbox */}
           <FormControl fullWidth>
             <Tooltip
-              title={`Skip writing a spec and just get the agent to immediately start doing what you ask (${navigator.platform.includes("Mac") ? "⌘J" : "Ctrl+J"})`}
+              title={`Skip spec generation and go straight to implementation (${navigator.platform.includes("Mac") ? "⌘J" : "Ctrl+J"})`}
               placement="top"
             >
               <FormControlLabel
@@ -905,7 +905,7 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
                   <Box>
                     <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
                       <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                        Just Do It
+                        Skip spec
                       </Typography>
                       <Box
                         component="span"
@@ -923,8 +923,7 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
                       </Box>
                     </Box>
                     <Typography variant="caption" color="text.secondary">
-                      Skip spec planning — useful for tasks that don't require
-                      planning code changes
+                      Skip spec generation — go straight to implementation
                     </Typography>
                   </Box>
                 }
