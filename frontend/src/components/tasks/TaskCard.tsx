@@ -146,6 +146,7 @@ export interface SpecTaskWithExtras {
   assignee_id?: string;
   labels?: string[];
   updated_at?: string;
+  last_push_at?: string;
 }
 
 export interface TaskDependency {
