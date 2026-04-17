@@ -6,20 +6,9 @@
 When a task transitions from `pull_request` to `done` (merged), `task.Metadata["error"]` is never cleared. The error may have been set earlier by the 5-minute PR timeout check (`spec_task_orchestrator.go:697-706`). The frontend shows this error prominently in a red banner regardless of task phase (`TaskCard.tsx:1068-1086`), so it appears alongside the green "Task finished" success message.
 
 ### Fix
-Clear `task.Metadata["error"]` in all three code paths that transition a task to `done` status:
+Keep the error in `task.Metadata["error"]` — it's useful for debugging. Instead, fix the frontend to not display the error banner when the task is in completed phase.
 
-1. **`processExternalPullRequestStatus()`** (`spec_task_orchestrator.go:771-792`) — when all tracked PRs are merged
-2. **`checkTaskForExternalPRActivity()`** (`spec_task_orchestrator.go:1056-1078`) — when an externally-merged PR is detected
-3. **Branch-merge fallback** (`spec_task_orchestrator.go:841-849`) — when the branch is detected as merged to main without a tracked PR
-
-In each path, before saving the task, add:
-```go
-if task.Metadata != nil {
-    delete(task.Metadata, "error")
-}
-```
-
-Additionally, the frontend should not display the error banner when the task is in completed phase, as a defensive measure against stale metadata.
+In `TaskCard.tsx` (line 1068), add a phase check so the error banner is suppressed when `task.phase === "completed"`. The error data remains in metadata for inspection via the API or database, but the user sees the clean "Task finished — Merged to default branch" message.
 
 ## Bug 2: Duplicate PR creation when PR is closed/deleted
 
@@ -49,6 +38,5 @@ This check ensures that once a PR is tracked for a repo, we never create a dupli
 
 | File | Lines | What to change |
 |------|-------|---------------|
-| `api/pkg/services/spec_task_orchestrator.go` | 771-792, 841-849, 1056-1078 | Clear metadata error on all done transitions |
 | `api/pkg/server/spec_task_workflow_handlers.go` | 509-590 | Add early return for already-tracked PRs |
 | `frontend/src/components/tasks/TaskCard.tsx` | 1068-1086 | Skip error banner when phase is "completed" |

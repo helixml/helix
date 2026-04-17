@@ -1,11 +1,8 @@
 # Implementation Tasks
 
-## Bug 1: Clear error metadata on merge transitions
+## Bug 1: Hide error banner on completed tasks
 
-- [ ] In `processExternalPullRequestStatus()` (`api/pkg/services/spec_task_orchestrator.go:771`), clear `task.Metadata["error"]` before saving when all PRs are merged
-- [ ] In `checkTaskForExternalPRActivity()` (`api/pkg/services/spec_task_orchestrator.go:1064`), clear `task.Metadata["error"]` before saving when a merged PR is detected
-- [ ] In the branch-merge fallback (`api/pkg/services/spec_task_orchestrator.go:841`), clear `task.Metadata["error"]` before saving when branch is detected as merged
-- [ ] In `TaskCard.tsx` (`frontend/src/components/tasks/TaskCard.tsx:1068`), skip the error banner when `task.phase === "completed"` as a defensive frontend guard
+- [ ] In `TaskCard.tsx` (`frontend/src/components/tasks/TaskCard.tsx:1068`), add `task.phase !== "completed"` condition to the error banner so it is hidden when the task is merged. Keep the error in metadata for debugging.
 
 ## Bug 2: Prevent duplicate PR creation
 
