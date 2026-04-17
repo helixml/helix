@@ -1065,7 +1065,7 @@ function TaskCardInner({
         )}
 
         {/* Show task error prominently and avoid desktop viewer when errored */}
-        {taskError && (
+        {taskError && task.phase !== "completed" && (
           <Box
             sx={{
               mb: 1,

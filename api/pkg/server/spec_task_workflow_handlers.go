@@ -511,6 +511,15 @@ func (s *HelixAPIServer) ensurePullRequestForRepo(ctx context.Context, repo *typ
 		return nil, nil
 	}
 
+	// If we already track a PR for this repo, return it — don't create a duplicate.
+	// This prevents re-creation when a PR is closed/deleted and ListPullRequests
+	// (which only returns open PRs) can no longer see it.
+	for _, existing := range task.RepoPullRequests {
+		if existing.RepositoryID == repo.ID && existing.PRID != "" {
+			return &existing, nil
+		}
+	}
+
 	branch := task.BranchName
 
 	// Check if the branch exists in this repo before trying to push
