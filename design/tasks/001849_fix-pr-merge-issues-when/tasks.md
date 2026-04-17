@@ -2,7 +2,7 @@
 
 ## Bug 1: Hide error banner on completed tasks
 
-- [ ] In `TaskCard.tsx` (`frontend/src/components/tasks/TaskCard.tsx:1068`), add `task.phase !== "completed"` condition to the error banner so it is hidden when the task is merged. Keep the error in metadata for debugging.
+- [~] In `TaskCard.tsx` (`frontend/src/components/tasks/TaskCard.tsx:1068`), add `task.phase !== "completed"` condition to the error banner so it is hidden when the task is merged. Keep the error in metadata for debugging.
 
 ## Bug 2: Prevent duplicate PR creation
 
