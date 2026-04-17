@@ -12,7 +12,7 @@ Frontend-only change in `SpecTaskActionButtons.tsx`:
 
 1. Add `last_push_at` to the `SpecTaskForActions` interface (it's already in the generated API types but not in this component's interface)
 2. Derive a `hasPushed` boolean: `const hasPushed = !!task.last_push_at`
-3. When `!hasPushed`, disable both the "Open PR" / "Accept" button and the "Reject" button, showing a tooltip like "Waiting for agent to push code..."
+3. When `!hasPushed`, disable both "Open PR" / "Accept" and "Reject" buttons and show a tooltip "Waiting for agent to push code..."
 
 ### Why disable instead of hide?
 
@@ -25,15 +25,18 @@ Disabling with a tooltip is better than hiding because:
 
 The `approveImplementation` handler already sends a push instruction to the agent, so it somewhat handles the no-push case. But preventing the user from clicking prematurely gives a better UX and avoids race conditions where the PR is created before code is pushed.
 
-## Files to Modify
+## Files Modified
 
 | File | Change |
 |------|--------|
-| `frontend/src/components/tasks/SpecTaskActionButtons.tsx` | Add `last_push_at` to interface, disable button when not pushed |
+| `frontend/src/components/tasks/SpecTaskActionButtons.tsx` | Added `last_push_at` to interface, added `hasPushed` boolean, disabled both Reject and Open PR/Accept buttons when `!hasPushed` in both inline and stacked variants |
+| `frontend/src/components/tasks/TaskCard.tsx` | Pass `last_push_at` from task object at the implementation phase call site |
+| `frontend/src/components/tasks/SpecTaskDetailContent.tsx` | Pass `last_push_at` from task object at both call sites (header + split view) |
 
-## Codebase Notes
+## Implementation Notes
 
-- The task type is `SpecTaskForActions` (lines 41-52 of `SpecTaskActionButtons.tsx`) — a subset of the full task type. `last_push_at` needs to be added to it.
-- Both inline (line 493) and full-size (line 569+) button variants need the disable condition.
-- The `isDirectPush` flag (line 237) determines button label ("Accept" vs "Open PR") — the disable logic applies to both variants.
+- `last_push_at` was already present in the generated API types (`api.ts` lines 4996, 5298) and in `SpecTaskKanbanBoard.tsx` (line 199) — just never wired into the action buttons component.
+- The tooltip condition uses a ternary chain: `isArchived ? "Task is archived" : !hasPushed ? "Waiting for agent to push code..." : ""` — `isArchived` takes precedence since it's the more permanent state.
 - `last_push_at` is updated via WebSocket/polling when the git HTTP server detects a push, so the button will enable in real-time without page refresh.
+- There are exactly 3 call sites that needed updating: 1 in TaskCard.tsx (stacked/kanban), 2 in SpecTaskDetailContent.tsx (inline/header and inline/split-view).
+- WARNING: Could not test in browser — the inner Helix API stack is not running (only sandbox + registry containers are up). Build passes successfully.
