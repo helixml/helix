@@ -10,8 +10,7 @@ The "Open PR" button (and its direct-push variant "Accept") appears immediately 
 
 ## Acceptance Criteria
 
-- [ ] The "Open PR" / "Accept" button is hidden (or disabled with a tooltip) when the task has no `last_push_at` value
-- [ ] The button appears as soon as `last_push_at` is set (i.e., the agent has pushed at least one commit)
-- [ ] The "Reject" button remains visible regardless of push state — users should always be able to reject
+- [ ] Both the "Open PR" / "Accept" button and the "Reject" button are disabled (with a tooltip) when the task has no `last_push_at` value
+- [ ] Both buttons enable as soon as `last_push_at` is set (i.e., the agent has pushed at least one commit)
 - [ ] Both inline and full-size button variants respect this condition
 - [ ] No backend changes required — `last_push_at` is already tracked and exposed via the API

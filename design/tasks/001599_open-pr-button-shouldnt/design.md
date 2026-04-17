@@ -12,8 +12,7 @@ Frontend-only change in `SpecTaskActionButtons.tsx`:
 
 1. Add `last_push_at` to the `SpecTaskForActions` interface (it's already in the generated API types but not in this component's interface)
 2. Derive a `hasPushed` boolean: `const hasPushed = !!task.last_push_at`
-3. When `!hasPushed`, disable the "Open PR" / "Accept" button and show a tooltip like "Waiting for agent to push code..."
-4. The "Reject" button stays unaffected
+3. When `!hasPushed`, disable both the "Open PR" / "Accept" button and the "Reject" button, showing a tooltip like "Waiting for agent to push code..."
 
 ### Why disable instead of hide?
 
