@@ -2,11 +2,11 @@
 
 ## Bug 1: Hide error banner on completed tasks
 
-- [~] In `TaskCard.tsx` (`frontend/src/components/tasks/TaskCard.tsx:1068`), add `task.phase !== "completed"` condition to the error banner so it is hidden when the task is merged. Keep the error in metadata for debugging.
+- [x] In `TaskCard.tsx` (`frontend/src/components/tasks/TaskCard.tsx:1068`), add `task.phase !== "completed"` condition to the error banner so it is hidden when the task is merged. Keep the error in metadata for debugging.
 
 ## Bug 2: Prevent duplicate PR creation
 
-- [ ] In `ensurePullRequestForRepo()` (`api/pkg/server/spec_task_workflow_handlers.go`), add an early return before `ListPullRequests` when `task.RepoPullRequests` already contains an entry for the repo with a non-empty PRID
+- [~] In `ensurePullRequestForRepo()` (`api/pkg/server/spec_task_workflow_handlers.go`), add an early return before `ListPullRequests` when `task.RepoPullRequests` already contains an entry for the repo with a non-empty PRID
 
 ## Verification
 
