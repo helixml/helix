@@ -1174,6 +1174,25 @@ func (s *GitHTTPServer) ensurePullRequest(ctx context.Context, repo *types.GitRe
 
 	log.Info().Str("repo_id", repo.ID).Str("branch", branch).Msg("Ensuring pull request")
 
+	// If we already track a PR for this repo, return without pushing or
+	// re-creating. Pushing would recreate a branch that GitHub auto-deleted
+	// after merge, or re-open a branch the user closed intentionally.
+	// ListPullRequests (open-only) can't see merged/closed PRs, so without
+	// this guard we'd fall through to CreatePullRequest and duplicate.
+	// Mirrors the guard added to ensurePullRequestForRepo in PR #2225.
+	for i := range task.RepoPullRequests {
+		existing := &task.RepoPullRequests[i]
+		if existing.RepositoryID == repo.ID && existing.PRID != "" {
+			log.Info().
+				Str("pr_id", existing.PRID).
+				Str("pr_state", existing.PRState).
+				Str("repo_id", repo.ID).
+				Str("branch", branch).
+				Msg("Task already tracks a PR for this repo, skipping ensurePullRequest")
+			return nil
+		}
+	}
+
 	// Acquire repo lock for push operation to prevent race conditions.
 	// Use the approver's OAuth token when available.
 	if err := s.gitRepoService.WithRepoLock(repo.ID, func() error {
