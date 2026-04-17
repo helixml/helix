@@ -5,5 +5,5 @@
 - [x] In `NewSpecTaskForm.tsx`: rename the "Just do it" checkbox label to "Skip spec" and update placeholder/helper text to describe skipping spec generation
 - [x] In `SpecTaskDetailContent.tsx` (lines 1306-1316): update the edit-mode checkbox label to "Skip spec" for consistency
 - [x] Verify the keyboard shortcut (Ctrl/Cmd+J) in `NewSpecTaskForm.tsx` still works and any tooltip references are updated
-- [ ] Manual QA: create a task with "Skip spec" toggled on, verify backlog shows "Start Implementation", click it, confirm task goes to `queued_implementation` status
-- [ ] Manual QA: on an existing backlog task, toggle "Skip spec" on/off from the card, verify button label updates between "Start Planning" and "Start Implementation"
+- [x] Manual QA: create a task with "Skip spec" toggled on, verify backlog shows "Start Implementation", click it, confirm task goes to `queued_implementation` status
+- [x] Manual QA: on an existing backlog task, toggle "Skip spec" on/off from the card, verify button label updates between "Start Planning" and "Start Implementation"
