@@ -565,12 +565,12 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
             }}
             placeholder={
               justDoItMode
-                ? "Describe what you want the agent to do. It will start immediately without spec generation."
+                ? "Describe what you want the agent to do. It will start immediately without planning."
                 : "Describe the task - the AI will generate specs from this."
             }
             helperText={
               justDoItMode
-                ? "Spec generation will be skipped — agent starts implementation immediately"
+                ? "Planning will be skipped — agent starts implementation immediately"
                 : "Planning agent extracts task name, description, and generates specifications"
             }
             inputRef={taskPromptRef}
@@ -890,7 +890,7 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
           {/* Skip Spec Checkbox */}
           <FormControl fullWidth>
             <Tooltip
-              title={`Skip spec generation and go straight to implementation (${navigator.platform.includes("Mac") ? "⌘J" : "Ctrl+J"})`}
+              title={`Skip planning and go straight to implementation (${navigator.platform.includes("Mac") ? "⌘J" : "Ctrl+J"})`}
               placement="top"
             >
               <FormControlLabel
@@ -905,7 +905,7 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
                   <Box>
                     <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
                       <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                        Skip spec
+                        Skip planning
                       </Typography>
                       <Box
                         component="span"
@@ -923,7 +923,7 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
                       </Box>
                     </Box>
                     <Typography variant="caption" color="text.secondary">
-                      Skip spec generation — go straight to implementation
+                      Skip planning — go straight to implementation
                     </Typography>
                   </Box>
                 }

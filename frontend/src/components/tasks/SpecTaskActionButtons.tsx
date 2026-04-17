@@ -277,7 +277,7 @@ export default function SpecTaskActionButtons({
               : "Start Planning";
 
     const skipSpecToggle = (
-      <Tooltip title="Skip spec generation and go straight to implementation" placement="top">
+      <Tooltip title="Skip planning and go straight to implementation" placement="top">
         <FormControlLabel
           control={
             <Switch
@@ -295,7 +295,7 @@ export default function SpecTaskActionButtons({
           }
           label={
             <Typography variant="caption" sx={{ whiteSpace: "nowrap" }}>
-              Skip spec
+              Skip planning
             </Typography>
           }
           sx={{ mr: 0 }}
@@ -376,7 +376,7 @@ export default function SpecTaskActionButtons({
           width: isInline ? "auto" : "100%",
         }}
       >
-        <Tooltip title={isArchived ? "Task is archived" : "Skip spec generation and start implementation"}>
+        <Tooltip title={isArchived ? "Task is archived" : "Skip planning and start implementation"}>
           <span>
             <Button
               variant="outlined"
@@ -397,7 +397,7 @@ export default function SpecTaskActionButtons({
               fullWidth={!isInline}
               sx={buttonSx}
             >
-              {isSkipping ? "Skipping..." : "Skip Spec"}
+              {isSkipping ? "Skipping..." : "Skip Planning"}
             </Button>
           </span>
         </Tooltip>

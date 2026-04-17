@@ -1311,7 +1311,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                 size="small"
               />
             }
-            label="Skip spec (go straight to implementation)"
+            label="Skip planning (go straight to implementation)"
           />
         </Box>
       )}

@@ -132,13 +132,13 @@ export function useSkipSpec(specTaskId: string) {
       return response.data;
     },
     onSuccess: () => {
-      snackbar.success("Skipped spec - task moved to implementation");
+      snackbar.success("Skipped planning - task moved to implementation");
       queryClient.invalidateQueries({ queryKey: ["spec-tasks", specTaskId] });
       queryClient.invalidateQueries({ queryKey: ["spec-tasks"] });
     },
     onError: (error: any) => {
       snackbar.error(
-        error?.response?.data?.message || "Failed to skip spec",
+        error?.response?.data?.message || "Failed to skip planning",
       );
     },
   });
