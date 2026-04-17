@@ -1,6 +1,6 @@
 # Implementation Tasks
 
-- [ ] Add `last_push_at?: string` to `SpecTaskForActions` interface in `frontend/src/components/tasks/SpecTaskActionButtons.tsx`
+- [~] Add `last_push_at?: string` to `SpecTaskForActions` interface in `frontend/src/components/tasks/SpecTaskActionButtons.tsx`
 - [ ] Add `hasPushed` derived boolean (`!!task.last_push_at`) near the existing `isDirectPush` logic
 - [ ] Disable both the "Open PR" / "Accept" and "Reject" buttons in the **inline** variant when `!hasPushed`, with tooltip "Waiting for agent to push code..."
 - [ ] Disable both the "Open PR" / "Accept" and "Reject" buttons in the **full-size** variant when `!hasPushed`, with same tooltip
