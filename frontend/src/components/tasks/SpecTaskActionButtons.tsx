@@ -49,6 +49,7 @@ export interface SpecTaskForActions {
   planning_session_id?: string;
   metadata?: { error?: string };
   repo_pull_requests?: RepoPR[];
+  last_push_at?: string;
 }
 
 interface SpecTaskActionButtonsProps {
@@ -236,6 +237,8 @@ export default function SpecTaskActionButtons({
   // Determine if this is a direct-push scenario (branch same as base) vs PR workflow
   const isDirectPush =
     !hasExternalRepo || task.base_branch === task.branch_name;
+
+  const hasPushed = !!task.last_push_at;
 
   // Button size based on variant
   const buttonSize = "small";
@@ -494,10 +497,10 @@ export default function SpecTaskActionButtons({
       return (
         <Box sx={{ display: "flex", gap: 1 }}>
           <CompactActionButton
-            tooltip={isArchived ? "Task is archived" : ""}
+            tooltip={isArchived ? "Task is archived" : !hasPushed ? "Waiting for agent to push code..." : ""}
             variant="outlined"
             color="error"
-            disabled={isArchived || isArchiving}
+            disabled={isArchived || isArchiving || !hasPushed}
             icon={
               isArchiving ? (
                 <CircularProgress size={16} color="inherit" />
@@ -512,10 +515,10 @@ export default function SpecTaskActionButtons({
             }}
           />
           <CompactActionButton
-            tooltip={isArchived ? "Task is archived" : ""}
+            tooltip={isArchived ? "Task is archived" : !hasPushed ? "Waiting for agent to push code..." : ""}
             variant="contained"
             color="success"
-            disabled={isArchived || approveImplementationMutation.isPending}
+            disabled={isArchived || approveImplementationMutation.isPending || !hasPushed}
             icon={
               approveImplementationMutation.isPending ? (
                 <CircularProgress size={16} color="inherit" />
@@ -562,13 +565,13 @@ export default function SpecTaskActionButtons({
         }
       >
         <Box sx={{ display: "flex", gap: 1 }}>
-          <Tooltip title={isArchived ? "Task is archived" : ""} placement="top">
+          <Tooltip title={isArchived ? "Task is archived" : !hasPushed ? "Waiting for agent to push code..." : ""} placement="top">
             <span style={{ flex: 1 }}>
               <Button
                 size={buttonSize}
                 variant="outlined"
                 color="error"
-                disabled={isArchived || isArchiving}
+                disabled={isArchived || isArchiving || !hasPushed}
                 startIcon={
                   isArchiving ? (
                     <CircularProgress size={14} color="inherit" />
@@ -588,7 +591,7 @@ export default function SpecTaskActionButtons({
             </span>
           </Tooltip>
 
-          <Tooltip title={isArchived ? "Task is archived" : ""} placement="top">
+          <Tooltip title={isArchived ? "Task is archived" : !hasPushed ? "Waiting for agent to push code..." : ""} placement="top">
             <span style={{ flex: 1 }}>
               <Button
                 size={buttonSize}
@@ -602,7 +605,7 @@ export default function SpecTaskActionButtons({
                   )
                 }
                 onClick={handleOpenPR}
-                disabled={isArchived || approveImplementationMutation.isPending}
+                disabled={isArchived || approveImplementationMutation.isPending || !hasPushed}
                 fullWidth
                 sx={buttonSx}
               >

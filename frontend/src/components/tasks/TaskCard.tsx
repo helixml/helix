@@ -1289,6 +1289,7 @@ function TaskCardInner({
               base_branch: task.base_branch,
               branch_name: task.branch_name,
               archived: task.archived,
+              last_push_at: task.last_push_at,
             }}
             variant="stacked"
             onReject={(shiftKey) => {
