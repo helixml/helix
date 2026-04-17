@@ -394,7 +394,7 @@ func (m *MultiClientManager) initializeClient(endpoint *types.ProviderEndpoint) 
 
 	// Log TLS configuration for database-configured providers (user/org endpoints)
 	// This helps debug enterprise TLS issues with providers configured via web UI
-	log.Info().
+	log.Debug().
 		Str("provider_id", endpoint.ID).
 		Str("provider_name", endpoint.Name).
 		Str("base_url", endpoint.BaseURL).
