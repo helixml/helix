@@ -8,12 +8,12 @@ dependencies = [
     "fastapi>=0.115.11",
     "haystack-ai==2.11.2",
     "httpx>=0.28.1",
-    "nltk>=3.9.1",
+    "nltk>=3.9.4",
     "pgvector-haystack==3.1.0",
     "psycopg2-binary>=2.9.10",
     "pydantic>=2.10.6",
     "pymupdf>=1.25.4",
-    "python-multipart>=0.0.20",
+    "python-multipart>=0.0.26",
     "requests-unixsocket>=0.4.1",
     # CPU-only PyTorch - must be listed before unstructured to override its GPU torch dep
     # Use pinned versions with +cpu suffix on x86_64, regular versions on ARM64
@@ -29,7 +29,7 @@ dependencies = [
 [dependency-groups]
 dev = [
     "pytest-asyncio>=0.25.3",
-    "pytest>=8.3.5",
+    "pytest>=9.0.3",
     "ruff>=0.11.1",
     "docker>=7.1.0",
 ]
