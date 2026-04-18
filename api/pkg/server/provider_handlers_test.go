@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/dgraph-io/ristretto/v2"
+	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/openai"
@@ -350,4 +351,134 @@ func (s *ProviderHandlersSuite) TestCreateProviderEndpoint_WarmsCacheAndMasksAPI
 	case <-time.After(5 * time.Second):
 		s.Fail("cache warm goroutine did not complete in time")
 	}
+}
+
+func (s *ProviderHandlersSuite) TestUpdateProviderEndpoint_SwitchUserToGlobal() {
+	s.server.Cfg.Providers.EnableCustomUserProviders = true
+	endpointID := "ep_123"
+
+	adminCtx := setRequestUser(context.Background(), types.User{
+		ID:    "admin_id",
+		Admin: true,
+	})
+
+	existing := &types.ProviderEndpoint{
+		ID:           endpointID,
+		Name:         "my-endpoint",
+		BaseURL:      "http://localhost:11434",
+		Owner:        "admin_id",
+		OwnerType:    types.OwnerTypeUser,
+		EndpointType: types.ProviderEndpointTypeUser,
+	}
+
+	s.store.EXPECT().GetSystemSettings(gomock.Any()).Return(&types.SystemSettings{
+		ProvidersManagementEnabled: true,
+	}, nil)
+	s.store.EXPECT().GetProviderEndpoint(gomock.Any(), &store.GetProviderEndpointsQuery{
+		ID: endpointID,
+	}).Return(existing, nil)
+	s.store.EXPECT().UpdateProviderEndpoint(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, ep *types.ProviderEndpoint) (*types.ProviderEndpoint, error) {
+			s.Equal(types.ProviderEndpointTypeGlobal, ep.EndpointType)
+			s.Equal(string(types.OwnerTypeSystem), ep.Owner)
+			s.Equal(types.OwnerTypeSystem, ep.OwnerType)
+			return ep, nil
+		})
+
+	update := types.UpdateProviderEndpoint{
+		Name:         "my-endpoint",
+		EndpointType: types.ProviderEndpointTypeGlobal,
+		BaseURL:      "http://localhost:11434",
+	}
+	body, _ := json.Marshal(update)
+
+	req := httptest.NewRequest(http.MethodPut, "/v1/provider-endpoints/"+endpointID, bytes.NewReader(body))
+	req = req.WithContext(adminCtx)
+	req = mux.SetURLVars(req, map[string]string{"id": endpointID})
+
+	rr := httptest.NewRecorder()
+	s.server.updateProviderEndpoint(rr, req)
+
+	s.Equal(http.StatusOK, rr.Code)
+}
+
+func (s *ProviderHandlersSuite) TestUpdateProviderEndpoint_NonAdminCannotSwitchToGlobal() {
+	s.server.Cfg.Providers.EnableCustomUserProviders = true
+	endpointID := "ep_123"
+
+	existing := &types.ProviderEndpoint{
+		ID:           endpointID,
+		Name:         "my-endpoint",
+		BaseURL:      "http://localhost:11434",
+		Owner:        "user_id",
+		OwnerType:    types.OwnerTypeUser,
+		EndpointType: types.ProviderEndpointTypeUser,
+	}
+
+	s.store.EXPECT().GetSystemSettings(gomock.Any()).Return(&types.SystemSettings{
+		ProvidersManagementEnabled: true,
+	}, nil)
+	s.store.EXPECT().GetProviderEndpoint(gomock.Any(), &store.GetProviderEndpointsQuery{
+		ID: endpointID,
+	}).Return(existing, nil)
+
+	update := types.UpdateProviderEndpoint{
+		Name:         "my-endpoint",
+		EndpointType: types.ProviderEndpointTypeGlobal,
+		BaseURL:      "http://localhost:11434",
+	}
+	body, _ := json.Marshal(update)
+
+	req := httptest.NewRequest(http.MethodPut, "/v1/provider-endpoints/"+endpointID, bytes.NewReader(body))
+	req = req.WithContext(s.authCtx)
+	req = mux.SetURLVars(req, map[string]string{"id": endpointID})
+
+	rr := httptest.NewRecorder()
+	s.server.updateProviderEndpoint(rr, req)
+
+	s.Equal(http.StatusForbidden, rr.Code)
+	s.Contains(rr.Body.String(), "Only admins can update global endpoints")
+}
+
+func (s *ProviderHandlersSuite) TestUpdateProviderEndpoint_SwitchToOrgRejected() {
+	s.server.Cfg.Providers.EnableCustomUserProviders = true
+	endpointID := "ep_123"
+
+	adminCtx := setRequestUser(context.Background(), types.User{
+		ID:    "admin_id",
+		Admin: true,
+	})
+
+	existing := &types.ProviderEndpoint{
+		ID:           endpointID,
+		Name:         "my-endpoint",
+		BaseURL:      "http://localhost:11434",
+		Owner:        "admin_id",
+		OwnerType:    types.OwnerTypeUser,
+		EndpointType: types.ProviderEndpointTypeUser,
+	}
+
+	s.store.EXPECT().GetSystemSettings(gomock.Any()).Return(&types.SystemSettings{
+		ProvidersManagementEnabled: true,
+	}, nil)
+	s.store.EXPECT().GetProviderEndpoint(gomock.Any(), &store.GetProviderEndpointsQuery{
+		ID: endpointID,
+	}).Return(existing, nil)
+
+	update := types.UpdateProviderEndpoint{
+		Name:         "my-endpoint",
+		EndpointType: types.ProviderEndpointTypeOrg,
+		BaseURL:      "http://localhost:11434",
+	}
+	body, _ := json.Marshal(update)
+
+	req := httptest.NewRequest(http.MethodPut, "/v1/provider-endpoints/"+endpointID, bytes.NewReader(body))
+	req = req.WithContext(adminCtx)
+	req = mux.SetURLVars(req, map[string]string{"id": endpointID})
+
+	rr := httptest.NewRecorder()
+	s.server.updateProviderEndpoint(rr, req)
+
+	s.Equal(http.StatusBadRequest, rr.Code)
+	s.Contains(rr.Body.String(), "Unsupported endpoint type switch")
 }

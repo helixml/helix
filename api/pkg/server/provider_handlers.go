@@ -515,6 +515,19 @@ func (s *HelixAPIServer) updateProviderEndpoint(rw http.ResponseWriter, r *http.
 		return
 	}
 
+	// Apply endpoint type change and update ownership accordingly
+	if updatedEndpoint.EndpointType != "" && updatedEndpoint.EndpointType != existingEndpoint.EndpointType {
+		switch updatedEndpoint.EndpointType {
+		case types.ProviderEndpointTypeGlobal:
+			existingEndpoint.EndpointType = updatedEndpoint.EndpointType
+			existingEndpoint.Owner = string(types.OwnerTypeSystem)
+			existingEndpoint.OwnerType = types.OwnerTypeSystem
+		default:
+			http.Error(rw, fmt.Sprintf("Unsupported endpoint type switch to %q", updatedEndpoint.EndpointType), http.StatusBadRequest)
+			return
+		}
+	}
+
 	// Preserve ID and ownership information
 	// Update name if provided and different from existing
 	if updatedEndpoint.Name != "" && updatedEndpoint.Name != existingEndpoint.Name {
