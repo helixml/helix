@@ -2514,6 +2514,96 @@ export enum TypesEffect {
   EffectDeny = "deny",
 }
 
+export interface TypesEvaluationAssertion {
+  /** Custom prompt for LLM judge mode */
+  llm_judge_prompt?: string;
+  type?: TypesEvaluationAssertionType;
+  /** Expected string, regex pattern, or skill name */
+  value?: string;
+}
+
+export interface TypesEvaluationAssertionResult {
+  assertion_type?: TypesEvaluationAssertionType;
+  assertion_value?: string;
+  /** e.g. LLM judge reasoning */
+  details?: string;
+  passed?: boolean;
+}
+
+export enum TypesEvaluationAssertionType {
+  EvaluationAssertionTypeContains = "contains",
+  EvaluationAssertionTypeNotContains = "not_contains",
+  EvaluationAssertionTypeRegex = "regex",
+  EvaluationAssertionTypeLLMJudge = "llm_judge",
+  EvaluationAssertionTypeSkillUsed = "skill_used",
+}
+
+export interface TypesEvaluationQuestion {
+  assertions?: TypesEvaluationAssertion[];
+  id?: string;
+  question?: string;
+}
+
+export interface TypesEvaluationQuestionResult {
+  assertion_results?: TypesEvaluationAssertionResult[];
+  cost?: number;
+  duration_ms?: number;
+  error?: string;
+  interaction_id?: string;
+  passed?: boolean;
+  question?: string;
+  question_id?: string;
+  response?: string;
+  session_id?: string;
+  skills_used?: string[];
+  tokens_used?: TypesUsage;
+}
+
+export interface TypesEvaluationRun {
+  app_config_snapshot?: TypesAppConfig;
+  app_id?: string;
+  created?: string;
+  error?: string;
+  id?: string;
+  organization_id?: string;
+  results?: TypesEvaluationQuestionResult[];
+  status?: TypesEvaluationRunStatus;
+  suite_id?: string;
+  summary?: TypesEvaluationRunSummary;
+  updated?: string;
+  user_id?: string;
+}
+
+export enum TypesEvaluationRunStatus {
+  EvaluationRunStatusPending = "pending",
+  EvaluationRunStatusRunning = "running",
+  EvaluationRunStatusCompleted = "completed",
+  EvaluationRunStatusFailed = "failed",
+  EvaluationRunStatusCancelled = "cancelled",
+}
+
+export interface TypesEvaluationRunSummary {
+  failed?: number;
+  passed?: number;
+  skills_used?: string[];
+  total_cost?: number;
+  total_duration_ms?: number;
+  total_questions?: number;
+  total_tokens?: number;
+}
+
+export interface TypesEvaluationSuite {
+  app_id?: string;
+  created?: string;
+  description?: string;
+  id?: string;
+  name?: string;
+  organization_id?: string;
+  questions?: TypesEvaluationQuestion[];
+  updated?: string;
+  user_id?: string;
+}
+
 export interface TypesExecuteQuestionSetRequest {
   app_id?: string;
   question_set_id?: string;
@@ -6725,6 +6815,178 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         body: request,
         secure: true,
         type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * @description Delete an evaluation run
+     *
+     * @tags evaluations
+     * @name V1AppsEvaluationRunsDelete
+     * @summary Delete an evaluation run
+     * @request DELETE:/api/v1/apps/{app_id}/evaluation-runs/{run_id}
+     * @secure
+     */
+    v1AppsEvaluationRunsDelete: (appId: string, runId: string, params: RequestParams = {}) =>
+      this.request<Record<string, string>, SystemHTTPError>({
+        path: `/api/v1/apps/${appId}/evaluation-runs/${runId}`,
+        method: "DELETE",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Get evaluation run details
+     *
+     * @tags evaluations
+     * @name V1AppsEvaluationRunsDetail
+     * @summary Get an evaluation run
+     * @request GET:/api/v1/apps/{app_id}/evaluation-runs/{run_id}
+     * @secure
+     */
+    v1AppsEvaluationRunsDetail: (appId: string, runId: string, params: RequestParams = {}) =>
+      this.request<TypesEvaluationRun, SystemHTTPError>({
+        path: `/api/v1/apps/${appId}/evaluation-runs/${runId}`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description List all evaluation suites for an app
+     *
+     * @tags evaluations
+     * @name V1AppsEvaluationSuitesDetail
+     * @summary List evaluation suites for an app
+     * @request GET:/api/v1/apps/{app_id}/evaluation-suites
+     * @secure
+     */
+    v1AppsEvaluationSuitesDetail: (appId: string, params: RequestParams = {}) =>
+      this.request<TypesEvaluationSuite[], SystemHTTPError>({
+        path: `/api/v1/apps/${appId}/evaluation-suites`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Create a new evaluation suite for an agent
+     *
+     * @tags evaluations
+     * @name V1AppsEvaluationSuitesCreate
+     * @summary Create an evaluation suite
+     * @request POST:/api/v1/apps/{app_id}/evaluation-suites
+     * @secure
+     */
+    v1AppsEvaluationSuitesCreate: (appId: string, suite: TypesEvaluationSuite, params: RequestParams = {}) =>
+      this.request<TypesEvaluationSuite, SystemHTTPError>({
+        path: `/api/v1/apps/${appId}/evaluation-suites`,
+        method: "POST",
+        body: suite,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Delete an evaluation suite
+     *
+     * @tags evaluations
+     * @name V1AppsEvaluationSuitesDelete
+     * @summary Delete an evaluation suite
+     * @request DELETE:/api/v1/apps/{app_id}/evaluation-suites/{id}
+     * @secure
+     */
+    v1AppsEvaluationSuitesDelete: (appId: string, id: string, params: RequestParams = {}) =>
+      this.request<Record<string, string>, SystemHTTPError>({
+        path: `/api/v1/apps/${appId}/evaluation-suites/${id}`,
+        method: "DELETE",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Get an evaluation suite by ID
+     *
+     * @tags evaluations
+     * @name V1AppsEvaluationSuitesDetail2
+     * @summary Get an evaluation suite
+     * @request GET:/api/v1/apps/{app_id}/evaluation-suites/{id}
+     * @originalName v1AppsEvaluationSuitesDetail
+     * @duplicate
+     * @secure
+     */
+    v1AppsEvaluationSuitesDetail2: (appId: string, id: string, params: RequestParams = {}) =>
+      this.request<TypesEvaluationSuite, SystemHTTPError>({
+        path: `/api/v1/apps/${appId}/evaluation-suites/${id}`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Update an evaluation suite
+     *
+     * @tags evaluations
+     * @name V1AppsEvaluationSuitesUpdate
+     * @summary Update an evaluation suite
+     * @request PUT:/api/v1/apps/{app_id}/evaluation-suites/{id}
+     * @secure
+     */
+    v1AppsEvaluationSuitesUpdate: (
+      appId: string,
+      id: string,
+      suite: TypesEvaluationSuite,
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesEvaluationSuite, SystemHTTPError>({
+        path: `/api/v1/apps/${appId}/evaluation-suites/${id}`,
+        method: "PUT",
+        body: suite,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description List evaluation runs for a suite
+     *
+     * @tags evaluations
+     * @name V1AppsEvaluationSuitesRunsDetail
+     * @summary List evaluation runs
+     * @request GET:/api/v1/apps/{app_id}/evaluation-suites/{id}/runs
+     * @secure
+     */
+    v1AppsEvaluationSuitesRunsDetail: (appId: string, id: string, params: RequestParams = {}) =>
+      this.request<TypesEvaluationRun[], SystemHTTPError>({
+        path: `/api/v1/apps/${appId}/evaluation-suites/${id}/runs`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Start running an evaluation suite against an agent
+     *
+     * @tags evaluations
+     * @name V1AppsEvaluationSuitesRunsCreate
+     * @summary Start an evaluation run
+     * @request POST:/api/v1/apps/{app_id}/evaluation-suites/{id}/runs
+     * @secure
+     */
+    v1AppsEvaluationSuitesRunsCreate: (appId: string, id: string, params: RequestParams = {}) =>
+      this.request<TypesEvaluationRun, SystemHTTPError>({
+        path: `/api/v1/apps/${appId}/evaluation-suites/${id}/runs`,
+        method: "POST",
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
         ...params,
       }),
 
