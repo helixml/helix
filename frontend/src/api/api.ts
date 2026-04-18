@@ -2383,6 +2383,8 @@ export interface TypesCreateSecretRequest {
 export interface TypesCreateTaskRequest {
   /** Optional: Helix agent to use for spec generation */
   app_id?: string;
+  /** Image attachments (filestore paths uploaded by the user) */
+  attachment_paths?: string[];
   /** For new mode: branch to create from (defaults to repo default) */
   base_branch?: string;
   /** Branch configuration */
@@ -5040,6 +5042,8 @@ export interface TypesSpecTask {
   archived?: boolean;
   /** Team member assigned to work on this task */
   assignee_id?: string;
+  /** Filestore paths of user-uploaded screenshots */
+  attachment_paths?: string[];
   /** The base branch this was created from */
   base_branch?: string;
   /** "new" or "existing" */
@@ -5342,6 +5346,8 @@ export interface TypesSpecTaskWithProject {
   archived?: boolean;
   /** Team member assigned to work on this task */
   assignee_id?: string;
+  /** Filestore paths of user-uploaded screenshots */
+  attachment_paths?: string[];
   /** The base branch this was created from */
   base_branch?: string;
   /** "new" or "existing" */

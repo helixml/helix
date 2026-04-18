@@ -22545,6 +22545,13 @@ const docTemplate = `{
                     "description": "Optional: Helix agent to use for spec generation",
                     "type": "string"
                 },
+                "attachment_paths": {
+                    "description": "Image attachments (filestore paths uploaded by the user)",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "base_branch": {
                     "description": "For new mode: branch to create from (defaults to repo default)",
                     "type": "string"
@@ -28856,6 +28863,13 @@ const docTemplate = `{
                     "description": "Team member assigned to work on this task",
                     "type": "string"
                 },
+                "attachment_paths": {
+                    "description": "Filestore paths of user-uploaded screenshots",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "base_branch": {
                     "description": "The base branch this was created from",
                     "type": "string"
@@ -29578,6 +29592,13 @@ const docTemplate = `{
                 "assignee_id": {
                     "description": "Team member assigned to work on this task",
                     "type": "string"
+                },
+                "attachment_paths": {
+                    "description": "Filestore paths of user-uploaded screenshots",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 },
                 "base_branch": {
                     "description": "The base branch this was created from",

@@ -2,12 +2,17 @@ package services
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
+	"io"
+	"mime"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
 	external_agent "github.com/helixml/helix/api/pkg/external-agent"
+	"github.com/helixml/helix/api/pkg/filestore"
 	"github.com/helixml/helix/api/pkg/notification"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/store"
@@ -49,6 +54,7 @@ type SpecDrivenTaskService struct {
 	auditLogService          *AuditLogService          // Service for audit logging
 	koditService             KoditServicer             // Kodit code intelligence (for MCP documentation in prompts)
 	GetProjectSecrets        ProjectSecretsGetter      // Callback to get project secrets as env vars
+	fileStore                filestore.FileStore       // For reading uploaded image attachments
 	wg                       sync.WaitGroup
 }
 
@@ -92,6 +98,11 @@ func NewSpecDrivenTaskService(
 	)
 
 	return service
+}
+
+// SetFileStore sets the filestore for reading uploaded image attachments.
+func (s *SpecDrivenTaskService) SetFileStore(fs filestore.FileStore) {
+	s.fileStore = fs
 }
 
 // SetKoditService replaces the kodit service after late initialization.
@@ -185,8 +196,9 @@ func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *t
 		BranchPrefix: req.BranchPrefix,  // User-specified prefix for new branches
 		BranchName:   req.WorkingBranch, // For existing mode, this is the branch to continue on
 		// Repositories inherited from parent project - no task-level repo configuration
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
+		AttachmentPaths: req.AttachmentPaths, // User-uploaded screenshots
+		CreatedAt:       time.Now(),
+		UpdatedAt:       time.Now(),
 	}
 	if req.DependsOn != nil {
 		task.DependsOn = make([]types.SpecTask, 0, len(req.DependsOn))
@@ -437,16 +449,23 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 	}
 
 	interaction := &types.Interaction{
-		ID:            system.GenerateInteractionID(),
-		Created:       time.Now(),
-		Updated:       time.Now(),
-		Scheduled:     time.Now(),
-		SessionID:     session.ID,
-		UserID:        task.CreatedBy,
-		Mode:          types.SessionModeInference,
-		SystemPrompt:  "", // Don't override agent's system prompt
-		PromptMessage: fullMessage,
-		State:         types.InteractionStateWaiting,
+		ID:           system.GenerateInteractionID(),
+		Created:      time.Now(),
+		Updated:      time.Now(),
+		Scheduled:    time.Now(),
+		SessionID:    session.ID,
+		UserID:       task.CreatedBy,
+		Mode:         types.SessionModeInference,
+		SystemPrompt: "", // Don't override agent's system prompt
+		State:        types.InteractionStateWaiting,
+	}
+
+	// If the task has image attachments and we have a filestore, build a multimodal prompt
+	// so the LLM can actually "see" the screenshots
+	if len(task.AttachmentPaths) > 0 && s.fileStore != nil {
+		interaction.PromptMessageContent = s.buildMultimodalPrompt(ctx, fullMessage, task.AttachmentPaths)
+	} else {
+		interaction.PromptMessage = fullMessage
 	}
 
 	log.Debug().Str("task_id", task.ID).Msg("DEBUG: About to create initial interaction")
@@ -1384,6 +1403,47 @@ func (s *SpecDrivenTaskService) selectZedAgent() string {
 		return ""
 	}
 	return s.zedAgentPool[0]
+}
+
+// buildMultimodalPrompt creates a MessageContent with text and base64-encoded images
+// so the LLM can see screenshots attached to the task.
+func (s *SpecDrivenTaskService) buildMultimodalPrompt(ctx context.Context, textMessage string, attachmentPaths []string) types.MessageContent {
+	parts := []any{textMessage}
+
+	for _, path := range attachmentPaths {
+		reader, err := s.fileStore.OpenFile(ctx, path)
+		if err != nil {
+			log.Warn().Err(err).Str("path", path).Msg("Failed to open attachment, skipping")
+			continue
+		}
+
+		data, err := io.ReadAll(reader)
+		reader.Close()
+		if err != nil {
+			log.Warn().Err(err).Str("path", path).Msg("Failed to read attachment, skipping")
+			continue
+		}
+
+		// Determine MIME type from extension
+		mimeType := mime.TypeByExtension(filepath.Ext(path))
+		if mimeType == "" {
+			mimeType = "image/png" // fallback
+		}
+
+		dataURI := "data:" + mimeType + ";base64," + base64.StdEncoding.EncodeToString(data)
+
+		parts = append(parts, types.ImageURLPart{
+			Type: "image_url",
+			ImageURL: types.ImageURLData{
+				URL: dataURI,
+			},
+		})
+	}
+
+	return types.MessageContent{
+		ContentType: types.MessageContentTypeText,
+		Parts:       parts,
+	}
 }
 
 func (s *SpecDrivenTaskService) markTaskFailed(ctx context.Context, task *types.SpecTask, errorMessage string) {
