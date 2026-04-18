@@ -5733,6 +5733,72 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/git/repositories/{id}/page-image": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Rasterizes a document page (PDF, etc.) and returns it as a PNG image",
+                "produces": [
+                    "image/png"
+                ],
+                "tags": [
+                    "git-repositories"
+                ],
+                "summary": "Render document page image",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Repository ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "File path within the repository",
+                        "name": "path",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "1-based page number",
+                        "name": "page",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "file"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/git/repositories/{id}/pull": {
             "post": {
                 "security": [
@@ -6277,6 +6343,71 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/types.GitRepositoryTreeResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/git/repositories/{id}/visual-search": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Search document pages (PDFs, etc.) using cross-modal visual similarity",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "git-repositories"
+                ],
+                "summary": "Visual search repository",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Repository ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Natural language search query",
+                        "name": "query",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Maximum results (default 10, max 100)",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.KoditSearchResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
                         }
                     },
                     "404": {
@@ -6875,6 +7006,58 @@ const docTemplate = `{
                             "items": {
                                 "$ref": "#/definitions/types.KnowledgeVersion"
                             }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/kodit/repositories/{koditRepoId}/enrichments": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Fetch code intelligence enrichments for any Kodit repository (git or knowledge-backed).",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "kodit"
+                ],
+                "summary": "Get enrichments by Kodit repo ID",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Kodit Repository ID",
+                        "name": "koditRepoId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by enrichment type",
+                        "name": "enrichment_type",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by commit SHA",
+                        "name": "commit_sha",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.KoditRepoEnrichmentsResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
                         }
                     }
                 }
@@ -12577,6 +12760,12 @@ const docTemplate = `{
                         "name": "id",
                         "in": "path",
                         "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Set to '1' to omit interactions from the response",
+                        "name": "skipInteractions",
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -12941,7 +13130,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "List interactions for a session",
+                "description": "List interactions for a session with pagination",
                 "produces": [
                     "application/json"
                 ],
@@ -12959,14 +13148,20 @@ const docTemplate = `{
                     },
                     {
                         "type": "integer",
-                        "description": "Page number",
+                        "description": "Page number (0-indexed)",
                         "name": "page",
                         "in": "query"
                     },
                     {
                         "type": "integer",
-                        "description": "Page size",
-                        "name": "page_size",
+                        "description": "Page size (default 100)",
+                        "name": "per_page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Sort order: 'asc' (oldest first, default) or 'desc' (newest first)",
+                        "name": "order",
                         "in": "query"
                     }
                 ],
@@ -12974,10 +13169,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "type": "array",
-                            "items": {
-                                "$ref": "#/definitions/types.Interaction"
-                            }
+                            "$ref": "#/definitions/types.PaginatedInteractions"
                         }
                     }
                 }
@@ -18763,6 +18955,9 @@ const docTemplate = `{
                 "created_at": {
                     "type": "string"
                 },
+                "helix_org_id": {
+                    "type": "string"
+                },
                 "helix_repo_id": {
                     "type": "string"
                 },
@@ -18814,6 +19009,12 @@ const docTemplate = `{
                 },
                 "enrichment_count": {
                     "type": "integer"
+                },
+                "helix_org_id": {
+                    "type": "string"
+                },
+                "helix_org_name": {
+                    "type": "string"
                 },
                 "helix_repo_id": {
                     "type": "string"
@@ -19049,6 +19250,35 @@ const docTemplate = `{
                 }
             }
         },
+        "server.KoditEnrichmentsMeta": {
+            "type": "object",
+            "properties": {
+                "commit_sha": {
+                    "type": "string"
+                },
+                "count": {
+                    "type": "integer"
+                },
+                "enrichment_type": {
+                    "type": "string"
+                },
+                "kodit_repo_id": {
+                    "type": "integer"
+                },
+                "page": {
+                    "type": "integer"
+                },
+                "per_page": {
+                    "type": "integer"
+                },
+                "total": {
+                    "type": "integer"
+                },
+                "total_pages": {
+                    "type": "integer"
+                }
+            }
+        },
         "server.KoditFileContentDTO": {
             "type": "object",
             "properties": {
@@ -19108,6 +19338,9 @@ const docTemplate = `{
                     "additionalProperties": {
                         "type": "string"
                     }
+                },
+                "page": {
+                    "type": "integer"
                 },
                 "path": {
                     "type": "string"
@@ -19270,6 +19503,26 @@ const docTemplate = `{
                 },
                 "type": {
                     "type": "string"
+                }
+            }
+        },
+        "server.KoditRepoEnrichmentsResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/server.KoditEnrichmentDTO"
+                    }
+                },
+                "links": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "meta": {
+                    "$ref": "#/definitions/server.KoditEnrichmentsMeta"
                 }
             }
         },
@@ -27612,6 +27865,10 @@ const docTemplate = `{
                 "google_analytics_frontend": {
                     "type": "string"
                 },
+                "has_providers": {
+                    "description": "Whether any global AI provider with enabled chat models exists",
+                    "type": "boolean"
+                },
                 "latest_version": {
                     "type": "string"
                 },
@@ -28687,6 +28944,10 @@ const docTemplate = `{
                     "description": "Skip spec planning, go straight to implementation",
                     "type": "boolean"
                 },
+                "keep_alive": {
+                    "description": "Keep alive — prevent auto-idle-shutdown of desktop container",
+                    "type": "boolean"
+                },
                 "labels": {
                     "type": "array",
                     "items": {
@@ -29276,6 +29537,10 @@ const docTemplate = `{
                     "description": "Pointer to allow explicit false",
                     "type": "boolean"
                 },
+                "keep_alive": {
+                    "description": "Pointer to allow explicit false — prevent auto-idle-shutdown",
+                    "type": "boolean"
+                },
                 "name": {
                     "type": "string"
                 },
@@ -29400,6 +29665,10 @@ const docTemplate = `{
                 },
                 "just_do_it_mode": {
                     "description": "Skip spec planning, go straight to implementation",
+                    "type": "boolean"
+                },
+                "keep_alive": {
+                    "description": "Keep alive — prevent auto-idle-shutdown of desktop container",
                     "type": "boolean"
                 },
                 "labels": {

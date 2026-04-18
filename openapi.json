@@ -6940,6 +6940,92 @@
                 }
             }
         },
+        "/api/v1/git/repositories/{id}/page-image": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Rasterizes a document page (PDF, etc.) and returns it as a PNG image",
+                "tags": [
+                    "git-repositories"
+                ],
+                "summary": "Render document page image",
+                "parameters": [
+                    {
+                        "description": "Repository ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "File path within the repository",
+                        "name": "path",
+                        "in": "query",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "1-based page number",
+                        "name": "page",
+                        "in": "query",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "image/png": {
+                                "schema": {
+                                    "type": "string",
+                                    "format": "binary"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "content": {
+                            "image/png": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.APIError"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "content": {
+                            "image/png": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.APIError"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "content": {
+                            "image/png": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.APIError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/git/repositories/{id}/pull": {
             "post": {
                 "security": [
@@ -7628,6 +7714,90 @@
                             "application/json": {
                                 "schema": {
                                     "$ref": "#/components/schemas/types.GitRepositoryTreeResponse"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.APIError"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.APIError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/git/repositories/{id}/visual-search": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Search document pages (PDFs, etc.) using cross-modal visual similarity",
+                "tags": [
+                    "git-repositories"
+                ],
+                "summary": "Visual search repository",
+                "parameters": [
+                    {
+                        "description": "Repository ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Natural language search query",
+                        "name": "query",
+                        "in": "query",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Maximum results (default 10, max 100)",
+                        "name": "limit",
+                        "in": "query",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/server.KoditSearchResponse"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.APIError"
                                 }
                             }
                         }
@@ -8402,6 +8572,69 @@
                                     "items": {
                                         "$ref": "#/components/schemas/types.KnowledgeVersion"
                                     }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/kodit/repositories/{koditRepoId}/enrichments": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Fetch code intelligence enrichments for any Kodit repository (git or knowledge-backed).",
+                "tags": [
+                    "kodit"
+                ],
+                "summary": "Get enrichments by Kodit repo ID",
+                "parameters": [
+                    {
+                        "description": "Kodit Repository ID",
+                        "name": "koditRepoId",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "description": "Filter by enrichment type",
+                        "name": "enrichment_type",
+                        "in": "query",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Filter by commit SHA",
+                        "name": "commit_sha",
+                        "in": "query",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/server.KoditRepoEnrichmentsResponse"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.APIError"
                                 }
                             }
                         }
@@ -15244,6 +15477,14 @@
                         "schema": {
                             "type": "string"
                         }
+                    },
+                    {
+                        "description": "Set to '1' to omit interactions from the response",
+                        "name": "skipInteractions",
+                        "in": "query",
+                        "schema": {
+                            "type": "string"
+                        }
                     }
                 ],
                 "responses": {
@@ -15701,7 +15942,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "List interactions for a session",
+                "description": "List interactions for a session with pagination",
                 "tags": [
                     "interactions"
                 ],
@@ -15717,7 +15958,7 @@
                         }
                     },
                     {
-                        "description": "Page number",
+                        "description": "Page number (0-indexed)",
                         "name": "page",
                         "in": "query",
                         "schema": {
@@ -15725,11 +15966,19 @@
                         }
                     },
                     {
-                        "description": "Page size",
-                        "name": "page_size",
+                        "description": "Page size (default 100)",
+                        "name": "per_page",
                         "in": "query",
                         "schema": {
                             "type": "integer"
+                        }
+                    },
+                    {
+                        "description": "Sort order: 'asc' (oldest first, default) or 'desc' (newest first)",
+                        "name": "order",
+                        "in": "query",
+                        "schema": {
+                            "type": "string"
                         }
                     }
                 ],
@@ -15739,10 +15988,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "array",
-                                    "items": {
-                                        "$ref": "#/components/schemas/types.Interaction"
-                                    }
+                                    "$ref": "#/components/schemas/types.PaginatedInteractions"
                                 }
                             }
                         }
@@ -22363,6 +22609,9 @@
                     "created_at": {
                         "type": "string"
                     },
+                    "helix_org_id": {
+                        "type": "string"
+                    },
                     "helix_repo_id": {
                         "type": "string"
                     },
@@ -22414,6 +22663,12 @@
                     },
                     "enrichment_count": {
                         "type": "integer"
+                    },
+                    "helix_org_id": {
+                        "type": "string"
+                    },
+                    "helix_org_name": {
+                        "type": "string"
                     },
                     "helix_repo_id": {
                         "type": "string"
@@ -22649,6 +22904,35 @@
                     }
                 }
             },
+            "server.KoditEnrichmentsMeta": {
+                "type": "object",
+                "properties": {
+                    "commit_sha": {
+                        "type": "string"
+                    },
+                    "count": {
+                        "type": "integer"
+                    },
+                    "enrichment_type": {
+                        "type": "string"
+                    },
+                    "kodit_repo_id": {
+                        "type": "integer"
+                    },
+                    "page": {
+                        "type": "integer"
+                    },
+                    "per_page": {
+                        "type": "integer"
+                    },
+                    "total": {
+                        "type": "integer"
+                    },
+                    "total_pages": {
+                        "type": "integer"
+                    }
+                }
+            },
             "server.KoditFileContentDTO": {
                 "type": "object",
                 "properties": {
@@ -22708,6 +22992,9 @@
                         "additionalProperties": {
                             "type": "string"
                         }
+                    },
+                    "page": {
+                        "type": "integer"
                     },
                     "path": {
                         "type": "string"
@@ -22870,6 +23157,26 @@
                     },
                     "type": {
                         "type": "string"
+                    }
+                }
+            },
+            "server.KoditRepoEnrichmentsResponse": {
+                "type": "object",
+                "properties": {
+                    "data": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/server.KoditEnrichmentDTO"
+                        }
+                    },
+                    "links": {
+                        "type": "object",
+                        "additionalProperties": {
+                            "type": "string"
+                        }
+                    },
+                    "meta": {
+                        "$ref": "#/components/schemas/server.KoditEnrichmentsMeta"
                     }
                 }
             },
@@ -31212,6 +31519,10 @@
                     "google_analytics_frontend": {
                         "type": "string"
                     },
+                    "has_providers": {
+                        "description": "Whether any global AI provider with enabled chat models exists",
+                        "type": "boolean"
+                    },
                     "latest_version": {
                         "type": "string"
                     },
@@ -32287,6 +32598,10 @@
                         "description": "Skip spec planning, go straight to implementation",
                         "type": "boolean"
                     },
+                    "keep_alive": {
+                        "description": "Keep alive — prevent auto-idle-shutdown of desktop container",
+                        "type": "boolean"
+                    },
                     "labels": {
                         "type": "array",
                         "items": {
@@ -32876,6 +33191,10 @@
                         "description": "Pointer to allow explicit false",
                         "type": "boolean"
                     },
+                    "keep_alive": {
+                        "description": "Pointer to allow explicit false — prevent auto-idle-shutdown",
+                        "type": "boolean"
+                    },
                     "name": {
                         "type": "string"
                     },
@@ -33000,6 +33319,10 @@
                     },
                     "just_do_it_mode": {
                         "description": "Skip spec planning, go straight to implementation",
+                        "type": "boolean"
+                    },
+                    "keep_alive": {
+                        "description": "Keep alive — prevent auto-idle-shutdown of desktop container",
                         "type": "boolean"
                     },
                     "labels": {

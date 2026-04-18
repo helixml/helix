@@ -241,6 +241,14 @@ func sessionZvolMountPath(sessionID string) string {
 	return filepath.Join(zvolMountBase, sessionID)
 }
 
+// touchExternalMarker creates/refreshes the .last-active marker for a session
+// on the external filesystem so GC knows it's in use.
+func touchExternalMarker(sessionID string) {
+	externalDir := filepath.Join(sessionsBaseDir, "docker-data-"+sessionID)
+	_ = os.MkdirAll(externalDir, 0755)
+	TouchSessionLastActive(externalDir)
+}
+
 // zvolDevPath returns the /dev/zvol/ path for a zvol.
 func zvolDevPath(zvolName string) string {
 	return fmt.Sprintf("/dev/zvol/%s", zvolName)
@@ -419,6 +427,7 @@ func SetupGoldenClone(projectID, sessionID string) (string, error) {
 				Str("clone", cloneName).
 				Str("mount", mountPath).
 				Msg("Reusing existing ZFS clone (session restart)")
+			touchExternalMarker(sessionID)
 			return mountPath, nil
 		}
 		// Clone exists but not mounted (e.g. after reboot) — mount with nouuid
@@ -430,6 +439,7 @@ func SetupGoldenClone(projectID, sessionID string) (string, error) {
 			Str("clone", cloneName).
 			Str("mount", mountPath).
 			Msg("Mounted existing ZFS clone")
+		touchExternalMarker(sessionID)
 		return mountPath, nil
 	}
 
@@ -473,6 +483,7 @@ func SetupGoldenClone(projectID, sessionID string) (string, error) {
 		Dur("clone_duration", elapsed).
 		Msg("Created ZFS clone for session (instant golden cache)")
 
+	touchExternalMarker(sessionID)
 	return mountPath, nil
 }
 
@@ -763,32 +774,17 @@ func GCOrphanedZvols(activeSessions map[string]bool) (int, error) {
 			continue
 		}
 
-		// Check .last-active marker on the external filesystem (not inside
-		// the zvol). The marker lives at /container-docker/sessions/docker-data-{sessionID}/
+		// Check .last-active marker on the external filesystem.
+		// The marker lives at /container-docker/sessions/docker-data-{sessionID}/
 		// which is on the parent ZFS dataset, readable without mounting the XFS zvol.
 		externalDir := filepath.Join(sessionsBaseDir, "docker-data-"+sessionID)
 		age := sessionLastActiveAge(externalDir)
 		if age > 0 && age < 7*24*time.Hour {
 			continue // recently active, keep it
 		}
-		if age == 0 {
-			// No marker — session predates marker feature or was never
-			// cleanly stopped. Check inside the zvol as a fallback.
-			mountPath := sessionZvolMountPath(sessionID)
-			if isMounted(mountPath) {
-				innerAge := sessionLastActiveAge(mountPath)
-				if innerAge > 0 && innerAge < 7*24*time.Hour {
-					continue
-				}
-				if innerAge == 0 {
-					// No marker anywhere — don't GC, it'll get one next stop.
-					continue
-				}
-			} else {
-				// Not mounted, no external marker — don't GC.
-				continue
-			}
-		}
+		// age == 0 means no marker — pre-marker session, safe to GC since
+		// all sessions now get markers on creation and periodic refresh.
+		// age >= 7 days — stale session, GC it.
 
 		if err := CleanupSessionZvol(sessionID); err != nil {
 			log.Warn().Err(err).Str("session_id", sessionID).Msg("Failed to GC orphaned zvol")

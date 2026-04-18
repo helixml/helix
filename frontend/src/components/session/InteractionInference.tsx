@@ -1,4 +1,4 @@
-import React, { FC, useState, useEffect } from "react";
+import React, { FC, useState, useEffect, useMemo } from "react";
 import { styled } from "@mui/system";
 import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
@@ -10,10 +10,7 @@ import Row from "../widgets/Row";
 import Cell from "../widgets/Cell";
 import Markdown from "./Markdown";
 import StreamingIndicator from "./StreamingIndicator";
-import {
-  parseToolCallBlocks,
-  CollapsibleToolCall,
-} from "./CollapsibleToolCall";
+import { CollapsibleToolCall } from "./CollapsibleToolCall";
 
 /**
  * A structured response entry from the Go API.
@@ -75,6 +72,10 @@ const ImagePreview = styled("img")({
  * field), renders each entry with the correct component in the correct order.
  * Otherwise falls back to regex parsing of the flat text (for old interactions).
  */
+// Maximum entries to render initially. Older entries are collapsed behind a button
+// to prevent the browser from choking on 500+ Markdown/tool-call components.
+const VISIBLE_ENTRIES_LIMIT = 50;
+
 export const MessageWithToolCalls: FC<{
   text: string;
   responseEntries?: ResponseEntry[];
@@ -94,11 +95,28 @@ export const MessageWithToolCalls: FC<{
   onFilterDocument,
   compactThinking = false,
 }) => {
+  const [showAll, setShowAll] = useState(false);
+
   // Structured path: use response_entries from the Go API (preserves type + order)
   if (responseEntries && responseEntries.length > 0) {
+    const hiddenCount = showAll ? 0 : Math.max(0, responseEntries.length - VISIBLE_ENTRIES_LIMIT);
+    const visibleEntries = showAll
+      ? responseEntries
+      : responseEntries.slice(hiddenCount);
+
     return (
       <>
-        {responseEntries.map((entry, i) => {
+        {hiddenCount > 0 && (
+          <Button
+            size="small"
+            onClick={() => setShowAll(true)}
+            sx={{ mb: 1, textTransform: "none" }}
+          >
+            Show {hiddenCount} earlier entries
+          </Button>
+        )}
+        {visibleEntries.map((entry, vi) => {
+          const i = showAll ? vi : vi + hiddenCount;
           if (entry.type === "tool_call") {
             const isLast = i === responseEntries.length - 1;
             const toolName = entry.tool_name || "Tool Call";
@@ -133,51 +151,17 @@ export const MessageWithToolCalls: FC<{
     );
   }
 
-  // Fallback: regex parsing of flat text (old interactions without response_entries)
-  const segments = parseToolCallBlocks(text);
-
-  // If no tool calls found, render plain markdown (fast path)
-  if (segments.length === 1 && segments[0].type === "markdown") {
-    return (
-      <Markdown
-        text={text}
-        session={session}
-        getFileURL={getFileURL}
-        showBlinker={showBlinker}
-        isStreaming={isStreaming}
-        onFilterDocument={onFilterDocument}
-        compactThinking={compactThinking}
-      />
-    );
-  }
-
+  // Plain markdown for text-only interactions
   return (
-    <>
-      {segments.map((segment, i) => {
-        if (segment.type === "toolcall" && segment.toolName && segment.status) {
-          return (
-            <CollapsibleToolCall
-              key={`tc-${i}`}
-              toolName={segment.toolName}
-              status={segment.status}
-              body={segment.body || ""}
-            />
-          );
-        }
-        return (
-          <Markdown
-            key={`md-${i}`}
-            text={segment.content}
-            session={session}
-            getFileURL={getFileURL}
-            showBlinker={showBlinker && i === segments.length - 1}
-            isStreaming={isStreaming && i === segments.length - 1}
-            onFilterDocument={onFilterDocument}
-            compactThinking={compactThinking}
-          />
-        );
-      })}
-    </>
+    <Markdown
+      text={text}
+      session={session}
+      getFileURL={getFileURL}
+      showBlinker={showBlinker}
+      isStreaming={isStreaming}
+      onFilterDocument={onFilterDocument}
+      compactThinking={compactThinking}
+    />
   );
 };
 
@@ -283,6 +267,18 @@ export const InteractionInference: FC<{
       },
     }));
 
+  // Derive copy text from response_entries when response_message is empty
+  // (the API strips it to save bandwidth when entries exist)
+  const copyText = useMemo(() => {
+    if (message) return message;
+    const entries = (interaction as any)?.response_entries as ResponseEntry[] | undefined;
+    if (!entries || entries.length === 0) return "";
+    return entries
+      .filter((e: ResponseEntry) => e.type === "text")
+      .map((e: ResponseEntry) => e.content)
+      .join("\n\n");
+  }, [message, interaction]);
+
   if (!serverConfig || !serverConfig.filestore_prefix) return null;
   if (!interaction) return null;
 
@@ -322,7 +318,7 @@ export const InteractionInference: FC<{
       {toolSteps.length > 0 && isFromAssistant && (
         <ToolStepsWidget steps={toolSteps} />
       )}
-      {message && (
+      {(message || (interaction as any)?.response_entries?.length > 0) && (
         <Box
           sx={{
             my: 0.5,
@@ -432,7 +428,7 @@ export const InteractionInference: FC<{
                       </Tooltip>
 
                       <CopyButtonWithCheck
-                        text={message || ""}
+                        text={copyText}
                         alwaysVisible={isLastInteraction}
                       />
 

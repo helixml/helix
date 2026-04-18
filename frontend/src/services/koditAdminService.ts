@@ -205,6 +205,23 @@ export function useAdminBatchRescanKoditRepositories() {
 }
 
 // =============================================================================
+// Admin enrichments & search (by kodit repo ID — works for knowledge repos too)
+// =============================================================================
+
+export function useAdminKoditRepoEnrichments(koditRepoId: string, options?: { enabled?: boolean }) {
+  const api = useApi()
+
+  return useQuery({
+    queryKey: ['kodit', 'repositories', koditRepoId, 'enrichments'],
+    queryFn: async () => {
+      return api.get(`/api/v1/kodit/repositories/${koditRepoId}/enrichments`)
+    },
+    enabled: options?.enabled !== false && !!koditRepoId,
+  })
+}
+
+
+// =============================================================================
 // Queue hooks (using raw API client instance until generated client is updated)
 // =============================================================================
 

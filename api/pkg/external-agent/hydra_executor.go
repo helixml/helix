@@ -42,6 +42,7 @@ type HydraExecutor struct {
 	// Workspace path configuration
 	workspaceBasePathForContainer string // Path as seen from inside dev container
 	workspaceBasePathForCloning   string // Path on sandbox filesystem (Hydra creates dirs)
+	filestoreLocalPath            string // Local filestore root (e.g. /filestore)
 
 	// RevDial connection manager for communicating with Hydra in sandbox
 	connman connmanInterface
@@ -70,6 +71,7 @@ type HydraExecutorConfig struct {
 	HelixAPIToken                 string
 	WorkspaceBasePathForContainer string
 	WorkspaceBasePathForCloning   string
+	FilestoreLocalPath            string // Local filestore root for persisting paused screenshots
 	Connman                       connmanInterface
 	GPUVendor                     string
 	LicenseKey                    string // License key to pass to nested Helix instances
@@ -85,6 +87,7 @@ func NewHydraExecutor(cfg HydraExecutorConfig) *HydraExecutor {
 		helixAPIToken:                 cfg.HelixAPIToken,
 		workspaceBasePathForContainer: cfg.WorkspaceBasePathForContainer,
 		workspaceBasePathForCloning:   cfg.WorkspaceBasePathForCloning,
+		filestoreLocalPath:            cfg.FilestoreLocalPath,
 		connman:                       cfg.Connman,
 		creationLocks:                 make(map[string]*sync.Mutex),
 		gpuVendor:                     cfg.GPUVendor,
@@ -96,18 +99,25 @@ func (h *HydraExecutor) SetQuotaManager(quotaManager QuotaManager) {
 	h.quotaManager = quotaManager
 }
 
-// StartDesktop starts a dev container using Hydra
-func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAgent) (*types.DesktopAgentResponse, error) {
-	// Get or create a per-session lock to prevent concurrent container creation
+// getOrCreateSessionLock returns a per-session mutex, creating one if needed.
+// Used by both StartDesktop and StopDesktop to serialize operations on the same
+// session and prevent races (e.g. key revocation racing with container creation).
+func (h *HydraExecutor) getOrCreateSessionLock(sessionID string) *sync.Mutex {
 	h.creationLocksMutex.Lock()
-	sessionLock, exists := h.creationLocks[agent.SessionID]
+	sessionLock, exists := h.creationLocks[sessionID]
 	if !exists {
 		sessionLock = &sync.Mutex{}
-		h.creationLocks[agent.SessionID] = sessionLock
+		h.creationLocks[sessionID] = sessionLock
 	}
 	h.creationLocksMutex.Unlock()
+	return sessionLock
+}
 
+// StartDesktop starts a dev container using Hydra
+func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAgent) (*types.DesktopAgentResponse, error) {
 	// Lock this specific session to prevent duplicate container creation
+	// and to serialize with StopDesktop (prevents key revocation races).
+	sessionLock := h.getOrCreateSessionLock(agent.SessionID)
 	sessionLock.Lock()
 	defer sessionLock.Unlock()
 
@@ -133,6 +143,15 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 			StreamURL:     fmt.Sprintf("/api/v1/sessions/%s/stream", agent.SessionID),
 			Status:        "running",
 		}, nil
+	}
+
+	// Call OnBeforeCreate hook inside the lock to refresh API keys.
+	// This prevents a race where StopDesktop revokes the key between
+	// addUserAPITokenToAgent (outside the lock) and container creation (inside).
+	if agent.OnBeforeCreate != nil {
+		if err := agent.OnBeforeCreate(ctx, agent); err != nil {
+			return nil, fmt.Errorf("pre-create hook failed: %w", err)
+		}
 	}
 
 	// Check limits for the user/org
@@ -455,6 +474,10 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 		dbSession.Metadata.ExecutorMode = "hydra"
 		// CRITICAL: Set DevContainerID - used by exploratory session to check if container is running
 		dbSession.Metadata.DevContainerID = resp.ContainerID
+		// Mark as running — StartDesktop sets "starting" earlier but never clears it on success.
+		// The discovery loop only updates sessions not already in h.sessions, so without this
+		// the DB stays "starting" permanently even though the container is up.
+		dbSession.Metadata.ExternalAgentStatus = "running"
 
 		// Store debug info in Metadata (serialized as "config" in JSON for frontend)
 		dbSession.Metadata.SwayVersion = resp.DesktopVersion
@@ -491,6 +514,14 @@ func (h *HydraExecutor) StopDesktop(ctx context.Context, sessionID string) error
 	defer stopCancel()
 	ctx = stopCtx //nolint:govet // intentional shadow — caller ctx not needed
 
+	// Acquire the per-session lock to serialize with StartDesktop.
+	// This prevents a race where StopDesktop revokes API keys while a concurrent
+	// StartDesktop is creating a container with those same keys — leaving the
+	// container with a revoked key and unable to authenticate via RevDial.
+	sessionLock := h.getOrCreateSessionLock(sessionID)
+	sessionLock.Lock()
+	defer sessionLock.Unlock()
+
 	log.Info().Str("session_id", sessionID).Msg("Stopping dev container via Hydra")
 
 	h.mutex.Lock()
@@ -520,6 +551,10 @@ func (h *HydraExecutor) StopDesktop(ctx context.Context, sessionID string) error
 	hydraRunnerID := fmt.Sprintf("hydra-%s", sandboxID)
 	hydraClient := hydra.NewRevDialClient(h.connman, hydraRunnerID)
 
+	// Capture a screenshot before tearing down the container so stopped desktops
+	// can still show their last state in the Kanban card and session viewer.
+	screenshotPath := h.capturePausedScreenshot(ctx, sessionID)
+
 	// Delete dev container via Hydra
 	resp, err := hydraClient.DeleteDevContainer(ctx, sessionID)
 	if err != nil {
@@ -539,15 +574,24 @@ func (h *HydraExecutor) StopDesktop(ctx context.Context, sessionID string) error
 		// Don't fail the stop operation - key cleanup is best-effort
 	}
 
-	// Clean up creation lock
-	h.creationLocksMutex.Lock()
-	delete(h.creationLocks, sessionID)
-	h.creationLocksMutex.Unlock()
+	// Note: we intentionally do NOT delete the creation lock here.
+	// The lock is still held (deferred unlock), and future StartDesktop calls
+	// will reuse or create a new one. The map grows only by number of unique
+	// sessions which is bounded.
 
-	// Always clear external_agent_status so the frontend doesn't show a stale
-	// "Starting Desktop" or "running" state after the container is gone (issue #4).
-	h.setExternalAgentStatus(ctx, sessionID, "")
-	h.updateSessionStatusMessage(ctx, sessionID, "")
+	// Clear external_agent_status and persist the paused screenshot path together.
+	if dbSession, err := h.store.GetSession(ctx, sessionID); err == nil {
+		dbSession.Metadata.ExternalAgentStatus = ""
+		dbSession.Metadata.PausedScreenshotPath = screenshotPath
+		dbSession.Metadata.StatusMessage = ""
+		if _, err := h.store.UpdateSession(ctx, *dbSession); err != nil {
+			log.Debug().Err(err).Str("session_id", sessionID).Msg("Failed to update session after stop")
+		}
+	} else {
+		// Fallback: just clear the status the old way
+		h.setExternalAgentStatus(ctx, sessionID, "")
+		h.updateSessionStatusMessage(ctx, sessionID, "")
+	}
 
 	return nil
 }
@@ -764,6 +808,65 @@ func (h *HydraExecutor) updateSessionStatusMessage(ctx context.Context, sessionI
 
 // setExternalAgentStatus updates the session's external agent status in the database.
 // This controls which UI state the frontend shows (starting, running, stopped, etc.).
+// capturePausedScreenshot fetches a screenshot from the running desktop container
+// via RevDial and saves it to disk so it can be served after the container stops.
+// Returns the file path on success, empty string on any failure (best-effort).
+func (h *HydraExecutor) capturePausedScreenshot(ctx context.Context, sessionID string) string {
+	captureCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	conn, err := h.connman.Dial(captureCtx, fmt.Sprintf("desktop-%s", sessionID))
+	if err != nil {
+		log.Debug().Err(err).Str("session_id", sessionID).Msg("Could not connect to desktop for paused screenshot")
+		return ""
+	}
+	defer conn.Close()
+
+	req, err := http.NewRequestWithContext(captureCtx, "GET", "http://localhost:9876/screenshot?quality=80", nil)
+	if err != nil {
+		return ""
+	}
+	if err := req.Write(conn); err != nil {
+		return ""
+	}
+
+	resp, err := http.ReadResponse(bufio.NewReader(conn), req)
+	if err != nil || resp.StatusCode != http.StatusOK {
+		return ""
+	}
+	defer resp.Body.Close()
+
+	data := make([]byte, 0, 512*1024)
+	buf := make([]byte, 32*1024)
+	for {
+		n, readErr := resp.Body.Read(buf)
+		if n > 0 {
+			data = append(data, buf[:n]...)
+		}
+		if readErr != nil {
+			break
+		}
+	}
+	if len(data) == 0 {
+		return ""
+	}
+
+	filestoreRoot := h.filestoreLocalPath
+	if filestoreRoot == "" {
+		filestoreRoot = "/filestore"
+	}
+	dir := filepath.Join(filestoreRoot, "workspaces", "paused-screenshots")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return ""
+	}
+	path := filepath.Join(dir, sessionID+".jpg")
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		return ""
+	}
+	log.Info().Str("session_id", sessionID).Str("path", path).Msg("Saved paused screenshot")
+	return path
+}
+
 func (h *HydraExecutor) setExternalAgentStatus(ctx context.Context, sessionID, status string) {
 	dbSession, err := h.store.GetSession(ctx, sessionID)
 	if err != nil {

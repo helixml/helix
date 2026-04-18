@@ -70,8 +70,6 @@ import ReviewSubmitDialog from "./ReviewSubmitDialog";
 import RejectDesignDialog from "./RejectDesignDialog";
 import { useSpecTask } from "../../services/specTaskService";
 import { TypesSpecTaskStatus } from "../../api/api";
-import { useSandboxState } from "../external-agent/ExternalAgentDesktopViewer";
-import { GET_SESSION_QUERY_KEY } from "../../services/sessionService";
 
 type DocumentType = "requirements" | "technical_design" | "implementation_plan";
 
@@ -144,7 +142,7 @@ export default function DesignReviewContent({
 
   // Refs and state for highlight preservation and hover button
   const savedRangeRef = useRef<Range | null>(null);
-  const highlightMarkRef = useRef<HTMLElement | null>(null);
+  const savedHighlightRangeRef = useRef<Range | null>(null);
   const hoveredElementRef = useRef<Element | null>(null);
   const [hoverButtonPosition, setHoverButtonPosition] = useState<{
     x: number;
@@ -223,6 +221,7 @@ export default function DesignReviewContent({
     commentId: string;
     content: string;
     entries: Array<{ type: 'text' | 'tool_call'; content: string; message_id: string; tool_name?: string; tool_status?: string }>;
+    isComplete?: boolean; // true = done streaming, keep content visible until cache refreshes
   } | null>(null);
   const account = useAccount();
   const queryClient = useQueryClient();
@@ -242,9 +241,6 @@ export default function DesignReviewContent({
 
   // Get planning session ID from spec task (more reliable than waiting for queue status)
   const planningSessionId = task?.planning_session_id;
-
-  // Track desktop state so we can auto-resume it when the user sends a comment
-  const { sandboxState } = useSandboxState(planningSessionId || "", !!planningSessionId);
 
   const activeDocComments = useMemo(
     () => allComments.filter((c) => c.document_type === activeTab),
@@ -488,7 +484,7 @@ export default function DesignReviewContent({
 
             if (lastInteraction.state === "complete") {
               console.log(
-                "[DRWS-DEBUG] Interaction complete - invalidating queries and clearing state",
+                "[DRWS-DEBUG] Interaction complete - invalidating queries and marking stream complete",
               );
               // Invalidate both comments AND review detail (which contains the design doc content)
               // The agent may have updated the design doc via git push in response to the comment
@@ -498,7 +494,10 @@ export default function DesignReviewContent({
               queryClient.invalidateQueries({
                 queryKey: designReviewKeys.detail(specTaskId, reviewId),
               });
-              setStreamingResponse(null);
+              // Mark as complete rather than clearing immediately — keeps the response content
+              // visible on comment 1 while the React Query cache refreshes. The next comment's
+              // streaming events will naturally overwrite this with the new comment's data.
+              setStreamingResponse(prev => prev ? { ...prev, isComplete: true } : null);
               // Reset entry tracking for next streaming response
               streamEntries = [];
             }
@@ -555,7 +554,8 @@ export default function DesignReviewContent({
             queryClient.invalidateQueries({
               queryKey: designReviewKeys.detail(specTaskId, reviewId),
             });
-            setStreamingResponse(null);
+            // Mark as complete rather than clearing immediately (see session_update handler above)
+            setStreamingResponse(prev => prev ? { ...prev, isComplete: true } : null);
             streamEntries = [];
           }
         }
@@ -804,23 +804,24 @@ export default function DesignReviewContent({
 
   const applyHighlight = (range: Range) => {
     try {
-      const mark = document.createElement("mark");
-      mark.className = "comment-highlight";
-      const fragment = range.extractContents();
-      mark.appendChild(fragment);
-      range.insertNode(mark);
-      highlightMarkRef.current = mark;
+      // Clear any existing highlight
+      CSS.highlights.delete("comment-highlight");
+
+      // Create highlight from the range - no DOM modification
+      const highlight = new Highlight(range);
+      CSS.highlights.set("comment-highlight", highlight);
+
+      // Store range for cleanup (not a DOM node)
+      savedHighlightRangeRef.current = range;
     } catch {
-      // Fallback: if DOM manipulation fails, skip highlight silently
+      // Fallback: skip visual highlight, comment form still opens
+      savedHighlightRangeRef.current = null;
     }
   };
 
   const removeHighlight = () => {
-    const mark = highlightMarkRef.current;
-    if (mark && mark.parentNode) {
-      mark.replaceWith(...Array.from(mark.childNodes));
-      highlightMarkRef.current = null;
-    }
+    CSS.highlights.delete("comment-highlight");
+    savedHighlightRangeRef.current = null;
   };
 
   const handleTextSelection = (isTouch: boolean = false) => {
@@ -873,17 +874,6 @@ export default function DesignReviewContent({
     if (!commentText.trim()) {
       snackbar.error("Comment text is required");
       return;
-    }
-
-    // Auto-resume the desktop if it's stopped so the agent can respond
-    if (planningSessionId && sandboxState === "absent") {
-      snackbar.info("Starting desktop so the agent can respond...");
-      api.getApiClient().v1SessionsResumeCreate(planningSessionId).then(() => {
-        queryClient.invalidateQueries({ queryKey: GET_SESSION_QUERY_KEY(planningSessionId) });
-      }).catch((err: any) => {
-        console.error("Failed to start desktop:", err);
-        snackbar.error("Could not start the desktop — the agent may not respond");
-      });
     }
 
     try {
@@ -1025,7 +1015,7 @@ export default function DesignReviewContent({
 
   return (
     <Box sx={{ display: "flex", flexDirection: "column", height: "100%" }}>
-      <GlobalStyles styles={{ ".comment-highlight": { backgroundColor: "#b3d7ff", color: "#000", borderRadius: "2px" } }} />
+      <GlobalStyles styles={{ "::highlight(comment-highlight)": { backgroundColor: "#b3d7ff", color: "#000" } }} />
       {/* Main Content Area */}
       <Box display="flex" flex={1} overflow="hidden">
         {/* Document Viewer */}
@@ -1269,7 +1259,7 @@ export default function DesignReviewContent({
 
             {/* Document content */}
             <Box
-              onMouseDown={() => removeHighlight()}
+              onMouseDown={() => { if (!showCommentForm) removeHighlight(); }}
               onMouseUp={() => handleTextSelection(false)}
               onTouchEnd={() => handleTextSelection(true)}
               onMouseMove={(e) => {
@@ -1444,6 +1434,11 @@ export default function DesignReviewContent({
                     streamingEntries={
                       isCurrentlyStreaming
                         ? streamingResponse.entries
+                        : undefined
+                    }
+                    isStreamingComplete={
+                      isCurrentlyStreaming
+                        ? !!streamingResponse.isComplete
                         : undefined
                     }
                     commentRef={(el) => {

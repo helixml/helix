@@ -886,6 +886,7 @@ export interface ServerKoditAdminQueueTaskDTO {
 
 export interface ServerKoditAdminRepoAttributes {
   created_at?: string;
+  helix_org_id?: string;
   helix_repo_id?: string;
   helix_repo_name?: string;
   remote_url?: string;
@@ -906,6 +907,8 @@ export interface ServerKoditAdminRepoDetailAttributes {
   created_at?: string;
   default_branch?: string;
   enrichment_count?: number;
+  helix_org_id?: string;
+  helix_org_name?: string;
   helix_repo_id?: string;
   helix_repo_name?: string;
   /** Last time Kodit scanned this repository */
@@ -1000,6 +1003,17 @@ export interface ServerKoditEnrichmentListResponse {
   data?: ServerKoditEnrichmentDTO[];
 }
 
+export interface ServerKoditEnrichmentsMeta {
+  commit_sha?: string;
+  count?: number;
+  enrichment_type?: string;
+  kodit_repo_id?: number;
+  page?: number;
+  per_page?: number;
+  total?: number;
+  total_pages?: number;
+}
+
 export interface ServerKoditFileContentDTO {
   commit_sha?: string;
   content?: string;
@@ -1021,6 +1035,7 @@ export interface ServerKoditFileResultDTO {
   language?: string;
   lines?: string;
   links?: Record<string, string>;
+  page?: number;
   path?: string;
   preview?: string;
   score?: number;
@@ -1081,6 +1096,12 @@ export interface ServerKoditIndexingStatusData {
   attributes?: ServerKoditIndexingStatusAttributes;
   id?: string;
   type?: string;
+}
+
+export interface ServerKoditRepoEnrichmentsResponse {
+  data?: ServerKoditEnrichmentDTO[];
+  links?: Record<string, string>;
+  meta?: ServerKoditEnrichmentsMeta;
 }
 
 export interface ServerKoditSearchMeta {
@@ -4588,6 +4609,8 @@ export interface TypesServerConfigForFrontend {
   eval_user_id?: string;
   filestore_prefix?: string;
   google_analytics_frontend?: string;
+  /** Whether any global AI provider with enabled chat models exists */
+  has_providers?: boolean;
   latest_version?: string;
   license?: TypesFrontendLicenseInfo;
   max_concurrent_desktops?: number;
@@ -5054,6 +5077,8 @@ export interface TypesSpecTask {
   implementation_plan?: string;
   /** Skip spec planning, go straight to implementation */
   just_do_it_mode?: boolean;
+  /** Keep alive — prevent auto-idle-shutdown of desktop container */
+  keep_alive?: boolean;
   labels?: string[];
   /** Last prompt sent to agent (for continue functionality) */
   last_prompt_content?: string;
@@ -5299,6 +5324,8 @@ export interface TypesSpecTaskUpdateRequest {
   helix_app_id?: string;
   /** Pointer to allow explicit false */
   just_do_it_mode?: boolean;
+  /** Pointer to allow explicit false — prevent auto-idle-shutdown */
+  keep_alive?: boolean;
   name?: string;
   priority?: TypesSpecTaskPriority;
   /** Pointer to allow explicit false */
@@ -5352,6 +5379,8 @@ export interface TypesSpecTaskWithProject {
   implementation_plan?: string;
   /** Skip spec planning, go straight to implementation */
   just_do_it_mode?: boolean;
+  /** Keep alive — prevent auto-idle-shutdown of desktop container */
+  keep_alive?: boolean;
   labels?: string[];
   /** Last prompt sent to agent (for continue functionality) */
   last_prompt_content?: string;
@@ -5551,6 +5580,12 @@ export interface TypesSystemSettingsRequest {
   kodit_enrichment_model?: string;
   /** Kodit enrichment model configuration */
   kodit_enrichment_provider?: string;
+  kodit_text_embedding_model?: string;
+  /** Kodit text embedding model configuration */
+  kodit_text_embedding_provider?: string;
+  kodit_vision_embedding_model?: string;
+  /** Kodit vision embedding model configuration */
+  kodit_vision_embedding_provider?: string;
   max_concurrent_desktops?: number;
   optimus_generation_model?: string;
   optimus_generation_model_provider?: string;
@@ -5581,6 +5616,14 @@ export interface TypesSystemSettingsResponse {
   kodit_enrichment_model_set?: boolean;
   /** Kodit enrichment model configuration (not sensitive, returned as-is) */
   kodit_enrichment_provider?: string;
+  kodit_text_embedding_model?: string;
+  kodit_text_embedding_model_set?: boolean;
+  /** Kodit text embedding model configuration */
+  kodit_text_embedding_provider?: string;
+  kodit_vision_embedding_model?: string;
+  kodit_vision_embedding_model_set?: boolean;
+  /** Kodit vision embedding model configuration */
+  kodit_vision_embedding_provider?: string;
   /** Per user */
   max_concurrent_desktops?: number;
   optimus_generation_model?: string;
@@ -8940,6 +8983,34 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Rasterizes a document page (PDF, etc.) and returns it as a PNG image
+     *
+     * @tags git-repositories
+     * @name V1GitRepositoriesPageImageDetail
+     * @summary Render document page image
+     * @request GET:/api/v1/git/repositories/{id}/page-image
+     * @secure
+     */
+    v1GitRepositoriesPageImageDetail: (
+      id: string,
+      query: {
+        /** File path within the repository */
+        path: string;
+        /** 1-based page number */
+        page: number;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<File, TypesAPIError>({
+        path: `/api/v1/git/repositories/${id}/page-image`,
+        method: "GET",
+        query: query,
+        secure: true,
+        format: "blob",
+        ...params,
+      }),
+
+    /**
      * @description Pulls latest commits from remote repository
      *
      * @tags git-repositories
@@ -9162,6 +9233,34 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
     ) =>
       this.request<TypesGitRepositoryTreeResponse, TypesAPIError>({
         path: `/api/v1/git/repositories/${id}/tree`,
+        method: "GET",
+        query: query,
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Search document pages (PDFs, etc.) using cross-modal visual similarity
+     *
+     * @tags git-repositories
+     * @name V1GitRepositoriesVisualSearchDetail
+     * @summary Visual search repository
+     * @request GET:/api/v1/git/repositories/{id}/visual-search
+     * @secure
+     */
+    v1GitRepositoriesVisualSearchDetail: (
+      id: string,
+      query: {
+        /** Natural language search query */
+        query: string;
+        /** Maximum results (default 10, max 100) */
+        limit?: number;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<ServerKoditSearchResponse, TypesAPIError>({
+        path: `/api/v1/git/repositories/${id}/visual-search`,
         method: "GET",
         query: query,
         secure: true,
@@ -9464,6 +9563,34 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/knowledge/${id}/versions`,
         method: "GET",
         secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Fetch code intelligence enrichments for any Kodit repository (git or knowledge-backed).
+     *
+     * @tags kodit
+     * @name V1KoditRepositoriesEnrichmentsDetail
+     * @summary Get enrichments by Kodit repo ID
+     * @request GET:/api/v1/kodit/repositories/{koditRepoId}/enrichments
+     * @secure
+     */
+    v1KoditRepositoriesEnrichmentsDetail: (
+      koditRepoId: number,
+      query?: {
+        /** Filter by enrichment type */
+        enrichment_type?: string;
+        /** Filter by commit SHA */
+        commit_sha?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<ServerKoditRepoEnrichmentsResponse, TypesAPIError>({
+        path: `/api/v1/kodit/repositories/${koditRepoId}/enrichments`,
+        method: "GET",
+        query: query,
+        secure: true,
+        format: "json",
         ...params,
       }),
 
@@ -12052,10 +12179,18 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/sessions/{id}
      * @secure
      */
-    v1SessionsDetail: (id: string, params: RequestParams = {}) =>
+    v1SessionsDetail: (
+      id: string,
+      query?: {
+        /** Set to '1' to omit interactions from the response */
+        skipInteractions?: string;
+      },
+      params: RequestParams = {},
+    ) =>
       this.request<TypesSession, any>({
         path: `/api/v1/sessions/${id}`,
         method: "GET",
+        query: query,
         secure: true,
         ...params,
       }),
@@ -12168,7 +12303,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description List interactions for a session
+     * @description List interactions for a session with pagination
      *
      * @tags interactions
      * @name V1SessionsInteractionsDetail
@@ -12179,14 +12314,16 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
     v1SessionsInteractionsDetail: (
       id: string,
       query?: {
-        /** Page number */
+        /** Page number (0-indexed) */
         page?: number;
-        /** Page size */
-        page_size?: number;
+        /** Page size (default 100) */
+        per_page?: number;
+        /** Sort order: 'asc' (oldest first, default) or 'desc' (newest first) */
+        order?: string;
       },
       params: RequestParams = {},
     ) =>
-      this.request<TypesInteraction[], any>({
+      this.request<TypesPaginatedInteractions, any>({
         path: `/api/v1/sessions/${id}/interactions`,
         method: "GET",
         query: query,

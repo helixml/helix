@@ -77,6 +77,16 @@ func (s *PostgresStore) ListDataEntities(ctx context.Context, q *ListDataEntitie
 	return entities, nil
 }
 
+// ListDataEntitiesWithKoditRepo returns all data entities that have a kodit repository ID.
+func (s *PostgresStore) ListDataEntitiesWithKoditRepo(ctx context.Context) ([]*types.DataEntity, error) {
+	var entities []*types.DataEntity
+	err := s.gdb.WithContext(ctx).Where("kodit_repository_id IS NOT NULL").Find(&entities).Error
+	if err != nil {
+		return nil, err
+	}
+	return entities, nil
+}
+
 func (s *PostgresStore) DeleteDataEntity(ctx context.Context, id string) error {
 	if id == "" {
 		return fmt.Errorf("id not specified")

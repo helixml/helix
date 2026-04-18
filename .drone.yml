@@ -111,15 +111,16 @@ steps:
   # Build API binary once for migrations and integration tests.
   # This avoids recompiling in each step that needs the binary.
   - name: build-api-binary
-    image: golang:1.25-alpine
+    image: golang:1.25-bookworm
     volumes:
       - name: go-build-cache
         path: /root/.cache/go-build
       - name: go-mod-cache
         path: /go/pkg/mod
     commands:
-      - apk add --no-cache gcc g++ musl-dev
-      - CGO_ENABLED=1 go build -ldflags "-s -w" -o ./helix-bin ./api
+      - apt-get update && apt-get install -y --no-install-recommends build-essential && rm -rf /var/lib/apt/lists/*
+      - ORT_LIB_DIR=/usr/lib go run github.com/helixml/kodit/tools/download-ort
+      - CGO_ENABLED=1 go build -tags ORT -ldflags "-s -w" -o ./helix-bin ./api
     when:
       event:
         - push
@@ -129,7 +130,7 @@ steps:
   # This prevents race conditions where multiple test steps try to create
   # ENUM types simultaneously, causing "duplicate key" constraint errors.
   - name: run-migrations
-    image: golang:1.25-alpine
+    image: golang:1.25-bookworm
     environment:
       POSTGRES_HOST: postgres
       POSTGRES_PORT: "5432"
@@ -144,7 +145,7 @@ steps:
     depends_on: [build-api-binary]
 
   - name: unit-test
-    image: golang:1.25-alpine
+    image: golang:1.25-bookworm
     volumes:
       - name: go-build-cache
         path: /root/.cache/go-build
@@ -182,12 +183,13 @@ steps:
       RAG_CRAWLER_LAUNCHER_URL: http://chrome:7317
 
     commands:
-      - apk add --no-cache gcc g++ musl-dev git
+      - apt-get update && apt-get install -y --no-install-recommends build-essential git && rm -rf /var/lib/apt/lists/*
+      - ORT_LIB_DIR=/usr/lib go run github.com/helixml/kodit/tools/download-ort
       - git config --global user.email "ci@helix.ml"
       - git config --global user.name "CI"
       - chmod +x ./scripts/run-tests-with-timeout.sh
       # Run tests excluding GStreamer-dependent packages (tested separately with CGO disabled)
-      - go list ./api/... | grep -v '/desktop' | grep -v '/desktop-bridge' | xargs ./scripts/run-tests-with-timeout.sh -timeout 8m -v
+      - go list ./api/... | grep -v '/desktop' | grep -v '/desktop-bridge' | xargs ./scripts/run-tests-with-timeout.sh -tags ORT -timeout 8m -v
     when:
       event:
         - push
@@ -210,7 +212,7 @@ steps:
     depends_on: []
 
   - name: api-integration-test
-    image: golang:1.25-alpine
+    image: golang:1.25-bookworm
     volumes:
       - name: go-build-cache
         path: /root/.cache/go-build
@@ -252,7 +254,8 @@ steps:
       SMALL_GENERATION_MODEL: gpt-4o-mini
 
     commands:
-      - apk add --no-cache gcc g++ musl-dev git
+      - apt-get update && apt-get install -y --no-install-recommends build-essential git && rm -rf /var/lib/apt/lists/*
+      - ORT_LIB_DIR=/usr/lib go run github.com/helixml/kodit/tools/download-ort
       - git config --global user.email "ci@helix.ml"
       - git config --global user.name "CI"
       - chmod +x ./scripts/run-tests-with-timeout.sh
@@ -262,7 +265,7 @@ steps:
       - which helix && helix version
       - timeout 5 helix serve 2>&1 || echo "Server exited (expected - checking for startup errors)"
       # Run tests
-      - pwd && ./scripts/run-tests-with-timeout.sh -timeout 8m -v ./integration-test/api/...
+      - pwd && ./scripts/run-tests-with-timeout.sh -tags ORT -timeout 8m -v ./integration-test/api/...
     when:
       event:
         - push
@@ -2763,7 +2766,7 @@ trigger:
 
 steps:
   - name: rollback-release
-    image: google/cloud-sdk:slim
+    image: golang:1.25-bookworm
     environment:
       GITHUB_TOKEN:
         from_secret: github_token
@@ -2776,14 +2779,16 @@ steps:
       SLACK_WEBHOOK_URL:
         from_secret: JANITOR_SLACK_WEBHOOK_URL
     commands:
-      - apt-get update -qq && apt-get install -y -qq curl jq > /dev/null
-      # Install gh CLI
+      # Add gh CLI apt repo
       - curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg 2>/dev/null
-      - echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null
-      - apt-get update -qq && apt-get install -y -qq gh > /dev/null
-      # Install helm
-      - curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash > /dev/null 2>&1
-      # Install awscli
-      - pip3 install -q awscli 2>/dev/null
+      - echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/github-cli.list
+      # Add Google Cloud SDK apt repo (for gsutil used by the helm rollback path)
+      - curl -fsSL https://packages.cloud.google.com/apt/doc/apt-key.gpg | gpg --dearmor -o /usr/share/keyrings/cloud.google.gpg
+      - echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt cloud-sdk main" > /etc/apt/sources.list.d/google-cloud-sdk.list
+      # Install tooling (awscli and jq from Debian, gh + gcloud from added repos)
+      - apt-get update -qq
+      - apt-get install -y -qq jq awscli gh google-cloud-cli > /dev/null
+      # Install helm (not packaged in Debian)
+      - curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash > /dev/null
       # Run rollback
       - scripts/release-rollback.sh "$DRONE_TAG"

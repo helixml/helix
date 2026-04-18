@@ -50,6 +50,8 @@ import LinkIcon from "@mui/icons-material/Link";
 import ArchiveIcon from "@mui/icons-material/Archive";
 import AccountTree from "@mui/icons-material/AccountTree";
 import UndoIcon from "@mui/icons-material/Undo";
+import LockIcon from "@mui/icons-material/Lock";
+import LockOpenIcon from "@mui/icons-material/LockOpen";
 import { TypesSpecTaskPriority, TypesSpecTaskStatus } from "../../api/api";
 import ExternalAgentDesktopViewer, {
   useSandboxState,
@@ -301,7 +303,11 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     ) {
       return viewParam;
     }
-    return "desktop";
+    // On mobile (below md breakpoint / 900px), default to chat view
+    // since the desktop stream is less useful on small screens.
+    // This matches the breakpoint used for split-view switching (isBigScreen).
+    const isMobile = window.matchMedia("(max-width: 899.95px)").matches;
+    return isMobile ? "chat" : "desktop";
   };
   const [currentView, setCurrentView] = useState<
     "chat" | "desktop" | "changes" | "details"
@@ -710,6 +716,27 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
       setIsStarting(false);
     }
   }, [activeSessionId, isStarting, api, snackbar, queryClient]);
+
+  // Toggle keep alive (prevent auto-idle-shutdown)
+  const handleToggleKeepAlive = useCallback(async () => {
+    if (!task?.id) return;
+
+    const newValue = !task.keep_alive;
+    try {
+      await updateSpecTask.mutateAsync({
+        taskId: task.id,
+        updates: { keep_alive: newValue },
+      });
+      snackbar.success(
+        newValue
+          ? "Keep Alive enabled — container won't auto-sleep"
+          : "Keep Alive disabled — container will auto-sleep when idle",
+      );
+    } catch (err) {
+      console.error("Failed to toggle Keep Alive:", err);
+      snackbar.error("Failed to toggle Keep Alive");
+    }
+  }, [task?.id, task?.keep_alive, updateSpecTask, snackbar]);
 
   // Toggle Just Do It mode
   const handleToggleJustDoIt = useCallback(async () => {
@@ -1864,9 +1891,6 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                     projectId={task.project_id}
                     apiClient={api.getApiClient()}
                     onSend={async (message: string, interrupt?: boolean) => {
-                      if (isDesktopPaused) {
-                        handleStartSession();
-                      }
                       await streaming.NewInference({
                         type: SESSION_TYPE_TEXT,
                         message,
@@ -2005,6 +2029,8 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                       archived: task.archived,
                       just_do_it_mode: justDoItMode,
                       planning_session_id: task.planning_session_id,
+                      metadata: task.metadata as { error?: string },
+                      last_push_at: task.last_push_at,
                     }}
                     variant="inline"
                     onStartPlanning={handleStartPlanning}
@@ -2019,6 +2045,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                     hasExternalRepo={projectRepositories.some(
                       (r) => r.is_external || r.external_type || r.external_url,
                     )}
+                    externalRepoType={projectRepositories.find((r) => r.external_type)?.external_type}
                     isStartingPlanning={isStartingPlanning}
                     isArchiving={isArchiving}
                   />
@@ -2135,6 +2162,33 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                             </IconButton>
                           </Tooltip>
                         )}
+                        {/* Show Keep Alive toggle when desktop is running */}
+                        {isDesktopRunning && (
+                          <Tooltip
+                            title={
+                              task.keep_alive
+                                ? "Keep Alive ON — won't auto-sleep"
+                                : "Keep Alive OFF — will auto-sleep when idle"
+                            }
+                          >
+                            <IconButton
+                              size="small"
+                              onClick={handleToggleKeepAlive}
+                              disabled={updateSpecTask.isPending}
+                              sx={{
+                                color: task.keep_alive
+                                  ? "success.main"
+                                  : "text.secondary",
+                              }}
+                            >
+                              {task.keep_alive ? (
+                                <LockIcon sx={{ fontSize: 18 }} />
+                              ) : (
+                                <LockOpenIcon sx={{ fontSize: 18 }} />
+                              )}
+                            </IconButton>
+                          </Tooltip>
+                        )}
                         {/* Show Upload button only when desktop is running */}
                         {isDesktopRunning && (
                           <Tooltip title="Upload files to sandbox">
@@ -2162,7 +2216,9 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                   </Box>
                 </Box>
 
-                {currentView === "desktop" &&
+                {/* In split-view layout, "chat" falls through to desktop since chat
+                    is already visible in the left panel */}
+                {(currentView === "desktop" || currentView === "chat") &&
                   (isTaskCompleted && isDesktopPaused ? (
                     <Box
                       sx={{
@@ -2384,6 +2440,8 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                   archived: task.archived,
                   just_do_it_mode: justDoItMode,
                   planning_session_id: task.planning_session_id,
+                  metadata: task.metadata as { error?: string },
+                  last_push_at: task.last_push_at,
                 }}
                 variant="inline"
                 onStartPlanning={handleStartPlanning}
@@ -2398,6 +2456,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                 hasExternalRepo={projectRepositories.some(
                   (r) => r.is_external || r.external_type || r.external_url,
                 )}
+                externalRepoType={projectRepositories.find((r) => r.external_type)?.external_type}
                 isStartingPlanning={isStartingPlanning}
                 isArchiving={isArchiving}
               />
@@ -2630,9 +2689,6 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                       projectId={task.project_id}
                       apiClient={api.getApiClient()}
                       onSend={async (message: string, interrupt?: boolean) => {
-                        if (isDesktopPaused) {
-                          handleStartSession();
-                        }
                         await streaming.NewInference({
                           type: SESSION_TYPE_TEXT,
                           message,

@@ -76,6 +76,7 @@ import TaskCard, {
   KanbanColumn as TaskCardKanbanColumn,
   TaskDependency,
 } from "./TaskCard";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   SpecTask,
   useSpecTasks,
@@ -91,6 +92,7 @@ import useSnackbar from "../../hooks/useSnackbar";
 import BacklogTableView from "./BacklogTableView";
 import { useCreateSampleRepository } from "../../services/gitRepositoryService";
 import { useSampleTypes } from "../../hooks/useSampleTypes";
+import { useAttentionEvents, AttentionEvent } from "../../hooks/useAttentionEvents";
 
 // SpecTask types and statuses
 type SpecTaskPhase =
@@ -241,6 +243,7 @@ interface SpecTaskKanbanBoardProps {
   };
   focusTaskId?: string; // Task ID to focus "Start Planning" button on (for newly created tasks)
   hasExternalRepo?: boolean; // When true, project uses external repo (ADO) - Accept button becomes "Open PR"
+  externalRepoType?: string; // The external repo type (e.g. "github", "ado")
   showArchived?: boolean; // Show archived tasks instead of active tasks
   showMetrics?: boolean; // Show metrics in task cards
   showMerged?: boolean; // Show merged column
@@ -262,6 +265,7 @@ const DroppableColumn: React.FC<{
   focusTaskId?: string;
   archivingTaskId?: string | null;
   hasExternalRepo?: boolean;
+  externalRepoType?: string;
   showMetrics?: boolean;
   theme: any;
   onHeaderClick?: () => void;
@@ -287,6 +291,7 @@ const DroppableColumn: React.FC<{
   focusTaskId,
   archivingTaskId,
   hasExternalRepo,
+  externalRepoType,
   showMetrics,
   theme,
   onHeaderClick,
@@ -302,6 +307,18 @@ const DroppableColumn: React.FC<{
 }): JSX.Element => {
   // Simplified - no drag and drop, no complex interactions
   const setNodeRef = (node: HTMLElement | null) => {};
+
+  const { events: attentionEvents } = useAttentionEvents();
+  const taskAttentionEventsMap = useMemo(() => {
+    const map: Record<string, AttentionEvent[]> = {};
+    for (const event of attentionEvents) {
+      if (event.event_type === 'agent_interaction_completed' && !event.acknowledged_at) {
+        if (!map[event.spec_task_id]) map[event.spec_task_id] = [];
+        map[event.spec_task_id].push(event);
+      }
+    }
+    return map;
+  }, [attentionEvents]);
 
   // Render task card wrapper - simplified
   const renderTaskCard = (task: SpecTaskWithExtras, index: number) => {
@@ -319,12 +336,14 @@ const DroppableColumn: React.FC<{
         focusStartPlanning={task.id === focusTaskId}
         isArchiving={task.id === archivingTaskId}
         hasExternalRepo={hasExternalRepo}
+        externalRepoType={externalRepoType}
         showMetrics={showMetrics}
         progressData={batchProgressData?.[task.id]}
         usageData={batchUsageData?.[task.id]}
         highlightedTaskIds={highlightedTaskIds}
         onDependencyHoverStart={onDependencyHoverStart}
         onDependencyHoverEnd={onDependencyHoverEnd}
+        attentionEvents={taskAttentionEventsMap[task.id] || []}
       />
     );
   };
@@ -602,6 +621,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
   wipLimits = { planning: 3, review: 2, implementation: 5 },
   focusTaskId,
   hasExternalRepo = false,
+  externalRepoType,
   showArchived: showArchivedProp = false,
   showMetrics: showMetricsProp,
   showMerged: showMergedProp = true,
@@ -612,6 +632,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
   const api = useApi();
   const account = useAccount();
   const snackbar = useSnackbar();
+  const queryClient = useQueryClient();
 
   // Track initial load to avoid showing loading spinner on refreshes
   const hasLoadedOnceRef = React.useRef(false);
@@ -1214,6 +1235,11 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
         );
       }
 
+      // Immediately invalidate so the task list refetches right away, causing
+      // ExternalAgentDesktopViewer to mount and show "Starting Desktop..." without
+      // waiting for the next background poll interval (default 10s).
+      queryClient.invalidateQueries({ queryKey: ["spec-tasks"] });
+
       // Aggressive polling after starting planning to catch planning_session_id update
       // Poll at 1s, 2s, 4s, 6s intervals to catch the async session creation
       const pollForSessionId = async (retryCount = 0, maxRetries = 6) => {
@@ -1624,6 +1650,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
                 focusTaskId={focusTaskId}
                 archivingTaskId={archivingTaskId}
                 hasExternalRepo={hasExternalRepo}
+                externalRepoType={externalRepoType}
                 showMetrics={showMetrics}
                 highlightedTaskIds={highlightedDependencyTaskIds}
                 onDependencyHoverStart={setHighlightedDependencyTaskIds}
@@ -1664,6 +1691,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
               focusTaskId={focusTaskId}
               archivingTaskId={archivingTaskId}
               hasExternalRepo={hasExternalRepo}
+              externalRepoType={externalRepoType}
               showMetrics={showMetrics}
               highlightedTaskIds={highlightedDependencyTaskIds}
               onDependencyHoverStart={setHighlightedDependencyTaskIds}

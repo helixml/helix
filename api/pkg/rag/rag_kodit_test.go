@@ -38,6 +38,7 @@ var _ services.KoditServicer = (*koditServiceMock)(nil)
 
 func (m *koditServiceMock) IsEnabled() bool                                { return true }
 func (m *koditServiceMock) MCPDocumentation() string                       { return "" }
+func (m *koditServiceMock) RescanAllRepositories(_ context.Context) error  { return nil }
 func (m *koditServiceMock) RescanCommit(ctx context.Context, id int64, sha string) error {
 	if m.rescanCommitFn != nil {
 		return m.rescanCommitFn(ctx, id, sha)
@@ -54,6 +55,10 @@ func (m *koditServiceMock) RegisterRepository(ctx context.Context, params *servi
 		return m.registerRepositoryFn(ctx, params)
 	}
 	return 0, false, nil
+}
+
+func (m *koditServiceMock) VisualSearch(context.Context, int64, string, int) ([]services.KoditFileResult, error) {
+	return nil, nil
 }
 
 func (m *koditServiceMock) SemanticSearch(ctx context.Context, id int64, query string, limit int, lang string) ([]services.KoditFileResult, error) {
@@ -126,6 +131,9 @@ func (m *koditServiceMock) ActiveTasks(context.Context) ([]services.KoditActiveT
 }
 func (m *koditServiceMock) UpdateChunkingConfig(context.Context, int64, int, int, int) error {
 	return nil
+}
+func (m *koditServiceMock) RenderPageImage(context.Context, int64, string, int) ([]byte, error) {
+	return nil, nil
 }
 
 // KoditRAGSuite tests the KoditRAG implementation.

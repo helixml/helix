@@ -244,7 +244,6 @@ const SortableQueueItem: FC<SortableQueueItemProps> = ({
             value={editingContent}
             onChange={(e) => setEditingContent(e.target.value)}
             onKeyDown={handleEditKeyDown}
-            onBlur={handleSaveEdit}
             sx={{
               width: '100%',
               resize: 'none',
@@ -427,6 +426,8 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
   // Editing state for queued messages
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editingContent, setEditingContent] = useState('')
+  const [editingOriginalContent, setEditingOriginalContent] = useState('')
+  const [editingInterruptMode, setEditingInterruptMode] = useState(false)
 
   const {
     draft,
@@ -569,10 +570,10 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
     // Backend handles processing after sync - no need to call processQueue
   }, [draft, disabled, attachments, saveToHistory, clearDraft, interruptMode])
 
-  // Remove from queue: call backend first so the entry is soft-deleted and
-  // never redelivered (even after page reload or API restart), then remove locally.
+  // Remove from queue: tombstone locally first (instant UI update, prevents
+  // re-import on sync), then fire backend DELETE (best effort).
   const handleRemoveFromQueue = useCallback((entryId: string) => {
-    removeFromQueue(entryId)
+    removeFromQueue(entryId) // Marks as deleted in localStorage (tombstone)
     if (apiClient) {
       apiClient.v1PromptHistoryDelete(entryId).catch((err: unknown) => {
         console.warn('Failed to delete prompt from backend:', err)
@@ -588,42 +589,72 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
     }
   }, [failedPrompts, pendingPrompts, updateInterrupt])
 
-  // Start editing a queued message
+  // Start editing a queued message.
+  // To genuinely pause sending, we remove the entry from the backend queue
+  // (DELETE on backend only — keep it locally for the edit UI). On save/cancel,
+  // we delete the old entry locally and re-queue as a new entry.
   const handleStartEdit = useCallback((entry: PromptHistoryEntry) => {
-    // Don't allow editing a message that's currently sending
+    // Don't allow editing a message that's currently being sent
     if (entry.id === sendingId) return
 
+    // Store original content and interrupt mode so we can restore on cancel
+    setEditingOriginalContent(entry.content)
+    setEditingInterruptMode(entry.interrupt !== false)
     setEditingId(entry.id)
     setEditingContent(entry.content)
+
+    // Remove from backend queue so it can't be sent while editing.
+    // Keep the entry locally so the edit UI can render on it.
+    if (apiClient) {
+      apiClient.v1PromptHistoryDelete(entry.id).catch((err: unknown) => {
+        console.warn('Failed to delete prompt from backend during edit:', err)
+      })
+    }
 
     // Focus the edit textarea after render
     setTimeout(() => {
       editTextareaRef.current?.focus()
       editTextareaRef.current?.select()
     }, 50)
-  }, [sendingId])
+  }, [sendingId, apiClient])
 
-  // Save edited message
+  // Save edited message — remove old entry, re-queue with new content.
+  // The old entry was already deleted from the backend in handleStartEdit.
   const handleSaveEdit = useCallback(() => {
     if (!editingId) return
 
     const trimmedContent = editingContent.trim()
+
+    // Remove the old local entry (tombstone it)
+    removeFromQueue(editingId)
+
     if (trimmedContent) {
-      updateContent(editingId, trimmedContent)
-    } else {
-      // If content is empty, remove the message
-      removeFromQueue(editingId)
+      // Re-queue as a new pending entry with the edited content
+      saveToHistory(trimmedContent, editingInterruptMode)
     }
+    // If content is empty, don't re-queue (effectively deletes it)
 
     setEditingId(null)
     setEditingContent('')
-  }, [editingId, editingContent, updateContent, removeFromQueue])
+    setEditingOriginalContent('')
+  }, [editingId, editingContent, editingInterruptMode, removeFromQueue, saveToHistory])
 
-  // Cancel editing
+  // Cancel editing — remove old entry, re-queue original content unchanged.
+  // The old entry was already deleted from the backend in handleStartEdit.
   const handleCancelEdit = useCallback(() => {
+    if (editingId) {
+      // Remove old local entry (tombstone it)
+      removeFromQueue(editingId)
+
+      // Re-queue the original content as a new pending entry
+      if (editingOriginalContent.trim()) {
+        saveToHistory(editingOriginalContent, editingInterruptMode)
+      }
+    }
     setEditingId(null)
     setEditingContent('')
-  }, [])
+    setEditingOriginalContent('')
+  }, [editingId, editingOriginalContent, editingInterruptMode, removeFromQueue, saveToHistory])
 
   // Handle key events in edit textarea
   const handleEditKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {

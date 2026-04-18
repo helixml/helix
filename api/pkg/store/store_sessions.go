@@ -171,6 +171,13 @@ func (s *PostgresStore) UpdateSession(ctx context.Context, session types.Session
 		session.Name = string([]rune(session.Name)[:255])
 	}
 
+	// Always bump the updated timestamp. The field is named "Updated" (not
+	// "UpdatedAt") so GORM doesn't auto-update it. Without this, callers
+	// that read-modify-write a session (e.g. StartDesktop) silently
+	// preserve the old timestamp, which causes the idle checker to
+	// immediately kill just-restarted sessions.
+	session.Updated = time.Now()
+
 	// Log session metadata before update
 	ragResultsCount := 0
 	if session.Metadata.SessionRAGResults != nil {
@@ -352,22 +359,27 @@ func (s *PostgresStore) ListIdleDesktops(ctx context.Context, idleSince time.Tim
 	query := `
 WITH desktop_last_activity AS (
     SELECT
-        s.config->>'external_agent_id' AS agent_id,
-        COALESCE(MAX(i.updated), MAX(s.updated)) AS last_activity
+        s.config->>'dev_container_id' AS container_id,
+        GREATEST(COALESCE(MAX(i.updated), '1970-01-01'::timestamptz), MAX(s.updated)) AS last_activity
     FROM sessions s
     LEFT JOIN interactions i ON i.session_id = s.id
     WHERE s.deleted_at IS NULL
       AND s.config->>'external_agent_status' = 'running'
-      AND s.config->>'external_agent_id' IS NOT NULL
-      AND s.config->>'external_agent_id' != ''
-    GROUP BY s.config->>'external_agent_id'
+      AND s.config->>'dev_container_id' IS NOT NULL
+      AND s.config->>'dev_container_id' != ''
+      AND NOT EXISTS (
+          SELECT 1 FROM spec_tasks st
+          WHERE st.planning_session_id = s.id
+            AND st.keep_alive = true
+      )
+    GROUP BY s.config->>'dev_container_id'
 )
-SELECT DISTINCT ON (s.config->>'external_agent_id') s.*
+SELECT DISTINCT ON (s.config->>'dev_container_id') s.*
 FROM sessions s
-JOIN desktop_last_activity da ON da.agent_id = s.config->>'external_agent_id'
+JOIN desktop_last_activity da ON da.container_id = s.config->>'dev_container_id'
 WHERE s.deleted_at IS NULL
   AND da.last_activity < ?
-ORDER BY s.config->>'external_agent_id', s.created ASC`
+ORDER BY s.config->>'dev_container_id', s.created ASC`
 
 	var sessions []*types.Session
 	err := s.gdb.WithContext(ctx).Raw(query, idleSince).Scan(&sessions).Error

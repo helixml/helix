@@ -23,6 +23,7 @@ import { ResponseEntry } from "../components/session/InteractionInference";
 import {
   GET_SESSION_QUERY_KEY,
   SESSION_STEPS_QUERY_KEY,
+  LIST_INTERACTIONS_QUERY_KEY,
 } from "../services/sessionService";
 import { useQueryClient } from "@tanstack/react-query";
 import { invalidateSessionsQuery } from "../services/sessionService";
@@ -65,6 +66,7 @@ interface StreamingContextType {
   setCurrentSessionId: (sessionId: string) => void;
   currentResponses: Map<string, StreamingInteraction>;
   stepInfos: Map<string, any[]>;
+  wsConnected: boolean;
   updateCurrentResponse: (
     sessionId: string,
     interaction: Partial<TypesInteraction>,
@@ -92,6 +94,7 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({
   >(new Map());
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [stepInfos, setStepInfos] = useState<Map<string, any[]>>(new Map());
+  const [wsConnected, setWsConnected] = useState(false);
 
   // Add refs for managing streaming state
   const messageBufferRef = useRef<Map<string, string[]>>(new Map());
@@ -102,6 +105,10 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({
   // Keyed by interactionId, stores the current ResponseEntry[] built from entry_patches.
   const patchEntriesRef = useRef<Map<string, ResponseEntry[]>>(new Map());
   const patchPendingRef = useRef<boolean>(false);
+  // Track whether the WebSocket has experienced a disconnect since last connect.
+  // Used to detect reconnection events (vs initial connection) so we can refresh
+  // stale state missed during the outage.
+  const wsWasDisconnectedRef = useRef<boolean>(false);
 
   // Clear all streaming state when switching sessions
   const clearSessionData = useCallback(
@@ -285,9 +292,23 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({
         // 2. isLive becomes false, InteractionLiveStream stops rendering
         // 3. Interaction component renders with OLD cached data (before refetch completes)
         // By updating cache immediately, the Interaction component gets fresh data
+        //
+        // IMPORTANT: Preserve the existing session config to prevent desktop stream
+        // reconnection flicker. The session_update WebSocket message may carry a stale
+        // external_agent_status (e.g. "starting" when it's actually "running"), which
+        // would cause useSandboxState to briefly flip isRunning and flash "Reconnecting...".
         queryClient.setQueryData(
           GET_SESSION_QUERY_KEY(currentSessionId),
-          { data: parsedData.session }, // Wrap in { data: ... } to match Axios response format
+          (oldData: { data?: TypesSession } | undefined) => {
+            const existingConfig = oldData?.data?.config;
+            const updatedSession = {
+              ...parsedData.session,
+              // Keep the existing config (polled by useSandboxState) if we have it,
+              // so chat updates don't stomp sandbox state
+              ...(existingConfig ? { config: existingConfig } : {}),
+            };
+            return { data: updatedSession };
+          },
         );
 
         // Update currentResponses with the latest interaction state
@@ -393,8 +414,11 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({
               const current = prev.get(currentSessionId) || {};
               const isSameInteraction = current.id === updatedInteraction.id;
 
-              // When complete, use server's response_message directly — do NOT fall
-              // back to current.response_message which may be truncated streaming data
+              // When complete, use server's response_message and response_entries directly.
+              // Do NOT fall back to current values which may be truncated streaming data.
+              // Storing response_entries here prevents the 3s poll from overwriting the
+              // correct final entries with stale pre-completion data from the DB.
+              const serverEntries = (updatedInteraction as any)?.response_entries as ResponseEntry[] | undefined;
               const updated: StreamingInteraction = isSameInteraction
                 ? {
                     ...current,
@@ -407,6 +431,7 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({
                       ? updatedInteraction.response_message // Complete: use server data only
                       : updatedInteraction.response_message ||
                         current.response_message,
+                    ...(isComplete && serverEntries ? { response_entries: serverEntries } : {}),
                   }
                 : {
                     // New interaction - start with clean slate
@@ -414,6 +439,7 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({
                     state: updatedInteraction.state,
                     prompt_message: updatedInteraction.prompt_message,
                     response_message: updatedInteraction.response_message,
+                    ...(isComplete && serverEntries ? { response_entries: serverEntries } : {}),
                   };
 
               const newMap = new Map(prev).set(currentSessionId, updated);
@@ -535,22 +561,60 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({
         clearTimeout(invalidateTimerRef.current);
       }
       invalidateTimerRef.current = setTimeout(() => {
+        // Invalidate paginated interactions cache so new/completed interactions appear
         queryClient.invalidateQueries({
-          queryKey: GET_SESSION_QUERY_KEY(currentSessionId),
+          queryKey: ["interactions", currentSessionId],
         });
+        // Invalidate session steps (thinking/progress indicators)
         queryClient.invalidateQueries({
           queryKey: SESSION_STEPS_QUERY_KEY(currentSessionId),
         });
+        // NOTE: We intentionally do NOT invalidate GET_SESSION_QUERY_KEY here.
+        // useSandboxState polls the session every 3s for desktop state. Invalidating
+        // the session cache on every chat WebSocket event causes useSandboxState to
+        // refetch, which briefly flips isRunning and flashes the "Reconnecting..."
+        // overlay on the desktop stream. Interactions are now served via
+        // LIST_INTERACTIONS_QUERY_KEY (since PR #2146), so the session cache
+        // invalidation is no longer needed for chat updates.
         invalidateSessionsQuery(queryClient);
         invalidateTimerRef.current = null;
       }, 500);
     };
 
+    const openHandler = () => {
+      if (wsWasDisconnectedRef.current) {
+        // Reconnection after a dropout: clear stale streaming state and refresh
+        // from the database so any updates missed during the outage are loaded.
+        wsWasDisconnectedRef.current = false;
+        setCurrentResponses((prev) => {
+          const next = new Map(prev);
+          next.delete(currentSessionId!);
+          return next;
+        });
+        patchEntriesRef.current.clear();
+        queryClient.invalidateQueries({ queryKey: ["interactions", currentSessionId] });
+        queryClient.invalidateQueries({ queryKey: SESSION_STEPS_QUERY_KEY(currentSessionId!) });
+      }
+      setWsConnected(true);
+    };
+    const closeHandler = () => {
+      wsWasDisconnectedRef.current = true;
+      setWsConnected(false);
+    };
+
     rws.addEventListener("message", messageHandler);
+    rws.addEventListener("open", openHandler);
+    rws.addEventListener("close", closeHandler);
 
     return () => {
       rws.removeEventListener("message", messageHandler);
+      rws.removeEventListener("open", openHandler);
+      rws.removeEventListener("close", closeHandler);
       rws.close();
+      // Reset disconnect tracking on intentional session change so the next
+      // session's initial connect is not mistaken for a reconnect.
+      wsWasDisconnectedRef.current = false;
+      setWsConnected(false);
       // Clear any pending invalidation timer
       if (invalidateTimerRef.current) {
         clearTimeout(invalidateTimerRef.current);
@@ -900,6 +964,7 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({
     currentResponses,
     updateCurrentResponse,
     stepInfos,
+    wsConnected,
   };
 
   return (

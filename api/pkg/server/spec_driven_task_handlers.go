@@ -57,6 +57,9 @@ func (s *HelixAPIServer) createTaskFromPrompt(w http.ResponseWriter, r *http.Req
 	req.UserID = user.ID
 	req.UserEmail = user.Email
 
+	// Strip null bytes that Postgres rejects (SQLSTATE 22021)
+	req.Prompt = strings.ReplaceAll(req.Prompt, "\x00", "")
+
 	// Validate request
 	if req.Prompt == "" {
 		http.Error(w, "prompt is required", http.StatusBadRequest)
@@ -270,13 +273,19 @@ func (s *HelixAPIServer) listTasks(w http.ResponseWriter, r *http.Request) {
 					task.SessionUpdatedAt = &session.Updated
 
 					// Live-check container status against the executor, overriding stale DB values.
+					// Only flip "running" → "stopped" when the executor says the container is gone.
+					// Never upgrade "starting" to "running" — the container may be up in Docker
+					// but RevDial hasn't connected yet, causing ScreenshotViewer 503 errors.
 					cfg := session.Metadata
 					if cfg.ContainerName != "" && s.externalAgentExecutor != nil {
-						_, err := s.externalAgentExecutor.GetSession(session.ID)
-						if err != nil {
-							cfg.ExternalAgentStatus = "stopped"
-						} else {
-							cfg.ExternalAgentStatus = "running"
+						// Live-check the executor for "running" and "" (stopped-but-not-yet-labelled)
+						// sessions. Skip "starting" (RevDial not yet connected — upgrading it to
+						// "running" causes ScreenshotViewer 503s) and "stopped" (already terminal).
+						if cfg.ExternalAgentStatus == "running" || cfg.ExternalAgentStatus == "" {
+							_, err := s.externalAgentExecutor.GetSession(session.ID)
+							if err != nil {
+								cfg.ExternalAgentStatus = "stopped"
+							}
 						}
 					} else if cfg.ContainerName != "" {
 						cfg.ExternalAgentStatus = "stopped"
@@ -285,14 +294,14 @@ func (s *HelixAPIServer) listTasks(w http.ResponseWriter, r *http.Request) {
 					status := cfg.ExternalAgentStatus
 					hasContainer := cfg.ContainerName != ""
 					switch {
-					case status == "stopped":
+					case status == "stopped" || status == "terminated_idle":
 						task.SandboxState = "absent"
+					case status == "starting":
+						task.SandboxState = "starting"
 					case status == "running":
 						task.SandboxState = "running"
 					case hasContainer:
 						task.SandboxState = "running"
-					case status == "starting":
-						task.SandboxState = "starting"
 					default:
 						task.SandboxState = "absent"
 					}
@@ -871,6 +880,7 @@ func (s *HelixAPIServer) updateSpecTask(w http.ResponseWriter, r *http.Request) 
 			task.MergeCommitHash = ""
 			task.RepoPullRequests = nil
 			task.BranchName = "" // Force fresh branch so orchestrator doesn't see the old merged branch
+			task.KeepAlive = false
 		}
 	}
 	if updateReq.Priority != "" {
@@ -912,6 +922,10 @@ func (s *HelixAPIServer) updateSpecTask(w http.ResponseWriter, r *http.Request) 
 	// Update public design docs setting (pointer allows explicit false)
 	if updateReq.PublicDesignDocs != nil {
 		task.PublicDesignDocs = *updateReq.PublicDesignDocs
+	}
+	// Update keep alive setting (pointer allows explicit false)
+	if updateReq.KeepAlive != nil {
+		task.KeepAlive = *updateReq.KeepAlive
 	}
 	// Update assignee (pointer allows clearing with empty string to unassign)
 	if updateReq.AssigneeID != nil {

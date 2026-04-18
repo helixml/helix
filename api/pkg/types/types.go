@@ -1,6 +1,7 @@
 package types
 
 import (
+	"context"
 	"database/sql"
 	"database/sql/driver"
 	"encoding/json"
@@ -1048,6 +1049,7 @@ type ServerConfigForFrontend struct {
 	License                                *FrontendLicenseInfo `json:"license,omitempty"`
 	OrganizationsCreateEnabledForNonAdmins bool                 `json:"organizations_create_enabled_for_non_admins"`
 	ProvidersManagementEnabled             bool                 `json:"providers_management_enabled"` // Controls if users can add their own AI provider API keys
+	HasProviders                           bool                 `json:"has_providers"`                // Whether any global AI provider with enabled chat models exists
 	MaxConcurrentDesktops                  int                  `json:"max_concurrent_desktops"`
 	ActiveConcurrentDesktops               int                  `json:"active_concurrent_desktops"`
 	Edition                                string               `json:"edition,omitempty"` // "mac-desktop", "server", "cloud", etc.
@@ -1992,6 +1994,12 @@ type DesktopAgent struct {
 
 	// Golden build mode: session builds a golden Docker cache snapshot
 	GoldenBuild bool `json:"golden_build,omitempty"`
+
+	// OnBeforeCreate is called inside the session lock, after the "already running"
+	// check passes, right before creating the container. Used to refresh API keys
+	// that may have been revoked by a concurrent StopDesktop.
+	// If nil, no callback is executed.
+	OnBeforeCreate func(ctx context.Context, agent *DesktopAgent) error `json:"-"`
 }
 
 // GetEffectiveResolution returns the display dimensions based on Resolution preset

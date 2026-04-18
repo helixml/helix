@@ -3826,6 +3826,21 @@ func (mr *MockStoreMockRecorder) ListDataEntities(ctx, q any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListDataEntities", reflect.TypeOf((*MockStore)(nil).ListDataEntities), ctx, q)
 }
 
+// ListDataEntitiesWithKoditRepo mocks base method.
+func (m *MockStore) ListDataEntitiesWithKoditRepo(ctx context.Context) ([]*types.DataEntity, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListDataEntitiesWithKoditRepo", ctx)
+	ret0, _ := ret[0].([]*types.DataEntity)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListDataEntitiesWithKoditRepo indicates an expected call of ListDataEntitiesWithKoditRepo.
+func (mr *MockStoreMockRecorder) ListDataEntitiesWithKoditRepo(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListDataEntitiesWithKoditRepo", reflect.TypeOf((*MockStore)(nil).ListDataEntitiesWithKoditRepo), ctx)
+}
+
 // ListDynamicModelInfos mocks base method.
 func (m *MockStore) ListDynamicModelInfos(ctx context.Context, q *types.ListDynamicModelInfosQuery) ([]*types.DynamicModelInfo, error) {
 	m.ctrl.T.Helper()
@@ -4788,6 +4803,20 @@ func (m *MockStore) MarkPromptAsFailed(ctx context.Context, promptID string) err
 func (mr *MockStoreMockRecorder) MarkPromptAsFailed(ctx, promptID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkPromptAsFailed", reflect.TypeOf((*MockStore)(nil).MarkPromptAsFailed), ctx, promptID)
+}
+
+// RequeueBouncedPrompt mocks base method.
+func (m *MockStore) RequeueBouncedPrompt(ctx context.Context, sessionID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RequeueBouncedPrompt", ctx, sessionID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// RequeueBouncedPrompt indicates an expected call of RequeueBouncedPrompt.
+func (mr *MockStoreMockRecorder) RequeueBouncedPrompt(ctx, sessionID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RequeueBouncedPrompt", reflect.TypeOf((*MockStore)(nil).RequeueBouncedPrompt), ctx, sessionID)
 }
 
 // MarkPromptAsPending mocks base method.

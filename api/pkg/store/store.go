@@ -310,6 +310,7 @@ type Store interface {
 	UpdateDataEntity(ctx context.Context, dataEntity *types.DataEntity) (*types.DataEntity, error)
 	GetDataEntity(ctx context.Context, id string) (*types.DataEntity, error)
 	ListDataEntities(ctx context.Context, q *ListDataEntitiesQuery) ([]*types.DataEntity, error)
+	ListDataEntitiesWithKoditRepo(ctx context.Context) ([]*types.DataEntity, error)
 	DeleteDataEntity(ctx context.Context, id string) error
 
 	// Knowledge
@@ -695,6 +696,10 @@ type Store interface {
 	MarkPromptAsPending(ctx context.Context, promptID string) error
 	MarkPromptAsSent(ctx context.Context, promptID string) error
 	MarkPromptAsFailed(ctx context.Context, promptID string) error
+	// RequeueBouncedPrompt finds the most recent "sent" prompt for a session and marks
+	// it as "failed" so the retry mechanism picks it up. Used when message_completed
+	// arrives with an empty response (bounce).
+	RequeueBouncedPrompt(ctx context.Context, sessionID string) error
 	// ClaimPromptForSending atomically transitions a prompt from pending/failed→sending.
 	// Returns true if this caller won the claim (rows affected > 0). If false, another
 	// goroutine already claimed it and the caller must not send the prompt.

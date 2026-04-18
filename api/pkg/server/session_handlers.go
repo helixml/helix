@@ -33,6 +33,7 @@ import (
 // @Tags    sessions
 // @Success 200 {object} types.Session
 // @Param id path string true "Session ID"
+// @Param skipInteractions query string false "Set to '1' to omit interactions from the response"
 // @Router /api/v1/sessions/{id} [get]
 // @Security BearerAuth
 func (apiServer *HelixAPIServer) getSession(rw http.ResponseWriter, req *http.Request) {
@@ -100,17 +101,21 @@ func (apiServer *HelixAPIServer) getSession(rw http.ResponseWriter, req *http.Re
 		return
 	}
 
-	// Cache miss — load full interactions
-	interactions, _, err := apiServer.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
-		SessionID:    id,
-		GenerationID: session.GenerationID,
-		PerPage:      1000,
-	})
-	if err != nil {
-		http.Error(rw, err.Error(), http.StatusInternalServerError)
-		return
+	// Cache miss — load interactions unless caller opts out.
+	// EmbeddedSessionView passes skipInteractions=1 and fetches interactions
+	// separately via the paginated interactions endpoint.
+	if req.URL.Query().Get("skipInteractions") != "1" {
+		interactions, _, err := apiServer.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
+			SessionID:    id,
+			GenerationID: session.GenerationID,
+			PerPage:      1000,
+		})
+		if err != nil {
+			http.Error(rw, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		session.Interactions = interactions
 	}
-	session.Interactions = interactions
 	session.Metadata.ExternalAgentStatus = agentStatus
 
 	rw.Header().Set("Content-Type", "application/json")
@@ -710,12 +715,11 @@ If the user asks for information about Helix or installing Helix, refer them to 
 				}
 			}
 
-			// Add user's API token for LLM and git operations (merges with any custom env vars)
+			// Add user's API token inside session lock via OnBeforeCreate hook
 			// This is REQUIRED - without it, Zed's agent won't be able to make LLM calls
-			if addErr := s.addUserAPITokenToAgent(req.Context(), zedAgent, session.Owner); addErr != nil {
-				log.Error().Err(addErr).Str("user_id", session.Owner).Msg("Failed to add user API token")
-				http.Error(rw, fmt.Sprintf("failed to get user API keys: %s", addErr.Error()), http.StatusInternalServerError)
-				return
+			sessionOwner := session.Owner
+			zedAgent.OnBeforeCreate = func(hookCtx context.Context, a *types.DesktopAgent) error {
+				return s.addUserAPITokenToAgent(hookCtx, a, sessionOwner)
 			}
 
 			// Register session in executor so RDP endpoint can find it
@@ -1935,11 +1939,12 @@ func (s *HelixAPIServer) resumeSession(rw http.ResponseWriter, req *http.Request
 		}
 	}
 
-	// Add user's API token to agent environment for git operations
-	if err := s.addUserAPITokenToAgent(ctx, agent, session.Owner); err != nil {
-		log.Error().Err(err).Str("user_id", session.Owner).Msg("Failed to add user API token to agent")
-		http.Error(rw, fmt.Sprintf("failed to get user API keys: %v", err), http.StatusInternalServerError)
-		return
+	// Add user's API token inside the session lock (via OnBeforeCreate hook)
+	// to prevent a race where StopDesktop revokes the key between token creation
+	// and container creation.
+	ownerID := session.Owner
+	agent.OnBeforeCreate = func(hookCtx context.Context, a *types.DesktopAgent) error {
+		return s.addUserAPITokenToAgent(hookCtx, a, ownerID)
 	}
 
 	log.Info().
@@ -1959,15 +1964,16 @@ func (s *HelixAPIServer) resumeSession(rw http.ResponseWriter, req *http.Request
 	}
 
 	// Re-fetch the session after StartDesktop to get updated metadata (SwayVersion, GPUVendor, etc.)
-	// StartDesktop updates the session in DB - using the stale session would overwrite those changes
-	session, err = s.Controller.Options.Store.GetSession(ctx, id)
-	if err != nil {
+	// StartDesktop updates the session in DB - using the stale session would overwrite those changes.
+	// Use a temporary variable so session is never overwritten with nil on error.
+	if refetched, refetchErr := s.Controller.Options.Store.GetSession(ctx, id); refetchErr != nil {
 		log.Error().
-			Err(err).
+			Err(refetchErr).
 			Str("session_id", id).
 			Msg("Failed to re-fetch session after StartDesktop")
-		// Continue with response - container is running, just metadata might be stale
+		// Continue with stale session — container is running, just metadata might be slightly stale
 	} else {
+		session = refetched
 		// Update session metadata with new container info (only if non-empty)
 		// Don't overwrite existing metadata with empty values from lobby reuse
 		if response.DevContainerID != "" {
@@ -1976,10 +1982,9 @@ func (s *HelixAPIServer) resumeSession(rw http.ResponseWriter, req *http.Request
 		// CRITICAL: Clear PausedScreenshotPath when resuming
 		// Otherwise the screenshot API returns the old saved screenshot instead of live RevDial fetch
 		session.Metadata.PausedScreenshotPath = ""
-		_, err = s.Controller.Options.Store.UpdateSession(ctx, *session)
-		if err != nil {
+		if _, updateErr := s.Controller.Options.Store.UpdateSession(ctx, *session); updateErr != nil {
 			log.Error().
-				Err(err).
+				Err(updateErr).
 				Str("session_id", id).
 				Msg("Failed to update session metadata with new lobby info")
 			// Don't fail the request - the agent is running

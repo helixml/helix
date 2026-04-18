@@ -146,6 +146,7 @@ type KoditFileResultDTO struct {
 	Path     string            `json:"path"`
 	Language string            `json:"language"`
 	Lines    string            `json:"lines,omitempty"`
+	Page     int               `json:"page,omitempty"`
 	Score    float64           `json:"score"`
 	Preview  string            `json:"preview"`
 	Links    map[string]string `json:"links"`
@@ -321,15 +322,20 @@ func fileResultsToDTO(results []services.KoditFileResult, repoID string) []Kodit
 	base := repoAPIBase(repoID)
 	dtos := make([]KoditFileResultDTO, 0, len(results))
 	for _, r := range results {
+		links := map[string]string{
+			"file_content": base + "/file-content?path=" + url.QueryEscape(r.Path),
+		}
+		if r.Page > 0 {
+			links["page_image"] = base + "/page-image?path=" + url.QueryEscape(r.Path) + "&page=" + strconv.Itoa(r.Page)
+		}
 		dtos = append(dtos, KoditFileResultDTO{
 			Path:     r.Path,
 			Language: r.Language,
 			Lines:    r.Lines,
+			Page:     r.Page,
 			Score:    r.Score,
 			Preview:  r.Preview,
-			Links: map[string]string{
-				"file_content": base + "/file-content?path=" + url.QueryEscape(r.Path),
-			},
+			Links:    links,
 		})
 	}
 	return dtos
@@ -998,6 +1004,126 @@ func (apiServer *HelixAPIServer) keywordSearchRepository(w http.ResponseWriter, 
 	})
 }
 
+// visualSearchRepository performs cross-modal visual search against document pages
+// @Summary Visual search repository
+// @Description Search document pages (PDFs, etc.) using cross-modal visual similarity
+// @Tags git-repositories
+// @Produce json
+// @Param id path string true "Repository ID"
+// @Param query query string true "Natural language search query"
+// @Param limit query int false "Maximum results (default 10, max 100)"
+// @Success 200 {object} KoditSearchResponse
+// @Failure 400 {object} types.APIError
+// @Failure 404 {object} types.APIError
+// @Failure 500 {object} types.APIError
+// @Router /api/v1/git/repositories/{id}/visual-search [get]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) visualSearchRepository(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	repoID := vars["id"]
+	if repoID == "" {
+		http.Error(w, "Repository ID is required", http.StatusBadRequest)
+		return
+	}
+
+	query := r.URL.Query().Get("query")
+	if query == "" {
+		http.Error(w, "query parameter is required", http.StatusBadRequest)
+		return
+	}
+
+	limit := 10
+	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
+		if parsedLimit, err := strconv.Atoi(limitStr); err == nil && parsedLimit > 0 {
+			limit = parsedLimit
+		}
+	}
+	if limit > 100 {
+		limit = 100
+	}
+
+	koditRepoID, _, ok := apiServer.ensureKoditRepoID(w, r, repoID)
+	if !ok {
+		return
+	}
+
+	results, err := apiServer.koditService.VisualSearch(r.Context(), koditRepoID, query, limit)
+	if err != nil {
+		handleKoditError(w, err, "Failed to perform visual search")
+		return
+	}
+
+	base := repoAPIBase(repoID)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(KoditSearchResponse{
+		Data: fileResultsToDTO(results, repoID),
+		Meta: KoditSearchMeta{
+			Query: query,
+			Limit: limit,
+			Count: len(results),
+		},
+		Links: map[string]string{
+			"self": base + "/visual-search",
+		},
+	})
+}
+
+// pageImageRepository renders a document page as a PNG image
+// @Summary Render document page image
+// @Description Rasterizes a document page (PDF, etc.) and returns it as a PNG image
+// @Tags git-repositories
+// @Produce png
+// @Param id path string true "Repository ID"
+// @Param path query string true "File path within the repository"
+// @Param page query int true "1-based page number"
+// @Success 200 {file} image/png
+// @Failure 400 {object} types.APIError
+// @Failure 404 {object} types.APIError
+// @Failure 500 {object} types.APIError
+// @Router /api/v1/git/repositories/{id}/page-image [get]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) pageImageRepository(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	repoID := vars["id"]
+	if repoID == "" {
+		http.Error(w, "Repository ID is required", http.StatusBadRequest)
+		return
+	}
+
+	filePath := r.URL.Query().Get("path")
+	if filePath == "" {
+		http.Error(w, "path parameter is required", http.StatusBadRequest)
+		return
+	}
+
+	pageStr := r.URL.Query().Get("page")
+	if pageStr == "" {
+		http.Error(w, "page parameter is required", http.StatusBadRequest)
+		return
+	}
+	page, err := strconv.Atoi(pageStr)
+	if err != nil || page < 1 {
+		http.Error(w, "page must be a positive integer", http.StatusBadRequest)
+		return
+	}
+
+	koditRepoID, _, ok := apiServer.ensureKoditRepoID(w, r, repoID)
+	if !ok {
+		return
+	}
+
+	pngBytes, err := apiServer.koditService.RenderPageImage(r.Context(), koditRepoID, filePath, page)
+	if err != nil {
+		handleKoditError(w, err, "Failed to render page image")
+		return
+	}
+
+	w.Header().Set("Content-Type", "image/png")
+	w.Header().Set("Cache-Control", "public, max-age=3600")
+	w.WriteHeader(http.StatusOK)
+	w.Write(pngBytes)
+}
+
 // grepRepository runs git grep against a repository
 // @Summary Grep repository
 // @Description Run pattern matching (grep) against repository files
@@ -1230,3 +1356,108 @@ func (apiServer *HelixAPIServer) rescanRepository(w http.ResponseWriter, r *http
 		"commit_sha": commitSHA,
 	})
 }
+
+// KoditRepoEnrichmentsResponse is the JSON:API envelope for enrichments by kodit repo ID.
+type KoditRepoEnrichmentsResponse struct {
+	Data  []KoditEnrichmentDTO `json:"data"`
+	Meta  KoditEnrichmentsMeta `json:"meta"`
+	Links map[string]string    `json:"links"`
+}
+
+// KoditEnrichmentsMeta holds metadata about an enrichments response.
+type KoditEnrichmentsMeta struct {
+	KoditRepoID    int64  `json:"kodit_repo_id"`
+	EnrichmentType string `json:"enrichment_type,omitempty"`
+	CommitSHA      string `json:"commit_sha,omitempty"`
+	Count          int    `json:"count"`
+	Total          int    `json:"total"`
+	Page           int    `json:"page"`
+	PerPage        int    `json:"per_page"`
+	TotalPages     int    `json:"total_pages"`
+}
+
+
+// getKoditRepoEnrichments fetches enrichments by kodit repo ID directly.
+// Works for both git repo-backed and knowledge-backed kodit repositories.
+// @Summary Get enrichments by Kodit repo ID
+// @Description Fetch code intelligence enrichments for any Kodit repository (git or knowledge-backed).
+// @Tags kodit
+// @Produce json
+// @Param koditRepoId path int true "Kodit Repository ID"
+// @Param enrichment_type query string false "Filter by enrichment type"
+// @Param commit_sha query string false "Filter by commit SHA"
+// @Success 200 {object} KoditRepoEnrichmentsResponse
+// @Failure 404 {object} types.APIError
+// @Router /api/v1/kodit/repositories/{koditRepoId}/enrichments [get]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) getKoditRepoEnrichments(w http.ResponseWriter, r *http.Request) {
+	koditRepoID, ok := parseKoditRepoID(w, r)
+	if !ok {
+		return
+	}
+
+	if apiServer.koditService == nil || !apiServer.koditService.IsEnabled() {
+		http.Error(w, "Kodit service is not enabled", http.StatusNotFound)
+		return
+	}
+
+	enrichmentType := r.URL.Query().Get("enrichment_type")
+	commitSHA := r.URL.Query().Get("commit_sha")
+	page, perPage := parsePagination(r, 1, 25, 100)
+
+	enrichments, err := apiServer.koditService.GetRepositoryEnrichments(r.Context(), koditRepoID, enrichmentType, commitSHA)
+	if err != nil {
+		handleKoditError(w, err, "Failed to fetch enrichments")
+		return
+	}
+
+	dtoList := enrichmentListToDTO(enrichments, commitSHA)
+	total := len(dtoList.Data)
+	totalPages := (total + perPage - 1) / perPage
+
+	// Paginate
+	start := (page - 1) * perPage
+	end := start + perPage
+	if start > total {
+		start = total
+	}
+	if end > total {
+		end = total
+	}
+	pageData := dtoList.Data[start:end]
+
+	idStr := strconv.FormatInt(koditRepoID, 10)
+	selfURL := fmt.Sprintf("/api/v1/kodit/repositories/%s/enrichments?page=%d&per_page=%d", idStr, page, perPage)
+
+	links := map[string]string{
+		"self":       selfURL,
+		"first":      fmt.Sprintf("/api/v1/kodit/repositories/%s/enrichments?page=1&per_page=%d", idStr, perPage),
+		"last":       fmt.Sprintf("/api/v1/kodit/repositories/%s/enrichments?page=%d&per_page=%d", idStr, totalPages, perPage),
+		"repository": fmt.Sprintf("/api/v1/kodit/repositories/%s", idStr),
+	}
+	if page > 1 {
+		links["prev"] = fmt.Sprintf("/api/v1/kodit/repositories/%s/enrichments?page=%d&per_page=%d", idStr, page-1, perPage)
+	}
+	if page < totalPages {
+		links["next"] = fmt.Sprintf("/api/v1/kodit/repositories/%s/enrichments?page=%d&per_page=%d", idStr, page+1, perPage)
+	}
+
+	resp := KoditRepoEnrichmentsResponse{
+		Data: pageData,
+		Meta: KoditEnrichmentsMeta{
+			KoditRepoID:    koditRepoID,
+			EnrichmentType: enrichmentType,
+			CommitSHA:      commitSHA,
+			Count:          len(pageData),
+			Total:          total,
+			Page:           page,
+			PerPage:        perPage,
+			TotalPages:     totalPages,
+		},
+		Links: links,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}
+

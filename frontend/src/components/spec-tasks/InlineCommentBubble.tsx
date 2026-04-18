@@ -24,6 +24,7 @@ interface InlineCommentBubbleProps {
   commentRef?: (el: HTMLDivElement | null) => void;
   streamingResponse?: string; // Live streaming response content
   streamingEntries?: ResponseEntry[]; // Structured entries for streaming
+  isStreamingComplete?: boolean; // true = stream done, show content without spinner
   isNarrowViewport?: boolean;
 }
 
@@ -37,6 +38,7 @@ export default function InlineCommentBubble({
   commentRef,
   streamingResponse,
   streamingEntries,
+  isStreamingComplete = false,
   isNarrowViewport = false,
 }: InlineCommentBubbleProps) {
   const [isExpanded, setIsExpanded] = useState(false);
@@ -45,7 +47,8 @@ export default function InlineCommentBubble({
 
   // Use streaming response if available, otherwise fall back to persisted response
   const displayResponse = streamingResponse || comment.agent_response;
-  const isStreaming = !!streamingResponse && !comment.agent_response;
+  // isStreamingComplete: stream finished but cache not yet refreshed — show content, hide spinner
+  const isStreaming = !!streamingResponse && !comment.agent_response && !isStreamingComplete;
 
   // Get the last N lines for collapsed view
   const { truncatedResponse, isTruncated, lineCount } = useMemo(() => {

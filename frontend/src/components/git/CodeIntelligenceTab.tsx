@@ -1,4 +1,4 @@
-import React, { FC, useState, useMemo, useCallback } from 'react'
+import React, { FC, useState, useEffect, useMemo, useCallback } from 'react'
 import ReactMarkdown, { Components } from 'react-markdown'
 import {
   Box,
@@ -53,9 +53,11 @@ import {
   useKoditWikiPage,
   useKoditSemanticSearch,
   useKoditKeywordSearch,
+  useKoditVisualSearch,
   useKoditGrep,
   useKoditFiles,
   useKoditFileContent,
+  useKoditRepoEnrichments,
   KODIT_SUBTYPE_COMMIT_DESCRIPTION,
   KoditWikiTreeNode,
   KoditFileResult,
@@ -421,11 +423,12 @@ const WikiTreeNav: FC<{
 
 // ─── Search Sub-tab ─────────────────────────────────────────────────────────────
 
-type SearchTool = 'semantic' | 'keyword' | 'grep' | 'ls' | 'read'
+type SearchTool = 'semantic' | 'keyword' | 'visual' | 'grep' | 'ls' | 'read'
 
 const searchTools: { id: SearchTool; label: string; icon: typeof SearchIcon; description: string; placeholder: string }[] = [
   { id: 'semantic', label: 'Semantic Search', icon: Sparkles, description: 'Find code by meaning using AI embeddings', placeholder: 'Describe what you\'re looking for...' },
   { id: 'keyword', label: 'Keyword Search', icon: TypeIcon, description: 'BM25 full-text keyword search', placeholder: 'Enter keywords...' },
+  { id: 'visual', label: 'Visual Search', icon: Eye, description: 'Search document pages (PDFs) using visual similarity', placeholder: 'Describe what you\'re looking for in the documents...' },
   { id: 'grep', label: 'Grep', icon: Terminal, description: 'Regex pattern matching via git grep', placeholder: 'Enter regex pattern...' },
   { id: 'ls', label: 'List Files', icon: FolderTree, description: 'List files matching a glob pattern', placeholder: 'e.g. **/*.go, src/**/*.ts' },
   { id: 'read', label: 'Read File', icon: FileText, description: 'Read the contents of a file', placeholder: 'e.g. cmd/main.go' },
@@ -443,7 +446,8 @@ function extractPathFromLink(link: string | undefined, fallback: string): string
   }
 }
 
-const SearchSubTab: FC<{ repoId: string; enabled: boolean }> = ({ repoId, enabled }) => {
+const SearchSubTab: FC<{ repoId: string; enabled: boolean; repository?: any }> = ({ repoId, enabled, repository }) => {
+  const koditRepoId = repository?.metadata?.kodit_repo_id as number | undefined
   const [activeTool, setActiveTool] = useState<SearchTool>('semantic')
   const [searchInput, setSearchInput] = useState('')
   const [globFilter, setGlobFilter] = useState('')
@@ -460,6 +464,10 @@ const SearchSubTab: FC<{ repoId: string; enabled: boolean }> = ({ repoId, enable
   const { data: keywordResponse, isLoading: keywordLoading } = useKoditKeywordSearch(
     repoId, debouncedInput, 20, undefined,
     { enabled: enabled && activeTool === 'keyword' && hasQuery }
+  )
+  const { data: visualResponse, isLoading: visualLoading } = useKoditVisualSearch(
+    repoId, debouncedInput, 20,
+    { enabled: enabled && activeTool === 'visual' && hasQuery }
   )
   const { data: grepResponse, isLoading: grepLoading } = useKoditGrep(
     repoId, debouncedInput, debouncedGlob || undefined, 50,
@@ -478,6 +486,8 @@ const SearchSubTab: FC<{ repoId: string; enabled: boolean }> = ({ repoId, enable
   const semanticMeta = semanticResponse?.meta
   const keywordResults = keywordResponse?.data ?? []
   const keywordMeta = keywordResponse?.meta
+  const visualResults = visualResponse?.data ?? []
+  const visualMeta = visualResponse?.meta
   const grepResults = grepResponse?.data ?? []
   const grepMeta = grepResponse?.meta
   const fileList = filesResponse?.data ?? []
@@ -486,6 +496,7 @@ const SearchSubTab: FC<{ repoId: string; enabled: boolean }> = ({ repoId, enable
   const activeToolDef = searchTools.find(t => t.id === activeTool)!
   const isLoading = activeTool === 'semantic' ? semanticLoading
     : activeTool === 'keyword' ? keywordLoading
+    : activeTool === 'visual' ? visualLoading
     : activeTool === 'grep' ? grepLoading
     : activeTool === 'ls' ? filesLoading
     : fileLoading
@@ -578,12 +589,15 @@ const SearchSubTab: FC<{ repoId: string; enabled: boolean }> = ({ repoId, enable
         </Box>
       )}
 
-      {/* Results */}
+      {/* Results (shown when there's a query) */}
       {activeTool === 'semantic' && hasQuery && !semanticLoading && (
         <SearchResultsList results={semanticResults} meta={semanticMeta} onFileClick={(path) => { setActiveTool('read'); setSearchInput(path); setSelectedFile(path) }} />
       )}
       {activeTool === 'keyword' && hasQuery && !keywordLoading && (
         <SearchResultsList results={keywordResults} meta={keywordMeta} onFileClick={(path) => { setActiveTool('read'); setSearchInput(path); setSelectedFile(path) }} />
+      )}
+      {activeTool === 'visual' && hasQuery && !visualLoading && (
+        <VisualSearchResultsList results={visualResults} meta={visualMeta} repoId={repoId} />
       )}
       {activeTool === 'grep' && hasQuery && !grepLoading && (
         <GrepResultsList results={grepResults} meta={grepMeta} onFileClick={(path) => { setActiveTool('read'); setSearchInput(path); setSelectedFile(path) }} />
@@ -598,13 +612,107 @@ const SearchSubTab: FC<{ repoId: string; enabled: boolean }> = ({ repoId, enable
         <Alert severity="info">File not found or empty.</Alert>
       )}
 
-      {/* Empty state */}
-      {!hasQuery && !selectedFile && (
+      {/* Indexed chunks (shown when there's no query, replaces the empty state) */}
+      {!hasQuery && !selectedFile && koditRepoId && (
+        <EnrichmentsPreview koditRepoId={koditRepoId} />
+      )}
+      {!hasQuery && !selectedFile && !koditRepoId && (
         <Box sx={{ textAlign: 'center', py: 6 }}>
           <SearchIcon size={40} color="#656d76" style={{ marginBottom: 12, opacity: 0.4 }} />
           <Typography variant="body1" color="text.secondary">
             {activeToolDef.description}
           </Typography>
+        </Box>
+      )}
+    </Box>
+  )
+}
+
+const EnrichmentsPreview: FC<{ koditRepoId: number }> = ({ koditRepoId }) => {
+  const [page, setPage] = useState(1)
+  const perPage = 5
+  const { data, isLoading } = useKoditRepoEnrichments(koditRepoId, page, perPage)
+  const enrichments = (data as any)?.data ?? []
+  const meta = (data as any)?.meta
+
+  const total = meta?.total ?? 0
+  const totalPages = meta?.total_pages ?? 1
+
+  if (isLoading && enrichments.length === 0) {
+    return (
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, py: 4, justifyContent: 'center' }}>
+        <CircularProgress size={16} />
+        <Typography variant="body2" color="text.secondary">Loading indexed chunks...</Typography>
+      </Box>
+    )
+  }
+
+  if (total === 0) {
+    return (
+      <Box sx={{ textAlign: 'center', py: 6 }}>
+        <SearchIcon size={40} color="#656d76" style={{ marginBottom: 12, opacity: 0.4 }} />
+        <Typography variant="body1" color="text.secondary">
+          No indexed chunks yet. Content will appear here once indexing completes.
+        </Typography>
+      </Box>
+    )
+  }
+
+  return (
+    <Box>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5 }}>
+        <Typography variant="subtitle2">
+          Indexed Chunks
+        </Typography>
+        <Chip label={`${total} total`} size="small" sx={{ fontSize: '0.7rem', height: 20 }} />
+        {isLoading && <CircularProgress size={14} />}
+      </Box>
+      <Stack spacing={1}>
+        {enrichments.map((enrichment: any) => (
+          <Card key={enrichment.id} variant="outlined">
+            <CardContent sx={{ py: 1.5, '&:last-child': { pb: 1.5 } }}>
+              <Box sx={{ display: 'flex', gap: 1, mb: 0.5 }}>
+                <Chip label={enrichment.attributes?.subtype || enrichment.attributes?.type || enrichment.type} size="small" sx={{ fontSize: '0.7rem', height: 20 }} />
+              </Box>
+              <Typography
+                variant="body2"
+                sx={{
+                  whiteSpace: 'pre-wrap',
+                  fontSize: '0.75rem',
+                  maxHeight: 100,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  color: 'text.secondary',
+                }}
+              >
+                {enrichment.attributes?.content?.slice(0, 300) || ''}
+                {enrichment.attributes?.content?.length > 300 ? '...' : ''}
+              </Typography>
+            </CardContent>
+          </Card>
+        ))}
+      </Stack>
+      {totalPages > 1 && (
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 2, mt: 2 }}>
+          <Chip
+            label="Previous"
+            onClick={() => setPage(p => Math.max(1, p - 1))}
+            disabled={page <= 1}
+            variant="outlined"
+            size="small"
+            sx={{ cursor: page <= 1 ? 'default' : 'pointer' }}
+          />
+          <Typography variant="body2" color="text.secondary">
+            Page {page} of {totalPages}
+          </Typography>
+          <Chip
+            label="Next"
+            onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+            disabled={page >= totalPages}
+            variant="outlined"
+            size="small"
+            sx={{ cursor: page >= totalPages ? 'default' : 'pointer' }}
+          />
         </Box>
       )}
     </Box>
@@ -656,6 +764,7 @@ const SearchResultsList: FC<{
                   </Typography>
                 )}
                 {r.lines && <Typography variant="caption" color="text.secondary">{r.lines}</Typography>}
+                {r.page && r.page > 0 && <Chip label={`page ${r.page}`} size="small" sx={{ fontSize: '0.7rem', height: 20 }} />}
                 <Typography variant="caption" color="text.secondary" sx={{ ml: 'auto' }}>
                   {r.score > 0 ? `score: ${r.score.toFixed(3)}` : ''}
                 </Typography>
@@ -680,6 +789,109 @@ const SearchResultsList: FC<{
           </Card>
         )
       })}
+    </Stack>
+  )
+}
+
+// Page image component that fetches authenticated image using native fetch
+const PageImage: FC<{ url: string }> = ({ url }) => {
+  const [src, setSrc] = useState<string>('')
+
+  useEffect(() => {
+    let objectUrl = ''
+    const controller = new AbortController()
+    fetch(url, { signal: controller.signal, credentials: 'same-origin' })
+      .then(res => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        return res.blob()
+      })
+      .then(blob => {
+        objectUrl = URL.createObjectURL(blob)
+        setSrc(objectUrl)
+      })
+      .catch(() => { /* aborted or failed */ })
+    return () => {
+      controller.abort()
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
+    }
+  }, [url])
+
+  if (!src) return <CircularProgress size={24} />
+  return (
+    <Box
+      component="img"
+      src={src}
+      sx={{
+        maxWidth: '100%',
+        borderRadius: 1,
+        border: '1px solid',
+        borderColor: 'divider',
+      }}
+    />
+  )
+}
+
+// Visual search results - shows page images
+const VisualSearchResultsList: FC<{
+  results: KoditFileResult[]
+  meta?: KoditSearchMeta
+  repoId: string
+}> = ({ results, meta, repoId }) => {
+  if (results.length === 0) {
+    return <Alert severity="info">No results found.</Alert>
+  }
+
+  const count = meta?.count ?? results.length
+  const limitHit = meta && count >= meta.limit
+
+  return (
+    <Stack spacing={2}>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+        <Chip label={`${count} result${count !== 1 ? 's' : ''}`} size="small" />
+        {limitHit && (
+          <Typography variant="caption" color="text.secondary">
+            (limit reached)
+          </Typography>
+        )}
+      </Box>
+      {results.map((r, i) => (
+        <Card key={i} variant="outlined" sx={{ '&:hover': { borderColor: 'primary.main' } }}>
+          <CardContent sx={{ py: 1.5, '&:last-child': { pb: 1.5 } }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+              <Typography
+                variant="caption"
+                sx={{ fontFamily: 'monospace', color: '#00d5ff' }}
+              >
+                {r.path}
+              </Typography>
+              {r.page && r.page > 0 && <Chip label={`page ${r.page}`} size="small" sx={{ fontSize: '0.7rem', height: 20 }} />}
+              <Typography variant="caption" color="text.secondary" sx={{ ml: 'auto' }}>
+                {r.score > 0 ? `score: ${r.score.toFixed(3)}` : ''}
+              </Typography>
+            </Box>
+            {r.links?.page_image ? (
+              <PageImage url={r.links.page_image} />
+            ) : (
+              <Box
+                component="pre"
+                sx={{
+                  fontSize: '0.8rem',
+                  lineHeight: 1.5,
+                  fontFamily: 'monospace',
+                  whiteSpace: 'pre-wrap',
+                  wordBreak: 'break-word',
+                  margin: 0,
+                  color: 'text.secondary',
+                  maxHeight: 200,
+                  overflow: 'auto',
+                }}
+              >
+                {r.preview}
+              </Box>
+            )}
+          </CardContent>
+        </Card>
+      ))}
     </Stack>
   )
 }
@@ -1199,7 +1411,7 @@ const CodeIntelligenceTab: FC<CodeIntelligenceTabProps> = ({ repository, enrichm
         <WikiSubTab repoId={repoId} enabled={!!repoId && repository.kodit_indexing} />
       )}
       {subTab === 'search' && (
-        <SearchSubTab repoId={repoId} enabled={!!repoId && repository.kodit_indexing} />
+        <SearchSubTab repoId={repoId} enabled={!!repoId && repository.kodit_indexing} repository={repository} />
       )}
       {subTab === 'changelog' && (
         <ChangelogSubTab enrichments={enrichments} />

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"strings"
 	"text/template"
 	"time"
 
@@ -29,12 +30,44 @@ func NewAgentInstructionService(store store.Store, messageSender SpecTaskMessage
 	}
 }
 
-// getTaskDirName returns the task directory name, preferring DesignDocPath with fallback to task.ID
-func getTaskDirName(task *types.SpecTask) string {
+// GetTaskDirName returns the task directory name, preferring DesignDocPath with fallback to task.ID
+func GetTaskDirName(task *types.SpecTask) string {
 	if task.DesignDocPath != "" {
 		return task.DesignDocPath
 	}
 	return task.ID // Backwards compatibility for old tasks
+}
+
+// GetRawScreenshotBaseURL returns a raw content URL for a screenshot on the
+// helix-specs branch in the external repo. The returned URL contains the
+// placeholder SCREENSHOT_FILENAME which the agent replaces with real filenames.
+// This works across all providers including ADO (which uses query parameters).
+func GetRawScreenshotBaseURL(repo *types.GitRepository, taskDirName string) string {
+	if repo == nil || repo.ExternalURL == "" {
+		return ""
+	}
+
+	baseURL := strings.TrimSuffix(repo.ExternalURL, ".git")
+	screenshotPath := fmt.Sprintf("design/tasks/%s/screenshots", taskDirName)
+
+	switch repo.ExternalType {
+	case types.ExternalRepositoryTypeGitHub:
+		// {baseURL}/raw/branch/path works on both github.com (redirects to raw.githubusercontent.com)
+		// and GitHub Enterprise (serves raw content natively)
+		return fmt.Sprintf("%s/raw/helix-specs/%s/SCREENSHOT_FILENAME", baseURL, screenshotPath)
+	case types.ExternalRepositoryTypeGitLab:
+		// Works for both gitlab.com and self-hosted GitLab
+		return fmt.Sprintf("%s/-/raw/helix-specs/%s/SCREENSHOT_FILENAME", baseURL, screenshotPath)
+	case types.ExternalRepositoryTypeADO:
+		// Transform _git/repo to _apis/git/repositories/repo/items for raw content
+		// e.g. https://dev.azure.com/org/project/_git/repo -> .../org/project/_apis/git/repositories/repo/items?path=...
+		adoURL := strings.Replace(baseURL, "/_git/", "/_apis/git/repositories/", 1)
+		return fmt.Sprintf("%s/items?path=/%s/SCREENSHOT_FILENAME&versionDescriptor.version=helix-specs&versionDescriptor.versionType=branch", adoURL, screenshotPath)
+	case types.ExternalRepositoryTypeBitbucket:
+		return fmt.Sprintf("%s/raw/helix-specs/%s/SCREENSHOT_FILENAME", baseURL, screenshotPath)
+	default:
+		return ""
+	}
 }
 
 // =============================================================================
@@ -54,6 +87,8 @@ type ApprovalPromptData struct {
 	TaskName              string   // Human-readable task name
 	OriginalPromptSection string   // Formatted original request section (different for cloned vs normal)
 	ClonedTaskPreamble    string   // Extra instructions for cloned tasks (empty if not cloned)
+	ApprovalComments      string   // Reviewer's comments when approving (may be empty)
+	ScreenshotBaseURL     string   // Raw content URL prefix for screenshots on helix-specs branch (empty if no external repo)
 }
 
 // CommentPromptData contains data for design review comment prompts
@@ -182,6 +217,10 @@ You can test your UI changes and capture screenshots as proof of work:
 
 Screenshots are optional but valuable for UI work - they help reviewers see what changed.
 
+## Web Search
+
+You can use the ` + "`chrome-devtools`" + ` MCP server to search the web via DuckDuckGo. Navigate to ` + "`https://duckduckgo.com`" + `, type your query, and read the results. Use this to look up documentation, APIs, or solutions.
+
 ## Don't Over-Engineer
 
 - "Start a container" → docker-compose.yaml, NOT a Python wrapper
@@ -295,15 +334,35 @@ cd /home/retro/work/helix-specs && git add -A && git commit -m "Add PR descripti
 - Summary explains the "what" and "why"
 - Changes list the key modifications
 - Keep it concise - reviewers appreciate brevity
+- **For UI/frontend changes:** Include a "Screenshots" section in the PR description. Save screenshots to the ` + "`screenshots/`" + ` folder in your task directory — they get pushed to the helix-specs branch.{{if .ScreenshotBaseURL}} Use markdown image syntax so they render inline. The URL pattern for this repo is:
+  ` + "`" + `{{.ScreenshotBaseURL}}` + "`" + `
+  Replace ` + "`SCREENSHOT_FILENAME`" + ` with the actual filename (e.g. ` + "`01-before.png`" + `). Example:
+  ` + "```" + `
+  ## Screenshots
+  ![Feature OFF](url-with-01-off.png)
+  ![Feature ON](url-with-02-on.png)
+  ` + "```" + `{{else}} Reference them by path:
+  ` + "```" + `
+  ## Screenshots
+  See screenshots in helix-specs branch: design/tasks/{{.TaskDirName}}/screenshots/
+  ` + "```" + `{{end}}
 
 ---
 
 **Task:** {{.TaskName}}
 **Feature Branch:** {{.BranchName}} (base: {{.BaseBranch}})
 **Design Docs:** /home/retro/work/helix-specs/design/tasks/{{.TaskDirName}}/
+{{if .ApprovalComments}}
+## Reviewer Comments
 
+The reviewer included these comments when approving the design:
+
+{{.ApprovalComments}}
+
+Take these comments into account during implementation.
+{{end}}{{if .OriginalPromptSection}}
 {{.OriginalPromptSection}}
-
+{{end}}
 **Primary Project Directory:** /home/retro/work/{{.PrimaryRepoName}}/
 `))
 
@@ -377,8 +436,8 @@ git checkout {{.BaseBranch}} && git pull origin {{.BaseBranch}} && git merge {{.
 // guidelines contains concatenated organization + project guidelines (can be empty)
 // primaryRepoName is the name of the primary project repository (e.g., "my-app")
 // repoSection is the pre-built repository access section (from BuildRepositorySection)
-func BuildApprovalInstructionPrompt(task *types.SpecTask, branchName, baseBranch, guidelines, primaryRepoName, koditSection, repoSection string, nonPrimaryRepoNames []string) string {
-	taskDirName := getTaskDirName(task)
+func BuildApprovalInstructionPrompt(task *types.SpecTask, branchName, baseBranch, guidelines, primaryRepoName, koditSection, repoSection string, nonPrimaryRepoNames []string, screenshotBaseURL string) string {
+	taskDirName := GetTaskDirName(task)
 
 	// Build guidelines section if provided
 	guidelinesSection := ""
@@ -421,11 +480,17 @@ The whole point of cloning is to SKIP re-asking questions that were already answ
 	}
 
 	// Format original prompt section - for cloned tasks, reframe as historical context
+	// Only include original prompt for cloned tasks (where the agent hasn't seen it before)
+	// For normal tasks, the agent already has the original prompt from the planning phase
 	var originalPromptSection string
 	if task.ClonedFromID != "" {
 		originalPromptSection = "**Original Request (for context only - any questions have already been resolved in the specs):**\n> \"" + task.OriginalPrompt + "\""
-	} else {
-		originalPromptSection = "**Original Request:**\n" + task.OriginalPrompt
+	}
+
+	// Extract approval comments from the spec approval if available
+	var approvalComments string
+	if task.SpecApproval != nil && task.SpecApproval.Comments != "" {
+		approvalComments = task.SpecApproval.Comments
 	}
 
 	data := ApprovalPromptData{
@@ -440,6 +505,8 @@ The whole point of cloning is to SKIP re-asking questions that were already answ
 		TaskName:              task.Name,
 		OriginalPromptSection: originalPromptSection,
 		ClonedTaskPreamble:    clonedTaskPreamble,
+		ApprovalComments:      approvalComments,
+		ScreenshotBaseURL:     screenshotBaseURL,
 	}
 
 	var buf bytes.Buffer
@@ -452,7 +519,7 @@ The whole point of cloning is to SKIP re-asking questions that were already answ
 // BuildCommentPrompt builds a prompt for sending a design review comment to an agent
 // This is the single source of truth for this prompt - used by WebSocket approaches
 func BuildCommentPrompt(specTask *types.SpecTask, comment *types.SpecTaskDesignReviewComment) string {
-	taskDirName := getTaskDirName(specTask)
+	taskDirName := GetTaskDirName(specTask)
 
 	// Map document types to readable labels
 	documentTypeLabels := map[string]string{
@@ -484,7 +551,7 @@ func BuildCommentPrompt(specTask *types.SpecTask, comment *types.SpecTaskDesignR
 // BuildImplementationReviewPrompt builds the prompt for notifying agent that implementation is ready for review
 // This is the single source of truth for this prompt - used by WebSocket approaches
 func BuildImplementationReviewPrompt(task *types.SpecTask, branchName string) string {
-	taskDirName := getTaskDirName(task)
+	taskDirName := GetTaskDirName(task)
 
 	data := ImplementationReviewPromptData{
 		BranchName:  branchName,
@@ -501,7 +568,7 @@ func BuildImplementationReviewPrompt(task *types.SpecTask, branchName string) st
 // BuildRevisionInstructionPrompt builds the prompt for sending revision feedback to the agent
 // This is the single source of truth for this prompt - used by WebSocket approaches
 func BuildRevisionInstructionPrompt(task *types.SpecTask, comments string) string {
-	taskDirName := getTaskDirName(task)
+	taskDirName := GetTaskDirName(task)
 
 	data := RevisionPromptData{
 		TaskDirName: taskDirName,
@@ -556,22 +623,26 @@ func (s *AgentInstructionService) SendApprovalInstruction(
 	// Build repository section
 	repoSection := s.buildRepositorySectionForTask(ctx, task, project)
 
-	// Gather non-primary repo names for per-repo PR descriptions
+	// Gather non-primary repo names and find primary repo for screenshot URLs
 	var nonPrimaryRepoNames []string
+	var screenshotBaseURL string
+	taskDirName := GetTaskDirName(task)
 	if task.ProjectID != "" {
 		projectRepos, err := s.store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
 			ProjectID: task.ProjectID,
 		})
 		if err == nil {
 			for _, repo := range projectRepos {
-				if repo.Name != primaryRepoName && repo.ExternalURL != "" {
+				if repo.Name == primaryRepoName && repo.ExternalURL != "" {
+					screenshotBaseURL = GetRawScreenshotBaseURL(repo, taskDirName)
+				} else if repo.Name != primaryRepoName && repo.ExternalURL != "" {
 					nonPrimaryRepoNames = append(nonPrimaryRepoNames, repo.Name)
 				}
 			}
 		}
 	}
 
-	message := BuildApprovalInstructionPrompt(task, branchName, baseBranch, guidelines, primaryRepoName, koditDoc, repoSection, nonPrimaryRepoNames)
+	message := BuildApprovalInstructionPrompt(task, branchName, baseBranch, guidelines, primaryRepoName, koditDoc, repoSection, nonPrimaryRepoNames, screenshotBaseURL)
 
 	log.Info().
 		Str("session_id", sessionID).
@@ -580,10 +651,10 @@ func (s *AgentInstructionService) SendApprovalInstruction(
 
 	// Use messageSender which:
 	// 1. Creates an interaction in the database
-	// 2. Sets up sessionToWaitingInteraction mapping for response routing
+	// 2. Sets up requestToInteractionMapping for response routing
 	// 3. Sends the message via WebSocket to the agent
 	// NOTE: We do NOT call sendMessage here - that would create a duplicate interaction
-	// and overwrite the sessionToWaitingInteraction mapping, causing responses to go
+	// and overwrite the requestToInteractionMapping, causing responses to go
 	// to the wrong (empty) interaction.
 	_, _, err := s.messageSender(ctx, task, message, userID)
 	if err != nil {

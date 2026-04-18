@@ -40,6 +40,7 @@ func (k *koditSvcE2E) IsEnabled() bool                                          
 func (k *koditSvcE2E) MCPDocumentation() string                                                                      { return "" }
 func (k *koditSvcE2E) DeleteRepository(context.Context, int64) error                                                 { return nil }
 func (k *koditSvcE2E) RescanCommit(context.Context, int64, string) error                                             { return nil }
+func (k *koditSvcE2E) RescanAllRepositories(context.Context) error                                                   { return nil }
 func (k *koditSvcE2E) SyncRepository(context.Context, int64) error                                                   { return nil }
 func (k *koditSvcE2E) EnrichmentCount(context.Context, int64) (int64, error)                                         { return 0, nil }
 func (k *koditSvcE2E) DeleteTask(context.Context, int64) error                                                       { return nil }
@@ -67,6 +68,9 @@ func (k *koditSvcE2E) GetWikiTree(context.Context, int64) ([]services.KoditWikiT
 func (k *koditSvcE2E) GetWikiPage(context.Context, int64, string) (*services.KoditWikiPage, error) {
 	return nil, nil
 }
+func (k *koditSvcE2E) VisualSearch(context.Context, int64, string, int) ([]services.KoditFileResult, error) {
+	return nil, nil
+}
 func (k *koditSvcE2E) SemanticSearch(context.Context, int64, string, int, string) ([]services.KoditFileResult, error) {
 	return nil, nil
 }
@@ -85,6 +89,9 @@ func (k *koditSvcE2E) ListAllTasks(context.Context, int, int) ([]services.KoditP
 }
 func (k *koditSvcE2E) ActiveTasks(context.Context) ([]services.KoditActiveTask, error) { return nil, nil }
 func (k *koditSvcE2E) UpdateChunkingConfig(context.Context, int64, int, int, int) error { return nil }
+func (k *koditSvcE2E) RenderPageImage(context.Context, int64, string, int) ([]byte, error) {
+	return nil, nil
+}
 
 // KoditE2ESuite is a high-level integration test of the kodit knowledge indexing pipeline.
 // It verifies that indexKnowledge routes to kodit when the RAG client is a KoditIndexer,

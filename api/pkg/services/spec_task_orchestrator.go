@@ -21,7 +21,7 @@ import (
 // EnsurePRsFunc is a callback that creates PRs for all project repos that have
 // the task's feature branch. Set by the server so the orchestrator can retry
 // PR creation for repos whose branches weren't ready at initial "Open PR" time.
-type EnsurePRsFunc func(ctx context.Context, task *types.SpecTask, primaryRepoID string) error
+type EnsurePRsFunc func(ctx context.Context, task *types.SpecTask, primaryRepoID string, userID string) error
 
 type SpecTaskOrchestrator struct {
 	store                 store.Store
@@ -628,16 +628,60 @@ func (o *SpecTaskOrchestrator) handleSpecApproved(ctx context.Context, task *typ
 	return nil
 }
 
+// taskHasPRsForAllRepos returns true if the task already has a PR tracked for
+// every external repo in the project. When true, we can skip the expensive
+// ensurePRs call (which pushes branches + lists PRs from GitHub on every poll).
+func (o *SpecTaskOrchestrator) taskHasPRsForAllRepos(ctx context.Context, task *types.SpecTask) bool {
+	if len(task.RepoPullRequests) == 0 {
+		return false
+	}
+
+	project, err := o.store.GetProject(ctx, task.ProjectID)
+	if err != nil {
+		return false
+	}
+
+	repos, err := o.store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
+		ProjectID: project.ID,
+	})
+	if err != nil {
+		return false
+	}
+
+	// Build set of repo IDs that already have PRs
+	hasPR := make(map[string]bool, len(task.RepoPullRequests))
+	for _, rp := range task.RepoPullRequests {
+		hasPR[rp.RepositoryID] = true
+	}
+
+	// Check every external repo has a PR tracked
+	for _, repo := range repos {
+		if !repo.IsExternal || repo.ExternalURL == "" {
+			continue
+		}
+		if !hasPR[repo.ID] {
+			return false
+		}
+	}
+
+	return true
+}
+
 // handlePullRequest polls external repo for PR merge status
 // Called from the dedicated PR polling loop (runs every 1 minute)
 func (o *SpecTaskOrchestrator) handlePullRequest(ctx context.Context, task *types.SpecTask) error {
 	// Try to create PRs for repos that didn't have the branch ready when the
 	// user first clicked "Open PR". This covers the case where the agent pushes
 	// to a secondary repo after the initial PR creation.
-	if o.ensurePRs != nil {
+	//
+	// Skip if the task already has PRs for all external repos — no need to
+	// push + list PRs from GitHub on every 30s poll cycle. This is the main
+	// source of GitHub API rate limit exhaustion.
+	if o.ensurePRs != nil && !o.taskHasPRsForAllRepos(ctx, task) {
 		project, err := o.store.GetProject(ctx, task.ProjectID)
 		if err == nil && project.DefaultRepoID != "" {
-			if err := o.ensurePRs(ctx, task, project.DefaultRepoID); err != nil {
+			// Use the approver's identity so push+PR use their OAuth token
+			if err := o.ensurePRs(ctx, task, project.DefaultRepoID, task.ImplementationApprovedBy); err != nil {
 				log.Debug().Err(err).Str("task_id", task.ID).Msg("Failed to ensure PRs for all repos (will retry)")
 			}
 		}
@@ -647,6 +691,20 @@ func (o *SpecTaskOrchestrator) handlePullRequest(ctx context.Context, task *type
 		log.Warn().
 			Str("task_id", task.ID).
 			Msg("Task in pull_request status but no PRs tracked in RepoPullRequests")
+
+		// If the task has been in pull_request status for over 5 minutes with no
+		// PRs, the agent likely failed to push the branch. Surface an error.
+		if task.StatusUpdatedAt != nil && time.Since(*task.StatusUpdatedAt) > 5*time.Minute {
+			if task.Metadata == nil {
+				task.Metadata = make(map[string]interface{})
+			}
+			if _, hasErr := task.Metadata["error"]; !hasErr {
+				task.Metadata["error"] = "Pull request could not be created - the agent may not have pushed the feature branch. Check the agent session for errors."
+				if err := o.store.UpdateSpecTask(ctx, task); err != nil {
+					log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to save PR timeout error to task metadata")
+				}
+			}
+		}
 	}
 
 	// Always call processExternalPullRequestStatus even with no tracked PRs —

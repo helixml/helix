@@ -612,13 +612,25 @@ func (s *GitHTTPServer) handleReceivePack(w http.ResponseWriter, r *http.Request
 	if len(pushedBranchesMap) > 0 && repo != nil && repo.ExternalURL != "" {
 		log.Debug().Str("repo_id", repoID).Int("branch_count", len(pushedBranchesMap)).Msg("Starting external push with detached context")
 
+		// Resolve the acting user for push credentials: use the approver's
+		// OAuth token so the push is attributed to the user who clicked "Open PR".
+		var pushUserID string
+		if restriction != nil && restriction.IsAgentKey {
+			rawKey := s.extractRawAPIKey(apiKey)
+			if keyRecord, err := s.store.GetAPIKey(context.Background(), &types.ApiKey{Key: rawKey}); err == nil && keyRecord.SpecTaskID != "" {
+				if pushTask, err := s.store.GetSpecTask(context.Background(), keyRecord.SpecTaskID); err == nil {
+					pushUserID = pushTask.ImplementationApprovedBy
+				}
+			}
+		}
+
 		upstreamPushFailed := false
 		for branch, isForce := range pushedBranchesMap {
 			// Create per-branch timeout so later branches don't get starved
 			branchCtx, branchCancel := context.WithTimeout(context.Background(), 90*time.Second)
 
 			log.Info().Str("repo_id", repoID).Str("branch", branch).Bool("force", isForce).Msg("Pushing branch to upstream")
-			err := s.gitRepoService.PushBranchToRemote(branchCtx, repoID, branch, isForce)
+			err := s.gitRepoService.PushBranchToRemote(branchCtx, repoID, branch, isForce, pushUserID)
 			branchCancel()
 
 			if err != nil {
@@ -1162,9 +1174,29 @@ func (s *GitHTTPServer) ensurePullRequest(ctx context.Context, repo *types.GitRe
 
 	log.Info().Str("repo_id", repo.ID).Str("branch", branch).Msg("Ensuring pull request")
 
+	// If we already track a PR for this repo, return without pushing or
+	// re-creating. Pushing would recreate a branch that GitHub auto-deleted
+	// after merge, or re-open a branch the user closed intentionally.
+	// ListPullRequests (open-only) can't see merged/closed PRs, so without
+	// this guard we'd fall through to CreatePullRequest and duplicate.
+	// Mirrors the guard added to ensurePullRequestForRepo in PR #2225.
+	for i := range task.RepoPullRequests {
+		existing := &task.RepoPullRequests[i]
+		if existing.RepositoryID == repo.ID && existing.PRID != "" {
+			log.Info().
+				Str("pr_id", existing.PRID).
+				Str("pr_state", existing.PRState).
+				Str("repo_id", repo.ID).
+				Str("branch", branch).
+				Msg("Task already tracks a PR for this repo, skipping ensurePullRequest")
+			return nil
+		}
+	}
+
 	// Acquire repo lock for push operation to prevent race conditions.
+	// Use the approver's OAuth token when available.
 	if err := s.gitRepoService.WithRepoLock(repo.ID, func() error {
-		return s.gitRepoService.PushBranchToRemote(ctx, repo.ID, branch, false)
+		return s.gitRepoService.PushBranchToRemote(ctx, repo.ID, branch, false, task.ImplementationApprovedBy)
 	}); err != nil {
 		return fmt.Errorf("failed to push branch: %w", err)
 	}
@@ -1240,7 +1272,7 @@ func (s *GitHTTPServer) ensurePullRequest(ctx context.Context, repo *types.GitRe
 	}
 
 	// No existing PR — create one
-	prID, err := s.gitRepoService.CreatePullRequest(ctx, repo.ID, title, description, branch, repo.DefaultBranch)
+	prID, err := s.gitRepoService.CreatePullRequest(ctx, repo.ID, title, description, branch, repo.DefaultBranch, task.ImplementationApprovedBy)
 	if err != nil {
 		// If PR already exists (422), try to find it and use it
 		if strings.Contains(err.Error(), "already exists") {

@@ -500,10 +500,11 @@ function _start_services() {
   # Setup sandbox profile based on GPU detection
   setup_sandbox_profile
 
-  # Stop sandbox if running to ensure fresh start
-  docker compose -f docker-compose.dev.yaml stop "$SANDBOX_SERVICE" 2>/dev/null || true
-
   # Start services based on enabled profiles
+  # NOTE: do NOT stop the sandbox before `up -d` — `docker compose up -d` already
+  # recreates the container when the image changes, and an explicit stop causes a
+  # race with the NVIDIA driver that leaves the container in an unstoppable state
+  # (especially when build-sandbox just started it moments before).
   if [[ -n "$WITH_RUNNER" ]]; then
     if [[ -n "$WITH_DEMOS" ]]; then
       # Both runner and demos
@@ -1038,15 +1039,15 @@ function build-desktop() {
   _dt_elapsed "✅ ${DESKTOP_NAME} container built successfully"
   echo "📦 Image hash: ${IMAGE_HASH_FULL} (tag: ${IMAGE_TAG})"
 
-  # Always write version file (even if image unchanged, fixes stale version files)
-  mkdir -p sandbox-images
-  echo "${IMAGE_TAG}" > "sandbox-images/${IMAGE_NAME}.version"
-  echo "📦 Version file: ${IMAGE_TAG}"
-
   # Log whether image changed (transfer function handles dedup via sandbox tag check)
   if [ -n "$IMAGE_HASH_BEFORE" ] && [ "$IMAGE_HASH_BEFORE" = "$IMAGE_HASH_AFTER" ]; then
     echo "ℹ️  Image unchanged (layers cached)"
   fi
+
+  # Always write version file (even if image unchanged, fixes stale version files)
+  mkdir -p sandbox-images
+  echo "${IMAGE_TAG}" > "sandbox-images/${IMAGE_NAME}.version"
+  echo "📦 Version file: ${IMAGE_TAG}"
 
   # Transfer to running sandbox via local registry
   # Skip if SKIP_DESKTOP_TRANSFER is set (called from build-sandbox)

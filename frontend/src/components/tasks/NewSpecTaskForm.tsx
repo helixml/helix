@@ -570,7 +570,7 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
             }
             helperText={
               justDoItMode
-                ? "Agent will start working immediately"
+                ? "Planning will be skipped — agent starts implementation immediately"
                 : "Planning agent extracts task name, description, and generates specifications"
             }
             inputRef={taskPromptRef}
@@ -732,7 +732,10 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
                             onChange={(e) => setBaseBranch(e.target.value)}
                             label="Base branch"
                           >
-                            {branchesData?.map((branch: string) => (
+                            {branchesData
+                              ?.slice()
+                              .sort((a: string, b: string) => a.localeCompare(b, undefined, { sensitivity: 'base' }))
+                              .map((branch: string) => (
                               <MenuItem key={branch} value={branch}>
                                 {branch}
                                 {branch === defaultBranchName && (
@@ -796,6 +799,7 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
                   >
                     {branchesData
                       ?.filter((branch: string) => branch !== defaultBranchName)
+                      .sort((a: string, b: string) => a.localeCompare(b, undefined, { sensitivity: 'base' }))
                       .map((branch: string) => (
                         <MenuItem key={branch} value={branch}>
                           {branch}
@@ -883,10 +887,10 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
             )}
           </Box>
 
-          {/* Just Do It Mode Checkbox */}
+          {/* Skip Spec Checkbox */}
           <FormControl fullWidth>
             <Tooltip
-              title={`Skip writing a spec and just get the agent to immediately start doing what you ask (${navigator.platform.includes("Mac") ? "⌘J" : "Ctrl+J"})`}
+              title={`Skip planning and go straight to implementation (${navigator.platform.includes("Mac") ? "⌘J" : "Ctrl+J"})`}
               placement="top"
             >
               <FormControlLabel
@@ -901,7 +905,7 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
                   <Box>
                     <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
                       <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                        Just Do It
+                        Skip planning
                       </Typography>
                       <Box
                         component="span"
@@ -919,8 +923,7 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
                       </Box>
                     </Box>
                     <Typography variant="caption" color="text.secondary">
-                      Skip spec planning — useful for tasks that don't require
-                      planning code changes
+                      Skip planning — go straight to implementation
                     </Typography>
                   </Box>
                 }

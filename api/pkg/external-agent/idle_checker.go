@@ -44,7 +44,7 @@ func checkAndStopIdleDesktops(ctx context.Context, executor Executor, st store.S
 func stopIdleDesktop(ctx context.Context, executor Executor, st store.Store, session *types.Session) {
 	log.Info().
 		Str("session_id", session.ID).
-		Str("external_agent_id", session.Metadata.ExternalAgentID).
+		Str("dev_container_id", session.Metadata.DevContainerID).
 		Msg("shutting down idle desktop")
 
 	if err := executor.StopDesktop(ctx, session.ID); err != nil {
@@ -54,9 +54,15 @@ func stopIdleDesktop(ctx context.Context, executor Executor, st store.Store, ses
 			Msg("failed to stop idle desktop")
 	}
 
-	metadata := session.Metadata
-	metadata.ExternalAgentStatus = "terminated_idle"
-	if err := st.UpdateSessionMetadata(ctx, session.ID, metadata); err != nil {
+	// Re-fetch the session after StopDesktop — it saves PausedScreenshotPath
+	// to the DB. Using the stale pre-stop copy would overwrite that.
+	freshSession, err := st.GetSession(ctx, session.ID)
+	if err != nil {
+		log.Warn().Err(err).Str("session_id", session.ID).Msg("failed to re-fetch session after idle stop")
+		return
+	}
+	freshSession.Metadata.ExternalAgentStatus = "terminated_idle"
+	if _, err := st.UpdateSession(ctx, *freshSession); err != nil {
 		log.Warn().
 			Err(err).
 			Str("session_id", session.ID).

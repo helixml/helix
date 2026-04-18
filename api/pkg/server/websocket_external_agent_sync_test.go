@@ -59,8 +59,8 @@ func (s *WebSocketSyncSuite) SetupTest() {
 		externalAgentWSManager:      NewExternalAgentWSManager(),
 		externalAgentRunnerManager:  NewExternalAgentRunnerManager(),
 		contextMappings:             make(map[string]string),
-		sessionToWaitingInteraction: make(map[string][]string),
 		requestToSessionMapping:     make(map[string]string),
+		requestToInteractionMapping: make(map[string]string),
 		externalAgentSessionMapping: make(map[string]string),
 		externalAgentUserMapping:    make(map[string]string),
 		sessionCommentTimeout:       make(map[string]*time.Timer),
@@ -193,9 +193,8 @@ func (s *WebSocketSyncSuite) TestThreadCreated_Priority3_NewSession() {
 	err := s.server.handleThreadCreated("agent-1", syncMsg)
 	s.NoError(err)
 
-	// Verify contextMappings and sessionToWaitingInteraction populated
+	// Verify contextMappings populated
 	s.Equal("ses_new", s.server.contextMappings["thread-new"])
-	s.Equal([]string{"int-new"}, s.server.sessionToWaitingInteraction["ses_new"])
 }
 
 func (s *WebSocketSyncSuite) TestThreadCreated_Priority3_SpectaskLink() {
@@ -304,7 +303,6 @@ func (s *WebSocketSyncSuite) TestThreadCreated_StoreError() {
 
 func (s *WebSocketSyncSuite) TestMessageAdded_AssistantFirstMessage() {
 	s.server.contextMappings["thread-1"] = "ses_1"
-	s.server.sessionToWaitingInteraction["ses_1"] = []string{"int-1"}
 
 	session := &types.Session{
 		ID:    "ses_1",
@@ -352,7 +350,6 @@ func (s *WebSocketSyncSuite) TestMessageAdded_AssistantFirstMessage() {
 
 func (s *WebSocketSyncSuite) TestMessageAdded_AssistantSameMessageID_StreamingUpdate() {
 	s.server.contextMappings["thread-2"] = "ses_2"
-	s.server.sessionToWaitingInteraction["ses_2"] = []string{"int-2"}
 
 	session := &types.Session{
 		ID:    "ses_2",
@@ -403,7 +400,6 @@ func (s *WebSocketSyncSuite) TestMessageAdded_AssistantSameMessageID_StreamingUp
 
 func (s *WebSocketSyncSuite) TestMessageAdded_AssistantNewMessageID_MultiEntry() {
 	s.server.contextMappings["thread-3"] = "ses_3"
-	s.server.sessionToWaitingInteraction["ses_3"] = []string{"int-3"}
 
 	session := &types.Session{
 		ID:    "ses_3",
@@ -411,7 +407,7 @@ func (s *WebSocketSyncSuite) TestMessageAdded_AssistantNewMessageID_MultiEntry()
 	}
 	s.store.EXPECT().GetSession(gomock.Any(), "ses_3").Return(session, nil)
 
-	// Interaction already has content from msg-A
+	// Interaction already has content from msg-A (with structured entries)
 	existingInteraction := &types.Interaction{
 		ID:                   "int-3",
 		SessionID:            "ses_3",
@@ -419,6 +415,7 @@ func (s *WebSocketSyncSuite) TestMessageAdded_AssistantNewMessageID_MultiEntry()
 		ResponseMessage:      "First message",
 		LastZedMessageID:     "msg-A",
 		LastZedMessageOffset: 0,
+		ResponseEntries:      []byte(`[{"type":"text","content":"First message","message_id":"msg-A"}]`),
 	}
 	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(
 		[]*types.Interaction{existingInteraction}, int64(1), nil,
@@ -489,12 +486,10 @@ func (s *WebSocketSyncSuite) TestMessageAdded_UserMessage() {
 	err := s.server.handleMessageAdded("agent-1", syncMsg)
 	s.NoError(err)
 
-	// Verify sessionToWaitingInteraction was updated
-	s.Equal([]string{"int-user-new"}, s.server.sessionToWaitingInteraction["ses_user"])
 }
 
 // TestMessageAdded_UserMessage_PreCreatedInteractionReuse verifies Bug 1 fix:
-// When sendMessageToSpecTaskAgent pre-creates an interaction and sets sessionToWaitingInteraction,
+// When sendMessageToSpecTaskAgent pre-creates an interaction and sets requestToInteractionMapping,
 // the subsequent Zed echo of the user message must NOT create a duplicate interaction and must
 // NOT overwrite the mapping. This ensures the assistant response lands in the pre-created interaction.
 func (s *WebSocketSyncSuite) TestMessageAdded_UserMessage_PreCreatedInteractionReuse() {
@@ -502,7 +497,9 @@ func (s *WebSocketSyncSuite) TestMessageAdded_UserMessage_PreCreatedInteractionR
 
 	// Simulate sendMessageToSpecTaskAgent having pre-created an interaction
 	preCreatedID := "int-pre-created"
-	s.server.sessionToWaitingInteraction["ses_spec"] = []string{preCreatedID}
+	requestID := preCreatedID // sendMessageToSpecTaskAgent uses interaction ID as request ID
+	s.server.requestToSessionMapping[requestID] = "ses_spec"
+	s.server.requestToInteractionMapping[requestID] = preCreatedID
 
 	// No store expectations: CreateInteraction must NOT be called, GetSession must NOT be called
 
@@ -519,11 +516,9 @@ func (s *WebSocketSyncSuite) TestMessageAdded_UserMessage_PreCreatedInteractionR
 	err := s.server.handleMessageAdded("agent-1", syncMsg)
 	s.NoError(err)
 
-	// Mapping must still point to the pre-created interaction (not overwritten)
-	s.Require().NotEmpty(s.server.sessionToWaitingInteraction["ses_spec"],
-		"sessionToWaitingInteraction must not be emptied by Zed user-message echo")
-	s.Equal(preCreatedID, s.server.sessionToWaitingInteraction["ses_spec"][0],
-		"sessionToWaitingInteraction must not be overwritten by Zed user-message echo")
+	// requestToInteractionMapping must still contain the pre-created interaction (not removed by echo)
+	s.Equal(preCreatedID, s.server.requestToInteractionMapping[requestID],
+		"requestToInteractionMapping must not be removed by Zed user-message echo")
 }
 
 func (s *WebSocketSyncSuite) TestMessageAdded_ContextMappingMiss_DBFallback() {
@@ -720,9 +715,10 @@ func (s *WebSocketSyncSuite) TestMessageCompleted_ContextMappingMiss_DBFallback(
 	s.store.EXPECT().GetSession(gomock.Any(), "ses_mc_fb").Return(session, nil).AnyTimes()
 
 	waitingInteraction := &types.Interaction{
-		ID:        "int-mc-fb",
-		SessionID: "ses_mc_fb",
-		State:     types.InteractionStateWaiting,
+		ID:              "int-mc-fb",
+		SessionID:       "ses_mc_fb",
+		State:           types.InteractionStateWaiting,
+		ResponseMessage: "partial response flushed before restart",
 	}
 	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(
 		[]*types.Interaction{waitingInteraction}, int64(1), nil,
@@ -774,9 +770,10 @@ func (s *WebSocketSyncSuite) TestMessageCompleted_WithCommentFinalization() {
 	s.store.EXPECT().GetSession(gomock.Any(), "ses_cf").Return(session, nil).AnyTimes()
 
 	waitingInteraction := &types.Interaction{
-		ID:        "int-cf",
-		SessionID: "ses_cf",
-		State:     types.InteractionStateWaiting,
+		ID:              "int-cf",
+		SessionID:       "ses_cf",
+		State:           types.InteractionStateWaiting,
+		ResponseMessage: "I've reviewed the design and it looks good.",
 	}
 	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(
 		[]*types.Interaction{waitingInteraction}, int64(1), nil,
@@ -874,13 +871,17 @@ func (s *WebSocketSyncSuite) TestAgentReady_WithPendingPrompt() {
 		ID:    "ses_pending",
 		Owner: "user-1",
 	}
-	s.store.EXPECT().GetSession(gomock.Any(), "ses_pending").Return(session, nil)
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_pending").Return(session, nil).AnyTimes()
+	// Re-check idle state before creating interaction
+	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(
+		[]*types.Interaction{}, int64(0), nil,
+	)
 	s.store.EXPECT().CreateInteraction(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, interaction *types.Interaction) (*types.Interaction, error) {
 			return &types.Interaction{ID: "int-prompt", SessionID: "ses_pending"}, nil
 		},
 	)
-	// GetSpecTask for getAgentNameForSession
+	// GetSpecTask for getAgentNameForSession + autoStartDevContainerForSession
 	s.store.EXPECT().GetSpecTask(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound).AnyTimes()
 
 	syncMsg := &types.SyncMessage{
@@ -894,10 +895,11 @@ func (s *WebSocketSyncSuite) TestAgentReady_WithPendingPrompt() {
 	time.Sleep(100 * time.Millisecond)
 }
 
-func (s *WebSocketSyncSuite) TestAgentReady_ReconnectSendsOpenThread() {
-	// Simulate a reconnect scenario: session has an existing ZedThreadID,
-	// agent_ready arrives with thread_id=null (fresh reconnect).
-	// Helix should send open_thread to re-establish Zed's subscription.
+func (s *WebSocketSyncSuite) TestAgentReady_ReconnectDoesNotSendOpenThread() {
+	// open_thread is now sent on connect (handleExternalAgentConnection), BEFORE
+	// the agent_ready gate. handleAgentReady should NOT send open_thread — doing
+	// so would cause it to arrive after the queued chat_message, triggering
+	// history replay that corrupts the current interaction.
 	sessionID := "ses_reconnect"
 
 	s.server.externalAgentWSManager.initReadinessState(sessionID, false, nil)
@@ -911,15 +913,6 @@ func (s *WebSocketSyncSuite) TestAgentReady_ReconnectSendsOpenThread() {
 	}
 	s.server.externalAgentWSManager.registerConnection(sessionID, conn)
 
-	// Session has an existing ZedThreadID from before the restart
-	session := &types.Session{
-		ID:    sessionID,
-		Owner: "user-1",
-		Metadata: types.SessionMetadata{
-			ZedThreadID: "thread-existing-abc",
-		},
-	}
-	s.store.EXPECT().GetSession(gomock.Any(), sessionID).Return(session, nil)
 	s.store.EXPECT().GetSpecTask(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound).AnyTimes()
 	s.store.EXPECT().GetAnyPendingPrompt(gomock.Any(), sessionID).Return(nil, nil).AnyTimes()
 
@@ -936,11 +929,8 @@ func (s *WebSocketSyncSuite) TestAgentReady_ReconnectSendsOpenThread() {
 
 	time.Sleep(50 * time.Millisecond)
 
-	// Verify open_thread command was sent
-	s.Require().Greater(len(sendChan), 0, "expected open_thread command to be sent")
-	cmd := <-sendChan
-	s.Equal("open_thread", cmd.Type)
-	s.Equal("thread-existing-abc", cmd.Data["acp_thread_id"])
+	// Verify NO open_thread command was sent (it's now sent on connect, not on agent_ready)
+	s.Equal(0, len(sendChan), "handleAgentReady should NOT send open_thread — it's sent on connect now")
 }
 
 func (s *WebSocketSyncSuite) TestAgentReady_NoOpenThreadWhenThreadIDPresent() {
@@ -1015,7 +1005,11 @@ func (s *WebSocketSyncSuite) TestProcessPromptQueue_HasPending() {
 		ID:    "ses_pq",
 		Owner: "user-1",
 	}
-	s.store.EXPECT().GetSession(gomock.Any(), "ses_pq").Return(session, nil)
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_pq").Return(session, nil).AnyTimes()
+	// Re-check idle state before creating interaction
+	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(
+		[]*types.Interaction{}, int64(0), nil,
+	)
 	s.store.EXPECT().CreateInteraction(gomock.Any(), gomock.Any()).Return(
 		&types.Interaction{ID: "int-pq", SessionID: "ses_pq"}, nil,
 	)
@@ -1026,6 +1020,7 @@ func (s *WebSocketSyncSuite) TestProcessPromptQueue_HasPending() {
 	s.store.EXPECT().MarkPromptAsSent(gomock.Any(), "prompt-pq").Return(nil)
 
 	s.server.processPromptQueue(context.Background(), "ses_pq")
+	time.Sleep(50 * time.Millisecond) // let autoStartDevContainerForSession goroutine complete
 }
 
 func (s *WebSocketSyncSuite) TestProcessPromptQueue_SendFails_GetSessionFails() {
@@ -1076,13 +1071,18 @@ func (s *WebSocketSyncSuite) TestProcessAnyPendingPrompt_HasPending() {
 		ID:    "ses_any",
 		Owner: "user-1",
 	}
-	s.store.EXPECT().GetSession(gomock.Any(), "ses_any").Return(session, nil)
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_any").Return(session, nil).AnyTimes()
+	// Re-check idle state before creating interaction
+	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(
+		[]*types.Interaction{}, int64(0), nil,
+	)
 	s.store.EXPECT().CreateInteraction(gomock.Any(), gomock.Any()).Return(
 		&types.Interaction{ID: "int-any", SessionID: "ses_any"}, nil,
 	)
 	s.store.EXPECT().GetSpecTask(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound).AnyTimes()
 
 	s.server.processAnyPendingPrompt(context.Background(), "ses_any")
+	time.Sleep(50 * time.Millisecond) // let autoStartDevContainerForSession goroutine complete
 }
 
 func (s *WebSocketSyncSuite) TestProcessAnyPendingPrompt_SendFails_MarkedFailed() {
@@ -1099,6 +1099,53 @@ func (s *WebSocketSyncSuite) TestProcessAnyPendingPrompt_SendFails_MarkedFailed(
 	s.store.EXPECT().MarkPromptAsFailed(gomock.Any(), "prompt-anyfail").Return(nil)
 
 	s.server.processAnyPendingPrompt(context.Background(), "ses_anyfail")
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// sendQueuedPromptToSession — in-memory state cleanup on send failure
+// ──────────────────────────────────────────────────────────────────────────────
+
+func (s *WebSocketSyncSuite) TestSendQueuedPrompt_SendFails_CleansUpInMemoryState() {
+	// When sendCommandToExternalAgent fails (no WS connection),
+	// requestToSessionMapping and requestToInteractionMapping must be cleaned
+	// up so pickupWaitingInteraction sets them fresh on reconnect.
+	// Otherwise a stale message_completed from the agent's previous context
+	// gets matched to the new interaction (wrong response bug).
+
+	session := &types.Session{
+		ID:    "ses_cleanup",
+		Owner: "user-1",
+	}
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_cleanup").Return(session, nil).AnyTimes()
+	// Re-check idle state before creating interaction
+	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(
+		[]*types.Interaction{}, int64(0), nil,
+	)
+	s.store.EXPECT().CreateInteraction(gomock.Any(), gomock.Any()).Return(
+		&types.Interaction{ID: "int-cleanup", SessionID: "ses_cleanup"}, nil,
+	)
+	s.store.EXPECT().GetSpecTask(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound).AnyTimes()
+
+	prompt := &types.PromptHistoryEntry{
+		ID:        "prompt-cleanup",
+		SessionID: "ses_cleanup",
+		Content:   "test prompt",
+	}
+
+	// No WS connection registered → sendCommandToExternalAgent will fail
+	err := s.server.sendQueuedPromptToSession(context.Background(), "ses_cleanup", prompt)
+	s.NoError(err) // interaction was created, send failure is not returned as error
+
+	time.Sleep(50 * time.Millisecond) // let autoStartDevContainerForSession goroutine complete
+
+	// Verify in-memory state was cleaned up
+	s.server.contextMappingsMutex.Lock()
+	_, hasSessionMapping := s.server.requestToSessionMapping["int-cleanup"]
+	_, hasInteractionMapping := s.server.requestToInteractionMapping["int-cleanup"]
+	s.server.contextMappingsMutex.Unlock()
+
+	s.False(hasSessionMapping, "requestToSessionMapping should be cleaned up after send failure")
+	s.False(hasInteractionMapping, "requestToInteractionMapping should be cleaned up after send failure")
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -1420,7 +1467,6 @@ func (s *WebSocketSyncSuite) TestProcessSyncMessage_SyncEventHookFires() {
 func (s *WebSocketSyncSuite) TestStreamingContextCache_SecondTokenSkipsDBQueries() {
 	// Setup: context mapping and waiting interaction
 	s.server.contextMappings["thread-cache"] = "ses_cache"
-	s.server.sessionToWaitingInteraction["ses_cache"] = []string{"int-cache"}
 
 	session := &types.Session{
 		ID:    "ses_cache",
@@ -1483,16 +1529,19 @@ func (s *WebSocketSyncSuite) TestStreamingContextCache_SecondTokenSkipsDBQueries
 	err = s.server.handleMessageAdded("agent-1", syncMsg2)
 	s.NoError(err)
 
-	// Verify in-memory content is updated despite no DB write
+	// Verify accumulator has latest content despite no DB write.
+	// ResponseMessage is only updated on DB write (deferred), so check
+	// the accumulator which always has the latest content.
 	sctx.mu.Lock()
-	s.Equal("Hello, world!", sctx.interaction.ResponseMessage)
+	s.NotNil(sctx.accumulator, "accumulator should exist")
+	sctx.accumulator.Rebuild()
+	s.Equal("Hello, world!", sctx.accumulator.Content)
 	s.True(sctx.dirty, "interaction should be dirty (not yet flushed)")
 	sctx.mu.Unlock()
 }
 
 func (s *WebSocketSyncSuite) TestStreamingContextCache_ClearedOnMessageCompleted() {
 	s.server.contextMappings["thread-clear"] = "ses_clear"
-	s.server.sessionToWaitingInteraction["ses_clear"] = []string{"int-clear"}
 
 	session := &types.Session{
 		ID:    "ses_clear",
@@ -1588,7 +1637,6 @@ func (s *WebSocketSyncSuite) TestStreamingContextCache_UserMessageDoesNotUseCach
 func (s *WebSocketSyncSuite) TestStreamingThrottle_DBWriteAfterInterval() {
 	// Test that DB write happens after the throttle interval expires.
 	s.server.contextMappings["thread-throttle"] = "ses_throttle"
-	s.server.sessionToWaitingInteraction["ses_throttle"] = []string{"int-throttle"}
 
 	session := &types.Session{
 		ID:    "ses_throttle",
@@ -1631,15 +1679,17 @@ func (s *WebSocketSyncSuite) TestStreamingThrottle_DBWriteAfterInterval() {
 	err = s.server.handleMessageAdded("agent-1", syncMsg)
 	s.NoError(err)
 
-	// Verify dirty flag
+	// Verify dirty flag — ResponseMessage is deferred to DB write, so check accumulator
 	s.server.streamingContextsMu.RLock()
 	sctx := s.server.streamingContexts["ses_throttle"]
 	s.server.streamingContextsMu.RUnlock()
 	sctx.mu.Lock()
 	s.True(sctx.dirty, "should be dirty after throttled write")
-	s.Equal("Token 1 Token 2", sctx.interaction.ResponseMessage)
+	// ResponseMessage is deferred to DB write, so check accumulator instead.
+	sctx.accumulator.Rebuild()
+	s.Equal("Token 1 Token 2", sctx.accumulator.Content)
 	// Artificially expire the throttle interval
-	sctx.lastDBWrite = time.Now().Add(-300 * time.Millisecond)
+	sctx.lastDBWrite = time.Now().Add(-10 * time.Second)
 	sctx.mu.Unlock()
 
 	// Now expect another DB write since interval expired
@@ -1662,7 +1712,6 @@ func (s *WebSocketSyncSuite) TestStreamingThrottle_DBWriteAfterInterval() {
 func (s *WebSocketSyncSuite) TestStreamingThrottle_DirtyFlushOnMessageCompleted() {
 	// Test that dirty interaction is flushed to DB when message_completed arrives.
 	s.server.contextMappings["thread-flush"] = "ses_flush"
-	s.server.sessionToWaitingInteraction["ses_flush"] = []string{"int-flush"}
 
 	session := &types.Session{
 		ID:    "ses_flush",
@@ -1744,7 +1793,6 @@ func (s *WebSocketSyncSuite) TestStreamingThrottle_DirtyFlushOnMessageCompleted(
 func (s *WebSocketSyncSuite) TestStreamingThrottle_MultiMessageAccumulation() {
 	// Test content accumulation across different message_ids (text -> tool call -> text)
 	s.server.contextMappings["thread-multi"] = "ses_multi"
-	s.server.sessionToWaitingInteraction["ses_multi"] = []string{"int-multi"}
 
 	session := &types.Session{
 		ID:    "ses_multi",
@@ -1789,13 +1837,15 @@ func (s *WebSocketSyncSuite) TestStreamingThrottle_MultiMessageAccumulation() {
 	err = s.server.handleMessageAdded("agent-1", syncMsg)
 	s.NoError(err)
 
-	// Verify accumulated content in memory
+	// Verify accumulated content in memory — ResponseMessage is deferred to DB
+	// write, so check the accumulator which always has the latest content.
 	s.server.streamingContextsMu.RLock()
 	sctx := s.server.streamingContexts["ses_multi"]
 	s.server.streamingContextsMu.RUnlock()
 
 	sctx.mu.Lock()
-	s.Equal("Let me help\n\n[Running: ls -la]", sctx.interaction.ResponseMessage)
+	sctx.accumulator.Rebuild()
+	s.Equal("Let me help\n\n[Running: ls -la]", sctx.accumulator.Content)
 	s.Equal("msg-tool", sctx.interaction.LastZedMessageID)
 
 	// Third update: tool call status changes (same message_id, content replaces from offset)
@@ -1806,7 +1856,8 @@ func (s *WebSocketSyncSuite) TestStreamingThrottle_MultiMessageAccumulation() {
 	s.NoError(err)
 
 	sctx.mu.Lock()
-	s.Equal("Let me help\n\n[Finished: ls -la]\nfile1.txt\nfile2.txt", sctx.interaction.ResponseMessage)
+	sctx.accumulator.Rebuild()
+	s.Equal("Let me help\n\n[Finished: ls -la]\nfile1.txt\nfile2.txt", sctx.accumulator.Content)
 	s.True(sctx.dirty)
 	sctx.mu.Unlock()
 }
@@ -2122,8 +2173,8 @@ func (s *WebSocketSyncSuite) TestPickupWaitingInteraction_FallbackCreatesMapping
 	s.Equal(sessionID, s.server.requestToSessionMapping[interactionID],
 		"fallback should map interaction ID → session ID")
 
-	// Verify sessionToWaitingInteraction populated
-	s.Contains(s.server.sessionToWaitingInteraction[sessionID], interactionID)
+	// Verify requestToInteractionMapping populated
+	s.Equal(interactionID, s.server.requestToInteractionMapping[interactionID])
 
 	// Verify command was queued in pending queue
 	s.server.externalAgentWSManager.readinessMu.Lock()
@@ -2201,7 +2252,7 @@ func (s *WebSocketSyncSuite) TestPickupWaitingInteraction_NoWaitingInteraction()
 
 	// No mappings should be created
 	s.Empty(s.server.requestToSessionMapping)
-	s.Empty(s.server.sessionToWaitingInteraction)
+	s.Empty(s.server.requestToInteractionMapping)
 
 	// No command should be queued
 	s.server.externalAgentWSManager.readinessMu.Lock()

@@ -16,7 +16,11 @@ import (
 // to an external repository (GitHub, Azure DevOps, etc.).
 //
 // Uses gitea/git module for native git operations.
-func (s *GitRepositoryService) PushBranchToRemote(ctx context.Context, repoID, branchName string, force bool) error {
+func (s *GitRepositoryService) PushBranchToRemote(ctx context.Context, repoID, branchName string, force bool, userID ...string) error {
+	var actingUserID string
+	if len(userID) > 0 {
+		actingUserID = userID[0]
+	}
 	startTime := time.Now()
 
 	log.Trace().
@@ -52,8 +56,8 @@ func (s *GitRepositoryService) PushBranchToRemote(ctx context.Context, repoID, b
 		return fmt.Errorf("branch name is required")
 	}
 
-	// Get credentials for the external URL
-	username, password := s.getCredentialsForRepo(ctx, gitRepo)
+	// Get credentials for the external URL — use acting user's OAuth when available
+	username, password := s.getCredentialsForRepo(ctx, gitRepo, actingUserID)
 	authType := "none"
 	if password != "" {
 		authType = fmt.Sprintf("basic:%s", username)
@@ -69,7 +73,7 @@ func (s *GitRepositoryService) PushBranchToRemote(ctx context.Context, repoID, b
 	}
 
 	// Build authenticated URL for push
-	pushURL := s.buildAuthenticatedCloneURLForRepo(ctx, gitRepo)
+	pushURL := s.buildAuthenticatedCloneURLForRepo(ctx, gitRepo, actingUserID)
 
 	log.Info().
 		Str("repo_id", gitRepo.ID).

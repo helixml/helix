@@ -1,11 +1,14 @@
-import React, { RefObject, useState } from "react";
+import React, { RefObject, useEffect, useState } from "react";
 import {
+  Alert,
   Box,
   Button,
   CircularProgress,
+  FormControlLabel,
   Menu,
   MenuItem,
   ListItemText,
+  Switch,
   Tooltip,
   Typography,
 } from "@mui/material";
@@ -15,11 +18,19 @@ import {
   CheckCircle as ApproveIcon,
   Close as CloseIcon,
   RocketLaunch as LaunchIcon,
+  SkipNext as SkipIcon,
+  Replay as ReopenIcon,
 } from "@mui/icons-material";
 import {
   useApproveImplementation,
   useStopAgent,
+  useSkipSpec,
+  useReopenTask,
 } from "../../services/specTaskWorkflowService";
+import { useUpdateSpecTask } from "../../services/specTaskService";
+import { useListOAuthProviders, useListOAuthConnections } from "../../services/oauthProvidersService";
+import { findOAuthProviderForType, findOAuthConnectionForProvider, hasRequiredScopes } from "../../utils/oauthProviders";
+import { useOAuthFlow } from "../../hooks/useOAuthFlow";
 
 export interface RepoPR {
   repository_id?: string;
@@ -41,6 +52,7 @@ export interface SpecTaskForActions {
   planning_session_id?: string;
   metadata?: { error?: string };
   repo_pull_requests?: RepoPR[];
+  last_push_at?: string;
 }
 
 interface SpecTaskActionButtonsProps {
@@ -57,6 +69,8 @@ interface SpecTaskActionButtonsProps {
   onReject?: (shiftKey?: boolean) => void;
   /** Whether the connected project has an external repo (affects Accept vs Open PR text) */
   hasExternalRepo?: boolean;
+  /** The external repository type (e.g. "github", "ado") -- used to decide provider-specific OAuth checks */
+  externalRepoType?: string;
   /** Whether archive/reject is in progress */
   isArchiving?: boolean;
   /** Whether start planning is in progress */
@@ -161,6 +175,7 @@ export default function SpecTaskActionButtons({
   onReviewSpec,
   onReject,
   hasExternalRepo = false,
+  externalRepoType,
   isArchiving = false,
   isStartingPlanning = false,
   isQueued = false,
@@ -171,8 +186,54 @@ export default function SpecTaskActionButtons({
 }: SpecTaskActionButtonsProps) {
   const approveImplementationMutation = useApproveImplementation(task.id);
   const stopAgentMutation = useStopAgent(task.id);
+  const skipSpecMutation = useSkipSpec(task.id);
+  const reopenTaskMutation = useReopenTask(task.id);
+  const updateSpecTaskMutation = useUpdateSpecTask();
   const [isReviewingSpec, setIsReviewingSpec] = useState(false);
   const [prMenuAnchor, setPrMenuAnchor] = useState<null | HTMLElement>(null);
+  const [showOAuthPrompt, setShowOAuthPrompt] = useState(false);
+  const { data: oauthProviders } = useListOAuthProviders();
+  const { data: oauthConnections } = useListOAuthConnections();
+  const { startOAuthFlow, isLoading: isOAuthLoading } = useOAuthFlow();
+
+  const gitHubConnection = findOAuthConnectionForProvider(oauthConnections, 'github');
+  const hasGitHubOAuthWithRepoScope = !!gitHubConnection && hasRequiredScopes(gitHubConnection.scopes, ['repo']);
+  const gitHubProvider = findOAuthProviderForType(oauthProviders, 'github');
+
+  // Detect oauth_required error from the backend (enforcement fallback)
+  useEffect(() => {
+    if (approveImplementationMutation.error) {
+      const data = (approveImplementationMutation.error as any)?.response?.data;
+      if (data?.error === "oauth_required") {
+        setShowOAuthPrompt(true);
+      }
+    }
+  }, [approveImplementationMutation.error]);
+
+  const handleOpenPR = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!isDirectPush && hasExternalRepo && externalRepoType === "github" && !hasGitHubOAuthWithRepoScope) {
+      if (gitHubProvider?.id) {
+        // GitHub OAuth provider exists -- start the connection flow with repo scope
+        startOAuthFlow({
+          providerId: gitHubProvider.id,
+          scopes: ['repo'],
+          onSuccess: () => {
+            setShowOAuthPrompt(false);
+            approveImplementationMutation.mutate();
+          },
+          onError: () => {
+            setShowOAuthPrompt(true);
+          },
+        });
+      } else {
+        // No GitHub OAuth provider configured -- show prompt
+        setShowOAuthPrompt(true);
+      }
+      return;
+    }
+    approveImplementationMutation.mutate();
+  };
 
   const isArchived = task.archived ?? false;
   const isInline = variant === "inline";
@@ -180,6 +241,8 @@ export default function SpecTaskActionButtons({
   // Determine if this is a direct-push scenario (branch same as base) vs PR workflow
   const isDirectPush =
     !hasExternalRepo || task.base_branch === task.branch_name;
+
+  const hasPushed = !!task.last_push_at;
 
   // Button size based on variant
   const buttonSize = "small";
@@ -207,15 +270,44 @@ export default function SpecTaskActionButtons({
           ? "Queue Planning"
           : task.metadata?.error
             ? task.just_do_it_mode
-              ? "Retry"
+              ? "Retry Implementation"
               : "Retry Planning"
             : task.just_do_it_mode
-              ? "Just Do It"
+              ? "Start Implementation"
               : "Start Planning";
+
+    const skipSpecToggle = (
+      <Tooltip title="Skip planning and go straight to implementation" placement="top">
+        <FormControlLabel
+          control={
+            <Switch
+              size="small"
+              checked={!!task.just_do_it_mode}
+              onChange={(e) => {
+                e.stopPropagation();
+                updateSpecTaskMutation.mutate({
+                  taskId: task.id,
+                  updates: { just_do_it_mode: e.target.checked },
+                });
+              }}
+              disabled={isArchived || updateSpecTaskMutation.isPending}
+            />
+          }
+          label={
+            <Typography variant="caption" sx={{ whiteSpace: "nowrap" }}>
+              Skip planning
+            </Typography>
+          }
+          sx={{ mr: 0 }}
+          onClick={(e) => e.stopPropagation()}
+        />
+      </Tooltip>
+    );
 
     if (isInline) {
       return (
-        <Box sx={{ display: "flex", gap: 1 }}>
+        <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
+          {skipSpecToggle}
           <CompactActionButton
             tooltip={startTooltip}
             color={task.just_do_it_mode ? "success" : "warning"}
@@ -238,9 +330,9 @@ export default function SpecTaskActionButtons({
     }
 
     return (
-      <Box sx={isInline ? { display: "flex", gap: 1 } : { mt: 1.5 }}>
+      <Box sx={{ mt: 1.5 }}>
         <Tooltip title={startTooltip} placement="top">
-          <span style={{ width: isInline ? "auto" : "100%" }}>
+          <span style={{ width: "100%" }}>
             <Button
               ref={startPlanningButtonRef}
               size={buttonSize}
@@ -258,10 +350,54 @@ export default function SpecTaskActionButtons({
                 onStartPlanning?.();
               }}
               disabled={isStartDisabled}
-              fullWidth={!isInline}
+              fullWidth
               sx={buttonSx}
             >
               {startLabel}
+            </Button>
+          </span>
+        </Tooltip>
+        <Box sx={{ mt: 0.5, display: "flex", justifyContent: "center" }}>
+          {skipSpecToggle}
+        </Box>
+      </Box>
+    );
+  }
+
+  // Spec generation phase: Skip Spec button
+  if (task.status === "spec_generation") {
+    const isSkipping = skipSpecMutation.isPending;
+    return (
+      <Box
+        sx={{
+          display: "flex",
+          flexDirection: isInline ? "row" : "column",
+          gap: 1,
+          width: isInline ? "auto" : "100%",
+        }}
+      >
+        <Tooltip title={isArchived ? "Task is archived" : "Skip planning and start implementation"}>
+          <span>
+            <Button
+              variant="outlined"
+              size="small"
+              color="warning"
+              startIcon={
+                isSkipping ? (
+                  <CircularProgress size={18} color="inherit" />
+                ) : (
+                  <SkipIcon sx={{ fontSize: 18 }} />
+                )
+              }
+              onClick={(e) => {
+                e.stopPropagation();
+                skipSpecMutation.mutate();
+              }}
+              disabled={isArchived || isSkipping}
+              fullWidth={!isInline}
+              sx={buttonSx}
+            >
+              {isSkipping ? "Skipping..." : "Skip Planning"}
             </Button>
           </span>
         </Tooltip>
@@ -350,14 +486,57 @@ export default function SpecTaskActionButtons({
   if (task.status === "implementation") {
     const hasDesignDocs = !!task.design_docs_pushed_at;
 
+    if (showOAuthPrompt) {
+      return (
+        <Box sx={{ display: "flex", flexDirection: "column", gap: 1, width: "100%" }}>
+          <Alert severity="warning" sx={{ py: 0.5 }}>
+            {gitHubProvider?.id
+              ? "Connect your GitHub account to open PRs under your name."
+              : "GitHub OAuth is not configured. Ask your administrator to set it up so PRs can be opened under your name."}
+          </Alert>
+          <Box sx={{ display: "flex", gap: 1 }}>
+            {gitHubProvider?.id && (
+              <Button
+                variant="contained"
+                size="small"
+                disabled={isOAuthLoading}
+                onClick={() => {
+                  startOAuthFlow({
+                    providerId: gitHubProvider.id!,
+                    scopes: ['repo'],
+                    onSuccess: () => {
+                      setShowOAuthPrompt(false);
+                      approveImplementationMutation.mutate();
+                    },
+                    onError: () => {
+                      // Keep showing the prompt
+                    },
+                  });
+                }}
+              >
+                {isOAuthLoading ? "Connecting..." : "Connect GitHub"}
+              </Button>
+            )}
+            <Button
+              variant="outlined"
+              size="small"
+              onClick={() => setShowOAuthPrompt(false)}
+            >
+              Cancel
+            </Button>
+          </Box>
+        </Box>
+      );
+    }
+
     if (isInline) {
       return (
         <Box sx={{ display: "flex", gap: 1 }}>
           <CompactActionButton
-            tooltip={isArchived ? "Task is archived" : ""}
+            tooltip={isArchived ? "Task is archived" : !hasPushed ? "Waiting for agent to push code..." : ""}
             variant="outlined"
             color="error"
-            disabled={isArchived || isArchiving}
+            disabled={isArchived || isArchiving || !hasPushed}
             icon={
               isArchiving ? (
                 <CircularProgress size={16} color="inherit" />
@@ -372,10 +551,10 @@ export default function SpecTaskActionButtons({
             }}
           />
           <CompactActionButton
-            tooltip={isArchived ? "Task is archived" : ""}
+            tooltip={isArchived ? "Task is archived" : !hasPushed ? "Waiting for agent to push code..." : ""}
             variant="contained"
             color="success"
-            disabled={isArchived || approveImplementationMutation.isPending}
+            disabled={isArchived || approveImplementationMutation.isPending || !hasPushed}
             icon={
               approveImplementationMutation.isPending ? (
                 <CircularProgress size={16} color="inherit" />
@@ -392,10 +571,7 @@ export default function SpecTaskActionButtons({
                   ? "Accept"
                   : "Open PR"
             }
-            onClick={(e) => {
-              e.stopPropagation();
-              approveImplementationMutation.mutate();
-            }}
+            onClick={handleOpenPR}
           />
           {hasDesignDocs && onReviewSpec && (
             <CompactActionButton
@@ -425,13 +601,13 @@ export default function SpecTaskActionButtons({
         }
       >
         <Box sx={{ display: "flex", gap: 1 }}>
-          <Tooltip title={isArchived ? "Task is archived" : ""} placement="top">
+          <Tooltip title={isArchived ? "Task is archived" : !hasPushed ? "Waiting for agent to push code..." : ""} placement="top">
             <span style={{ flex: 1 }}>
               <Button
                 size={buttonSize}
                 variant="outlined"
                 color="error"
-                disabled={isArchived || isArchiving}
+                disabled={isArchived || isArchiving || !hasPushed}
                 startIcon={
                   isArchiving ? (
                     <CircularProgress size={14} color="inherit" />
@@ -451,7 +627,7 @@ export default function SpecTaskActionButtons({
             </span>
           </Tooltip>
 
-          <Tooltip title={isArchived ? "Task is archived" : ""} placement="top">
+          <Tooltip title={isArchived ? "Task is archived" : !hasPushed ? "Waiting for agent to push code..." : ""} placement="top">
             <span style={{ flex: 1 }}>
               <Button
                 size={buttonSize}
@@ -464,11 +640,8 @@ export default function SpecTaskActionButtons({
                     <ApproveIcon />
                   )
                 }
-                onClick={(e) => {
-                  e.stopPropagation();
-                  approveImplementationMutation.mutate();
-                }}
-                disabled={isArchived || approveImplementationMutation.isPending}
+                onClick={handleOpenPR}
+                disabled={isArchived || approveImplementationMutation.isPending || !hasPushed}
                 fullWidth
                 sx={buttonSx}
               >
@@ -515,6 +688,16 @@ export default function SpecTaskActionButtons({
   const pullRequests = task.repo_pull_requests?.filter(pr => pr.pr_url) || [];
   const hasMultiplePRs = pullRequests.length > 1;
   const hasAnyPR = pullRequests.length > 0;
+
+  if (task.status === "pull_request" && !hasAnyPR && task.metadata?.error) {
+    return (
+      <Box sx={{ display: "flex", flexDirection: "column", gap: 1, width: "100%" }}>
+        <Alert severity="error" sx={{ py: 0.5 }}>
+          {task.metadata.error}
+        </Alert>
+      </Box>
+    );
+  }
 
   if (task.status === "pull_request" && hasAnyPR) {
     // Single PR case
@@ -655,6 +838,47 @@ export default function SpecTaskActionButtons({
         </Box>
       );
     }
+  }
+
+  // Done phase: Reopen button (for prematurely finished tasks)
+  if (task.status === "done") {
+    const isReopening = reopenTaskMutation.isPending;
+    return (
+      <Box
+        sx={{
+          display: "flex",
+          flexDirection: isInline ? "row" : "column",
+          gap: 1,
+          width: isInline ? "auto" : "100%",
+        }}
+      >
+        <Tooltip title={isArchived ? "Task is archived" : "Reopen task and move back to in progress"}>
+          <span>
+            <Button
+              variant="outlined"
+              size="small"
+              color="info"
+              startIcon={
+                isReopening ? (
+                  <CircularProgress size={18} color="inherit" />
+                ) : (
+                  <ReopenIcon sx={{ fontSize: 18 }} />
+                )
+              }
+              onClick={(e) => {
+                e.stopPropagation();
+                reopenTaskMutation.mutate();
+              }}
+              disabled={isArchived || isReopening}
+              fullWidth={!isInline}
+              sx={buttonSx}
+            >
+              {isReopening ? "Reopening..." : "Reopen"}
+            </Button>
+          </span>
+        </Tooltip>
+      </Box>
+    );
   }
 
   // No action buttons for other statuses

@@ -74,6 +74,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 # Uses TARGETARCH to build the right plugins for the current platform.
 # No --platform directive, so this works on any CI runner architecture.
 FROM ubuntu:25.10 AS rust-build-env
+RUN sed -i 's|http://archive.ubuntu.com|http://mirror.ox.ac.uk/sites/archive.ubuntu.com|g; s|http://security.ubuntu.com|http://mirror.ox.ac.uk/sites/archive.ubuntu.com|g' /etc/apt/sources.list.d/ubuntu.sources
 ARG TARGETARCH
 WORKDIR /build
 
@@ -182,6 +183,7 @@ RUN if [ -f /usr/local/cuda/lib64/libnvrtc.so.12 ]; then \
 # The headless bridge uses GStreamer's pipewiresrc + waylandsink for
 # zero-copy DMA-BUF transfer from GNOME screen-cast to Wolf.
 FROM ubuntu:25.10
+RUN sed -i 's|http://archive.ubuntu.com|http://mirror.ox.ac.uk/sites/archive.ubuntu.com|g; s|http://security.ubuntu.com|http://mirror.ox.ac.uk/sites/archive.ubuntu.com|g' /etc/apt/sources.list.d/ubuntu.sources
 
 # Configure default user and set env (from GOW base-app)
 ENV \
@@ -195,6 +197,12 @@ ENV \
     NEEDRESTART_SUSPEND=1
 
 ARG TARGETARCH TARGETVARIANT
+
+# Disable AppStream (DEP-11) metadata downloads — not needed in Docker containers,
+# and questing-security/restricted doesn't publish icons indices (404 errors)
+RUN echo 'Acquire::IndexTargets::deb::DEP-11 "false";' > /etc/apt/apt.conf.d/99no-appstream && \
+    echo 'Acquire::IndexTargets::deb::DEP-11-icons "false";' >> /etc/apt/apt.conf.d/99no-appstream && \
+    echo 'Acquire::IndexTargets::deb::DEP-11-icons-hidpi "false";' >> /etc/apt/apt.conf.d/99no-appstream
 
 # Install GOW base requirements + GNOME packages
 ARG GOSU_VERSION=1.14
@@ -940,11 +948,14 @@ RUN mkdir -p /home/retro/.gemini && \
 
 
 
+# Pre-create managed settings dir so the settings-sync-daemon (running as retro) can write to it
+RUN mkdir -p /etc/claude-code && chown retro:retro /etc/claude-code
+
 # Claude Code settings (bypassPermissions etc.) are written at runtime by
 # helix-workspace-setup.sh after symlinking ~/.claude to persistent storage.
 
 RUN mkdir -p /home/retro/.config/zed/themes && \
-    echo '{"theme":"Ayu Dark","telemetry":{"diagnostics":false,"metrics":false}}' > /home/retro/.config/zed/settings.json
+    echo '{"theme":"Ayu Dark","telemetry":{"diagnostics":false,"metrics":false},"agent_servers":{"claude-acp":{"type":"registry"}}}' > /home/retro/.config/zed/settings.json
 
 ENV GEMINI_TELEMETRY_ENABLED=false \
     CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 \

@@ -7,6 +7,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/helixml/helix/api/pkg/util/sanitize"
 	"github.com/rs/zerolog/log"
 	"gorm.io/gorm/clause"
 )
@@ -137,6 +138,13 @@ func (s *PostgresStore) UpdateInteraction(ctx context.Context, interaction *type
 		return nil, errors.New("id is required")
 	}
 
+	// Sanitize string fields that may contain LLM or agent output with characters
+	// that PostgreSQL rejects in text/jsonb columns (null bytes, surrogates, etc.)
+	interaction.PromptMessage = sanitize.ForPostgres(interaction.PromptMessage)
+	interaction.ResponseMessage = sanitize.ForPostgres(interaction.ResponseMessage)
+	interaction.Error = sanitize.ForPostgres(interaction.Error)
+	interaction.ResponseEntries = sanitize.JSONForPostgres(interaction.ResponseEntries)
+
 	db := s.gdb.WithContext(ctx)
 
 	// CRITICAL: Use Save() which works with composite PK when struct has both fields populated
@@ -189,11 +197,7 @@ func (s *PostgresStore) ListInteractions(ctx context.Context, query *types.ListI
 		query.PerPage = -1
 	}
 
-	var offset int
-
-	if query.Page > 0 {
-		offset = (query.Page - 1) * query.PerPage
-	}
+	offset := query.Page * query.PerPage
 
 	if query.SessionID != "" {
 		q = q.Where("session_id = ?", query.SessionID)

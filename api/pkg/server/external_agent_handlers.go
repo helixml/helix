@@ -151,7 +151,7 @@ func (apiServer *HelixAPIServer) getExternalAgentScreenshot(res http.ResponseWri
 		screenshotFile, err := os.Open(session.Metadata.PausedScreenshotPath)
 		if err == nil {
 			defer screenshotFile.Close()
-			res.Header().Set("Content-Type", "image/png")
+			res.Header().Set("Content-Type", "image/jpeg")
 			res.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
 			res.Header().Set("X-Paused-Screenshot", "true") // Indicate this is a paused screenshot
 			res.WriteHeader(http.StatusOK)

@@ -194,6 +194,9 @@ type SpecTask struct {
 	// Public sharing
 	PublicDesignDocs bool `json:"public_design_docs" gorm:"default:false"` // Allow viewing design docs without login
 
+	// Keep alive — prevent auto-idle-shutdown of desktop container
+	KeepAlive bool `json:"keep_alive" gorm:"default:false"`
+
 	// Clone tracking
 	ClonedFromID        string `json:"cloned_from_id,omitempty" gorm:"size:255;index"`         // Original task this was cloned from
 	ClonedFromProjectID string `json:"cloned_from_project_id,omitempty" gorm:"size:255;index"` // Original project
@@ -272,6 +275,7 @@ type SpecTaskUpdateRequest struct {
 	HelixAppID       string           `json:"helix_app_id,omitempty"`       // Agent to use for this task
 	UserShortTitle   *string          `json:"user_short_title,omitempty"`   // User override for tab title (pointer to allow clearing with empty string)
 	PublicDesignDocs *bool            `json:"public_design_docs,omitempty"` // Pointer to allow explicit false
+	KeepAlive        *bool            `json:"keep_alive,omitempty"`         // Pointer to allow explicit false — prevent auto-idle-shutdown
 	DependsOn        []string         `json:"depends_on"`                   // IDs of tasks this task depends on
 	AssigneeID       *string          `json:"assignee_id,omitempty"`        // Pointer to allow clearing (set to empty string to unassign)
 }

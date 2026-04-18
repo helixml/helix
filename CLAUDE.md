@@ -5,6 +5,7 @@
 - If uncertain, investigate rather than confirming beliefs
 - **Current year: 2026** — include "2026" in web searches for current info
 - If you find yourself adding hacks or workarounds, **stop** — take a step back, root cause the issue, understand the wider context, and fix it properly. Don't always take the path of least resistance — we need maintainable code.
+- **Always give full URLs for PRs and issues** — never use the `owner/repo#123` shorthand format. Use `https://github.com/helixml/helix/pull/123` etc.
 - See also: `.cursor/rules/*.mdc`
 
 ## FORBIDDEN ACTIONS
@@ -13,6 +14,7 @@
 - **NEVER** `git checkout -- .`, `git reset --hard`, `git checkout -f` — destroys uncommitted work
 - **NEVER** `git stash drop/pop` — use `git stash apply` (keeps backup)
 - **NEVER** squash merge — always use regular merge commits (`gh pr merge --merge`)
+- **NEVER** `gh pr create` without `--repo helixml/zed` when in the Zed repo — the upstream `zed-industries/zed` remote causes `gh` to target the wrong repo by default
 - **NEVER** push to main, amend commits on main, delete source files, delete `.git/index.lock`
 - **NEVER** `rm -rf *` or `rm -rf .*` in a git repo
 - **NEVER** `git checkout --orphan` then clear files — use a separate temp directory instead
@@ -224,6 +226,13 @@ set -a && source .env.usercreds && set +a  # or:
 export HELIX_API_KEY=`grep HELIX_API_KEY .env.usercreds | cut -d= -f2-`
 ```
 **Shell bug**: Use backticks, not `$()` (tool escapes `$` incorrectly).
+
+**Helix-in-Helix**: `.env.usercreds` is NOT available in the inner instance. Use the browser at `http://localhost:8080`. In dev mode, the first registered account is automatically admin. Use these fixed credentials so sessions are idempotent:
+- Email: `test@helix.ml`
+- Password: `helixtest`
+- Full Name: `Test User`
+
+If already registered, click "Sign in here" and use the same credentials.
 
 ## Quick Reference
 - Build CLI: `cd api && CGO_ENABLED=0 go build -o /tmp/helix-bin .`
