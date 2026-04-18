@@ -188,8 +188,9 @@ const Projects: FC = () => {
   const [reposPage, setReposPage] = useState(0);
   const reposPerPage = 10;
 
-  // Paginate projects
-  const filteredProjects = projects;
+  // Paginate projects (exclude pinned projects from the main list)
+  const pinnedSet = new Set(pinnedProjectIds);
+  const filteredProjects = projects.filter(p => !p.id || !pinnedSet.has(p.id));
   const paginatedProjects = filteredProjects.slice(
     projectsPage * projectsPerPage,
     (projectsPage + 1) * projectsPerPage,
