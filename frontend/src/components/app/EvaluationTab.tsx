@@ -38,8 +38,20 @@ import {
   TypesEvaluationSuite,
   TypesEvaluationRun,
   TypesEvaluationQuestionResult,
-  TypesEvaluationRunProgress,
+  TypesEvaluationRunStatus,
+  TypesEvaluationRunSummary,
 } from '../../api/api'
+
+// Sent via SSE during evaluation runs — not part of the generated API client
+interface TypesEvaluationRunProgress {
+  run_id: string
+  status: TypesEvaluationRunStatus
+  current_question: number
+  total_questions: number
+  latest_result?: TypesEvaluationQuestionResult
+  summary?: TypesEvaluationRunSummary
+  error?: string
+}
 import { useQueryClient } from '@tanstack/react-query'
 
 interface EvaluationTabProps {
