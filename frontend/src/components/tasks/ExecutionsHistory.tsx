@@ -86,19 +86,14 @@ const ExecutionsHistory: React.FC<ExecutionsHistoryProps> = ({ taskId, taskName 
     }
   };
 
-  // Helper function to handle execution click
-  const handleExecutionClick = (execution: TypesTriggerExecution) => {
-    if (execution.session_id) {
-      // Open session in new tab
-      let sessionUrl = `/session/${execution.session_id}`;
-
-      // if we are in an organization, need to have the prefix with /org/<org name>
-      if (account.organizationTools.organization) {
-        sessionUrl = `/org/${account.organizationTools.organization.name}/${sessionUrl}`;
-      }
-
-      window.open(sessionUrl, '_blank');
+  // Helper function to get the session URL for an execution
+  const getSessionUrl = (execution: TypesTriggerExecution): string | undefined => {
+    if (!execution.session_id) return undefined;
+    const org = account.organizationTools.organization;
+    if (org) {
+      return `/orgs/${org.name}/session/${execution.session_id}`;
     }
+    return `/session/${execution.session_id}`;
   };
 
   if (!taskId) {
@@ -161,24 +156,31 @@ const ExecutionsHistory: React.FC<ExecutionsHistoryProps> = ({ taskId, taskName 
               },
             },
           }}>
-            {triggerExecutions.data.map((execution: TypesTriggerExecution, index: number) => (
-              <Box 
-                key={execution.id || index} 
-                sx={{ 
-                  display: 'flex', 
-                  alignItems: 'flex-start', 
+            {triggerExecutions.data.map((execution: TypesTriggerExecution, index: number) => {
+              const sessionUrl = getSessionUrl(execution);
+              return (
+              <Box
+                key={execution.id || index}
+                component={sessionUrl ? 'a' : 'div'}
+                href={sessionUrl}
+                target={sessionUrl ? '_blank' : undefined}
+                rel={sessionUrl ? 'noopener noreferrer' : undefined}
+                sx={{
+                  display: 'flex',
+                  alignItems: 'flex-start',
                   gap: 2,
                   p: 2,
                   borderRadius: 1,
-                  cursor: execution.session_id ? 'pointer' : 'default',
-                  '&:hover': execution.session_id ? {
+                  cursor: sessionUrl ? 'pointer' : 'default',
+                  textDecoration: 'none',
+                  color: 'inherit',
+                  '&:hover': sessionUrl ? {
                     backgroundColor: '#374151',
                     transition: 'background-color 0.2s ease'
                   } : {},
                   transition: 'background-color 0.2s ease',
                   flexShrink: 0
                 }}
-                onClick={() => handleExecutionClick(execution)}
               >
                 <Box sx={{ 
                   width: 8, 
@@ -206,7 +208,8 @@ const ExecutionsHistory: React.FC<ExecutionsHistoryProps> = ({ taskId, taskName 
                   </Typography>
                 </Box>
               </Box>
-            ))}
+              );
+            })}
           </Box>
         </Box>
       ) : (
