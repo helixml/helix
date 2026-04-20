@@ -34,6 +34,7 @@ The "Connect Claude Subscription" dialog accepts any text as a setup token — i
 **Acceptance Criteria:**
 - `POST /api/v1/claude-subscriptions` with a `setup_token` that matches `sk-ant-api03-*` returns HTTP 400 with a message explaining this is an API key, not a setup token.
 - `POST /api/v1/claude-subscriptions` with a `setup_token` that doesn't match any known Claude Code token pattern returns HTTP 400 with "Invalid setup token format."
+- `POST /api/v1/claude-subscriptions` with a valid Claude Code setup token (`sk-ant-oat01-...`) stores the token, creates an "active" subscription, and returns success — the UI shows green "Connected" status as it does today.
 - Existing OAuth flow is unaffected.
 
 ### US-4: Dialog labeling is unambiguous
