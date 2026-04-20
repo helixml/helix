@@ -90,3 +90,13 @@ if createReq.SetupToken != "" {
 - Backend handler: `api/pkg/server/claude_subscription_handlers.go`, lines 67-81
 - The `handleSubmitToken` function (line 115) uses raw `api.post` — the CLAUDE.md says to use the generated API client, but this is a pre-existing pattern in this file. Changing to the generated client is out of scope for this task.
 - Token prefixes: `sk-ant-oat01-` = setup token, `sk-ant-api03-` = API key. Backend check uses `sk-ant-api` (without version suffix) to catch all API key versions.
+
+## Implementation Notes
+
+- Frontend validation function `validateSetupToken()` added as a module-level function (not inside the component) since it's pure and stateless.
+- Validation result is computed on every render via `const tokenValidationError = validateSetupToken(tokenValue)` — no need for useEffect/useMemo since it's a cheap string check.
+- Backend validation added at the top of the setup token branch (before marshalling/encryption), so invalid tokens never touch the crypto layer.
+- The backend reuses the existing `strings.TrimSpace` that was already applied to `createReq.SetupToken` — we introduced a `token` local variable to avoid trimming twice.
+- OAuth flow is completely unaffected — it's a separate `else` branch that doesn't check `SetupToken` at all.
+- The `fill` MCP tool sets DOM values without triggering React's synthetic onChange, so manual testing required `type_text` instead. Real users typing or pasting will trigger onChange correctly.
+- Frontend build has a pre-existing permissions issue with `frontend/dist/` (bind mount), but TypeScript type-checking (`tsc --noEmit`) passes cleanly.
