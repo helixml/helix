@@ -120,6 +120,10 @@ gpu:
     # Runtime class name for OpenShift/Kubernetes
     # OpenShift typically uses "nvidia" or custom runtime class
     runtimeClassName: ""
+    # GPU resource name for Kubernetes device plugin.
+    # Override if you use a non-standard NVIDIA device plugin that advertises
+    # a different resource key.
+    resourceName: "nvidia.com/gpu"
     # GKE-specific setup for nested GPU containers
     # Enables library path configuration and cgroup fixes for Docker-in-Docker
     # Set to true when running on Google Kubernetes Engine

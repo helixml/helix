@@ -48,6 +48,20 @@ helm upgrade --install helix-runner helix/helix-runner \
 
 The runner will automatically detect and use all GPUs allocated to it by Kubernetes. VLLM and Ollama will handle model loading across multiple GPUs on the same runner.
 
+## AMD GPUs (ROCm)
+
+By default the chart requests `nvidia.com/gpu`. On AMD clusters using the ROCm device plugin, override the resource key:
+
+```bash
+helm upgrade --install helix-runner helix/helix-runner \
+  --set runner.host="<host>" \
+  --set runner.token="<token>" \
+  --set gpuResourceKey="amd.com/gpu" \
+  --set gpuCount=1
+```
+
+The runner pod will request `amd.com/gpu: "1"` instead of `nvidia.com/gpu: "1"`. No other changes to `resources:` are needed — that block is only for non-GPU resources (CPU, memory, hugepages, etc.).
+
 ## Troubleshooting
 
 ### GPU Upgrade Deadlocks

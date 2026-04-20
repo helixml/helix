@@ -206,7 +206,8 @@ spec:
             {{- /* Add GPU resources based on vendor */ -}}
             {{- if eq $gpuVendor "nvidia" }}
             {{- if .Values.gpu.nvidia.enabled }}
-            {{- $gpuLimit := dict "nvidia.com/gpu" (.Values.gpu.nvidia.count | default 1) }}
+            {{- $nvidiaKey := .Values.gpu.nvidia.resourceName | default "nvidia.com/gpu" }}
+            {{- $gpuLimit := dict $nvidiaKey (.Values.gpu.nvidia.count | default 1) }}
             {{- if $resources.limits }}
             {{- $resources = merge $resources (dict "limits" (merge $resources.limits $gpuLimit)) }}
             {{- else }}
