@@ -23,7 +23,7 @@ type SystemSettings struct {
 	KoditEnrichmentModel    string `json:"kodit_enrichment_model,omitempty" gorm:"column:kodit_enrichment_model"`       // e.g., "Qwen/Qwen3-8B", "gpt-4o", "llama3:instruct"
 
 	// RAG embedding model configuration
-	// Used when Haystack sends requests with model "rag-embedding" - Helix substitutes with these values
+	// Used when a RAG component sends requests with model "rag-embedding" - Helix substitutes with these values
 	RAGEmbeddingsProvider string `json:"rag_embeddings_provider,omitempty" gorm:"column:rag_embeddings_provider"`
 	RAGEmbeddingsModel    string `json:"rag_embeddings_model,omitempty" gorm:"column:rag_embeddings_model"`
 
