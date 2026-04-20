@@ -63,7 +63,7 @@ func (s *HelixAPIServer) createEmbeddings(rw http.ResponseWriter, r *http.Reques
 	embeddingsProvider := s.Cfg.RAG.PGVector.Provider
 
 	// Special handling for rag-embedding placeholder model
-	// When Haystack sends requests with model "rag-embedding", we substitute with the configured model from SystemSettings
+	// When a RAG component sends requests with model "rag-embedding", we substitute with the configured model from SystemSettings
 	if embeddingRequest.Model == "rag-embedding" {
 		settings, err := s.Store.GetEffectiveSystemSettings(r.Context())
 		if err != nil {
@@ -86,7 +86,7 @@ func (s *HelixAPIServer) createEmbeddings(rw http.ResponseWriter, r *http.Reques
 		// Set the model name WITHOUT provider prefix — the provider is resolved separately
 		// via GetClient. Sending "openai/text-embedding-3-small" to OpenAI's API causes 404.
 		embeddingRequest.Model = settings.RAGEmbeddingsModel
-		// Force float encoding — the OpenAI Python SDK (used by haystack) defaults to base64,
+		// Force float encoding — some OpenAI-compatible SDK clients default to base64,
 		// but our response struct expects []float32
 		embeddingRequest.EncodingFormat = "float"
 	}

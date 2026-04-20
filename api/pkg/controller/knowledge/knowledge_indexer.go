@@ -656,7 +656,7 @@ func convertChunksIntoBatches(chunks []*text.DataPrepTextSplitterChunk, batchSiz
 	return batches
 }
 
-// convertTextSplitterChunks converts the haystack chunks to RAG index chunks
+// convertTextSplitterChunks converts the text splitter chunks to RAG index chunks
 func (r *Reconciler) convertTextSplitterChunks(ctx context.Context, k *types.Knowledge, version string, chunks []*text.DataPrepTextSplitterChunk) []*types.SessionRAGIndexChunk {
 	indexChunks := make([]*types.SessionRAGIndexChunk, 0, len(chunks))
 

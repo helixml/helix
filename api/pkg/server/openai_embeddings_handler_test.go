@@ -188,7 +188,7 @@ func (s *OpenAIEmbeddingsSuite) TestRAGEmbeddingPlaceholderSubstitution() {
 			// (provider is resolved separately via GetClient)
 			s.Equal("text-embedding-3-small", req.Model)
 			// encoding_format must be forced to "float" so the response contains []float32
-			// (the OpenAI Python SDK used by haystack defaults to "base64")
+			// (some OpenAI-compatible SDK clients default to "base64")
 			s.Equal("float", req.EncodingFormat)
 
 			return types.FlexibleEmbeddingResponse{
