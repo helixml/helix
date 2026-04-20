@@ -50,69 +50,6 @@ chrome:
   #   repository: ghcr.io/go-rod/rod
   #   tag: "v0.116.0"
 
-## PGVector configuration (vector database for Haystack RAG)
-pgvector:
-  # Whether to deploy pgvector alongside haystack for RAG functionality
-  enabled: true
-
-  # Configuration for bundled pgvector (when enabled=true)
-  auth:
-    username: postgres
-    password: "pgvector"
-    database: postgres
-
-    # Option: Use existing secret for all auth credentials
-    # existingSecret: "pgvector-auth-secret"
-    # usernameKey: "username"  # defaults to "username" if not specified
-    # passwordKey: "password"  # defaults to "password" if not specified
-    # databaseKey: "database"  # defaults to "database" if not specified
-
-  # Persistence configuration for bundled pgvector
-  persistence:
-    enabled: true
-    size: 50Gi
-    storageClass: "" # Use default storage class
-    annotations: {}
-    accessModes:
-      - ReadWriteOnce
-    # Use existing PVC
-    # existingClaim: "my-pgvector-pvc"
-    # PVC selector
-    # selector:
-    #   matchLabels:
-    #     app: pgvector
-    # Custom data source
-    # dataSource:
-    #   name: "my-snapshot"
-    #   kind: "VolumeSnapshot"
-    #   apiGroup: "snapshot.storage.k8s.io"
-
-  # Configuration for external pgvector (when enabled=false)
-  # IMPORTANT: External pgvector must have the following extensions installed:
-  # - vectorchord extension for vector similarity search
-  # - vectorchord-bm25 extension for bm25 search capabilities
-  # The bundled pgvector uses: ghcr.io/tensorchord/vchord_bm25-postgres:pg17-v0.1.1
-  # which includes both extensions. For external pgvector, ensure your PostgreSQL
-  # instance has these extensions available.
-  # external:
-  #   host: "my-external-pgvector.example.com"
-  #   port: 5432
-  #   user: "postgres"
-  #   password: "secure-password"
-  #   database: "helix_vectors"
-  #
-  #   # Option: Use existing secret for all connection details
-  #   # existingSecret: "pgvector-external-secret"
-  #   # existingSecretHostKey: "host"      # defaults to "host" if not specified
-  #   # existingSecretPortKey: "port"      # defaults to "port" if not specified
-  #   # existingSecretUserKey: "user"      # defaults to "user" if not specified
-  #   # existingSecretPasswordKey: "password"  # defaults to "password" if not specified
-  #   # existingSecretDatabaseKey: "database"  # defaults to "database" if not specified
-  #
-  #   # Additional annotations for external secret
-  #   # annotations:
-  #   #   kubernetes.io/service-account.name: "pgvector-reader"
-
 ## Controlplane configuration
 controlplane:
   # Optional: Custom filestore path
@@ -154,58 +91,12 @@ controlplane:
     # Admin user IDs: comma-separated list of user IDs, or "all" for dev/self-hosted mode
     userIds: "all"
 
-  # Haystack configuration for production-ready RAG
-  # If enabled, haystack will be deployed as a sidecar to the api pod
-  # and connected via a UNIX socket for embeddings
-  haystack:
-    enabled: true
-
-    # Custom image configuration
-    # image:
-    #   repository: my-registry.example.com/helix/haystack
-
-    # Embedding model configuration
-    embeddingsModel: "MrLight/dse-qwen2-2b-mrl-v1"
-    embeddingsDim: "1536"
-
-    # Document chunking configuration
-    chunkSize: "1000"
-    chunkOverlap: "50"
-    chunkUnit: "word"
-
-    # PGVector connection options (choose one):
-
-    # Option 1: Direct DSN specification
-    # pgvectorDsn: "postgresql://postgres:secure-password@my-pgvector-host:5432/helix_vectors"
-
-    # Option 2: Reference DSN from existing secret
-    # existingSecret: "helix-pgvector-creds"
-    # existingSecretDsnKey: "dsn"  # defaults to "dsn" if not specified
-
-    # Option 3: Use pgvector.external configuration (recommended)
-    # This will automatically use the pgvector.external settings above
-
-    # Additional environment variables for haystack
-    # env:
-    #   - name: CUSTOM_VAR
-    #     value: "custom-value"
-
-    # Resource limits for haystack sidecar
-    # resources:
-    #   requests:
-    #     cpu: "500m"
-    #     memory: "1Gi"
-    #   limits:
-    #     cpu: "2000m"
-    #     memory: "4Gi"
-
   # RAG configuration
   rag:
-    # The default RAG provider to use. Valid values: haystack, typesense
-    defaultProvider: "haystack"
-    # The helix inference provider that will serve embeddings for haystack.
-    # Valid values: vllm, helix (for haystack which uses external GPU-accelerated
-    # embeddings, typesense does its own embeddings so leave this unset for typesense)
+    # The default RAG provider to use. Valid values: llamaindex, kodit
+    defaultProvider: "kodit"
+    # The helix inference provider that will serve embeddings.
+    # Valid values: vllm, helix
     embeddingsProvider: "helix"
 
   # Inference configuration
@@ -490,28 +381,6 @@ tika:
   #   repository: apache/tika
   #   tag: "3.0.0"
 
-## Typesense configuration (legacy RAG provider)
-typesense:
-  # Enable Typesense for search-based RAG (legacy, use haystack + pgvector instead)
-  enabled: false
-  apiKey: "your-secure-typesense-api-key"
-  # Use custom image if needed
-  # image:
-  #   repository: typesense/typesense
-  #   tag: "0.25.2"
-  persistence:
-    enabled: true
-    size: 20Gi
-    storageClass: "" # Use default storage class
-    accessModes:
-      - ReadWriteOnce
-    # Use existing PVC
-    # existingClaim: "my-typesense-pvc"
-    # PVC selector
-    # selector:
-    #   matchLabels:
-    #     app: typesense
-
 ## Kodit configuration - Code indexing service
 # Kodit provides code search and analysis capabilities for Helix.
 # It uses its own PostgreSQL + pgvector database (vectorchord) for code embeddings.
@@ -577,7 +446,7 @@ kodit:
     #   apiGroup: "snapshot.storage.k8s.io"
 
   # Vectorchord (PostgreSQL + pgvector) configuration for kodit
-  # This is kodit's dedicated vector database, separate from helix's pgvector
+  # This is kodit's dedicated vector database
   vectorchord:
     enabled: true
     image:

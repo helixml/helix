@@ -7,7 +7,7 @@ global:
   imagePullSecrets: []
   storageClass: ""
   serverUrl: http://localhost:8080
-  # Extra environment variables applied to all components (controlplane, chrome, searxng, haystack).
+  # Extra environment variables applied to all components (controlplane, chrome, searxng).
   # Useful for proxy configuration in environments where all outbound traffic must go through a proxy.
   # Example:
   #   extraEnv:
@@ -44,56 +44,6 @@ chrome:
     tag: "v0.115.0"
   # Extra environment variables for the Chrome container (in addition to global.extraEnv)
   extraEnv: []
-
-typesense:
-  enabled: false
-  apiKey: typesense
-  image:
-    repository: ghcr.io/helixml/typesense
-  persistence:
-    enabled: true
-    storageClass: ""
-    annotations: {}
-    accessModes:
-      - ReadWriteOnce
-    size: 8Gi
-    existingClaim: ""
-    selector: {}
-    dataSource: {}
-
-pgvector:
-  enabled: true
-  auth:
-    username: "postgres"
-    password: "pgvector"
-    database: "postgres"
-    existingSecret: ""
-    usernameKey: ""
-    passwordKey: ""
-    databaseKey: ""
-  external:
-    host: "localhost"
-    port: 5432
-    database: "postgres"
-    user: "postgres"
-    password: "pgvector"
-    existingSecret: ""
-    existingSecretHostKey: ""
-    existingSecretPortKey: ""
-    existingSecretUserKey: ""
-    existingSecretDatabaseKey: ""
-    existingSecretPasswordKey: ""
-    annotations: {}
-  persistence:
-    enabled: true
-    storageClass: ""
-    annotations: {}
-    accessModes:
-      - ReadWriteOnce
-    size: 8Gi
-    existingClaim: ""
-    selector: {}
-    dataSource: {}
 
 controlplane:
   # Wait for PostgreSQL to be ready before starting the controlplane.
@@ -150,14 +100,6 @@ controlplane:
       - "-c"
     args:
       - 'echo "Hello World"'
-  haystack:
-    enabled: true
-    image:
-      repository: ghcr.io/helixml/haystack
-    embeddingsModel: "MrLight/dse-qwen2-2b-mrl-v1"
-    embeddingsDim: "1536"
-    chunkSize: "1000"
-    chunkOverlap: "50"
   providers:
     vllm:
       baseUrl: ""
