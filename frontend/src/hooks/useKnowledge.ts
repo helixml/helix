@@ -409,8 +409,15 @@ export const useKnowledge = ({
             ...prev,
             [id]: updatedFiles
           }))
-         
-          await onSaveApp()
+
+          // Saving the app is best-effort here — the file upload is orthogonal
+          // to the app config, and app validation (e.g. unavailable providers)
+          // must not prevent re-indexing the newly uploaded file.
+          try {
+            await onSaveApp()
+          } catch (saveErr) {
+            console.warn('App save after file upload failed (continuing to re-index):', saveErr)
+          }
           await handleRefreshKnowledge(id)
 
           snackbar.info('Re-indexing started for newly uploaded files. This may take a few minutes.')
@@ -445,7 +452,11 @@ export const useKnowledge = ({
                 [id]: fallbackFiles
               }))
 
-              await onSaveApp()
+              try {
+                await onSaveApp()
+              } catch (saveErr) {
+                console.warn('App save after fallback file upload failed (continuing to re-index):', saveErr)
+              }
               await handleRefreshKnowledge(id)
 
               snackbar.info('Re-indexing started for newly uploaded files. This may take a few minutes.')
