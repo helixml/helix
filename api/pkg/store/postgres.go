@@ -220,6 +220,8 @@ func (s *PostgresStore) runMigrations() error {
 		&types.CloneGroup{},
 		&types.ClaudeSubscription{},
 		&types.AttentionEvent{},
+		&types.EvaluationSuite{},
+		&types.EvaluationRun{},
 	)
 	if err != nil {
 		return err
@@ -291,6 +293,14 @@ func (s *PostgresStore) runMigrations() error {
 	}
 
 	if err := createFK(s.gdb, types.Memory{}, types.App{}, "app_id", "id", "CASCADE", "CASCADE"); err != nil {
+		log.Err(err).Msg("failed to add DB FK")
+	}
+
+	if err := createFK(s.gdb, types.EvaluationRun{}, types.App{}, "app_id", "id", "CASCADE", "CASCADE"); err != nil {
+		log.Err(err).Msg("failed to add DB FK")
+	}
+
+	if err := createFK(s.gdb, types.EvaluationSuite{}, types.App{}, "app_id", "id", "CASCADE", "CASCADE"); err != nil {
 		log.Err(err).Msg("failed to add DB FK")
 	}
 
