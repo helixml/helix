@@ -76,6 +76,9 @@ type ListSecretsQuery struct {
 	Owner     string          `json:"owner"`
 	OwnerType types.OwnerType `json:"owner_type"`
 	ProjectID string          `json:"project_id"` // optional, filter by project
+	// UserLevelOnly restricts results to secrets with empty project_id and app_id.
+	// Use for listings that should hide project- or app-scoped secrets.
+	UserLevelOnly bool `json:"user_level_only"`
 }
 
 type ListAppsQuery struct {
