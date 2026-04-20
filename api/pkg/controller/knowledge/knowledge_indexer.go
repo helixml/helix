@@ -88,7 +88,6 @@ func (r *Reconciler) index(ctx context.Context) error {
 						Size:            k.Size,
 						State:           types.KnowledgeStatePending,
 						Message:         "waiting for files to be uploaded",
-						EmbeddingsModel: r.config.RAG.PGVector.EmbeddingsModel,
 						Provider:        config.RAGProviderName,
 					})
 					return
@@ -105,7 +104,6 @@ func (r *Reconciler) index(ctx context.Context) error {
 					Size:            k.Size,
 					State:           types.KnowledgeStateError,
 					Message:         err.Error(),
-					EmbeddingsModel: r.config.RAG.PGVector.EmbeddingsModel,
 					Provider:        config.RAGProviderName,
 				})
 				return
@@ -208,7 +206,6 @@ func (r *Reconciler) indexKnowledge(ctx context.Context, k *types.Knowledge, ver
 			State:           types.KnowledgeStateError,
 			Message:         err.Error(),
 			CrawledSources:  k.CrawledSources,
-			EmbeddingsModel: r.config.RAG.PGVector.EmbeddingsModel,
 			Provider:        config.RAGProviderName,
 		})
 
@@ -244,7 +241,6 @@ func (r *Reconciler) indexKnowledge(ctx context.Context, k *types.Knowledge, ver
 		Size:            k.Size,
 		State:           types.KnowledgeStateReady,
 		CrawledSources:  k.CrawledSources,
-		EmbeddingsModel: r.config.RAG.PGVector.EmbeddingsModel,
 		Provider:        config.RAGProviderName,
 	})
 	if err != nil {

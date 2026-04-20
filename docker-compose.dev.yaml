@@ -82,7 +82,6 @@ services:
       - DISCORD_BOT_TOKEN=${DISCORD_BOT_TOKEN:-}
       - ADMIN_USER_SOURCE=${ADMIN_USER_SOURCE:-}
       - HELIX_EMBEDDINGS_SOCKET=/socket/embeddings.sock
-      - RAG_PGVECTOR_PROVIDER=helix
       # Dynamic providers: format is "provider1:api_key1:base_url1,provider2:api_key2:base_url2"
       - DYNAMIC_PROVIDERS=${DYNAMIC_PROVIDERS:-}
       # Sandbox integration for external agents

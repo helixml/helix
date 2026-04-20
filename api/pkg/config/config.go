@@ -340,12 +340,11 @@ type RAG struct {
 
 	MaxVersions int `envconfig:"RAG_MAX_VERSIONS" default:"3" description:"The maximum number of versions to keep for a knowledge."`
 
-	PGVector struct {
-		Provider              string           `envconfig:"RAG_PGVECTOR_PROVIDER" default:"openai" description:"One of openai, togetherai, vllm, helix"`
-		EmbeddingsModel       string           `envconfig:"RAG_PGVECTOR_EMBEDDINGS_MODEL" default:"text-embedding-3-small" description:"The model to use for embeddings."`
-		EmbeddingsConcurrency int              `envconfig:"RAG_PGVECTOR_EMBEDDINGS_CONCURRENCY" default:"10" description:"The number of concurrent embeddings to create."`
-		Dimensions            types.Dimensions `envconfig:"RAG_PGVECTOR_DIMENSIONS" description:"The dimensions to use for embeddings, only set for custom models. Available options are 384, 512, 1024, 3584."` // Set this if you are using custom model
-	}
+	// EmbeddingsProvider is the default provider used by the /v1/embeddings
+	// proxy when the caller sends a raw model name (not one of the placeholder
+	// names like "rag-embedding" or "kodit-text-embedding"). Placeholder-model
+	// requests resolve the provider from SystemSettings instead.
+	EmbeddingsProvider string `envconfig:"RAG_EMBEDDINGS_PROVIDER" default:"openai" description:"Default provider for direct /v1/embeddings calls with raw model names. One of openai, togetherai, vllm, helix."`
 
 	Llamaindex struct {
 		// the URL we can post a chunk of text to for RAG indexing

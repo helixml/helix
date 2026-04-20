@@ -1406,13 +1406,13 @@ fi
 # Create installation directories (platform-specific)
 if [ "$ENVIRONMENT" = "gitbash" ]; then
     mkdir -p "$INSTALL_DIR"
-    mkdir -p "$INSTALL_DIR/data/helix-"{postgres,filestore,pgvector}
+    mkdir -p "$INSTALL_DIR/data/helix-"{postgres,filestore}
     mkdir -p "$INSTALL_DIR/scripts/postgres/"
 else
     sudo mkdir -p $INSTALL_DIR
     # Change the owner of the installation directory to the current user
     sudo chown -R $(id -un):$(id -gn) $INSTALL_DIR
-    mkdir -p $INSTALL_DIR/data/helix-{postgres,filestore,pgvector}
+    mkdir -p $INSTALL_DIR/data/helix-{postgres,filestore}
     mkdir -p $INSTALL_DIR/scripts/postgres/
 fi
 
@@ -1802,9 +1802,11 @@ EOF
 HF_TOKEN=$HF_TOKEN
 EOF
     fi
-    # Add embeddings provider configuration
+    # Add embeddings provider configuration (default provider for direct
+    # /v1/embeddings calls with raw model names — placeholder-model requests
+    # resolve the provider from SystemSettings).
     cat << EOF >> "$ENV_TARGET"
-RAG_PGVECTOR_PROVIDER=$EMBEDDINGS_PROVIDER
+RAG_EMBEDDINGS_PROVIDER=$EMBEDDINGS_PROVIDER
 EOF
 
     # Add providers management configuration

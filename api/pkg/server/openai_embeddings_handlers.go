@@ -60,7 +60,7 @@ func (s *HelixAPIServer) createEmbeddings(rw http.ResponseWriter, r *http.Reques
 	}
 
 	// Resolve the provider to use for embeddings
-	embeddingsProvider := s.Cfg.RAG.PGVector.Provider
+	embeddingsProvider := s.Cfg.RAG.EmbeddingsProvider
 
 	// Special handling for rag-embedding placeholder model
 	// When a RAG component sends requests with model "rag-embedding", we substitute with the configured model from SystemSettings

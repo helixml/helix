@@ -45,7 +45,7 @@ func (s *ProviderHandlersSuite) SetupTest() {
 	ctrl := gomock.NewController(s.T())
 
 	cfg := &config.ServerConfig{}
-	cfg.RAG.PGVector.Provider = string(types.ProviderOpenAI)
+	cfg.RAG.EmbeddingsProvider = string(types.ProviderOpenAI)
 
 	s.store = store.NewMockStore(ctrl)
 	s.openAiClient = openai.NewMockClient(ctrl)

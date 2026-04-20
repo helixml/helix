@@ -166,7 +166,7 @@ spec:
             {{- include "helix-controlplane.postgres-env" . | nindent 12 }}
             {{- if .Values.controlplane.rag }}
             {{- with (default "" .Values.controlplane.rag.embeddingsProvider) }}
-            - name: RAG_PGVECTOR_PROVIDER
+            - name: RAG_EMBEDDINGS_PROVIDER
               value: {{ . | quote }}
             {{- end }}
             {{- end }}
