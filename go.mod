@@ -75,7 +75,6 @@ require (
 	github.com/swaggo/swag v1.16.6
 	github.com/tiktoken-go/tokenizer v0.6.2
 	github.com/tmc/langchaingo v0.1.12
-	github.com/typesense/typesense-go/v2 v2.0.0
 	github.com/xanzy/go-gitlab v0.115.0
 	go.uber.org/mock v0.4.0
 	gocloud.dev v0.41.0
@@ -161,7 +160,6 @@ require (
 	github.com/hashicorp/go-version v1.9.0 // indirect
 	github.com/hashicorp/golang-lru/v2 v2.0.7 // indirect
 	github.com/jfrog/gofrog v1.7.6 // indirect
-	github.com/jinzhu/copier v0.4.0 // indirect
 	github.com/jolestar/go-commons-pool/v2 v2.1.2 // indirect
 	github.com/kballard/go-shellquote v0.0.0-20180428030007-95032a82bc51 // indirect
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
@@ -234,7 +232,6 @@ require (
 	github.com/antchfx/htmlquery v1.3.0 // indirect
 	github.com/antchfx/xmlquery v1.3.17 // indirect
 	github.com/antchfx/xpath v1.2.4 // indirect
-	github.com/apapsch/go-jsonmerge/v2 v2.0.0 // indirect
 	github.com/araddon/dateparse v0.0.0-20210429162001-6b43995a97de // indirect
 	github.com/cloudflare/circl v1.6.3 // indirect
 	github.com/cyphar/filepath-securejoin v0.6.1 // indirect
@@ -295,7 +292,6 @@ require (
 	github.com/nats-io/nkeys v0.4.9 // indirect
 	github.com/nats-io/nuid v1.0.1 // indirect
 	github.com/nikolalohinski/gonja v1.5.3 // indirect
-	github.com/oapi-codegen/runtime v1.3.1 // indirect
 	github.com/pelletier/go-toml/v2 v2.2.4 // indirect
 	github.com/perimeterx/marshmallow v1.1.5 // indirect
 	github.com/pjbgf/sha1cd v0.5.0 // indirect
@@ -308,7 +304,6 @@ require (
 	github.com/shopspring/decimal v1.4.0 // indirect
 	github.com/sirupsen/logrus v1.9.3 // indirect
 	github.com/skeema/knownhosts v1.3.2 // indirect
-	github.com/sony/gobreaker v0.5.0 // indirect
 	github.com/spf13/cast v1.10.0 // indirect
 	github.com/spf13/pflag v1.0.10 // indirect
 	github.com/temoto/robotstxt v1.1.2 // indirect
