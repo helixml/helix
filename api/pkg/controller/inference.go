@@ -861,8 +861,16 @@ func (c *Controller) evaluateSecrets(ctx context.Context, user *types.User, app 
 
 	var filteredSecrets []*types.Secret
 
-	// Filter out secrets that are not for the current app
+	// Keep only secrets relevant to this app's inference:
+	//   - user-level secrets (no project, no app scope)
+	//   - secrets explicitly scoped to this app
+	// Project-scoped secrets are injected via project sessions, not inference,
+	// and including them here would let same-named secrets from other projects
+	// collide on env-var name (the env map keys on secret.Name).
 	for _, secret := range secrets {
+		if secret.ProjectID != "" {
+			continue
+		}
 		if secret.AppID != "" && secret.AppID != app.ID {
 			continue
 		}
