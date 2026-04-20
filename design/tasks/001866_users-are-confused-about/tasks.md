@@ -1,6 +1,6 @@
 # Implementation Tasks
 
-- [ ] Add `validateSetupToken()` function in `ClaudeSubscriptionConnect.tsx` that checks for API key prefix (`sk-ant-api`), valid setup token prefix (`sk-ant-oat01-`), and minimum length
+- [~] Add `validateSetupToken()` function in `ClaudeSubscriptionConnect.tsx` that checks for API key prefix (`sk-ant-api`), valid setup token prefix (`sk-ant-oat01-`), and minimum length
 - [ ] Wire validation into the token dialog: show error alert below text field, disable "Connect" button when validation fails
 - [ ] Change text field label from "Your Token" to "Claude Code Setup Token" and update placeholder text
 - [ ] Add backend validation in `createClaudeSubscription` handler (before encryption) to reject API keys and non-`sk-ant-oat01-` tokens with HTTP 400
