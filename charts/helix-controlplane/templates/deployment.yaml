@@ -164,10 +164,6 @@ spec:
               value: http://{{ include "helix-controlplane.fullname" . }}-chrome:7317
             # Postgres configuration
             {{- include "helix-controlplane.postgres-env" . | nindent 12 }}
-            {{- if and .Values.controlplane.rag (default "" .Values.controlplane.rag.defaultProvider) }}
-            - name: RAG_DEFAULT_PROVIDER
-              value: {{ .Values.controlplane.rag.defaultProvider | quote }}
-            {{- end }}
             {{- if .Values.controlplane.rag }}
             {{- with (default "" .Values.controlplane.rag.embeddingsProvider) }}
             - name: RAG_PGVECTOR_PROVIDER

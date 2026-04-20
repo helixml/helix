@@ -1684,9 +1684,6 @@ EOF
     # production sandboxes are managed by sandbox.sh, not docker-compose
     COMPOSE_PROFILES=""
 
-    # Set RAG provider
-    RAG_DEFAULT_PROVIDER=""
-
     # Generate .env content
     cat << EOF > "$ENV_TARGET"
 # Set passwords
@@ -1711,8 +1708,6 @@ COMPOSE_PROFILES=$COMPOSE_PROFILES
 
 # GPU vendor (nvidia, amd, intel, or empty)
 GPU_VENDOR=${GPU_VENDOR:-}
-
-RAG_DEFAULT_PROVIDER=$RAG_DEFAULT_PROVIDER
 
 # Storage
 # Uncomment the lines below and create the directories if you want to persist

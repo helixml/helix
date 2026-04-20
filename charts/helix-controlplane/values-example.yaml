@@ -93,8 +93,6 @@ controlplane:
 
   # RAG configuration
   rag:
-    # The default RAG provider to use. Valid values: llamaindex, kodit
-    defaultProvider: "kodit"
     # The helix inference provider that will serve embeddings.
     # Valid values: vllm, helix
     embeddingsProvider: "helix"

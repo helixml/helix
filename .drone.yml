@@ -235,9 +235,6 @@ steps:
       POSTGRES_DATABASE: postgres
       TEXT_EXTRACTION_TIKA_URL: http://tika:9998
       RAG_CRAWLER_LAUNCHER_URL: http://chrome:7317
-      # CI doesn't run a Kodit backend; tests don't exercise RAG, so use llamaindex
-      # (which doesn't validate its endpoints at startup) to avoid KODIT_ENABLED check.
-      RAG_DEFAULT_PROVIDER: llamaindex
       ORGANIZATIONS_CREATE_ENABLED_FOR_NON_ADMINS: "true"
       START_HELIX_TEST_SERVER: "true"
       # Agent configuration

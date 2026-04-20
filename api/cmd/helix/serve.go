@@ -432,25 +432,8 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		return fmt.Errorf("failed to initialize kodit: %w", err)
 	}
 
-	var ragClient rag.RAG
-
-	switch cfg.RAG.DefaultRagProvider {
-	case config.RAGProviderLlamaindex:
-		ragClient = rag.NewLlamaindex(&types.RAGSettings{
-			IndexURL:  cfg.RAG.Llamaindex.RAGIndexingURL,
-			QueryURL:  cfg.RAG.Llamaindex.RAGQueryURL,
-			DeleteURL: cfg.RAG.Llamaindex.RAGDeleteURL,
-		})
-		log.Info().Msgf("Using Llamaindex for RAG")
-	case config.RAGProviderKodit:
-		if !cfg.Kodit.Enabled {
-			return fmt.Errorf("RAG provider 'kodit' requires KODIT_ENABLED=true")
-		}
-		ragClient = rag.NewKoditRAG(koditInit.Service, postgresStore, cfg.FileStore)
-		log.Info().Msgf("Using Kodit for RAG")
-	default:
-		return fmt.Errorf("unknown RAG provider: %s", cfg.RAG.DefaultRagProvider)
-	}
+	ragClient := rag.NewKoditRAG(koditInit.Service, postgresStore, cfg.FileStore)
+	log.Info().Msgf("Using Kodit for RAG")
 
 	// Initialize browser pool
 	browserPool, err := browser.New(cfg)

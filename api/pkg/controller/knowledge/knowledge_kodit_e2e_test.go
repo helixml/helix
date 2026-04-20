@@ -119,7 +119,6 @@ func (s *KoditE2ESuite) SetupTest() {
 	s.koditSvc = &koditSvcE2E{}
 
 	s.cfg = &config.ServerConfig{}
-	s.cfg.RAG.DefaultRagProvider = "kodit"
 	s.cfg.RAG.MaxVersions = 3
 	s.cfg.Controller.FilePrefixGlobal = "dev"
 	s.cfg.FileStore.Type = "fs"

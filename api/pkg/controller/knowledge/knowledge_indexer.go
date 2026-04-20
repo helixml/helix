@@ -14,6 +14,7 @@ import (
 	"github.com/rs/zerolog/log"
 	"gopkg.in/yaml.v3"
 
+	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/data"
 	"github.com/helixml/helix/api/pkg/dataprep/text"
 	"github.com/helixml/helix/api/pkg/filestore"
@@ -88,7 +89,7 @@ func (r *Reconciler) index(ctx context.Context) error {
 						State:           types.KnowledgeStatePending,
 						Message:         "waiting for files to be uploaded",
 						EmbeddingsModel: r.config.RAG.PGVector.EmbeddingsModel,
-						Provider:        string(r.config.RAG.DefaultRagProvider),
+						Provider:        config.RAGProviderName,
 					})
 					return
 				}
@@ -105,7 +106,7 @@ func (r *Reconciler) index(ctx context.Context) error {
 					State:           types.KnowledgeStateError,
 					Message:         err.Error(),
 					EmbeddingsModel: r.config.RAG.PGVector.EmbeddingsModel,
-					Provider:        string(r.config.RAG.DefaultRagProvider),
+					Provider:        config.RAGProviderName,
 				})
 				return
 			}
@@ -208,7 +209,7 @@ func (r *Reconciler) indexKnowledge(ctx context.Context, k *types.Knowledge, ver
 			Message:         err.Error(),
 			CrawledSources:  k.CrawledSources,
 			EmbeddingsModel: r.config.RAG.PGVector.EmbeddingsModel,
-			Provider:        string(r.config.RAG.DefaultRagProvider),
+			Provider:        config.RAGProviderName,
 		})
 
 		return fmt.Errorf("indexing failed, error: %w", err)
@@ -244,7 +245,7 @@ func (r *Reconciler) indexKnowledge(ctx context.Context, k *types.Knowledge, ver
 		State:           types.KnowledgeStateReady,
 		CrawledSources:  k.CrawledSources,
 		EmbeddingsModel: r.config.RAG.PGVector.EmbeddingsModel,
-		Provider:        string(r.config.RAG.DefaultRagProvider),
+		Provider:        config.RAGProviderName,
 	})
 	if err != nil {
 		log.Warn().
@@ -318,7 +319,7 @@ func (r *Reconciler) indexKnowledgeWithKodit(ctx context.Context, ki rag.KoditIn
 			Version:     version,
 			State:       types.KnowledgeStateError,
 			Message:     err.Error(),
-			Provider:    string(r.config.RAG.DefaultRagProvider),
+			Provider:    config.RAGProviderName,
 		})
 		return fmt.Errorf("kodit directory registration failed: %w", err)
 	}
@@ -378,7 +379,7 @@ func (r *Reconciler) indexKnowledgeWithKodit(ctx context.Context, ki rag.KoditIn
 		KnowledgeID: k.ID,
 		Version:     version,
 		State:       types.KnowledgeStateIndexing,
-		Provider:    string(r.config.RAG.DefaultRagProvider),
+		Provider:    config.RAGProviderName,
 	})
 	if err != nil {
 		log.Warn().Err(err).Str("knowledge_id", k.ID).Msg("failed to create kodit knowledge version")

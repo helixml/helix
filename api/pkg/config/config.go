@@ -331,18 +331,12 @@ type TextExtractor struct {
 	}
 }
 
-type RAGProvider string
-
-const (
-	RAGProviderLlamaindex RAGProvider = "llamaindex"
-	RAGProviderKodit      RAGProvider = "kodit"
-)
+// RAGProviderName is the string stamped into KnowledgeVersion records to
+// identify which backend indexed them. Kodit is the only RAG backend.
+const RAGProviderName = "kodit"
 
 type RAG struct {
 	IndexingConcurrency int `envconfig:"RAG_INDEXING_CONCURRENCY" default:"1" description:"The number of concurrent indexing tasks."`
-
-	// DefaultRagProvider is the default RAG provider to use if not specified
-	DefaultRagProvider RAGProvider `envconfig:"RAG_DEFAULT_PROVIDER" default:"kodit" description:"The default RAG provider to use if not specified."`
 
 	MaxVersions int `envconfig:"RAG_MAX_VERSIONS" default:"3" description:"The maximum number of versions to keep for a knowledge."`
 
