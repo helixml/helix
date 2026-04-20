@@ -569,7 +569,7 @@ function start-tmux() {
   tmux split-window -t "$TMUX_SESSION" -v -d
   tmux split-window -t "$TMUX_SESSION" -v -d
 
-  # Split the top row into 3 columns (Frontend, API, Haystack)
+  # Split the top row into 3 columns (Frontend, API, free slot)
   tmux select-pane -t "$TMUX_SESSION:0.0"
   tmux split-window -t "$TMUX_SESSION" -h -d
   tmux select-pane -t "$TMUX_SESSION:0.1"
@@ -584,15 +584,15 @@ function start-tmux() {
   # Bottom pane (6) stays full-width for hacking terminal
 
   # Set pane titles and start processes in 3x2 + full-width layout
-  # Top row (0-2): Frontend, API, Haystack
+  # Top row (0-2): Frontend, API, Postgres
   tmux select-pane -t "$TMUX_SESSION:0.0" -T "Frontend Logs"
   tmux send-keys -t "$TMUX_SESSION:0.0" 'docker compose -f docker-compose.dev.yaml logs -f frontend' C-m
 
   tmux select-pane -t "$TMUX_SESSION:0.1" -T "API Logs"
   tmux send-keys -t "$TMUX_SESSION:0.1" 'docker compose -f docker-compose.dev.yaml logs -f api' C-m
 
-  tmux select-pane -t "$TMUX_SESSION:0.2" -T "Haystack Logs"
-  tmux send-keys -t "$TMUX_SESSION:0.2" 'docker compose -f docker-compose.dev.yaml logs -f haystack' C-m
+  tmux select-pane -t "$TMUX_SESSION:0.2" -T "Postgres Logs"
+  tmux send-keys -t "$TMUX_SESSION:0.2" 'docker compose -f docker-compose.dev.yaml logs -f postgres' C-m
 
   # Determine sandbox logs command based on Helix-in-Helix mode
   local SANDBOX_LOGS_CMD
@@ -2062,8 +2062,8 @@ function test() {
     exit 1
   fi
 
-  # Ensure postgres, tika, typesense and chrome are running
-  docker compose -f docker-compose.dev.yaml up -d postgres tika typesense chrome pgvector
+  # Ensure postgres, tika and chrome are running
+  docker compose -f docker-compose.dev.yaml up -d postgres tika chrome
 
   # Database config (running in a sidecar)
   export POSTGRES_USER=postgres
@@ -2071,14 +2071,6 @@ function test() {
   export POSTGRES_DATABASE=postgres
   export POSTGRES_HOST=localhost
 
-  export PGVECTOR_USER=postgres
-  export PGVECTOR_PASSWORD=postgres
-  export PGVECTOR_DATABASE=postgres
-  export PGVECTOR_HOST=localhost
-  export PGVECTOR_PORT=5433
-
-  export TYPESENSE_URL=http://localhost:8108
-  export TYPESENSE_API_KEY=typesense
   export TEXT_EXTRACTION_TIKA_URL=http://localhost:9998
   export RAG_CRAWLER_LAUNCHER_URL=http://localhost:7317
 

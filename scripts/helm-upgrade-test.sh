@@ -115,7 +115,6 @@ log "Upgrade path: v${PREVIOUS_VERSION} -> v${LATEST_VERSION}"
 # Minimal values to get the chart running without real API keys
 COMMON_VALUES=()
 COMMON_VALUES+=("--set" "controlplane.runnerToken=test-token-for-helm-validation")
-COMMON_VALUES+=("--set" "controlplane.haystack.enabled=false")
 
 # Helper: dump pod diagnostics on failure
 dump_diagnostics() {

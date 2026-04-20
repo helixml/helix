@@ -79,11 +79,11 @@
 #     Result: Auto-enable --cli and --controlplane (--code is a controlplane feature)
 #     Note: Simplest way to install controlplane with Code features
 #
-# 14. Ubuntu + NVIDIA GPU + --runner --code --haystack (without --runner-token)
-#     Result: Auto-enable --cli and --controlplane, install controlplane+runner+code+haystack
-#     Note: --code/--haystack auto-enable controlplane, --runner (no token) adds local runner
+# 14. Ubuntu + NVIDIA GPU + --runner --code (without --runner-token)
+#     Result: Auto-enable --cli and --controlplane, install controlplane+runner+code
+#     Note: --code auto-enables controlplane, --runner (no token) adds local runner
 #
-# 15. Ubuntu + NVIDIA GPU + --runner (without --runner-token or --code/--haystack/--controlplane)
+# 15. Ubuntu + NVIDIA GPU + --runner (without --runner-token or --code/--controlplane)
 #     Result: ERROR - must specify --runner-token OR --controlplane OR controlplane features
 #     Note: Prevents ambiguity - user must explicitly choose remote or local installation
 #
@@ -116,7 +116,6 @@ CONTROLPLANE=false
 RUNNER=false
 SANDBOX=false
 LARGE=false
-HAYSTACK=""
 CODE=""
 API_HOST=""
 RUNNER_TOKEN=""
@@ -242,7 +241,6 @@ Options:
   --runner                 Install the runner (single container with runner.sh script to start it in $INSTALL_DIR)
   --sandbox                Install sandbox node (RevDial client with direct WebSocket streaming for remote machine)
   --large                  Install the large version of the runner (includes all models, 100GB+ download, otherwise uses small one)
-  --haystack               Enable the haystack and vectorchord/postgres based RAG service (downloads tens of gigabytes of python but provides better RAG quality than default typesense/tika stack), also uses GPU-accelerated embeddings in helix runners
   --code                   Enable Helix Code features (External Agents, PDEs with Zed, direct WebSocket streaming). Requires GPU (Intel/AMD/NVIDIA) with drivers installed and --api-host parameter.
   --api-host <host>        Specify the API host for the API to serve on and/or the runner/sandbox to connect to, e.g. http://localhost:8080 or https://my-controlplane.com. Will install and configure Caddy if HTTPS and running on Ubuntu.
   --runner-token <token>   Specify the runner token when connecting a runner or sandbox to an existing controlplane
@@ -297,8 +295,8 @@ Examples:
 11. Install with Helix Code (auto-enables --cli --controlplane):
     ./install.sh --code --api-host https://helix.mycompany.com
 
-12. Install everything locally on a GPU machine (controlplane + runner + code + haystack):
-    ./install.sh --runner --code --haystack --api-host https://helix.mycompany.com
+12. Install everything locally on a GPU machine (controlplane + runner + code):
+    ./install.sh --runner --code --api-host https://helix.mycompany.com
 
 13. Install runner with GPUs split across 4 containers (for 8 GPUs = 2 GPUs per container):
     ./install.sh --runner --api-host https://helix.mycompany.com --runner-token YOUR_RUNNER_TOKEN --split-runners 4
@@ -373,10 +371,6 @@ while [[ $# -gt 0 ]]; do
             ;;
         --large)
             LARGE=true
-            shift
-            ;;
-        --haystack)
-            HAYSTACK=true
             shift
             ;;
         --code)
@@ -1053,9 +1047,9 @@ if [ "$AUTO" = true ]; then
     fi
 fi
 
-# Auto-enable controlplane if --code or --haystack specified (they're controlplane features)
-if [ "$CONTROLPLANE" = false ] && [[ -n "$CODE" || -n "$HAYSTACK" ]]; then
-    echo "Note: --code or --haystack specified (controlplane features)."
+# Auto-enable controlplane if --code specified (controlplane feature)
+if [ "$CONTROLPLANE" = false ] && [[ -n "$CODE" ]]; then
+    echo "Note: --code specified (controlplane feature)."
     echo "      Auto-enabling: --cli --controlplane"
     CONTROLPLANE=true
     CLI=true
@@ -1102,7 +1096,7 @@ fi
 if [ "$RUNNER" = true ] && [ "$CONTROLPLANE" = false ]; then
     # Three cases:
     # 1. --runner WITH --runner-token = remote runner (needs API_HOST)
-    # 2. --runner WITHOUT token but controlplane already enabled by --code/--haystack = local installation
+    # 2. --runner WITHOUT token but controlplane already enabled by --code = local installation
     # 3. --runner WITHOUT token and no controlplane features = ERROR (missing token)
 
     if [ -n "$RUNNER_TOKEN" ]; then
@@ -1120,7 +1114,7 @@ if [ "$RUNNER" = true ] && [ "$CONTROLPLANE" = false ]; then
         # Case 2: --runner without token = ERROR (need either token or controlplane)
         echo "Error: --runner requires either:"
         echo "  1. --runner-token (for remote runner connecting to external controlplane)"
-        echo "  2. --controlplane or controlplane features like --code/--haystack (for local installation)"
+        echo "  2. --controlplane or controlplane features like --code (for local installation)"
         echo
         echo "Examples:"
         echo "  Remote runner:  ./install.sh --runner --api-host HOST --runner-token TOKEN"
@@ -1689,15 +1683,9 @@ EOF
     # Note: Sandbox profiles (code-nvidia, code-amd-intel) are NOT set here because
     # production sandboxes are managed by sandbox.sh, not docker-compose
     COMPOSE_PROFILES=""
-    if [[ -n "$HAYSTACK" ]]; then
-        COMPOSE_PROFILES="haystack"
-    fi
 
     # Set RAG provider
     RAG_DEFAULT_PROVIDER=""
-    if [[ -n "$HAYSTACK" ]]; then
-        RAG_DEFAULT_PROVIDER="haystack"
-    fi
 
     # Generate .env content
     cat << EOF > "$ENV_TARGET"
@@ -1724,8 +1712,6 @@ COMPOSE_PROFILES=$COMPOSE_PROFILES
 # GPU vendor (nvidia, amd, intel, or empty)
 GPU_VENDOR=${GPU_VENDOR:-}
 
-# Haystack features
-RAG_HAYSTACK_ENABLED=${HAYSTACK:-false}
 RAG_DEFAULT_PROVIDER=$RAG_DEFAULT_PROVIDER
 
 # Storage
@@ -1735,7 +1721,6 @@ RAG_DEFAULT_PROVIDER=$RAG_DEFAULT_PROVIDER
 # file.
 #POSTGRES_DATA=$INSTALL_DIR/data/helix-postgres
 #FILESTORE_DATA=$INSTALL_DIR/data/helix-filestore
-#PGVECTOR_DATA=$INSTALL_DIR/data/helix-pgvector
 
 # Optional integrations:
 

@@ -92,14 +92,10 @@ CLEANUP_REPOS=(
     "registry.helixml.tech/helix/helix-sway"
     "registry.helixml.tech/helix/helix-sandbox"
     "registry.helixml.tech/helix/controlplane"
-    "registry.helixml.tech/helix/haystack"
-    "registry.helixml.tech/helix/typesense"
     "ghcr.io/helixml/helix-ubuntu"
     "ghcr.io/helixml/helix-sway"
     "ghcr.io/helixml/helix-sandbox"
     "ghcr.io/helixml/controlplane"
-    "ghcr.io/helixml/haystack"
-    "ghcr.io/helixml/typesense"
 )
 
 for repo in "${CLEANUP_REPOS[@]}"; do
