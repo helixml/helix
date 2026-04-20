@@ -341,8 +341,8 @@ type RAG struct {
 	MaxVersions int `envconfig:"RAG_MAX_VERSIONS" default:"3" description:"The maximum number of versions to keep for a knowledge."`
 
 	// EmbeddingsProvider is the default provider used by the /v1/embeddings
-	// proxy when the caller sends a raw model name (not one of the placeholder
-	// names like "rag-embedding" or "kodit-text-embedding"). Placeholder-model
+	// proxy when the caller sends a raw model name (not a placeholder like
+	// "kodit-text-embedding" or "kodit-vision-embedding"). Placeholder-model
 	// requests resolve the provider from SystemSettings instead.
 	EmbeddingsProvider string `envconfig:"RAG_EMBEDDINGS_PROVIDER" default:"openai" description:"Default provider for direct /v1/embeddings calls with raw model names. One of openai, togetherai, vllm, helix."`
 

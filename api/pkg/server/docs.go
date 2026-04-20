@@ -27084,20 +27084,6 @@ const docTemplate = `{
                 "threshold": {
                     "description": "this is the threshold for a \"good\" answer - will default to 0.2",
                     "type": "number"
-                },
-                "typesense": {
-                    "type": "object",
-                    "properties": {
-                        "api_key": {
-                            "type": "string"
-                        },
-                        "collection": {
-                            "type": "string"
-                        },
-                        "url": {
-                            "type": "string"
-                        }
-                    }
                 }
             }
         },
@@ -30123,6 +30109,20 @@ const docTemplate = `{
                     "description": "Kodit enrichment model configuration",
                     "type": "string"
                 },
+                "kodit_text_embedding_model": {
+                    "type": "string"
+                },
+                "kodit_text_embedding_provider": {
+                    "description": "Kodit text embedding model configuration",
+                    "type": "string"
+                },
+                "kodit_vision_embedding_model": {
+                    "type": "string"
+                },
+                "kodit_vision_embedding_provider": {
+                    "description": "Kodit vision embedding model configuration",
+                    "type": "string"
+                },
                 "max_concurrent_desktops": {
                     "type": "integer"
                 },
@@ -30158,13 +30158,6 @@ const docTemplate = `{
                 },
                 "providers_management_enabled": {
                     "type": "boolean"
-                },
-                "rag_embeddings_model": {
-                    "type": "string"
-                },
-                "rag_embeddings_provider": {
-                    "description": "RAG embedding model configuration",
-                    "type": "string"
                 }
             }
         },
@@ -30197,6 +30190,26 @@ const docTemplate = `{
                 },
                 "kodit_enrichment_provider": {
                     "description": "Kodit enrichment model configuration (not sensitive, returned as-is)",
+                    "type": "string"
+                },
+                "kodit_text_embedding_model": {
+                    "type": "string"
+                },
+                "kodit_text_embedding_model_set": {
+                    "type": "boolean"
+                },
+                "kodit_text_embedding_provider": {
+                    "description": "Kodit text embedding model configuration",
+                    "type": "string"
+                },
+                "kodit_vision_embedding_model": {
+                    "type": "string"
+                },
+                "kodit_vision_embedding_model_set": {
+                    "type": "boolean"
+                },
+                "kodit_vision_embedding_provider": {
+                    "description": "Kodit vision embedding model configuration",
                     "type": "string"
                 },
                 "max_concurrent_desktops": {
@@ -30236,17 +30249,6 @@ const docTemplate = `{
                 },
                 "providers_management_enabled": {
                     "type": "boolean"
-                },
-                "rag_embeddings_model": {
-                    "type": "string"
-                },
-                "rag_embeddings_model_set": {
-                    "description": "true if both provider and model are configured",
-                    "type": "boolean"
-                },
-                "rag_embeddings_provider": {
-                    "description": "RAG embedding model configuration (not sensitive, returned as-is)",
-                    "type": "string"
                 },
                 "updated": {
                     "type": "string"

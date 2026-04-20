@@ -40,8 +40,6 @@ func TestUpdateSystemSettings_UpdatesAllFields(t *testing.T) {
 		HuggingFaceToken:            "old-token",
 		KoditEnrichmentProvider:     "old-kodit-provider",
 		KoditEnrichmentModel:        "old-kodit-model",
-		RAGEmbeddingsProvider:       "old-rag-provider",
-		RAGEmbeddingsModel:          "old-rag-model",
 		MaxConcurrentDesktops:       1,
 		ProvidersManagementEnabled:  false,
 		EnforceQuotas:               false,
@@ -62,8 +60,6 @@ func TestUpdateSystemSettings_UpdatesAllFields(t *testing.T) {
 		HuggingFaceToken:            strPtr("new-token"),
 		KoditEnrichmentProvider:     strPtr("new-kodit-provider"),
 		KoditEnrichmentModel:        strPtr("new-kodit-model"),
-		RAGEmbeddingsProvider:       strPtr("new-rag-provider"),
-		RAGEmbeddingsModel:          strPtr("new-rag-model"),
 		MaxConcurrentDesktops:       intPtr(25),
 		ProvidersManagementEnabled:  boolPtr(true),
 		EnforceQuotas:               boolPtr(true),
@@ -86,8 +82,6 @@ func TestUpdateSystemSettings_UpdatesAllFields(t *testing.T) {
 	require.Equal(t, "new-token", updated.HuggingFaceToken)
 	require.Equal(t, "new-kodit-provider", updated.KoditEnrichmentProvider)
 	require.Equal(t, "new-kodit-model", updated.KoditEnrichmentModel)
-	require.Equal(t, "new-rag-provider", updated.RAGEmbeddingsProvider)
-	require.Equal(t, "new-rag-model", updated.RAGEmbeddingsModel)
 	require.Equal(t, 25, updated.MaxConcurrentDesktops)
 	require.True(t, updated.ProvidersManagementEnabled)
 	require.True(t, updated.EnforceQuotas)
@@ -121,8 +115,6 @@ func TestUpdateSystemSettings_PartialUpdateLeavesOtherFieldsUnchanged(t *testing
 		HuggingFaceToken:            "seed-token",
 		KoditEnrichmentProvider:     "seed-kodit-provider",
 		KoditEnrichmentModel:        "seed-kodit-model",
-		RAGEmbeddingsProvider:       "seed-rag-provider",
-		RAGEmbeddingsModel:          "seed-rag-model",
 		MaxConcurrentDesktops:       10,
 		ProvidersManagementEnabled:  true,
 		EnforceQuotas:               false,
@@ -157,8 +149,6 @@ func TestUpdateSystemSettings_PartialUpdateLeavesOtherFieldsUnchanged(t *testing
 
 	require.Equal(t, "seed-kodit-provider", updated.KoditEnrichmentProvider)
 	require.Equal(t, "seed-kodit-model", updated.KoditEnrichmentModel)
-	require.Equal(t, "seed-rag-provider", updated.RAGEmbeddingsProvider)
-	require.Equal(t, "seed-rag-model", updated.RAGEmbeddingsModel)
 	require.True(t, updated.ProvidersManagementEnabled)
 	require.False(t, updated.EnforceQuotas)
 	require.Equal(t, "seed-reasoning-provider", updated.OptimusReasoningModelProvider)
