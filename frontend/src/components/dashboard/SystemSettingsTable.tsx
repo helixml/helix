@@ -552,7 +552,7 @@ const SystemSettingsTable: FC = () => {
                       RAG Embedding Model
                     </Typography>
                     <Typography variant="caption" color="text.secondary">
-                      Embedding model used by Haystack for knowledge source indexing and retrieval
+                      Embedding model used for knowledge source indexing and retrieval
                     </Typography>
                   </TableCell>
                   <TableCell>
@@ -587,7 +587,7 @@ const SystemSettingsTable: FC = () => {
                         currentType="embed"
                         buttonVariant="outlined"
                         disabled={saving}
-                        hint="Select the embedding model that Haystack will use for indexing and querying knowledge sources."
+                        hint="Select the embedding model to use for indexing and querying knowledge sources."
                         autoSelectFirst={false}
                       />
                       {settings?.rag_embeddings_model_set && (
