@@ -72,7 +72,7 @@ func (apiServer *HelixAPIServer) createClaudeSubscription(_ http.ResponseWriter,
 				"This is an Anthropic API key, not a Claude Code setup token. " +
 					"Run 'claude setup-token' in your terminal to generate the correct token.")
 		}
-		if !strings.HasPrefix(token, "sk-ant-oat01-") {
+		if !strings.HasPrefix(token, "sk-ant-oat") {
 			return nil, system.NewHTTPError400(
 				"Invalid setup token format. " +
 					"Run 'claude setup-token' to generate a valid token.")

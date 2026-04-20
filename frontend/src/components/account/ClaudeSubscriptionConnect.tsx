@@ -71,7 +71,7 @@ function validateSetupToken(token: string): string | null {
     return 'This looks like an Anthropic API key, not a Claude Code setup token. Run `claude setup-token` in your terminal to generate the correct token.'
   }
 
-  if (!trimmed.startsWith('sk-ant-oat01-')) {
+  if (!trimmed.startsWith('sk-ant-oat')) {
     return "This doesn't look like a valid Claude Code setup token. Run `claude setup-token` to generate one."
   }
 
