@@ -166,6 +166,7 @@ func (s *MySuite) SetupTest() { /* init ctrl, store, server */ }
 - **Routing**: `useRouter()` with `router.navigate('name', { params })` — NOT `<Link>` or `<a href>` (react-router5)
 - Invalidate queries after mutations, don't use `setQueryData`
 - Use ContextSidebar pattern (see `ProjectsSidebar.tsx`)
+- **Search/filter**: use `matchesAllTokens()` from `utils/searchUtils.ts` — splits on whitespace, requires all tokens to match (AND logic). NEVER use raw `.includes(query)` for search boxes — it fails on multi-word queries
 
 ## Architecture
 - **ACP**: `LLM ←(OpenAI API)→ Qwen Code Agent ←(ACP)→ Zed IDE`
