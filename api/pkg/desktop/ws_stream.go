@@ -465,11 +465,14 @@ func (v *VideoStreamer) startScanoutMode(ctx context.Context) error {
 
 // selectEncoder chooses the best available encoder
 // Priority order:
-// 0. HELIX_ENCODER env var override (for testing/benchmarking)
+// 0. HELIX_ENCODER env var override (vsock|openh264|x264|nvenc|vaapi|vaapi-legacy).
+//    On AMD, VA-API is skipped in auto-detect due to a historical radeonsi+gst-va
+//    runtime crash. To opt in (newer mesa/gst-va releases have fixed it), set
+//    HELIX_ENCODER=vaapi (or vaapi-legacy for gst-vaapi plugin).
 // 1. NVIDIA NVENC (nvh264enc) - fastest, lowest latency
 // 2. Intel QSV (qsvh264enc) - Intel Quick Sync Video
-// 3. VA-API (vah264enc) - Intel VA-API (skipped on AMD — runtime crash)
-// 4. VA-API Legacy (vaapih264enc) - older VA-API plugin (skipped on AMD)
+// 3. VA-API (vah264enc) - Intel VA-API (skipped on AMD by default — historical crash)
+// 4. VA-API Legacy (vaapih264enc) - older VA-API plugin (skipped on AMD by default)
 // 5. VA-API LP (vah264lpenc) - Intel VA-API Low Power mode (skipped on AMD)
 // 6. OpenH264 (openh264enc) - Cisco's software encoder (AMD default)
 // 7. x264 (x264enc) - software fallback (requires gst-plugins-ugly)
@@ -489,6 +492,12 @@ func (v *VideoStreamer) selectEncoder() string {
 		case "nvenc":
 			v.logger.Info("using NVIDIA NVENC encoder (forced via HELIX_ENCODER)")
 			return "nvenc"
+		case "vaapi":
+			v.logger.Info("using VA-API encoder (forced via HELIX_ENCODER — bypasses AMD skip)")
+			return "vaapi"
+		case "vaapi-legacy":
+			v.logger.Info("using VA-API legacy encoder (forced via HELIX_ENCODER — bypasses AMD skip)")
+			return "vaapi-legacy"
 		default:
 			v.logger.Warn("unknown HELIX_ENCODER value, using auto-detect", "value", override)
 		}
