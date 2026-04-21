@@ -712,6 +712,15 @@ func (c *openAIClientInterceptor) Do(req *http.Request) (*http.Response, error) 
 		return resp, err
 	}
 
+	// Some providers (e.g. Together AI) use "reasoning" as the JSON field name
+	// for thinking model output, while the go-openai library expects
+	// "reasoning_content" (DeepSeek's convention). Rewrite on the fly so the
+	// field deserializes correctly regardless of which convention the upstream
+	// provider uses.
+	if resp != nil && resp.Body != nil {
+		resp.Body = &reasoningFieldMapper{ReadCloser: resp.Body}
+	}
+
 	// Handle rate limiting for all provider responses
 	if c.rateLimiter != nil {
 		// Update rate limiter from response headers
@@ -742,6 +751,52 @@ func (c *openAIClientInterceptor) Do(req *http.Request) (*http.Response, error) 
 	}
 
 	return resp, err
+}
+
+// reasoningFieldMapper wraps a response body and rewrites the "reasoning"
+// JSON field to "reasoning_content" so the go-openai library can deserialize
+// it. Some providers (e.g. Together AI) use "reasoning" while the library
+// expects "reasoning_content". Works for both streaming and non-streaming.
+type reasoningFieldMapper struct {
+	io.ReadCloser
+	buf    []byte
+	offset int
+}
+
+var (
+	reasoningFieldOld = []byte(`"reasoning":`)
+	reasoningFieldNew = []byte(`"reasoning_content":`)
+)
+
+func (r *reasoningFieldMapper) Read(p []byte) (int, error) {
+	// Drain any buffered overflow from a previous replacement
+	if r.offset < len(r.buf) {
+		n := copy(p, r.buf[r.offset:])
+		r.offset += n
+		if r.offset >= len(r.buf) {
+			r.buf = nil
+			r.offset = 0
+		}
+		return n, nil
+	}
+
+	n, err := r.ReadCloser.Read(p)
+	if n > 0 {
+		chunk := p[:n]
+		replaced := bytes.ReplaceAll(chunk, reasoningFieldOld, reasoningFieldNew)
+		if len(replaced) <= len(p) {
+			copy(p, replaced)
+			return len(replaced), err
+		}
+		// Replacement made the output larger than the buffer; return what fits
+		// and stash the rest for the next Read call.
+		copy(p, replaced[:len(p)])
+		r.buf = make([]byte, len(replaced)-len(p))
+		copy(r.buf, replaced[len(p):])
+		r.offset = 0
+		return len(p), err
+	}
+	return n, err
 }
 
 // estimateRequestTokens estimates the number of tokens needed for a request
