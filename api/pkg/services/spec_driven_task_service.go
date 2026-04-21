@@ -1221,6 +1221,22 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, task *types.Sp
 			}
 		}
 
+		// Set status to implementation BEFORE sending the instruction.
+		// This closes the race window between the HTTP handler's goroutine
+		// and the orchestrator polling loop: both re-read the task from DB,
+		// and if the status is still spec_approved when the second caller
+		// reads it, the idempotency guard (above) won't catch it.
+		now := time.Now()
+		task.Status = types.TaskStatusImplementation
+		task.StatusUpdatedAt = &now
+		task.BranchName = branchName
+		task.StartedAt = &now
+
+		err = s.store.UpdateSpecTask(ctx, task)
+		if err != nil {
+			return fmt.Errorf("failed to update task approval: %w", err)
+		}
+
 		// Send instruction to existing agent session (reuse planning session)
 		sessionID := task.PlanningSessionID
 
@@ -1255,17 +1271,6 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, task *types.Sp
 			log.Warn().
 				Str("task_id", task.ID).
 				Msg("No planning session ID found - agent will not receive implementation instruction")
-		}
-
-		now := time.Now()
-		task.Status = types.TaskStatusImplementation
-		task.StatusUpdatedAt = &now
-		task.BranchName = branchName
-		task.StartedAt = &now
-
-		err = s.store.UpdateSpecTask(ctx, task)
-		if err != nil {
-			return fmt.Errorf("failed to update task approval: %w", err)
 		}
 
 	} else {
