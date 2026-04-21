@@ -314,6 +314,7 @@ type Store interface {
 	GetDataEntity(ctx context.Context, id string) (*types.DataEntity, error)
 	ListDataEntities(ctx context.Context, q *ListDataEntitiesQuery) ([]*types.DataEntity, error)
 	ListDataEntitiesWithKoditRepo(ctx context.Context) ([]*types.DataEntity, error)
+	ListDataEntitiesByKoditRepositoryID(ctx context.Context, koditRepositoryID int64) ([]*types.DataEntity, error)
 	DeleteDataEntity(ctx context.Context, id string) error
 
 	// Knowledge
