@@ -158,6 +158,35 @@ func TestRenameReasoningField(t *testing.T) {
 	}
 }
 
+func TestRenameReasoningField_OutputIsSingleLine(t *testing.T) {
+	// After JSON round-trip, output must stay on one line for SSE/JSON-L
+	tests := []struct {
+		name  string
+		input string
+	}{
+		{
+			name:  "reasoning with embedded newlines",
+			input: `data: {"choices":[{"index":0,"delta":{"reasoning":"line 1\nline 2\nline 3","content":"hi"}}]}`,
+		},
+		{
+			name:  "reasoning with tabs and carriage returns",
+			input: `data: {"choices":[{"index":0,"message":{"reasoning":"col1\tcol2\r\nrow2","content":"done"}}]}`,
+		},
+		{
+			name:  "content with newlines and reasoning present",
+			input: `{"choices":[{"index":0,"message":{"reasoning":"think","content":"line1\nline2"}}]}`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := renameReasoningField(tt.input)
+			assert.NotContains(t, got, "\n", "output must be a single line for SSE/JSON-L")
+			assert.NotContains(t, got, "\r", "output must not contain carriage returns")
+		})
+	}
+}
+
 func TestRenameReasoningField_NumberPreservation(t *testing.T) {
 	input := `{"id":"oai_abc","created":1776749289,"choices":[{"index":0,"message":{"reasoning":"think","content":"hi"},"finish_reason":"stop"}],"usage":{"prompt_tokens":15,"completion_tokens":10,"total_tokens":25}}`
 	got := renameReasoningField(input)
