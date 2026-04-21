@@ -30,8 +30,20 @@
 
 set -uo pipefail
 
+# macOS cron runs with a minimal PATH that doesn't include Docker Desktop's
+# binary location. Without this, every `docker` call silently failed for days
+# and the script reported `removed=0 errors=0` despite doing nothing.
+export PATH="/usr/local/bin:/opt/homebrew/bin:$PATH"
+
 LOG_FILE="/tmp/docker-ci-cleanup.log"
 DRY_RUN="${1:-}"
+
+# Fail fast if docker is still not reachable — silent failure was the bug we
+# just fixed; don't let the script pretend to succeed again.
+if ! command -v docker >/dev/null 2>&1; then
+    echo "$(date '+%Y-%m-%d %H:%M:%S') [docker-mac-cleanup] FATAL: docker not found in PATH" >&2
+    exit 1
+fi
 
 log() {
     echo "$(date '+%Y-%m-%d %H:%M:%S') [docker-mac-cleanup] $*"
