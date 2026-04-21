@@ -71,7 +71,7 @@ import {
 } from "../../utils/oauthProviders";
 
 // Scopes required for GitHub repo browsing (including workflow file support)
-const GITHUB_REQUIRED_SCOPES = ["repo", "workflow"];
+const GITHUB_REQUIRED_SCOPES = ["repo", "workflow", "read:org"];
 
 interface BrowseProvidersDialogProps {
   open: boolean;
@@ -787,7 +787,7 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
 
           {needsScopeUpgrade && (
             <Alert severity="warning" sx={{ mb: 2 }}>
-              Your GitHub connection needs the <strong>workflow</strong> scope to push changes to <code>.github/workflows/</code>. Click &ldquo;Connect via OAuth&rdquo; below to reconnect with the required permissions.
+              Your GitHub connection is missing required permissions. Click &ldquo;Connect via OAuth&rdquo; below to reconnect with the required scopes (<code>repo</code>, <code>workflow</code>, <code>read:org</code>).
             </Alert>
           )}
 
@@ -1062,7 +1062,7 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
               }}
               helperText={
                 selectedProvider === "github"
-                  ? "Create a token at GitHub → Settings → Developer settings → Personal access tokens"
+                  ? "Create a classic token with 'repo' and 'read:org' scopes at GitHub → Settings → Developer settings → Personal access tokens"
                   : selectedProvider === "gitlab"
                     ? "Create a token at GitLab → Preferences → Access Tokens"
                     : selectedProvider === "bitbucket"

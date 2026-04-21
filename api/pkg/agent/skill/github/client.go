@@ -8,6 +8,7 @@ import (
 
 	"github.com/bradleyfalzon/ghinstallation/v2"
 	"github.com/google/go-github/v57/github"
+	"github.com/rs/zerolog/log"
 	"golang.org/x/oauth2"
 )
 
@@ -132,7 +133,7 @@ func (c *Client) ListRepositories(ctx context.Context) ([]*github.Repository, er
 	// Step 2: List user's organizations
 	orgs, err := c.listUserOrganizations(ctx)
 	if err != nil {
-		// Non-fatal: return what we have from Step 1
+		log.Warn().Err(err).Msg("Failed to list user organizations (needs read:org scope) — org-level repo listing will be skipped")
 		return allRepos, nil
 	}
 
