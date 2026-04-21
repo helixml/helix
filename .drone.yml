@@ -177,8 +177,6 @@ steps:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DATABASE: postgres
-      TYPESENSE_URL: http://typesense:8108
-      TYPESENSE_API_KEY: typesense
       TEXT_EXTRACTION_TIKA_URL: http://tika:9998
       RAG_CRAWLER_LAUNCHER_URL: http://chrome:7317
 
@@ -235,8 +233,6 @@ steps:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DATABASE: postgres
-      TYPESENSE_URL: http://typesense:8108
-      TYPESENSE_API_KEY: typesense
       TEXT_EXTRACTION_TIKA_URL: http://tika:9998
       RAG_CRAWLER_LAUNCHER_URL: http://chrome:7317
       ORGANIZATIONS_CREATE_ENABLED_FOR_NON_ADMINS: "true"
@@ -300,8 +296,6 @@ steps:
   #     POSTGRES_USER: postgres
   #     POSTGRES_PASSWORD: postgres
   #     POSTGRES_DATABASE: postgres
-  #     TYPESENSE_URL: http://typesense:8108
-  #     TYPESENSE_API_KEY: typesense
   #     TEXT_EXTRACTION_TIKA_URL: http://tika:9998
   #     RAG_CRAWLER_LAUNCHER_URL: http://chrome:7317
   #     ORGANIZATIONS_CREATE_ENABLED_FOR_NON_ADMINS: "true"
@@ -377,8 +371,6 @@ steps:
   #     POSTGRES_USER: postgres
   #     POSTGRES_PASSWORD: postgres
   #     POSTGRES_DATABASE: postgres
-  #     TYPESENSE_URL: http://typesense:8108
-  #     TYPESENSE_API_KEY: typesense
   #     TEXT_EXTRACTION_TIKA_URL: http://tika:9998
   #     RAG_CRAWLER_LAUNCHER_URL: http://chrome:7317
   #     ORGANIZATIONS_CREATE_ENABLED_FOR_NON_ADMINS: "true"
@@ -455,8 +447,6 @@ steps:
   #     POSTGRES_USER: postgres
   #     POSTGRES_PASSWORD: postgres
   #     POSTGRES_DATABASE: postgres
-  #     TYPESENSE_URL: http://typesense:8108
-  #     TYPESENSE_API_KEY: typesense
   #     TEXT_EXTRACTION_TIKA_URL: http://tika:9998
   #     RAG_CRAWLER_LAUNCHER_URL: http://chrome:7317
   #     ORGANIZATIONS_CREATE_ENABLED_FOR_NON_ADMINS: "true"
@@ -534,8 +524,6 @@ steps:
   #     POSTGRES_USER: postgres
   #     POSTGRES_PASSWORD: postgres
   #     POSTGRES_DATABASE: postgres
-  #     TYPESENSE_URL: http://typesense:8108
-  #     TYPESENSE_API_KEY: typesense
   #     TEXT_EXTRACTION_TIKA_URL: http://tika:9998
   #     RAG_CRAWLER_LAUNCHER_URL: http://chrome:7317
   #     ORGANIZATIONS_CREATE_ENABLED_FOR_NON_ADMINS: "true"
@@ -616,8 +604,6 @@ steps:
   #     POSTGRES_USER: postgres
   #     POSTGRES_PASSWORD: postgres
   #     POSTGRES_DATABASE: postgres
-  #     TYPESENSE_URL: http://typesense:8108
-  #     TYPESENSE_API_KEY: typesense
   #     TEXT_EXTRACTION_TIKA_URL: http://tika:9998
   #     RAG_CRAWLER_LAUNCHER_URL: http://chrome:7317
   #     ORGANIZATIONS_CREATE_ENABLED_FOR_NON_ADMINS: "true"
@@ -704,8 +690,6 @@ steps:
   #     POSTGRES_USER: postgres
   #     POSTGRES_PASSWORD: postgres
   #     POSTGRES_DATABASE: postgres
-  #     TYPESENSE_URL: http://typesense:8108
-  #     TYPESENSE_API_KEY: typesense
   #     TEXT_EXTRACTION_TIKA_URL: http://tika:9998
   #     RAG_CRAWLER_LAUNCHER_URL: http://chrome:7317
   #     ORGANIZATIONS_CREATE_ENABLED_FOR_NON_ADMINS: "true"
@@ -846,19 +830,10 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: postgres
-  - name: typesense
-    image: typesense/typesense:27.0
-    command: ["--data-dir", "/tmp", "--api-key", "typesense"]
   - name: tika
     image: apache/tika:2.9.2.1
   - name: chrome
     image: ghcr.io/go-rod/rod:v0.115.0
-  - name: pgvector
-    image: pgvector/pgvector:pg17
-    environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: postgres
 
 volumes:
   - name: oauth-github-test-results
@@ -1017,148 +992,6 @@ steps:
           VERSION=$$(echo ${DRONE_COMMIT_SHA} | head -c 7)
         fi
         REPO="registry.helixml.tech/helix/controlplane"
-        docker manifest create --amend $${REPO}:$${VERSION} \
-          $${REPO}:$${VERSION}-linux-amd64 \
-          $${REPO}:$${VERSION}-linux-arm64
-        docker manifest push $${REPO}:$${VERSION}
-        echo "Multi-arch manifest pushed: $${REPO}:$${VERSION}"
-        scripts/ghcr-manifest.sh $${REPO} $${VERSION}
-    volumes:
-      - name: dockersocket
-        path: /var/run/docker.sock
-
----
-kind: pipeline
-type: docker
-name: build-haystack-amd64
-
-platform:
-  os: linux
-  arch: amd64
-
-trigger:
-  ref:
-    include:
-      - refs/heads/main
-      - refs/tags/*
-
-volumes:
-  - name: dockersocket
-    host:
-      path: /var/run/docker.sock
-
-steps:
-  - name: publish-image
-    image: docker:cli
-    commands:
-      - |
-        if [ -n "${DRONE_TAG}" ]; then
-          VERSION="${DRONE_TAG}"
-        else
-          VERSION=$$(echo ${DRONE_COMMIT_SHA} | head -c 7)
-        fi
-        echo "Building haystack:$${VERSION}-linux-amd64"
-        docker build --pull --provenance=false \
-          -f haystack_service/Dockerfile \
-          --build-arg APP_VERSION=${DRONE_TAG:-${DRONE_COMMIT_SHA:-latest}} \
-          -t registry.helixml.tech/helix/haystack:$${VERSION}-linux-amd64 \
-          haystack_service
-        echo "$${REGISTRY_PASSWORD}" | docker login registry.helixml.tech -u admin --password-stdin
-        docker push registry.helixml.tech/helix/haystack:$${VERSION}-linux-amd64
-        scripts/ghcr-push.sh registry.helixml.tech/helix/haystack:$${VERSION}-linux-amd64
-    environment:
-      REGISTRY_PASSWORD:
-        from_secret: helix_registry_password
-      GITHUB_TOKEN:
-        from_secret: github_token
-    volumes:
-      - name: dockersocket
-        path: /var/run/docker.sock
-
----
-kind: pipeline
-type: docker
-name: build-haystack-arm64
-
-platform:
-  os: linux
-  arch: arm64
-
-trigger:
-  ref:
-    include:
-      - refs/heads/main
-      - refs/tags/*
-
-volumes:
-  - name: dockersocket
-    host:
-      path: /var/run/docker.sock
-
-steps:
-  - name: publish-image
-    image: docker:cli
-    environment:
-      REGISTRY_PASSWORD:
-        from_secret: helix_registry_password
-      GITHUB_TOKEN:
-        from_secret: github_token
-    commands:
-      - echo "$${REGISTRY_PASSWORD}" | docker login registry.helixml.tech -u admin --password-stdin
-      - |
-        if [ -n "${DRONE_TAG}" ]; then
-          VERSION="${DRONE_TAG}"
-        else
-          VERSION=$$(echo ${DRONE_COMMIT_SHA} | head -c 7)
-        fi
-        docker build --pull --provenance=false \
-          -f haystack_service/Dockerfile \
-          --build-arg APP_VERSION=${DRONE_TAG:-${DRONE_COMMIT_SHA:-latest}} \
-          -t registry.helixml.tech/helix/haystack:$${VERSION}-linux-arm64 \
-          haystack_service
-        docker push registry.helixml.tech/helix/haystack:$${VERSION}-linux-arm64
-        scripts/ghcr-push.sh registry.helixml.tech/helix/haystack:$${VERSION}-linux-arm64
-    volumes:
-      - name: dockersocket
-        path: /var/run/docker.sock
-
----
-kind: pipeline
-type: docker
-name: manifest-haystack
-
-depends_on:
-  - build-haystack-amd64
-  - build-haystack-arm64
-
-trigger:
-  ref:
-    include:
-      - refs/heads/main
-      - refs/tags/*
-
-volumes:
-  - name: dockersocket
-    host:
-      path: /var/run/docker.sock
-
-steps:
-  - name: manifest
-    image: docker:cli
-    environment:
-      REGISTRY_PASSWORD:
-        from_secret: helix_registry_password
-      GITHUB_TOKEN:
-        from_secret: github_token
-    commands:
-      - echo "$${REGISTRY_PASSWORD}" | docker login registry.helixml.tech -u admin --password-stdin
-      - |
-        if [ -n "${DRONE_TAG}" ]; then
-          VERSION="${DRONE_TAG}"
-        else
-          VERSION=$$(echo ${DRONE_COMMIT_SHA} | head -c 7)
-        fi
-        REPO="registry.helixml.tech/helix/haystack"
         docker manifest create --amend $${REPO}:$${VERSION} \
           $${REPO}:$${VERSION}-linux-amd64 \
           $${REPO}:$${VERSION}-linux-arm64
@@ -1349,146 +1182,6 @@ steps:
       branch:
         exclude:
           - main
-
----
-kind: pipeline
-type: docker
-name: build-typesense-amd64
-
-platform:
-  os: linux
-  arch: amd64
-
-trigger:
-  ref:
-    include:
-      - refs/heads/main
-      - refs/tags/*
-
-volumes:
-  - name: dockersocket
-    host:
-      path: /var/run/docker.sock
-
-steps:
-  - name: publish-typesense
-    image: docker:cli
-    commands:
-      - |
-        if [ -n "${DRONE_TAG}" ]; then
-          VERSION="${DRONE_TAG}"
-        else
-          VERSION=$$(echo ${DRONE_COMMIT_SHA} | head -c 7)
-        fi
-        echo "Building typesense:$${VERSION}-linux-amd64"
-        docker build --pull --provenance=false \
-          -f Dockerfile.typesense \
-          -t registry.helixml.tech/helix/typesense:$${VERSION}-linux-amd64 \
-          .
-        echo "$${REGISTRY_PASSWORD}" | docker login registry.helixml.tech -u admin --password-stdin
-        docker push registry.helixml.tech/helix/typesense:$${VERSION}-linux-amd64
-        scripts/ghcr-push.sh registry.helixml.tech/helix/typesense:$${VERSION}-linux-amd64
-    environment:
-      REGISTRY_PASSWORD:
-        from_secret: helix_registry_password
-      GITHUB_TOKEN:
-        from_secret: github_token
-    volumes:
-      - name: dockersocket
-        path: /var/run/docker.sock
-
----
-kind: pipeline
-type: docker
-name: build-typesense-arm64
-
-platform:
-  os: linux
-  arch: arm64
-
-trigger:
-  ref:
-    include:
-      - refs/heads/main
-      - refs/tags/*
-
-volumes:
-  - name: dockersocket
-    host:
-      path: /var/run/docker.sock
-
-steps:
-  - name: publish-typesense
-    image: docker:cli
-    environment:
-      REGISTRY_PASSWORD:
-        from_secret: helix_registry_password
-      GITHUB_TOKEN:
-        from_secret: github_token
-    commands:
-      - echo "$${REGISTRY_PASSWORD}" | docker login registry.helixml.tech -u admin --password-stdin
-      - |
-        if [ -n "${DRONE_TAG}" ]; then
-          VERSION="${DRONE_TAG}"
-        else
-          VERSION=$$(echo ${DRONE_COMMIT_SHA} | head -c 7)
-        fi
-        docker build --pull --provenance=false \
-          -f Dockerfile.typesense \
-          -t registry.helixml.tech/helix/typesense:$${VERSION}-linux-arm64 \
-          .
-        docker push registry.helixml.tech/helix/typesense:$${VERSION}-linux-arm64
-        scripts/ghcr-push.sh registry.helixml.tech/helix/typesense:$${VERSION}-linux-arm64
-    volumes:
-      - name: dockersocket
-        path: /var/run/docker.sock
-
----
-kind: pipeline
-type: docker
-name: manifest-typesense
-
-depends_on:
-  - build-typesense-amd64
-  - build-typesense-arm64
-
-trigger:
-  ref:
-    include:
-      - refs/heads/main
-      - refs/tags/*
-
-volumes:
-  - name: dockersocket
-    host:
-      path: /var/run/docker.sock
-
-steps:
-  - name: manifest
-    image: docker:cli
-    environment:
-      REGISTRY_PASSWORD:
-        from_secret: helix_registry_password
-      GITHUB_TOKEN:
-        from_secret: github_token
-    commands:
-      - echo "$${REGISTRY_PASSWORD}" | docker login registry.helixml.tech -u admin --password-stdin
-      - |
-        if [ -n "${DRONE_TAG}" ]; then
-          VERSION="${DRONE_TAG}"
-        else
-          VERSION=$$(echo ${DRONE_COMMIT_SHA} | head -c 7)
-        fi
-        REPO="registry.helixml.tech/helix/typesense"
-        docker manifest create --amend $${REPO}:$${VERSION} \
-          $${REPO}:$${VERSION}-linux-amd64 \
-          $${REPO}:$${VERSION}-linux-arm64
-        docker manifest push $${REPO}:$${VERSION}
-        echo "Multi-arch manifest pushed: $${REPO}:$${VERSION}"
-        scripts/ghcr-manifest.sh $${REPO} $${VERSION}
-    volumes:
-      - name: dockersocket
-        path: /var/run/docker.sock
 
 ---
 kind: pipeline
@@ -2600,8 +2293,6 @@ platform:
 depends_on:
   - default
   - build-controlplane-arm64
-  - build-haystack-arm64
-  - build-typesense-arm64
   - build-sandbox-arm64
 
 trigger:
@@ -2742,15 +2433,9 @@ depends_on:
   - build-controlplane-amd64
   - build-controlplane-arm64
   - manifest-controlplane
-  - build-haystack-amd64
-  - build-haystack-arm64
-  - manifest-haystack
   - build-runner
   - build-runner-small
   - build-runner-large
-  - build-typesense-amd64
-  - build-typesense-arm64
-  - manifest-typesense
   - build-demos
   - build-sandbox-amd64
   - build-sandbox-arm64

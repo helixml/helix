@@ -119,7 +119,6 @@ func (s *KoditE2ESuite) SetupTest() {
 	s.koditSvc = &koditSvcE2E{}
 
 	s.cfg = &config.ServerConfig{}
-	s.cfg.RAG.DefaultRagProvider = "kodit"
 	s.cfg.RAG.MaxVersions = 3
 	s.cfg.Controller.FilePrefixGlobal = "dev"
 	s.cfg.FileStore.Type = "fs"
@@ -182,7 +181,8 @@ func (s *KoditE2ESuite) TestKoditIndexing_RegistersDirectoryAndSetsRepoID() {
 		UpdateKnowledgeState(gomock.Any(), knowledge.ID, types.KnowledgeStateIndexing, "registering directory with kodit").
 		Return(nil)
 
-	dataEntityID := types.GetDataEntityID(knowledge.ID, version)
+	dataEntityID := types.GetDataEntityID(knowledge.ID)
+	_ = version
 
 	// Store expects a GetDataEntity (returns not found) then CreateDataEntity
 	s.mockStore.EXPECT().

@@ -75,16 +75,25 @@ func (k *KoditRAG) RegisterDirectory(ctx context.Context, dataEntityID, localPat
 		return fmt.Errorf("kodit RegisterRepository failed for %s: %w", fileURI, err)
 	}
 
-	// If the repo already existed, trigger a rescan of the latest commit.
-	// SyncRepository only does a git fetch which is a no-op for local
-	// file:// directories. This mirrors what the kodit admin UI does.
+	// If the repo already existed, trigger a rescan so kodit picks up the
+	// latest filesystem state. Preferred path: fetch the latest commit and
+	// rescan it in place. Fallback path (empty repo — e.g. one whose commits
+	// were wiped by an earlier cleanup): SyncRepository, which runs Kodit's
+	// full clone-update + branch scan and will pick up whatever's on disk
+	// now as a fresh commit history.
 	if !isNew {
 		commits, err := k.kodit.GetRepositoryCommits(ctx, repoID, 1)
 		if err != nil {
 			return fmt.Errorf("failed to get latest commit for rescan: %w", err)
 		}
 		if len(commits) == 0 {
-			log.Warn().Int64("kodit_repo_id", repoID).Msg("no commits found for kodit repo, skipping rescan")
+			log.Info().
+				Int64("kodit_repo_id", repoID).
+				Str("file_uri", fileURI).
+				Msg("kodit repo has no commits; triggering full sync to scan current filesystem state")
+			if err := k.kodit.SyncRepository(ctx, repoID); err != nil {
+				return fmt.Errorf("kodit sync failed for empty repo %d: %w", repoID, err)
+			}
 		} else {
 			commitSHA := commits[0].SHA()
 			log.Info().
@@ -274,8 +283,19 @@ func (k *KoditRAG) RenderPageImage(ctx context.Context, dataEntityID string, fil
 	return k.kodit.RenderPageImage(ctx, *entity.KoditRepositoryID, filePath, page)
 }
 
-// Delete removes the kodit repository associated with the given data entity.
-// If no kodit repository ID is stored, the call is a no-op.
+// Delete cleans up the data entity for a knowledge version. Each version of a
+// knowledge source has its own data_entity row, but they all share the same
+// kodit repository (kodit indexes the live filestore directory, not a
+// per-version snapshot). So pruning an old version must NOT delete the kodit
+// repo while newer versions still reference it — doing so previously orphaned
+// the live versions and caused kodit to wipe the user's filestore (see
+// helixml/kodit#TODO: Delete handler RemoveAll's the working copy path, which
+// for file:// registrations is the user's data dir).
+//
+// Strategy: always delete this version's data_entity row. Then check whether
+// any other data_entity still references the same kodit_repository_id. Only
+// delete the kodit repo when this was the last reference (i.e. the whole
+// knowledge source is being torn down).
 func (k *KoditRAG) Delete(ctx context.Context, req *types.DeleteIndexRequest) error {
 	entity, err := k.store.GetDataEntity(ctx, req.DataEntityID)
 	if err != nil {
@@ -285,12 +305,33 @@ func (k *KoditRAG) Delete(ctx context.Context, req *types.DeleteIndexRequest) er
 		return fmt.Errorf("failed to get data entity %s: %w", req.DataEntityID, err)
 	}
 
-	if entity.KoditRepositoryID == nil {
-		return nil // no kodit repo registered
+	repoID := entity.KoditRepositoryID
+
+	// Drop the data_entity row first so the sibling check below sees the
+	// post-delete state.
+	if err := k.store.DeleteDataEntity(ctx, req.DataEntityID); err != nil {
+		return fmt.Errorf("failed to delete data entity %s: %w", req.DataEntityID, err)
 	}
 
-	if err := k.kodit.DeleteRepository(ctx, *entity.KoditRepositoryID); err != nil {
-		return fmt.Errorf("failed to delete kodit repository %d: %w", *entity.KoditRepositoryID, err)
+	if repoID == nil {
+		return nil // no kodit repo registered for this version
+	}
+
+	siblings, err := k.store.ListDataEntitiesByKoditRepositoryID(ctx, *repoID)
+	if err != nil {
+		return fmt.Errorf("failed to count sibling references to kodit repository %d: %w", *repoID, err)
+	}
+	if len(siblings) > 0 {
+		log.Info().
+			Int64("kodit_repo_id", *repoID).
+			Int("siblings", len(siblings)).
+			Str("data_entity_id", req.DataEntityID).
+			Msg("kodit repository still referenced by other knowledge versions; skipping kodit delete")
+		return nil
+	}
+
+	if err := k.kodit.DeleteRepository(ctx, *repoID); err != nil {
+		return fmt.Errorf("failed to delete kodit repository %d: %w", *repoID, err)
 	}
 
 	return nil

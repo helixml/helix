@@ -4296,11 +4296,6 @@ export interface TypesRAGSettings {
   text_splitter?: TypesTextSplitterType;
   /** this is the threshold for a "good" answer - will default to 0.2 */
   threshold?: number;
-  typesense?: {
-    api_key?: string;
-    collection?: string;
-    url?: string;
-  };
 }
 
 export interface TypesRegisterRequest {
@@ -5598,9 +5593,6 @@ export interface TypesSystemSettingsRequest {
   optimus_small_reasoning_model_effort?: string;
   optimus_small_reasoning_model_provider?: string;
   providers_management_enabled?: boolean;
-  rag_embeddings_model?: string;
-  /** RAG embedding model configuration */
-  rag_embeddings_provider?: string;
 }
 
 export interface TypesSystemSettingsResponse {
@@ -5638,11 +5630,6 @@ export interface TypesSystemSettingsResponse {
   optimus_small_reasoning_model_effort?: string;
   optimus_small_reasoning_model_provider?: string;
   providers_management_enabled?: boolean;
-  rag_embeddings_model?: string;
-  /** true if both provider and model are configured */
-  rag_embeddings_model_set?: boolean;
-  /** RAG embedding model configuration (not sensitive, returned as-is) */
-  rag_embeddings_provider?: string;
   updated?: string;
 }
 

@@ -306,5 +306,4 @@ type Extractor string
 const (
 	ExtractorTika         Extractor = "tika"
 	ExtractorUnstructured Extractor = "unstructured"
-	ExtractorHaystack     Extractor = "haystack"
 )

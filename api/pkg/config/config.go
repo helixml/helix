@@ -331,35 +331,20 @@ type TextExtractor struct {
 	}
 }
 
-type RAGProvider string
-
-const (
-	RAGProviderTypesense  RAGProvider = "typesense"
-	RAGProviderLlamaindex RAGProvider = "llamaindex"
-	RAGProviderHaystack   RAGProvider = "haystack"
-	RAGProviderKodit      RAGProvider = "kodit"
-)
+// RAGProviderName is the string stamped into KnowledgeVersion records to
+// identify which backend indexed them. Kodit is the only RAG backend.
+const RAGProviderName = "kodit"
 
 type RAG struct {
 	IndexingConcurrency int `envconfig:"RAG_INDEXING_CONCURRENCY" default:"1" description:"The number of concurrent indexing tasks."`
 
-	// DefaultRagProvider is the default RAG provider to use if not specified
-	DefaultRagProvider RAGProvider `envconfig:"RAG_DEFAULT_PROVIDER" default:"typesense" description:"The default RAG provider to use if not specified."`
-
 	MaxVersions int `envconfig:"RAG_MAX_VERSIONS" default:"3" description:"The maximum number of versions to keep for a knowledge."`
 
-	// Typesense is used to store RAG records in a Typesense index
-	Typesense struct {
-		URL    string `envconfig:"RAG_TYPESENSE_URL" default:"http://typesense:8108" description:"The URL to the Typesense server."`
-		APIKey string `envconfig:"RAG_TYPESENSE_API_KEY" default:"typesense" description:"The API key to the Typesense server."`
-	}
-
-	PGVector struct {
-		Provider              string           `envconfig:"RAG_PGVECTOR_PROVIDER" default:"openai" description:"One of openai, togetherai, vllm, helix"`
-		EmbeddingsModel       string           `envconfig:"RAG_PGVECTOR_EMBEDDINGS_MODEL" default:"text-embedding-3-small" description:"The model to use for embeddings."`
-		EmbeddingsConcurrency int              `envconfig:"RAG_PGVECTOR_EMBEDDINGS_CONCURRENCY" default:"10" description:"The number of concurrent embeddings to create."`
-		Dimensions            types.Dimensions `envconfig:"RAG_PGVECTOR_DIMENSIONS" description:"The dimensions to use for embeddings, only set for custom models. Available options are 384, 512, 1024, 3584."` // Set this if you are using custom model
-	}
+	// EmbeddingsProvider is the default provider used by the /v1/embeddings
+	// proxy when the caller sends a raw model name (not a placeholder like
+	// "kodit-text-embedding" or "kodit-vision-embedding"). Placeholder-model
+	// requests resolve the provider from SystemSettings instead.
+	EmbeddingsProvider string `envconfig:"RAG_EMBEDDINGS_PROVIDER" default:"openai" description:"Default provider for direct /v1/embeddings calls with raw model names. One of openai, togetherai, vllm, helix."`
 
 	Llamaindex struct {
 		// the URL we can post a chunk of text to for RAG indexing
@@ -369,11 +354,6 @@ type RAG struct {
 		// the URL we can post a delete request to for RAG records,
 		// this is a prefix, full path is http://llamaindex:5000/api/v1/rag/<data_entity_id>
 		RAGDeleteURL string `envconfig:"RAG_DELETE_URL" default:"http://llamaindex:5000/api/v1/rag" description:"The URL to delete RAG records."`
-	}
-
-	Haystack struct {
-		Enabled bool   `envconfig:"RAG_HAYSTACK_ENABLED" default:"false" description:"Whether to enable Haystack RAG."`
-		URL     string `envconfig:"RAG_HAYSTACK_URL" default:"http://localhost:8000" description:"The URL to the Haystack service."`
 	}
 
 	Crawler struct {

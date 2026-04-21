@@ -283,13 +283,20 @@ func (s *KoditRAGSuite) TestQuery_ErrorWhenNoRepoID() {
 	s.Contains(err.Error(), "no kodit repository ID")
 }
 
-func (s *KoditRAGSuite) TestDelete_CallsDeleteRepository() {
+func (s *KoditRAGSuite) TestDelete_CallsDeleteRepositoryWhenLastReference() {
 	repoID := int64(55)
 	entity := &types.DataEntity{ID: "de_del", KoditRepositoryID: &repoID}
 
 	s.mockStore.EXPECT().
 		GetDataEntity(gomock.Any(), "de_del").
 		Return(entity, nil)
+	s.mockStore.EXPECT().
+		DeleteDataEntity(gomock.Any(), "de_del").
+		Return(nil)
+	// No siblings: this was the last reference, so kodit repo gets deleted.
+	s.mockStore.EXPECT().
+		ListDataEntitiesByKoditRepositoryID(gomock.Any(), repoID).
+		Return([]*types.DataEntity{}, nil)
 
 	deleted := false
 	s.mockSvc.deleteRepositoryFn = func(_ context.Context, id int64) error {
@@ -303,12 +310,47 @@ func (s *KoditRAGSuite) TestDelete_CallsDeleteRepository() {
 	s.True(deleted)
 }
 
+func (s *KoditRAGSuite) TestDelete_SkipsKoditWhenSiblingsExist() {
+	// Knowledge versions share a kodit repo. Deleting one version's data_entity
+	// must not tear down the kodit repo while siblings still reference it —
+	// otherwise newer versions get orphaned and (in older kodit) the on-disk
+	// filestore gets wiped.
+	repoID := int64(99)
+	entity := &types.DataEntity{ID: "de_v1", KoditRepositoryID: &repoID}
+	siblings := []*types.DataEntity{
+		{ID: "de_v2", KoditRepositoryID: &repoID},
+		{ID: "de_v3", KoditRepositoryID: &repoID},
+	}
+
+	s.mockStore.EXPECT().
+		GetDataEntity(gomock.Any(), "de_v1").
+		Return(entity, nil)
+	s.mockStore.EXPECT().
+		DeleteDataEntity(gomock.Any(), "de_v1").
+		Return(nil)
+	s.mockStore.EXPECT().
+		ListDataEntitiesByKoditRepositoryID(gomock.Any(), repoID).
+		Return(siblings, nil)
+
+	// DeleteRepository must NOT be called.
+	s.mockSvc.deleteRepositoryFn = func(_ context.Context, _ int64) error {
+		s.FailNow("kodit DeleteRepository should not be called when siblings exist")
+		return nil
+	}
+
+	err := s.rag.Delete(context.Background(), &types.DeleteIndexRequest{DataEntityID: "de_v1"})
+	s.NoError(err)
+}
+
 func (s *KoditRAGSuite) TestDelete_NoopWhenNoRepoID() {
 	entity := &types.DataEntity{ID: "de_nodel", KoditRepositoryID: nil}
 
 	s.mockStore.EXPECT().
 		GetDataEntity(gomock.Any(), "de_nodel").
 		Return(entity, nil)
+	s.mockStore.EXPECT().
+		DeleteDataEntity(gomock.Any(), "de_nodel").
+		Return(nil)
 
 	err := s.rag.Delete(context.Background(), &types.DeleteIndexRequest{DataEntityID: "de_nodel"})
 	s.NoError(err)

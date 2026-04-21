@@ -60,36 +60,7 @@ func (s *HelixAPIServer) createEmbeddings(rw http.ResponseWriter, r *http.Reques
 	}
 
 	// Resolve the provider to use for embeddings
-	embeddingsProvider := s.Cfg.RAG.PGVector.Provider
-
-	// Special handling for rag-embedding placeholder model
-	// When Haystack sends requests with model "rag-embedding", we substitute with the configured model from SystemSettings
-	if embeddingRequest.Model == "rag-embedding" {
-		settings, err := s.Store.GetEffectiveSystemSettings(r.Context())
-		if err != nil {
-			log.Error().Err(err).Msg("failed to get system settings for rag-embedding substitution")
-			http.Error(rw, "Failed to get system settings", http.StatusInternalServerError)
-			return
-		}
-		if settings.RAGEmbeddingsProvider == "" || settings.RAGEmbeddingsModel == "" {
-			log.Warn().Msg("rag-embedding requested but no embedding model configured in system settings")
-			http.Error(rw, "RAG embedding model not configured. Please configure the embedding model in Admin > System Settings.", http.StatusBadRequest)
-			return
-		}
-
-		embeddingsProvider = settings.RAGEmbeddingsProvider
-		log.Debug().
-			Str("original_model", "rag-embedding").
-			Str("provider", settings.RAGEmbeddingsProvider).
-			Str("model", settings.RAGEmbeddingsModel).
-			Msg("substituted rag-embedding with configured embedding model")
-		// Set the model name WITHOUT provider prefix — the provider is resolved separately
-		// via GetClient. Sending "openai/text-embedding-3-small" to OpenAI's API causes 404.
-		embeddingRequest.Model = settings.RAGEmbeddingsModel
-		// Force float encoding — the OpenAI Python SDK (used by haystack) defaults to base64,
-		// but our response struct expects []float32
-		embeddingRequest.EncodingFormat = "float"
-	}
+	embeddingsProvider := s.Cfg.RAG.EmbeddingsProvider
 
 	// Special handling for kodit-text-embedding placeholder model
 	// When Kodit sends requests with model "kodit-text-embedding", substitute with the configured text embedding model from SystemSettings

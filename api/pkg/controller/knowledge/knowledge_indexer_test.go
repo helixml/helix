@@ -3,7 +3,6 @@ package knowledge
 import (
 	"context"
 	"reflect"
-	"strings"
 	"testing"
 	"time"
 
@@ -123,16 +122,12 @@ func (suite *IndexerSuite) TestIndex() {
 	// Remove this expectation to fix the test
 	// suite.filestore.EXPECT().Get(gomock.Any(), "https://example.com/foo.metadata.yaml").Return(filestore.Item{}, fmt.Errorf("file not found"))
 
-	// Then it will index it
+	// Then it will index it. Chunks reference the knowledge via the stable
+	// data_entity id (= knowledge_id); versions are tracked separately in
+	// the knowledge_versions history log, not embedded in the entity id.
 	suite.rag.EXPECT().Index(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, chunk *types.SessionRAGIndexChunk) error {
-			// Split data entity id into knowledge id and version
-			dataEntityIDParts := strings.SplitN(chunk.DataEntityID, "-", 2)
-			suite.Equal(2, len(dataEntityIDParts))
-			suite.Equal("knowledge_id", dataEntityIDParts[0])
-
-			version = dataEntityIDParts[1]
-
+			suite.Equal("knowledge_id", chunk.DataEntityID)
 			suite.Equal("https://example.com", chunk.Source)
 			suite.Equal("Hello world!", chunk.Content)
 
@@ -144,9 +139,9 @@ func (suite *IndexerSuite) TestIndex() {
 		func(_ context.Context, k *types.Knowledge) (*types.Knowledge, error) {
 			suite.Equal(types.KnowledgeStateReady, k.State)
 			suite.Equal("", k.Message)
+			suite.NotEmpty(k.Version, "version should be set on the knowledge after indexing completes")
 
-			suite.Equal(version, k.Version, "version should be set to the version we got from the data entity id")
-
+			version = k.Version
 			return knowledge, nil
 		},
 	)
@@ -344,16 +339,11 @@ func (suite *IndexerSuite) TestIndex_UpdateLimitsWhenAbove() {
 	// Remove this expectation to fix the test
 	// suite.filestore.EXPECT().Get(gomock.Any(), "https://example.com/foo.metadata.yaml").Return(filestore.Item{}, fmt.Errorf("file not found"))
 
-	// Then it will index it
+	// Then it will index it. Chunks reference the knowledge via the stable
+	// data_entity id (= knowledge_id); versions live in the history log.
 	suite.rag.EXPECT().Index(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, chunk *types.SessionRAGIndexChunk) error {
-			// Split data entity id into knowledge id and version
-			dataEntityIDParts := strings.SplitN(chunk.DataEntityID, "-", 2)
-			suite.Equal(2, len(dataEntityIDParts))
-			suite.Equal("knowledge_id", dataEntityIDParts[0])
-
-			version = dataEntityIDParts[1]
-
+			suite.Equal("knowledge_id", chunk.DataEntityID)
 			suite.Equal("https://example.com/foo", chunk.Source)
 			suite.Equal("Hello world!", chunk.Content)
 
@@ -365,9 +355,9 @@ func (suite *IndexerSuite) TestIndex_UpdateLimitsWhenAbove() {
 		func(_ context.Context, k *types.Knowledge) (*types.Knowledge, error) {
 			suite.Equal(types.KnowledgeStateReady, k.State)
 			suite.Equal("", k.Message)
+			suite.NotEmpty(k.Version, "version should be set on the knowledge after indexing completes")
 
-			suite.Equal(version, k.Version, "version should be set to the version we got from the data entity id")
-
+			version = k.Version
 			return knowledge, nil
 		},
 	)
@@ -440,15 +430,9 @@ func (suite *IndexerSuite) Test_deleteOldVersions_MoreThanMaxVersions() {
 		KnowledgeID: knowledgeID,
 	}).Return(versions, nil)
 
-	// Expect the rag client to be called twice, once for each version
-	suite.rag.EXPECT().Delete(gomock.Any(), gomock.Eq(&types.DeleteIndexRequest{
-		DataEntityID: "test_knowledge_id-v1",
-	})).Return(nil)
-	suite.rag.EXPECT().Delete(gomock.Any(), gomock.Eq(&types.DeleteIndexRequest{
-		DataEntityID: "test_knowledge_id-v2",
-	})).Return(nil)
-
-	// Expect the two oldest versions to be deleted
+	// Version pruning must NOT touch RAG state — the kodit repo / data_entity
+	// live on the stable per-knowledge entity and are shared across versions.
+	// Only the oldest history log rows get trimmed.
 	suite.store.EXPECT().DeleteKnowledgeVersion(gomock.Any(), "1").Return(nil)
 	suite.store.EXPECT().DeleteKnowledgeVersion(gomock.Any(), "2").Return(nil)
 

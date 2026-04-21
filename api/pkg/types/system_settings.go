@@ -22,11 +22,6 @@ type SystemSettings struct {
 	KoditEnrichmentProvider string `json:"kodit_enrichment_provider,omitempty" gorm:"column:kodit_enrichment_provider"` // e.g., "together_ai", "openai", "helix"
 	KoditEnrichmentModel    string `json:"kodit_enrichment_model,omitempty" gorm:"column:kodit_enrichment_model"`       // e.g., "Qwen/Qwen3-8B", "gpt-4o", "llama3:instruct"
 
-	// RAG embedding model configuration
-	// Used when Haystack sends requests with model "rag-embedding" - Helix substitutes with these values
-	RAGEmbeddingsProvider string `json:"rag_embeddings_provider,omitempty" gorm:"column:rag_embeddings_provider"`
-	RAGEmbeddingsModel    string `json:"rag_embeddings_model,omitempty" gorm:"column:rag_embeddings_model"`
-
 	// Kodit text embedding model configuration
 	// Used when Kodit sends requests with model "kodit-text-embedding" - Helix substitutes with these values
 	KoditTextEmbeddingProvider string `json:"kodit_text_embedding_provider,omitempty" gorm:"column:kodit_text_embedding_provider"`
@@ -66,10 +61,6 @@ type SystemSettingsRequest struct {
 	// Kodit enrichment model configuration
 	KoditEnrichmentProvider *string `json:"kodit_enrichment_provider,omitempty"`
 	KoditEnrichmentModel    *string `json:"kodit_enrichment_model,omitempty"`
-
-	// RAG embedding model configuration
-	RAGEmbeddingsProvider *string `json:"rag_embeddings_provider,omitempty"`
-	RAGEmbeddingsModel    *string `json:"rag_embeddings_model,omitempty"`
 
 	// Kodit text embedding model configuration
 	KoditTextEmbeddingProvider *string `json:"kodit_text_embedding_provider,omitempty"`
@@ -114,11 +105,6 @@ type SystemSettingsResponse struct {
 	KoditEnrichmentProvider string `json:"kodit_enrichment_provider"`
 	KoditEnrichmentModel    string `json:"kodit_enrichment_model"`
 	KoditEnrichmentModelSet bool   `json:"kodit_enrichment_model_set"` // true if both provider and model are configured
-
-	// RAG embedding model configuration (not sensitive, returned as-is)
-	RAGEmbeddingsProvider string `json:"rag_embeddings_provider"`
-	RAGEmbeddingsModel    string `json:"rag_embeddings_model"`
-	RAGEmbeddingsModelSet bool   `json:"rag_embeddings_model_set"` // true if both provider and model are configured
 
 	// Kodit text embedding model configuration
 	KoditTextEmbeddingProvider string `json:"kodit_text_embedding_provider"`
@@ -177,9 +163,6 @@ func (s *SystemSettings) ToResponseWithSource(dbToken, envToken string) *SystemS
 		KoditEnrichmentProvider:    s.KoditEnrichmentProvider,
 		KoditEnrichmentModel:       s.KoditEnrichmentModel,
 		KoditEnrichmentModelSet:    s.KoditEnrichmentProvider != "" && s.KoditEnrichmentModel != "",
-		RAGEmbeddingsProvider:      s.RAGEmbeddingsProvider,
-		RAGEmbeddingsModel:         s.RAGEmbeddingsModel,
-		RAGEmbeddingsModelSet:      s.RAGEmbeddingsProvider != "" && s.RAGEmbeddingsModel != "",
 		KoditTextEmbeddingProvider:   s.KoditTextEmbeddingProvider,
 		KoditTextEmbeddingModel:      s.KoditTextEmbeddingModel,
 		KoditTextEmbeddingModelSet:   s.KoditTextEmbeddingProvider != "" && s.KoditTextEmbeddingModel != "",

@@ -314,6 +314,7 @@ type Store interface {
 	GetDataEntity(ctx context.Context, id string) (*types.DataEntity, error)
 	ListDataEntities(ctx context.Context, q *ListDataEntitiesQuery) ([]*types.DataEntity, error)
 	ListDataEntitiesWithKoditRepo(ctx context.Context) ([]*types.DataEntity, error)
+	ListDataEntitiesByKoditRepositoryID(ctx context.Context, koditRepositoryID int64) ([]*types.DataEntity, error)
 	DeleteDataEntity(ctx context.Context, id string) error
 
 	// Knowledge
@@ -728,8 +729,3 @@ type Store interface {
 	GetEffectiveClaudeSubscription(ctx context.Context, userID, orgID string) (*types.ClaudeSubscription, error)
 }
 
-type EmbeddingsStore interface {
-	CreateKnowledgeEmbedding(ctx context.Context, embeddings ...*types.KnowledgeEmbeddingItem) error
-	DeleteKnowledgeEmbedding(ctx context.Context, knowledgeID string) error
-	QueryKnowledgeEmbeddings(ctx context.Context, q *types.KnowledgeEmbeddingQuery) ([]*types.KnowledgeEmbeddingItem, error)
-}
