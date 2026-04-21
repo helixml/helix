@@ -9,12 +9,12 @@ dependencies = [
     "diffusers>=0.31.0",
     "fastapi>=0.115.5",
     "httpx>=0.27.2",
-    "protobuf>=5.28.3",
-    "sentencepiece>=0.2.0",
+    "protobuf>=5.29.6",
+    "sentencepiece>=0.2.1",
     # Platform-specific PyTorch: CUDA on x86_64, CPU on ARM64
     "torch==2.5.1+cu124; sys_platform == 'linux' and platform_machine == 'x86_64'",
     "torch>=2.5.1; sys_platform == 'linux' and platform_machine == 'aarch64'",
-    "transformers>=4.46.3",
+    "transformers>=5.0.0rc3",
     "uvicorn>=0.32.1",
 ]
 
