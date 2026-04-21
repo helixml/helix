@@ -103,16 +103,18 @@ func NewClientWithGitHubApp(appID, installationID int64, privateKey, baseURL str
 }
 
 // ListRepositories lists all repositories accessible to the authenticated user
-// including personal repos, collaborator repos, and organization repos
+// including personal repos, collaborator repos, and organization repos (both public and private).
+//
+// GitHub's GET /user/repos with affiliation=organization_member may not return
+// public org repos, so we supplement with per-org repo listing.
 func (c *Client) ListRepositories(ctx context.Context) ([]*github.Repository, error) {
+	// Step 1: Get user repos (personal, collaborator, org-member)
 	var allRepos []*github.Repository
 	opt := &github.RepositoryListOptions{
 		ListOptions: github.ListOptions{PerPage: 100},
 		Sort:        "updated",
-		// Include all repos: owned, collaborator access, and organization membership
 		Affiliation: "owner,collaborator,organization_member",
-		// Include all visibility types (public, private, internal)
-		Visibility: "all",
+		Visibility:  "all",
 	}
 
 	for {
@@ -127,7 +129,82 @@ func (c *Client) ListRepositories(ctx context.Context) ([]*github.Repository, er
 		opt.Page = resp.NextPage
 	}
 
+	// Step 2: List user's organizations
+	orgs, err := c.listUserOrganizations(ctx)
+	if err != nil {
+		// Non-fatal: return what we have from Step 1
+		return allRepos, nil
+	}
+
+	// Step 3: For each org, list all visible repos (includes public ones)
+	for _, org := range orgs {
+		orgRepos, err := c.listOrgRepositories(ctx, org.GetLogin())
+		if err != nil {
+			continue // Skip orgs we can't list, return what we can
+		}
+		allRepos = append(allRepos, orgRepos...)
+	}
+
+	// Step 4: Deduplicate by repo ID
+	return deduplicateRepos(allRepos), nil
+}
+
+// listUserOrganizations returns all organizations the authenticated user belongs to.
+func (c *Client) listUserOrganizations(ctx context.Context) ([]*github.Organization, error) {
+	var allOrgs []*github.Organization
+	opt := &github.ListOptions{PerPage: 100}
+
+	for {
+		orgs, resp, err := c.client.Organizations.List(ctx, "", opt)
+		if err != nil {
+			return nil, fmt.Errorf("failed to list organizations: %w", err)
+		}
+		allOrgs = append(allOrgs, orgs...)
+		if resp.NextPage == 0 {
+			break
+		}
+		opt.Page = resp.NextPage
+	}
+
+	return allOrgs, nil
+}
+
+// listOrgRepositories returns all repositories in an organization visible to the authenticated user.
+func (c *Client) listOrgRepositories(ctx context.Context, orgLogin string) ([]*github.Repository, error) {
+	var allRepos []*github.Repository
+	opt := &github.RepositoryListByOrgOptions{
+		ListOptions: github.ListOptions{PerPage: 100},
+		Sort:        "updated",
+		Type:        "all",
+	}
+
+	for {
+		repos, resp, err := c.client.Repositories.ListByOrg(ctx, orgLogin, opt)
+		if err != nil {
+			return nil, fmt.Errorf("failed to list org repositories for %s: %w", orgLogin, err)
+		}
+		allRepos = append(allRepos, repos...)
+		if resp.NextPage == 0 {
+			break
+		}
+		opt.Page = resp.NextPage
+	}
+
 	return allRepos, nil
+}
+
+// deduplicateRepos removes duplicate repositories by ID.
+func deduplicateRepos(repos []*github.Repository) []*github.Repository {
+	seen := make(map[int64]bool)
+	var result []*github.Repository
+	for _, repo := range repos {
+		id := repo.GetID()
+		if !seen[id] {
+			seen[id] = true
+			result = append(result, repo)
+		}
+	}
+	return result
 }
 
 // CreatePullRequest creates a new pull request
