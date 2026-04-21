@@ -1,6 +1,7 @@
 package openai
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/tls"
@@ -756,47 +757,114 @@ func (c *openAIClientInterceptor) Do(req *http.Request) (*http.Response, error) 
 // reasoningFieldMapper wraps a response body and rewrites the "reasoning"
 // JSON field to "reasoning_content" so the go-openai library can deserialize
 // it. Some providers (e.g. Together AI) use "reasoning" while the library
-// expects "reasoning_content". Works for both streaming and non-streaming.
+// expects "reasoning_content". Works for both streaming (SSE) and
+// non-streaming responses by line-buffering and doing proper JSON parsing.
 type reasoningFieldMapper struct {
 	io.ReadCloser
-	buf    []byte
-	offset int
+	scanner *bufio.Scanner
+	buf     []byte
+	done    bool
+	readErr error
 }
 
-var (
-	reasoningFieldOld = []byte(`"reasoning":`)
-	reasoningFieldNew = []byte(`"reasoning_content":`)
-)
-
 func (r *reasoningFieldMapper) Read(p []byte) (int, error) {
-	// Drain any buffered overflow from a previous replacement
-	if r.offset < len(r.buf) {
-		n := copy(p, r.buf[r.offset:])
-		r.offset += n
-		if r.offset >= len(r.buf) {
-			r.buf = nil
-			r.offset = 0
+	// Drain buffered output from previous scan
+	if len(r.buf) > 0 {
+		n := copy(p, r.buf)
+		r.buf = r.buf[n:]
+		if len(r.buf) == 0 && r.done {
+			return n, r.readErr
 		}
 		return n, nil
 	}
-
-	n, err := r.ReadCloser.Read(p)
-	if n > 0 {
-		chunk := p[:n]
-		replaced := bytes.ReplaceAll(chunk, reasoningFieldOld, reasoningFieldNew)
-		if len(replaced) <= len(p) {
-			copy(p, replaced)
-			return len(replaced), err
-		}
-		// Replacement made the output larger than the buffer; return what fits
-		// and stash the rest for the next Read call.
-		copy(p, replaced[:len(p)])
-		r.buf = make([]byte, len(replaced)-len(p))
-		copy(r.buf, replaced[len(p):])
-		r.offset = 0
-		return len(p), err
+	if r.done {
+		return 0, r.readErr
 	}
-	return n, err
+
+	if r.scanner == nil {
+		r.scanner = bufio.NewScanner(r.ReadCloser)
+		r.scanner.Buffer(make([]byte, 0, 256*1024), 1024*1024)
+	}
+
+	if !r.scanner.Scan() {
+		r.done = true
+		if err := r.scanner.Err(); err != nil {
+			r.readErr = err
+		} else {
+			r.readErr = io.EOF
+		}
+		return 0, r.readErr
+	}
+
+	line := r.scanner.Text()
+	transformed := renameReasoningField(line)
+	r.buf = []byte(transformed + "\n")
+
+	n := copy(p, r.buf)
+	r.buf = r.buf[n:]
+	return n, nil
+}
+
+// renameReasoningField parses a line that may contain JSON (either a raw JSON
+// body or an SSE "data: {json}" line) and renames any top-level "reasoning"
+// keys inside choice message/delta objects to "reasoning_content".
+func renameReasoningField(line string) string {
+	jsonStr := line
+	prefix := ""
+
+	if strings.HasPrefix(line, "data: ") {
+		jsonStr = line[6:]
+		prefix = "data: "
+	}
+
+	if len(jsonStr) == 0 || jsonStr[0] != '{' {
+		return line
+	}
+
+	var obj map[string]any
+	if err := json.Unmarshal([]byte(jsonStr), &obj); err != nil {
+		return line
+	}
+
+	if !renameReasoningInChoices(obj) {
+		return line
+	}
+
+	out, err := json.Marshal(obj)
+	if err != nil {
+		return line
+	}
+	return prefix + string(out)
+}
+
+// renameReasoningInChoices walks into choices[].message and choices[].delta,
+// renaming "reasoning" to "reasoning_content". Returns true if any rename
+// was performed.
+func renameReasoningInChoices(obj map[string]any) bool {
+	choices, ok := obj["choices"].([]any)
+	if !ok {
+		return false
+	}
+
+	changed := false
+	for _, c := range choices {
+		choice, ok := c.(map[string]any)
+		if !ok {
+			continue
+		}
+		for _, key := range []string{"message", "delta"} {
+			msg, ok := choice[key].(map[string]any)
+			if !ok {
+				continue
+			}
+			if val, has := msg["reasoning"]; has {
+				msg["reasoning_content"] = val
+				delete(msg, "reasoning")
+				changed = true
+			}
+		}
+	}
+	return changed
 }
 
 // estimateRequestTokens estimates the number of tokens needed for a request
