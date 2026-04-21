@@ -16,11 +16,19 @@
 -- prefix, not a split boundary — split on '-' to lop off the version
 -- suffix. Canonical knowledge IDs contain no dashes.
 
+-- Guard on the table existing: on a fresh database migrations run before
+-- GORM AutoMigrate creates the schema, so data_entities may not exist yet.
+-- When it doesn't, there's nothing to consolidate and this migration is a
+-- no-op. On existing deployments the table is already there.
 DO $$
 DECLARE
     r RECORD;
     new_id TEXT;
 BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'data_entities') THEN
+        RETURN;
+    END IF;
+
     FOR r IN
         SELECT DISTINCT split_part(id, '-', 1) AS knowledge_id
         FROM data_entities
