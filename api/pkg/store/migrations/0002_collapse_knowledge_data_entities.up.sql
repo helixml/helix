@@ -16,16 +16,18 @@
 -- prefix, not a split boundary — split on '-' to lop off the version
 -- suffix. Canonical knowledge IDs contain no dashes.
 
--- Guard on the table existing: on a fresh database migrations run before
--- GORM AutoMigrate creates the schema, so data_entities may not exist yet.
--- When it doesn't, there's nothing to consolidate and this migration is a
--- no-op. On existing deployments the table is already there.
+-- Guard on the table existing in the current search_path: on a fresh DB
+-- migrations run before GORM AutoMigrate creates the schema, so
+-- data_entities may not exist yet; in tests that use per-test schemas,
+-- pg_tables.tablename matches across every schema, so we specifically
+-- want the check to honour search_path. to_regclass returns NULL when
+-- the unqualified name doesn't resolve in the current search_path.
 DO $$
 DECLARE
     r RECORD;
     new_id TEXT;
 BEGIN
-    IF NOT EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'data_entities') THEN
+    IF to_regclass('data_entities') IS NULL THEN
         RETURN;
     END IF;
 
