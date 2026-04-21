@@ -2,10 +2,12 @@
 
 ## User Stories
 
-### 1. Auto-approval creates complete state
-**As** the controlplane operator,
-**I want** the auto-approval path to create all required records (including `SpecApproval`) before transitioning to `spec_approved`,
-**So that** `ApproveSpecs()` can proceed without failing on a missing record.
+### 1. "Approve Implementation" works even when specs haven't been formally approved yet
+**As** a user who clicks "Approve Implementation" while a task is still in `spec_review`,
+**I want** the system to correctly handle the implicit spec approval (the fallback path inside `approveImplementation`),
+**So that** my task advances to implementation instead of getting permanently stuck.
+
+**Context:** The `approveImplementation` handler (`spec_task_workflow_handlers.go:72-101`) has a fallback: if the task is in `spec_review` or `spec_approved` when the user approves implementation, it auto-approves specs first as a prerequisite. This fallback sets `SpecApprovedBy`/`SpecApprovedAt`/status but forgets to set the `SpecApproval` JSONB field, which `ApproveSpecs()` then requires to proceed.
 
 ### 2. Orchestrator stops retrying permanently-broken tasks
 **As** an operator monitoring the system,
@@ -19,9 +21,9 @@
 
 ## Acceptance Criteria
 
-1. When the auto-approval path in `spec_task_workflow_handlers.go` fires, the task's `SpecApproval` field (the `*SpecApprovalResponse` JSONB column) is populated **before** `ApproveSpecs()` is called.
-2. `ApproveSpecs()` succeeds on auto-approved tasks — the task transitions from `spec_approved` → `implementation` without error.
+1. When a user clicks "Approve Implementation" and the task is in `spec_review`, the fallback path in `approveImplementation` populates the `SpecApproval` JSONB field before calling `ApproveSpecs()`.
+2. `ApproveSpecs()` succeeds on these tasks — the task transitions from `spec_approved` → `implementation` without error.
 3. The orchestrator's error handler distinguishes "spec approval not found" from "deleted project not found" and logs the former at ERROR level.
 4. If `handleSpecApproved()` fails repeatedly for the same task, the orchestrator applies a retry limit or backoff (not infinite 10-second polling).
-5. Existing normal UI approval flow (`spec_driven_task_handlers.go`) continues to work unchanged.
+5. Existing normal UI spec approval flow (`spec_driven_task_handlers.go`) continues to work unchanged.
 6. No new database tables or migrations required — the fix uses the existing `spec_approval` JSONB column on `spec_tasks`.

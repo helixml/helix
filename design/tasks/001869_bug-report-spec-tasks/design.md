@@ -2,11 +2,17 @@
 
 ## Root Cause
 
-Two bugs combine to create a permanently stuck state:
+Two bugs combine to create a permanently stuck state.
 
-### Bug 1: Auto-approval skips `SpecApproval` field
+### What triggers the bug
 
-The **normal UI approval** flow (`spec_driven_task_handlers.go:391`) sets `existingTask.SpecApproval = &req` before saving. The **auto-approval** flow (`spec_task_workflow_handlers.go:81-89`) sets `SpecApprovedBy`, `SpecApprovedAt`, and `Status` but **never sets `SpecApproval`**. When `ApproveSpecs()` re-reads the task from DB, it finds `task.SpecApproval == nil` at line 1139 of `spec_driven_task_service.go` and returns `"spec approval not found"`.
+The user clicks **"Approve Implementation"** in the UI while the task is still in `spec_review` status (specs were generated but not yet formally approved via the separate "Approve Specs" button). The `approveImplementation` handler (`spec_task_workflow_handlers.go:72-101`) has a fallback for this scenario: it detects the task isn't in `implementation` yet and tries to approve specs as a prerequisite before proceeding.
+
+The bug report attributes this to "the prompt queue's auto-unstick mechanism," but the prompt queue (`prompt_history_handlers.go:79`) just processes pending prompts in the background — it doesn't trigger spec approval. The `approveImplementation` HTTP handler (called by the user's UI action) is the actual trigger.
+
+### Bug 1: `approveImplementation` fallback skips `SpecApproval` field
+
+The **normal "Approve Specs" UI** flow (`spec_driven_task_handlers.go:391`) decodes a `SpecApprovalResponse` from the request body and sets `existingTask.SpecApproval = &req` before saving. The **fallback path inside `approveImplementation`** (`spec_task_workflow_handlers.go:81-89`) sets `SpecApprovedBy`, `SpecApprovedAt`, and `Status` but **never sets `SpecApproval`**. When `ApproveSpecs()` re-reads the task from DB, it finds `task.SpecApproval == nil` at line 1139 of `spec_driven_task_service.go` and returns `"spec approval not found"`.
 
 ### Bug 2: Error is swallowed at TRACE level
 
@@ -14,7 +20,7 @@ The orchestrator's error handler (`spec_task_orchestrator.go:251`) checks `strin
 
 ## Fix
 
-### Fix 1: Populate `SpecApproval` in auto-approval path
+### Fix 1: Populate `SpecApproval` in the `approveImplementation` fallback
 
 In `spec_task_workflow_handlers.go`, around line 81, add:
 
@@ -26,7 +32,7 @@ specTask.SpecApproval = &types.SpecApprovalResponse{
 }
 ```
 
-This mirrors what the normal approval handler does at `spec_driven_task_handlers.go:391`. The `SpecApproval` field is a JSONB column on the existing `spec_tasks` table — no migration needed.
+This mirrors what the normal spec approval handler does at `spec_driven_task_handlers.go:391`. The `SpecApproval` field is a JSONB column on the existing `spec_tasks` table — no migration needed.
 
 ### Fix 2: Tighten the "not found" error filter in the orchestrator
 
@@ -52,7 +58,7 @@ if task.SpecApproval == nil {
 }
 ```
 
-This allows recovery from the inconsistent state even for tasks that are already stuck in the DB. It uses the `SpecApprovedBy`/`SpecApprovedAt` fields that the auto-approval path did set correctly.
+This allows recovery from the inconsistent state even for tasks that are already stuck in the DB. It uses the `SpecApprovedBy`/`SpecApprovedAt` fields that the `approveImplementation` fallback did set correctly.
 
 ## Key Decisions
 
@@ -64,6 +70,6 @@ This allows recovery from the inconsistent state even for tasks that are already
 
 | File | Change |
 |------|--------|
-| `api/pkg/server/spec_task_workflow_handlers.go` | Set `SpecApproval` field in auto-approval path (~line 81) |
+| `api/pkg/server/spec_task_workflow_handlers.go` | Set `SpecApproval` field in `approveImplementation` fallback (~line 81) |
 | `api/pkg/services/spec_driven_task_service.go` | Synthesize `SpecApproval` when nil instead of returning error (~line 1139) |
 | `api/pkg/services/spec_task_orchestrator.go` | Tighten "not found" filter to "record not found" (~line 251) |
