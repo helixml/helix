@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from "react";
+import { matchesAllTokens } from "../../utils/searchUtils";
 import {
   Box,
   Typography,
@@ -829,20 +830,21 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
     filter: string,
   ): BoardTask[] => {
     if (!filter.trim()) return taskList;
-    const lowerFilter = filter.toLowerCase();
-    // Check if filter is purely numeric (e.g., "1412") for task_number matching
     const trimmedFilter = filter.trim();
     const numericFilter = /^\d+$/.test(trimmedFilter)
       ? parseInt(trimmedFilter, 10)
       : null;
 
-    return taskList.filter(
-      (task) =>
-        task.name?.toLowerCase().includes(lowerFilter) ||
-        task.description?.toLowerCase().includes(lowerFilter) ||
-        task.implementation_plan?.toLowerCase().includes(lowerFilter) ||
-        (numericFilter !== null && task.task_number === numericFilter),
-    );
+    return taskList.filter((task) => {
+      if (numericFilter !== null && task.task_number === numericFilter)
+        return true;
+      return matchesAllTokens(
+        filter,
+        task.name,
+        task.description,
+        task.implementation_plan,
+      );
+    });
   };
 
   // Derive available labels from all loaded tasks
