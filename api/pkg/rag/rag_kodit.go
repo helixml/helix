@@ -75,16 +75,25 @@ func (k *KoditRAG) RegisterDirectory(ctx context.Context, dataEntityID, localPat
 		return fmt.Errorf("kodit RegisterRepository failed for %s: %w", fileURI, err)
 	}
 
-	// If the repo already existed, trigger a rescan of the latest commit.
-	// SyncRepository only does a git fetch which is a no-op for local
-	// file:// directories. This mirrors what the kodit admin UI does.
+	// If the repo already existed, trigger a rescan so kodit picks up the
+	// latest filesystem state. Preferred path: fetch the latest commit and
+	// rescan it in place. Fallback path (empty repo — e.g. one whose commits
+	// were wiped by an earlier cleanup): SyncRepository, which runs Kodit's
+	// full clone-update + branch scan and will pick up whatever's on disk
+	// now as a fresh commit history.
 	if !isNew {
 		commits, err := k.kodit.GetRepositoryCommits(ctx, repoID, 1)
 		if err != nil {
 			return fmt.Errorf("failed to get latest commit for rescan: %w", err)
 		}
 		if len(commits) == 0 {
-			log.Warn().Int64("kodit_repo_id", repoID).Msg("no commits found for kodit repo, skipping rescan")
+			log.Info().
+				Int64("kodit_repo_id", repoID).
+				Str("file_uri", fileURI).
+				Msg("kodit repo has no commits; triggering full sync to scan current filesystem state")
+			if err := k.kodit.SyncRepository(ctx, repoID); err != nil {
+				return fmt.Errorf("kodit sync failed for empty repo %d: %w", repoID, err)
+			}
 		} else {
 			commitSHA := commits[0].SHA()
 			log.Info().

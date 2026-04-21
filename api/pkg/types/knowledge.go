@@ -4,7 +4,6 @@ import (
 	"database/sql/driver"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"time"
 )
 
@@ -86,8 +85,13 @@ type Knowledge struct {
 	CrawledSources *CrawledSources `json:"crawled_sources" gorm:"jsonb"`
 }
 
+// GetDataEntityID returns the data_entity row ID for this knowledge source.
+// Each knowledge source has exactly one data_entity — the identifier does
+// not include the version. Versions are a history log (which scan ran when,
+// state transitions, errors); the live RAG state (Kodit repo ID, filestore
+// path) lives on the stable per-knowledge entity.
 func (k *Knowledge) GetDataEntityID() string {
-	return GetDataEntityID(k.ID, k.Version)
+	return GetDataEntityID(k.ID)
 }
 
 type KnowledgeVersion struct {
@@ -104,15 +108,15 @@ type KnowledgeVersion struct {
 	Provider        string          `json:"provider" yaml:"provider"`
 }
 
+// GetDataEntityID returns the data_entity row ID for the knowledge source
+// this version belongs to. All versions of a knowledge share the same entity.
 func (k *KnowledgeVersion) GetDataEntityID() string {
-	return GetDataEntityID(k.KnowledgeID, k.Version)
+	return GetDataEntityID(k.KnowledgeID)
 }
 
-func GetDataEntityID(knowledgeID, version string) string {
-	if version == "" {
-		return knowledgeID
-	}
-	return fmt.Sprintf("%s-%s", knowledgeID, version)
+// GetDataEntityID returns the canonical data_entity ID for a knowledge source.
+func GetDataEntityID(knowledgeID string) string {
+	return knowledgeID
 }
 
 type KnowledgeState string
