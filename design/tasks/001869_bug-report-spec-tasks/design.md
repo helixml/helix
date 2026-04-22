@@ -28,9 +28,11 @@ In `spec_task_workflow_handlers.go`, around line 81, add:
 specTask.SpecApproval = &types.SpecApprovalResponse{
     Approved:   true,
     ApprovedBy: user.ID,
-    ApprovedAt: &now,
+    ApprovedAt: now,
 }
 ```
+
+Note: `SpecApprovalResponse.ApprovedAt` is `time.Time` (value type, not pointer — see `types/simple_spec_task.go:339`), so pass `now` directly.
 
 This mirrors what the normal spec approval handler does at `spec_driven_task_handlers.go:391`. The `SpecApproval` field is a JSONB column on the existing `spec_tasks` table — no migration needed.
 
@@ -50,15 +52,19 @@ In `spec_driven_task_service.go:1139`, instead of returning an error when `SpecA
 
 ```go
 if task.SpecApproval == nil {
+    approvedAt := time.Time{}
+    if task.SpecApprovedAt != nil {
+        approvedAt = *task.SpecApprovedAt
+    }
     task.SpecApproval = &types.SpecApprovalResponse{
         Approved:   true,
         ApprovedBy: task.SpecApprovedBy,
-        ApprovedAt: task.SpecApprovedAt,
+        ApprovedAt: approvedAt,
     }
 }
 ```
 
-This allows recovery from the inconsistent state even for tasks that are already stuck in the DB. It uses the `SpecApprovedBy`/`SpecApprovedAt` fields that the `approveImplementation` fallback did set correctly.
+Note: `task.SpecApprovedAt` is `*time.Time` (pointer on the task struct) but `SpecApprovalResponse.ApprovedAt` is `time.Time` (value), so we dereference with a nil-guard. This allows recovery from the inconsistent state even for tasks already stuck in the DB.
 
 ## Key Decisions
 
