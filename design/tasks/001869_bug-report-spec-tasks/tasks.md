@@ -10,3 +10,10 @@
 - [x] Fix root cause: make spec approval atomic in `submitDesignReview` backend handler (eliminate two-call race)
 - [x] Remove redundant second API call from frontend `handleSubmitReview`
 - [x] Build frontend and verify
+- [~] Bug A: add idempotency guard to `submitDesignReview` approve case
+- [ ] Bug B: remove orphaned `approveSpecs` handler + route
+- [ ] Bug C: use `time.Now()` fallback instead of zero time for synthesized `ApprovedAt`
+- [ ] Bug D: set `TaskID` on all synthesized `SpecApprovalResponse` structs
+- [ ] Extract error filter into testable function, test it properly
+- [ ] Verify frontend query invalidation covers spec task status
+- [ ] Build + test
