@@ -29,6 +29,9 @@ type RequestMappingRegistrar func(requestID, sessionID string)
 // ProjectSecretsGetter is a function that retrieves project secrets as environment variables
 type ProjectSecretsGetter func(ctx context.Context, projectID string) ([]string, error)
 
+// DesktopExecFunc executes a command inside a running desktop container via RevDial.
+type DesktopExecFunc func(ctx context.Context, sessionID string, command []string) error
+
 // SpecDrivenTaskService manages the spec-driven development workflow:
 // Specification: Helix agent generates specs from simple descriptions
 // Implementation: Zed agent implements code from approved specs
@@ -49,6 +52,7 @@ type SpecDrivenTaskService struct {
 	auditLogService          *AuditLogService          // Service for audit logging
 	koditService             KoditServicer             // Kodit code intelligence (for MCP documentation in prompts)
 	GetProjectSecrets        ProjectSecretsGetter      // Callback to get project secrets as env vars
+	ExecInDesktop            DesktopExecFunc           // Callback to exec commands in running desktop containers
 	wg                       sync.WaitGroup
 }
 
@@ -1237,9 +1241,40 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, task *types.Sp
 			return fmt.Errorf("failed to update task approval: %w", err)
 		}
 
-		// Send instruction to existing agent session (reuse planning session)
+		// Update git identity in the running container to match the approver,
+		// so implementation commits are attributed to the user who approved specs.
 		sessionID := task.PlanningSessionID
 
+		if sessionID != "" && !s.testMode && task.SpecApprovedBy != "" && s.ExecInDesktop != nil {
+			approver, err := s.store.GetUser(ctx, &store.GetUserQuery{ID: task.SpecApprovedBy})
+			if err != nil {
+				log.Warn().Err(err).Str("task_id", task.ID).Str("approver_id", task.SpecApprovedBy).
+					Msg("Failed to get approver user for git identity update (continuing with creator identity)")
+			} else if approver != nil {
+				approverName := approver.FullName
+				if approverName == "" {
+					approverName = approver.Username
+				}
+				approverEmail := approver.Email
+
+				if approverEmail != "" {
+					nameErr := s.ExecInDesktop(ctx, sessionID, []string{"git", "config", "--global", "user.name", approverName})
+					emailErr := s.ExecInDesktop(ctx, sessionID, []string{"git", "config", "--global", "user.email", approverEmail})
+					if nameErr != nil || emailErr != nil {
+						log.Warn().Err(nameErr).AnErr("email_err", emailErr).
+							Str("task_id", task.ID).Str("session_id", sessionID).
+							Msg("Failed to update git identity in container (commits will use creator identity)")
+					} else {
+						log.Info().
+							Str("task_id", task.ID).Str("session_id", sessionID).
+							Str("approver_name", approverName).Str("approver_email", approverEmail).
+							Msg("Updated git identity in container to approver")
+					}
+				}
+			}
+		}
+
+		// Send instruction to existing agent session (reuse planning session)
 		if sessionID != "" && !s.testMode {
 			// Create agent instruction service
 			agentInstructionService := NewAgentInstructionService(s.store, s.SendMessageToAgent, s.koditService)

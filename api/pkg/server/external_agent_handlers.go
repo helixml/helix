@@ -19,6 +19,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/rs/zerolog/log"
 
+	"github.com/helixml/helix/api/pkg/desktop"
 	"github.com/helixml/helix/api/pkg/proxy"
 	"github.com/helixml/helix/api/pkg/types"
 )
@@ -437,6 +438,59 @@ func (apiServer *HelixAPIServer) execInSandbox(res http.ResponseWriter, req *htt
 	res.WriteHeader(execResp.StatusCode)
 	log.Info().Int("status_code", execResp.StatusCode).Msg("🔧 execInSandbox: forwarding response to client")
 	io.Copy(res, execResp.Body)
+}
+
+// execCommandInDesktop runs a command inside a running desktop container via
+// RevDial. This is the internal (non-HTTP) version of execInSandbox, used by
+// service-layer code that needs to exec without going through the HTTP API.
+func (apiServer *HelixAPIServer) execCommandInDesktop(ctx context.Context, sessionID string, command []string) error {
+	runnerID := fmt.Sprintf("desktop-%s", sessionID)
+
+	revDialConn, err := apiServer.connman.Dial(ctx, runnerID)
+	if err != nil {
+		return fmt.Errorf("failed to connect to desktop %s via RevDial: %w", sessionID, err)
+	}
+	defer revDialConn.Close()
+
+	reqBody, err := json.Marshal(desktop.ExecRequest{
+		Command: command,
+		Timeout: 10,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to marshal exec request: %w", err)
+	}
+
+	httpReq, err := http.NewRequest("POST", "http://localhost:9876/exec", bytes.NewReader(reqBody))
+	if err != nil {
+		return fmt.Errorf("failed to create exec request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	if err := httpReq.Write(revDialConn); err != nil {
+		return fmt.Errorf("failed to write exec request: %w", err)
+	}
+
+	execResp, err := http.ReadResponse(bufio.NewReader(revDialConn), httpReq)
+	if err != nil {
+		return fmt.Errorf("failed to read exec response: %w", err)
+	}
+	defer execResp.Body.Close()
+
+	if execResp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(execResp.Body)
+		return fmt.Errorf("exec failed with status %d: %s", execResp.StatusCode, string(body))
+	}
+
+	var resp desktop.ExecResponse
+	if err := json.NewDecoder(execResp.Body).Decode(&resp); err != nil {
+		return fmt.Errorf("failed to decode exec response: %w", err)
+	}
+
+	if !resp.Success {
+		return fmt.Errorf("exec command failed: %s (exit code %d)", resp.Error, resp.ExitCode)
+	}
+
+	return nil
 }
 
 // @Summary Bandwidth probe for adaptive bitrate

@@ -4,6 +4,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"hash/fnv"
 	"net/http"
@@ -385,6 +386,35 @@ func (s *HelixAPIServer) approveSpecs(w http.ResponseWriter, r *http.Request) {
 		log.Error().Err(err).Msg("Failed to decode approval request")
 		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
+	}
+
+	// When approving specs, validate the approver has GitHub OAuth so their
+	// credentials can be used for commits and push during implementation.
+	if req.Approved {
+		project, err := s.Store.GetProject(ctx, existingTask.ProjectID)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to get project: %v", err), http.StatusInternalServerError)
+			return
+		}
+		if project.DefaultRepoID != "" {
+			repo, err := s.Store.GetGitRepository(ctx, project.DefaultRepoID)
+			if err != nil {
+				http.Error(w, fmt.Sprintf("Failed to get repository: %v", err), http.StatusInternalServerError)
+				return
+			}
+			if err := s.gitRepositoryService.ValidateUserGitHubOAuth(ctx, repo, user.ID); err != nil {
+				var oauthErr *services.OAuthRequiredError
+				if errors.As(err, &oauthErr) {
+					writeResponse(w, map[string]interface{}{
+						"error":         "oauth_required",
+						"message":       oauthErr.Error(),
+						"provider_type": oauthErr.ProviderType,
+					}, http.StatusUnprocessableEntity)
+					return
+				}
+				log.Warn().Err(err).Str("task_id", taskID).Msg("Failed to validate user OAuth at spec approval, proceeding anyway")
+			}
+		}
 	}
 
 	now := time.Now()

@@ -65,6 +65,7 @@ func (s *Server) handleExec(w http.ResponseWriter, r *http.Request) {
 		"test":               true,
 		"npm":                      true, // needed to upgrade claude CLI at login time
 		"helix-claude-auth-wrapper": true, // runs claude auth login with stdout capture
+		"git":                       true, // needed to update git identity on spec approval
 	}
 
 	cmdName := req.Command[0]

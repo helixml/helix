@@ -613,13 +613,19 @@ func (s *GitHTTPServer) handleReceivePack(w http.ResponseWriter, r *http.Request
 		log.Debug().Str("repo_id", repoID).Int("branch_count", len(pushedBranchesMap)).Msg("Starting external push with detached context")
 
 		// Resolve the acting user for push credentials: use the approver's
-		// OAuth token so the push is attributed to the user who clicked "Open PR".
+		// OAuth token so the push is attributed correctly.
+		// Prefer ImplementationApprovedBy (set when user clicks "Open PR"),
+		// fall back to SpecApprovedBy (set when user approves specs and
+		// transitions the task to implementation).
 		var pushUserID string
 		if restriction != nil && restriction.IsAgentKey {
 			rawKey := s.extractRawAPIKey(apiKey)
 			if keyRecord, err := s.store.GetAPIKey(context.Background(), &types.ApiKey{Key: rawKey}); err == nil && keyRecord.SpecTaskID != "" {
 				if pushTask, err := s.store.GetSpecTask(context.Background(), keyRecord.SpecTaskID); err == nil {
 					pushUserID = pushTask.ImplementationApprovedBy
+					if pushUserID == "" {
+						pushUserID = pushTask.SpecApprovedBy
+					}
 				}
 			}
 		}
