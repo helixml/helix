@@ -5,6 +5,8 @@
 - [x] Add `read:org` missing warning log in `api/pkg/server/git_repository_handlers.go` after `repo` scope check (~line 1719)
 - [x] Add warning log in `api/pkg/agent/skill/github/client.go:136` when `listUserOrganizations` fails (replace silent return)
 - [x] Update scope upgrade warning message to be generic (mentions all required scopes)
+- [x] Sort filtered repos alphabetically by `full_name` in repo browser view
+- [x] Add info Alert about GitHub OAuth App org access restrictions with link to GitHub settings page
 - [x] `cd frontend && npx tsc --noEmit` — verify no TypeScript errors
 - [x] `cd api && go build ./pkg/agent/skill/github/ ./pkg/server/` — verify no Go build errors
 - [ ] Test OAuth scope upgrade flow with existing connection (verify banner appears, re-auth works)
