@@ -469,6 +469,10 @@ export const useApp = (appId: string) => {
       assistants[0].azure_devops = updates.azureDevOpsTool
     }
 
+    if (updates.gitHubTool !== undefined) {
+      assistants[0].github = updates.gitHubTool
+    }
+
     if (updates.projectManagerTool !== undefined) {
       assistants[0].project_manager = updates.projectManagerTool
     }

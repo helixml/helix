@@ -1708,6 +1708,7 @@ export interface TypesAssistantConfig {
   frequency_penalty?: number;
   generation_model?: string;
   generation_model_provider?: string;
+  github?: TypesAssistantGitHub;
   id?: string;
   image?: string;
   /** Defaults to 4 */
@@ -1771,6 +1772,12 @@ export interface TypesAssistantConfig {
 export interface TypesAssistantEmail {
   enabled?: boolean;
   template_example?: string;
+}
+
+export interface TypesAssistantGitHub {
+  base_url?: string;
+  enabled?: boolean;
+  personal_access_token?: string;
 }
 
 export interface TypesAssistantKnowledge {
@@ -1844,6 +1851,7 @@ export interface TypesAssistantSkills {
   browser?: TypesAssistantBrowser;
   calculator?: TypesAssistantCalculator;
   email?: TypesAssistantEmail;
+  github?: TypesAssistantGitHub;
   mcps?: TypesAssistantMCP[];
   project_manager?: TypesAssistantProjectManager;
   web_search?: TypesAssistantWebSearch;
@@ -5544,6 +5552,7 @@ export interface TypesToolConfig {
   browser?: TypesToolBrowserConfig;
   calculator?: TypesToolCalculatorConfig;
   email?: TypesToolEmailConfig;
+  github?: TypesToolGitHubConfig;
   mcp?: TypesToolMCPClientConfig;
   /** Helix project management skill */
   project?: TypesToolProjectManagerConfig;
@@ -5554,6 +5563,12 @@ export interface TypesToolConfig {
 export interface TypesToolEmailConfig {
   enabled?: boolean;
   template_example?: string;
+}
+
+export interface TypesToolGitHubConfig {
+  base_url?: string;
+  enabled?: boolean;
+  personal_access_token?: string;
 }
 
 export interface TypesToolMCPClientConfig {
@@ -5583,6 +5598,7 @@ export enum TypesToolType {
   ToolTypeEmail = "email",
   ToolTypeWebSearch = "web_search",
   ToolTypeAzureDevOps = "azure_devops",
+  ToolTypeGitHub = "github",
   ToolTypeMCP = "mcp",
   ToolTypeProjectManager = "project_manager",
 }

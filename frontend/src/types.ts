@@ -12,6 +12,7 @@ import {
   TypesAssistantWebSearch,
   TypesToolWebSearchConfig,
   TypesAssistantAzureDevOps,
+  TypesAssistantGitHub,
   TypesAssistantProjectManager,
   TypesTrigger,
   TypesSession,
@@ -915,6 +916,7 @@ export interface IAppFlatState {
   calculatorTool?: TypesAssistantCalculator
   emailTool?: TypesAssistantEmail
   azureDevOpsTool?: TypesAssistantAzureDevOps
+  gitHubTool?: TypesAssistantGitHub
   projectManagerTool?: TypesAssistantProjectManager
   conversation_starters?: string[];
   triggers?: TypesTrigger[];

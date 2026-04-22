@@ -2768,6 +2768,8 @@ definitions:
         type: string
       generation_model_provider:
         type: string
+      github:
+        $ref: '#/definitions/types.AssistantGitHub'
       id:
         type: string
       image:
@@ -2878,6 +2880,15 @@ definitions:
       template_example:
         type: string
     type: object
+  types.AssistantGitHub:
+    properties:
+      base_url:
+        type: string
+      enabled:
+        type: boolean
+      personal_access_token:
+        type: string
+    type: object
   types.AssistantKnowledge:
     properties:
       description:
@@ -2982,6 +2993,8 @@ definitions:
         $ref: '#/definitions/types.AssistantCalculator'
       email:
         $ref: '#/definitions/types.AssistantEmail'
+      github:
+        $ref: '#/definitions/types.AssistantGitHub'
       mcps:
         items:
           $ref: '#/definitions/types.AssistantMCP'
@@ -9211,6 +9224,8 @@ definitions:
         $ref: '#/definitions/types.ToolCalculatorConfig'
       email:
         $ref: '#/definitions/types.ToolEmailConfig'
+      github:
+        $ref: '#/definitions/types.ToolGitHubConfig'
       mcp:
         $ref: '#/definitions/types.ToolMCPClientConfig'
       project:
@@ -9227,6 +9242,15 @@ definitions:
       enabled:
         type: boolean
       template_example:
+        type: string
+    type: object
+  types.ToolGitHubConfig:
+    properties:
+      base_url:
+        type: string
+      enabled:
+        type: boolean
+      personal_access_token:
         type: string
     type: object
   types.ToolMCPClientConfig:
@@ -9274,6 +9298,7 @@ definitions:
     - email
     - web_search
     - azure_devops
+    - github
     - mcp
     - project_manager
     type: string
@@ -9285,6 +9310,7 @@ definitions:
     - ToolTypeEmail
     - ToolTypeWebSearch
     - ToolTypeAzureDevOps
+    - ToolTypeGitHub
     - ToolTypeMCP
     - ToolTypeProjectManager
   types.ToolWebSearchConfig:

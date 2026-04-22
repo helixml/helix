@@ -730,6 +730,7 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
     emailTool: projectSkills?.email,
     projectManagerTool: projectSkills?.project_manager,
     azureDevOpsTool: projectSkills?.azure_devops,
+    gitHubTool: projectSkills?.github,
     zapierTools: projectSkills?.zapier,
     default_agent_type: AGENT_TYPE_ZED_EXTERNAL,
   }), [projectSkills]);
@@ -744,6 +745,7 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
       email: updates.emailTool,
       project_manager: updates.projectManagerTool,
       azure_devops: updates.azureDevOpsTool,
+      github: updates.gitHubTool,
       zapier: updates.zapierTools,
     };
     setProjectSkills(newSkills);

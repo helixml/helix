@@ -8,6 +8,7 @@ import (
 	agent "github.com/helixml/helix/api/pkg/agent"
 	"github.com/helixml/helix/api/pkg/agent/skill"
 	azuredevops "github.com/helixml/helix/api/pkg/agent/skill/azure_devops"
+	githubskill "github.com/helixml/helix/api/pkg/agent/skill/github"
 	"github.com/helixml/helix/api/pkg/agent/skill/mcp"
 	"github.com/helixml/helix/api/pkg/agent/skill/memory"
 	"github.com/helixml/helix/api/pkg/agent/skill/project"
@@ -168,6 +169,11 @@ func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*agent
 			skills = append(skills, azuredevops.NewCreateThreadSkill(assistantTool.Config.AzureDevOps.OrganizationURL, assistantTool.Config.AzureDevOps.PersonalAccessToken))
 			skills = append(skills, azuredevops.NewReplyToCommentSkill(assistantTool.Config.AzureDevOps.OrganizationURL, assistantTool.Config.AzureDevOps.PersonalAccessToken))
 			skills = append(skills, azuredevops.NewPullRequestDiffSkill(assistantTool.Config.AzureDevOps.OrganizationURL, assistantTool.Config.AzureDevOps.PersonalAccessToken))
+		}
+
+		if assistantTool.ToolType == types.ToolTypeGitHub {
+			skills = append(skills, githubskill.NewPullRequestDiffSkill(assistantTool.Config.GitHub.PersonalAccessToken, assistantTool.Config.GitHub.BaseURL))
+			skills = append(skills, githubskill.NewCreateReviewCommentSkill(assistantTool.Config.GitHub.PersonalAccessToken, assistantTool.Config.GitHub.BaseURL))
 		}
 
 	}

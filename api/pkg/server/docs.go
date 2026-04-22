@@ -20144,6 +20144,9 @@ const docTemplate = `{
                 "generation_model_provider": {
                     "type": "string"
                 },
+                "github": {
+                    "$ref": "#/definitions/types.AssistantGitHub"
+                },
                 "id": {
                     "type": "string"
                 },
@@ -20286,6 +20289,20 @@ const docTemplate = `{
                 }
             }
         },
+        "types.AssistantGitHub": {
+            "type": "object",
+            "properties": {
+                "base_url": {
+                    "type": "string"
+                },
+                "enabled": {
+                    "type": "boolean"
+                },
+                "personal_access_token": {
+                    "type": "string"
+                }
+            }
+        },
         "types.AssistantKnowledge": {
             "type": "object",
             "properties": {
@@ -20414,6 +20431,9 @@ const docTemplate = `{
                 },
                 "email": {
                     "$ref": "#/definitions/types.AssistantEmail"
+                },
+                "github": {
+                    "$ref": "#/definitions/types.AssistantGitHub"
                 },
                 "mcps": {
                     "type": "array",
@@ -29193,6 +29213,9 @@ const docTemplate = `{
                 "email": {
                     "$ref": "#/definitions/types.ToolEmailConfig"
                 },
+                "github": {
+                    "$ref": "#/definitions/types.ToolGitHubConfig"
+                },
                 "mcp": {
                     "$ref": "#/definitions/types.ToolMCPClientConfig"
                 },
@@ -29219,6 +29242,20 @@ const docTemplate = `{
                     "type": "boolean"
                 },
                 "template_example": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.ToolGitHubConfig": {
+            "type": "object",
+            "properties": {
+                "base_url": {
+                    "type": "string"
+                },
+                "enabled": {
+                    "type": "boolean"
+                },
+                "personal_access_token": {
                     "type": "string"
                 }
             }
@@ -29287,6 +29324,7 @@ const docTemplate = `{
                 "email",
                 "web_search",
                 "azure_devops",
+                "github",
                 "mcp",
                 "project_manager"
             ],
@@ -29298,6 +29336,7 @@ const docTemplate = `{
                 "ToolTypeEmail",
                 "ToolTypeWebSearch",
                 "ToolTypeAzureDevOps",
+                "ToolTypeGitHub",
                 "ToolTypeMCP",
                 "ToolTypeProjectManager"
             ]

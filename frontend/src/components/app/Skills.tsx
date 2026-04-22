@@ -45,6 +45,7 @@ import { airQualityTool } from './examples/skillAirQualityApi';
 import { exchangeRatesSkill } from './examples/skillExchangeRatesApi';
 import WebSearchSkill from './WebSearchSkill';
 import AzureDevOpsSkill from './AzureDevOpsSkill';
+import GitHubSkill from './GitHubSkill';
 import DroneCiSkill from './DroneCiSkill';
 import GitHubMcpSkill from './GitHubMcpSkill';
 import RocketLaunchIcon from '@mui/icons-material/RocketLaunch';
@@ -91,6 +92,7 @@ const SKILL_TYPE_PROJECT_MANAGER = 'Project Manager';
 const SKILL_TYPE_CALCULATOR = 'Calculator';
 const SKILL_TYPE_EMAIL = 'Email';
 const SKILL_TYPE_AZURE_DEVOPS = 'Azure DevOps';
+const SKILL_TYPE_GITHUB_PR = 'GitHub PRs';
 const SKILL_TYPE_MCP = 'MCP';
 const SKILL_TYPE_LOCAL_MCP = 'Local MCP';
 const SKILL_TYPE_DRONE_CI = 'Drone CI';
@@ -243,6 +245,25 @@ const BASE_SKILLS: ISkill[] = [
     skill: {
       name: 'Azure DevOps',
       description: 'Enable the AI to interact with Azure DevOps.',
+      systemPrompt: '',
+      apiSkill: {
+        schema: '',
+        url: '',
+        requiredParameters: [],
+      },
+      configurable: true,
+    },
+  },
+  {
+    id: 'github-prs',
+    icon: <GitHubIcon sx={{ color: '#F8FAFC' }} />,
+    name: 'GitHub PRs',
+    description: 'Enable the AI to review pull requests on GitHub repositories. The AI can read PR diffs and post inline review comments.',
+    type: SKILL_TYPE_GITHUB_PR,
+    categories: [SKILL_CATEGORY_GITHUB],
+    skill: {
+      name: 'GitHub PRs',
+      description: 'Enable the AI to review GitHub pull requests.',
       systemPrompt: '',
       apiSkill: {
         schema: '',
@@ -837,6 +858,9 @@ const Skills: React.FC<SkillsProps> = ({
     if (skillName === 'Azure DevOps') {
       return app.azureDevOpsTool?.enabled ?? false;
     }
+    if (skillName === 'GitHub PRs') {
+      return app.gitHubTool?.enabled ?? false;
+    }
     if (skillName === 'Drone CI') {
       // Check if Drone CI MCP is configured in mcpTools
       return app.mcpTools?.some(mcp => mcp.name === 'Drone CI' && mcp.transport === 'stdio') ?? false;
@@ -1156,6 +1180,24 @@ const Skills: React.FC<SkillsProps> = ({
           app={app}
           onUpdate={onUpdate}
           isEnabled={isSkillEnabled('Azure DevOps')}
+        />
+      );
+    }
+
+    if (selectedSkill.name === 'GitHub PRs') {
+      return (
+        <GitHubSkill
+          open={isDialogOpen}
+          onClose={() => {
+            setIsDialogOpen(false);
+          }}
+          onClosed={() => {
+            setSelectedSkill(null);
+            setDialogType(null);
+          }}
+          app={app}
+          onUpdate={onUpdate}
+          isEnabled={isSkillEnabled('GitHub PRs')}
         />
       );
     }

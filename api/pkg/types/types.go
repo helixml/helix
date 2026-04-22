@@ -1380,6 +1380,7 @@ const (
 	ToolTypeEmail          ToolType = "email"
 	ToolTypeWebSearch      ToolType = "web_search"
 	ToolTypeAzureDevOps    ToolType = "azure_devops"
+	ToolTypeGitHub         ToolType = "github"
 	ToolTypeMCP            ToolType = "mcp"
 	ToolTypeProjectManager ToolType = "project_manager"
 )
@@ -1402,6 +1403,7 @@ type ToolConfig struct {
 	Calculator     *ToolCalculatorConfig     `json:"calculator"`
 	Email          *ToolEmailConfig          `json:"email"`
 	AzureDevOps    *ToolAzureDevOpsConfig    `json:"azure_devops"`
+	GitHub         *ToolGitHubConfig         `json:"github"`
 	MCP            *ToolMCPClientConfig      `json:"mcp"`
 	ProjectManager *ToolProjectManagerConfig `json:"project"` // Helix project management skill
 }
@@ -1423,6 +1425,12 @@ type ToolAzureDevOpsConfig struct {
 	Enabled             bool   `json:"enabled" yaml:"enabled"`
 	OrganizationURL     string `json:"organization_url" yaml:"organization_url"`
 	PersonalAccessToken string `json:"personal_access_token" yaml:"personal_access_token"`
+}
+
+type ToolGitHubConfig struct {
+	Enabled             bool   `json:"enabled" yaml:"enabled"`
+	PersonalAccessToken string `json:"personal_access_token" yaml:"personal_access_token"`
+	BaseURL             string `json:"base_url,omitempty" yaml:"base_url,omitempty"`
 }
 
 type ToolBrowserConfig struct {
@@ -1583,6 +1591,12 @@ type AssistantAzureDevOps struct {
 	PersonalAccessToken string `json:"personal_access_token" yaml:"personal_access_token"`
 }
 
+type AssistantGitHub struct {
+	Enabled             bool   `json:"enabled" yaml:"enabled"`
+	PersonalAccessToken string `json:"personal_access_token" yaml:"personal_access_token"`
+	BaseURL             string `json:"base_url,omitempty" yaml:"base_url,omitempty"`
+}
+
 // AssistantSkills groups all skill-related configuration.
 // Used for project-level skills that overlay on top of agent skills.
 type AssistantSkills struct {
@@ -1595,6 +1609,7 @@ type AssistantSkills struct {
 	Email          *AssistantEmail          `json:"email,omitempty" yaml:"email,omitempty"`
 	ProjectManager *AssistantProjectManager `json:"project_manager,omitempty" yaml:"project_manager,omitempty"`
 	AzureDevOps    *AssistantAzureDevOps    `json:"azure_devops,omitempty" yaml:"azure_devops,omitempty"`
+	GitHub         *AssistantGitHub         `json:"github,omitempty" yaml:"github,omitempty"`
 }
 
 // apps are a collection of assistants
@@ -1700,6 +1715,7 @@ type AssistantConfig struct {
 	Calculator  AssistantCalculator  `json:"calculator,omitempty" yaml:"calculator,omitempty"`
 	Email       AssistantEmail       `json:"email,omitempty" yaml:"email,omitempty"`
 	AzureDevOps AssistantAzureDevOps `json:"azure_devops,omitempty" yaml:"azure_devops,omitempty"`
+	GitHub      AssistantGitHub      `json:"github,omitempty" yaml:"github,omitempty"`
 	Tools       []*Tool              `json:"tools,omitempty" yaml:"tools,omitempty"`
 
 	Tests []struct {
