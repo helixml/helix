@@ -2,7 +2,9 @@ package services
 
 import (
 	"context"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
@@ -413,4 +415,95 @@ func TestSanitizeForBranchName(t *testing.T) {
 			assert.Equal(t, tt.expected, result)
 		})
 	}
+}
+
+func (s *SpecTaskOrchestratorTestSuite) TestHandleSpecApproved_SelfHealsNilSpecApproval() {
+	ctx := context.Background()
+	approvedAt := time.Now()
+
+	// Simulate the broken state: spec_approved status but SpecApproval is nil
+	task := &types.SpecTask{
+		ID:             "task-stuck",
+		ProjectID:      "project-1",
+		Status:         types.TaskStatusSpecApproved,
+		SpecApprovedBy: "user-1",
+		SpecApprovedAt: &approvedAt,
+		SpecApproval:   nil,
+		TaskNumber:     42,
+		Name:           "stuck-task",
+	}
+
+	// Set up the specTaskService on the orchestrator
+	service := NewSpecDrivenTaskService(
+		s.store, nil, "test-helix-agent", []string{"test-zed-agent"},
+		nil, nil, nil, nil, NewDisabledKoditService(),
+	)
+	service.SetTestMode(true)
+	s.orchestrator.specTaskService = service
+
+	// ApproveSpecs re-reads the task from store
+	s.store.EXPECT().GetSpecTask(ctx, "task-stuck").Return(task, nil)
+	s.store.EXPECT().GetProject(ctx, "project-1").Return(&types.Project{
+		ID:            "project-1",
+		DefaultRepoID: "repo-1",
+	}, nil)
+	s.store.EXPECT().GetGitRepository(ctx, "repo-1").Return(&types.GitRepository{
+		ID:            "repo-1",
+		DefaultBranch: "main",
+	}, nil)
+	s.store.EXPECT().UpdateSpecTask(ctx, gomock.Any()).DoAndReturn(
+		func(_ context.Context, t *types.SpecTask) error {
+			s.Equal(types.TaskStatusImplementation, t.Status)
+			s.NotNil(t.SpecApproval, "SpecApproval should have been synthesized")
+			s.True(t.SpecApproval.Approved)
+			s.Equal("user-1", t.SpecApproval.ApprovedBy)
+			return nil
+		},
+	)
+
+	err := s.orchestrator.handleSpecApproved(ctx, task)
+	s.Require().NoError(err)
+}
+
+func (s *SpecTaskOrchestratorTestSuite) TestProcessTask_ErrorFilterDistinguishesNotFoundTypes() {
+	ctx := context.Background()
+
+	// "record not found" (GORM) should match the deleted-project filter
+	gormErr := "failed to get project: record not found"
+	assert.True(s.T(), strings.Contains(gormErr, "record not found"),
+		"GORM 'record not found' should match the filter")
+
+	// "spec approval not found" should NOT match the tightened filter
+	specErr := "failed to approve specs: spec approval not found"
+	assert.False(s.T(), strings.Contains(specErr, "record not found"),
+		"'spec approval not found' should NOT match 'record not found' filter")
+
+	// Verify processTask dispatches to handleSpecApproved
+	task := &types.SpecTask{
+		ID:         "task-test",
+		ProjectID:  "project-1",
+		Status:     types.TaskStatusSpecApproved,
+		TaskNumber: 99,
+		Name:       "test-task",
+	}
+
+	service := NewSpecDrivenTaskService(
+		s.store, nil, "test-helix-agent", []string{},
+		nil, nil, nil, nil, NewDisabledKoditService(),
+	)
+	service.SetTestMode(true)
+	s.orchestrator.specTaskService = service
+
+	// GetSpecTask returns a task where ApproveSpecs will hit GetProject and fail
+	s.store.EXPECT().GetSpecTask(ctx, "task-test").Return(task, nil)
+	s.store.EXPECT().GetProject(ctx, "project-1").Return(&types.Project{
+		ID:            "project-1",
+		DefaultRepoID: "",
+	}, nil)
+
+	err := s.orchestrator.processTask(ctx, task)
+	s.Require().Error(err)
+	// The error should contain "not found" in a domain-specific way, not "record not found"
+	assert.Contains(s.T(), err.Error(), "default repository not set")
+	assert.False(s.T(), strings.Contains(err.Error(), "record not found"))
 }

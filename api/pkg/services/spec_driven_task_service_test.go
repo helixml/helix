@@ -257,6 +257,119 @@ func isValidUTF8(s string) bool {
 	return true
 }
 
+func TestSpecDrivenTaskService_ApproveSpecs_SynthesizesNilSpecApproval(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockStore := store.NewMockStore(ctrl)
+	var mockPubsub pubsub.PubSub = nil
+
+	service := NewSpecDrivenTaskService(
+		mockStore,
+		nil,
+		"test-helix-agent",
+		[]string{"test-zed-agent"},
+		mockPubsub,
+		nil, nil, nil,
+		NewDisabledKoditService(),
+	)
+	service.SetTestMode(true)
+
+	ctx := context.Background()
+	approvedAt := time.Now()
+
+	// Task has SpecApprovedBy/SpecApprovedAt set but SpecApproval is nil —
+	// this is the broken state from the approveImplementation fallback bug.
+	taskInDB := &types.SpecTask{
+		ID:            "task-stuck",
+		ProjectID:     "project-1",
+		Status:        types.TaskStatusSpecApproved,
+		SpecApprovedBy: "user-1",
+		SpecApprovedAt: &approvedAt,
+		SpecApproval:  nil, // <-- the bug: this was never set
+		TaskNumber:    42,
+		Name:          "stuck-task",
+	}
+
+	mockStore.EXPECT().GetSpecTask(ctx, "task-stuck").Return(taskInDB, nil)
+	mockStore.EXPECT().GetProject(ctx, "project-1").Return(&types.Project{
+		ID:            "project-1",
+		DefaultRepoID: "repo-1",
+	}, nil)
+	mockStore.EXPECT().GetGitRepository(ctx, "repo-1").Return(&types.GitRepository{
+		ID:            "repo-1",
+		DefaultBranch: "main",
+	}, nil)
+	mockStore.EXPECT().UpdateSpecTask(ctx, gomock.Any()).DoAndReturn(
+		func(_ context.Context, task *types.SpecTask) error {
+			assert.Equal(t, types.TaskStatusImplementation, task.Status)
+			assert.NotNil(t, task.SpecApproval, "SpecApproval should have been synthesized")
+			assert.True(t, task.SpecApproval.Approved)
+			assert.Equal(t, "user-1", task.SpecApproval.ApprovedBy)
+			assert.Equal(t, approvedAt, task.SpecApproval.ApprovedAt)
+			return nil
+		},
+	)
+
+	err := service.ApproveSpecs(ctx, &types.SpecTask{ID: "task-stuck"})
+	require.NoError(t, err)
+}
+
+func TestSpecDrivenTaskService_ApproveSpecs_NilSpecApprovalAndNilApprovedAt(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockStore := store.NewMockStore(ctrl)
+	var mockPubsub pubsub.PubSub = nil
+
+	service := NewSpecDrivenTaskService(
+		mockStore,
+		nil,
+		"test-helix-agent",
+		[]string{"test-zed-agent"},
+		mockPubsub,
+		nil, nil, nil,
+		NewDisabledKoditService(),
+	)
+	service.SetTestMode(true)
+
+	ctx := context.Background()
+
+	// Both SpecApproval and SpecApprovedAt are nil — worst case scenario.
+	taskInDB := &types.SpecTask{
+		ID:            "task-worst-case",
+		ProjectID:     "project-1",
+		Status:        types.TaskStatusSpecApproved,
+		SpecApprovedBy: "user-1",
+		SpecApprovedAt: nil,
+		SpecApproval:  nil,
+		TaskNumber:    43,
+		Name:          "worst-case-task",
+	}
+
+	mockStore.EXPECT().GetSpecTask(ctx, "task-worst-case").Return(taskInDB, nil)
+	mockStore.EXPECT().GetProject(ctx, "project-1").Return(&types.Project{
+		ID:            "project-1",
+		DefaultRepoID: "repo-1",
+	}, nil)
+	mockStore.EXPECT().GetGitRepository(ctx, "repo-1").Return(&types.GitRepository{
+		ID:            "repo-1",
+		DefaultBranch: "main",
+	}, nil)
+	mockStore.EXPECT().UpdateSpecTask(ctx, gomock.Any()).DoAndReturn(
+		func(_ context.Context, task *types.SpecTask) error {
+			assert.NotNil(t, task.SpecApproval)
+			assert.True(t, task.SpecApproval.Approved)
+			assert.Equal(t, "user-1", task.SpecApproval.ApprovedBy)
+			assert.True(t, task.SpecApproval.ApprovedAt.IsZero(), "ApprovedAt should be zero time when SpecApprovedAt is nil")
+			return nil
+		},
+	)
+
+	err := service.ApproveSpecs(ctx, &types.SpecTask{ID: "task-worst-case"})
+	require.NoError(t, err)
+}
+
 func TestSpecDrivenTaskService_SelectZedAgent(t *testing.T) {
 	// Test with agents available
 	service := NewSpecDrivenTaskService(nil, nil, "test-helix-agent", []string{"agent1", "agent2"}, nil, nil, nil, nil, NewDisabledKoditService())
