@@ -4,14 +4,14 @@
 
 - [x] Read `portingguide.md` in full — it is the canonical reference, more detailed than this spec
 - [x] Read the previous merge spec (001864) for recent context
-- [~] Create feature branch `feature/001885-merge-latest-zed` from fork main
-- [~] Add upstream remote: `git remote add upstream https://github.com/zed-industries/zed.git`
-- [~] Fetch upstream: `git fetch upstream`
-- [ ] Check divergence: `git log --oneline upstream/main..HEAD | wc -l` and `git log --oneline HEAD..upstream/main | wc -l`
+- [x] Create feature branch `feature/001885-merge-latest-zed` from fork main
+- [x] Add upstream remote: `git remote add upstream https://github.com/zed-industries/zed.git`
+- [x] Fetch upstream: `git fetch upstream`
+- [x] Check divergence: 177 fork commits ahead, 927 upstream commits to merge
 
 ## Merge Execution
 
-- [ ] Execute `git merge upstream/main` — expect extensive conflicts (~920 upstream commits)
+- [~] Execute `git merge upstream/main` — expect extensive conflicts (927 upstream commits)
 - [ ] Resolve conflicts in `agent_panel.rs` — CRITICAL: re-insert all 6 Helix cfg-gated blocks (thread display callback, UI state query, onboarding dismissal, `acp_history_store()`, split-brain detection, auto-follow activation) within the new structure after worktree picker removal (PR #54183) and draft→thread unification (PR #53737)
 - [ ] Resolve conflicts in `conversation_view.rs` — update `HeadlessConnection::prompt` signature for required `UserMessageId` (PR #53850), preserve `from_existing_thread()`, THREAD_REGISTRY integration, history refresh, `is_resume` flag, thread unregistration
 - [ ] Resolve conflicts in `agent.rs` — re-apply Critical Fix #1 (entity lifetime) within new session ref-counting structure (PR #53999). Verify `load_session()` still clones entity before async task. Check `wait_for_tools_ready` with multi-project `NativeAgent`
