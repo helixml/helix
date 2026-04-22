@@ -1,19 +1,21 @@
 # Implementation Tasks
 
+## Fix push credential resolution
+- [~] In `git_http_server.go:622`, when resolving push credentials for agent pushes, fall back to `task.SpecApprovedBy` when `task.ImplementationApprovedBy` is empty. Currently only uses `ImplementationApprovedBy` which is empty during the implementation phase.
+
+## Add `git` to desktop exec whitelist
+- [ ] In `api/pkg/desktop/exec.go:55-68`, add `"git": true` to the allowed commands map so we can exec `git config` in running containers.
+
+## Add exec-in-desktop callback to SpecDrivenTaskService
+- [ ] Add an `ExecInDesktop func(ctx, sessionID, command) error` callback field to `SpecDrivenTaskService`. Wire it up in the server using connman + RevDial (same pattern as `execInSandbox` handler).
+
+## Update git identity in container on transition to implementation
+- [ ] In `ApproveSpecs()`, after setting status to implementation, use the exec callback to run `git config --global user.name "X"` and `git config --global user.email "Y"` in the running container, using the approver's identity from `task.SpecApprovedBy`.
+
 ## Validate OAuth at spec approval time
-- [ ] In `approveSpecs` handler (`api/pkg/server/spec_driven_task_handlers.go`), add GitHub OAuth validation for the approving user before transitioning to `spec_approved` status — same pattern as `approveImplementation` in `spec_task_workflow_handlers.go:141-152`. Return `oauth_required` error if missing.
-
-## Update git identity in running container on transition to implementation
-- [ ] Add an `ExecInContainer(ctx, sessionID, command []string)` method (or similar) to the `Executor` interface and `HydraExecutor` in `api/pkg/external-agent/` that can run a command inside a running container (Hydra API or `docker exec` equivalent)
-- [ ] In `ApproveSpecs()` (`api/pkg/services/spec_driven_task_service.go:1118`), after setting status to implementation, call exec to run `git config --global user.name "ApproverName"` and `git config --global user.email "approver@email"` inside the running container. Fetch approver's user record from store using `task.SpecApprovedBy`.
-
-## Update push credentials to use approver's OAuth
-- [ ] Ensure that when the agent pushes branches during implementation, `task.SpecApprovedBy` is used as the `actingUserID` in `PushBranchToRemote()` calls. Trace the push path from the agent through the API to find where `userID` is (or isn't) being passed, and wire in the approver's ID.
-
-## Update session API key ownership (if needed)
-- [ ] Investigate whether the ephemeral session API key (minted for `task.CreatedBy` in `OnBeforeCreate`) affects push credential resolution. If pushes use the API key's owner to determine the acting user, mint a new key for the approver or add an override mechanism.
+- [ ] In `approveSpecs` handler (`spec_driven_task_handlers.go`), validate the approving user has GitHub OAuth before transitioning to `spec_approved` — same pattern as `approveImplementation` in `spec_task_workflow_handlers.go:141-152`. Return `oauth_required` error if missing and repo is GitHub-hosted.
 
 ## Testing
-- [ ] Add a unit test in `spec_driven_task_service_test.go` or `spec_driven_task_handlers_test.go` verifying that `approveSpecs` returns an OAuth error for a GitHub repo when the approving user lacks OAuth
-- [ ] Add a unit test verifying that `ApproveSpecs` calls `ExecInContainer` with the correct git config commands using the approver's name and email
-- [ ] Manually test end-to-end: User 1 creates task, User 2 approves specs, verify commits on the feature branch are authored as User 2
+- [ ] Add unit test verifying push credential resolution falls back to `SpecApprovedBy`
+- [ ] Verify `go build` passes for all affected packages
+- [ ] Manually test end-to-end: User 1 creates task, User 2 approves specs, verify commits are authored as User 2
