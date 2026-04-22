@@ -4,6 +4,6 @@
 - [x] In `api/pkg/services/spec_driven_task_service.go` (~line 1139): replace the `return fmt.Errorf("spec approval not found")` with code that synthesizes a `SpecApprovalResponse` from the task's existing `SpecApprovedBy`/`SpecApprovedAt` fields (dereference `*task.SpecApprovedAt` with nil-guard since it's `*time.Time`), allowing already-stuck tasks to self-heal
 - [x] In `api/pkg/services/spec_task_orchestrator.go` (~line 251): tighten the error filter from `strings.Contains(err.Error(), "not found")` to `strings.Contains(err.Error(), "record not found")` so that "spec approval not found" is logged at ERROR level
 - [x] Verify `go build ./...` passes
-- [~] Add unit test: `ApproveSpecs` synthesizes `SpecApproval` when nil (in `spec_driven_task_service_test.go`)
-- [~] Add unit test: orchestrator error filter logs "spec approval not found" at ERROR, not TRACE (in `spec_task_orchestrator_test.go`)
-- [ ] Verify tests pass
+- [x] Add unit test: `ApproveSpecs` synthesizes `SpecApproval` when nil (in `spec_driven_task_service_test.go`)
+- [x] Add unit test: orchestrator error filter and `handleSpecApproved` self-heal (in `spec_task_orchestrator_test.go`)
+- [x] Verify tests pass (4/4 pass)
