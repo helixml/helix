@@ -1,37 +1,53 @@
 # Implementation Tasks
 
-## Phase 1: Pipeline Restructuring (Biggest Impact)
+## Phase 1: Pre-built Base Images (Biggest Impact — gets sandbox to ~10 min)
 
-- [ ] Split `build-desktops` step in `build-sandbox-amd64` pipeline into two parallel steps: `build-desktop-sway` and `build-desktop-ubuntu`, each depending on `build-zed` + `build-qwen-code`
-- [ ] Apply the same split to the `build-sandbox-arm64` pipeline
-- [ ] Update `build-sandbox` step to depend on both new desktop steps instead of the single `build-desktops`
-- [ ] Investigate whether `build-macos-dmg` actually needs `build-sandbox-arm64` — check if `provision-vm-light.sh` pulls the sandbox image or just the controlplane image
-- [ ] If DMG doesn't need sandbox: remove `build-sandbox-arm64` from `build-macos-dmg`'s `depends_on`
-- [ ] Verify the E2E test (`zed-e2e-test`) finishes before `build-sandbox` on the critical path — if not, consider running it as a non-blocking quality check that doesn't gate `push-sandbox`
+- [ ] Split `Dockerfile.sway-helix` at the "FREQUENTLY CHANGING CODE" comment (~line 912): everything above becomes `Dockerfile.sway-base`, everything below stays in a new slim `Dockerfile.sway-helix` that starts with `FROM helix-sway-base:latest`
+- [ ] Same split for `Dockerfile.ubuntu-helix` at ~line 1100: create `Dockerfile.ubuntu-base` and slim `Dockerfile.ubuntu-helix`
+- [ ] The Go build stage (desktop-bridge, settings-sync-daemon, docker-wrapper) needs to stay in the app-layer Dockerfile since it compiles current Go source — keep it as a build stage in the slim Dockerfile
+- [ ] Build and push base images to `registry.helixml.tech/helix/helix-sway-base:latest` and `helix-ubuntu-base:latest`
+- [ ] Create a new Drone pipeline `build-desktop-bases` triggered by: (a) changes to Dockerfile base sections, (b) weekly cron for security updates
+- [ ] Update `build-sandbox-amd64` and `build-sandbox-arm64` pipelines to use the slim app-layer Dockerfiles
 
-## Phase 2: Docker Build Optimization
+## Phase 2: Parallelize Desktop Builds (Saves ~15-25 min)
 
-- [ ] Add `--mount=type=cache` to the `embedding-model` stage in `Dockerfile` to persist downloaded ONNX models across builds
-- [ ] Fix `Dockerfile.qwen-build` layer ordering: copy `package.json`/`package-lock.json` first, run `npm ci`, then copy remaining source
-- [ ] Consolidate scattered `apt-get update` calls in `Dockerfile.sway-helix` using BuildKit apt cache mounts (`--mount=type=cache,target=/var/cache/apt`)
-- [ ] Apply the same apt cache mount pattern to `Dockerfile.ubuntu-helix`
+- [ ] Split the `build-desktops` step in `build-sandbox-amd64` into two parallel steps: `build-desktop-sway` and `build-desktop-ubuntu`, each depending on `build-zed` + `build-qwen-code`
+- [ ] Apply the same split to `build-sandbox-arm64`
+- [ ] Update `build-sandbox` step to depend on both new desktop steps
 
-## Phase 3: Registry Push Optimization
+## Phase 3: Pre-built CI Test Image (Saves ~4-5 min on default pipeline)
 
-- [ ] Create a new `mirror-to-ghcr` Drone pipeline that runs after all build/manifest pipelines complete, moving all `ghcr-push.sh` and `ghcr-manifest.sh` calls out of the build pipelines
-- [ ] Remove inline `scripts/ghcr-push.sh` calls from `build-controlplane-amd64`, `build-controlplane-arm64`, `build-sandbox-amd64`, `build-sandbox-arm64`, `build-desktops` (both arches), and `build-runner*` steps
-- [ ] Keep GHCR pushes for manifests in the new pipeline (controlplane, sandbox, sway, ubuntu manifests)
+- [ ] Create `Dockerfile.ci` based on `golang:1.25-bookworm` with `build-essential`, `git`, and ORT library pre-installed
+- [ ] Build and push to `registry.helixml.tech/helix/helix-ci:bookworm`
+- [ ] Update `build-api-binary` to use `helix-ci:bookworm` — remove apt-get and ORT download commands
+- [ ] Update `unit-test` to use `helix-ci:bookworm` — remove apt-get and ORT download commands
+- [ ] Update `api-integration-test` to use `helix-ci:bookworm` — remove apt-get and ORT download commands
+- [ ] Add a cron pipeline to rebuild `helix-ci:bookworm` weekly (or when Go version changes)
 
-## Phase 4: Conditional Builds (Optional, Medium Effort)
+## Phase 4: Decouple macOS DMG (Saves ~25-40 min on release critical path)
 
-- [ ] Extend Zed commit-based cache-check pattern to qwen-code: before building, check if `qwen-code-build/` output matches the pinned commit hash and skip if unchanged
-- [ ] Add registry-based caching for desktop images: before building sway/ubuntu, check if the image with the expected tag already exists in the registry and skip the build
-- [ ] Document the caching strategy in a comment block at the top of `.drone.yml`
+- [ ] Read `for-mac/scripts/provision-vm-light.sh` to verify whether it pulls the sandbox image or only controlplane
+- [ ] If sandbox not needed: remove `build-sandbox-arm64` from `build-macos-dmg`'s `depends_on`
+- [ ] If sandbox is needed: investigate whether `provision-vm-light.sh` can use a pre-built sandbox image instead of waiting for the current build
+
+## Phase 5: Async GHCR Mirroring (Saves ~5-10 min)
+
+- [ ] Create a new `mirror-to-ghcr` Drone pipeline that depends on all build/manifest pipelines
+- [ ] Move all `scripts/ghcr-push.sh` calls from build steps into this new pipeline
+- [ ] Move all `scripts/ghcr-manifest.sh` calls into this new pipeline
+- [ ] Verify GHCR images appear correctly after a release
+
+## Phase 6: Minor Docker Optimizations
+
+- [ ] Add `--mount=type=cache` for embedding model downloads in the main `Dockerfile`'s `embedding-model` stage
+- [ ] Fix `Dockerfile.qwen-build` layer ordering: copy `package.json`/`package-lock.json` first, run `npm ci`, then copy source
+- [ ] Add BuildKit apt cache mounts to the base desktop Dockerfiles to speed up base image rebuilds
 
 ## Validation
 
-- [ ] Run a test release build (RC tag) and measure end-to-end time — target under 45 minutes
-- [ ] Verify all images are correctly pushed to both `registry.helixml.tech` and `ghcr.io`
-- [ ] Verify macOS DMG is built, notarized, and uploaded to R2
-- [ ] Confirm multi-arch manifests work correctly for controlplane, sandbox, sway, ubuntu
-- [ ] Run the release-rollback pipeline in dry-run to confirm it still works with the restructured pipelines
+- [ ] Run a main branch build and verify it completes in under 15 minutes
+- [ ] Run a test release (RC tag) and verify it completes in under 45 minutes
+- [ ] Verify all images pushed correctly to `registry.helixml.tech` and `ghcr.io`
+- [ ] Verify macOS DMG build, notarization, and R2 upload still work
+- [ ] Verify multi-arch manifests (controlplane, sandbox, sway, ubuntu) are correct
+- [ ] Test the release-rollback pipeline still works with restructured pipelines
