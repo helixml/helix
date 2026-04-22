@@ -15,6 +15,13 @@ import (
 
 //go:generate mockgen -source $GOFILE -destination spec_task_orchestrator_mocks.go -package $GOPACKAGE
 
+// isDeletedProjectError returns true for GORM "record not found" errors that
+// indicate a task references a deleted project. Used to suppress expected noise
+// in orchestrator loops. Must NOT match domain errors like "spec approval not found".
+func isDeletedProjectError(err error) bool {
+	return strings.Contains(err.Error(), "record not found")
+}
+
 // SpecTaskOrchestrator orchestrates SpecTasks through the complete workflow
 // Pushes agents through design → approval → implementation
 // Manages agent lifecycle and reuses sessions across Helix interactions
@@ -248,7 +255,7 @@ func (o *SpecTaskOrchestrator) processTasks(ctx context.Context) {
 		err := o.processTask(ctx, task)
 		if err != nil {
 			// Tasks with deleted projects are expected - don't spam logs
-			if strings.Contains(err.Error(), "record not found") || strings.Contains(err.Error(), "not found") {
+			if isDeletedProjectError(err) {
 				log.Trace().
 					Err(err).
 					Str("task_id", task.ID).
@@ -895,7 +902,7 @@ func (o *SpecTaskOrchestrator) pollPullRequests(ctx context.Context) {
 		err := o.handlePullRequest(ctx, task)
 		if err != nil {
 			// Tasks with deleted projects are expected - don't spam logs
-			if strings.Contains(err.Error(), "record not found") || strings.Contains(err.Error(), "not found") {
+			if isDeletedProjectError(err) {
 				log.Trace().
 					Err(err).
 					Str("task_id", task.ID).
@@ -958,7 +965,7 @@ func (o *SpecTaskOrchestrator) detectExternalPRActivity(ctx context.Context) {
 		err := o.checkTaskForExternalPRActivity(ctx, task)
 		if err != nil {
 			// Don't spam logs for deleted projects
-			if strings.Contains(err.Error(), "record not found") || strings.Contains(err.Error(), "not found") {
+			if isDeletedProjectError(err) {
 				log.Trace().
 					Err(err).
 					Str("task_id", task.ID).
