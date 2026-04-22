@@ -2,11 +2,11 @@
 
 ## Setup
 
-- [ ] Read `portingguide.md` in full — it is the canonical reference, more detailed than this spec
-- [ ] Read the previous merge spec (001864) for recent context
-- [ ] Create feature branch `feature/001885-merge-latest-zed` from fork main
-- [ ] Add upstream remote: `git remote add upstream https://github.com/zed-industries/zed.git`
-- [ ] Fetch upstream: `git fetch upstream`
+- [x] Read `portingguide.md` in full — it is the canonical reference, more detailed than this spec
+- [x] Read the previous merge spec (001864) for recent context
+- [~] Create feature branch `feature/001885-merge-latest-zed` from fork main
+- [~] Add upstream remote: `git remote add upstream https://github.com/zed-industries/zed.git`
+- [~] Fetch upstream: `git fetch upstream`
 - [ ] Check divergence: `git log --oneline upstream/main..HEAD | wc -l` and `git log --oneline HEAD..upstream/main | wc -l`
 
 ## Merge Execution
