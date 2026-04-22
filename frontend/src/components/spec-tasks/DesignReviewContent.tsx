@@ -910,12 +910,6 @@ export default function DesignReviewContent({
       });
 
       if (submitDecision === "approve") {
-        const apiClient = api.getApiClient();
-        await apiClient.v1SpecTasksApproveSpecsCreate(specTaskId, {
-          approved: true,
-          comments: overallComment || "Design approved",
-        });
-
         snackbar.success("Design approved! Agent starting implementation...");
         setShowSubmitDialog(false);
 

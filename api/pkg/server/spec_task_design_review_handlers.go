@@ -286,6 +286,38 @@ func (s *HelixAPIServer) submitDesignReview(w http.ResponseWriter, r *http.Reque
 		review.ApprovedAt = &now
 		review.OverallComment = req.OverallComment
 
+		specTask.Status = types.TaskStatusSpecApproved
+		specTask.SpecApprovedBy = user.ID
+		specTask.SpecApprovedAt = &now
+		specTask.StatusUpdatedAt = &now
+		specTask.SpecApproval = &types.SpecApprovalResponse{
+			Approved:   true,
+			ApprovedBy: user.ID,
+			ApprovedAt: now,
+			Comments:   req.OverallComment,
+		}
+
+		if err := s.Store.UpdateSpecTask(ctx, specTask); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		if s.auditLogService != nil {
+			s.auditLogService.LogTaskApproved(ctx, specTask, user.ID, user.Email)
+		}
+
+		s.wg.Add(1)
+		go func() {
+			defer s.wg.Done()
+			if err := s.specDrivenTaskService.ApproveSpecs(context.Background(), specTask); err != nil {
+				log.Error().
+					Err(err).
+					Str("spec_task_id", specTask.ID).
+					Str("review_id", review.ID).
+					Msg("[DesignReview] Failed to process spec approval (orchestrator will retry)")
+			}
+		}()
+
 	case "request_changes":
 		review.Status = types.SpecTaskDesignReviewStatusChangesRequested
 		now := time.Now()
