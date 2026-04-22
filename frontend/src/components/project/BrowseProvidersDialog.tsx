@@ -12,6 +12,7 @@ import {
   Typography,
   CircularProgress,
   Alert,
+  Link,
   List,
   ListItem,
   ListItemButton,
@@ -1173,9 +1174,16 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
             <Alert severity="info" sx={{ mb: 2 }}>
               Not seeing repos from all your organizations? Organizations can restrict OAuth app access.
               Check your{" "}
-              <a href={settingsUrl} target="_blank" rel="noopener noreferrer">
+              <Link
+                href={settingsUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                color="inherit"
+                underline="always"
+                sx={{ fontWeight: 600 }}
+              >
                 GitHub application settings
-              </a>{" "}
+              </Link>{" "}
               and grant access for each organization.
             </Alert>
           );
