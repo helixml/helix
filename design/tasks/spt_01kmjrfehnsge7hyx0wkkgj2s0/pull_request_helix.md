@@ -13,3 +13,9 @@ The trigger chain (`processGitHubPullRequest` in `helix_code_review.go`) already
 - **Frontend `GitHubSkill.tsx`** config dialog — PAT field + optional Base URL for GHE
 - **Frontend wiring** — Skills.tsx, types.ts, useApp.ts, app.ts, ProjectSettings.tsx
 - **Regenerated OpenAPI client** with new types
+
+## Screenshots
+
+![GitHub PRs skill in the GitHub category tab](https://github.com/helixml/helix/raw/helix-specs/design/tasks/spt_01kmjrfehnsge7hyx0wkkgj2s0/screenshots/01-github-category-skills.png)
+
+![GitHub PRs configuration dialog with PAT and Base URL fields](https://github.com/helixml/helix/raw/helix-specs/design/tasks/spt_01kmjrfehnsge7hyx0wkkgj2s0/screenshots/02-github-prs-config-dialog.png)
