@@ -24,6 +24,8 @@ import {
   Archive as ArchiveIcon,
   BarChart as MetricsIcon,
   Visibility as ViewIcon,
+  PushPin as PushPinIcon,
+  PushPinOutlined as PushPinOutlinedIcon,
 } from "@mui/icons-material";
 import {
   Plus,
@@ -65,6 +67,11 @@ import {
   useResumeProjectExploratorySession,
   useGetStartupScriptHistory,
 } from "../services";
+import {
+  usePinnedProjectIds,
+  usePinProject,
+  useUnpinProject,
+} from "../services/projectService";
 import { useListSessions, useGetSession } from "../services/sessionService";
 import { useClaudeSubscriptions } from "../components/account/ClaudeSubscriptionConnect";
 import ClaudeSubscriptionConnect from "../components/account/ClaudeSubscriptionConnect";
@@ -125,6 +132,12 @@ const SpecTasksPage: FC = () => {
   const deleteAccessGrantMutation = useDeleteProjectAccessGrant(
     projectId || "",
   );
+
+  // Pin/unpin project
+  const { data: pinnedProjectIds = [] } = usePinnedProjectIds(!!account.user);
+  const pinProjectMutation = usePinProject();
+  const unpinProjectMutation = useUnpinProject();
+  const isPinned = pinnedProjectIds.includes(projectId || "");
 
   // Startup script history - used to detect if user has modified the default script
   // Only fetch when we have a project with a default repo
@@ -832,6 +845,28 @@ const SpecTasksPage: FC = () => {
               onDeleteGrant={handleDeleteAccessGrant}
             />
           </Box>
+
+          {/* Pin/unpin project */}
+          <Tooltip title={isPinned ? "Unpin project" : "Pin project"}>
+            <IconButton
+              size="small"
+              onClick={() => {
+                if (!projectId) return;
+                if (isPinned) {
+                  unpinProjectMutation.mutate(projectId);
+                } else {
+                  pinProjectMutation.mutate(projectId);
+                }
+              }}
+              sx={{
+                display: { xs: "none", md: "flex" },
+                flexShrink: 0,
+                color: isPinned ? "#a78bfa" : "text.secondary",
+              }}
+            >
+              {isPinned ? <PushPinIcon /> : <PushPinOutlinedIcon />}
+            </IconButton>
+          </Tooltip>
 
           {/* Hide these buttons on mobile - they'll be in the floating menu */}
           <Box
