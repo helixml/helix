@@ -13,7 +13,7 @@ The release build (Drone CI build #720, tag 2.9.31) took **1h 54m 15s**, which i
 ## Acceptance Criteria
 
 - [ ] **Release builds (tag events) complete in under 45 minutes** end-to-end (measured from Drone build start to final pipeline completion)
-- [ ] **Main branch builds complete in under 30 minutes** for the default + sandbox pipelines
+- [ ] **Main branch builds complete in under 15 minutes** for the default + sandbox pipelines
 - [ ] No correctness regressions — all existing tests continue to pass
 - [ ] Build caching is preserved and effective — repeat builds with no code changes complete in under 15 minutes
 - [ ] The macOS DMG pipeline does not add more than 15 minutes to the critical path
