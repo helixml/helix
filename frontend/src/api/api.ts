@@ -4328,6 +4328,12 @@ export interface TypesRepositoryAccessCheck {
 }
 
 export interface TypesRepositoryInfo {
+  /**
+   * CanWrite is true when the authenticated user has push or admin access to the repo.
+   * Helix needs write access to push branches and open pull requests, so read-only
+   * repos can be listed but cannot be linked as a project repo.
+   */
+  can_write?: boolean;
   /** HTTPS clone URL */
   clone_url?: string;
   default_branch?: string;

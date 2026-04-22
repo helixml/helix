@@ -1093,6 +1093,7 @@ func (s *HelixAPIServer) handleListOAuthConnectionRepositories(_ http.ResponseWr
 				Description:   repo.GetDescription(),
 				Private:       repo.GetPrivate(),
 				DefaultBranch: repo.GetDefaultBranch(),
+				CanWrite:      github.HasWriteAccess(repo),
 			})
 		}
 
@@ -1124,6 +1125,7 @@ func (s *HelixAPIServer) handleListOAuthConnectionRepositories(_ http.ResponseWr
 				Description:   project.Description,
 				Private:       project.Visibility != "public",
 				DefaultBranch: project.DefaultBranch,
+				CanWrite:      true, // GitLab/ADO permission introspection not yet wired up; preserve prior behaviour
 			})
 		}
 
@@ -1192,6 +1194,7 @@ func (s *HelixAPIServer) handleListOAuthConnectionRepositories(_ http.ResponseWr
 				Description:   "", // ADO repos don't have description in the basic response
 				Private:       true, // ADO repos are private by default
 				DefaultBranch: defaultBranch,
+				CanWrite:      true, // ADO permission introspection not yet wired up; preserve prior behaviour
 			})
 		}
 

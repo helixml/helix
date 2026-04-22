@@ -1223,6 +1223,17 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
                       secondary={repo.description || "No description"}
                       secondaryTypographyProps={{ noWrap: true }}
                     />
+                    {repo.can_write === false && (
+                      <Tooltip title="You only have read access. Helix can't push branches or open PRs against this repo. Fork it to your account to contribute.">
+                        <Chip
+                          label="Read-only"
+                          size="small"
+                          color="warning"
+                          variant="outlined"
+                          sx={{ ml: 1 }}
+                        />
+                      </Tooltip>
+                    )}
                     {repo.private && (
                       <Chip
                         label="Private"
@@ -1261,6 +1272,13 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
                 </Box>
               }
             />
+            {selectedRepo.can_write === false && (
+              <Alert severity="warning" sx={{ mt: 2 }}>
+                You only have read access to this repo. Helix needs push access to commit changes
+                and open pull requests, so it can&apos;t be linked to a project. To contribute,
+                fork it to your own account or organization first.
+              </Alert>
+            )}
             {organizationName && (
               <Alert severity="info" sx={{ mt: 2 }}>
                 This repository will be accessible to all members of{" "}
@@ -1273,14 +1291,28 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
       <DialogActions>
         <Button onClick={handleBack}>Back</Button>
         <Button onClick={onClose}>Cancel</Button>
-        <Button
-          variant="contained"
-          color="secondary"
-          onClick={handleSelectRepo}
-          disabled={!selectedRepo || isLinking}
+        <Tooltip
+          title={
+            selectedRepo?.can_write === false
+              ? "Read-only repos can't be linked — fork it first"
+              : ""
+          }
         >
-          {isLinking ? <CircularProgress size={20} /> : "Link Repository"}
-        </Button>
+          <span>
+            <Button
+              variant="contained"
+              color="secondary"
+              onClick={handleSelectRepo}
+              disabled={
+                !selectedRepo ||
+                isLinking ||
+                selectedRepo.can_write === false
+              }
+            >
+              {isLinking ? <CircularProgress size={20} /> : "Link Repository"}
+            </Button>
+          </span>
+        </Tooltip>
       </DialogActions>
     </Dialog>
   );
