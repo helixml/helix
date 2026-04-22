@@ -11,16 +11,16 @@
 
 ## Merge Execution
 
-- [~] Execute `git merge upstream/main` — expect extensive conflicts (927 upstream commits)
-- [ ] Resolve conflicts in `agent_panel.rs` — CRITICAL: re-insert all 6 Helix cfg-gated blocks (thread display callback, UI state query, onboarding dismissal, `acp_history_store()`, split-brain detection, auto-follow activation) within the new structure after worktree picker removal (PR #54183) and draft→thread unification (PR #53737)
-- [ ] Resolve conflicts in `conversation_view.rs` — update `HeadlessConnection::prompt` signature for required `UserMessageId` (PR #53850), preserve `from_existing_thread()`, THREAD_REGISTRY integration, history refresh, `is_resume` flag, thread unregistration
-- [ ] Resolve conflicts in `agent.rs` — re-apply Critical Fix #1 (entity lifetime) within new session ref-counting structure (PR #53999). Verify `load_session()` still clones entity before async task. Check `wait_for_tools_ready` with multi-project `NativeAgent`
-- [ ] Resolve conflicts in `connection.rs` — update `AgentConnection` trait if new methods added. Ensure `HeadlessConnection` implements all required methods
-- [ ] Resolve conflicts in `acp_thread.rs` — preserve `content_only()`, `cancel()` drop semantics, `stopped_emitted_for_task` guard, `Stopped(StopReason)` tuple variant
-- [ ] Resolve conflicts in `workspace.rs` — preserve agent follow focus guard (`CollaboratorId::Agent` must not steal keyboard focus)
-- [ ] Resolve conflicts in `Cargo.toml` files — maintain feature propagation: `zed → agent_ui → title_bar` all propagating `external_websocket_sync`
-- [ ] Resolve any remaining conflicts (title_bar, feature_flags, extensions_ui, etc.)
-- [ ] Handle `ActiveView::AgentThread` changes — add `thread_id: ThreadId` field to all Helix match arms (PR #53737)
+- [x] Execute `git merge upstream/main` — 927 upstream commits merged
+- [x] Resolve conflicts in `agent_panel.rs` — accepted BaseView/retained_threads refactor, kept Helix imports, onboarding guard, auto-approve
+- [x] Resolve conflicts in `conversation_view.rs` — adapted THREAD_REGISTRY block to use root_session_id
+- [x] Resolve conflicts in `agent.rs` — auto-merged cleanly, no conflicts
+- [x] Resolve conflicts in `connection.rs` — auto-merged cleanly, no conflicts
+- [x] Resolve conflicts in `acp_thread.rs` — merged token usage tracking with stopped_emitted guard
+- [x] Resolve conflicts in `workspace.rs` — accepted upstream expanded imports
+- [x] Resolve conflicts in `Cargo.toml` files — kept feature propagation chain (zed→agent_ui→title_bar)
+- [x] Resolve remaining conflicts (title_bar, feature_flags, acp.rs, context_server_registry, etc.)
+- [~] Fix compilation errors from upstream API changes (ActiveView→BaseView, field renames, new trait methods)
 - [ ] Check if `from_existing_thread()` needs to interact with `retained_threads` (replaces old `draft_threads`)
 
 ## Verify Critical Fixes (grep + manual inspection)
