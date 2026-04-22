@@ -10,10 +10,10 @@
 - [x] Fix root cause: make spec approval atomic in `submitDesignReview` backend handler (eliminate two-call race)
 - [x] Remove redundant second API call from frontend `handleSubmitReview`
 - [x] Build frontend and verify
-- [~] Bug A: add idempotency guard to `submitDesignReview` approve case
-- [ ] Bug B: remove orphaned `approveSpecs` handler + route
-- [ ] Bug C: use `time.Now()` fallback instead of zero time for synthesized `ApprovedAt`
-- [ ] Bug D: set `TaskID` on all synthesized `SpecApprovalResponse` structs
-- [ ] Extract error filter into testable function, test it properly
-- [ ] Verify frontend query invalidation covers spec task status
-- [ ] Build + test
+- [x] Bug A: add idempotency guard to `submitDesignReview` approve case (early return if review already approved, only transition task from spec-phase statuses)
+- [x] Bug B: sync `approveSpecs` handler with DesignReview record (safer approach — endpoint has active callers in CloneGroupProgress, useApproveSpecTask, useSpecTasks)
+- [x] Bug C: use `time.Now()` fallback instead of zero time for synthesized `ApprovedAt`
+- [x] Bug D: set `TaskID` on all synthesized `SpecApprovalResponse` structs
+- [x] Extract `isDeletedProjectError()` function, test it with `TestIsDeletedProjectError`, update all 3 call sites
+- [x] Verify frontend query invalidation covers spec task status (line 166 in designReviewService.ts already invalidates `['spec-tasks', specTaskId]`)
+- [x] Build + test (13/13 tests pass, frontend builds clean)
