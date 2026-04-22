@@ -8,6 +8,7 @@ import (
 
 	"github.com/bradleyfalzon/ghinstallation/v2"
 	"github.com/google/go-github/v57/github"
+	"github.com/rs/zerolog/log"
 	"golang.org/x/oauth2"
 )
 
@@ -129,24 +130,36 @@ func (c *Client) ListRepositories(ctx context.Context) ([]*github.Repository, er
 		opt.Page = resp.NextPage
 	}
 
+	log.Info().Int("user_repos_count", len(allRepos)).Msg("Step 1: fetched user repos")
+
 	// Step 2: List user's organizations
 	orgs, err := c.listUserOrganizations(ctx)
 	if err != nil {
-		// Non-fatal: return what we have from Step 1
+		log.Warn().Err(err).Msg("Failed to list user organizations (needs read:org scope) — org-level repo listing will be skipped")
 		return allRepos, nil
 	}
+
+	orgNames := make([]string, len(orgs))
+	for i, org := range orgs {
+		orgNames[i] = org.GetLogin()
+	}
+	log.Info().Strs("orgs", orgNames).Int("org_count", len(orgs)).Msg("Step 2: listed user organizations")
 
 	// Step 3: For each org, list all visible repos (includes public ones)
 	for _, org := range orgs {
 		orgRepos, err := c.listOrgRepositories(ctx, org.GetLogin())
 		if err != nil {
-			continue // Skip orgs we can't list, return what we can
+			log.Warn().Err(err).Str("org", org.GetLogin()).Msg("Step 3: failed to list org repos, skipping")
+			continue
 		}
+		log.Info().Str("org", org.GetLogin()).Int("repo_count", len(orgRepos)).Msg("Step 3: fetched org repos")
 		allRepos = append(allRepos, orgRepos...)
 	}
 
 	// Step 4: Deduplicate by repo ID
-	return deduplicateRepos(allRepos), nil
+	deduped := deduplicateRepos(allRepos)
+	log.Info().Int("total_before_dedup", len(allRepos)).Int("total_after_dedup", len(deduped)).Msg("Step 4: deduplicated repos")
+	return deduped, nil
 }
 
 // listUserOrganizations returns all organizations the authenticated user belongs to.
