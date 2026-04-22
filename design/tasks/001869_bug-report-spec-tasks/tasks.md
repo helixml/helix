@@ -7,6 +7,6 @@
 - [x] Add unit test: `ApproveSpecs` synthesizes `SpecApproval` when nil (in `spec_driven_task_service_test.go`)
 - [x] Add unit test: orchestrator error filter and `handleSpecApproved` self-heal (in `spec_task_orchestrator_test.go`)
 - [x] Verify tests pass (4/4 pass)
-- [~] Fix root cause: make spec approval atomic in `submitDesignReview` backend handler (eliminate two-call race)
-- [ ] Remove redundant second API call from frontend `handleSubmitReview`
-- [ ] Build frontend and verify
+- [x] Fix root cause: make spec approval atomic in `submitDesignReview` backend handler (eliminate two-call race)
+- [x] Remove redundant second API call from frontend `handleSubmitReview`
+- [x] Build frontend and verify

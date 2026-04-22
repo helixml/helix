@@ -66,9 +66,20 @@ if task.SpecApproval == nil {
 
 Note: `task.SpecApprovedAt` is `*time.Time` (pointer on the task struct) but `SpecApprovalResponse.ApprovedAt` is `time.Time` (value), so we dereference with a nil-guard. This allows recovery from the inconsistent state even for tasks already stuck in the DB.
 
-## Key Decisions
+### Fix 4 (root cause): Make spec approval atomic in `submitDesignReview`
 
-**Why not add retry limits/backoff to the orchestrator?** The root cause is a missing field, not a transient failure. Fix 1 prevents the bug from occurring; Fix 3 recovers tasks already in the broken state. Adding retry limits would be over-engineering — if the underlying operation fails permanently, the task should either self-heal (Fix 3) or be flagged clearly (Fix 2). No new state machine states or failure modes needed.
+The real entry point for this bug is the Design Review UI. `handleSubmitReview` in `DesignReviewContent.tsx` made two sequential, non-atomic API calls:
+
+1. `submitReviewMutation` — updates the `DesignReview` record to `approved`
+2. `v1SpecTasksApproveSpecsCreate` — updates the `SpecTask` with `SpecApproval` and status
+
+If call #1 succeeded but #2 failed (network blip, tab close, server error), the review showed "approved" but the spec task stayed in `spec_review` with `SpecApproval == nil`. The customer would then see a "Start Implementation" button (keyed off `review.status`, not `task.status`), click it, and hit the `approveImplementation` fallback path — triggering the infinite loop.
+
+**Fix:** Move the spec task approval into the `submitDesignReview` backend handler's "approve" case. This makes both the review record update and the spec task approval happen in the same HTTP request. The frontend's `handleSubmitReview` no longer needs the second API call.
+
+The `submitDesignReview` handler's "request_changes" case already updated the spec task (setting `spec_revision` status), so this is consistent with the existing pattern.
+
+## Key Decisions
 
 **Why not create a separate `spec_approvals` table?** The bug report mentions a `spec_approvals` table, but code inspection shows there is none — approval data lives in the `SpecApproval` JSONB field on `spec_tasks`. The fix stays within the existing schema.
 
@@ -79,3 +90,7 @@ Note: `task.SpecApprovedAt` is `*time.Time` (pointer on the task struct) but `Sp
 | `api/pkg/server/spec_task_workflow_handlers.go` | Set `SpecApproval` field in `approveImplementation` fallback (~line 81) |
 | `api/pkg/services/spec_driven_task_service.go` | Synthesize `SpecApproval` when nil instead of returning error (~line 1139) |
 | `api/pkg/services/spec_task_orchestrator.go` | Tighten "not found" filter to "record not found" (~line 251) |
+| `api/pkg/server/spec_task_design_review_handlers.go` | Approve spec task atomically in `submitDesignReview` "approve" case |
+| `frontend/src/components/spec-tasks/DesignReviewContent.tsx` | Remove redundant second API call from `handleSubmitReview` |
+| `api/pkg/services/spec_driven_task_service_test.go` | Tests for `ApproveSpecs` nil SpecApproval self-heal |
+| `api/pkg/services/spec_task_orchestrator_test.go` | Tests for orchestrator error filter and `handleSpecApproved` |
