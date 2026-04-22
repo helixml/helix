@@ -635,7 +635,7 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
     return Array.from(owners).sort();
   }, [currentRepos]);
 
-  // Filter repositories by org and search query
+  // Filter repositories by org and search query, then sort alphabetically
   const filteredRepos = currentRepos.filter((repo) => {
     // Apply org filter
     if (orgFilter !== "all") {
@@ -650,7 +650,7 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
       repo.full_name?.toLowerCase().includes(query) ||
       repo.description?.toLowerCase().includes(query)
     );
-  });
+  }).sort((a, b) => (a.full_name || a.name || "").localeCompare(b.full_name || b.name || ""));
 
   const currentProvider = PROVIDERS.find((p) => p.id === selectedProvider);
 
@@ -1163,6 +1163,23 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
             </IconButton>
           </Tooltip>
         </Box>
+
+        {viewMode === "browse-repos" && selectedProvider === "github" && (() => {
+          const ghProvider = providers?.find((p) => matchesProviderType(p.type, p.name, "github"));
+          const settingsUrl = ghProvider?.client_id
+            ? `https://github.com/settings/connections/applications/${ghProvider.client_id}`
+            : "https://github.com/settings/applications";
+          return (
+            <Alert severity="info" sx={{ mb: 2 }}>
+              Not seeing repos from all your organizations? Organizations can restrict OAuth app access.
+              Check your{" "}
+              <a href={settingsUrl} target="_blank" rel="noopener noreferrer">
+                GitHub application settings
+              </a>{" "}
+              and grant access for each organization.
+            </Alert>
+          );
+        })()}
 
         {currentError && (
           <Alert severity="error" sx={{ mb: 2 }}>
