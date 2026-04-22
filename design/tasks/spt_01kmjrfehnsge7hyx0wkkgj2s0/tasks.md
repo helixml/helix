@@ -1,8 +1,8 @@
 # Implementation Tasks
 
-- [ ] Add `ToolTypeGitHub` constant to `api/pkg/types/types.go` alongside `ToolTypeAzureDevOps`
-- [ ] Add `ToolConfigGitHub` struct to `api/pkg/types/types.go` with `PersonalAccessToken string` and `BaseURL string` (for GHE) fields
-- [ ] Add `GitHub *ToolConfigGitHub` field to `AssistantToolConfig` struct in `api/pkg/types/types.go`
+- [~] Add `ToolTypeGitHub` constant to `api/pkg/types/types.go` alongside `ToolTypeAzureDevOps`
+- [~] Add `ToolConfigGitHub` struct to `api/pkg/types/types.go` with `PersonalAccessToken string` and `BaseURL string` (for GHE) fields
+- [~] Add `GitHub *ToolConfigGitHub` field to `AssistantToolConfig` struct in `api/pkg/types/types.go`
 - [ ] Create `api/pkg/agent/skill/github/pull_request_diff.go` with `GitHubPullRequestDiffTool` and `NewPullRequestDiffSkill(token, baseURL string)` — reads `GitHubRepositoryContext` from ctx, calls `client.PullRequests.ListFiles()`, returns formatted diff
 - [ ] Create `api/pkg/agent/skill/github/pr_create_review_comment.go` with `GitHubCreateReviewCommentTool` and `NewCreateReviewCommentSkill(token, baseURL string)` — accepts `content`, optional `file_path` + `line_number`; uses PR Review Comments API for inline, Issues API for general; prefixes with `[Helix]`
 - [ ] Register GitHub skills in `api/pkg/controller/inference_agent.go`: add `if assistantTool.ToolType == types.ToolTypeGitHub` block that appends `NewPullRequestDiffSkill` and `NewCreateReviewCommentSkill`
