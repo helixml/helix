@@ -83,6 +83,11 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 		specTask.SpecApprovedBy = user.ID
 		specTask.SpecApprovedAt = &now
 		specTask.StatusUpdatedAt = &now
+		specTask.SpecApproval = &types.SpecApprovalResponse{
+			Approved:   true,
+			ApprovedBy: user.ID,
+			ApprovedAt: now,
+		}
 		if err := s.Store.UpdateSpecTask(ctx, specTask); err != nil {
 			http.Error(w, fmt.Sprintf("Failed to auto-approve specs: %v", err), http.StatusInternalServerError)
 			return

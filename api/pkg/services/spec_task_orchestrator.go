@@ -248,7 +248,7 @@ func (o *SpecTaskOrchestrator) processTasks(ctx context.Context) {
 		err := o.processTask(ctx, task)
 		if err != nil {
 			// Tasks with deleted projects are expected - don't spam logs
-			if strings.Contains(err.Error(), "record not found") || strings.Contains(err.Error(), "not found") {
+			if strings.Contains(err.Error(), "record not found") {
 				log.Trace().
 					Err(err).
 					Str("task_id", task.ID).
