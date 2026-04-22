@@ -63,3 +63,28 @@ The ephemeral session API key minted in `OnBeforeCreate` uses `task.CreatedBy`. 
 
 - **In scope**: Fixing commit authorship and push credentials when transitioning from spec to implementation
 - **Out of scope**: Changing PR creation (already correct), changing planning phase authorship (commits during planning should remain as creator)
+
+## Implementation Notes
+
+### What was changed
+
+1. **Push credential resolution** (`git_http_server.go:615-625`): Added fallback from `ImplementationApprovedBy` to `SpecApprovedBy`. During implementation, only `SpecApprovedBy` is set — `ImplementationApprovedBy` is set later when the user clicks "Open PR".
+
+2. **Git identity update** (`spec_driven_task_service.go` in `ApproveSpecs()`): Added a block before `SendApprovalInstruction()` that fetches the approver's user record and execs `git config --global user.name/email` in the running container via a new `ExecInDesktop` callback. This is best-effort — if exec fails (e.g., container not connected yet), it logs a warning and continues with the creator's identity.
+
+3. **OAuth validation** (`spec_driven_task_handlers.go` in `approveSpecs()`): Added the same `ValidateUserGitHubOAuth` check from `approveImplementation`. Returns `oauth_required` error if the approver lacks GitHub OAuth for a GitHub-hosted repo. Non-GitHub repos skip this check. Non-fatal validation failures log a warning and proceed.
+
+4. **Exec infrastructure** (`external_agent_handlers.go`): Added `execCommandInDesktop()` — an internal (non-HTTP) version of `execInSandbox()` that takes a sessionID and command, connects via RevDial, and returns an error. Wired into `SpecDrivenTaskService` via the `DesktopExecFunc` callback type.
+
+5. **Exec whitelist** (`desktop/exec.go`): Added `"git": true` to the allowed commands map.
+
+### Key decisions
+
+- **Used callback pattern** (not interface) for exec, matching existing `SendMessageToAgent` and `GetProjectSecrets` patterns in `SpecDrivenTaskService`.
+- **Best-effort git identity update**: If exec fails, implementation continues with the creator's identity rather than blocking. This avoids breaking the workflow if the container isn't ready when specs are approved.
+- **OAuth validation is non-blocking for non-GitHub repos**: Only GitHub repos require OAuth. Other repo types (GitLab, ADO, Bitbucket) continue to use repo-level PATs.
+
+### Gotchas
+
+- The `git` command must be in the desktop exec whitelist. This requires a `build-ubuntu` to deploy the whitelist change. Until then, the exec will fail with "command not allowed" and the code will log a warning and fall back to creator identity.
+- The exec happens before `SendApprovalInstruction`, so there's a small window where the container may not be ready. The best-effort approach handles this gracefully.

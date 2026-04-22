@@ -16,5 +16,5 @@
 - [x] In `approveSpecs` handler (`spec_driven_task_handlers.go`), validate the approving user has GitHub OAuth before transitioning to `spec_approved` — same pattern as `approveImplementation` in `spec_task_workflow_handlers.go:141-152`. Return `oauth_required` error if missing and repo is GitHub-hosted.
 
 ## Testing
-- [~] Verify `go build` passes for all affected packages
+- [x] Verify `go build` passes for all affected packages
 - [ ] Manually test end-to-end: User 1 creates task, User 2 approves specs, verify commits are authored as User 2
