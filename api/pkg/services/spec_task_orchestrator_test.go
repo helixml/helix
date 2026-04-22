@@ -2,7 +2,7 @@ package services
 
 import (
 	"context"
-	"strings"
+	"fmt"
 	"testing"
 	"time"
 
@@ -465,18 +465,20 @@ func (s *SpecTaskOrchestratorTestSuite) TestHandleSpecApproved_SelfHealsNilSpecA
 	s.Require().NoError(err)
 }
 
+func (s *SpecTaskOrchestratorTestSuite) TestIsDeletedProjectError() {
+	// GORM "record not found" errors should match
+	assert.True(s.T(), isDeletedProjectError(fmt.Errorf("failed to get project: record not found")))
+	assert.True(s.T(), isDeletedProjectError(fmt.Errorf("record not found")))
+
+	// Domain errors containing "not found" but NOT "record not found" should NOT match
+	assert.False(s.T(), isDeletedProjectError(fmt.Errorf("spec approval not found")))
+	assert.False(s.T(), isDeletedProjectError(fmt.Errorf("failed to approve specs: spec approval not found")))
+	assert.False(s.T(), isDeletedProjectError(fmt.Errorf("default repository not set for project")))
+	assert.False(s.T(), isDeletedProjectError(fmt.Errorf("branch not found")))
+}
+
 func (s *SpecTaskOrchestratorTestSuite) TestProcessTask_ErrorFilterDistinguishesNotFoundTypes() {
 	ctx := context.Background()
-
-	// "record not found" (GORM) should match the deleted-project filter
-	gormErr := "failed to get project: record not found"
-	assert.True(s.T(), strings.Contains(gormErr, "record not found"),
-		"GORM 'record not found' should match the filter")
-
-	// "spec approval not found" should NOT match the tightened filter
-	specErr := "failed to approve specs: spec approval not found"
-	assert.False(s.T(), strings.Contains(specErr, "record not found"),
-		"'spec approval not found' should NOT match 'record not found' filter")
 
 	// Verify processTask dispatches to handleSpecApproved
 	task := &types.SpecTask{
@@ -505,5 +507,5 @@ func (s *SpecTaskOrchestratorTestSuite) TestProcessTask_ErrorFilterDistinguishes
 	s.Require().Error(err)
 	// The error should contain "not found" in a domain-specific way, not "record not found"
 	assert.Contains(s.T(), err.Error(), "default repository not set")
-	assert.False(s.T(), strings.Contains(err.Error(), "record not found"))
+	assert.False(s.T(), isDeletedProjectError(err))
 }

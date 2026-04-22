@@ -411,6 +411,23 @@ func (s *HelixAPIServer) approveSpecs(w http.ResponseWriter, r *http.Request) {
 		s.auditLogService.LogTaskApproved(ctx, existingTask, user.ID, user.Email)
 	}
 
+	// Keep DesignReview record in sync — callers of this endpoint bypass
+	// submitDesignReview, so the review record would otherwise stay "pending"
+	// while the task advances to implementation.
+	if req.Approved {
+		reviews, listErr := s.Store.ListSpecTaskDesignReviews(ctx, taskID)
+		if listErr == nil && len(reviews) > 0 {
+			latest := &reviews[len(reviews)-1]
+			if latest.Status != types.SpecTaskDesignReviewStatusApproved {
+				latest.Status = types.SpecTaskDesignReviewStatusApproved
+				latest.ApprovedAt = existingTask.SpecApprovedAt
+				if updateErr := s.Store.UpdateSpecTaskDesignReview(ctx, latest); updateErr != nil {
+					log.Warn().Err(updateErr).Str("review_id", latest.ID).Msg("Failed to sync design review status (continuing)")
+				}
+			}
+		}
+	}
+
 	// Process approval immediately in goroutine (don't wait for orchestrator polling)
 	// This sends the implementation instruction to the agent right away
 	s.wg.Add(1)

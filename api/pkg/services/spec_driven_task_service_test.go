@@ -304,6 +304,7 @@ func TestSpecDrivenTaskService_ApproveSpecs_SynthesizesNilSpecApproval(t *testin
 		func(_ context.Context, task *types.SpecTask) error {
 			assert.Equal(t, types.TaskStatusImplementation, task.Status)
 			assert.NotNil(t, task.SpecApproval, "SpecApproval should have been synthesized")
+			assert.Equal(t, "task-stuck", task.SpecApproval.TaskID)
 			assert.True(t, task.SpecApproval.Approved)
 			assert.Equal(t, "user-1", task.SpecApproval.ApprovedBy)
 			assert.Equal(t, approvedAt, task.SpecApproval.ApprovedAt)
@@ -361,7 +362,7 @@ func TestSpecDrivenTaskService_ApproveSpecs_NilSpecApprovalAndNilApprovedAt(t *t
 			assert.NotNil(t, task.SpecApproval)
 			assert.True(t, task.SpecApproval.Approved)
 			assert.Equal(t, "user-1", task.SpecApproval.ApprovedBy)
-			assert.True(t, task.SpecApproval.ApprovedAt.IsZero(), "ApprovedAt should be zero time when SpecApprovedAt is nil")
+			assert.False(t, task.SpecApproval.ApprovedAt.IsZero(), "ApprovedAt should fall back to time.Now() when SpecApprovedAt is nil")
 			return nil
 		},
 	)

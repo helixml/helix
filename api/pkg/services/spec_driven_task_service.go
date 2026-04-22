@@ -1137,11 +1137,12 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, task *types.Sp
 	}
 
 	if task.SpecApproval == nil {
-		approvedAt := time.Time{}
+		approvedAt := time.Now()
 		if task.SpecApprovedAt != nil {
 			approvedAt = *task.SpecApprovedAt
 		}
 		task.SpecApproval = &types.SpecApprovalResponse{
+			TaskID:     task.ID,
 			Approved:   true,
 			ApprovedBy: task.SpecApprovedBy,
 			ApprovedAt: approvedAt,

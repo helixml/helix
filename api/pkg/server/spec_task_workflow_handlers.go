@@ -84,6 +84,7 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 		specTask.SpecApprovedAt = &now
 		specTask.StatusUpdatedAt = &now
 		specTask.SpecApproval = &types.SpecApprovalResponse{
+			TaskID:     specTaskID,
 			Approved:   true,
 			ApprovedBy: user.ID,
 			ApprovedAt: now,
