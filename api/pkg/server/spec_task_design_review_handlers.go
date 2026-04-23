@@ -281,10 +281,57 @@ func (s *HelixAPIServer) submitDesignReview(w http.ResponseWriter, r *http.Reque
 
 	switch req.Decision {
 	case "approve":
+		if review.Status == types.SpecTaskDesignReviewStatusApproved {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(review)
+			return
+		}
+
 		review.Status = types.SpecTaskDesignReviewStatusApproved
 		now := time.Now()
 		review.ApprovedAt = &now
 		review.OverallComment = req.OverallComment
+
+		switch specTask.Status {
+		case types.TaskStatusSpecReview, types.TaskStatusSpecRevision, types.TaskStatusSpecGeneration:
+			specTask.Status = types.TaskStatusSpecApproved
+			specTask.SpecApprovedBy = user.ID
+			specTask.SpecApprovedAt = &now
+			specTask.StatusUpdatedAt = &now
+			specTask.SpecApproval = &types.SpecApprovalResponse{
+				TaskID:     specTask.ID,
+				Approved:   true,
+				ApprovedBy: user.ID,
+				ApprovedAt: now,
+				Comments:   req.OverallComment,
+			}
+
+			if err := s.Store.UpdateSpecTask(ctx, specTask); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+
+			if s.auditLogService != nil {
+				s.auditLogService.LogTaskApproved(ctx, specTask, user.ID, user.Email)
+			}
+
+			s.wg.Add(1)
+			go func() {
+				defer s.wg.Done()
+				if err := s.specDrivenTaskService.ApproveSpecs(context.Background(), specTask); err != nil {
+					log.Error().
+						Err(err).
+						Str("spec_task_id", specTask.ID).
+						Str("review_id", review.ID).
+						Msg("[DesignReview] Failed to process spec approval (orchestrator will retry)")
+				}
+			}()
+		default:
+			log.Info().
+				Str("spec_task_id", specTask.ID).
+				Str("status", string(specTask.Status)).
+				Msg("[DesignReview] Task already past spec phase, updating review only")
+		}
 
 	case "request_changes":
 		review.Status = types.SpecTaskDesignReviewStatusChangesRequested

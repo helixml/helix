@@ -4,11 +4,9 @@ import {
   Box,
   Button,
   CircularProgress,
-  FormControlLabel,
   Menu,
   MenuItem,
   ListItemText,
-  Switch,
   Tooltip,
   Typography,
 } from "@mui/material";
@@ -18,13 +16,11 @@ import {
   CheckCircle as ApproveIcon,
   Close as CloseIcon,
   RocketLaunch as LaunchIcon,
-  SkipNext as SkipIcon,
   Replay as ReopenIcon,
 } from "@mui/icons-material";
 import {
   useApproveImplementation,
   useStopAgent,
-  useSkipSpec,
   useReopenTask,
 } from "../../services/specTaskWorkflowService";
 import { useUpdateSpecTask } from "../../services/specTaskService";
@@ -186,7 +182,6 @@ export default function SpecTaskActionButtons({
 }: SpecTaskActionButtonsProps) {
   const approveImplementationMutation = useApproveImplementation(task.id);
   const stopAgentMutation = useStopAgent(task.id);
-  const skipSpecMutation = useSkipSpec(task.id);
   const reopenTaskMutation = useReopenTask(task.id);
   const updateSpecTaskMutation = useUpdateSpecTask();
   const [isReviewingSpec, setIsReviewingSpec] = useState(false);
@@ -269,48 +264,28 @@ export default function SpecTaskActionButtons({
         : isBlockedByDependencies
           ? "Queue Planning"
           : task.metadata?.error
-            ? task.just_do_it_mode
-              ? "Retry Implementation"
-              : "Retry Planning"
-            : task.just_do_it_mode
-              ? "Start Implementation"
-              : "Start Planning";
+            ? "Retry Planning"
+            : "Start Planning";
 
-    const skipSpecToggle = (
-      <Tooltip title="Skip planning and go straight to implementation" placement="top">
-        <FormControlLabel
-          control={
-            <Switch
-              size="small"
-              checked={!!task.just_do_it_mode}
-              onChange={(e) => {
-                e.stopPropagation();
-                updateSpecTaskMutation.mutate({
-                  taskId: task.id,
-                  updates: { just_do_it_mode: e.target.checked },
-                });
-              }}
-              disabled={isArchived || updateSpecTaskMutation.isPending}
-            />
-          }
-          label={
-            <Typography variant="caption" sx={{ whiteSpace: "nowrap" }}>
-              Skip planning
-            </Typography>
-          }
-          sx={{ mr: 0 }}
-          onClick={(e) => e.stopPropagation()}
-        />
-      </Tooltip>
-    );
+    const skipLabel = task.metadata?.error
+      ? "or retry as implementation"
+      : "or skip to implementation";
+
+    const handleSkipToImplementation = async (e: React.MouseEvent) => {
+      e.stopPropagation();
+      await updateSpecTaskMutation.mutateAsync({
+        taskId: task.id,
+        updates: { just_do_it_mode: true },
+      });
+      onStartPlanning?.();
+    };
 
     if (isInline) {
       return (
         <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
-          {skipSpecToggle}
           <CompactActionButton
             tooltip={startTooltip}
-            color={task.just_do_it_mode ? "success" : "warning"}
+            color="warning"
             icon={
               isQueued || isStartingPlanning ? (
                 <CircularProgress size={18} color="inherit" />
@@ -337,7 +312,7 @@ export default function SpecTaskActionButtons({
               ref={startPlanningButtonRef}
               size={buttonSize}
               variant="contained"
-              color={task.just_do_it_mode ? "success" : "warning"}
+              color="warning"
               startIcon={
                 isQueued || isStartingPlanning ? (
                   <CircularProgress size={16} color="inherit" />
@@ -358,49 +333,24 @@ export default function SpecTaskActionButtons({
           </span>
         </Tooltip>
         <Box sx={{ mt: 0.5, display: "flex", justifyContent: "center" }}>
-          {skipSpecToggle}
-        </Box>
-      </Box>
-    );
-  }
-
-  // Spec generation phase: Skip Spec button
-  if (task.status === "spec_generation") {
-    const isSkipping = skipSpecMutation.isPending;
-    return (
-      <Box
-        sx={{
-          display: "flex",
-          flexDirection: isInline ? "row" : "column",
-          gap: 1,
-          width: isInline ? "auto" : "100%",
-        }}
-      >
-        <Tooltip title={isArchived ? "Task is archived" : "Skip planning and start implementation"}>
-          <span>
-            <Button
-              variant="outlined"
-              size="small"
-              color="warning"
-              startIcon={
-                isSkipping ? (
-                  <CircularProgress size={18} color="inherit" />
-                ) : (
-                  <SkipIcon sx={{ fontSize: 18 }} />
-                )
-              }
-              onClick={(e) => {
-                e.stopPropagation();
-                skipSpecMutation.mutate();
+          <Tooltip title="Skip planning and go straight to implementation" placement="top">
+            <Typography
+              variant="caption"
+              onClick={handleSkipToImplementation}
+              sx={{
+                cursor: isStartDisabled || updateSpecTaskMutation.isPending ? "default" : "pointer",
+                color: isStartDisabled || updateSpecTaskMutation.isPending ? "text.disabled" : "text.secondary",
+                "&:hover": isStartDisabled || updateSpecTaskMutation.isPending ? {} : {
+                  color: "primary.main",
+                  textDecoration: "underline",
+                },
+                pointerEvents: isStartDisabled || updateSpecTaskMutation.isPending ? "none" : "auto",
               }}
-              disabled={isArchived || isSkipping}
-              fullWidth={!isInline}
-              sx={buttonSx}
             >
-              {isSkipping ? "Skipping..." : "Skip Planning"}
-            </Button>
-          </span>
-        </Tooltip>
+              {updateSpecTaskMutation.isPending ? "Starting..." : skipLabel}
+            </Typography>
+          </Tooltip>
+        </Box>
       </Box>
     );
   }

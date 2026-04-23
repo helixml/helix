@@ -1141,7 +1141,16 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, task *types.Sp
 	}
 
 	if task.SpecApproval == nil {
-		return fmt.Errorf("spec approval not found")
+		approvedAt := time.Now()
+		if task.SpecApprovedAt != nil {
+			approvedAt = *task.SpecApprovedAt
+		}
+		task.SpecApproval = &types.SpecApprovalResponse{
+			TaskID:     task.ID,
+			Approved:   true,
+			ApprovedBy: task.SpecApprovedBy,
+			ApprovedAt: approvedAt,
+		}
 	}
 
 	if task.SpecApproval.Approved {
