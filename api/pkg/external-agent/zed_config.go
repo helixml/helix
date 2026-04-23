@@ -245,12 +245,8 @@ func GenerateZedMCPConfig(
 	// See: https://developer.chrome.com/blog/chrome-devtools-mcp
 	config.ContextServers["chrome-devtools"] = ContextServerConfig{
 		Command: "npx",
-		Args:    []string{"chrome-devtools-mcp@latest"},
+		Args:    []string{"chrome-devtools-mcp@latest", "--viewport", "1600x1080"},
 		Env: map[string]string{
-			// Use headless mode in sandbox containers (no visible browser window)
-			"CHROME_DEVTOOLS_MCP_HEADLESS": "true",
-			// Set viewport to match typical desktop resolution
-			"CHROME_DEVTOOLS_MCP_VIEWPORT": "1920x1080",
 			// Point to the actual browser binary (Chromium on ARM64, Chrome on amd64).
 			// google-chrome-stable symlink also exists, but CHROME_PATH is the
 			// documented way to configure the MCP server for non-Chrome browsers.
