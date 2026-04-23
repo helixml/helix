@@ -26,6 +26,7 @@ import DiffFileList from "./DiffFileList";
 import DiffContent from "./DiffContent";
 import useSnackbar from "../../hooks/useSnackbar";
 import useThemeConfig from "../../hooks/useThemeConfig";
+import useLightTheme from "../../hooks/useLightTheme";
 import useRouter from "../../hooks/useRouter";
 import useIsBigScreen from "../../hooks/useIsBigScreen";
 
@@ -53,6 +54,7 @@ const DiffViewer: FC<DiffViewerProps> = ({
   pollInterval = 3000,
 }) => {
   const themeConfig = useThemeConfig();
+  const lightTheme = useLightTheme();
   const snackbar = useSnackbar();
   const router = useRouter();
   const isBigScreen = useIsBigScreen({ breakpoint: "sm" });
@@ -235,7 +237,7 @@ const DiffViewer: FC<DiffViewerProps> = ({
         flexDirection: "column",
         height: "100%",
         overflow: "hidden",
-        bgcolor: themeConfig.darkBackgroundColor,
+        bgcolor: lightTheme.backgroundColor,
       }}
     >
       <Box
@@ -252,7 +254,7 @@ const DiffViewer: FC<DiffViewerProps> = ({
         <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
           <Typography
             variant="subtitle2"
-            sx={{ fontWeight: 600, color: themeConfig.darkText }}
+            sx={{ fontWeight: 600, color: lightTheme.textColor }}
           >
             Changes
           </Typography>
@@ -386,7 +388,7 @@ const DiffViewer: FC<DiffViewerProps> = ({
                     color: themeConfig.tealRoot,
                   },
                   "&:hover": {
-                    color: themeConfig.darkText,
+                    color: lightTheme.textColor,
                   },
                 }}
               />
@@ -481,7 +483,7 @@ const DiffViewer: FC<DiffViewerProps> = ({
             gap: 1,
           }}
         >
-          <Typography variant="body2" sx={{ color: themeConfig.darkTextFaded }}>
+          <Typography variant="body2" sx={{ color: lightTheme.textColorFaded }}>
             No changes detected
           </Typography>
           <Typography variant="caption" sx={{ color: themeConfig.neutral400 }}>

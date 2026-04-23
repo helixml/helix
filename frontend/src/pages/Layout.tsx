@@ -614,10 +614,7 @@ const Layout: FC<{
             component="div"
             sx={{
               flexGrow: 1,
-              backgroundColor:
-                theme.palette.mode === "light"
-                  ? themeConfig.lightBackgroundColor
-                  : themeConfig.darkBackgroundColor,
+              backgroundColor: lightTheme.backgroundColor,
               height: "100%",
               minHeight: "100%",
               minWidth: 0,

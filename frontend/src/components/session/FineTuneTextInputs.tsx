@@ -8,8 +8,7 @@ import Grid from '@mui/material/Grid'
 import FormGroup from '@mui/material/FormGroup'
 import FormControlLabel from '@mui/material/FormControlLabel'
 import Checkbox from '@mui/material/Checkbox'
-import useThemeConfig from '../../hooks/useThemeConfig'
-import useTheme from '@mui/material/styles/useTheme'
+import useLightTheme from '../../hooks/useLightTheme'
 
 import AddCircleIcon from '@mui/icons-material/AddCircle'
 import AddIcon from '@mui/icons-material/Add'
@@ -79,8 +78,7 @@ export const FineTuneTextInputs: FC<{
   const [files, setFiles] = useState<CustomFile[]>(
     initialFiles?.map(file => ({ file, type: 'file' as 'text' | 'url' | 'file' })) || []
   );
-  const themeConfig = useThemeConfig();
-  const theme = useTheme();
+  const lightTheme = useLightTheme();
   const [drawerOpen, setDrawerOpen] = useState(false);
 
   const onAddURL = useCallback(() => {
@@ -241,7 +239,7 @@ export const FineTuneTextInputs: FC<{
               height: '70px',
               maxHeight: '100px',
               pb: 1,
-              backgroundColor: `${theme.palette.mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkBackgroundColor}80`,
+              backgroundColor: `${lightTheme.backgroundColor}80`,
               borderRadius: 0,
             }}
             InputProps={{
@@ -317,7 +315,7 @@ export const FineTuneTextInputs: FC<{
               height: '100px',
               maxHeight: '100px',
               pb: 1,
-              backgroundColor: `${theme.palette.mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkBackgroundColor}80`,
+              backgroundColor: `${lightTheme.backgroundColor}80`,
             }}
             fullWidth
             label="paste some text here"
@@ -410,7 +408,7 @@ export const FineTuneTextInputs: FC<{
                 height: '120px',
                 minHeight: '120px',
                 cursor: 'pointer',
-                backgroundColor: `${theme.palette.mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkBackgroundColor}80`,
+                backgroundColor: `${lightTheme.backgroundColor}80`,
               }}
               onClick={handleManualUploadClick}
             >

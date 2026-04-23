@@ -1217,11 +1217,8 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
     highlightAllFiles,
     safeReloadSession,
     onAddDocuments,
-    theme.palette.mode,
-    themeConfig.lightIcon,
-    themeConfig.darkIcon,
-    themeConfig.lightIconHover,
-    themeConfig.darkIconHover,
+    lightTheme.icon,
+    lightTheme.iconHover,
     getBlockKey,
     isLoadingBlock,
     scrollToBottom,
@@ -1382,7 +1379,7 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
           sx={{
             width: '100%',
             flexShrink: 0,
-            borderBottom: theme.palette.mode === 'light' ? themeConfig.lightBorder : themeConfig.darkBorder,
+            borderBottom: lightTheme.border,
           }}
         >
           {(!previewMode && (isOwner || account.admin)) && (

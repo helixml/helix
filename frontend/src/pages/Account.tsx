@@ -29,6 +29,7 @@ import TokenUsage from '../components/usage/TokenUsage'
 import TotalCost from '../components/usage/TotalCost'
 import TotalRequests from '../components/usage/TotalRequests'
 import useThemeConfig from '../hooks/useThemeConfig'
+import useLightTheme from '../hooks/useLightTheme'
 import { Prism as SyntaxHighlighterPrism } from 'react-syntax-highlighter'
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism'
 
@@ -47,6 +48,7 @@ const Account: FC<AccountProps> = ({ tab = 'general' }) => {
   const account = useAccount()
   const snackbar = useSnackbar()
   const themeConfig = useThemeConfig()
+  const lightTheme = useLightTheme()
 
   const { data: usage } = useGetUserUsage()
   const { data: serverConfig, isLoading: isLoadingServerConfig } = useGetConfig()
@@ -172,7 +174,7 @@ export HELIX_API_KEY=${apiKey}
   const renderGeneralSettings = () => (
     <>
       {/* Usage Charts Row */}
-      <Grid container spacing={2} sx={{ mb: 2, backgroundColor: themeConfig.darkPanel, p: 2, borderRadius: 2 }}>
+      <Grid container spacing={2} sx={{ mb: 2, backgroundColor: lightTheme.panelColor, p: 2, borderRadius: 2 }}>
         <Grid item xs={12} md={4}>
           <TokenUsage usageData={usage ? [{ metrics: usage }] : []} isLoading={false} />
         </Grid>
@@ -188,7 +190,7 @@ export HELIX_API_KEY=${apiKey}
       <ClaudeSubscription />
 
       {/* Full Name Update */}
-      <Grid container spacing={2} sx={{ mt: 2, backgroundColor: themeConfig.darkPanel, p: 2, borderRadius: 2 }}>
+      <Grid container spacing={2} sx={{ mt: 2, backgroundColor: lightTheme.panelColor, p: 2, borderRadius: 2 }}>
         <Grid item xs={12}>
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <Typography variant="h6" gutterBottom>Full Name</Typography>
@@ -210,7 +212,7 @@ export HELIX_API_KEY=${apiKey}
 
       {/* Password Update */}
       {serverConfig?.auth_provider === TypesAuthProvider.AuthProviderRegular && (
-        <Grid container spacing={2} sx={{ mt: 2, backgroundColor: themeConfig.darkPanel, p: 2, borderRadius: 2 }}>
+        <Grid container spacing={2} sx={{ mt: 2, backgroundColor: lightTheme.panelColor, p: 2, borderRadius: 2 }}>
           <Grid item xs={12}>
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <Typography variant="h6" gutterBottom>Update Password</Typography>
@@ -228,7 +230,7 @@ export HELIX_API_KEY=${apiKey}
 
       {/* Quotas */}
       {quotas && (
-        <Grid container spacing={2} sx={{ mt: 2, backgroundColor: themeConfig.darkPanel, p: 2, borderRadius: 2 }}>
+        <Grid container spacing={2} sx={{ mt: 2, backgroundColor: lightTheme.panelColor, p: 2, borderRadius: 2 }}>
           <Grid item xs={12}>
             <Typography variant="h6" sx={{ mb: 2 }} gutterBottom>Quotas</Typography>
             <QuotaListView />
@@ -241,7 +243,7 @@ export HELIX_API_KEY=${apiKey}
   const renderApiKeys = () => (
     <>
       {/* API Key Display */}
-      <Grid container spacing={2} sx={{ mb: 2, backgroundColor: themeConfig.darkPanel, p: 2, borderRadius: 2 }}>
+      <Grid container spacing={2} sx={{ mb: 2, backgroundColor: lightTheme.panelColor, p: 2, borderRadius: 2 }}>
         <Grid item xs={12}>
           <Box sx={{ mb: 3 }}>
             <Typography variant="h6" sx={{ mb: 2 }} gutterBottom>API Key</Typography>

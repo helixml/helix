@@ -1121,10 +1121,10 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
           sx: {
             maxHeight: '400px',
             minWidth: '300px',
-            background: '#181A20',
-            color: '#F1F1F1',
+            background: lightTheme.panelColor,
+            color: lightTheme.textColor,
             borderRadius: 2,
-            boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+            boxShadow: lightTheme.isLight ? '0 8px 32px rgba(0,0,0,0.15)' : '0 8px 32px rgba(0,0,0,0.5)',
             mt: 1,
           },
         }}

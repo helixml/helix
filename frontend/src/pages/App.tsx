@@ -107,7 +107,7 @@ const App: FC = () => {
           <Grid container>
             {/* Tab Content - Full Width */}
             <Grid item xs={12} sx={{
-              backgroundColor: themeConfig.darkPanel,
+              backgroundColor: lightTheme.panelColor,
               p: 0,
               mt: 2,
               mb: 2,

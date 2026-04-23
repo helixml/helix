@@ -36,6 +36,7 @@ import Page from "../components/system/Page";
 import useAccount from "../hooks/useAccount";
 import useSnackbar from "../hooks/useSnackbar";
 import useThemeConfig from "../hooks/useThemeConfig";
+import useLightTheme from "../hooks/useLightTheme";
 import useApps from "../hooks/useApps";
 import { ICreateAgentParams } from "../contexts/apps";
 import useApi from "../hooks/useApi";
@@ -74,10 +75,10 @@ const CodeBlock = styled("pre")(({ theme }) => ({
   },
 }));
 
-const LoginCard = styled(Card)<{ themeConfig: any }>(
-  ({ theme, themeConfig }) => ({
+const LoginCard = styled(Card)<{ themeConfig: any; lightTheme: any }>(
+  ({ theme, themeConfig, lightTheme }) => ({
     background: `linear-gradient(135deg, ${themeConfig.tealRoot}15 0%, ${themeConfig.magentaRoot}15 100%)`,
-    border: `1px solid ${themeConfig.darkBorder}`,
+    border: `1px solid ${lightTheme.border}`,
     borderRadius: "16px",
     boxShadow: `
     0 8px 32px rgba(0,0,0,0.3),
@@ -90,10 +91,10 @@ const LoginCard = styled(Card)<{ themeConfig: any }>(
   }),
 );
 
-const ImportCard = styled(Card)<{ themeConfig: any }>(
-  ({ theme, themeConfig }) => ({
+const ImportCard = styled(Card)<{ themeConfig: any; lightTheme: any }>(
+  ({ theme, themeConfig, lightTheme }) => ({
     background: `linear-gradient(135deg, ${themeConfig.tealRoot}15 0%, ${themeConfig.magentaRoot}15 100%)`,
-    border: `1px solid ${themeConfig.darkBorder}`,
+    border: `1px solid ${lightTheme.border}`,
     borderRadius: "16px",
     boxShadow: `
     0 8px 32px rgba(0,0,0,0.3),
@@ -328,8 +329,8 @@ const ImportButton = styled(Button)<{ themeConfig: any }>(
   }),
 );
 
-const CancelButton = styled(Button)<{ themeConfig: any }>(
-  ({ themeConfig }) => ({
+const CancelButton = styled(Button)<{ themeConfig: any; lightTheme: any }>(
+  ({ themeConfig, lightTheme }) => ({
     background: "transparent",
     border: `2px solid ${themeConfig.neutral500}`,
     borderRadius: "12px",
@@ -337,7 +338,7 @@ const CancelButton = styled(Button)<{ themeConfig: any }>(
     fontSize: "1rem",
     fontWeight: 600,
     textTransform: "none",
-    color: themeConfig.darkText,
+    color: lightTheme.textColor,
     transition: "all 0.3s ease",
     "&:hover": {
       background: themeConfig.neutral700,
@@ -395,6 +396,7 @@ const ImportAgent: FC = () => {
   const account = useAccount();
   const snackbar = useSnackbar();
   const themeConfig = useThemeConfig();
+  const lightTheme = useLightTheme();
   const api = useApi();
   const [configData, setConfigData] = useState<ParsedConfig | null>(null);
   const [yamlString, setYamlString] = useState<string>("");
@@ -699,7 +701,7 @@ const ImportAgent: FC = () => {
     return (
       <Page>
         <Container maxWidth="sm" sx={{ mt: 8, mb: 4 }}>
-          <LoginCard themeConfig={themeConfig}>
+          <LoginCard themeConfig={themeConfig} lightTheme={lightTheme}>
             <CardContent sx={{ p: 4, textAlign: "center" }}>
               <LoginIconContainer themeConfig={themeConfig}>
                 <LockPersonIcon
@@ -729,7 +731,7 @@ const ImportAgent: FC = () => {
                 variant="body1"
                 sx={{
                   mb: 4,
-                  color: themeConfig.darkTextFaded,
+                  color: lightTheme.textColorFaded,
                   fontSize: "1.1rem",
                   lineHeight: 1.6,
                   maxWidth: "400px",
@@ -750,14 +752,14 @@ const ImportAgent: FC = () => {
               >
                 <SecurityIcon
                   sx={{
-                    color: themeConfig.darkTextFaded,
+                    color: lightTheme.textColorFaded,
                     mr: 1,
                     fontSize: "1.2rem",
                   }}
                 />
                 <Typography
                   variant="body2"
-                  sx={{ color: themeConfig.darkTextFaded, fontSize: "0.9rem" }}
+                  sx={{ color: lightTheme.textColorFaded, fontSize: "0.9rem" }}
                 >
                   Secure authentication powered by industry standards
                 </Typography>
@@ -777,7 +779,7 @@ const ImportAgent: FC = () => {
                 variant="body2"
                 sx={{
                   mt: 3,
-                  color: themeConfig.darkTextFaded,
+                  color: lightTheme.textColorFaded,
                   fontSize: "0.85rem",
                 }}
               >
@@ -802,7 +804,7 @@ const ImportAgent: FC = () => {
       ]}
     >
       <Container maxWidth="lg" sx={{ mt: 4, mb: 6 }}>
-        <ImportCard themeConfig={themeConfig}>
+        <ImportCard themeConfig={themeConfig} lightTheme={lightTheme}>
           <CardContent sx={{ p: 4 }}>
             <Box sx={{ textAlign: "center", mb: 4 }}>
               <Typography
@@ -821,7 +823,7 @@ const ImportAgent: FC = () => {
               <Typography
                 variant="body1"
                 sx={{
-                  color: themeConfig.darkTextFaded,
+                  color: lightTheme.textColorFaded,
                   fontSize: "1.1rem",
                   maxWidth: "600px",
                   mx: "auto",
@@ -860,7 +862,7 @@ const ImportAgent: FC = () => {
                   />
                   <Typography
                     variant="h5"
-                    sx={{ fontWeight: 600, color: themeConfig.darkText }}
+                    sx={{ fontWeight: 600, color: lightTheme.textColor }}
                   >
                     Agent Preview
                   </Typography>
@@ -921,7 +923,7 @@ const ImportAgent: FC = () => {
                       sx={{
                         fontWeight: 700,
                         mb: 2,
-                        color: getAgentImage() ? "white" : themeConfig.darkText,
+                        color: getAgentImage() ? "white" : lightTheme.textColor,
                         lineHeight: 1.3,
                         textShadow: getAgentImage()
                           ? "0 2px 8px rgba(0,0,0,0.9), 0 1px 3px rgba(0,0,0,0.8)"
@@ -935,7 +937,7 @@ const ImportAgent: FC = () => {
                       sx={{
                         color: getAgentImage()
                           ? "rgba(255,255,255,0.95)"
-                          : themeConfig.darkTextFaded,
+                          : lightTheme.textColorFaded,
                         lineHeight: 1.6,
                         fontSize: "0.95rem",
                         textShadow: getAgentImage()
@@ -960,7 +962,7 @@ const ImportAgent: FC = () => {
                   />
                   <Typography
                     variant="h5"
-                    sx={{ fontWeight: 600, color: themeConfig.darkText }}
+                    sx={{ fontWeight: 600, color: lightTheme.textColor }}
                   >
                     Configuration
                   </Typography>
@@ -995,6 +997,7 @@ const ImportAgent: FC = () => {
             >
               <CancelButton
                 themeConfig={themeConfig}
+                lightTheme={lightTheme}
                 variant="outlined"
                 onClick={() => window.close()}
                 disabled={importing}
@@ -1034,7 +1037,7 @@ const ImportAgent: FC = () => {
         <DialogTitle
           sx={{
             background: `linear-gradient(135deg, ${themeConfig.tealRoot}15 0%, ${themeConfig.magentaRoot}15 100%)`,
-            borderBottom: `1px solid ${themeConfig.darkBorder}`,
+            borderBottom: `1px solid ${lightTheme.border}`,
           }}
         >
           <Box sx={{ display: "flex", alignItems: "center" }}>
@@ -1047,14 +1050,14 @@ const ImportAgent: FC = () => {
         <DialogContent sx={{ p: 3 }}>
           <Typography
             variant="body1"
-            sx={{ mb: 3, color: themeConfig.darkTextFaded }}
+            sx={{ mb: 3, color: lightTheme.textColorFaded }}
           >
             Some models in your agent configuration were not available and have
             been automatically substituted with compatible alternatives. The
             following changes were made:
           </Typography>
 
-          <List sx={{ bgcolor: themeConfig.darkPanel, borderRadius: 2 }}>
+          <List sx={{ bgcolor: lightTheme.panelColor, borderRadius: 2 }}>
             {modelSubstitutions.map((substitution, index) => (
               <ListItem
                 key={index}
@@ -1073,7 +1076,7 @@ const ImportAgent: FC = () => {
                     <Box>
                       <Typography
                         variant="body2"
-                        sx={{ color: themeConfig.darkTextFaded, mb: 1 }}
+                        sx={{ color: lightTheme.textColorFaded, mb: 1 }}
                       >
                         <strong>Original:</strong>{" "}
                         {substitution.original_provider} /{" "}
@@ -1089,7 +1092,7 @@ const ImportAgent: FC = () => {
                       <Typography
                         variant="body2"
                         sx={{
-                          color: themeConfig.darkTextFaded,
+                          color: lightTheme.textColorFaded,
                           fontSize: "0.85rem",
                         }}
                       >
@@ -1112,7 +1115,7 @@ const ImportAgent: FC = () => {
           </Alert>
         </DialogContent>
         <DialogActions
-          sx={{ p: 3, borderTop: `1px solid ${themeConfig.darkBorder}` }}
+          sx={{ p: 3, borderTop: `1px solid ${lightTheme.border}` }}
         >
           <Button
             onClick={handleSubstitutionDialogClose}

@@ -4,11 +4,12 @@ import OpenInNewIcon from '@mui/icons-material/OpenInNew'
 import { styled } from '@mui/material/styles'
 
 import useThemeConfig from '../../hooks/useThemeConfig'
+import useLightTheme from '../../hooks/useLightTheme'
 import useAccount from '../../hooks/useAccount'
 
 const StyledCTAButton = styled(Button, {
-  shouldForwardProp: (prop) => prop !== 'themeConfig' && prop !== 'isLoggedOut',
-})<{ themeConfig: any; isLoggedOut: boolean }>(({ themeConfig, isLoggedOut }) => ({
+  shouldForwardProp: (prop) => prop !== 'themeConfig' && prop !== 'isLoggedOut' && prop !== 'textColor',
+})<{ themeConfig: any; isLoggedOut: boolean; textColor: string }>(({ themeConfig, isLoggedOut, textColor }) => ({
   background: 'transparent',
   border: `2px solid transparent`,
   borderRadius: '16px',
@@ -16,7 +17,7 @@ const StyledCTAButton = styled(Button, {
   fontSize: isLoggedOut ? '1rem' : '1.1rem',
   fontWeight: 600,
   textTransform: 'none',
-  color: themeConfig.darkText,
+  color: textColor,
   minHeight: '56px',
   position: 'relative',
   transition: 'all 0.3s ease',
@@ -61,6 +62,7 @@ const LaunchpadCTAButton: React.FC<LaunchpadCTAButtonProps> = ({
   fullWidth = false,
 }) => {
   const themeConfig = useThemeConfig()
+  const lightTheme = useLightTheme()
   const account = useAccount()
   
   const isLoggedOut = !account.user
@@ -78,6 +80,7 @@ const LaunchpadCTAButton: React.FC<LaunchpadCTAButtonProps> = ({
       <StyledCTAButton
         themeConfig={themeConfig}
         isLoggedOut={isLoggedOut}
+        textColor={lightTheme.textColor}
         variant="outlined"
         startIcon={<OpenInNewIcon />}
         size={size}
