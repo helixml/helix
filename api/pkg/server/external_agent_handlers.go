@@ -19,7 +19,6 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/rs/zerolog/log"
 
-	"github.com/helixml/helix/api/pkg/desktop"
 	"github.com/helixml/helix/api/pkg/proxy"
 	"github.com/helixml/helix/api/pkg/types"
 )
@@ -452,7 +451,10 @@ func (apiServer *HelixAPIServer) execCommandInDesktop(ctx context.Context, sessi
 	}
 	defer revDialConn.Close()
 
-	reqBody, err := json.Marshal(desktop.ExecRequest{
+	reqBody, err := json.Marshal(struct {
+		Command []string `json:"command"`
+		Timeout int      `json:"timeout"`
+	}{
 		Command: command,
 		Timeout: 10,
 	})
@@ -481,7 +483,11 @@ func (apiServer *HelixAPIServer) execCommandInDesktop(ctx context.Context, sessi
 		return fmt.Errorf("exec failed with status %d: %s", execResp.StatusCode, string(body))
 	}
 
-	var resp desktop.ExecResponse
+	var resp struct {
+		Success  bool   `json:"success"`
+		Error    string `json:"error,omitempty"`
+		ExitCode int    `json:"exit_code"`
+	}
 	if err := json.NewDecoder(execResp.Body).Decode(&resp); err != nil {
 		return fmt.Errorf("failed to decode exec response: %w", err)
 	}
