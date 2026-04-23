@@ -1,9 +1,9 @@
 # Implementation Tasks
 
-- [~] Add `allTabsViewed` and `unviewedTabNames` props to `ReviewActionFooter` component (`frontend/src/components/spec-tasks/ReviewActionFooter.tsx`)
-- [ ] Disable "Approve Design" button when `!allTabsViewed`, combining with existing `unresolvedCount > 0` check
-- [ ] Add tooltip to disabled approve button showing which tabs haven't been viewed (use existing MUI Tooltip + span pattern from the "Start Implementation" button)
-- [ ] In `DesignReviewContent.tsx`, compute `allTabsViewed` and `unviewedTabNames` from existing `viewedTabs` state and pass to `ReviewActionFooter`
+- [x] Add `allTabsViewed` and `unviewedTabNames` props to `ReviewActionFooter` component (`frontend/src/components/spec-tasks/ReviewActionFooter.tsx`)
+- [x] Disable "Approve Design" button when `!allTabsViewed`, combining with existing `unresolvedCount > 0` check
+- [x] Add tooltip to disabled approve button showing which tabs haven't been viewed (use existing MUI Tooltip + span pattern from the "Start Implementation" button)
+- [~] In `DesignReviewContent.tsx`, compute `allTabsViewed` and `unviewedTabNames` from existing `viewedTabs` state and pass to `ReviewActionFooter`
 - [ ] Add a `useRef<Map<DocumentType, string>>` to snapshot tab content when viewed. Update snapshot in `handleTabChange` and on initial mount for "requirements"
 - [ ] Add a `useEffect` watching review data that compares current content to snapshots — if content changed for a viewed tab, remove it from `viewedTabs` (forces re-view)
 - [ ] Add a visual indicator (colored dot badge) on tab labels for tabs with unread content changes
