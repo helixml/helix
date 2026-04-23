@@ -4,7 +4,7 @@
 
 Since the last upstream merge (task 001723, Apr 16), the fork has gained 5 new Helix-specific commits (PRs #37-#41). These must be documented in `portingguide.md` before merging upstream, so the implementation agent knows exactly what to protect during conflict resolution.
 
-- [ ] Review fork commits since last merge: `git log --oneline <last-merge-commit>..main`
+- [~] Review fork commits since last merge: `git log --oneline <last-merge-commit>..main`
 - [ ] Document PR #40 (request_id desync fix) in portingguide.md — touches `acp_thread.rs` and `thread_service.rs`, adds Critical Fix #9 (stopped_emitted_for_task guard)
 - [ ] Document PR #41 (ACP auto-approve) in portingguide.md — touches `crates/agent_ui/src/agent_panel.rs` (request_permission flow), new feature-gated behavior
 - [ ] Document any new modified upstream files or new rebase checklist items from PRs #37-#41
