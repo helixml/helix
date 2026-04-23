@@ -10,7 +10,7 @@ Since the last upstream merge (task 001723, Apr 16), the fork has gained new Hel
 
 ## Setup
 
-- [ ] Create feature branch `feature/001864-merge-latest-zed` from `main`
+- [~] Create feature branch `feature/001864-merge-latest-zed` from `main`
 - [ ] Merge `origin/feature/001723-merge-latest-zed` into it (698 commits: prior upstream merge + post-merge fixes, never merged to main)
 - [ ] Add upstream remote: `git remote add upstream https://github.com/zed-industries/zed.git`
 - [ ] Fetch upstream and check divergence since `d066ff0ae5` (where 001723 left off)
