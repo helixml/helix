@@ -12,6 +12,8 @@
 - [ ] The "Request Changes" and "Reject Design" buttons are NOT gated — a reviewer can reject or request changes without reading everything.
 - [ ] Tab viewing state is per-session (component state) — no backend persistence needed.
 - [ ] The initial tab ("requirements") counts as viewed on mount.
+- [ ] When a tab's content changes (e.g. agent revises the spec after a "Request Changes"), that tab is removed from the viewed set, forcing the user to re-view it before approving.
+- [ ] A visual indicator (e.g. a dot/badge on the tab label) shows which tabs have unread changes.
 
 ## 2. Change Comment Resolve Icon from X to Green Tick
 
