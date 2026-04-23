@@ -3,15 +3,61 @@ import { createTheme, ThemeProvider } from '@mui/material/styles'
 import useThemeConfig from '../hooks/useThemeConfig'
 import { PaletteMode } from '@mui/material'
 
+const THEME_MODE_KEY = 'themeMode'
+
+function getInitialMode(): PaletteMode {
+  const stored = localStorage.getItem(THEME_MODE_KEY)
+  if (stored === 'light' || stored === 'dark') return stored
+  if (window.matchMedia('(prefers-color-scheme: light)').matches) return 'light'
+  return 'dark'
+}
+
 export const ThemeContext = React.createContext({
-  mode: 'dark',
+  mode: 'dark' as PaletteMode,
   toggleMode: () => {},
 })
 
 export const ThemeProviderWrapper = ({ children }: { children: ReactNode }) => {
   const themeConfig = useThemeConfig()
-  const [mode, setMode] = useState<PaletteMode>('dark')
+  const [mode, setMode] = useState<PaletteMode>(getInitialMode)
+
+  const isLight = mode === 'light'
+
   const theme = useMemo(() => {
+    const bg = isLight ? themeConfig.lightBackgroundColor : themeConfig.darkBackgroundColor
+    const scrollbarTrack = isLight ? themeConfig.lightScrollbar : themeConfig.darkScrollbar
+    const scrollbarThumb = isLight ? themeConfig.lightScrollbarThumb : themeConfig.darkScrollbarThumb
+    const scrollbarHover = isLight ? themeConfig.lightScrollbarHover : themeConfig.darkScrollbarHover
+
+    const scrollbarStyles = {
+      '&::-webkit-scrollbar': {
+        width: '4px',
+        borderRadius: '8px',
+      },
+      '&::-webkit-scrollbar-track': {
+        background: scrollbarTrack,
+      },
+      '&::-webkit-scrollbar-thumb': {
+        background: scrollbarThumb,
+        borderRadius: '8px',
+      },
+      '&::-webkit-scrollbar-thumb:hover': {
+        background: scrollbarHover,
+      },
+    }
+
+    const menuSurfaceBg = isLight ? 'rgba(255, 255, 255, 0.97)' : 'rgba(26, 26, 26, 0.97)'
+    const menuBorder = isLight ? '1px solid rgba(0,0,0,0.10)' : '1px solid rgba(255,255,255,0.10)'
+    const menuTextColor = isLight ? '#333' : 'white'
+    const menuHoverBg = isLight ? 'rgba(0,180,220,0.10)' : 'rgba(0,229,255,0.13)'
+    const menuSelectedBg = isLight ? 'rgba(0,180,220,0.15)' : 'rgba(0,229,255,0.18)'
+    const menuDividerColor = isLight ? 'rgba(0,0,0,0.10)' : 'rgba(255,255,255,0.10)'
+    const menuShadow = isLight ? '0 8px 32px rgba(0,0,0,0.12)' : '0 8px 32px rgba(0,0,0,0.32)'
+
+    const dialogBg = isLight ? '#ffffff' : '#181A20'
+    const dialogColor = isLight ? '#333' : '#F1F1F1'
+    const dialogShadow = isLight ? '0 8px 32px rgba(0, 0, 0, 0.15)' : '0 8px 32px rgba(0, 0, 0, 0.5)'
+
     return createTheme({
       palette: {
         primary: {
@@ -22,7 +68,7 @@ export const ThemeProviderWrapper = ({ children }: { children: ReactNode }) => {
         },
         mode: mode,
         background: {
-          default: mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkBackgroundColor,
+          default: bg,
         },
       },
       typography: {
@@ -30,60 +76,30 @@ export const ThemeProviderWrapper = ({ children }: { children: ReactNode }) => {
         fontSize: 14,
       },
       components: {
-        // Global scrollbar styles
         MuiCssBaseline: {
           styleOverrides: {
             body: {
-              backgroundColor: mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkBackgroundColor,
-              '&::-webkit-scrollbar': {
-                width: '4px',
-                borderRadius: '8px',
-              },
-              '&::-webkit-scrollbar-track': {
-                background: mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkScrollbar,
-              },
-              '&::-webkit-scrollbar-thumb': {
-                background: mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkScrollbarThumb,
-                borderRadius: '8px',
-              },
-              '&::-webkit-scrollbar-thumb:hover': {
-                background: mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkScrollbarHover,
-              },
+              backgroundColor: bg,
+              ...scrollbarStyles,
             },
-            '*': {
-              '&::-webkit-scrollbar': {
-                width: '4px',
-                borderRadius: '8px',
-              },
-              '&::-webkit-scrollbar-track': {
-                background: mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkScrollbar,
-              },
-              '&::-webkit-scrollbar-thumb': {
-                background: mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkScrollbarThumb,
-                borderRadius: '8px',
-              },
-              '&::-webkit-scrollbar-thumb:hover': {
-                background: mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkScrollbarHover,
-              },
-            },
+            '*': scrollbarStyles,
           },
         },
-        // Adding dark style to the menus + high z-index for dialogs
         MuiMenu: {
           styleOverrides: {
             root: {
-              zIndex: 100003, // Above dialogs (z-index 100002)
+              zIndex: 100003,
               '& .MuiMenu-list': {
                 padding: 0,
-                backgroundColor: 'rgba(26, 26, 26, 0.97)',
+                backgroundColor: menuSurfaceBg,
                 backdropFilter: 'blur(10px)',
                 minWidth: '160px',
                 borderRadius: '10px',
-                border: '1px solid rgba(255,255,255,0.10)',
-                boxShadow: '0 8px 32px rgba(0,0,0,0.32)',
+                border: menuBorder,
+                boxShadow: menuShadow,
               },
               '& .MuiMenuItem-root': {
-                color: 'white',
+                color: menuTextColor,
                 fontSize: '0.92rem',
                 fontWeight: 500,
                 padding: '8px 16px',
@@ -91,14 +107,14 @@ export const ThemeProviderWrapper = ({ children }: { children: ReactNode }) => {
                 borderRadius: '6px',
                 transition: 'background 0.15s',
                 '&:hover': {
-                  backgroundColor: 'rgba(0,229,255,0.13)',
+                  backgroundColor: menuHoverBg,
                 },
                 '&.Mui-selected': {
-                  backgroundColor: 'rgba(0,229,255,0.18)',
+                  backgroundColor: menuSelectedBg,
                 },
               },
               '& .MuiDivider-root': {
-                borderColor: 'rgba(255,255,255,0.10)',
+                borderColor: menuDividerColor,
                 margin: '4px 0',
               },
             },
@@ -108,37 +124,34 @@ export const ThemeProviderWrapper = ({ children }: { children: ReactNode }) => {
           styleOverrides: {
             root: {
               '&.MuiMenu-paper, &.MuiPopover-paper': {
-                backgroundColor: 'rgba(26, 26, 26, 0.97)',
+                backgroundColor: menuSurfaceBg,
                 backdropFilter: 'blur(10px)',
                 borderRadius: '10px',
-                boxShadow: '0 8px 32px rgba(0,0,0,0.32)',
+                boxShadow: menuShadow,
               },
             },
           },
         },
         MuiDialog: {
           defaultProps: {
-            // Enable 1Password and password manager autofill compatibility
             disableEnforceFocus: true,
           },
           styleOverrides: {
             paper: {
-              background: '#181A20',
-              color: '#F1F1F1',
+              background: dialogBg,
+              color: dialogColor,
               borderRadius: 16,
-              boxShadow: '0 8px 32px rgba(0, 0, 0, 0.5)',
+              boxShadow: dialogShadow,
               transition: 'all 0.2s ease-in-out',
             },
             root: {
-              zIndex: 100002, // Above floating windows (z-index 9999) and tooltips (100001)
+              zIndex: 100002,
               transition: 'all 0.2s ease-in-out',
             },
           },
         },
-        // Ensure tooltips appear above floating windows (z-index 9999) and modals
         MuiTooltip: {
           defaultProps: {
-            // Higher z-index ensures tooltips appear above floating windows
             slotProps: {
               popper: {
                 sx: {
@@ -148,7 +161,6 @@ export const ThemeProviderWrapper = ({ children }: { children: ReactNode }) => {
             },
           },
         },
-        // Ensure popovers (including Select dropdowns) appear above dialogs
         MuiPopover: {
           styleOverrides: {
             root: {
@@ -156,7 +168,6 @@ export const ThemeProviderWrapper = ({ children }: { children: ReactNode }) => {
             },
           },
         },
-        // Ensure Select menus appear above dialogs
         MuiSelect: {
           defaultProps: {
             MenuProps: {
@@ -184,11 +195,15 @@ export const ThemeProviderWrapper = ({ children }: { children: ReactNode }) => {
       chartErrorGradientStartOpacity: themeConfig.chartErrorGradientStartOpacity,
     })
   }, [
-    themeConfig, mode
+    themeConfig, mode, isLight
   ])
-  
+
   const toggleMode = () => {
-    setMode((prevMode: any) => prevMode === 'dark' ? 'light' : 'dark')
+    setMode((prevMode) => {
+      const next = prevMode === 'dark' ? 'light' : 'dark'
+      localStorage.setItem(THEME_MODE_KEY, next)
+      return next
+    })
   }
 
   return (
