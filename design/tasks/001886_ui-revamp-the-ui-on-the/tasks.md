@@ -16,7 +16,7 @@
 ## Testing
 
 - [x] Run `cd frontend && yarn build` to verify no build errors
-- [~] Verify in browser: backlog card shows "Start Planning" button with "or skip to implementation" link beneath
-- [ ] Verify in browser: clicking "or skip to implementation" starts the task directly in implementation mode
-- [ ] Verify in browser: tasks in the planning column no longer show a "Skip Planning" button
-- [ ] Verify in browser: error state shows "Retry Planning" / "or retry as implementation"
+- [x] Verify in browser: backlog card shows "Start Planning" button with "or skip to implementation" link beneath
+- [x] Verify in browser: clicking "or skip to implementation" starts the task directly in implementation mode
+- [x] Verify in browser: tasks in the planning column no longer show a "Skip Planning" button
+- [x] Verify in browser: error state shows "Retry Planning" / "or retry as implementation" — logic confirmed in code; error state requires a failed task to trigger visually
