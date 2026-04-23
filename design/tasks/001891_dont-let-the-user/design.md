@@ -48,3 +48,11 @@ Wire the existing `viewedTabs` state into `ReviewActionFooter` to disable the ap
 
 - `ReviewActionFooter` already has a pattern for disabling approve: `disabled={unresolvedCount > 0}` (line 96). We extend this condition.
 - The component uses MUI `Tooltip` + `<span>` wrapper (see lines 51-68 for the "Start Implementation" button pattern with `isBlockedByDependencies`).
+
+## Implementation Notes
+
+- Refactored the three hardcoded `<Tab>` elements into a `.map()` over `ALL_TABS` — eliminates duplication and makes the unviewed dot indicator trivial to add.
+- `getTabContent()` is a plain function (not memoized) since it's only called on tab change and in the effect — no performance concern.
+- The content-change `useEffect` depends on `review?.requirements_spec, review?.technical_design, review?.implementation_plan` — these are primitive strings, so the effect only fires when actual content changes (not on every poll cycle).
+- `CloseIcon` import removed from `CommentLogSidebar.tsx` since it was the only usage. `InlineCommentBubble.tsx` swapped `CloseIcon` for `CheckCircleIcon`.
+- WARNING: Could not test in browser — inner Helix has no spec tasks or users. TypeScript type-check (`tsc --noEmit`) passes cleanly. `vite build` fails on an unrelated `dist/` directory permission issue (bind mount).
