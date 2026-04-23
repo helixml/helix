@@ -2,12 +2,12 @@
 
 ## Phase 1: Core Theme Infrastructure
 
-- [ ] Update `src/contexts/theme.tsx`: Initialize mode from localStorage, then OS preference (`prefers-color-scheme`), then default to `'dark'`
-- [ ] Update `src/contexts/theme.tsx`: Persist mode to localStorage in `toggleMode()`
-- [ ] Update `src/contexts/theme.tsx`: Make MUI component overrides (MuiMenu, MuiDialog, MuiPaper, MuiPopover) mode-conditional instead of hardcoded dark
-- [ ] Add light-mode scrollbar tokens to `src/themes.tsx` (`lightScrollbar`, `lightScrollbarThumb`, `lightScrollbarHover`)
-- [ ] Update scrollbar overrides in `src/contexts/theme.tsx` to use light scrollbar tokens when in light mode
-- [ ] Update `src/hooks/useLightTheme.tsx`: Add any missing light-mode return values needed by consumers (e.g., `panelColor`, `highlightColor`)
+- [~] Update `src/contexts/theme.tsx`: Initialize mode from localStorage, then OS preference (`prefers-color-scheme`), then default to `'dark'`
+- [~] Update `src/contexts/theme.tsx`: Persist mode to localStorage in `toggleMode()`
+- [~] Update `src/contexts/theme.tsx`: Make MUI component overrides (MuiMenu, MuiDialog, MuiPaper, MuiPopover) mode-conditional instead of hardcoded dark
+- [~] Add light-mode scrollbar tokens to `src/themes.tsx` (`lightScrollbar`, `lightScrollbarThumb`, `lightScrollbarHover`)
+- [~] Update scrollbar overrides in `src/contexts/theme.tsx` to use light scrollbar tokens when in light mode
+- [~] Update `src/hooks/useLightTheme.tsx`: Add any missing light-mode return values needed by consumers (e.g., `panelColor`, `highlightColor`)
 - [ ] Add theme toggle button to the app bar (sun/moon icon using MUI `LightMode`/`DarkMode` icons), consuming `ThemeContext.toggleMode()`
 - [ ] Update `index.html` meta theme-color to be neutral or remove hardcoded dark value
 
