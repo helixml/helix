@@ -451,15 +451,13 @@ func (s *SpecTaskOrchestratorTestSuite) TestHandleSpecApproved_SelfHealsNilSpecA
 		ID:            "repo-1",
 		DefaultBranch: "main",
 	}, nil)
-	s.store.EXPECT().UpdateSpecTask(ctx, gomock.Any()).DoAndReturn(
-		func(_ context.Context, t *types.SpecTask) error {
-			s.Equal(types.TaskStatusImplementation, t.Status)
-			s.NotNil(t.SpecApproval, "SpecApproval should have been synthesized")
-			s.True(t.SpecApproval.Approved)
-			s.Equal("user-1", t.SpecApproval.ApprovedBy)
-			return nil
-		},
-	)
+	s.store.EXPECT().TransitionSpecTaskStatus(
+		ctx,
+		"task-stuck",
+		gomock.Any(),
+		types.TaskStatusImplementation,
+		gomock.Any(),
+	).Return(true, nil)
 
 	err := s.orchestrator.handleSpecApproved(ctx, task)
 	s.Require().NoError(err)

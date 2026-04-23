@@ -287,6 +287,10 @@ func (m *MemoryStore) GetSpecTask(_ context.Context, _ string) (*types.SpecTask,
 	return nil, store.ErrNotFound
 }
 
+func (m *MemoryStore) TransitionSpecTaskStatus(_ context.Context, _ string, _ []types.SpecTaskStatus, _ types.SpecTaskStatus, _ map[string]any) (bool, error) {
+	return false, nil
+}
+
 func (m *MemoryStore) GetSpecTaskZedThreadByZedThreadID(_ context.Context, _ string) (*types.SpecTaskZedThread, error) {
 	return nil, store.ErrNotFound
 }
