@@ -1365,6 +1365,16 @@ export default function DesignReviewContent({
                     color: "#000",
                   },
                   cursor: "text",
+                  "& a": {
+                    color: "#00d5ff",
+                    textDecoration: "none",
+                    "&:hover": {
+                      textDecoration: "underline",
+                    },
+                    "&:visited": {
+                      color: "#00d5ff",
+                    },
+                  },
                   "& p, & li, & h1, & h2, & h3, & h4": {
                     cursor: "text",
                     transition: "background-color 0.15s ease",
