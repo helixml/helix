@@ -2,8 +2,6 @@
 
 ## Pre-Merge: Update Porting Guide with New Fork Patches
 
-Since the last upstream merge (task 001723, Apr 16), the fork has gained new Helix-specific commits (PRs #37-#41). These must be documented in `portingguide.md` before merging upstream.
-
 - [x] Review fork commits since last merge
 - [x] Document new patches (PRs #32-#41) in portingguide.md — 20 new commit entries + 5 new rebase checklist items (#34-#38)
 - [x] Verify rebase checklist item count is accurate (now items 1-41)
@@ -11,14 +9,13 @@ Since the last upstream merge (task 001723, Apr 16), the fork has gained new Hel
 ## Setup
 
 - [~] Create feature branch `feature/001864-merge-latest-zed` from `main`
-- [ ] Merge `origin/feature/001723-merge-latest-zed` into it (698 commits: prior upstream merge + post-merge fixes, never merged to main)
 - [ ] Add upstream remote: `git remote add upstream https://github.com/zed-industries/zed.git`
-- [ ] Fetch upstream and check divergence since `d066ff0ae5` (where 001723 left off)
+- [ ] Fetch upstream and check divergence
 
-## Merge Latest Upstream
+## Merge
 
-- [ ] Merge `upstream/main` to pick up commits after Apr 15 (feature flag overrides, sidebar fixes, tsgo LSP fix)
-- [ ] Resolve any merge conflicts, preserving Helix-specific patches
+- [ ] Merge `upstream/main` directly into feature branch (fresh merge, full gap since task 001554)
+- [ ] Resolve all merge conflicts, preserving Helix-specific patches (reference 001723 branch resolutions as guide)
 
 ## Verify Critical Fixes
 

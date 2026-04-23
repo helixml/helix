@@ -18,15 +18,16 @@
 
 ## Merge Strategy
 
-Two-phase merge to incorporate both the existing 001723 work and new upstream commits:
+Fresh merge of upstream/main directly into a branch off main. Task 001723's branch is abandoned (never merged, not worth layering). Reference 001723's conflict resolutions as a guide but do all work from scratch.
 
 1. Create feature branch from fork `main`
-2. Merge `origin/feature/001723-merge-latest-zed` into it (brings in 698 commits: upstream merge + post-merge fixes already tested)
-3. Add upstream remote, fetch latest
-4. Merge `upstream/main` to pick up any commits after `d066ff0ae5` (Apr 15-19)
-5. Resolve any new conflicts, verify critical fixes
-6. Run tests, update porting guide
-7. Open PR against `helixml/zed` main
+2. Add upstream remote, fetch latest
+3. Merge `upstream/main` directly (full gap since task 001554, PR #24, Mar 22)
+4. Resolve all conflicts, preserving Helix-specific patches
+5. Verify critical fixes, run tests, update porting guide
+6. Open PR against `helixml/zed` main
+
+**Note:** The 001723 branch (`origin/feature/001723-merge-latest-zed`) can be consulted for how specific conflicts were resolved, but is not merged.
 
 ## Upstream Changes Since Last Merge (Apr 16-19)
 
