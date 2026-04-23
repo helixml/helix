@@ -27,7 +27,6 @@ import SpecTaskDetailPage from './pages/SpecTaskDetailPage'
 import SpecTaskReviewPage from './pages/SpecTaskReviewPage'
 import TeamDesktopPage from './pages/TeamDesktopPage'
 import Projects from './pages/Projects'
-import ProjectSettings from './pages/ProjectSettings'
 import { FilestoreContextProvider } from './contexts/filestore'
 import Files from './pages/Files'
 import QuestionSets from './pages/QuestionSets'
@@ -41,6 +40,7 @@ import Waitlist from './pages/Waitlist'
 import Login from './pages/Login'
 import NotFound from './pages/NotFound'
 import useRouter from './hooks/useRouter'
+import { recordNavRoute } from './lib/navHistory'
 
 // extend the base router5 route to add metadata and self rendering
 export interface IApplicationRoute extends Route {
@@ -88,14 +88,26 @@ const routes: IApplicationRoute[] = [
     <Create />
   ),
 }, {
-  name: 'org_apps',
-  path: '/orgs/:org_id/apps',
+  name: 'org_agents',
+  path: '/orgs/:org_id/agents',
   meta: {
     drawer: false,
   },
   render: () => (
     <Apps />
   ),
+}, {
+  // Backward compat: redirect /apps to /agents
+  name: 'org_apps',
+  path: '/orgs/:org_id/apps',
+  meta: { drawer: false },
+  render: () => {
+    const { navigateReplace, params } = useRouter()
+    React.useEffect(() => {
+      navigateReplace('org_agents', { org_id: params.org_id })
+    }, [])
+    return null
+  },
 }, {
   name: 'org_git-repos',
   path: '/orgs/:org_id/git-repos',
@@ -206,9 +218,20 @@ const routes: IApplicationRoute[] = [
     drawer: false,
     title: 'Project Settings',
   },
-  render: () => (
-    <ProjectSettings />
-  ),
+  render: () => {
+    // Redirect to kanban board with project settings dialog open
+    const { params } = useRouter()
+    React.useEffect(() => {
+      const url = new URL(window.location.href)
+      // Build the kanban URL with dialog params
+      const kanbanPath = `/orgs/${params.org_id}/projects/${params.id}/specs`
+      url.pathname = kanbanPath
+      url.searchParams.set('dialog', 'project-settings')
+      url.searchParams.set('dialog_project_id', params.id)
+      window.location.replace(url.toString())
+    }, [])
+    return null
+  },
 }, {
   name: 'org_project-session',
   path: '/orgs/:org_id/projects/:id/session/:session_id',
@@ -221,14 +244,26 @@ const routes: IApplicationRoute[] = [
     <Session />
   ),
 }, {
-  name: 'org_app',
-  path: '/orgs/:org_id/app/:app_id',
+  name: 'org_agent',
+  path: '/orgs/:org_id/agent/:app_id',
   meta: {
     drawer: true,
   },
   render: () => (
     <App />
   ),
+}, {
+  // Backward compat: redirect /app/:app_id to /agent/:app_id
+  name: 'org_app',
+  path: '/orgs/:org_id/app/:app_id',
+  meta: { drawer: true },
+  render: () => {
+    const { navigateReplace, params } = useRouter()
+    React.useEffect(() => {
+      navigateReplace('org_agent', { org_id: params.org_id, app_id: params.app_id })
+    }, [])
+    return null
+  },
 }, {
   name: 'org_new-agent',
   path: '/orgs/:org_id/new-agent',
@@ -428,6 +463,9 @@ router.subscribe((state) => {
   const win = (window as any)
   if(win.viewPage) {
     win.viewPage(state)
+  }
+  if (state.route) {
+    recordNavRoute(state.route.name, state.route.params as Record<string, string>)
   }
 })
 

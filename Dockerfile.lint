@@ -1,12 +1,8 @@
 # syntax=docker/dockerfile:1
 
-ARG GO_VERSION=1.23
-ARG GOLANGCI_LINT_VERSION=v1.62
-ARG ALPINE_VERSION=3.21
+FROM golangci/golangci-lint:v1.62-alpine@sha256:6f5514ee6ae7b36e3028d5583036b3551a289e2f621edc1f6d9b35af33c4ed2b AS golangci-lint
 
-FROM golangci/golangci-lint:${GOLANGCI_LINT_VERSION}-alpine AS golangci-lint
-
-FROM golang:${GO_VERSION}-alpine${ALPINE_VERSION} AS base
+FROM golang:1.23-alpine3.21@sha256:b40387b7a354ad5771f12793deb379b8ac938645fb44c02e0fc614153481662b AS base
 RUN apk add --no-cache gcc musl-dev git
 WORKDIR /src
 

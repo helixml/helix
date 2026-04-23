@@ -154,6 +154,11 @@ func (suite *AppTriggerSuite) TestCreateAppTrigger_Unauthorized() {
 	// Not to the app
 	setupAuthorizationMocks(suite.store, app, suite.userID, []types.Resource{types.ResourceKnowledge}, []types.Action{types.ActionGet})
 
+	// No projects reference this app (project-based fallback)
+	suite.store.EXPECT().ListProjects(gomock.Any(), &store.ListProjectsQuery{
+		OrganizationID: app.OrganizationID,
+	}).Return([]*types.Project{}, nil)
+
 	// Set user
 	req = req.WithContext(suite.authCtx)
 

@@ -40,7 +40,8 @@ const Providers: React.FC = () => {
   // Claude subscription state (must be called before any early returns)
   const { data: claudeSubscriptions } = useClaudeSubscriptions()
   const hasClaudeSubscription = (claudeSubscriptions?.length ?? 0) > 0
-  const claudeExpiry = hasClaudeSubscription
+  const claudeIsSetupToken = hasClaudeSubscription && claudeSubscriptions![0].credential_type === 'setup_token'
+  const claudeExpiry = hasClaudeSubscription && !claudeIsSetupToken
     ? getTokenExpiryStatus(claudeSubscriptions![0].access_token_expires_at)
     : null
   const claudeIsExpired = claudeExpiry?.isExpired ?? false

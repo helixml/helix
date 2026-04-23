@@ -28,6 +28,13 @@ type GoldenBuildService struct {
 	// Entries older than 30 min are treated as stale.
 	mu       sync.Mutex
 	building map[string]time.Time
+
+	// pendingRebuild tracks projects that received a trigger while a build
+	// was already running. When the current build finishes, a new build is
+	// started automatically. This ensures rapid merges don't leave the
+	// golden cache stale — the latest code always gets built.
+	// Key: "projectID/sandboxID" -> the project (for re-triggering).
+	pendingRebuild map[string]*types.Project
 }
 
 // NewGoldenBuildService creates a new golden build service.
@@ -41,6 +48,7 @@ func NewGoldenBuildService(
 		containerExecutor: containerExecutor,
 		specTaskService:   specTaskService,
 		building:          make(map[string]time.Time),
+		pendingRebuild:    make(map[string]*types.Project),
 	}
 }
 
@@ -91,6 +99,104 @@ func (g *GoldenBuildService) updateSandboxCacheStatus(ctx context.Context, proje
 	}
 }
 
+// RecoverStaleBuilds scans for projects with "building" status in the DB and
+// re-attaches monitoring goroutines. Called on API startup to recover from
+// restarts that killed the monitoring goroutines mid-build.
+//
+// Waits up to 60s for the sandbox to reconnect via RevDial before giving up,
+// because the API typically restarts faster than the sandbox can reconnect.
+func (g *GoldenBuildService) RecoverStaleBuilds(ctx context.Context) {
+	projects, err := g.store.ListProjectsWithActiveGoldenBuild(ctx)
+	if err != nil {
+		log.Error().Err(err).Msg("Golden build recovery: failed to list projects with active builds")
+		return
+	}
+
+	if len(projects) == 0 {
+		return
+	}
+
+	log.Info().Int("count", len(projects)).Msg("Golden build recovery: found projects with stale 'building' status")
+
+	for _, project := range projects {
+		if project.Metadata.DockerCacheStatus == nil {
+			continue
+		}
+		for sbID, sbState := range project.Metadata.DockerCacheStatus.Sandboxes {
+			if sbState.Status != "building" || sbState.BuildSessionID == "" {
+				continue
+			}
+
+			sessionID := sbState.BuildSessionID
+			key := buildKey(project.ID, sbID)
+
+			// Wait for sandbox to reconnect — API restarts faster than
+			// RevDial reconnects, so HasRunningContainer may return false
+			// even though the container is still running.
+			found := false
+			for attempt := 0; attempt < 12; attempt++ {
+				if g.containerExecutor.HasRunningContainer(ctx, sessionID) {
+					found = true
+					break
+				}
+				if attempt < 11 {
+					log.Info().
+						Str("project_id", project.ID).
+						Str("sandbox_id", sbID).
+						Str("session_id", sessionID).
+						Int("attempt", attempt+1).
+						Msg("Golden build recovery: container not found yet, waiting for sandbox reconnect")
+					time.Sleep(5 * time.Second)
+				}
+			}
+
+			if found {
+				log.Info().
+					Str("project_id", project.ID).
+					Str("sandbox_id", sbID).
+					Str("session_id", sessionID).
+					Msg("Golden build recovery: container still running, re-attaching monitor")
+
+				g.mu.Lock()
+				g.building[key] = time.Now()
+				g.mu.Unlock()
+
+				go g.waitForGoldenBuildCompletion(ctx, project.ID, sbID, sessionID)
+			} else {
+				// Container gone after 60s — check if the build completed
+				// before the API restarted by querying Hydra for the result.
+				result, err := g.containerExecutor.GetGoldenBuildResult(ctx, sbID, project.ID)
+				if err == nil && result != nil && result.Success {
+					log.Info().
+						Str("project_id", project.ID).
+						Str("sandbox_id", sbID).
+						Str("session_id", sessionID).
+						Msg("Golden build recovery: build completed while API was down, setting ready")
+					g.updateSandboxCacheStatus(ctx, project.ID, sbID, func(s *types.SandboxCacheState) {
+						now := time.Now()
+						s.Status = "ready"
+						s.LastReadyAt = &now
+						s.BuildSessionID = ""
+						s.Error = ""
+						s.SizeBytes = result.CacheSizeBytes
+					})
+				} else {
+					log.Info().
+						Str("project_id", project.ID).
+						Str("sandbox_id", sbID).
+						Str("session_id", sessionID).
+						Msg("Golden build recovery: container gone and no successful result, resetting status")
+					g.updateSandboxCacheStatus(ctx, project.ID, sbID, func(s *types.SandboxCacheState) {
+						s.Status = "none"
+						s.BuildSessionID = ""
+						s.Error = "Build interrupted by API restart"
+					})
+				}
+			}
+		}
+	}
+}
+
 // TriggerGoldenBuild starts golden builds on all online sandboxes if the setting is enabled
 // and no build is already running on each sandbox. Called when code is merged to main.
 func (g *GoldenBuildService) TriggerGoldenBuild(ctx context.Context, project *types.Project) {
@@ -129,15 +235,18 @@ func (g *GoldenBuildService) TriggerManualGoldenBuild(ctx context.Context, proje
 		g.mu.Lock()
 		if startedAt, ok := g.building[key]; ok {
 			if time.Since(startedAt) < 30*time.Minute {
+				// Manual trigger while build running — queue rebuild
+				g.pendingRebuild[key] = project
 				g.mu.Unlock()
 				alreadyRunning++
 				log.Info().Str("project_id", project.ID).Str("sandbox_id", sb.ID).
-					Msg("Golden build already running on sandbox, skipping")
+					Msg("Golden build already running on sandbox, queued rebuild")
 				continue
 			}
 			delete(g.building, key)
 		}
 		g.building[key] = time.Now()
+		delete(g.pendingRebuild, key)
 		g.mu.Unlock()
 
 		log.Info().
@@ -226,9 +335,12 @@ func (g *GoldenBuildService) fanOutBuilds(ctx context.Context, project *types.Pr
 		g.mu.Lock()
 		if startedAt, ok := g.building[key]; ok {
 			if time.Since(startedAt) < 30*time.Minute {
+				// Build already running — queue a rebuild for when it finishes.
+				// This ensures rapid merges don't leave the cache stale.
+				g.pendingRebuild[key] = project
 				g.mu.Unlock()
 				log.Info().Str("project_id", project.ID).Str("sandbox_id", sb.ID).
-					Msg("Golden build already running on sandbox, skipping")
+					Msg("Golden build already running on sandbox, queued rebuild for when it finishes")
 				continue
 			}
 			log.Warn().Str("project_id", project.ID).Str("sandbox_id", sb.ID).
@@ -236,6 +348,7 @@ func (g *GoldenBuildService) fanOutBuilds(ctx context.Context, project *types.Pr
 			delete(g.building, key)
 		}
 		g.building[key] = time.Now()
+		delete(g.pendingRebuild, key)
 		g.mu.Unlock()
 
 		log.Info().
@@ -346,6 +459,10 @@ func (g *GoldenBuildService) runGoldenBuildOnSandbox(parentCtx context.Context, 
 	})
 
 	// Get API key for the golden build session
+	if g.specTaskService == nil {
+		setFailed("specTaskService not available")
+		return
+	}
 	userAPIKey, err := g.specTaskService.GetOrCreateSessionAPIKey(ctx, &SessionAPIKeyRequest{
 		OrganizationID: project.OrganizationID,
 		UserID:         project.UserID,
@@ -414,7 +531,28 @@ func (g *GoldenBuildService) waitForGoldenBuildCompletion(ctx context.Context, p
 	defer func() {
 		g.mu.Lock()
 		delete(g.building, key)
+		pendingProject, hasPending := g.pendingRebuild[key]
+		if hasPending {
+			delete(g.pendingRebuild, key)
+		}
 		g.mu.Unlock()
+
+		// If a trigger came in while we were building, start a new build
+		// with the latest project state.
+		if hasPending {
+			log.Info().
+				Str("project_id", projectID).
+				Str("sandbox_id", sandboxID).
+				Msg("Golden build: pending rebuild queued, starting new build")
+			// Re-fetch project to get latest state (repos may have changed)
+			freshProject, err := g.store.GetProject(context.Background(), pendingProject.ID)
+			if err != nil {
+				log.Error().Err(err).Str("project_id", projectID).
+					Msg("Golden build: failed to re-fetch project for pending rebuild")
+				return
+			}
+			g.fanOutBuilds(context.Background(), freshProject)
+		}
 	}()
 
 	for {

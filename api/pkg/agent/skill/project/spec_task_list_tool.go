@@ -131,17 +131,25 @@ func (t *ListSpecTasksTool) Execute(ctx context.Context, meta agent.Meta, args m
 
 	summaries := make([]SpecTaskSummary, 0, len(tasks))
 	for _, task := range tasks {
+		var prSummaries []RepoPRSummary
+		for _, pr := range task.RepoPullRequests {
+			prSummaries = append(prSummaries, RepoPRSummary{
+				RepositoryName: pr.RepositoryName,
+				PRID:           pr.PRID,
+				PRURL:          pr.PRURL,
+				PRState:        pr.PRState,
+			})
+		}
 		summaries = append(summaries, SpecTaskSummary{
-			ID:             task.ID,
-			Name:           task.Name,
-			Description:    task.Description,
-			Status:         string(task.Status),
-			Priority:       string(task.Priority),
-			BranchName:     task.BranchName,
-			PullRequestID:  task.PullRequestID,
-			PullRequestURL: task.PullRequestURL,
-			StartedAt:      task.StartedAt,
-			CompletedAt:    task.CompletedAt,
+			ID:               task.ID,
+			Name:             task.Name,
+			Description:      task.Description,
+			Status:           string(task.Status),
+			Priority:         string(task.Priority),
+			BranchName:       task.BranchName,
+			RepoPullRequests: prSummaries,
+			StartedAt:        task.StartedAt,
+			CompletedAt:      task.CompletedAt,
 		})
 	}
 

@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import useApi from '../hooks/useApi';
 import type { TypesCreatePullRequestRequest, TypesUpdateGitRepositoryFileContentsRequest as UpdateGitRepositoryFileContentsRequest } from '../api/api';
+import { TypesExternalRepositoryType } from '../api/api';
 
 // Re-export generated types for convenience
 export type {
@@ -433,7 +434,7 @@ export function useBrowseRemoteRepositories() {
 
   return useMutation({
     mutationFn: async (request: {
-      provider_type: 'github' | 'gitlab' | 'ado';
+      provider_type: TypesExternalRepositoryType;
       token: string;
       organization_url?: string;
       base_url?: string;

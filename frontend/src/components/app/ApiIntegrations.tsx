@@ -10,7 +10,8 @@ import AccordionSummary from '@mui/material/AccordionSummary';
 import AccordionDetails from '@mui/material/AccordionDetails';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import AddIcon from '@mui/icons-material/Add';
-import { IAppFlatState, IAssistantApi, ITool } from '../../types';
+import { IAppFlatState, ITool } from '../../types';
+import { TypesAssistantAPI } from '../../api/api';
 import Window from '../widgets/Window';
 import StringMapEditor from '../widgets/StringMapEditor';
 import ClickLink from '../widgets/ClickLink';
@@ -39,9 +40,9 @@ import { productsTool } from './examples/productsApi';
 import { climateTool } from './examples/climateApi';
 
 interface ApiIntegrationsProps {
-  apis: IAssistantApi[];
+  apis: TypesAssistantAPI[];
   tools: ITool[];
-  onSaveApiTool: (tool: IAssistantApi, index?: number) => void;
+  onSaveApiTool: (tool: TypesAssistantAPI, index?: number) => void;
   onDeleteApiTool: (toolIndex: number) => void;
   isReadOnly: boolean;
   app: IAppFlatState,
@@ -65,7 +66,7 @@ const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
   app,
   onUpdate,
 }) => {
-  const [editingTool, setEditingTool] = useState<{tool: IAssistantApi, index: number} | null>(null);
+  const [editingTool, setEditingTool] = useState<{tool: TypesAssistantAPI, index: number} | null>(null);
   const [showErrors, setShowErrors] = useState(false);
   const [showBigSchema, setShowBigSchema] = useState(false);
   const [schemaTemplate, setSchemaTemplate] = useState<string>('');
@@ -111,7 +112,7 @@ const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
   }, []);
 
   const onAddApiTool = useCallback(() => {
-    const newTool: IAssistantApi = {
+    const newTool: TypesAssistantAPI = {
       name: '',
       description: '',
       system_prompt: '',
@@ -135,7 +136,7 @@ const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
     return true;
   };
 
-  const handleEditTool = (apiTool: IAssistantApi, index: number) => {
+  const handleEditTool = (apiTool: TypesAssistantAPI, index: number) => {
     console.log('ApiIntegrations - editing tool at index:', index);
     
     // Look for OAuth settings directly on the API tool
@@ -155,7 +156,7 @@ const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
     }
     setShowErrors(false);
     
-    // Include OAuth settings directly in the IAssistantApi tool
+    // Include OAuth settings directly in the TypesAssistantAPI tool
     const updatedTool = {
       ...editingTool.tool,
       oauth_provider: oauthProvider || undefined,
@@ -189,7 +190,7 @@ const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
     setOAuthScopes(newScopes);
   };
 
-  const updateEditingTool = (updates: Partial<IAssistantApi>) => {
+  const updateEditingTool = (updates: Partial<TypesAssistantAPI>) => {
     if (editingTool) {
       setEditingTool({
         ...editingTool,

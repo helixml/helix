@@ -32,6 +32,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import useApi from '../../hooks/useApi'
 import useSnackbar from '../../hooks/useSnackbar'
 import type { TypesServiceConnectionResponse, TypesServiceConnectionCreateRequest } from '../../api/api'
+import { TypesServiceConnectionType } from '../../api/api'
 
 const ServiceConnectionsTable: FC = () => {
   const api = useApi()
@@ -40,7 +41,7 @@ const ServiceConnectionsTable: FC = () => {
   const apiClient = api.getApiClient()
 
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
-  const [connectionType, setConnectionType] = useState<'github_app' | 'ado_service_principal'>('github_app')
+  const [connectionType, setConnectionType] = useState<TypesServiceConnectionType>(TypesServiceConnectionType.ServiceConnectionTypeGitHubApp)
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
 
@@ -125,7 +126,7 @@ const ServiceConnectionsTable: FC = () => {
 
   const handleCloseDialog = () => {
     setCreateDialogOpen(false)
-    setConnectionType('github_app')
+    setConnectionType(TypesServiceConnectionType.ServiceConnectionTypeGitHubApp)
     setName('')
     setDescription('')
     setGithubAppId('')
@@ -145,7 +146,7 @@ const ServiceConnectionsTable: FC = () => {
       type: connectionType,
     }
 
-    if (connectionType === 'github_app') {
+    if (connectionType === TypesServiceConnectionType.ServiceConnectionTypeGitHubApp) {
       req.github_app_id = parseInt(githubAppId, 10)
       req.github_installation_id = parseInt(githubInstallationId, 10)
       req.github_private_key = githubPrivateKey
@@ -163,7 +164,7 @@ const ServiceConnectionsTable: FC = () => {
   const isFormValid = () => {
     if (!name.trim()) return false
 
-    if (connectionType === 'github_app') {
+    if (connectionType === TypesServiceConnectionType.ServiceConnectionTypeGitHubApp) {
       // Validate GitHub App ID and Installation ID are valid numbers
       const appIdNum = parseInt(githubAppId, 10)
       const installIdNum = parseInt(githubInstallationId, 10)
@@ -251,14 +252,14 @@ const ServiceConnectionsTable: FC = () => {
                     </TableCell>
                     <TableCell>
                       <Chip
-                        icon={conn.type === 'github_app' ? <GitHub sx={{ fontSize: 16 }} /> : <Cloud size={14} />}
-                        label={conn.type === 'github_app' ? 'GitHub App' : 'ADO Service Principal'}
+                        icon={conn.type === TypesServiceConnectionType.ServiceConnectionTypeGitHubApp ? <GitHub sx={{ fontSize: 16 }} /> : <Cloud size={14} />}
+                        label={conn.type === TypesServiceConnectionType.ServiceConnectionTypeGitHubApp ? 'GitHub App' : 'ADO Service Principal'}
                         size="small"
                         variant="outlined"
                       />
                     </TableCell>
                     <TableCell>
-                      {conn.type === 'github_app' ? (
+                      {conn.type === TypesServiceConnectionType.ServiceConnectionTypeGitHubApp ? (
                         <Typography variant="caption">
                           App ID: {conn.github_app_id}, Installation: {conn.github_installation_id}
                           {conn.base_url && ` (${conn.base_url})`}
@@ -365,7 +366,7 @@ const ServiceConnectionsTable: FC = () => {
               placeholder="Optional description"
             />
 
-            {connectionType === 'github_app' ? (
+            {connectionType === TypesServiceConnectionType.ServiceConnectionTypeGitHubApp ? (
               <>
                 <Alert severity="info" sx={{ mb: 1 }}>
                   GitHub Apps provide service-to-service authentication without requiring user credentials.

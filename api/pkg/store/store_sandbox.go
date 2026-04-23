@@ -25,6 +25,11 @@ func (s *PostgresStore) UpdateSandboxHeartbeat(ctx context.Context, id string, r
 		"privileged_mode": req.PrivilegedModeEnabled,
 	}
 
+	// Store helix version if provided
+	if req.HelixVersion != "" {
+		updates["helix_version"] = req.HelixVersion
+	}
+
 	// Store desktop versions as JSON if provided
 	if len(req.DesktopVersions) > 0 {
 		updates["desktop_versions"] = req.DesktopVersions

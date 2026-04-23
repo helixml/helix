@@ -323,13 +323,17 @@ export default function Onboarding() {
     );
   }, [providers]);
 
-  // Filter steps based on billing_enabled - hide subscription step when billing is disabled
+  // Filter steps based on server config - hide steps that aren't needed
   const visibleSteps = useMemo(() => {
+    let steps = ALL_STEPS;
     if (!serverConfig?.billing_enabled) {
-      return ALL_STEPS.filter((step) => step.type !== "subscription");
+      steps = steps.filter((step) => step.type !== "subscription");
     }
-    return ALL_STEPS;
-  }, [serverConfig?.billing_enabled]);
+    if (serverConfig?.has_providers) {
+      steps = steps.filter((step) => step.type !== "provider");
+    }
+    return steps;
+  }, [serverConfig?.billing_enabled, serverConfig?.has_providers]);
 
   // Helper to get step index by type (in the visible steps array)
   const getStepIndexByType = useCallback(
@@ -787,7 +791,7 @@ export default function Onboarding() {
                 },
               },
             },
-          });
+          } as any);
         } catch (err) {
           console.error("Failed to update agent resolution config:", err);
           // Continue anyway - agent was created, just resolution wasn't set
@@ -2263,7 +2267,7 @@ export default function Onboarding() {
                 </Button>
                 <Button
                   variant="text"
-                  onClick={handleComplete}
+                  onClick={() => handleComplete()}
                   sx={{
                     color: "rgba(255,255,255,0.3)",
                     textTransform: "none",
@@ -2442,7 +2446,7 @@ export default function Onboarding() {
               </Typography>
               <Button
                 variant="contained"
-                onClick={handleComplete}
+                onClick={() => handleComplete()}
                 sx={{
                   ...btnSx,
                   px: 4,

@@ -81,13 +81,7 @@ services:
       # Discord integration
       - DISCORD_BOT_TOKEN=${DISCORD_BOT_TOKEN:-}
       - ADMIN_USER_SOURCE=${ADMIN_USER_SOURCE:-}
-      # Socket configuration for haystack communication
       - HELIX_EMBEDDINGS_SOCKET=/socket/embeddings.sock
-      - RAG_HAYSTACK_ENABLED=true
-      - RAG_DEFAULT_PROVIDER=${RAG_DEFAULT_PROVIDER:-haystack}
-      # URL in the compose stack (rather than localhost in the pod which is default for k8s)
-      - RAG_HAYSTACK_URL=http://haystack:8000
-      - RAG_PGVECTOR_PROVIDER=helix
       # Dynamic providers: format is "provider1:api_key1:base_url1,provider2:api_key2:base_url2"
       - DYNAMIC_PROVIDERS=${DYNAMIC_PROVIDERS:-}
       # Sandbox integration for external agents
@@ -105,6 +99,16 @@ services:
       - KODIT_MODEL_DIR=/kodit-models
       - KODIT_LLM_BASE_URL=http://localhost:8080/v1
       - KODIT_LLM_API_KEY=${RUNNER_TOKEN-oh-hallo-insecure-token}
+      # Kodit embedding providers proxied through Helix's /v1/embeddings endpoint.
+      # When set, kodit sends requests with placeholder model names "kodit-text-embedding" /
+      # "kodit-vision-embedding" which Helix substitutes with the real provider/model
+      # configured in Admin > System Settings.
+      - KODIT_TEXT_EMBEDDING_BASE_URL=${KODIT_TEXT_EMBEDDING_BASE_URL-http://localhost:8080/v1}
+      - KODIT_TEXT_EMBEDDING_API_KEY=${KODIT_TEXT_EMBEDDING_API_KEY-${RUNNER_TOKEN-oh-hallo-insecure-token}}
+      - KODIT_TEXT_EMBEDDING_MODEL=${KODIT_TEXT_EMBEDDING_MODEL-kodit-text-embedding}
+      - KODIT_VISION_EMBEDDING_BASE_URL=${KODIT_VISION_EMBEDDING_BASE_URL-http://localhost:8080/v1}
+      - KODIT_VISION_EMBEDDING_API_KEY=${KODIT_VISION_EMBEDDING_API_KEY-${RUNNER_TOKEN-oh-hallo-insecure-token}}
+      - KODIT_VISION_EMBEDDING_MODEL=${KODIT_VISION_EMBEDDING_MODEL-kodit-vision-embedding}
       # which desktop image to use for code agents
       - HELIX_DESKTOP=${HELIX_DESKTOP:-sway}
     volumes:
@@ -174,33 +178,6 @@ services:
       - DATABASE_URI=postgresql://postgres:${POSTGRES_ADMIN_PASSWORD-postgres}@postgres:5432/postgres
     ports:
       - 8000:8000
-  # postgres 15 with pgvector installed
-  # why run this as a different server?
-  # because we want the quick path to something working without having to create a hard dependency on pgvector
-  # being installed in our main database
-  # also - we would need to migrate our existing postgres 12 DB -> 17, which is a bit of a pain
-  # TODO: figure out how to ship the pgvector extension with our main database
-  # so we don't need to run what is essentially 2 versions of postgres
-  pgvector:
-    image: ghcr.io/tensorchord/vchord_bm25-postgres:pg17-v0.1.1
-    restart: always
-    # ports:
-    #  - 5433:5432
-    command: >
-      postgres
-      -c shared_preload_libraries=vchord,vchord_bm25,vector
-      -c shared_buffers=32MB
-      -c work_mem=2MB
-      -c max_connections=50
-      -c max_worker_processes=2
-      -c maintenance_work_mem=32MB
-      -c effective_cache_size=256MB
-    volumes:
-      - ${PGVECTOR_DATA:-helix-pgvector-db}:/var/lib/postgresql/data
-    environment:
-      - POSTGRES_DB=postgres
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=${PGVECTOR_PASSWORD-postgres}
 
   # Kodit PostgreSQL database with VectorChord (kodit library connects to this directly)
   vectorchord-kodit:
@@ -245,15 +222,6 @@ services:
       - INSTANCE_NAME=helix-instance
       - UWSGI_WORKERS=4
       - UWSGI_THREADS=4
-  typesense:
-    build:
-      context: .
-      dockerfile: Dockerfile.typesense
-    command: ["--data-dir", "/data", "--api-key", "typesense"]
-    # ports:
-    #   - 8108:8108
-    volumes:
-      - ${TYPESENSE_DATA:-helix-typesense-db}:/data
   chrome:
     image: ghcr.io/go-rod/rod:v0.115.0
     restart: always
@@ -265,7 +233,7 @@ services:
   # Unified Helix Sandbox - Docker-in-Docker with direct WebSocket video streaming
   # Desktop containers stream video directly via WebSocket (no Wolf/Moonlight)
   # Built with: ./stack build-sandbox
-  # Or use pre-built: SANDBOX_IMAGE=registry.helixml.tech/helix/helix-sandbox:latest ./stack up
+  # Or use pre-built: SANDBOX_IMAGE=ghcr.io/helixml/helix-sandbox:latest ./stack up
   # NOTE: For Helix-in-Helix development, set HYDRA_PRIVILEGED_MODE_ENABLED=true
   sandbox-nvidia:
     profiles: [code-nvidia] # NVIDIA GPU sandbox
@@ -730,47 +698,10 @@ services:
       # Preserve node_modules from image build (don't mount from host)
       - /app/node_modules
 
-  haystack:
-    image: ${HAYSTACK_IMAGE:-helix-haystack:dev}
-    build:
-      context: ./haystack_service
-    # ports:
-    #   - 8001:8000
-    restart: always
-    environment:
-      - PGVECTOR_DSN=postgresql://postgres:${PGVECTOR_PASSWORD-postgres}@pgvector:5432/postgres
-      - LOG_LEVEL=INFO
-      - RAG_HAYSTACK_EMBEDDINGS_MODEL=${RAG_HAYSTACK_EMBEDDINGS_MODEL:-rag-embedding}
-      - RAG_HAYSTACK_EMBEDDINGS_DIM=${RAG_HAYSTACK_EMBEDDINGS_DIM:-1536}
-      - RAG_HAYSTACK_EMBEDDINGS_MAX_TOKENS=${RAG_HAYSTACK_EMBEDDINGS_MAX_TOKENS:-32768}
-      - RAG_HAYSTACK_CHUNK_SIZE=${RAG_HAYSTACK_CHUNK_SIZE:-500}
-      - RAG_HAYSTACK_CHUNK_OVERLAP=${RAG_HAYSTACK_CHUNK_OVERLAP:-50}
-      # Socket configuration for api communication
-      - HELIX_EMBEDDINGS_SOCKET=/socket/embeddings.sock
-      - RAG_VISION_EMBEDDINGS_SOCKET=/socket/embeddings.sock
-      # Vision RAG Settings
-      - RAG_VISION_ENABLED=${RAG_VISION_ENABLED:-true}
-      - RAG_VISION_BASE_URL=${RAG_VISION_BASE_URL:-}
-      - RAG_VISION_API_KEY=${RAG_VISION_API_KEY:-}
-      - RAG_VISION_EMBEDDINGS_MODEL=${RAG_VISION_EMBEDDINGS_MODEL:-MrLight/dse-qwen2-2b-mrl-v1}
-      - RAG_VISION_EMBEDDINGS_DIM=${RAG_VISION_EMBEDDINGS_DIM:-1536}
-      - RAG_VISION_PGVECTOR_TABLE=${RAG_VISION_PGVECTOR_TABLE:-haystack_documents_vision}
-    volumes:
-      - ./haystack_service/app:/app/app
-      - ./haystack_service/main.py:/app/main.py
-      - helix-socket:/socket
-    command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
-    depends_on:
-      - pgvector
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-
 volumes:
   helix-postgres-db:
-  helix-pgvector-db:
   helix-vectorchord-kodit:
   helix-filestore:
-  helix-typesense-db:
   helix-socket:
   sandbox-socket:
   sandbox-container-docker: # Per-session inner dockerd storage (ZFS on macOS, named volume on Linux)

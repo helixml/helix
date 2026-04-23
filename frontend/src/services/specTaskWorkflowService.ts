@@ -24,18 +24,18 @@ export function useApproveImplementation(specTaskId: string) {
         snackbar.warning(
           "Branch has diverged - agent is rebasing. Click Accept again after rebase completes.",
         );
-      } else if (response.pull_request_url) {
-        // External repo (ADO) - show link to PR
-        snackbar.success(
-          `Pull request opened! View PR: ${response.pull_request_url}`,
-        );
-      } else if (response.pull_request_id) {
-        // PR exists but no URL
-        snackbar.success(
-          "Pull request #" +
-            response.pull_request_id +
-            " opened - awaiting merge",
-        );
+      } else if (response.repo_pull_requests && response.repo_pull_requests.length > 0) {
+        // External repo - show link to first PR
+        const firstPR = response.repo_pull_requests[0];
+        if (firstPR.pr_url) {
+          snackbar.success(
+            `Pull request opened! View PR: ${firstPR.pr_url}`,
+          );
+        } else {
+          snackbar.success(
+            `Pull request #${firstPR.pr_id} opened - awaiting merge`,
+          );
+        }
       } else if (response.status === "pull_request") {
         // External repo - task moved to pull_request status, waiting for agent to push
         snackbar.success("Agent will push changes to open a pull request...");
@@ -48,8 +48,13 @@ export function useApproveImplementation(specTaskId: string) {
       queryClient.invalidateQueries({ queryKey: ["spec-tasks"] });
     },
     onError: (error: any) => {
+      const responseData = error?.response?.data;
+      if (responseData?.error === "oauth_required") {
+        // Let the component handle this via mutation.error
+        return;
+      }
       snackbar.error(
-        error?.response?.data?.message || "Failed to approve implementation",
+        responseData?.message || "Failed to approve implementation",
       );
     },
   });
@@ -105,6 +110,61 @@ export function useMoveToBacklog(specTaskId: string) {
     onError: (error: any) => {
       snackbar.error(
         error?.response?.data?.message || "Failed to move task to backlog",
+      );
+    },
+  });
+}
+
+export function useSkipSpec(specTaskId: string) {
+  const api = useApi();
+  const apiClient = api.getApiClient();
+  const queryClient = useQueryClient();
+  const snackbar = useSnackbar();
+
+  return useMutation({
+    mutationFn: async () => {
+      // Move directly to implementation without stopping the container.
+      // The running container can keep going; the user drives the agent from here.
+      const response = await apiClient.v1SpecTasksUpdate(specTaskId, {
+        status: TypesSpecTaskStatus.TaskStatusImplementation,
+        just_do_it_mode: true,
+      });
+      return response.data;
+    },
+    onSuccess: () => {
+      snackbar.success("Skipped planning - task moved to implementation");
+      queryClient.invalidateQueries({ queryKey: ["spec-tasks", specTaskId] });
+      queryClient.invalidateQueries({ queryKey: ["spec-tasks"] });
+    },
+    onError: (error: any) => {
+      snackbar.error(
+        error?.response?.data?.message || "Failed to skip planning",
+      );
+    },
+  });
+}
+
+export function useReopenTask(specTaskId: string) {
+  const api = useApi();
+  const apiClient = api.getApiClient();
+  const queryClient = useQueryClient();
+  const snackbar = useSnackbar();
+
+  return useMutation({
+    mutationFn: async () => {
+      const response = await apiClient.v1SpecTasksUpdate(specTaskId, {
+        status: TypesSpecTaskStatus.TaskStatusImplementation,
+      });
+      return response.data;
+    },
+    onSuccess: () => {
+      snackbar.success("Task reopened - moved back to in progress");
+      queryClient.invalidateQueries({ queryKey: ["spec-tasks", specTaskId] });
+      queryClient.invalidateQueries({ queryKey: ["spec-tasks"] });
+    },
+    onError: (error: any) => {
+      snackbar.error(
+        error?.response?.data?.message || "Failed to reopen task",
       );
     },
   });

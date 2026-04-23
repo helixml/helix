@@ -762,6 +762,7 @@ export interface InteractionMarkdownProps {
   showBlinker?: boolean;
   isStreaming: boolean;
   onFilterDocument?: (docId: string) => void;
+  compactThinking?: boolean;
 }
 
 // Add this new component for the code block with copy button
@@ -863,6 +864,7 @@ const InteractionMarkdown: FC<InteractionMarkdownProps> = ({
   showBlinker = false,
   isStreaming = false,
   onFilterDocument,
+  compactThinking = false,
 }) => {
   const theme = useTheme();
   const [processedContent, setProcessedContent] = useState<string>("");
@@ -1117,6 +1119,7 @@ const InteractionMarkdown: FC<InteractionMarkdownProps> = ({
           <ThinkingWidget
             text={thinkingWidgetContent}
             isStreaming={isStreaming}
+            compact={compactThinking}
           />
         )}
         {citationData &&

@@ -76,6 +76,9 @@ type ListSecretsQuery struct {
 	Owner     string          `json:"owner"`
 	OwnerType types.OwnerType `json:"owner_type"`
 	ProjectID string          `json:"project_id"` // optional, filter by project
+	// UserLevelOnly restricts results to secrets with empty project_id and app_id.
+	// Use for listings that should hide project- or app-scoped secrets.
+	UserLevelOnly bool `json:"user_level_only"`
 }
 
 type ListAppsQuery struct {
@@ -231,12 +234,16 @@ type Store interface {
 	CreateSession(ctx context.Context, session types.Session) (*types.Session, error)
 	UpdateSessionName(ctx context.Context, sessionID, name string) error
 	UpdateSessionMetadata(ctx context.Context, sessionID string, metadata types.SessionMetadata) error
+	TouchSession(ctx context.Context, sessionID string) error
 	UpdateSession(ctx context.Context, session types.Session) (*types.Session, error)
 	UpdateSessionMeta(ctx context.Context, data types.SessionMetaUpdate) (*types.Session, error)
 	DeleteSession(ctx context.Context, id string) (*types.Session, error)
-	ListSessionsWithDesiredState(ctx context.Context, desiredState string) ([]*types.Session, error) // For reconciliation
+	ClearStaleStartingSessions(ctx context.Context) (int64, error)
+	ListSessionsBySandbox(ctx context.Context, sandboxID string) ([]*types.Session, error)           // For cleanup on sandbox disconnect
+	ListIdleDesktops(ctx context.Context, idleSince time.Time) ([]*types.Session, error) // Returns one session per desktop that has had no interaction since idleSince
 
 	// interactions
+	GetInteractionsSummary(ctx context.Context, sessionID string, generationID int) (count int64, maxUpdated time.Time, err error)
 	ListInteractions(ctx context.Context, query *types.ListInteractionsQuery) ([]*types.Interaction, int64, error)
 	CreateInteraction(ctx context.Context, interaction *types.Interaction) (*types.Interaction, error)
 	CreateInteractions(ctx context.Context, interactions ...*types.Interaction) error
@@ -306,6 +313,8 @@ type Store interface {
 	UpdateDataEntity(ctx context.Context, dataEntity *types.DataEntity) (*types.DataEntity, error)
 	GetDataEntity(ctx context.Context, id string) (*types.DataEntity, error)
 	ListDataEntities(ctx context.Context, q *ListDataEntitiesQuery) ([]*types.DataEntity, error)
+	ListDataEntitiesWithKoditRepo(ctx context.Context) ([]*types.DataEntity, error)
+	ListDataEntitiesByKoditRepositoryID(ctx context.Context, koditRepositoryID int64) ([]*types.DataEntity, error)
 	DeleteDataEntity(ctx context.Context, id string) error
 
 	// Knowledge
@@ -463,6 +472,9 @@ type Store interface {
 	UpdateSpecTask(ctx context.Context, task *types.SpecTask) error
 	DeleteSpecTask(ctx context.Context, id string) error
 	ListSpecTasks(ctx context.Context, filters *types.SpecTaskFilters) ([]*types.SpecTask, error)
+	ListProjectLabels(ctx context.Context, projectID string) ([]string, error)
+	AddSpecTaskLabel(ctx context.Context, taskID string, label string) error
+	RemoveSpecTaskLabel(ctx context.Context, taskID string, label string) error
 	SubscribeForTasks(ctx context.Context, filter *SpecTaskSubscriptionFilter, handler func(task *types.SpecTask) error) (pubsub.Subscription, error)
 
 	// spec-driven task work sessions
@@ -533,9 +545,11 @@ type Store interface {
 	// git repositories
 	CreateGitRepository(ctx context.Context, repo *types.GitRepository) error
 	GetGitRepository(ctx context.Context, id string) (*types.GitRepository, error)
+	GetGitRepositoryByExternalURL(ctx context.Context, orgID, externalURL string) (*types.GitRepository, error)
 	UpdateGitRepository(ctx context.Context, repo *types.GitRepository) error
 	DeleteGitRepository(ctx context.Context, id string) error
 	ListGitRepositories(ctx context.Context, request *types.ListGitRepositoriesRequest) ([]*types.GitRepository, error)
+	CountGitRepositoriesByKoditRepoID(ctx context.Context, koditRepoID int64, excludeRepoID string) (int64, error)
 
 	// spec-driven task multi-session management
 	CreateImplementationSessions(ctx context.Context, specTaskID string, config *types.SpecTaskImplementationSessionsCreateRequest) ([]*types.SpecTaskWorkSession, error)
@@ -551,6 +565,14 @@ type Store interface {
 	UpdateSpecTaskExternalAgent(ctx context.Context, agent *types.SpecTaskExternalAgent) error
 	DeleteSpecTaskExternalAgent(ctx context.Context, agentID string) error
 	ListSpecTaskExternalAgents(ctx context.Context, userID string) ([]*types.SpecTaskExternalAgent, error)
+
+	// Attention Event methods
+	CreateAttentionEvent(ctx context.Context, event *types.AttentionEvent) (*types.AttentionEvent, error)
+	ListAttentionEvents(ctx context.Context, userID, organizationID string, filters types.AttentionEventFilters) ([]*types.AttentionEvent, error)
+	GetAttentionEvent(ctx context.Context, id string) (*types.AttentionEvent, error)
+	UpdateAttentionEvent(ctx context.Context, id string, update *types.AttentionEventUpdateRequest) error
+	BulkDismissAttentionEvents(ctx context.Context, userID, organizationID string) (int64, error)
+	CleanupExpiredAttentionEvents(ctx context.Context, olderThan time.Duration) (int64, error)
 
 	// Clone Group methods
 	CreateCloneGroup(ctx context.Context, group *types.CloneGroup) (*types.CloneGroup, error)
@@ -574,6 +596,7 @@ type Store interface {
 	CreateProject(ctx context.Context, project *types.Project) (*types.Project, error)
 	GetProject(ctx context.Context, projectID string) (*types.Project, error)
 	ListProjects(ctx context.Context, query *ListProjectsQuery) ([]*types.Project, error)
+	ListProjectsWithActiveGoldenBuild(ctx context.Context) ([]*types.Project, error)
 	GetProjectsCount(ctx context.Context, query *GetProjectsCountQuery) (int64, error)
 	UpdateProject(ctx context.Context, project *types.Project) error
 	DeleteProject(ctx context.Context, projectID string) error
@@ -634,6 +657,20 @@ type Store interface {
 	UpdateQuestionSetExecution(ctx context.Context, execution *types.QuestionSetExecution) (*types.QuestionSetExecution, error)
 	ListQuestionSetExecutions(ctx context.Context, q *ListQuestionSetExecutionsQuery) ([]*types.QuestionSetExecution, error)
 
+	// Evaluation suite methods
+	CreateEvaluationSuite(ctx context.Context, suite *types.EvaluationSuite) (*types.EvaluationSuite, error)
+	GetEvaluationSuite(ctx context.Context, id string) (*types.EvaluationSuite, error)
+	UpdateEvaluationSuite(ctx context.Context, suite *types.EvaluationSuite) (*types.EvaluationSuite, error)
+	ListEvaluationSuites(ctx context.Context, req *types.ListEvaluationSuitesRequest) ([]*types.EvaluationSuite, error)
+	DeleteEvaluationSuite(ctx context.Context, id string) error
+
+	// Evaluation run methods
+	CreateEvaluationRun(ctx context.Context, run *types.EvaluationRun) (*types.EvaluationRun, error)
+	GetEvaluationRun(ctx context.Context, id string) (*types.EvaluationRun, error)
+	UpdateEvaluationRun(ctx context.Context, run *types.EvaluationRun) (*types.EvaluationRun, error)
+	ListEvaluationRuns(ctx context.Context, req *types.ListEvaluationRunsRequest) ([]*types.EvaluationRun, error)
+	DeleteEvaluationRun(ctx context.Context, id string) error
+
 	// Sandbox instance methods
 	RegisterSandbox(ctx context.Context, instance *types.SandboxInstance) error
 	UpdateSandboxHeartbeat(ctx context.Context, id string, req *types.SandboxHeartbeatRequest) error
@@ -663,11 +700,20 @@ type Store interface {
 	MarkPromptAsPending(ctx context.Context, promptID string) error
 	MarkPromptAsSent(ctx context.Context, promptID string) error
 	MarkPromptAsFailed(ctx context.Context, promptID string) error
+	// RequeueBouncedPrompt finds the most recent "sent" prompt for a session and marks
+	// it as "failed" so the retry mechanism picks it up. Used when message_completed
+	// arrives with an empty response (bounce).
+	RequeueBouncedPrompt(ctx context.Context, sessionID string) error
+	// ClaimPromptForSending atomically transitions a prompt from pending/failed→sending.
+	// Returns true if this caller won the claim (rows affected > 0). If false, another
+	// goroutine already claimed it and the caller must not send the prompt.
+	ClaimPromptForSending(ctx context.Context, promptID string) (bool, error)
 	UpdatePromptPin(ctx context.Context, promptID string, pinned bool) error
 	UpdatePromptTags(ctx context.Context, promptID string, tags string) error
 	ListPinnedPrompts(ctx context.Context, userID, specTaskID string) ([]*types.PromptHistoryEntry, error)
 	IncrementPromptUsage(ctx context.Context, promptID string) error
 	SearchPrompts(ctx context.Context, userID, query string, limit int) ([]*types.PromptHistoryEntry, error)
+	DeletePromptHistoryEntry(ctx context.Context, id string) error
 	UnifiedSearch(ctx context.Context, userID string, req *types.UnifiedSearchRequest) (*types.UnifiedSearchResponse, error)
 
 	// ResourceSearch - fast concurrent search across multiple resource types
@@ -683,8 +729,3 @@ type Store interface {
 	GetEffectiveClaudeSubscription(ctx context.Context, userID, orgID string) (*types.ClaudeSubscription, error)
 }
 
-type EmbeddingsStore interface {
-	CreateKnowledgeEmbedding(ctx context.Context, embeddings ...*types.KnowledgeEmbeddingItem) error
-	DeleteKnowledgeEmbedding(ctx context.Context, knowledgeID string) error
-	QueryKnowledgeEmbeddings(ctx context.Context, q *types.KnowledgeEmbeddingQuery) ([]*types.KnowledgeEmbeddingItem, error)
-}

@@ -3,6 +3,7 @@ package wsprotocol
 import (
 	"testing"
 
+	"github.com/helixml/helix/api/pkg/util/sanitize"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -11,7 +12,8 @@ func TestFirstMessage(t *testing.T) {
 	a := &MessageAccumulator{}
 	a.AddMessage("msg-1", "Hello world")
 
-	if a.Content != "Hello world" {
+	a.Rebuild()
+	if a.Content !="Hello world" {
 		t.Errorf("expected 'Hello world', got %q", a.Content)
 	}
 	if a.LastMessageID != "msg-1" {
@@ -28,7 +30,8 @@ func TestSameMessageStreaming(t *testing.T) {
 	a.AddMessage("msg-1", "Hello")
 	a.AddMessage("msg-1", "Hello world")
 
-	if a.Content != "Hello world" {
+	a.Rebuild()
+	if a.Content !="Hello world" {
 		t.Errorf("expected 'Hello world', got %q", a.Content)
 	}
 }
@@ -39,7 +42,8 @@ func TestTwoDistinctMessages(t *testing.T) {
 	a.AddMessage("msg-2", "Tool call result")
 
 	expected := "Hello world\n\nTool call result"
-	if a.Content != expected {
+	a.Rebuild()
+	if a.Content !=expected {
 		t.Errorf("expected %q, got %q", expected, a.Content)
 	}
 	if a.Offset != len("Hello world")+2 {
@@ -58,7 +62,8 @@ func TestMultiMessageWithStreaming(t *testing.T) {
 	a.AddMessage("msg-2", "[tool: edit.py]")
 
 	expected := "Hello world\n\n[tool: edit.py]"
-	if a.Content != expected {
+	a.Rebuild()
+	if a.Content !=expected {
 		t.Errorf("expected %q, got %q", expected, a.Content)
 	}
 }
@@ -70,7 +75,8 @@ func TestThreeDistinctMessages(t *testing.T) {
 	a.AddMessage("msg-3", "Final response")
 
 	expected := "Hello world\n\nTool call\n\nFinal response"
-	if a.Content != expected {
+	a.Rebuild()
+	if a.Content !=expected {
 		t.Errorf("expected %q, got %q", expected, a.Content)
 	}
 }
@@ -94,7 +100,8 @@ func TestInterleavedStreamingAndNewMessages(t *testing.T) {
 	a.AddMessage("msg-3", "Done!")
 
 	expected := "I'll help you with that.\n\n```tool\nedit file.py\n```\n\nDone!"
-	if a.Content != expected {
+	a.Rebuild()
+	if a.Content !=expected {
 		t.Errorf("expected:\n%s\n\ngot:\n%s", expected, a.Content)
 	}
 }
@@ -107,7 +114,8 @@ func TestStreamingAfterAppendPreservesPrefix(t *testing.T) {
 	a.AddMessage("msg-2", "Second complete message")
 
 	expected := "First message content\n\nSecond complete message"
-	if a.Content != expected {
+	a.Rebuild()
+	if a.Content !=expected {
 		t.Errorf("expected %q, got %q", expected, a.Content)
 	}
 
@@ -122,7 +130,8 @@ func TestEmptyContent(t *testing.T) {
 	a := &MessageAccumulator{}
 	a.AddMessage("msg-1", "")
 
-	if a.Content != "" {
+	a.Rebuild()
+	if a.Content !="" {
 		t.Errorf("expected empty content, got %q", a.Content)
 	}
 }
@@ -153,7 +162,8 @@ func TestOutOfOrderFlushUpdates(t *testing.T) {
 	a.AddMessage("18", "The design docs")
 
 	// Verify truncated state
-	if a.Content != "I'll start...understand the c\n\n**Tool Call: List the `clea`**\nStatus: Pending\n\n**Tool Call: List the `helix-specs/d`**\nStatus: Pending\n\nThe repo is very\n\nThe design docs" {
+	a.Rebuild()
+	if a.Content !="I'll start...understand the c\n\n**Tool Call: List the `clea`**\nStatus: Pending\n\n**Tool Call: List the `helix-specs/d`**\nStatus: Pending\n\nThe repo is very\n\nThe design docs" {
 		t.Fatalf("unexpected truncated state:\n%s", a.Content)
 	}
 
@@ -164,7 +174,8 @@ func TestOutOfOrderFlushUpdates(t *testing.T) {
 	a.AddMessage("18", "The design docs have been pushed and are ready for review.")
 
 	expected := "I'll start...understand the codebase structure\n\n**Tool Call: List the `clean-truncation-test`**\nStatus: Completed\n\n**Tool Call: List the `helix-specs/d`**\nStatus: Pending\n\nThe repo is very minimal — just a README.\n\nThe design docs have been pushed and are ready for review."
-	if a.Content != expected {
+	a.Rebuild()
+	if a.Content !=expected {
 		t.Errorf("out-of-order flush failed.\nexpected:\n%s\n\ngot:\n%s", expected, a.Content)
 	}
 }
@@ -181,7 +192,8 @@ func TestFlushDoesNotDuplicateContent(t *testing.T) {
 	a.AddMessage("1", "FIRST (corrected)")
 
 	expected := "FIRST (corrected)\n\nsecond\n\nthird"
-	if a.Content != expected {
+	a.Rebuild()
+	if a.Content !=expected {
 		t.Errorf("expected %q, got %q", expected, a.Content)
 	}
 
@@ -304,17 +316,20 @@ func TestEntriesStreamingGrowth(t *testing.T) {
 }
 
 func TestResumeFromPersistedState(t *testing.T) {
-	// Simulate restoring state from DB after API restart
-	a := &MessageAccumulator{
-		Content:       "Previous message\n\nStreaming...",
-		LastMessageID: "msg-2",
-		Offset:        len("Previous message") + 2,
-	}
+	// Simulate restoring state from DB after API restart using structured entries
+	entries := []byte(`[{"type":"text","content":"Previous message","message_id":"msg-1"},{"type":"text","content":"Streaming...","message_id":"msg-2"}]`)
+	a := RestoreAccumulator(
+		"Previous message\n\nStreaming...",
+		"msg-2",
+		len("Previous message")+2,
+		entries,
+	)
 
 	// Continue streaming msg-2
 	a.AddMessage("msg-2", "Streaming complete")
 
 	expected := "Previous message\n\nStreaming complete"
+	a.Rebuild()
 	if a.Content != expected {
 		t.Errorf("expected %q, got %q", expected, a.Content)
 	}
@@ -323,7 +338,59 @@ func TestResumeFromPersistedState(t *testing.T) {
 	a.AddMessage("msg-3", "Final")
 
 	expected = "Previous message\n\nStreaming complete\n\nFinal"
+	a.Rebuild()
 	if a.Content != expected {
 		t.Errorf("expected %q, got %q", expected, a.Content)
 	}
+}
+
+func TestSanitizeNullBytes(t *testing.T) {
+	a := &MessageAccumulator{}
+
+	// Content with null bytes (from terminal output or binary data)
+	a.AddMessage("msg-1", "Hello\x00World")
+	a.Rebuild()
+	assert.Equal(t, "HelloWorld", a.Content, "null bytes should be stripped")
+
+	// Content with multiple null bytes
+	a.AddMessage("msg-2", "\x00before\x00middle\x00after\x00")
+	a.Rebuild()
+	assert.Equal(t, "HelloWorld\n\nbeforemiddleafter", a.Content)
+
+	// Content without null bytes should pass through unchanged
+	a.AddMessage("msg-3", "clean content")
+	a.Rebuild()
+	assert.Contains(t, a.Content, "clean content")
+}
+
+func TestSanitizeForPostgres(t *testing.T) {
+	// Null bytes
+	assert.Equal(t, "hello", sanitize.ForPostgres("hello"))
+	assert.Equal(t, "helloworld", sanitize.ForPostgres("hello\x00world"))
+	assert.Equal(t, "", sanitize.ForPostgres("\x00"))
+	assert.Equal(t, "", sanitize.ForPostgres(""))
+	assert.Equal(t, "abc", sanitize.ForPostgres("\x00a\x00b\x00c\x00"))
+
+	// C0 control characters (strip 0x01-0x08, 0x0B, 0x0C, 0x0E-0x1F; keep \t \n \r)
+	assert.Equal(t, "ab", sanitize.ForPostgres("a\x01b"))
+	assert.Equal(t, "a\tb", sanitize.ForPostgres("a\tb"), "tab preserved")
+	assert.Equal(t, "a\nb", sanitize.ForPostgres("a\nb"), "newline preserved")
+	assert.Equal(t, "a\rb", sanitize.ForPostgres("a\rb"), "carriage return preserved")
+	assert.Equal(t, "ab", sanitize.ForPostgres("a\x0Bb"))  // vertical tab stripped
+	assert.Equal(t, "ab", sanitize.ForPostgres("a\x1Fb"))  // unit separator stripped
+
+	// C1 control characters (U+0080–U+009F)
+	assert.Equal(t, "ab", sanitize.ForPostgres("a\u0080b"))
+	assert.Equal(t, "ab", sanitize.ForPostgres("a\u009Fb"))
+
+	// Unicode non-characters
+	assert.Equal(t, "ab", sanitize.ForPostgres("a\uFFFEb"))
+	assert.Equal(t, "ab", sanitize.ForPostgres("a\uFFFFb"))
+
+	// Normal Unicode passes through
+	assert.Equal(t, "héllo wörld 🌍", sanitize.ForPostgres("héllo wörld 🌍"))
+
+	// Fast path — clean strings return unchanged (same pointer)
+	clean := "nothing to strip here"
+	assert.Equal(t, clean, sanitize.ForPostgres(clean))
 }

@@ -8,7 +8,7 @@ export class ByteBuffer {
     private position: number = 0
     private limit: number = 0
     private littleEndian: boolean
-    private buffer: Uint8Array
+    private buffer: Uint8Array<ArrayBuffer>
 
     constructor(length?: number, littleEndian?: boolean)
     constructor(buffer: Uint8Array, littleEndian?: boolean)
@@ -16,7 +16,9 @@ export class ByteBuffer {
         this.littleEndian = littleEndian ?? false
 
         if (value instanceof Uint8Array) {
-            this.buffer = value
+            // Ensure we have a plain ArrayBuffer backing (not SharedArrayBuffer)
+            const ab = value.buffer instanceof ArrayBuffer ? value.buffer : new Uint8Array(value).buffer
+            this.buffer = new Uint8Array(ab, value.byteOffset, value.byteLength)
         } else {
             this.buffer = new Uint8Array(value ?? 0)
         }
@@ -118,7 +120,7 @@ export class ByteBuffer {
         return this.position
     }
 
-    getReadBuffer(): Uint8Array {
+    getReadBuffer(): Uint8Array<ArrayBuffer> {
         return this.buffer.slice(0, this.limit)
     }
 }

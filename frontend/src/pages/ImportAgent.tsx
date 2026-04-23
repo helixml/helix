@@ -650,7 +650,7 @@ const ImportAgent: FC = () => {
         "Agent imported successfully! Knowledge data is being processed.",
       );
     } else {
-      account.orgNavigate("app", { app_id: appId, org_id: orgSlug });
+      account.orgNavigate("agent", { app_id: appId, org_id: orgSlug });
       snackbar.success("Agent imported successfully");
     }
   };

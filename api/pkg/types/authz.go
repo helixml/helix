@@ -247,9 +247,10 @@ type UserGuidelinesResponse struct {
 }
 
 type UserConfig struct {
-	StripeSubscriptionActive bool   `json:"stripe_subscription_active"`
-	StripeCustomerID         string `json:"stripe_customer_id"`
-	StripeSubscriptionID     string `json:"stripe_subscription_id"`
+	StripeSubscriptionActive bool     `json:"stripe_subscription_active"`
+	StripeCustomerID         string   `json:"stripe_customer_id"`
+	StripeSubscriptionID     string   `json:"stripe_subscription_id"`
+	PinnedProjectIDs         []string `json:"pinned_project_ids,omitempty"`
 }
 
 func (u UserConfig) Value() (driver.Value, error) {

@@ -13,8 +13,8 @@ import (
 )
 
 var (
-	ErrNoConnection        = errors.New("no connection")
-	ErrReconnectTimeout    = errors.New("reconnect timeout")
+	ErrNoConnection            = errors.New("no connection")
+	ErrReconnectTimeout        = errors.New("reconnect timeout")
 	ErrMaxPendingDialsExceeded = errors.New("max pending dials exceeded")
 )
 
@@ -43,9 +43,12 @@ type ConnectionManager struct {
 	deviceConnections map[string]net.Conn // Raw connections for simple TCP forwarding
 
 	// Grace period support for reconnection tolerance
-	disconnectedAt map[string]time.Time    // When each key was disconnected
+	disconnectedAt map[string]time.Time     // When each key was disconnected
 	pendingDials   map[string][]*dialWaiter // Pending Dial() calls per key
 	gracePeriod    time.Duration
+
+	// Callback when grace period expires for a key (e.g., to clean up session state)
+	onGracePeriodExpired func(key string)
 
 	lock     sync.RWMutex
 	stopOnce sync.Once
@@ -96,25 +99,41 @@ func (m *ConnectionManager) cleanupLoop() {
 // cleanupExpired removes keys that have exceeded their grace period
 func (m *ConnectionManager) cleanupExpired() {
 	m.lock.Lock()
-	defer m.lock.Unlock()
 
 	now := time.Now()
+	var expiredKeys []string
 	for key, disconnectTime := range m.disconnectedAt {
 		if now.Sub(disconnectTime) > m.gracePeriod {
-			// Grace period expired - notify waiting callers and clean up
-			log.Printf("[connman] Grace period expired for key=%s, cleaning up", key)
+			expiredKeys = append(expiredKeys, key)
+		}
+	}
 
-			// Wake up pending waiters with closed channel (they'll get context error or ErrReconnectTimeout)
-			if waiters, ok := m.pendingDials[key]; ok {
-				for _, w := range waiters {
-					close(w.ready)
-				}
-				delete(m.pendingDials, key)
+	// Process expired keys
+	for _, key := range expiredKeys {
+		// Grace period expired - notify waiting callers and clean up
+		log.Printf("[connman] Grace period expired for key=%s, cleaning up", key)
+
+		// Wake up pending waiters with closed channel (they'll get context error or ErrReconnectTimeout)
+		if waiters, ok := m.pendingDials[key]; ok {
+			for _, w := range waiters {
+				close(w.ready)
 			}
+			delete(m.pendingDials, key)
+		}
 
-			delete(m.disconnectedAt, key)
-			delete(m.deviceDialers, key)
-			delete(m.deviceConnections, key)
+		delete(m.disconnectedAt, key)
+		delete(m.deviceDialers, key)
+		delete(m.deviceConnections, key)
+	}
+
+	// Get callback reference while holding lock
+	callback := m.onGracePeriodExpired
+	m.lock.Unlock()
+
+	// Call callback outside of lock to avoid deadlocks
+	if callback != nil {
+		for _, key := range expiredKeys {
+			callback(key)
 		}
 	}
 }
@@ -369,17 +388,26 @@ func (m *ConnectionManager) Stats() ConnectionManagerStats {
 	}
 
 	return ConnectionManagerStats{
-		ActiveConnections:   len(m.deviceDialers),
-		GracePeriodEntries:  len(m.disconnectedAt),
-		PendingDialsTotal:   totalPending,
-		PendingDialsPerKey:  len(m.pendingDials),
+		ActiveConnections:  len(m.deviceDialers),
+		GracePeriodEntries: len(m.disconnectedAt),
+		PendingDialsTotal:  totalPending,
+		PendingDialsPerKey: len(m.pendingDials),
 	}
 }
 
 // ConnectionManagerStats contains statistics about the connection manager
 type ConnectionManagerStats struct {
-	ActiveConnections   int
-	GracePeriodEntries  int
-	PendingDialsTotal   int
-	PendingDialsPerKey  int
+	ActiveConnections  int
+	GracePeriodEntries int
+	PendingDialsTotal  int
+	PendingDialsPerKey int
+}
+
+// SetOnGracePeriodExpired sets a callback that will be invoked when a key's
+// grace period expires. This can be used to clean up external state (e.g.,
+// session metadata) when a sandbox definitively disconnects.
+func (m *ConnectionManager) SetOnGracePeriodExpired(fn func(key string)) {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+	m.onGracePeriodExpired = fn
 }

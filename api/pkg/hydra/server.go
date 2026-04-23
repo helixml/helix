@@ -172,6 +172,7 @@ func (s *Server) registerRoutes(router *mux.Router) {
 	api.HandleFunc("/golden-cache/{project_id}", s.handleDeleteGoldenCache).Methods("DELETE")
 	api.HandleFunc("/golden-cache/{project_id}/build-result", s.handleGetGoldenBuildResult).Methods("GET")
 	api.HandleFunc("/golden-cache/{project_id}/copy-progress", s.handleGetGoldenCopyProgress).Methods("GET")
+	api.HandleFunc("/golden-cache/{project_id}/zfs-tree", s.handleGetZFSTree).Methods("GET")
 
 	// System stats (GPU info, active sessions)
 	api.HandleFunc("/system/stats", s.handleSystemStats).Methods("GET")
@@ -848,6 +849,24 @@ func (s *Server) handleDeleteGoldenCache(w http.ResponseWriter, r *http.Request)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "deleted"})
+}
+
+// handleGetZFSTree returns the ZFS snapshot and clone tree for a project's golden cache.
+func (s *Server) handleGetZFSTree(w http.ResponseWriter, r *http.Request) {
+	projectID := mux.Vars(r)["project_id"]
+	if projectID == "" {
+		http.Error(w, "project_id required", http.StatusBadRequest)
+		return
+	}
+
+	tree, err := GetZFSTree(projectID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(tree)
 }
 
 // handleGetGoldenCopyProgress returns the current golden cache copy progress.

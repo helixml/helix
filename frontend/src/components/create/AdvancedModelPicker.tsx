@@ -37,6 +37,7 @@ import helixLogo from '../../../assets/img/logo.png'
 import googleLogo from '../../../assets/img/providers/google.svg'
 import anthropicLogo from '../../../assets/img/providers/anthropic.png'
 import fireworksLogo from '../../../assets/img/providers/fireworks.png'
+import XaiLogo from '../providers/logos/xai';
 import DarkDialog from '../dialog/DarkDialog';
 import useLightTheme from '../../hooks/useLightTheme';
 
@@ -77,6 +78,14 @@ const ProviderIcon: React.FC<{ provider: TypesProviderEndpoint }> = ({ provider 
 
   if (provider.base_url?.startsWith('https://api.fireworks.ai/')) {
     return <Avatar src={fireworksLogo} sx={{ width: 32, height: 32 }} variant="square" />;
+  }
+
+  if (provider.name === 'xai' || provider.base_url?.startsWith('https://api.x.ai/')) {
+    return (
+      <Avatar sx={{ width: 32, height: 32, bgcolor: 'transparent', color: '#fff' }} variant="square">
+        <XaiLogo width={24} height={24} />
+      </Avatar>
+    );
   }
 
   // Check provider models, if it has more than 1 and "owned_by" = "vllm", then show vllm logo

@@ -353,19 +353,30 @@ const ProjectAuditTrail: React.FC<ProjectAuditTrailProps> = ({ projectId, onTask
                         )}
                       </TableCell>
 
-                      {/* PR link */}
+                      {/* PR links */}
                       <TableCell>
-                        {log.metadata?.pull_request_url ? (
-                          <Link
-                            href={log.metadata.pull_request_url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            onClick={(e) => e.stopPropagation()}
-                            sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}
-                          >
-                            {log.metadata.pull_request_id || 'PR'}
-                            <OpenInNewIcon sx={{ fontSize: 14 }} />
-                          </Link>
+                        {log.metadata?.pull_requests && log.metadata.pull_requests.length > 0 ? (
+                          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+                            {log.metadata.pull_requests.map((pr, idx) => (
+                              pr.pr_url ? (
+                                <Link
+                                  key={idx}
+                                  href={pr.pr_url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  onClick={(e) => e.stopPropagation()}
+                                  sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}
+                                >
+                                  {pr.repository_name || `PR #${pr.pr_id}`}
+                                  <OpenInNewIcon sx={{ fontSize: 14 }} />
+                                </Link>
+                              ) : (
+                                <Typography key={idx} variant="body2" color="text.secondary">
+                                  {pr.repository_name || `PR #${pr.pr_id}`}
+                                </Typography>
+                              )
+                            ))}
+                          </Box>
                         ) : (
                           '-'
                         )}

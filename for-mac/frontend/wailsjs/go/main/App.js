@@ -26,6 +26,10 @@ export function CheckForUpdate() {
   return window['go']['main']['App']['CheckForUpdate']();
 }
 
+export function CollectDiagnostics() {
+  return window['go']['main']['App']['CollectDiagnostics']();
+}
+
 export function DownloadVMImages() {
   return window['go']['main']['App']['DownloadVMImages']();
 }
@@ -100,6 +104,10 @@ export function GetSystemInfo() {
 
 export function GetUpdateInfo() {
   return window['go']['main']['App']['GetUpdateInfo']();
+}
+
+export function GetUserIdentity() {
+  return window['go']['main']['App']['GetUserIdentity']();
 }
 
 export function GetVMConfig() {

@@ -212,9 +212,8 @@ const OAuthProvidersTable: React.FC = () => {
             auth_url: '',
             token_url: '',
             user_info_url: '',
-            scopes: [] as string[]
           };
-      
+
       setCurrentProvider({
         id: '',
         name: provider?.name || '',
@@ -226,7 +225,6 @@ const OAuthProvidersTable: React.FC = () => {
         token_url: defaults.token_url,
         user_info_url: defaults.user_info_url,
         callback_url: window.location.origin + '/api/v1/oauth/flow/callback',
-        scopes: defaults.scopes,
         enabled: true,
         created_at: new Date().toISOString(),
       });
@@ -422,7 +420,6 @@ const OAuthProvidersTable: React.FC = () => {
           token_url: '',
           user_info_url: '',
           callback_url: window.location.origin + '/api/v1/oauth/flow/callback',
-          scopes: [],
           enabled: false,
           created_at: new Date().toISOString(),
           isTemplate: true,
@@ -444,11 +441,10 @@ const OAuthProvidersTable: React.FC = () => {
       token_url: '',
       user_info_url: '',
       callback_url: '',
-      scopes: [],
       enabled: false,
       created_at: '',
     } as TypesOAuthProvider);
-    
+
     // Sort providers - configured providers first, then templates, then add card last
     const sortedResult = result.sort((a, b) => {
       // Add card always goes last
@@ -484,10 +480,9 @@ const OAuthProvidersTable: React.FC = () => {
         token_url: '',
         user_info_url: '',
         callback_url: window.location.origin + '/api/v1/oauth/flow/callback',
-        scopes: [],
         enabled: false,
         created_at: new Date().toISOString(),
-        isTemplate: true,        
+        isTemplate: true,
       } as TypesOAuthProvider;
     });
     
@@ -503,11 +498,10 @@ const OAuthProvidersTable: React.FC = () => {
       token_url: '',
       user_info_url: '',
       callback_url: '',
-      scopes: [],
       enabled: false,
       created_at: '',
     } as TypesOAuthProvider];
-    
+
     return result;
   }
   
@@ -551,9 +545,8 @@ const OAuthProvidersTable: React.FC = () => {
               auth_url: '',
               token_url: '',
               user_info_url: '',
-              scopes: [] as string[]
             };
-            
+
             setCurrentProvider({
               id: '',
               name: provider.name,
@@ -565,7 +558,6 @@ const OAuthProvidersTable: React.FC = () => {
               token_url: defaults.token_url,
               user_info_url: defaults.user_info_url,
               callback_url: window.location.origin + '/api/v1/oauth/flow/callback',
-              scopes: defaults.scopes,
               enabled: true,
               created_at: new Date().toISOString(),
             });

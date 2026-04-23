@@ -10,7 +10,6 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/store"
@@ -211,7 +210,7 @@ func (s *SlackBot) middlewareAppMentionEvent(evt *socketmode.Event, client *sock
 // middlewareMessageEvent - processes message events that are part of the thread. This ensures
 // agent can continue the conversation that the user has started
 func (s *SlackBot) middlewareMessageEvent(evt *socketmode.Event, client *socketmode.Client) {
-	log.Debug().Str("app_id", s.app.ID).Msg("middlewareMessageEvent received")
+	log.Trace().Str("app_id", s.app.ID).Msg("middlewareMessageEvent received")
 
 	eventsAPIEvent, ok := evt.Data.(slackevents.EventsAPIEvent)
 	if !ok {
@@ -242,7 +241,7 @@ func (s *SlackBot) middlewareMessageEvent(evt *socketmode.Event, client *socketm
 
 	// Skip messages without text
 	if ev.Text == "" {
-		log.Debug().Str("app_id", s.app.ID).Msg("Skipping empty message")
+		log.Trace().Str("app_id", s.app.ID).Msg("Skipping empty message")
 		return
 	}
 
@@ -313,6 +312,16 @@ func (s *SlackBot) middlewareMessageEvent(evt *socketmode.Event, client *socketm
 		return
 	}
 
+	// If the LLM determined the message was not directed at the bot, skip responding
+	if strings.Contains(strings.TrimSpace(agentResponse), noResponseMarker) {
+		log.Debug().
+			Str("app_id", s.app.ID).
+			Str("channel", ev.Channel).
+			Str("thread_key", threadKey).
+			Msg("Message not directed at bot, skipping response")
+		return
+	}
+
 	msg := formatResponseForSlack(agentResponse, documentIDs)
 
 	log.Debug().
@@ -356,6 +365,18 @@ func (s *SlackBot) addReaction(client *socketmode.Client, channel, timestamp, re
 	}
 }
 
+const noResponseMarker = "[NO_RESPONSE]"
+
+// threadMessagePrompt is prepended to thread messages that are not direct mentions,
+// instructing the LLM to only respond if the message is directed at the bot.
+const threadMessagePrompt = `You are participating in a Slack thread conversation as an AI assistant. Analyze the following message and determine if it is directed at you.
+
+If the message is NOT directed at you (e.g., users talking to each other, discussing something without asking you, or the message is clearly addressed to another person), respond with exactly: [NO_RESPONSE]
+
+If the message IS directed at you (asking a question, requesting help, following up on your previous response, or otherwise engaging with you), respond normally.
+
+Message: `
+
 func (s *SlackBot) handleMessage(ctx context.Context, existingThread *types.SlackThread, app *types.App, messageText, channel, messageTimestamp, threadTimestamp string, isMention bool) (string, map[string]string, error) {
 	log.Debug().
 		Str("app_id", app.ID).
@@ -380,14 +401,12 @@ func (s *SlackBot) handleMessage(ctx context.Context, existingThread *types.Slac
 
 	switch {
 	case isMention:
-		fmt.Println("XXX MENTION")
 		session, err = s.handleAppMentionThread(ctx, app, channel, messageTimestamp, threadTimestamp)
 		if err != nil {
 			return "", nil, err
 		}
 
 	case existingThread != nil && existingThread.SpecTaskID == "":
-		fmt.Println("XXX NO SPEC TASK")
 		// Regular bot reply, not talking with Helix Project spec tasks
 		session, err = s.store.GetSession(ctx, existingThread.SessionID)
 		if err != nil {
@@ -395,7 +414,6 @@ func (s *SlackBot) handleMessage(ctx context.Context, existingThread *types.Slac
 		}
 
 	case existingThread != nil && specTask != nil && isSpecTaskActive(specTask.Status):
-		fmt.Println("XXX ACTIVE TASK")
 		// Spec task thread, handle spec task thread - using planning session ID
 		planningSession, err := s.store.GetSession(ctx, specTask.PlanningSessionID)
 		if err != nil {
@@ -406,7 +424,6 @@ func (s *SlackBot) handleMessage(ctx context.Context, existingThread *types.Slac
 		session = planningSession
 
 	case existingThread != nil && specTask != nil && !isSpecTaskActive(specTask.Status):
-		fmt.Println("XXX INACTIVE TASK")
 		// Inactive spec task (backlog or merged/done) - using normal app route
 		shouldSummarize = true
 
@@ -414,8 +431,6 @@ func (s *SlackBot) handleMessage(ctx context.Context, existingThread *types.Slac
 		if err != nil {
 			return "", nil, fmt.Errorf("failed to get session '%s': %w", existingThread.SessionID, err)
 		}
-
-		spew.Dump(session)
 
 	default:
 		// Log
@@ -450,6 +465,12 @@ func (s *SlackBot) handleMessage(ctx context.Context, existingThread *types.Slac
 	promptMessage := messageText
 	historyLimit := 0
 
+	// For thread messages that are not direct mentions, wrap with prompt
+	// instructing the LLM to only respond if the message is directed at the bot
+	if !isMention && existingThread != nil {
+		promptMessage = threadMessagePrompt + messageText
+	}
+
 	if threadTimestamp != "" && shouldSummarize {
 		threadMessages, err := s.getSlackThreadMessages(channel, threadTimestamp)
 		if err != nil {
@@ -475,8 +496,6 @@ func (s *SlackBot) handleMessage(ctx context.Context, existingThread *types.Slac
 			Msg("running spec task thread message through planning session without Slack summarization")
 	}
 
-	spew.Dump(app)
-
 	resp, err := s.controller.RunBlockingSession(ctx, &controller.RunSessionRequest{
 		OrganizationID: app.OrganizationID,
 		App:            app,
@@ -494,15 +513,37 @@ func (s *SlackBot) handleMessage(ctx context.Context, existingThread *types.Slac
 	updatedSession, err := s.store.GetSession(ctx, session.ID)
 	if err != nil {
 		log.Warn().Err(err).Str("session_id", session.ID).Msg("failed to fetch updated session for document IDs")
-		return resp.ResponseMessage, nil, nil
+		return types.TextFromInteraction(resp), nil, nil
 	}
 
-	return resp.ResponseMessage, updatedSession.Metadata.DocumentIDs, nil
+	return types.TextFromInteraction(resp), updatedSession.Metadata.DocumentIDs, nil
 }
 
 // handleAppTriggerThread - handles a default app/agent path where we use a thread to provide context to the agent.
 // Must use `s.app` for model configuration, etc.
 func (s *SlackBot) handleAppMentionThread(ctx context.Context, app *types.App, channel, messageTimestamp, threadTimestamp string) (*types.Session, error) {
+	threadKey := threadTimestamp
+	if threadKey == "" {
+		threadKey = messageTimestamp
+	}
+
+	// Check if thread already exists (e.g., bot mentioned again in same thread)
+	existingThread, hasThread := s.getActiveThread(ctx, channel, threadKey)
+	if hasThread {
+		log.Info().
+			Str("app_id", app.ID).
+			Str("channel", channel).
+			Str("thread_key", threadKey).
+			Str("session_id", existingThread.SessionID).
+			Msg("reusing existing Slack thread for mention")
+
+		session, err := s.store.GetSession(ctx, existingThread.SessionID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get existing session '%s': %w", existingThread.SessionID, err)
+		}
+		return session, nil
+	}
+
 	log.Info().
 		Str("app_id", app.ID).
 		Str("channel", channel).
@@ -511,11 +552,6 @@ func (s *SlackBot) handleAppMentionThread(ctx context.Context, app *types.App, c
 
 	newSession := shared.NewTriggerSession(ctx, types.TriggerTypeSlack.String(), app)
 	session := newSession.Session
-
-	threadKey := threadTimestamp
-	if threadKey == "" {
-		threadKey = messageTimestamp
-	}
 
 	_, err := s.createNewThread(ctx, channel, threadKey, session.ID)
 	if err != nil {

@@ -177,10 +177,11 @@ func (s *GitRepositoryService) Initialize(ctx context.Context) error {
 		log.Info().Str("repos_dir", s.gitRepoBase).Msg("Pre-receive hooks installed/verified on all repos")
 	}
 
-	// Recover incomplete pushes from before a crash.
+	// Recover incomplete pushes from before a crash in the background.
 	// If we crashed between receive-pack and upstream push, the commit is in the
 	// middle repo but not upstream. Push any such commits now to prevent data loss.
-	s.recoverIncompletePushes(ctx)
+	// Runs async so it doesn't block API startup (fetching every branch can take minutes).
+	go s.recoverIncompletePushes(context.Background())
 
 	log.Info().
 		Str("git_repo_base", s.gitRepoBase).
@@ -279,6 +280,21 @@ func (s *GitRepositoryService) listLocalBranches(ctx context.Context, repoPath s
 
 // isBranchAheadOfRemote checks if a local branch has commits not in the remote
 func (s *GitRepositoryService) isBranchAheadOfRemote(ctx context.Context, repoPath, branch string) (bool, error) {
+	// Fetch the latest remote state so origin/<branch> reflects reality, not
+	// a stale ref from before a crash. Without this, a local branch that is
+	// strictly *behind* the remote looks "ahead" of the outdated tracking ref,
+	// causing spurious push attempts that always fail with PushRejected.
+	_, _, fetchErr := gitcmd.NewCommand("fetch", "origin").
+		AddDynamicArguments(branch).
+		RunStdString(ctx, &gitcmd.RunOpts{Dir: repoPath})
+	if fetchErr != nil {
+		// Can't reach remote (no network, no auth, etc.) — skip rather than
+		// incorrectly concluding the branch is ahead.
+		log.Debug().Err(fetchErr).Str("branch", branch).Str("repo_path", repoPath).
+			Msg("Failed to fetch remote before ahead check, skipping branch")
+		return false, nil
+	}
+
 	// Check if remote tracking ref exists
 	remoteRef := "refs/remotes/origin/" + branch
 	_, _, err := gitcmd.NewCommand("rev-parse").
@@ -378,7 +394,6 @@ func (s *GitRepositoryService) CreateRepository(ctx context.Context, request *ty
 		Description:             request.Description,
 		OwnerID:                 request.OwnerID,
 		OrganizationID:          orgID,
-		ProjectID:               request.ProjectID,
 		RepoType:                request.RepoType,
 		Status:                  types.GitRepositoryStatusActive,
 		CloneURL:                s.generateCloneURL(repoID),
@@ -519,7 +534,10 @@ func (s *GitRepositoryService) CreateRepository(ctx context.Context, request *ty
 		if koditCloneURL != "" {
 			// Register repository with Kodit (non-blocking - failures are logged but don't fail repo creation)
 			go func() {
-				koditRepoID, _, err := s.koditService.RegisterRepository(context.Background(), koditCloneURL)
+				koditRepoID, _, err := s.koditService.RegisterRepository(context.Background(), &RegisterRepositoryParams{
+					CloneURL:    koditCloneURL,
+					UpstreamURL: request.ExternalURL,
+				})
 				if err != nil {
 					log.Error().
 						Err(err).
@@ -560,7 +578,8 @@ func (s *GitRepositoryService) CreateRepository(ctx context.Context, request *ty
 // CloneRepositoryAsync starts an async clone for an external repository that's already in the database.
 // The repository should have Status=cloning when this is called.
 // On success, updates status to active. On failure, updates status to error with CloneError.
-func (s *GitRepositoryService) CloneRepositoryAsync(gitRepo *types.GitRepository) {
+// An optional postClone callback is called with the local repo path after a successful clone.
+func (s *GitRepositoryService) CloneRepositoryAsync(gitRepo *types.GitRepository, postClone ...func(localPath string)) {
 	if gitRepo.ExternalURL == "" {
 		log.Error().Str("repo_id", gitRepo.ID).Msg("CloneRepositoryAsync called for non-external repo")
 		return
@@ -652,6 +671,11 @@ func (s *GitRepositoryService) CloneRepositoryAsync(gitRepo *types.GitRepository
 			Str("external_url", gitRepo.ExternalURL).
 			Int("branches", len(gitRepo.Branches)).
 			Msg("Async clone completed successfully")
+
+		// Invoke optional post-clone callback (e.g., to write startup script to helix-specs)
+		if len(postClone) > 0 && postClone[0] != nil {
+			postClone[0](repoPath)
+		}
 
 		// Register with Kodit if enabled (non-blocking)
 		// Note: This requires an API key which we don't have in the async context
@@ -868,7 +892,10 @@ func (s *GitRepositoryService) UpdateRepository(
 		}
 		koditCloneURL := s.BuildAuthenticatedCloneURL(repoID, koditAPIKey)
 
-		koditRepoID, _, err := s.koditService.RegisterRepository(ctx, koditCloneURL)
+		koditRepoID, _, err := s.koditService.RegisterRepository(ctx, &RegisterRepositoryParams{
+			CloneURL:    koditCloneURL,
+			UpstreamURL: existing.ExternalURL,
+		})
 		if err != nil {
 			return nil, fmt.Errorf("failed to register repository with Kodit: %w", err)
 		}
@@ -910,12 +937,19 @@ func (s *GitRepositoryService) DeleteRepository(ctx context.Context, repoID stri
 		// Continue — we still want to clean up the filesystem and DB record.
 	}
 
-	// Delete from Kodit if the repo was indexed there.
+	// Delete from Kodit only if no other git repository shares the same kodit index.
 	if repo != nil && s.koditService != nil && s.koditService.IsEnabled() {
 		koditRepoID := koditRepoIDFromMetadata(repo.Metadata)
 		if koditRepoID != 0 {
-			if err := s.koditService.DeleteRepository(ctx, koditRepoID); err != nil {
-				log.Warn().Err(err).Str("repo_id", repoID).Int64("kodit_repo_id", koditRepoID).Msg("failed to delete repository from Kodit")
+			others, err := s.store.CountGitRepositoriesByKoditRepoID(ctx, koditRepoID, repoID)
+			if err != nil {
+				log.Warn().Err(err).Str("repo_id", repoID).Int64("kodit_repo_id", koditRepoID).Msg("failed to count other repos sharing kodit index")
+			} else if others == 0 {
+				if err := s.koditService.DeleteRepository(ctx, koditRepoID); err != nil {
+					log.Warn().Err(err).Str("repo_id", repoID).Int64("kodit_repo_id", koditRepoID).Msg("failed to delete repository from Kodit")
+				}
+			} else {
+				log.Info().Str("repo_id", repoID).Int64("kodit_repo_id", koditRepoID).Int64("other_repos", others).Msg("skipping Kodit deletion — other repos share this index")
 			}
 		}
 	}
@@ -1312,6 +1346,13 @@ func (s *GitRepositoryService) initializeGitRepository(
 // If the default branch is detected/changed, it persists the change to the database.
 func (s *GitRepositoryService) updateRepositoryFromGit(ctx context.Context, gitRepo *types.GitRepository) error {
 	repoPath := gitRepo.LocalPath
+
+	// External repos created declaratively (e.g. via `helix apply`) start with no LocalPath.
+	// Derive the standard storage path so the clone destination is never an empty string.
+	if repoPath == "" && gitRepo.ExternalURL != "" {
+		repoPath = filepath.Join(s.gitRepoBase, gitRepo.ID)
+		gitRepo.LocalPath = repoPath
+	}
 
 	// Check if repo exists locally
 	repoExists := false
@@ -2568,13 +2609,13 @@ func (s *GitRepositoryService) CreateBranch(ctx context.Context, repoID, branchN
 
 // buildAuthenticatedCloneURLForRepo returns the external URL with embedded credentials for native git clone
 // This is used by gitea/git module which expects credentials in the URL
-func (s *GitRepositoryService) buildAuthenticatedCloneURLForRepo(ctx context.Context, gitRepo *types.GitRepository) string {
+func (s *GitRepositoryService) buildAuthenticatedCloneURLForRepo(ctx context.Context, gitRepo *types.GitRepository, userID ...string) string {
 	if gitRepo.ExternalURL == "" {
 		return ""
 	}
 
 	// Get credentials based on repository type and OAuth connection
-	username, password := s.getCredentialsForRepo(ctx, gitRepo)
+	username, password := s.getCredentialsForRepo(ctx, gitRepo, userID...)
 	if password == "" {
 		return gitRepo.ExternalURL
 	}
@@ -2590,8 +2631,26 @@ func (s *GitRepositoryService) buildAuthenticatedCloneURLForRepo(ctx context.Con
 }
 
 // getCredentialsForRepo returns username and password/token for a repository
-func (s *GitRepositoryService) getCredentialsForRepo(ctx context.Context, gitRepo *types.GitRepository) (username, password string) {
-	// First, check for OAuth connection
+func (s *GitRepositoryService) getCredentialsForRepo(ctx context.Context, gitRepo *types.GitRepository, userID ...string) (username, password string) {
+	// If an acting user is specified (user-initiated), use their OAuth token
+	actingUserID := ""
+	if len(userID) > 0 {
+		actingUserID = userID[0]
+	}
+	if actingUserID != "" && gitRepo.ExternalType == types.ExternalRepositoryTypeGitHub {
+		connections, err := s.store.ListOAuthConnections(ctx, &store.ListOAuthConnectionsQuery{
+			UserID: actingUserID,
+		})
+		if err == nil {
+			for _, conn := range connections {
+				if conn.Provider.Type == types.OAuthProviderTypeGitHub && conn.AccessToken != "" {
+					return "x-access-token", conn.AccessToken
+				}
+			}
+		}
+	}
+
+	// Repo-level credentials: check for OAuth connection
 	if gitRepo.OAuthConnectionID != "" {
 		conn, err := s.store.GetOAuthConnection(ctx, gitRepo.OAuthConnectionID)
 		if err == nil && conn.AccessToken != "" {

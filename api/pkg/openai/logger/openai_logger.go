@@ -456,7 +456,7 @@ func (m *LoggingMiddleware) CreateEmbeddings(ctx context.Context, request openai
 	startTime := time.Now()
 
 	// Log the request
-	log.Info().
+	log.Trace().
 		Str("component", "openai_logger").
 		Str("provider", string(m.provider)).
 		Str("operation", "embedding").
@@ -482,7 +482,7 @@ func (m *LoggingMiddleware) CreateEmbeddings(ctx context.Context, request openai
 			Msg("❌ Embedding failed")
 	} else {
 		// Build the log entry
-		logEntry := log.Info().
+		logEntry := log.Trace().
 			Str("component", "openai_logger").
 			Str("provider", string(m.provider)).
 			Str("operation", "embedding").
@@ -507,7 +507,7 @@ func (m *LoggingMiddleware) CreateFlexibleEmbeddings(ctx context.Context, reques
 	startTime := time.Now()
 
 	// Log the request
-	logEntry := log.Info().
+	logEntry := log.Trace().
 		Str("component", "openai_logger").
 		Str("provider", string(m.provider)).
 		Str("operation", "flexible_embedding").
@@ -541,7 +541,7 @@ func (m *LoggingMiddleware) CreateFlexibleEmbeddings(ctx context.Context, reques
 			Msg("❌ Flexible embedding failed")
 	} else {
 		// Build the log entry
-		logEntry := log.Info().
+		logEntry := log.Trace().
 			Str("component", "openai_logger").
 			Str("provider", string(m.provider)).
 			Str("operation", "flexible_embedding").

@@ -176,6 +176,11 @@ func (suite *FilestoreSuite) TestIsFilestoreRouteAuthorized_AppPath_Unauthorized
 		ResourceID:     app.ID,
 	}).Return([]*types.AccessGrant{}, nil) // No access grants
 
+	// No projects reference this app (project-based fallback)
+	suite.store.EXPECT().ListProjects(gomock.Any(), &store.ListProjectsQuery{
+		OrganizationID: app.OrganizationID,
+	}).Return([]*types.Project{}, nil)
+
 	authorized, err := suite.server.isFilestoreRouteAuthorized(req)
 	suite.NoError(err)
 	suite.False(authorized)

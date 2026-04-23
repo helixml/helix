@@ -212,7 +212,7 @@ func TestGenerateTaskNameFromPrompt(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := generateTaskNameFromPrompt(tt.prompt)
+			result := GenerateTaskNameFromPrompt(tt.prompt)
 			assert.Equal(t, tt.expected, result)
 
 			// Every result must be valid UTF-8 (the original bug: invalid UTF-8 reaching Postgres)
@@ -240,7 +240,7 @@ func TestGenerateTaskNameFromPrompt_ByteTruncationRegression(t *testing.T) {
 	// New code: runes[:57] = "aaaa...a" + "—" + ... correctly handled
 	prompt := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa—this triggers the old bug"
 
-	result := generateTaskNameFromPrompt(prompt)
+	result := GenerateTaskNameFromPrompt(prompt)
 
 	assert.True(t, utf8.ValidString(result), "result must be valid UTF-8, got: %q (bytes: %x)", result, []byte(result))
 	assert.LessOrEqual(t, len([]rune(result)), 60)
@@ -255,6 +255,120 @@ func isValidUTF8(s string) bool {
 		i += size
 	}
 	return true
+}
+
+func TestSpecDrivenTaskService_ApproveSpecs_SynthesizesNilSpecApproval(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockStore := store.NewMockStore(ctrl)
+	var mockPubsub pubsub.PubSub = nil
+
+	service := NewSpecDrivenTaskService(
+		mockStore,
+		nil,
+		"test-helix-agent",
+		[]string{"test-zed-agent"},
+		mockPubsub,
+		nil, nil, nil,
+		NewDisabledKoditService(),
+	)
+	service.SetTestMode(true)
+
+	ctx := context.Background()
+	approvedAt := time.Now()
+
+	// Task has SpecApprovedBy/SpecApprovedAt set but SpecApproval is nil —
+	// this is the broken state from the approveImplementation fallback bug.
+	taskInDB := &types.SpecTask{
+		ID:            "task-stuck",
+		ProjectID:     "project-1",
+		Status:        types.TaskStatusSpecApproved,
+		SpecApprovedBy: "user-1",
+		SpecApprovedAt: &approvedAt,
+		SpecApproval:  nil, // <-- the bug: this was never set
+		TaskNumber:    42,
+		Name:          "stuck-task",
+	}
+
+	mockStore.EXPECT().GetSpecTask(ctx, "task-stuck").Return(taskInDB, nil)
+	mockStore.EXPECT().GetProject(ctx, "project-1").Return(&types.Project{
+		ID:            "project-1",
+		DefaultRepoID: "repo-1",
+	}, nil)
+	mockStore.EXPECT().GetGitRepository(ctx, "repo-1").Return(&types.GitRepository{
+		ID:            "repo-1",
+		DefaultBranch: "main",
+	}, nil)
+	mockStore.EXPECT().UpdateSpecTask(ctx, gomock.Any()).DoAndReturn(
+		func(_ context.Context, task *types.SpecTask) error {
+			assert.Equal(t, types.TaskStatusImplementation, task.Status)
+			assert.NotNil(t, task.SpecApproval, "SpecApproval should have been synthesized")
+			assert.Equal(t, "task-stuck", task.SpecApproval.TaskID)
+			assert.True(t, task.SpecApproval.Approved)
+			assert.Equal(t, "user-1", task.SpecApproval.ApprovedBy)
+			assert.Equal(t, approvedAt, task.SpecApproval.ApprovedAt)
+			return nil
+		},
+	)
+
+	err := service.ApproveSpecs(ctx, &types.SpecTask{ID: "task-stuck"})
+	require.NoError(t, err)
+}
+
+func TestSpecDrivenTaskService_ApproveSpecs_NilSpecApprovalAndNilApprovedAt(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockStore := store.NewMockStore(ctrl)
+	var mockPubsub pubsub.PubSub = nil
+
+	service := NewSpecDrivenTaskService(
+		mockStore,
+		nil,
+		"test-helix-agent",
+		[]string{"test-zed-agent"},
+		mockPubsub,
+		nil, nil, nil,
+		NewDisabledKoditService(),
+	)
+	service.SetTestMode(true)
+
+	ctx := context.Background()
+
+	// Both SpecApproval and SpecApprovedAt are nil — worst case scenario.
+	taskInDB := &types.SpecTask{
+		ID:            "task-worst-case",
+		ProjectID:     "project-1",
+		Status:        types.TaskStatusSpecApproved,
+		SpecApprovedBy: "user-1",
+		SpecApprovedAt: nil,
+		SpecApproval:  nil,
+		TaskNumber:    43,
+		Name:          "worst-case-task",
+	}
+
+	mockStore.EXPECT().GetSpecTask(ctx, "task-worst-case").Return(taskInDB, nil)
+	mockStore.EXPECT().GetProject(ctx, "project-1").Return(&types.Project{
+		ID:            "project-1",
+		DefaultRepoID: "repo-1",
+	}, nil)
+	mockStore.EXPECT().GetGitRepository(ctx, "repo-1").Return(&types.GitRepository{
+		ID:            "repo-1",
+		DefaultBranch: "main",
+	}, nil)
+	mockStore.EXPECT().UpdateSpecTask(ctx, gomock.Any()).DoAndReturn(
+		func(_ context.Context, task *types.SpecTask) error {
+			assert.NotNil(t, task.SpecApproval)
+			assert.True(t, task.SpecApproval.Approved)
+			assert.Equal(t, "user-1", task.SpecApproval.ApprovedBy)
+			assert.False(t, task.SpecApproval.ApprovedAt.IsZero(), "ApprovedAt should fall back to time.Now() when SpecApprovedAt is nil")
+			return nil
+		},
+	)
+
+	err := service.ApproveSpecs(ctx, &types.SpecTask{ID: "task-worst-case"})
+	require.NoError(t, err)
 }
 
 func TestSpecDrivenTaskService_SelectZedAgent(t *testing.T) {

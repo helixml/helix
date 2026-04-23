@@ -159,7 +159,7 @@ func (sm *SessionManager) GetSessionFromRequest(ctx context.Context, r *http.Req
 		case "/api/v1/revdial":
 			// Expected to not use cookies
 		default:
-			log.Debug().Err(err).Str("path", r.URL.Path).Msg("No session cookie found")
+			log.Trace().Err(err).Str("path", r.URL.Path).Msg("No session cookie found")
 		}
 		return nil, ErrSessionNotFound
 	}
@@ -172,7 +172,7 @@ func (sm *SessionManager) GetSessionFromRequest(ctx context.Context, r *http.Req
 
 	session, err := sm.store.GetUserSession(ctx, sessionID)
 	if err != nil {
-		log.Debug().Err(err).Str("session_id", sessionID).Str("path", r.URL.Path).Msg("Session lookup failed in store")
+		log.Trace().Err(err).Str("session_id", sessionID).Str("path", r.URL.Path).Msg("Session lookup failed in store")
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrSessionNotFound
 		}

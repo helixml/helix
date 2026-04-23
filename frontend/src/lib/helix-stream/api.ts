@@ -269,7 +269,7 @@ export async function apiPostPair(api: Api, request: PostPairRequest): Promise<{
             const read2 = await reader.read();
             const response2 = JSON.parse(decoder.decode(read2.value)) as PostPairResponse2
 
-            if (response2 == "PairError") {
+            if ((response2 as unknown) == "PairError") {
                 throw "failed to pair"
             } else {
                 return response2.Paired

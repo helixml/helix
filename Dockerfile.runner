@@ -1,14 +1,13 @@
 #syntax=docker/dockerfile:1.4
 
 ARG TAG=latest-small
-ARG UV_VERSION="0.5.4"
 # Add arg for CPU/GPU mode
 ARG DEVELOPMENT_CPU_ONLY=""
 # Set vLLM version consistently - 0.11.2 (latest) works with PyTorch 2.9.x
 ARG VLLM_VERSION="0.11.2"
 
 # Temporarily disable diffusers build to save space - uncomment to re-enable
-# FROM ghcr.io/astral-sh/uv:${UV_VERSION}-bookworm-slim AS diffusers-build-env
+# FROM ghcr.io/astral-sh/uv:0.5.4@sha256:49934a7a2d0a2ddfda9ddb566d6ac2449cdf31c7ebfb56fe599e04057fddca58 AS diffusers-build-env
 # ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_PYTHON_INSTALL_DIR=/workspace/helix/runner/helix-diffusers/.python
 # WORKDIR /workspace/helix/runner/helix-diffusers
 # RUN --mount=type=cache,target=/root/.cache/uv \
@@ -20,11 +19,13 @@ ARG VLLM_VERSION="0.11.2"
 # RUN --mount=type=cache,target=/root/.cache/uv \
 #     uv sync --frozen --no-dev
 
-FROM ghcr.io/astral-sh/uv:${UV_VERSION} AS uv
+FROM ghcr.io/astral-sh/uv:0.5.4@sha256:49934a7a2d0a2ddfda9ddb566d6ac2449cdf31c7ebfb56fe599e04057fddca58 AS uv
 
 ### BUILD
 
-FROM golang:1.25-bookworm AS go-build-env
+# Pin to specific digest for stable layer caching.
+# Update digest when intentionally upgrading Go version.
+FROM golang:1.25-bookworm@sha256:e39bda82b10817cc38b3c8d3ebd64285b44e6d7df09b759ad96a6d75d61cbcac AS go-build-env
 WORKDIR /workspace/helix
 
 # <- COPY go.mod and go.sum files to the workspace
@@ -55,7 +56,9 @@ ARG APP_VERSION="v0.0.0+unknown"
 RUN --mount=type=cache,target=/root/.cache/go-build --mount=type=cache,target=/go/pkg/mod CGO_ENABLED=1 go build -tags "!rocm" -ldflags "-s -w -X github.com/helixml/helix/api/pkg/data.Version=$APP_VERSION" -o /helix-runner ./runner-cmd/helix-runner
 
 # Stage for downloading vLLM templates
-FROM alpine:latest as vllm-templates
+# Pin to specific digest for stable layer caching.
+# Update digest when intentionally upgrading Alpine version.
+FROM alpine:3.21@sha256:22e0ec13c0db6b3e1ba3280e831fc50ba7bffe58e81f31670a64b1afede247bc as vllm-templates
 ARG VLLM_VERSION
 
 # Install git to clone the repository
@@ -94,7 +97,9 @@ RUN if [ -d "/tmp/vllm/examples" ]; then \
 # 4. Update Go runtime files to use miniconda paths (see comments in files)
 # ============================================================================
 
-FROM registry.helixml.tech/helix/runner-base:${TAG}
+# Not SHA-pinned: TAG is an explicit --build-arg (latest-empty / latest-small / version tags)
+# that selects the base image variant at build time; pinning would prevent this selection.
+FROM ghcr.io/helixml/runner-base:${TAG}
 
 # Pass the CPU flag through to this stage
 ARG DEVELOPMENT_CPU_ONLY=""

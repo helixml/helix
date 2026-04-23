@@ -165,13 +165,13 @@ const SystemSettingsTable: FC = () => {
     }
   }
 
-  const handleSelectRAGEmbeddingsModel = async (provider: string, model: string) => {
+  const handleSelectKoditTextEmbeddingModel = async (provider: string, model: string) => {
     try {
       await updateSettings.mutateAsync({
-        rag_embeddings_provider: provider,
-        rag_embeddings_model: model,
+        kodit_text_embedding_provider: provider,
+        kodit_text_embedding_model: model,
       })
-      snackbar.success(`RAG Embedding model set to ${provider}/${model}`)
+      snackbar.success(`Code Intelligence Text Embedding model set to ${provider}/${model}. Kodit is re-initialising; repositories will be re-indexed automatically in the background.`)
     } catch (err: any) {
       if (err.response?.status === 403) {
         snackbar.error('Access denied: Admin privileges required')
@@ -181,13 +181,41 @@ const SystemSettingsTable: FC = () => {
     }
   }
 
-  const handleClearRAGEmbeddingsSettings = async () => {
+  const handleClearKoditTextEmbeddingSettings = async () => {
     try {
       await updateSettings.mutateAsync({
-        rag_embeddings_provider: '',
-        rag_embeddings_model: '',
+        kodit_text_embedding_provider: '',
+        kodit_text_embedding_model: '',
       })
-      snackbar.success('RAG Embedding model configuration cleared')
+      snackbar.success('Code Intelligence Text Embedding configuration cleared. Kodit is re-initialising on the built-in local model; repositories will be re-indexed automatically in the background.')
+    } catch (err: any) {
+      snackbar.error(`Failed to clear settings: ${err.message}`)
+    }
+  }
+
+  const handleSelectKoditVisionEmbeddingModel = async (provider: string, model: string) => {
+    try {
+      await updateSettings.mutateAsync({
+        kodit_vision_embedding_provider: provider,
+        kodit_vision_embedding_model: model,
+      })
+      snackbar.success(`Code Intelligence Vision Embedding model set to ${provider}/${model}. Kodit is re-initialising; repositories will be re-indexed automatically in the background.`)
+    } catch (err: any) {
+      if (err.response?.status === 403) {
+        snackbar.error('Access denied: Admin privileges required')
+      } else {
+        snackbar.error(`Failed to update settings: ${err.message}`)
+      }
+    }
+  }
+
+  const handleClearKoditVisionEmbeddingSettings = async () => {
+    try {
+      await updateSettings.mutateAsync({
+        kodit_vision_embedding_provider: '',
+        kodit_vision_embedding_model: '',
+      })
+      snackbar.success('Code Intelligence Vision Embedding configuration cleared. Kodit is re-initialising on the built-in local model; repositories will be re-indexed automatically in the background.')
     } catch (err: any) {
       snackbar.error(`Failed to clear settings: ${err.message}`)
     }
@@ -489,55 +517,121 @@ const SystemSettingsTable: FC = () => {
                   </TableCell>
                 </TableRow>
 
-                {/* RAG Embedding Model Row */}
+                {/* Code Intelligence Text Embedding Model Row */}
                 <TableRow>
                   <TableCell>
                     <Typography variant="body2" fontWeight="medium">
-                      RAG Embedding Model
+                      Code Intelligence Text Embedding
                     </Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      Embedding model used by Haystack for knowledge source indexing and retrieval
+                    <Typography variant="caption" color="text.secondary" display="block">
+                      Embedding model used by Kodit for indexing code and text snippets.
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary" display="block" mt={0.5}>
+                      Leave unset to use the built-in local ONNX model — it works out of the box but configuring a dedicated embedding model is recommended for better quality. Changing this reinitialises Kodit and triggers a full re-index in the background.
                     </Typography>
                   </TableCell>
                   <TableCell>
                     <Chip
-                      label={settings?.rag_embeddings_model_set ? 'Configured' : 'Not Set'}
-                      color={settings?.rag_embeddings_model_set ? 'success' : 'default'}
+                      label={settings?.kodit_text_embedding_model_set ? 'Configured' : 'Not Set'}
+                      color={settings?.kodit_text_embedding_model_set ? 'success' : 'default'}
                       size="small"
                     />
                   </TableCell>
                   <TableCell>
-                    {settings?.rag_embeddings_model_set ? (
+                    {settings?.kodit_text_embedding_model_set ? (
                       <>
                         <Typography variant="body2" fontFamily="monospace">
-                          {settings.rag_embeddings_provider}/{settings.rag_embeddings_model}
+                          {settings.kodit_text_embedding_provider}/{settings.kodit_text_embedding_model}
                         </Typography>
                         <Typography variant="caption" display="block" color="text.secondary" mt={0.5}>
-                          Provider: {settings.rag_embeddings_provider}
+                          Provider: {settings.kodit_text_embedding_provider}
                         </Typography>
                       </>
                     ) : (
                       <Typography variant="caption" color="text.secondary">
-                        Not configured - knowledge source indexing will fail
+                        Not configured - falls back to local ONNX model
                       </Typography>
                     )}
                   </TableCell>
                   <TableCell>
                     <Box display="flex" gap={1} alignItems="center">
                       <AdvancedModelPicker
-                        selectedProvider={settings?.rag_embeddings_provider}
-                        selectedModelId={settings?.rag_embeddings_model}
-                        onSelectModel={handleSelectRAGEmbeddingsModel}
+                        selectedProvider={settings?.kodit_text_embedding_provider}
+                        selectedModelId={settings?.kodit_text_embedding_model}
+                        onSelectModel={handleSelectKoditTextEmbeddingModel}
                         currentType="embed"
                         buttonVariant="outlined"
                         disabled={saving}
-                        hint="Select the embedding model that Haystack will use for indexing and querying knowledge sources."
+                        hint="Select the text embedding model Kodit will use for code and text snippet indexing."
                         autoSelectFirst={false}
                       />
-                      {settings?.rag_embeddings_model_set && (
+                      {settings?.kodit_text_embedding_model_set && (
                         <Button
                           startIcon={<ClearIcon />}
-                          onClick={handleClearRAGEmbeddingsSettings}
+                          onClick={handleClearKoditTextEmbeddingSettings}
+                          size="small"
+                          color="warning"
+                          disabled={saving}
+                        >
+                          Clear
+                        </Button>
+                      )}
+                    </Box>
+                  </TableCell>
+                </TableRow>
+
+                {/* Code Intelligence Vision Embedding Model Row */}
+                <TableRow>
+                  <TableCell>
+                    <Typography variant="body2" fontWeight="medium">
+                      Code Intelligence Vision Embedding
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary" display="block">
+                      Vision embedding model used by Kodit for indexing document pages and images.
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary" display="block" mt={0.5}>
+                      Leave unset to use the built-in local SigLIP2 model — it works out of the box but configuring a dedicated vision embedding model is recommended for better quality. Changing this reinitialises Kodit and triggers a full re-index in the background.
+                    </Typography>
+                  </TableCell>
+                  <TableCell>
+                    <Chip
+                      label={settings?.kodit_vision_embedding_model_set ? 'Configured' : 'Not Set'}
+                      color={settings?.kodit_vision_embedding_model_set ? 'success' : 'default'}
+                      size="small"
+                    />
+                  </TableCell>
+                  <TableCell>
+                    {settings?.kodit_vision_embedding_model_set ? (
+                      <>
+                        <Typography variant="body2" fontFamily="monospace">
+                          {settings.kodit_vision_embedding_provider}/{settings.kodit_vision_embedding_model}
+                        </Typography>
+                        <Typography variant="caption" display="block" color="text.secondary" mt={0.5}>
+                          Provider: {settings.kodit_vision_embedding_provider}
+                        </Typography>
+                      </>
+                    ) : (
+                      <Typography variant="caption" color="text.secondary">
+                        Not configured - falls back to local SigLIP2 model
+                      </Typography>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    <Box display="flex" gap={1} alignItems="center">
+                      <AdvancedModelPicker
+                        selectedProvider={settings?.kodit_vision_embedding_provider}
+                        selectedModelId={settings?.kodit_vision_embedding_model}
+                        onSelectModel={handleSelectKoditVisionEmbeddingModel}
+                        currentType="embed"
+                        buttonVariant="outlined"
+                        disabled={saving}
+                        hint="Select the vision embedding model Kodit will use for document pages and image indexing (e.g. Qwen3-VL-Embedding)."
+                        autoSelectFirst={false}
+                      />
+                      {settings?.kodit_vision_embedding_model_set && (
+                        <Button
+                          startIcon={<ClearIcon />}
+                          onClick={handleClearKoditVisionEmbeddingSettings}
                           size="small"
                           color="warning"
                           disabled={saving}

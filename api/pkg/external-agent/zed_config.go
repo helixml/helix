@@ -245,7 +245,17 @@ func GenerateZedMCPConfig(
 	// See: https://developer.chrome.com/blog/chrome-devtools-mcp
 	config.ContextServers["chrome-devtools"] = ContextServerConfig{
 		Command: "npx",
-		Args:    []string{"chrome-devtools-mcp@latest", "--viewport", "1600x1080"},
+		// Stealth flags: make Chrome less detectable as automation.
+		// Disables navigator.webdriver, suppresses "Chrome is being controlled" infobar,
+		// and prevents extension probing (e.g. LinkedIn bot detection).
+		Args: []string{
+			"chrome-devtools-mcp@latest",
+			"--viewport", "1600x1080",
+			"--chrome-arg=--disable-blink-features=AutomationControlled",
+			"--chrome-arg=--no-first-run",
+			"--chrome-arg=--disable-infobars",
+			"--chrome-arg=--disable-extensions",
+		},
 		Env: map[string]string{
 			// Point to the actual browser binary (Chromium on ARM64, Chrome on amd64).
 			// google-chrome-stable symlink also exists, but CHROME_PATH is the

@@ -368,3 +368,28 @@ func (apiServer *HelixAPIServer) completeOnboarding(rw http.ResponseWriter, r *h
 
 	writeResponse(rw, updatedUser, http.StatusOK)
 }
+
+// getPinnedProjects godoc
+// @Summary Get pinned project IDs
+// @Description Get the list of project IDs pinned by the current user
+// @Tags Users
+// @Produce json
+// @Success 200 {object} server.PinnedProjectsResponse
+// @Failure 401 {object} system.HTTPError
+// @Failure 500 {object} system.HTTPError
+// @Security BearerAuth
+// @Router /api/v1/users/me/pinned-projects [get]
+func (s *HelixAPIServer) getPinnedProjects(_ http.ResponseWriter, r *http.Request) (*PinnedProjectsResponse, *system.HTTPError) {
+	user := getRequestUser(r)
+
+	userMeta, err := s.Store.EnsureUserMeta(r.Context(), types.UserMeta{ID: user.ID})
+	if err != nil {
+		return nil, system.NewHTTPError500(fmt.Sprintf("failed to load user meta: %v", err))
+	}
+
+	ids := userMeta.Config.PinnedProjectIDs
+	if ids == nil {
+		ids = []string{}
+	}
+	return &PinnedProjectsResponse{PinnedProjectIDs: ids}, nil
+}

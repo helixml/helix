@@ -334,10 +334,10 @@ func (t *TeamsBot) handleMessage(ctx context.Context, existingThread *types.Team
 	updatedSession, err := t.store.GetSession(ctx, session.ID)
 	if err != nil {
 		log.Warn().Err(err).Str("session_id", session.ID).Msg("failed to fetch updated session for document IDs")
-		return resp.ResponseMessage, nil, nil
+		return types.TextFromInteraction(resp), nil, nil
 	}
 
-	return resp.ResponseMessage, updatedSession.Metadata.DocumentIDs, nil
+	return types.TextFromInteraction(resp), updatedSession.Metadata.DocumentIDs, nil
 }
 
 func (t *TeamsBot) createNewThread(ctx context.Context, conversationID, channelID, teamID, serviceURL, sessionID string) (*types.TeamsThread, error) {

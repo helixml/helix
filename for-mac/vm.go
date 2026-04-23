@@ -263,6 +263,12 @@ func (vm *VMManager) getVMDir() string {
 	return filepath.Join(getHelixDataDir(), "vm", "helix-desktop")
 }
 
+// getPIDFilePath returns the path to the QEMU PID file.
+// Written on start, deleted on clean exit, used by killStaleQEMU on next launch.
+func (vm *VMManager) getPIDFilePath() string {
+	return filepath.Join(getHelixDataDir(), "qemu.pid")
+}
+
 // getVMImagePath returns the path to the root disk image
 func (vm *VMManager) getVMImagePath() string {
 	if vm.config.DiskPath != "" {
@@ -600,18 +606,35 @@ func (vm *VMManager) Start() error {
 	return nil
 }
 
-// killStaleQEMU checks for an orphaned QEMU process holding the QMP port
-// and kills it. This handles the case where the app was force-quit but QEMU
-// kept running.
+// killStaleQEMU checks for an orphaned QEMU process from a previous run and
+// kills it. This handles the case where the app was force-quit but QEMU kept
+// running. It first tries the PID file (fast path), then falls back to lsof.
 func (vm *VMManager) killStaleQEMU() {
-	// Check if QMP port is in use
+	// Fast path: if we wrote a PID file on the previous launch, kill that process directly.
+	pidFile := vm.getPIDFilePath()
+	if data, err := os.ReadFile(pidFile); err == nil {
+		if pid, err := strconv.Atoi(strings.TrimSpace(string(data))); err == nil && pid > 0 {
+			log.Printf("Found stale QEMU PID file: killing PID %d", pid)
+			if proc, err := os.FindProcess(pid); err == nil {
+				// Kill the process group if possible, otherwise the process directly.
+				if pgid, err := syscall.Getpgid(pid); err == nil && pgid > 0 {
+					syscall.Kill(-pgid, syscall.SIGKILL)
+				} else {
+					proc.Kill()
+				}
+			}
+		}
+		os.Remove(pidFile)
+	}
+
+	// Check if QMP port is still in use (handles the PID file miss case).
 	conn, err := net.DialTimeout("tcp", fmt.Sprintf("localhost:%d", vm.config.QMPPort), 500*time.Millisecond)
 	if err != nil {
 		// Port is free, no stale process
 		return
 	}
 	conn.Close()
-	log.Printf("QMP port %d is in use — looking for stale QEMU process", vm.config.QMPPort)
+	log.Printf("QMP port %d is in use — looking for stale QEMU process via lsof", vm.config.QMPPort)
 
 	// Use lsof to find the PID holding the port
 	cmd := exec.Command("lsof", "-ti", fmt.Sprintf("tcp:%d", vm.config.QMPPort))
@@ -785,6 +808,8 @@ func (vm *VMManager) runVM(ctx context.Context) {
 
 	vm.cmd = exec.CommandContext(ctx, qemuPath, args...)
 	vm.cmd.Env = vm.buildQEMUEnv()
+	// Place QEMU in its own process group so ForceStop can kill the whole group.
+	vm.cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
 	// Pipe serial console (QEMU stdio = guest /dev/ttyAMA0) through ring buffer
 	stdoutPipe, err := vm.cmd.StdoutPipe()
@@ -810,6 +835,10 @@ func (vm *VMManager) runVM(ctx context.Context) {
 		vm.setError(fmt.Errorf("failed to start VM: %w", err))
 		return
 	}
+
+	// Record the PID so killStaleQEMU can find it if the app is force-killed.
+	pidFile := vm.getPIDFilePath()
+	os.WriteFile(pidFile, []byte(strconv.Itoa(vm.cmd.Process.Pid)), 0644)
 
 	vm.startTime = time.Now()
 	vm.statusMu.Lock()
@@ -881,6 +910,9 @@ func (vm *VMManager) runVM(ctx context.Context) {
 
 	// Wait for process to exit
 	err = vm.cmd.Wait()
+
+	// Clean exit — remove the PID file so killStaleQEMU knows no stale process exists.
+	os.Remove(vm.getPIDFilePath())
 
 	vm.stackStarted = false
 	vm.statusMu.Lock()
@@ -1603,6 +1635,26 @@ func (vm *VMManager) Stop() error {
 	return nil
 }
 
+// ForceStop immediately kills the QEMU process regardless of VM state.
+// Called during app shutdown to ensure no orphaned QEMU process remains.
+// Unlike Stop(), it skips the graceful QMP shutdown and the 5-second grace period.
+func (vm *VMManager) ForceStop() {
+	if vm.cancelFunc != nil {
+		vm.cancelFunc()
+	}
+	if vm.cmd != nil && vm.cmd.Process != nil {
+		// Kill the entire process group to catch any QEMU child processes.
+		pgid, err := syscall.Getpgid(vm.cmd.Process.Pid)
+		if err == nil && pgid > 0 {
+			syscall.Kill(-pgid, syscall.SIGKILL)
+		} else {
+			vm.cmd.Process.Kill()
+		}
+	}
+	// Remove PID file so next launch doesn't try to kill an already-dead process.
+	os.Remove(vm.getPIDFilePath())
+}
+
 // sendQMPCommand sends a command to QEMU via QMP
 func (vm *VMManager) sendQMPCommand(command string) error {
 	conn, err := net.DialTimeout("tcp", fmt.Sprintf("localhost:%d", vm.config.QMPPort), 2*time.Second)
@@ -1672,18 +1724,16 @@ func (vm *VMManager) getAppBundlePath() string {
 // getGPUHostMem returns the hostmem size for virtio-gpu-gl-pci, scaled by
 // system RAM.
 //
-// Context: 8GB M1 Air fails to boot with EDK2 "Out Of Resource!" /
-// PciHostBridgeResourceConflict, dropping to UEFI shell. 16GB M1 boots
-// fine with hostmem=1024M. Root cause unknown. The hostmem parameter
-// sets the PCI BAR size for the virtio-gpu shared memory region. The
-// QEMU virt machine's 32-bit MMIO window (VIRT_PCIE_MMIO) is ~752MB,
-// so a 1GB BAR must go in the 64-bit high MMIO region -- this works on
-// 16GB M1, so EDK2/HVF handles it. Why 8GB fails is unclear; scaling
-// hostmem down is the first thing to test.
+// Context: virtio-gpu-gl-pci with hostmem=512M combined with
+// ipa-granule-size=0x1000 (36-bit IPA space) causes a PCI host bridge
+// memory resource conflict on M1 Macs. The entire PCI bus fails to
+// initialise, making all virtio devices — including the boot disk —
+// invisible to UEFI ("Out Of Resource!" / PciHostBridgeResourceConflict).
+// 256M avoids this while still supporting 2-4 concurrent desktops.
 //
 // Each desktop needs ~64-128MB of GPU blob resources, so:
 //   - <=8GB RAM:  256M (2-4 desktops)
-//   - <=16GB RAM: 512M (4-8 desktops)
+//   - <=16GB RAM: 256M (2-4 desktops)
 //   - >16GB RAM:  1024M (8+ desktops)
 func getGPUHostMem() string {
 	memMB := getSystemMemoryMB()
@@ -1692,7 +1742,7 @@ func getGPUHostMem() string {
 	case memMB <= 8*1024:
 		hostmem = "256M"
 	case memMB <= 16*1024:
-		hostmem = "512M"
+		hostmem = "256M"
 	default:
 		hostmem = "1024M"
 	}

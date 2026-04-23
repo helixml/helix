@@ -133,7 +133,7 @@ func imageTag(image string) string {
 
 // resolveRegistryImage checks if a registry-based image ref exists for the given image.
 // When sandbox pulls images from registry, it writes .runtime-ref files containing
-// the full registry path (e.g., "registry.helixml.tech/helix/helix-sway:v1.2.3").
+// the full registry path (e.g., "ghcr.io/helixml/helix-sway:v1.2.3").
 // This function returns the registry ref if available, otherwise returns the original image.
 func resolveRegistryImage(image string) string {
 	return resolveRegistryImageWithBase(image, "/opt/images")
@@ -188,6 +188,80 @@ func resolveRegistryImageWithBase(image string, baseDir string) string {
 	return ref
 }
 
+// tryRecoverImage attempts to pull a missing desktop image from available registries.
+// It tries the production registry (.ref file), then the local shared registry.
+// Returns true if the image was recovered and is available for container creation.
+func (dm *DevContainerManager) tryRecoverImage(ctx context.Context, dockerClient *client.Client, resolvedImage, originalImage string) bool {
+	log.Warn().
+		Str("resolved_image", resolvedImage).
+		Str("original_image", originalImage).
+		Msg("Image missing from Docker — attempting recovery")
+
+	// Extract image name without tag for looking up registry sources
+	imageName := originalImage
+	if idx := strings.LastIndex(originalImage, ":"); idx != -1 {
+		imageName = originalImage[:idx]
+	}
+
+	// Build list of registry sources to try, in priority order:
+	// 1. Production registry ref (.ref file, e.g., ghcr.io/helixml/helix-ubuntu:VERSION)
+	// 2. Local shared registry (registry:5000/IMAGE:TAG)
+	var pullSources []string
+
+	// Check for production registry ref
+	refFile := filepath.Join("/opt/images", imageName+".ref")
+	if refData, err := os.ReadFile(refFile); err == nil {
+		ref := strings.TrimSpace(string(refData))
+		if ref != "" {
+			// Replace the tag with the requested version
+			tag := imageTag(originalImage)
+			if baseRef := strings.LastIndex(ref, ":"); baseRef != -1 && tag != "" {
+				ref = ref[:baseRef] + ":" + tag
+			}
+			pullSources = append(pullSources, ref)
+		}
+	}
+
+	// Try the local shared registry
+	registryHost := GetRegistryHost()
+	if registryHost != "" {
+		pullSources = append(pullSources, registryHost+"/"+originalImage)
+	}
+	// Also try the DNS name (works when registry is on the same Docker network)
+	pullSources = append(pullSources, "registry:5000/"+originalImage)
+
+	for _, source := range pullSources {
+		log.Info().Str("source", source).Msg("Trying recovery pull")
+		pullOut, pullErr := dockerClient.ImagePull(ctx, source, dockertypes.ImagePullOptions{})
+		if pullErr != nil {
+			log.Debug().Err(pullErr).Str("source", source).Msg("Recovery pull failed, trying next source")
+			continue
+		}
+		// Drain the pull output to completion
+		_, _ = io.Copy(io.Discard, pullOut)
+		pullOut.Close()
+
+		// Tag as the expected local name so the container creation succeeds
+		if source != resolvedImage {
+			_ = dockerClient.ImageTag(ctx, source, resolvedImage)
+		}
+		if source != originalImage {
+			_ = dockerClient.ImageTag(ctx, source, originalImage)
+		}
+		log.Info().
+			Str("image", resolvedImage).
+			Str("source", source).
+			Msg("Image recovered successfully")
+		return true
+	}
+
+	log.Error().
+		Str("image", resolvedImage).
+		Strs("sources_tried", pullSources).
+		Msg("Failed to recover image from any registry source")
+	return false
+}
+
 // CreateDevContainer creates and starts a dev container
 func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *CreateDevContainerRequest) (*DevContainerResponse, error) {
 	// Validate that image has a specific version tag - never accept :latest
@@ -196,7 +270,7 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 	}
 
 	// Resolve registry-based image ref if available
-	// This maps "helix-sway:abc123" to "registry.helixml.tech/helix/helix-sway:abc123"
+	// This maps "helix-sway:abc123" to "ghcr.io/helixml/helix-sway:abc123"
 	// when the sandbox has pulled images from registry
 	resolvedImage := resolveRegistryImage(req.Image)
 
@@ -236,8 +310,11 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 		Env:      dm.buildEnv(req),
 	}
 
-	// Build host configuration
-	hostConfig := dm.buildHostConfig(req)
+	// Build host configuration (includes ZFS clone/mount for Docker data dir)
+	hostConfig, err := dm.buildHostConfig(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build host config: %w", err)
+	}
 
 	// Configure GPU passthrough
 	dm.configureGPU(hostConfig, req.GPUVendor)
@@ -392,6 +469,15 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 
 	// Create container
 	resp, err := dockerClient.ContainerCreate(dockerCtx, containerConfig, hostConfig, networkConfig, nil, req.ContainerName)
+	if err != nil && strings.Contains(err.Error(), "No such image") {
+		// Image disappeared from Docker (possible containerd GC or Docker daemon issue).
+		// Try to recover by pulling from whatever registry source is available.
+		recovered := dm.tryRecoverImage(dockerCtx, dockerClient, resolvedImage, req.Image)
+		if recovered {
+			// Retry container creation with the recovered image
+			resp, err = dockerClient.ContainerCreate(dockerCtx, containerConfig, hostConfig, networkConfig, nil, req.ContainerName)
+		}
+	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to create container: %w", err)
 	}
@@ -638,7 +724,7 @@ func overrideEnvVar(env []string, key, value string) []string {
 }
 
 // buildHostConfig builds the host configuration for the container
-func (dm *DevContainerManager) buildHostConfig(req *CreateDevContainerRequest) *container.HostConfig {
+func (dm *DevContainerManager) buildHostConfig(req *CreateDevContainerRequest) (*container.HostConfig, error) {
 	// Use the network from the request if specified, otherwise default to bridge.
 	// Previously we used host network mode which caused port conflicts when running
 	// multiple desktop containers (they all shared ports 9876/9877).
@@ -674,13 +760,166 @@ func (dm *DevContainerManager) buildHostConfig(req *CreateDevContainerRequest) *
 	hostConfig.ExtraHosts = dm.buildExtraHosts()
 
 	// Build mounts
-	hostConfig.Mounts = dm.buildMounts(req)
+	mounts, err := dm.buildMounts(req)
+	if err != nil {
+		return nil, err
+	}
+	hostConfig.Mounts = mounts
 
-	return hostConfig
+	return hostConfig, nil
+}
+
+// resolveDockerDataDir determines the host path for a session's /var/lib/docker mount.
+// It tries ZFS zvol clone first (O(1)), then falls back to file-copy golden cache,
+// then plain empty directory. Returns ("", nil) if it should remain a named volume.
+// Returns ("", error) if ZFS is available but the operation failed — caller should
+// fail the container creation rather than silently starting with no cache.
+func (dm *DevContainerManager) resolveDockerDataDir(req *CreateDevContainerRequest, volumeName string) (string, error) {
+	sessionID := strings.TrimPrefix(volumeName, "docker-data-")
+
+	// Strategy 1: ZFS zvol clone (instant)
+	// When ZFS is available, we ALWAYS use it — never fall back to file-copy.
+	// If a ZFS operation fails, return an error so the session creation fails
+	// with a clear message instead of silently starting with no cache.
+	if ZFSAvailable() {
+		if GoldenZvolExists(req.ProjectID) {
+			dockerDir, err := SetupGoldenClone(req.ProjectID, sessionID)
+			if err != nil {
+				return "", fmt.Errorf("ZFS golden clone failed for project %s: %w", req.ProjectID, err)
+			}
+			log.Info().
+				Str("project_id", req.ProjectID).
+				Str("session_id", sessionID).
+				Str("mount", dockerDir).
+				Msg("Using ZFS zvol clone for inner dockerd (instant golden cache)")
+			return dockerDir, nil
+		} else if req.GoldenBuild {
+			dockerDir, err := CreateSessionZvol(sessionID)
+			if err != nil {
+				return "", fmt.Errorf("failed to create session zvol for golden build: %w", err)
+			}
+			if GoldenExists(req.ProjectID) {
+				log.Info().
+					Str("project_id", req.ProjectID).
+					Str("session_id", sessionID).
+					Msg("Seeding new zvol from existing golden dir (one-time migration)")
+				if err := seedZvolFromGoldenDir(req.ProjectID, dockerDir); err != nil {
+					log.Warn().Err(err).Msg("Failed to seed zvol from golden dir, golden build starts cold")
+				}
+			}
+			log.Info().
+				Str("session_id", sessionID).
+				Str("mount", dockerDir).
+				Msg("Using ZFS zvol for golden build")
+			return dockerDir, nil
+		} else if GoldenExists(req.ProjectID) {
+			if err := MigrateGoldenToZvol(req.ProjectID); err != nil {
+				return "", fmt.Errorf("failed to migrate golden to zvol for project %s: %w", req.ProjectID, err)
+			}
+			dockerDir, err := SetupGoldenClone(req.ProjectID, sessionID)
+			if err != nil {
+				return "", fmt.Errorf("ZFS clone after migration failed for project %s: %w", req.ProjectID, err)
+			}
+			log.Info().
+				Str("project_id", req.ProjectID).
+				Str("session_id", sessionID).
+				Str("mount", dockerDir).
+				Msg("Using ZFS clone after inline golden migration")
+			return dockerDir, nil
+		} else {
+			// No golden anywhere. Before creating a fresh zvol, acquire a read lock
+			// to wait for any in-progress golden promotion (issue #7 from ZFS deployment).
+			// PromoteSessionToGoldenZvol holds the write lock while renaming/snapshotting,
+			// so if we race we block here until promotion finishes, then re-check.
+			lock := getGoldenLock(req.ProjectID)
+			lock.RLock()
+			goldenNowExists := GoldenZvolExists(req.ProjectID)
+			lock.RUnlock()
+
+			if goldenNowExists {
+				// Promotion finished while we waited — clone from the new golden instead.
+				log.Info().
+					Str("project_id", req.ProjectID).
+					Str("session_id", sessionID).
+					Msg("Golden zvol appeared during lock wait — using clone instead of fresh zvol")
+				dockerDir, err := SetupGoldenClone(req.ProjectID, sessionID)
+				if err != nil {
+					return "", fmt.Errorf("ZFS golden clone (post-promotion) failed for project %s: %w", req.ProjectID, err)
+				}
+				return dockerDir, nil
+			}
+
+			dockerDir, err := CreateSessionZvol(sessionID)
+			if err != nil {
+				return "", fmt.Errorf("failed to create session zvol: %w", err)
+			}
+			log.Info().
+				Str("session_id", sessionID).
+				Str("mount", dockerDir).
+				Msg("Using fresh ZFS zvol for session (no golden cache exists)")
+			return dockerDir, nil
+		}
+	}
+
+	// Strategy 2: File-copy golden cache (reflinks when available)
+	sessionDir := filepath.Join("/container-docker/sessions", volumeName, "docker")
+
+	// Reuse existing session dir on restart (skip re-copy)
+	if !req.GoldenBuild {
+		if info, err := os.Stat(sessionDir); err == nil && info.IsDir() {
+			if IsGoldenCopyComplete(volumeName) {
+				log.Info().
+					Str("session_dir", sessionDir).
+					Str("volume", volumeName).
+					Msg("Reusing existing session Docker data dir (skipping golden copy)")
+				return sessionDir, nil
+			}
+			log.Warn().
+				Str("session_dir", sessionDir).
+				Str("volume", volumeName).
+				Msg("Found incomplete golden cache copy (missing completion marker), removing partial copy")
+			if err := os.RemoveAll(filepath.Dir(sessionDir)); err != nil {
+				log.Error().Err(err).Str("path", filepath.Dir(sessionDir)).
+					Msg("Failed to remove incomplete golden copy dir")
+			}
+		}
+	}
+
+	if GoldenExists(req.ProjectID) {
+		onProgress := func(copied, total int64) {
+			dm.setGoldenCopyProgress(req.ProjectID, copied, total, false)
+		}
+		dockerDir, err := SetupGoldenCopy(req.ProjectID, volumeName, onProgress)
+		dm.setGoldenCopyProgress(req.ProjectID, 0, 0, true)
+		if err != nil {
+			log.Warn().Err(err).
+				Str("project_id", req.ProjectID).
+				Str("volume", volumeName).
+				Msg("Failed to copy golden cache, falling back to empty dir")
+			if mkErr := os.MkdirAll(sessionDir, 0755); mkErr == nil {
+				return sessionDir, nil
+			}
+			return "", nil
+		}
+		log.Info().
+			Str("project_id", req.ProjectID).
+			Str("docker_dir", dockerDir).
+			Msg("Using golden cache copy for inner dockerd")
+		return dockerDir, nil
+	}
+
+	// Strategy 3: Plain bind mount (no golden cache)
+	if err := os.MkdirAll(sessionDir, 0755); err != nil {
+		log.Warn().Err(err).Str("path", sessionDir).
+			Msg("Failed to create container-docker session dir, falling back to named volume")
+		return "", nil
+	}
+	log.Debug().Str("source", sessionDir).Msg("Using ZFS-backed bind mount for inner dockerd")
+	return sessionDir, nil
 }
 
 // buildMounts builds the mount configuration
-func (dm *DevContainerManager) buildMounts(req *CreateDevContainerRequest) []mount.Mount {
+func (dm *DevContainerManager) buildMounts(req *CreateDevContainerRequest) ([]mount.Mount, error) {
 	var mounts []mount.Mount
 
 	// CONTAINER_DOCKER_PATH: if set, per-session inner dockerd data uses bind mounts
@@ -704,64 +943,14 @@ func (dm *DevContainerManager) buildMounts(req *CreateDevContainerRequest) []mou
 		// with cached images so builds start warm instead of cold.
 		if containerDockerPath != "" && m.Destination == "/var/lib/docker" && m.Type == "volume" {
 			volumeName := m.Source // e.g. "docker-data-{sessionID}"
-			sessionDir := filepath.Join("/container-docker/sessions", volumeName, "docker")
 
-			// Check if this session already has a Docker data directory from a
-			// previous run (e.g. session restart). If so, reuse it — copying
-			// 30+ GB of golden cache on every restart is wasteful (~28s) and
-			// overwrites any Docker state changes made during the session.
-			// Golden builds are excluded: they need the latest golden snapshot
-			// for incremental rebuilds.
-			sessionDirExists := false
-			if !req.GoldenBuild {
-				if info, err := os.Stat(sessionDir); err == nil && info.IsDir() {
-					sessionDirExists = true
-				}
+			dockerDir, err := dm.resolveDockerDataDir(req, volumeName)
+			if err != nil {
+				return nil, fmt.Errorf("failed to resolve Docker data dir for session %s: %w", req.SessionID, err)
 			}
-
-			if sessionDirExists {
+			if dockerDir != "" {
 				mountType = mount.TypeBind
-				m.Source = sessionDir
-				log.Info().
-					Str("session_dir", sessionDir).
-					Str("volume", volumeName).
-					Msg("Reusing existing session Docker data dir (skipping golden copy)")
-			} else if GoldenExists(req.ProjectID) {
-				// Golden cache available — copy to session dir (works for both
-				// normal sessions AND golden builds; golden builds start from the
-				// previous golden for incremental rebuilds)
-				onProgress := func(copied, total int64) {
-					dm.setGoldenCopyProgress(req.ProjectID, copied, total, false)
-				}
-				dockerDir, err := SetupGoldenCopy(req.ProjectID, volumeName, onProgress)
-				dm.setGoldenCopyProgress(req.ProjectID, 0, 0, true) // clear progress
-				if err != nil {
-					log.Warn().Err(err).
-						Str("project_id", req.ProjectID).
-						Str("volume", volumeName).
-						Msg("Failed to copy golden cache, falling back to empty dir")
-					// Fall back to plain directory
-					if mkErr := os.MkdirAll(sessionDir, 0755); mkErr == nil {
-						mountType = mount.TypeBind
-						m.Source = sessionDir
-					}
-				} else {
-					mountType = mount.TypeBind
-					m.Source = dockerDir
-					log.Info().
-						Str("project_id", req.ProjectID).
-						Str("docker_dir", dockerDir).
-						Msg("Using golden cache copy for inner dockerd")
-				}
-			} else {
-				// No golden — plain bind mount (existing behavior)
-				if err := os.MkdirAll(sessionDir, 0755); err != nil {
-					log.Warn().Err(err).Str("path", sessionDir).Msg("Failed to create container-docker session dir, falling back to named volume")
-				} else {
-					mountType = mount.TypeBind
-					m.Source = sessionDir
-					log.Debug().Str("source", sessionDir).Msg("Using ZFS-backed bind mount for inner dockerd")
-				}
+				m.Source = dockerDir
 			}
 		}
 
@@ -786,7 +975,7 @@ func (dm *DevContainerManager) buildMounts(req *CreateDevContainerRequest) []mou
 		log.Debug().Str("source", buildkitCacheDir).Msg("Added shared BuildKit cache mount")
 	}
 
-	return mounts
+	return mounts, nil
 }
 
 // buildExtraHosts returns Docker ExtraHosts entries (format: "hostname:ip")
@@ -1047,7 +1236,15 @@ func (dm *DevContainerManager) DeleteDevContainer(ctx context.Context, sessionID
 			// Write a timestamp so GC knows when this session was last active.
 			// Directory mtime doesn't update when files deep inside are modified,
 			// so we use an explicit marker file.
+			// Write to both possible locations (zvol mount and file-copy dir).
+			if ZFSAvailable() {
+				zvolMount := sessionZvolMountPath(sessionID)
+				if isMounted(zvolMount) {
+					TouchSessionLastActive(zvolMount)
+				}
+			}
 			sessionDir := filepath.Join("/container-docker/sessions", dockerDataVolume)
+			_ = os.MkdirAll(sessionDir, 0755)
 			TouchSessionLastActive(sessionDir)
 			log.Info().
 				Str("session_id", sessionID).
@@ -1109,6 +1306,25 @@ func (dm *DevContainerManager) GCOrphanedSessions() {
 	}
 	if goldenCleaned > 0 {
 		log.Info().Int("removed", goldenCleaned).Int64("freed_bytes", goldenFreed).Msg("Golden GC completed")
+	}
+
+	// GC orphaned ZFS zvols (sessions that no longer have running containers)
+	// and clean up old file-based golden dirs that have been migrated to zvols
+	if ZFSAvailable() {
+		zvolsCleaned, err := GCOrphanedZvols(active)
+		if err != nil {
+			log.Warn().Err(err).Msg("Failed to GC orphaned zvols")
+		}
+		if zvolsCleaned > 0 {
+			log.Info().Int("removed", zvolsCleaned).Msg("Orphaned zvol GC completed")
+		}
+
+		GCMigratedGoldenDirs()
+
+		snapsCleaned := GCStaleSnapshots()
+		if snapsCleaned > 0 {
+			log.Info().Int("removed", snapsCleaned).Msg("Stale snapshot GC completed")
+		}
 	}
 }
 
@@ -1418,7 +1634,12 @@ func (dm *DevContainerManager) monitorGoldenBuild(dc *DevContainer) {
 	defer cancel()
 
 	dockerDataVolume := fmt.Sprintf("docker-data-%s", dc.SessionID)
-	resultFile := filepath.Join(sessionsBaseDir, dockerDataVolume, "docker", ".golden-build-result")
+
+	// Check both possible locations for the result file:
+	// - ZFS zvol mount: /container-docker/zvol-mounts/{sessionID}/.golden-build-result
+	// - File-copy path: /container-docker/sessions/docker-data-{sessionID}/docker/.golden-build-result
+	zvolResultFile := filepath.Join(zvolMountBase, dc.SessionID, ".golden-build-result")
+	fileCopyResultFile := filepath.Join(sessionsBaseDir, dockerDataVolume, "docker", ".golden-build-result")
 
 	// Poll for the result file. The workspace-setup script writes this after
 	// the startup script completes and dockerd is stopped.
@@ -1442,7 +1663,11 @@ func (dm *DevContainerManager) monitorGoldenBuild(dc *DevContainer) {
 			return
 
 		case <-ticker.C:
-			data, err := os.ReadFile(resultFile)
+			// Try ZFS zvol path first, then file-copy path
+			data, err := os.ReadFile(zvolResultFile)
+			if err != nil {
+				data, err = os.ReadFile(fileCopyResultFile)
+			}
 			if err != nil {
 				continue // File doesn't exist yet — build still running
 			}
@@ -1469,18 +1694,41 @@ done:
 			Str("project_id", dc.ProjectID).
 			Msg("Golden build completed successfully, promoting Docker data")
 
-		if err := PromoteSessionToGolden(dc.ProjectID, dockerDataVolume, dc.SessionID); err != nil {
-			log.Error().Err(err).
+		var promoteErr error
+		if ZFSAvailable() && zfsDatasetExists(sessionZvolName(dc.SessionID)) {
+			// Session was on a ZFS zvol — promote via ZFS rename+snapshot (instant)
+			promoteErr = PromoteSessionToGoldenZvol(dc.ProjectID, dc.SessionID)
+		} else if ZFSAvailable() {
+			// Session was on file-copy path but ZFS is available.
+			// Promote to file-based golden first, then migrate to zvol
+			// so subsequent sessions get instant clones.
+			promoteErr = PromoteSessionToGolden(dc.ProjectID, dockerDataVolume, dc.SessionID)
+			if promoteErr == nil {
+				if err := MigrateGoldenToZvol(dc.ProjectID); err != nil {
+					log.Warn().Err(err).
+						Str("project_id", dc.ProjectID).
+						Msg("Golden promoted to file dir but failed to migrate to zvol (will retry on next session)")
+				}
+			}
+		} else {
+			// No ZFS — file-copy promotion only
+			promoteErr = PromoteSessionToGolden(dc.ProjectID, dockerDataVolume, dc.SessionID)
+		}
+		if promoteErr != nil {
+			log.Error().Err(promoteErr).
 				Str("project_id", dc.ProjectID).
 				Msg("Golden build: failed to promote session data")
 		} else {
 			// Purge container metadata from the golden cache to prevent
 			// workspace corruption on new sessions (containers have bind mounts
 			// to workspace paths that don't exist in new sessions).
-			if err := PurgeContainersFromGolden(dc.ProjectID); err != nil {
-				log.Warn().Err(err).
-					Str("project_id", dc.ProjectID).
-					Msg("Golden build: failed to purge containers from golden")
+			// (ZFS path handles purge internally in PromoteSessionToGoldenZvol)
+			if !ZFSAvailable() || !zfsDatasetExists(goldenZvolName(dc.ProjectID)) {
+				if err := PurgeContainersFromGolden(dc.ProjectID); err != nil {
+					log.Warn().Err(err).
+						Str("project_id", dc.ProjectID).
+						Msg("Golden build: failed to purge containers from golden")
+				}
 			}
 			cacheSizeBytes = GetGoldenSize(dc.ProjectID)
 			log.Info().
@@ -1495,7 +1743,11 @@ done:
 			Dur("build_duration", buildDuration).
 			Msg("Golden build failed, not promoting")
 		// Clean up the failed session's Docker data
-		_ = CleanupSessionDockerDir(dockerDataVolume)
+		if ZFSAvailable() && zfsDatasetExists(sessionZvolName(dc.SessionID)) {
+			_ = CleanupSessionZvol(dc.SessionID)
+		} else {
+			_ = CleanupSessionDockerDir(dockerDataVolume)
+		}
 	}
 
 	// Store the result so the API can query it after the container is gone.

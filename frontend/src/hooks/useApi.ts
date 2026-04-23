@@ -62,6 +62,21 @@ axios.defaults.withCredentials = true
 // Add interceptors for direct axios usage
 axios.interceptors.request.use(csrfInterceptor)
 
+// Response error interceptor: replace Axios's generic "Request failed with status code 500"
+// with the actual error message from the backend response body. This ensures that
+// catch blocks using `error.message` show the real error, not just the status code.
+const enhanceErrorMessage = (error: any) => {
+  if (error.response?.data && typeof error.response.data === 'string') {
+    const body = error.response.data.trim()
+    if (body.length > 0 && body.length < 1000 && !body.startsWith('<!')) {
+      error.message = body
+    }
+  }
+  return Promise.reject(error)
+}
+axios.interceptors.response.use(undefined, enhanceErrorMessage)
+apiClientSingleton.instance.interceptors.response.use(undefined, enhanceErrorMessage)
+
 // Helper function to check if an error is auth-related
 const isAuthError = (error: any): boolean => {
   // Check status code

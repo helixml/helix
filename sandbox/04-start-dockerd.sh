@@ -201,7 +201,7 @@ load_desktop_image() {
         return 0
     fi
 
-    # Registry pull (production mode - .ref file points to registry.helixml.tech)
+    # Registry pull (production mode - .ref file points to ghcr.io/helixml)
     if [ -f "$REF_FILE" ]; then
         local REGISTRY_REF=$(cat "$REF_FILE")
         echo "📦 ${IMAGE_NAME} registry ref: ${REGISTRY_REF}"

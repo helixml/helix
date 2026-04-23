@@ -83,6 +83,9 @@ type Client interface {
 	UpdateHelixModel(ctx context.Context, id string, model *types.Model) (*types.Model, error)
 	DeleteHelixModel(ctx context.Context, id string) error
 
+	// Projects
+	ApplyProject(ctx context.Context, req *types.ProjectApplyRequest) (*types.ProjectApplyResponse, error)
+
 	// System Settings
 	GetSystemSettings(ctx context.Context) (*types.SystemSettingsResponse, error)
 	UpdateSystemSettings(ctx context.Context, settings *types.SystemSettingsRequest) (*types.SystemSettingsResponse, error)

@@ -104,32 +104,33 @@ spec:
             {{- toYaml . | nindent 12 }}
             {{- end }}
           resources:
+            {{- $gpuKey := .Values.gpuResourceKey | default "nvidia.com/gpu" }}
             {{- if hasKey .Values "gpuCount" }}
               {{- if gt (.Values.gpuCount | int) 0 }}
             limits:
-              nvidia.com/gpu: {{ .Values.gpuCount | quote }}
+              {{ $gpuKey }}: {{ .Values.gpuCount | quote }}
               {{- range $key, $value := .Values.resources.limits }}
-              {{- if ne $key "nvidia.com/gpu" }}
+              {{- if ne $key $gpuKey }}
               {{ $key }}: {{ $value }}
               {{- end }}
               {{- end }}
             requests:
-              nvidia.com/gpu: {{ .Values.gpuCount | quote }}
+              {{ $gpuKey }}: {{ .Values.gpuCount | quote }}
               {{- range $key, $value := .Values.resources.requests }}
-              {{- if ne $key "nvidia.com/gpu" }}
+              {{- if ne $key $gpuKey }}
               {{ $key }}: {{ $value }}
               {{- end }}
               {{- end }}
               {{- else }}
             limits:
               {{- range $key, $value := .Values.resources.limits }}
-              {{- if ne $key "nvidia.com/gpu" }}
+              {{- if ne $key $gpuKey }}
               {{ $key }}: {{ $value }}
               {{- end }}
               {{- end }}
             requests:
               {{- range $key, $value := .Values.resources.requests }}
-              {{- if ne $key "nvidia.com/gpu" }}
+              {{- if ne $key $gpuKey }}
               {{ $key }}: {{ $value }}
               {{- end }}
               {{- end }}

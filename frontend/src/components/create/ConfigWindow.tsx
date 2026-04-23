@@ -22,7 +22,6 @@ import {
   ICreateSessionConfig,
   IAgentType,
   IExternalAgentConfig,
-  AGENT_TYPE_HELIX_BASIC,
 } from '../../types'
 
 import {
@@ -236,7 +235,7 @@ const CreateSettingsWindow: FC<{
                         <Grid item xs={12} md={4}>
                           <TextField
                             fullWidth
-                            label="Rag Chunk Overflow"
+                            label="Rag Chunk Overlap"
                             type="number"
                             InputLabelProps={{
                               shrink: true,

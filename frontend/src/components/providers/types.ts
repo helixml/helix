@@ -4,6 +4,7 @@ import AnthropicLogo from './logos/anthropic';
 import GroqLogo from './logos/groq';
 import CerebrasLogo from './logos/cerebras';
 import AWSLogo from './logos/aws';
+import XaiLogo from './logos/xai';
 
 // Direct image imports
 import togetheraiLogo from '../../../assets/img/together-logo.png'
@@ -81,6 +82,15 @@ export const PROVIDERS: Provider[] = [
     logo: CerebrasLogo,
     base_url: "https://api.cerebras.ai/v1",
     setup_instructions: "Get your API key from https://cloud.cerebras.ai/"
+  },
+  {
+    id: 'user/xai',
+    alias: ['xai', 'xai-api', 'grok'],
+    name: 'xAI Grok',
+    description: 'Access xAI Grok models via their OpenAI-compatible API.',
+    logo: XaiLogo,
+    base_url: "https://api.x.ai/v1",
+    setup_instructions: "Get your API key from https://console.x.ai/ (API Keys section)"
   },
   {
     id: 'user/togetherai',

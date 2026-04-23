@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"os"
@@ -74,7 +75,6 @@ func (apiServer *HelixAPIServer) updateSystemSettings(rw http.ResponseWriter, r 
 		Str("admin_user", user.ID).
 		Bool("hf_token_updated", req.HuggingFaceToken != nil).
 		Bool("kodit_model_updated", req.KoditEnrichmentProvider != nil || req.KoditEnrichmentModel != nil).
-		Bool("rag_embeddings_model_updated", req.RAGEmbeddingsProvider != nil || req.RAGEmbeddingsModel != nil).
 		Bool("max_concurrent_desktops_updated", req.MaxConcurrentDesktops != nil).
 		Bool("providers_management_enabled_updated", req.ProvidersManagementEnabled != nil).
 		Bool("enforce_quotas_updated", req.EnforceQuotas != nil).
@@ -90,6 +90,25 @@ func (apiServer *HelixAPIServer) updateSystemSettings(rw http.ResponseWriter, r 
 				log.Info().Msg("initiated system settings sync to all runners")
 			}()
 		}
+	}
+
+	// If the admin changed a kodit embedding setting, reinitialise the kodit
+	// client in-process so the new provider takes effect without a restart.
+	// kodit itself handles the vector-table rebuild and repository re-index
+	// when the embedding dimension changes.
+	koditEmbeddingChanged := req.KoditTextEmbeddingProvider != nil ||
+		req.KoditTextEmbeddingModel != nil ||
+		req.KoditVisionEmbeddingProvider != nil ||
+		req.KoditVisionEmbeddingModel != nil
+	if koditEmbeddingChanged && apiServer.kodit != nil {
+		go func() {
+			// Use a background context — the reinit may outlive the HTTP
+			// request (kodit.New can take tens of seconds when probing an
+			// external embedding endpoint).
+			if err := apiServer.kodit.Reinit(context.Background()); err != nil {
+				log.Error().Err(err).Msg("kodit reinit failed after embedding settings change")
+			}
+		}()
 	}
 
 	// Return masked response with source information (same format as GET)

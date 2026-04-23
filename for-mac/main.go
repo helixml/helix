@@ -3,6 +3,9 @@ package main
 import (
 	"embed"
 	"log"
+	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/menu"
@@ -18,6 +21,17 @@ var assets embed.FS
 func main() {
 	// Create an instance of the app structure
 	app := NewApp()
+
+	// Belt-and-suspenders: if the process receives SIGTERM or SIGINT (e.g. from
+	// `kill`, systemd, or a parent process dying), kill QEMU immediately.
+	// The normal path is Wails OnShutdown → app.shutdown() → ForceStop().
+	go func() {
+		c := make(chan os.Signal, 1)
+		signal.Notify(c, syscall.SIGTERM, syscall.SIGINT)
+		<-c
+		log.Println("Received termination signal, killing QEMU")
+		app.vm.ForceStop()
+	}()
 
 	// Create the application menu
 	appMenu := createMenu(app)

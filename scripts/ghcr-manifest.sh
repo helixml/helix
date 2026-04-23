@@ -1,5 +1,5 @@
 #!/bin/sh
-# Create and push a multi-arch manifest on ghcr.io/helixml.
+# Create and push a multi-arch manifest on ghcr.io/helixml (primary registry).
 # Usage: scripts/ghcr-manifest.sh <old-repo> <version>
 # Example: scripts/ghcr-manifest.sh registry.helixml.tech/helix/controlplane v1.0
 #

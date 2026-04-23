@@ -7,15 +7,13 @@ import {
   IAssistantConfig,
   IKnowledgeSearchResult,
   IAssistantGPTScript,
-  IAssistantApi,
-  IAssistantZapier,
   IAccessGrant,
   CreateAccessGrantRequest,
   SESSION_TYPE_TEXT,
   WEBSOCKET_EVENT_TYPE_SESSION_UPDATE,
 } from '../types'
 
-import { TypesSession, TypesAssistantMCP } from '../api/api'
+import { TypesSession, TypesAssistantMCP, TypesAssistantAPI, TypesAssistantZapier } from '../api/api'
 
 import {
   removeEmptyValues,
@@ -115,7 +113,7 @@ export const useApp = (appId: string) => {
       system_prompt: '',
       type: 'text',
       agent_mode: false,
-      agent_type: 'helix_basic',
+      agent_type: 'helix_agent',
       knowledge: [],
       apis: [],
       zapier: [],
@@ -591,7 +589,7 @@ export const useApp = (appId: string) => {
    * 
    * 
    */   
-  const onSaveApiTool = useCallback((tool: IAssistantApi, index?: number) => {
+  const onSaveApiTool = useCallback((tool: TypesAssistantAPI, index?: number) => {
     if(!flatApp) return
     let newTools = flatApp.apiTools || []
     if(typeof index !== 'number') {
@@ -602,7 +600,7 @@ export const useApp = (appId: string) => {
     saveFlatApp({apiTools: newTools})
   }, [saveFlatApp, flatApp])
   
-  const onSaveZapierTool = useCallback((tool: IAssistantZapier, index?: number) => {
+  const onSaveZapierTool = useCallback((tool: TypesAssistantZapier, index?: number) => {
     if(!flatApp) return
     let newTools = flatApp.zapierTools || []
     if(typeof index !== 'number') {

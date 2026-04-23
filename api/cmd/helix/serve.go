@@ -315,8 +315,6 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		extractor = extract.NewTikaExtractor(cfg.TextExtractor.Tika.URL)
 	case types.ExtractorUnstructured:
 		extractor = extract.NewDefaultExtractor(cfg.TextExtractor.Unstructured.URL)
-	case types.ExtractorHaystack:
-		extractor = extract.NewHaystackExtractor(cfg.RAG.Haystack.URL)
 	default:
 		return fmt.Errorf("unknown extractor: %s", cfg.TextExtractor.Provider)
 	}
@@ -418,31 +416,24 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 	// Will run async and watch for changes in the API keys, non-blocking
 	providerManager.StartRefresh(ctx)
 
-	var ragClient rag.RAG
+	// gitRepositoryService is created early so it can be passed to InitKodit.
+	gitRepositoryService := services.NewGitRepositoryService(
+		postgresStore,
+		cfg.FileStore.LocalFSPath,
+		cfg.WebServer.URL,
+		"Helix System",
+		"system@helix.ml",
+	)
 
-	switch cfg.RAG.DefaultRagProvider {
-	case config.RAGProviderTypesense:
-		ragSettings := &types.RAGSettings{}
-		ragSettings.Typesense.URL = cfg.RAG.Typesense.URL
-		ragSettings.Typesense.APIKey = cfg.RAG.Typesense.APIKey
-		ragClient, err = rag.NewTypesense(ctx, ragSettings)
-		if err != nil {
-			return fmt.Errorf("failed to create typesense RAG client: %v", err)
-		}
-		log.Info().Msgf("Using Typesense for RAG")
-	case config.RAGProviderLlamaindex:
-		ragClient = rag.NewLlamaindex(&types.RAGSettings{
-			IndexURL:  cfg.RAG.Llamaindex.RAGIndexingURL,
-			QueryURL:  cfg.RAG.Llamaindex.RAGQueryURL,
-			DeleteURL: cfg.RAG.Llamaindex.RAGDeleteURL,
-		})
-		log.Info().Msgf("Using Llamaindex for RAG")
-	case config.RAGProviderHaystack:
-		ragClient = rag.NewHaystackRAG(cfg.RAG.Haystack.URL)
-		log.Info().Msgf("Using Haystack for RAG")
-	default:
-		return fmt.Errorf("unknown RAG provider: %s", cfg.RAG.DefaultRagProvider)
+	// Initialize kodit once here so that the kodit RAG provider and the API server
+	// share a single kodit instance (and therefore a single embedding model / worker pool).
+	koditInit, err := server.InitKodit(cfg, gitRepositoryService, postgresStore)
+	if err != nil {
+		return fmt.Errorf("failed to initialize kodit: %w", err)
 	}
+
+	ragClient := rag.NewKoditRAG(koditInit.Service, postgresStore, cfg.FileStore)
+	log.Info().Msgf("Using Kodit for RAG")
 
 	// Initialize browser pool
 	browserPool, err := browser.New(cfg)
@@ -453,14 +444,6 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 	searchProvider := searxng.NewSearXNG(&searxng.Config{
 		BaseURL: cfg.Search.SearXNGBaseURL,
 	})
-
-	gitRepositoryService := services.NewGitRepositoryService(
-		postgresStore,
-		cfg.FileStore.LocalFSPath,
-		cfg.WebServer.URL,
-		"Helix System",
-		"system@helix.ml",
-	)
 
 	controllerOptions := controller.Options{
 		Config:                cfg,
@@ -503,7 +486,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		return err
 	}
 
-	knowledgeReconciler, err := knowledge.New(cfg, postgresStore, fs, extractor, ragClient, browserPool, oauthManager)
+	knowledgeReconciler, err := knowledge.New(cfg, postgresStore, fs, extractor, ragClient, browserPool, oauthManager, koditInit.Service)
 	if err != nil {
 		return err
 	}
@@ -565,6 +548,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		trigger,
 		anthropicProxy,
 		gitRepositoryService,
+		koditInit,
 	)
 	if err != nil {
 		return err

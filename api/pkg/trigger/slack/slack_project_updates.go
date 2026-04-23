@@ -95,13 +95,25 @@ func (s *SlackBot) postProjectUpdate(ctx context.Context, task *types.SpecTask) 
 
 // postProjectUpdateNew posts the first message for a spec task and creates a thread record
 func (s *SlackBot) postProjectUpdateNew(ctx context.Context, task *types.SpecTask) error {
-	session := shared.NewTriggerSession(ctx, types.TriggerTypeSlack.String(), s.app).Session
-	session.Name = fmt.Sprintf("project update: %s", task.Name)
-	session.Metadata.SpecTaskID = task.ID
-	session.Metadata.ProjectID = task.ProjectID
-	createdSession, err := s.store.CreateSession(ctx, *session)
-	if err != nil {
-		return fmt.Errorf("failed to create session for project update: %w", err)
+	// Reuse the spectask's existing planning session if available, otherwise create a new one.
+	// This maintains the 1:1 session-to-spectask invariant.
+	var createdSession *types.Session
+	if task.PlanningSessionID != "" {
+		existing, err := s.store.GetSession(ctx, task.PlanningSessionID)
+		if err == nil && existing != nil {
+			createdSession = existing
+		}
+	}
+	if createdSession == nil {
+		session := shared.NewTriggerSession(ctx, types.TriggerTypeSlack.String(), s.app).Session
+		session.Name = fmt.Sprintf("project update: %s", task.Name)
+		session.Metadata.SpecTaskID = task.ID
+		session.Metadata.ProjectID = task.ProjectID
+		var err error
+		createdSession, err = s.store.CreateSession(ctx, *session)
+		if err != nil {
+			return fmt.Errorf("failed to create session for project update: %w", err)
+		}
 	}
 
 	attachment := s.buildProjectUpdateAttachment(ctx, task, s.cfg.Notifications.AppURL)

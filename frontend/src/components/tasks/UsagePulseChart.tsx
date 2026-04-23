@@ -2,12 +2,12 @@ import React, { useMemo, useId } from "react";
 import { Box, Tooltip } from "@mui/material";
 import useTheme from "@mui/material/styles/useTheme";
 import { LineChart } from "@mui/x-charts";
-import { TypesAggregatedUsageMetric } from "../../api/api";
+import { ServerBatchTaskUsageMetric } from "../../api/api";
 
 interface UsagePulseChartProps {
   accentColor: string;
   /** Usage data from batch endpoint - required */
-  usageData?: TypesAggregatedUsageMetric[];
+  usageData?: ServerBatchTaskUsageMetric[];
 }
 
 const UsagePulseChart: React.FC<UsagePulseChartProps> = ({
@@ -23,10 +23,10 @@ const UsagePulseChart: React.FC<UsagePulseChartProps> = ({
       (a, b) =>
         new Date(a.date || "").getTime() - new Date(b.date || "").getTime(),
     );
-    const data = sortedData.map(
-      (d: TypesAggregatedUsageMetric) => d.total_tokens || 0,
+    let data = sortedData.map(
+      (d: ServerBatchTaskUsageMetric) => d.total_tokens || 0,
     );
-    const labels = sortedData.map((d: TypesAggregatedUsageMetric) => {
+    let labels = sortedData.map((d: ServerBatchTaskUsageMetric) => {
       const date = new Date(d.date || "");
       const month = String(date.getMonth() + 1).padStart(2, "0");
       const day = String(date.getDate()).padStart(2, "0");
@@ -34,6 +34,12 @@ const UsagePulseChart: React.FC<UsagePulseChartProps> = ({
       const minutes = String(date.getMinutes()).padStart(2, "0");
       return `${month}/${day} ${hours}:${minutes}`;
     });
+    // Pad with zeroes so the line chart can draw a visible spike
+    // (a single point can't render a line)
+    if (data.length < 3) {
+      data = [0, ...data, 0];
+      labels = ["", ...labels, ""];
+    }
     const total = data.reduce((a, b) => a + b, 0);
     return { chartData: data, chartLabels: labels, totalTokens: total };
   }, [usageData]);
@@ -101,7 +107,7 @@ const UsagePulseChart: React.FC<UsagePulseChartProps> = ({
           }}
           grid={{ horizontal: false, vertical: false }}
           disableAxisListener
-          margin={{ top: 0, bottom: 0, left: 0, right: 0 }}
+          margin={{ top: 5, bottom: 5, left: 0, right: 0 }}
         >
           <defs>
             <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">

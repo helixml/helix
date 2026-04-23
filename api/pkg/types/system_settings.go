@@ -22,10 +22,15 @@ type SystemSettings struct {
 	KoditEnrichmentProvider string `json:"kodit_enrichment_provider,omitempty" gorm:"column:kodit_enrichment_provider"` // e.g., "together_ai", "openai", "helix"
 	KoditEnrichmentModel    string `json:"kodit_enrichment_model,omitempty" gorm:"column:kodit_enrichment_model"`       // e.g., "Qwen/Qwen3-8B", "gpt-4o", "llama3:instruct"
 
-	// RAG embedding model configuration
-	// Used when Haystack sends requests with model "rag-embedding" - Helix substitutes with these values
-	RAGEmbeddingsProvider string `json:"rag_embeddings_provider,omitempty" gorm:"column:rag_embeddings_provider"`
-	RAGEmbeddingsModel    string `json:"rag_embeddings_model,omitempty" gorm:"column:rag_embeddings_model"`
+	// Kodit text embedding model configuration
+	// Used when Kodit sends requests with model "kodit-text-embedding" - Helix substitutes with these values
+	KoditTextEmbeddingProvider string `json:"kodit_text_embedding_provider,omitempty" gorm:"column:kodit_text_embedding_provider"`
+	KoditTextEmbeddingModel    string `json:"kodit_text_embedding_model,omitempty" gorm:"column:kodit_text_embedding_model"`
+
+	// Kodit vision embedding model configuration
+	// Used when Kodit sends requests with model "kodit-vision-embedding" - Helix substitutes with these values
+	KoditVisionEmbeddingProvider string `json:"kodit_vision_embedding_provider,omitempty" gorm:"column:kodit_vision_embedding_provider"`
+	KoditVisionEmbeddingModel    string `json:"kodit_vision_embedding_model,omitempty" gorm:"column:kodit_vision_embedding_model"`
 
 	EnforceQuotas bool `json:"enforce_quotas,omitempty" gorm:"column:enforce_quotas"`
 
@@ -57,9 +62,13 @@ type SystemSettingsRequest struct {
 	KoditEnrichmentProvider *string `json:"kodit_enrichment_provider,omitempty"`
 	KoditEnrichmentModel    *string `json:"kodit_enrichment_model,omitempty"`
 
-	// RAG embedding model configuration
-	RAGEmbeddingsProvider *string `json:"rag_embeddings_provider,omitempty"`
-	RAGEmbeddingsModel    *string `json:"rag_embeddings_model,omitempty"`
+	// Kodit text embedding model configuration
+	KoditTextEmbeddingProvider *string `json:"kodit_text_embedding_provider,omitempty"`
+	KoditTextEmbeddingModel    *string `json:"kodit_text_embedding_model,omitempty"`
+
+	// Kodit vision embedding model configuration
+	KoditVisionEmbeddingProvider *string `json:"kodit_vision_embedding_provider,omitempty"`
+	KoditVisionEmbeddingModel    *string `json:"kodit_vision_embedding_model,omitempty"`
 
 	MaxConcurrentDesktops *int `json:"max_concurrent_desktops"`
 
@@ -97,10 +106,15 @@ type SystemSettingsResponse struct {
 	KoditEnrichmentModel    string `json:"kodit_enrichment_model"`
 	KoditEnrichmentModelSet bool   `json:"kodit_enrichment_model_set"` // true if both provider and model are configured
 
-	// RAG embedding model configuration (not sensitive, returned as-is)
-	RAGEmbeddingsProvider string `json:"rag_embeddings_provider"`
-	RAGEmbeddingsModel    string `json:"rag_embeddings_model"`
-	RAGEmbeddingsModelSet bool   `json:"rag_embeddings_model_set"` // true if both provider and model are configured
+	// Kodit text embedding model configuration
+	KoditTextEmbeddingProvider string `json:"kodit_text_embedding_provider"`
+	KoditTextEmbeddingModel    string `json:"kodit_text_embedding_model"`
+	KoditTextEmbeddingModelSet bool   `json:"kodit_text_embedding_model_set"`
+
+	// Kodit vision embedding model configuration
+	KoditVisionEmbeddingProvider string `json:"kodit_vision_embedding_provider"`
+	KoditVisionEmbeddingModel    string `json:"kodit_vision_embedding_model"`
+	KoditVisionEmbeddingModelSet bool   `json:"kodit_vision_embedding_model_set"`
 
 	MaxConcurrentDesktops int `json:"max_concurrent_desktops"` // Per user
 
@@ -149,9 +163,12 @@ func (s *SystemSettings) ToResponseWithSource(dbToken, envToken string) *SystemS
 		KoditEnrichmentProvider:    s.KoditEnrichmentProvider,
 		KoditEnrichmentModel:       s.KoditEnrichmentModel,
 		KoditEnrichmentModelSet:    s.KoditEnrichmentProvider != "" && s.KoditEnrichmentModel != "",
-		RAGEmbeddingsProvider:      s.RAGEmbeddingsProvider,
-		RAGEmbeddingsModel:         s.RAGEmbeddingsModel,
-		RAGEmbeddingsModelSet:      s.RAGEmbeddingsProvider != "" && s.RAGEmbeddingsModel != "",
+		KoditTextEmbeddingProvider:   s.KoditTextEmbeddingProvider,
+		KoditTextEmbeddingModel:      s.KoditTextEmbeddingModel,
+		KoditTextEmbeddingModelSet:   s.KoditTextEmbeddingProvider != "" && s.KoditTextEmbeddingModel != "",
+		KoditVisionEmbeddingProvider: s.KoditVisionEmbeddingProvider,
+		KoditVisionEmbeddingModel:    s.KoditVisionEmbeddingModel,
+		KoditVisionEmbeddingModelSet: s.KoditVisionEmbeddingProvider != "" && s.KoditVisionEmbeddingModel != "",
 		MaxConcurrentDesktops:      s.MaxConcurrentDesktops,
 		ProvidersManagementEnabled: s.ProvidersManagementEnabled,
 		EnforceQuotas:              s.EnforceQuotas,

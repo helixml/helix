@@ -121,6 +121,17 @@ func (apiServer *HelixAPIServer) getConfig(ctx context.Context) (types.ServerCon
 		config.MaxConcurrentDesktops = apiServer.Cfg.SubscriptionQuotas.Projects.Free.MaxConcurrentDesktops
 	}
 
+	// Check if any global AI providers are configured on this deployment
+	globalProviders, err := apiServer.Store.ListProviderEndpoints(ctx, &store.ListProviderEndpointsQuery{
+		Owner:      string(types.OwnerTypeSystem),
+		WithGlobal: true,
+	})
+	if err != nil {
+		log.Warn().Err(err).Msg("failed to check for global providers")
+	} else {
+		config.HasProviders = len(globalProviders) > 0
+	}
+
 	// Active session count (from in-memory session tracker)
 	if apiServer.externalAgentExecutor != nil {
 		config.ActiveConcurrentDesktops = len(apiServer.externalAgentExecutor.ListSessions())

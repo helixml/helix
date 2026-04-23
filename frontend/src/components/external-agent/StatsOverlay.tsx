@@ -11,6 +11,14 @@ export interface ConnectionLogEntry {
   msg: string;
 }
 
+// Two-finger gesture debug info for trackpad mode troubleshooting
+export interface TwoFingerDebugInfo {
+  gestureType: "undecided" | "pinch" | "scroll";
+  distanceChange: number;
+  centerMovement: number;
+  lastScrollDelta: { dx: number; dy: number };
+}
+
 export interface StatsOverlayProps {
   stats: StreamStats | null;
   qualityMode: QualityMode;
@@ -27,6 +35,8 @@ export interface StatsOverlayProps {
   connectionLog: ConnectionLogEntry[];
   isConnected: boolean;
   isConnecting: boolean;
+  // Two-finger gesture debug info for trackpad mode
+  twoFingerDebug?: TwoFingerDebugInfo | null;
 }
 
 type TabType = 'stats' | 'log';
@@ -45,6 +55,7 @@ const StatsOverlay: React.FC<StatsOverlayProps> = ({
   connectionLog,
   isConnected,
   isConnecting,
+  twoFingerDebug,
 }) => {
   const [activeTab, setActiveTab] = useState<TabType>('stats');
 
@@ -302,6 +313,26 @@ const StatsOverlay: React.FC<StatsOverlayProps> = ({
                 <span style={{ color: '#888' }}> (adaptive 10-90)</span>
               </div>
             </>
+          )}
+          {/* Two-finger gesture debug info for trackpad mode */}
+          {twoFingerDebug && (
+            <div style={{ marginTop: 8, borderTop: '1px solid rgba(0, 255, 0, 0.3)', paddingTop: 8 }}>
+              <strong style={{ color: '#4fc3f7' }}>Two-Finger Gesture</strong>
+              <div>
+                <strong>Type:</strong>{' '}
+                <span style={{ 
+                  color: twoFingerDebug.gestureType === 'scroll' ? '#4caf50' : 
+                         twoFingerDebug.gestureType === 'pinch' ? '#ff9800' : '#888'
+                }}>
+                  {twoFingerDebug.gestureType}
+                </span>
+              </div>
+              <div><strong>Dist Change:</strong> {twoFingerDebug.distanceChange}px</div>
+              <div><strong>Center Move:</strong> {twoFingerDebug.centerMovement}px</div>
+              <div>
+                <strong>Last Scroll:</strong> dx={twoFingerDebug.lastScrollDelta.dx} dy={twoFingerDebug.lastScrollDelta.dy}
+              </div>
+            </div>
           )}
         </Box>
       )}

@@ -9,10 +9,13 @@ import {
   Alert,
   Pagination,
   Skeleton,
+  Tooltip,
 } from '@mui/material'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
 import TrendingUpIcon from '@mui/icons-material/TrendingUp'
 import TrendingDownIcon from '@mui/icons-material/TrendingDown'
+import PushPinIcon from '@mui/icons-material/PushPin'
+import PushPinOutlinedIcon from '@mui/icons-material/PushPinOutlined'
 import { Kanban } from 'lucide-react'
 
 import CreateProjectButton from './CreateProjectButton'
@@ -38,20 +41,23 @@ interface ProjectsListViewProps {
   sampleProjects: ServerSampleProject[]
   isCreating: boolean
   appNamesMap?: Record<string, string>
+  pinnedProjectIds?: string[]
+  onPinProject?: (projectId: string) => void
+  onUnpinProject?: (projectId: string) => void
 }
 
 const StatRow: FC<{
   label: string
   value: string | number
 }> = ({ label, value }) => (
-  <Box sx={{ 
-    display: 'flex', 
+  <Box sx={{
+    display: 'flex',
     flexDirection: 'column',
     alignItems: 'flex-start',
     gap: 0.25,
     minWidth: 0,
   }}>
-    <Typography variant="caption" sx={{ 
+    <Typography variant="caption" sx={{
       color: 'text.secondary',
       fontSize: '0.65rem',
       whiteSpace: 'nowrap',
@@ -61,8 +67,8 @@ const StatRow: FC<{
     }}>
       {label}
     </Typography>
-    <Typography variant="body2" sx={{ 
-      fontWeight: 600, 
+    <Typography variant="body2" sx={{
+      fontWeight: 600,
       color: 'text.primary',
       fontSize: '0.8rem',
       fontFamily: 'monospace',
@@ -84,7 +90,10 @@ const ProjectCard: FC<{
   onViewProject: (project: TypesProject) => void
   onMenuOpen: (event: React.MouseEvent<HTMLElement>, project: TypesProject) => void
   appNamesMap: Record<string, string>
-}> = ({ project, onViewProject, onMenuOpen }) => {
+  isPinned?: boolean
+  onPin?: (projectId: string) => void
+  onUnpin?: (projectId: string) => void
+}> = ({ project, onViewProject, onMenuOpen, isPinned, onPin, onUnpin }) => {
   const sevenDaysAgo = useMemo(() => {
     const date = new Date()
     date.setDate(date.getDate() - 7)
@@ -104,7 +113,7 @@ const ProjectCard: FC<{
 
     const total = usageData.reduce((sum, m) => sum + (m.total_tokens || 0), 0)
     const data = usageData.map(m => m.total_tokens || 0)
-    
+
     const halfLen = Math.floor(data.length / 2)
     const firstHalf = data.slice(0, halfLen).reduce((a, b) => a + b, 0)
     const secondHalf = data.slice(halfLen).reduce((a, b) => a + b, 0)
@@ -123,6 +132,15 @@ const ProjectCard: FC<{
     average_task_completion_hours: 0,
   }
 
+  const handlePinClick = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (isPinned) {
+      onUnpin?.(project.id || '')
+    } else {
+      onPin?.(project.id || '')
+    }
+  }
+
   return (
     <Card
       sx={{
@@ -131,14 +149,14 @@ const ProjectCard: FC<{
         flexDirection: 'column',
         backgroundColor: 'background.paper',
         border: '1px solid',
-        borderColor: 'rgba(0, 0, 0, 0.08)',
-        borderLeft: '3px solid transparent',
+        borderColor: isPinned ? 'rgba(167, 139, 250, 0.3)' : 'rgba(0, 0, 0, 0.08)',
+        borderLeft: isPinned ? '3px solid #a78bfa' : '3px solid transparent',
         borderRadius: 1,
         boxShadow: 'none',
         transition: 'all 0.15s ease-in-out',
         '&:hover': {
-          borderColor: 'rgba(0, 0, 0, 0.12)',
-          borderLeftColor: 'secondary.main',
+          borderColor: isPinned ? 'rgba(167, 139, 250, 0.4)' : 'rgba(0, 0, 0, 0.12)',
+          borderLeftColor: isPinned ? '#a78bfa' : 'secondary.main',
           backgroundColor: 'rgba(0, 0, 0, 0.01)',
         },
       }}
@@ -185,26 +203,49 @@ const ProjectCard: FC<{
               </Typography>
             )}
           </Box>
-          <IconButton
-            size="small"
-            onClick={(e) => {
-              e.stopPropagation()
-              onMenuOpen(e, project)
-            }}
-            sx={{
-              width: 24,
-              height: 24,
-              color: 'text.secondary',
-              ml: 0.5,
-              flexShrink: 0,
-              '&:hover': {
-                color: 'text.primary',
-                backgroundColor: 'rgba(0, 0, 0, 0.04)',
-              },
-            }}
-          >
-            <MoreVertIcon sx={{ fontSize: 16 }} />
-          </IconButton>
+          <Box sx={{ display: 'flex', alignItems: 'center', ml: 0.5, flexShrink: 0 }}>
+            {(onPin || onUnpin) && (
+              <Tooltip title={isPinned ? 'Unpin project' : 'Pin project'}>
+                <IconButton
+                  size="small"
+                  onClick={handlePinClick}
+                  sx={{
+                    width: 24,
+                    height: 24,
+                    color: isPinned ? '#a78bfa' : 'text.secondary',
+                    '&:hover': {
+                      color: isPinned ? '#c4b5fd' : '#a78bfa',
+                      backgroundColor: 'rgba(167, 139, 250, 0.1)',
+                    },
+                  }}
+                >
+                  {isPinned ? (
+                    <PushPinIcon sx={{ fontSize: 14 }} />
+                  ) : (
+                    <PushPinOutlinedIcon sx={{ fontSize: 14 }} />
+                  )}
+                </IconButton>
+              </Tooltip>
+            )}
+            <IconButton
+              size="small"
+              onClick={(e) => {
+                e.stopPropagation()
+                onMenuOpen(e, project)
+              }}
+              sx={{
+                width: 24,
+                height: 24,
+                color: 'text.secondary',
+                '&:hover': {
+                  color: 'text.primary',
+                  backgroundColor: 'rgba(0, 0, 0, 0.04)',
+                },
+              }}
+            >
+              <MoreVertIcon sx={{ fontSize: 16 }} />
+            </IconButton>
+          </Box>
         </Box>
 
         <Box sx={{
@@ -215,7 +256,7 @@ const ProjectCard: FC<{
           mb: 1.5,
         }}>
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 0.75 }}>
-            <Typography variant="caption" sx={{ 
+            <Typography variant="caption" sx={{
               color: 'text.secondary',
               fontSize: '0.65rem',
             }}>
@@ -228,7 +269,7 @@ const ProjectCard: FC<{
                 ) : (
                   <TrendingDownIcon sx={{ fontSize: 12, color: '#ef4444' }} />
                 )}
-                <Typography variant="caption" sx={{ 
+                <Typography variant="caption" sx={{
                   color: trend > 0 ? '#10b981' : '#ef4444',
                   fontWeight: 600,
                   fontSize: '0.65rem',
@@ -238,23 +279,23 @@ const ProjectCard: FC<{
               </Box>
             )}
           </Box>
-          
+
           {usageLoading ? (
             <Skeleton variant="rectangular" height={32} sx={{ bgcolor: 'rgba(255,255,255,0.05)', borderRadius: 1 }} />
           ) : (
             <UsageSparkline data={usageData || []} color="#10b981" />
           )}
-          
+
           <Box sx={{ display: 'flex', alignItems: 'baseline', flexWrap: 'wrap', gap: 0.5, mt: 0.75 }}>
-            <Typography sx={{ 
-              fontWeight: 600, 
+            <Typography sx={{
+              fontWeight: 600,
               color: 'text.primary',
               fontFamily: 'monospace',
               fontSize: '1rem',
             }}>
               {formatNumber(totalTokens)}
             </Typography>
-            <Typography variant="caption" sx={{ 
+            <Typography variant="caption" sx={{
               color: 'text.secondary',
               fontWeight: 400,
               fontFamily: 'monospace',
@@ -269,8 +310,8 @@ const ProjectCard: FC<{
           pt: 1,
           borderTop: '1px solid rgba(0, 0, 0, 0.06)',
         }}>
-          <Box sx={{ 
-            display: 'grid', 
+          <Box sx={{
+            display: 'grid',
             gridTemplateColumns: 'repeat(3, 1fr)',
             gap: 1,
           }}>
@@ -303,9 +344,19 @@ const ProjectsListView: FC<ProjectsListViewProps> = ({
   sampleProjects,
   isCreating,
   appNamesMap = {},
+  pinnedProjectIds = [],
+  onPinProject,
+  onUnpinProject,
 }) => {
+  const pinnedSet = useMemo(() => new Set(pinnedProjectIds), [pinnedProjectIds])
+
+  const pinnedProjects = useMemo(
+    () => projects.filter(p => p.id && pinnedSet.has(p.id)),
+    [projects, pinnedSet]
+  )
+
   return (
-    <Box sx={{ 
+    <Box sx={{
       minHeight: '100%',
       pb: 4,
     }}>
@@ -317,8 +368,8 @@ const ProjectsListView: FC<ProjectsListViewProps> = ({
 
       {!(projects.length === 0 && !isLoading) && (
         <Box sx={{ mb: 4 }}>
-          <Typography variant="h4" sx={{ 
-            fontWeight: 700, 
+          <Typography variant="h4" sx={{
+            fontWeight: 700,
             mb: 1,
             color: 'rgba(255,255,255,0.95)',
             letterSpacing: '-0.02em',
@@ -331,7 +382,6 @@ const ProjectsListView: FC<ProjectsListViewProps> = ({
         </Box>
       )}
 
-
       {projects.length === 0 && !isLoading ? (
         <Box sx={{ textAlign: 'center', py: 8 }}>
           <Box sx={{ color: 'rgba(255,255,255,0.2)', mb: 2 }}>
@@ -342,7 +392,7 @@ const ProjectsListView: FC<ProjectsListViewProps> = ({
           </Typography>
           <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.4)', mb: 3 }}>
             Project has a Team of Agents working in parallel to perform tasks, collaborate, or build software.
-            
+
           </Typography>
           <CreateProjectButton
             onCreateEmpty={onCreateEmpty}
@@ -355,6 +405,38 @@ const ProjectsListView: FC<ProjectsListViewProps> = ({
         </Box>
       ) : (
         <>
+          {pinnedProjects.length > 0 && (
+            <Box sx={{ mb: 4 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+                <PushPinIcon sx={{ fontSize: 16, color: '#a78bfa' }} />
+                <Typography variant="body2" sx={{
+                  color: '#a78bfa',
+                  fontWeight: 600,
+                  fontSize: '0.75rem',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.08em',
+                }}>
+                  Pinned
+                </Typography>
+              </Box>
+              <Grid container spacing={{ xs: 2, sm: 3 }}>
+                {pinnedProjects.map((project) => (
+                  <Grid item xs={12} sm={6} lg={4} key={project.id}>
+                    <ProjectCard
+                      project={project}
+                      onViewProject={onViewProject}
+                      onMenuOpen={onMenuOpen}
+                      appNamesMap={appNamesMap}
+                      isPinned={true}
+                      onPin={onPinProject}
+                      onUnpin={onUnpinProject}
+                    />
+                  </Grid>
+                ))}
+              </Grid>
+            </Box>
+          )}
+
           <Grid container spacing={{ xs: 2, sm: 3 }}>
             {paginatedProjects.map((project) => (
               <Grid item xs={12} sm={6} lg={4} key={project.id}>
@@ -363,6 +445,9 @@ const ProjectsListView: FC<ProjectsListViewProps> = ({
                   onViewProject={onViewProject}
                   onMenuOpen={onMenuOpen}
                   appNamesMap={appNamesMap}
+                  isPinned={project.id ? pinnedSet.has(project.id) : false}
+                  onPin={onPinProject}
+                  onUnpin={onUnpinProject}
                 />
               </Grid>
             ))}
