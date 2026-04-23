@@ -9,21 +9,24 @@
 
 ## Current State
 
-- Fork last merged with upstream: April 16, 2026 (task 001723)
-- Fork HEAD: `1e07aea` (PR #41, ACP auto-approve, Apr 15)
+- Fork HEAD on `main`: `1e07aea` (PR #41, ACP auto-approve, Apr 15)
 - Upstream HEAD: `1db292d` (docs fix, Apr 19)
-- Delta: ~5 days of upstream commits (small merge compared to 001723's 506-commit gap)
+- **Critical discovery**: Task 001723's upstream merge branch (`feature/001723-merge-latest-zed`) was **never merged into main**. It is 698 commits ahead, 0 behind.
+- Additionally, task 001617's merge (PR #25) was merged then **reverted** by PR #26, so only task 001554's merge (PR #24, Mar 22) is the last upstream content in main.
+- Task 001723's branch merged upstream up to `d066ff0ae5` (Apr 15).
+- Net delta: ~506 upstream commits from 001723 + ~4 more days of upstream commits (Apr 15-19).
 
 ## Merge Strategy
 
-Use `git merge upstream/main` — consistent with all previous merges. Not rebase.
+Two-phase merge to incorporate both the existing 001723 work and new upstream commits:
 
 1. Create feature branch from fork `main`
-2. Add upstream remote, fetch latest
-3. Merge upstream/main into feature branch
-4. Resolve conflicts, verify critical fixes
-5. Run tests, update porting guide
-6. Open PR against `helixml/zed` main
+2. Merge `origin/feature/001723-merge-latest-zed` into it (brings in 698 commits: upstream merge + post-merge fixes already tested)
+3. Add upstream remote, fetch latest
+4. Merge `upstream/main` to pick up any commits after `d066ff0ae5` (Apr 15-19)
+5. Resolve any new conflicts, verify critical fixes
+6. Run tests, update porting guide
+7. Open PR against `helixml/zed` main
 
 ## Upstream Changes Since Last Merge (Apr 16-19)
 
