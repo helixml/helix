@@ -4,9 +4,9 @@
 
 Since the last upstream merge (task 001723, Apr 16), the fork has gained new Helix-specific commits (PRs #37-#41). These must be documented in `portingguide.md` before merging upstream.
 
-- [~] Review fork commits since last merge
-- [ ] Document new patches (PRs #37-#41) in portingguide.md — especially PR #40 (request_id desync fix, Critical Fix #9) and PR #41 (ACP auto-approve)
-- [ ] Verify rebase checklist item count is accurate
+- [x] Review fork commits since last merge
+- [x] Document new patches (PRs #32-#41) in portingguide.md — 20 new commit entries + 5 new rebase checklist items (#34-#38)
+- [x] Verify rebase checklist item count is accurate (now items 1-41)
 
 ## Setup
 
