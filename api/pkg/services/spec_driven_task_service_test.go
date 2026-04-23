@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 	"unicode/utf8"
@@ -382,4 +383,179 @@ func TestSpecDrivenTaskService_SelectZedAgent(t *testing.T) {
 	serviceNoAgents.SetTestMode(true)
 	agent = serviceNoAgents.selectZedAgent()
 	assert.Equal(t, "", agent)
+}
+
+// newIdentitySyncService builds a service wired up just enough to exercise
+// syncGitIdentityToApprover. testMode is left false so the sync path runs;
+// the ExecInDesktop callback is what the caller wants to observe/inject.
+func newIdentitySyncService(t *testing.T, exec DesktopExecFunc) (*SpecDrivenTaskService, *store.MockStore, *gomock.Controller) {
+	t.Helper()
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+
+	svc := NewSpecDrivenTaskService(
+		mockStore,
+		nil,
+		"test-helix-agent",
+		[]string{"test-zed-agent"},
+		nil, nil, nil, nil,
+		NewDisabledKoditService(),
+	)
+	svc.ExecInDesktop = exec
+	return svc, mockStore, ctrl
+}
+
+type execCall struct {
+	sessionID string
+	command   []string
+}
+
+// recordingExec captures every invocation and returns a configurable error
+// per index (indexed by invocation order).
+func recordingExec(errs ...error) (DesktopExecFunc, *[]execCall) {
+	var calls []execCall
+	fn := func(_ context.Context, sessionID string, command []string) error {
+		idx := len(calls)
+		calls = append(calls, execCall{sessionID: sessionID, command: append([]string(nil), command...)})
+		if idx < len(errs) {
+			return errs[idx]
+		}
+		return nil
+	}
+	return fn, &calls
+}
+
+func TestSyncGitIdentityToApprover_Success(t *testing.T) {
+	exec, calls := recordingExec()
+	svc, mockStore, ctrl := newIdentitySyncService(t, exec)
+	defer ctrl.Finish()
+
+	mockStore.EXPECT().GetUser(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, q *store.GetUserQuery) (*types.User, error) {
+			assert.Equal(t, "approver-1", q.ID)
+			return &types.User{ID: "approver-1", FullName: "Approver One", Email: "approver@example.com"}, nil
+		})
+
+	task := &types.SpecTask{ID: "task-1", PlanningSessionID: "ses-1", SpecApprovedBy: "approver-1"}
+	require.NoError(t, svc.syncGitIdentityToApprover(context.Background(), task))
+
+	require.Len(t, *calls, 2, "expected email then name")
+	assert.Equal(t, []string{"git", "config", "--global", "user.email", "approver@example.com"}, (*calls)[0].command)
+	assert.Equal(t, []string{"git", "config", "--global", "user.name", "Approver One"}, (*calls)[1].command)
+	assert.Equal(t, "ses-1", (*calls)[0].sessionID)
+}
+
+func TestSyncGitIdentityToApprover_FallsBackToUsernameThenEmailLocalPart(t *testing.T) {
+	cases := []struct {
+		name     string
+		user     *types.User
+		wantName string
+	}{
+		{
+			name:     "uses username when fullname empty",
+			user:     &types.User{ID: "u", Username: "alice", Email: "alice@example.com"},
+			wantName: "alice",
+		},
+		{
+			name:     "uses email local-part when both empty",
+			user:     &types.User{ID: "u", Email: "bob@example.com"},
+			wantName: "bob",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			exec, calls := recordingExec()
+			svc, mockStore, ctrl := newIdentitySyncService(t, exec)
+			defer ctrl.Finish()
+
+			mockStore.EXPECT().GetUser(gomock.Any(), gomock.Any()).Return(tc.user, nil)
+
+			task := &types.SpecTask{ID: "task-1", PlanningSessionID: "ses-1", SpecApprovedBy: "u"}
+			require.NoError(t, svc.syncGitIdentityToApprover(context.Background(), task))
+
+			require.Len(t, *calls, 2)
+			assert.Equal(t, tc.wantName, (*calls)[1].command[4], "user.name should fall back sensibly")
+		})
+	}
+}
+
+func TestSyncGitIdentityToApprover_NoOpCases(t *testing.T) {
+	t.Run("testMode short-circuits", func(t *testing.T) {
+		exec, calls := recordingExec()
+		svc, _, ctrl := newIdentitySyncService(t, exec)
+		defer ctrl.Finish()
+		svc.SetTestMode(true)
+		require.NoError(t, svc.syncGitIdentityToApprover(context.Background(), &types.SpecTask{PlanningSessionID: "s", SpecApprovedBy: "u"}))
+		assert.Empty(t, *calls, "testMode should not exec")
+	})
+	t.Run("no session", func(t *testing.T) {
+		exec, calls := recordingExec()
+		svc, _, ctrl := newIdentitySyncService(t, exec)
+		defer ctrl.Finish()
+		require.NoError(t, svc.syncGitIdentityToApprover(context.Background(), &types.SpecTask{SpecApprovedBy: "u"}))
+		assert.Empty(t, *calls)
+	})
+	t.Run("no approver", func(t *testing.T) {
+		exec, calls := recordingExec()
+		svc, _, ctrl := newIdentitySyncService(t, exec)
+		defer ctrl.Finish()
+		require.NoError(t, svc.syncGitIdentityToApprover(context.Background(), &types.SpecTask{PlanningSessionID: "s"}))
+		assert.Empty(t, *calls)
+	})
+	t.Run("ExecInDesktop nil", func(t *testing.T) {
+		svc, _, ctrl := newIdentitySyncService(t, nil)
+		defer ctrl.Finish()
+		require.NoError(t, svc.syncGitIdentityToApprover(context.Background(), &types.SpecTask{PlanningSessionID: "s", SpecApprovedBy: "u"}))
+	})
+}
+
+func TestSyncGitIdentityToApprover_ErrorsSurface(t *testing.T) {
+	ctx := context.Background()
+	baseTask := &types.SpecTask{ID: "task-1", PlanningSessionID: "ses-1", SpecApprovedBy: "u"}
+
+	t.Run("GetUser error bubbles up", func(t *testing.T) {
+		exec, calls := recordingExec()
+		svc, mockStore, ctrl := newIdentitySyncService(t, exec)
+		defer ctrl.Finish()
+		mockStore.EXPECT().GetUser(gomock.Any(), gomock.Any()).Return(nil, errors.New("db down"))
+		err := svc.syncGitIdentityToApprover(ctx, baseTask)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "db down")
+		assert.Empty(t, *calls, "no exec should happen if GetUser fails")
+	})
+
+	t.Run("missing email is an error", func(t *testing.T) {
+		exec, calls := recordingExec()
+		svc, mockStore, ctrl := newIdentitySyncService(t, exec)
+		defer ctrl.Finish()
+		mockStore.EXPECT().GetUser(gomock.Any(), gomock.Any()).
+			Return(&types.User{ID: "u", FullName: "Someone"}, nil)
+		err := svc.syncGitIdentityToApprover(ctx, baseTask)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "no email")
+		assert.Empty(t, *calls, "no exec without email")
+	})
+
+	t.Run("email exec failure aborts before name", func(t *testing.T) {
+		exec, calls := recordingExec(errors.New("boom"))
+		svc, mockStore, ctrl := newIdentitySyncService(t, exec)
+		defer ctrl.Finish()
+		mockStore.EXPECT().GetUser(gomock.Any(), gomock.Any()).
+			Return(&types.User{ID: "u", FullName: "N", Email: "e@x"}, nil)
+		err := svc.syncGitIdentityToApprover(ctx, baseTask)
+		require.Error(t, err)
+		assert.Len(t, *calls, 1, "should stop after email failure, not touch user.name")
+	})
+
+	t.Run("name-only failure is tolerated", func(t *testing.T) {
+		// nil, then error — email succeeds, name fails
+		exec, calls := recordingExec(nil, errors.New("boom"))
+		svc, mockStore, ctrl := newIdentitySyncService(t, exec)
+		defer ctrl.Finish()
+		mockStore.EXPECT().GetUser(gomock.Any(), gomock.Any()).
+			Return(&types.User{ID: "u", FullName: "N", Email: "e@x"}, nil)
+		err := svc.syncGitIdentityToApprover(ctx, baseTask)
+		require.NoError(t, err, "name-only failure is logged but not propagated")
+		assert.Len(t, *calls, 2)
+	})
 }

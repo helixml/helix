@@ -1254,33 +1254,13 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, task *types.Sp
 		// so implementation commits are attributed to the user who approved specs.
 		sessionID := task.PlanningSessionID
 
-		if sessionID != "" && !s.testMode && task.SpecApprovedBy != "" && s.ExecInDesktop != nil {
-			approver, err := s.store.GetUser(ctx, &store.GetUserQuery{ID: task.SpecApprovedBy})
-			if err != nil {
-				log.Warn().Err(err).Str("task_id", task.ID).Str("approver_id", task.SpecApprovedBy).
-					Msg("Failed to get approver user for git identity update (continuing with creator identity)")
-			} else if approver != nil {
-				approverName := approver.FullName
-				if approverName == "" {
-					approverName = approver.Username
-				}
-				approverEmail := approver.Email
-
-				if approverEmail != "" {
-					nameErr := s.ExecInDesktop(ctx, sessionID, []string{"git", "config", "--global", "user.name", approverName})
-					emailErr := s.ExecInDesktop(ctx, sessionID, []string{"git", "config", "--global", "user.email", approverEmail})
-					if nameErr != nil || emailErr != nil {
-						log.Warn().Err(nameErr).AnErr("email_err", emailErr).
-							Str("task_id", task.ID).Str("session_id", sessionID).
-							Msg("Failed to update git identity in container (commits will use creator identity)")
-					} else {
-						log.Info().
-							Str("task_id", task.ID).Str("session_id", sessionID).
-							Str("approver_name", approverName).Str("approver_email", approverEmail).
-							Msg("Updated git identity in container to approver")
-					}
-				}
-			}
+		if err := s.syncGitIdentityToApprover(ctx, task); err != nil {
+			// Don't fail the whole approval — push-time credentials already
+			// fall back to SpecApprovedBy (see git_http_server.go), so commit
+			// attribution in the container is the only thing that reverts to
+			// the creator. Log loudly so operators notice.
+			log.Error().Err(err).Str("task_id", task.ID).Str("session_id", sessionID).
+				Msg("Failed to update container git identity; commits will be attributed to task creator")
 		}
 
 		// Send instruction to existing agent session (reuse planning session)
@@ -1385,6 +1365,85 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, task *types.Sp
 		}
 	}
 
+	return nil
+}
+
+// syncGitIdentityToApprover updates the container's global git user.name and
+// user.email to match the spec approver, so implementation commits are
+// attributed to the approver rather than the task creator.
+//
+// Behaviour:
+//   - Returns nil (no-op) when there is no session, no exec callback, or we are
+//     in test mode.
+//   - Returns an error when we can identify who the approver should be but
+//     can't set their identity (DB lookup fails, approver email missing, or
+//     the remote exec fails).
+//   - Sets user.email first because email is what Git uses for authorship
+//     attribution. If setting name fails after email succeeded, we log the
+//     partial state but return success, since the attribution-critical field
+//     is correct.
+func (s *SpecDrivenTaskService) syncGitIdentityToApprover(ctx context.Context, task *types.SpecTask) error {
+	if s.testMode || s.ExecInDesktop == nil {
+		return nil
+	}
+	if task.PlanningSessionID == "" {
+		return nil
+	}
+	if task.SpecApprovedBy == "" {
+		// No approver recorded — nothing to sync against. This is expected
+		// when ApproveSpecs runs without an explicit approver (e.g. legacy
+		// tasks, auto-approval paths).
+		return nil
+	}
+
+	approver, err := s.store.GetUser(ctx, &store.GetUserQuery{ID: task.SpecApprovedBy})
+	if err != nil {
+		return fmt.Errorf("failed to look up approver %s: %w", task.SpecApprovedBy, err)
+	}
+	if approver == nil {
+		return fmt.Errorf("approver %s not found", task.SpecApprovedBy)
+	}
+
+	approverEmail := approver.Email
+	if approverEmail == "" {
+		return fmt.Errorf("approver %s has no email; cannot set git identity", approver.ID)
+	}
+
+	approverName := approver.FullName
+	if approverName == "" {
+		approverName = approver.Username
+	}
+	if approverName == "" {
+		// Last-resort fallback: local-part of the email. Git config accepts
+		// an empty user.name but the resulting commits would be unreadable,
+		// so we synthesise something meaningful instead.
+		if at := strings.IndexByte(approverEmail, '@'); at > 0 {
+			approverName = approverEmail[:at]
+		} else {
+			approverName = approverEmail
+		}
+	}
+
+	sessionID := task.PlanningSessionID
+
+	// Email first — this is the attribution-critical field. If it fails we
+	// don't touch user.name at all, so we don't leave a mixed identity.
+	if err := s.ExecInDesktop(ctx, sessionID, []string{"git", "config", "--global", "user.email", approverEmail}); err != nil {
+		return fmt.Errorf("failed to set git user.email: %w", err)
+	}
+	if err := s.ExecInDesktop(ctx, sessionID, []string{"git", "config", "--global", "user.name", approverName}); err != nil {
+		// user.email succeeded so commits will attribute correctly by
+		// email; the display name may carry over from the creator.
+		log.Warn().Err(err).
+			Str("task_id", task.ID).Str("session_id", sessionID).
+			Msg("Set user.email but failed to set user.name; commit attribution correct but display name may lag")
+		return nil
+	}
+
+	log.Info().
+		Str("task_id", task.ID).Str("session_id", sessionID).
+		Str("approver_name", approverName).Str("approver_email", approverEmail).
+		Msg("Updated git identity in container to approver")
 	return nil
 }
 

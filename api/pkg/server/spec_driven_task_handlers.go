@@ -412,7 +412,10 @@ func (s *HelixAPIServer) approveSpecs(w http.ResponseWriter, r *http.Request) {
 					}, http.StatusUnprocessableEntity)
 					return
 				}
-				log.Warn().Err(err).Str("task_id", taskID).Msg("Failed to validate user OAuth at spec approval, proceeding anyway")
+				// Non-OAuthRequired error (usually transient store error).
+				// Don't block approval on infra hiccups; the downstream push
+				// will surface any real auth failure to the user.
+				log.Warn().Err(err).Str("task_id", taskID).Msg("Non-OAuthRequired error validating approver OAuth; proceeding with approval")
 			}
 		}
 	}

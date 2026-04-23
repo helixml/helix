@@ -384,98 +384,88 @@ func (apiServer *HelixAPIServer) execInSandbox(res http.ResponseWriter, req *htt
 	}
 	log.Info().Int("body_len", len(bodyBytes)).Msg("🔧 execInSandbox: body read successfully")
 
-	// Connect to desktop container via RevDial
-	runnerID := fmt.Sprintf("desktop-%s", sessionID)
-
-	log.Info().Str("runner_id", runnerID).Msg("🔧 execInSandbox: connecting via RevDial")
-
-	revDialConn, err := apiServer.connman.Dial(req.Context(), runnerID)
+	// Connect to desktop container via RevDial and forward the request.
+	log.Info().Str("session_id", sessionID).Msg("🔧 execInSandbox: dialing desktop via RevDial")
+	execResp, cleanup, err := apiServer.dialDesktopExec(req.Context(), sessionID, bodyBytes)
 	if err != nil {
-		log.Error().
-			Err(err).
-			Str("runner_id", runnerID).
-			Str("session_id", sessionID).
-			Msg("🔧 execInSandbox: Failed to connect to desktop container via RevDial for exec")
+		log.Error().Err(err).Str("session_id", sessionID).Msg("🔧 execInSandbox: RevDial exec failed")
 		http.Error(res, fmt.Sprintf("Sandbox not connected: %v", err), http.StatusServiceUnavailable)
 		return
 	}
-	defer revDialConn.Close()
-
-	log.Info().Msg("🔧 execInSandbox: RevDial connected")
-
-	// Send POST request to /exec over RevDial tunnel
-	log.Info().Msg("🔧 execInSandbox: creating HTTP request")
-	httpReq, err := http.NewRequest("POST", "http://localhost:9876/exec", bytes.NewReader(bodyBytes))
-	if err != nil {
-		log.Error().Err(err).Msg("🔧 execInSandbox: Failed to create exec request")
-		http.Error(res, "Failed to create exec request", http.StatusInternalServerError)
-		return
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-
-	// Write request to RevDial connection
-	log.Info().Msg("🔧 execInSandbox: writing request to RevDial")
-	if err := httpReq.Write(revDialConn); err != nil {
-		log.Error().Err(err).Msg("🔧 execInSandbox: Failed to write exec request to RevDial connection")
-		http.Error(res, "Failed to send exec request", http.StatusInternalServerError)
-		return
-	}
-	log.Info().Msg("🔧 execInSandbox: request written, reading response")
-
-	// Read response from RevDial connection
-	execResp, err := http.ReadResponse(bufio.NewReader(revDialConn), httpReq)
-	if err != nil {
-		log.Error().Err(err).Msg("🔧 execInSandbox: Failed to read exec response from RevDial")
-		http.Error(res, "Failed to read exec response", http.StatusInternalServerError)
-		return
-	}
+	defer cleanup()
 	defer execResp.Body.Close()
-	log.Info().Int("status_code", execResp.StatusCode).Msg("🔧 execInSandbox: got response from sandbox")
 
-	// Forward response to client
+	log.Info().Int("status_code", execResp.StatusCode).Msg("🔧 execInSandbox: forwarding response to client")
 	res.Header().Set("Content-Type", "application/json")
 	res.WriteHeader(execResp.StatusCode)
-	log.Info().Int("status_code", execResp.StatusCode).Msg("🔧 execInSandbox: forwarding response to client")
 	io.Copy(res, execResp.Body)
 }
 
-// execCommandInDesktop runs a command inside a running desktop container via
-// RevDial. This is the internal (non-HTTP) version of execInSandbox, used by
-// service-layer code that needs to exec without going through the HTTP API.
-func (apiServer *HelixAPIServer) execCommandInDesktop(ctx context.Context, sessionID string, command []string) error {
+// dialDesktopExec opens a RevDial connection to the desktop container's /exec
+// endpoint for sessionID, writes the provided request body (expected to be a
+// marshalled ExecRequest), and returns the HTTP response. The caller MUST
+// invoke the returned cleanup to release the RevDial connection, in addition
+// to resp.Body.Close().
+func (apiServer *HelixAPIServer) dialDesktopExec(ctx context.Context, sessionID string, body []byte) (*http.Response, func(), error) {
 	runnerID := fmt.Sprintf("desktop-%s", sessionID)
 
 	revDialConn, err := apiServer.connman.Dial(ctx, runnerID)
 	if err != nil {
-		return fmt.Errorf("failed to connect to desktop %s via RevDial: %w", sessionID, err)
+		return nil, nil, fmt.Errorf("failed to connect to desktop %s via RevDial: %w", sessionID, err)
 	}
-	defer revDialConn.Close()
+
+	httpReq, err := http.NewRequest(http.MethodPost, "http://localhost:9876/exec", bytes.NewReader(body))
+	if err != nil {
+		revDialConn.Close()
+		return nil, nil, fmt.Errorf("failed to create exec request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	if err := httpReq.Write(revDialConn); err != nil {
+		revDialConn.Close()
+		return nil, nil, fmt.Errorf("failed to write exec request: %w", err)
+	}
+
+	resp, err := http.ReadResponse(bufio.NewReader(revDialConn), httpReq)
+	if err != nil {
+		revDialConn.Close()
+		return nil, nil, fmt.Errorf("failed to read exec response: %w", err)
+	}
+
+	return resp, func() { revDialConn.Close() }, nil
+}
+
+// execCommandInDesktop runs a command inside a running desktop container via
+// RevDial. Used by service-layer code that needs to exec without going through
+// the HTTP API.
+//
+// The remote-side timeout is derived from ctx: if ctx has a deadline we send
+// its remaining budget, otherwise we fall back to 30 seconds (matching the
+// default applied by the desktop side when no timeout is provided).
+func (apiServer *HelixAPIServer) execCommandInDesktop(ctx context.Context, sessionID string, command []string) error {
+	timeoutSecs := 30
+	if deadline, ok := ctx.Deadline(); ok {
+		if remaining := int(time.Until(deadline).Seconds()); remaining > 0 {
+			timeoutSecs = remaining
+		}
+	}
 
 	reqBody, err := json.Marshal(struct {
 		Command []string `json:"command"`
 		Timeout int      `json:"timeout"`
 	}{
 		Command: command,
-		Timeout: 10,
+		Timeout: timeoutSecs,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to marshal exec request: %w", err)
 	}
 
-	httpReq, err := http.NewRequest("POST", "http://localhost:9876/exec", bytes.NewReader(reqBody))
+	execResp, cleanup, err := apiServer.dialDesktopExec(ctx, sessionID, reqBody)
 	if err != nil {
-		return fmt.Errorf("failed to create exec request: %w", err)
+		return err
 	}
-	httpReq.Header.Set("Content-Type", "application/json")
-
-	if err := httpReq.Write(revDialConn); err != nil {
-		return fmt.Errorf("failed to write exec request: %w", err)
-	}
-
-	execResp, err := http.ReadResponse(bufio.NewReader(revDialConn), httpReq)
-	if err != nil {
-		return fmt.Errorf("failed to read exec response: %w", err)
-	}
+	defer cleanup()
 	defer execResp.Body.Close()
 
 	if execResp.StatusCode != http.StatusOK {

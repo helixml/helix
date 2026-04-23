@@ -53,25 +53,35 @@ func (s *Server) handleExec(w http.ResponseWriter, r *http.Request) {
 
 	// Security: Only allow specific commands for safety
 	allowedCommands := map[string]bool{
-		"vkcube":             true,
-		"glxgears":           true,
-		"pkill":              true,
-		"killall":            true,
-		"ls":                 true,
-		"echo":               true,
-		"weston-simple-egl":  true,
-		"claude":             true,
-		"cat":                true,
-		"test":               true,
-		"npm":                      true, // needed to upgrade claude CLI at login time
+		"vkcube":                    true,
+		"glxgears":                  true,
+		"pkill":                     true,
+		"killall":                   true,
+		"ls":                        true,
+		"echo":                      true,
+		"weston-simple-egl":         true,
+		"claude":                    true,
+		"cat":                       true,
+		"test":                      true,
+		"npm":                       true, // needed to upgrade claude CLI at login time
 		"helix-claude-auth-wrapper": true, // runs claude auth login with stdout capture
-		"git":                       true, // needed to update git identity on spec approval
+		"git":                       true, // scoped further below: only identity writes via gitInvocationAllowed
 	}
 
 	cmdName := req.Command[0]
 	if !allowedCommands[cmdName] {
 		s.logger.Warn("exec: blocked disallowed command", "command", cmdName)
 		http.Error(w, fmt.Sprintf("command not allowed: %s", cmdName), http.StatusForbidden)
+		return
+	}
+
+	// Extra scoping for git: `git` is a dispatcher with ~150 subcommands, some
+	// of which can exfiltrate secrets (e.g. via a custom credential.helper) or
+	// make destructive filesystem changes. Only allow the identity-writing
+	// subset used by the spec-approval flow.
+	if cmdName == "git" && !gitInvocationAllowed(req.Command) {
+		s.logger.Warn("exec: blocked git invocation", "args", req.Command)
+		http.Error(w, "git invocation not allowed (only 'git config --global user.name|user.email <value>')", http.StatusForbidden)
 		return
 	}
 
@@ -137,4 +147,27 @@ func (s *Server) handleExec(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)
+}
+
+// gitInvocationAllowed restricts `git` invocations to the identity-writing
+// subset: `git config --global user.name <value>` or
+// `git config --global user.email <value>`. Any other form is rejected.
+//
+// This exists because `git` as a dispatcher is extremely broad: allowing the
+// binary unconditionally would permit arbitrary `git clone`, custom
+// credential helpers, object fetches over HTTP, etc. from anyone able to
+// reach the exec endpoint.
+func gitInvocationAllowed(cmd []string) bool {
+	if len(cmd) != 5 {
+		return false
+	}
+	if cmd[0] != "git" || cmd[1] != "config" || cmd[2] != "--global" {
+		return false
+	}
+	if cmd[3] != "user.name" && cmd[3] != "user.email" {
+		return false
+	}
+	// Reject values that look like flags so we can't be tricked into
+	// invoking `git config --global user.name --some-other-flag`.
+	return !strings.HasPrefix(cmd[4], "-")
 }
