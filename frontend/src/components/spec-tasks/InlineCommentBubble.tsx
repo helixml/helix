@@ -8,7 +8,7 @@ import {
   CircularProgress,
   Button,
 } from "@mui/material";
-import CloseIcon from "@mui/icons-material/Close";
+import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import ExpandLessIcon from "@mui/icons-material/ExpandLess";
 import { MessageWithToolCalls, ResponseEntry } from "../session/InteractionInference";
@@ -126,8 +126,8 @@ export default function InlineCommentBubble({
         mb={1}
       >
         <Chip label="Comment" size="small" color="primary" />
-        <IconButton size="small" onClick={() => onResolve(comment.id!)}>
-          <CloseIcon fontSize="small" />
+        <IconButton size="small" onClick={() => onResolve(comment.id!)} sx={{ color: "success.main" }}>
+          <CheckCircleIcon fontSize="small" />
         </IconButton>
       </Box>
 
