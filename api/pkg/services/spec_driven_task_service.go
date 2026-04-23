@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
@@ -1242,6 +1243,18 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, task *types.Sp
 		}
 		if task.HelixAppID != "" {
 			extraFields["helix_app_id"] = task.HelixAppID
+		}
+		// Persist the synthesized SpecApproval struct (only set when the
+		// caller arrived with task.SpecApproval == nil). The pre-PR2260
+		// implementation persisted this implicitly via UpdateSpecTask saving
+		// the whole struct; the atomic-update path only writes columns we
+		// list here.
+		if task.SpecApproval != nil {
+			specApprovalJSON, marshalErr := json.Marshal(task.SpecApproval)
+			if marshalErr != nil {
+				return fmt.Errorf("failed to marshal SpecApproval: %w", marshalErr)
+			}
+			extraFields["spec_approval"] = string(specApprovalJSON)
 		}
 		transitioned, err := s.store.TransitionSpecTaskStatus(
 			ctx,
