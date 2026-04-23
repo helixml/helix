@@ -306,12 +306,20 @@ func TestSpecDrivenTaskService_ApproveSpecs_SynthesizesNilSpecApproval(t *testin
 		gomock.Any(),
 		types.TaskStatusImplementation,
 		gomock.Any(),
-	).Return(true, nil)
+	).DoAndReturn(func(_ context.Context, _ string, _ []types.SpecTaskStatus, _ types.SpecTaskStatus, extraFields map[string]any) (bool, error) {
+		// Synthesized SpecApproval must be persisted in the same atomic UPDATE,
+		// otherwise the in-memory synthesis is lost on the next re-fetch.
+		raw, ok := extraFields["spec_approval"]
+		require.True(t, ok, "spec_approval field must be in extraFields when SpecApproval was synthesized")
+		jsonStr, ok := raw.(string)
+		require.True(t, ok, "spec_approval must be marshalled to a JSON string")
+		assert.Contains(t, jsonStr, "task-stuck")
+		assert.Contains(t, jsonStr, "user-1")
+		return true, nil
+	})
 
 	err := service.ApproveSpecs(ctx, &types.SpecTask{ID: "task-stuck"})
 	require.NoError(t, err)
-	// SpecApproval is synthesized in-memory; verifying via mock callback would require
-	// re-fetching after the transition, which TransitionSpecTaskStatus doesn't expose.
 	_ = approvedAt
 }
 
