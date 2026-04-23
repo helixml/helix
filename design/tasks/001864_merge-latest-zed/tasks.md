@@ -8,13 +8,13 @@
 
 ## Setup
 
-- [~] Create feature branch `feature/001864-merge-latest-zed` from `main`
-- [ ] Add upstream remote: `git remote add upstream https://github.com/zed-industries/zed.git`
-- [ ] Fetch upstream and check divergence
+- [x] Create feature branch `feature/001864-merge-latest-zed` from `main`
+- [x] Add upstream remote and fetch (973 commits behind, 178 ahead)
+- [x] Portingguide updates committed to feature branch
 
 ## Merge
 
-- [ ] Merge `upstream/main` directly into feature branch (fresh merge, full gap since task 001554)
+- [~] Merge `upstream/main` directly into feature branch (973 commits, fresh merge since task 001554)
 - [ ] Resolve all merge conflicts, preserving Helix-specific patches (reference 001723 branch resolutions as guide)
 
 ## Verify Critical Fixes
