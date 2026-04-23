@@ -1,16 +1,16 @@
 Your implementation has been approved!
 
-Please commit and push any remaining uncommitted changes:
+Please merge the latest default branch and push any remaining uncommitted changes:
 
 ```bash
 # First, push any pending design doc changes (including PR descriptions)
 cd /home/retro/work/helix-specs && git add -A && git diff --cached --quiet || (git commit -m "Final updates" && git push origin helix-specs)
 
-# Then push the feature branch in all repos that have changes
-cd /home/retro/work/{{ .PrimaryRepoName }} && git add -A && git diff --cached --quiet || git commit -m "Complete implementation"
+# Then merge the default branch and push the feature branch in all repos that have changes
+cd /home/retro/work/{{ .PrimaryRepoName }} && git fetch origin {{ .BaseBranch }} && git merge origin/{{ .BaseBranch }} && git add -A && git diff --cached --quiet || git commit -m "Complete implementation"
 git push origin {{ .BranchName }}
 {{- range .NonPrimaryRepoNames }}
-cd /home/retro/work/{{ . }} && git add -A && git diff --cached --quiet || git commit -m "Complete implementation"
+cd /home/retro/work/{{ . }} && git fetch origin {{ $.BaseBranch }} && git merge origin/{{ $.BaseBranch }} && git add -A && git diff --cached --quiet || git commit -m "Complete implementation"
 git push origin {{ $.BranchName }}
 {{- end }}
 ```
