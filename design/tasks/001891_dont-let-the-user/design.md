@@ -34,6 +34,10 @@ Wire the existing `viewedTabs` state into `ReviewActionFooter` to disable the ap
 - **Only gates Approve** — "Request Changes" and "Reject" remain ungated. You don't need to read everything to know something is wrong.
 - **Tooltip, not toast** — A tooltip on the disabled button is less intrusive and more discoverable than a toast/snackbar on click.
 
+**3. `InlineCommentBubble.tsx`** — Replace `CloseIcon` with `CheckCircleIcon` (green) on the resolve button (line 130). The X icon is ambiguous — it looks like "dismiss/close" rather than "resolve". A green tick makes the action clear.
+
+**4. `CommentLogSidebar.tsx`** — Same change: replace `CloseIcon` with green `CheckCircleIcon` on the resolve button (line 78). Note: `CheckCircleIcon` is already imported here (line 4) but only used for the "Resolved" chip, not the button.
+
 ### Codebase Patterns Found
 
 - `ReviewActionFooter` already has a pattern for disabling approve: `disabled={unresolvedCount > 0}` (line 96). We extend this condition.
