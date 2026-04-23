@@ -2,24 +2,24 @@
 
 ## Phase 1: Core Theme Infrastructure
 
-- [~] Update `src/contexts/theme.tsx`: Initialize mode from localStorage, then OS preference (`prefers-color-scheme`), then default to `'dark'`
-- [~] Update `src/contexts/theme.tsx`: Persist mode to localStorage in `toggleMode()`
-- [~] Update `src/contexts/theme.tsx`: Make MUI component overrides (MuiMenu, MuiDialog, MuiPaper, MuiPopover) mode-conditional instead of hardcoded dark
-- [~] Add light-mode scrollbar tokens to `src/themes.tsx` (`lightScrollbar`, `lightScrollbarThumb`, `lightScrollbarHover`)
-- [~] Update scrollbar overrides in `src/contexts/theme.tsx` to use light scrollbar tokens when in light mode
-- [~] Update `src/hooks/useLightTheme.tsx`: Add any missing light-mode return values needed by consumers (e.g., `panelColor`, `highlightColor`)
-- [ ] Add theme toggle button to the app bar (sun/moon icon using MUI `LightMode`/`DarkMode` icons), consuming `ThemeContext.toggleMode()`
-- [ ] Update `index.html` meta theme-color to be neutral or remove hardcoded dark value
+- [x] Update `src/contexts/theme.tsx`: Initialize mode from localStorage, then OS preference (`prefers-color-scheme`), then default to `'dark'`
+- [x] Update `src/contexts/theme.tsx`: Persist mode to localStorage in `toggleMode()`
+- [x] Update `src/contexts/theme.tsx`: Make MUI component overrides (MuiMenu, MuiDialog, MuiPaper, MuiPopover) mode-conditional instead of hardcoded dark
+- [x] Add light-mode scrollbar tokens to `src/themes.tsx` (`lightScrollbar`, `lightScrollbarThumb`, `lightScrollbarHover`)
+- [x] Update scrollbar overrides in `src/contexts/theme.tsx` to use light scrollbar tokens when in light mode
+- [x] Update `src/hooks/useLightTheme.tsx`: Add any missing light-mode return values needed by consumers (e.g., `panelColor`, `highlightColor`)
+- [x] Add theme toggle button to the app bar (sun/moon icon using MUI `LightMode`/`DarkMode` icons), consuming `ThemeContext.toggleMode()`
+- [x] Update `index.html` meta theme-color to be neutral or remove hardcoded dark value (already had `color-scheme: dark light`)
 
 ## Phase 2: Migrate Direct `themeConfig.dark*` Usage
 
-- [ ] Migrate `src/components/session/SessionToolbar.tsx` (10 direct dark accesses) to use `useLightTheme()`
-- [ ] Migrate `src/components/widgets/MonacoEditorImpl.tsx` — switch Monaco theme between `vs-dark` and `vs-light` based on mode
-- [ ] Migrate `src/pages/PasswordResetComplete.tsx` (15 dark accesses) to use `useLightTheme()`
-- [ ] Migrate `src/pages/ImportAgent.tsx` (18 dark accesses) to use `useLightTheme()`
-- [ ] Migrate diff viewer components (`DiffViewer.tsx`, `DiffFileList.tsx`, `DiffContent.tsx`) to use `useLightTheme()`
-- [ ] Migrate `src/components/datagrid/DataGridImpl.tsx` to use `useLightTheme()`
-- [ ] Migrate remaining files using `themeConfig.dark*` directly (~20 files) to use `useLightTheme()` or mode-conditional logic
+- [~] Migrate `src/components/session/SessionToolbar.tsx` (10 direct dark accesses) to use `useLightTheme()`
+- [~] Migrate `src/components/widgets/MonacoEditorImpl.tsx` — switch Monaco theme between `vs-dark` and `vs-light` based on mode
+- [~] Migrate `src/pages/PasswordResetComplete.tsx` (15 dark accesses) to use `useLightTheme()`
+- [~] Migrate `src/pages/ImportAgent.tsx` (18 dark accesses) to use `useLightTheme()`
+- [~] Migrate diff viewer components (`DiffViewer.tsx`, `DiffFileList.tsx`, `DiffContent.tsx`) to use `useLightTheme()`
+- [~] Migrate `src/components/datagrid/DataGridImpl.tsx` to use `useLightTheme()`
+- [~] Migrate remaining files using `themeConfig.dark*` directly (~20 files) to use `useLightTheme()` or mode-conditional logic
 
 ## Phase 3: Replace Hardcoded Dark Colors
 
