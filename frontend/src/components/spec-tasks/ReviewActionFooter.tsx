@@ -9,6 +9,8 @@ interface ReviewActionFooterProps {
   implementationStarted: boolean // True if task is already in implementation phase
   isBlockedByDependencies?: boolean
   blockedReason?: string
+  allTabsViewed?: boolean
+  unviewedTabNames?: string[]
   onApprove: () => void
   onRequestChanges: () => void
   onReject: () => void
@@ -22,6 +24,8 @@ export default function ReviewActionFooter({
   implementationStarted,
   isBlockedByDependencies = false,
   blockedReason = '',
+  allTabsViewed = true,
+  unviewedTabNames = [],
   onApprove,
   onRequestChanges,
   onReject,
@@ -89,14 +93,25 @@ export default function ReviewActionFooter({
           >
             Request Changes
           </Button>
-          <Button
-            variant="contained"
-            color="success"
-            onClick={onApprove}
-            disabled={unresolvedCount > 0}
+          <Tooltip
+            title={
+              !allTabsViewed
+                ? `Review all tabs before approving: ${unviewedTabNames.join(', ')}`
+                : ''
+            }
+            placement="top"
           >
-            Approve Design
-          </Button>
+            <span>
+              <Button
+                variant="contained"
+                color="success"
+                onClick={onApprove}
+                disabled={unresolvedCount > 0 || !allTabsViewed}
+              >
+                Approve Design
+              </Button>
+            </span>
+          </Tooltip>
         </>
       ) : (
         <Alert severity="info" sx={{ flex: 1 }}>

@@ -145,17 +145,19 @@ export const ThemeProviderWrapper = ({ children }: { children: ReactNode }) => {
               transition: 'all 0.2s ease-in-out',
             },
             root: {
-              zIndex: 100002,
+              zIndex: 100002, // Above floating windows (z-index 9999); tooltips (100004) render above
               transition: 'all 0.2s ease-in-out',
             },
           },
         },
+        // Tooltips must sit above dialogs (100002), popovers and select menus (100003)
+        // so they remain visible when triggered from elements inside a modal.
         MuiTooltip: {
           defaultProps: {
             slotProps: {
               popper: {
                 sx: {
-                  zIndex: 100001,
+                  zIndex: 100004,
                 },
               },
             },

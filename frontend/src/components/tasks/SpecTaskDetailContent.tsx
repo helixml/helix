@@ -87,6 +87,7 @@ import {
   useGetProjectRepositories,
 } from "../../services/projectService";
 import { useMoveToBacklog } from "../../services/specTaskWorkflowService";
+import { getUserById } from "../../services/userService";
 import CloneTaskDialog from "../specTask/CloneTaskDialog";
 import AgentDropdown from "../agent/AgentDropdown";
 import CloneGroupProgressFull from "../specTask/CloneGroupProgress";
@@ -165,6 +166,13 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     withDependsOn: true,
     enabled: !!task?.project_id,
   });
+
+  const { data: taskAuthor } = getUserById(task?.created_by || "", !!task?.created_by);
+  const authorDisplay =
+    taskAuthor?.full_name ||
+    taskAuthor?.username ||
+    taskAuthor?.email ||
+    task?.created_by;
 
   // Label state
   const { data: projectLabels = [] } = useProjectLabels(
@@ -1332,7 +1340,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
       <Box sx={{ mt: 3 }}>
         {task?.created_by && (
           <Typography variant="caption" color="text.secondary" display="block">
-            Author: {task.created_by}
+            Author: {authorDisplay}
           </Typography>
         )}
         <Typography variant="caption" color="text.secondary" display="block">

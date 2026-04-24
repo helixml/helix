@@ -1,5 +1,5 @@
 # Production docker-compose.yaml for HelixML
-# See https://docs.helixml.tech/helix/private-deployment/controlplane/
+# See https://helix.ml/docs
 
 services:
   api:

@@ -257,6 +257,193 @@ func isValidUTF8(s string) bool {
 	return true
 }
 
+func TestSpecDrivenTaskService_ApproveSpecs_SynthesizesNilSpecApproval(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockStore := store.NewMockStore(ctrl)
+	var mockPubsub pubsub.PubSub = nil
+
+	service := NewSpecDrivenTaskService(
+		mockStore,
+		nil,
+		"test-helix-agent",
+		[]string{"test-zed-agent"},
+		mockPubsub,
+		nil, nil, nil,
+		NewDisabledKoditService(),
+	)
+	service.SetTestMode(true)
+
+	ctx := context.Background()
+	approvedAt := time.Now()
+
+	// Task has SpecApprovedBy/SpecApprovedAt set but SpecApproval is nil —
+	// this is the broken state from the approveImplementation fallback bug.
+	taskInDB := &types.SpecTask{
+		ID:            "task-stuck",
+		ProjectID:     "project-1",
+		Status:        types.TaskStatusSpecApproved,
+		SpecApprovedBy: "user-1",
+		SpecApprovedAt: &approvedAt,
+		SpecApproval:  nil, // <-- the bug: this was never set
+		TaskNumber:    42,
+		Name:          "stuck-task",
+	}
+
+	mockStore.EXPECT().GetSpecTask(ctx, "task-stuck").Return(taskInDB, nil)
+	mockStore.EXPECT().GetProject(ctx, "project-1").Return(&types.Project{
+		ID:            "project-1",
+		DefaultRepoID: "repo-1",
+	}, nil)
+	mockStore.EXPECT().GetGitRepository(ctx, "repo-1").Return(&types.GitRepository{
+		ID:            "repo-1",
+		DefaultBranch: "main",
+	}, nil)
+	mockStore.EXPECT().TransitionSpecTaskStatus(
+		ctx,
+		"task-stuck",
+		gomock.Any(),
+		types.TaskStatusImplementation,
+		gomock.Any(),
+	).DoAndReturn(func(_ context.Context, _ string, _ []types.SpecTaskStatus, _ types.SpecTaskStatus, extraFields map[string]any) (bool, error) {
+		// Synthesized SpecApproval must be persisted in the same atomic UPDATE,
+		// otherwise the in-memory synthesis is lost on the next re-fetch.
+		raw, ok := extraFields["spec_approval"]
+		require.True(t, ok, "spec_approval field must be in extraFields when SpecApproval was synthesized")
+		jsonStr, ok := raw.(string)
+		require.True(t, ok, "spec_approval must be marshalled to a JSON string")
+		assert.Contains(t, jsonStr, "task-stuck")
+		assert.Contains(t, jsonStr, "user-1")
+		return true, nil
+	})
+
+	err := service.ApproveSpecs(ctx, &types.SpecTask{ID: "task-stuck"})
+	require.NoError(t, err)
+	_ = approvedAt
+}
+
+func TestSpecDrivenTaskService_ApproveSpecs_NilSpecApprovalAndNilApprovedAt(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockStore := store.NewMockStore(ctrl)
+	var mockPubsub pubsub.PubSub = nil
+
+	service := NewSpecDrivenTaskService(
+		mockStore,
+		nil,
+		"test-helix-agent",
+		[]string{"test-zed-agent"},
+		mockPubsub,
+		nil, nil, nil,
+		NewDisabledKoditService(),
+	)
+	service.SetTestMode(true)
+
+	ctx := context.Background()
+
+	// Both SpecApproval and SpecApprovedAt are nil — worst case scenario.
+	taskInDB := &types.SpecTask{
+		ID:            "task-worst-case",
+		ProjectID:     "project-1",
+		Status:        types.TaskStatusSpecApproved,
+		SpecApprovedBy: "user-1",
+		SpecApprovedAt: nil,
+		SpecApproval:  nil,
+		TaskNumber:    43,
+		Name:          "worst-case-task",
+	}
+
+	mockStore.EXPECT().GetSpecTask(ctx, "task-worst-case").Return(taskInDB, nil)
+	mockStore.EXPECT().GetProject(ctx, "project-1").Return(&types.Project{
+		ID:            "project-1",
+		DefaultRepoID: "repo-1",
+	}, nil)
+	mockStore.EXPECT().GetGitRepository(ctx, "repo-1").Return(&types.GitRepository{
+		ID:            "repo-1",
+		DefaultBranch: "main",
+	}, nil)
+	mockStore.EXPECT().TransitionSpecTaskStatus(
+		ctx,
+		"task-worst-case",
+		gomock.Any(),
+		types.TaskStatusImplementation,
+		gomock.Any(),
+	).Return(true, nil)
+
+	err := service.ApproveSpecs(ctx, &types.SpecTask{ID: "task-worst-case"})
+	require.NoError(t, err)
+}
+
+// TestSpecDrivenTaskService_ApproveSpecs_LosesAtomicTransitionRace verifies the
+// authoritative race guard: if TransitionSpecTaskStatus reports it didn't update
+// the row (transitioned=false), ApproveSpecs must bail without sending the
+// implementation instruction. This is what prevents the duplicate-prompt bug
+// when the HTTP handler goroutine and orchestrator polling loop both invoke
+// ApproveSpecs simultaneously.
+func TestSpecDrivenTaskService_ApproveSpecs_LosesAtomicTransitionRace(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockStore := store.NewMockStore(ctrl)
+	var mockPubsub pubsub.PubSub = nil
+
+	// messageSender is wired up so we can prove it is NOT called when the
+	// transition loses the race.
+	sendCalls := 0
+	sender := func(_ context.Context, _ *types.SpecTask, _, _ string) (string, string, error) {
+		sendCalls++
+		return "", "", nil
+	}
+
+	service := NewSpecDrivenTaskService(
+		mockStore,
+		nil,
+		"test-helix-agent",
+		[]string{"test-zed-agent"},
+		mockPubsub,
+		nil, nil, nil,
+		NewDisabledKoditService(),
+	)
+	service.SendMessageToAgent = sender
+	// Note: testMode=false so the message-send path would actually fire if we
+	// reached it; the test asserts it does not.
+
+	ctx := context.Background()
+	taskInDB := &types.SpecTask{
+		ID:                "task-loser",
+		ProjectID:         "project-1",
+		Status:            types.TaskStatusSpecApproved,
+		PlanningSessionID: "ses-loser",
+		SpecApproval:      &types.SpecApprovalResponse{Approved: true, ApprovedBy: "user-1"},
+		TaskNumber:        99,
+		Name:              "loser-task",
+	}
+
+	mockStore.EXPECT().GetSpecTask(ctx, "task-loser").Return(taskInDB, nil)
+	mockStore.EXPECT().GetProject(ctx, "project-1").Return(&types.Project{
+		ID:            "project-1",
+		DefaultRepoID: "repo-1",
+	}, nil)
+	mockStore.EXPECT().GetGitRepository(ctx, "repo-1").Return(&types.GitRepository{
+		ID:            "repo-1",
+		DefaultBranch: "main",
+	}, nil)
+	// Simulate losing the race: the other caller already updated the row.
+	mockStore.EXPECT().TransitionSpecTaskStatus(
+		ctx,
+		"task-loser",
+		gomock.Any(),
+		types.TaskStatusImplementation,
+		gomock.Any(),
+	).Return(false, nil)
+
+	err := service.ApproveSpecs(ctx, &types.SpecTask{ID: "task-loser"})
+	require.NoError(t, err)
+	assert.Equal(t, 0, sendCalls, "messageSender must not be invoked when atomic transition loses the race")
+}
+
 func TestSpecDrivenTaskService_SelectZedAgent(t *testing.T) {
 	// Test with agents available
 	service := NewSpecDrivenTaskService(nil, nil, "test-helix-agent", []string{"agent1", "agent2"}, nil, nil, nil, nil, NewDisabledKoditService())

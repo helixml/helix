@@ -27161,6 +27161,10 @@ const docTemplate = `{
         "types.RepositoryInfo": {
             "type": "object",
             "properties": {
+                "can_write": {
+                    "description": "CanWrite is true when the authenticated user has push or admin access to the repo.\nHelix needs write access to push branches and open pull requests, so read-only\nrepos can be listed but cannot be linked as a project repo.",
+                    "type": "boolean"
+                },
                 "clone_url": {
                     "description": "HTTPS clone URL",
                     "type": "string"

@@ -126,6 +126,7 @@ export default function DesignReviewContent({
   const [viewedTabs, setViewedTabs] = useState<Set<DocumentType>>(
     new Set(["requirements"]),
   );
+  const viewedContentRef = useRef<Map<DocumentType, string>>(new Map());
   const [showRejectDialog, setShowRejectDialog] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
   const [shareLinkCopied, setShareLinkCopied] = useState(false);
@@ -248,6 +249,12 @@ export default function DesignReviewContent({
   );
   const unresolvedCount = getUnresolvedCount(allComments);
 
+  const ALL_TABS: DocumentType[] = ["requirements", "technical_design", "implementation_plan"];
+  const allTabsViewed = ALL_TABS.every((t) => viewedTabs.has(t));
+  const unviewedTabNames = ALL_TABS
+    .filter((t) => !viewedTabs.has(t))
+    .map((t) => DOCUMENT_LABELS[t]);
+
   // Memoize document content
   const documentContent = useMemo(() => {
     if (!review) return "";
@@ -272,10 +279,51 @@ export default function DesignReviewContent({
       .length;
   };
 
+  const getTabContent = (tab: DocumentType): string => {
+    if (!review) return "";
+    switch (tab) {
+      case "requirements":
+        return review.requirements_spec || "";
+      case "technical_design":
+        return review.technical_design || "";
+      case "implementation_plan":
+        return review.implementation_plan || "";
+    }
+  };
+
+  // Snapshot content on initial mount for the default tab
+  useEffect(() => {
+    if (review && !viewedContentRef.current.has("requirements")) {
+      viewedContentRef.current.set("requirements", getTabContent("requirements"));
+    }
+  }, [review]);
+
+  // Invalidate viewed tabs when content changes
+  useEffect(() => {
+    if (!review) return;
+    const tabs: DocumentType[] = ["requirements", "technical_design", "implementation_plan"];
+    const invalidated: DocumentType[] = [];
+    for (const tab of tabs) {
+      const snapshot = viewedContentRef.current.get(tab);
+      if (snapshot !== undefined && snapshot !== getTabContent(tab)) {
+        invalidated.push(tab);
+        viewedContentRef.current.delete(tab);
+      }
+    }
+    if (invalidated.length > 0) {
+      setViewedTabs((prev) => {
+        const next = new Set(prev);
+        for (const tab of invalidated) next.delete(tab);
+        return next;
+      });
+    }
+  }, [review?.requirements_spec, review?.technical_design, review?.implementation_plan]);
+
   // Handle tab change
   const handleTabChange = (newTab: DocumentType) => {
     setActiveTab(newTab);
     setViewedTabs((prev) => new Set(prev).add(newTab));
+    viewedContentRef.current.set(newTab, getTabContent(newTab));
     if (documentRef.current) {
       documentRef.current.scrollTop = 0;
     }
@@ -910,12 +958,6 @@ export default function DesignReviewContent({
       });
 
       if (submitDecision === "approve") {
-        const apiClient = api.getApiClient();
-        await apiClient.v1SpecTasksApproveSpecsCreate(specTaskId, {
-          approved: true,
-          comments: overallComment || "Design approved",
-        });
-
         snackbar.success("Design approved! Agent starting implementation...");
         setShowSubmitDialog(false);
 
@@ -1096,69 +1138,41 @@ export default function DesignReviewContent({
                 },
               }}
             >
-              <Tab
-                label={
-                  <Box display="flex" alignItems="center" gap={0.5}>
-                    Requirements
-                    {getCommentCount("requirements") > 0 && (
-                      <Chip
-                        label={getCommentCount("requirements")}
-                        size="small"
-                        color="warning"
-                        sx={{
-                          height: 16,
-                          minWidth: 16,
-                          fontSize: "0.65rem",
-                          "& .MuiChip-label": { px: 0.5 },
-                        }}
-                      />
-                    )}
-                  </Box>
-                }
-                value="requirements"
-              />
-              <Tab
-                label={
-                  <Box display="flex" alignItems="center" gap={0.5}>
-                    Technical Design
-                    {getCommentCount("technical_design") > 0 && (
-                      <Chip
-                        label={getCommentCount("technical_design")}
-                        size="small"
-                        color="warning"
-                        sx={{
-                          height: 16,
-                          minWidth: 16,
-                          fontSize: "0.65rem",
-                          "& .MuiChip-label": { px: 0.5 },
-                        }}
-                      />
-                    )}
-                  </Box>
-                }
-                value="technical_design"
-              />
-              <Tab
-                label={
-                  <Box display="flex" alignItems="center" gap={0.5}>
-                    Implementation Plan
-                    {getCommentCount("implementation_plan") > 0 && (
-                      <Chip
-                        label={getCommentCount("implementation_plan")}
-                        size="small"
-                        color="warning"
-                        sx={{
-                          height: 16,
-                          minWidth: 16,
-                          fontSize: "0.65rem",
-                          "& .MuiChip-label": { px: 0.5 },
-                        }}
-                      />
-                    )}
-                  </Box>
-                }
-                value="implementation_plan"
-              />
+              {ALL_TABS.map((tab) => (
+                <Tab
+                  key={tab}
+                  label={
+                    <Box display="flex" alignItems="center" gap={0.5}>
+                      {DOCUMENT_LABELS[tab]}
+                      {!viewedTabs.has(tab) && (
+                        <Box
+                          sx={{
+                            width: 8,
+                            height: 8,
+                            borderRadius: "50%",
+                            bgcolor: "warning.main",
+                            flexShrink: 0,
+                          }}
+                        />
+                      )}
+                      {getCommentCount(tab) > 0 && (
+                        <Chip
+                          label={getCommentCount(tab)}
+                          size="small"
+                          color="warning"
+                          sx={{
+                            height: 16,
+                            minWidth: 16,
+                            fontSize: "0.65rem",
+                            "& .MuiChip-label": { px: 0.5 },
+                          }}
+                        />
+                      )}
+                    </Box>
+                  }
+                  value={tab}
+                />
+              ))}
             </Tabs>
 
             {/* Git info and actions on the right */}
@@ -1365,6 +1379,16 @@ export default function DesignReviewContent({
                     color: "#000",
                   },
                   cursor: "text",
+                  "& a": {
+                    color: "#00d5ff",
+                    textDecoration: "none",
+                    "&:hover": {
+                      textDecoration: "underline",
+                    },
+                    "&:visited": {
+                      color: "#00d5ff",
+                    },
+                  },
                   "& p, & li, & h1, & h2, & h3, & h4": {
                     cursor: "text",
                     transition: "background-color 0.15s ease",
@@ -1512,6 +1536,8 @@ export default function DesignReviewContent({
             setSubmitDecision("request_changes");
             setShowSubmitDialog(true);
           }}
+          allTabsViewed={allTabsViewed}
+          unviewedTabNames={unviewedTabNames}
           onReject={() => setShowRejectDialog(true)}
           onStartImplementation={handleStartImplementation}
         />
