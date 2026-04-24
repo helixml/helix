@@ -13,8 +13,8 @@
 - [ ] Test that cron-triggered Zed sessions get project MCP servers, startup script, and secrets
 
 ## Gap 3: Persistent agent state on helix-specs branch (1 job = 1 project)
-- [ ] On unmanaged (job) session start, clone the `helix-specs` branch from the project's primary repo
-- [ ] Mount the top-level state files (persona, task list, notes, log) into the container at a known path (e.g., `/workspace/state/`)
+- [ ] On unmanaged (job) session start, reuse existing machinery to check out `helix-specs` branch into `~/work/helix-specs`
+- [ ] Agent works directly from `~/work/helix-specs` where its top-level state files live (persona, task list, notes, log)
 - [ ] On session completion, auto-commit and push any changes back to the `helix-specs` branch
 - [ ] Reuse existing git clone/push machinery from spec task service
 - [ ] Ensure this is transparent to the agent — Helix handles restore/commit, not the agent

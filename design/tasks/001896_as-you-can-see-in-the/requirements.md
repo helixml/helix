@@ -61,7 +61,7 @@ Phil's prototype runs Claude Code in Docker with `--output-format stream-json`, 
 **Note:** One job maps 1:1 to one Helix project. The project's primary repo already has a `helix-specs` branch. Job state files (persona, tasks, notes, log) live as top-level files on that branch — no per-task subdirectories like the spec task flow.
 
 **Acceptance Criteria:**
-- [ ] On session start, Helix clones the `helix-specs` branch and mounts state files into the container
+- [ ] On session start, Helix checks out the `helix-specs` branch into `~/work/helix-specs` (reusing existing machinery)
 - [ ] On session completion, Helix auto-commits and pushes any changes back to the `helix-specs` branch
 - [ ] This is transparent to the agent — Helix handles restore/commit, not the agent
 - [ ] State files are versioned in git (change history preserved automatically)

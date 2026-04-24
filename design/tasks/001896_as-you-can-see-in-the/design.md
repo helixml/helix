@@ -56,7 +56,7 @@ This reuses existing infrastructure:
 - The agent's state is automatically versioned in git
 
 **What Helix needs to add:**
-1. **Auto-restore on session start:** When an unmanaged (job) session starts for a project, clone the `helix-specs` branch and mount the job's state files into the container at a known path (e.g., `/workspace/state/`)
+1. **Auto-restore on session start:** When an unmanaged (job) session starts for a project, the existing machinery checks out the `helix-specs` branch into `~/work/helix-specs` — same as it does for spec tasks. The agent works directly from there.
 2. **Auto-commit on session end:** When the session completes, commit and push any changes to the state files back to the `helix-specs` branch. This should be transparent to the agent — Helix handles it, so we don't rely on the agent remembering to commit.
 3. **Job naming:** The project name serves as the job name (1:1 mapping). No separate job naming needed.
 
