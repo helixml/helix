@@ -7,14 +7,15 @@
 - [x] Cover both ad hoc and recurring job scenarios
 
 ## Go client updates (`api/pkg/client/`)
-- [ ] Add `GetSession(ctx, sessionID)` method — `GET /sessions/{id}`
-- [ ] Add `StopExternalAgent(ctx, sessionID)` method — `DELETE /sessions/{id}/stop-external-agent`
-- [ ] Add `CreateProjectSecret(ctx, projectID, req)` method — `POST /projects/{id}/secrets`
-- [ ] Add `ProjectID` field to `SessionFilter` and wire it into `ListSessions` query params
-- [ ] Fix `ListSessions` query param names (`page`/`page_size` instead of `offset`/`limit`)
-- [ ] Add `WriteGitFile(ctx, repoID, req)` method — `PUT /git/repositories/{id}/contents`
-- [ ] Add `ReadGitFile(ctx, repoID, path, branch)` method — `GET /git/repositories/{id}/contents`
-- [ ] Update `Client` interface with all new methods
+- [x] Add `GetSession(ctx, sessionID)` method — `GET /sessions/{id}`
+- [x] Add `StopExternalAgent(ctx, sessionID)` method — `DELETE /sessions/{id}/stop-external-agent`
+- [x] Add `CreateProjectSecret(ctx, projectID, req)` method — `POST /projects/{id}/secrets`
+- [x] Add `ProjectID` field to `SessionFilter` and wire it into `ListSessions` query params
+- [x] Fix `ListSessions` query param names (`page`/`page_size` instead of `offset`/`limit`)
+- [x] Fix `ListSessions` return type to `*types.PaginatedSessionsList`
+- [x] Add `WriteGitFile(ctx, repoID, req)` method — `PUT /git/repositories/{id}/contents`
+- [x] Add `ReadGitFile(ctx, repoID, path, branch)` method — `GET /git/repositories/{id}/contents`
+- [x] Update `Client` interface with all new methods
 
 ## Gap 0: Jobs developer UI (`/jobs` page)
 - [ ] Add `/jobs` route in the Helix frontend (hidden — not in nav bar)
