@@ -16,16 +16,20 @@ Phil's prototype runs Claude Code in Docker with `--output-format stream-json`, 
 
 ## User Stories
 
-### US-1: Start a headless agent session via API
+### US-1: Start an unmanaged agent session via API
 **As** an external system (Helix Jobs frontend),
-**I want** to start an agent session with a prompt and project config, without creating a spec task or appearing on the Kanban board,
-**So that** I can run background agent work programmatically.
+**I want** to start an agent session with a prompt and project config, without going through the spec task orchestrator,
+**So that** I can run agent work programmatically without Kanban state management.
+
+**Note:** "Unmanaged" means not managed by the spec task orchestrator (no Kanban board, no planning/review workflow). The session itself is still fully functional — it supports desktop streaming, the embedded session viewer, and all normal session features. It just isn't part of the spec task lifecycle.
 
 **Acceptance Criteria:**
-- [ ] POST `/api/v1/sessions/chat` accepts a flag (e.g. `"headless": true` or `"session_role": "job"`) that prevents the session from appearing in the Kanban UI
+- [ ] POST `/api/v1/sessions/chat` accepts a flag (e.g. `"managed": false` or `"session_role": "job"`) that creates a session outside the spec task orchestrator
 - [ ] The session still uses the project's agent config, MCP servers, startup script, and secrets
+- [ ] The session is still viewable — desktop streaming and the embedded session viewer work as normal
 - [ ] The session can be either streaming (SSE) or blocking (synchronous JSON response)
 - [ ] The session ID is returned immediately so the caller can poll for results
+- [ ] The session list endpoint supports filtering by role so that the Jobs UI can list its own sessions separately from spec-task-managed ones
 
 ### US-2: Run a long-running autonomous agent
 **As** an external orchestrator,
@@ -56,7 +60,7 @@ Phil's prototype runs Claude Code in Docker with `--output-format stream-json`, 
 
 **Acceptance Criteria:**
 - [ ] A generic webhook endpoint accepts POST requests with a prompt and optional project ID
-- [ ] The webhook creates a headless session and returns the session ID
+- [ ] The webhook creates an unmanaged session and returns the session ID
 - [ ] The webhook supports API key authentication (existing `x-api-key` header)
 - [ ] Trigger execution is logged with input, output, and status
 

@@ -23,12 +23,12 @@ The Helix API already provides substantial infrastructure. Here's what exists an
 
 ### Identified Gaps
 
-#### Gap 1: No "headless" session flag
-**Problem:** All sessions appear in the UI session list. Phil needs background agent sessions that don't clutter the user's workspace.
+#### Gap 1: No "unmanaged" session mode (bypass spec task orchestrator)
+**Problem:** Sessions created via the API are indistinguishable from spec-task-managed sessions. Phil needs sessions that exist outside the spec task orchestrator — no Kanban board, no planning/review lifecycle — but are still fully functional (desktop streaming, embedded session viewer, etc.).
 
-**Current state:** `SessionMetadata` has `SessionRole` (planning/implementation/coordination/exploratory) and a `system_session` flag used internally. But there's no API-exposed "headless" or "background" flag, and the frontend doesn't filter by role.
+**Current state:** `SessionMetadata` has `SessionRole` (planning/implementation/coordination/exploratory) and a `system_session` flag used internally. But there's no API-exposed way to mark a session as unmanaged, and the frontend doesn't filter by role. Sessions can already be created without a `SpecTaskID`, but the UI doesn't differentiate them.
 
-**Proposed fix:** Add `"headless": true` to `SessionChatRequest`. Sessions with `headless=true` get `SessionMetadata.SessionRole = "job"`. The session list endpoint (`GET /sessions`) gains a `exclude_roles=job` query parameter (defaulting to excluding jobs). This keeps jobs queryable but hidden from the main UI.
+**Proposed fix:** Add `"managed": false` or `"session_role": "job"` to `SessionChatRequest`. Sessions with this role bypass the spec task orchestrator but remain fully viewable — desktop streaming and the embedded session viewer (iframe embed) work as normal. The session list endpoint (`GET /sessions`) gains a `role` or `exclude_roles` query parameter so the Jobs UI can list its own sessions and the main Helix UI can filter them out. This is purely a filtering/categorization concern, not a visibility restriction.
 
 **Files:** `api/pkg/types/types.go` (SessionChatRequest, SessionMetadata), `api/pkg/server/session_handlers.go` (list handler filtering).
 
@@ -46,7 +46,7 @@ The Helix API already provides substantial infrastructure. Here's what exists an
 
 **Current state:** `TriggerConfiguration` has a `WebhookURL` field but it's only used for Azure DevOps inbound. No generic webhook receiver exists.
 
-**Proposed fix:** Add a generic webhook endpoint: `POST /api/v1/apps/{id}/webhook` that accepts `{"prompt": "...", "project_id": "..."}` and creates a headless session. Authenticates via API key. Returns `{"session_id": "..."}`. This is simple — it's essentially `startChatSessionHandler` wrapped with trigger execution logging.
+**Proposed fix:** Add a generic webhook endpoint: `POST /api/v1/apps/{id}/webhook` that accepts `{"prompt": "...", "project_id": "..."}` and creates an unmanaged session. Authenticates via API key. Returns `{"session_id": "..."}`. This is simple — it's essentially `startChatSessionHandler` wrapped with trigger execution logging.
 
 **Files:** `api/pkg/server/app_trigger_handlers.go` (new handler), `api/pkg/types/types.go` (new trigger type or extend existing).
 

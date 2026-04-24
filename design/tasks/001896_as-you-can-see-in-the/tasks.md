@@ -1,10 +1,10 @@
 # Implementation Tasks
 
-## Gap 1: Headless session flag
-- [ ] Add `Headless bool` field to `SessionChatRequest` in `api/pkg/types/types.go`
-- [ ] In `startChatSessionHandler`, set `SessionMetadata.SessionRole = "job"` when `Headless=true`
-- [ ] Add `exclude_roles` query parameter to `GET /api/v1/sessions` list handler
-- [ ] Default the sessions list to `exclude_roles=job` so headless sessions are hidden from normal UI
+## Gap 1: Unmanaged session mode (bypass spec task orchestrator)
+- [ ] Add `SessionRole string` field (or `Managed bool`) to `SessionChatRequest` in `api/pkg/types/types.go`
+- [ ] In `startChatSessionHandler`, set `SessionMetadata.SessionRole = "job"` for unmanaged sessions
+- [ ] Add `role` / `exclude_roles` query parameter to `GET /api/v1/sessions` list handler
+- [ ] Ensure unmanaged sessions still support desktop streaming and the embedded session viewer
 
 ## Gap 2: Cron triggers for external agent sessions
 - [ ] Add `AgentType string` field to `CronTrigger` in `api/pkg/types/types.go`
@@ -14,9 +14,9 @@
 
 ## Gap 3: Generic webhook trigger
 - [ ] Add `POST /api/v1/apps/{id}/webhook` handler in `app_trigger_handlers.go`
-- [ ] Accept `{"prompt": "...", "project_id": "...", "headless": true}` payload
+- [ ] Accept `{"prompt": "...", "project_id": "..."}` payload
 - [ ] Authenticate via existing API key middleware
-- [ ] Create a headless session and return `{"session_id": "..."}`
+- [ ] Create an unmanaged session (role = "job") and return `{"session_id": "..."}`
 - [ ] Log execution in `TriggerExecution` table
 
 ## Gap 4: Persistent agent working directory (git-backed)
