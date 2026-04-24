@@ -333,23 +333,21 @@ export default function SpecTaskActionButtons({
           </span>
         </Tooltip>
         <Box sx={{ mt: 0.5, display: "flex", justifyContent: "center" }}>
-          <Tooltip title="Skip planning and go straight to implementation" placement="top">
-            <Typography
-              variant="caption"
-              onClick={handleSkipToImplementation}
-              sx={{
-                cursor: isStartDisabled || updateSpecTaskMutation.isPending ? "default" : "pointer",
-                color: isStartDisabled || updateSpecTaskMutation.isPending ? "text.disabled" : "text.secondary",
-                "&:hover": isStartDisabled || updateSpecTaskMutation.isPending ? {} : {
-                  color: "primary.main",
-                  textDecoration: "underline",
-                },
-                pointerEvents: isStartDisabled || updateSpecTaskMutation.isPending ? "none" : "auto",
-              }}
-            >
-              {updateSpecTaskMutation.isPending ? "Starting..." : skipLabel}
-            </Typography>
-          </Tooltip>
+          <Typography
+            variant="caption"
+            onClick={handleSkipToImplementation}
+            sx={{
+              cursor: isStartDisabled || updateSpecTaskMutation.isPending ? "default" : "pointer",
+              color: isStartDisabled || updateSpecTaskMutation.isPending ? "text.disabled" : "text.secondary",
+              "&:hover": isStartDisabled || updateSpecTaskMutation.isPending ? {} : {
+                color: "primary.main",
+                textDecoration: "underline",
+              },
+              pointerEvents: isStartDisabled || updateSpecTaskMutation.isPending ? "none" : "auto",
+            }}
+          >
+            {updateSpecTaskMutation.isPending ? "Starting..." : skipLabel}
+          </Typography>
         </Box>
       </Box>
     );
