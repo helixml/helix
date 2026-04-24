@@ -4,7 +4,7 @@
 - [ ] Add `/jobs` route in the Helix frontend (hidden — not in nav bar)
 - [ ] Project list view: select existing project or create new one (reuse existing project creation components)
 - [ ] Job file editor: three text boxes that write to `helix-specs` branch `job/` folder on save
-- [ ] Run management: start button (creates unmanaged session via API), stop button, link to spec task details page for viewing
+- [ ] Run management: start button (creates unmanaged session via API), stop button, job detail view embedding `EmbeddedSessionView` + `ExternalAgentDesktopViewer` (only need session ID, no SpecTask object)
 - [ ] Cron config: UI to set up cron triggers for scheduled runs
 - [ ] API call display: show the equivalent curl/JSON at each interaction point
 
