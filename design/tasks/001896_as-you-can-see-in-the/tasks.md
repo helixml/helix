@@ -21,7 +21,7 @@
 
 ## Gap 4: Cron prompt from file reference
 - [ ] Add `InputFile string` field to `CronTrigger` type
-- [ ] In cron execution, if `InputFile` is set, read the file from the project's primary repo (default branch)
+- [ ] In cron execution, if `InputFile` is set, read the file from the `helix-specs` worktree (`~/work/helix-specs/`)
 - [ ] Use file contents as the session prompt; fall back to `Input` if `InputFile` is empty
 
 ## Gap 5: Webhook callback on completion

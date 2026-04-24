@@ -82,7 +82,7 @@ This reuses existing infrastructure:
 
 **Current state:** `CronTrigger` has `Input string` for the prompt. It's passed directly to the session.
 
-**Proposed fix:** Add `InputFile` field to `CronTrigger` — a path relative to a project repository (e.g., `agents/researcher/prompt.md`). At execution time, read the file from the repo's default branch and use its contents as the prompt. Falls back to `Input` if `InputFile` is empty.
+**Proposed fix:** Add `InputFile` field to `CronTrigger` — a path relative to the `helix-specs` worktree (e.g., `prompt.md`). At execution time, read the file from the `helix-specs` branch and use its contents as the prompt. This keeps the prompt alongside the other job state files. Falls back to `Input` if `InputFile` is empty.
 
 **Files:** `api/pkg/types/types.go` (CronTrigger), `api/pkg/trigger/cron/trigger_cron.go`.
 
