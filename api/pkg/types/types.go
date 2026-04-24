@@ -2663,6 +2663,30 @@ type UsersAggregatedUsageMetric struct {
 	Metrics []AggregatedUsageMetric `json:"metrics"`
 }
 
+// UserModelUsage is a per-(provider, model) aggregate of a user's inference usage.
+type UserModelUsage struct {
+	Provider         string    `json:"provider"`
+	Model            string    `json:"model"`
+	TotalRequests    int64     `json:"total_requests"`
+	TotalTokens      int64     `json:"total_tokens"`
+	PromptTokens     int64     `json:"prompt_tokens"`
+	CompletionTokens int64     `json:"completion_tokens"`
+	CacheReadTokens  int64     `json:"cache_read_tokens"`
+	CacheWriteTokens int64     `json:"cache_write_tokens"`
+	TotalCost        float64   `json:"total_cost"`
+	FirstUsed        time.Time `json:"first_used"`
+	LastUsed         time.Time `json:"last_used"`
+}
+
+// UserStatsResponse is the admin-only overview payload for a user's activity.
+type UserStatsResponse struct {
+	User           *User            `json:"user"`
+	LastActiveAt   *time.Time       `json:"last_active_at,omitempty"`
+	ProjectsCount  int64            `json:"projects_count"`
+	SpecTasksCount int64            `json:"spec_tasks_count"`
+	Models         []UserModelUsage `json:"models"`
+}
+
 type AggregatedUsageMetric struct {
 	// ID    string    `json:"id" gorm:"primaryKey"`
 	Date time.Time `json:"date"` // The date of the metric (without time, just the date)

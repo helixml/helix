@@ -566,6 +566,62 @@ func (s *PostgresStore) DeleteUsageMetrics(ctx context.Context, appID string) er
 	return s.gdb.WithContext(ctx).Where("app_id = ?", appID).Delete(&types.UsageMetric{}).Error
 }
 
+// GetUserModelUsage returns per-(provider, model) aggregates for everything
+// the given user has consumed. The result is ordered by total requests desc.
+func (s *PostgresStore) GetUserModelUsage(ctx context.Context, userID string) ([]*types.UserModelUsage, error) {
+	if userID == "" {
+		return nil, errors.New("user_id is required")
+	}
+
+	var rows []*types.UserModelUsage
+	err := s.gdb.WithContext(ctx).
+		Model(&types.UsageMetric{}).
+		Select(`
+			provider,
+			model,
+			COUNT(DISTINCT id) as total_requests,
+			COALESCE(SUM(total_tokens), 0) as total_tokens,
+			COALESCE(SUM(prompt_tokens), 0) as prompt_tokens,
+			COALESCE(SUM(completion_tokens), 0) as completion_tokens,
+			COALESCE(SUM(cache_read_tokens), 0) as cache_read_tokens,
+			COALESCE(SUM(cache_write_tokens), 0) as cache_write_tokens,
+			COALESCE(SUM(total_cost), 0) as total_cost,
+			MIN(created) as first_used,
+			MAX(created) as last_used
+		`).
+		Where("user_id = ?", userID).
+		Group("provider, model").
+		Order("total_requests DESC").
+		Find(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
+
+// GetUserLastUsage returns the most recent UsageMetric.created for a user, or
+// zero time if the user has never triggered an inference request.
+func (s *PostgresStore) GetUserLastUsage(ctx context.Context, userID string) (time.Time, error) {
+	if userID == "" {
+		return time.Time{}, errors.New("user_id is required")
+	}
+	var result struct {
+		LastUsed *time.Time `gorm:"column:last_used"`
+	}
+	err := s.gdb.WithContext(ctx).
+		Model(&types.UsageMetric{}).
+		Select("MAX(created) as last_used").
+		Where("user_id = ?", userID).
+		Scan(&result).Error
+	if err != nil {
+		return time.Time{}, err
+	}
+	if result.LastUsed == nil {
+		return time.Time{}, nil
+	}
+	return *result.LastUsed, nil
+}
+
 // GetUserMonthlyTokenUsage returns the total tokens used by a user in the current month
 func (s *PostgresStore) GetUserMonthlyTokenUsage(ctx context.Context, userID string, providers []string) (int, error) {
 	now := time.Now()

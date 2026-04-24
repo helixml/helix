@@ -732,6 +732,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/users/me/onboarding", apiServer.completeOnboarding).Methods(http.MethodPost)
 
 	authRouter.HandleFunc("/users/{id}", apiServer.getUserDetails).Methods(http.MethodGet)
+	authRouter.HandleFunc("/users/{id}/stats", apiServer.getUserStats).Methods(http.MethodGet)
 
 	// Billing
 	authRouter.HandleFunc("/wallet", system.Wrapper(apiServer.getWalletHandler)).Methods(http.MethodGet)

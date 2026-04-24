@@ -3468,6 +3468,21 @@ func (mr *MockStoreMockRecorder) GetUser(ctx, q any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetUser", reflect.TypeOf((*MockStore)(nil).GetUser), ctx, q)
 }
 
+// GetUserLastUsage mocks base method.
+func (m *MockStore) GetUserLastUsage(ctx context.Context, userID string) (time.Time, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetUserLastUsage", ctx, userID)
+	ret0, _ := ret[0].(time.Time)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetUserLastUsage indicates an expected call of GetUserLastUsage.
+func (mr *MockStoreMockRecorder) GetUserLastUsage(ctx, userID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetUserLastUsage", reflect.TypeOf((*MockStore)(nil).GetUserLastUsage), ctx, userID)
+}
+
 // GetUserMeta mocks base method.
 func (m *MockStore) GetUserMeta(ctx context.Context, id string) (*types.UserMeta, error) {
 	m.ctrl.T.Helper()
@@ -3481,6 +3496,21 @@ func (m *MockStore) GetUserMeta(ctx context.Context, id string) (*types.UserMeta
 func (mr *MockStoreMockRecorder) GetUserMeta(ctx, id any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetUserMeta", reflect.TypeOf((*MockStore)(nil).GetUserMeta), ctx, id)
+}
+
+// GetUserModelUsage mocks base method.
+func (m *MockStore) GetUserModelUsage(ctx context.Context, userID string) ([]*types.UserModelUsage, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetUserModelUsage", ctx, userID)
+	ret0, _ := ret[0].([]*types.UserModelUsage)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetUserModelUsage indicates an expected call of GetUserModelUsage.
+func (mr *MockStoreMockRecorder) GetUserModelUsage(ctx, userID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetUserModelUsage", reflect.TypeOf((*MockStore)(nil).GetUserModelUsage), ctx, userID)
 }
 
 // GetUserMonthlyTokenUsage mocks base method.
@@ -5093,6 +5123,20 @@ func (m *MockStore) TouchSession(ctx context.Context, sessionID string) error {
 func (mr *MockStoreMockRecorder) TouchSession(ctx, sessionID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "TouchSession", reflect.TypeOf((*MockStore)(nil).TouchSession), ctx, sessionID)
+}
+
+// TouchUserLastSeen mocks base method.
+func (m *MockStore) TouchUserLastSeen(ctx context.Context, userID string, at time.Time) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "TouchUserLastSeen", ctx, userID, at)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// TouchUserLastSeen indicates an expected call of TouchUserLastSeen.
+func (mr *MockStoreMockRecorder) TouchUserLastSeen(ctx, userID, at any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "TouchUserLastSeen", reflect.TypeOf((*MockStore)(nil).TouchUserLastSeen), ctx, userID, at)
 }
 
 // TransitionSpecTaskStatus mocks base method.
