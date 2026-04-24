@@ -387,7 +387,7 @@ const Jobs: FC = () => {
     const list = (sessionsData?.data as TypesPaginatedSessionsList)?.sessions
       || (sessionsData?.data as any)?.data?.sessions
       || []
-    return (list as TypesSession[]).filter(s => s.metadata?.session_role === 'job')
+    return (list as TypesSession[]).filter(s => s.config?.session_role === 'job')
   }, [sessionsData])
 
   const handleFileChange = useCallback((fileName: string, content: string) => {
@@ -489,7 +489,7 @@ const Jobs: FC = () => {
     const content = (fileContents[fileName] || '').replace(/'/g, "'\\''").slice(0, 200)
     const truncated = (fileContents[fileName] || '').length > 200 ? '...' : ''
     return `curl -X PUT ${origin}/api/v1/git/repositories/${defaultRepoId}/contents \\
-  -H "Authorization: Bearer YOUR_API_KEY" \\
+  -H "Authorization: Bearer \${YOUR_API_KEY}" \\
   -H "Content-Type: application/json" \\
   -d '{
     "path": "job/${fileName}",
@@ -513,7 +513,7 @@ const Jobs: FC = () => {
       .slice(0, 200)
     const truncated = (fileContents['TASK.md'] || '').length > 200 ? '...' : ''
     return `curl -X POST ${origin}/api/v1/sessions/chat \\
-  -H "Authorization: Bearer YOUR_API_KEY" \\
+  -H "Authorization: Bearer \${YOUR_API_KEY}" \\
   -H "Content-Type: application/json" \\
   -d '{
     "project_id": "${selectedProjectId}",
@@ -524,16 +524,16 @@ const Jobs: FC = () => {
   }, [origin, selectedProjectId, fileContents])
 
   const stopJobCurl = `curl -X DELETE ${origin}/api/v1/sessions/${activeRunSessionId}/stop-external-agent \\
-  -H "Authorization: Bearer YOUR_API_KEY"`
+  -H "Authorization: Bearer \${YOUR_API_KEY}"`
 
   const pollOutputCurl = `curl ${origin}/api/v1/sessions/${activeRunSessionId}/output \\
-  -H "Authorization: Bearer YOUR_API_KEY"`
+  -H "Authorization: Bearer \${YOUR_API_KEY}"`
 
   const listSessionsCurl = `curl "${origin}/api/v1/sessions?project_id=${selectedProjectId}&session_role=job" \\
-  -H "Authorization: Bearer YOUR_API_KEY"`
+  -H "Authorization: Bearer \${YOUR_API_KEY}"`
 
   return (
-    <Page title="Jobs">
+    <Page breadcrumbTitle="Jobs">
       <Container maxWidth="lg" sx={{ py: 3 }}>
         {/* Header */}
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 3 }}>
