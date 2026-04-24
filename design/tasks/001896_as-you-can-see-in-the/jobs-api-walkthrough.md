@@ -427,3 +427,134 @@ Instead of inline prompt text, reference a file in the `helix-specs` branch:
 | Webhook callback on completion | `CallbackURL` on CronTrigger/SessionChatRequest | **PROPOSED** |
 
 Most of the workflow works today. The proposed additions are about making it cleaner (session role filtering, file-based prompts) and more automated (auto-commit, cron for external agents, completion callbacks).
+
+---
+
+## Go Client (`api/pkg/client`)
+
+There's a hand-written Go client at `api/pkg/client/` that Phil can import directly since his code lives in the monorepo. Here's what exists today and what needs to be added.
+
+### What the Go client has today
+
+| Method | Interface | Status |
+|--------|-----------|--------|
+| `ApplyProject(ctx, req)` | Creates/updates a project | **EXISTS** |
+| `CreateSecret(ctx, req)` | Creates a secret (user-scoped, not project-scoped) | **EXISTS but needs project-scoped variant** |
+| `ListSessions(ctx, filter)` | Lists sessions | **EXISTS but filter is incomplete** — missing `project_id`, uses wrong param names |
+| `ChatSession(ctx, req)` | Starts a chat session | **EXISTS but returns raw string** — no structured response |
+
+### What needs to be added/fixed
+
+| Method | Purpose | Status |
+|--------|---------|--------|
+| `GetSession(ctx, sessionID)` | Get a session by ID to check status | **MISSING** |
+| `StopExternalAgent(ctx, sessionID)` | Stop a running desktop agent | **MISSING** |
+| `CreateProjectSecret(ctx, projectID, req)` | Create a secret scoped to a project | **MISSING** (current `CreateSecret` posts to `/secrets`, not `/projects/{id}/secrets`) |
+| `ListSessions` with `ProjectID` filter | Filter sessions by project | **NEEDS FIX** — `SessionFilter` is missing `ProjectID` field |
+| `ChatSession` structured response | Return typed `Session` instead of raw string | **NEEDS FIX** |
+| `WriteGitFile(ctx, repoID, req)` | Write a file to a branch | **MISSING** |
+| `ReadGitFile(ctx, repoID, path, branch)` | Read a file from a branch | **MISSING** |
+
+### Example: Full workflow in Go
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "log"
+
+    "github.com/helixml/helix/api/pkg/client"
+    "github.com/helixml/helix/api/pkg/types"
+)
+
+func main() {
+    ctx := context.Background()
+
+    c, err := client.NewClient("http://localhost:8080", "your-api-key", false)
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    // Step 1: Create project
+    projResp, err := c.ApplyProject(ctx, &types.ProjectApplyRequest{
+        OrganizationID: "org_123",
+        Name:           "code-reviewer",
+        Spec: types.ProjectSpec{
+            Description:  "Reviews repositories for architecture issues",
+            Technologies: []string{"Go", "Python"},
+            Repositories: []types.ProjectRepositorySpec{
+                {URL: "https://github.com/myorg/my-repo", Branch: "main", Primary: true},
+            },
+            Startup: &types.ProjectStartup{
+                Script: "#!/bin/bash\nset -e\napt-get update && apt-get install -y python3-pip",
+            },
+            Agent: &types.ProjectAgentSpec{
+                Name:     "Code Reviewer",
+                Model:    "claude-sonnet-4-6",
+                Provider: "anthropic",
+                Runtime:  "claude_code",
+            },
+        },
+    })
+    if err != nil {
+        log.Fatal(err)
+    }
+    fmt.Printf("Project: %s\n", projResp.ProjectID)
+
+    // Step 2: Add secrets
+    _, err = c.CreateProjectSecret(ctx, projResp.ProjectID, &types.CreateSecretRequest{
+        Name:  "GITHUB_TOKEN",
+        Value: "ghp_xxxxxxxxxxxx",
+    })
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    // Step 3: Write job files
+    err = c.WriteGitFile(ctx, "repo_xyz", &types.UpdateGitRepositoryFileContentsRequest{
+        Path:    "job/prompt.md",
+        Branch:  "helix-specs",
+        Message: "Add job prompt",
+        Content: base64Encode("# Code Reviewer\n\nYou are a senior architect..."),
+    })
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    // Step 4: Start a run
+    session, err := c.ChatSession(ctx, &types.SessionChatRequest{
+        ProjectID: projResp.ProjectID,
+        AgentType: "zed_external",
+        Messages: []*types.Message{
+            {
+                Role: "user",
+                Content: types.MessageContent{
+                    ContentType: "text",
+                    Parts:       []string{"Review the codebase following ~/work/helix-specs/job/prompt.md"},
+                },
+            },
+        },
+    })
+    if err != nil {
+        log.Fatal(err)
+    }
+    fmt.Printf("Session: %s\n", session.ID)
+
+    // Step 5: Check status
+    sess, err := c.GetSession(ctx, session.ID)
+    if err != nil {
+        log.Fatal(err)
+    }
+    fmt.Printf("Status: %s\n", sess.Interactions[len(sess.Interactions)-1].State)
+
+    // Step 7: Stop when done
+    err = c.StopExternalAgent(ctx, session.ID)
+    if err != nil {
+        log.Fatal(err)
+    }
+}
+```
+
+**Note:** The Go example above uses proposed methods (`CreateProjectSecret`, `WriteGitFile`, `GetSession`, `StopExternalAgent`) that need to be added to the client. The `ChatSession` return type also needs to change from `string` to `*types.Session`.
