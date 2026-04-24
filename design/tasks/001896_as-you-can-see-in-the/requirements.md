@@ -53,18 +53,7 @@ Phil's prototype runs Claude Code in Docker with `--output-format stream-json`, 
 - [ ] Cron trigger input can reference a markdown file path (in a repo) rather than inline prompt text
 - [ ] Trigger execution history is queryable via API with session IDs and outputs
 
-### US-4: Trigger agent sessions via webhook
-**As** a user with a phone automation app,
-**I want** to send an HTTP POST with a prompt payload to trigger an ad hoc agent task,
-**So that** I can share text/links from my phone and have an agent process them.
-
-**Acceptance Criteria:**
-- [ ] A generic webhook endpoint accepts POST requests with a prompt and optional project ID
-- [ ] The webhook creates an unmanaged session and returns the session ID
-- [ ] The webhook supports API key authentication (existing `x-api-key` header)
-- [ ] Trigger execution is logged with input, output, and status
-
-### US-5: Agent file persistence between runs
+### US-4: Agent file persistence between runs
 **As** an agent running a recurring job,
 **I want** to read and write markdown files that persist between runs,
 **So that** I can maintain state (task lists, knowledge notes, questions for the user).
@@ -75,7 +64,7 @@ Phil's prototype runs Claude Code in Docker with `--output-format stream-json`, 
 - [ ] Files in this directory can be versioned (optionally backed by git)
 - [ ] The Helix API provides endpoints to read/write files in this persistent store
 
-### US-6: Retrieve agent output after completion
+### US-5: Retrieve agent output after completion
 **As** an external system or UI,
 **I want** to query the final output of a completed agent session,
 **So that** I can display results, send notifications, or feed output into other workflows.
@@ -85,7 +74,7 @@ Phil's prototype runs Claude Code in Docker with `--output-format stream-json`, 
 - [ ] For cron-triggered sessions, the trigger execution record links to the session and captures output
 - [ ] Output includes both text responses and any file artifacts the agent produced
 
-### US-7: Notification on task completion
+### US-6: Notification on task completion
 **As** an external system,
 **I want** to receive a webhook callback when an agent session completes,
 **So that** I can take action on the results without polling.

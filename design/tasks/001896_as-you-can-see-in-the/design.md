@@ -41,16 +41,7 @@ The Helix API already provides substantial infrastructure. Here's what exists an
 
 **Files:** `api/pkg/types/types.go` (CronTrigger), `api/pkg/trigger/cron/trigger_cron.go` (execution logic).
 
-#### Gap 3: No generic webhook trigger
-**Problem:** Phil sends HTTP POSTs from his phone automation app. Current webhooks are platform-specific (Discord, Slack, etc.). There's no generic "send a prompt via HTTP and get a session" endpoint.
-
-**Current state:** `TriggerConfiguration` has a `WebhookURL` field but it's only used for Azure DevOps inbound. No generic webhook receiver exists.
-
-**Proposed fix:** Add a generic webhook endpoint: `POST /api/v1/apps/{id}/webhook` that accepts `{"prompt": "...", "project_id": "..."}` and creates an unmanaged session. Authenticates via API key. Returns `{"session_id": "..."}`. This is simple — it's essentially `startChatSessionHandler` wrapped with trigger execution logging.
-
-**Files:** `api/pkg/server/app_trigger_handlers.go` (new handler), `api/pkg/types/types.go` (new trigger type or extend existing).
-
-#### Gap 4: No persistent agent working directory between runs
+#### Gap 3: No persistent agent working directory between runs
 **Problem:** Phil's agents maintain state in markdown files (task lists, knowledge notes, questions). Each cron run needs to see the output of previous runs. Currently, containers are ephemeral — destroyed after each session.
 
 **Current state:** The filestore system (`api/pkg/filestore/`) supports per-user and per-app file storage. Golden cache (`DockerCacheState`) provides pre-built container snapshots per project. But there's no persistent working directory that survives between sessions.
@@ -65,7 +56,7 @@ The Helix API already provides substantial infrastructure. Here's what exists an
 
 **Files:** `api/pkg/external-agent/hydra_executor.go` (container setup), `api/pkg/hydra/devcontainer.go` (mount points).
 
-#### Gap 5: Cron prompt from file reference
+#### Gap 4: Cron prompt from file reference
 **Problem:** Phil's agent prompts are long markdown files, not short inline strings. The current `CronTrigger.Input` is a string field — awkward for multi-page prompts.
 
 **Current state:** `CronTrigger` has `Input string` for the prompt. It's passed directly to the session.
@@ -74,7 +65,7 @@ The Helix API already provides substantial infrastructure. Here's what exists an
 
 **Files:** `api/pkg/types/types.go` (CronTrigger), `api/pkg/trigger/cron/trigger_cron.go`.
 
-#### Gap 6: No webhook callback on session completion
+#### Gap 5: No webhook callback on session completion
 **Problem:** Phil needs to know when an agent finishes without polling. Current notifications are email-only.
 
 **Current state:** `notification.go` supports email only. `EventCronTriggerComplete` sends email.
@@ -83,7 +74,7 @@ The Helix API already provides substantial infrastructure. Here's what exists an
 
 **Files:** `api/pkg/notification/` (new webhook notifier), `api/pkg/types/types.go` (add CallbackURL fields).
 
-#### Gap 7: Output retrieval is indirect
+#### Gap 6: Output retrieval is indirect
 **Problem:** After a cron-triggered session completes, getting the output requires chaining two queries: trigger execution → session ID → session interactions → last response. There's no single-call way to get "what did this job produce?"
 
 **Current state:** `TriggerExecution.Output` captures the response string. But the full structured output (tool calls, file changes) requires fetching the full session.
