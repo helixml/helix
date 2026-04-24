@@ -434,7 +434,8 @@ Phase                   string               `json:"phase,omitempty"`           
 
 	// which assistant are we talking to?
 	AssistantID    string            `json:"assistant_id"`
-	AppQueryParams map[string]string `json:"app_query_params"` // Passing through user defined app params
+	AppQueryParams map[string]string `json:"app_query_params"`                  // Passing through user defined app params
+	CallbackURL    string            `json:"callback_url,omitempty"`            // Webhook URL to POST on session completion
 }
 
 // the packet we put a list of sessions into so pagination is supported and we know the total amount
@@ -464,6 +465,8 @@ type SessionChatRequest struct {
 	SessionID           string               `json:"session_id"`      // If empty, we will start a new session
 	InteractionID       string               `json:"interaction_id"`  // If empty, we will start a new interaction
 	Stream              bool                 `json:"stream"`          // If true, we will stream the response
+	SessionRole         string               `json:"session_role,omitempty"` // e.g. "job" — categorizes sessions for filtering
+	CallbackURL         string               `json:"callback_url,omitempty"` // Webhook URL to POST on session completion
 	Type                SessionType          `json:"type"`            // e.g. text, image
 	LoraDir             string               `json:"lora_dir"`
 	SystemPrompt        string               `json:"system"`                          // System message, only applicable when starting a new session
@@ -1838,12 +1841,15 @@ type CrispTrigger struct {
 }
 
 type CronTrigger struct {
-	Enabled   bool     `json:"enabled,omitempty" yaml:"enabled,omitempty"`
-	Schedule  string   `json:"schedule,omitempty" yaml:"schedule,omitempty"`
-	Input     string   `json:"input,omitempty" yaml:"input,omitempty"`
-	Emails    []string `json:"emails,omitempty" yaml:"emails,omitempty"`
-	Action    string   `json:"action,omitempty" yaml:"action,omitempty"`         // "session" (default) or "spec_task"
-	ProjectID string   `json:"project_id,omitempty" yaml:"project_id,omitempty"` // Target project for spec_task action
+	Enabled     bool     `json:"enabled,omitempty" yaml:"enabled,omitempty"`
+	Schedule    string   `json:"schedule,omitempty" yaml:"schedule,omitempty"`
+	Input       string   `json:"input,omitempty" yaml:"input,omitempty"`
+	InputFile   string   `json:"input_file,omitempty" yaml:"input_file,omitempty"`     // File path in helix-specs worktree to use as prompt (overrides Input)
+	AgentType   string   `json:"agent_type,omitempty" yaml:"agent_type,omitempty"`     // "helix" (default) or "zed_external"
+	Emails      []string `json:"emails,omitempty" yaml:"emails,omitempty"`
+	CallbackURL string   `json:"callback_url,omitempty" yaml:"callback_url,omitempty"` // Webhook URL to POST on completion
+	Action      string   `json:"action,omitempty" yaml:"action,omitempty"`             // "session" (default) or "spec_task"
+	ProjectID   string   `json:"project_id,omitempty" yaml:"project_id,omitempty"`     // Target project for spec_task action
 }
 
 // AzureDevOpsTrigger - once enabled, a trigger in the database will be created
@@ -2975,6 +2981,17 @@ type Notification struct {
 
 	// If set, send to these emails instead of the session owner
 	Emails []string
+
+	// If set, POST notification payload to this URL
+	CallbackURL string
+}
+
+// SessionOutputResponse is returned by GET /sessions/{id}/output
+type SessionOutputResponse struct {
+	SessionID  string `json:"session_id"`
+	Status     string `json:"status"`     // "waiting", "complete", "error"
+	Output     string `json:"output"`     // Last interaction's response text
+	DurationMs int64  `json:"duration_ms"`
 }
 
 // StreamingTokenResponse contains token for accessing streaming session

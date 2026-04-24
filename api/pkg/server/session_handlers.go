@@ -136,6 +136,7 @@ func (apiServer *HelixAPIServer) getSession(rw http.ResponseWriter, req *http.Re
 // @Param   app_id          query    string  false  "App ID"
 // @Param   search          query    string  false  "Search sessions by name"
 // @Param   project_id      query    string  false  "Project ID"
+// @Param   session_role    query    string  false  "Filter by session role (e.g. job)"
 // @Success 200 {object} types.PaginatedSessionsList
 // @Router /api/v1/sessions [get]
 // @Security BearerAuth
@@ -149,6 +150,7 @@ func (apiServer *HelixAPIServer) listSessions(_ http.ResponseWriter, req *http.R
 		QuestionSetExecutionID: req.URL.Query().Get("question_set_execution_id"),
 		AppID:                  req.URL.Query().Get("app_id"),
 		ProjectID:              req.URL.Query().Get("project_id"),
+		SessionRole:            req.URL.Query().Get("session_role"),
 	}
 	query.Owner = user.ID
 	query.OwnerType = user.Type
@@ -569,6 +571,8 @@ If the user asks for information about Helix or installing Helix, refer them to 
 				AgentType:           agentType,
 				ExternalAgentConfig: startReq.ExternalAgentConfig,
 				SpecTaskID:          user.SpecTaskID,
+				SessionRole:         startReq.SessionRole,
+				CallbackURL:         startReq.CallbackURL,
 			},
 		}
 
@@ -2130,6 +2134,157 @@ func (s *HelixAPIServer) stopExternalAgentSession(_ http.ResponseWriter, r *http
 		"message":    "external Zed agent stopped",
 		"session_id": sessionID,
 	}, nil
+}
+
+// getSessionOutput godoc
+// StartExternalAgentSession creates a new external agent session programmatically.
+// This implements cron.ExternalAgentStarter for use by the cron trigger system.
+func (s *HelixAPIServer) StartExternalAgentSession(ctx context.Context, req *types.SessionChatRequest, userID string) (*types.Session, error) {
+	if s.externalAgentExecutor == nil {
+		return nil, fmt.Errorf("external agent executor not configured")
+	}
+
+	message, ok := req.Message()
+	if !ok {
+		return nil, fmt.Errorf("invalid message in session chat request")
+	}
+
+	if req.AgentType == "" {
+		req.AgentType = "zed_external"
+	}
+
+	modelName, err := model.ProcessModelName(s.Cfg.Inference.Provider, req.Model, types.SessionTypeText)
+	if err != nil {
+		return nil, fmt.Errorf("invalid model name: %w", err)
+	}
+
+	user, err := s.Store.GetUser(ctx, &store.GetUserQuery{ID: userID})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get user: %w", err)
+	}
+
+	if req.OrganizationID == "" && user.OrganizationID != "" {
+		req.OrganizationID = user.OrganizationID
+	}
+
+	session := &types.Session{
+		ID:             system.GenerateSessionID(),
+		Name:           s.getTemporarySessionName(message),
+		Created:        time.Now(),
+		Updated:        time.Now(),
+		ProjectID:      req.ProjectID,
+		Mode:           types.SessionModeInference,
+		Type:           types.SessionTypeText,
+		Provider:       string(req.Provider),
+		ModelName:      modelName,
+		ParentApp:      req.AppID,
+		OrganizationID: req.OrganizationID,
+		Owner:          userID,
+		OwnerType:      user.Type,
+		Metadata: types.SessionMetadata{
+			Stream:       true,
+			SystemPrompt: req.SystemPrompt,
+			HelixVersion: data.GetHelixVersion(),
+			AgentType:    req.AgentType,
+			SessionRole:  req.SessionRole,
+			CallbackURL:  req.CallbackURL,
+		},
+	}
+
+	session, err = appendOrOverwrite(session, req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to process session messages: %w", err)
+	}
+
+	if err := s.Controller.WriteSession(ctx, session); err != nil {
+		return nil, fmt.Errorf("failed to write session: %w", err)
+	}
+
+	if err := s.Controller.WriteInteractions(ctx, session.Interactions...); err != nil {
+		return nil, fmt.Errorf("failed to write interactions: %w", err)
+	}
+
+	zedAgent := &types.DesktopAgent{
+		OrganizationID: session.OrganizationID,
+		SessionID:      session.ID,
+		UserID:         userID,
+		Input:          "Initialize Zed development environment",
+		ProjectPath:    "workspace",
+	}
+
+	zedAgent.OnBeforeCreate = func(hookCtx context.Context, a *types.DesktopAgent) error {
+		return s.addUserAPITokenToAgent(hookCtx, a, userID)
+	}
+
+	agentResp, err := s.externalAgentExecutor.StartDesktop(ctx, zedAgent)
+	if err != nil {
+		return nil, fmt.Errorf("failed to start external agent: %w", err)
+	}
+
+	if agentResp.DevContainerID != "" || agentResp.SandboxID != "" {
+		session.Metadata.DevContainerID = agentResp.DevContainerID
+		session.SandboxID = agentResp.SandboxID
+		if _, err := s.Controller.Options.Store.UpdateSession(ctx, *session); err != nil {
+			log.Error().Err(err).Str("session_id", session.ID).Msg("Failed to store container data in session")
+		}
+	}
+
+	log.Info().
+		Str("session_id", session.ID).
+		Str("user_id", userID).
+		Msg("External agent session started via programmatic API")
+
+	return session, nil
+}
+
+// @Summary Get session output
+// @Description Returns the last interaction's response for a session
+// @Tags Sessions
+// @Produce json
+// @Param id path string true "Session ID"
+// @Success 200 {object} types.SessionOutputResponse
+// @Failure 401 {object} system.HTTPError
+// @Failure 404 {object} system.HTTPError
+// @Security BearerAuth
+// @Router /api/v1/sessions/{id}/output [get]
+func (s *HelixAPIServer) getSessionOutput(_ http.ResponseWriter, r *http.Request) (*types.SessionOutputResponse, *system.HTTPError) {
+	ctx := r.Context()
+	user := getRequestUser(r)
+	vars := mux.Vars(r)
+	sessionID := vars["id"]
+
+	session, err := s.Store.GetSession(ctx, sessionID)
+	if err != nil {
+		return nil, system.NewHTTPError404("session not found")
+	}
+
+	err = s.authorizeUserToSession(ctx, user, session, types.ActionGet)
+	if err != nil {
+		return nil, system.NewHTTPError403(err.Error())
+	}
+
+	interactions, _, err := s.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
+		SessionID: sessionID,
+		PerPage:   1000,
+	})
+	if err != nil {
+		return nil, system.NewHTTPError500("failed to list interactions")
+	}
+
+	resp := &types.SessionOutputResponse{
+		SessionID:  sessionID,
+		Status:     "complete",
+		DurationMs: session.Updated.Sub(session.Created).Milliseconds(),
+	}
+
+	if len(interactions) > 0 {
+		last := interactions[len(interactions)-1]
+		resp.Status = string(last.State)
+		resp.Output = types.TextFromInteraction(last)
+		resp.DurationMs = last.Updated.Sub(last.Created).Milliseconds()
+	}
+
+	return resp, nil
 }
 
 // triggerSummaryGeneration triggers async summary generation for an interaction

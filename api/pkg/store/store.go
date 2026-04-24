@@ -55,6 +55,8 @@ type ListSessionsQuery struct {
 	QuestionSetExecutionID string          `json:"question_set_execution_id"`
 	AppID                  string          `json:"app_id"`
 	ProjectID              string          `json:"project_id"`
+	SessionRole            string          `json:"session_role"`      // Filter by session role (e.g. "job")
+	ExcludeRoles           []string        `json:"exclude_roles"`     // Exclude sessions with these roles
 	IncludeExternalAgents  bool            `json:"include_external_agents"`
 }
 

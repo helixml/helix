@@ -3962,6 +3962,12 @@ definitions:
       action:
         description: '"session" (default) or "spec_task"'
         type: string
+      agent_type:
+        description: '"helix" (default) or "zed_external"'
+        type: string
+      callback_url:
+        description: Webhook URL to POST on completion
+        type: string
       emails:
         items:
           type: string
@@ -3969,6 +3975,10 @@ definitions:
       enabled:
         type: boolean
       input:
+        type: string
+      input_file:
+        description: File path in helix-specs worktree to use as prompt (overrides
+          Input)
         type: string
       project_id:
         description: Target project for spec_task action
@@ -7863,6 +7873,9 @@ definitions:
       assistant_id:
         description: Which assistant are we speaking to?
         type: string
+      callback_url:
+        description: Webhook URL to POST on session completion
+        type: string
       external_agent_config:
         allOf:
         - $ref: '#/definitions/types.ExternalAgentConfig'
@@ -7895,6 +7908,9 @@ definitions:
         type: boolean
       session_id:
         description: If empty, we will start a new session
+        type: string
+      session_role:
+        description: e.g. "job" — categorizes sessions for filtering
         type: string
       stream:
         description: If true, we will stream the response
@@ -7952,6 +7968,9 @@ definitions:
         description: which assistant are we talking to?
         type: string
       avatar:
+        type: string
+      callback_url:
+        description: Webhook URL to POST on session completion
         type: string
       code_agent_runtime:
         allOf:
@@ -8112,6 +8131,19 @@ definitions:
     - SessionModeInference
     - SessionModeFinetune
     - SessionModeAction
+  types.SessionOutputResponse:
+    properties:
+      duration_ms:
+        type: integer
+      output:
+        description: Last interaction's response text
+        type: string
+      session_id:
+        type: string
+      status:
+        description: '"waiting", "complete", "error"'
+        type: string
+    type: object
   types.SessionRAGResult:
     properties:
       content:
@@ -18412,6 +18444,10 @@ paths:
         in: query
         name: project_id
         type: string
+      - description: Filter by session role (e.g. job)
+        in: query
+        name: session_role
+        type: string
       responses:
         "200":
           description: OK
@@ -18766,6 +18802,35 @@ paths:
       summary: Provide feedback for an interaction
       tags:
       - interactions
+  /api/v1/sessions/{id}/output:
+    get:
+      description: Returns the last interaction's response for a session
+      parameters:
+      - description: Session ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.SessionOutputResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Get session output
+      tags:
+      - Sessions
   /api/v1/sessions/{id}/rdp-connection:
     get:
       description: Get streaming connection details for accessing a session

@@ -12701,6 +12701,12 @@ const docTemplate = `{
                         "description": "Project ID",
                         "name": "project_id",
                         "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by session role (e.g. job)",
+                        "name": "session_role",
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -13261,6 +13267,52 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/types.Interaction"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/sessions/{id}/output": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the last interaction's response for a session",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sessions"
+                ],
+                "summary": "Get session output",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.SessionOutputResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
                         }
                     }
                 }
@@ -22658,6 +22710,14 @@ const docTemplate = `{
                     "description": "\"session\" (default) or \"spec_task\"",
                     "type": "string"
                 },
+                "agent_type": {
+                    "description": "\"helix\" (default) or \"zed_external\"",
+                    "type": "string"
+                },
+                "callback_url": {
+                    "description": "Webhook URL to POST on completion",
+                    "type": "string"
+                },
                 "emails": {
                     "type": "array",
                     "items": {
@@ -22668,6 +22728,10 @@ const docTemplate = `{
                     "type": "boolean"
                 },
                 "input": {
+                    "type": "string"
+                },
+                "input_file": {
+                    "description": "File path in helix-specs worktree to use as prompt (overrides Input)",
                     "type": "string"
                 },
                 "project_id": {
@@ -28183,6 +28247,10 @@ const docTemplate = `{
                     "description": "Which assistant are we speaking to?",
                     "type": "string"
                 },
+                "callback_url": {
+                    "description": "Webhook URL to POST on session completion",
+                    "type": "string"
+                },
                 "external_agent_config": {
                     "description": "Configuration for external agents",
                     "allOf": [
@@ -28231,6 +28299,10 @@ const docTemplate = `{
                 },
                 "session_id": {
                     "description": "If empty, we will start a new session",
+                    "type": "string"
+                },
+                "session_role": {
+                    "description": "e.g. \"job\" — categorizes sessions for filtering",
                     "type": "string"
                 },
                 "stream": {
@@ -28315,6 +28387,10 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "avatar": {
+                    "type": "string"
+                },
+                "callback_url": {
+                    "description": "Webhook URL to POST on session completion",
                     "type": "string"
                 },
                 "code_agent_runtime": {
@@ -28520,6 +28596,25 @@ const docTemplate = `{
                 "SessionModeFinetune",
                 "SessionModeAction"
             ]
+        },
+        "types.SessionOutputResponse": {
+            "type": "object",
+            "properties": {
+                "duration_ms": {
+                    "type": "integer"
+                },
+                "output": {
+                    "description": "Last interaction's response text",
+                    "type": "string"
+                },
+                "session_id": {
+                    "type": "string"
+                },
+                "status": {
+                    "description": "\"waiting\", \"complete\", \"error\"",
+                    "type": "string"
+                }
+            }
         },
         "types.SessionRAGResult": {
             "type": "object",

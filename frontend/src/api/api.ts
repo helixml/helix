@@ -2431,9 +2431,15 @@ export interface TypesCrispTrigger {
 export interface TypesCronTrigger {
   /** "session" (default) or "spec_task" */
   action?: string;
+  /** "helix" (default) or "zed_external" */
+  agent_type?: string;
+  /** Webhook URL to POST on completion */
+  callback_url?: string;
   emails?: string[];
   enabled?: boolean;
   input?: string;
+  /** File path in helix-specs worktree to use as prompt (overrides Input) */
+  input_file?: string;
   /** Target project for spec_task action */
   project_id?: string;
   schedule?: string;
@@ -4763,6 +4769,8 @@ export interface TypesSessionChatRequest {
   app_id?: string;
   /** Which assistant are we speaking to? */
   assistant_id?: string;
+  /** Webhook URL to POST on session completion */
+  callback_url?: string;
   /** Configuration for external agents */
   external_agent_config?: TypesExternalAgentConfig;
   /** If empty, we will start a new interaction */
@@ -4782,6 +4790,8 @@ export interface TypesSessionChatRequest {
   regenerate?: boolean;
   /** If empty, we will start a new session */
   session_id?: string;
+  /** e.g. "job" — categorizes sessions for filtering */
+  session_role?: string;
   /** If true, we will stream the response */
   stream?: boolean;
   /** System message, only applicable when starting a new session */
@@ -4815,6 +4825,8 @@ export interface TypesSessionMetadata {
   /** which assistant are we talking to? */
   assistant_id?: string;
   avatar?: string;
+  /** Webhook URL to POST on session completion */
+  callback_url?: string;
   /** Which code agent runtime is used (zed_agent, qwen_code, claude_code, etc.) */
   code_agent_runtime?: TypesCodeAgentRuntime;
   /** Docker container ID */
@@ -4908,6 +4920,15 @@ export enum TypesSessionMode {
   SessionModeInference = "inference",
   SessionModeFinetune = "finetune",
   SessionModeAction = "action",
+}
+
+export interface TypesSessionOutputResponse {
+  duration_ms?: number;
+  /** Last interaction's response text */
+  output?: string;
+  session_id?: string;
+  /** "waiting", "complete", "error" */
+  status?: string;
 }
 
 export interface TypesSessionRAGResult {
@@ -12135,6 +12156,8 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         search?: string;
         /** Project ID */
         project_id?: string;
+        /** Filter by session role (e.g. job) */
+        session_role?: string;
       },
       params: RequestParams = {},
     ) =>
@@ -12366,6 +12389,24 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         body: feedback,
         secure: true,
         type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Returns the last interaction's response for a session
+     *
+     * @tags Sessions
+     * @name V1SessionsOutputDetail
+     * @summary Get session output
+     * @request GET:/api/v1/sessions/{id}/output
+     * @secure
+     */
+    v1SessionsOutputDetail: (id: string, params: RequestParams = {}) =>
+      this.request<TypesSessionOutputResponse, SystemHTTPError>({
+        path: `/api/v1/sessions/${id}/output`,
+        method: "GET",
+        secure: true,
         format: "json",
         ...params,
       }),

@@ -22,6 +22,7 @@ import Secrets from './pages/Secrets'
 // import NewAgent from './pages/NewAgent'
 import ImportAgent from './pages/ImportAgent'
 import Tasks from './pages/Tasks'
+import Jobs from './pages/Jobs'
 import SpecTasksPage from './pages/SpecTasksPage'
 import SpecTaskDetailPage from './pages/SpecTaskDetailPage'
 import SpecTaskReviewPage from './pages/SpecTaskReviewPage'
@@ -95,6 +96,16 @@ const routes: IApplicationRoute[] = [
   },
   render: () => (
     <Apps />
+  ),
+}, {
+  name: 'org_jobs',
+  path: '/orgs/:org_id/jobs',
+  meta: {
+    drawer: false,
+    title: 'Jobs',
+  },
+  render: () => (
+    <Jobs />
   ),
 }, {
   // Backward compat: redirect /apps to /agents
