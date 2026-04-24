@@ -738,7 +738,7 @@ function TaskCardInner({
           />
         </Tooltip>
       )}
-      <CardContent sx={{ p: 2, "&:last-child": { pb: 2 } }}>
+      <CardContent sx={{ p: 2, "&:last-child": { pb: 4 } }}>
         {/* Task name */}
         <Box
           sx={{

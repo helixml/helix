@@ -470,6 +470,7 @@ type Store interface {
 	GetSpecTasksCount(ctx context.Context, query *GetSpecTasksCountQuery) (int64, error)
 	GetSpecTask(ctx context.Context, id string) (*types.SpecTask, error)
 	UpdateSpecTask(ctx context.Context, task *types.SpecTask) error
+	TransitionSpecTaskStatus(ctx context.Context, taskID string, fromStatuses []types.SpecTaskStatus, newStatus types.SpecTaskStatus, extraFields map[string]any) (bool, error)
 	DeleteSpecTask(ctx context.Context, id string) error
 	ListSpecTasks(ctx context.Context, filters *types.SpecTaskFilters) ([]*types.SpecTask, error)
 	ListProjectLabels(ctx context.Context, projectID string) ([]string, error)

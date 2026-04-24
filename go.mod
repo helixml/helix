@@ -38,7 +38,6 @@ require (
 	github.com/golang-migrate/migrate/v4 v4.16.2
 	github.com/google/go-github/v57 v57.0.0
 	github.com/google/go-github/v61 v61.0.0
-	github.com/google/go-tika v0.3.1
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/mux v1.8.1
 	github.com/gorilla/websocket v1.5.3

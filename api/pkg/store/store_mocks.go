@@ -5095,6 +5095,21 @@ func (mr *MockStoreMockRecorder) TouchSession(ctx, sessionID any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "TouchSession", reflect.TypeOf((*MockStore)(nil).TouchSession), ctx, sessionID)
 }
 
+// TransitionSpecTaskStatus mocks base method.
+func (m *MockStore) TransitionSpecTaskStatus(ctx context.Context, taskID string, fromStatuses []types.SpecTaskStatus, newStatus types.SpecTaskStatus, extraFields map[string]any) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "TransitionSpecTaskStatus", ctx, taskID, fromStatuses, newStatus, extraFields)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// TransitionSpecTaskStatus indicates an expected call of TransitionSpecTaskStatus.
+func (mr *MockStoreMockRecorder) TransitionSpecTaskStatus(ctx, taskID, fromStatuses, newStatus, extraFields any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "TransitionSpecTaskStatus", reflect.TypeOf((*MockStore)(nil).TransitionSpecTaskStatus), ctx, taskID, fromStatuses, newStatus, extraFields)
+}
+
 // UnifiedSearch mocks base method.
 func (m *MockStore) UnifiedSearch(ctx context.Context, userID string, req *types.UnifiedSearchRequest) (*types.UnifiedSearchResponse, error) {
 	m.ctrl.T.Helper()

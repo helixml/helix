@@ -250,16 +250,13 @@ func GenerateZedMCPConfig(
 		// and prevents extension probing (e.g. LinkedIn bot detection).
 		Args: []string{
 			"chrome-devtools-mcp@latest",
+			"--viewport", "1600x1080",
 			"--chrome-arg=--disable-blink-features=AutomationControlled",
 			"--chrome-arg=--no-first-run",
 			"--chrome-arg=--disable-infobars",
 			"--chrome-arg=--disable-extensions",
 		},
 		Env: map[string]string{
-			// Use headless mode in sandbox containers (no visible browser window)
-			"CHROME_DEVTOOLS_MCP_HEADLESS": "true",
-			// Set viewport to match typical desktop resolution
-			"CHROME_DEVTOOLS_MCP_VIEWPORT": "1920x1080",
 			// Point to the actual browser binary (Chromium on ARM64, Chrome on amd64).
 			// google-chrome-stable symlink also exists, but CHROME_PATH is the
 			// documented way to configure the MCP server for non-Chrome browsers.

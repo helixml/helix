@@ -16,11 +16,13 @@ import {
   CheckCircle as ApproveIcon,
   Close as CloseIcon,
   RocketLaunch as LaunchIcon,
+  SkipNext as SkipIcon,
   Replay as ReopenIcon,
 } from "@mui/icons-material";
 import {
   useApproveImplementation,
   useStopAgent,
+  useSkipSpec,
   useReopenTask,
 } from "../../services/specTaskWorkflowService";
 import { useUpdateSpecTask } from "../../services/specTaskService";
@@ -182,6 +184,7 @@ export default function SpecTaskActionButtons({
 }: SpecTaskActionButtonsProps) {
   const approveImplementationMutation = useApproveImplementation(task.id);
   const stopAgentMutation = useStopAgent(task.id);
+  const skipSpecMutation = useSkipSpec(task.id);
   const reopenTaskMutation = useReopenTask(task.id);
   const updateSpecTaskMutation = useUpdateSpecTask();
   const [isReviewingSpec, setIsReviewingSpec] = useState(false);
@@ -264,12 +267,14 @@ export default function SpecTaskActionButtons({
         : isBlockedByDependencies
           ? "Queue Planning"
           : task.metadata?.error
-            ? "Retry Planning"
-            : "Start Planning";
+            ? task.just_do_it_mode
+              ? "Retry Implementation"
+              : "Retry Planning"
+            : task.just_do_it_mode
+              ? "Start Implementation"
+              : "Start Planning";
 
-    const skipLabel = task.metadata?.error
-      ? "or retry as implementation"
-      : "or skip to implementation";
+    const skipLabel = "or skip to implementation";
 
     const handleSkipToImplementation = async (e: React.MouseEvent) => {
       e.stopPropagation();
@@ -279,6 +284,29 @@ export default function SpecTaskActionButtons({
       });
       onStartPlanning?.();
     };
+
+    const skipDisabled =
+      isStartDisabled || updateSpecTaskMutation.isPending || !!task.just_do_it_mode;
+
+    const skipLink = (
+      <Typography
+        variant="caption"
+        onClick={skipDisabled ? undefined : handleSkipToImplementation}
+        sx={{
+          whiteSpace: "nowrap",
+          cursor: skipDisabled ? "default" : "pointer",
+          color: skipDisabled ? "text.disabled" : "text.secondary",
+          "&:hover": skipDisabled
+            ? {}
+            : {
+                color: "primary.main",
+                textDecoration: "underline",
+              },
+        }}
+      >
+        {updateSpecTaskMutation.isPending ? "Starting..." : skipLabel}
+      </Typography>
+    );
 
     if (isInline) {
       return (
@@ -300,6 +328,7 @@ export default function SpecTaskActionButtons({
             }}
             disabled={isStartDisabled}
           />
+          {!task.just_do_it_mode && skipLink}
         </Box>
       );
     }
@@ -332,23 +361,48 @@ export default function SpecTaskActionButtons({
             </Button>
           </span>
         </Tooltip>
-        <Box sx={{ mt: 0.5, display: "flex", justifyContent: "center" }}>
-          <Typography
-            variant="caption"
-            onClick={handleSkipToImplementation}
-            sx={{
-              cursor: isStartDisabled || updateSpecTaskMutation.isPending ? "default" : "pointer",
-              color: isStartDisabled || updateSpecTaskMutation.isPending ? "text.disabled" : "text.secondary",
-              "&:hover": isStartDisabled || updateSpecTaskMutation.isPending ? {} : {
-                color: "primary.main",
-                textDecoration: "underline",
-              },
-              pointerEvents: isStartDisabled || updateSpecTaskMutation.isPending ? "none" : "auto",
-            }}
-          >
-            {updateSpecTaskMutation.isPending ? "Starting..." : skipLabel}
-          </Typography>
-        </Box>
+        {!task.just_do_it_mode && (
+          <Box sx={{ mt: 0.5, display: "flex", justifyContent: "center" }}>
+            {skipLink}
+          </Box>
+        )}
+      </Box>
+    );
+  }
+
+  // Spec generation phase: recovery Skip Planning button for stuck tasks.
+  // Only shown in the detail page (inline variant) to keep kanban cards uncluttered.
+  if (task.status === "spec_generation" && isInline) {
+    const isSkipping = skipSpecMutation.isPending;
+    return (
+      <Box sx={{ display: "flex", gap: 1 }}>
+        <Tooltip
+          title={isArchived ? "Task is archived" : "Skip planning and start implementation"}
+          placement="top"
+        >
+          <span>
+            <Button
+              variant="outlined"
+              size="small"
+              color="warning"
+              startIcon={
+                isSkipping ? (
+                  <CircularProgress size={18} color="inherit" />
+                ) : (
+                  <SkipIcon sx={{ fontSize: 18 }} />
+                )
+              }
+              onClick={(e) => {
+                e.stopPropagation();
+                skipSpecMutation.mutate();
+              }}
+              disabled={isArchived || isSkipping}
+              sx={buttonSx}
+            >
+              {isSkipping ? "Skipping..." : "Skip Planning"}
+            </Button>
+          </span>
+        </Tooltip>
       </Box>
     );
   }

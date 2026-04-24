@@ -30,7 +30,7 @@ func TestBrowser_Get(t *testing.T) {
 
 	assert.NotNil(t, browser)
 
-	page, err := browser.Page(proto.TargetCreateTarget{URL: "https://docs.helixml.tech/"})
+	page, err := browser.Page(proto.TargetCreateTarget{URL: "https://helix.ml/docs"})
 	require.NoError(t, err)
 	assert.NotNil(t, page)
 
@@ -63,7 +63,7 @@ func TestBrowser_BrowsePages(t *testing.T) {
 	browser, err := browserManager.GetBrowser()
 	require.NoError(t, err)
 
-	page1, err := browserManager.GetPage(browser, proto.TargetCreateTarget{URL: "https://docs.helixml.tech/"})
+	page1, err := browserManager.GetPage(browser, proto.TargetCreateTarget{URL: "https://helix.ml/docs"})
 	require.NoError(t, err)
 	assert.NotNil(t, page1)
 
@@ -77,7 +77,7 @@ func TestBrowser_BrowsePages(t *testing.T) {
 
 	browserManager.PutPage(page1)
 
-	page2, err := browserManager.GetPage(browser, proto.TargetCreateTarget{URL: "https://docs.helixml.tech/helix/help/"})
+	page2, err := browserManager.GetPage(browser, proto.TargetCreateTarget{URL: "https://helix.ml/docs"})
 	require.NoError(t, err)
 
 	err = page2.WaitLoad()
@@ -86,7 +86,9 @@ func TestBrowser_BrowsePages(t *testing.T) {
 	body, err = page2.HTML()
 	require.NoError(t, err)
 
-	assert.Contains(t, body, "Commercial Support")
+	// Stable nav label that appears on every docs page; previously asserted
+	// "Commercial Support" but that text is no longer on helix.ml/docs.
+	assert.Contains(t, body, "Getting Started")
 
 	browserManager.PutPage(page2)
 

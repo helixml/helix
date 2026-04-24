@@ -158,8 +158,6 @@ spec:
               value: http://{{ include "helix-controlplane.fullname" . }}-llamaindex:5000/api/v1/rag/chunk
             - name: RAG_QUERY_URL
               value: http://{{ include "helix-controlplane.fullname" . }}-llamaindex:5000/api/v1/rag/query
-            - name: TEXT_EXTRACTION_TIKA_URL
-              value: http://{{ include "helix-controlplane.fullname" . }}-tika:9998/tika
             - name: RAG_CRAWLER_LAUNCHER_URL
               value: http://{{ include "helix-controlplane.fullname" . }}-chrome:7317
             # Postgres configuration
