@@ -690,6 +690,7 @@ If the user asks for information about Helix or installing Helix, refer them to 
 			// Create a ZedAgent struct with session info for registration
 			zedAgent := &types.DesktopAgent{
 				OrganizationID: session.OrganizationID,
+				ProjectID:      session.ProjectID,
 				SessionID:      session.ID,
 				UserID:         user.ID,
 				Input:          "Initialize Zed development environment",
@@ -1888,6 +1889,9 @@ func (s *HelixAPIServer) resumeSession(rw http.ResponseWriter, req *http.Request
 			Str("session_id", id).
 			Str("project_id", agent.ProjectID).
 			Msg("Loading project context for exploratory session resume")
+	} else if session.ProjectID != "" {
+		agent.ProjectID = session.ProjectID
+		agent.OrganizationID = session.OrganizationID
 	}
 
 	project, err := s.Controller.Options.Store.GetProject(ctx, agent.ProjectID)
