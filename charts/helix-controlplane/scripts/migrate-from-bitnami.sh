@@ -1,10 +1,10 @@
 #!/bin/bash
 set -euo pipefail
 
-# Migration script: Bitnami PostgreSQL → Official PostgreSQL
+# Migration script: Bitnami PostgreSQL -> Official PostgreSQL
 #
-# For customers upgrading helix-controlplane chart from <0.4.0 to >=0.4.0
-# who want to preserve their database.
+# For customers upgrading helix-controlplane chart across the Bitnami
+# removal release who want to preserve their database.
 #
 # The chart moved from the Bitnami PostgreSQL subchart (StatefulSet) to
 # an official postgres:17-alpine Deployment. PVC names, service names,
@@ -16,7 +16,7 @@ set -euo pipefail
 # Prerequisites:
 #   - kubectl configured with access to the cluster
 #   - helm v3
-#   - The old chart version still running (pre-0.4.0)
+#   - The old chart version (with Bitnami PostgreSQL) still running
 #
 # What this script does:
 #   Phase 1 (pre-upgrade):  pg_dump from the old Bitnami postgres pod
@@ -76,14 +76,35 @@ if ! kubectl get pod ${NS_FLAG} "${OLD_POD}" &>/dev/null; then
   exit 1
 fi
 
-# Get credentials from the old controlplane deployment
+# Get credentials from the old controlplane deployment.
+# We deliberately do NOT fall back to a guessed default here — a wrong
+# user/database name would produce a valid-looking but empty dump.
 echo "Reading database credentials from controlplane deployment..."
-POSTGRES_USER=$(kubectl get deploy ${NS_FLAG} "${RELEASE}-helix-controlplane" -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="POSTGRES_USER")].value}' 2>/dev/null || \
-  kubectl get deploy ${NS_FLAG} "${RELEASE}" -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="POSTGRES_USER")].value}' 2>/dev/null || \
-  echo "helix")
-POSTGRES_DB=$(kubectl get deploy ${NS_FLAG} "${RELEASE}-helix-controlplane" -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="POSTGRES_DATABASE")].value}' 2>/dev/null || \
-  kubectl get deploy ${NS_FLAG} "${RELEASE}" -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="POSTGRES_DATABASE")].value}' 2>/dev/null || \
-  echo "helix")
+CP_DEPLOY=""
+for name in "${RELEASE}-helix-controlplane" "${RELEASE}"; do
+  if kubectl get deploy ${NS_FLAG} "$name" &>/dev/null; then
+    CP_DEPLOY="$name"
+    break
+  fi
+done
+if [ -z "${CP_DEPLOY}" ]; then
+  echo "ERROR: Could not find controlplane deployment (tried ${RELEASE}-helix-controlplane and ${RELEASE})."
+  exit 1
+fi
+
+POSTGRES_USER=$(kubectl get deploy ${NS_FLAG} "${CP_DEPLOY}" -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="POSTGRES_USER")].value}')
+POSTGRES_DB=$(kubectl get deploy ${NS_FLAG} "${CP_DEPLOY}" -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="POSTGRES_DATABASE")].value}')
+
+if [ -z "${POSTGRES_USER}" ]; then
+  echo "ERROR: POSTGRES_USER is empty on deployment ${CP_DEPLOY}."
+  echo "If credentials come from a Secret, set POSTGRES_USER via the environment before running this script."
+  exit 1
+fi
+if [ -z "${POSTGRES_DB}" ]; then
+  echo "ERROR: POSTGRES_DATABASE is empty on deployment ${CP_DEPLOY}."
+  echo "If credentials come from a Secret, set POSTGRES_DB via the environment before running this script."
+  exit 1
+fi
 
 # Get the password from the Bitnami secret ({release}-postgresql)
 BITNAMI_SECRET="${RELEASE}-postgresql"
@@ -124,12 +145,12 @@ echo "--- Phase 2: Upgrade the Helm chart ---"
 echo ""
 echo "The database has been dumped to: ${DUMP_FILE}"
 echo ""
-echo "Now upgrade the chart to >=0.4.0. For example:"
+echo "Now upgrade the chart to the new version that replaces Bitnami PostgreSQL."
+echo "For example:"
 echo ""
 echo "  helm upgrade ${RELEASE} helix/helix-controlplane \\"
 echo "    -n ${NAMESPACE} \\"
-echo "    -f your-values.yaml \\"
-echo "    --version 0.4.0"
+echo "    -f your-values.yaml"
 echo ""
 echo "After the upgrade completes and the new postgres pod is running,"
 echo "press Enter to continue with the restore..."
@@ -164,7 +185,7 @@ NEW_PASSWORD=$(kubectl get deploy ${NS_FLAG} \
 
 echo "Restoring database..."
 kubectl exec ${NS_FLAG} "${NEW_POD}" -- \
-  env PGPASSWORD="${NEW_PASSWORD}" psql -U "${POSTGRES_USER}" -d "${POSTGRES_DB}" -f /tmp/helix-migration.sql
+  env PGPASSWORD="${NEW_PASSWORD}" psql -v ON_ERROR_STOP=1 -U "${POSTGRES_USER}" -d "${POSTGRES_DB}" -f /tmp/helix-migration.sql
 
 echo "Cleaning up dump file from pod..."
 kubectl exec ${NS_FLAG} "${NEW_POD}" -- rm -f /tmp/helix-migration.sql
