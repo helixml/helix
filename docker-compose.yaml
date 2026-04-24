@@ -121,8 +121,6 @@ services:
       - POSTGRES_PASSWORD=${PGVECTOR_PASSWORD-pgvector}
     volumes:
       - ${VECTORCHORD_DATA:-helix-vectorchord-kodit}:/var/lib/postgresql/data
-    ports:
-      - "5432"
     restart: unless-stopped
 
   # NOTE: Sandbox services are NOT defined here - they are configured by install.sh
