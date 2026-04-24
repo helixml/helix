@@ -5,6 +5,7 @@ import GroqLogo from './logos/groq';
 import CerebrasLogo from './logos/cerebras';
 import AWSLogo from './logos/aws';
 import XaiLogo from './logos/xai';
+import CustomLogo from './logos/custom';
 
 // Direct image imports
 import togetheraiLogo from '../../../assets/img/together-logo.png'
@@ -22,7 +23,11 @@ export interface Provider {
   base_url: string;
   configurable_base_url?: boolean;
 
-  optional_api_key?: boolean; // If provider doesn't need an API key 
+  optional_api_key?: boolean; // If provider doesn't need an API key
+
+  // A custom provider lets the user pick a name and a base URL for any
+  // OpenAI-compatible endpoint; multiple instances per user are allowed.
+  is_custom?: boolean;
 
   setup_instructions: string;
 }
@@ -115,10 +120,22 @@ export const PROVIDERS: Provider[] = [
     alias: ['ollama', 'ollama-api'],
     name: 'Ollama',
     description: 'Integrate with Ollama which is running on your local machine or server.',
-    logo: OllamaIcon, 
+    logo: OllamaIcon,
     base_url: "http://host.docker.internal:11434/v1",
     configurable_base_url: true,
     optional_api_key: true,
     setup_instructions: "Open Ollama settings and turn on 'Expose Ollama to the network'"
+  },
+  {
+    id: 'user/custom',
+    alias: ['custom'],
+    name: 'Custom Provider',
+    description: 'Connect any OpenAI-compatible API by providing a base URL and optional API key.',
+    logo: CustomLogo,
+    base_url: '',
+    configurable_base_url: true,
+    optional_api_key: true,
+    is_custom: true,
+    setup_instructions: 'Give your provider a unique name, the OpenAI-compatible base URL, and an API key if the endpoint requires one.'
   }
 ];
