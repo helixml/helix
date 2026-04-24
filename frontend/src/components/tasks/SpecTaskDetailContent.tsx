@@ -659,9 +659,11 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
               },
             });
           } else {
+            // No GitHub provider is configured system-wide. The backend's
+            // error message is PR-centric and actionless for this user, so
+            // override it with admin-direction guidance.
             snackbar.error(
-              errorData?.message ||
-                "GitHub OAuth is not configured. Ask your administrator to set it up so this task can be planned.",
+              "GitHub OAuth is not configured on this Helix instance. Ask your administrator to set it up before starting planning.",
             );
           }
           return;

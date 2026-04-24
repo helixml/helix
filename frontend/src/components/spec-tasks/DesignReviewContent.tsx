@@ -955,9 +955,11 @@ export default function DesignReviewContent({
             },
           });
         } else {
+          // No GitHub provider is configured system-wide. The backend's
+          // error message is PR-centric and actionless for this user, so
+          // override it with admin-direction guidance.
           snackbar.error(
-            respData?.message ||
-              "GitHub OAuth is not configured. Ask your administrator to set it up so this task can be approved.",
+            "GitHub OAuth is not configured on this Helix instance. Ask your administrator to set it up before approving designs.",
           );
         }
         return;
