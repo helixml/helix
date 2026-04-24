@@ -612,15 +612,16 @@ func (s *GitHTTPServer) handleReceivePack(w http.ResponseWriter, r *http.Request
 	if len(pushedBranchesMap) > 0 && repo != nil && repo.ExternalURL != "" {
 		log.Debug().Str("repo_id", repoID).Int("branch_count", len(pushedBranchesMap)).Msg("Starting external push with detached context")
 
-		// Resolve the acting user for push credentials: use the approver's
-		// OAuth token so the push is attributed correctly.
+		// Resolve the acting user for push credentials: use the actor's OAuth
+		// token so the push is attributed correctly on GitHub.
 		//
-		// Prefer ImplementationApprovedBy (set when the user clicks "Open PR"),
-		// fall back to SpecApprovedBy (set when the user approves specs and
-		// transitions the task to implementation). The SpecApprovedBy fallback
-		// fires when an agent-initiated push arrives before "Open PR" has been
-		// clicked — e.g. the agent pushes mid-implementation — so the push
-		// still carries a real user identity rather than anonymous credentials.
+		// Walk the phase chain from most to least recent:
+		//   ImplementationApprovedBy — user clicked "Open PR"
+		//   SpecApprovedBy           — user approved specs and moved task to implementation
+		//   PlanningStartedBy        — user kicked off planning (first phase that can push to helix-specs)
+		//
+		// Using the latest actor available means agent-initiated pushes at
+		// any phase carry a real user identity rather than anonymous creds.
 		var pushUserID string
 		if restriction != nil && restriction.IsAgentKey {
 			rawKey := s.extractRawAPIKey(apiKey)
@@ -629,6 +630,9 @@ func (s *GitHTTPServer) handleReceivePack(w http.ResponseWriter, r *http.Request
 					pushUserID = pushTask.ImplementationApprovedBy
 					if pushUserID == "" {
 						pushUserID = pushTask.SpecApprovedBy
+					}
+					if pushUserID == "" {
+						pushUserID = pushTask.PlanningStartedBy
 					}
 				}
 			}

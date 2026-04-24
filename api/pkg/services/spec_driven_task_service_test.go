@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 	"unicode/utf8"
@@ -437,7 +438,7 @@ func TestSyncGitIdentityToApprover_Success(t *testing.T) {
 		})
 
 	task := &types.SpecTask{ID: "task-1", PlanningSessionID: "ses-1", SpecApprovedBy: "approver-1"}
-	require.NoError(t, svc.syncGitIdentityToApprover(context.Background(), task))
+	require.NoError(t, svc.syncGitIdentityToUser(context.Background(), task, task.SpecApprovedBy, "approver"))
 
 	require.Len(t, *calls, 2, "expected email then name")
 	assert.Equal(t, []string{"git", "config", "--global", "user.email", "approver@example.com"}, (*calls)[0].command)
@@ -471,7 +472,7 @@ func TestSyncGitIdentityToApprover_FallsBackToUsernameThenEmailLocalPart(t *test
 			mockStore.EXPECT().GetUser(gomock.Any(), gomock.Any()).Return(tc.user, nil)
 
 			task := &types.SpecTask{ID: "task-1", PlanningSessionID: "ses-1", SpecApprovedBy: "u"}
-			require.NoError(t, svc.syncGitIdentityToApprover(context.Background(), task))
+			require.NoError(t, svc.syncGitIdentityToUser(context.Background(), task, task.SpecApprovedBy, "approver"))
 
 			require.Len(t, *calls, 2)
 			assert.Equal(t, tc.wantName, (*calls)[1].command[4], "user.name should fall back sensibly")
@@ -485,27 +486,27 @@ func TestSyncGitIdentityToApprover_NoOpCases(t *testing.T) {
 		svc, _, ctrl := newIdentitySyncService(t, exec)
 		defer ctrl.Finish()
 		svc.SetTestMode(true)
-		require.NoError(t, svc.syncGitIdentityToApprover(context.Background(), &types.SpecTask{PlanningSessionID: "s", SpecApprovedBy: "u"}))
+		require.NoError(t, svc.syncGitIdentityToUser(context.Background(), &types.SpecTask{PlanningSessionID: "s", SpecApprovedBy: "u"}, "u", "approver"))
 		assert.Empty(t, *calls, "testMode should not exec")
 	})
 	t.Run("no session", func(t *testing.T) {
 		exec, calls := recordingExec()
 		svc, _, ctrl := newIdentitySyncService(t, exec)
 		defer ctrl.Finish()
-		require.NoError(t, svc.syncGitIdentityToApprover(context.Background(), &types.SpecTask{SpecApprovedBy: "u"}))
+		require.NoError(t, svc.syncGitIdentityToUser(context.Background(), &types.SpecTask{SpecApprovedBy: "u"}, "u", "approver"))
 		assert.Empty(t, *calls)
 	})
 	t.Run("no approver", func(t *testing.T) {
 		exec, calls := recordingExec()
 		svc, _, ctrl := newIdentitySyncService(t, exec)
 		defer ctrl.Finish()
-		require.NoError(t, svc.syncGitIdentityToApprover(context.Background(), &types.SpecTask{PlanningSessionID: "s"}))
+		require.NoError(t, svc.syncGitIdentityToUser(context.Background(), &types.SpecTask{PlanningSessionID: "s"}, "", "approver"))
 		assert.Empty(t, *calls)
 	})
 	t.Run("ExecInDesktop nil", func(t *testing.T) {
 		svc, _, ctrl := newIdentitySyncService(t, nil)
 		defer ctrl.Finish()
-		require.NoError(t, svc.syncGitIdentityToApprover(context.Background(), &types.SpecTask{PlanningSessionID: "s", SpecApprovedBy: "u"}))
+		require.NoError(t, svc.syncGitIdentityToUser(context.Background(), &types.SpecTask{PlanningSessionID: "s", SpecApprovedBy: "u"}, "u", "approver"))
 	})
 }
 
@@ -518,7 +519,7 @@ func TestSyncGitIdentityToApprover_ErrorsSurface(t *testing.T) {
 		svc, mockStore, ctrl := newIdentitySyncService(t, exec)
 		defer ctrl.Finish()
 		mockStore.EXPECT().GetUser(gomock.Any(), gomock.Any()).Return(nil, errors.New("db down"))
-		err := svc.syncGitIdentityToApprover(ctx, baseTask)
+		err := svc.syncGitIdentityToUser(ctx, baseTask, baseTask.SpecApprovedBy, "approver")
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "db down")
 		assert.Empty(t, *calls, "no exec should happen if GetUser fails")
@@ -530,7 +531,7 @@ func TestSyncGitIdentityToApprover_ErrorsSurface(t *testing.T) {
 		defer ctrl.Finish()
 		mockStore.EXPECT().GetUser(gomock.Any(), gomock.Any()).
 			Return(&types.User{ID: "u", FullName: "Someone"}, nil)
-		err := svc.syncGitIdentityToApprover(ctx, baseTask)
+		err := svc.syncGitIdentityToUser(ctx, baseTask, baseTask.SpecApprovedBy, "approver")
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "no email")
 		assert.Empty(t, *calls, "no exec without email")
@@ -542,7 +543,7 @@ func TestSyncGitIdentityToApprover_ErrorsSurface(t *testing.T) {
 		defer ctrl.Finish()
 		mockStore.EXPECT().GetUser(gomock.Any(), gomock.Any()).
 			Return(&types.User{ID: "u", FullName: "N", Email: "e@x"}, nil)
-		err := svc.syncGitIdentityToApprover(ctx, baseTask)
+		err := svc.syncGitIdentityToUser(ctx, baseTask, baseTask.SpecApprovedBy, "approver")
 		require.Error(t, err)
 		assert.Len(t, *calls, 1, "should stop after email failure, not touch user.name")
 	})
@@ -554,8 +555,58 @@ func TestSyncGitIdentityToApprover_ErrorsSurface(t *testing.T) {
 		defer ctrl.Finish()
 		mockStore.EXPECT().GetUser(gomock.Any(), gomock.Any()).
 			Return(&types.User{ID: "u", FullName: "N", Email: "e@x"}, nil)
-		err := svc.syncGitIdentityToApprover(ctx, baseTask)
+		err := svc.syncGitIdentityToUser(ctx, baseTask, baseTask.SpecApprovedBy, "approver")
 		require.NoError(t, err, "name-only failure is logged but not propagated")
 		assert.Len(t, *calls, 2)
 	})
+}
+
+func TestSyncGitIdentityToUser_UsesExplicitUserID(t *testing.T) {
+	// Same helper, different phase. Verify the passed-in userID (not any
+	// field on the task) is what's looked up and applied, so the planner
+	// and approver code paths share the same implementation.
+	exec, calls := recordingExec()
+	svc, mockStore, ctrl := newIdentitySyncService(t, exec)
+	defer ctrl.Finish()
+
+	mockStore.EXPECT().GetUser(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, q *store.GetUserQuery) (*types.User, error) {
+			assert.Equal(t, "planner-42", q.ID, "must look up the user passed via argument, not task.SpecApprovedBy")
+			return &types.User{ID: q.ID, FullName: "Planner Forty-Two", Email: "p42@example.com"}, nil
+		})
+
+	// Deliberately set SpecApprovedBy to a different value to prove the
+	// helper honours the userID argument, not the task field.
+	task := &types.SpecTask{
+		ID:                "task-x",
+		PlanningSessionID: "ses-x",
+		SpecApprovedBy:    "someone-else",
+		PlanningStartedBy: "planner-42",
+	}
+	require.NoError(t, svc.syncGitIdentityToUser(context.Background(), task, task.PlanningStartedBy, "planner"))
+
+	require.Len(t, *calls, 2)
+	assert.Equal(t, "p42@example.com", (*calls)[0].command[4])
+	assert.Equal(t, "Planner Forty-Two", (*calls)[1].command[4])
+}
+
+func TestIsNonRetryableIdentityError(t *testing.T) {
+	cases := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"nil", nil, false},
+		{"user not found sentinel is terminal", fmt.Errorf("%w: approver u", errIdentityUserNotFound), true},
+		{"missing email sentinel is terminal", fmt.Errorf("%w: approver u", errIdentityNoEmail), true},
+		{"container not ready is retryable", errors.New("failed to connect to desktop ses-1 via RevDial: connection refused"), false},
+		{"exec failure is retryable", errors.New("exec command failed: bash: git: command not found (exit code 127)"), false},
+		{"arbitrary DB error is retryable (might self-heal)", errors.New("failed to look up approver u: temporary db error"), false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := isNonRetryableIdentityError(tc.err)
+			assert.Equal(t, tc.want, got)
+		})
+	}
 }

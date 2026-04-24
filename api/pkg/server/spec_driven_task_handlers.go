@@ -816,6 +816,28 @@ func (s *HelixAPIServer) startPlanning(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The user who starts planning becomes the actor for planning-phase
+	// commits/pushes, so their GitHub OAuth must be connected up front.
+	// Otherwise the agent would push specs using either no credentials or
+	// the task creator's token — both are wrong.
+	if project, projErr := s.Store.GetProject(ctx, task.ProjectID); projErr == nil && project.DefaultRepoID != "" {
+		if repo, repoErr := s.Store.GetGitRepository(ctx, project.DefaultRepoID); repoErr == nil {
+			if err := s.gitRepositoryService.ValidateUserGitHubOAuth(ctx, repo, user.ID); err != nil {
+				var oauthErr *services.OAuthRequiredError
+				if errors.As(err, &oauthErr) {
+					writeResponse(w, map[string]interface{}{
+						"error":         "oauth_required",
+						"message":       oauthErr.Error(),
+						"provider_type": oauthErr.ProviderType,
+					}, http.StatusUnprocessableEntity)
+					return
+				}
+				log.Warn().Err(err).Str("task_id", taskID).
+					Msg("Non-OAuthRequired error validating planner OAuth; proceeding with planning")
+			}
+		}
+	}
+
 	task.PlanningOptions = opts
 	task.UpdatedAt = time.Now()
 
@@ -828,6 +850,9 @@ func (s *HelixAPIServer) startPlanning(w http.ResponseWriter, r *http.Request) {
 		task.Status = types.TaskStatusQueuedSpecGeneration
 	}
 	task.StatusUpdatedAt = &now
+	// Record who kicked off planning so downstream push-credential and
+	// container git-identity resolution can attribute to them.
+	task.PlanningStartedBy = user.ID
 
 	// Save the task with queued status first (so response reflects immediate status)
 	err = s.Store.UpdateSpecTask(ctx, task)
