@@ -28,6 +28,8 @@ import {
   Code as CodeIcon,
   ExpandMore as ExpandMoreIcon,
   ExpandLess as ExpandLessIcon,
+  Add as AddIcon,
+  Close as CloseIcon,
 } from '@mui/icons-material'
 import { useQuery } from '@tanstack/react-query'
 
@@ -57,11 +59,167 @@ import type {
   TypesPaginatedSessionsList,
 } from '../api/api'
 
-const JOB_FILES = [
-  { name: 'persona.md', label: 'Persona', placeholder: 'Define the agent\'s role, expertise, and behavior...' },
-  { name: 'tasks.md', label: 'Tasks', placeholder: 'List the tasks the agent should perform...' },
-  { name: 'notes.md', label: 'Notes', placeholder: 'Additional context, reference data, or instructions...' },
+const AGENTS_MD_DEFAULT = `# Nightly README review
+This is the spec for the nightly agent that keeps \`README.md\` consistent with
+the current Kodit code. Only the human edits this file. The agent reads it.
+The aim is a narrow, boring task: keep the README accurate. Do not let the
+agent turn it into a different document.
+## How this file grows
+Every morning, review the previous night's diff. If the agent did something
+you did not want, add a bullet under **Out of scope** or **Anti-patterns**
+that would have stopped it. Over three or four runs the file stops changing.
+---
+## Repository setup
+If a \`repo/\` directory does not already exist, clone the target repository:
+\`\`\`bash
+gh repo clone helixml/kodit repo
+\`\`\`
+If \`repo/\` already exists, run \`git -C repo pull\` to get the latest changes.
+Stay in this directory (do not cd into repo). Reference repository files as
+\`repo/README.md\`, \`repo/cmd/...\`, etc. State files (\`TASKS.md\`, \`LOG.md\`,
+etc.) are in the current directory. Git operations on the repo use
+\`git -C repo\`. Run verify as \`bash verify.sh\` (it should reference repo/
+paths internally).
+## State files
+Read these in order, once, at the start of the run:
+1. \`AGENTS.md\` (this file) -- permanent rules and scope. Only the human
+   edits this. You must not violate anything in it.
+2. \`QUESTIONS.md\` -- check whether any of your previous questions have been
+   answered. Questions still marked \`unanswered\` block any related task.
+3. \`TASKS.md\` -- the task list.
+4. Last 50 lines of \`LOG.md\` for recent context.
+## Execution model
+You run once. There is no outer loop. You must keep working until every task
+is either \`done\` or \`blocked\`, and no further diagnose findings remain.
+The run has two repeating phases: **Diagnose** and **Fix**. Start with
+Diagnose. After Diagnose, if there are \`pending\` tasks, move to Fix. After
+finishing all pending tasks, run Diagnose again. Repeat until there is
+nothing left to do.
+Stop when all of the following hold:
+- A Diagnose pass produced no new \`pending\` tasks.
+- Every task in \`TASKS.md\` is \`done\` or \`blocked\`.
+- \`./verify.sh\` exits 0.
+### Diagnose
+Goal: produce a drift report between README and reality. Make no changes to
+\`README.md\`.
+1. Run \`./verify.sh > /tmp/verify.log 2>&1 || true\` and read the output.
+2. Read \`repo/README.md\` in full.
+3. Analyse the codebase to understand current functionality and capabilities.
+4. Compare README claims against reality. For each discrepancy, append an
+   entry to \`LOG.md\`:
+   \`\`\`markdown
+   ## YYYY-MM-DD HH:MM diagnose
+   - observation: <one sentence>
+     evidence: <line number, or short quote>
+   \`\`\`
+5. For each finding that is actionable and in scope, append a task to
+   \`TASKS.md\` with state \`pending\`. One task per finding. Task titles
+   under 80 chars, phrased so completion is objectively verifiable.
+6. If you find something you cannot classify as in or out of scope, write it
+   to \`QUESTIONS.md\` with state \`unanswered\`. Do not create a task for it.
+7. Update \`LOG.md\`, \`TASKS.md\`, and \`QUESTIONS.md\` only. Do not touch
+   \`README.md\` during Diagnose.
+### Fix
+Work through every \`pending\` task in \`TASKS.md\`, one at a time, in order.
+For each task:
+1. Move the task to \`in-progress\`.
+2. If the task depends on an \`unanswered\` question, mark it \`blocked\` with
+   a pointer to the question and move to the next task.
+3. Make the minimum edit to \`repo/README.md\` required by the task. Respect
+   the rules in this file.
+4. Run \`./verify.sh\`. If non-zero, either fix your edit and re-run, or
+   revert and mark the task \`blocked\` with a note explaining why. Do not
+   mark a task \`done\` while verify is failing.
+5. Mark the task \`done\` in \`TASKS.md\` with a one-line note: what you
+   changed and what proved it (which verify check, or a specific
+   inspection).
+6. Append to \`LOG.md\`:
+   \`\`\`markdown
+   ## YYYY-MM-DD HH:MM fix
+   - task: <task title>
+   - change: <one sentence>
+   - verified by: <which verify check, or inspection detail>
+   \`\`\`
+7. Move to the next pending task. When none remain, return to Diagnose.
+## Committing and pull request
+After you stop, if \`repo/README.md\` has changed:
+1. Create a branch in the repo: \`git -C repo checkout -b readme/YYYY-MM-DD\`.
+2. Stage and commit only \`README.md\` with a conventional commit git message.
+3. Push and open a pull request against the default branch using \`gh\`. The PR title should match the commit message. The body should include information about what tasks were completed in this commit. If this is a follow-on commit, rewrite the PR body and title to match all commits.
+If \`README.md\` has not changed, do not create a branch or pull request.
+State files (\`TASKS.md\`, \`LOG.md\`, \`QUESTIONS.md\`) are not committed to the
+repo. They live in the current directory only.
+---
+## Scope
+### In scope
+- Correcting factual errors in \`README.md\` against the current Kodit code.
+- Removing documentation for features that no longer exist.
+- Adding brief documentation for subcommands, flags, config keys, or MCP
+  tool names that exist in code but are not mentioned in the README.
+- Fixing broken relative links and broken shell examples.
+- Replacing stale version numbers, install instructions, or pasted command
+  output.
+### Out of scope
+- Structural changes to the README: new top-level sections, section
+  reorders, moving content between sections.
+- Marketing prose of any kind: "Why Kodit", "Who is this for", taglines,
+  benefit bullets, problem statements.
+- Badges.
+- Emoji, including in headings.
+- FAQs, unless one already exists and contains a factual error to correct.
+- Expanding acronyms already defined earlier in the file.
+- Softening or hedging direct statements.
+- Long examples or tutorials. Examples stay minimal.
+## Style rules
+- UK English.
+- No em dashes anywhere.
+- No contractions in prose. Code and command output are exempt.
+- Sentence case in headings.
+- No emoji.
+- Second person ("you run", "you pass") for user-facing instructions.
+- Imperative or third person for reference material.
+- Direct statements. "required", not "we recommend". "returns", not
+  "will return". "use", not "you may wish to use".
+- Fenced code blocks get explicit language tags: \`bash\`, \`go\`, \`yaml\`,
+  \`toml\`, \`json\`.
+## Anti-patterns
+If you catch yourself doing any of these, stop and revert:
+- Reorganising the README to be "cleaner" or "more logical".
+- Adding a "Why Kodit?", "Overview", or "Features" section.
+- Replacing a direct sentence with a bulleted list.
+- Expanding a one-line install instruction into a walk-through.
+- Adding warnings, notes, or callouts around existing content that was fine.
+- Rewriting in a different voice than the surrounding paragraphs.
+- Introducing placeholder phrases like "Note that", "It is important to",
+  "Please be aware".
+## Hard rules
+- You edit only \`TASKS.md\`, \`LOG.md\`, \`QUESTIONS.md\`, and \`repo/README.md\`.
+- If \`verify.sh\` is failing, prioritise tasks that will make it pass.
+- If you are about to make an edit that is not covered by a task in
+  \`TASKS.md\`, stop and write the question to \`QUESTIONS.md\`.
+## Golden anchors
+The following sections of the current README are the style reference. Do not
+edit them unless a task explicitly targets them. Match their voice and length
+when writing elsewhere:
+- [fill in after first pass: e.g. "Installation"]
+- [fill in after first pass: e.g. "Configuration"]
+`
+
+interface JobFile {
+  name: string
+  placeholder: string
+}
+
+const DEFAULT_JOB_FILES: JobFile[] = [
+  { name: 'AGENTS.md', placeholder: 'Define the agent spec — role, scope, execution model, constraints...' },
+  { name: 'TASK.md', placeholder: 'List the tasks the agent should perform...' },
+  { name: 'LOG.md', placeholder: 'Agent run log — the agent appends entries here...' },
+  { name: 'QUESTIONS.md', placeholder: 'Questions for the human to answer between runs...' },
 ]
+
+const FILE_DEFAULTS: Record<string, string> = {
+  'AGENTS.md': AGENTS_MD_DEFAULT,
+}
 
 interface TabPanelProps {
   children?: React.ReactNode
@@ -143,6 +301,8 @@ const Jobs: FC = () => {
   const [fileDirty, setFileDirty] = useState<Record<string, boolean>>({})
   const [saving, setSaving] = useState(false)
   const [starting, setStarting] = useState(false)
+  const [jobFiles, setJobFiles] = useState<JobFile[]>(DEFAULT_JOB_FILES)
+  const [newFileName, setNewFileName] = useState('')
 
   const orgId = account.organizationTools.organization?.id || ''
   const origin = window.location.origin
@@ -157,48 +317,47 @@ const Jobs: FC = () => {
   const { data: repos } = useGetProjectRepositories(selectedProjectId, !!selectedProjectId)
   const defaultRepoId = project?.default_repo_id || repos?.[0]?.id || ''
 
-  // Fetch job files from helix-specs branch (files may not exist yet — that's OK)
+  // Fetch all job files from helix-specs branch in one query
   const apiClient = api.getApiClient()
-  const fetchJobFile = useCallback(async (path: string) => {
-    const response = await apiClient.getGitRepositoryFile(defaultRepoId, { path, branch: 'helix-specs' })
-    return response.data
-  }, [apiClient, defaultRepoId])
+  const fileNames = useMemo(() => jobFiles.map(f => f.name), [jobFiles])
 
-  const { data: personaFile, isLoading: personaLoading } = useQuery({
-    queryKey: ['job-file', defaultRepoId, 'job/persona.md'],
-    queryFn: () => fetchJobFile('job/persona.md'),
-    enabled: !!defaultRepoId,
-    retry: false,
-  })
-  const { data: tasksFile, isLoading: tasksLoading } = useQuery({
-    queryKey: ['job-file', defaultRepoId, 'job/tasks.md'],
-    queryFn: () => fetchJobFile('job/tasks.md'),
-    enabled: !!defaultRepoId,
-    retry: false,
-  })
-  const { data: notesFile, isLoading: notesLoading } = useQuery({
-    queryKey: ['job-file', defaultRepoId, 'job/notes.md'],
-    queryFn: () => fetchJobFile('job/notes.md'),
+  const { data: filesFromBranch, isLoading: filesLoading } = useQuery({
+    queryKey: ['job-files', defaultRepoId, fileNames],
+    queryFn: async () => {
+      const results: Record<string, string> = {}
+      for (const name of fileNames) {
+        try {
+          const response = await apiClient.getGitRepositoryFile(defaultRepoId, { path: `job/${name}`, branch: 'helix-specs' })
+          results[name] = (response.data as any)?.content || ''
+        } catch {
+          // File doesn't exist yet
+        }
+      }
+      return results
+    },
     enabled: !!defaultRepoId,
     retry: false,
   })
 
-  // Populate file contents when loaded
+  // Populate file contents when loaded from branch
   React.useEffect(() => {
-    if (personaFile && !fileDirty['persona.md']) {
-      setFileContents(prev => ({ ...prev, 'persona.md': (personaFile as any)?.content || '' }))
-    }
-  }, [personaFile])
-  React.useEffect(() => {
-    if (tasksFile && !fileDirty['tasks.md']) {
-      setFileContents(prev => ({ ...prev, 'tasks.md': (tasksFile as any)?.content || '' }))
-    }
-  }, [tasksFile])
-  React.useEffect(() => {
-    if (notesFile && !fileDirty['notes.md']) {
-      setFileContents(prev => ({ ...prev, 'notes.md': (notesFile as any)?.content || '' }))
-    }
-  }, [notesFile])
+    if (!filesFromBranch) return
+    setFileContents(prev => {
+      const next = { ...prev }
+      for (const [name, content] of Object.entries(filesFromBranch)) {
+        if (!fileDirty[name]) {
+          next[name] = content
+        }
+      }
+      // Pre-fill defaults for files that don't exist on branch yet
+      for (const file of jobFiles) {
+        if (!filesFromBranch[file.name] && !fileDirty[file.name] && !prev[file.name] && FILE_DEFAULTS[file.name]) {
+          next[file.name] = FILE_DEFAULTS[file.name]
+        }
+      }
+      return next
+    })
+  }, [filesFromBranch])
 
   const updateFileMutation = useCreateOrUpdateRepositoryFile()
 
@@ -227,7 +386,7 @@ const Jobs: FC = () => {
     }
     setSaving(true)
     try {
-      for (const file of JOB_FILES) {
+      for (const file of jobFiles) {
         if (fileDirty[file.name]) {
           await updateFileMutation.mutateAsync({
             repositoryId: defaultRepoId,
@@ -246,7 +405,7 @@ const Jobs: FC = () => {
     } finally {
       setSaving(false)
     }
-  }, [defaultRepoId, fileContents, fileDirty, updateFileMutation, snackbar])
+  }, [defaultRepoId, fileContents, fileDirty, jobFiles, updateFileMutation, snackbar])
 
   const handleStartJob = useCallback(async () => {
     if (!selectedProjectId) return
@@ -254,12 +413,12 @@ const Jobs: FC = () => {
     try {
       const session = await streaming.NewInference({
         type: SESSION_TYPE_TEXT,
-        message: fileContents['tasks.md'] || 'Run the job tasks as specified in the job files.',
+        message: fileContents['TASK.md'] || 'Run the job tasks as specified in the job files.',
         projectId: selectedProjectId,
         agentType: 'zed_external',
       })
       setActiveRunSessionId(session.id || '')
-      setActiveTab(1) // Switch to Runs tab
+      setActiveTab(1)
       snackbar.success('Job started')
     } catch (err: any) {
       snackbar.error(`Failed to start job: ${err.message}`)
@@ -280,8 +439,32 @@ const Jobs: FC = () => {
     }
   }, [activeRunSessionId, stopMutation, snackbar])
 
+  const handleAddFile = useCallback(() => {
+    const name = newFileName.trim()
+    if (!name) return
+    if (jobFiles.some(f => f.name === name)) {
+      snackbar.error('File already exists')
+      return
+    }
+    setJobFiles(prev => [...prev, { name, placeholder: '' }])
+    setNewFileName('')
+  }, [newFileName, jobFiles, snackbar])
+
+  const handleRemoveFile = useCallback((name: string) => {
+    setJobFiles(prev => prev.filter(f => f.name !== name))
+    setFileContents(prev => {
+      const next = { ...prev }
+      delete next[name]
+      return next
+    })
+    setFileDirty(prev => {
+      const next = { ...prev }
+      delete next[name]
+      return next
+    })
+  }, [])
+
   const hasDirtyFiles = Object.values(fileDirty).some(Boolean)
-  const filesLoading = personaLoading || tasksLoading || notesLoading
 
   // --- API call curl strings ---
 
@@ -299,19 +482,19 @@ const Jobs: FC = () => {
   }, [origin, defaultRepoId, fileContents])
 
   const saveFilesCurl = useMemo(() => {
-    const dirty = JOB_FILES.filter(f => fileDirty[f.name])
+    const dirty = jobFiles.filter(f => fileDirty[f.name])
     if (dirty.length === 0) {
-      return JOB_FILES.map(f => buildSaveFileCurl(f.name)).join('\n\n')
+      return jobFiles.map(f => buildSaveFileCurl(f.name)).join('\n\n')
     }
     return dirty.map(f => buildSaveFileCurl(f.name)).join('\n\n')
-  }, [fileDirty, buildSaveFileCurl])
+  }, [fileDirty, jobFiles, buildSaveFileCurl])
 
   const runJobCurl = useMemo(() => {
-    const prompt = (fileContents['tasks.md'] || 'Run the job tasks as specified in the job files.')
+    const prompt = (fileContents['TASK.md'] || 'Run the job tasks as specified in the job files.')
       .replace(/'/g, "'\\''")
       .replace(/\n/g, '\\n')
       .slice(0, 200)
-    const truncated = (fileContents['tasks.md'] || '').length > 200 ? '...' : ''
+    const truncated = (fileContents['TASK.md'] || '').length > 200 ? '...' : ''
     return `curl -X POST ${origin}/api/v1/sessions/chat \\
   -H "Authorization: Bearer YOUR_API_KEY" \\
   -H "Content-Type: application/json" \\
@@ -371,6 +554,7 @@ const Jobs: FC = () => {
               setFileContents({})
               setFileDirty({})
               setActiveRunSessionId('')
+              setJobFiles(DEFAULT_JOB_FILES)
             }}
           >
             {projectsLoading ? (
@@ -409,21 +593,30 @@ const Jobs: FC = () => {
                 </Alert>
               ) : (
                 <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                  {JOB_FILES.map(file => (
+                  {jobFiles.map(file => (
                     <Paper key={file.name} variant="outlined" sx={{ p: 2 }}>
                       <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
-                        <Typography variant="subtitle2" sx={{ fontFamily: 'monospace' }}>
+                        <Typography variant="subtitle2" sx={{ fontFamily: 'monospace', flex: 1 }}>
                           job/{file.name}
                         </Typography>
                         {fileDirty[file.name] && (
                           <Chip label="modified" size="small" color="warning" sx={{ ml: 1 }} />
                         )}
+                        <Tooltip title="Remove file">
+                          <IconButton
+                            size="small"
+                            onClick={() => handleRemoveFile(file.name)}
+                            sx={{ ml: 0.5 }}
+                          >
+                            <CloseIcon sx={{ fontSize: 16 }} />
+                          </IconButton>
+                        </Tooltip>
                       </Box>
                       <TextField
                         fullWidth
                         multiline
-                        minRows={6}
-                        maxRows={20}
+                        minRows={file.name === 'AGENTS.md' ? 10 : 4}
+                        maxRows={30}
                         value={fileContents[file.name] || ''}
                         onChange={(e) => handleFileChange(file.name, e.target.value)}
                         placeholder={file.placeholder}
@@ -433,6 +626,26 @@ const Jobs: FC = () => {
                       />
                     </Paper>
                   ))}
+
+                  {/* Add file */}
+                  <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                    <TextField
+                      size="small"
+                      placeholder="filename.md"
+                      value={newFileName}
+                      onChange={(e) => setNewFileName(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') handleAddFile() }}
+                      sx={{ flex: 1, maxWidth: 300, '& .MuiInputBase-input': { fontFamily: 'monospace' } }}
+                    />
+                    <Button
+                      size="small"
+                      startIcon={<AddIcon />}
+                      onClick={handleAddFile}
+                      disabled={!newFileName.trim()}
+                    >
+                      Add File
+                    </Button>
+                  </Box>
 
                   {/* API call for Save Files */}
                   <ApiCallBlock
@@ -505,7 +718,7 @@ const Jobs: FC = () => {
                   </>
                 ) : (
                   <Alert severity="info">
-                    No active run. Click "Run Job" to start one, or select a previous run below.
+                    No active run. Click &quot;Run Job&quot; to start one, or select a previous run below.
                   </Alert>
                 )}
 
@@ -576,7 +789,7 @@ const Jobs: FC = () => {
               <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                 <ApiCallBlock
                   label="Save a job file → PUT /api/v1/git/repositories/:id/contents"
-                  curl={buildSaveFileCurl('tasks.md')}
+                  curl={buildSaveFileCurl('TASK.md')}
                 />
                 <ApiCallBlock
                   label="Start a job → POST /api/v1/sessions/chat"
