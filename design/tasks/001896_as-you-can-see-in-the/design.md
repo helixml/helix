@@ -33,6 +33,21 @@ Since Jobs will use external agent sessions (`agent_type: "zed_external"`), this
 
 ### Identified Gaps
 
+#### Gap 0: Jobs developer UI (`/jobs` page)
+**Problem:** Phil needs a way to prototype and test the Jobs system through a UI, while also seeing the equivalent API calls so he can replicate them in his HTMX frontend.
+
+**Proposed fix:** Add a hidden `/jobs` route in the Helix frontend (not in the nav bar, not publicly accessible). Minimal UI with:
+
+1. **Project list/create:** Select an existing project or create a new one. Reuse existing project creation with full config (skills/MCPs, startup script, secrets).
+2. **Job file editor:** Three text boxes that map to files in `helix-specs` branch `job/` folder. Saving writes files to the branch via the existing git infrastructure.
+3. **Run management:** Start button creates an unmanaged session (`POST /sessions/chat` with `project_id` + `session_role: "job"`). Stop button kills the agent. Link to spec task details page for viewing the desktop stream and chat.
+4. **Cron config:** UI to set up cron triggers that kick off runs on a schedule.
+5. **API call display:** At each interaction point, show the equivalent curl/JSON call.
+
+This page reuses existing React components (project selector, text editors, session viewer) and existing API endpoints. The only new frontend code is the `/jobs` page itself and the API call display.
+
+**Files:** New page in `frontend/src/pages/JobsPage.tsx`, new route registration.
+
 #### Gap 1: No "unmanaged" session mode (bypass spec task orchestrator)
 **Problem:** Sessions created via the API are indistinguishable from spec-task-managed sessions. Phil needs sessions that exist outside the spec task orchestrator — no Kanban board, no planning/review lifecycle — but are still fully functional (desktop streaming, embedded session viewer, etc.).
 

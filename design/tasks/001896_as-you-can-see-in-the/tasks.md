@@ -1,5 +1,13 @@
 # Implementation Tasks
 
+## Gap 0: Jobs developer UI (`/jobs` page)
+- [ ] Add `/jobs` route in the Helix frontend (hidden — not in nav bar)
+- [ ] Project list view: select existing project or create new one (reuse existing project creation components)
+- [ ] Job file editor: three text boxes that write to `helix-specs` branch `job/` folder on save
+- [ ] Run management: start button (creates unmanaged session via API), stop button, link to spec task details page for viewing
+- [ ] Cron config: UI to set up cron triggers for scheduled runs
+- [ ] API call display: show the equivalent curl/JSON at each interaction point
+
 ## Gap 1: Unmanaged session mode (bypass spec task orchestrator)
 - [ ] Add `SessionRole string` field (or `Managed bool`) to `SessionChatRequest` in `api/pkg/types/types.go`
 - [ ] In `startChatSessionHandler`, set `SessionMetadata.SessionRole = "job"` for unmanaged sessions

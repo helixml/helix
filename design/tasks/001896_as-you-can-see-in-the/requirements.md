@@ -16,7 +16,22 @@ Phil's prototype runs Claude Code in Docker with `--output-format stream-json`, 
 
 ## User Stories
 
-### US-1: Start an unmanaged agent session via API
+### US-1: Jobs UI in Helix (hidden developer page)
+**As** Phil (or another developer prototyping jobs),
+**I want** a minimal `/jobs` page in Helix that lets me create/select projects, configure job files, and start/stop runs,
+**So that** I can prototype and test the Jobs system through a UI while also seeing the equivalent API calls to integrate into my own system.
+
+**Note:** This page is not published in the nav bar and not publicly accessible to users. It's a developer tool for prototyping. It can look rough — functionality over aesthetics.
+
+**Acceptance Criteria:**
+- [ ] `/jobs` route exists in the Helix frontend, not linked from the nav bar
+- [ ] **Project management:** Create a new project or select an existing project. Copies over existing project configuration, skills/MCPs, startup script, secrets.
+- [ ] **Job file editing:** Within a selected project, show three text boxes corresponding to files that get written to the `helix-specs` branch inside the `job/` folder (e.g., persona/prompt, task list, notes — the exact file names can be decided during implementation)
+- [ ] **Run management:** Start and stop runs (unmanaged agent sessions running against the selected project). Show run status and link to the spec task details page for viewing the desktop stream and chat.
+- [ ] **Cron configuration:** UI to configure cron triggers that kick off job runs on a schedule
+- [ ] **API call display:** At each interaction point, show the equivalent API call (curl/JSON) so Phil can see how to replicate it in his system
+
+### US-2: Start an unmanaged agent session via API (backend)
 **As** an external system (Helix Jobs frontend),
 **I want** to start an agent session with a prompt and project config, without going through the spec task orchestrator,
 **So that** I can run agent work programmatically without Kanban state management.
@@ -34,7 +49,7 @@ Phil's prototype runs Claude Code in Docker with `--output-format stream-json`, 
 - [ ] The session ID is returned immediately so the caller can poll for results
 - [ ] The session list endpoint adds `session_role` filtering so the Jobs UI can list its own sessions and the main Helix UI can exclude them if desired
 
-### US-2: Run a long-running autonomous agent
+### US-3: Run a long-running autonomous agent
 **As** an external orchestrator,
 **I want** to start a Zed/desktop agent session that runs autonomously for minutes or hours with a prompt defined in markdown,
 **So that** agents can perform complex multi-step tasks (clone repos, run code, create PRs).
@@ -45,7 +60,7 @@ Phil's prototype runs Claude Code in Docker with `--output-format stream-json`, 
 - [ ] The agent runs until it completes or is explicitly stopped — no hard timeout
 - [ ] Progress can be observed via the existing WebSocket sync or session interaction polling
 
-### US-3: Trigger agent sessions on a schedule
+### US-4: Trigger agent sessions on a schedule
 **As** a user defining agent "roles",
 **I want** to configure periodic agent runs (cron-style) that execute with a specific prompt and project context,
 **So that** agents can perform ongoing responsibilities (check email, review code, file notes).
@@ -56,7 +71,7 @@ Phil's prototype runs Claude Code in Docker with `--output-format stream-json`, 
 - [ ] Cron trigger input can reference a markdown file path (in a repo) rather than inline prompt text
 - [ ] Trigger execution history is queryable via API with session IDs and outputs
 
-### US-4: Agent file persistence between runs
+### US-5: Agent file persistence between runs
 **As** an agent running a recurring job,
 **I want** to read and write markdown files that persist between runs,
 **So that** I can maintain state (task lists, knowledge notes, questions for the user).
@@ -69,7 +84,7 @@ Phil's prototype runs Claude Code in Docker with `--output-format stream-json`, 
 - [ ] This is transparent to the agent — Helix handles restore/commit, not the agent
 - [ ] State files are versioned in git (change history preserved automatically)
 
-### US-5: Retrieve agent output after completion
+### US-6: Retrieve agent output after completion
 **As** an external system or UI,
 **I want** to query the final output of a completed agent session,
 **So that** I can display results, send notifications, or feed output into other workflows.
@@ -79,7 +94,7 @@ Phil's prototype runs Claude Code in Docker with `--output-format stream-json`, 
 - [ ] For cron-triggered sessions, the trigger execution record links to the session and captures output
 - [ ] Output includes both text responses and any file artifacts the agent produced
 
-### US-6: Notification on task completion
+### US-7: Notification on task completion
 **As** an external system,
 **I want** to receive a webhook callback when an agent session completes,
 **So that** I can take action on the results without polling.
@@ -91,7 +106,7 @@ Phil's prototype runs Claude Code in Docker with `--output-format stream-json`, 
 
 ## Out of Scope (for now)
 
-- Building the Helix Jobs HTMX frontend (Phil will build this separately)
+- Phil's full HTMX frontend (he builds this separately; US-1 is just a minimal developer page in Helix)
 - Agent persona marketplace or sharing
 - Multi-agent orchestration (agents talking to each other)
 - Custom container images per job (use startup scripts for now)
