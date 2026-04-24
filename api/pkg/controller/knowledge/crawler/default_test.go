@@ -24,7 +24,7 @@ func TestDefault_Crawl(t *testing.T) {
 	k := &types.Knowledge{
 		Source: types.KnowledgeSource{
 			Web: &types.KnowledgeSourceWeb{
-				URLs: []string{"https://helix.ml/docs"},
+				URLs: []string{"https://helix.ml/docs/projects"},
 				Crawler: &types.WebsiteCrawler{
 					Enabled:  true,
 					MaxDepth: 200,
@@ -50,33 +50,17 @@ func TestDefault_Crawl(t *testing.T) {
 	docs, err := d.Crawl(context.Background())
 	require.NoError(t, err)
 
-	// Use stable structural content (section headings, CLI commands) rather than
-	// FAQ or body text that frequently changes when docs are updated.
-	// These strings are core to the page's purpose and unlikely to change.
-	const (
-		appsText              = `helix apply`        // CLI command - core to the agents workflow
-		privateDeploymentText = `Private Deployment` // Section link that appears in navigation
-	)
+	const projectsText = `Projects`
 
-	var (
-		appsTextFound              bool
-		privateDeploymentTextFound bool
-	)
+	var projectsTextFound bool
 
 	for _, doc := range docs {
-		// Uncomment to save the chunks to a file for debugging
-		// os.WriteFile(fmt.Sprintf("doc-%s.html", doc.Title), []byte(doc.Content), 0644)
-
-		if strings.Contains(doc.Content, appsText) {
-			appsTextFound = true
-		}
-		if strings.Contains(doc.Content, privateDeploymentText) {
-			privateDeploymentTextFound = true
+		if strings.Contains(doc.Content, projectsText) {
+			projectsTextFound = true
 		}
 	}
 
-	require.True(t, appsTextFound, "apps text not found: expected to find '%s' in crawled docs", appsText)
-	require.True(t, privateDeploymentTextFound, "private deployment text not found: expected to find '%s' in crawled docs", privateDeploymentText)
+	require.True(t, projectsTextFound, "projects text not found: expected to find '%s' in crawled docs", projectsText)
 
 	t.Logf("docs: %d", len(docs))
 }

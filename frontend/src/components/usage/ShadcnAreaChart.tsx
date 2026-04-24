@@ -7,10 +7,10 @@ import {
   Legend,
   ResponsiveContainer,
   Tooltip,
-  TooltipProps,
   XAxis,
   YAxis,
 } from 'recharts';
+import type { TooltipContentProps } from 'recharts';
 
 export interface ShadcnSeries {
   key: string;
@@ -24,7 +24,7 @@ export interface ShadcnAreaChartProps {
   /** Headline value (already formatted, e.g. "$12.45" or "1.2M"). */
   headline: string;
   /** Chart data rows; `date` is ISO string, other keys are series values. */
-  data: Array<{ date: string } & Record<string, number>>;
+  data: Array<{ date: string; [key: string]: number | string }>;
   /** Series to render as stacked areas, in bottom-to-top order. */
   series: ShadcnSeries[];
   /** Formatter for Y-axis ticks and tooltip values. */
@@ -40,13 +40,13 @@ export interface ShadcnAreaChartProps {
 const uid = () => Math.random().toString(36).slice(2, 9);
 
 const ShadcnTooltip = (seriesConfig: ShadcnSeries[], valueFormatter: (v: number) => string) => {
-  const TooltipComponent: FC<TooltipProps<number, string>> = ({ active, payload, label }) => {
+  const TooltipComponent: FC<TooltipContentProps<number, string>> = ({ active, payload, label }) => {
     if (!active || !payload || !payload.length) return null;
     const date = label ? new Date(label as string) : null;
     const dateLabel = date
       ? date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
       : '';
-    const byKey = new Map(payload.map(p => [p.dataKey as string, p]));
+    const byKey = new Map(payload.map(p => [p.dataKey as string, p] as const));
     return (
       <Box
         sx={{
@@ -111,7 +111,7 @@ const ShadcnAreaChart: FC<ShadcnAreaChartProps> = ({
   // Unique gradient ids so multiple charts on the same page don't collide.
   const gradientPrefix = React.useMemo(() => `shadcn-${uid()}`, []);
 
-  const hasData = data.some(d => series.some(s => (d[s.key] || 0) > 0));
+  const hasData = data.some(d => series.some(s => (Number(d[s.key]) || 0) > 0));
 
   return (
     <Box

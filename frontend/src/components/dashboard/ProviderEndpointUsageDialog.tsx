@@ -24,10 +24,10 @@ import {
   Legend,
   ResponsiveContainer,
   Tooltip,
-  TooltipProps,
   XAxis,
   YAxis,
 } from 'recharts';
+import type { TooltipContentProps } from 'recharts';
 import { IProviderEndpoint } from '../../types';
 import { useApi } from '../../hooks/useApi';
 import { TypesUsersAggregatedUsageMetric } from '../../api/api';
@@ -52,12 +52,12 @@ const formatCompact = (n: number) => {
   return n.toLocaleString();
 };
 
-const ShadcnTooltip: React.FC<TooltipProps<number, string>> = ({ active, payload, label }) => {
+const ShadcnTooltip: React.FC<TooltipContentProps<number, string>> = ({ active, payload, label }) => {
   if (!active || !payload || !payload.length) return null;
   const date = label ? new Date(label as string) : null;
   const dateLabel = date ? date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : '';
   // Recharts sends payload in stack order; we want descriptive order from SERIES.
-  const byKey = new Map(payload.map(p => [p.dataKey as string, p]));
+  const byKey = new Map(payload.map(p => [p.dataKey as string, p] as const));
   return (
     <Box
       sx={{
@@ -130,7 +130,7 @@ const ShadcnUsageAreaChart: React.FC<{ data: ChartDatum[] }> = ({ data }) => (
         tickFormatter={formatCompact}
         width={48}
       />
-      <Tooltip content={<ShadcnTooltip />} cursor={{ stroke: 'rgba(255,255,255,0.2)' }} />
+      <Tooltip content={ShadcnTooltip} cursor={{ stroke: 'rgba(255,255,255,0.2)' }} />
       <Legend
         verticalAlign="bottom"
         height={28}

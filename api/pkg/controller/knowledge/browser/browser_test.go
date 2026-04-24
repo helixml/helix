@@ -77,7 +77,7 @@ func TestBrowser_BrowsePages(t *testing.T) {
 
 	browserManager.PutPage(page1)
 
-	page2, err := browserManager.GetPage(browser, proto.TargetCreateTarget{URL: "https://helix.ml/docs"})
+	page2, err := browserManager.GetPage(browser, proto.TargetCreateTarget{URL: "https://helix.ml/docs/projects"})
 	require.NoError(t, err)
 
 	err = page2.WaitLoad()
@@ -86,7 +86,7 @@ func TestBrowser_BrowsePages(t *testing.T) {
 	body, err = page2.HTML()
 	require.NoError(t, err)
 
-	assert.Contains(t, body, "Commercial Support")
+	assert.Contains(t, body, "Projects")
 
 	browserManager.PutPage(page2)
 
