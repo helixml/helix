@@ -8,8 +8,8 @@
 
 <p align="center">
   <a href="https://app.helix.ml/">SaaS</a> •
-  <a href="https://docs.helixml.tech/docs/controlplane">Private Deployment</a> •
-  <a href="https://docs.helixml.tech/docs/overview">Docs</a> •
+  <a href="https://helix.ml/docs">Private Deployment</a> •
+  <a href="https://helix.ml/docs">Docs</a> •
   <a href="https://discord.gg/VJftd844GE">Discord</a>
 </p>
 
@@ -19,7 +19,7 @@
 
 **Deploy AI agents in your own data center or VPC and retain complete data security & control.**
 
-HelixML is an enterprise-grade platform for building and deploying AI agents with support for RAG (Retrieval-Augmented Generation), API calling, vision, and multi-provider LLM support. Build and deploy LLM applications by writing a simple [`helix.yaml`](https://docs.helixml.tech/helix/develop/getting-started/) configuration file.
+HelixML is an enterprise-grade platform for building and deploying AI agents with support for RAG (Retrieval-Augmented Generation), API calling, vision, and multi-provider LLM support. Build and deploy LLM applications by writing a simple [`helix.yaml`](https://helix.ml/docs) configuration file.
 
 Our intelligent GPU scheduler packs models efficiently into available GPU memory and dynamically loads and unloads models based on demand, optimizing resource utilization.
 
@@ -159,17 +159,17 @@ sudo ./install.sh
 
 The installer will prompt you before making changes to your system. By default, the dashboard will be available on `http://localhost:8080`.
 
-For setting up a deployment with a DNS name, see `./install.sh --help` or read [the detailed docs](https://docs.helixml.tech/helix/private-deployment/controlplane/). We've documented easy TLS termination for you.
+For setting up a deployment with a DNS name, see `./install.sh --help` or read [the detailed docs](https://helix.ml/docs). We've documented easy TLS termination for you.
 
 **Next steps:**
-- Attach your own GPU runners per [runners docs](https://docs.helixml.tech/helix/private-deployment/controlplane/#attach-a-runner-to-an-existing-control-plane)
-- Use any [external OpenAI-compatible LLM](https://docs.helixml.tech/helix/private-deployment/controlplane/#install-control-plane-pointing-at-any-openai-compatible-api)
+- Attach your own GPU runners per [runners docs](https://helix.ml/docs)
+- Use any [external OpenAI-compatible LLM](https://helix.ml/docs)
 
 ### Install on Kubernetes
 
 Use our Helm charts for production deployments:
-- [Control Plane Helm Chart](https://docs.helixml.tech/helix/private-deployment/helix-controlplane-helm-chart/)
-- [Runner Helm Chart](https://docs.helixml.tech/helix/private-deployment/helix-runner-helm-chart/)
+- [Control Plane Helm Chart](https://helix.ml/docs)
+- [Runner Helm Chart](https://helix.ml/docs)
 
 ## 🔧 Configuration
 
@@ -183,7 +183,7 @@ All server configuration is done via environment variables. You can find the com
 - `SERVER_URL` - Public URL for the deployment
 - `RUNNER_*` - GPU runner configuration
 
-See the [configuration documentation](https://docs.helixml.tech/docs/controlplane) for detailed setup instructions.
+See the [configuration documentation](https://helix.ml/docs) for detailed setup instructions.
 
 ## 👨‍💻 Development
 
@@ -219,12 +219,12 @@ See [`local-development.md`](./local-development.md) for comprehensive setup ins
 
 ## 📖 Documentation
 
-- **[Overview](https://docs.helixml.tech/docs/overview)** - Platform introduction
-- **[Getting Started](https://docs.helixml.tech/helix/develop/getting-started/)** - Build your first agent
-- **[Control Plane Deployment](https://docs.helixml.tech/docs/controlplane)** - Production deployment guide
-- **[Runner Deployment](https://docs.helixml.tech/helix/private-deployment/controlplane/#attach-a-runner-to-an-existing-control-plane)** - GPU runner setup
+- **[Overview](https://helix.ml/docs)** - Platform introduction
+- **[Getting Started](https://helix.ml/docs)** - Build your first agent
+- **[Control Plane Deployment](https://helix.ml/docs)** - Production deployment guide
+- **[Runner Deployment](https://helix.ml/docs)** - GPU runner setup
 - **[Agent Architecture](./api/pkg/agent/SPEC.md)** - Technical specification
-- **[API Reference](https://docs.helixml.tech/)** - REST API documentation
+- **[API Reference](https://helix.ml/docs)** - REST API documentation
 - **[Contributing Guide](./CONTRIBUTING.md)** - How to contribute
 - **[Upgrading Guide](./UPGRADING.md)** - Migration instructions
 
@@ -259,7 +259,7 @@ If you would like to use some part of this code under a more permissive license,
 
 - **[Discord Community](https://discord.gg/VJftd844GE)** - Join our community for help and discussions
 - **[GitHub Issues](https://github.com/helixml/helix/issues)** - Report bugs or request features
-- **[Documentation](https://docs.helixml.tech/)** - Comprehensive guides and references
+- **[Documentation](https://helix.ml/docs)** - Comprehensive guides and references
 - **[Email](mailto:info@helix.ml)** - Contact us for commercial inquiries
 
 ## 🌟 Star History
