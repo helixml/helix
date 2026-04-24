@@ -142,18 +142,34 @@ Implemented in `crates/agent_servers/src/connection_cache.rs` (new):
   subsequent callers get it without re-spawning anything.
 - Failed connects evict the entry so retry can re-attempt.
 
-All four call sites that previously called `server.connect()` now go
-through the cache:
+The three `external_websocket_sync::thread_service` call sites that
+previously called `server.connect()` now go through the cache:
 
-- `external_websocket_sync::thread_service::create_new_thread_sync` (line ~1121)
-- `external_websocket_sync::thread_service::load_thread_from_agent` (line ~1465)
-- `external_websocket_sync::thread_service::open_existing_thread_sync` (line ~1676)
-- `agent_ui::AgentConnectionStore::start_connection`
+- `create_new_thread_sync` (line ~1121)
+- `load_thread_from_agent` (line ~1465)
+- `open_existing_thread_sync` (line ~1676)
 
 Net result: one `AgentConnection` (and therefore one `claude-agent-acp`
 wrapper, one `claude --resume`, one set of MCP children) per
-`(project, agent_id)` regardless of which path triggered first. The
-multi-window-Zed scenario still gets one connection per project.
+`(project, agent_id)` regardless of which thread_service path triggered
+it.
+
+### Scope: thread_service only, not `AgentConnectionStore`
+
+We initially also routed `agent_ui::AgentConnectionStore::start_connection`
+through the cache (zed commit `ba7e97aea6`), then reverted that part
+(`350de991de`) because it broke the both-agent E2E test
+(`E2E_AGENTS="zed-agent,claude" ./run_docker_e2e.sh`): round 2 (claude)
+phase 1 timed out at 0 events. Root cause not fully diagnosed, but the
+empirical signal is clean — with the AgentConnectionStore delegation
+reverted both rounds pass.
+
+`AgentConnectionStore` keeps its existing per-workspace `HashMap` dedup,
+so UI-driven connects are still deduped within the workspace (just not
+across the UI/external boundary). The observed bug was 100% from
+external_websocket_sync paths; a hypothetical UI+external concurrent
+race for the same `(project, agent_id)` is not deduped today and can be
+addressed separately if it surfaces.
 
 ### Verification
 
@@ -169,7 +185,8 @@ If two `[ACP_SPAWN] About to spawn` lines for the same agent_id appear,
 the bug has resurfaced.
 
 E2E suite (`crates/external_websocket_sync/e2e-test/run_docker_e2e.sh`)
-passes with the change in place (zed-agent round, in-memory store).
+passes both `zed-agent` and `claude` rounds with
+`E2E_AGENTS="zed-agent,claude"`.
 
 ### Caveats
 
@@ -191,8 +208,6 @@ passes with the change in place (zed-agent round, in-memory store).
 - `crates/agent_servers/src/acp.rs` (zed) — `[ACP_SPAWN]` logs.
 - `crates/external_websocket_sync/src/thread_service.rs` (zed) — three
   rewritten call sites.
-- `crates/agent_ui/src/agent_connection_store.rs` (zed) — delegates to
-  the cache.
 - `api/pkg/external-agent/zed_config.go` (helix) — MCP config that lists
   `chrome-devtools` as a stdio MCP.
 - `api/pkg/server/websocket_external_agent_sync.go` (helix) —
