@@ -215,10 +215,27 @@ const DEFAULT_JOB_FILES: JobFile[] = [
   { name: 'TASK.md', placeholder: 'List the tasks the agent should perform...' },
   { name: 'LOG.md', placeholder: 'Agent run log — the agent appends entries here...' },
   { name: 'QUESTIONS.md', placeholder: 'Questions for the human to answer between runs...' },
+  { name: 'verify.sh', placeholder: 'Verification script — the reward signal. Exit 0 = pass, non-zero = fail...' },
 ]
+
+const VERIFY_SH_DEFAULT = `#!/usr/bin/env bash
+set -euo pipefail
+
+# Verification script — the reward signal.
+# Exit 0 means all checks pass. Non-zero means the agent has work to do.
+# Customise these checks for your specific job.
+
+echo "Running verification..."
+
+# Example: check that repo/README.md exists
+# [ -f repo/README.md ] || { echo "FAIL: repo/README.md missing"; exit 1; }
+
+echo "All checks passed."
+`
 
 const FILE_DEFAULTS: Record<string, string> = {
   'AGENTS.md': AGENTS_MD_DEFAULT,
+  'verify.sh': VERIFY_SH_DEFAULT,
 }
 
 interface TabPanelProps {
