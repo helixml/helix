@@ -429,7 +429,7 @@ const Jobs: FC = () => {
     try {
       const session = await streaming.NewInference({
         type: SESSION_TYPE_TEXT,
-        message: fileContents['TASK.md'] || 'Run the job tasks as specified in the job files.',
+        message: fileContents['AGENTS.md'] || 'Run the job tasks as specified in the job files.',
         projectId: selectedProjectId,
         agentType: 'zed_external',
         sessionRole: 'job',
