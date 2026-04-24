@@ -2,12 +2,12 @@
 
 ## Backend
 
-- [~] Add `CreateAccessGrantResponse` struct to `api/pkg/types/authz.go` with `AddedToOrganization bool` field
-- [~] In `createProjectAccessGrant` (`api/pkg/server/project_access_grant_handlers.go`), after resolving the user, check if they have an org membership via `ListOrganizationMemberships`
-- [~] If no membership exists: check acting user is org owner, then call `CreateOrganizationMembership` with role `member`
-- [~] If no membership and acting user is not org owner: return 403 with descriptive error message
-- [~] Return `CreateAccessGrantResponse` (with `added_to_organization` flag) instead of raw `AccessGrant`
-- [ ] Regenerate OpenAPI spec (`./stack update_openapi`) so frontend client picks up the new response type
+- [x] Add `CreateAccessGrantResponse` struct to `api/pkg/types/authz.go` with `AddedToOrganization bool` field
+- [x] In `createProjectAccessGrant` (`api/pkg/server/project_access_grant_handlers.go`), after resolving the user, check if they have an org membership via `ListOrganizationMemberships`
+- [x] If no membership exists: check acting user is org owner, then call `CreateOrganizationMembership` with role `member`
+- [x] If no membership and acting user is not org owner: return 403 with descriptive error message
+- [x] Return `CreateAccessGrantResponse` (with `added_to_organization` flag) instead of raw `AccessGrant`
+- [~] Regenerate OpenAPI spec (`./stack update_openapi`) so frontend client picks up the new response type
 
 ## Frontend
 
