@@ -5,30 +5,37 @@
 - [x] Remove `tika` service from `docker-compose.dev.yaml` (lines 209-212)
 
 ## Go Code
-- [~] Delete `api/pkg/extract/tika_extractor.go`
-- [~] Delete `api/pkg/extract/tika_extractor_test.go`
-- [~] Remove `Extractor` type and `ExtractorTika`/`ExtractorUnstructured` constants from `api/pkg/types/enums.go` (lines 304-309)
-- [~] Remove `Provider` field and `Tika` struct from `TextExtractor` in `api/pkg/config/config.go` (lines 322-332)
-- [~] Simplify `serve.go` extractor init — replace switch (lines 313-320) with direct `extractor = extract.NewDefaultExtractor(cfg.TextExtractor.Unstructured.URL)`
-- [~] Remove `tikaURL` field and tika-related assertions from `api/pkg/config/proxy_test.go`
-- [~] Remove `github.com/google/go-tika` from `go.mod` — run `go mod tidy`
+- [x] Delete `api/pkg/extract/tika_extractor.go`
+- [x] Delete `api/pkg/extract/tika_extractor_test.go`
+- [x] Remove `Extractor` type and `ExtractorTika`/`ExtractorUnstructured` constants from `api/pkg/types/enums.go`
+- [x] Remove `Provider` field and `Tika` struct from `TextExtractor` in `api/pkg/config/config.go`
+- [x] Simplify `serve.go` extractor init — direct `NewDefaultExtractor(cfg.TextExtractor.URL)`
+- [x] Remove `tikaURL` field and tika-related assertions from `api/pkg/config/proxy_test.go`
+- [x] Remove tika URL from `proxy.go` `InternalServiceURLs()`
+- [x] Remove `github.com/google/go-tika` from `go.mod` via `go mod tidy`
 
 ## CI / Scripts
-- [ ] Remove all `TEXT_EXTRACTION_TIKA_URL` env vars from `.drone.yml` (active and commented-out, lines 180, 236, 299, 374, 450, 527, 607, 693)
-- [ ] Remove `tika` docker service from `.drone.yml` (lines 833-834)
-- [ ] Remove `tika` from `docker compose up -d` in `stack` script (line 2066)
+- [x] Remove all `TEXT_EXTRACTION_TIKA_URL` env vars from `.drone.yml` (active and commented-out)
+- [x] Remove `tika` docker service from `.drone.yml`
+- [x] Remove `tika` from `docker compose up -d` in `stack` script
+- [x] Remove `TEXT_EXTRACTION_TIKA_URL` export from `stack` script
 
 ## Integration Tests
-- [ ] Remove `TEXT_EXTRACTION_TIKA_URL` from `integration-test/api/.test.env` (line 6)
+- [x] Remove `TEXT_EXTRACTION_TIKA_URL` from `integration-test/api/.test.env`
 
 ## Helm Charts
-- [ ] Delete `charts/helix-controlplane/templates/tika_deployment.yaml`
-- [ ] Delete `charts/helix-controlplane/templates/tika_svc.yaml`
-- [ ] Remove `tika:` section from `charts/helix-controlplane/values.yaml` (lines 28-32)
-- [ ] Remove tika section from `charts/helix-controlplane/values-example.yaml` (lines 373-380)
-- [ ] Remove `TEXT_EXTRACTION_TIKA_URL` env var from `charts/helix-controlplane/templates/deployment.yaml` (lines 161-162)
+- [x] Delete `charts/helix-controlplane/templates/tika_deployment.yaml`
+- [x] Delete `charts/helix-controlplane/templates/tika_svc.yaml`
+- [x] Remove `tika:` section from `charts/helix-controlplane/values.yaml`
+- [x] Remove tika section from `charts/helix-controlplane/values-example.yaml`
+- [x] Remove `TEXT_EXTRACTION_TIKA_URL` env var from `charts/helix-controlplane/templates/deployment.yaml`
+
+## Documentation
+- [x] Remove tika from `local-development.md` (container list + test command)
+- [x] Remove tika from `CONTRIBUTING.md` (test command)
+- [x] Remove tika from `README.md` (architecture diagram)
+- [x] Remove tika from `scripts/docker-image-cleanup-node04.sh` (comment)
 
 ## Verification
-- [ ] Run `go build ./...` from the helix root to confirm compilation
-- [ ] Run `go vet ./...` to check for issues
-- [ ] Grep entire repo for remaining `tika` references (excluding `cinematika` model name) and fix any stragglers
+- [x] `go build` succeeds for all changed packages
+- [x] Grep confirms no remaining active tika references (only historical design doc `design/2025-01-07-haystack-rag-integration.md`)
