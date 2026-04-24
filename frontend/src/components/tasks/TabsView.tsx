@@ -52,6 +52,9 @@ import {
 } from "../../api/api";
 import useSnackbar from "../../hooks/useSnackbar";
 import useApi from "../../hooks/useApi";
+import { useOAuthFlow } from "../../hooks/useOAuthFlow";
+import { useListOAuthProviders } from "../../services/oauthProvidersService";
+import { findOAuthProviderForType } from "../../utils/oauthProviders";
 import { useUpdateSpecTask, useSpecTask } from "../../services/specTaskService";
 import { useQuery } from "@tanstack/react-query";
 import { getBrowserLocale } from "../../hooks/useBrowserLocale";
@@ -766,6 +769,14 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
   const snackbar = useSnackbar();
   const account = useAccount();
   const streaming = useStreaming();
+
+  // OAuth flow — planner without GitHub OAuth gets 422 oauth_required from
+  // start-planning; open the connect flow instead of surfacing the raw
+  // string.
+  const { startOAuthFlow } = useOAuthFlow();
+  const { data: oauthProviders } = useListOAuthProviders();
+  const gitHubProvider = findOAuthProviderForType(oauthProviders, "github");
+
   const [menuAnchor, setMenuAnchor] = useState<null | HTMLElement>(null);
   const [taskSearchQuery, setTaskSearchQuery] = useState("");
   const [isActioning, setIsActioning] = useState(false);
@@ -851,6 +862,34 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
       });
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
+        // 422 + oauth_required → open the GitHub connect flow so the user
+        // can retry, instead of surfacing the raw error.
+        if (
+          response.status === 422 &&
+          errorData?.error === "oauth_required"
+        ) {
+          if (gitHubProvider?.id) {
+            snackbar.info("Connect GitHub to start planning this task.");
+            startOAuthFlow({
+              providerId: gitHubProvider.id,
+              scopes: ["repo"],
+              onSuccess: () => {
+                snackbar.success(
+                  "GitHub connected. Click Start Planning again to continue.",
+                );
+              },
+              onError: (oauthError) => {
+                snackbar.error(`GitHub connection failed: ${oauthError}`);
+              },
+            });
+          } else {
+            snackbar.error(
+              errorData?.message ||
+                "GitHub OAuth is not configured. Ask your administrator to set it up so this task can be planned.",
+            );
+          }
+          return;
+        }
         throw new Error(
           errorData.error ||
             errorData.message ||
