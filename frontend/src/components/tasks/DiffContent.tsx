@@ -199,9 +199,9 @@ const DiffContent: FC<DiffContentProps> = ({
           elevation={0}
           sx={{
             p: 2.5,
-            bgcolor: "rgba(255, 255, 255, 0.02)",
+            bgcolor: lightTheme.isLight ? 'rgba(0, 0, 0, 0.02)' : 'rgba(255, 255, 255, 0.02)',
             borderRadius: 1,
-            border: "1px solid rgba(255, 255, 255, 0.06)",
+            border: `1px solid ${lightTheme.isLight ? 'rgba(0, 0, 0, 0.1)' : 'rgba(255, 255, 255, 0.06)'}`,
           }}
         >
           <Typography variant="body2" sx={{ color: lightTheme.textColorFaded }}>
@@ -274,9 +274,9 @@ const DiffContent: FC<DiffContentProps> = ({
           elevation={0}
           sx={{
             p: 2.5,
-            bgcolor: "rgba(255, 255, 255, 0.02)",
+            bgcolor: lightTheme.isLight ? 'rgba(0, 0, 0, 0.02)' : 'rgba(255, 255, 255, 0.02)',
             borderRadius: 1,
-            border: "1px solid rgba(255, 255, 255, 0.06)",
+            border: `1px solid ${lightTheme.isLight ? 'rgba(0, 0, 0, 0.1)' : 'rgba(255, 255, 255, 0.06)'}`,
           }}
         >
           <Typography variant="body2" sx={{ color: lightTheme.textColorFaded }}>
@@ -328,8 +328,8 @@ const DiffContent: FC<DiffContentProps> = ({
           gap: isMobile ? 1 : 1.5,
           px: isMobile ? 1 : 2,
           py: 1.25,
-          borderBottom: "1px solid rgba(255, 255, 255, 0.06)",
-          bgcolor: "rgba(255, 255, 255, 0.02)",
+          borderBottom: `1px solid ${lightTheme.isLight ? 'rgba(0, 0, 0, 0.1)' : 'rgba(255, 255, 255, 0.06)'}`,
+          bgcolor: lightTheme.isLight ? 'rgba(0, 0, 0, 0.02)' : 'rgba(255, 255, 255, 0.02)',
           position: "sticky",
           top: 0,
           zIndex: 1,
@@ -446,7 +446,7 @@ const DiffContent: FC<DiffContentProps> = ({
               "&:hover": {
                 backgroundColor:
                   line.type === "context" || line.type === "empty"
-                    ? "rgba(255, 255, 255, 0.03)"
+                    ? (lightTheme.isLight ? 'rgba(0, 0, 0, 0.03)' : 'rgba(255, 255, 255, 0.03)')
                     : undefined,
               },
             }}
@@ -456,7 +456,7 @@ const DiffContent: FC<DiffContentProps> = ({
                 display: "flex",
                 flexShrink: 0,
                 userSelect: "none",
-                borderRight: "1px solid rgba(255, 255, 255, 0.06)",
+                borderRight: `1px solid ${lightTheme.isLight ? 'rgba(0, 0, 0, 0.1)' : 'rgba(255, 255, 255, 0.06)'}`,
               }}
             >
               {/* Old line number - hidden on mobile */}

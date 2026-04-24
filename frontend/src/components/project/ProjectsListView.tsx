@@ -18,6 +18,7 @@ import PushPinIcon from '@mui/icons-material/PushPin'
 import PushPinOutlinedIcon from '@mui/icons-material/PushPinOutlined'
 import { Kanban } from 'lucide-react'
 
+import useLightTheme from '../../hooks/useLightTheme'
 import CreateProjectButton from './CreateProjectButton'
 import { TypesProject } from '../../services'
 import type { ServerSampleProject } from '../../api/api'
@@ -94,6 +95,7 @@ const ProjectCard: FC<{
   onPin?: (projectId: string) => void
   onUnpin?: (projectId: string) => void
 }> = ({ project, onViewProject, onMenuOpen, isPinned, onPin, onUnpin }) => {
+  const lightTheme = useLightTheme()
   const sevenDaysAgo = useMemo(() => {
     const date = new Date()
     date.setDate(date.getDate() - 7)
@@ -249,9 +251,9 @@ const ProjectCard: FC<{
         </Box>
 
         <Box sx={{
-          background: 'linear-gradient(145deg, rgba(255,255,255,0.03) 0%, rgba(255,255,255,0.01) 100%)',
+          background: `linear-gradient(145deg, ${lightTheme.isLight ? 'rgba(0,0,0,0.02)' : 'rgba(255,255,255,0.03)'} 0%, ${lightTheme.isLight ? 'rgba(0,0,0,0.01)' : 'rgba(255,255,255,0.01)'} 100%)`,
           borderRadius: 2,
-          border: '1px solid rgba(255,255,255,0.06)',
+          border: `1px solid ${lightTheme.isLight ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.06)'}`,
           p: 1.5,
           mb: 1.5,
         }}>
@@ -281,7 +283,7 @@ const ProjectCard: FC<{
           </Box>
 
           {usageLoading ? (
-            <Skeleton variant="rectangular" height={32} sx={{ bgcolor: 'rgba(255,255,255,0.05)', borderRadius: 1 }} />
+            <Skeleton variant="rectangular" height={32} sx={{ bgcolor: lightTheme.isLight ? 'rgba(0,0,0,0.04)' : 'rgba(255,255,255,0.05)', borderRadius: 1 }} />
           ) : (
             <UsageSparkline data={usageData || []} color="#10b981" />
           )}
@@ -348,6 +350,7 @@ const ProjectsListView: FC<ProjectsListViewProps> = ({
   onPinProject,
   onUnpinProject,
 }) => {
+  const lightTheme = useLightTheme()
   const pinnedSet = useMemo(() => new Set(pinnedProjectIds), [pinnedProjectIds])
 
   const pinnedProjects = useMemo(
@@ -371,12 +374,12 @@ const ProjectsListView: FC<ProjectsListViewProps> = ({
           <Typography variant="h4" sx={{
             fontWeight: 700,
             mb: 1,
-            color: 'rgba(255,255,255,0.95)',
+            color: lightTheme.isLight ? 'rgba(0,0,0,0.87)' : 'rgba(255,255,255,0.95)',
             letterSpacing: '-0.02em',
           }}>
             Projects
           </Typography>
-          <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.5)' }}>
+          <Typography variant="body2" sx={{ color: lightTheme.isLight ? 'rgba(0,0,0,0.45)' : 'rgba(255,255,255,0.5)' }}>
             Each Project has a Team of Agents working in parallel to perform tasks, collaborate, or build software.
           </Typography>
         </Box>
@@ -384,13 +387,13 @@ const ProjectsListView: FC<ProjectsListViewProps> = ({
 
       {projects.length === 0 && !isLoading ? (
         <Box sx={{ textAlign: 'center', py: 8 }}>
-          <Box sx={{ color: 'rgba(255,255,255,0.2)', mb: 2 }}>
+          <Box sx={{ color: lightTheme.isLight ? 'rgba(0,0,0,0.2)' : 'rgba(255,255,255,0.2)', mb: 2 }}>
             <Kanban size={80} />
           </Box>
-          <Typography variant="h6" sx={{ color: 'rgba(255,255,255,0.6)' }} gutterBottom>
+          <Typography variant="h6" sx={{ color: lightTheme.isLight ? 'rgba(0,0,0,0.54)' : 'rgba(255,255,255,0.6)' }} gutterBottom>
             No projects yet
           </Typography>
-          <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.4)', mb: 3 }}>
+          <Typography variant="body2" sx={{ color: lightTheme.isLight ? 'rgba(0,0,0,0.38)' : 'rgba(255,255,255,0.4)', mb: 3 }}>
             Project has a Team of Agents working in parallel to perform tasks, collaborate, or build software.
 
           </Typography>
@@ -461,10 +464,10 @@ const ProjectsListView: FC<ProjectsListViewProps> = ({
                 onChange={(_, newPage) => onPageChange(newPage - 1)}
                 sx={{
                   '& .MuiPaginationItem-root': {
-                    color: 'rgba(255,255,255,0.7)',
-                    borderColor: 'rgba(255,255,255,0.1)',
+                    color: lightTheme.isLight ? 'rgba(0,0,0,0.6)' : 'rgba(255,255,255,0.7)',
+                    borderColor: lightTheme.isLight ? 'rgba(0,0,0,0.12)' : 'rgba(255,255,255,0.1)',
                     '&:hover': {
-                      background: 'rgba(255,255,255,0.05)',
+                      background: lightTheme.isLight ? 'rgba(0,0,0,0.04)' : 'rgba(255,255,255,0.05)',
                     },
                     '&.Mui-selected': {
                       background: 'rgba(167, 139, 250, 0.2)',

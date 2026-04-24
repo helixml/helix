@@ -202,7 +202,7 @@ const DiffFileList: FC<DiffFileListProps> = ({
               "&:hover": {
                 bgcolor: isSelected
                   ? `${themeConfig.tealRoot}1F`
-                  : "rgba(255, 255, 255, 0.04)",
+                  : (lightTheme.isLight ? 'rgba(0, 0, 0, 0.04)' : 'rgba(255, 255, 255, 0.04)'),
               },
             }}
           >
@@ -238,9 +238,9 @@ const DiffFileList: FC<DiffFileListProps> = ({
                         height: 16,
                         fontSize: "0.6rem",
                         fontWeight: 600,
-                        bgcolor: "rgba(255, 255, 255, 0.08)",
+                        bgcolor: lightTheme.isLight ? 'rgba(0, 0, 0, 0.06)' : 'rgba(255, 255, 255, 0.08)',
                         color: lightTheme.textColorFaded,
-                        border: "1px solid rgba(255, 255, 255, 0.1)",
+                        border: `1px solid ${lightTheme.isLight ? 'rgba(0, 0, 0, 0.12)' : 'rgba(255, 255, 255, 0.1)'}`,
                       }}
                     />
                   )}

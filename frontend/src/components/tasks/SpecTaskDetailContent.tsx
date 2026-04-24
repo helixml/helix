@@ -102,6 +102,7 @@ import {
   Separator as PanelResizeHandle,
 } from "react-resizable-panels";
 import useIsBigScreen from "../../hooks/useIsBigScreen";
+import useLightTheme from "../../hooks/useLightTheme";
 import { useClaudeSubscriptions } from "../account/ClaudeSubscriptionConnect";
 import ClaudeSubscriptionConnect from "../account/ClaudeSubscriptionConnect";
 import { getTokenExpiryStatus } from "../account/claudeSubscriptionUtils";
@@ -155,6 +156,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   const router = useRouter();
   // Use md breakpoint (900px) to enable split view on tablets
   const isBigScreen = useIsBigScreen({ breakpoint: "md" });
+  const lightTheme = useLightTheme();
 
   // Fetch task data
   const { data: task } = useSpecTask(taskId, {
@@ -1919,7 +1921,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
             <PanelResizeHandle
               style={{
                 width: 6,
-                background: "rgba(255, 255, 255, 0.08)",
+                background: lightTheme.isLight ? 'rgba(0, 0, 0, 0.06)' : 'rgba(255, 255, 255, 0.08)',
                 cursor: "col-resize",
                 transition: "background 0.15s",
               }}
@@ -1929,7 +1931,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                   width: 2,
                   height: "100%",
                   margin: "0 auto",
-                  background: "rgba(255, 255, 255, 0.12)",
+                  background: lightTheme.isLight ? 'rgba(0, 0, 0, 0.12)' : 'rgba(255, 255, 255, 0.12)',
                   borderRadius: 1,
                 }}
               />

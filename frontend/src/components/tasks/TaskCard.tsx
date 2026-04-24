@@ -60,6 +60,7 @@ import CloneGroupProgressFull from "../specTask/CloneGroupProgress";
 import SpecTaskActionButtons from "./SpecTaskActionButtons";
 import AssigneeSelector from "./AssigneeSelector";
 import useAccount from "../../hooks/useAccount";
+import useLightTheme from "../../hooks/useLightTheme";
 import { TypesOrganizationMembership, TypesUser } from "../../api/api";
 import { useAttentionEvents, AttentionEvent } from "../../hooks/useAttentionEvents";
 
@@ -258,6 +259,7 @@ const TaskProgressDisplay: React.FC<{
   checklist: ChecklistProgress;
   phaseColor: string;
 }> = React.memo(({ checklist, phaseColor }) => {
+  const lightTheme = useLightTheme();
   // Find the in-progress task index
   const inProgressIndex = checklist.in_progress_task?.index ?? -1;
 
@@ -301,10 +303,11 @@ const TaskProgressDisplay: React.FC<{
       sx={{
         mt: 1.5,
         mb: 0.5,
-        background:
-          "linear-gradient(145deg, rgba(255,255,255,0.03) 0%, rgba(255,255,255,0.01) 100%)",
+        background: lightTheme.isLight
+          ? "linear-gradient(145deg, rgba(0,0,0,0.02) 0%, rgba(0,0,0,0.01) 100%)"
+          : "linear-gradient(145deg, rgba(255,255,255,0.03) 0%, rgba(255,255,255,0.01) 100%)",
         borderRadius: 2,
-        border: "1px solid rgba(255,255,255,0.06)",
+        border: `1px solid ${lightTheme.isLight ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.06)'}`,
         overflow: "hidden",
       }}
     >
@@ -315,7 +318,7 @@ const TaskProgressDisplay: React.FC<{
           py: 0.75,
           background:
             "linear-gradient(90deg, rgba(0,0,0,0.15) 0%, rgba(0,0,0,0.05) 100%)",
-          borderBottom: "1px solid rgba(255,255,255,0.04)",
+          borderBottom: `1px solid ${lightTheme.isLight ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.04)'}`,
           display: "flex",
           alignItems: "center",
           gap: 1,
@@ -328,7 +331,7 @@ const TaskProgressDisplay: React.FC<{
             flex: 1,
             height: 4,
             borderRadius: 2,
-            backgroundColor: "rgba(255,255,255,0.08)",
+            backgroundColor: lightTheme.isLight ? "rgba(0,0,0,0.06)" : "rgba(255,255,255,0.08)",
             "& .MuiLinearProgress-bar": {
               background: `linear-gradient(90deg, ${phaseColor}99 0%, ${phaseColor} 100%)`,
               borderRadius: 2,
@@ -339,7 +342,7 @@ const TaskProgressDisplay: React.FC<{
           variant="caption"
           sx={{
             fontSize: "0.65rem",
-            color: "rgba(255,255,255,0.5)",
+            color: lightTheme.isLight ? "rgba(0,0,0,0.45)" : "rgba(255,255,255,0.5)",
             fontWeight: 600,
             letterSpacing: "0.02em",
             minWidth: 32,
@@ -411,7 +414,7 @@ const TaskProgressDisplay: React.FC<{
                   <CheckCircleIcon sx={{ fontSize: 14, color: "#10b981" }} />
                 ) : (
                   <UncheckedIcon
-                    sx={{ fontSize: 14, color: "rgba(255,255,255,0.25)" }}
+                    sx={{ fontSize: 14, color: lightTheme.isLight ? "rgba(0,0,0,0.25)" : "rgba(255,255,255,0.25)" }}
                   />
                 )}
               </Box>
@@ -423,8 +426,8 @@ const TaskProgressDisplay: React.FC<{
                   fontSize: "0.68rem",
                   lineHeight: 1.35,
                   color: isActive
-                    ? "rgba(255,255,255,0.9)"
-                    : "rgba(255,255,255,0.6)",
+                    ? (lightTheme.isLight ? "rgba(0,0,0,0.87)" : "rgba(255,255,255,0.9)")
+                    : (lightTheme.isLight ? "rgba(0,0,0,0.54)" : "rgba(255,255,255,0.6)"),
                   fontWeight: isActive ? 500 : 400,
                   overflow: "hidden",
                   textOverflow: "ellipsis",
@@ -432,7 +435,7 @@ const TaskProgressDisplay: React.FC<{
                   WebkitLineClamp: 2,
                   WebkitBoxOrient: "vertical",
                   textDecoration: isCompleted ? "line-through" : "none",
-                  textDecorationColor: "rgba(255,255,255,0.3)",
+                  textDecorationColor: lightTheme.isLight ? "rgba(0,0,0,0.2)" : "rgba(255,255,255,0.3)",
                 }}
               >
                 {task.description}

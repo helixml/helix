@@ -247,8 +247,8 @@ const DiffViewer: FC<DiffViewerProps> = ({
           justifyContent: "space-between",
           px: 2,
           py: 1.25,
-          borderBottom: "1px solid rgba(255, 255, 255, 0.06)",
-          bgcolor: "rgba(255, 255, 255, 0.02)",
+          borderBottom: `1px solid ${lightTheme.isLight ? 'rgba(0, 0, 0, 0.1)' : 'rgba(255, 255, 255, 0.06)'}`,
+          bgcolor: lightTheme.isLight ? 'rgba(0, 0, 0, 0.02)' : 'rgba(255, 255, 255, 0.02)',
         }}
       >
         <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
@@ -337,8 +337,8 @@ const DiffViewer: FC<DiffViewerProps> = ({
       {tabs.length > 1 && (
         <Box
           sx={{
-            borderBottom: "1px solid rgba(255, 255, 255, 0.06)",
-            bgcolor: "rgba(255, 255, 255, 0.01)",
+            borderBottom: `1px solid ${lightTheme.isLight ? 'rgba(0, 0, 0, 0.1)' : 'rgba(255, 255, 255, 0.06)'}`,
+            bgcolor: lightTheme.isLight ? 'rgba(0, 0, 0, 0.015)' : 'rgba(255, 255, 255, 0.01)',
           }}
         >
           <Tabs
@@ -406,8 +406,8 @@ const DiffViewer: FC<DiffViewerProps> = ({
             justifyContent: "center",
             py: 0.75,
             px: 1,
-            borderBottom: "1px solid rgba(255, 255, 255, 0.06)",
-            bgcolor: "rgba(255, 255, 255, 0.02)",
+            borderBottom: `1px solid ${lightTheme.isLight ? 'rgba(0, 0, 0, 0.1)' : 'rgba(255, 255, 255, 0.06)'}`,
+            bgcolor: lightTheme.isLight ? 'rgba(0, 0, 0, 0.02)' : 'rgba(255, 255, 255, 0.02)',
           }}
         >
           <ToggleButtonGroup
@@ -436,7 +436,7 @@ const DiffViewer: FC<DiffViewerProps> = ({
                   },
                 },
                 "&:hover": {
-                  bgcolor: "rgba(255, 255, 255, 0.05)",
+                  bgcolor: lightTheme.isLight ? 'rgba(0, 0, 0, 0.04)' : 'rgba(255, 255, 255, 0.05)',
                 },
               },
             }}
@@ -497,16 +497,16 @@ const DiffViewer: FC<DiffViewerProps> = ({
             sx={{
               width: 280,
               flexShrink: 0,
-              borderRight: "1px solid rgba(255, 255, 255, 0.06)",
+              borderRight: `1px solid ${lightTheme.isLight ? 'rgba(0, 0, 0, 0.1)' : 'rgba(255, 255, 255, 0.06)'}`,
               overflow: "auto",
-              bgcolor: "rgba(255, 255, 255, 0.01)",
+              bgcolor: lightTheme.isLight ? 'rgba(0, 0, 0, 0.015)' : 'rgba(255, 255, 255, 0.01)',
             }}
           >
             <Box
               sx={{
                 px: 1.5,
                 py: 1,
-                borderBottom: "1px solid rgba(255, 255, 255, 0.06)",
+                borderBottom: `1px solid ${lightTheme.isLight ? 'rgba(0, 0, 0, 0.1)' : 'rgba(255, 255, 255, 0.06)'}`,
               }}
             >
               <Typography
@@ -569,14 +569,14 @@ const DiffViewer: FC<DiffViewerProps> = ({
               sx={{
                 flex: 1,
                 overflow: "auto",
-                bgcolor: "rgba(255, 255, 255, 0.01)",
+                bgcolor: lightTheme.isLight ? 'rgba(0, 0, 0, 0.015)' : 'rgba(255, 255, 255, 0.01)',
               }}
             >
               <Box
                 sx={{
                   px: 1.5,
                   py: 1,
-                  borderBottom: "1px solid rgba(255, 255, 255, 0.06)",
+                  borderBottom: `1px solid ${lightTheme.isLight ? 'rgba(0, 0, 0, 0.1)' : 'rgba(255, 255, 255, 0.06)'}`,
                 }}
               >
                 <Typography
