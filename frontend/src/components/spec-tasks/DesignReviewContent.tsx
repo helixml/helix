@@ -62,6 +62,9 @@ import {
 import useSnackbar from "../../hooks/useSnackbar";
 import useApi from "../../hooks/useApi";
 import useAccount from "../../hooks/useAccount";
+import { useOAuthFlow } from "../../hooks/useOAuthFlow";
+import { useListOAuthProviders } from "../../services/oauthProvidersService";
+import { findOAuthProviderForType } from "../../utils/oauthProviders";
 import InlineCommentBubble from "./InlineCommentBubble";
 import InlineCommentForm from "./InlineCommentForm";
 import CommentLogSidebar from "./CommentLogSidebar";
@@ -189,6 +192,13 @@ export default function DesignReviewContent({
   const submitReviewMutation = useSubmitReview(specTaskId, reviewId);
   const createCommentMutation = useCreateComment(specTaskId, reviewId);
   const resolveCommentMutation = useResolveComment(specTaskId, reviewId);
+
+  // OAuth flow is needed when an approver without GitHub OAuth tries to
+  // approve — the backend returns 422 with error=oauth_required, and we
+  // redirect them through the GitHub connection flow before they retry.
+  const { startOAuthFlow } = useOAuthFlow();
+  const { data: oauthProviders } = useListOAuthProviders();
+  const gitHubProvider = findOAuthProviderForType(oauthProviders, "github");
 
   // Get queue status for streaming
   // Enable polling immediately when we create a comment (awaitingCommentResponse)
@@ -924,6 +934,34 @@ export default function DesignReviewContent({
         onClose();
       }
     } catch (error: any) {
+      // Backend returns 422 with error=oauth_required when the approver has
+      // no GitHub OAuth connection. Drop into the connect-GitHub flow rather
+      // than showing a generic failure — the user can retry once connected.
+      const respData = error?.response?.data;
+      if (respData?.error === "oauth_required") {
+        setShowSubmitDialog(false);
+        if (gitHubProvider?.id) {
+          snackbar.info("Connect GitHub to approve this design.");
+          startOAuthFlow({
+            providerId: gitHubProvider.id,
+            scopes: ["repo"],
+            onSuccess: () => {
+              snackbar.success(
+                "GitHub connected. Click Approve again to submit.",
+              );
+            },
+            onError: (oauthError) => {
+              snackbar.error(`GitHub connection failed: ${oauthError}`);
+            },
+          });
+        } else {
+          snackbar.error(
+            respData?.message ||
+              "GitHub OAuth is not configured. Ask your administrator to set it up so this task can be approved.",
+          );
+        }
+        return;
+      }
       snackbar.error(`Failed to submit review: ${error.message}`);
     }
   };
