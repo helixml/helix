@@ -95,13 +95,106 @@ sufficient. After reproducing, look for either:
 Restart the spec task agent. A fresh container gets a single claude /
 single ACP wrapper and chrome-devtools tools work normally.
 
+## Confirmation via `[ACP_SPAWN]` logging
+
+Added `log::info!` lines in `crates/agent_servers/src/acp.rs` around
+`Child::spawn` (the actual `claude-agent-acp` spawn site). On a freshly
+rebuilt container, `~/work/.zed-state/local-share/logs/Zed.log` showed:
+
+```
+12:50:02  [ACP_SPAWN] About to spawn ACP wrapper agent_id=AgentId("claude-acp") ...
+12:50:02  [ACP_SPAWN] Spawned ACP wrapper pid=8203 agent_id=AgentId("claude-acp")
+12:50:02  [ACP_SPAWN] About to spawn ACP wrapper agent_id=AgentId("claude-acp") ...
+12:50:02  [ACP_SPAWN] Spawned ACP wrapper pid=8211 agent_id=AgentId("claude-acp")
+```
+
+**Same `agent_id` both times, same second** — confirms hypothesis 1 (same
+agent connected twice), not hypothesis 2 (spawn bypasses load lock) or 3
+(sequential acquire/release/acquire).
+
+The race traces back to `crates/external_websocket_sync/src/thread_service.rs`
+having THREE call sites for `server.connect()`:
+
+| Line | Function                       | Triggered by                          |
+|------|--------------------------------|---------------------------------------|
+| 1121 | `create_new_thread_sync`       | new thread (not relevant to resume)   |
+| 1465 | `load_thread_from_agent`       | panel restoration / open path         |
+| 1676 | `open_existing_thread_sync`    | WebSocket `open_thread` command       |
+
+For a resumed session, two of these (typically 1465 + 1676) fire near-
+simultaneously. Each `connect()` independently spawns a fresh ACP wrapper,
+fresh `claude --resume <session>`, and fresh MCP children. One wins the
+npx race for `chrome-devtools-mcp`, the other doesn't. Worse: both
+claudes scribble on the same on-disk session file (`~/.claude/projects/.../<session>.jsonl`).
+
+The existing `THREAD_LOAD_IN_PROGRESS` lock added in `826d32faae` doesn't
+help here — it dedups *thread loads*, not the upstream `connect()` calls
+that happen first.
+
+## Fix: process-global `AgentConnectionCache`
+
+Implemented in `crates/agent_servers/src/connection_cache.rs` (new):
+
+- GPUI `Global` keyed by `(Project entity_id, AgentId)`.
+- Stores `Shared<Task<Result<Rc<dyn AgentConnection>, LoadError>>>` so
+  concurrent callers for the same key share one in-flight connect Task.
+- Once the underlying task resolves, the `Shared` caches the value;
+  subsequent callers get it without re-spawning anything.
+- Failed connects evict the entry so retry can re-attempt.
+
+All four call sites that previously called `server.connect()` now go
+through the cache:
+
+- `external_websocket_sync::thread_service::create_new_thread_sync` (line ~1121)
+- `external_websocket_sync::thread_service::load_thread_from_agent` (line ~1465)
+- `external_websocket_sync::thread_service::open_existing_thread_sync` (line ~1676)
+- `agent_ui::AgentConnectionStore::start_connection`
+
+Net result: one `AgentConnection` (and therefore one `claude-agent-acp`
+wrapper, one `claude --resume`, one set of MCP children) per
+`(project, agent_id)` regardless of which path triggered first. The
+multi-window-Zed scenario still gets one connection per project.
+
+### Verification
+
+After the fix, `Zed.log` should show one of:
+
+- One `[ACP_DEDUP] No cached connection, calling server.connect()` followed
+  by one `[ACP_SPAWN] About to spawn` — the only-caller case.
+- One `[ACP_DEDUP] No cached connection` + one or more
+  `[ACP_DEDUP] Reusing connection` for the same `(project, agent)` key,
+  but still only one `[ACP_SPAWN] About to spawn`.
+
+If two `[ACP_SPAWN] About to spawn` lines for the same agent_id appear,
+the bug has resurfaced.
+
+E2E suite (`crates/external_websocket_sync/e2e-test/run_docker_e2e.sh`)
+passes with the change in place (zed-agent round, in-memory store).
+
+### Caveats
+
+- The first caller's `AgentServerDelegate::new_version_available` watch
+  channel is the only one wired to `server.connect()`. Subsequent
+  callers' delegates are dropped unused. Best-effort UI signal — the core
+  load behaviour is unaffected.
+- `external_websocket_sync` is bound to a single `Entity<Project>` at
+  startup (`init_with_project`). Multi-workspace Zed isn't supported by
+  this protocol today regardless of the cache; the protocol carries no
+  workspace identifier so whichever project initialises the sync first
+  owns all incoming `open_thread` commands. Per-project cache keying is
+  correct for both single- and (hypothetical) multi-workspace cases.
+
 ## Files of interest
 
-- `crates/external_websocket_sync/src/thread_service.rs` (zed) — load lock
-  implementation, lines 55–95 and 1575–1700.
-- `crates/external_websocket_sync/src/websocket_sync.rs` (zed) —
-  `handle_open_thread` at line 499.
+- `crates/agent_servers/src/connection_cache.rs` (zed, new) — the cache.
+- `crates/agent_servers/src/agent_servers.rs` (zed) — re-exports the cache.
+- `crates/agent_servers/src/acp.rs` (zed) — `[ACP_SPAWN]` logs.
+- `crates/external_websocket_sync/src/thread_service.rs` (zed) — three
+  rewritten call sites.
+- `crates/agent_ui/src/agent_connection_store.rs` (zed) — delegates to
+  the cache.
 - `api/pkg/external-agent/zed_config.go` (helix) — MCP config that lists
-  `chrome-devtools` as a stdio MCP (line 246).
+  `chrome-devtools` as a stdio MCP.
 - `api/pkg/server/websocket_external_agent_sync.go` (helix) —
-  `findSessionByZedThreadID` dedup, lines 755 / 1028 / 2145.
+  `findSessionByZedThreadID` dedup (still useful, addresses a different
+  layer).
