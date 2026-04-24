@@ -23,12 +23,12 @@ Phil's prototype runs Claude Code in Docker with `--output-format stream-json`, 
 
 **Note:** "Unmanaged" means not managed by the spec task orchestrator (no Kanban board, no planning/review workflow). The session itself is still fully functional — it supports desktop streaming, the embedded session viewer, and all normal session features. It just isn't part of the spec task lifecycle.
 
-**Debugging/testing in the Helix UI:** Job sessions are accessible in the existing Helix UI via direct URL (`/orgs/:org_id/session/:session_id`), which shows the full chat interface and desktop stream. The session list API already supports `project_id` filtering, so all sessions for a job's project can be listed. Additionally, the sessions sidebar shows all sessions for the user. The only new filtering needed is by `session_role` so the main UI and Jobs UI can each show the sessions relevant to them.
+**Debugging/testing in the Helix UI:** Job sessions should reuse the spec task details page as much as possible — it already provides the desktop stream, chat interface, and session interaction viewer in a well-tested layout. The session list API already supports `project_id` filtering, so all sessions for a job's project can be listed. The only new filtering needed is by `session_role` so the main UI and Jobs UI can each show the sessions relevant to them.
 
 **Acceptance Criteria:**
 - [ ] POST `/api/v1/sessions/chat` accepts a flag (e.g. `"managed": false` or `"session_role": "job"`) that creates a session outside the spec task orchestrator
 - [ ] The session still uses the project's agent config, MCP servers, startup script, and secrets
-- [ ] The session is viewable in the existing Helix UI via direct URL — desktop streaming and the embedded session viewer work as normal
+- [ ] The session is viewable in the existing Helix UI, reusing the spec task details page (desktop stream, chat, interaction viewer)
 - [ ] The session appears in the sessions sidebar and is discoverable via `GET /api/v1/sessions?project_id=...`
 - [ ] The session can be either streaming (SSE) or blocking (synchronous JSON response)
 - [ ] The session ID is returned immediately so the caller can poll for results

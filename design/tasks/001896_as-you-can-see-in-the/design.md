@@ -43,7 +43,7 @@ Since Jobs will use external agent sessions (`agent_type: "zed_external"`), this
 
 **Current state:** `SessionMetadata` has `SessionRole` (planning/implementation/coordination/exploratory) and a `system_session` flag used internally. But there's no API-exposed way to mark a session as unmanaged, and the frontend doesn't filter by role. Sessions can already be created without a `SpecTaskID`, but the UI doesn't differentiate them.
 
-**Existing UI access (no changes needed):** Job sessions are already viewable in the Helix UI via direct URL `/orgs/:org_id/session/:session_id` (renders full chat + desktop stream via `Session.tsx`). They also appear in the sessions sidebar (`SessionsSidebar.tsx`) and are queryable via `GET /api/v1/sessions?project_id=...`. So debugging and testing works out of the box — you can watch a job session's desktop stream and chat in real time.
+**Existing UI access:** Job sessions should reuse the spec task details page, which already provides the desktop stream, chat interface, and session interaction viewer. Sessions are also queryable via `GET /api/v1/sessions?project_id=...`. Debugging and testing works by navigating to the job's session in the existing UI.
 
 **Proposed fix (filtering only):** Add `"session_role": "job"` to `SessionChatRequest`. Add `session_role` as a query parameter on `GET /sessions` (currently not exposed despite being stored in `SessionMetadata`). This lets the Jobs UI list only its sessions and the main Helix UI exclude them if desired. Purely a categorization concern — job sessions remain fully accessible.
 
