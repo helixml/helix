@@ -1,6 +1,5 @@
 import React, {
   useEffect,
-  useLayoutEffect,
   useRef,
   useMemo,
   useCallback,
@@ -17,6 +16,7 @@ import Tooltip from "@mui/material/Tooltip";
 import ExpandLessIcon from "@mui/icons-material/ExpandLess";
 import VerticalAlignBottomIcon from "@mui/icons-material/VerticalAlignBottom";
 import KeyboardDoubleArrowDownIcon from "@mui/icons-material/KeyboardDoubleArrowDown";
+import PauseIcon from "@mui/icons-material/Pause";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   useAutoScrollPreference,
@@ -178,10 +178,13 @@ const EmbeddedSessionView = forwardRef<
     enabled: !!sessionId,
   });
 
-  // Track scrollHeight across renders so we know when content grew.
-  const prevScrollHeightRef = useRef(0);
-  // True until the first time we've forced an initial scroll-to-bottom for
-  // this session. Reset on session change.
+  // Ref to the inner content Box; observed by ResizeObserver so we only
+  // react to *actual* content size changes, not every React re-render.
+  const contentRef = useRef<HTMLDivElement>(null);
+  // Last observed content height. 0 until the first ResizeObserver callback.
+  const lastContentHeightRef = useRef(0);
+  // True once we've forced an initial scroll-to-bottom for this session.
+  // Reset on session change.
   const hasInitiallyScrolled = useRef(false);
 
   // Reset state and clear stale cache when sessionId changes.
@@ -192,7 +195,7 @@ const EmbeddedSessionView = forwardRef<
       prevSessionIdRef.current = sessionId;
 
       hasInitiallyScrolled.current = false;
-      prevScrollHeightRef.current = 0;
+      lastContentHeightRef.current = 0;
       setHasNewBelow(false);
       setOldestPageLoaded(0);
       setOlderInteractions([]);
@@ -226,32 +229,37 @@ const EmbeddedSessionView = forwardRef<
     }
   }, [paginatedData?.interactions?.length, scrollToBottom]);
 
-  // After every render: if scrollHeight grew, either auto-scroll (when ON) or
-  // surface the jump-to-latest pill (when OFF and the new content is below
-  // the viewport). useLayoutEffect runs after DOM mutations but before paint,
-  // so the user never sees a flash of off-bottom content when auto-scroll is on.
-  useLayoutEffect(() => {
+  // ResizeObserver-driven auto-scroll: only fires when the content's actual
+  // size changes. Renders that don't grow content (e.g., the 3s React Query
+  // poll returning identical data) do no scroll work at all.
+  useEffect(() => {
     const container = containerRef.current;
-    if (!container || !session) return;
+    const content = contentRef.current;
+    if (!container || !content) return;
 
-    const prevScrollHeight = prevScrollHeightRef.current;
-    const currentScrollHeight = container.scrollHeight;
-    prevScrollHeightRef.current = currentScrollHeight;
+    const observer = new ResizeObserver((entries) => {
+      const newHeight = entries[0]?.contentRect.height ?? 0;
+      const prevHeight = lastContentHeightRef.current;
+      lastContentHeightRef.current = newHeight;
 
-    if (currentScrollHeight === prevScrollHeight || prevScrollHeight === 0) {
-      return;
-    }
+      // First measurement after mount/session-reset: just record it. The
+      // initial-scroll effect handles getting us to the bottom.
+      if (prevHeight === 0) return;
+      // Only react to growth; shrinking (e.g., a tool call collapsing) shouldn't
+      // yank the viewport.
+      if (newHeight <= prevHeight) return;
 
-    if (autoScroll) {
-      container.scrollTop = currentScrollHeight;
-      return;
-    }
+      if (autoScrollRef.current) {
+        container.scrollTop = container.scrollHeight;
+        setHasNewBelow(false);
+      } else if (!isNearBottom()) {
+        setHasNewBelow(true);
+      }
+    });
 
-    // Auto-scroll OFF: show the pill if the new bottom is now below the viewport.
-    if (!isNearBottom()) {
-      setHasNewBelow(true);
-    }
-  });
+    observer.observe(content);
+    return () => observer.disconnect();
+  }, [isNearBottom]);
 
   // Reload session handler
   const handleReloadSession = useCallback(async () => {
@@ -406,6 +414,7 @@ const EmbeddedSessionView = forwardRef<
         }}
       >
         <Box
+          ref={contentRef}
           sx={{
             width: "100%",
             maxWidth: 700,
@@ -473,12 +482,13 @@ const EmbeddedSessionView = forwardRef<
         </Box>
       </Box>
 
-      {/* Auto-scroll toggle (bottom-right) */}
+      {/* Auto-scroll toggle (bottom-right) — stark filled/outlined treatment
+          so the on/off state is visible at a glance. */}
       <Tooltip
         title={
           autoScroll
-            ? "Auto-scroll to latest is on. Click to turn off."
-            : "Auto-scroll to latest is off. Click to turn on."
+            ? "Auto-scroll is on. Click to pause."
+            : "Auto-scroll is paused. Click to resume."
         }
         placement="left"
       >
@@ -490,22 +500,45 @@ const EmbeddedSessionView = forwardRef<
             autoScrollRef.current = next;
             if (next) scrollToBottom(true);
           }}
-          aria-label={autoScroll ? "Disable auto-scroll" : "Enable auto-scroll"}
+          aria-label={autoScroll ? "Pause auto-scroll" : "Resume auto-scroll"}
+          aria-pressed={autoScroll}
           sx={{
             position: "absolute",
             bottom: 8,
             right: 12,
             zIndex: 2,
-            backgroundColor: "background.paper",
-            border: 1,
-            borderColor: "divider",
-            color: autoScroll ? "primary.main" : "text.disabled",
-            "&:hover": {
-              backgroundColor: "action.hover",
-            },
+            transition: "background-color 0.15s, color 0.15s, box-shadow 0.15s, opacity 0.15s",
+            ...(autoScroll
+              ? {
+                  // ON: filled, primary, prominent
+                  backgroundColor: "primary.main",
+                  color: "primary.contrastText",
+                  boxShadow: 2,
+                  border: "none",
+                  "&:hover": {
+                    backgroundColor: "primary.dark",
+                  },
+                }
+              : {
+                  // OFF: outlined ghost, dimmed
+                  backgroundColor: "background.paper",
+                  color: "text.secondary",
+                  border: 1,
+                  borderColor: "divider",
+                  boxShadow: "none",
+                  opacity: 0.65,
+                  "&:hover": {
+                    backgroundColor: "action.hover",
+                    opacity: 1,
+                  },
+                }),
           }}
         >
-          <VerticalAlignBottomIcon fontSize="small" />
+          {autoScroll ? (
+            <VerticalAlignBottomIcon fontSize="small" />
+          ) : (
+            <PauseIcon fontSize="small" />
+          )}
         </IconButton>
       </Tooltip>
 
