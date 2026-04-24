@@ -1552,6 +1552,10 @@ export enum TypesAgentWorkState {
 }
 
 export interface TypesAggregatedUsageMetric {
+  cache_read_cost?: number;
+  cache_read_tokens?: number;
+  cache_write_cost?: number;
+  cache_write_tokens?: number;
   completion_cost?: number;
   completion_tokens?: number;
   /** ID    string    `json:"id" gorm:"primaryKey"` */
@@ -1561,7 +1565,7 @@ export interface TypesAggregatedUsageMetric {
   prompt_tokens?: number;
   request_size_bytes?: number;
   response_size_bytes?: number;
-  /** Total cost of the call (prompt and completion tokens) */
+  /** Prompt + completion + cache read + cache write */
   total_cost?: number;
   total_requests?: number;
   total_tokens?: number;
@@ -3322,6 +3326,12 @@ export interface TypesKnowledgeVersion {
 
 export interface TypesLLMCall {
   app_id?: string;
+  cache_read_cost?: number;
+  /** prompt tokens served from provider cache (subset of PromptTokens) */
+  cache_read_tokens?: number;
+  cache_write_cost?: number;
+  /** prompt tokens written to provider cache (Anthropic only; subset of PromptTokens) */
+  cache_write_tokens?: number;
   completion_cost?: number;
   completion_tokens?: number;
   created?: string;
@@ -3342,7 +3352,7 @@ export interface TypesLLMCall {
   spec_task_id?: string;
   step?: TypesLLMCallStep;
   stream?: boolean;
-  /** Total cost of the call (prompt and completion tokens) */
+  /** Prompt + completion + cache read + cache write */
   total_cost?: number;
   total_tokens?: number;
   updated?: string;
@@ -3771,6 +3781,10 @@ export interface TypesPricing {
   audio?: string;
   completion?: string;
   image?: string;
+  /** price per cached input token read (hit) */
+  input_cache_read?: string;
+  /** price per cached input token written (cache creation) */
+  input_cache_write?: string;
   internal_reasoning?: string;
   prompt?: string;
   request?: string;
