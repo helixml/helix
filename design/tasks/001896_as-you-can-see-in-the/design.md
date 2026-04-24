@@ -8,7 +8,7 @@ The Helix API already provides substantial infrastructure. Here's what exists an
 
 | Capability | API | How Phil uses it |
 |---|---|---|
-| **Create sessions without spec tasks** | `POST /api/v1/sessions/chat` | Start a job session with a prompt, outside the spec task orchestrator. |
+| **Create sessions without spec tasks** | `POST /api/v1/sessions/chat` with `project_id` | Start a job session tied to a project (inherits MCP, startup script, secrets), outside the spec task orchestrator. `project_id` is already a supported parameter. |
 | **External agent (Zed) sessions** | `agent_type: "zed_external"` in chat request | Run autonomous desktop agent for complex tasks (git, code, PRs). No hard timeout. |
 | **Streaming output (response entries)** | WebSocket pubsub with `EntryPatches` | Stream structured agent responses (text + tool calls) with in-place modification — see note below. |
 | **Project-scoped MCP servers** | `Project.Skills.MCPs` | Per-job tool configuration (GitHub, Slack, Python, etc.) via project YAML. |
