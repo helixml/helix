@@ -23,13 +23,16 @@ Phil's prototype runs Claude Code in Docker with `--output-format stream-json`, 
 
 **Note:** "Unmanaged" means not managed by the spec task orchestrator (no Kanban board, no planning/review workflow). The session itself is still fully functional — it supports desktop streaming, the embedded session viewer, and all normal session features. It just isn't part of the spec task lifecycle.
 
+**Debugging/testing in the Helix UI:** Job sessions are accessible in the existing Helix UI via direct URL (`/orgs/:org_id/session/:session_id`), which shows the full chat interface and desktop stream. The session list API already supports `project_id` filtering, so all sessions for a job's project can be listed. Additionally, the sessions sidebar shows all sessions for the user. The only new filtering needed is by `session_role` so the main UI and Jobs UI can each show the sessions relevant to them.
+
 **Acceptance Criteria:**
 - [ ] POST `/api/v1/sessions/chat` accepts a flag (e.g. `"managed": false` or `"session_role": "job"`) that creates a session outside the spec task orchestrator
 - [ ] The session still uses the project's agent config, MCP servers, startup script, and secrets
-- [ ] The session is still viewable — desktop streaming and the embedded session viewer work as normal
+- [ ] The session is viewable in the existing Helix UI via direct URL — desktop streaming and the embedded session viewer work as normal
+- [ ] The session appears in the sessions sidebar and is discoverable via `GET /api/v1/sessions?project_id=...`
 - [ ] The session can be either streaming (SSE) or blocking (synchronous JSON response)
 - [ ] The session ID is returned immediately so the caller can poll for results
-- [ ] The session list endpoint supports filtering by role so that the Jobs UI can list its own sessions separately from spec-task-managed ones
+- [ ] The session list endpoint adds `session_role` filtering so the Jobs UI can list its own sessions and the main Helix UI can exclude them if desired
 
 ### US-2: Run a long-running autonomous agent
 **As** an external orchestrator,

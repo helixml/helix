@@ -43,9 +43,11 @@ Since Jobs will use external agent sessions (`agent_type: "zed_external"`), this
 
 **Current state:** `SessionMetadata` has `SessionRole` (planning/implementation/coordination/exploratory) and a `system_session` flag used internally. But there's no API-exposed way to mark a session as unmanaged, and the frontend doesn't filter by role. Sessions can already be created without a `SpecTaskID`, but the UI doesn't differentiate them.
 
-**Proposed fix:** Add `"managed": false` or `"session_role": "job"` to `SessionChatRequest`. Sessions with this role bypass the spec task orchestrator but remain fully viewable — desktop streaming and the embedded session viewer (iframe embed) work as normal. The session list endpoint (`GET /sessions`) gains a `role` or `exclude_roles` query parameter so the Jobs UI can list its own sessions and the main Helix UI can filter them out. This is purely a filtering/categorization concern, not a visibility restriction.
+**Existing UI access (no changes needed):** Job sessions are already viewable in the Helix UI via direct URL `/orgs/:org_id/session/:session_id` (renders full chat + desktop stream via `Session.tsx`). They also appear in the sessions sidebar (`SessionsSidebar.tsx`) and are queryable via `GET /api/v1/sessions?project_id=...`. So debugging and testing works out of the box — you can watch a job session's desktop stream and chat in real time.
 
-**Files:** `api/pkg/types/types.go` (SessionChatRequest, SessionMetadata), `api/pkg/server/session_handlers.go` (list handler filtering).
+**Proposed fix (filtering only):** Add `"session_role": "job"` to `SessionChatRequest`. Add `session_role` as a query parameter on `GET /sessions` (currently not exposed despite being stored in `SessionMetadata`). This lets the Jobs UI list only its sessions and the main Helix UI exclude them if desired. Purely a categorization concern — job sessions remain fully accessible.
+
+**Files:** `api/pkg/types/types.go` (SessionChatRequest, SessionMetadata), `api/pkg/server/session_handlers.go` (list handler filtering), `api/pkg/store/store.go` (add `SessionRole` to `ListSessionsQuery`).
 
 #### Gap 2: Cron triggers can't start external agent sessions
 **Problem:** Phil's jobs need full desktop/Zed agents (for git operations, running code, etc.), but the cron trigger system only creates inference sessions.
