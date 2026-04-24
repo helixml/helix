@@ -1,17 +1,17 @@
 # Implementation Tasks
 
 ## Docker Compose
-- [~] Remove `tika` service from `docker-compose.yaml` (lines 83-87)
-- [~] Remove `tika` service from `docker-compose.dev.yaml` (lines 209-212)
+- [x] Remove `tika` service from `docker-compose.yaml` (lines 83-87)
+- [x] Remove `tika` service from `docker-compose.dev.yaml` (lines 209-212)
 
 ## Go Code
-- [ ] Delete `api/pkg/extract/tika_extractor.go`
-- [ ] Delete `api/pkg/extract/tika_extractor_test.go`
-- [ ] Remove `Extractor` type and `ExtractorTika`/`ExtractorUnstructured` constants from `api/pkg/types/enums.go` (lines 304-309)
-- [ ] Remove `Provider` field and `Tika` struct from `TextExtractor` in `api/pkg/config/config.go` (lines 322-332)
-- [ ] Simplify `serve.go` extractor init — replace switch (lines 313-320) with direct `extractor = extract.NewDefaultExtractor(cfg.TextExtractor.Unstructured.URL)`
-- [ ] Remove `tikaURL` field and tika-related assertions from `api/pkg/config/proxy_test.go`
-- [ ] Remove `github.com/google/go-tika` from `go.mod` — run `go mod tidy`
+- [~] Delete `api/pkg/extract/tika_extractor.go`
+- [~] Delete `api/pkg/extract/tika_extractor_test.go`
+- [~] Remove `Extractor` type and `ExtractorTika`/`ExtractorUnstructured` constants from `api/pkg/types/enums.go` (lines 304-309)
+- [~] Remove `Provider` field and `Tika` struct from `TextExtractor` in `api/pkg/config/config.go` (lines 322-332)
+- [~] Simplify `serve.go` extractor init — replace switch (lines 313-320) with direct `extractor = extract.NewDefaultExtractor(cfg.TextExtractor.Unstructured.URL)`
+- [~] Remove `tikaURL` field and tika-related assertions from `api/pkg/config/proxy_test.go`
+- [~] Remove `github.com/google/go-tika` from `go.mod` — run `go mod tidy`
 
 ## CI / Scripts
 - [ ] Remove all `TEXT_EXTRACTION_TIKA_URL` env vars from `.drone.yml` (active and commented-out, lines 180, 236, 299, 374, 450, 527, 607, 693)
