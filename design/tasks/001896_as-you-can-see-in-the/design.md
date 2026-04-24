@@ -6,20 +6,15 @@ The Helix API already provides substantial infrastructure. Here's what exists an
 
 ### What Already Works
 
-| Capability | API | Notes |
+| Capability | API | How Phil uses it |
 |---|---|---|
-| **Create sessions without spec tasks** | `POST /api/v1/sessions/chat` | Sessions are independent of the Kanban workflow. No `SpecTaskID` is required. |
-| **Continue existing sessions** | `POST /api/v1/sessions/chat` with `session_id` | Appends new messages to existing conversation. |
-| **External agent (Zed) sessions** | `agent_type: "zed_external"` in chat request | Launches autonomous desktop container with Zed IDE. No hard timeout. |
-| **Streaming output** | `stream: true` in chat request | Two formats: OpenAI-compatible SSE (flat text deltas) and response entries format (structured `EntryPatches` via WebSocket, supports in-place content modification). Jobs must use the response entries format — see note below. |
-| **Project-scoped MCP servers** | `Project.Skills.MCPs` | MCPs configured per project via YAML or API. Three transports: HTTP, SSE, stdio. |
-| **Cron scheduling** | `CronTrigger` on Apps | Runs agent sessions on schedule. Min 90s interval. Uses `gocron`. |
-| **Webhook triggers** | Discord, Slack, Teams, Azure DevOps | Platform-specific webhook receivers exist. |
-| **Secrets per project** | `POST /api/v1/projects/{id}/secrets` | AES-256-GCM encrypted. Injected as env vars into containers. |
-| **Exploratory sessions** | `POST /api/v1/projects/{id}/exploratory-session` | Desktop session tied to project, no spec task. |
-| **Session resume** | `POST /api/v1/sessions/{id}/resume` | Restarts a paused external agent. |
-| **Trigger execution history** | `TriggerExecution` records | Stores output, status, session ID per execution. |
-| **Email notifications** | `EventCronTriggerComplete/Failed` | Email sent on cron trigger completion. |
+| **Create sessions without spec tasks** | `POST /api/v1/sessions/chat` | Start a job session with a prompt, outside the spec task orchestrator. |
+| **External agent (Zed) sessions** | `agent_type: "zed_external"` in chat request | Run autonomous desktop agent for complex tasks (git, code, PRs). No hard timeout. |
+| **Streaming output (response entries)** | WebSocket pubsub with `EntryPatches` | Stream structured agent responses (text + tool calls) with in-place modification — see note below. |
+| **Project-scoped MCP servers** | `Project.Skills.MCPs` | Per-job tool configuration (GitHub, Slack, Python, etc.) via project YAML. |
+| **Cron scheduling** | `CronTrigger` on Apps | Trigger recurring job runs on a schedule (min 90s interval). |
+| **Secrets per project** | `POST /api/v1/projects/{id}/secrets` | Store credentials (GitHub token, API keys) encrypted, injected as env vars. |
+| **Trigger execution history** | `TriggerExecution` records | Query what happened on previous job runs (output, status, session ID). |
 
 ### Streaming Format: Response Entries, Not OpenAI-Compatible
 
