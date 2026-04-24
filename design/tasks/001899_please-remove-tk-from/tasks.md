@@ -1,8 +1,8 @@
 # Implementation Tasks
 
 ## Docker Compose
-- [ ] Remove `tika` service from `docker-compose.yaml` (lines 83-87)
-- [ ] Remove `tika` service from `docker-compose.dev.yaml` (lines 209-212)
+- [~] Remove `tika` service from `docker-compose.yaml` (lines 83-87)
+- [~] Remove `tika` service from `docker-compose.dev.yaml` (lines 209-212)
 
 ## Go Code
 - [ ] Delete `api/pkg/extract/tika_extractor.go`
