@@ -1,7 +1,7 @@
 # Implementation Tasks
 
 ## US-1: API walkthrough document (do first)
-- [ ] Write a standalone markdown document walking Phil through the full Jobs API workflow
+- [~] Write a standalone markdown document walking Phil through the full Jobs API workflow
 - [ ] Show exact API calls (endpoint, method, request/response JSON) for each step: create project, configure MCP/secrets, write job files, start session, stream/poll results, configure cron
 - [ ] Mark each API as "exists today" or "proposed/new"
 - [ ] Cover both ad hoc and recurring job scenarios
