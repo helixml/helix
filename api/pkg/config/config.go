@@ -320,15 +320,7 @@ type DataPrepText struct {
 }
 
 type TextExtractor struct {
-	Provider types.Extractor `envconfig:"TEXT_EXTRACTION_PROVIDER" default:"tika"`
-	// the URL we post documents to so we can get the text back from them
-	Unstructured struct {
-		URL string `envconfig:"TEXT_EXTRACTION_URL" default:"http://llamaindex:5000/api/v1/extract" description:"The URL to extract text from a document."`
-	}
-
-	Tika struct {
-		URL string `envconfig:"TEXT_EXTRACTION_TIKA_URL" default:"http://tika:9998" description:"The URL to extract text from a document."`
-	}
+	URL string `envconfig:"TEXT_EXTRACTION_URL" default:"http://llamaindex:5000/api/v1/extract" description:"The URL to extract text from a document."`
 }
 
 // RAGProviderName is the string stamped into KnowledgeVersion records to

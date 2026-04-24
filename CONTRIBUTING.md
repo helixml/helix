@@ -75,7 +75,7 @@ Avoid:
 ## Tests
 
 - Add tests for new behaviour. We use Go's standard `testing` package with `testify/suite` and `gomock` for table-driven and mock-heavy tests respectively.
-- For full local runs: `./stack test [./path/...]` (boots Postgres / Tika / Chrome via compose).
+- For full local runs: `./stack test [./path/...]` (boots Postgres / Chrome via compose).
 - For a quick build-only sanity check: `cd api && go build ./...`.
 - Frontend doesn't have heavy unit-test coverage; manual end-to-end verification in the browser is expected for UI changes.
 

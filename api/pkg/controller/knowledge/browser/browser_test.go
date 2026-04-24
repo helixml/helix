@@ -86,7 +86,9 @@ func TestBrowser_BrowsePages(t *testing.T) {
 	body, err = page2.HTML()
 	require.NoError(t, err)
 
-	assert.Contains(t, body, "Projects")
+	// Stable nav label that appears on every docs page; previously asserted
+	// "Commercial Support" but that text is no longer on helix.ml/docs.
+	assert.Contains(t, body, "Getting Started")
 
 	browserManager.PutPage(page2)
 

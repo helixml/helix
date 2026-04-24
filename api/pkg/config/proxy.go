@@ -23,8 +23,7 @@ func (c *ServerConfig) InternalServiceURLs() []string {
 		c.RAG.Llamaindex.RAGQueryURL,
 		c.RAG.Llamaindex.RAGDeleteURL,
 		// Text extraction
-		c.TextExtractor.Unstructured.URL,
-		c.TextExtractor.Tika.URL,
+		c.TextExtractor.URL,
 		// Search
 		c.Search.SearXNGBaseURL,
 		// Frontend

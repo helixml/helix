@@ -25,12 +25,6 @@ image:
   # Overrides the image tag whose default is the chart appVersion.
   tag: ""
 
-tika:
-  enabled: false
-  image:
-    repository: apache/tika
-    tag: "2.9.2.1"
-
 searxng:
   enabled: true
   image:
