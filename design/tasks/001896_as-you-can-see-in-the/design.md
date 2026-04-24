@@ -65,7 +65,7 @@ Since Jobs will use external agent sessions (`agent_type: "zed_external"`), this
 
 **Design: One job = one project, state on the helix-specs branch.**
 
-Each job maps 1:1 to a Helix project. The project's primary git repo already has a `helix-specs` branch (used by the spec task flow for design docs in per-task subdirectories). For jobs, the agent's markdown state files (persona definition, task lists, knowledge notes, questions, append-only log) live as **top-level files in the `helix-specs` branch** — no per-task subdirectories needed since there's only one job per project.
+Each job maps 1:1 to a Helix project. The project's primary git repo already has a `helix-specs` branch (used by the spec task flow for design docs in per-task subdirectories). For jobs, the agent's markdown state files (persona definition, task lists, knowledge notes, questions, append-only log) live inside a **`job/` folder on the `helix-specs` branch** — keeping them separate from spec task design docs without needing per-task subdirectories since there's only one job per project.
 
 This reuses existing infrastructure:
 - The `helix-specs` branch already exists on every project repo
@@ -114,7 +114,7 @@ From the transcript, Luke and Phil agreed:
 - The Jobs system uses Helix as the **agent execution layer via REST API**
 - **One job = one Helix project** (1:1 mapping). The project provides: agent config, MCP servers, startup script, secrets, and the primary git repo
 - The project name serves as the job name
-- Job state (persona markdown, task lists, notes, log) lives as top-level files on the `helix-specs` branch of the project's primary repo
+- Job state (persona markdown, task lists, notes, log) lives in a `job/` folder on the `helix-specs` branch of the project's primary repo
 - Helix auto-restores state files at session start and auto-commits at session end
 
 This means the API gaps above are the **contract between the two systems**. The Jobs frontend will call these endpoints. No changes needed to the spec task workflow, Kanban, or existing frontend.

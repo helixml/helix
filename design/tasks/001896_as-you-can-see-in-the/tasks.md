@@ -14,14 +14,14 @@
 
 ## Gap 3: Persistent agent state on helix-specs branch (1 job = 1 project)
 - [ ] On unmanaged (job) session start, reuse existing machinery to check out `helix-specs` branch into `~/work/helix-specs`
-- [ ] Agent works directly from `~/work/helix-specs` where its top-level state files live (persona, task list, notes, log)
+- [ ] Agent works from `~/work/helix-specs/job/` where its state files live (persona, task list, notes, log)
 - [ ] On session completion, auto-commit and push any changes back to the `helix-specs` branch
 - [ ] Reuse existing git clone/push machinery from spec task service
 - [ ] Ensure this is transparent to the agent — Helix handles restore/commit, not the agent
 
 ## Gap 4: Cron prompt from file reference
 - [ ] Add `InputFile string` field to `CronTrigger` type
-- [ ] In cron execution, if `InputFile` is set, read the file from the `helix-specs` worktree (`~/work/helix-specs/`)
+- [ ] In cron execution, if `InputFile` is set, read the file from the `helix-specs` worktree (`~/work/helix-specs/job/`)
 - [ ] Use file contents as the session prompt; fall back to `Input` if `InputFile` is empty
 
 ## Gap 5: Webhook callback on completion
