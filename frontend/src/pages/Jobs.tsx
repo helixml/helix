@@ -35,7 +35,6 @@ import { useQuery } from '@tanstack/react-query'
 
 import Page from '../components/system/Page'
 import ExternalAgentDesktopViewer from '../components/external-agent/ExternalAgentDesktopViewer'
-import RobustPromptInput from '../components/common/RobustPromptInput'
 import useAccount from '../hooks/useAccount'
 import useApi from '../hooks/useApi'
 import useSnackbar from '../hooks/useSnackbar'
@@ -716,22 +715,6 @@ const Jobs: FC = () => {
                         showSessionPanel={true}
                         projectId={selectedProjectId}
                       />
-                      <Box sx={{ p: 2, borderTop: 1, borderColor: 'divider' }}>
-                        <RobustPromptInput
-                          sessionId={activeRunSessionId}
-                          projectId={selectedProjectId}
-                          apiClient={api.getApiClient()}
-                          onSend={async (message: string, interrupt?: boolean) => {
-                            await streaming.NewInference({
-                              type: SESSION_TYPE_TEXT,
-                              message,
-                              sessionId: activeRunSessionId,
-                              interrupt: interrupt ?? true,
-                            })
-                          }}
-                          placeholder="Send message to agent..."
-                        />
-                      </Box>
                     </Paper>
 
                     {/* Stop + Poll API calls */}
