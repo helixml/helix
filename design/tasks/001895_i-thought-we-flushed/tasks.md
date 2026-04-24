@@ -15,6 +15,6 @@
 
 ## Testing
 
-- [~] E2E test: verify that a single text entry with no subsequent events (no tool_call, no new entry) has its final content visible in the frontend within ~150ms
-- [ ] Verify no regression: fast streaming (many tokens/sec) still coalesces correctly and doesn't produce duplicate or reordered patches
-- [ ] Write PR descriptions
+- [x] E2E test: verify that a single text entry with no subsequent events (no tool_call, no new entry) has its final content visible in the frontend within ~150ms
+- [x] Verify no regression: fast streaming (many tokens/sec) still coalesces correctly and doesn't produce duplicate or reordered patches (all 46 Go unit tests pass)
+- [x] Write PR descriptions

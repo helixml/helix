@@ -33,11 +33,11 @@ Both throttles suppress duplicate sends within their interval, but neither has a
 
 When `throttled_send_message_added` buffers content (returns `sent = false`), spawn a delayed task that fires after `STREAMING_THROTTLE_INTERVAL` (100ms). On firing, if `pending_content` still exists for that key, send it and clear the buffer. If a new event arrives first (and sends or replaces the pending content), the timer becomes a no-op.
 
-**Approach**: Use `cx.spawn` or `cx.background_executor().timer()` to schedule the trailing flush. The timer is reset (or becomes irrelevant) on every new event because:
-- If the next event sends the content (throttle window elapsed), `pending_content` is cleared → timer finds nothing to flush
-- If the next event replaces the content (within throttle window), the new content gets its own timer
+**Implemented approach**: Used `smol::spawn` with `smol::Timer::after()` since `throttled_send_message_added` is a standalone function without `cx` access. Added a `flush_scheduled: bool` field to `StreamingThrottleState` to prevent spawning duplicate timers. The async `trailing_flush_timer` function sleeps for `STREAMING_THROTTLE_INTERVAL`, then checks under lock if `pending_content` still exists and sends it if so.
 
-**Key constraint**: The flush timer needs access to `STREAMING_THROTTLE` and `send_websocket_event`. Since `STREAMING_THROTTLE` is a global static and `send_websocket_event` is a module-level function, the timer task can be a simple `background_executor` spawn without needing any entity context.
+The timer is a no-op if the content was already sent or replaced because:
+- If the next event sends the content (throttle window elapsed), `pending_content` is cleared → timer finds nothing to flush
+- If the next event replaces the content (within throttle window), the new content gets its own timer (only if `flush_scheduled` is false, but the existing timer will pick up the replacement content)
 
 ### Layer 2: Helix — Trailing-edge publish goroutine
 
