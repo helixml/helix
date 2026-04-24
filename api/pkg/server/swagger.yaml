@@ -3796,6 +3796,37 @@ definitions:
         description: User ID or email
         type: string
     type: object
+  types.CreateAccessGrantResponse:
+    properties:
+      added_to_organization:
+        type: boolean
+      created_at:
+        type: string
+      id:
+        type: string
+      organization_id:
+        description: If granted to an organization
+        type: string
+      resource_id:
+        description: App ID, Knowledge ID, etc
+        type: string
+      roles:
+        items:
+          $ref: '#/definitions/types.Role'
+        type: array
+      team_id:
+        description: If granted to a team
+        type: string
+      updated_at:
+        type: string
+      user:
+        allOf:
+        - $ref: '#/definitions/types.User'
+        description: Populated by the server if UserID is set
+      user_id:
+        description: If granted to a user
+        type: string
+    type: object
   types.CreateBranchRequest:
     properties:
       base_branch:
@@ -15839,7 +15870,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/types.AccessGrant'
+            $ref: '#/definitions/types.CreateAccessGrantResponse'
       security:
       - BearerAuth: []
       summary: Grant access to a project to a team or organization member

@@ -195,6 +195,12 @@ type CreateAccessGrantRequest struct {
 	Roles         []string `json:"roles"`          // Role names
 }
 
+// CreateAccessGrantResponse wraps AccessGrant with metadata about side effects
+type CreateAccessGrantResponse struct {
+	*AccessGrant
+	AddedToOrganization bool `json:"added_to_organization"`
+}
+
 // AccessGrant - grant access to a resource for a team or user. This allows users
 // to share their application, knowledge, provider endpoint, etc with other users or teams.
 type AccessGrant struct {

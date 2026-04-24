@@ -8792,7 +8792,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/types.AccessGrant"
+                            "$ref": "#/definitions/types.CreateAccessGrantResponse"
                         }
                     }
                 }
@@ -22404,6 +22404,53 @@ const docTemplate = `{
                 },
                 "user_reference": {
                     "description": "User ID or email",
+                    "type": "string"
+                }
+            }
+        },
+        "types.CreateAccessGrantResponse": {
+            "type": "object",
+            "properties": {
+                "added_to_organization": {
+                    "type": "boolean"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "organization_id": {
+                    "description": "If granted to an organization",
+                    "type": "string"
+                },
+                "resource_id": {
+                    "description": "App ID, Knowledge ID, etc",
+                    "type": "string"
+                },
+                "roles": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.Role"
+                    }
+                },
+                "team_id": {
+                    "description": "If granted to a team",
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "user": {
+                    "description": "Populated by the server if UserID is set",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.User"
+                        }
+                    ]
+                },
+                "user_id": {
+                    "description": "If granted to a user",
                     "type": "string"
                 }
             }
