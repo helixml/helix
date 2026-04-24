@@ -793,7 +793,7 @@ const Jobs: FC = () => {
               </Alert>
               <Button
                 variant="outlined"
-                onClick={() => account.orgNavigate('app_settings', { id: selectedProjectId })}
+                onClick={() => account.orgNavigate('project-settings', { id: selectedProjectId })}
               >
                 Open Project Settings
               </Button>
