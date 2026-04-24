@@ -759,21 +759,26 @@ If the user asks for information about Helix or installing Helix, refer them to 
 				return
 			}
 
-			// Store container ID and sandbox ID in session
+			// Store container ID and sandbox ID in session.
+			// Re-fetch from DB first because StartDesktop already wrote ContainerName
+			// and ExternalAgentStatus — using the stale local session would overwrite those.
 			if agentResp.DevContainerID != "" || agentResp.SandboxID != "" {
-				session.Metadata.DevContainerID = agentResp.DevContainerID
-				// CRITICAL: Store SandboxID on session record - required for sandbox state endpoint
-				// Without this, the frontend gets stuck at "Starting Desktop" forever
-				session.SandboxID = agentResp.SandboxID
-				_, err := s.Controller.Options.Store.UpdateSession(req.Context(), *session)
-				if err != nil {
-					log.Error().Err(err).Str("session_id", session.ID).Msg("Failed to store container data in session")
+				freshSession, fetchErr := s.Controller.Options.Store.GetSession(req.Context(), session.ID)
+				if fetchErr != nil {
+					log.Error().Err(fetchErr).Str("session_id", session.ID).Msg("Failed to re-fetch session after StartDesktop")
 				} else {
-					log.Info().
-						Str("session_id", session.ID).
-						Str("container_id", agentResp.DevContainerID).
-						Str("sandbox_id", agentResp.SandboxID).
-						Msg("✅ Stored container ID and sandbox ID in session (chat endpoint)")
+					freshSession.Metadata.DevContainerID = agentResp.DevContainerID
+					freshSession.SandboxID = agentResp.SandboxID
+					_, err := s.Controller.Options.Store.UpdateSession(req.Context(), *freshSession)
+					if err != nil {
+						log.Error().Err(err).Str("session_id", session.ID).Msg("Failed to store container data in session")
+					} else {
+						log.Info().
+							Str("session_id", session.ID).
+							Str("container_id", agentResp.DevContainerID).
+							Str("sandbox_id", agentResp.SandboxID).
+							Msg("✅ Stored container ID and sandbox ID in session (chat endpoint)")
+					}
 				}
 			}
 
