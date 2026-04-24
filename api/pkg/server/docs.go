@@ -20609,6 +20609,18 @@ const docTemplate = `{
         "types.AggregatedUsageMetric": {
             "type": "object",
             "properties": {
+                "cache_read_cost": {
+                    "type": "number"
+                },
+                "cache_read_tokens": {
+                    "type": "integer"
+                },
+                "cache_write_cost": {
+                    "type": "number"
+                },
+                "cache_write_tokens": {
+                    "type": "integer"
+                },
                 "completion_cost": {
                     "type": "number"
                 },
@@ -20635,7 +20647,7 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "total_cost": {
-                    "description": "Total cost of the call (prompt and completion tokens)",
+                    "description": "Prompt + completion + cache read + cache write",
                     "type": "number"
                 },
                 "total_requests": {
@@ -24767,6 +24779,20 @@ const docTemplate = `{
                 "app_id": {
                     "type": "string"
                 },
+                "cache_read_cost": {
+                    "type": "number"
+                },
+                "cache_read_tokens": {
+                    "description": "prompt tokens served from provider cache (subset of PromptTokens)",
+                    "type": "integer"
+                },
+                "cache_write_cost": {
+                    "type": "number"
+                },
+                "cache_write_tokens": {
+                    "description": "prompt tokens written to provider cache (Anthropic only; subset of PromptTokens)",
+                    "type": "integer"
+                },
                 "completion_cost": {
                     "type": "number"
                 },
@@ -24837,7 +24863,7 @@ const docTemplate = `{
                     "type": "boolean"
                 },
                 "total_cost": {
-                    "description": "Total cost of the call (prompt and completion tokens)",
+                    "description": "Prompt + completion + cache read + cache write",
                     "type": "number"
                 },
                 "total_tokens": {
@@ -25887,6 +25913,14 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "image": {
+                    "type": "string"
+                },
+                "input_cache_read": {
+                    "description": "price per cached input token read (hit)",
+                    "type": "string"
+                },
+                "input_cache_write": {
+                    "description": "price per cached input token written (cache creation)",
                     "type": "string"
                 },
                 "internal_reasoning": {

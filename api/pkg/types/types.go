@@ -2434,9 +2434,13 @@ type LLMCall struct {
 	PromptTokens     int64          `json:"prompt_tokens"`
 	CompletionTokens int64          `json:"completion_tokens"`
 	TotalTokens      int64          `json:"total_tokens"`
+	CacheReadTokens  int64          `json:"cache_read_tokens"`  // prompt tokens served from provider cache (subset of PromptTokens)
+	CacheWriteTokens int64          `json:"cache_write_tokens"` // prompt tokens written to provider cache (Anthropic only; subset of PromptTokens)
 	PromptCost       float64        `json:"prompt_cost"`
 	CompletionCost   float64        `json:"completion_cost"`
-	TotalCost        float64        `json:"total_cost"` // Total cost of the call (prompt and completion tokens)
+	CacheReadCost    float64        `json:"cache_read_cost"`
+	CacheWriteCost   float64        `json:"cache_write_cost"`
+	TotalCost        float64        `json:"total_cost"` // Prompt + completion + cache read + cache write
 	Stream           bool           `json:"stream"`
 	Error            string         `json:"error"`
 }
@@ -2642,9 +2646,13 @@ type UsageMetric struct {
 	PromptTokens      int       `json:"prompt_tokens"`
 	CompletionTokens  int       `json:"completion_tokens"`
 	TotalTokens       int       `json:"total_tokens"`
+	CacheReadTokens   int       `json:"cache_read_tokens"`
+	CacheWriteTokens  int       `json:"cache_write_tokens"`
 	PromptCost        float64   `json:"prompt_cost"`
 	CompletionCost    float64   `json:"completion_cost"`
-	TotalCost         float64   `json:"total_cost"` // Total cost of the call (prompt and completion tokens)
+	CacheReadCost     float64   `json:"cache_read_cost"`
+	CacheWriteCost    float64   `json:"cache_write_cost"`
+	TotalCost         float64   `json:"total_cost"` // Prompt + completion + cache read + cache write
 	DurationMs        int       `json:"duration_ms"`
 	RequestSizeBytes  int       `json:"request_size_bytes"`
 	ResponseSizeBytes int       `json:"response_size_bytes"`
@@ -2662,9 +2670,13 @@ type AggregatedUsageMetric struct {
 	PromptTokens      int     `json:"prompt_tokens"`
 	CompletionTokens  int     `json:"completion_tokens"`
 	TotalTokens       int     `json:"total_tokens"`
+	CacheReadTokens   int     `json:"cache_read_tokens"`
+	CacheWriteTokens  int     `json:"cache_write_tokens"`
 	PromptCost        float64 `json:"prompt_cost"`
 	CompletionCost    float64 `json:"completion_cost"`
-	TotalCost         float64 `json:"total_cost"` // Total cost of the call (prompt and completion tokens)
+	CacheReadCost     float64 `json:"cache_read_cost"`
+	CacheWriteCost    float64 `json:"cache_write_cost"`
+	TotalCost         float64 `json:"total_cost"` // Prompt + completion + cache read + cache write
 	LatencyMs         float64 `json:"latency_ms"`
 	RequestSizeBytes  int     `json:"request_size_bytes"`
 	ResponseSizeBytes int     `json:"response_size_bytes"`

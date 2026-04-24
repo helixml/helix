@@ -52,7 +52,11 @@ func (s *PostgresStore) GetAppDailyUsageMetrics(ctx context.Context, appID strin
 			SUM(prompt_tokens) as prompt_tokens,
 			SUM(completion_tokens) as completion_tokens,
 			SUM(total_tokens) as total_tokens,
+			SUM(cache_read_tokens) as cache_read_tokens,
+			SUM(cache_write_tokens) as cache_write_tokens,
 			SUM(total_cost) as total_cost,
+			SUM(cache_read_cost) as cache_read_cost,
+			SUM(cache_write_cost) as cache_write_cost,
 			AVG(duration_ms) as duration_ms,
 			SUM(request_size_bytes) as request_size_bytes,
 			SUM(response_size_bytes) as response_size_bytes,
@@ -82,8 +86,12 @@ func (s *PostgresStore) GetProviderDailyUsageMetrics(ctx context.Context, provid
 			SUM(prompt_tokens) as prompt_tokens,
 			SUM(completion_tokens) as completion_tokens,
 			SUM(total_tokens) as total_tokens,
+			SUM(cache_read_tokens) as cache_read_tokens,
+			SUM(cache_write_tokens) as cache_write_tokens,
 			SUM(prompt_cost) as prompt_cost,
 			SUM(completion_cost) as completion_cost,
+			SUM(cache_read_cost) as cache_read_cost,
+			SUM(cache_write_cost) as cache_write_cost,
 			SUM(total_cost) as total_cost,
 			AVG(duration_ms) as duration_ms,
 			SUM(request_size_bytes) as request_size_bytes,
@@ -115,8 +123,12 @@ func (s *PostgresStore) GetUsersAggregatedUsageMetrics(ctx context.Context, prov
 		PromptTokens      int       `gorm:"column:prompt_tokens"`
 		CompletionTokens  int       `gorm:"column:completion_tokens"`
 		TotalTokens       int       `gorm:"column:total_tokens"`
+		CacheReadTokens   int       `gorm:"column:cache_read_tokens"`
+		CacheWriteTokens  int       `gorm:"column:cache_write_tokens"`
 		PromptCost        float64   `gorm:"column:prompt_cost"`
 		CompletionCost    float64   `gorm:"column:completion_cost"`
+		CacheReadCost     float64   `gorm:"column:cache_read_cost"`
+		CacheWriteCost    float64   `gorm:"column:cache_write_cost"`
 		TotalCost         float64   `gorm:"column:total_cost"`
 		DurationMs        float64   `gorm:"column:duration_ms"`
 		RequestSizeBytes  int       `gorm:"column:request_size_bytes"`
@@ -132,8 +144,12 @@ func (s *PostgresStore) GetUsersAggregatedUsageMetrics(ctx context.Context, prov
 			SUM(prompt_tokens) as prompt_tokens,
 			SUM(completion_tokens) as completion_tokens,
 			SUM(total_tokens) as total_tokens,
+			SUM(cache_read_tokens) as cache_read_tokens,
+			SUM(cache_write_tokens) as cache_write_tokens,
 			SUM(prompt_cost) as prompt_cost,
 			SUM(completion_cost) as completion_cost,
+			SUM(cache_read_cost) as cache_read_cost,
+			SUM(cache_write_cost) as cache_write_cost,
 			SUM(total_cost) as total_cost,
 			AVG(duration_ms) as duration_ms,
 			SUM(request_size_bytes) as request_size_bytes,
@@ -160,6 +176,12 @@ func (s *PostgresStore) GetUsersAggregatedUsageMetrics(ctx context.Context, prov
 			PromptTokens:      m.PromptTokens,
 			CompletionTokens:  m.CompletionTokens,
 			TotalTokens:       m.TotalTokens,
+			CacheReadTokens:   m.CacheReadTokens,
+			CacheWriteTokens:  m.CacheWriteTokens,
+			PromptCost:        m.PromptCost,
+			CompletionCost:    m.CompletionCost,
+			CacheReadCost:     m.CacheReadCost,
+			CacheWriteCost:    m.CacheWriteCost,
 			TotalCost:         m.TotalCost,
 			LatencyMs:         m.DurationMs,
 			RequestSizeBytes:  m.RequestSizeBytes,
@@ -294,8 +316,12 @@ func (s *PostgresStore) GetAppUsersAggregatedUsageMetrics(ctx context.Context, a
 		PromptTokens      int       `gorm:"column:prompt_tokens"`
 		CompletionTokens  int       `gorm:"column:completion_tokens"`
 		TotalTokens       int       `gorm:"column:total_tokens"`
+		CacheReadTokens   int       `gorm:"column:cache_read_tokens"`
+		CacheWriteTokens  int       `gorm:"column:cache_write_tokens"`
 		PromptCost        float64   `gorm:"column:prompt_cost"`
 		CompletionCost    float64   `gorm:"column:completion_cost"`
+		CacheReadCost     float64   `gorm:"column:cache_read_cost"`
+		CacheWriteCost    float64   `gorm:"column:cache_write_cost"`
 		TotalCost         float64   `gorm:"column:total_cost"`
 		DurationMs        float64   `gorm:"column:duration_ms"`
 		RequestSizeBytes  int       `gorm:"column:request_size_bytes"`
@@ -311,8 +337,12 @@ func (s *PostgresStore) GetAppUsersAggregatedUsageMetrics(ctx context.Context, a
 			SUM(prompt_tokens) as prompt_tokens,
 			SUM(completion_tokens) as completion_tokens,
 			SUM(total_tokens) as total_tokens,
+			SUM(cache_read_tokens) as cache_read_tokens,
+			SUM(cache_write_tokens) as cache_write_tokens,
 			SUM(prompt_cost) as prompt_cost,
 			SUM(completion_cost) as completion_cost,
+			SUM(cache_read_cost) as cache_read_cost,
+			SUM(cache_write_cost) as cache_write_cost,
 			SUM(total_cost) as total_cost,
 			AVG(duration_ms) as duration_ms,
 			SUM(request_size_bytes) as request_size_bytes,
@@ -339,9 +369,13 @@ func (s *PostgresStore) GetAppUsersAggregatedUsageMetrics(ctx context.Context, a
 			PromptTokens:      m.PromptTokens,
 			CompletionTokens:  m.CompletionTokens,
 			TotalTokens:       m.TotalTokens,
+			CacheReadTokens:   m.CacheReadTokens,
+			CacheWriteTokens:  m.CacheWriteTokens,
 			TotalCost:         m.TotalCost,
 			PromptCost:        m.PromptCost,
 			CompletionCost:    m.CompletionCost,
+			CacheReadCost:     m.CacheReadCost,
+			CacheWriteCost:    m.CacheWriteCost,
 			LatencyMs:         m.DurationMs,
 			RequestSizeBytes:  m.RequestSizeBytes,
 			ResponseSizeBytes: m.ResponseSizeBytes,
