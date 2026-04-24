@@ -46,15 +46,21 @@ The Helix API already provides substantial infrastructure. Here's what exists an
 
 **Current state:** The filestore system (`api/pkg/filestore/`) supports per-user and per-app file storage. Golden cache (`DockerCacheState`) provides pre-built container snapshots per project. But there's no persistent working directory that survives between sessions.
 
-**Proposed fix (two options):**
+**Design: One job = one project, state on the helix-specs branch.**
 
-**Option A — Git-backed persistence (recommended):** The agent's working directory is a git repo. At session start, clone the repo (or a specific branch). At session end, commit and push changes. This gives versioning for free and aligns with Phil's existing markdown-in-git approach. The Helix API already handles git cloning for spec tasks — reuse that machinery.
+Each job maps 1:1 to a Helix project. The project's primary git repo already has a `helix-specs` branch (used by the spec task flow for design docs in per-task subdirectories). For jobs, the agent's markdown state files (persona definition, task lists, knowledge notes, questions, append-only log) live as **top-level files in the `helix-specs` branch** — no per-task subdirectories needed since there's only one job per project.
 
-**Option B — Filestore-backed volume mount:** Create a persistent filestore path per project/job. Mount it into the container at a known path (e.g., `/workspace/state/`). Survives container restarts. Simpler but no versioning.
+This reuses existing infrastructure:
+- The `helix-specs` branch already exists on every project repo
+- Helix already has git clone/push machinery for spec tasks
+- The agent's state is automatically versioned in git
 
-**Decision:** Option A (git-backed) is preferred. It matches Phil's existing pattern and the Helix codebase already has git clone/push infrastructure. The agent's markdown files live in a repo, and Helix auto-commits on session completion.
+**What Helix needs to add:**
+1. **Auto-restore on session start:** When an unmanaged (job) session starts for a project, clone the `helix-specs` branch and mount the job's state files into the container at a known path (e.g., `/workspace/state/`)
+2. **Auto-commit on session end:** When the session completes, commit and push any changes to the state files back to the `helix-specs` branch. This should be transparent to the agent — Helix handles it, so we don't rely on the agent remembering to commit.
+3. **Job naming:** The project name serves as the job name (1:1 mapping). No separate job naming needed.
 
-**Files:** `api/pkg/external-agent/hydra_executor.go` (container setup), `api/pkg/hydra/devcontainer.go` (mount points).
+**Files:** `api/pkg/external-agent/hydra_executor.go` (container setup), `api/pkg/hydra/devcontainer.go` (mount points), existing git clone/push infrastructure in spec task service.
 
 #### Gap 4: Cron prompt from file reference
 **Problem:** Phil's agent prompts are long markdown files, not short inline strings. The current `CronTrigger.Input` is a string field — awkward for multi-page prompts.
@@ -89,7 +95,10 @@ From the transcript, Luke and Phil agreed:
 - Phil builds the Jobs frontend (HTMX + Go) as a **separate folder in the Helix monorepo**
 - Luke provides **clean APIs** that Phil consumes
 - The Jobs system uses Helix as the **agent execution layer via REST API**
-- Each "job" maps to a **Helix project** (for MCP config, startup scripts, secrets)
+- **One job = one Helix project** (1:1 mapping). The project provides: agent config, MCP servers, startup script, secrets, and the primary git repo
+- The project name serves as the job name
+- Job state (persona markdown, task lists, notes, log) lives as top-level files on the `helix-specs` branch of the project's primary repo
+- Helix auto-restores state files at session start and auto-commits at session end
 
 This means the API gaps above are the **contract between the two systems**. The Jobs frontend will call these endpoints. No changes needed to the spec task workflow, Kanban, or existing frontend.
 

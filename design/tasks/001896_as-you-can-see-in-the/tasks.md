@@ -12,12 +12,12 @@
 - [ ] Update `trigger_cron.go` execution logic to pass `agent_type` and `project_id` when creating the session
 - [ ] Test that cron-triggered Zed sessions get project MCP servers, startup script, and secrets
 
-## Gap 3: Persistent agent working directory (git-backed)
-- [ ] Define a "state repo" concept per project — a git repo branch where agent state files live
-- [ ] On external agent session start, clone the state repo branch into a known path (e.g., `/workspace/state/`)
-- [ ] On session completion, auto-commit and push any changes to the state branch
-- [ ] Add `StateRepositoryID` and `StateBranch` fields to `Project` type
-- [ ] Wire the clone/push logic into `hydra_executor.go` container setup
+## Gap 3: Persistent agent state on helix-specs branch (1 job = 1 project)
+- [ ] On unmanaged (job) session start, clone the `helix-specs` branch from the project's primary repo
+- [ ] Mount the top-level state files (persona, task list, notes, log) into the container at a known path (e.g., `/workspace/state/`)
+- [ ] On session completion, auto-commit and push any changes back to the `helix-specs` branch
+- [ ] Reuse existing git clone/push machinery from spec task service
+- [ ] Ensure this is transparent to the agent — Helix handles restore/commit, not the agent
 
 ## Gap 4: Cron prompt from file reference
 - [ ] Add `InputFile string` field to `CronTrigger` type

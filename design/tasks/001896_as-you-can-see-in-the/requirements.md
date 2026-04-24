@@ -58,11 +58,13 @@ Phil's prototype runs Claude Code in Docker with `--output-format stream-json`, 
 **I want** to read and write markdown files that persist between runs,
 **So that** I can maintain state (task lists, knowledge notes, questions for the user).
 
+**Note:** One job maps 1:1 to one Helix project. The project's primary repo already has a `helix-specs` branch. Job state files (persona, tasks, notes, log) live as top-level files on that branch — no per-task subdirectories like the spec task flow.
+
 **Acceptance Criteria:**
-- [ ] Agents have a persistent working directory (per project or per job) that survives container restarts
-- [ ] The persistent directory is accessible via the agent's filesystem (mounted into the container)
-- [ ] Files in this directory can be versioned (optionally backed by git)
-- [ ] The Helix API provides endpoints to read/write files in this persistent store
+- [ ] On session start, Helix clones the `helix-specs` branch and mounts state files into the container
+- [ ] On session completion, Helix auto-commits and pushes any changes back to the `helix-specs` branch
+- [ ] This is transparent to the agent — Helix handles restore/commit, not the agent
+- [ ] State files are versioned in git (change history preserved automatically)
 
 ### US-5: Retrieve agent output after completion
 **As** an external system or UI,
