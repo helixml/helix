@@ -18,13 +18,16 @@ import {
   Tooltip,
   Alert,
   Divider,
+  Collapse,
 } from '@mui/material'
 import {
   PlayArrow as PlayIcon,
   Stop as StopIcon,
   Save as SaveIcon,
-  Refresh as RefreshIcon,
   ContentCopy as CopyIcon,
+  Code as CodeIcon,
+  ExpandMore as ExpandMoreIcon,
+  ExpandLess as ExpandLessIcon,
 } from '@mui/icons-material'
 import { useQuery } from '@tanstack/react-query'
 
@@ -72,6 +75,61 @@ const TabPanel: FC<TabPanelProps> = ({ children, value, index }) => (
   </Box>
 )
 
+const codeBlockSx = {
+  p: 1.5,
+  bgcolor: 'grey.900',
+  color: 'grey.100',
+  borderRadius: 1,
+  overflow: 'auto',
+  fontSize: '0.75rem',
+  fontFamily: 'monospace',
+  whiteSpace: 'pre-wrap' as const,
+  wordBreak: 'break-all' as const,
+  maxHeight: 300,
+}
+
+interface ApiCallBlockProps {
+  label: string
+  curl: string
+}
+
+const ApiCallBlock: FC<ApiCallBlockProps> = ({ label, curl }) => {
+  const [open, setOpen] = useState(false)
+  const snackbar = useSnackbar()
+
+  return (
+    <Paper variant="outlined" sx={{ mt: 2, bgcolor: 'transparent' }}>
+      <Box
+        sx={{ display: 'flex', alignItems: 'center', px: 1.5, py: 0.5, cursor: 'pointer' }}
+        onClick={() => setOpen(!open)}
+      >
+        <CodeIcon sx={{ fontSize: 16, mr: 1, color: 'text.secondary' }} />
+        <Typography variant="caption" color="text.secondary" sx={{ flex: 1 }}>
+          {label}
+        </Typography>
+        <Tooltip title="Copy">
+          <IconButton
+            size="small"
+            onClick={(e) => {
+              e.stopPropagation()
+              navigator.clipboard.writeText(curl)
+              snackbar.success('Copied')
+            }}
+          >
+            <CopyIcon sx={{ fontSize: 14 }} />
+          </IconButton>
+        </Tooltip>
+        {open ? <ExpandLessIcon sx={{ fontSize: 18 }} /> : <ExpandMoreIcon sx={{ fontSize: 18 }} />}
+      </Box>
+      <Collapse in={open}>
+        <Box component="pre" sx={codeBlockSx}>
+          {curl}
+        </Box>
+      </Collapse>
+    </Paper>
+  )
+}
+
 const Jobs: FC = () => {
   const account = useAccount()
   const api = useApi()
@@ -87,6 +145,7 @@ const Jobs: FC = () => {
   const [starting, setStarting] = useState(false)
 
   const orgId = account.organizationTools.organization?.id || ''
+  const origin = window.location.origin
 
   // Fetch projects
   const { data: projects = [], isLoading: projectsLoading } = useListProjects(orgId)
@@ -224,20 +283,54 @@ const Jobs: FC = () => {
   const hasDirtyFiles = Object.values(fileDirty).some(Boolean)
   const filesLoading = personaLoading || tasksLoading || notesLoading
 
-  const curlExample = selectedProjectId ? `# Start a job session
-curl -X POST ${window.location.origin}/api/v1/sessions/chat \\
+  // --- API call curl strings ---
+
+  const buildSaveFileCurl = useCallback((fileName: string) => {
+    const content = (fileContents[fileName] || '').replace(/'/g, "'\\''").slice(0, 200)
+    const truncated = (fileContents[fileName] || '').length > 200 ? '...' : ''
+    return `curl -X PUT ${origin}/api/v1/git/repositories/${defaultRepoId}/contents \\
+  -H "Authorization: Bearer YOUR_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "path": "job/${fileName}",
+    "content": "${content}${truncated}",
+    "branch": "helix-specs"
+  }'`
+  }, [origin, defaultRepoId, fileContents])
+
+  const saveFilesCurl = useMemo(() => {
+    const dirty = JOB_FILES.filter(f => fileDirty[f.name])
+    if (dirty.length === 0) {
+      return JOB_FILES.map(f => buildSaveFileCurl(f.name)).join('\n\n')
+    }
+    return dirty.map(f => buildSaveFileCurl(f.name)).join('\n\n')
+  }, [fileDirty, buildSaveFileCurl])
+
+  const runJobCurl = useMemo(() => {
+    const prompt = (fileContents['tasks.md'] || 'Run the job tasks as specified in the job files.')
+      .replace(/'/g, "'\\''")
+      .replace(/\n/g, '\\n')
+      .slice(0, 200)
+    const truncated = (fileContents['tasks.md'] || '').length > 200 ? '...' : ''
+    return `curl -X POST ${origin}/api/v1/sessions/chat \\
   -H "Authorization: Bearer YOUR_API_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{
     "project_id": "${selectedProjectId}",
     "agent_type": "zed_external",
     "session_role": "job",
-    "messages": [{"role": "user", "content": {"parts": ["Run the job tasks"]}}]
-  }'
+    "messages": [{"role": "user", "content": {"parts": ["${prompt}${truncated}"]}}]
+  }'`
+  }, [origin, selectedProjectId, fileContents])
 
-# Poll for output
-curl ${window.location.origin}/api/v1/sessions/SESSION_ID/output \\
-  -H "Authorization: Bearer YOUR_API_KEY"` : ''
+  const stopJobCurl = `curl -X DELETE ${origin}/api/v1/sessions/${activeRunSessionId}/stop-external-agent \\
+  -H "Authorization: Bearer YOUR_API_KEY"`
+
+  const pollOutputCurl = `curl ${origin}/api/v1/sessions/${activeRunSessionId}/output \\
+  -H "Authorization: Bearer YOUR_API_KEY"`
+
+  const listSessionsCurl = `curl "${origin}/api/v1/sessions?project_id=${selectedProjectId}&session_role=job" \\
+  -H "Authorization: Bearer YOUR_API_KEY"`
 
   return (
     <Page title="Jobs">
@@ -340,6 +433,12 @@ curl ${window.location.origin}/api/v1/sessions/SESSION_ID/output \\
                       />
                     </Paper>
                   ))}
+
+                  {/* API call for Save Files */}
+                  <ApiCallBlock
+                    label="Save Files → PUT /api/v1/git/repositories/:id/contents"
+                    curl={saveFilesCurl}
+                  />
                 </Box>
               )}
             </TabPanel>
@@ -347,50 +446,74 @@ curl ${window.location.origin}/api/v1/sessions/SESSION_ID/output \\
             {/* Runs Tab */}
             <TabPanel value={activeTab} index={1}>
               <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                {/* Run Job API call */}
+                <ApiCallBlock
+                  label="Run Job → POST /api/v1/sessions/chat"
+                  curl={runJobCurl}
+                />
+
                 {/* Active run desktop viewer */}
                 {activeRunSessionId ? (
-                  <Paper variant="outlined" sx={{ overflow: 'hidden' }}>
-                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', px: 2, py: 1, borderBottom: 1, borderColor: 'divider' }}>
-                      <Typography variant="subtitle2">
-                        Active Run: {activeRunSessionId}
-                      </Typography>
-                      <Button
-                        size="small"
-                        color="error"
-                        startIcon={<StopIcon />}
-                        onClick={handleStopJob}
-                      >
-                        Stop
-                      </Button>
-                    </Box>
-                    <ExternalAgentDesktopViewer
-                      sessionId={activeRunSessionId}
-                      mode="stream"
-                      showSessionPanel={true}
-                      projectId={selectedProjectId}
-                    />
-                    <Box sx={{ p: 2, borderTop: 1, borderColor: 'divider' }}>
-                      <RobustPromptInput
+                  <>
+                    <Paper variant="outlined" sx={{ overflow: 'hidden' }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', px: 2, py: 1, borderBottom: 1, borderColor: 'divider' }}>
+                        <Typography variant="subtitle2">
+                          Active Run: {activeRunSessionId}
+                        </Typography>
+                        <Button
+                          size="small"
+                          color="error"
+                          startIcon={<StopIcon />}
+                          onClick={handleStopJob}
+                        >
+                          Stop
+                        </Button>
+                      </Box>
+                      <ExternalAgentDesktopViewer
                         sessionId={activeRunSessionId}
+                        mode="stream"
+                        showSessionPanel={true}
                         projectId={selectedProjectId}
-                        apiClient={api.getApiClient()}
-                        onSend={async (message: string, interrupt?: boolean) => {
-                          await streaming.NewInference({
-                            type: SESSION_TYPE_TEXT,
-                            message,
-                            sessionId: activeRunSessionId,
-                            interrupt: interrupt ?? true,
-                          })
-                        }}
-                        placeholder="Send message to agent..."
                       />
-                    </Box>
-                  </Paper>
+                      <Box sx={{ p: 2, borderTop: 1, borderColor: 'divider' }}>
+                        <RobustPromptInput
+                          sessionId={activeRunSessionId}
+                          projectId={selectedProjectId}
+                          apiClient={api.getApiClient()}
+                          onSend={async (message: string, interrupt?: boolean) => {
+                            await streaming.NewInference({
+                              type: SESSION_TYPE_TEXT,
+                              message,
+                              sessionId: activeRunSessionId,
+                              interrupt: interrupt ?? true,
+                            })
+                          }}
+                          placeholder="Send message to agent..."
+                        />
+                      </Box>
+                    </Paper>
+
+                    {/* Stop + Poll API calls */}
+                    <ApiCallBlock
+                      label="Stop Job → DELETE /api/v1/sessions/:id/stop-external-agent"
+                      curl={stopJobCurl}
+                    />
+                    <ApiCallBlock
+                      label="Poll Output → GET /api/v1/sessions/:id/output"
+                      curl={pollOutputCurl}
+                    />
+                  </>
                 ) : (
                   <Alert severity="info">
                     No active run. Click "Run Job" to start one, or select a previous run below.
                   </Alert>
                 )}
+
+                {/* List sessions API call */}
+                <ApiCallBlock
+                  label="List Job Sessions → GET /api/v1/sessions?session_role=job"
+                  curl={listSessionsCurl}
+                />
 
                 {/* Previous runs */}
                 <Divider sx={{ my: 1 }} />
@@ -447,38 +570,31 @@ curl ${window.location.origin}/api/v1/sessions/SESSION_ID/output \\
 
             {/* API Tab */}
             <TabPanel value={activeTab} index={3}>
-              <Paper variant="outlined" sx={{ p: 2 }}>
-                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
-                  <Typography variant="subtitle2">API Usage</Typography>
-                  <Tooltip title="Copy to clipboard">
-                    <IconButton
-                      size="small"
-                      onClick={() => {
-                        navigator.clipboard.writeText(curlExample)
-                        snackbar.success('Copied to clipboard')
-                      }}
-                    >
-                      <CopyIcon fontSize="small" />
-                    </IconButton>
-                  </Tooltip>
-                </Box>
-                <Box
-                  component="pre"
-                  sx={{
-                    p: 2,
-                    bgcolor: 'grey.900',
-                    color: 'grey.100',
-                    borderRadius: 1,
-                    overflow: 'auto',
-                    fontSize: '0.8rem',
-                    fontFamily: 'monospace',
-                    whiteSpace: 'pre-wrap',
-                    wordBreak: 'break-all',
-                  }}
-                >
-                  {curlExample}
-                </Box>
-              </Paper>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                Full API reference. Each tab above also shows the relevant API calls inline.
+              </Typography>
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                <ApiCallBlock
+                  label="Save a job file → PUT /api/v1/git/repositories/:id/contents"
+                  curl={buildSaveFileCurl('tasks.md')}
+                />
+                <ApiCallBlock
+                  label="Start a job → POST /api/v1/sessions/chat"
+                  curl={runJobCurl}
+                />
+                <ApiCallBlock
+                  label="Stop a job → DELETE /api/v1/sessions/:id/stop-external-agent"
+                  curl={stopJobCurl}
+                />
+                <ApiCallBlock
+                  label="Poll output → GET /api/v1/sessions/:id/output"
+                  curl={pollOutputCurl}
+                />
+                <ApiCallBlock
+                  label="List job sessions → GET /api/v1/sessions?session_role=job"
+                  curl={listSessionsCurl}
+                />
+              </Box>
             </TabPanel>
           </>
         )}
