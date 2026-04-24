@@ -11,7 +11,7 @@ The Helix API already provides substantial infrastructure. Here's what exists an
 | **Create sessions without spec tasks** | `POST /api/v1/sessions/chat` | Sessions are independent of the Kanban workflow. No `SpecTaskID` is required. |
 | **Continue existing sessions** | `POST /api/v1/sessions/chat` with `session_id` | Appends new messages to existing conversation. |
 | **External agent (Zed) sessions** | `agent_type: "zed_external"` in chat request | Launches autonomous desktop container with Zed IDE. No hard timeout. |
-| **Streaming output** | `stream: true` in chat request | SSE streaming with `text/event-stream`. Also blocking mode. |
+| **Streaming output** | `stream: true` in chat request | Two formats: OpenAI-compatible SSE (flat text deltas) and response entries format (structured `EntryPatches` via WebSocket, supports in-place content modification). Jobs must use the response entries format — see note below. |
 | **Project-scoped MCP servers** | `Project.Skills.MCPs` | MCPs configured per project via YAML or API. Three transports: HTTP, SSE, stdio. |
 | **Cron scheduling** | `CronTrigger` on Apps | Runs agent sessions on schedule. Min 90s interval. Uses `gocron`. |
 | **Webhook triggers** | Discord, Slack, Teams, Azure DevOps | Platform-specific webhook receivers exist. |
@@ -20,6 +20,21 @@ The Helix API already provides substantial infrastructure. Here's what exists an
 | **Session resume** | `POST /api/v1/sessions/{id}/resume` | Restarts a paused external agent. |
 | **Trigger execution history** | `TriggerExecution` records | Stores output, status, session ID per execution. |
 | **Email notifications** | `EventCronTriggerComplete/Failed` | Email sent on cron trigger completion. |
+
+### Streaming Format: Response Entries, Not OpenAI-Compatible
+
+The Jobs system must use the **response entries** streaming format, not the OpenAI-compatible SSE format. Agent responses are structured — they interleave text and tool calls, and content can be modified after it's been sent (e.g., a tool call's status changes from "In Progress" to "Completed"). The OpenAI-compatible format only streams flat text deltas with no way to update previous content.
+
+The response entries format is already used by external agent (Zed) sessions:
+- Streams `EntryPatches` via WebSocket pubsub, with per-entry typed deltas (`type: "text"` or `"tool_call"`)
+- Supports in-place modification: same `MessageID` = replace content, different `MessageID` = new entry
+- Includes tool metadata (`ToolName`, `ToolStatus`) as first-class fields
+- Throttled at 50ms for frontend publishes, 5s for DB writes
+- DB stores final state as `Interaction.ResponseEntries` (JSONB array of `ResponseEntry` objects)
+
+Since Jobs will use external agent sessions (`agent_type: "zed_external"`), this format is already the default. No changes needed — just noting the requirement so the Jobs frontend consumes `EntryPatches` rather than OpenAI SSE chunks.
+
+**Key files:** `api/pkg/server/wsprotocol/accumulator.go` (ResponseEntry type, MessageAccumulator), `api/pkg/server/websocket_external_agent_sync.go` (patch publishing logic).
 
 ### Identified Gaps
 
