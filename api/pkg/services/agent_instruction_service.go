@@ -186,6 +186,7 @@ git add -A && git commit -m "Progress update" && git push origin helix-specs
 2. Verify branch: ` + "`cd /home/retro/work/{{.PrimaryRepoName}} && git branch --show-current`" + ` (should be {{.BranchName}})
 3. For each task in tasks.md: mark [~], push helix-specs, do the work, mark [x], push again
 4. When all tasks done, push code: ` + "`git push origin {{.BranchName}}`" + `
+5. **Do NOT create pull requests yourself** (no ` + "`gh pr create`" + `, no GitHub MCP tools). Pushing to the branch is sufficient — the Helix platform creates the GitHub PR automatically when the user clicks "Open PR" in the UI.
 
 {{if .KoditSection}}
 {{.KoditSection}}
