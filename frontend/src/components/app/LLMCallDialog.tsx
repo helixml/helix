@@ -28,6 +28,8 @@ interface LLMCall {
   prompt_tokens?: number;
   completion_tokens?: number;
   total_tokens?: number;
+  cache_read_tokens?: number;
+  cache_write_tokens?: number;
   error?: string;
 }
 
@@ -282,7 +284,28 @@ const LLMCallDialog: React.FC<LLMCallDialogProps> = ({
                 </Box>
               )}
 
-              
+              {!!llmCall.cache_read_tokens && (
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                  <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 'bold' }}>
+                    Cache Read Tokens:
+                  </Typography>
+                  <Typography variant="body2">
+                    {llmCall.cache_read_tokens.toLocaleString()}
+                  </Typography>
+                </Box>
+              )}
+
+              {!!llmCall.cache_write_tokens && (
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                  <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 'bold' }}>
+                    Cache Write Tokens:
+                  </Typography>
+                  <Typography variant="body2">
+                    {llmCall.cache_write_tokens.toLocaleString()}
+                  </Typography>
+                </Box>
+              )}
+
             </Box>
           </Box>
         </Box>

@@ -442,27 +442,35 @@ func (s *Proxy) logLLMCall(ctx context.Context, createdAt time.Time, resp []byte
 
 	orgID, _ := oai.GetContextOrganizationID(ctx)
 
-	var (
-		promptCost     float64
-		completionCost float64
-		totalCost      float64
-	)
+	var cost pricing.TokenCost
+
+	// Anthropic reports cache_creation_input_tokens and cache_read_input_tokens
+	// alongside (NOT inside) input_tokens. We fold them into PromptTokens so downstream
+	// reporting is comparable with OpenAI/Gemini, and pass the split to the pricer.
+	cacheReadTokens := usage.CacheReadInputTokens
+	cacheWriteTokens := usage.CacheCreationInputTokens
+	totalPromptTokens := usage.InputTokens + cacheReadTokens + cacheWriteTokens
 
 	// Get pricing info for the model
 	modelInfo, err := s.getModelInfo(ctx, provider.BaseURL, provider.Name, modelName)
 	if err == nil {
-		// Calculate the cost for the call and persist it
-		promptCost, completionCost, err = pricing.CalculateTokenPrice(modelInfo, usage.InputTokens, usage.OutputTokens)
+		cost, err = pricing.CalculateTokenPrice(modelInfo, pricing.TokenUsage{
+			// Anthropic's input_tokens excludes cache; pricer expects cache folded in.
+			PromptTokens:     totalPromptTokens,
+			CompletionTokens: usage.OutputTokens,
+			CacheReadTokens:  cacheReadTokens,
+			CacheWriteTokens: cacheWriteTokens,
+		})
 		if err != nil {
 			log.Error().
 				Err(err).
 				Str("user_id", vals.OwnerID).
 				Str("model", modelName).
 				Str("provider", provider.Name).
-				Err(err).Msg("failed to calculate token price")
+				Msg("failed to calculate token price")
 		}
-		totalCost = promptCost + completionCost
 	}
+	totalCost := cost.Total()
 
 	log.Info().
 		Str("owner_id", vals.OwnerID).
@@ -471,11 +479,15 @@ func (s *Proxy) logLLMCall(ctx context.Context, createdAt time.Time, resp []byte
 		Str("spec_task_id", vals.SpecTaskID).
 		Str("model", modelName).
 		Str("provider", provider.Name).
-		Int("prompt_tokens", int(usage.InputTokens)).
-		Int("completion_tokens", int(usage.OutputTokens)).
-		Int("total_tokens", int(usage.InputTokens+usage.OutputTokens)).
-		Float64("prompt_cost", promptCost).
-		Float64("completion_cost", completionCost).
+		Int64("prompt_tokens", totalPromptTokens).
+		Int64("completion_tokens", usage.OutputTokens).
+		Int64("total_tokens", totalPromptTokens+usage.OutputTokens).
+		Int64("cache_read_tokens", cacheReadTokens).
+		Int64("cache_write_tokens", cacheWriteTokens).
+		Float64("prompt_cost", cost.PromptCost).
+		Float64("completion_cost", cost.CompletionCost).
+		Float64("cache_read_cost", cost.CacheReadCost).
+		Float64("cache_write_cost", cost.CacheWriteCost).
 		Float64("total_cost", totalCost).
 		Msg("logging LLM call")
 
@@ -492,11 +504,15 @@ func (s *Proxy) logLLMCall(ctx context.Context, createdAt time.Time, resp []byte
 		Response:         resp,
 		Provider:         provider.ID,
 		DurationMs:       durationMs,
-		PromptTokens:     usage.InputTokens,
+		PromptTokens:     totalPromptTokens,
 		CompletionTokens: usage.OutputTokens,
-		TotalTokens:      usage.InputTokens + usage.OutputTokens,
-		PromptCost:       promptCost,
-		CompletionCost:   completionCost,
+		TotalTokens:      totalPromptTokens + usage.OutputTokens,
+		CacheReadTokens:  cacheReadTokens,
+		CacheWriteTokens: cacheWriteTokens,
+		PromptCost:       cost.PromptCost,
+		CompletionCost:   cost.CompletionCost,
+		CacheReadCost:    cost.CacheReadCost,
+		CacheWriteCost:   cost.CacheWriteCost,
 		TotalCost:        totalCost,
 		UserID:           vals.OwnerID,
 		Stream:           stream,

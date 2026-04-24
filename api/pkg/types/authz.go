@@ -171,6 +171,10 @@ type User struct {
 	OnboardingCompletedAt time.Time `json:"onboarding_completed_at"`
 
 	Waitlisted bool `json:"waitlisted"`
+
+	// LastSeenAt is the most recent time the user authenticated against the API.
+	// Updated (throttled) from auth middleware so the column isn't hammered on every request.
+	LastSeenAt *time.Time `json:"last_seen_at,omitempty"`
 }
 
 type UserSearchResponse struct {

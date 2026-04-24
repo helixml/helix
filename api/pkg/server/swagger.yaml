@@ -2503,6 +2503,14 @@ definitions:
     - AgentWorkStateDone
   types.AggregatedUsageMetric:
     properties:
+      cache_read_cost:
+        type: number
+      cache_read_tokens:
+        type: integer
+      cache_write_cost:
+        type: number
+      cache_write_tokens:
+        type: integer
       completion_cost:
         type: number
       completion_tokens:
@@ -2521,7 +2529,7 @@ definitions:
       response_size_bytes:
         type: integer
       total_cost:
-        description: Total cost of the call (prompt and completion tokens)
+        description: Prompt + completion + cache read + cache write
         type: number
       total_requests:
         type: integer
@@ -5449,6 +5457,17 @@ definitions:
     properties:
       app_id:
         type: string
+      cache_read_cost:
+        type: number
+      cache_read_tokens:
+        description: prompt tokens served from provider cache (subset of PromptTokens)
+        type: integer
+      cache_write_cost:
+        type: number
+      cache_write_tokens:
+        description: prompt tokens written to provider cache (Anthropic only; subset
+          of PromptTokens)
+        type: integer
       completion_cost:
         type: number
       completion_tokens:
@@ -5496,7 +5515,7 @@ definitions:
       stream:
         type: boolean
       total_cost:
-        description: Total cost of the call (prompt and completion tokens)
+        description: Prompt + completion + cache read + cache write
         type: number
       total_tokens:
         type: integer
@@ -6228,6 +6247,12 @@ definitions:
       completion:
         type: string
       image:
+        type: string
+      input_cache_read:
+        description: price per cached input token read (hit)
+        type: string
+      input_cache_write:
+        description: price per cached input token written (cache creation)
         type: string
       internal_reasoning:
         type: string
@@ -9986,6 +10011,11 @@ definitions:
         type: string
       id:
         type: string
+      last_seen_at:
+        description: |-
+          LastSeenAt is the most recent time the user authenticated against the API.
+          Updated (throttled) from auth middleware so the column isn't hammered on every request.
+        type: string
       must_change_password:
         description: if the user must change their password
         type: boolean
@@ -10048,6 +10078,31 @@ definitions:
       guidelines_version:
         type: integer
     type: object
+  types.UserModelUsage:
+    properties:
+      cache_read_tokens:
+        type: integer
+      cache_write_tokens:
+        type: integer
+      completion_tokens:
+        type: integer
+      first_used:
+        type: string
+      last_used:
+        type: string
+      model:
+        type: string
+      prompt_tokens:
+        type: integer
+      provider:
+        type: string
+      total_cost:
+        type: number
+      total_requests:
+        type: integer
+      total_tokens:
+        type: integer
+    type: object
   types.UserResponse:
     properties:
       admin:
@@ -10077,6 +10132,21 @@ definitions:
         items:
           $ref: '#/definitions/types.User'
         type: array
+    type: object
+  types.UserStatsResponse:
+    properties:
+      last_active_at:
+        type: string
+      models:
+        items:
+          $ref: '#/definitions/types.UserModelUsage'
+        type: array
+      projects_count:
+        type: integer
+      spec_tasks_count:
+        type: integer
+      user:
+        $ref: '#/definitions/types.User'
     type: object
   types.UserTokenUsageResponse:
     properties:
@@ -20664,6 +20734,7 @@ paths:
       description: List users with pagination support and optional filtering by email
         domain or username. Supports ILIKE matching for email domains (e.g., "hotmail.com"
         will find all users with @hotmail.com emails) and partial username matching.
+        Pass `query` to match across email, username, and full_name in one go.
       parameters:
       - description: 'Page number (default: 1)'
         in: query
@@ -20673,6 +20744,10 @@ paths:
         in: query
         name: per_page
         type: integer
+      - description: Free-text search across email, username, and full_name (ILIKE)
+        in: query
+        name: query
+        type: string
       - description: Filter by email domain (e.g., 'hotmail.com') or exact email
         in: query
         name: email
@@ -20746,6 +20821,31 @@ paths:
       security:
       - BearerAuth: []
       summary: Get user details
+      tags:
+      - users
+  /api/v1/users/{id}/stats:
+    get:
+      consumes:
+      - application/json
+      description: 'Returns an overview of a user''s activity: projects owned, spec
+        tasks created, per-model inference usage, and an effective last-active timestamp
+        combining tracked auth activity with usage-metric data.'
+      parameters:
+      - description: User ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.UserStatsResponse'
+      security:
+      - BearerAuth: []
+      summary: Get user stats (admin only)
       tags:
       - users
   /api/v1/users/me/guidelines:

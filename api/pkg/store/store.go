@@ -142,9 +142,12 @@ type ListUsersQuery struct {
 	Type      types.OwnerType `json:"type"`
 	Email     string          `json:"email"`
 	Username  string          `json:"username"`
-	Page      int
-	PerPage   int
-	Order     string // Defaults to Created Desc
+	// Query is a free-text search matched (ILIKE) against email, username, and full_name.
+	// When set it is OR-combined and takes precedence over the separate Email/Username filters.
+	Query   string `json:"query"`
+	Page    int
+	PerPage int
+	Order   string // Defaults to Created Desc
 }
 
 // SearchUsersQuery defines parameters for searching users with partial matching
@@ -273,6 +276,7 @@ type Store interface {
 	ListUsers(ctx context.Context, query *ListUsersQuery) ([]*types.User, int64, error)
 	SearchUsers(ctx context.Context, query *SearchUsersQuery) ([]*types.User, int64, error)
 	CountUsers(ctx context.Context) (int64, error)
+	TouchUserLastSeen(ctx context.Context, userID string, at time.Time) error
 
 	// usermeta
 	GetUserMeta(ctx context.Context, id string) (*types.UserMeta, error)
@@ -407,6 +411,8 @@ type Store interface {
 	GetAppDailyUsageMetrics(ctx context.Context, appID string, from time.Time, to time.Time) ([]*types.AggregatedUsageMetric, error)
 	DeleteUsageMetrics(ctx context.Context, appID string) error
 	GetUserMonthlyTokenUsage(ctx context.Context, userID string, providers []string) (int, error)
+	GetUserModelUsage(ctx context.Context, userID string) ([]*types.UserModelUsage, error)
+	GetUserLastUsage(ctx context.Context, userID string) (time.Time, error)
 
 	GetProviderDailyUsageMetrics(ctx context.Context, providerID string, from time.Time, to time.Time) ([]*types.AggregatedUsageMetric, error)
 

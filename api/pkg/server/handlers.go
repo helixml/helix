@@ -711,12 +711,13 @@ func (apiServer *HelixAPIServer) dashboard(_ http.ResponseWriter, req *http.Requ
 
 // usersList godoc
 // @Summary List users with pagination and filtering
-// @Description List users with pagination support and optional filtering by email domain or username. Supports ILIKE matching for email domains (e.g., "hotmail.com" will find all users with @hotmail.com emails) and partial username matching.
+// @Description List users with pagination support and optional filtering by email domain or username. Supports ILIKE matching for email domains (e.g., "hotmail.com" will find all users with @hotmail.com emails) and partial username matching. Pass `query` to match across email, username, and full_name in one go.
 // @Tags    users
 // @Accept  json
 // @Produce json
 // @Param page query int false "Page number (default: 1)"
 // @Param per_page query int false "Number of users per page (max: 200, default: 50)"
+// @Param query query string false "Free-text search across email, username, and full_name (ILIKE)"
 // @Param email query string false "Filter by email domain (e.g., 'hotmail.com') or exact email"
 // @Param username query string false "Filter by username (partial match)"
 // @Param admin query bool false "Filter by admin status"
@@ -757,6 +758,9 @@ func (apiServer *HelixAPIServer) usersList(_ http.ResponseWriter, req *http.Requ
 	}
 
 	// Add filters
+	if q := req.URL.Query().Get("query"); q != "" {
+		query.Query = q
+	}
 	if email := req.URL.Query().Get("email"); email != "" {
 		query.Email = email
 	}
