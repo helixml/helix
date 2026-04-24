@@ -578,13 +578,20 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
                               {model.description}
                             </Typography>
                           )}
-                          {!isModelDisabled && model.provider.billing_enabled && model.model_info?.pricing && (
-                            <Typography variant="body2" component="span" sx={{ color: '#A0AEC0', fontSize: '0.75rem' }}>
-                              {model.model_info.pricing.prompt && `$${(parseFloat(model.model_info.pricing.prompt) * 1000000).toFixed(2)}/M input`}
-                              {model.model_info.pricing.prompt && model.model_info.pricing.completion && ' | '}
-                              {model.model_info.pricing.completion && `$${(parseFloat(model.model_info.pricing.completion) * 1000000).toFixed(2)}/M output`}
-                            </Typography>
-                          )}
+                          {!isModelDisabled && model.provider.billing_enabled && model.model_info?.pricing && (() => {
+                            const p = model.model_info.pricing;
+                            const parts: string[] = [];
+                            if (p.prompt) parts.push(`$${(parseFloat(p.prompt) * 1000000).toFixed(2)}/M input`);
+                            if (p.completion) parts.push(`$${(parseFloat(p.completion) * 1000000).toFixed(2)}/M output`);
+                            if (p.input_cache_read) parts.push(`$${(parseFloat(p.input_cache_read) * 1000000).toFixed(2)}/M cache read`);
+                            if (p.input_cache_write) parts.push(`$${(parseFloat(p.input_cache_write) * 1000000).toFixed(2)}/M cache write`);
+                            if (parts.length === 0) return null;
+                            return (
+                              <Typography variant="body2" component="span" sx={{ color: '#A0AEC0', fontSize: '0.75rem' }}>
+                                {parts.join(' | ')}
+                              </Typography>
+                            );
+                          })()}
                         </Box>
                       }
                       primaryTypographyProps={{

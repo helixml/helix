@@ -49,6 +49,7 @@ import ServiceConnectionsTable from "../components/dashboard/ServiceConnectionsT
 import AgentSandboxes from "../components/admin/AgentSandboxes";
 import AdminOrgsTable from "../components/dashboard/AdminOrgsTable";
 import UsersTable from "../components/dashboard/UsersTable";
+import UserDetailPanel from "../components/dashboard/UserDetailPanel";
 import KoditAdminTable from "../components/dashboard/KoditAdminTable";
 import KoditAdminRepoDetail from "../components/dashboard/KoditAdminRepoDetail";
 import KoditAdminQueue from "../components/dashboard/KoditAdminQueue";
@@ -78,6 +79,7 @@ const Dashboard: FC<DashboardProps> = ({ tab = "llm_calls" }) => {
     const [selectedSandboxId, setSelectedSandboxId] = useState<string>("");
     const [sessionIdParam, setSessionIdParam] = useState<string>("");
     const [repoId, setRepoId] = useState<string>("");
+    const [selectedUserId, setSelectedUserId] = useState<string>("");
     const apiClient = api.getApiClient();
 
     const session_id = sessionIdParam;
@@ -740,14 +742,28 @@ const Dashboard: FC<DashboardProps> = ({ tab = "llm_calls" }) => {
                     </Box>
                 )}
 
-                {tab === "users" && account.admin && (
+                {tab === "users" && account.admin && !selectedUserId && (
                     <Box
                         sx={{
                             width: "100%",
                             p: 2,
                         }}
                     >
-                        <UsersTable />
+                        <UsersTable onSelectUser={(id) => setSelectedUserId(id)} />
+                    </Box>
+                )}
+
+                {tab === "users" && account.admin && selectedUserId && (
+                    <Box
+                        sx={{
+                            width: "100%",
+                            p: 2,
+                        }}
+                    >
+                        <UserDetailPanel
+                            userId={selectedUserId}
+                            onBack={() => setSelectedUserId("")}
+                        />
                     </Box>
                 )}
 

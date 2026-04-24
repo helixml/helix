@@ -308,16 +308,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 	log.Info().Msg("Using GPTScript-style external agent pattern (WebSocket + PubSub)")
 	var gse external_agent.Executor // nil executor - communication via WebSocket + PubSub
 
-	var extractor extract.Extractor
-
-	switch cfg.TextExtractor.Provider {
-	case types.ExtractorTika:
-		extractor = extract.NewTikaExtractor(cfg.TextExtractor.Tika.URL)
-	case types.ExtractorUnstructured:
-		extractor = extract.NewDefaultExtractor(cfg.TextExtractor.Unstructured.URL)
-	default:
-		return fmt.Errorf("unknown extractor: %s", cfg.TextExtractor.Provider)
-	}
+	extractor := extract.NewDefaultExtractor(cfg.TextExtractor.URL)
 
 	runnerController, err := scheduler.NewRunnerController(ctx, &scheduler.RunnerControllerConfig{
 		PubSub: ps,

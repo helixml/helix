@@ -10,6 +10,7 @@ import { useListProviders } from '../services/providersService';
 import { useGetOrgByName } from '../services/orgService';
 
 import { PROVIDERS, Provider } from '../components/providers/types';
+import CustomLogo from '../components/providers/logos/custom';
 import useRouter from '../hooks/useRouter';
 import useAccount from '../hooks/useAccount';
 import AnthropicLogo from '../components/providers/logos/anthropic';
@@ -97,6 +98,10 @@ const Providers: React.FC = () => {
   // Filter for user endpoints only
   const userEndpoints = providerEndpoints.filter(endpoint => endpoint.endpoint_type === 'user');
 
+  // User-created custom endpoints: anything whose name doesn't match a predefined PROVIDERS id.
+  const knownProviderIds = new Set(PROVIDERS.map(p => p.id));
+  const customEndpoints = userEndpoints.filter(e => e.name && !knownProviderIds.has(e.name));
+
   return (
     <Page breadcrumbTitle="Providers" topbarContent={null}>
       <Container maxWidth="md" sx={{ mt: 10, mb: 6, display: 'flex', flexDirection: 'column', alignItems: 'left' }}>
@@ -173,8 +178,10 @@ const Providers: React.FC = () => {
         </Typography>
         <Grid container spacing={3} justifyContent="left">
           {PROVIDERS.map((provider) => {
-            const isConfigured = userEndpoints.some(endpoint => endpoint.name === provider.id);
-            const existingProvider = userEndpoints.find(endpoint => endpoint.name === provider.id);
+            // The custom provider tile always opens a fresh "Add" dialog — many custom
+            // providers can coexist, and each existing one is shown as its own card below.
+            const isConfigured = !provider.is_custom && userEndpoints.some(endpoint => endpoint.name === provider.id);
+            const existingProvider = provider.is_custom ? undefined : userEndpoints.find(endpoint => endpoint.name === provider.id);
             return (
               <Grid item xs={12} sm={6} md={4} key={provider.id} display="flex" justifyContent="center">          
                 <Card
@@ -240,7 +247,73 @@ const Providers: React.FC = () => {
                       </span>
                     </Tooltip>
                   </CardActions>
-                </Card>                
+                </Card>
+              </Grid>
+            );
+          })}
+          {customEndpoints.map((endpoint) => {
+            const customCardProvider: Provider = {
+              id: endpoint.name || '',
+              alias: [],
+              name: endpoint.name || 'Custom Provider',
+              description: endpoint.description || 'Custom OpenAI-compatible provider.',
+              logo: CustomLogo,
+              base_url: endpoint.base_url || '',
+              configurable_base_url: true,
+              optional_api_key: true,
+              is_custom: true,
+              setup_instructions: 'Update the base URL or API key for this custom provider.',
+            };
+            return (
+              <Grid item xs={12} sm={6} md={4} key={`custom-${endpoint.id}`} display="flex" justifyContent="center">
+                <Card
+                  sx={{
+                    width: 320,
+                    height: '100%',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    boxShadow: 2,
+                    borderStyle: 'dashed',
+                    borderWidth: 1,
+                    borderColor: 'divider',
+                    opacity: isLoadingProviders ? 0.5 : 1,
+                    transition: 'all 0.2s',
+                    '&:hover': {
+                      boxShadow: isLoadingProviders ? 2 : (editAllowed ? 4 : 2),
+                      transform: isLoadingProviders ? 'none' : (editAllowed ? 'translateY(-4px)' : 'none'),
+                      borderColor: isLoadingProviders ? 'divider' : (editAllowed ? 'primary.main' : 'divider'),
+                    },
+                  }}
+                >
+                  <CardHeader
+                    avatar={
+                      <Avatar sx={{ bgcolor: 'white', width: 56, height: 56 }}>
+                        <CustomLogo style={{ width: 40, height: 40 }} />
+                      </Avatar>
+                    }
+                    title={endpoint.name}
+                    titleTypographyProps={{ variant: 'h6', align: 'center' }}
+                  />
+                  <CardContent sx={{ flexGrow: 1, textAlign: 'center' }}>
+                    <Typography variant="body2" color="text.secondary" sx={{ wordBreak: 'break-all' }}>
+                      {endpoint.base_url}
+                    </Typography>
+                  </CardContent>
+                  <CardActions sx={{ justifyContent: 'center', pb: 2 }}>
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      color="success"
+                      onClick={() => handleOpenDialog(customCardProvider)}
+                      startIcon={<CheckCircleIcon />}
+                      disabled={!editAllowed}
+                    >
+                      Connected
+                    </Button>
+                  </CardActions>
+                </Card>
               </Grid>
             );
           })}

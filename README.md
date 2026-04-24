@@ -104,7 +104,7 @@ HelixML uses a microservices architecture with the following components:
           │
 ┌─────────▼──────────────────────────────────────────────┐
 │  Supporting Services: Keycloak, Kodit, GPTScript       │
-│  Runner, Chrome/Rod, Tika, SearXNG                     │
+│  Runner, Chrome/Rod, SearXNG                           │
 └────────────────────────────────────────────────────────┘
 ```
 

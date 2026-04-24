@@ -63,6 +63,7 @@
     "react-to-pdf": "^2.0.1",
     "react-virtualized-auto-sizer": "^1.0.25",
     "react-window": "^1.8.11",
+    "recharts": "^3.8.1",
     "reconnecting-websocket": "^4.4.0",
     "rehype-raw": "^7.0.0",
     "rehype-sanitize": "^6.0.0",
