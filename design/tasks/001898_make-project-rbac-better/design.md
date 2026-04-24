@@ -45,7 +45,8 @@ This is backwards-compatible (the new field defaults to `false` for existing cli
 - In the `onCreateGrant` callback handler, check if the response includes `added_to_organization: true`.
 - If so, show a snackbar/notification: "{user name} was also added to the organisation."
 - Change the user dropdown to accept either a selection from org members **or** a typed email for users not yet in the org. Use a MUI `Autocomplete` with `freeSolo` to allow typing an email directly. The dropdown options remain org members; free-form input allows referencing any registered user by email.
-- Update the helper text from "Can't see the user? Invite them to your org" to explain that typing an email will auto-add them.
+- **Make the non-member state obvious in the UI**: When the user types an email that doesn't match any org member, show an inline info banner below the input (e.g. MUI `Alert` severity `info`): _"This user is not in your organisation. Adding them to this project will also add them to the organisation as a member."_ This appears as soon as the typed value is a valid email that doesn't match a dropdown option, **before** the user clicks "Add" — so the side effect is clearly communicated upfront, not just after the fact.
+- Update the helper text from "Can't see the user? Invite them to your org" to: "You can also type an email address to add someone who isn't in your organisation yet."
 
 ### Change 2: Filter logged-in user from dropdown
 
