@@ -233,6 +233,14 @@ postgresql:
     existingClaim: ""
     selector: {}
     dataSource: {}
+  # Resource requests and limits for the bundled PostgreSQL container.
+  # Empty by default; set this for production use.
+  resources: {}
+  #   requests:
+  #     cpu: 100m
+  #     memory: 256Mi
+  #   limits:
+  #     memory: 1Gi
   external:
     host: ""
     port: 5432

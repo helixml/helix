@@ -99,6 +99,18 @@ storageClassName: {{ $storageClass | quote }}
 {{- end -}}
 
 {{/*
+PostgreSQL image reference, honoring global.imageRegistry.
+Usage: image: {{ include "helix-controlplane.postgres-image" . | quote }}
+*/}}
+{{- define "helix-controlplane.postgres-image" -}}
+{{- if .Values.global.imageRegistry -}}
+{{ .Values.global.imageRegistry }}/{{ .Values.postgresql.image.repository }}:{{ .Values.postgresql.image.tag }}
+{{- else -}}
+{{ .Values.postgresql.image.repository }}:{{ .Values.postgresql.image.tag }}
+{{- end -}}
+{{- end -}}
+
+{{/*
 PostgreSQL connection environment variables.
 Used by both the init container and main controlplane container.
 */}}

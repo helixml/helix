@@ -40,7 +40,7 @@ spec:
       {{- end }}
       labels:
         app.kubernetes.io/component: postgres
-        {{- include "helix-controlplane.labels" . | nindent 8 }}
+        {{- include "helix-controlplane.selectorLabels" . | nindent 8 }}
         {{- with .Values.podLabels }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
@@ -54,11 +54,7 @@ spec:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
       containers:
         - name: postgres
-          {{- if .Values.global.imageRegistry }}
-          image: "{{ .Values.global.imageRegistry }}/{{ .Values.postgresql.image.repository }}:{{ .Values.postgresql.image.tag }}"
-          {{- else }}
-          image: "{{ .Values.postgresql.image.repository }}:{{ .Values.postgresql.image.tag }}"
-          {{- end }}
+          image: {{ include "helix-controlplane.postgres-image" . | quote }}
           imagePullPolicy: {{ .Values.postgresql.image.pullPolicy | default "IfNotPresent" }}
           ports:
             - name: tcp-postgres
@@ -100,6 +96,10 @@ spec:
               command: ['sh', '-c', 'pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"']
             initialDelaySeconds: 5
             periodSeconds: 10
+          {{- with .Values.postgresql.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           {{- if .Values.postgresql.persistence.enabled }}
           volumeMounts:
             - name: postgres-storage

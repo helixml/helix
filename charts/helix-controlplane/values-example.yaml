@@ -333,6 +333,15 @@ postgresql:
     # storageClass: ""
     # existingClaim: ""
 
+  # Resource requests and limits for the bundled PostgreSQL container.
+  # Set these for production; empty by default.
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 1Gi
+
   # For external PostgreSQL configuration (when enabled=false):
   # external:
   #   host: "my-external-postgresql.example.com"
