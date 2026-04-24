@@ -585,6 +585,16 @@ const Jobs: FC = () => {
               ))
             )}
           </Select>
+          <Typography variant="caption" color="text.secondary">
+            1:1 mapping between jobs and projects.{' '}
+            <span
+              style={{ color: '#90caf9', cursor: 'pointer', textDecoration: 'underline' }}
+              onClick={() => account.orgNavigate('projects')}
+            >
+              Go to Projects page
+            </span>
+            {' '}to create new projects, then come back here.
+          </Typography>
         </FormControl>
 
         {selectedProjectId && (
