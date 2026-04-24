@@ -84,7 +84,7 @@ CI (Drone) runs the full suite on every PR.
 ## Documentation
 
 - **Code docs**: don't add docstrings or comments unless the *why* is non-obvious. Well-named identifiers are the documentation.
-- **User docs**: live at <https://docs.helixml.tech> in a separate repo.
+- **User docs**: live at <https://helix.ml/docs> in a separate repo.
 - **Design docs**: longer-form notes about non-trivial work go in `design/YYYY-MM-DD-name.md`.
 
 ## Licensing
@@ -99,4 +99,4 @@ See the [README](./README.md#-license) for the license summary.
 ## Getting help
 
 - [Discord](https://discord.gg/VJftd844GE) - the fastest way to reach maintainers and other contributors.
-- [Documentation](https://docs.helixml.tech/) - product and deployment docs.
+- [Documentation](https://helix.ml/docs) - product and deployment docs.

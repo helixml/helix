@@ -83,7 +83,7 @@ docker compose -f docker-compose.dev.yaml restart api
 
 ### Option B: Local GPU runner
 
-Follow the [runner attachment docs](https://docs.helixml.tech/helix/private-deployment/controlplane/#attaching-a-runner). If your dev machine has no GPU, you can:
+Follow the [runner attachment docs](https://helix.ml/docs). If your dev machine has no GPU, you can:
 
 - Run the runner on a remote GPU box and tunnel it back over SSH.
 - Spin up a short-lived runner on RunPod (or similar) and reach your laptop via [webhookrelay](https://webhookrelay.com/).
@@ -197,7 +197,6 @@ helix/
 
 ## Further reading
 
-- [Helix documentation](https://docs.helixml.tech/)
-- [Architecture overview](https://docs.helixml.tech/helix/getting-started/architecture/)
+- [Helix documentation](https://helix.ml/docs)
 - [`CONTRIBUTING.md`](./CONTRIBUTING.md) - branch / PR workflow
 - [`README.md`](./README.md) - product overview
