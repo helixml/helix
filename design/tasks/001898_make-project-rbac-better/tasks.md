@@ -11,13 +11,13 @@
 
 ## Frontend
 
-- [~] In `AccessManagement.tsx`, filter `currentUser.id` out of the `members` list in the `useMemo` (line ~95)
-- [~] Also filter out users who already have an access grant on this project (using `accessGrants` user IDs)
-- [~] Replace the `Select` dropdown for users with MUI `Autocomplete` (`freeSolo`) — options from org members, allow typing an email for non-members
-- [~] Update `handleCreateUserGrant` to pass either the selected user ID or the typed email as `user_reference`
-- [~] When a typed email doesn't match any org member, show an inline `Alert` (info) below the input: "This user is not in your organisation. Adding them to this project will also add them to the organisation as a member."
-- [~] After successful grant creation, check `added_to_organization` in the response; if true, show a snackbar: "{name} was also added to the organisation"
-- [~] Update the helper text below the user input to: "You can also type an email address to add someone who isn't in your organisation yet."
+- [x] In `AccessManagement.tsx`, filter `currentUser.id` out of the `members` list in the `useMemo` (line ~95)
+- [x] Also filter out users who already have an access grant on this project (using `accessGrants` user IDs)
+- [x] Replace the `Select` dropdown for users with MUI `Autocomplete` (`freeSolo`) — options from org members, allow typing an email for non-members
+- [x] Update `handleCreateUserGrant` to pass either the selected user ID or the typed email as `user_reference`
+- [x] When a typed email doesn't match any org member, show an inline `Alert` (info) below the input: "This user is not in your organisation. Adding them to this project will also add them to the organisation as a member."
+- [x] After successful grant creation, check `added_to_organization` in the response; if true, show a snackbar: "{name} was also added to the organisation"
+- [x] Update the helper text below the user input to: "You can also type an email address to add someone who isn't in your organisation yet."
 
 ## Testing
 
@@ -26,5 +26,5 @@
 - [ ] Test: non-org-owner tries to add non-org-member → 403 error with clear message
 - [ ] Test: logged-in user does not appear in the user dropdown
 - [ ] Test: users who already have a grant do not appear in the dropdown
-- [ ] Build frontend (`cd frontend && yarn build`) and verify no errors
-- [ ] Build backend (`go build ./api/...`) and verify no errors
+- [x] Build frontend (`cd frontend && yarn build`) and verify no errors
+- [x] Build backend (`go build ./api/...`) and verify no errors
