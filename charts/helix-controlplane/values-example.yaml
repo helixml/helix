@@ -370,15 +370,6 @@ secretEnvVariables:
 ## Legacy Components
 # The following components are legacy and may be removed in future versions
 
-## Tika configuration (legacy document text extraction)
-tika:
-  # Enable Tika for document text extraction (legacy, disabled by default)
-  enabled: false
-  # Use custom image if needed
-  # image:
-  #   repository: apache/tika
-  #   tag: "3.0.0"
-
 ## Kodit configuration - Code indexing service
 # Kodit provides code search and analysis capabilities for Helix.
 # It uses its own PostgreSQL + pgvector database (vectorchord) for code embeddings.

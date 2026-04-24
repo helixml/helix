@@ -177,7 +177,6 @@ steps:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DATABASE: postgres
-      TEXT_EXTRACTION_TIKA_URL: http://tika:9998
       RAG_CRAWLER_LAUNCHER_URL: http://chrome:7317
 
     commands:
@@ -233,7 +232,6 @@ steps:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DATABASE: postgres
-      TEXT_EXTRACTION_TIKA_URL: http://tika:9998
       RAG_CRAWLER_LAUNCHER_URL: http://chrome:7317
       ORGANIZATIONS_CREATE_ENABLED_FOR_NON_ADMINS: "true"
       START_HELIX_TEST_SERVER: "true"
@@ -296,7 +294,7 @@ steps:
   #     POSTGRES_USER: postgres
   #     POSTGRES_PASSWORD: postgres
   #     POSTGRES_DATABASE: postgres
-  #     TEXT_EXTRACTION_TIKA_URL: http://tika:9998
+
   #     RAG_CRAWLER_LAUNCHER_URL: http://chrome:7317
   #     ORGANIZATIONS_CREATE_ENABLED_FOR_NON_ADMINS: "true"
   #     # CI-specific configuration for OAuth test
@@ -371,7 +369,7 @@ steps:
   #     POSTGRES_USER: postgres
   #     POSTGRES_PASSWORD: postgres
   #     POSTGRES_DATABASE: postgres
-  #     TEXT_EXTRACTION_TIKA_URL: http://tika:9998
+
   #     RAG_CRAWLER_LAUNCHER_URL: http://chrome:7317
   #     ORGANIZATIONS_CREATE_ENABLED_FOR_NON_ADMINS: "true"
   #     # CI-specific configuration for OAuth test
@@ -447,7 +445,7 @@ steps:
   #     POSTGRES_USER: postgres
   #     POSTGRES_PASSWORD: postgres
   #     POSTGRES_DATABASE: postgres
-  #     TEXT_EXTRACTION_TIKA_URL: http://tika:9998
+
   #     RAG_CRAWLER_LAUNCHER_URL: http://chrome:7317
   #     ORGANIZATIONS_CREATE_ENABLED_FOR_NON_ADMINS: "true"
   #     WEB_SERVER_HOST: "localhost"
@@ -524,7 +522,7 @@ steps:
   #     POSTGRES_USER: postgres
   #     POSTGRES_PASSWORD: postgres
   #     POSTGRES_DATABASE: postgres
-  #     TEXT_EXTRACTION_TIKA_URL: http://tika:9998
+
   #     RAG_CRAWLER_LAUNCHER_URL: http://chrome:7317
   #     ORGANIZATIONS_CREATE_ENABLED_FOR_NON_ADMINS: "true"
   #     # CI-specific configuration for OAuth test
@@ -604,7 +602,7 @@ steps:
   #     POSTGRES_USER: postgres
   #     POSTGRES_PASSWORD: postgres
   #     POSTGRES_DATABASE: postgres
-  #     TEXT_EXTRACTION_TIKA_URL: http://tika:9998
+
   #     RAG_CRAWLER_LAUNCHER_URL: http://chrome:7317
   #     ORGANIZATIONS_CREATE_ENABLED_FOR_NON_ADMINS: "true"
   #     # CI-specific configuration for OAuth test
@@ -690,7 +688,7 @@ steps:
   #     POSTGRES_USER: postgres
   #     POSTGRES_PASSWORD: postgres
   #     POSTGRES_DATABASE: postgres
-  #     TEXT_EXTRACTION_TIKA_URL: http://tika:9998
+
   #     RAG_CRAWLER_LAUNCHER_URL: http://chrome:7317
   #     ORGANIZATIONS_CREATE_ENABLED_FOR_NON_ADMINS: "true"
   #     # CI-specific configuration for OAuth test
@@ -830,8 +828,6 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: postgres
-  - name: tika
-    image: apache/tika:2.9.2.1
   - name: chrome
     image: ghcr.io/go-rod/rod:v0.115.0
 

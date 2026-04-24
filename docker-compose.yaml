@@ -80,11 +80,6 @@ services:
       - POSTGRES_DB=postgres
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=${POSTGRES_ADMIN_PASSWORD-postgres}
-  tika:
-    image: apache/tika:2.9.2.1
-    restart: always
-    # ports:
-    #   - 9998:9998
   searxng:
     image: searxng/searxng:2025.7.24-84c3a83
     # ports:

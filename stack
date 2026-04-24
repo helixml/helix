@@ -2062,8 +2062,8 @@ function test() {
     exit 1
   fi
 
-  # Ensure postgres, tika and chrome are running
-  docker compose -f docker-compose.dev.yaml up -d postgres tika chrome
+  # Ensure postgres and chrome are running
+  docker compose -f docker-compose.dev.yaml up -d postgres chrome
 
   # Database config (running in a sidecar)
   export POSTGRES_USER=postgres
@@ -2071,7 +2071,6 @@ function test() {
   export POSTGRES_DATABASE=postgres
   export POSTGRES_HOST=localhost
 
-  export TEXT_EXTRACTION_TIKA_URL=http://localhost:9998
   export RAG_CRAWLER_LAUNCHER_URL=http://localhost:7317
 
   # To debug test hangs, try this:
