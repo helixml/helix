@@ -697,6 +697,29 @@ If the user asks for information about Helix or installing Helix, refer them to 
 				ProjectPath:    "workspace", // Use relative path
 			}
 
+			// Load project repositories so the container clones them on startup
+			if session.ProjectID != "" {
+				projectRepos, repoErr := s.Controller.Options.Store.ListGitRepositories(req.Context(), &types.ListGitRepositoriesRequest{
+					ProjectID: session.ProjectID,
+				})
+				if repoErr == nil && len(projectRepos) > 0 {
+					zedAgent.RepositoryIDs = make([]string, 0, len(projectRepos))
+					for _, repo := range projectRepos {
+						if repo.ID != "" {
+							zedAgent.RepositoryIDs = append(zedAgent.RepositoryIDs, repo.ID)
+						}
+					}
+					project, projErr := s.Controller.Options.Store.GetProject(req.Context(), session.ProjectID)
+					if projErr == nil && project != nil {
+						primaryRepoID := project.DefaultRepoID
+						if primaryRepoID == "" {
+							primaryRepoID = projectRepos[0].ID
+						}
+						zedAgent.PrimaryRepositoryID = primaryRepoID
+					}
+				}
+			}
+
 			// Apply display settings from external agent configuration
 			if startReq.ExternalAgentConfig != nil {
 				if startReq.ExternalAgentConfig.DisplayWidth > 0 {
