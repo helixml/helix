@@ -433,6 +433,7 @@ const Jobs: FC = () => {
         message: fileContents['TASK.md'] || 'Run the job tasks as specified in the job files.',
         projectId: selectedProjectId,
         agentType: 'zed_external',
+        sessionRole: 'job',
       })
       setActiveRunSessionId(session.id || '')
       setActiveTab(1)
