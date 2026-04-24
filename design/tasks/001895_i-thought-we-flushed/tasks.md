@@ -8,12 +8,13 @@
 
 ## Helix: Trailing-edge publish timer (`helix/api/pkg/server/websocket_external_agent_sync.go`)
 
-- [~] Add a `flushTimer *time.Timer` field to `streamingContext`
-- [ ] In `handleMessageAdded()`, when publish is skipped due to `publishInterval` throttle, start/reset a `time.AfterFunc(publishInterval, ...)` that publishes pending patches
-- [ ] In the timer callback: acquire the session lock, check if patches are still pending (compare `lastPublish`), compute and publish entry patches, update `lastPublish`
-- [ ] Stop the flush timer on successful publish (in the normal event-driven path) and in `flushAndClearStreamingContext()`
+- [x] Add a `flushTimer *time.Timer` field to `streamingContext`
+- [x] In `handleMessageAdded()`, when publish is skipped due to `publishInterval` throttle, start/reset a `time.AfterFunc(publishInterval, ...)` that publishes pending patches
+- [x] In the timer callback: acquire the session lock, check if patches are still pending (compare `lastPublish`), compute and publish entry patches, update `lastPublish`
+- [x] Stop the flush timer on successful publish (in the normal event-driven path) and in `flushAndClearStreamingContext()`
 
 ## Testing
 
-- [ ] E2E test: verify that a single text entry with no subsequent events (no tool_call, no new entry) has its final content visible in the frontend within ~150ms
+- [~] E2E test: verify that a single text entry with no subsequent events (no tool_call, no new entry) has its final content visible in the frontend within ~150ms
 - [ ] Verify no regression: fast streaming (many tokens/sec) still coalesces correctly and doesn't produce duplicate or reordered patches
+- [ ] Write PR descriptions
