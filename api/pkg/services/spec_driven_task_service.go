@@ -818,6 +818,16 @@ func (s *SpecDrivenTaskService) StartJustDoItMode(ctx context.Context, task *typ
 		return
 	}
 
+	// Just-Do-It skips the spec phase but still pushes commits to a feature
+	// branch, so the git identity must match the user who started the task.
+	// Mirror the planning-phase flow: async sync so we don't block on the
+	// container being reachable.
+	jdiActorID := task.PlanningStartedBy
+	if jdiActorID == "" {
+		jdiActorID = task.CreatedBy
+	}
+	s.syncGitIdentityAsync(task, jdiActorID, "just-do-it", 3*time.Minute)
+
 	// Generate request_id for initial message and register the mapping
 	requestID := system.GenerateRequestID()
 	if s.RegisterRequestMapping != nil {
