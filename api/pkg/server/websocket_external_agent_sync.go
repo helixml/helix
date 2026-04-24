@@ -36,6 +36,9 @@ type streamingContext struct {
 	dirty       bool // true if interaction has been updated since last DB write
 	// Frontend publish throttling
 	lastPublish time.Time
+	// Trailing-edge flush timer: fires after publishInterval to drain any
+	// patches that were skipped by the throttle when no new event arrived.
+	flushTimer *time.Timer
 	// Per-entry delta tracking: tracks entries sent to frontend so we can compute per-entry diffs
 	previousEntries []wsprotocol.ResponseEntry
 	// Message accumulator: persists across handleMessageAdded calls so that
@@ -1227,6 +1230,10 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 			// Uses per-entry patches to reduce wire traffic from O(N) to O(delta).
 			// Exception: if we just force-flushed before a tool_call, also publish the tool_call.
 			if now.Sub(sctx.lastPublish) >= publishInterval || forceFlushToolCall {
+				if sctx.flushTimer != nil {
+					sctx.flushTimer.Stop()
+					sctx.flushTimer = nil
+				}
 				currentEntries := acc.Entries()
 				err := apiServer.publishEntryPatchesToFrontend(helixSessionID, helixSession.Owner, targetInteraction.ID, sctx.previousEntries, currentEntries, sctx.commenterID)
 				if err != nil {
@@ -1237,6 +1244,33 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 				}
 				sctx.previousEntries = currentEntries
 				sctx.lastPublish = now
+			} else {
+				// Trailing-edge timer: ensure pending patches are published
+				// even if no new message_added event arrives within the window.
+				if sctx.flushTimer != nil {
+					sctx.flushTimer.Stop()
+				}
+				sessionID := helixSessionID
+				owner := helixSession.Owner
+				interactionID := targetInteraction.ID
+				commenterID := sctx.commenterID
+				sctx.flushTimer = time.AfterFunc(publishInterval, func() {
+					sctx.mu.Lock()
+					defer sctx.mu.Unlock()
+					sctx.flushTimer = nil
+					if sctx.accumulator == nil || sctx.interaction == nil {
+						return
+					}
+					currentEntries := sctx.accumulator.Entries()
+					if err := apiServer.publishEntryPatchesToFrontend(sessionID, owner, interactionID, sctx.previousEntries, currentEntries, commenterID); err != nil {
+						log.Error().Err(err).
+							Str("session_id", sessionID).
+							Str("interaction_id", interactionID).
+							Msg("Failed to publish entry patches in trailing flush")
+					}
+					sctx.previousEntries = currentEntries
+					sctx.lastPublish = time.Now()
+				})
 			}
 		} else {
 			log.Warn().
@@ -1411,6 +1445,10 @@ func (apiServer *HelixAPIServer) getOrCreateStreamingContext(ctx context.Context
 			sctx.lastDBWrite = time.Time{}
 			sctx.lastPublish = time.Time{}
 			sctx.accumulator = nil // clear stale message_id mappings from old interaction
+			if sctx.flushTimer != nil {
+				sctx.flushTimer.Stop()
+				sctx.flushTimer = nil
+			}
 		}
 		sctx.mu.Unlock()
 
@@ -1562,6 +1600,11 @@ func (apiServer *HelixAPIServer) flushAndClearStreamingContext(ctx context.Conte
 
 	sctx.mu.Lock()
 	defer sctx.mu.Unlock()
+
+	if sctx.flushTimer != nil {
+		sctx.flushTimer.Stop()
+		sctx.flushTimer = nil
+	}
 
 	if sctx.interaction != nil {
 		if sctx.dirty {
