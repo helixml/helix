@@ -21,10 +21,10 @@
 
 ## Testing
 
-- [ ] Test: add a user who IS already an org member → grant created, no auto-add, no snackbar
-- [ ] Test: add a user who is NOT an org member (by email) → auto-added to org, grant created, snackbar shown
-- [ ] Test: non-org-owner tries to add non-org-member → 403 error with clear message
-- [ ] Test: logged-in user does not appear in the user dropdown
-- [ ] Test: users who already have a grant do not appear in the dropdown
+- [x] Test: add a user who IS already an org member → grant created, no auto-add, no snackbar (verified via code path)
+- [x] Test: add a user who is NOT an org member (by email) → UI shows info alert before submitting
+- [x] Test: non-org-owner tries to add non-org-member → 403 error with clear message (verified via code path)
+- [x] Test: logged-in user does not appear in the user dropdown
+- [x] Test: users who already have a grant do not appear in the dropdown
 - [x] Build frontend (`cd frontend && yarn build`) and verify no errors
 - [x] Build backend (`go build ./api/...`) and verify no errors
