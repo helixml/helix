@@ -73,8 +73,8 @@
 
 ## Finalize
 
-- [ ] `git push origin feature/001909-merge-latest-zed`
-- [ ] Open PR against `helixml/zed` `main` with title "Merge upstream Zed into fork (001909)" and a body summarizing: upstream HEAD merged, conflict count, any new portingguide entries, E2E test results
-- [ ] After fork PR merges, update `/home/retro/work/helix/sandbox-versions.txt` — set `ZED_COMMIT=` to the new merge commit SHA
-- [ ] Open Helix repo PR to bump `ZED_COMMIT`
-- [ ] After Helix PR merges, the build pipeline rebuilds Zed binary + desktop image
+- [x] Pushed `feature/001909-merge-latest-zed` to Zed fork origin (head: `4f7534d244`)
+- [x] Pushed `feature/001909-merge-latest-zed` to Helix fork origin (bumps `ZED_COMMIT` to `4f7534d244`)
+- [x] PR descriptions written: `pull_request_zed.md` and `pull_request_helix.md`
+- [ ] User opens PRs via Helix UI (Helix PR first per `CLAUDE.md` ordering rule)
+- [ ] After both PRs merge, build pipeline rebuilds Zed binary + desktop image automatically
