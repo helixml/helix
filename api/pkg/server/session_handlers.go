@@ -57,8 +57,27 @@ func (apiServer *HelixAPIServer) getSession(rw http.ResponseWriter, req *http.Re
 		return
 	}
 
-	// Determine external agent status (cheap RPC, no DB)
-	agentStatus := ""
+	// Determine external agent status (cheap RPC, no DB).
+	//
+	// The runtime check is authoritative ONLY for sessions that already
+	// have a container_name set on the session metadata. During the
+	// auto-start window, Hydra sets ExternalAgentStatus="starting" on
+	// the session record BEFORE the container is created (so the
+	// frontend can render the "Starting Desktop..." spinner) — but at
+	// that point ContainerName is still empty, so the runtime check
+	// would compute "" and clobber the "starting" value below at line
+	// `session.Metadata.ExternalAgentStatus = agentStatus`. Result:
+	// frontend never sees the "starting" state, useSandboxState
+	// reports isPaused=true throughout the ~30-90s boot, and the user
+	// stares at a "Desktop Paused / Start Desktop" UI for the whole
+	// boot window.
+	//
+	// Fix: when there's no container yet, respect the DB-stored value
+	// (which Hydra has flipped to "starting" if a boot is in flight).
+	// Only overwrite with runtime status when we have an actual
+	// container to check. The earlier behaviour "no container → assume
+	// stopped/empty" was wrong specifically for the boot window.
+	agentStatus := session.Metadata.ExternalAgentStatus
 	if session.Metadata.ContainerName != "" {
 		if apiServer.externalAgentExecutor != nil {
 			_, execErr := apiServer.externalAgentExecutor.GetSession(session.ID)
