@@ -396,6 +396,98 @@ hits the underlying ACP-layer issue more visibly.
   user message from Zed` is the user-typed-in-Zed path, not the queue path.
   The queue's busy/idle gating doesn't apply here.
 
+## A worse failure mode: Zed-side silent drop of user messages
+
+While reviewing this session with the user, a *third* failure pattern
+surfaced that we hadn't accounted for. The user has a screenshot of Zed's
+chat history showing a "carry on" prompt they typed during the stuck period.
+Zed's UI displayed it inside the thread. **Helix never saw it.**
+
+The complete list of `Created interaction for user message from Zed` events
+for `ses_01kq1gcbabjs4q8w8c6z384094` over the four-hour window is:
+
+```
+05:23:39  i stopped the other build
+06:12:22  what are you doing       ← stuck (waiting, never completed)
+06:12:47  ??
+06:13:04  fucking fix it
+06:28:32  ?
+06:29:04  i pushed a fix to main of our fork...
+```
+
+There is no "carry on" anywhere in the `interactions` table, in the
+`prompt_history_entries` queue, or in the API logs for this session.
+The keystroke reached Zed (we have the screenshot showing it in the local
+thread) and never crossed the WebSocket sync boundary.
+
+This is qualitatively worse than what the rest of this doc covers:
+
+| Failure mode                    | What Helix sees                | Detectable? |
+| ------------------------------- | ------------------------------ | ----------- |
+| Stale events flushed late       | Stale `request_id`s replayed   | Yes (logs)  |
+| Stuck `waiting` interaction     | `state=waiting`, `resp_len=0`  | Yes (DB)    |
+| **Zed-side silent drop**        | **Nothing**                    | **No**      |
+
+The other two failures land in the DB or the wire log eventually; we can
+react to them. The silent-drop case has no Helix-side fingerprint at all —
+the message never crosses the WebSocket, so there is no event to subscribe
+to and no DB row to scan.
+
+### Plausible Zed-side causes (in decreasing order of likelihood)
+
+1. **The `unregister_thread` race we fixed in `d7be64fad1` is still biting**
+   on this older binary. The session runs Zed `9f0475c6c2`, which is *one
+   commit before* the fix. If the panel rebound to entity Y and the OLD
+   ConversationView's `on_release` clobbered Y's registry entry plus the
+   persistent-subscription flag, then `ensure_thread_subscription` was never
+   re-armed on the live entity. `AcpThreadEvent::NewEntry` fires when the
+   user types — but no subscription is listening, so no `MessageAdded` is
+   sent over the WebSocket. This is the leading hypothesis precisely because
+   the fix in `d7be64fad1` was for the symmetric outbound failure mode
+   (assistant chunks not delivered) and the same race orphans the user-input
+   listener too.
+2. **Zed's outbound event loop is starved.** If the wrapper is unresponsive
+   (`session/prompt` blocked, MCP child stuck), the outbound channel that
+   carries `MessageAdded` events to Helix may queue events without flushing
+   them. The local UI update happens in-process and is unaffected, so the
+   user sees the message in Zed even though it's never sent.
+3. **Subscription on the wrong entity** — variant of (1). Subscription
+   wired up on entity X, user types in displayed entity Y, X never sees
+   the `NewEntry`. Same effect as (1) without requiring an explicit unregister.
+
+### What Helix can do about it
+
+Effectively nothing from inside Helix's process. We have no signal to
+detect on, so:
+
+- The auto-wake mitigation proposed below is **partial coverage** — it
+  helps the cases where Zed *did* relay the user message but the response
+  never came (stuck `waiting`). It does *not* help the case where Zed
+  silently dropped the user message in the first place.
+- We *cannot* show a "your last keystroke may have been dropped" UI hint,
+  because the only way Helix knows the user typed is via the same WebSocket
+  event that's missing. There is no out-of-band channel by which the
+  Zed UI tells Helix "I rendered a user message".
+
+### Path forward
+
+1. **Get the user onto a Zed binary that contains `d7be64fad1` (or later).**
+   helix#2278 lands the `ZED_COMMIT` bump. New sessions started against the
+   bumped image will exercise the registration fix. If the silent-drop
+   pattern disappears for sessions on the new binary, that's strong
+   evidence (1) was the cause and we're in much better shape.
+2. **If it persists post-bump,** the failure is something else
+   inside Zed's outbound dispatch — most likely a starvation issue on
+   the WebSocket sender goroutine when the wrapper is wedged. That needs
+   instrumentation inside `external_websocket_sync` to confirm (e.g.
+   timestamp every `MessageAdded` send attempt and every channel-full
+   delay). Out of scope for this doc until we have a reproducer on the
+   newer binary.
+3. **Open an upstream Zed issue *only* if it persists post-bump** — and
+   only with a full repro (Zed log + Helix log + screenshot of the dropped
+   message). The leading hypothesis (#1) is something we already fixed
+   on our fork; a vanilla Zed issue would be premature.
+
 ## Investigation directions (not implemented)
 
 In rough order of effort vs. likely payoff:
@@ -450,6 +542,116 @@ In rough order of effort vs. likely payoff:
 - **Avoid `session/cancel` mid-turn unless necessary.** The wrapper's
   cancel-then-prompt path is exactly where claude-agent-acp #551 bites,
   and it makes the next 1–2 messages effectively no-ops.
+
+## Proposed Helix-side mitigation: auto-wake stuck waiting interactions
+
+**Status: deferred — re-evaluate after the next Zed rebase lands and we can
+test whether `d7be64fad1` reduces incidence on its own.**
+
+The mitigation below targets the *detectable* failure mode (interaction
+in `state=waiting`, no chunks ever published). It deliberately does *not*
+attempt to address the silent-drop case described above — that one has
+no Helix-side signal to act on.
+
+### Behaviour
+
+A goroutine in the API process scans, every ~10 s, for interactions
+matching:
+
+- `state = 'waiting'`
+- `LENGTH(COALESCE(response_message, '')) = 0`
+- `created < now() - interval '30 seconds'`
+- `auto_wake_count < 2`
+- `response_entries IS NULL` (no streaming entries published either)
+
+For each match, send `"continue"` as a fresh chat message via
+`sendChatMessageToExternalAgent`, with a brand-new `request_id`. The new
+auto-sent interaction carries `auto_wake_count = N + 1` so the loop
+retries at most twice per stuck interaction. After two retries the
+interaction is marked as `state=error` with
+`Error="Agent unresponsive after 2 auto-wake attempts; upstream ACP
+buffering"`, and the queue stops re-feeding it.
+
+### Why "continue" specifically
+
+We considered four wake-up payloads:
+
+| Payload     | Effect                                                                  |
+| ----------- | ----------------------------------------------------------------------- |
+| `"continue"`| Verb the model knows. Rough no-op when there's nothing to continue.     |
+| `"."`       | Minimal context pollution but the model still says *something* back.    |
+| Resend prompt | Idempotent in intent but agent may redo work (extra tools / API spend).|
+| `session/cancel` | Triggers claude-agent-acp #551 — next 1-2 prompts get bounced.    |
+
+`"continue"` wins on grossness vs. effectiveness. It is the same wake-up
+the user's habit already produces (`"??"`, `"fix it"`, `"ok"`) — we are
+automating a pattern users already do manually.
+
+### UI surfacing
+
+Auto-sent interactions render with a small inline badge — **"↻ Helix
+auto-sent · upstream ACP buffering"** — and a tooltip linking to this
+design doc. The user always sees what Helix did and why. The badge is
+read off `auto_wake_count > 0` on the interaction record.
+
+### Why this is a justified workaround
+
+- It addresses the dominant *detectable* manifestation of the upstream
+  bug, which is the one users complain about most.
+- The implementation surface is entirely Helix-side: one DB column, one
+  goroutine, one frontend badge. No Zed work, no wrapper work, no
+  protocol work.
+- The empirical observation (Helix user, 2026-04-25) that "sending enough
+  messages always consumes the queue and re-syncs properly" rules out the
+  perpetual-chase risk that worried us in earlier iterations of this
+  proposal.
+- The fix is honest: badged in UI, capped at two retries, gives up cleanly
+  rather than looping. When the upstream protocol gap closes (#554, #644
+  land), the workaround can be feature-flagged off without any data
+  migration.
+
+### Why this is *not* a real fix
+
+- It does nothing for the silent-drop case (Zed never sends the user
+  message). We are blind to that failure.
+- It does nothing for intentionally-asynchronous events (background bash
+  output, hook-triggered actions) — those need a real unparented channel
+  in the protocol.
+- It treats a structural protocol mismatch with a polling-and-retry loop.
+  Every ACP server with non-trivial async behaviour will end up shipping
+  some version of this same workaround until ACP grows the missing
+  primitives.
+
+### Implementation sketch
+
+Single source file (`api/pkg/server/auto_wake_stuck_interactions.go`)
+with one exported start-on-server-init function. Heavy comment at the
+top of the file explaining:
+
+1. Why this exists (the ACP turn-locked-events architectural mismatch).
+2. The upstream issues being papered over (#554, #551, zed#54767).
+3. The expected lifetime of the workaround (until upstream lands and
+   downstream rolls out, then can be feature-flagged off).
+4. The known coverage gap (silent-drop case, see "A worse failure mode"
+   section of this doc).
+
+DB change: one new column, `interactions.auto_wake_count INTEGER NOT NULL
+DEFAULT 0`. Frontend reads the column and renders the badge when
+`> 0`. No migration needed beyond `AutoMigrate`.
+
+Goroutine started from the same place as other periodic API tasks (e.g.
+the spec-task orchestrator). Single instance per process — multi-replica
+deployments need a Postgres advisory lock to avoid the same interaction
+being woken by multiple replicas simultaneously, but that's a problem
+for later (Helix is single-replica today).
+
+### Implementation status
+
+**Not implemented as of 2026-04-25.** Holding pending the next Zed
+rebase test. If `d7be64fad1` reduces the incidence enough that the
+remaining cases are tolerable, we can punt the workaround indefinitely.
+If the symptom recurs at similar frequency, this is the proposal to
+build first.
 
 ## Files to read first (next session)
 
