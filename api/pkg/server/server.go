@@ -524,6 +524,12 @@ func NewServer(
 		}
 	}()
 
+	// Start the auto-wake worker for stuck `state=waiting` interactions.
+	// Papers over the upstream ACP turn-locked-events bug where buffered
+	// session_update notifications only flush on a fresh session/prompt.
+	// See design/2026-04-25-zed-claude-async-event-flush-on-user-input.md.
+	apiServer.startAutoWakeStuckInteractionsWorker(context.Background())
+
 	// Clear sessions stuck in "starting" state from a previous API crash.
 	// If the API just started, no session can legitimately be mid-startup.
 	if cleaned, err := store.ClearStaleStartingSessions(context.Background()); err != nil {

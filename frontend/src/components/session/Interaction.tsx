@@ -202,6 +202,38 @@ export const Interaction: FC<InteractionProps> = ({
             alignItems: "flex-end",
           }}
         >
+          {/*
+            Badge marking prompts auto-sent by Helix to wake stuck Zed/ACP
+            sessions. The agent and protocol have no way to flush buffered
+            session_update notifications between turns; Helix nudges them
+            with "continue". Showing the badge keeps users honest about
+            what we did on their behalf.
+            See design/2026-04-25-zed-claude-async-event-flush-on-user-input.md
+          */}
+          {(interaction as any)?.auto_wake_count > 0 && (
+            <Tooltip
+              title="Helix auto-sent this prompt to recover from upstream ACP buffering. The agent had stopped responding mid-turn; sending a follow-up flushes the queued events. See helix design/2026-04-25 for the full story."
+            >
+              <Box
+                sx={(theme) => ({
+                  fontSize: "11px",
+                  color: theme.palette.mode === "light" ? "#888" : "#999",
+                  mb: 0.5,
+                  px: 1,
+                  py: 0.25,
+                  borderRadius: "4px",
+                  backgroundColor:
+                    theme.palette.mode === "light"
+                      ? "rgba(0,0,0,0.04)"
+                      : "rgba(255,255,255,0.06)",
+                  cursor: "help",
+                  userSelect: "none",
+                })}
+              >
+                ↻ Helix auto-sent · upstream ACP buffering
+              </Box>
+            </Tooltip>
+          )}
           <InteractionContainer
             buttons={headerButtons}
             background={true}

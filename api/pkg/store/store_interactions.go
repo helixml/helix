@@ -117,6 +117,49 @@ func (s *PostgresStore) CreateInteractions(ctx context.Context, interactions ...
 	return nil
 }
 
+// ListStuckWaitingInteractions returns interactions that look like they
+// belong to a turn the agent silently dropped — `state=waiting` with no
+// streamed response_message and no response_entries, and old enough that
+// the agent ought to have produced something by now. The auto-wake
+// worker calls this every ~10 s.
+func (s *PostgresStore) ListStuckWaitingInteractions(ctx context.Context, olderThan time.Time, limit int) ([]*types.Interaction, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	var interactions []*types.Interaction
+	err := s.gdb.WithContext(ctx).
+		Model(&types.Interaction{}).
+		Where("state = ?", types.InteractionStateWaiting).
+		Where("response_message = ''").
+		Where("response_entries IS NULL").
+		Where("created < ?", olderThan).
+		Order("created ASC").
+		Limit(limit).
+		Find(&interactions).Error
+	if err != nil {
+		return nil, err
+	}
+	return interactions, nil
+}
+
+// CountAutoWakeAttemptsSince counts auto-wake interactions in `sessionID`
+// created strictly after `since`. Used by the auto-wake worker to enforce
+// a per-stuck-interaction retry cap without storing a separate counter on
+// the stuck interaction itself.
+func (s *PostgresStore) CountAutoWakeAttemptsSince(ctx context.Context, sessionID string, since time.Time) (int64, error) {
+	var count int64
+	err := s.gdb.WithContext(ctx).
+		Model(&types.Interaction{}).
+		Where("session_id = ?", sessionID).
+		Where("auto_wake_count > 0").
+		Where("created > ?", since).
+		Count(&count).Error
+	if err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
 func (s *PostgresStore) GetInteraction(ctx context.Context, interactionID string) (*types.Interaction, error) {
 	db := s.gdb.WithContext(ctx)
 

@@ -256,6 +256,16 @@ type Store interface {
 	UpdateInteraction(ctx context.Context, interaction *types.Interaction) (*types.Interaction, error)
 	UpdateInteractionSummary(ctx context.Context, interactionID string, summary string) error
 	DeleteInteraction(ctx context.Context, id string) error
+	// ListStuckWaitingInteractions returns up to `limit` interactions that
+	// are in state=waiting, have produced no response or entries, and were
+	// created before `olderThan`. Used by the auto-wake worker to find
+	// candidates for a "continue" wake-up prompt.
+	ListStuckWaitingInteractions(ctx context.Context, olderThan time.Time, limit int) ([]*types.Interaction, error)
+	// CountAutoWakeAttemptsSince returns the number of interactions in
+	// `sessionID` with auto_wake_count > 0 created strictly after `since`.
+	// Used by the auto-wake worker to enforce a per-stuck-interaction
+	// retry cap.
+	CountAutoWakeAttemptsSince(ctx context.Context, sessionID string, since time.Time) (int64, error)
 
 	// slots
 	CreateSlot(ctx context.Context, slot *types.RunnerSlot) (*types.RunnerSlot, error)

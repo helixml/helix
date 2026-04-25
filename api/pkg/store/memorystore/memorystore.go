@@ -139,6 +139,14 @@ func (m *MemoryStore) ListSessions(_ context.Context, query store.ListSessionsQu
 
 // --- Interaction methods ---
 
+func (m *MemoryStore) ListStuckWaitingInteractions(_ context.Context, _ time.Time, _ int) ([]*types.Interaction, error) {
+	return nil, nil
+}
+
+func (m *MemoryStore) CountAutoWakeAttemptsSince(_ context.Context, _ string, _ time.Time) (int64, error) {
+	return 0, nil
+}
+
 func (m *MemoryStore) GetInteraction(_ context.Context, id string) (*types.Interaction, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()

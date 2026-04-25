@@ -147,6 +147,21 @@ func (mr *MockStoreMockRecorder) ClearStaleStartingSessions(ctx any) *gomock.Cal
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClearStaleStartingSessions", reflect.TypeOf((*MockStore)(nil).ClearStaleStartingSessions), ctx)
 }
 
+// CountAutoWakeAttemptsSince mocks base method.
+func (m *MockStore) CountAutoWakeAttemptsSince(ctx context.Context, sessionID string, since time.Time) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CountAutoWakeAttemptsSince", ctx, sessionID, since)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CountAutoWakeAttemptsSince indicates an expected call of CountAutoWakeAttemptsSince.
+func (mr *MockStoreMockRecorder) CountAutoWakeAttemptsSince(ctx, sessionID, since any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountAutoWakeAttemptsSince", reflect.TypeOf((*MockStore)(nil).CountAutoWakeAttemptsSince), ctx, sessionID, since)
+}
+
 // CountGitRepositoriesByKoditRepoID mocks base method.
 func (m *MockStore) CountGitRepositoriesByKoditRepoID(ctx context.Context, koditRepoID int64, excludeRepoID string) (int64, error) {
 	m.ctrl.T.Helper()
@@ -4653,6 +4668,21 @@ func (m *MockStore) ListStepInfos(ctx context.Context, query *ListStepInfosQuery
 func (mr *MockStoreMockRecorder) ListStepInfos(ctx, query any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListStepInfos", reflect.TypeOf((*MockStore)(nil).ListStepInfos), ctx, query)
+}
+
+// ListStuckWaitingInteractions mocks base method.
+func (m *MockStore) ListStuckWaitingInteractions(ctx context.Context, olderThan time.Time, limit int) ([]*types.Interaction, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListStuckWaitingInteractions", ctx, olderThan, limit)
+	ret0, _ := ret[0].([]*types.Interaction)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListStuckWaitingInteractions indicates an expected call of ListStuckWaitingInteractions.
+func (mr *MockStoreMockRecorder) ListStuckWaitingInteractions(ctx, olderThan, limit any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListStuckWaitingInteractions", reflect.TypeOf((*MockStore)(nil).ListStuckWaitingInteractions), ctx, olderThan, limit)
 }
 
 // ListTeamMemberships mocks base method.
