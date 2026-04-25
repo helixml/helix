@@ -140,6 +140,22 @@ After the Zed PR is merged, in `/home/retro/work/helix/`:
 2. Open a PR
 3. After merge, the build pipeline will rebuild the Zed binary and desktop image
 
+## Implementation Notes (discovered during this merge)
+
+### smol → async_channel + cx.background_executor().timer()
+Upstream PR #53603 ("Remove smol as a dependency from a bunch of crates") removed `smol` from the `agent` crate's dependencies and changed `NativeAgentSessionList` to use `async_channel`. This broke Helix's `wait_for_tools_ready()` in `agent.rs` which used `smol::Timer::after`.
+
+**Fix**: Replaced `smol::Timer::after(d).await` with `cx.background_executor().timer(d).await` (the canonical GPUI pattern, used elsewhere in the agent crate). Cloned the executor before `cx.spawn` and again into the `wait` async block (since the inner blocks both need it).
+
+### `HeadlessConnection` is dead code
+The portingguide references `HeadlessConnection` extensively, but it only exists in `crates/agent_ui/src/acp/thread_view.rs` which is **not declared as a module** in `agent_ui.rs`. Since 001864, the active `from_existing_thread()` in `conversation_view.rs` uses `thread.read(cx).connection().clone()` — no headless wrapper needed. The portingguide entries about HeadlessConnection trait method tracking are stale.
+
+### `ConnectedServerState` lost its `history` field
+Portingguide §"`from_existing_thread()` matches `ConnectedServerState`" lists `history` as a field. Current struct has 6 fields: `connection`, `auth_state`, `active_id`, `threads`, `conversation`, `_connection_entry_subscription`. No `history`.
+
+### `cx.update()` on AsyncApp is now infallible
+Upstream PR #54818 ("Update AI rules to reflect that `AsyncApp` updates are now infallible") changed `AsyncApp::update` to return `R` directly instead of `Result<R>`. Helix's `wait_for_tools_ready()` already used the new pattern (no `.ok()` / `?`), so the merge picked this up cleanly.
+
 ## Key Patterns Worth Re-stating (carry-overs from 001864)
 
 - **`HeadlessConnection` tracks `AgentConnection` trait** — if upstream adds a new method, headless must too (or rely on trait default impl). This is the #1 source of post-merge compile errors.
