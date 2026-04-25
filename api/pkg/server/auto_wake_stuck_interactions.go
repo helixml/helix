@@ -122,6 +122,8 @@ package server
 
 import (
 	"context"
+	"os"
+	"strconv"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/system"
@@ -135,17 +137,45 @@ const (
 	// leaves the user staring at a frozen chat for longer than needed.
 	autoWakeScanInterval = 10 * time.Second
 
-	// autoWakeStuckThreshold is the minimum age of a `state=waiting`
-	// interaction before we consider it stuck. Set well above the
-	// observed normal time-to-first-token for any agent (Claude usually
-	// streams the first token in under 5 s; a 30 s gap is a strong
-	// signal the wrapper has buffered something).
-	autoWakeStuckThreshold = 30 * time.Second
+	// defaultAutoWakeStuckThreshold is the minimum age of a
+	// `state=waiting` interaction before we consider it stuck.
+	//
+	// 120 s is deliberately conservative. Picking too low produces
+	// false positives on legitimately-slow prompts:
+	//   - Claude with extended thinking enabled can think silently for
+	//     minutes before emitting any tokens
+	//   - Tool-heavy starts may run several MCP/Read/Bash tools before
+	//     producing user-visible text
+	//   - Anthropic API can be slow under load or on a cold cache
+	//
+	// A false positive here means re-sending the user's prompt while
+	// the agent is mid-think. For idempotent prompts that's a cosmetic
+	// duplicate response; for destructive prompts it's a real risk
+	// (the agent may execute the same tool call twice). We also gate
+	// on the presence of a streaming context (see maybeAutoWake) which
+	// catches most of the tool-heavy case, but not silent thinking
+	// before the first emit.
+	//
+	// Override at runtime with HELIX_AUTO_WAKE_STUCK_THRESHOLD_SECONDS.
+	defaultAutoWakeStuckThreshold = 120 * time.Second
 
 	// autoWakeMaxRetries caps how many wake-ups we attempt for a single
 	// stuck interaction before giving up and marking it state=error.
 	autoWakeMaxRetries = 2
 )
+
+// autoWakeStuckThreshold returns the configured stuck threshold.
+// Reads HELIX_AUTO_WAKE_STUCK_THRESHOLD_SECONDS once per call so
+// operators can tune live without redeploying (the worker reads it
+// every scan tick, ~10 s).
+func autoWakeStuckThreshold() time.Duration {
+	if raw := os.Getenv("HELIX_AUTO_WAKE_STUCK_THRESHOLD_SECONDS"); raw != "" {
+		if seconds, err := strconv.Atoi(raw); err == nil && seconds > 0 {
+			return time.Duration(seconds) * time.Second
+		}
+	}
+	return defaultAutoWakeStuckThreshold
+}
 
 // startAutoWakeStuckInteractionsWorker launches the periodic scanner.
 // Idempotent in spirit but the API server only calls it once at init.
@@ -156,7 +186,7 @@ func (apiServer *HelixAPIServer) startAutoWakeStuckInteractionsWorker(ctx contex
 
 		log.Info().
 			Dur("scan_interval", autoWakeScanInterval).
-			Dur("stuck_threshold", autoWakeStuckThreshold).
+			Dur("stuck_threshold", autoWakeStuckThreshold()).
 			Int("max_retries", autoWakeMaxRetries).
 			Msg("🚀 [AUTO_WAKE] Started auto-wake worker for stuck waiting interactions")
 
@@ -174,7 +204,7 @@ func (apiServer *HelixAPIServer) startAutoWakeStuckInteractionsWorker(ctx contex
 
 // scanAndAutoWakeStuckInteractions runs one detection pass.
 func (apiServer *HelixAPIServer) scanAndAutoWakeStuckInteractions(ctx context.Context) {
-	cutoff := time.Now().Add(-autoWakeStuckThreshold)
+	cutoff := time.Now().Add(-autoWakeStuckThreshold())
 
 	stuck, err := apiServer.Store.ListStuckWaitingInteractions(ctx, cutoff, 50)
 	if err != nil {
@@ -208,7 +238,47 @@ func (apiServer *HelixAPIServer) maybeAutoWake(ctx context.Context, stuck *types
 	if !connected || conn == nil {
 		return
 	}
-	if time.Since(conn.ConnectedAt) < autoWakeStuckThreshold {
+	threshold := autoWakeStuckThreshold()
+	if time.Since(conn.ConnectedAt) < threshold {
+		return
+	}
+
+	// Gate 1b — active streaming context.
+	//
+	// If the wrapper has dispatched at least one `added message` event
+	// for this session's current turn, getOrCreateStreamingContext
+	// will have created a streamingContext entry. That happens for
+	// text chunks, tool calls, thought-style step_info events, and any
+	// other content-bearing notification — i.e. anything that proves
+	// the agent is actively producing output for this turn even if no
+	// text has reached interaction.response_message yet (which is the
+	// usual tool-heavy-start case).
+	//
+	// If a context exists, skip — the agent is working, even if the
+	// row in the DB still looks blank to ListStuckWaitingInteractions
+	// because of throttled DB writes.
+	//
+	// Note: this does NOT cover the "silent extended thinking before
+	// first emit" case — Claude can think for 60-120 s without any
+	// session_update arriving, in which case no streaming context
+	// exists and we'd flag this as stuck. We accept that false-positive
+	// risk in exchange for the conservative threshold; if it becomes a
+	// problem in practice we can lengthen the threshold further or
+	// expose a per-session opt-out.
+	apiServer.streamingContextsMu.RLock()
+	_, hasStreamingCtx := apiServer.streamingContexts[stuck.SessionID]
+	apiServer.streamingContextsMu.RUnlock()
+	if hasStreamingCtx {
+		return
+	}
+
+	// Same threshold, computed against interaction age now that we know
+	// the connection has been live long enough and there's no active
+	// streaming on the session. Caller has already filtered on
+	// `created < now - autoWakeStuckThreshold` at the SQL level using
+	// the previous threshold value, but recheck here defensively in
+	// case the env var was bumped UP between the SQL filter and now.
+	if time.Since(stuck.Created) < threshold {
 		return
 	}
 
