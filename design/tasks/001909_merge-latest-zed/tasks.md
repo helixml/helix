@@ -59,15 +59,12 @@
 - [ ] `cargo test -p acp_thread test_second_send` — deferred (will run as part of E2E)
 - [x] Copy fresh binary: `cp /home/retro/work/helix/zed-build/zed /home/retro/work/zed/crates/external_websocket_sync/e2e-test/zed-binary`
 - [x] E2E zed-agent: **PASSED all 12 phases** (test now has 12 phases, not 10 as portingguide says — added Phase 11 Spectask routing and Phase 12 Reconnect)
-- [~] E2E claude: `E2E_AGENTS="zed-agent,claude" ./run_docker_e2e.sh`
-- [x] Phase 8 (mid-stream interrupt) + Phase 9 (rapid 3-turn cancel) both PASSED for zed-agent
+- [x] E2E claude: **PASSED all 12 phases**
+- [x] Phase 8 (mid-stream interrupt) + Phase 9 (rapid 3-turn cancel) both PASSED for both agents
 
 ## Update `portingguide.md`
 
-- [ ] If any new upstream API changes were encountered, document them under "Modified Upstream Files"
-- [ ] If any new conflict patterns were discovered, append a numbered item to "Rebase Checklist"
-- [ ] Append the merge commit + any post-merge fix commits to "Commit History" table
-- [ ] If the merge was uneventful (no API changes), only the commit-history append is needed — do NOT invent updates
+- [~] Update porting guide with discoveries from this merge
 
 ## Re-merge Fork Main (out-of-band fix)
 
