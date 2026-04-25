@@ -53,10 +53,10 @@
 
 ## Build & Test
 
-- [~] `cd /home/retro/work/helix && ./stack build-zed dev` — builds zed binary in Docker (Helix's canonical build path)
-- [ ] If compile fails: read errors carefully, most likely cause is a missing `AgentConnection` trait method on `HeadlessConnection` or a missing `ConnectedServerState` field in `from_existing_thread()`
-- [ ] `cargo test -p external_websocket_sync` — unit tests pass
-- [ ] `cargo test -p acp_thread test_second_send` — Stopped invariant test passes
+- [x] `./stack build-zed dev` — succeeded (2m 12s, 171M binary). Required follow-up commit `6ccf3010a6` to fix `wait_for_tools_ready` (smol → `cx.background_executor().timer()`) since upstream PR #53603 removed smol from agent crate deps.
+- [x] Compile-error cause documented in design.md (smol removal, not the predicted HeadlessConnection issue)
+- [ ] `cargo test -p external_websocket_sync` — deferred (can run via stack/docker if needed; not in canonical local toolchain)
+- [ ] `cargo test -p acp_thread test_second_send` — deferred (will run as part of E2E)
 - [ ] Copy fresh binary: `cp /home/retro/work/helix/zed-build/zed /home/retro/work/zed/crates/external_websocket_sync/e2e-test/zed-binary`
 - [ ] E2E zed-agent: `cd /home/retro/work/zed/crates/external_websocket_sync/e2e-test && ./run_docker_e2e.sh`
 - [ ] E2E claude: `E2E_AGENTS="zed-agent,claude" ./run_docker_e2e.sh`
