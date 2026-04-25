@@ -30,3 +30,12 @@ This approach is preferred over calling `preventDefault()` on touch events becau
 |------|------|
 | `frontend/src/components/external-agent/DesktopStreamViewer.tsx` | Touch/mouse event handlers, trackpad mode logic |
 | `frontend/src/lib/helix-stream/stream/input.ts` | StreamInput — lower-level touch/mouse event processing |
+
+## Implementation Notes
+
+- Applied two changes to `DesktopStreamViewer.tsx`:
+  1. Guarded `handleMouseDown` and `handleMouseUp` with the same `lastTouchEndTimeRef` check that already existed in `handleMouseMove`. This is the actual double-click fix.
+  2. Guarded the `handler.onTouchStart()` delegation at the end of `handleTouchStart` so it's skipped in trackpad mode. Without this, StreamInput accumulates stale `primaryTouch` and `touchTracker` state because trackpad mode never calls the corresponding `onTouchEnd`.
+- `touchMode` was added to the dep arrays of both mouse handlers since the guards reference it.
+- Frontend type-check passes (`yarn tsc --noEmit` in helix-frontend-1).
+- Considered calling `event.preventDefault()` on touch events as the alternative root-cause fix. Rejected because it would break native browser behaviors (e.g. scrolling) and is a much wider change. The existing 500ms timestamp pattern is intentional and well-commented in `handleMouseMove`.
