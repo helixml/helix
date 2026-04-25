@@ -18,12 +18,25 @@
 // observations the wrapper's outbound flush is event-loop-tick driven and
 // only effectively kicked by inbound RPC traffic.
 //
-// User-visible symptom: the user sends a prompt, Zed UI appears done, Helix
-// tracks the interaction in `state=waiting` with no `response_message` and
-// no `message_completed` arriving from the wrapper. The buffer drains on
-// the *next* session/prompt — historically the user discovers this by
-// typing "??", "carry on", or "fix it", at which point the previous turn's
-// response and the new one both show up together.
+// User-visible symptom: the user sends a prompt X, Zed UI appears done,
+// Helix tracks the interaction in `state=waiting` with no `response_message`
+// and no `message_completed` properly arriving for X. The wrapper's outbound
+// buffer flushes only on the *next* `session/prompt`. When the user (or this
+// worker) sends prompt N+1, the buffered head-of-queue drains — but it
+// arrives tagged with N's stale `request_id`. Helix's matcher consumes the
+// stale id and falls through to "most recent waiting interaction", which is
+// now N+1. So the response *meant for X lands on the wake-up's interaction
+// instead*. The stuck X never gets its own response; the alignment between
+// user prompts and agent responses stays one slot behind until the buffer
+// fully drains.
+//
+// This worker does NOT recover X — given the off-by-one mechanism above, it
+// cannot. What it does is bound the time before SOME response surfaces in
+// the chat (~30-60 s instead of never), draining the wrapper's buffer one
+// slot per wake-up, and attach a transparent badge so users can see what
+// happened. After two unsuccessful attempts, X is marked `state=error`
+// with a link to this worker's design doc so the user knows the original
+// turn's response was probably delivered to a nearby auto-wake interaction.
 //
 // # What this worker does
 //

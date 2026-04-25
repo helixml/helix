@@ -15,12 +15,32 @@
 > agent, notifying the agent. Only after I send enough messages, things sync up
 > and responses start streaming again.
 
-Concretely on this session:
+Concretely on this session, the more precise pattern (corrected on
+re-read of the wire trace + the user's first-hand observation) is
+**off-by-one delivery**, not "everything arrives together":
 
 - Several minutes of apparent silence after a long-running turn finishes.
-- User sends a short message ("what are you doing"). Nothing visibly happens.
-- User sends another ("??"). Suddenly a brief response appears.
-- User sends another ("fucking fix it"). Now the agent is actually responsive again.
+- User sends "what are you doing". The wrapper *responds* — but with an
+  empty terminated turn (`stopReason=end_turn`, no content). Helix sees a
+  `message_completed` with empty body or never sees one at all. The
+  interaction stays `waiting`.
+- User sends "??". Now the response that *should have been* for "what
+  are you doing" finally arrives — but it's tagged with a stale
+  `request_id` from yet another older turn, and Helix's matcher attaches
+  it to the "??" interaction. The user sees "??" in their chat with a
+  substantive response next to it that's actually answering "what are
+  you doing".
+- User sends "fucking fix it". The cycle repeats one slot further along.
+  Eventually the wrapper's outbound buffer drains and responses start
+  landing in the right interaction again.
+
+The stuck `waiting` interaction *never gets its own response* — the
+response is delivered to a *later* prompt's interaction. From the user's
+chat history this looks like every reply is one prompt behind. This is
+the single most important detail for the rest of the doc: it means the
+problem isn't "one slow flush", it's a **persistent off-by-one
+misalignment between user prompts and agent responses, which only
+self-corrects after enough prompts to drain the wrapper's buffer**.
 
 ## Evidence (Helix-side)
 
@@ -346,36 +366,53 @@ Helix side alone.
 
 ## Working hypothesis
 
-The agent (`@zed-industries/claude-agent-acp` 0.23.x) buffers
-`session/update` notifications on its outbound JSON-RPC channel during a turn.
-Because the protocol has no turn-complete signal (#554), there is no fence
-that says "all updates for turn T are now flushed". Multiple things can leave
-the buffer non-empty by the time the turn's response is sent:
+The agent (`@zed-industries/claude-agent-acp` 0.23.x and later, current
+0.31.0) buffers `session/update` notifications and possibly entire
+prompt responses on its outbound JSON-RPC channel. Because the protocol
+has no turn-complete signal (#554) and no unparented event channel (see
+"Architectural root cause" below), the wrapper has nowhere to deliver
+events that arrive after `stopReason` for the originating turn. When the
+*next* `session/prompt` arrives, the wrapper services the inbound RPC,
+which kicks its outbound flush loop. Whatever's at the head of the
+buffer leaves first — and that's the previous turn's response, *tagged
+with the previous turn's `request_id`*.
 
-- async tool completions emitted after the agent has already decided the turn
-  is done,
-- usage updates issued from background bookkeeping in the wrapper,
-- replayed events on `session/load` that pre-date the new client's
-  subscription.
+Helix's `request_id → interaction` matcher in `handleMessageCompleted`
+sees the stale `request_id`, finds its mapping was already consumed
+(value `""`), falls through to the DB fallback ("most recent waiting
+interaction"), and binds the response to the wrong interaction —
+specifically, to the *new* prompt the user just sent. Hence the
+off-by-one shift: prompt N's response lands on interaction N+1.
 
-These accumulate. Zed's outbound flush of these is gated on its own event
-loop running, which it does eagerly while a prompt is active and lazily once
-the turn has resolved. The next inbound `session/prompt` from the user kicks
-the loop hard enough to drain the backlog, which is what we observe as a
-"queue of stale notifications" landing all at once when the user sends a new
-message.
+The stuck interaction (the original prompt) never gets its own response
+because by the time the buffer head moves past it, every subsequent
+slot has its own buffered event waiting. The misalignment persists
+until the user has sent enough prompts to drain the buffer past the
+gap, at which point new prompts and responses re-align.
 
-This is also consistent with what we see Helix-side: stale `request_id`s
-that were already consumed by a previous `message_completed` showing up again
-in `RECEIVED MESSAGE_COMPLETED` events hours later, immediately after a fresh
-user message.
+Wire-level evidence on this session:
 
-We believe the post-rebase increase in severity is because the wider rebase
-brought in the `AgentConnectionCache` dedup
+- `06:12:23` — `RECEIVED MESSAGE_COMPLETED` with
+  `request_id=req_fd0d65c7-...` (originally Helix's request_id from
+  `05:11:41` for the implementation prompt — long settled, mapping
+  consumed). Helix's matcher logged
+  `✅ Matched interaction by request_id mapping` and assigned this
+  completion to `int_01kq1hfw8` (the 05:23 turn — also already long
+  complete with 112KB of response). So this `message_completed` was a
+  pure no-op from Helix's perspective: a stale duplicate.
+- `06:12:48` — `RECEIVED MESSAGE_COMPLETED` with
+  `request_id=int_01kq1hfw8...` (also stale, from 05:27). Matched to
+  `int_01kq1m9v` ("??" — the prompt the user *just* sent). The 1234
+  bytes of response on `int_01kq1m9v` came in via this matcher
+  decision, but the content was almost certainly the buffered tail of a
+  much earlier turn — not what "??" alone would generate.
+
+We believe the post-rebase increase in severity is because the wider
+rebase brought in the `AgentConnectionCache` dedup
 (`ba7e97aea6` → `350de991de`), which makes a *single* underlying ACP
-connection serve multiple `Entity<AcpThread>` instances. Buffered events on
-that shared connection now have more places to be misrouted, so the user
-hits the underlying ACP-layer issue more visibly.
+connection serve multiple `Entity<AcpThread>` instances. Buffered
+events on that shared connection now have more places to be misrouted,
+so the user hits the underlying ACP-layer issue more visibly.
 
 ## What this is *not*
 
@@ -609,6 +646,53 @@ read off `auto_wake_count > 0` on the interaction record.
   rather than looping. When the upstream protocol gap closes (#554, #644
   land), the workaround can be feature-flagged off without any data
   migration.
+
+### Honest accounting of what the worker actually does (given off-by-one)
+
+Given the corrected mechanism (the stuck interaction's response arrives
+on a *later* prompt's interaction, never on its own), the worker does
+NOT recover the stuck interaction itself. What it does is:
+
+1. Detect stuck X (waiting >30 s, no chunks).
+2. Send `"continue"` — creates interaction Y, kicks the wrapper's flush
+   loop.
+3. The buffered head-of-queue drains: X's response arrives with X's
+   stale `request_id`. Helix's matcher binds it to Y (most recent
+   waiting). So Y completes with content that was actually meant for X.
+4. If the buffer still has more queued, another "continue" (Y2) drains
+   the next slot.
+5. After 2 attempts, mark X as `state=error` so it stops being scanned.
+
+End-user effect: X gets a confusing-looking error 50–60 s after they
+sent it; the response that was meant for X arrives in the chat one or
+two slots later, attached to a `↻ Helix auto-sent` badged "continue"
+prompt. The user can read the response and infer it was for their
+original question. Without the worker, X stays in `state=waiting`
+indefinitely and the response never surfaces unless the user manually
+types a follow-up.
+
+It's not a clean recovery. It's a *bounded* recovery — the user gets
+their answer (in a slightly weird place) within a minute instead of
+never, and the badge tells the truth about what happened.
+
+### Followup that would make this less ugly (not in this PR)
+
+When an auto-wake interaction Y completes with a substantive response,
+we know that response was almost certainly meant for the stuck X. We
+could:
+
+- Retroactively mark X as `state=completed` with a status note like
+  `"Response delivered to follow-up auto-wake — see next message"`.
+- Render X as a special tombstone in the chat with a "↓ response below"
+  pointer to Y.
+- Optionally hoist Y's content back into X's `response_message` and hide
+  Y from the chat entirely (more invasive — interactions don't currently
+  link this way and the response_message might genuinely have come from
+  the wake-up itself, not the buffered tail).
+
+These are UI/data-model changes that are bigger than the current PR's
+surface area. Tracked here for whoever picks up the auto-wake polish
+sprint after we have a few weeks of production data on the basic version.
 
 ### Why this is *not* a real fix
 
