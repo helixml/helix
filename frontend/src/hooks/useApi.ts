@@ -53,6 +53,33 @@ const apiClientSingleton = new Api({
   // No securityWorker needed - session cookie is sent automatically
 })
 
+// Embed auth: pages loaded via /embed/* (e.g. inside an iframe in a third-party
+// app like the Gatewaze newsletter editor) carry a Helix API key as
+// ?access_token=... in the URL. The browser cookie won't be present in that
+// context, so wire the token into Authorization headers for both axios and the
+// generated API client. Strip the token from the visible URL afterwards so it
+// doesn't leak via screenshots, history, or referrer.
+const embedToken = (() => {
+  if (typeof window === 'undefined') return null
+  const params = new URLSearchParams(window.location.search)
+  const token = params.get('access_token')
+  if (!token) return null
+  params.delete('access_token')
+  const search = params.toString()
+  window.history.replaceState(
+    {},
+    '',
+    window.location.pathname + (search ? '?' + search : '') + window.location.hash,
+  )
+  return token
+})()
+
+if (embedToken) {
+  const authValue = `Bearer ${embedToken}`
+  axios.defaults.headers.common['Authorization'] = authValue
+  apiClientSingleton.instance.defaults.headers.common['Authorization'] = authValue
+}
+
 // Add interceptors to the Api client's axios instance
 apiClientSingleton.instance.interceptors.request.use(csrfInterceptor)
 
