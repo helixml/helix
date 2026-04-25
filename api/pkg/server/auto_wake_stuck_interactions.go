@@ -141,20 +141,27 @@ const (
 	// `state=waiting` interaction before we consider it stuck.
 	//
 	// 120 s is deliberately conservative. Picking too low produces
-	// false positives on legitimately-slow prompts:
-	//   - Claude with extended thinking enabled can think silently for
-	//     minutes before emitting any tokens
-	//   - Tool-heavy starts may run several MCP/Read/Bash tools before
-	//     producing user-visible text
-	//   - Anthropic API can be slow under load or on a cold cache
+	// false positives when the Anthropic API itself is slow (load,
+	// cold cache, large prompts taking time before the first chunk).
+	// A false positive re-sends the user's prompt while the agent is
+	// mid-something — for idempotent prompts that's a cosmetic
+	// duplicate response, for destructive ones (`rm`, `git push`)
+	// it's a real risk.
 	//
-	// A false positive here means re-sending the user's prompt while
-	// the agent is mid-think. For idempotent prompts that's a cosmetic
-	// duplicate response; for destructive prompts it's a real risk
-	// (the agent may execute the same tool call twice). We also gate
-	// on the presence of a streaming context (see maybeAutoWake) which
-	// catches most of the tool-heavy case, but not silent thinking
-	// before the first emit.
+	// What this DOES NOT need to cover: extended-thinking silence.
+	// Claude's thinking surfaces as `AgentThoughtChunk` ACP session
+	// notifications, which produce `MessageAdded` events to Helix,
+	// which create entries in `apiServer.streamingContexts`. The
+	// streaming-context gate in maybeAutoWake catches the thinking
+	// case directly — we don't need the threshold to be long enough
+	// to wait it out. Same goes for tool-heavy starts: every
+	// `tool_call` entry creates a streaming context.
+	//
+	// What's left for the threshold: the genuinely-blank window
+	// between the user's `session/prompt` and the wrapper's first
+	// outbound notification of any kind. On a healthy session that's
+	// usually 2-10 s; under load or for huge prompts it can stretch.
+	// 120 s is well past observed normal ceilings.
 	//
 	// Override at runtime with HELIX_AUTO_WAKE_STUCK_THRESHOLD_SECONDS.
 	defaultAutoWakeStuckThreshold = 120 * time.Second
@@ -239,32 +246,58 @@ func (apiServer *HelixAPIServer) maybeAutoWake(ctx context.Context, stuck *types
 		return
 	}
 	threshold := autoWakeStuckThreshold()
-	if time.Since(conn.ConnectedAt) < threshold {
+
+	// The "stuck enough to wake" clock should anchor on the most
+	// recent of:
+	//   - When the WebSocket connected (agent only able to receive
+	//     prompts after this)
+	//   - When the session last had activity (a chat_message went out,
+	//     a message_completed came back — both call TouchSession and
+	//     bump session.updated)
+	//
+	// This handles three failure modes the connection-only gate misses:
+	//
+	//   - User sends a follow-up message while X is stuck: session.updated
+	//     refreshes; we shouldn't wake X immediately because the user is
+	//     already manually doing what we'd do.
+	//   - A previous turn completed recently (message_completed bumps
+	//     session.updated): the agent was demonstrably alive
+	//     `threshold` seconds ago; X probably isn't stuck yet, just
+	//     queued behind that completion's flush.
+	//   - WS reconnected long ago but the agent has been chatty since
+	//     (each turn touches session.updated): no need to wake on age
+	//     of a single old-but-still-processing prompt.
+	session, err := apiServer.Store.GetSession(ctx, stuck.SessionID)
+	if err != nil {
+		log.Warn().Err(err).
+			Str("interaction_id", stuck.ID).
+			Msg("[AUTO_WAKE] Failed to load session for activity anchor; skipping")
+		return
+	}
+	anchor := conn.ConnectedAt
+	if session.Updated.After(anchor) {
+		anchor = session.Updated
+	}
+	if time.Since(anchor) < threshold {
 		return
 	}
 
 	// Gate 1b — active streaming context.
 	//
-	// If the wrapper has dispatched at least one `added message` event
-	// for this session's current turn, getOrCreateStreamingContext
-	// will have created a streamingContext entry. That happens for
-	// text chunks, tool calls, thought-style step_info events, and any
-	// other content-bearing notification — i.e. anything that proves
-	// the agent is actively producing output for this turn even if no
-	// text has reached interaction.response_message yet (which is the
-	// usual tool-heavy-start case).
+	// If the wrapper has dispatched ANY content-bearing event for this
+	// session's current turn, `getOrCreateStreamingContext` will have
+	// created a `streamingContext` entry. That happens for:
 	//
-	// If a context exists, skip — the agent is working, even if the
-	// row in the DB still looks blank to ListStuckWaitingInteractions
-	// because of throttled DB writes.
+	//   - text chunks (`agent_message_chunk`)
+	//   - thinking entries (`agent_thought_chunk` — Claude's extended
+	//     thinking is NOT silent at the protocol level)
+	//   - tool calls (`tool_call`, `tool_call_update`)
+	//   - any other session_update with content
 	//
-	// Note: this does NOT cover the "silent extended thinking before
-	// first emit" case — Claude can think for 60-120 s without any
-	// session_update arriving, in which case no streaming context
-	// exists and we'd flag this as stuck. We accept that false-positive
-	// risk in exchange for the conservative threshold; if it becomes a
-	// problem in practice we can lengthen the threshold further or
-	// expose a per-session opt-out.
+	// If the context exists, skip — the agent is demonstrably alive on
+	// this session, even if the row in the DB still looks blank to
+	// ListStuckWaitingInteractions (throttled DB writes can lag the
+	// in-memory streaming state by tens of seconds).
 	apiServer.streamingContextsMu.RLock()
 	_, hasStreamingCtx := apiServer.streamingContexts[stuck.SessionID]
 	apiServer.streamingContextsMu.RUnlock()
@@ -303,14 +336,7 @@ func (apiServer *HelixAPIServer) maybeAutoWake(ctx context.Context, stuck *types
 		return
 	}
 
-	// Need session metadata for the WS command.
-	session, err := apiServer.Store.GetSession(ctx, stuck.SessionID)
-	if err != nil {
-		log.Warn().Err(err).
-			Str("interaction_id", stuck.ID).
-			Msg("[AUTO_WAKE] Failed to load session; skipping")
-		return
-	}
+	// (`session` already loaded above for the activity-anchor check.)
 
 	// Skip if the stuck interaction has no prompt content to re-send.
 	// Pathological case (synthetic interactions, bad data) — don't try
