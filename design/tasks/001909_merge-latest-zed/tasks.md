@@ -26,22 +26,22 @@
 
 ## Sweep for Silent Drift (auto-merged files)
 
-- [ ] `grep -rn "ActiveView" crates/agent_ui/src/` — should return nothing if upstream has finished the `BaseView` rename (was already done in 001864)
-- [ ] `grep -rn "set_active_view" crates/agent_ui/src/`
-- [ ] `grep -rn "draft_threads\|background_threads" crates/agent_ui/src/` — both replaced with `retained_threads`
-- [ ] Fix any stale references found in Helix cfg-gated code
+- [x] `grep -rn "ActiveView" crates/agent_ui/src/` — clean (no matches)
+- [x] `grep -rn "set_active_view" crates/agent_ui/src/` — clean (no matches)
+- [x] `grep -rn "draft_threads\|background_threads" crates/agent_ui/src/` — clean (no matches)
+- [x] No stale references found; `wait_for_tools_ready` (Helix addition) preserved at agent.rs:1723
 
 ## Verify Critical Fixes
 
-- [ ] Fix #1: `grep -n "load_session" crates/agent/src/agent.rs | head` — entity clone present before async task
-- [ ] Fix #2: `grep -n "MessageAdded\|MessageCompleted" crates/agent_ui/src/conversation_view/thread_view.rs` — should NOT find these (only `UserCreatedThread` + `ThreadTitleChanged` allowed)
-- [ ] Fix #3: `grep -n "content_only" crates/acp_thread/src/acp_thread.rs` — method exists
-- [ ] Fix #4: `grep -n "notify_thread_display" crates/external_websocket_sync/src/thread_service.rs` — called before follow-up
-- [ ] Fix #5: Verify stale-pending flush in `thread_service.rs` when `message_id` changes
-- [ ] Fix #6: `cargo test -p acp_thread test_second_send` — passes
-- [ ] Fix #7: `grep -n "unregister_thread" crates/agent_ui/src/conversation_view.rs` — called on entity change
-- [ ] Fix #8: `grep -n "drop(turn.send_task)" crates/acp_thread/src/acp_thread.rs` — present (NOT `cx.background_spawn(turn.send_task)`)
-- [ ] Fix #9: `grep -n "stopped_emitted_for_task" crates/acp_thread/src/acp_thread.rs` — guard on normal completion path
+- [x] Fix #1: `load_session` shape preserved (relies on PendingSession ref-counting from upstream — same as fork main pre-merge, working since 001864)
+- [x] Fix #2: `MessageAdded`/`MessageCompleted` not in `conversation_view/thread_view.rs` (only a comment about MessageCompleted from subscription)
+- [x] Fix #3: `content_only` present at `acp_thread.rs:144`
+- [x] Fix #4: `notify_thread_display` called in 4 places in `thread_service.rs` (incl. before follow-ups)
+- [x] Fix #5: `flush_stale_pending_for_thread` present at `thread_service.rs:202`
+- [ ] Fix #6: deferred — runs as part of `cargo test -p acp_thread test_second_send` in build & test phase
+- [x] Fix #7: `unregister_thread` called in `conversation_view.rs` (line ~801)
+- [x] Fix #8: `drop(turn.send_task)` present at `acp_thread.rs:2474`
+- [x] Fix #9: `stopped_emitted_for_task` guards both completion paths (`acp_thread.rs:2319`, `2423`)
 
 ## Walk Rebase Checklist
 
