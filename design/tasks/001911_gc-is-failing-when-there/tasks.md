@@ -1,6 +1,6 @@
 # Implementation Tasks
 
-- [ ] In `api/pkg/hydra/golden_zvol.go`, change `runCmd("zfs", "destroy", cloneName)` at line 510 to `runCmd("zfs", "destroy", "-r", cloneName)`.
+- [~] In `api/pkg/hydra/golden_zvol.go`, change `runCmd("zfs", "destroy", cloneName)` at line 510 to `runCmd("zfs", "destroy", "-r", cloneName)`.
 - [ ] Update the doc-comment on `CleanupSessionZvol` (line 490) to note the destroy is recursive (cleans up any child snapshots).
 - [ ] Add `TestCleanupSessionZvol_WithChildSnapshot` to `api/pkg/hydra/golden_zvol_test.go` that asserts `zfs destroy` is invoked with the `-r` flag.
 - [ ] Verify existing `TestCleanupSessionZvol_*` tests still pass (the no-children path is unchanged in observable behaviour, but the command-line mock may need its expected args updated).
