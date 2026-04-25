@@ -3693,6 +3693,21 @@ func (mr *MockStoreMockRecorder) IncrementGlobalTaskNumber(ctx any) *gomock.Call
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IncrementGlobalTaskNumber", reflect.TypeOf((*MockStore)(nil).IncrementGlobalTaskNumber), ctx)
 }
 
+// IncrementInteractionAutoWakeCount mocks base method.
+func (m *MockStore) IncrementInteractionAutoWakeCount(ctx context.Context, interactionID string) (int, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "IncrementInteractionAutoWakeCount", ctx, interactionID)
+	ret0, _ := ret[0].(int)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// IncrementInteractionAutoWakeCount indicates an expected call of IncrementInteractionAutoWakeCount.
+func (mr *MockStoreMockRecorder) IncrementInteractionAutoWakeCount(ctx, interactionID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IncrementInteractionAutoWakeCount", reflect.TypeOf((*MockStore)(nil).IncrementInteractionAutoWakeCount), ctx, interactionID)
+}
+
 // IncrementProjectTaskNumber mocks base method.
 func (m *MockStore) IncrementProjectTaskNumber(ctx context.Context, projectID string) (int, error) {
 	m.ctrl.T.Helper()
