@@ -29,7 +29,9 @@ type Client interface {
 	GetAppAPIKeys(ctx context.Context, appID string) ([]*types.ApiKey, error)
 
 	// Sessions
-	ListSessions(ctx context.Context, f *SessionFilter) (*types.SessionsList, error)
+	ListSessions(ctx context.Context, f *SessionFilter) (*types.PaginatedSessionsList, error)
+	GetSession(ctx context.Context, sessionID string) (*types.Session, error)
+	StopExternalAgent(ctx context.Context, sessionID string) error
 
 	RunAPIAction(ctx context.Context, appID string, action string, parameters map[string]interface{}) (*types.RunAPIActionResponse, error)
 
@@ -42,6 +44,7 @@ type Client interface {
 
 	ListSecrets(ctx context.Context) ([]*types.Secret, error)
 	CreateSecret(ctx context.Context, secret *types.CreateSecretRequest) (*types.Secret, error)
+	CreateProjectSecret(ctx context.Context, projectID string, secret *types.CreateSecretRequest) (*types.Secret, error)
 	UpdateSecret(ctx context.Context, id string, secret *types.Secret) (*types.Secret, error)
 	DeleteSecret(ctx context.Context, id string) error
 
@@ -83,6 +86,10 @@ type Client interface {
 	UpdateHelixModel(ctx context.Context, id string, model *types.Model) (*types.Model, error)
 	DeleteHelixModel(ctx context.Context, id string) error
 
+	// Git
+	WriteGitFile(ctx context.Context, repoID string, req *types.UpdateGitRepositoryFileContentsRequest) (*types.GitRepositoryFileResponse, error)
+	ReadGitFile(ctx context.Context, repoID, path, branch string) (*types.GitRepositoryFileResponse, error)
+
 	// Projects
 	ApplyProject(ctx context.Context, req *types.ProjectApplyRequest) (*types.ProjectApplyResponse, error)
 
@@ -100,8 +107,9 @@ type Client interface {
 
 type SessionFilter struct {
 	OrganizationID string
-	Offset         int
-	Limit          int
+	ProjectID      string
+	Page           int
+	PageSize       int
 }
 
 type UserFilter struct {
