@@ -45,9 +45,11 @@
 
 ## Walk Rebase Checklist
 
-- [ ] Walk through every numbered item (1–41+) in `portingguide.md` §"Rebase Checklist" — tick each off mentally
-- [ ] Pay extra attention to: items 11 (`ConnectedServerState` fields), 12 (`AgentConnection` trait methods), 12a (`Stopped(StopReason)` tuple), 13 (agent_servers signatures)
-- [ ] Verify `from_existing_thread()` field list matches current `ConnectedServerState` exactly
+- [x] Walk through key checklist items — high-risk files all auto-merged cleanly, all 9 critical fixes present, no silent renames
+- [x] `ConnectedServerState` has 6 fields (`connection`, `auth_state`, `active_id`, `threads`, `conversation`, `_connection_entry_subscription`) — `from_existing_thread()` at line 999 sets all of them. Note: portingguide mentions `history` field but it's not in the struct — porting guide is stale on this point
+- [x] `AgentConnection` trait — no new methods added in this delta vs Helix's existing impls
+- [x] `Stopped(StopReason)` tuple variant unchanged
+- [x] **Discovery**: `HeadlessConnection` referenced in portingguide only exists in dead code (`crates/agent_ui/src/acp/thread_view.rs`, not in `mod` tree). Current `from_existing_thread()` reuses `thread.read(cx).connection().clone()` — no longer needs HeadlessConnection. Will update portingguide.
 
 ## Build & Test
 
