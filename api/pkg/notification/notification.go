@@ -48,6 +48,13 @@ func (n *NotificationsProvider) Notify(ctx context.Context, notification *Notifi
 		return nil
 	}
 
+	// Send webhook if callback URL is configured
+	if notification.CallbackURL != "" {
+		if err := sendWebhook(ctx, notification.CallbackURL, notification); err != nil {
+			log.Error().Err(err).Str("callback_url", notification.CallbackURL).Msg("failed to send webhook notification")
+		}
+	}
+
 	if !n.email.Enabled() {
 		log.Debug().Str("notification", notification.Event.String()).Msg("email not enabled")
 		return nil

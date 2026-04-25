@@ -1059,6 +1059,7 @@ export interface ISessionChatRequest {
   rag_source_id?: string,
   lora_id?: string,
   interrupt?: boolean, // If true, interrupt current agent work; if false, queue after current work completes
+  session_role?: string,
 }
 
 export interface IDataEntity {

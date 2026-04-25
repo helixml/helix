@@ -479,6 +479,8 @@ func NewServer(
 
 	// Wire spec task creator into the trigger manager for cron triggers with action "spec_task"
 	apiServer.trigger.SetSpecTaskCreator(apiServer.specDrivenTaskService)
+	// Wire external agent starter for cron triggers with agent_type "zed_external"
+	apiServer.trigger.SetExternalAgentStarter(apiServer)
 
 	// Set the request mapping callback for SpecDrivenTaskService
 	apiServer.specDrivenTaskService.RegisterRequestMapping = apiServer.RegisterRequestToSessionMapping
@@ -486,6 +488,8 @@ func NewServer(
 	apiServer.specDrivenTaskService.SendMessageToAgent = apiServer.sendMessageToSpecTaskAgent
 	// Set the project secrets callback for injecting secrets as env vars into desktop containers
 	apiServer.specDrivenTaskService.GetProjectSecrets = apiServer.GetProjectSecretsAsEnvVars
+	// Set the exec-in-desktop callback for running commands in containers (e.g., updating git identity)
+	apiServer.specDrivenTaskService.ExecInDesktop = apiServer.execCommandInDesktop
 
 	// Initialize Attention Service for human-needed event notifications
 	apiServer.attentionService = services.NewAttentionService(store, cfg)
@@ -788,6 +792,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/sessions/{id}/sandbox-state", apiServer.getSessionSandboxState).Methods(http.MethodGet)
 	authRouter.HandleFunc("/sessions/{id}/resume", apiServer.resumeSession).Methods(http.MethodPost)
 	authRouter.HandleFunc("/sessions/{id}/stop-external-agent", system.Wrapper(apiServer.stopExternalAgentSession)).Methods(http.MethodDelete)
+	authRouter.HandleFunc("/sessions/{id}/output", system.Wrapper(apiServer.getSessionOutput)).Methods(http.MethodGet)
 
 	// Port exposure for dev containers - expose services running inside dev containers
 	authRouter.HandleFunc("/sessions/{id}/expose", system.Wrapper(apiServer.exposeSessionPort)).Methods(http.MethodPost)

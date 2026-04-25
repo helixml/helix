@@ -1195,6 +1195,9 @@ func (dm *DevContainerManager) DeleteDevContainer(ctx context.Context, sessionID
 	}
 	defer dockerClient.Close()
 
+	// Auto-commit helix-specs changes before destroying the container
+	dm.autoCommitHelixSpecs(ctx, dockerClient, dc)
+
 	// Stop container with short timeout - these are disposable dev containers
 	// that can be killed immediately; no need to wait for graceful shutdown
 	timeout := 2
@@ -1271,6 +1274,56 @@ func (dm *DevContainerManager) DeleteDevContainer(ctx context.Context, sessionID
 		Status:        DevContainerStatusStopped,
 		ContainerType: dc.ContainerType,
 	}, nil
+}
+
+// autoCommitHelixSpecs execs into the container and commits+pushes any changes
+// in the helix-specs worktree. This preserves job state files between runs.
+// Best-effort — failures are logged but don't prevent container shutdown.
+func (dm *DevContainerManager) autoCommitHelixSpecs(ctx context.Context, dockerClient *client.Client, dc *DevContainer) {
+	commitCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	script := `cd ~/work/helix-specs 2>/dev/null && git add -A && git diff --cached --quiet || (git commit -m "Auto-commit job state" && git push origin helix-specs)`
+
+	execConfig := dockertypes.ExecConfig{
+		Cmd:          []string{"bash", "-c", script},
+		AttachStdout: true,
+		AttachStderr: true,
+		User:         "user",
+	}
+
+	execID, err := dockerClient.ContainerExecCreate(commitCtx, dc.ContainerID, execConfig)
+	if err != nil {
+		log.Debug().Err(err).Str("session_id", dc.SessionID).Msg("Failed to create exec for helix-specs auto-commit")
+		return
+	}
+
+	resp, err := dockerClient.ContainerExecAttach(commitCtx, execID.ID, dockertypes.ExecStartCheck{})
+	if err != nil {
+		log.Debug().Err(err).Str("session_id", dc.SessionID).Msg("Failed to attach exec for helix-specs auto-commit")
+		return
+	}
+	defer resp.Close()
+
+	// Read output to completion
+	output, _ := io.ReadAll(resp.Reader)
+
+	// Check exec exit code
+	inspect, err := dockerClient.ContainerExecInspect(commitCtx, execID.ID)
+	if err != nil {
+		log.Debug().Err(err).Str("session_id", dc.SessionID).Msg("Failed to inspect exec for helix-specs auto-commit")
+		return
+	}
+
+	if inspect.ExitCode == 0 {
+		log.Info().Str("session_id", dc.SessionID).Msg("Auto-committed helix-specs changes")
+	} else {
+		log.Debug().
+			Str("session_id", dc.SessionID).
+			Int("exit_code", inspect.ExitCode).
+			Str("output", string(output)).
+			Msg("helix-specs auto-commit returned non-zero (may have no changes)")
+	}
 }
 
 // GCOrphanedSessions removes session Docker data directories that don't have

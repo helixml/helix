@@ -622,6 +622,32 @@ read off `auto_wake_count > 0` on the interaction record.
   some version of this same workaround until ACP grows the missing
   primitives.
 
+### Critical: bypass the prompt queue, do *not* interrupt
+
+The `prompt_history_handlers.go:203` busy check (*"is there a waiting
+interaction? if so, defer"*) would deadlock the auto-wake against the very
+interaction we're trying to wake. There are two ways to send around it,
+and they are not equivalent:
+
+| Approach                          | What happens                                                                            |
+| --------------------------------- | --------------------------------------------------------------------------------------- |
+| Queue path with `interrupt=true`  | Zed fires `session/cancel`, triggering claude-agent-acp #551 → "continue" itself gets bounced (`stopReason=end_turn`, 0 tokens). Both retries burn for nothing. **Worse than not auto-waking at all.** |
+| **Direct `sendChatMessageToExternalAgent`, no interrupt** | Auto-wake skips the queue check entirely. The wrapper is in fact idle in our stuck scenario (it emitted `stopReason` for the prior turn — that's *why* Zed UI shows "done") and processes the "continue" normally. |
+
+Use the second. Helix's `state=waiting` is bookkeeping that the wrapper
+never sent a `message_completed`; it is *not* a claim that the wrapper
+is mid-prompt. The busy check is reasoning correctly for the normal
+user-prompt path and incorrectly for the auto-wake path; we sidestep
+rather than relax the check.
+
+Side effect: there will momentarily be *two* `state=waiting` interactions
+for one session — the original (stuck) and the auto-wake (in flight). That
+is acceptable. Whichever the wrapper's next `message_completed` matches
+via `request_id` mapping is the one that resolves; the other either drains
+on the same event tick (the wake worked, so the original turn's buffered
+response flushes too) or hits the auto-wake retry cap and is marked
+`state=error` after the second attempt.
+
 ### Implementation sketch
 
 Single source file (`api/pkg/server/auto_wake_stuck_interactions.go`)
@@ -634,6 +660,10 @@ top of the file explaining:
    downstream rolls out, then can be feature-flagged off).
 4. The known coverage gap (silent-drop case, see "A worse failure mode"
    section of this doc).
+5. **Why the auto-wake bypasses the queue and never sets `interrupt=true`**
+   (see table above) — this is non-obvious from the surrounding code and
+   future maintainers will be tempted to "fix" it by routing through the
+   queue.
 
 DB change: one new column, `interactions.auto_wake_count INTEGER NOT NULL
 DEFAULT 0`. Frontend reads the column and renders the badge when

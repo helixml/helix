@@ -59,6 +59,7 @@ interface NewInferenceParams {
   agentType?: IAgentType;
   externalAgentConfig?: any;
   interrupt?: boolean; // If true, interrupt current agent work; if false/undefined, queue after current work
+  sessionRole?: string;
 }
 
 interface StreamingContextType {
@@ -642,6 +643,7 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({
     agentType = "helix_agent",
     externalAgentConfig = undefined,
     interrupt = true, // Default to interrupt for backwards compatibility
+    sessionRole = "",
   }: NewInferenceParams): Promise<TypesSession> => {
     // Clear both buffer and history for new sessions
     messageBufferRef.current.delete(sessionId);
@@ -729,6 +731,7 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({
       agent_type: agentType,
       external_agent_config: sanitizedExternalAgentConfig,
       interrupt: interrupt,
+      session_role: sessionRole || undefined,
       messages: [
         {
           role: "user",
