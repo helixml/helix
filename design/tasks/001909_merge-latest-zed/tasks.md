@@ -57,7 +57,7 @@
 - [x] Compile-error cause documented in design.md (smol removal, not the predicted HeadlessConnection issue)
 - [ ] `cargo test -p external_websocket_sync` — deferred (can run via stack/docker if needed; not in canonical local toolchain)
 - [ ] `cargo test -p acp_thread test_second_send` — deferred (will run as part of E2E)
-- [ ] Copy fresh binary: `cp /home/retro/work/helix/zed-build/zed /home/retro/work/zed/crates/external_websocket_sync/e2e-test/zed-binary`
+- [~] Copy fresh binary: `cp /home/retro/work/helix/zed-build/zed /home/retro/work/zed/crates/external_websocket_sync/e2e-test/zed-binary`
 - [ ] E2E zed-agent: `cd /home/retro/work/zed/crates/external_websocket_sync/e2e-test && ./run_docker_e2e.sh`
 - [ ] E2E claude: `E2E_AGENTS="zed-agent,claude" ./run_docker_e2e.sh`
 - [ ] All 10 phases pass for both agents (Phase 8 + 9 most sensitive — verify they succeed)

@@ -153,6 +153,11 @@ The portingguide references `HeadlessConnection` extensively, but it only exists
 ### `ConnectedServerState` lost its `history` field
 Portingguide §"`from_existing_thread()` matches `ConnectedServerState`" lists `history` as a field. Current struct has 6 fields: `connection`, `auth_state`, `active_id`, `threads`, `conversation`, `_connection_entry_subscription`. No `history`.
 
+### `--allow-multiple-instances` was lost in 001864
+The Helix-added CLI flag `--allow-multiple-instances` (originally added in `4cae6d90f7`) was silently dropped during the 001864 merge — neither the `Args` struct field nor the use-site in `failed_single_instance_check` survived. This blocked the E2E test from running at all (Zed exited with `error: unexpected argument '--allow-multiple-instances' found`).
+
+**Fix**: Restored both the `Args` field and the conditional check in `crates/zed/src/main.rs`. Confirmed working via E2E.
+
 ### `cx.update()` on AsyncApp is now infallible
 Upstream PR #54818 ("Update AI rules to reflect that `AsyncApp` updates are now infallible") changed `AsyncApp::update` to return `R` directly instead of `Result<R>`. Helix's `wait_for_tools_ready()` already used the new pattern (no `.ok()` / `?`), so the merge picked this up cleanly.
 
