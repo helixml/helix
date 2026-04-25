@@ -1,0 +1,134 @@
+// Package bootstrap creates the initial owner Worker and grants the
+// structural tools. Runs exactly once — subsequent calls fail if any Worker
+// already exists.
+package bootstrap
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"os"
+	"time"
+
+	"github.com/google/uuid"
+
+	"github.com/helixml/helix-org/domain"
+	"github.com/helixml/helix-org/store"
+	"github.com/helixml/helix-org/tools"
+)
+
+// Params controls the bootstrap.
+type Params struct {
+	// EnvironmentPath is an absolute path to the owner's Environment. The
+	// directory must already exist on disk — bootstrap does not create it.
+	EnvironmentPath string
+}
+
+// Result summarises the newly-created owner.
+type Result struct {
+	WorkerID        domain.WorkerID
+	RoleID          domain.RoleID
+	PositionID      domain.PositionID
+	EnvironmentPath string
+}
+
+// ErrAlreadyInitialised is returned when at least one worker already exists.
+var ErrAlreadyInitialised = errors.New("org is already initialised")
+
+// Run performs the bootstrap: create the owner's Role, Position, Worker,
+// Environment row, and grant every structural tool. Bootstrap is the root
+// of trust — these are the only grants in the system not issued by a
+// prior Worker — and the grants it issues stop at the structural set.
+func Run(ctx context.Context, s *store.Store, params Params) (Result, error) {
+	if params.EnvironmentPath == "" {
+		return Result{}, fmt.Errorf("environmentPath is required")
+	}
+	if info, err := os.Stat(params.EnvironmentPath); err != nil {
+		return Result{}, fmt.Errorf("environmentPath %q: %w", params.EnvironmentPath, err)
+	} else if !info.IsDir() {
+		return Result{}, fmt.Errorf("environmentPath %q is not a directory", params.EnvironmentPath)
+	}
+
+	existing, err := s.Workers.List(ctx)
+	if err != nil {
+		return Result{}, fmt.Errorf("check existing workers: %w", err)
+	}
+	if len(existing) > 0 {
+		return Result{}, ErrAlreadyInitialised
+	}
+
+	now := time.Now().UTC()
+	role, err := domain.NewRole(
+		"r-owner",
+		"# Owner\n\nYou are the owner of this organisation. You hold every structural "+
+			"tool and may reshape the org as you see fit. Edit role.md to record what the "+
+			"owner role means here.\n",
+		now,
+	)
+	if err != nil {
+		return Result{}, err
+	}
+	if err := s.Roles.Create(ctx, role); err != nil {
+		return Result{}, fmt.Errorf("create owner role: %w", err)
+	}
+
+	rootPos, err := domain.NewPosition("p-root", role.ID, nil)
+	if err != nil {
+		return Result{}, err
+	}
+	if err := s.Positions.Create(ctx, rootPos); err != nil {
+		return Result{}, fmt.Errorf("create root position: %w", err)
+	}
+
+	owner, err := domain.NewHumanWorker(domain.WorkerID("w-owner"), []domain.PositionID{rootPos.ID})
+	if err != nil {
+		return Result{}, err
+	}
+	if err := s.Workers.Create(ctx, owner); err != nil {
+		return Result{}, fmt.Errorf("create owner worker: %w", err)
+	}
+
+	env, err := domain.NewEnvironment(owner.ID(), params.EnvironmentPath, now)
+	if err != nil {
+		return Result{}, err
+	}
+	if err := s.Environments.Create(ctx, env); err != nil {
+		return Result{}, fmt.Errorf("create owner environment: %w", err)
+	}
+
+	// Structural tools only — the owner does everything else (including
+	// granting themselves extra tools) through these.
+	structural := []domain.ToolName{
+		tools.CreateRoleName,
+		tools.UpdateRoleName,
+		tools.CreatePositionName,
+		tools.HireWorkerName,
+		tools.GrantToolName,
+		tools.RevokeToolName,
+		tools.CreateChannelName,
+		tools.ChannelMembersName,
+		tools.SubscribeName,
+		tools.UnsubscribeName,
+		tools.PublishName,
+	}
+	for _, name := range structural {
+		g, err := domain.NewToolGrant(
+			domain.GrantID("g-owner-"+uuid.NewString()),
+			owner.ID(),
+			name,
+		)
+		if err != nil {
+			return Result{}, err
+		}
+		if err := s.Grants.Create(ctx, g); err != nil {
+			return Result{}, fmt.Errorf("grant %q: %w", name, err)
+		}
+	}
+
+	return Result{
+		WorkerID:        owner.ID(),
+		RoleID:          role.ID,
+		PositionID:      rootPos.ID,
+		EnvironmentPath: params.EnvironmentPath,
+	}, nil
+}
