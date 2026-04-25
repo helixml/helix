@@ -148,6 +148,202 @@ on a session with an in-flight prompt leaves the prompt running and a later
 `session/cancel` doesn't reach it. Same family of "the connection's view of
 turn state and the actual turn state diverge" issues.
 
+## Architectural root cause: ACP assumes one trigger; Claude has many
+
+Pull back from the specific issues above and the shape of the problem becomes
+hard to miss. **ACP's mental model has exactly one trigger for agent
+activity: the user pressing send.** The protocol's verbs encode this
+directly:
+
+- Client → Agent: `session/prompt` (request)
+- Agent → Client: `session/update` (notification, scoped *during* the prompt)
+- Agent → Client: `session/prompt` response with `stopReason` (terminates the turn)
+
+Everything the agent emits — text chunks, tool calls, plan updates, mode
+changes, usage info — is conceptually downstream of the most recent
+`session/prompt`. The notification channel inherits that lineage. There is
+no first-class verb for "the agent has news that didn't arise from a user
+prompt": no subscription, no long-poll, no always-on event channel.
+Compare to LSP, which has `$/progress`, `window/workDoneProgress`,
+`window/showMessage`, `telemetry/event` — explicit fire-and-forget channels
+for unprompted server→client traffic. ACP's `session/update` is positioned as
+a turn-scoped stream, and the spec doesn't carve out a "between turns" mode
+for it.
+
+That assumption breaks the moment the agent gains **non-user-initiated
+triggers**, and Claude Code now has many:
+
+- a backgrounded shell command (`run_in_background: true` on the Bash tool)
+  finishes — output to deliver,
+- a file change on disk fires a `PostToolUse`/`UserPromptSubmit`/`Stop` hook —
+  reaction to surface,
+- a subagent spawned via the `Task` tool finishes its work — result to flow
+  back to the parent,
+- compaction completes autonomously — available context just changed
+  (`anthropics/claude-code` #52685 is literally this freezing),
+- an MCP server emits `tools/list_changed` / `resources/updated` — agent's
+  view of the world just changed,
+- a Cowork / Ultraplan session running in the background hits a checkpoint,
+- a skill loads — capabilities should now be visible.
+
+Each of these is **the agent having something to say without the user having
+said anything**. The wrapper has events the user needs to see and **no
+protocol-legal place to put them**. So it's left with three bad options:
+
+1. Buffer them on the outbound channel and hope the next `session/prompt`
+   flushes the queue. *This is what we see in our wire trace* — stale
+   `request_id`s arriving hours later, immediately after a fresh user
+   message.
+2. Send them anyway, tagged with the most recently completed turn's
+   `request_id` — the client either drops them (data lost) or routes them
+   to a freshly-created interaction (data corruption, which is the
+   `request_id` desync cascade we keep fixing).
+3. Mint a new `request_id` for late events with no corresponding prompt —
+   the client has no entry in its `request_id → turn` map for it and the
+   events fall on the floor.
+
+The Claude wrapper picks roughly (1) + (2). claude-agent-acp #551
+("multiple stop reasons from cancelled turns") and ACP-protocol #554
+("add turn-complete signal") both exist because the wrapper authors are
+dancing around the fact that the protocol doesn't give them a place to put
+async state.
+
+ACP does have hints of async-ish events — `usage_update`,
+`current_mode_update`, `session_info_update` — but they're all bundled into
+the same `session/update` notification, which inherits turn-scoped delivery
+semantics. So there's a partial, un-formalised acknowledgement that some
+events aren't really turn-bound, but no protocol mechanism to signal *which*
+are which or *when* they should be delivered.
+
+### Why this gets worse, not better
+
+The dynamic across the layers is asymmetric:
+
+| Layer                                          | Owner                  | Direction      |
+| ---------------------------------------------- | ---------------------- | -------------- |
+| `anthropics/claude-code`                       | Anthropic              | adding async features fast |
+| `agentclientprotocol/claude-agent-acp`         | Zed Industries         | retrofit       |
+| `agentclientprotocol/agent-client-protocol`    | cross-vendor governance | catch-up       |
+| `zed-industries/zed`                           | Zed Industries         | consumer       |
+
+**Anthropic evolves the agent's contract independently of the protocol it
+happens to be wrapped in.** Each new async feature widens the gap. Background
+bash, hooks, skills, Cowork are already in production; more are coming. The
+wrapper and protocol layers can't fix it at their layer without retroactively
+constraining what the agent is allowed to do — and they have no leverage to
+do that.
+
+Helix gets caught in the middle, because we're the ones whose users notice
+when chat panels go quiet for minutes. None of the work in
+`websocket_external_agent_sync.go` can fix it at the source — the events
+have already been mangled by the time they reach our WebSocket. The most we
+can do is detect and route around the breakage.
+
+### What "fixing it properly" would actually require
+
+A real fix needs an unparented event channel in the protocol — something the
+agent can speak on without claiming the user authored a turn:
+
+- a separate notification (`session/event` or `agent/notification`) that's
+  not turn-scoped, with its own delivery semantics,
+- *or* a turn lifecycle that explicitly distinguishes "stopReason emitted"
+  from "turn fully closed and all updates flushed" (#554 asks for this
+  weaker version),
+- *or* explicit binding of every `session/update` to either a turn id or
+  `null` (out-of-band) — so the wire format stops forcing the wrapper to
+  pick a misleading `request_id`.
+
+Once the protocol admits the agent can speak unprompted, all five upstream
+issues (#554, #551, zed#54767, zed#51098, codex-acp#186) collapse into "use
+the unprompted channel" instead of "find creative ways to attach unprompted
+events to expired requests".
+
+Until then, **every ACP server with non-trivial async behaviour will ship
+the same family of bugs**, and every ACP client will rediscover the same
+workarounds — heuristic timers, periodic kicks, stale-event filters. Which
+is exactly what the upstream issue tracker shows (OpenHands, Zed, the
+Copilot-via-ACP integration, JetBrains).
+
+### Where the ACP team is on this (state of upstream RFDs)
+
+The protocol team is **aware of the symptoms but has not yet articulated
+the structural fix**. Snapshot as of 2026-04-25:
+
+- **#554 ("Add turn-complete signal")** has movement.
+  [`@benbrandt`](https://github.com/benbrandt) (agentclientprotocol member)
+  responded: *"yes I think I would like to move the entire prompt lifecycle
+  to be notification based entirely, which I think will help with this."*
+  That's the right architectural direction — the prompt lifecycle as
+  notifications rather than a request/response — but no concrete spec PR
+  yet.
+- **PR #644 ("docs(rfd): draft turn_complete signal for session/update
+  sync")** by `stablegenius49`, opened in response to #554, proposes a
+  `sessionUpdate: "turn_complete"` notification with `promptRequestId` and
+  `stopReason`, capability-gated via `sessionCapabilities.turnComplete`.
+  Still in `Draft` RFD status. **This is the only concrete protocol PR
+  addressing the family of bugs in this doc.**
+- **PR #392 ("RFD: Agent-to-Client Logging")** by `chazcb` is the closest
+  existing proposal to a real unparented channel. Its motivation reads like
+  it could have been written for our bug:
+  > *Today, agents have limited ways to inform clients about status that
+  > might impact their experience […] Neither [JSON-RPC errors nor
+  > `session/update`] works when: there's no active JSON RPC request to
+  > attach an error response to […] there's no session yet […] we don't
+  > want to put diagnostics in chat history.*
+  But the RFD scopes itself explicitly to **diagnostic logs**, not to
+  user-visible content. So even if it lands it doesn't give the wrapper a
+  legal home for "background bash output" or "subagent finished".
+- **PR #484 ("docs(rfd): prompt queueing RFD")** by `SteffenDE` is
+  circumstantial evidence the team knows the agent SDK has timing it
+  doesn't expose: *"I tried to find a way to actually get the Claude Agent
+  SDK to tell me when the queued message is inserted into the context, but
+  it looks like there is no way."* Same shape of problem as ours — the
+  wrapper doesn't get the signals it needs to give the client a clean view.
+- **PR #865 ("RFD: Agent Status Update")** by `anaslimem` adds an
+  `AgentStatusUpdate` variant for "thinking, reading, writing, waiting,
+  idle". Helps the *thinking-vs-stuck* UX gap but is still a turn-scoped
+  `session/update`.
+- **#533 (RFD: Multi-Client Session Attach)** is adjacent — about letting
+  multiple clients attach to a live session — but isn't structured as an
+  unparented event channel.
+- **#419 (Session Ready Signal RFD)** addresses session lifecycle, not
+  per-event lifecycle.
+
+The full list of currently-open Draft RFDs in `agentclientprotocol/agent-client-protocol`
+spans: forking sessions, request cancellation, meta-field propagation, agent
+telemetry export, agent extensions via ACP proxies, MCP-over-ACP, session
+usage/context status, authentication methods, Rust SDK based on SACP,
+logout, session delete, message id, deleted-file diff representation,
+boolean config option, elicitation, next-edit-suggestions, additional
+workspace roots, configurable LLM providers, streamable HTTP/WebSocket
+transport. **None of these directly proposes "unparented agent→client
+notifications for non-user-initiated triggers"** as a first-class concept.
+
+### Net assessment
+
+The protocol team is aware of the *symptoms* (#554's existence and `benbrandt`'s
+comment confirm this) and has one in-flight PR (#644) for the weakest
+version of a fix (a barrier signalling end-of-turn, not an unparented
+channel). They are *not* yet treating "the agent has things to say without a
+prompt" as a first-class protocol concept — every open RFD that touches the
+agent→client direction is still scoped to either:
+
+  - a single turn (`session/update`, AgentStatusUpdate, turn_complete), or
+  - lifecycle metadata (Session Ready, attach/detach), or
+  - a narrow domain like diagnostics (#392 Logging).
+
+The conceptually-correct fix — admit unprompted notifications as a peer of
+turn-scoped ones — does not yet exist as an RFD. Realistic timeline: even
+the narrow turn_complete fix (#644) has to clear RFD review, ship in a
+protocol release, ship in `claude-agent-acp`, and ship in Zed before users
+see relief. **None of that helps with intentionally-unprompted events like
+background bash output**, which is the harder half of the architectural
+problem and is currently un-RFD'd.
+
+The honest message for Helix users for the foreseeable future: the agent
+will sometimes go quiet and need to be poked, and we can't fix it from the
+Helix side alone.
+
 ## Working hypothesis
 
 The agent (`@zed-industries/claude-agent-acp` 0.23.x) buffers
