@@ -2,14 +2,15 @@
 
 ## Investigate
 
-- [ ] Reproduce the bug locally per `requirements.md` §"Reproduction Sketch". Capture `Zed.log` and Helix server logs from one before/after pair.
+- [ ] Reproduce the bug locally per `requirements.md` §"Reproduction Sketch" — **single-thread, single-click is the canonical case**. Capture `Zed.log` and Helix server logs from one before/after pair.
+- [ ] Add a one-shot debug log at the top of `agent_panel.rs::load_agent_thread` printing: the incoming `session_id`, the current `BaseView` discriminant, and (if `BaseView::AgentThread`) the active `cv.root_session_id` and the active `cv.active_thread().map(|t| t.thread.entity_id())`. Include also the result of `external_websocket_sync::get_thread(session_id_str)`'s `entity_id()`. This single log line is enough to disambiguate all three hypotheses in one repro.
 - [ ] Inspect `[THREAD_SERVICE]` and `[CONV_VIEW]` log lines around the click. Specifically look for `register_thread: overwriting thread '…' with different entity` (confirms split-brain) and `Creating NEW subscription for thread … on entity` (confirms a second subscription was created).
-- [ ] Confirm which of the three hypotheses in `design.md` §"Root-Cause Hypothesis" is hit: (1) ThreadSwitcher preview side-effect, (2) `root_session_id` mismatch between `from_existing_thread` and `external_thread`, (3) stale retained CV. Note the result inline in the PR description.
+- [ ] From the captured log, confirm which of the three hypotheses in `design.md` §"Root-Cause Hypothesis" is hit: (1) `root_session_id` is `None`/stale on the active CV, (2) `metadata.session_id` ≠ entity's `session_id()`, (3) `BaseView` is `Uninitialized`/draft when the click arrives. Note the result inline in the PR description. If hypothesis #1 is confirmed, find the assignment that's responsible and fix it as well (so non-Helix builds aren't silently broken).
 
 ## Implement
 
 - [ ] Add the `#[cfg(feature = "external_websocket_sync")]` guard to `agent_panel.rs::load_agent_thread` per `design.md` §"Concrete change shape". Place it **before** the existing `has_session` block. Do not modify upstream code paths.
-- [ ] If investigation confirmed hypothesis #2, also align `root_session_id` to use the entity's `session_id()` in `ConversationView::new` (`crates/agent_ui/src/conversation_view.rs` ~line 741). Otherwise skip.
+- [ ] Apply the fix follow-up that matches the confirmed hypothesis: (#1) repair the `root_session_id` assignment so it stays consistent across `set_server_state` / `reset` / reconnect; (#2) align `root_session_id` to use the entity's `session_id()` in `ConversationView::new` (`crates/agent_ui/src/conversation_view.rs` ~line 741); (#3) ensure `notify_thread_display` runs (or the panel restoration produces a `BaseView::AgentThread` for the loaded thread) before the user can click. Skip whichever don't apply.
 - [ ] Build with `cargo build --features external_websocket_sync -p zed` and with the default features. Both must succeed.
 - [ ] Run `./script/clippy` (per `crates/zed/CLAUDE.md`).
 

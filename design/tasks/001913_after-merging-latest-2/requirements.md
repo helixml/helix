@@ -18,9 +18,9 @@ Concretely: after the click, the active `ConversationView` in the panel observes
 
 ## Reproduction Sketch
 
-1. Start a Helix-driven Zed session (Helix sends `open_thread` for thread T).
+1. Start a Helix-driven Zed session (Helix sends `open_thread` for thread T). **A single thread T in the sidebar is sufficient** — the bug does not require a second thread.
 2. Send a prompt; observe streaming in the panel and arriving at the Helix server.
-3. While the thread is still streaming (or even idle but loaded), click on T in the new sidebar threads list (or open the `ThreadSwitcher` overlay and select T).
+3. Click on T in the new sidebar threads list. (The bug has been observed in this single-click, single-thread case; the `ThreadSwitcher` overlay is **not** required to trigger it.)
 4. **Bug**: Zed's panel shows T but stops updating. Helix server logs continue to receive events for the same session.
 
 ## User Stories
@@ -31,8 +31,8 @@ Concretely: after the click, the active `ConversationView` in the panel observes
 
 ## Acceptance Criteria
 
-- [ ] Clicking the currently-active thread in the new sidebar list (`crates/sidebar/src/sidebar.rs` `activate_thread`) is a no-op for the panel: no new `ConversationView` is created, no second `connection.load_session()` is issued, the active `Entity<AcpThread>` in the panel is unchanged.
-- [ ] Hovering / previewing the currently-active thread in the `ThreadSwitcher` (`ThreadSwitcherEvent::Preview`) is also a no-op for the active entity. Previewing a *different* thread and dismissing back to the original must restore the original entity (not create a new one).
+- [ ] Clicking the currently-active, single thread in the new sidebar list (`crates/sidebar/src/sidebar.rs` `activate_thread`) is a no-op for the panel: no new `ConversationView` is created, no second `connection.load_session()` is issued, the active `Entity<AcpThread>` in the panel is unchanged. **This is the primary acceptance test — single-thread, single-click.**
+- [ ] Same guarantee holds for clicking via the `ThreadSwitcher` overlay (`ThreadSwitcherEvent::Confirmed` and `Preview` paths), and for the multi-thread case (clicking the active thread when other threads exist).
 - [ ] After the click flow, exactly one entity for the session is registered in `external_websocket_sync::THREAD_REGISTRY`, and the Helix WebSocket subscription (`PERSISTENT_SUBSCRIPTIONS`) points at the same entity.
 - [ ] After the click flow, the panel's active `ConversationView` observes the same entity that Helix is subscribed to. Subsequent agent output appears in both the Zed panel and the Helix server.
 - [ ] The existing E2E test `crates/external_websocket_sync/e2e-test/run_docker_e2e.sh` continues to pass for both `zed-agent` and `claude` agents.
