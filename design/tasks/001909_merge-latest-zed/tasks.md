@@ -53,7 +53,7 @@
 
 ## Build & Test
 
-- [ ] `cd /home/retro/work/helix && ./stack build-zed dev` — builds zed binary in Docker (Helix's canonical build path)
+- [~] `cd /home/retro/work/helix && ./stack build-zed dev` — builds zed binary in Docker (Helix's canonical build path)
 - [ ] If compile fails: read errors carefully, most likely cause is a missing `AgentConnection` trait method on `HeadlessConnection` or a missing `ConnectedServerState` field in `from_existing_thread()`
 - [ ] `cargo test -p external_websocket_sync` — unit tests pass
 - [ ] `cargo test -p acp_thread test_second_send` — Stopped invariant test passes
