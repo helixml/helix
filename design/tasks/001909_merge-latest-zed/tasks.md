@@ -69,6 +69,11 @@
 - [ ] Append the merge commit + any post-merge fix commits to "Commit History" table
 - [ ] If the merge was uneventful (no API changes), only the commit-history append is needed — do NOT invent updates
 
+## Re-merge Fork Main (out-of-band fix)
+
+- [x] User pushed `d7be64fad1` ("fix: stop empty message_completed loop after Zed restart + Helix-mode UI cleanup") to fork main while implementation was in progress; merged it in (1 trivial Cargo.lock conflict, took theirs)
+- [~] Rebuild after merging `d7be64fad1`
+
 ## Finalize
 
 - [ ] `git push origin feature/001909-merge-latest-zed`
