@@ -488,6 +488,8 @@ func NewServer(
 	apiServer.specDrivenTaskService.SendMessageToAgent = apiServer.sendMessageToSpecTaskAgent
 	// Set the project secrets callback for injecting secrets as env vars into desktop containers
 	apiServer.specDrivenTaskService.GetProjectSecrets = apiServer.GetProjectSecretsAsEnvVars
+	// Set the exec-in-desktop callback for running commands in containers (e.g., updating git identity)
+	apiServer.specDrivenTaskService.ExecInDesktop = apiServer.execCommandInDesktop
 
 	// Initialize Attention Service for human-needed event notifications
 	apiServer.attentionService = services.NewAttentionService(store, cfg)
@@ -734,6 +736,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/users/me/onboarding", apiServer.completeOnboarding).Methods(http.MethodPost)
 
 	authRouter.HandleFunc("/users/{id}", apiServer.getUserDetails).Methods(http.MethodGet)
+	authRouter.HandleFunc("/users/{id}/stats", apiServer.getUserStats).Methods(http.MethodGet)
 
 	// Billing
 	authRouter.HandleFunc("/wallet", system.Wrapper(apiServer.getWalletHandler)).Methods(http.MethodGet)

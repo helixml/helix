@@ -16229,7 +16229,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "List users with pagination support and optional filtering by email domain or username. Supports ILIKE matching for email domains (e.g., \"hotmail.com\" will find all users with @hotmail.com emails) and partial username matching.",
+                "description": "List users with pagination support and optional filtering by email domain or username. Supports ILIKE matching for email domains (e.g., \"hotmail.com\" will find all users with @hotmail.com emails) and partial username matching. Pass ` + "`" + `query` + "`" + ` to match across email, username, and full_name in one go.",
                 "consumes": [
                     "application/json"
                 ],
@@ -16251,6 +16251,12 @@ const docTemplate = `{
                         "type": "integer",
                         "description": "Number of users per page (max: 200, default: 50)",
                         "name": "per_page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Free-text search across email, username, and full_name (ILIKE)",
+                        "name": "query",
                         "in": "query"
                     },
                     {
@@ -16616,6 +16622,43 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/types.User"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/users/{id}/stats": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns an overview of a user's activity: projects owned, spec tasks created, per-model inference usage, and an effective last-active timestamp combining tracked auth activity with usage-metric data.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "users"
+                ],
+                "summary": "Get user stats (admin only)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "User ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.UserStatsResponse"
                         }
                     }
                 }
@@ -20661,6 +20704,18 @@ const docTemplate = `{
         "types.AggregatedUsageMetric": {
             "type": "object",
             "properties": {
+                "cache_read_cost": {
+                    "type": "number"
+                },
+                "cache_read_tokens": {
+                    "type": "integer"
+                },
+                "cache_write_cost": {
+                    "type": "number"
+                },
+                "cache_write_tokens": {
+                    "type": "integer"
+                },
                 "completion_cost": {
                     "type": "number"
                 },
@@ -20687,7 +20742,7 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "total_cost": {
-                    "description": "Total cost of the call (prompt and completion tokens)",
+                    "description": "Prompt + completion + cache read + cache write",
                     "type": "number"
                 },
                 "total_requests": {
@@ -24831,6 +24886,20 @@ const docTemplate = `{
                 "app_id": {
                     "type": "string"
                 },
+                "cache_read_cost": {
+                    "type": "number"
+                },
+                "cache_read_tokens": {
+                    "description": "prompt tokens served from provider cache (subset of PromptTokens)",
+                    "type": "integer"
+                },
+                "cache_write_cost": {
+                    "type": "number"
+                },
+                "cache_write_tokens": {
+                    "description": "prompt tokens written to provider cache (Anthropic only; subset of PromptTokens)",
+                    "type": "integer"
+                },
                 "completion_cost": {
                     "type": "number"
                 },
@@ -24901,7 +24970,7 @@ const docTemplate = `{
                     "type": "boolean"
                 },
                 "total_cost": {
-                    "description": "Total cost of the call (prompt and completion tokens)",
+                    "description": "Prompt + completion + cache read + cache write",
                     "type": "number"
                 },
                 "total_tokens": {
@@ -25951,6 +26020,14 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "image": {
+                    "type": "string"
+                },
+                "input_cache_read": {
+                    "description": "price per cached input token read (hit)",
+                    "type": "string"
+                },
+                "input_cache_write": {
+                    "description": "price per cached input token written (cache creation)",
                     "type": "string"
                 },
                 "internal_reasoning": {
@@ -31239,6 +31316,10 @@ const docTemplate = `{
                 "id": {
                     "type": "string"
                 },
+                "last_seen_at": {
+                    "description": "LastSeenAt is the most recent time the user authenticated against the API.\nUpdated (throttled) from auth middleware so the column isn't hammered on every request.",
+                    "type": "string"
+                },
                 "must_change_password": {
                     "description": "if the user must change their password",
                     "type": "boolean"
@@ -31330,6 +31411,44 @@ const docTemplate = `{
                 }
             }
         },
+        "types.UserModelUsage": {
+            "type": "object",
+            "properties": {
+                "cache_read_tokens": {
+                    "type": "integer"
+                },
+                "cache_write_tokens": {
+                    "type": "integer"
+                },
+                "completion_tokens": {
+                    "type": "integer"
+                },
+                "first_used": {
+                    "type": "string"
+                },
+                "last_used": {
+                    "type": "string"
+                },
+                "model": {
+                    "type": "string"
+                },
+                "prompt_tokens": {
+                    "type": "integer"
+                },
+                "provider": {
+                    "type": "string"
+                },
+                "total_cost": {
+                    "type": "number"
+                },
+                "total_requests": {
+                    "type": "integer"
+                },
+                "total_tokens": {
+                    "type": "integer"
+                }
+            }
+        },
         "types.UserResponse": {
             "type": "object",
             "properties": {
@@ -31373,6 +31492,29 @@ const docTemplate = `{
                     "items": {
                         "$ref": "#/definitions/types.User"
                     }
+                }
+            }
+        },
+        "types.UserStatsResponse": {
+            "type": "object",
+            "properties": {
+                "last_active_at": {
+                    "type": "string"
+                },
+                "models": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.UserModelUsage"
+                    }
+                },
+                "projects_count": {
+                    "type": "integer"
+                },
+                "spec_tasks_count": {
+                    "type": "integer"
+                },
+                "user": {
+                    "$ref": "#/definitions/types.User"
                 }
             }
         },

@@ -1552,6 +1552,10 @@ export enum TypesAgentWorkState {
 }
 
 export interface TypesAggregatedUsageMetric {
+  cache_read_cost?: number;
+  cache_read_tokens?: number;
+  cache_write_cost?: number;
+  cache_write_tokens?: number;
   completion_cost?: number;
   completion_tokens?: number;
   /** ID    string    `json:"id" gorm:"primaryKey"` */
@@ -1561,7 +1565,7 @@ export interface TypesAggregatedUsageMetric {
   prompt_tokens?: number;
   request_size_bytes?: number;
   response_size_bytes?: number;
-  /** Total cost of the call (prompt and completion tokens) */
+  /** Prompt + completion + cache read + cache write */
   total_cost?: number;
   total_requests?: number;
   total_tokens?: number;
@@ -3328,6 +3332,12 @@ export interface TypesKnowledgeVersion {
 
 export interface TypesLLMCall {
   app_id?: string;
+  cache_read_cost?: number;
+  /** prompt tokens served from provider cache (subset of PromptTokens) */
+  cache_read_tokens?: number;
+  cache_write_cost?: number;
+  /** prompt tokens written to provider cache (Anthropic only; subset of PromptTokens) */
+  cache_write_tokens?: number;
   completion_cost?: number;
   completion_tokens?: number;
   created?: string;
@@ -3348,7 +3358,7 @@ export interface TypesLLMCall {
   spec_task_id?: string;
   step?: TypesLLMCallStep;
   stream?: boolean;
-  /** Total cost of the call (prompt and completion tokens) */
+  /** Prompt + completion + cache read + cache write */
   total_cost?: number;
   total_tokens?: number;
   updated?: string;
@@ -3777,6 +3787,10 @@ export interface TypesPricing {
   audio?: string;
   completion?: string;
   image?: string;
+  /** price per cached input token read (hit) */
+  input_cache_read?: string;
+  /** price per cached input token written (cache creation) */
+  input_cache_write?: string;
   internal_reasoning?: string;
   prompt?: string;
   request?: string;
@@ -6037,6 +6051,11 @@ export interface TypesUser {
   email?: string;
   full_name?: string;
   id?: string;
+  /**
+   * LastSeenAt is the most recent time the user authenticated against the API.
+   * Updated (throttled) from auth middleware so the column isn't hammered on every request.
+   */
+  last_seen_at?: string;
   /** if the user must change their password */
   must_change_password?: boolean;
   onboarding_completed?: boolean;
@@ -6078,6 +6097,20 @@ export interface TypesUserGuidelinesResponse {
   guidelines_version?: number;
 }
 
+export interface TypesUserModelUsage {
+  cache_read_tokens?: number;
+  cache_write_tokens?: number;
+  completion_tokens?: number;
+  first_used?: string;
+  last_used?: string;
+  model?: string;
+  prompt_tokens?: number;
+  provider?: string;
+  total_cost?: number;
+  total_requests?: number;
+  total_tokens?: number;
+}
+
 export interface TypesUserResponse {
   admin?: boolean;
   email?: string;
@@ -6093,6 +6126,14 @@ export interface TypesUserSearchResponse {
   offset?: number;
   total_count?: number;
   users?: TypesUser[];
+}
+
+export interface TypesUserStatsResponse {
+  last_active_at?: string;
+  models?: TypesUserModelUsage[];
+  projects_count?: number;
+  spec_tasks_count?: number;
+  user?: TypesUser;
 }
 
 export interface TypesUserTokenUsageResponse {
@@ -13663,7 +13704,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description List users with pagination support and optional filtering by email domain or username. Supports ILIKE matching for email domains (e.g., "hotmail.com" will find all users with @hotmail.com emails) and partial username matching.
+     * @description List users with pagination support and optional filtering by email domain or username. Supports ILIKE matching for email domains (e.g., "hotmail.com" will find all users with @hotmail.com emails) and partial username matching. Pass `query` to match across email, username, and full_name in one go.
      *
      * @tags users
      * @name V1UsersList
@@ -13677,6 +13718,8 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         page?: number;
         /** Number of users per page (max: 200, default: 50) */
         per_page?: number;
+        /** Free-text search across email, username, and full_name (ILIKE) */
+        query?: string;
         /** Filter by email domain (e.g., 'hotmail.com') or exact email */
         email?: string;
         /** Filter by username (partial match) */
@@ -13734,6 +13777,25 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/users/${id}`,
         method: "GET",
         secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Returns an overview of a user's activity: projects owned, spec tasks created, per-model inference usage, and an effective last-active timestamp combining tracked auth activity with usage-metric data.
+     *
+     * @tags users
+     * @name V1UsersStatsDetail
+     * @summary Get user stats (admin only)
+     * @request GET:/api/v1/users/{id}/stats
+     * @secure
+     */
+    v1UsersStatsDetail: (id: string, params: RequestParams = {}) =>
+      this.request<TypesUserStatsResponse, any>({
+        path: `/api/v1/users/${id}/stats`,
+        method: "GET",
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
         ...params,
       }),
 

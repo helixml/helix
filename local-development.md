@@ -59,7 +59,6 @@ helix-api-1                   Up        0.0.0.0:8080->80/tcp
 helix-frontend-1              Up        0.0.0.0:8081->8081/tcp
 helix-postgres-1              Up        0.0.0.0:5432->5432/tcp
 helix-vectorchord-kodit-1     Up
-helix-tika-1                  Up
 helix-chrome-1                Up
 helix-searxng-1               Up
 helix-registry-1              Up
@@ -136,7 +135,7 @@ Add `STOP_POSTGRES=1` / `STOP_PGVECTOR=1` if you want to stop the data services 
 
 ```bash
 ./stack lint                    # runs golangci-lint
-./stack test [./path/...]       # runs go test (boots postgres/tika/chrome via compose)
+./stack test [./path/...]       # runs go test (boots postgres/chrome via compose)
 ```
 
 You'll need [`golangci-lint`](https://golangci-lint.run/welcome/install/) installed locally for `lint`.

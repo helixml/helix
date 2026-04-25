@@ -314,8 +314,11 @@ func (s *HelixAPIServer) getProviderModels(ctx context.Context, providerEndpoint
 					continue
 				}
 				// Got model info, checking the price
-				promptCost, completionCost, _ := pricing.CalculateTokenPrice(modelInfo, 10, 10)
-				if promptCost == 0 && completionCost == 0 {
+				cost, _ := pricing.CalculateTokenPrice(modelInfo, pricing.TokenUsage{
+					PromptTokens:     10,
+					CompletionTokens: 10,
+				})
+				if cost.PromptCost == 0 && cost.CompletionCost == 0 {
 					models[idx].Enabled = false
 				}
 			}
