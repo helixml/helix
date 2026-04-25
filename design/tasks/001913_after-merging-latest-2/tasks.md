@@ -18,7 +18,7 @@
 
 - [ ] Add a regression unit test in `crates/agent_ui/src/agent_panel.rs` (gated on `external_websocket_sync`) per `design.md` §"Verification" item 3. Assert the active CV's `thread.entity_id()` does not change across `load_agent_thread` for an already-loaded session.
 - [ ] Run unit tests: `cargo test -p external_websocket_sync` and `cargo test -p agent_ui`.
-- [ ] Run E2E: `docker build -t zed-ws-e2e -f crates/external_websocket_sync/e2e-test/Dockerfile . && docker run --rm -e ANTHROPIC_API_KEY=… -e E2E_AGENTS=zed-agent,claude -e TEST_TIMEOUT=180 zed-ws-e2e`. Both agents must complete all phases.
+- [ ] Run E2E: `crates/external_websocket_sync/e2e-test/run_docker_e2e.sh` (sources `ANTHROPIC_API_KEY` from `helix/.env*` and handles the Docker plumbing). Set `E2E_AGENTS=zed-agent,claude` to run both. Both agents must complete all phases.
 - [ ] Manual verification: repeat the reproduction. Active CV's entity ID stable across the click; Zed panel keeps streaming; no `overwriting thread` warning in logs.
 
 ## Document
