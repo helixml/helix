@@ -101,3 +101,12 @@ That's it. No new helpers, no new flags, no API changes.
 - Don't change the other `zfs destroy` call sites unless their behaviour is part of the bug; they aren't.
 - After committing, verify in production logs that the "Failed to GC orphaned zvol" warnings stop appearing for the listed session IDs.
 - The `runCmd` wrapper at `golden_zvol.go:1104` produces the error string seen in the logs (`"%s %s: %w (output: ...)"`); confirm test mocks honour the same `combined output` contract so error matching still works.
+
+## Implementation Notes (post-implementation)
+
+- **Other `zfs destroy` sites in `golden_zvol.go`** — surveyed them all. Five other sites use plain `zfs destroy` (line 470 mount-fail cleanup; 686/693 golden-create cleanup; 740/747 session-create cleanup) — all on freshly-created zvols that can't have children, so left alone. Two sites (588/593, 918) already use `-r`. One site (870) intentionally uses non-recursive destroy on golden snapshots and gracefully handles failure.
+- **Test mock auto-handles `-r`** — the mock at `golden_zvol_test.go:233` matches `args[0] == "destroy"` then deletes `args[len(args)-1]`, which works identically whether `-r` is present or not. No mock changes needed.
+- **5 existing assertions broke and were updated**: `TestCleanupSessionZvol_Success`, `TestCleanupSessionZvol_NotMounted`, `TestGCOrphanedZvols_CleansOrphans` (orphan + active), `TestGCOrphanedZvols_CleansNoMarker`, `TestCleanup_ZvolSessionUsesZvolPath`. All five assert via `s.mock.hasCommand("zfs destroy ...")` which uses `strings.HasPrefix`, so the no-`-r` prefix no longer matched after the fix.
+- **2 destroy assertions left intentionally unchanged**: `TestSetupGoldenClone_MountFailsCleansUp` (line 536) and `TestCreateSessionZvol_FormatFailsCleansUp` (line 768) — these exercise the line-470 and line-740 destroy sites respectively, neither of which we changed.
+- **CGo gotcha in this dev env** — local `gcc` isn't installed, so `CGO_ENABLED=1 go test` fails on the cgo bootstrap. The hydra tests don't actually require CGo (no tree-sitter etc.), so `CGO_ENABLED=0 go test -v -run TestGoldenZvolSuite ./pkg/hydra/ -count=1` works and was used here. Anything that pulls in the server/store packages would still need CGo per the project CLAUDE.md.
+- **Final result**: 53/53 tests in `TestGoldenZvolSuite` pass, including the new `TestCleanupSessionZvol_WithChildSnapshot`.
