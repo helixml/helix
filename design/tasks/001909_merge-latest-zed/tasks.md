@@ -64,7 +64,7 @@
 
 ## Update `portingguide.md`
 
-- [~] Update porting guide with discoveries from this merge
+- [x] Update porting guide — added 3 new rebase checklist items (allow_multiple_instances flag, rust-embed debug-embed, smol→executor.timer pattern), appended commit history with all 6 new commits, noted 12-phase E2E (not 10)
 
 ## Re-merge Fork Main (out-of-band fix)
 
