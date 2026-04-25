@@ -203,16 +203,18 @@ export const Interaction: FC<InteractionProps> = ({
           }}
         >
           {/*
-            Badge marking prompts auto-sent by Helix to wake stuck Zed/ACP
-            sessions. The agent and protocol have no way to flush buffered
-            session_update notifications between turns; Helix nudges them
-            with "continue". Showing the badge keeps users honest about
-            what we did on their behalf.
-            See design/2026-04-25-zed-claude-async-event-flush-on-user-input.md
+            "Retried Nx" badge for prompts the auto-wake worker has had
+            to re-send to unstick the session. Auto-wakes don't create
+            separate interactions any more — they re-send the original
+            prompt's content over the wire and bump auto_wake_count on
+            this row, so the badge counts the retries on the original
+            user message. See
+            design/2026-04-25-zed-claude-async-event-flush-on-user-input.md
+            and the file header of api/pkg/server/auto_wake_stuck_interactions.go
           */}
-          {(interaction as any)?.auto_wake_count > 0 && (
+          {((interaction as any)?.auto_wake_count ?? 0) > 0 && (
             <Tooltip
-              title="Helix auto-sent this prompt to recover from upstream ACP buffering. The agent had stopped responding mid-turn; sending a follow-up flushes the queued events. See helix design/2026-04-25 for the full story."
+              title="Helix re-sent this prompt because the agent didn't respond — likely upstream ACP buffering (claude-agent-acp #551 / agent-client-protocol #554). See the helix-side design doc 2026-04-25 for the full story."
             >
               <Box
                 sx={(theme) => ({
@@ -230,7 +232,7 @@ export const Interaction: FC<InteractionProps> = ({
                   userSelect: "none",
                 })}
               >
-                ↻ Helix auto-sent · upstream ACP buffering
+                {"↻ Retried " + ((interaction as any).auto_wake_count) + "× · upstream ACP buffering"}
               </Box>
             </Tooltip>
           )}

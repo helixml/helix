@@ -265,7 +265,17 @@ type Store interface {
 	// `sessionID` with auto_wake_count > 0 created strictly after `since`.
 	// Used by the auto-wake worker to enforce a per-stuck-interaction
 	// retry cap.
+	//
+	// DEPRECATED in favour of in-place retry on the stuck row itself
+	// (IncrementInteractionAutoWakeCount). Kept on the interface so old
+	// callers don't break; safe to remove if no one is calling it.
 	CountAutoWakeAttemptsSince(ctx context.Context, sessionID string, since time.Time) (int64, error)
+	// IncrementInteractionAutoWakeCount atomically bumps auto_wake_count
+	// by 1 on the named interaction and returns the new value. Uses a
+	// targeted column UPDATE so concurrent saves from the streaming
+	// path (which use GORM Save and would zero the field back out from
+	// their stale in-memory copy) cannot race with the bump.
+	IncrementInteractionAutoWakeCount(ctx context.Context, interactionID string) (int, error)
 
 	// slots
 	CreateSlot(ctx context.Context, slot *types.RunnerSlot) (*types.RunnerSlot, error)

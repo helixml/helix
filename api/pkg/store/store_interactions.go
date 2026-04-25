@@ -9,6 +9,7 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/helixml/helix/api/pkg/util/sanitize"
 	"github.com/rs/zerolog/log"
+	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
 
@@ -143,9 +144,7 @@ func (s *PostgresStore) ListStuckWaitingInteractions(ctx context.Context, olderT
 }
 
 // CountAutoWakeAttemptsSince counts auto-wake interactions in `sessionID`
-// created strictly after `since`. Used by the auto-wake worker to enforce
-// a per-stuck-interaction retry cap without storing a separate counter on
-// the stuck interaction itself.
+// created strictly after `since`. DEPRECATED: see store.go.
 func (s *PostgresStore) CountAutoWakeAttemptsSince(ctx context.Context, sessionID string, since time.Time) (int64, error) {
 	var count int64
 	err := s.gdb.WithContext(ctx).
@@ -158,6 +157,36 @@ func (s *PostgresStore) CountAutoWakeAttemptsSince(ctx context.Context, sessionI
 		return 0, err
 	}
 	return count, nil
+}
+
+// IncrementInteractionAutoWakeCount atomically increments auto_wake_count
+// on the named interaction and returns the new value. Targeted column
+// UPDATE — does not race with the streaming path's full-row Save that
+// would otherwise zero the field back from the streaming context's
+// in-memory copy.
+func (s *PostgresStore) IncrementInteractionAutoWakeCount(ctx context.Context, interactionID string) (int, error) {
+	if interactionID == "" {
+		return 0, errors.New("interaction_id is required")
+	}
+	// Use SQL `auto_wake_count + 1` so concurrent increments on the same
+	// row also serialize correctly at the DB level.
+	if err := s.gdb.WithContext(ctx).
+		Model(&types.Interaction{}).
+		Where("id = ?", interactionID).
+		UpdateColumn("auto_wake_count", gorm.Expr("auto_wake_count + 1")).
+		Error; err != nil {
+		return 0, err
+	}
+	// Read back the new value. Two queries; the increment itself is
+	// atomic, the read-after is best-effort for the caller's logging.
+	var updated types.Interaction
+	if err := s.gdb.WithContext(ctx).
+		Select("auto_wake_count").
+		Where("id = ?", interactionID).
+		First(&updated).Error; err != nil {
+		return 0, err
+	}
+	return updated.AutoWakeCount, nil
 }
 
 func (s *PostgresStore) GetInteraction(ctx context.Context, interactionID string) (*types.Interaction, error) {

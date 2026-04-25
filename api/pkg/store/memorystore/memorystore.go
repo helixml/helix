@@ -147,6 +147,16 @@ func (m *MemoryStore) CountAutoWakeAttemptsSince(_ context.Context, _ string, _ 
 	return 0, nil
 }
 
+func (m *MemoryStore) IncrementInteractionAutoWakeCount(_ context.Context, id string) (int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if i, ok := m.interactions[id]; ok {
+		i.AutoWakeCount++
+		return i.AutoWakeCount, nil
+	}
+	return 0, store.ErrNotFound
+}
+
 func (m *MemoryStore) GetInteraction(_ context.Context, id string) (*types.Interaction, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
