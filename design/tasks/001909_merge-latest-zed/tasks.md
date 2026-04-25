@@ -2,12 +2,12 @@
 
 ## Setup
 
-- [~] Read `/home/retro/work/zed/portingguide.md` in full — it is the canonical reference, more detailed than this spec
-- [ ] Skim previous merge spec `/home/retro/work/helix-specs/design/tasks/001864_merge-latest-zed/merge_resolution_log.md` for resolution patterns
-- [ ] Verify upstream remote URL: `cd /home/retro/work/zed && git remote -v` — if `upstream` URL is missing, `git remote set-url upstream https://github.com/zed-industries/zed.git`
-- [ ] `git fetch upstream`
-- [ ] Note divergence count: `git rev-list --count main..upstream/main` (upstream commits) and `git rev-list --count upstream/main..main` (fork commits)
-- [ ] Create feature branch: `git checkout -b feature/001909-merge-latest-zed`
+- [x] Read `/home/retro/work/zed/portingguide.md` in full — it is the canonical reference, more detailed than this spec
+- [x] Skim previous merge spec `/home/retro/work/helix-specs/design/tasks/001864_merge-latest-zed/merge_resolution_log.md` for resolution patterns
+- [x] Verify upstream remote URL: `cd /home/retro/work/zed && git remote -v` — if `upstream` URL is missing, `git remote set-url upstream https://github.com/zed-industries/zed.git`
+- [x] `git fetch upstream`
+- [x] Note divergence count: **86 upstream commits to merge**, 187 fork commits ahead of common ancestor. Upstream HEAD: `e3d1876c06` ("Revert terminal changes from #54728 (#54836)")
+- [x] Create feature branch: `git checkout -b feature/001909-merge-latest-zed`
 
 ## Merge Execution
 
