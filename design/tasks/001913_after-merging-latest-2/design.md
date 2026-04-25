@@ -138,13 +138,15 @@ In `crates/agent_ui/src/agent_panel.rs::load_agent_thread` (currently lines 2470
 
 The fix is **purely additive** in front of the existing logic and is fully gated. Outside the Helix feature, behavior is unchanged.
 
-### Why not "fix the `Preview` handler" instead?
+### Why guard at `load_agent_thread` instead of upstream of it?
 
-That would also work for hypothesis #1, but doesn't help if a user genuinely clicks the active thread without going through the ThreadSwitcher (a legitimate action in the new sidebar). Guarding `load_agent_thread` covers both entry points and is closer to the real invariant we want: *one live entity per session, one observing CV.*
+The single-thread, single-click repro proves the trigger is the bare click in the sidebar, not anything in `ThreadSwitcher` or its `Preview` handler. So fixing `Preview` would not address the bug. Guarding `load_agent_thread` itself catches every interactive entry point (sidebar click, switcher confirm, action handlers) and matches the invariant we actually want: *one live `Entity<AcpThread>` per session, observed by exactly one active CV.*
 
-### Defense-in-depth (optional, only if investigation finds it warranted)
+### Defense-in-depth (apply if investigation confirms the matching hypothesis)
 
-If hypothesis #2 (session_id mismatch) is confirmed, also: in `ConversationView::from_existing_thread` and `ConversationView::new`, store `root_session_id = thread.read(cx).session_id()` from the actual entity (not from the resume parameter) so both paths agree on the canonical id. This is a one-line change but only justified if logs show the divergence.
+- If hypothesis #1 (`root_session_id` becoming `None`/stale) is confirmed: repair the assignment in `conversation_view.rs` so the field stays in sync with the entity across `set_server_state` / `reset` / reconnect. Without this, non-Helix builds (which don't get the new `THREAD_REGISTRY` guard) are silently broken by the same root cause.
+- If hypothesis #2 (session_id mismatch) is confirmed: in `ConversationView::from_existing_thread` and `ConversationView::new`, store `root_session_id = thread.read(cx).session_id()` from the actual entity (not from the resume parameter) so both paths agree on the canonical id.
+- If hypothesis #3 (`BaseView::Uninitialized` at click time) is confirmed: ensure `notify_thread_display` runs (or the panel restoration produces a `BaseView::AgentThread` for the loaded thread) before the user can click — likely a sequencing fix in the helix bring-up, not the panel.
 
 ## Trade-offs
 
