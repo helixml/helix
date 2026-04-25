@@ -204,7 +204,7 @@ func (s *HelixAPIServer) listAppInteractions(_ http.ResponseWriter, r *http.Requ
 
 	query := &types.ListInteractionsQuery{
 		AppID:         appID,
-		Page:          page,
+		Page:          page - 1, // store uses 0-indexed offset (Page * PerPage)
 		PerPage:       pageSize,
 		SessionID:     sessionID,
 		InteractionID: interactionID,
