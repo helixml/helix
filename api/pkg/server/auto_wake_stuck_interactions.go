@@ -122,6 +122,8 @@ package server
 
 import (
 	"context"
+	"os"
+	"strconv"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/system"
@@ -135,17 +137,52 @@ const (
 	// leaves the user staring at a frozen chat for longer than needed.
 	autoWakeScanInterval = 10 * time.Second
 
-	// autoWakeStuckThreshold is the minimum age of a `state=waiting`
-	// interaction before we consider it stuck. Set well above the
-	// observed normal time-to-first-token for any agent (Claude usually
-	// streams the first token in under 5 s; a 30 s gap is a strong
-	// signal the wrapper has buffered something).
-	autoWakeStuckThreshold = 30 * time.Second
+	// defaultAutoWakeStuckThreshold is the minimum age of a
+	// `state=waiting` interaction before we consider it stuck.
+	//
+	// 120 s is deliberately conservative. Picking too low produces
+	// false positives when the Anthropic API itself is slow (load,
+	// cold cache, large prompts taking time before the first chunk).
+	// A false positive re-sends the user's prompt while the agent is
+	// mid-something — for idempotent prompts that's a cosmetic
+	// duplicate response, for destructive ones (`rm`, `git push`)
+	// it's a real risk.
+	//
+	// What this DOES NOT need to cover: extended-thinking silence.
+	// Claude's thinking surfaces as `AgentThoughtChunk` ACP session
+	// notifications, which produce `MessageAdded` events to Helix,
+	// which create entries in `apiServer.streamingContexts`. The
+	// streaming-context gate in maybeAutoWake catches the thinking
+	// case directly — we don't need the threshold to be long enough
+	// to wait it out. Same goes for tool-heavy starts: every
+	// `tool_call` entry creates a streaming context.
+	//
+	// What's left for the threshold: the genuinely-blank window
+	// between the user's `session/prompt` and the wrapper's first
+	// outbound notification of any kind. On a healthy session that's
+	// usually 2-10 s; under load or for huge prompts it can stretch.
+	// 120 s is well past observed normal ceilings.
+	//
+	// Override at runtime with HELIX_AUTO_WAKE_STUCK_THRESHOLD_SECONDS.
+	defaultAutoWakeStuckThreshold = 120 * time.Second
 
 	// autoWakeMaxRetries caps how many wake-ups we attempt for a single
 	// stuck interaction before giving up and marking it state=error.
 	autoWakeMaxRetries = 2
 )
+
+// autoWakeStuckThreshold returns the configured stuck threshold.
+// Reads HELIX_AUTO_WAKE_STUCK_THRESHOLD_SECONDS once per call so
+// operators can tune live without redeploying (the worker reads it
+// every scan tick, ~10 s).
+func autoWakeStuckThreshold() time.Duration {
+	if raw := os.Getenv("HELIX_AUTO_WAKE_STUCK_THRESHOLD_SECONDS"); raw != "" {
+		if seconds, err := strconv.Atoi(raw); err == nil && seconds > 0 {
+			return time.Duration(seconds) * time.Second
+		}
+	}
+	return defaultAutoWakeStuckThreshold
+}
 
 // startAutoWakeStuckInteractionsWorker launches the periodic scanner.
 // Idempotent in spirit but the API server only calls it once at init.
@@ -156,7 +193,7 @@ func (apiServer *HelixAPIServer) startAutoWakeStuckInteractionsWorker(ctx contex
 
 		log.Info().
 			Dur("scan_interval", autoWakeScanInterval).
-			Dur("stuck_threshold", autoWakeStuckThreshold).
+			Dur("stuck_threshold", autoWakeStuckThreshold()).
 			Int("max_retries", autoWakeMaxRetries).
 			Msg("🚀 [AUTO_WAKE] Started auto-wake worker for stuck waiting interactions")
 
@@ -174,7 +211,7 @@ func (apiServer *HelixAPIServer) startAutoWakeStuckInteractionsWorker(ctx contex
 
 // scanAndAutoWakeStuckInteractions runs one detection pass.
 func (apiServer *HelixAPIServer) scanAndAutoWakeStuckInteractions(ctx context.Context) {
-	cutoff := time.Now().Add(-autoWakeStuckThreshold)
+	cutoff := time.Now().Add(-autoWakeStuckThreshold())
 
 	stuck, err := apiServer.Store.ListStuckWaitingInteractions(ctx, cutoff, 50)
 	if err != nil {
@@ -208,7 +245,73 @@ func (apiServer *HelixAPIServer) maybeAutoWake(ctx context.Context, stuck *types
 	if !connected || conn == nil {
 		return
 	}
-	if time.Since(conn.ConnectedAt) < autoWakeStuckThreshold {
+	threshold := autoWakeStuckThreshold()
+
+	// The "stuck enough to wake" clock should anchor on the most
+	// recent of:
+	//   - When the WebSocket connected (agent only able to receive
+	//     prompts after this)
+	//   - When the session last had activity (a chat_message went out,
+	//     a message_completed came back — both call TouchSession and
+	//     bump session.updated)
+	//
+	// This handles three failure modes the connection-only gate misses:
+	//
+	//   - User sends a follow-up message while X is stuck: session.updated
+	//     refreshes; we shouldn't wake X immediately because the user is
+	//     already manually doing what we'd do.
+	//   - A previous turn completed recently (message_completed bumps
+	//     session.updated): the agent was demonstrably alive
+	//     `threshold` seconds ago; X probably isn't stuck yet, just
+	//     queued behind that completion's flush.
+	//   - WS reconnected long ago but the agent has been chatty since
+	//     (each turn touches session.updated): no need to wake on age
+	//     of a single old-but-still-processing prompt.
+	session, err := apiServer.Store.GetSession(ctx, stuck.SessionID)
+	if err != nil {
+		log.Warn().Err(err).
+			Str("interaction_id", stuck.ID).
+			Msg("[AUTO_WAKE] Failed to load session for activity anchor; skipping")
+		return
+	}
+	anchor := conn.ConnectedAt
+	if session.Updated.After(anchor) {
+		anchor = session.Updated
+	}
+	if time.Since(anchor) < threshold {
+		return
+	}
+
+	// Gate 1b — active streaming context.
+	//
+	// If the wrapper has dispatched ANY content-bearing event for this
+	// session's current turn, `getOrCreateStreamingContext` will have
+	// created a `streamingContext` entry. That happens for:
+	//
+	//   - text chunks (`agent_message_chunk`)
+	//   - thinking entries (`agent_thought_chunk` — Claude's extended
+	//     thinking is NOT silent at the protocol level)
+	//   - tool calls (`tool_call`, `tool_call_update`)
+	//   - any other session_update with content
+	//
+	// If the context exists, skip — the agent is demonstrably alive on
+	// this session, even if the row in the DB still looks blank to
+	// ListStuckWaitingInteractions (throttled DB writes can lag the
+	// in-memory streaming state by tens of seconds).
+	apiServer.streamingContextsMu.RLock()
+	_, hasStreamingCtx := apiServer.streamingContexts[stuck.SessionID]
+	apiServer.streamingContextsMu.RUnlock()
+	if hasStreamingCtx {
+		return
+	}
+
+	// Same threshold, computed against interaction age now that we know
+	// the connection has been live long enough and there's no active
+	// streaming on the session. Caller has already filtered on
+	// `created < now - autoWakeStuckThreshold` at the SQL level using
+	// the previous threshold value, but recheck here defensively in
+	// case the env var was bumped UP between the SQL filter and now.
+	if time.Since(stuck.Created) < threshold {
 		return
 	}
 
@@ -233,14 +336,7 @@ func (apiServer *HelixAPIServer) maybeAutoWake(ctx context.Context, stuck *types
 		return
 	}
 
-	// Need session metadata for the WS command.
-	session, err := apiServer.Store.GetSession(ctx, stuck.SessionID)
-	if err != nil {
-		log.Warn().Err(err).
-			Str("interaction_id", stuck.ID).
-			Msg("[AUTO_WAKE] Failed to load session; skipping")
-		return
-	}
+	// (`session` already loaded above for the activity-anchor check.)
 
 	// Skip if the stuck interaction has no prompt content to re-send.
 	// Pathological case (synthetic interactions, bad data) — don't try
