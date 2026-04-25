@@ -31,6 +31,11 @@ import (
 // @Failure 500 {object} types.APIError
 // @Router  /api/v1/spec-tasks/from-prompt [post]
 func (s *HelixAPIServer) createTaskFromPrompt(w http.ResponseWriter, r *http.Request) {
+	addCorsHeaders(w)
+	if r.Method == http.MethodOptions {
+		return
+	}
+
 	user := getRequestUser(r)
 	if user == nil {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
