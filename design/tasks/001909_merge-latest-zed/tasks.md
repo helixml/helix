@@ -57,10 +57,10 @@
 - [x] Compile-error cause documented in design.md (smol removal, not the predicted HeadlessConnection issue)
 - [ ] `cargo test -p external_websocket_sync` — deferred (can run via stack/docker if needed; not in canonical local toolchain)
 - [ ] `cargo test -p acp_thread test_second_send` — deferred (will run as part of E2E)
-- [~] Copy fresh binary: `cp /home/retro/work/helix/zed-build/zed /home/retro/work/zed/crates/external_websocket_sync/e2e-test/zed-binary`
-- [ ] E2E zed-agent: `cd /home/retro/work/zed/crates/external_websocket_sync/e2e-test && ./run_docker_e2e.sh`
-- [ ] E2E claude: `E2E_AGENTS="zed-agent,claude" ./run_docker_e2e.sh`
-- [ ] All 10 phases pass for both agents (Phase 8 + 9 most sensitive — verify they succeed)
+- [x] Copy fresh binary: `cp /home/retro/work/helix/zed-build/zed /home/retro/work/zed/crates/external_websocket_sync/e2e-test/zed-binary`
+- [x] E2E zed-agent: **PASSED all 12 phases** (test now has 12 phases, not 10 as portingguide says — added Phase 11 Spectask routing and Phase 12 Reconnect)
+- [~] E2E claude: `E2E_AGENTS="zed-agent,claude" ./run_docker_e2e.sh`
+- [x] Phase 8 (mid-stream interrupt) + Phase 9 (rapid 3-turn cancel) both PASSED for zed-agent
 
 ## Update `portingguide.md`
 
