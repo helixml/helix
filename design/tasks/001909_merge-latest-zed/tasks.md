@@ -11,18 +11,18 @@
 
 ## Merge Execution
 
-- [ ] `git merge upstream/main`
-- [ ] If conflicts in `.github/workflows/*` → `git checkout --theirs` (Helix doesn't use Zed CI)
-- [ ] If conflicts in `Cargo.lock` → `git checkout --theirs` (regenerated on next build)
-- [ ] If conflicts in `crates/agent_ui/src/agent_panel.rs` → manual three-way merge; preserve all cfg-gated callbacks (thread display, UI state query, onboarding bypass, ACP auto-approve, agent_type serialization, split-brain detection, auto-follow)
-- [ ] If conflicts in `crates/agent_ui/src/conversation_view.rs` → preserve `HeadlessConnection`, `from_existing_thread()`, THREAD_REGISTRY block, `is_resume = load_session_id.is_some()`, `unregister_thread()` on reset
-- [ ] If conflicts in `crates/acp_thread/src/acp_thread.rs` → preserve `content_only()`, `drop(turn.send_task)`, `stopped_emitted_for_task` guard
-- [ ] If conflicts in `crates/acp_thread/src/connection.rs` → ensure `HeadlessConnection` still implements every method on `AgentConnection` trait
-- [ ] If conflicts in `crates/agent/src/agent.rs` → preserve Critical Fix #1 (entity clone before async task in `load_session()`)
-- [ ] If conflicts in `Cargo.toml` files → preserve feature propagation chain (`zed` → `agent_ui` → `title_bar`); title_bar dep must be `optional = true`
-- [ ] If conflicts in `crates/workspace/src/workspace.rs` → preserve `!matches!(leader_id, CollaboratorId::Agent)` focus guard
-- [ ] Resolve any remaining conflicts referencing the resolution patterns in 001864's merge_resolution_log
-- [ ] `git add` resolved files and `git commit` the merge
+- [x] `git merge upstream/main` — **only 1 conflict**: `crates/agent/src/agent.rs` (visibility + smol→async_channel migration on `NativeAgentSessionList::new`); all other files auto-merged including `agent_panel.rs`, `conversation_view.rs`, `acp_thread.rs`, `connection.rs`, `workspace.rs`
+- [x] N/A — no conflicts in `.github/workflows/*`
+- [x] N/A — no conflicts in `Cargo.lock`
+- [x] N/A — `crates/agent_ui/src/agent_panel.rs` auto-merged
+- [x] N/A — `crates/agent_ui/src/conversation_view.rs` auto-merged
+- [x] N/A — `crates/acp_thread/src/acp_thread.rs` auto-merged
+- [x] N/A — `crates/acp_thread/src/connection.rs` auto-merged
+- [x] Resolved `crates/agent/src/agent.rs`: took upstream's `fn new` (visibility) + `async_channel::unbounded()` (matches the auto-merged field types). Helix's `pub` on `new()` was unused externally
+- [x] N/A — no conflicts in `Cargo.toml` files
+- [x] N/A — no conflicts in `crates/workspace/src/workspace.rs`
+- [x] No remaining conflicts after agent.rs resolution
+- [x] `git add` resolved files and `git commit` the merge — commit `8428a4399d`
 
 ## Sweep for Silent Drift (auto-merged files)
 
