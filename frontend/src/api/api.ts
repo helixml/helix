@@ -3090,6 +3090,14 @@ export enum TypesImageURLDetail {
 
 export interface TypesInteraction {
   app_id?: string;
+  /**
+   * AutoWakeCount tracks how many times the auto-wake worker has sent a
+   * follow-up "continue" prompt to unstick this interaction. Zero means
+   * this is a normal user-initiated interaction; non-zero on an
+   * auto-wake interaction itself records which retry attempt it is.
+   * See design/2026-04-25-zed-claude-async-event-flush-on-user-input.md.
+   */
+  auto_wake_count?: number;
   completed?: string;
   created?: string;
   /** if this is defined, the UI will always display it instead of the message (so we can augment the internal prompt with RAG context) */
@@ -5142,6 +5150,8 @@ export interface TypesSpecTask {
    */
   planning_session_id?: string;
   planning_started_at?: string;
+  /** User who kicked off planning (may differ from CreatedBy) */
+  planning_started_by?: string;
   /** "low", "medium", "high", "critical" */
   priority?: TypesSpecTaskPriority;
   project_id?: string;
@@ -5444,6 +5454,8 @@ export interface TypesSpecTaskWithProject {
    */
   planning_session_id?: string;
   planning_started_at?: string;
+  /** User who kicked off planning (may differ from CreatedBy) */
+  planning_started_by?: string;
   /** "low", "medium", "high", "critical" */
   priority?: TypesSpecTaskPriority;
   project_id?: string;

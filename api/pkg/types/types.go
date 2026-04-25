@@ -96,6 +96,13 @@ type Interaction struct {
 
 	Feedback        Feedback `json:"feedback" gorm:"index"`
 	FeedbackMessage string   `json:"feedback_message"`
+
+	// AutoWakeCount tracks how many times the auto-wake worker has sent a
+	// follow-up "continue" prompt to unstick this interaction. Zero means
+	// this is a normal user-initiated interaction; non-zero on an
+	// auto-wake interaction itself records which retry attempt it is.
+	// See design/2026-04-25-zed-claude-async-event-flush-on-user-input.md.
+	AutoWakeCount int `json:"auto_wake_count" gorm:"default:0;not null"`
 }
 
 type FeedbackRequest struct {

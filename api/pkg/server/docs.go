@@ -24375,6 +24375,10 @@ const docTemplate = `{
                 "app_id": {
                     "type": "string"
                 },
+                "auto_wake_count": {
+                    "description": "AutoWakeCount tracks how many times the auto-wake worker has sent a\nfollow-up \"continue\" prompt to unstick this interaction. Zero means\nthis is a normal user-initiated interaction; non-zero on an\nauto-wake interaction itself records which retry attempt it is.\nSee design/2026-04-25-zed-claude-async-event-flush-on-user-input.md.",
+                    "type": "integer"
+                },
                 "completed": {
                     "type": "string"
                 },
@@ -29166,6 +29170,10 @@ const docTemplate = `{
                 "planning_started_at": {
                     "type": "string"
                 },
+                "planning_started_by": {
+                    "description": "User who kicked off planning (may differ from CreatedBy)",
+                    "type": "string"
+                },
                 "priority": {
                     "description": "\"low\", \"medium\", \"high\", \"critical\"",
                     "allOf": [
@@ -29887,6 +29895,10 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "planning_started_at": {
+                    "type": "string"
+                },
+                "planning_started_by": {
+                    "description": "User who kicked off planning (may differ from CreatedBy)",
                     "type": "string"
                 },
                 "priority": {
