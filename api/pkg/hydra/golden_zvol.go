@@ -488,6 +488,16 @@ func SetupGoldenClone(projectID, sessionID string) (string, error) {
 }
 
 // CleanupSessionZvol unmounts and destroys a session's cloned zvol.
+//
+// Uses `zfs destroy -r` so any descendant snapshots (e.g. ones an operator
+// created out-of-band like `@pre-repo-cleanup-...`) are torn down with the
+// zvol. Without `-r`, ZFS refuses to destroy a dataset that has children and
+// the orphan accumulates forever, polluting GC logs.
+//
+// Note: `-r` (lowercase) does NOT cascade into clones of those snapshots —
+// if someone has manually cloned a child snapshot into another dataset, the
+// destroy still fails with "dataset is busy", which is the right answer (we
+// don't silently nuke unrelated work). The caller's GC loop logs and moves on.
 func CleanupSessionZvol(sessionID string) error {
 	cloneName := sessionZvolName(sessionID)
 	mountPath := sessionZvolMountPath(sessionID)
@@ -506,8 +516,8 @@ func CleanupSessionZvol(sessionID string) error {
 		}
 	}
 
-	// Destroy the clone
-	if err := runCmd("zfs", "destroy", cloneName); err != nil {
+	// Destroy the clone (recursive: takes any descendant snapshots with it)
+	if err := runCmd("zfs", "destroy", "-r", cloneName); err != nil {
 		return fmt.Errorf("failed to destroy clone %s: %w", cloneName, err)
 	}
 
