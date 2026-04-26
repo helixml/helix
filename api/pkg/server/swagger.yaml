@@ -1084,24 +1084,6 @@ definitions:
       org_id:
         type: string
     type: object
-  server.DesignDocsResponse:
-    properties:
-      documents:
-        items:
-          $ref: '#/definitions/server.DesignDocument'
-        type: array
-      task_id:
-        type: string
-    type: object
-  server.DesignDocument:
-    properties:
-      content:
-        type: string
-      filename:
-        type: string
-      path:
-        type: string
-    type: object
   server.DevContainerWithClients:
     properties:
       clients:
@@ -6673,6 +6655,10 @@ definitions:
         type: string
       deleted_at:
         description: 'Soft-delete: non-nil means user removed from queue'
+        type: string
+      error_message:
+        description: Last failure reason (server-side error string), shown in UI under
+          "Failed - retrying"
         type: string
       id:
         description: 'Composite primary key: ID is globally unique, but we also index
@@ -19460,35 +19446,6 @@ paths:
       summary: List spec-driven tasks
       tags:
       - spec-driven-tasks
-  /api/v1/spec-tasks/{id}/design-docs:
-    get:
-      description: Get the design documents from helix-specs worktree
-      parameters:
-      - description: SpecTask ID
-        in: path
-        name: id
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/server.DesignDocsResponse'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-      security:
-      - ApiKeyAuth: []
-      summary: Get design docs for SpecTask
-      tags:
-      - SpecTasks
   /api/v1/spec-tasks/{spec_task_id}/approve-implementation:
     post:
       description: Approve the implementation and instruct agent to merge to main

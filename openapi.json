@@ -17318,63 +17318,6 @@
                 }
             }
         },
-        "/api/v1/spec-tasks/{id}/design-docs": {
-            "get": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "description": "Get the design documents from helix-specs worktree",
-                "tags": [
-                    "SpecTasks"
-                ],
-                "summary": "Get design docs for SpecTask",
-                "parameters": [
-                    {
-                        "description": "SpecTask ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true,
-                        "schema": {
-                            "type": "string"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/server.DesignDocsResponse"
-                                }
-                            }
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/system.HTTPError"
-                                }
-                            }
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/system.HTTPError"
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        },
         "/api/v1/spec-tasks/{spec_task_id}/approve-implementation": {
             "post": {
                 "security": [
@@ -22252,34 +22195,6 @@
                         "type": "number"
                     },
                     "org_id": {
-                        "type": "string"
-                    }
-                }
-            },
-            "server.DesignDocsResponse": {
-                "type": "object",
-                "properties": {
-                    "documents": {
-                        "type": "array",
-                        "items": {
-                            "$ref": "#/components/schemas/server.DesignDocument"
-                        }
-                    },
-                    "task_id": {
-                        "type": "string"
-                    }
-                }
-            },
-            "server.DesignDocument": {
-                "type": "object",
-                "properties": {
-                    "content": {
-                        "type": "string"
-                    },
-                    "filename": {
-                        "type": "string"
-                    },
-                    "path": {
                         "type": "string"
                     }
                 }
@@ -30278,6 +30193,10 @@
                     },
                     "deleted_at": {
                         "description": "Soft-delete: non-nil means user removed from queue",
+                        "type": "string"
+                    },
+                    "error_message": {
+                        "description": "Last failure reason (server-side error string), shown in UI under \"Failed - retrying\"",
                         "type": "string"
                     },
                     "id": {

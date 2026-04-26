@@ -274,11 +274,17 @@ func (s *PostgresStore) RequeueBouncedPrompt(ctx context.Context, sessionID stri
 	if err != nil {
 		return err // no matching prompt found (e.g. Zed user message, not from queue)
 	}
-	return s.MarkPromptAsFailed(ctx, prompt.ID)
+	return s.MarkPromptAsFailed(ctx, prompt.ID, "agent returned an empty response (bounce); requeueing for retry")
 }
 
-// MarkPromptAsFailed marks a prompt as failed with exponential backoff retry
-func (s *PostgresStore) MarkPromptAsFailed(ctx context.Context, promptID string) error {
+// promptErrorMessageMaxLen caps the persisted error string. The UI renders it
+// inline; longer messages produce a wall-of-text in the queue list. Server
+// logs still carry the full error for debugging.
+const promptErrorMessageMaxLen = 500
+
+// MarkPromptAsFailed marks a prompt as failed with exponential backoff retry,
+// recording the failure reason for display in the UI.
+func (s *PostgresStore) MarkPromptAsFailed(ctx context.Context, promptID string, errorMsg string) error {
 	// First get the current prompt to read retry count
 	var prompt types.PromptHistoryEntry
 	if err := s.gdb.WithContext(ctx).Where("id = ?", promptID).First(&prompt).Error; err != nil {
@@ -293,6 +299,10 @@ func (s *PostgresStore) MarkPromptAsFailed(ctx context.Context, promptID string)
 	}
 	nextRetry := time.Now().Add(time.Duration(backoffSeconds) * time.Second)
 
+	if len(errorMsg) > promptErrorMessageMaxLen {
+		errorMsg = errorMsg[:promptErrorMessageMaxLen]
+	}
+
 	return s.gdb.WithContext(ctx).
 		Model(&types.PromptHistoryEntry{}).
 		Where("id = ?", promptID).
@@ -300,6 +310,7 @@ func (s *PostgresStore) MarkPromptAsFailed(ctx context.Context, promptID string)
 			"status":        "failed",
 			"retry_count":   newRetryCount,
 			"next_retry_at": nextRetry,
+			"error_message": errorMsg,
 		}).
 		Error
 }

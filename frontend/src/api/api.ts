@@ -712,17 +712,6 @@ export interface ServerCreateTopUpRequest {
   org_id?: string;
 }
 
-export interface ServerDesignDocsResponse {
-  documents?: ServerDesignDocument[];
-  task_id?: string;
-}
-
-export interface ServerDesignDocument {
-  content?: string;
-  filename?: string;
-  path?: string;
-}
-
 export interface ServerDevContainerWithClients {
   clients?: GithubComHelixmlHelixApiPkgServerClientInfo[];
   container_id?: string;
@@ -4056,6 +4045,8 @@ export interface TypesPromptHistoryEntry {
   created_at?: string;
   /** Soft-delete: non-nil means user removed from queue */
   deleted_at?: string;
+  /** Last failure reason (server-side error string), shown in UI under "Failed - retrying" */
+  error_message?: string;
   /** Composite primary key: ID is globally unique, but we also index by user+spec_task */
   id?: string;
   /**
@@ -12833,24 +12824,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/spec-tasks`,
         method: "GET",
         query: query,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Get the design documents from helix-specs worktree
-     *
-     * @tags SpecTasks
-     * @name V1SpecTasksDesignDocsDetail
-     * @summary Get design docs for SpecTask
-     * @request GET:/api/v1/spec-tasks/{id}/design-docs
-     * @secure
-     */
-    v1SpecTasksDesignDocsDetail: (id: string, params: RequestParams = {}) =>
-      this.request<ServerDesignDocsResponse, SystemHTTPError>({
-        path: `/api/v1/spec-tasks/${id}/design-docs`,
-        method: "GET",
-        secure: true,
         format: "json",
         ...params,
       }),

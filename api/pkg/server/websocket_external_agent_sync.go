@@ -2662,8 +2662,8 @@ func (apiServer *HelixAPIServer) processPromptQueue(ctx context.Context, session
 			Str("prompt_id", nextPrompt.ID).
 			Msg("Failed to send queued prompt to session")
 
-		// Mark as failed
-		if markErr := apiServer.Store.MarkPromptAsFailed(ctx, nextPrompt.ID); markErr != nil {
+		// Mark as failed (records error so the UI can show it under "Failed - retrying")
+		if markErr := apiServer.Store.MarkPromptAsFailed(ctx, nextPrompt.ID, err.Error()); markErr != nil {
 			log.Error().Err(markErr).Str("prompt_id", nextPrompt.ID).Msg("Failed to mark prompt as failed")
 		}
 		return
@@ -2716,7 +2716,7 @@ func (apiServer *HelixAPIServer) processAnyPendingPrompt(ctx context.Context, se
 			Str("session_id", sessionID).
 			Str("prompt_id", nextPrompt.ID).
 			Msg("Failed to create interaction for pending prompt - reverting to failed")
-		if markErr := apiServer.Store.MarkPromptAsFailed(ctx, nextPrompt.ID); markErr != nil {
+		if markErr := apiServer.Store.MarkPromptAsFailed(ctx, nextPrompt.ID, err.Error()); markErr != nil {
 			log.Error().Err(markErr).Str("prompt_id", nextPrompt.ID).Msg("Failed to mark prompt as failed after interaction creation error")
 		}
 		return
@@ -2868,7 +2868,7 @@ func (apiServer *HelixAPIServer) sendQueuedPromptToSession(ctx context.Context, 
 		// instead of leaving it stuck in 'sending' forever. Previously the
 		// caller marked the prompt as 'sent' unconditionally after this
 		// function returned nil — that hid dispatch failures from the user.
-		if markErr := apiServer.Store.MarkPromptAsFailed(context.Background(), prompt.ID); markErr != nil {
+		if markErr := apiServer.Store.MarkPromptAsFailed(context.Background(), prompt.ID, err.Error()); markErr != nil {
 			log.Error().Err(markErr).Str("prompt_id", prompt.ID).Msg("Failed to mark prompt as failed after dispatch failure")
 		}
 		return nil
@@ -3027,7 +3027,7 @@ func (apiServer *HelixAPIServer) handleThreadLoadError(sessionID string, syncMsg
 						}
 						apiServer.contextMappingsMutex.Unlock()
 						if hasPrompt {
-							if markErr := apiServer.Controller.Options.Store.MarkPromptAsFailed(context.Background(), promptID); markErr != nil {
+							if markErr := apiServer.Controller.Options.Store.MarkPromptAsFailed(context.Background(), promptID, fmt.Sprintf("Thread load failed: %s", errorMsg)); markErr != nil {
 								log.Error().Err(markErr).
 									Str("prompt_id", promptID).
 									Str("interaction_id", interactions[i].ID).

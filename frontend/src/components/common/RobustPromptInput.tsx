@@ -329,18 +329,36 @@ const SortableQueueItem: FC<SortableQueueItemProps> = ({
             )}
           </Box>
           {isFailed && (
-            <Typography variant="caption" sx={{ color: 'error.main' }}>
-              {entry.nextRetryAt ? (
-                (() => {
-                  const secondsUntilRetry = Math.max(0, Math.ceil((entry.nextRetryAt - Date.now()) / 1000))
-                  return secondsUntilRetry > 0
-                    ? `Failed - retrying in ${secondsUntilRetry}s`
-                    : 'Failed - retrying now...'
-                })()
-              ) : (
-                'Failed - will retry'
+            <Box>
+              <Typography variant="caption" sx={{ color: 'error.main', display: 'block' }}>
+                {entry.nextRetryAt ? (
+                  (() => {
+                    const secondsUntilRetry = Math.max(0, Math.ceil((entry.nextRetryAt - Date.now()) / 1000))
+                    return secondsUntilRetry > 0
+                      ? `Failed - retrying in ${secondsUntilRetry}s`
+                      : 'Failed - retrying now...'
+                  })()
+                ) : (
+                  'Failed - will retry'
+                )}
+              </Typography>
+              {entry.errorMessage && (
+                <Typography
+                  variant="caption"
+                  sx={{
+                    color: 'error.main',
+                    opacity: 0.8,
+                    display: 'block',
+                    whiteSpace: 'normal',
+                    wordBreak: 'break-word',
+                    mt: 0.25,
+                  }}
+                  title={entry.errorMessage}
+                >
+                  {entry.errorMessage}
+                </Typography>
               )}
-            </Typography>
+            </Box>
           )}
         </Box>
       )}
