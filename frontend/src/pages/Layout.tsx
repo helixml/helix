@@ -452,10 +452,14 @@ const Layout: FC<{
     }
   }
 
-  // Fullscreen mode: render children without any chrome (sidebar, drawer, banners)
+  // Fullscreen mode: render children without any chrome (sidebar, drawer, banners).
+  // Still include CssBaseline so MUI's typography + body styles apply — without it,
+  // embed pages get browser defaults (Times New Roman, undefined text color → black
+  // on whatever bg the page paints).
   if (router.meta.fullscreen) {
     return (
       <>
+        <CssBaseline />
         {children}
         <Snackbar />
         <GlobalLoading />
