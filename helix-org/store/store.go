@@ -45,37 +45,41 @@ type Grants interface {
 	Delete(ctx context.Context, id domain.GrantID) error
 }
 
-// Channels persists shared event sources. Channels are created
-// explicitly via the create_channel tool.
-type Channels interface {
-	Create(ctx context.Context, ch domain.Channel) error
-	Get(ctx context.Context, id domain.ChannelID) (domain.Channel, error)
-	List(ctx context.Context) ([]domain.Channel, error)
-}
-
-// Streams persists (Worker, Channel) subscriptions.
+// Streams persists named event sources. Streams are created explicitly
+// via the create_stream tool. Every Stream carries a Transport — the
+// default (TransportLocal) keeps events in SQLite and notifies the
+// in-process broadcaster; other transports compose external I/O over
+// the same local store.
 type Streams interface {
 	Create(ctx context.Context, s domain.Stream) error
-	Delete(ctx context.Context, id domain.StreamID) error
-	FindForWorkerAndChannel(ctx context.Context, workerID domain.WorkerID, channelID domain.ChannelID) (domain.Stream, error)
-	ListForWorker(ctx context.Context, workerID domain.WorkerID) ([]domain.Stream, error)
-	ListForChannel(ctx context.Context, channelID domain.ChannelID) ([]domain.Stream, error)
+	Get(ctx context.Context, id domain.StreamID) (domain.Stream, error)
+	List(ctx context.Context) ([]domain.Stream, error)
 }
 
-// Events persists entries published on a Channel.
+// Subscriptions persists (Worker, Stream) links. The pair is the key —
+// there is no synthetic ID.
+type Subscriptions interface {
+	Create(ctx context.Context, sub domain.Subscription) error
+	Delete(ctx context.Context, workerID domain.WorkerID, streamID domain.StreamID) error
+	Find(ctx context.Context, workerID domain.WorkerID, streamID domain.StreamID) (domain.Subscription, error)
+	ListForWorker(ctx context.Context, workerID domain.WorkerID) ([]domain.Subscription, error)
+	ListForStream(ctx context.Context, streamID domain.StreamID) ([]domain.Subscription, error)
+}
+
+// Events persists entries published on a Stream.
 type Events interface {
 	Append(ctx context.Context, e domain.Event) error
-	ListForChannel(ctx context.Context, channelID domain.ChannelID, limit int) ([]domain.Event, error)
-	// ListForWorker returns events reaching a Worker's Feed via their Streams,
+	ListForStream(ctx context.Context, streamID domain.StreamID, limit int) ([]domain.Event, error)
+	// ListForWorker returns events on the Streams a Worker subscribes to,
 	// newest first. If limit <= 0, no limit is applied.
 	ListForWorker(ctx context.Context, workerID domain.WorkerID, limit int) ([]domain.Event, error)
-	// ListSince returns events on the named Channels strictly newer than the
-	// `since` event, oldest first. If channelIDs is empty, returns nothing
-	// (caller's glob matched no channels). If `since` is empty, returns the
-	// most recent `limit` events on the named channels in oldest-first order.
+	// ListSince returns events on the named Streams strictly newer than the
+	// `since` event, oldest first. If streamIDs is empty, returns nothing
+	// (caller's glob matched no streams). If `since` is empty, returns the
+	// most recent `limit` events on the named streams in oldest-first order.
 	// If `since` does not exist, returns the same as if it were empty. If
 	// limit <= 0, no limit is applied.
-	ListSince(ctx context.Context, channelIDs []domain.ChannelID, since domain.EventID, limit int) ([]domain.Event, error)
+	ListSince(ctx context.Context, streamIDs []domain.StreamID, since domain.EventID, limit int) ([]domain.Event, error)
 }
 
 // Environments persists the per-Worker directory handle. The manager
@@ -90,12 +94,12 @@ type Environments interface {
 // Handlers and tools depend on the narrower interfaces above; Store is the
 // wiring point.
 type Store struct {
-	Roles        Roles
-	Positions    Positions
-	Workers      Workers
-	Grants       Grants
-	Channels     Channels
-	Streams      Streams
-	Events       Events
-	Environments Environments
+	Roles         Roles
+	Positions     Positions
+	Workers       Workers
+	Grants        Grants
+	Streams       Streams
+	Subscriptions Subscriptions
+	Events        Events
+	Environments  Environments
 }

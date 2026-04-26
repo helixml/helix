@@ -24,7 +24,7 @@ type TriggerKind string
 const (
 	// TriggerHire fires once when a Worker is first created.
 	TriggerHire TriggerKind = "hire"
-	// TriggerEvent fires whenever a Worker receives an event on a Channel
+	// TriggerEvent fires whenever a Worker receives an event on a Stream
 	// they subscribe to.
 	TriggerEvent TriggerKind = "event"
 )
@@ -37,7 +37,7 @@ type Trigger struct {
 
 	// Event fields, set when Kind == TriggerEvent.
 	EventID   domain.EventID
-	ChannelID domain.ChannelID
+	StreamID  domain.StreamID
 	Source    domain.WorkerID
 	Body      string
 	CreatedAt time.Time
@@ -219,10 +219,10 @@ func buildPrompt(workerID domain.WorkerID, mandate string, trigger Trigger) stri
 	var ctx strings.Builder
 	switch trigger.Kind {
 	case TriggerHire:
-		ctx.WriteString("You have just been hired. This is your first activation. Complete any one-time setup your role describes, then exit. The runtime will re-activate you when an event arrives on a Channel you subscribe to.\n")
+		ctx.WriteString("You have just been hired. This is your first activation. Complete any one-time setup your role describes, then exit. The runtime will re-activate you when an event arrives on a Stream you subscribe to.\n")
 	case TriggerEvent:
-		fmt.Fprintf(&ctx, "A new event arrived on a Channel you subscribe to.\n\n  channel: %s\n  source:  %s\n  time:    %s\n  body:\n%s\n",
-			trigger.ChannelID, trigger.Source, trigger.CreatedAt.Format(time.RFC3339), indentBlock(trigger.Body, "    "))
+		fmt.Fprintf(&ctx, "A new event arrived on a Stream you subscribe to.\n\n  stream: %s\n  source: %s\n  time:   %s\n  body:\n%s\n",
+			trigger.StreamID, trigger.Source, trigger.CreatedAt.Format(time.RFC3339), indentBlock(trigger.Body, "    "))
 	default:
 		fmt.Fprintf(&ctx, "Activation kind: %q.\n", trigger.Kind)
 	}
@@ -258,7 +258,7 @@ func describeTrigger(t Trigger) string {
 	case TriggerHire:
 		return "hire"
 	case TriggerEvent:
-		return fmt.Sprintf("event %s on %s from %s", t.EventID, t.ChannelID, t.Source)
+		return fmt.Sprintf("event %s on %s from %s", t.EventID, t.StreamID, t.Source)
 	default:
 		return string(t.Kind)
 	}

@@ -12,8 +12,8 @@ func TestBroadcasterWakesMatchingSubscriber(t *testing.T) {
 	t.Parallel()
 
 	b := New()
-	ch := b.Subscribe([]domain.ChannelID{"c-a", "c-b"})
-	b.Notify("c-a")
+	ch := b.Subscribe([]domain.StreamID{"s-a", "s-b"})
+	b.Notify("s-a")
 	select {
 	case <-ch:
 	case <-time.After(time.Second):
@@ -21,15 +21,15 @@ func TestBroadcasterWakesMatchingSubscriber(t *testing.T) {
 	}
 }
 
-func TestBroadcasterIgnoresOtherChannels(t *testing.T) {
+func TestBroadcasterIgnoresOtherStreams(t *testing.T) {
 	t.Parallel()
 
 	b := New()
-	ch := b.Subscribe([]domain.ChannelID{"c-a"})
-	b.Notify("c-b")
+	ch := b.Subscribe([]domain.StreamID{"s-a"})
+	b.Notify("s-b")
 	select {
 	case <-ch:
-		t.Fatalf("subscriber woke on unrelated channel")
+		t.Fatalf("subscriber woke on unrelated stream")
 	case <-time.After(50 * time.Millisecond):
 	}
 }
@@ -38,9 +38,9 @@ func TestBroadcasterCoalescesBurstyNotifications(t *testing.T) {
 	t.Parallel()
 
 	b := New()
-	ch := b.Subscribe([]domain.ChannelID{"c-a"})
+	ch := b.Subscribe([]domain.StreamID{"s-a"})
 	for i := 0; i < 100; i++ {
-		b.Notify("c-a")
+		b.Notify("s-a")
 	}
 	// Drain — we should get exactly one wake-up (coalesced).
 	<-ch
@@ -55,9 +55,9 @@ func TestBroadcasterUnsubscribeStopsDelivery(t *testing.T) {
 	t.Parallel()
 
 	b := New()
-	ch := b.Subscribe([]domain.ChannelID{"c-a"})
-	b.Unsubscribe([]domain.ChannelID{"c-a"}, ch)
-	b.Notify("c-a")
+	ch := b.Subscribe([]domain.StreamID{"s-a"})
+	b.Unsubscribe([]domain.StreamID{"s-a"}, ch)
+	b.Notify("s-a")
 	select {
 	case <-ch:
 		t.Fatalf("woke after unsubscribe")
@@ -65,12 +65,12 @@ func TestBroadcasterUnsubscribeStopsDelivery(t *testing.T) {
 	}
 }
 
-func TestBroadcasterSubscribeAllWakesOnAnyChannel(t *testing.T) {
+func TestBroadcasterSubscribeAllWakesOnAnyStream(t *testing.T) {
 	t.Parallel()
 
 	b := New()
 	ch := b.SubscribeAll()
-	b.Notify("c-anything")
+	b.Notify("s-anything")
 	select {
 	case <-ch:
 	case <-time.After(time.Second):
@@ -78,22 +78,22 @@ func TestBroadcasterSubscribeAllWakesOnAnyChannel(t *testing.T) {
 	}
 }
 
-func TestBroadcasterSubscribeAllStillWakesAfterPerChannelNotify(t *testing.T) {
+func TestBroadcasterSubscribeAllStillWakesAfterPerStreamNotify(t *testing.T) {
 	t.Parallel()
 
 	b := New()
-	per := b.Subscribe([]domain.ChannelID{"c-a"})
+	per := b.Subscribe([]domain.StreamID{"s-a"})
 	all := b.SubscribeAll()
-	b.Notify("c-a")
+	b.Notify("s-a")
 	select {
 	case <-per:
 	case <-time.After(time.Second):
-		t.Fatalf("per-channel subscriber did not wake")
+		t.Fatalf("per-stream subscriber did not wake")
 	}
 	select {
 	case <-all:
 	case <-time.After(time.Second):
-		t.Fatalf("wildcard subscriber did not wake on per-channel notify")
+		t.Fatalf("wildcard subscriber did not wake on per-stream notify")
 	}
 }
 
@@ -103,7 +103,7 @@ func TestBroadcasterUnsubscribeAllStopsDelivery(t *testing.T) {
 	b := New()
 	ch := b.SubscribeAll()
 	b.UnsubscribeAll(ch)
-	b.Notify("c-a")
+	b.Notify("s-a")
 	select {
 	case <-ch:
 		t.Fatalf("woke after UnsubscribeAll")
@@ -119,7 +119,7 @@ func TestBroadcasterMultipleSubscribers(t *testing.T) {
 	var wg sync.WaitGroup
 	channels := make([]chan struct{}, n)
 	for i := range channels {
-		channels[i] = b.Subscribe([]domain.ChannelID{"c-a"})
+		channels[i] = b.Subscribe([]domain.StreamID{"s-a"})
 		wg.Add(1)
 		go func(ch chan struct{}) {
 			defer wg.Done()
@@ -130,6 +130,6 @@ func TestBroadcasterMultipleSubscribers(t *testing.T) {
 			}
 		}(channels[i])
 	}
-	b.Notify("c-a")
+	b.Notify("s-a")
 	wg.Wait()
 }

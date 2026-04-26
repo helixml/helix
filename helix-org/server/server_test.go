@@ -16,7 +16,11 @@ import (
 	"github.com/helixml/helix-org/tools"
 )
 
-func newTestServer(t *testing.T) *httptest.Server {
+// newTestServer seeds a CEO Worker with a ping grant and a hire_worker
+// grant (the latter pointing at a tool deliberately not registered, so
+// we can assert it's filtered out of the MCP list). Returns the running
+// httptest.Server and the workerID to act as.
+func newTestServer(t *testing.T) (*httptest.Server, domain.WorkerID) {
 	t.Helper()
 	s, err := sqlite.Open(":memory:")
 	if err != nil {
@@ -28,7 +32,7 @@ func newTestServer(t *testing.T) *httptest.Server {
 		t.Fatalf("register ping: %v", err)
 	}
 
-	srv := httptest.NewServer(server.New(s, reg, nil, nil, "").Handler())
+	srv := httptest.NewServer(server.New(s, reg, nil, nil).Handler())
 	t.Cleanup(srv.Close)
 
 	ctx := context.Background()
@@ -39,11 +43,6 @@ func newTestServer(t *testing.T) *httptest.Server {
 	root, _ := domain.NewPosition("p-root", "r-ceo", nil)
 	if err := s.Positions.Create(ctx, root); err != nil {
 		t.Fatalf("seed root: %v", err)
-	}
-	rootID := root.ID
-	child, _ := domain.NewPosition("p-engineering", "r-ceo", &rootID)
-	if err := s.Positions.Create(ctx, child); err != nil {
-		t.Fatalf("seed child: %v", err)
 	}
 	ai, _ := domain.NewAIWorker("w-ceo", []domain.PositionID{"p-root"})
 	if err := s.Workers.Create(ctx, ai); err != nil {
@@ -57,7 +56,7 @@ func newTestServer(t *testing.T) *httptest.Server {
 	if err := s.Grants.Create(ctx, pingGrant); err != nil {
 		t.Fatalf("seed ping grant: %v", err)
 	}
-	return srv
+	return srv, "w-ceo"
 }
 
 type envelope struct {
@@ -86,97 +85,6 @@ func withGet(t *testing.T, url string, fn func(res *http.Response, env envelope)
 	fn(res, env)
 }
 
-func TestGetRole(t *testing.T) {
-	t.Parallel()
-	srv := newTestServer(t)
-	withGet(t, srv.URL+"/roles/r-ceo", func(res *http.Response, env envelope) {
-		if res.StatusCode != http.StatusOK {
-			t.Fatalf("status = %d, want 200", res.StatusCode)
-		}
-		if got := res.Header.Get("Content-Type"); got != server.MediaType {
-			t.Fatalf("content-type = %q, want %q", got, server.MediaType)
-		}
-		var resource server.Resource
-		if err := json.Unmarshal(env.Data, &resource); err != nil {
-			t.Fatalf("unmarshal data: %v", err)
-		}
-		if resource.Type != "roles" || resource.ID != "r-ceo" {
-			t.Fatalf("resource = %+v", resource)
-		}
-	})
-}
-
-func TestGetRoleNotFound(t *testing.T) {
-	t.Parallel()
-	srv := newTestServer(t)
-	withGet(t, srv.URL+"/roles/missing", func(res *http.Response, env envelope) {
-		if res.StatusCode != http.StatusNotFound {
-			t.Fatalf("status = %d, want 404", res.StatusCode)
-		}
-		if len(env.Errors) == 0 {
-			t.Fatalf("expected errors, got data: %s", env.Data)
-		}
-	})
-}
-
-func TestListPositions(t *testing.T) {
-	t.Parallel()
-	srv := newTestServer(t)
-	withGet(t, srv.URL+"/positions", func(res *http.Response, env envelope) {
-		if res.StatusCode != http.StatusOK {
-			t.Fatalf("status = %d", res.StatusCode)
-		}
-		var resources []server.Resource
-		if err := json.Unmarshal(env.Data, &resources); err != nil {
-			t.Fatalf("unmarshal: %v", err)
-		}
-		if len(resources) != 2 {
-			t.Fatalf("positions = %d, want 2", len(resources))
-		}
-	})
-}
-
-func TestListPositionChildren(t *testing.T) {
-	t.Parallel()
-	srv := newTestServer(t)
-	withGet(t, srv.URL+"/positions/p-root/children", func(res *http.Response, env envelope) {
-		if res.StatusCode != http.StatusOK {
-			t.Fatalf("status = %d", res.StatusCode)
-		}
-		var resources []server.Resource
-		if err := json.Unmarshal(env.Data, &resources); err != nil {
-			t.Fatalf("unmarshal: %v", err)
-		}
-		if len(resources) != 1 || resources[0].ID != "p-engineering" {
-			t.Fatalf("children = %+v", resources)
-		}
-	})
-}
-
-func TestWorkerAndGrants(t *testing.T) {
-	t.Parallel()
-	srv := newTestServer(t)
-
-	withGet(t, srv.URL+"/workers/w-ceo", func(res *http.Response, _ envelope) {
-		if res.StatusCode != http.StatusOK {
-			t.Fatalf("worker status = %d", res.StatusCode)
-		}
-	})
-
-	withGet(t, srv.URL+"/workers/w-ceo/grants", func(res *http.Response, env envelope) {
-		if res.StatusCode != http.StatusOK {
-			t.Fatalf("grants status = %d", res.StatusCode)
-		}
-		var resources []server.Resource
-		if err := json.Unmarshal(env.Data, &resources); err != nil {
-			t.Fatalf("unmarshal: %v", err)
-		}
-		if len(resources) != 2 {
-			t.Fatalf("grants = %+v", resources)
-		}
-	})
-}
-
 // connectMCP returns an MCP client session bound to the given worker's
 // /mcp endpoint. The session is closed when the test ends.
 func connectMCP(t *testing.T, baseURL string, workerID domain.WorkerID) *mcp.ClientSession {
@@ -194,8 +102,8 @@ func connectMCP(t *testing.T, baseURL string, workerID domain.WorkerID) *mcp.Cli
 	return session
 }
 
-// TestTailMatchesGlob seeds three channels and four events, then tails
-// "c-news*" and asserts only the two news events come back, oldest first.
+// TestTailMatchesGlob seeds three streams and four events, then tails
+// "s-news*" and asserts only the two news events come back, oldest first.
 // Also checks that since= advances the cursor.
 func TestTailMatchesGlob(t *testing.T) {
 	t.Parallel()
@@ -203,34 +111,34 @@ func TestTailMatchesGlob(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
-	srv := httptest.NewServer(server.New(s, tools.NewRegistry(), nil, nil, "").Handler())
+	srv := httptest.NewServer(server.New(s, tools.NewRegistry(), nil, nil).Handler())
 	t.Cleanup(srv.Close)
 
 	ctx := context.Background()
 	now := time.Date(2026, 4, 25, 12, 0, 0, 0, time.UTC)
 	for _, c := range []struct{ id, name string }{
-		{"c-news-wire", "news-wire"},
-		{"c-newsletter", "newsletter"},
-		{"c-other", "other"},
+		{"s-news-wire", "news-wire"},
+		{"s-newsletter", "newsletter"},
+		{"s-other", "other"},
 	} {
-		ch, _ := domain.NewChannel(domain.ChannelID(c.id), c.name, "", "w-owner", now)
-		if err := s.Channels.Create(ctx, ch); err != nil {
-			t.Fatalf("seed channel %s: %v", c.id, err)
+		st, _ := domain.NewStream(domain.StreamID(c.id), c.name, "", "w-owner", now, domain.Transport{})
+		if err := s.Streams.Create(ctx, st); err != nil {
+			t.Fatalf("seed stream %s: %v", c.id, err)
 		}
 	}
-	for i, e := range []struct{ id, ch string }{
-		{"e-1", "c-news-wire"},
-		{"e-2", "c-other"},
-		{"e-3", "c-newsletter"},
-		{"e-4", "c-other"},
+	for i, e := range []struct{ id, st string }{
+		{"e-1", "s-news-wire"},
+		{"e-2", "s-other"},
+		{"e-3", "s-newsletter"},
+		{"e-4", "s-other"},
 	} {
-		ev, _ := domain.NewEvent(domain.EventID(e.id), domain.ChannelID(e.ch), "w-owner", "x", now.Add(time.Duration(i+1)*time.Second))
+		ev, _ := domain.NewEvent(domain.EventID(e.id), domain.StreamID(e.st), "w-owner", "x", now.Add(time.Duration(i+1)*time.Second))
 		if err := s.Events.Append(ctx, ev); err != nil {
 			t.Fatalf("seed event %s: %v", e.id, err)
 		}
 	}
 
-	withGet(t, srv.URL+"/tail?match=c-news*", func(res *http.Response, env envelope) {
+	withGet(t, srv.URL+"/tail?match=s-news*", func(res *http.Response, env envelope) {
 		if res.StatusCode != http.StatusOK {
 			t.Fatalf("status = %d", res.StatusCode)
 		}
@@ -246,7 +154,7 @@ func TestTailMatchesGlob(t *testing.T) {
 		}
 	})
 
-	withGet(t, srv.URL+"/tail?match=c-news*&since=e-1", func(res *http.Response, env envelope) {
+	withGet(t, srv.URL+"/tail?match=s-news*&since=e-1", func(res *http.Response, env envelope) {
 		var resources []server.Resource
 		if err := json.Unmarshal(env.Data, &resources); err != nil {
 			t.Fatalf("decode: %v", err)
@@ -275,8 +183,8 @@ func TestTailMatchesGlob(t *testing.T) {
 // not appear. create_role is neither granted nor registered.
 func TestMCPListTools(t *testing.T) {
 	t.Parallel()
-	srv := newTestServer(t)
-	session := connectMCP(t, srv.URL, "w-ceo")
+	srv, workerID := newTestServer(t)
+	session := connectMCP(t, srv.URL, workerID)
 
 	res, err := session.ListTools(context.Background(), nil)
 	if err != nil {
@@ -302,8 +210,8 @@ func TestMCPListTools(t *testing.T) {
 // the message back along with the caller ID.
 func TestMCPInvokePing(t *testing.T) {
 	t.Parallel()
-	srv := newTestServer(t)
-	session := connectMCP(t, srv.URL, "w-ceo")
+	srv, workerID := newTestServer(t)
+	session := connectMCP(t, srv.URL, workerID)
 
 	res, err := session.CallTool(context.Background(), &mcp.CallToolParams{
 		Name:      "ping",
@@ -339,8 +247,8 @@ func TestMCPInvokePing(t *testing.T) {
 // "tool not found", not a 403 — the LLM never sees ungranted tools at all.
 func TestMCPUngrantedToolHidden(t *testing.T) {
 	t.Parallel()
-	srv := newTestServer(t)
-	session := connectMCP(t, srv.URL, "w-ceo")
+	srv, workerID := newTestServer(t)
+	session := connectMCP(t, srv.URL, workerID)
 
 	_, err := session.CallTool(context.Background(), &mcp.CallToolParams{
 		Name:      "create_role",

@@ -24,7 +24,7 @@ You write a sentence; Claude calls the helix tools.
 - **Spawning**: hiring an AI Worker writes a per-Worker `mcp.json`
   and runs `claude -p` against it. Each activation is one Claude
   turn, then exit.
-- **Push dispatch**: when an event lands on a Channel a Worker
+- **Push dispatch**: when an event lands on a Stream a Worker
   subscribes to, the runtime spawns a fresh Claude for it.
 
 ## Setup
@@ -50,22 +50,28 @@ Leave it running. Every HTTP request and every spawn lands here.
 
 ## 2. Bootstrap the Owner (terminal 2)
 
+Bootstrap opens the SQLite store directly, so it needs the same
+`--db` and `--envs-dir` you passed to `serve`. (It doesn't talk to
+the running server — there's no Worker to dial yet.)
+
 ```bash
-./bin/helix-org bootstrap
+./bin/helix-org bootstrap \
+  --db /tmp/helix-org-demo.db \
+  --envs-dir /tmp/helix-org-envs
 ```
 
-You now have `w-owner` with grants for every structural tool. Their
+You now have `w-owner` with grants for every built-in tool. Their
 Environment is at `/tmp/helix-org-envs/w-owner`.
 
 ## 3. Set up an Echo Worker
 
-One prompt — Claude turns it into the four MCP calls (channel, role,
+One prompt — Claude turns it into the four MCP calls (stream, role,
 position, hire):
 
 ```bash
-./bin/helix-org prompt "Set up a small echo worker. Make a channel
-called c-general. Define a role r-echo whose job is, on hire, to
-subscribe to c-general, and on each new event there, publish
+./bin/helix-org prompt "Set up a small echo worker. Make a stream
+called s-general. Define a role r-echo whose job is, on hire, to
+subscribe to s-general, and on each new event there, publish
 'echo: <body>'. Create a position for that role reporting to me, and
 hire an AI worker called w-echo for it with grants to subscribe and
 publish."
@@ -73,33 +79,33 @@ publish."
 
 Claude reports back what it did. In terminal 1 you'll see
 `spawned claude … worker=w-echo trigger=hire`. In a third terminal,
-start watching every channel — this is your live view of the org:
+start watching every stream — this is your live view of the org:
 
 ```bash
 ./bin/helix-org tail
 ```
 
-(Use `tail c-general` for just the one channel, or `tail 'c-*'` for
-all c-prefixed channels. To watch the worker's *internal* claude
+(Use `tail s-general` for just the one stream, or `tail 's-*'` for
+all s-prefixed streams. To watch the worker's *internal* claude
 output as well, `tail -f /tmp/helix-org-envs/w-echo/activation.log`
 shows the raw stream.)
 
 Within ~10 seconds the hire activation finishes: claude reads
-`role.md` and `identity.md`, calls `subscribe` on `c-general`, exits.
+`role.md` and `identity.md`, calls `subscribe` on `s-general`, exits.
 The process is gone — Claude will be respawned when an event arrives.
 
 ## 4. Wake the Worker with an event
 
 ```bash
-./bin/helix-org prompt "publish 'hello' on c-general"
+./bin/helix-org prompt "publish 'hello' on s-general"
 ```
 
 In the `tail` window you'll see two events land back-to-back: the
 owner's `hello`, then the echo worker's reply.
 
 ```
-HH:MM:SS  c-general  w-owner  hello
-HH:MM:SS  c-general  w-echo   echo: hello
+HH:MM:SS  s-general  w-owner  hello
+HH:MM:SS  s-general  w-echo   echo: hello
 ```
 
 ## 5. Live-edit the Role
@@ -120,7 +126,7 @@ The file on disk is now v2. Trigger another publish — the Worker
 responds in the new style:
 
 ```bash
-./bin/helix-org prompt "publish 'hello' on c-general"
+./bin/helix-org prompt "publish 'hello' on s-general"
 ```
 
 The `tail` window shows the new behaviour live: `w-echo: loud: HELLO`.
@@ -141,7 +147,7 @@ pkill -f 'claude -p' 2>/dev/null
 Worker, pass `--as <workerId>`:
 
 ```bash
-./bin/helix-org prompt --as w-echo "list the channels you're subscribed to"
+./bin/helix-org prompt --as w-echo "list the streams you're subscribed to"
 ```
 
 Claude only sees the tools the named Worker holds grants for, so this

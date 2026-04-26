@@ -12,24 +12,24 @@ func TestNewEvent(t *testing.T) {
 	cases := []struct {
 		name    string
 		id      EventID
-		channel ChannelID
+		stream  StreamID
 		source  WorkerID
 		body    string
 		ts      time.Time
 		wantErr bool
 	}{
-		{"valid worker event", "e-1", "c-1", "w-1", "hello", now, false},
-		{"valid system event", "e-1", "c-1", "", "it is 9am monday", now, false},
-		{"empty id", "", "c-1", "w-1", "hello", now, true},
-		{"empty channel", "e-1", "", "w-1", "hello", now, true},
-		{"empty body", "e-1", "c-1", "w-1", "", now, true},
-		{"zero time", "e-1", "c-1", "w-1", "hello", time.Time{}, true},
+		{"valid worker event", "e-1", "s-1", "w-1", "hello", now, false},
+		{"valid system event", "e-1", "s-1", "", "it is 9am monday", now, false},
+		{"empty id", "", "s-1", "w-1", "hello", now, true},
+		{"empty stream", "e-1", "", "w-1", "hello", now, true},
+		{"empty body", "e-1", "s-1", "w-1", "", now, true},
+		{"zero time", "e-1", "s-1", "w-1", "hello", time.Time{}, true},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			e, err := NewEvent(tc.id, tc.channel, tc.source, tc.body, tc.ts)
+			e, err := NewEvent(tc.id, tc.stream, tc.source, tc.body, tc.ts)
 			gotErr := err != nil
 			if gotErr != tc.wantErr {
 				t.Fatalf("NewEvent error = %v, wantErr = %v", err, tc.wantErr)

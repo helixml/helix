@@ -6,7 +6,6 @@ type (
 	WorkerID   string
 	GrantID    string
 	ToolName   string
-	ChannelID  string
 	StreamID   string
 	EventID    string
 )

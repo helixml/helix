@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -13,10 +14,13 @@ import (
 )
 
 type streamRow struct {
-	ID        string `gorm:"primaryKey;type:text"`
-	WorkerID  string `gorm:"not null;uniqueIndex:idx_stream_worker_channel"`
-	ChannelID string `gorm:"not null;uniqueIndex:idx_stream_worker_channel"`
-	CreatedAt time.Time
+	ID              string `gorm:"primaryKey;type:text"`
+	Name            string `gorm:"not null;uniqueIndex"`
+	Description     string
+	CreatedBy       string `gorm:"not null;index"`
+	CreatedAt       time.Time
+	TransportKind   string `gorm:"not null;default:local"`
+	TransportConfig string `gorm:"not null;default:''"`
 }
 
 func (streamRow) TableName() string { return "streams" }
@@ -26,71 +30,33 @@ type streamsRepo struct {
 }
 
 func (r *streamsRepo) Create(ctx context.Context, s domain.Stream) error {
-	row := streamToRow(s)
+	row, err := streamToRow(s)
+	if err != nil {
+		return err
+	}
 	if err := r.db.WithContext(ctx).Create(&row).Error; err != nil {
 		return fmt.Errorf("create stream: %w", err)
 	}
 	return nil
 }
 
-func (r *streamsRepo) Delete(ctx context.Context, id domain.StreamID) error {
-	res := r.db.WithContext(ctx).Delete(&streamRow{}, "id = ?", string(id))
-	if res.Error != nil {
-		return fmt.Errorf("delete stream %q: %w", id, res.Error)
-	}
-	if res.RowsAffected == 0 {
-		return fmt.Errorf("stream %q: %w", id, store.ErrNotFound)
-	}
-	return nil
-}
-
-func (r *streamsRepo) FindForWorkerAndChannel(ctx context.Context, workerID domain.WorkerID, channelID domain.ChannelID) (domain.Stream, error) {
+func (r *streamsRepo) Get(ctx context.Context, id domain.StreamID) (domain.Stream, error) {
 	var row streamRow
-	err := r.db.WithContext(ctx).Where("worker_id = ? AND channel_id = ?", string(workerID), string(channelID)).First(&row).Error
+	err := r.db.WithContext(ctx).First(&row, "id = ?", string(id)).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return domain.Stream{}, fmt.Errorf("stream for worker %q channel %q: %w", workerID, channelID, store.ErrNotFound)
+			return domain.Stream{}, fmt.Errorf("stream %q: %w", id, store.ErrNotFound)
 		}
-		return domain.Stream{}, fmt.Errorf("find stream for worker %q channel %q: %w", workerID, channelID, err)
+		return domain.Stream{}, fmt.Errorf("get stream %q: %w", id, err)
 	}
 	return rowToStream(row)
 }
 
-func (r *streamsRepo) ListForWorker(ctx context.Context, workerID domain.WorkerID) ([]domain.Stream, error) {
+func (r *streamsRepo) List(ctx context.Context) ([]domain.Stream, error) {
 	var rows []streamRow
-	if err := r.db.WithContext(ctx).Where("worker_id = ?", string(workerID)).Order("channel_id").Find(&rows).Error; err != nil {
-		return nil, fmt.Errorf("list streams for worker %q: %w", workerID, err)
+	if err := r.db.WithContext(ctx).Order("id").Find(&rows).Error; err != nil {
+		return nil, fmt.Errorf("list streams: %w", err)
 	}
-	return rowsToStreams(rows)
-}
-
-func (r *streamsRepo) ListForChannel(ctx context.Context, channelID domain.ChannelID) ([]domain.Stream, error) {
-	var rows []streamRow
-	if err := r.db.WithContext(ctx).Where("channel_id = ?", string(channelID)).Order("worker_id").Find(&rows).Error; err != nil {
-		return nil, fmt.Errorf("list streams for channel %q: %w", channelID, err)
-	}
-	return rowsToStreams(rows)
-}
-
-func streamToRow(s domain.Stream) streamRow {
-	return streamRow{
-		ID:        string(s.ID),
-		WorkerID:  string(s.WorkerID),
-		ChannelID: string(s.ChannelID),
-		CreatedAt: s.CreatedAt,
-	}
-}
-
-func rowToStream(row streamRow) (domain.Stream, error) {
-	return domain.NewStream(
-		domain.StreamID(row.ID),
-		domain.WorkerID(row.WorkerID),
-		domain.ChannelID(row.ChannelID),
-		row.CreatedAt,
-	)
-}
-
-func rowsToStreams(rows []streamRow) ([]domain.Stream, error) {
 	out := make([]domain.Stream, 0, len(rows))
 	for _, row := range rows {
 		s, err := rowToStream(row)
@@ -100,4 +66,35 @@ func rowsToStreams(rows []streamRow) ([]domain.Stream, error) {
 		out = append(out, s)
 	}
 	return out, nil
+}
+
+func streamToRow(s domain.Stream) (streamRow, error) {
+	cfg := ""
+	if len(s.Transport.Config) > 0 {
+		cfg = string(s.Transport.Config)
+	}
+	return streamRow{
+		ID:              string(s.ID),
+		Name:            s.Name,
+		Description:     s.Description,
+		CreatedBy:       string(s.CreatedBy),
+		CreatedAt:       s.CreatedAt,
+		TransportKind:   string(s.Transport.Kind),
+		TransportConfig: cfg,
+	}, nil
+}
+
+func rowToStream(row streamRow) (domain.Stream, error) {
+	transport := domain.Transport{Kind: domain.TransportKind(row.TransportKind)}
+	if row.TransportConfig != "" {
+		transport.Config = json.RawMessage(row.TransportConfig)
+	}
+	return domain.NewStream(
+		domain.StreamID(row.ID),
+		row.Name,
+		row.Description,
+		domain.WorkerID(row.CreatedBy),
+		row.CreatedAt,
+		transport,
+	)
 }

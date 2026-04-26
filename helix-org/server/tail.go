@@ -17,23 +17,56 @@ const (
 	tailMaxWaitSecs  = 60
 )
 
-// tail returns events from any Channel whose ID matches one of the
+// tailEventAttributes is the jsonapi attributes payload for one event
+// returned by /tail. It is the only resource shape this server still
+// produces over HTTP.
+type tailEventAttributes struct {
+	StreamID  domain.StreamID `json:"streamId"`
+	Source    domain.WorkerID `json:"source"`
+	Body      string          `json:"body"`
+	CreatedAt time.Time       `json:"createdAt"`
+}
+
+// writeTailEvents writes a jsonapi collection of events at 200 OK.
+func writeTailEvents(w http.ResponseWriter, events []domain.Event) {
+	out := make([]Resource, 0, len(events))
+	for _, e := range events {
+		out = append(out, Resource{
+			Type: "events",
+			ID:   string(e.ID),
+			Attributes: mustAttributes(tailEventAttributes{
+				StreamID:  e.StreamID,
+				Source:    e.Source,
+				Body:      e.Body,
+				CreatedAt: e.CreatedAt,
+			}),
+		})
+	}
+	writeCollection(w, http.StatusOK, out)
+}
+
+// parseErr carries a one-line message back from query-parameter parsing.
+type parseErr struct{ msg string }
+
+func (e *parseErr) Error() string { return e.msg }
+
+// tail returns events from any Stream whose ID matches one of the
 // supplied glob patterns, oldest-first.
 //
 // Query parameters:
-//   - match=<glob> — repeatable. Matched against Channel ID via path.Match
-//     ("c-*", "c-news*", "*"). Default: "*" (all channels). When more than
+//   - match=<glob> — repeatable. Matched against Stream ID via path.Match
+//     ("s-*", "s-news*", "*"). Default: "*" (all streams). When more than
 //     one is supplied the union is returned.
 //   - since=<event-id> — return only events strictly newer than this
 //     event. Stale or unknown IDs fall through to "no lower bound".
 //   - limit=<n> — page size, 1..500, default 100.
 //   - wait=<secs> — if the result is empty, block up to this many seconds
-//     waiting for any event on any matching Channel. Capped at 60.
+//     waiting for any event on any matching Stream. Capped at 60.
 //
-// Future work: the patterns currently always select Channels. When other
-// stream sources land (per-Worker activation logs, system audit, etc.) the
-// shape will gain a namespace prefix — e.g. "channel:c-*",
-// "activation:w-*". Bare globs stay channel-scoped for back-compat.
+// Future work: the patterns currently always select Streams. When other
+// event sources land (per-Worker activation logs, system audit, etc.) the
+// shape will gain a namespace prefix — e.g. "stream:s-*",
+// "activation:w-*". Bare globs stay stream-scoped for back-compat.
 func (s *Server) tail(w http.ResponseWriter, r *http.Request) {
 	patterns := r.URL.Query()["match"]
 	if len(patterns) == 0 {
@@ -55,7 +88,7 @@ func (s *Server) tail(w http.ResponseWriter, r *http.Request) {
 	}
 	since := domain.EventID(r.URL.Query().Get("since"))
 
-	matching, err := s.matchChannels(r.Context(), patterns)
+	matching, err := s.matchStreams(r.Context(), patterns)
 	if err != nil {
 		writeStoreError(w, err, "tail")
 		return
@@ -66,11 +99,11 @@ func (s *Server) tail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if len(fresh) > 0 || waitSecs == 0 || s.broadcaster == nil {
-		writeFeedEvents(w, fresh)
+		writeTailEvents(w, fresh)
 		return
 	}
 
-	// Long-poll. Use SubscribeAll so that channels created mid-tail
+	// Long-poll. Use SubscribeAll so that streams created mid-tail
 	// (e.g. by an Editor's hire trigger) still wake us; we re-resolve the
 	// matching set after the wake.
 	wake := s.broadcaster.SubscribeAll()
@@ -86,7 +119,7 @@ func (s *Server) tail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	matching, err = s.matchChannels(r.Context(), patterns)
+	matching, err = s.matchStreams(r.Context(), patterns)
 	if err != nil {
 		writeStoreError(w, err, "tail")
 		return
@@ -96,22 +129,22 @@ func (s *Server) tail(w http.ResponseWriter, r *http.Request) {
 		writeStoreError(w, err, "tail")
 		return
 	}
-	writeFeedEvents(w, fresh)
+	writeTailEvents(w, fresh)
 }
 
-// matchChannels lists every Channel and returns the IDs whose name
+// matchStreams lists every Stream and returns the IDs whose name
 // matches any of the supplied glob patterns.
-func (s *Server) matchChannels(ctx context.Context, patterns []string) ([]domain.ChannelID, error) {
-	all, err := s.store.Channels.List(ctx)
+func (s *Server) matchStreams(ctx context.Context, patterns []string) ([]domain.StreamID, error) {
+	all, err := s.store.Streams.List(ctx)
 	if err != nil {
 		return nil, err
 	}
-	out := make([]domain.ChannelID, 0, len(all))
-	for _, c := range all {
+	out := make([]domain.StreamID, 0, len(all))
+	for _, st := range all {
 		for _, p := range patterns {
-			ok, _ := path.Match(p, string(c.ID))
+			ok, _ := path.Match(p, string(st.ID))
 			if ok {
-				out = append(out, c.ID)
+				out = append(out, st.ID)
 				break
 			}
 		}

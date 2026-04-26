@@ -12,7 +12,7 @@ import (
 
 type eventRow struct {
 	ID        string    `gorm:"primaryKey;type:text"`
-	ChannelID string    `gorm:"not null;index"`
+	StreamID  string    `gorm:"not null;index"`
 	Source    string    `gorm:"index"` // empty for system-emitted
 	Body      string    `gorm:"not null"`
 	CreatedAt time.Time `gorm:"index"`
@@ -32,25 +32,25 @@ func (r *eventsRepo) Append(ctx context.Context, e domain.Event) error {
 	return nil
 }
 
-func (r *eventsRepo) ListForChannel(ctx context.Context, channelID domain.ChannelID, limit int) ([]domain.Event, error) {
-	query := r.db.WithContext(ctx).Where("channel_id = ?", string(channelID)).Order("created_at DESC, id DESC")
+func (r *eventsRepo) ListForStream(ctx context.Context, streamID domain.StreamID, limit int) ([]domain.Event, error) {
+	query := r.db.WithContext(ctx).Where("stream_id = ?", string(streamID)).Order("created_at DESC, id DESC")
 	if limit > 0 {
 		query = query.Limit(limit)
 	}
 	var rows []eventRow
 	if err := query.Find(&rows).Error; err != nil {
-		return nil, fmt.Errorf("list events for channel %q: %w", channelID, err)
+		return nil, fmt.Errorf("list events for stream %q: %w", streamID, err)
 	}
 	return rowsToEvents(rows)
 }
 
-func (r *eventsRepo) ListSince(ctx context.Context, channelIDs []domain.ChannelID, since domain.EventID, limit int) ([]domain.Event, error) {
-	if len(channelIDs) == 0 {
+func (r *eventsRepo) ListSince(ctx context.Context, streamIDs []domain.StreamID, since domain.EventID, limit int) ([]domain.Event, error) {
+	if len(streamIDs) == 0 {
 		return nil, nil
 	}
-	ids := make([]string, 0, len(channelIDs))
-	for _, c := range channelIDs {
-		ids = append(ids, string(c))
+	ids := make([]string, 0, len(streamIDs))
+	for _, s := range streamIDs {
+		ids = append(ids, string(s))
 	}
 
 	// Resolve `since` to its (created_at, id) pair. If the event is unknown
@@ -73,7 +73,7 @@ func (r *eventsRepo) ListSince(ctx context.Context, channelIDs []domain.ChannelI
 		// bound" — tail callers tolerate this and just see recent history.
 	}
 
-	query := r.db.WithContext(ctx).Where("channel_id IN ?", ids)
+	query := r.db.WithContext(ctx).Where("stream_id IN ?", ids)
 	if hasLB {
 		// (created_at, id) > (sinceTS, sinceID)
 		query = query.Where("(created_at > ?) OR (created_at = ? AND id > ?)", sinceTS, sinceTS, sinceID)
@@ -90,11 +90,11 @@ func (r *eventsRepo) ListSince(ctx context.Context, channelIDs []domain.ChannelI
 }
 
 func (r *eventsRepo) ListForWorker(ctx context.Context, workerID domain.WorkerID, limit int) ([]domain.Event, error) {
-	// Join events with streams to return only events on channels the worker
-	// subscribes to, newest first.
+	// Join events with subscriptions to return only events on streams the
+	// worker subscribes to, newest first.
 	query := r.db.WithContext(ctx).
 		Table("events AS e").
-		Joins("JOIN streams AS s ON s.channel_id = e.channel_id").
+		Joins("JOIN subscriptions AS s ON s.stream_id = e.stream_id").
 		Where("s.worker_id = ?", string(workerID)).
 		Order("e.created_at DESC, e.id DESC").
 		Select("e.*")
@@ -111,7 +111,7 @@ func (r *eventsRepo) ListForWorker(ctx context.Context, workerID domain.WorkerID
 func eventToRow(e domain.Event) eventRow {
 	return eventRow{
 		ID:        string(e.ID),
-		ChannelID: string(e.ChannelID),
+		StreamID:  string(e.StreamID),
 		Source:    string(e.Source),
 		Body:      e.Body,
 		CreatedAt: e.CreatedAt,
@@ -121,7 +121,7 @@ func eventToRow(e domain.Event) eventRow {
 func rowToEvent(row eventRow) (domain.Event, error) {
 	return domain.NewEvent(
 		domain.EventID(row.ID),
-		domain.ChannelID(row.ChannelID),
+		domain.StreamID(row.StreamID),
 		domain.WorkerID(row.Source),
 		row.Body,
 		row.CreatedAt,

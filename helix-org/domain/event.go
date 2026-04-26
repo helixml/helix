@@ -5,12 +5,13 @@ import (
 	"time"
 )
 
-// Event is a single entry on a Channel. Events are markdown; the system does
-// not impose a schema on content. Source is the Worker that emitted the event
-// (empty means a system-emitted event such as a time tick).
+// Event is a single entry on a Stream. Events are markdown; the system
+// does not impose a schema on content. Source is the Worker that
+// emitted the event (empty means a system-emitted event such as a
+// time tick).
 type Event struct {
 	ID        EventID
-	ChannelID ChannelID
+	StreamID  StreamID
 	Source    WorkerID
 	Body      string
 	CreatedAt time.Time
@@ -18,12 +19,12 @@ type Event struct {
 
 // NewEvent validates and constructs an Event.
 // Pass source = "" for system-emitted events.
-func NewEvent(id EventID, channelID ChannelID, source WorkerID, body string, createdAt time.Time) (Event, error) {
+func NewEvent(id EventID, streamID StreamID, source WorkerID, body string, createdAt time.Time) (Event, error) {
 	if id == "" {
 		return Event{}, errors.New("event id is empty")
 	}
-	if channelID == "" {
-		return Event{}, errors.New("event channelId is empty")
+	if streamID == "" {
+		return Event{}, errors.New("event streamId is empty")
 	}
 	if body == "" {
 		return Event{}, errors.New("event body is empty")
@@ -33,7 +34,7 @@ func NewEvent(id EventID, channelID ChannelID, source WorkerID, body string, cre
 	}
 	return Event{
 		ID:        id,
-		ChannelID: channelID,
+		StreamID:  streamID,
 		Source:    source,
 		Body:      body,
 		CreatedAt: createdAt.UTC(),

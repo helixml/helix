@@ -26,14 +26,6 @@ type Error struct {
 	Detail string `json:"detail,omitempty"`
 }
 
-// writeResource writes a single resource envelope at the given status.
-func writeResource(w http.ResponseWriter, status int, resource Resource) {
-	payload := struct {
-		Data Resource `json:"data"`
-	}{Data: resource}
-	write(w, status, payload)
-}
-
 // writeCollection writes a collection envelope.
 func writeCollection(w http.ResponseWriter, status int, resources []Resource) {
 	payload := struct {

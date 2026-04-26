@@ -6,7 +6,7 @@ for news that fits; the Journalist writes the prose. Run it twice
 with different briefs to see how the angle drives everything else.
 
 The only files on disk are the three Roles in [`roles/`](roles).
-Channels, positions, identities, and the team itself are all spun
+Streams, positions, identities, and the team itself are all spun
 up by a single `helix-org prompt` call.
 
 ## Setup
@@ -45,46 +45,46 @@ its 'Tools (MCP)' line and grant exactly those tool names. Confirm
 when done."
 ```
 
-The editor's hire activation creates the five channels and
+The editor's hire activation creates the five streams and
 subscribes; the researcher and journalist subscribe to their inputs.
 ~30 seconds.
 
 ## 4. Watch the cascade
 
-In a third terminal, tail every channel — this is the live view of
+In a third terminal, tail every stream — this is the live view of
 the team thinking out loud:
 
 ```bash
 ../../bin/helix-org tail
 ```
 
-`tail` defaults to `*` (all channels). Use `tail 'c-news*'` for a
-glob, or `tail c-newsletter` for a single channel.
+`tail` defaults to `*` (all streams). Use `tail 's-news*'` for a
+glob, or `tail s-newsletter` for a single stream.
 
 Then publish a brief from terminal 2:
 
 ```bash
-../../bin/helix-org prompt "publish to c-briefs: 'Time for this
+../../bin/helix-org prompt "publish to s-briefs: 'Time for this
 week's MLOps newsletter. Surprise me with the angle.'"
 ```
 
 The cascade you'll see in the tail:
 
-- Editor wakes, picks an angle, publishes to `c-angles`.
-- Researcher wakes, generates five news items, publishes to `c-findings`.
-- Journalist wakes, writes ~250 words, publishes to `c-drafts`.
-- Editor wakes again, polishes and publishes to `c-newsletter`.
+- Editor wakes, picks an angle, publishes to `s-angles`.
+- Researcher wakes, generates five news items, publishes to `s-findings`.
+- Journalist wakes, writes ~250 words, publishes to `s-drafts`.
+- Editor wakes again, polishes and publishes to `s-newsletter`.
 
 To see only the finished issues:
 
 ```bash
-../../bin/helix-org tail c-newsletter
+../../bin/helix-org tail s-newsletter
 ```
 
 ## 5. Run it again with a different brief
 
 ```bash
-../../bin/helix-org prompt "publish to c-briefs: 'New issue. This
+../../bin/helix-org prompt "publish to s-briefs: 'New issue. This
 week, focus on what is quietly broken in MLOps tooling that nobody
 talks about.'"
 ```
@@ -107,5 +107,5 @@ pkill -f 'claude -p' 2>/dev/null
 The whole demo is three terse role prompts and one setup command.
 There is no scaffolding for "newsletter generation" anywhere in the
 codebase — the workflow is the conversation between three Roles on
-five Channels. Edit `roles/editor.md` to widen or narrow the
-angles; rerun the kickoff and the next issue follows the new rule.
+five Streams. Edit `roles/editor.md` to widen or narrow the angles;
+rerun the kickoff and the next issue follows the new rule.

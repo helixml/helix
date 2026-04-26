@@ -11,22 +11,22 @@ The Environment has bash, `curl`, `git`, `python`, `gh`, and standard
 Unix tools. Curl arXiv. Clone repos. Run notebooks. Hit APIs. Whatever
 it takes to actually verify the claim.
 
-## Channels
+## Streams
 
-- `c-news-wire` / `c-editorial` — the EIC's assignments.
-- `research-notes` — your output.
-- `c-fact-check` — the fact-checker pings you when a citation needs
+- `s-news-wire` / `s-editorial` — the EIC's assignments.
+- `s-research-notes` — your output.
+- `s-fact-check` — the fact-checker pings you when a citation needs
   re-pulling.
 
 ## Triggers
 
 **On the EIC assigning a story.** Identify what needs verifying:
 primary source, benchmarks, comparisons. Save artefacts under
-`investigations/<slug>/`. Post to `research-notes` with verified
+`investigations/<slug>/`. Post to `s-research-notes` with verified
 claims, weakened claims, suggested angle for the journalist, and
 citations.
 
-**On the fact-checker challenging in `c-fact-check`.** Re-verify. If it
+**On the fact-checker challenging in `s-fact-check`.** Re-verify. If it
 holds, reply with the source. If it doesn't, say so plainly and
 propose a weaker version the journalist can use.
 

@@ -1,4 +1,4 @@
-// Package dispatch turns a publish on a Channel into one activation per
+// Package dispatch turns a publish on a Stream into one activation per
 // subscribed AI Worker. The server is the event bus; Workers are
 // reactors. Each activation is a single fresh run of the Spawner — no
 // long-running agent loops, no in-process state per worker beyond a
@@ -59,7 +59,7 @@ func (d *Dispatcher) DispatchHire(_ context.Context, workerID domain.WorkerID, e
 }
 
 // Dispatch fans an Event out to every AI Worker subscribed to its
-// Channel, skipping the Worker that sourced the event. Each subscriber's
+// Stream, skipping the Worker that sourced the event. Each subscriber's
 // activation runs on its own goroutine with its own background context
 // (independent of the HTTP request that triggered the publish). Per-
 // Worker mutexes ensure serial processing within a Worker.
@@ -69,39 +69,39 @@ func (d *Dispatcher) Dispatch(ctx context.Context, e domain.Event) {
 	if d.spawner == nil {
 		return
 	}
-	streams, err := d.store.Streams.ListForChannel(ctx, e.ChannelID)
+	subs, err := d.store.Subscriptions.ListForStream(ctx, e.StreamID)
 	if err != nil {
-		d.logger.Error("dispatch: list streams", "channel", e.ChannelID, "err", err)
+		d.logger.Error("dispatch: list subscriptions", "stream", e.StreamID, "err", err)
 		return
 	}
-	for _, s := range streams {
-		if s.WorkerID == e.Source {
+	for _, sub := range subs {
+		if sub.WorkerID == e.Source {
 			continue // do not deliver the event back to its publisher
 		}
-		w, err := d.store.Workers.Get(ctx, s.WorkerID)
+		w, err := d.store.Workers.Get(ctx, sub.WorkerID)
 		if err != nil {
-			d.logger.Warn("dispatch: get worker", "worker", s.WorkerID, "err", err)
+			d.logger.Warn("dispatch: get worker", "worker", sub.WorkerID, "err", err)
 			continue
 		}
 		if w.Kind() != domain.WorkerKindAI {
 			continue // human Workers are not activated by the runtime
 		}
-		env, err := d.store.Environments.Get(ctx, s.WorkerID)
+		env, err := d.store.Environments.Get(ctx, sub.WorkerID)
 		if err != nil {
-			d.logger.Warn("dispatch: get environment", "worker", s.WorkerID, "err", err)
+			d.logger.Warn("dispatch: get environment", "worker", sub.WorkerID, "err", err)
 			continue
 		}
 		trigger := tools.Trigger{
 			Kind:      tools.TriggerEvent,
 			EventID:   e.ID,
-			ChannelID: e.ChannelID,
+			StreamID:  e.StreamID,
 			Source:    e.Source,
 			Body:      e.Body,
 			CreatedAt: e.CreatedAt,
 		}
 		// Decouple from the request context so the activation isn't
 		// cancelled when the HTTP request that triggered publish returns.
-		go d.activate(context.Background(), s.WorkerID, env.Path, trigger) //nolint:gosec // intentional: the activation outlives the HTTP request that triggered Dispatch
+		go d.activate(context.Background(), sub.WorkerID, env.Path, trigger) //nolint:gosec // intentional: the activation outlives the HTTP request that triggered Dispatch
 	}
 }
 

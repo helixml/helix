@@ -25,12 +25,12 @@ import (
 //
 // Usage:
 //
-//	helix-org tail                  # all channels (same as `tail '*'`)
-//	helix-org tail 'c-*'            # any channel id starting with c-
-//	helix-org tail c-newsletter     # one channel
-//	helix-org tail 'c-news*' c-drafts
+//	helix-org tail                  # all streams (same as `tail '*'`)
+//	helix-org tail 's-*'            # any stream id starting with s-
+//	helix-org tail s-newsletter     # one stream
+//	helix-org tail 's-news*' s-drafts
 //
-// Globs match Channel IDs via Go's path.Match: '*', '?', '[abc]'.
+// Globs match Stream IDs via Go's path.Match: '*', '?', '[abc]'.
 // Quote globs in the shell so they aren't expanded against the cwd.
 func runTail(args []string) error {
 	fs := flag.NewFlagSet("tail", flag.ContinueOnError)
@@ -78,7 +78,7 @@ func runTail(args []string) error {
 
 type tailEvent struct {
 	ID        string    `json:"-"`
-	ChannelID string    `json:"channelId"`
+	StreamID  string    `json:"streamId"`
 	Source    string    `json:"source"`
 	Body      string    `json:"body"`
 	CreatedAt time.Time `json:"createdAt"`
@@ -146,9 +146,9 @@ func tailFetch(ctx context.Context, baseURL string, patterns []string, since str
 
 // formatTailEvent renders one event as one logical block:
 //
-//	HH:MM:SS  channel  source  first-line-of-body
-//	                           subsequent-line
-//	                           subsequent-line
+//	HH:MM:SS  stream  source  first-line-of-body
+//	                          subsequent-line
+//	                          subsequent-line
 func formatTailEvent(e tailEvent, color bool) string {
 	const (
 		cReset  = "\033[0m"
@@ -157,23 +157,23 @@ func formatTailEvent(e tailEvent, color bool) string {
 		cDim    = "\033[2m"
 	)
 	ts := e.CreatedAt.Local().Format("15:04:05")
-	channel := e.ChannelID
+	stream := e.StreamID
 	source := e.Source
 	if source == "" {
 		source = "(system)"
 	}
 	if color {
 		ts = cDim + ts + cReset
-		channel = cCyan + channel + cReset
+		stream = cCyan + stream + cReset
 		source = cYellow + source + cReset
 	}
 	lines := strings.Split(strings.TrimRight(e.Body, "\n"), "\n")
-	header := fmt.Sprintf("%s  %s  %s  %s", ts, channel, source, lines[0])
+	header := fmt.Sprintf("%s  %s  %s  %s", ts, stream, source, lines[0])
 	if len(lines) == 1 {
 		return header
 	}
 	// Indent continuation lines under the body column.
-	indent := strings.Repeat(" ", len("HH:MM:SS  ")+len(e.ChannelID)+2+len(e.Source)+2)
+	indent := strings.Repeat(" ", len("HH:MM:SS  ")+len(e.StreamID)+2+len(e.Source)+2)
 	var b strings.Builder
 	b.WriteString(header)
 	for _, l := range lines[1:] {

@@ -42,14 +42,15 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, `usage: helix-org <subcommand> [flags]
 
 Subcommands:
-  serve       Run the HTTP server.
-  bootstrap   Create the initial owner Worker via the HTTP API.
+  serve       Run the HTTP server (MCP endpoint + /tail).
+  bootstrap   Create the initial owner Worker by writing directly to
+              the SQLite store. Run before 'serve'.
   prompt      Hand a freeform prompt to a Claude Code instance
               connected to a Worker's MCP endpoint. Claude calls the
               helix tools on your behalf. Defaults to acting as
               w-owner.
-  tail        Stream events from one or more channels matching a
-              glob (default '*' = all channels). Long-polls; Ctrl-C
+  tail        Stream events from one or more streams matching a
+              glob (default '*' = all streams). Long-polls; Ctrl-C
               to stop.
   help        Show this message.
 

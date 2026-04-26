@@ -10,7 +10,7 @@ import (
 	"github.com/helixml/helix-org/domain"
 )
 
-// Unsubscribe removes the caller's Stream for the given Channel.
+// Unsubscribe removes the caller's Subscription from the given Stream.
 type Unsubscribe struct {
 	deps Deps
 }
@@ -20,11 +20,11 @@ const UnsubscribeName domain.ToolName = "unsubscribe"
 var unsubscribeSchema = mustSchema[unsubscribeArgs]()
 
 func (t *Unsubscribe) Name() domain.ToolName           { return UnsubscribeName }
-func (t *Unsubscribe) Description() string             { return "Unsubscribe the calling Worker from a Channel." }
+func (t *Unsubscribe) Description() string             { return "Unsubscribe the calling Worker from a Stream." }
 func (t *Unsubscribe) InputSchema() *jsonschema.Schema { return unsubscribeSchema }
 
 type unsubscribeArgs struct {
-	ChannelID string `json:"channelId"`
+	StreamID string `json:"streamId"`
 }
 
 func (t *Unsubscribe) Invoke(ctx context.Context, inv domain.Invocation) (json.RawMessage, error) {
@@ -32,16 +32,13 @@ func (t *Unsubscribe) Invoke(ctx context.Context, inv domain.Invocation) (json.R
 	if err := json.Unmarshal(inv.Args, &args); err != nil {
 		return nil, fmt.Errorf("parse args: %w", err)
 	}
-	if args.ChannelID == "" {
-		return nil, fmt.Errorf("channelId is required")
+	if args.StreamID == "" {
+		return nil, fmt.Errorf("streamId is required")
 	}
-	channelID := domain.ChannelID(args.ChannelID)
-	stream, err := t.deps.Store.Streams.FindForWorkerAndChannel(ctx, inv.Caller.ID(), channelID)
-	if err != nil {
+	streamID := domain.StreamID(args.StreamID)
+	workerID := inv.Caller.ID()
+	if err := t.deps.Store.Subscriptions.Delete(ctx, workerID, streamID); err != nil {
 		return nil, err
 	}
-	if err := t.deps.Store.Streams.Delete(ctx, stream.ID); err != nil {
-		return nil, err
-	}
-	return json.Marshal(map[string]string{"id": string(stream.ID)})
+	return json.Marshal(map[string]string{"workerId": string(workerID), "streamId": string(streamID)})
 }

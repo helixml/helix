@@ -7,20 +7,20 @@ without sanding off voice. You touch front-matter only.
 
 `subscribe`, `publish`. (No shell commands needed for this Role.)
 
-## Channels
+## Streams
 
-- `c-drafts` — your input (after the EIC clears).
-- `c-seo-pass` — your output.
-- `c-bullpen` — where you argue with the journalist.
+- `s-drafts` — your input (after the EIC clears).
+- `s-seo-pass` — your output.
+- `s-bullpen` — where you argue with the journalist.
 
 ## Triggers
 
-**On a cleared draft on `c-drafts`.** Evaluate title, summary, H2s,
-first paragraph, and tags. Post to `c-seo-pass` with: pass / changes
+**On a cleared draft on `s-drafts`.** Evaluate title, summary, H2s,
+first paragraph, and tags. Post to `s-seo-pass` with: pass / changes
 needed; what you changed; one paragraph of reasoning if anything was
 changed.
 
-**On the journalist pushing back in `c-bullpen`.** Engage. Be specific
+**On the journalist pushing back in `s-bullpen`.** Engage. Be specific
 about the search cluster. Propose synthesis. If you can't agree, ping
 the EIC.
 

@@ -3,11 +3,11 @@
 A seven-Worker editorial team that pitches, researches, drafts, edits
 and opens PRs against the philwinder.com Hugo repo. Phil is the
 Owner; he authors and maintains the Roles, hires Maya (EIC) and Renée
-(recruiter), reads channels when he wants, and merges PRs.
+(recruiter), reads streams when he wants, and merges PRs.
 
 ## Role vs Worker
 
-A **Role** is the *job* — channels, triggers, tools, duties,
+A **Role** is the *job* — streams, triggers, tools, duties,
 constraints. Owner-only, slow-moving, edited manually. The system
 stores it as a markdown blob and propagates updates to every Worker
 running it via `update_role`.
@@ -59,7 +59,7 @@ the voice isn't.
 ## Run the demo
 
 Three terminals: server, prompts, and a `helix-org tail` window
-watching every channel as the team works. Run from `demos/newsroom/`
+watching every stream as the team works. Run from `demos/newsroom/`
 so the prompts can refer to `./roles/` and `./workers/` by relative
 path.
 
@@ -82,10 +82,10 @@ helix-org bootstrap
 helix-org tail
 ```
 
-`tail` defaults to `*` — every channel, oldest-first, then live.
-For a single hot channel during a story, narrow with a glob:
-`helix-org tail c-bullpen`, `helix-org tail c-recruiting`,
-`helix-org tail 'c-fact*'`. Multiple windows are fine — each long-
+`tail` defaults to `*` — every stream, oldest-first, then live.
+For a single hot stream during a story, narrow with a glob:
+`helix-org tail s-bullpen`, `helix-org tail s-recruiting`,
+`helix-org tail 's-fact*'`. Multiple windows are fine — each long-
 polls independently.
 
 You now have `w-owner` with grants for every structural tool.
@@ -123,7 +123,7 @@ Claude reads the directory, makes seven `create_role` calls, two
 
 From those two hires, the team builds itself. Maya's hire activation
 reads `role.md` and the "On first hire" trigger fires: she creates
-the channels, then hires the rest of the team one at a time *via*
+the streams, then hires the rest of the team one at a time *via*
 Renée. For each opening she posts a brief to `recruiting`; Renée
 sources three identity candidates inline; Maya picks one by handle
 and calls `hire_worker` with that candidate's content as
@@ -136,7 +136,7 @@ When you see "Newsroom is up" on `editorial`, the team is live.
 To push a brief into `editorial`:
 
 ```bash
-helix-org prompt "publish to c-editorial: 'Mistral released Foo this morning, see if there's a piece in it.'"
+helix-org prompt "publish to s-editorial: 'Mistral released Foo this morning, see if there's a piece in it.'"
 ```
 
 Felix (news-scout) pitches → Maya picks → researcher researches →
@@ -164,11 +164,11 @@ activation reads the new content; behaviour shifts org-wide.
 
 ## What to point at during the demo
 
-- **`helix-org tail c-recruiting` during cast time** — Renée sources
+- **`helix-org tail s-recruiting` during cast time** — Renée sources
   three identities per opening *live*. They did not exist five
   seconds ago. Maya picks one. The team is *cast*, not authored.
   **First wow.**
-- **`helix-org tail c-bullpen` during a story** — journalist vs SEO
+- **`helix-org tail s-bullpen` during a story** — journalist vs SEO
   strategist, voice vs findability. They disagree on something
   specific. **Second wow.**
 - **`update_role` while the team is running** — Phil edits
@@ -186,10 +186,10 @@ activation reads the new content; behaviour shifts org-wide.
 
 ## Friction map (designed-in clashes)
 
-| Axis                | Who clashes                   | Where           |
-| ------------------- | ----------------------------- | --------------- |
-| Brief specificity   | Renée → Maya                  | `recruiting`    |
-| Voice vs SEO        | journalist ↔ seo-strategist   | `bullpen`       |
-| Sourcing rigour     | fact-checker → researcher     | `fact-check`    |
-| Vendor PR filter    | Maya → news-scout             | `news-wire`     |
-| Schedule vs quality | Maya ↔ fact-checker           | `bullpen` (rare)|
+| Axis                | Who clashes                   | Where            |
+| ------------------- | ----------------------------- | ---------------- |
+| Brief specificity   | Renée → Maya                  | `recruiting`     |
+| Voice vs SEO        | journalist ↔ seo-strategist   | `bullpen`        |
+| Sourcing rigour     | fact-checker → researcher     | `fact-check`     |
+| Vendor PR filter    | Maya → news-scout             | `news-wire`      |
+| Schedule vs quality | Maya ↔ fact-checker           | `bullpen` (rare) |

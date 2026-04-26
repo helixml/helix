@@ -10,77 +10,80 @@ import (
 	"github.com/helixml/helix-org/store"
 )
 
-func TestChannelsRoundTripAndByName(t *testing.T) {
+func TestStreamsRoundTripAndByName(t *testing.T) {
 	t.Parallel()
 	s := newStore(t)
 	ctx := context.Background()
 	now := time.Date(2026, 4, 24, 12, 0, 0, 0, time.UTC)
 
-	ch, err := domain.NewChannel("c-general", "general", "all-hands", "w-owner", now)
+	st, err := domain.NewStream("s-general", "general", "all-hands", "w-owner", now, domain.Transport{})
 	if err != nil {
-		t.Fatalf("NewChannel: %v", err)
+		t.Fatalf("NewStream: %v", err)
 	}
-	if err := s.Channels.Create(ctx, ch); err != nil {
+	if err := s.Streams.Create(ctx, st); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 
-	gotByID, err := s.Channels.Get(ctx, "c-general")
+	gotByID, err := s.Streams.Get(ctx, "s-general")
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
 	if gotByID.Name != "general" {
 		t.Fatalf("name = %q", gotByID.Name)
 	}
+	if gotByID.Transport.Kind != domain.TransportLocal {
+		t.Fatalf("Transport.Kind = %q, want %q", gotByID.Transport.Kind, domain.TransportLocal)
+	}
 }
 
-func TestStreamsUniqueWorkerChannel(t *testing.T) {
+func TestSubscriptionsUniqueWorkerStream(t *testing.T) {
 	t.Parallel()
 	s := newStore(t)
 	ctx := context.Background()
 	now := time.Date(2026, 4, 24, 12, 0, 0, 0, time.UTC)
 
-	stream, _ := domain.NewStream("s-1", "w-1", "c-1", now)
-	if err := s.Streams.Create(ctx, stream); err != nil {
+	sub, _ := domain.NewSubscription("w-1", "s-1", now)
+	if err := s.Subscriptions.Create(ctx, sub); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 
-	dup, _ := domain.NewStream("s-2", "w-1", "c-1", now)
-	if err := s.Streams.Create(ctx, dup); err == nil {
-		t.Fatalf("Create duplicate (worker,channel) should fail")
+	dup, _ := domain.NewSubscription("w-1", "s-1", now)
+	if err := s.Subscriptions.Create(ctx, dup); err == nil {
+		t.Fatalf("Create duplicate (worker,stream) should fail")
 	}
 
-	found, err := s.Streams.FindForWorkerAndChannel(ctx, "w-1", "c-1")
+	found, err := s.Subscriptions.Find(ctx, "w-1", "s-1")
 	if err != nil {
 		t.Fatalf("Find: %v", err)
 	}
-	if found.ID != "s-1" {
-		t.Fatalf("id = %q", found.ID)
+	if found.WorkerID != "w-1" || found.StreamID != "s-1" {
+		t.Fatalf("subscription = %+v", found)
 	}
 
-	if err := s.Streams.Delete(ctx, "s-1"); err != nil {
+	if err := s.Subscriptions.Delete(ctx, "w-1", "s-1"); err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
-	_, err = s.Streams.FindForWorkerAndChannel(ctx, "w-1", "c-1")
+	_, err = s.Subscriptions.Find(ctx, "w-1", "s-1")
 	if !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("Find after delete: %v, want ErrNotFound", err)
 	}
 }
 
-func TestEventsListForWorkerViaStreams(t *testing.T) {
+func TestEventsListForWorkerViaSubscriptions(t *testing.T) {
 	t.Parallel()
 	s := newStore(t)
 	ctx := context.Background()
 	base := time.Date(2026, 4, 24, 12, 0, 0, 0, time.UTC)
 
-	// Two channels, w-1 subscribed only to c-a.
-	s1, _ := domain.NewStream("s-1", "w-1", "c-a", base)
-	if err := s.Streams.Create(ctx, s1); err != nil {
-		t.Fatalf("Create stream: %v", err)
+	// Two streams, w-1 subscribed only to s-a.
+	sub, _ := domain.NewSubscription("w-1", "s-a", base)
+	if err := s.Subscriptions.Create(ctx, sub); err != nil {
+		t.Fatalf("Create subscription: %v", err)
 	}
 
-	e1, _ := domain.NewEvent("e-1", "c-a", "w-owner", "hello on a", base.Add(time.Second))
-	e2, _ := domain.NewEvent("e-2", "c-b", "w-owner", "hello on b", base.Add(2*time.Second))
-	e3, _ := domain.NewEvent("e-3", "c-a", "w-owner", "hello again on a", base.Add(3*time.Second))
+	e1, _ := domain.NewEvent("e-1", "s-a", "w-owner", "hello on a", base.Add(time.Second))
+	e2, _ := domain.NewEvent("e-2", "s-b", "w-owner", "hello on b", base.Add(2*time.Second))
+	e3, _ := domain.NewEvent("e-3", "s-a", "w-owner", "hello again on a", base.Add(3*time.Second))
 	for _, e := range []domain.Event{e1, e2, e3} {
 		if err := s.Events.Append(ctx, e); err != nil {
 			t.Fatalf("Append %s: %v", e.ID, err)
@@ -92,7 +95,7 @@ func TestEventsListForWorkerViaStreams(t *testing.T) {
 		t.Fatalf("ListForWorker: %v", err)
 	}
 	if len(got) != 2 {
-		t.Fatalf("got %d events, want 2 (only c-a visible)", len(got))
+		t.Fatalf("got %d events, want 2 (only s-a visible)", len(got))
 	}
 	if got[0].ID != "e-3" || got[1].ID != "e-1" {
 		t.Fatalf("order wrong: %v", []domain.EventID{got[0].ID, got[1].ID})
@@ -107,32 +110,32 @@ func TestEventsListForWorkerViaStreams(t *testing.T) {
 	}
 }
 
-func TestEventsListSinceAcrossChannels(t *testing.T) {
+func TestEventsListSinceAcrossStreams(t *testing.T) {
 	t.Parallel()
 	s := newStore(t)
 	ctx := context.Background()
 	base := time.Date(2026, 4, 24, 12, 0, 0, 0, time.UTC)
 
-	// Three channels, four events, interleaved across c-a and c-b plus
-	// one on c-other (which the caller will exclude).
+	// Three streams, four events, interleaved across s-a and s-b plus
+	// one on s-other (which the caller will exclude).
 	for _, e := range []struct {
-		id, ch, body string
+		id, st, body string
 		offset       time.Duration
 	}{
-		{"e-1", "c-a", "first on a", 1 * time.Second},
-		{"e-2", "c-b", "first on b", 2 * time.Second},
-		{"e-3", "c-other", "noise", 3 * time.Second},
-		{"e-4", "c-a", "second on a", 4 * time.Second},
-		{"e-5", "c-b", "second on b", 5 * time.Second},
+		{"e-1", "s-a", "first on a", 1 * time.Second},
+		{"e-2", "s-b", "first on b", 2 * time.Second},
+		{"e-3", "s-other", "noise", 3 * time.Second},
+		{"e-4", "s-a", "second on a", 4 * time.Second},
+		{"e-5", "s-b", "second on b", 5 * time.Second},
 	} {
-		ev, _ := domain.NewEvent(domain.EventID(e.id), domain.ChannelID(e.ch), "w-owner", e.body, base.Add(e.offset))
+		ev, _ := domain.NewEvent(domain.EventID(e.id), domain.StreamID(e.st), "w-owner", e.body, base.Add(e.offset))
 		if err := s.Events.Append(ctx, ev); err != nil {
 			t.Fatalf("Append %s: %v", e.id, err)
 		}
 	}
 
 	// since="" returns all matching events oldest-first.
-	all, err := s.Events.ListSince(ctx, []domain.ChannelID{"c-a", "c-b"}, "", 0)
+	all, err := s.Events.ListSince(ctx, []domain.StreamID{"s-a", "s-b"}, "", 0)
 	if err != nil {
 		t.Fatalf("ListSince: %v", err)
 	}
@@ -151,8 +154,8 @@ func TestEventsListSinceAcrossChannels(t *testing.T) {
 	}
 
 	// since=e-2 returns only events strictly newer than e-2 on the
-	// matching channels.
-	tail, err := s.Events.ListSince(ctx, []domain.ChannelID{"c-a", "c-b"}, "e-2", 0)
+	// matching streams.
+	tail, err := s.Events.ListSince(ctx, []domain.StreamID{"s-a", "s-b"}, "e-2", 0)
 	if err != nil {
 		t.Fatalf("ListSince since: %v", err)
 	}
@@ -160,7 +163,7 @@ func TestEventsListSinceAcrossChannels(t *testing.T) {
 		t.Fatalf("since=e-2 result = %v", tail)
 	}
 
-	// Empty channel set returns nothing.
+	// Empty stream set returns nothing.
 	empty, err := s.Events.ListSince(ctx, nil, "", 0)
 	if err != nil {
 		t.Fatalf("ListSince empty: %v", err)
@@ -170,7 +173,7 @@ func TestEventsListSinceAcrossChannels(t *testing.T) {
 	}
 
 	// Unknown since falls through to "no lower bound".
-	full, err := s.Events.ListSince(ctx, []domain.ChannelID{"c-a"}, "e-stale", 0)
+	full, err := s.Events.ListSince(ctx, []domain.StreamID{"s-a"}, "e-stale", 0)
 	if err != nil {
 		t.Fatalf("ListSince stale: %v", err)
 	}

@@ -18,3 +18,7 @@ coverage.html
 # Env
 .env
 .env.local
+
+# Media
+*.mp4
+*.gif

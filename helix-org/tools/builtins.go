@@ -21,7 +21,7 @@ type IDGen func() string
 // Spawner runs an AI Worker's agent process for a single activation
 // and BLOCKS until the process exits. The Trigger tells the Spawner
 // (and through it, the agent) why this activation is happening — first
-// hire, or a new event on a subscribed Channel.
+// hire, or a new event on a subscribed Stream.
 //
 // Spawners are typically called from inside a Dispatcher that
 // serialises calls per-Worker; callers must not invoke a Spawner for
@@ -48,8 +48,8 @@ type EventDispatcher interface {
 // role.md / identity.md / agent.md trio into it.
 //
 // Broadcaster is optional: if set, event-emitting tools (publish) will
-// call its Notify method so any long-poll Feed/Channel readers blocked
-// on those channels wake up immediately.
+// call its Notify method so any long-poll readers blocked on those
+// streams wake up immediately.
 //
 // Dispatcher is optional: if set, event-emitting tools also call its
 // Dispatch method so subscribed AI Workers get re-activated. Tests
@@ -75,21 +75,39 @@ func DefaultDeps(s *store.Store) Deps {
 	}
 }
 
-// RegisterBuiltins registers every structural tool on the registry.
-// Test tools (like Ping) are not included.
+// RegisterBuiltins registers every built-in tool on the registry —
+// mutations on the org graph plus the matching read tools. Test tools
+// (like Ping) are not included.
 func RegisterBuiltins(reg *Registry, deps Deps) error {
 	builtins := []domain.Tool{
+		// Mutations.
 		&CreateRole{deps: deps},
 		&UpdateRole{deps: deps},
 		&CreatePosition{deps: deps},
 		&HireWorker{deps: deps},
 		&GrantTool{deps: deps},
 		&RevokeTool{deps: deps},
-		&CreateChannel{deps: deps},
-		&ChannelMembers{deps: deps},
+		&CreateStream{deps: deps},
+		&StreamMembers{deps: deps},
 		&Subscribe{deps: deps},
 		&Unsubscribe{deps: deps},
 		&Publish{deps: deps},
+		// Reads. Each is a thin wrapper around a store call; together
+		// they replace the jsonapi GET handlers the server used to expose.
+		&ListRoles{deps: deps},
+		&GetRole{deps: deps},
+		&ListPositions{deps: deps},
+		&GetPosition{deps: deps},
+		&ListPositionChildren{deps: deps},
+		&ListWorkers{deps: deps},
+		&GetWorker{deps: deps},
+		&ListWorkerGrants{deps: deps},
+		&GetWorkerEnvironment{deps: deps},
+		&ListStreams{deps: deps},
+		&GetStream{deps: deps},
+		&ListStreamEvents{deps: deps},
+		&GetGrant{deps: deps},
+		&ReadEvents{deps: deps},
 	}
 	for _, tool := range builtins {
 		if err := reg.Register(tool); err != nil {

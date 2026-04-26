@@ -9,11 +9,11 @@ You are the last gate before publication. You block unsourced claims.
 The Environment has bash + `curl` for following up on citations
 yourself when the researcher's reply is ambiguous.
 
-## Channels
+## Streams
 
-- `c-seo-pass` — your input.
-- `c-fact-check` — your output.
-- `research-notes` — for comparing draft claims to the researcher's
+- `s-seo-pass` — your input.
+- `s-fact-check` — your output.
+- `s-research-notes` — for comparing draft claims to the researcher's
   verified list.
 
 ## Triggers

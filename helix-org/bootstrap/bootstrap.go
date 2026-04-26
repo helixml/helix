@@ -96,22 +96,39 @@ func Run(ctx context.Context, s *store.Store, params Params) (Result, error) {
 		return Result{}, fmt.Errorf("create owner environment: %w", err)
 	}
 
-	// Structural tools only — the owner does everything else (including
-	// granting themselves extra tools) through these.
-	structural := []domain.ToolName{
+	// Every built-in tool — the owner is the root of trust and can do
+	// anything. They issue subordinate Workers a narrower set via the
+	// hire_worker / grant_tool tools.
+	defaults := []domain.ToolName{
+		// Mutations.
 		tools.CreateRoleName,
 		tools.UpdateRoleName,
 		tools.CreatePositionName,
 		tools.HireWorkerName,
 		tools.GrantToolName,
 		tools.RevokeToolName,
-		tools.CreateChannelName,
-		tools.ChannelMembersName,
+		tools.CreateStreamName,
+		tools.StreamMembersName,
 		tools.SubscribeName,
 		tools.UnsubscribeName,
 		tools.PublishName,
+		// Reads.
+		tools.ListRolesName,
+		tools.GetRoleName,
+		tools.ListPositionsName,
+		tools.GetPositionName,
+		tools.ListPositionChildrenName,
+		tools.ListWorkersName,
+		tools.GetWorkerName,
+		tools.ListWorkerGrantsName,
+		tools.GetWorkerEnvironmentName,
+		tools.ListStreamsName,
+		tools.GetStreamName,
+		tools.ListStreamEventsName,
+		tools.GetGrantName,
+		tools.ReadEventsName,
 	}
-	for _, name := range structural {
+	for _, name := range defaults {
 		g, err := domain.NewToolGrant(
 			domain.GrantID("g-owner-"+uuid.NewString()),
 			owner.ID(),

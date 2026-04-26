@@ -29,21 +29,21 @@ func Open(dsn string) (*store.Store, error) {
 		&positionRow{},
 		&workerRow{},
 		&grantRow{},
-		&channelRow{},
 		&streamRow{},
+		&subscriptionRow{},
 		&eventRow{},
 		&environmentRow{},
 	); err != nil {
 		return nil, fmt.Errorf("auto-migrate: %w", err)
 	}
 	return &store.Store{
-		Roles:        &rolesRepo{db: db},
-		Positions:    &positionsRepo{db: db},
-		Workers:      &workersRepo{db: db},
-		Grants:       &grantsRepo{db: db},
-		Channels:     &channelsRepo{db: db},
-		Streams:      &streamsRepo{db: db},
-		Events:       &eventsRepo{db: db},
-		Environments: &environmentsRepo{db: db},
+		Roles:         &rolesRepo{db: db},
+		Positions:     &positionsRepo{db: db},
+		Workers:       &workersRepo{db: db},
+		Grants:        &grantsRepo{db: db},
+		Streams:       &streamsRepo{db: db},
+		Subscriptions: &subscriptionsRepo{db: db},
+		Events:        &eventsRepo{db: db},
+		Environments:  &environmentsRepo{db: db},
 	}, nil
 }
