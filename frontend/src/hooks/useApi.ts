@@ -84,6 +84,40 @@ if (embedToken) {
   // win and we'd authenticate as that user, not as the API key owner.
   axios.defaults.withCredentials = false
   apiClientSingleton.instance.defaults.withCredentials = false
+
+  // Some components (e.g. handleStartPlanning in SpecTaskDetailContent)
+  // call window.fetch directly instead of going through axios. Patch fetch
+  // for same-origin requests so they pick up the embed Bearer token too.
+  // Set credentials: 'omit' so any stray cookie doesn't preempt Bearer auth
+  // on the server. CSRF middleware skips Bearer-auth requests, so this is
+  // safe for state-changing endpoints.
+  if (typeof window !== 'undefined' && typeof window.fetch === 'function') {
+    const origFetch = window.fetch.bind(window)
+    window.fetch = (input: RequestInfo | URL, init: RequestInit = {}) => {
+      let isSameOrigin = false
+      try {
+        const urlStr =
+          typeof input === 'string'
+            ? input
+            : input instanceof URL
+              ? input.toString()
+              : input.url
+        const u = new URL(urlStr, window.location.origin)
+        isSameOrigin = u.origin === window.location.origin
+      } catch {
+        // ignore — pass through unmodified
+      }
+      if (!isSameOrigin) return origFetch(input, init)
+
+      const baseHeaders =
+        input instanceof Request ? input.headers : init.headers
+      const headers = new Headers(baseHeaders || {})
+      if (!headers.has('Authorization')) {
+        headers.set('Authorization', authValue)
+      }
+      return origFetch(input, { ...init, headers, credentials: 'omit' })
+    }
+  }
 }
 
 // Add interceptors to the Api client's axios instance
