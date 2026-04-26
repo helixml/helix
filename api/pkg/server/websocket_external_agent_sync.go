@@ -1129,6 +1129,31 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 		targetInteraction := sctx.interaction
 
 		if targetInteraction != nil {
+			// Mark the originating queue prompt as 'sent' the first time Zed
+			// emits an assistant event for this interaction. Until now the
+			// prompt has been in 'sending' state since dispatch — the queue UI
+			// keeps it visible. We delete the map entry on first match so
+			// subsequent message_added events for the same interaction don't
+			// re-mark (and don't pay for the lookup beyond the first).
+			apiServer.contextMappingsMutex.Lock()
+			if promptID, ok := apiServer.interactionToPromptMapping[targetInteraction.ID]; ok {
+				delete(apiServer.interactionToPromptMapping, targetInteraction.ID)
+				apiServer.contextMappingsMutex.Unlock()
+				if markErr := apiServer.Controller.Options.Store.MarkPromptAsSent(context.Background(), promptID); markErr != nil {
+					log.Warn().Err(markErr).
+						Str("prompt_id", promptID).
+						Str("interaction_id", targetInteraction.ID).
+						Msg("Failed to mark prompt as sent after Zed acknowledged")
+				} else {
+					log.Info().
+						Str("prompt_id", promptID).
+						Str("interaction_id", targetInteraction.ID).
+						Msg("✅ [QUEUE] Marked prompt as sent (Zed started processing)")
+				}
+			} else {
+				apiServer.contextMappingsMutex.Unlock()
+			}
+
 			// Update the existing interaction with the AI response content
 			// IMPORTANT: Keep state as Waiting - only message_completed marks it as Complete
 			//
@@ -2582,19 +2607,26 @@ func (apiServer *HelixAPIServer) processPromptQueue(ctx context.Context, session
 		return
 	}
 	if session != nil {
+		// CRITICAL: Order=id DESC so PerPage=1 returns the NEWEST interaction.
+		// Without the explicit order, ListInteractions returns id ASC (oldest
+		// first) and we would ALWAYS check the very first interaction in the
+		// session — which has been Complete for hours — so the busy check
+		// would never fire and queue prompts would dispatch on top of an
+		// actively-streaming Zed turn.
 		interactions, _, err := apiServer.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
 			SessionID:    sessionID,
 			GenerationID: session.GenerationID,
 			PerPage:      1,
+			Order:        "id DESC",
 		})
 		if err != nil {
 			log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to list interactions for queue processing")
 			return
 		}
-		if len(interactions) > 0 && interactions[len(interactions)-1].State == types.InteractionStateWaiting {
+		if len(interactions) > 0 && interactions[0].State == types.InteractionStateWaiting {
 			log.Info().
 				Str("session_id", sessionID).
-				Str("interaction_id", interactions[len(interactions)-1].ID).
+				Str("interaction_id", interactions[0].ID).
 				Msg("Session is busy (last interaction waiting), deferring queue-mode prompt")
 			return
 		}
@@ -2637,15 +2669,15 @@ func (apiServer *HelixAPIServer) processPromptQueue(ctx context.Context, session
 		return
 	}
 
-	// Mark as sent
-	if err := apiServer.Store.MarkPromptAsSent(ctx, nextPrompt.ID); err != nil {
-		log.Error().Err(err).Str("prompt_id", nextPrompt.ID).Msg("Failed to mark prompt as sent")
-	}
+	// NOTE: Don't mark as sent here. sendQueuedPromptToSession registers an
+	// interactionToPromptMapping entry on successful dispatch; handleMessageAdded
+	// marks the prompt as 'sent' when Zed actually starts streaming a response,
+	// so the queue UI keeps showing it as in-flight until then.
 
 	log.Info().
 		Str("session_id", sessionID).
 		Str("prompt_id", nextPrompt.ID).
-		Msg("✅ [QUEUE] Successfully sent queued prompt to session")
+		Msg("✅ [QUEUE] Successfully dispatched queued prompt to session (waiting for Zed to start)")
 }
 
 // processAnyPendingPrompt checks for any pending prompt (interrupt or non-interrupt) and sends it
@@ -2690,10 +2722,9 @@ func (apiServer *HelixAPIServer) processAnyPendingPrompt(ctx context.Context, se
 		return
 	}
 
-	// Mark as fully sent after successful delivery
-	if markErr := apiServer.Store.MarkPromptAsSent(ctx, nextPrompt.ID); markErr != nil {
-		log.Warn().Err(markErr).Str("prompt_id", nextPrompt.ID).Msg("Failed to mark prompt as sent after delivery (non-fatal)")
-	}
+	// NOTE: Don't mark as sent here — see comment in processPromptQueue. The
+	// prompt is marked sent when Zed sends the first message_added for the
+	// interaction created above, via interactionToPromptMapping.
 
 	log.Info().
 		Str("session_id", sessionID).
@@ -2719,13 +2750,19 @@ func (apiServer *HelixAPIServer) sendQueuedPromptToSession(ctx context.Context, 
 	// queue prompt would be sent while the agent is already processing the Zed
 	// user message, causing the agent to bounce it with an empty response.
 	// See: design/2026-04-16-lost-responses-race-condition.md
+	//
+	// CRITICAL: Order=id DESC so PerPage=1 returns the NEWEST interaction.
+	// ListInteractions defaults to id ASC (oldest first) — without the explicit
+	// order, we would get the very first interaction in the session (always
+	// Complete) and the busy check would never fire.
 	latestInteractions, _, recheckErr := apiServer.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
 		SessionID:    sessionID,
 		GenerationID: session.GenerationID,
 		PerPage:      1,
+		Order:        "id DESC",
 	})
-	if recheckErr == nil && len(latestInteractions) > 0 && latestInteractions[len(latestInteractions)-1].State == types.InteractionStateWaiting {
-		return fmt.Errorf("session %s became busy (interaction %s is Waiting), deferring queue prompt", sessionID, latestInteractions[len(latestInteractions)-1].ID)
+	if recheckErr == nil && len(latestInteractions) > 0 && latestInteractions[0].State == types.InteractionStateWaiting {
+		return fmt.Errorf("session %s became busy (interaction %s is Waiting), deferring queue prompt", sessionID, latestInteractions[0].ID)
 	}
 
 	// CRITICAL: Create an interaction BEFORE sending the message
@@ -2826,7 +2863,29 @@ func (apiServer *HelixAPIServer) sendQueuedPromptToSession(ctx context.Context, 
 		delete(apiServer.requestToSessionMapping, requestID)
 		delete(apiServer.requestToInteractionMapping, requestID)
 		apiServer.contextMappingsMutex.Unlock()
+
+		// Mark the prompt as failed so the queue UI shows it as needing retry
+		// instead of leaving it stuck in 'sending' forever. Previously the
+		// caller marked the prompt as 'sent' unconditionally after this
+		// function returned nil — that hid dispatch failures from the user.
+		if markErr := apiServer.Store.MarkPromptAsFailed(context.Background(), prompt.ID); markErr != nil {
+			log.Error().Err(markErr).Str("prompt_id", prompt.ID).Msg("Failed to mark prompt as failed after dispatch failure")
+		}
+		return nil
 	}
+
+	// Dispatch succeeded. Stash the interaction → prompt mapping so we can mark
+	// the prompt as 'sent' when Zed actually starts processing it (i.e. the
+	// first assistant message_added arrives). Until then the prompt stays
+	// 'sending' and remains visible in the frontend queue UI — restoring the
+	// pre-regression UX where queued prompts show as in-flight, not as if
+	// they'd already been delivered.
+	apiServer.contextMappingsMutex.Lock()
+	if apiServer.interactionToPromptMapping == nil {
+		apiServer.interactionToPromptMapping = make(map[string]string)
+	}
+	apiServer.interactionToPromptMapping[createdInteraction.ID] = prompt.ID
+	apiServer.contextMappingsMutex.Unlock()
 
 	return nil
 }
@@ -2956,6 +3015,25 @@ func (apiServer *HelixAPIServer) handleThreadLoadError(sessionID string, syncMsg
 						interactions[i].Updated = time.Now()
 						interactions[i].Completed = time.Now()
 						apiServer.Controller.Options.Store.UpdateInteraction(context.Background(), interactions[i])
+
+						// If this interaction came from a queue prompt that's still
+						// in 'sending' state (deferred MarkPromptAsSent flow), mark
+						// the prompt as failed so the user sees retry, not a
+						// stuck "queued" entry.
+						apiServer.contextMappingsMutex.Lock()
+						promptID, hasPrompt := apiServer.interactionToPromptMapping[interactions[i].ID]
+						if hasPrompt {
+							delete(apiServer.interactionToPromptMapping, interactions[i].ID)
+						}
+						apiServer.contextMappingsMutex.Unlock()
+						if hasPrompt {
+							if markErr := apiServer.Controller.Options.Store.MarkPromptAsFailed(context.Background(), promptID); markErr != nil {
+								log.Error().Err(markErr).
+									Str("prompt_id", promptID).
+									Str("interaction_id", interactions[i].ID).
+									Msg("Failed to mark prompt as failed after thread load error")
+							}
+						}
 
 						log.Info().
 							Str("helix_session_id", helixSessionID).

@@ -87,6 +87,7 @@ func New(cfg *config.ServerConfig, store store.Store, modelInfoProvider model.Mo
 	}
 
 	// Configure TLS skip verify if enabled
+	var baseTransport http.RoundTripper = http.DefaultTransport
 	if cfg.Tools.TLSSkipVerify {
 		// Clone the default transport to preserve all default settings (timeouts, connection pooling, etc.)
 		// then add InsecureSkipVerify
@@ -94,7 +95,7 @@ func New(cfg *config.ServerConfig, store store.Store, modelInfoProvider model.Mo
 		transport.TLSClientConfig = &tls.Config{
 			InsecureSkipVerify: true,
 		}
-		p.anthropicReverseProxy.Transport = transport
+		baseTransport = transport
 		log.Info().
 			Bool("tls_skip_verify", true).
 			Msg("Anthropic proxy configured with TLS skip verify (TOOLS_TLS_SKIP_VERIFY=true) - will accept any TLS certificate")
@@ -103,6 +104,11 @@ func New(cfg *config.ServerConfig, store store.Store, modelInfoProvider model.Mo
 			Bool("tls_skip_verify", false).
 			Msg("Anthropic proxy using default TLS verification (set TOOLS_TLS_SKIP_VERIFY=true in .env or extraEnv for enterprise deployments)")
 	}
+
+	// Wrap with thinking-type retry: Vertex AI's global LB fronts inconsistent
+	// backends — some accept thinking.type=adaptive, others require =enabled.
+	// On a 400 that matches either schema-mismatch error, swap the type and retry.
+	p.anthropicReverseProxy.Transport = &thinkingRetryTransport{base: baseTransport}
 
 	p.anthropicReverseProxy.ModifyResponse = p.anthropicAPIProxyModifyResponse
 	p.anthropicReverseProxy.Director = p.anthropicAPIProxyDirector
