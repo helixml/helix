@@ -171,6 +171,18 @@ func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *t
 		organizationID = project.OrganizationID
 	}
 
+	// Determine initial status. If AutoStart is requested, skip backlog and queue
+	// immediately (mirrors cloneTaskToProject behaviour). This bypasses the project's
+	// auto_start_backlog_tasks setting so the task starts even when project auto-start is off.
+	initialStatus := types.TaskStatusBacklog
+	if req.AutoStart {
+		if req.JustDoItMode {
+			initialStatus = types.TaskStatusQueuedImplementation
+		} else {
+			initialStatus = types.TaskStatusQueuedSpecGeneration
+		}
+	}
+
 	task := &types.SpecTask{
 		ID:             generateTaskID(),
 		ProjectID:      req.ProjectID,
@@ -180,7 +192,7 @@ func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *t
 		Description:    req.Prompt,
 		Type:           req.Type,
 		Priority:       req.Priority,
-		Status:         types.TaskStatusBacklog,
+		Status:         initialStatus,
 		OriginalPrompt: req.Prompt,
 		CreatedBy:      req.UserID,
 		HelixAppID:     helixAppID,       // Helix agent used for entire workflow

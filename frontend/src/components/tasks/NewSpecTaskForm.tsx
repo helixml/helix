@@ -115,6 +115,7 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
   >([]);
   const [selectedHelixAgent, setSelectedHelixAgent] = useState("");
   const [justDoItMode, setJustDoItMode] = useState(false);
+  const [autoStart, setAutoStart] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
 
   // Branch configuration state
@@ -282,6 +283,7 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
     setSelectedDependencyTaskIds([]);
     setSelectedHelixAgent("");
     setJustDoItMode(false);
+    setAutoStart(false);
     setBranchMode(TypesBranchMode.BranchModeNew);
     setBaseBranch(defaultBranchName);
     setBranchPrefix("");
@@ -330,6 +332,7 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
         project_id: projectId,
         app_id: agentId || undefined,
         just_do_it_mode: justDoItMode,
+        auto_start: autoStart,
         depends_on: selectedDependencyTasks
           .map((task) => task.id || "")
           .filter((taskId) => !!taskId),
@@ -924,6 +927,34 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
                     </Box>
                     <Typography variant="caption" color="text.secondary">
                       Skip planning — go straight to implementation
+                    </Typography>
+                  </Box>
+                }
+              />
+            </Tooltip>
+          </FormControl>
+
+          {/* Start Immediately Checkbox */}
+          <FormControl fullWidth>
+            <Tooltip
+              title="Start the task immediately on creation, regardless of the project's auto-start setting"
+              placement="top"
+            >
+              <FormControlLabel
+                control={
+                  <Checkbox
+                    checked={autoStart}
+                    onChange={(e) => setAutoStart(e.target.checked)}
+                    color="primary"
+                  />
+                }
+                label={
+                  <Box>
+                    <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                      Start immediately
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Skip the backlog — start as soon as the task is created
                     </Typography>
                   </Box>
                 }
