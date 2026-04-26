@@ -1365,7 +1365,6 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 
 	// SpecTask orchestrator routes
 	// authRouter.HandleFunc("/spec-tasks/from-demo", system.Wrapper(apiServer.createSpecTaskFromDemo)).Methods(http.MethodPost)
-	authRouter.HandleFunc("/spec-tasks/{id}/design-docs", system.Wrapper(apiServer.getSpecTaskDesignDocs)).Methods(http.MethodGet)
 	// authRouter.HandleFunc("/spec-tasks/{id}/external-agent/status", apiServer.getSpecTaskExternalAgentStatus).Methods(http.MethodGet)
 	// authRouter.HandleFunc("/spec-tasks/{id}/external-agent/start", apiServer.startSpecTaskExternalAgent).Methods(http.MethodPost)
 	// authRouter.HandleFunc("/spec-tasks/{id}/external-agent/stop", apiServer.stopSpecTaskExternalAgent).Methods(http.MethodPost)
