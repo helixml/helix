@@ -1303,6 +1303,22 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     // Check current fullscreen state (including iOS custom fullscreen)
     const currentlyFullscreen = isFullscreen || isIOSFullscreen;
 
+    // When this component is rendered inside a cross-origin iframe (e.g.
+    // the Gatewaze admin embedding /embed/task/:id), the fullscreen API
+    // behaves differently than in a standalone tab. Calling
+    // requestFullscreen() on a deeply-nested `position: relative` div
+    // makes Chrome on macOS try to enter window-level fullscreen and
+    // immediately bounce back — leaving the iframe's content thinking
+    // it's fullscreen but the iframe element still constrained to its
+    // original rect. The reliable pattern (used by YouTube, Vimeo) is
+    // to call requestFullscreen on the iframe document's ROOT element
+    // (the iframe's <html>): the browser then fullscreens the iframe
+    // element itself, the iframe expands to viewport size, and the
+    // root element fills the iframe. The :fullscreen pseudo-class on
+    // the body (added below) makes our content fill the new viewport.
+    const inIframe = window.self !== window.top;
+    const fullscreenTarget = inIframe ? document.documentElement : elem;
+
     if (!currentlyFullscreen) {
       // On iOS, use custom CSS-based fullscreen that maintains full interactivity
       // Native video fullscreen (webkitEnterFullscreen) doesn't allow touch/keyboard input
@@ -1319,8 +1335,8 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
 
       // Try all fullscreen APIs in order of preference
       // Standard API (Chrome, Firefox, Edge, Safari 16.4+)
-      if (elem.requestFullscreen) {
-        elem.requestFullscreen().catch(() => {
+      if (fullscreenTarget.requestFullscreen) {
+        fullscreenTarget.requestFullscreen().catch(() => {
           // Fallback to iOS-style CSS fullscreen if native fails
           console.log(
             "[Fullscreen] Native fullscreen failed, using CSS fallback",
@@ -1330,20 +1346,20 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         });
       }
       // Webkit (Safari, iOS Safari, iOS Chrome - all use WebKit)
-      else if (elem.webkitRequestFullscreen) {
-        elem.webkitRequestFullscreen();
+      else if ((fullscreenTarget as any).webkitRequestFullscreen) {
+        (fullscreenTarget as any).webkitRequestFullscreen();
       }
       // Webkit with capital S (older Android Chrome)
-      else if (elem.webkitRequestFullScreen) {
-        elem.webkitRequestFullScreen();
+      else if ((fullscreenTarget as any).webkitRequestFullScreen) {
+        (fullscreenTarget as any).webkitRequestFullScreen();
       }
       // Mozilla (older Firefox)
-      else if (elem.mozRequestFullScreen) {
-        elem.mozRequestFullScreen();
+      else if ((fullscreenTarget as any).mozRequestFullScreen) {
+        (fullscreenTarget as any).mozRequestFullScreen();
       }
       // MS (old IE/Edge)
-      else if (elem.msRequestFullscreen) {
-        elem.msRequestFullscreen();
+      else if ((fullscreenTarget as any).msRequestFullscreen) {
+        (fullscreenTarget as any).msRequestFullscreen();
       }
       // Last resort: CSS fullscreen
       else {

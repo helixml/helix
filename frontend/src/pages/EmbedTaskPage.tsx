@@ -24,7 +24,13 @@ const EmbedTaskPage: FC = () => {
   }
 
   return (
-    <Box sx={{ height: '100vh', overflow: 'hidden', backgroundColor: bg }}>
+    // 100dvh (instead of 100vh) lets mobile Safari handle its dynamic
+    // viewport correctly. When this page is itself put in fullscreen
+    // (e.g. via a Gatewaze iframe embed and the user clicks the
+    // fullscreen button on the desktop viewer — see
+    // DesktopStreamViewer.tsx toggleFullscreen), the iframe's window
+    // is resized to the browser viewport and 100dvh expands with it.
+    <Box sx={{ height: '100dvh', overflow: 'hidden', backgroundColor: bg }}>
       <SpecTaskDetailContent taskId={taskId} />
     </Box>
   )
