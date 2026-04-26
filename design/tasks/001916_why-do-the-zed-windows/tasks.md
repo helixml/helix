@@ -1,6 +1,6 @@
 # Implementation Tasks
 
-- [ ] In `desktop/ubuntu-config/start-zed-helix.sh`, add the dynamic `ZED_WINDOW_SIZE`/`ZED_WINDOW_POSITION` block from `design.md` (computes 80% of `GAMESCOPE_WIDTH/HEIGHT` divided by `GDK_SCALE`, with a 10% margin) just before the `source "$CORE_SCRIPT"` line, with a short comment explaining the upstream `a0d0195ca9` regression and why these env vars sidestep GNOME auto-maximise
+- [~] In `desktop/ubuntu-config/start-zed-helix.sh`, add the dynamic `ZED_WINDOW_SIZE`/`ZED_WINDOW_POSITION` block from `design.md` (computes 80% of `GAMESCOPE_WIDTH/HEIGHT` divided by `GDK_SCALE`, with a 10% margin) just before the `source "$CORE_SCRIPT"` line, with a short comment explaining the upstream `a0d0195ca9` regression and why these env vars sidestep GNOME auto-maximise
 - [ ] In `api/pkg/external-agent/zed_config.go` (~line 253), change `--viewport` value from `1600x1080` to `1280x800` and update the adjacent comment to note the new dimensions still trigger desktop-mode rendering and keep Chrome below Mutter's auto-maximise threshold
 - [ ] Rebuild the Ubuntu desktop image: `./stack build-ubuntu` (the `zed_config.go` change is API-side and Air hot-reloads on next spectask start)
 - [ ] Start a fresh spectask at the default 1920×1080 / 100% zoom; confirm Zed launches as a centred 1536×864 windowed window at origin (192, 108)
