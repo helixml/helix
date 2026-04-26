@@ -1,6 +1,6 @@
 # Implementation Tasks
 
-- [ ] Add `if task.KeepAlive { return nil }` gate at the top of `handleDone()` in `api/pkg/services/spec_task_orchestrator.go:1212`, with an info-level log line.
+- [~] Add `if task.KeepAlive { return nil }` gate at the top of `handleDone()` in `api/pkg/services/spec_task_orchestrator.go:1212`, with an info-level log line.
 - [ ] Verify `containerExecutor.StopDesktop()` is idempotent (no panic / no spurious error if called twice for the same session); fix or document if not.
 - [ ] In the keep-alive update handler at `api/pkg/server/spec_driven_task_handlers.go:967`, after persisting the `KeepAlive` change, if the new value is `false` AND `task.Status == TaskStatusDone` AND the desktop is still running, call `containerExecutor.StopDesktop()` to release resources.
 - [ ] Wire `containerExecutor` into the handler if not already injected (mirror the orchestrator's wiring).
