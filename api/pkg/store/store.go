@@ -728,7 +728,10 @@ type Store interface {
 	ListPromptHistoryBySpecTask(ctx context.Context, specTaskID string) ([]*types.PromptHistoryEntry, error)
 	MarkPromptAsPending(ctx context.Context, promptID string) error
 	MarkPromptAsSent(ctx context.Context, promptID string) error
-	MarkPromptAsFailed(ctx context.Context, promptID string) error
+	// MarkPromptAsFailed records the failure reason and bumps retry_count + next_retry_at
+	// for exponential backoff. errorMsg is shown to the user in the UI; pass err.Error()
+	// from whatever produced the failure. Truncated to 500 chars by the implementation.
+	MarkPromptAsFailed(ctx context.Context, promptID string, errorMsg string) error
 	// RequeueBouncedPrompt finds the most recent "sent" prompt for a session and marks
 	// it as "failed" so the retry mechanism picks it up. Used when message_completed
 	// arrives with an empty response (bounce).

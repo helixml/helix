@@ -25,8 +25,9 @@ type PromptHistoryEntry struct {
 	Status string `json:"status" gorm:"size:50;not null;default:sent"`
 
 	// Retry tracking for failed prompts
-	RetryCount  int        `json:"retry_count" gorm:"not null;default:0"` // Number of retry attempts
-	NextRetryAt *time.Time `json:"next_retry_at,omitempty" gorm:"index"`  // When to retry (for exponential backoff)
+	RetryCount   int        `json:"retry_count" gorm:"not null;default:0"`     // Number of retry attempts
+	NextRetryAt  *time.Time `json:"next_retry_at,omitempty" gorm:"index"`      // When to retry (for exponential backoff)
+	ErrorMessage string     `json:"error_message,omitempty" gorm:"type:text"`  // Last failure reason (server-side error string), shown in UI under "Failed - retrying"
 
 	// Interrupt indicates this message should interrupt the current conversation
 	// When false, message waits until current conversation completes

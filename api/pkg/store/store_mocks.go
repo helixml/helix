@@ -4882,17 +4882,17 @@ func (mr *MockStoreMockRecorder) LookupKnowledge(ctx, q any) *gomock.Call {
 }
 
 // MarkPromptAsFailed mocks base method.
-func (m *MockStore) MarkPromptAsFailed(ctx context.Context, promptID string) error {
+func (m *MockStore) MarkPromptAsFailed(ctx context.Context, promptID string, errorMsg string) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "MarkPromptAsFailed", ctx, promptID)
+	ret := m.ctrl.Call(m, "MarkPromptAsFailed", ctx, promptID, errorMsg)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // MarkPromptAsFailed indicates an expected call of MarkPromptAsFailed.
-func (mr *MockStoreMockRecorder) MarkPromptAsFailed(ctx, promptID any) *gomock.Call {
+func (mr *MockStoreMockRecorder) MarkPromptAsFailed(ctx, promptID, errorMsg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkPromptAsFailed", reflect.TypeOf((*MockStore)(nil).MarkPromptAsFailed), ctx, promptID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkPromptAsFailed", reflect.TypeOf((*MockStore)(nil).MarkPromptAsFailed), ctx, promptID, errorMsg)
 }
 
 // MarkPromptAsPending mocks base method.

@@ -14267,52 +14267,6 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v1/spec-tasks/{id}/design-docs": {
-            "get": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "description": "Get the design documents from helix-specs worktree",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "SpecTasks"
-                ],
-                "summary": "Get design docs for SpecTask",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "SpecTask ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/server.DesignDocsResponse"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    }
-                }
-            }
-        },
         "/api/v1/spec-tasks/{spec_task_id}/approve-implementation": {
             "post": {
                 "security": [
@@ -18583,34 +18537,6 @@ const docTemplate = `{
                     "type": "number"
                 },
                 "org_id": {
-                    "type": "string"
-                }
-            }
-        },
-        "server.DesignDocsResponse": {
-            "type": "object",
-            "properties": {
-                "documents": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/server.DesignDocument"
-                    }
-                },
-                "task_id": {
-                    "type": "string"
-                }
-            }
-        },
-        "server.DesignDocument": {
-            "type": "object",
-            "properties": {
-                "content": {
-                    "type": "string"
-                },
-                "filename": {
-                    "type": "string"
-                },
-                "path": {
                     "type": "string"
                 }
             }
@@ -26609,6 +26535,10 @@ const docTemplate = `{
                 },
                 "deleted_at": {
                     "description": "Soft-delete: non-nil means user removed from queue",
+                    "type": "string"
+                },
+                "error_message": {
+                    "description": "Last failure reason (server-side error string), shown in UI under \"Failed - retrying\"",
                     "type": "string"
                 },
                 "id": {
