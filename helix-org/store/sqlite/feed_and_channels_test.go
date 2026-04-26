@@ -106,3 +106,75 @@ func TestEventsListForWorkerViaStreams(t *testing.T) {
 		t.Fatalf("limit result = %v", limited)
 	}
 }
+
+func TestEventsListSinceAcrossChannels(t *testing.T) {
+	t.Parallel()
+	s := newStore(t)
+	ctx := context.Background()
+	base := time.Date(2026, 4, 24, 12, 0, 0, 0, time.UTC)
+
+	// Three channels, four events, interleaved across c-a and c-b plus
+	// one on c-other (which the caller will exclude).
+	for _, e := range []struct {
+		id, ch, body string
+		offset       time.Duration
+	}{
+		{"e-1", "c-a", "first on a", 1 * time.Second},
+		{"e-2", "c-b", "first on b", 2 * time.Second},
+		{"e-3", "c-other", "noise", 3 * time.Second},
+		{"e-4", "c-a", "second on a", 4 * time.Second},
+		{"e-5", "c-b", "second on b", 5 * time.Second},
+	} {
+		ev, _ := domain.NewEvent(domain.EventID(e.id), domain.ChannelID(e.ch), "w-owner", e.body, base.Add(e.offset))
+		if err := s.Events.Append(ctx, ev); err != nil {
+			t.Fatalf("Append %s: %v", e.id, err)
+		}
+	}
+
+	// since="" returns all matching events oldest-first.
+	all, err := s.Events.ListSince(ctx, []domain.ChannelID{"c-a", "c-b"}, "", 0)
+	if err != nil {
+		t.Fatalf("ListSince: %v", err)
+	}
+	gotIDs := make([]domain.EventID, len(all))
+	for i, e := range all {
+		gotIDs[i] = e.ID
+	}
+	wantIDs := []domain.EventID{"e-1", "e-2", "e-4", "e-5"}
+	if len(gotIDs) != len(wantIDs) {
+		t.Fatalf("ids = %v, want %v", gotIDs, wantIDs)
+	}
+	for i := range wantIDs {
+		if gotIDs[i] != wantIDs[i] {
+			t.Fatalf("ids = %v, want %v", gotIDs, wantIDs)
+		}
+	}
+
+	// since=e-2 returns only events strictly newer than e-2 on the
+	// matching channels.
+	tail, err := s.Events.ListSince(ctx, []domain.ChannelID{"c-a", "c-b"}, "e-2", 0)
+	if err != nil {
+		t.Fatalf("ListSince since: %v", err)
+	}
+	if len(tail) != 2 || tail[0].ID != "e-4" || tail[1].ID != "e-5" {
+		t.Fatalf("since=e-2 result = %v", tail)
+	}
+
+	// Empty channel set returns nothing.
+	empty, err := s.Events.ListSince(ctx, nil, "", 0)
+	if err != nil {
+		t.Fatalf("ListSince empty: %v", err)
+	}
+	if len(empty) != 0 {
+		t.Fatalf("expected no events, got %v", empty)
+	}
+
+	// Unknown since falls through to "no lower bound".
+	full, err := s.Events.ListSince(ctx, []domain.ChannelID{"c-a"}, "e-stale", 0)
+	if err != nil {
+		t.Fatalf("ListSince stale: %v", err)
+	}
+	if len(full) != 2 {
+		t.Fatalf("stale-since dropped events: %v", full)
+	}
+}

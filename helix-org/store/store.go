@@ -69,6 +69,13 @@ type Events interface {
 	// ListForWorker returns events reaching a Worker's Feed via their Streams,
 	// newest first. If limit <= 0, no limit is applied.
 	ListForWorker(ctx context.Context, workerID domain.WorkerID, limit int) ([]domain.Event, error)
+	// ListSince returns events on the named Channels strictly newer than the
+	// `since` event, oldest first. If channelIDs is empty, returns nothing
+	// (caller's glob matched no channels). If `since` is empty, returns the
+	// most recent `limit` events on the named channels in oldest-first order.
+	// If `since` does not exist, returns the same as if it were empty. If
+	// limit <= 0, no limit is applied.
+	ListSince(ctx context.Context, channelIDs []domain.ChannelID, since domain.EventID, limit int) ([]domain.Event, error)
 }
 
 // Environments persists the per-Worker directory handle. The manager

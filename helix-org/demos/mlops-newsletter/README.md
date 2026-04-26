@@ -49,33 +49,36 @@ The editor's hire activation creates the five channels and
 subscribes; the researcher and journalist subscribe to their inputs.
 ~30 seconds.
 
-## 4. Kick off an issue
+## 4. Watch the cascade
 
-In a third terminal, watch the cascade:
+In a third terminal, tail every channel — this is the live view of
+the team thinking out loud:
 
 ```bash
-tail -f /tmp/mlops-envs/w-*/activation.log
+../../bin/helix-org tail
 ```
 
-Then publish a brief:
+`tail` defaults to `*` (all channels). Use `tail 'c-news*'` for a
+glob, or `tail c-newsletter` for a single channel.
+
+Then publish a brief from terminal 2:
 
 ```bash
 ../../bin/helix-org prompt "publish to c-briefs: 'Time for this
 week's MLOps newsletter. Surprise me with the angle.'"
 ```
 
-The cascade:
+The cascade you'll see in the tail:
 
 - Editor wakes, picks an angle, publishes to `c-angles`.
 - Researcher wakes, generates five news items, publishes to `c-findings`.
 - Journalist wakes, writes ~250 words, publishes to `c-drafts`.
 - Editor wakes again, polishes and publishes to `c-newsletter`.
 
-View the final issue:
+To see only the finished issues:
 
 ```bash
-curl -s http://localhost:8080/channels/c-newsletter/events \
-  | jq -r '.data[].attributes.body'
+../../bin/helix-org tail c-newsletter
 ```
 
 ## 5. Run it again with a different brief

@@ -194,6 +194,80 @@ func connectMCP(t *testing.T, baseURL string, workerID domain.WorkerID) *mcp.Cli
 	return session
 }
 
+// TestTailMatchesGlob seeds three channels and four events, then tails
+// "c-news*" and asserts only the two news events come back, oldest first.
+// Also checks that since= advances the cursor.
+func TestTailMatchesGlob(t *testing.T) {
+	t.Parallel()
+	s, err := sqlite.Open(":memory:")
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	srv := httptest.NewServer(server.New(s, tools.NewRegistry(), nil, nil, "").Handler())
+	t.Cleanup(srv.Close)
+
+	ctx := context.Background()
+	now := time.Date(2026, 4, 25, 12, 0, 0, 0, time.UTC)
+	for _, c := range []struct{ id, name string }{
+		{"c-news-wire", "news-wire"},
+		{"c-newsletter", "newsletter"},
+		{"c-other", "other"},
+	} {
+		ch, _ := domain.NewChannel(domain.ChannelID(c.id), c.name, "", "w-owner", now)
+		if err := s.Channels.Create(ctx, ch); err != nil {
+			t.Fatalf("seed channel %s: %v", c.id, err)
+		}
+	}
+	for i, e := range []struct{ id, ch string }{
+		{"e-1", "c-news-wire"},
+		{"e-2", "c-other"},
+		{"e-3", "c-newsletter"},
+		{"e-4", "c-other"},
+	} {
+		ev, _ := domain.NewEvent(domain.EventID(e.id), domain.ChannelID(e.ch), "w-owner", "x", now.Add(time.Duration(i+1)*time.Second))
+		if err := s.Events.Append(ctx, ev); err != nil {
+			t.Fatalf("seed event %s: %v", e.id, err)
+		}
+	}
+
+	withGet(t, srv.URL+"/tail?match=c-news*", func(res *http.Response, env envelope) {
+		if res.StatusCode != http.StatusOK {
+			t.Fatalf("status = %d", res.StatusCode)
+		}
+		var resources []server.Resource
+		if err := json.Unmarshal(env.Data, &resources); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		if len(resources) != 2 {
+			t.Fatalf("got %d events, want 2 (e-1, e-3)", len(resources))
+		}
+		if resources[0].ID != "e-1" || resources[1].ID != "e-3" {
+			t.Fatalf("ids = [%s, %s], want [e-1, e-3]", resources[0].ID, resources[1].ID)
+		}
+	})
+
+	withGet(t, srv.URL+"/tail?match=c-news*&since=e-1", func(res *http.Response, env envelope) {
+		var resources []server.Resource
+		if err := json.Unmarshal(env.Data, &resources); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		if len(resources) != 1 || resources[0].ID != "e-3" {
+			t.Fatalf("since=e-1 returned %+v, want only e-3", resources)
+		}
+	})
+
+	// Default match is "*" — all four events.
+	withGet(t, srv.URL+"/tail", func(res *http.Response, env envelope) {
+		var resources []server.Resource
+		if err := json.Unmarshal(env.Data, &resources); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		if len(resources) != 4 {
+			t.Fatalf("default match returned %d events, want 4", len(resources))
+		}
+	})
+}
+
 // TestMCPListTools confirms that the MCP tool list a worker sees is the
 // intersection of (a) their grants and (b) tools the server has actually
 // registered. The CEO holds grants for both ping and hire_worker, but

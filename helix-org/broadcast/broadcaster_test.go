@@ -65,6 +65,52 @@ func TestBroadcasterUnsubscribeStopsDelivery(t *testing.T) {
 	}
 }
 
+func TestBroadcasterSubscribeAllWakesOnAnyChannel(t *testing.T) {
+	t.Parallel()
+
+	b := New()
+	ch := b.SubscribeAll()
+	b.Notify("c-anything")
+	select {
+	case <-ch:
+	case <-time.After(time.Second):
+		t.Fatalf("wildcard subscriber did not wake")
+	}
+}
+
+func TestBroadcasterSubscribeAllStillWakesAfterPerChannelNotify(t *testing.T) {
+	t.Parallel()
+
+	b := New()
+	per := b.Subscribe([]domain.ChannelID{"c-a"})
+	all := b.SubscribeAll()
+	b.Notify("c-a")
+	select {
+	case <-per:
+	case <-time.After(time.Second):
+		t.Fatalf("per-channel subscriber did not wake")
+	}
+	select {
+	case <-all:
+	case <-time.After(time.Second):
+		t.Fatalf("wildcard subscriber did not wake on per-channel notify")
+	}
+}
+
+func TestBroadcasterUnsubscribeAllStopsDelivery(t *testing.T) {
+	t.Parallel()
+
+	b := New()
+	ch := b.SubscribeAll()
+	b.UnsubscribeAll(ch)
+	b.Notify("c-a")
+	select {
+	case <-ch:
+		t.Fatalf("woke after UnsubscribeAll")
+	case <-time.After(50 * time.Millisecond):
+	}
+}
+
 func TestBroadcasterMultipleSubscribers(t *testing.T) {
 	t.Parallel()
 

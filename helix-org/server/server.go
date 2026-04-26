@@ -61,6 +61,8 @@ func (s *Server) Handler() http.Handler {
 
 	mux.HandleFunc("GET /grants/{id}", s.getGrant)
 
+	mux.HandleFunc("GET /tail", s.tail)
+
 	mux.HandleFunc("POST /bootstrap", s.bootstrap)
 
 	return s.requestLogger(mux)

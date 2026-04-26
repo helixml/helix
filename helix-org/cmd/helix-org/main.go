@@ -27,6 +27,8 @@ func run(args []string) error {
 		return runBootstrap(args[1:])
 	case "prompt":
 		return runPrompt(args[1:])
+	case "tail":
+		return runTail(args[1:])
 	case "help", "-h", "--help":
 		printUsage()
 		return nil
@@ -46,6 +48,9 @@ Subcommands:
               connected to a Worker's MCP endpoint. Claude calls the
               helix tools on your behalf. Defaults to acting as
               w-owner.
+  tail        Stream events from one or more channels matching a
+              glob (default '*' = all channels). Long-polls; Ctrl-C
+              to stop.
   help        Show this message.
 
 Run 'helix-org <subcommand> --help' for per-subcommand flags.`)

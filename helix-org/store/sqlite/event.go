@@ -44,6 +44,51 @@ func (r *eventsRepo) ListForChannel(ctx context.Context, channelID domain.Channe
 	return rowsToEvents(rows)
 }
 
+func (r *eventsRepo) ListSince(ctx context.Context, channelIDs []domain.ChannelID, since domain.EventID, limit int) ([]domain.Event, error) {
+	if len(channelIDs) == 0 {
+		return nil, nil
+	}
+	ids := make([]string, 0, len(channelIDs))
+	for _, c := range channelIDs {
+		ids = append(ids, string(c))
+	}
+
+	// Resolve `since` to its (created_at, id) pair. If the event is unknown
+	// (empty since, or stale), we fall back to "no lower bound" — same as if
+	// the caller passed nothing.
+	var (
+		sinceTS time.Time
+		sinceID string
+		hasLB   bool
+	)
+	if since != "" {
+		var pivot eventRow
+		err := r.db.WithContext(ctx).Where("id = ?", string(since)).Take(&pivot).Error
+		if err == nil {
+			sinceTS = pivot.CreatedAt
+			sinceID = pivot.ID
+			hasLB = true
+		}
+		// gorm.ErrRecordNotFound and other errors fall through to "no lower
+		// bound" — tail callers tolerate this and just see recent history.
+	}
+
+	query := r.db.WithContext(ctx).Where("channel_id IN ?", ids)
+	if hasLB {
+		// (created_at, id) > (sinceTS, sinceID)
+		query = query.Where("(created_at > ?) OR (created_at = ? AND id > ?)", sinceTS, sinceTS, sinceID)
+	}
+	query = query.Order("created_at ASC, id ASC")
+	if limit > 0 {
+		query = query.Limit(limit)
+	}
+	var rows []eventRow
+	if err := query.Find(&rows).Error; err != nil {
+		return nil, fmt.Errorf("list events since %q: %w", since, err)
+	}
+	return rowsToEvents(rows)
+}
+
 func (r *eventsRepo) ListForWorker(ctx context.Context, workerID domain.WorkerID, limit int) ([]domain.Event, error) {
 	// Join events with streams to return only events on channels the worker
 	// subscribes to, newest first.
