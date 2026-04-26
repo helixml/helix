@@ -78,13 +78,22 @@ if (embedToken) {
   const authValue = `Bearer ${embedToken}`
   axios.defaults.headers.common['Authorization'] = authValue
   apiClientSingleton.instance.defaults.headers.common['Authorization'] = authValue
+  // Disable cookie sending so the server's auth middleware falls through
+  // to Bearer-token auth. Otherwise an existing helix_session cookie (e.g.
+  // because the user is also logged into Helix in the same browser) would
+  // win and we'd authenticate as that user, not as the API key owner.
+  axios.defaults.withCredentials = false
+  apiClientSingleton.instance.defaults.withCredentials = false
 }
 
 // Add interceptors to the Api client's axios instance
 apiClientSingleton.instance.interceptors.request.use(csrfInterceptor)
 
-// Configure axios to send cookies with requests (same-origin)
-axios.defaults.withCredentials = true
+// Configure axios to send cookies with requests (same-origin).
+// Skip when an embed token is in play — see embed-auth block above.
+if (!embedToken) {
+  axios.defaults.withCredentials = true
+}
 
 // Add interceptors for direct axios usage
 axios.interceptors.request.use(csrfInterceptor)
