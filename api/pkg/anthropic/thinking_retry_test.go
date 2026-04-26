@@ -132,6 +132,94 @@ func TestThinkingRetryTransport_EnabledRejectedSwapsToAdaptive(t *testing.T) {
 	assert.Equal(t, "medium", outputConfig["effort"], "should default output_config.effort to medium when swapping to adaptive (otherwise the model produces an empty thinking summary)")
 }
 
+func TestThinkingRetryTransport_AdaptiveUpfrontInjectsEffort(t *testing.T) {
+	// claude-agent-acp sends adaptive directly for opus-4-7. The 400-retry
+	// path never fires, so output_config.effort must be injected upfront —
+	// otherwise the model runs at minimum effort and the thinking summary
+	// is empty.
+	success := `{"id":"msg_x","type":"message","content":[]}`
+
+	rt := &fakeRoundTripper{
+		responses: []*http.Response{newJSONResponse(http.StatusOK, success)},
+	}
+	transport := &thinkingRetryTransport{base: rt}
+
+	req := newRequestWithThinking(t, map[string]interface{}{
+		"type": "adaptive",
+	})
+
+	resp, err := transport.RoundTrip(req)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	require.Equal(t, int32(1), rt.receivedCalls.Load(), "should not retry — upstream returned 200")
+
+	var sentBody map[string]interface{}
+	require.NoError(t, json.Unmarshal(rt.receivedBody[0], &sentBody))
+	outputConfig, ok := sentBody["output_config"].(map[string]interface{})
+	require.True(t, ok, "output_config must have been injected at top level")
+	assert.Equal(t, "medium", outputConfig["effort"], "effort must default to medium for adaptive without caller-set effort")
+}
+
+func TestThinkingRetryTransport_AdaptiveUpfrontRespectsCallerEffort(t *testing.T) {
+	// If the caller already set output_config.effort, leave it alone.
+	success := `{"id":"msg_y","type":"message","content":[]}`
+
+	rt := &fakeRoundTripper{
+		responses: []*http.Response{newJSONResponse(http.StatusOK, success)},
+	}
+	transport := &thinkingRetryTransport{base: rt}
+
+	body := map[string]interface{}{
+		"model":      "claude-opus-4-7",
+		"max_tokens": 1024,
+		"messages":   []map[string]string{{"role": "user", "content": "hi"}},
+		"thinking":   map[string]interface{}{"type": "adaptive"},
+		"output_config": map[string]interface{}{
+			"effort":    "high",
+			"keep_this": "yes",
+		},
+	}
+	bs, err := json.Marshal(body)
+	require.NoError(t, err)
+	req, err := http.NewRequest(http.MethodPost, "https://example.com/v1/messages", bytes.NewReader(bs))
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+
+	_, err = transport.RoundTrip(req)
+	require.NoError(t, err)
+
+	var sentBody map[string]interface{}
+	require.NoError(t, json.Unmarshal(rt.receivedBody[0], &sentBody))
+	outputConfig, _ := sentBody["output_config"].(map[string]interface{})
+	assert.Equal(t, "high", outputConfig["effort"], "caller-set effort must not be overridden")
+	assert.Equal(t, "yes", outputConfig["keep_this"], "sibling fields under output_config must be preserved")
+}
+
+func TestThinkingRetryTransport_NonAdaptiveUpfrontDoesNotInject(t *testing.T) {
+	// thinking.type=enabled requests must NOT have output_config.effort
+	// injected — that field is adaptive-specific and would itself trigger
+	// a 400 from the older Vertex pods.
+	success := `{"id":"msg_z","type":"message","content":[]}`
+
+	rt := &fakeRoundTripper{
+		responses: []*http.Response{newJSONResponse(http.StatusOK, success)},
+	}
+	transport := &thinkingRetryTransport{base: rt}
+
+	req := newRequestWithThinking(t, map[string]interface{}{
+		"type":          "enabled",
+		"budget_tokens": 4096,
+	})
+
+	_, err := transport.RoundTrip(req)
+	require.NoError(t, err)
+
+	var sentBody map[string]interface{}
+	require.NoError(t, json.Unmarshal(rt.receivedBody[0], &sentBody))
+	_, hasOutputConfig := sentBody["output_config"]
+	assert.False(t, hasOutputConfig, "must not inject output_config for non-adaptive thinking")
+}
+
 func TestSwapThinkingType_AdaptivePreservesExistingOutputConfigEffort(t *testing.T) {
 	// If the caller already specified an effort, swapThinkingType must not
 	// clobber it — they may have a deliberate reason for high or low.

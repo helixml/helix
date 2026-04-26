@@ -46,6 +46,29 @@ func (t *thinkingRetryTransport) RoundTrip(req *http.Request) (*http.Response, e
 	if err != nil {
 		return nil, err
 	}
+
+	// Upfront mutation: if the request has thinking.type=adaptive but no
+	// top-level output_config.effort, inject medium effort *before* sending.
+	//
+	// Why this matters: claude-agent-acp sends adaptive directly for opus-4-7
+	// (which Vertex requires), so the swap-from-enabled retry path below
+	// never fires. Without this upfront injection the model runs at its
+	// implicit minimum effort, producing empty thinking summaries — visible
+	// to the user as `<thinking></thinking>` blocks with no content.
+	// The Vertex error message we parse on the retry path explicitly says
+	// to set both fields together; this just applies the same rule before
+	// we even see a 400. ensureOutputConfigEffort respects any caller-set
+	// effort and preserves other output_config fields.
+	if mutatedBody, didMutate := ensureAdaptiveEffort(origBody, "medium"); didMutate {
+		log.Info().
+			Int("orig_len", len(origBody)).
+			Int("new_len", len(mutatedBody)).
+			Msg("injecting output_config.effort=medium for adaptive-thinking request (otherwise summary is empty)")
+		origBody = mutatedBody
+		req.ContentLength = int64(len(origBody))
+		req.Header.Del("Content-Length")
+	}
+
 	req.Body = io.NopCloser(bytes.NewReader(origBody))
 	// Repopulate GetBody too in case the underlying transport wants to retry on
 	// a transport-level redirect.
@@ -170,6 +193,55 @@ func swapThinkingType(body []byte, newType string) ([]byte, bool) {
 	}
 	bodyMap["thinking"] = newThinking
 
+	newBody, err := json.Marshal(bodyMap)
+	if err != nil {
+		return nil, false
+	}
+	return newBody, true
+}
+
+// ensureAdaptiveEffort inspects body and, if it has thinking.type=adaptive
+// without a top-level output_config.effort, injects effort. Returns
+// (newBody, true) when a mutation happened, (nil, false) otherwise — including
+// when the body has no thinking field, isn't adaptive, already has effort,
+// or isn't valid JSON. Callers should fall through to the unmutated body
+// in the false case rather than treating it as an error.
+func ensureAdaptiveEffort(body []byte, effort string) ([]byte, bool) {
+	var bodyMap map[string]json.RawMessage
+	if err := json.Unmarshal(body, &bodyMap); err != nil {
+		return nil, false
+	}
+	thinkingRaw, ok := bodyMap["thinking"]
+	if !ok {
+		return nil, false
+	}
+	var thinking map[string]json.RawMessage
+	if err := json.Unmarshal(thinkingRaw, &thinking); err != nil {
+		return nil, false
+	}
+	typeRaw, ok := thinking["type"]
+	if !ok {
+		return nil, false
+	}
+	var typeStr string
+	if err := json.Unmarshal(typeRaw, &typeStr); err != nil {
+		return nil, false
+	}
+	if typeStr != "adaptive" {
+		return nil, false
+	}
+	// Already has output_config.effort? Don't touch it.
+	if raw, ok := bodyMap["output_config"]; ok {
+		var outputConfig map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &outputConfig); err == nil {
+			if _, has := outputConfig["effort"]; has {
+				return nil, false
+			}
+		}
+	}
+	if !ensureOutputConfigEffort(bodyMap, effort) {
+		return nil, false
+	}
 	newBody, err := json.Marshal(bodyMap)
 	if err != nil {
 		return nil, false
