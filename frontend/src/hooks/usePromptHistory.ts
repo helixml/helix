@@ -34,7 +34,12 @@ export interface PromptHistoryEntry {
   content: string
   timestamp: number
   sessionId?: string
-  status: 'sent' | 'pending' | 'failed'
+  // 'pending'  → in queue, not yet dispatched to Zed
+  // 'sending'  → backend has dispatched to Zed but Zed hasn't started streaming yet
+  //              (the queue UI keeps these visible — that's the user-visible "in flight" state)
+  // 'sent'     → Zed has actually started processing (first message_added received)
+  // 'failed'   → dispatch failed or Zed bounced — eligible for retry
+  status: 'sent' | 'sending' | 'pending' | 'failed'
   interrupt?: boolean       // If true, this message interrupts current conversation
   queuePosition?: number    // Position in queue for ordering
   syncedToBackend?: boolean // If true, this entry has been synced to the backend
@@ -189,7 +194,9 @@ export function usePromptHistory({
 
   // Filter history for current session (for display purposes), excluding tombstoned entries
   const sessionHistory = history.filter(h => h.sessionId === sessionId && !h.deleted)
-  const pendingPrompts = sessionHistory.filter(h => h.status === 'pending')
+  // 'sending' is grouped with 'pending' so dispatched-but-not-yet-acknowledged
+  // prompts stay visible in the queue UI until Zed actually starts streaming.
+  const pendingPrompts = sessionHistory.filter(h => h.status === 'pending' || h.status === 'sending')
   const failedPrompts = sessionHistory.filter(h => h.status === 'failed')
 
   // Perform union merge with backend entries (entries from backend are marked as synced)
@@ -551,7 +558,7 @@ export function usePromptHistory({
     let queuePosition: number
     setHistory(prev => {
       // Find max queue position of pending/failed messages
-      const pendingMessages = prev.filter(h => h.status === 'pending' || h.status === 'failed')
+      const pendingMessages = prev.filter(h => h.status === 'pending' || h.status === 'sending' || h.status === 'failed')
       const maxPos = pendingMessages.reduce((max, h) => Math.max(max, h.queuePosition ?? 0), 0)
       queuePosition = maxPos + 1
       return prev // Just reading, actual update happens below
@@ -569,7 +576,7 @@ export function usePromptHistory({
 
     setHistory(prev => {
       // Recalculate position in case of race
-      const pendingMessages = prev.filter(h => h.status === 'pending' || h.status === 'failed')
+      const pendingMessages = prev.filter(h => h.status === 'pending' || h.status === 'sending' || h.status === 'failed')
       const maxPos = pendingMessages.reduce((max, h) => Math.max(max, h.queuePosition ?? 0), 0)
       entry.queuePosition = maxPos + 1
 
