@@ -242,6 +242,8 @@ If already registered, click "Sign in here" and use the same credentials.
 - Design docs: `design/YYYY-MM-DD-name.md`
 
 ## CI (Drone)
+**ALWAYS check CI yourself after pushing a PR.** Don't make the user discover the failure and tell you. As soon as a push is up, use `gh pr checks <num>` (or the Drone MCP tools / fallback below) to confirm green or surface failures. If failing, drill into the logs, fix, push the fix, and re-check — all without being asked.
+
 **ALWAYS use the Drone MCP tools** (`drone_build_info`, `drone_fetch_logs`, `drone_search_logs`, `drone_tail_logs`, `drone_read_logs`) when they are available. Do NOT try to extract credentials from `.env` files or use raw `curl` — the MCP tools handle authentication automatically.
 
 Workflow for investigating CI failures:

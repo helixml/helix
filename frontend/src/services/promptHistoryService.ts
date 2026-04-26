@@ -12,7 +12,7 @@ import {
 export interface LocalPromptHistoryEntry {
   id: string
   content: string
-  status: 'sent' | 'pending' | 'failed'
+  status: 'sent' | 'sending' | 'pending' | 'failed'
   timestamp: number
   sessionId?: string
   interrupt?: boolean       // If true, interrupts current conversation

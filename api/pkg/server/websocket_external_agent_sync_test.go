@@ -864,7 +864,8 @@ func (s *WebSocketSyncSuite) TestAgentReady_WithPendingPrompt() {
 	}
 	s.store.EXPECT().GetAnyPendingPrompt(gomock.Any(), "ses_pending").Return(prompt, nil)
 	// Note: ClaimPromptForSending is NOT called — GetAnyPendingPrompt already atomically claimed it
-	s.store.EXPECT().MarkPromptAsSent(gomock.Any(), "prompt-1").Return(nil)
+	// MarkPromptAsSent is NOT called here under the deferred-mark flow — the
+	// prompt stays 'sending' until Zed acknowledges via the first message_added.
 
 	// sendQueuedPromptToSession calls
 	session := &types.Session{
@@ -881,6 +882,9 @@ func (s *WebSocketSyncSuite) TestAgentReady_WithPendingPrompt() {
 			return &types.Interaction{ID: "int-prompt", SessionID: "ses_pending"}, nil
 		},
 	)
+	// Dispatch failure path: with no WS connection registered, the prompt is
+	// marked failed so the queue UI shows retry instead of sticking on 'sending'.
+	s.store.EXPECT().MarkPromptAsFailed(gomock.Any(), "prompt-1").Return(nil)
 	// GetSpecTask for getAgentNameForSession + autoStartDevContainerForSession
 	s.store.EXPECT().GetSpecTask(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound).AnyTimes()
 
@@ -1015,9 +1019,12 @@ func (s *WebSocketSyncSuite) TestProcessPromptQueue_HasPending() {
 	)
 	s.store.EXPECT().GetSpecTask(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound).AnyTimes()
 
-	// sendCommandToExternalAgent will fail (no WS connection), but interaction was created
-	// so MarkPromptAsSent is still called
-	s.store.EXPECT().MarkPromptAsSent(gomock.Any(), "prompt-pq").Return(nil)
+	// sendCommandToExternalAgent will fail (no WS connection). Under the
+	// deferred-mark-sent flow, dispatch failure inside sendQueuedPromptToSession
+	// marks the prompt as failed (so the user sees retry), and the caller's
+	// MarkPromptAsSent has been removed entirely — the prompt is marked sent
+	// later by handleMessageAdded when Zed actually starts responding.
+	s.store.EXPECT().MarkPromptAsFailed(gomock.Any(), "prompt-pq").Return(nil)
 
 	s.server.processPromptQueue(context.Background(), "ses_pq")
 	time.Sleep(50 * time.Millisecond) // let autoStartDevContainerForSession goroutine complete
@@ -1065,7 +1072,7 @@ func (s *WebSocketSyncSuite) TestProcessAnyPendingPrompt_HasPending() {
 	}
 	s.store.EXPECT().GetAnyPendingPrompt(gomock.Any(), "ses_any").Return(prompt, nil)
 	// Note: ClaimPromptForSending is NOT called — GetAnyPendingPrompt already atomically claimed it
-	s.store.EXPECT().MarkPromptAsSent(gomock.Any(), "prompt-any").Return(nil)
+	// MarkPromptAsSent is NOT called here under the deferred-mark flow.
 
 	session := &types.Session{
 		ID:    "ses_any",
@@ -1080,6 +1087,8 @@ func (s *WebSocketSyncSuite) TestProcessAnyPendingPrompt_HasPending() {
 		&types.Interaction{ID: "int-any", SessionID: "ses_any"}, nil,
 	)
 	s.store.EXPECT().GetSpecTask(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound).AnyTimes()
+	// No WS connection → dispatch fails → prompt marked failed (so retry kicks in).
+	s.store.EXPECT().MarkPromptAsFailed(gomock.Any(), "prompt-any").Return(nil)
 
 	s.server.processAnyPendingPrompt(context.Background(), "ses_any")
 	time.Sleep(50 * time.Millisecond) // let autoStartDevContainerForSession goroutine complete
@@ -1131,6 +1140,11 @@ func (s *WebSocketSyncSuite) TestSendQueuedPrompt_SendFails_CleansUpInMemoryStat
 		SessionID: "ses_cleanup",
 		Content:   "test prompt",
 	}
+
+	// Dispatch failure now also marks the prompt as failed so the queue UI
+	// surfaces the failure (under the deferred-mark-sent flow) instead of
+	// leaving it stuck in 'sending' forever.
+	s.store.EXPECT().MarkPromptAsFailed(gomock.Any(), "prompt-cleanup").Return(nil)
 
 	// No WS connection registered → sendCommandToExternalAgent will fail
 	err := s.server.sendQueuedPromptToSession(context.Background(), "ses_cleanup", prompt)
