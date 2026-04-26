@@ -1,7 +1,7 @@
 # Implementation Tasks
 
-- [~] Merge latest main into feature branch (per reviewer note: "Just Do It" UI label renamed to "Skip planning")
-- [ ] Add `AutoStart bool` field to `CreateTaskRequest` in `api/pkg/types/simple_spec_task.go`
+- [x] Merge latest main into feature branch (per reviewer note: "Just Do It" UI label renamed to "Skip planning")
+- [~] Add `AutoStart bool` field to `CreateTaskRequest` in `api/pkg/types/simple_spec_task.go`
 - [ ] In `CreateTaskFromPrompt` (`api/pkg/services/spec_driven_task_service.go`), set task status to `QueuedSpecGeneration` (or `QueuedImplementation` if `JustDoItMode`) before `store.CreateSpecTask` when `req.AutoStart == true`
 - [ ] Regenerate `frontend/src/api/api.ts` via `./stack update_openapi` so `TypesCreateTaskRequest.auto_start` appears
 - [ ] Add `autoStart` state, reset in `resetForm`, and include `auto_start: autoStart` in `createTaskRequest` payload in `NewSpecTaskForm.tsx`
