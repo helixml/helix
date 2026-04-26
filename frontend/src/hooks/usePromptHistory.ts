@@ -47,6 +47,7 @@ export interface PromptHistoryEntry {
   // Retry tracking
   retryCount?: number       // Number of retry attempts
   nextRetryAt?: number      // Timestamp when retry will happen
+  errorMessage?: string     // Last failure reason from server (shown under "Failed - retrying")
   // Library features
   pinned?: boolean          // User pinned this prompt for quick access
   usageCount?: number       // How many times this prompt was reused
@@ -308,6 +309,7 @@ export function usePromptHistory({
                 status: backendEntry.status,
                 retryCount: backendEntry.retryCount,
                 nextRetryAt: backendEntry.nextRetryAt,
+                errorMessage: backendEntry.errorMessage,
                 syncedToBackend: true
               }
             }
@@ -430,7 +432,8 @@ export function usePromptHistory({
               if (backendEntry && (
                 h.status !== backendEntry.status ||
                 h.retryCount !== backendEntry.retryCount ||
-                h.nextRetryAt !== backendEntry.nextRetryAt
+                h.nextRetryAt !== backendEntry.nextRetryAt ||
+                h.errorMessage !== backendEntry.errorMessage
               )) {
                 updated = true
                 return {
@@ -438,6 +441,7 @@ export function usePromptHistory({
                   status: backendEntry.status,
                   retryCount: backendEntry.retryCount,
                   nextRetryAt: backendEntry.nextRetryAt,
+                  errorMessage: backendEntry.errorMessage,
                   syncedToBackend: true
                 }
               }
