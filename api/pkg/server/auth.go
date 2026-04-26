@@ -730,6 +730,31 @@ func (s *HelixAPIServer) user(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Bearer / API key / access_token query param. Same reason as in
+	// authenticated() above — this endpoint isn't behind extractMiddleware,
+	// so we resolve the token ourselves to support embed pages.
+	if s.authMiddleware != nil {
+		if token := getRequestToken(r); token != "" {
+			user, err := s.authMiddleware.getUserFromToken(ctx, token)
+			if err == nil && hasUser(user) {
+				dbUser, err := s.Store.GetUser(ctx, &store.GetUserQuery{ID: user.ID})
+				if err == nil && dbUser != nil {
+					response := types.UserResponse{
+						ID:                  dbUser.ID,
+						Email:               dbUser.Email,
+						Token:               "",
+						Name:                dbUser.FullName,
+						Admin:               dbUser.Admin,
+						OnboardingCompleted: dbUser.OnboardingCompleted,
+						Waitlisted:          dbUser.Waitlisted,
+					}
+					writeResponse(w, response, http.StatusOK)
+					return
+				}
+			}
+		}
+	}
+
 	// BFF pattern: Check for session cookie first
 	if s.sessionManager != nil {
 		session, err := s.sessionManager.GetSessionFromRequest(ctx, r)
@@ -965,15 +990,20 @@ func (s *HelixAPIServer) authenticated(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// If the auth middleware already resolved a user from any source
-	// (Bearer token / API key / OIDC token / cookie), trust that. This
-	// is what allows embed pages to authenticate via ?access_token=...
-	// in the URL even when no session cookie is present.
-	if user := getRequestUser(r); hasUser(user) {
-		writeResponse(w, types.AuthenticatedResponse{
-			Authenticated: true,
-		}, http.StatusOK)
-		return
+	// Bearer / API key / access_token query param. This endpoint lives on
+	// the insecureRouter (no extractMiddleware), so we have to validate
+	// the token ourselves. Lets embed pages authenticate via
+	// ?access_token=... in the URL when no session cookie is present.
+	if s.authMiddleware != nil {
+		if token := getRequestToken(r); token != "" {
+			user, err := s.authMiddleware.getUserFromToken(ctx, token)
+			if err == nil && hasUser(user) {
+				writeResponse(w, types.AuthenticatedResponse{
+					Authenticated: true,
+				}, http.StatusOK)
+				return
+			}
+		}
 	}
 
 	// BFF pattern: Check for session cookie first
