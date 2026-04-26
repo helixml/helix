@@ -119,9 +119,20 @@ func detectThinkingTypeMismatch(body []byte) string {
 }
 
 // swapThinkingType rewrites the request body's thinking.type to newType.
-// When switching to "enabled" it injects budget_tokens=4096 if missing and
-// removes the adaptive-only "display" field. When switching to "adaptive" it
-// removes budget_tokens (adaptive doesn't accept it).
+//
+// When switching to "enabled": injects budget_tokens=4096 if missing and
+// removes the adaptive-only "display" field.
+//
+// When switching to "adaptive": removes budget_tokens (adaptive rejects it)
+// and ensures top-level output_config.effort is set. The Vertex rejection
+// that triggers this swap explicitly says "Use thinking.type.adaptive and
+// output_config.effort to control thinking behavior" — the two fields work
+// as a pair. Without effort, adaptive runs at the model's implicit minimum,
+// which produces an empty thinking summary visible to the client (renders
+// as `<thinking></thinking>` with no content). We default to "medium",
+// which is the right trade-off between latency and useful summary depth
+// for the Helix spec-task workload. Caller can pre-set
+// output_config.effort to override.
 //
 // Returns (newBody, true) on success, (nil, false) if the body is not valid
 // JSON or has no thinking field.
@@ -148,6 +159,9 @@ func swapThinkingType(body []byte, newType string) ([]byte, bool) {
 		delete(thinking, "display")
 	case "adaptive":
 		delete(thinking, "budget_tokens")
+		if !ensureOutputConfigEffort(bodyMap, "medium") {
+			return nil, false
+		}
 	}
 
 	newThinking, err := json.Marshal(thinking)
@@ -161,4 +175,30 @@ func swapThinkingType(body []byte, newType string) ([]byte, bool) {
 		return nil, false
 	}
 	return newBody, true
+}
+
+// ensureOutputConfigEffort sets bodyMap["output_config"]["effort"] = effort
+// if not already set. Preserves any other fields under output_config.
+// Returns false on JSON malformedness.
+func ensureOutputConfigEffort(bodyMap map[string]json.RawMessage, effort string) bool {
+	outputConfig := map[string]json.RawMessage{}
+	if raw, ok := bodyMap["output_config"]; ok {
+		if err := json.Unmarshal(raw, &outputConfig); err != nil {
+			return false
+		}
+	}
+	if _, has := outputConfig["effort"]; has {
+		return true
+	}
+	effortRaw, err := json.Marshal(effort)
+	if err != nil {
+		return false
+	}
+	outputConfig["effort"] = effortRaw
+	newOutputConfig, err := json.Marshal(outputConfig)
+	if err != nil {
+		return false
+	}
+	bodyMap["output_config"] = newOutputConfig
+	return true
 }

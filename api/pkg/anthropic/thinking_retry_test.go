@@ -126,6 +126,24 @@ func TestThinkingRetryTransport_EnabledRejectedSwapsToAdaptive(t *testing.T) {
 	assert.Equal(t, "adaptive", thinking["type"])
 	_, hasBudget := thinking["budget_tokens"]
 	assert.False(t, hasBudget, "budget_tokens should be stripped when switching to adaptive")
+
+	var outputConfig map[string]interface{}
+	require.NoError(t, json.Unmarshal(retryBody["output_config"], &outputConfig))
+	assert.Equal(t, "medium", outputConfig["effort"], "should default output_config.effort to medium when swapping to adaptive (otherwise the model produces an empty thinking summary)")
+}
+
+func TestSwapThinkingType_AdaptivePreservesExistingOutputConfigEffort(t *testing.T) {
+	// If the caller already specified an effort, swapThinkingType must not
+	// clobber it — they may have a deliberate reason for high or low.
+	body := []byte(`{"thinking":{"type":"enabled","budget_tokens":4096},"output_config":{"effort":"high","other_field":"keep_me"}}`)
+	out, ok := swapThinkingType(body, "adaptive")
+	require.True(t, ok)
+
+	var bodyMap map[string]interface{}
+	require.NoError(t, json.Unmarshal(out, &bodyMap))
+	outputConfig, _ := bodyMap["output_config"].(map[string]interface{})
+	assert.Equal(t, "high", outputConfig["effort"], "pre-set effort must not be overwritten")
+	assert.Equal(t, "keep_me", outputConfig["other_field"], "sibling fields under output_config must be preserved")
 }
 
 func TestThinkingRetryTransport_NonThinking400PassesThrough(t *testing.T) {
