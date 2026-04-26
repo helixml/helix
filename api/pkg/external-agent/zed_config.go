@@ -245,12 +245,17 @@ func GenerateZedMCPConfig(
 	// See: https://developer.chrome.com/blog/chrome-devtools-mcp
 	config.ContextServers["chrome-devtools"] = ContextServerConfig{
 		Command: "npx",
+		// --viewport sets the rendered page size (Chrome window ends up viewport + ~80px
+		// of decorations). 1280x800 sits at the canonical desktop-vs-mobile breakpoint
+		// so sites still render in desktop mode, and the resulting Chrome window leaves
+		// a wide margin on a 1920x1080 monitor — staying below Mutter's auto-maximize
+		// threshold (the previous 1600x1080 value tripped it).
 		// Stealth flags: make Chrome less detectable as automation.
 		// Disables navigator.webdriver, suppresses "Chrome is being controlled" infobar,
 		// and prevents extension probing (e.g. LinkedIn bot detection).
 		Args: []string{
 			"chrome-devtools-mcp@latest",
-			"--viewport", "1600x1080",
+			"--viewport", "1280x800",
 			"--chrome-arg=--disable-blink-features=AutomationControlled",
 			"--chrome-arg=--no-first-run",
 			"--chrome-arg=--disable-infobars",
