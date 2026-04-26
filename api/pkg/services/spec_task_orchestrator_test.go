@@ -54,6 +54,20 @@ func (s *SpecTaskOrchestratorTestSuite) TestHandleDone_StopsDesktop() {
 	s.Require().NoError(err)
 }
 
+func (s *SpecTaskOrchestratorTestSuite) TestHandleDone_KeepAliveSkipsStop() {
+	ctx := context.Background()
+	task := &types.SpecTask{
+		ID:                "task-keep-alive",
+		PlanningSessionID: "session-keep-alive",
+		Status:            types.TaskStatusDone,
+		KeepAlive:         true,
+	}
+
+	// No StopDesktop expectation — gomock will fail the test if it gets called.
+	err := s.orchestrator.handleDone(ctx, task)
+	s.Require().NoError(err)
+}
+
 func (s *SpecTaskOrchestratorTestSuite) TestHandleBacklog_SkipsWhenStaleEvent() {
 	ctx := context.Background()
 	eventTask := &types.SpecTask{

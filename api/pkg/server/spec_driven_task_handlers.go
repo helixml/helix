@@ -1004,6 +1004,7 @@ func (s *HelixAPIServer) updateSpecTask(w http.ResponseWriter, r *http.Request) 
 		task.PublicDesignDocs = *updateReq.PublicDesignDocs
 	}
 	// Update keep alive setting (pointer allows explicit false)
+	previousKeepAlive := task.KeepAlive
 	if updateReq.KeepAlive != nil {
 		task.KeepAlive = *updateReq.KeepAlive
 	}
@@ -1058,6 +1059,26 @@ func (s *HelixAPIServer) updateSpecTask(w http.ResponseWriter, r *http.Request) 
 		log.Error().Err(err).Str("task_id", taskID).Msg("Failed to update SpecTask")
 		http.Error(w, fmt.Sprintf("failed to update SpecTask: %v", err), http.StatusInternalServerError)
 		return
+	}
+
+	// If the user just turned KeepAlive off on a task that already reached Done,
+	// the orchestrator's handleDone() has already exited without stopping the
+	// desktop (because KeepAlive was true at the time). Release the desktop now
+	// so the user has an explicit way to free the resources after merge.
+	if previousKeepAlive && !task.KeepAlive && task.Status == types.TaskStatusDone && task.PlanningSessionID != "" {
+		stopErr := s.externalAgentExecutor.StopDesktop(ctx, task.PlanningSessionID)
+		if stopErr != nil {
+			log.Warn().
+				Err(stopErr).
+				Str("task_id", taskID).
+				Str("session_id", task.PlanningSessionID).
+				Msg("Failed to stop desktop after KeepAlive turned off on Done task (continuing)")
+		} else {
+			log.Info().
+				Str("task_id", taskID).
+				Str("session_id", task.PlanningSessionID).
+				Msg("Stopped desktop after KeepAlive turned off on Done task")
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
