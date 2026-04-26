@@ -2755,14 +2755,28 @@ func (apiServer *HelixAPIServer) sendQueuedPromptToSession(ctx context.Context, 
 	// ListInteractions defaults to id ASC (oldest first) — without the explicit
 	// order, we would get the very first interaction in the session (always
 	// Complete) and the busy check would never fire.
-	latestInteractions, _, recheckErr := apiServer.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
-		SessionID:    sessionID,
-		GenerationID: session.GenerationID,
-		PerPage:      1,
-		Order:        "id DESC",
-	})
-	if recheckErr == nil && len(latestInteractions) > 0 && latestInteractions[0].State == types.InteractionStateWaiting {
-		return fmt.Errorf("session %s became busy (interaction %s is Waiting), deferring queue prompt", sessionID, latestInteractions[0].ID)
+	//
+	// Interrupt prompts (Cmd/Ctrl+Enter on the spec-task chat) are exempt:
+	// their entire purpose is to land while the agent is mid-turn. The Zed
+	// e2e Phase 8 test (zed/crates/external_websocket_sync/e2e-test/
+	// helix-ws-test-server/main.go:780) covers exactly this — sends the
+	// interrupt the moment the first assistant token arrives and asserts
+	// the cancelled turn's message_completed AND the interrupt's
+	// message_completed both arrive. If we defer here the interrupt
+	// silently fails, the frontend marks it as failed, and the user has
+	// to manually retry. Pre-2026-04-26 the guard was latent because of
+	// the ASC/DESC ListInteractions ordering bug fixed in 853492e14;
+	// fixing the ordering exposed this missing branch.
+	if !prompt.Interrupt {
+		latestInteractions, _, recheckErr := apiServer.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
+			SessionID:    sessionID,
+			GenerationID: session.GenerationID,
+			PerPage:      1,
+			Order:        "id DESC",
+		})
+		if recheckErr == nil && len(latestInteractions) > 0 && latestInteractions[0].State == types.InteractionStateWaiting {
+			return fmt.Errorf("session %s became busy (interaction %s is Waiting), deferring queue prompt", sessionID, latestInteractions[0].ID)
+		}
 	}
 
 	// CRITICAL: Create an interaction BEFORE sending the message
