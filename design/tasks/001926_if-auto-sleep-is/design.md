@@ -89,3 +89,11 @@ No schema changes. `KeepAlive bool` already exists.
 - The four merge-detection sites in `spec_task_orchestrator.go` were a recurring source of confusion when investigating this — they look duplicated but each handles a slightly different scenario (PR poll, branch fallback, external PR detection, no-PR fallback). The gate-in-`handleDone` approach is robust because it sits downstream of all four.
 - `task.KeepAlive` is the canonical name (snake_cased to `keep_alive` in JSON). Don't confuse with any session-level keep-alive concept.
 - The existing tooltip wording ("Keep Alive ON — won't auto-sleep") is technically narrow after this change — it now also prevents merge-triggered shutdown. Consider broadening to "Keep Alive ON — desktop won't be auto-stopped" if the user wants. Out of scope unless asked.
+
+## Implementation Notes
+
+- The container executor in the handler is already injected as `s.externalAgentExecutor` (used by archive, restart, and other handlers in the same file). No new wiring needed — design over-estimated the work here.
+- `HydraExecutor.StopDesktop` (`api/pkg/external-agent/hydra_executor.go:559-562`) explicitly logs and continues when the container is already stopped, so the call is safe to make even if a concurrent shutdown already happened. `ZedIntegrationService.StopDesktop` is currently a no-op stub.
+- `isDesktopRunning` in the frontend is derived from `useSandboxState(activeSessionId)` (runtime sandbox state), NOT from `task.status`. So when `keep_alive=true` keeps the desktop alive after the task transitions to Done, the lock icon stays visible and the user can click to release. No FE code change required.
+- Captured `previousKeepAlive := task.KeepAlive` BEFORE the field is mutated, so the toggle-off-on-Done detection only fires on the actual `true → false` transition (not on idempotent updates that leave the value as `false`).
+- The handler-side StopDesktop is called AFTER `UpdateSpecTask` succeeds — so DB persistence wins; if the executor call fails, we log a warning but still return 200 (the keep-alive flag IS off in the DB, the user can manually retry / restart).

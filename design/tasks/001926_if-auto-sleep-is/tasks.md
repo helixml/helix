@@ -7,7 +7,10 @@
 - [x] Add a unit test in `api/pkg/services/` covering `handleDone` for both `KeepAlive=true` (asserts `StopDesktop` is NOT called) and `KeepAlive=false` (asserts current behavior). Use `gomock`. — added `TestHandleDone_KeepAliveSkipsStop` in `spec_task_orchestrator_test.go`.
 - [x] Add a unit test for the keep-alive update handler covering the "toggle off on Done task" path. — added `spec_driven_task_keep_alive_test.go` with three cases: KeepAlive off on Done (calls StopDesktop), KeepAlive on (doesn't), KeepAlive off on running task (doesn't).
 - [x] Build: `go build ./pkg/server/ ./pkg/services/ ./pkg/store/ ./pkg/types/` — passes.
-- [ ] Manual browser test in inner Helix (`localhost:8080`): merge a PR with Keep Alive ON, verify desktop stays running and lock icon remains visible.
-- [ ] Manual browser test: merge a PR with Keep Alive OFF, verify existing shutdown behavior unchanged.
-- [ ] Manual browser test: on a Done task with running desktop, toggle Keep Alive OFF and verify desktop stops.
-- [ ] Frontend `yarn build` to confirm no regressions (no frontend code change expected, but the lock icon visibility on Done tasks should be verified visually).
+- [x] Frontend `yarn build` — passes (no FE changes needed; verified `isDesktopRunning` derives from `useSandboxState` runtime state, not task status, so lock icon stays visible after merge).
+- [ ] WARNING: NOT manually tested end-to-end. Requires real GitHub repo + PR-merge cycle to validate. Behavior is covered by unit tests:
+  - `TestHandleDone_KeepAliveSkipsStop` — gate fires when KeepAlive=true.
+  - `TestHandleDone_StopsDesktop` — pre-existing test still passes (default behavior unchanged).
+  - `TestKeepAliveOff_OnDoneTask_StopsDesktop` — toggle-off-on-Done releases the desktop.
+  - `TestKeepAliveOn_OnDoneTask_DoesNotStopDesktop` — toggle-on doesn't fire StopDesktop.
+  - `TestKeepAliveOff_OnRunningTask_DoesNotStopDesktop` — toggle-off on non-Done task is a no-op (idle-shutdown handles it).
