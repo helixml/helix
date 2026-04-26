@@ -1,9 +1,10 @@
 # Implementation Tasks
 
-- [ ] In `desktop/sway-config/startup-app.sh`, after the `assign [...]` block (~line 374) and before the `default_border` block (~line 381), append `for_window ... floating enable, resize set ... move position center` rules for `dev.zed.Zed-Dev`, `Zed`, `google-chrome`, `Google-chrome` (1600×900), and `kitty`, `ghostty`, `acp-log-viewer` (1100×700)
-- [ ] Rebuild the sway-helix desktop image (`./stack build` or equivalent) and start a fresh session
-- [ ] Verify Zed launches as a centred ~1600×900 floating window with visible borders, not full screen
-- [ ] Verify Chrome and the terminal apps also launch floating at the configured sizes
-- [ ] Verify `$mod+f` (fullscreen toggle) and `$mod+Shift+space` (floating ↔ tiling toggle) still work
-- [ ] Stream the desktop in a small browser viewport (~1280×720) and confirm Zed is no longer clipped at the bottom
-- [ ] Open a PR titled `Float Zed and key apps by default in Sway desktop` referencing task 001916
+- [ ] In `desktop/ubuntu-config/start-zed-helix.sh`, add `export ZED_WINDOW_SIZE="${ZED_WINDOW_SIZE:-1600,900}"` and `export ZED_WINDOW_POSITION="${ZED_WINDOW_POSITION:-160,90}"` just before the `source "$CORE_SCRIPT"` line, with a short comment explaining they override GNOME auto-maximize and stale persisted bounds
+- [ ] Rebuild the Ubuntu desktop image: `./stack build-ubuntu`
+- [ ] Reuse a session that currently shows the bug; confirm the fix wipes the stale Maximised state on first launch (Zed comes up windowed even though the persisted state was Maximised)
+- [ ] Start a fresh session; confirm Zed launches as a centred ~1600×900 windowed window with title bar visible and ample margin around it
+- [ ] Manually maximise Zed, close the session, reopen it; confirm Zed comes up windowed again (env override beats persisted state on every launch)
+- [ ] Stream the desktop in a small browser viewport (≈1280×720) and confirm Zed is no longer clipped at the bottom when un-maximised
+- [ ] Verify Sway sessions are unaffected (no changes to Sway config)
+- [ ] Open a PR titled `Force a windowed initial size for Zed in the Ubuntu desktop` referencing task 001916
