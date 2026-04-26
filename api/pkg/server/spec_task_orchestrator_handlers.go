@@ -68,6 +68,25 @@ func (apiServer *HelixAPIServer) getSpecTaskDesignDocs(_ http.ResponseWriter, re
 
 // readDesignDocsFromGit reads design documents from the helix-specs branch
 func (apiServer *HelixAPIServer) readDesignDocsFromGit(repoPath string, taskID string) ([]DesignDocument, error) {
+	// Fetch from origin so writes pushed by agents (via raw `git push`,
+	// not the in-process write API) are visible. Best-effort — if the
+	// fetch fails (no network, no remote configured), fall through to
+	// reading whatever we have locally.
+	if fetchCmd := exec.Command("git", "fetch", "origin", "helix-specs", "--quiet"); true {
+		fetchCmd.Dir = repoPath
+		if fetchOut, fetchErr := fetchCmd.CombinedOutput(); fetchErr != nil {
+			log.Debug().Err(fetchErr).Str("output", string(fetchOut)).Str("repo_path", repoPath).Msg("design-docs: fetch helix-specs failed; reading local state")
+		}
+		// Move the local helix-specs ref to the freshly fetched origin tip.
+		// Using update-ref instead of merge avoids any working-tree state.
+		if updateCmd := exec.Command("git", "update-ref", "refs/heads/helix-specs", "refs/remotes/origin/helix-specs"); true {
+			updateCmd.Dir = repoPath
+			if updateOut, updateErr := updateCmd.CombinedOutput(); updateErr != nil {
+				log.Debug().Err(updateErr).Str("output", string(updateOut)).Str("repo_path", repoPath).Msg("design-docs: update-ref helix-specs failed")
+			}
+		}
+	}
+
 	// First, list all files in helix-specs branch to find task directory
 	// Format: design/tasks/{date}_{name}_{task_id}/
 	cmd := exec.Command("git", "ls-tree", "--name-only", "-r", "helix-specs")
