@@ -118,6 +118,43 @@ if (embedToken) {
       return origFetch(input, { ...init, headers, credentials: 'omit' })
     }
   }
+
+  // Browsers don't allow custom headers on WebSocket. Helix's WS handler
+  // accepts ?access_token=<key> as a fallback (see auth_utils.go
+  // getRequestToken), so for embed contexts we patch the constructor to
+  // append it to same-origin URLs that don't already carry an auth param.
+  if (typeof window !== 'undefined' && typeof window.WebSocket === 'function') {
+    const OrigWebSocket = window.WebSocket
+    const PatchedWebSocket = function (
+      this: WebSocket,
+      url: string | URL,
+      protocols?: string | string[],
+    ) {
+      let finalUrl: string | URL = url
+      try {
+        const urlStr = typeof url === 'string' ? url : url.toString()
+        const u = new URL(urlStr, window.location.origin)
+        const sameHost = u.host === window.location.host
+        if (sameHost && !u.searchParams.has('access_token')) {
+          u.searchParams.set('access_token', embedToken)
+          finalUrl = u.toString()
+        }
+      } catch {
+        // ignore — pass through unmodified
+      }
+      return new OrigWebSocket(finalUrl, protocols)
+    } as unknown as typeof WebSocket
+    PatchedWebSocket.prototype = OrigWebSocket.prototype
+    // Mirror the readyState constants so consumers using
+    // `WebSocket.OPEN` etc. continue to work after replacement.
+    Object.defineProperties(PatchedWebSocket, {
+      CONNECTING: { value: OrigWebSocket.CONNECTING },
+      OPEN: { value: OrigWebSocket.OPEN },
+      CLOSING: { value: OrigWebSocket.CLOSING },
+      CLOSED: { value: OrigWebSocket.CLOSED },
+    })
+    window.WebSocket = PatchedWebSocket
+  }
 }
 
 // Add interceptors to the Api client's axios instance

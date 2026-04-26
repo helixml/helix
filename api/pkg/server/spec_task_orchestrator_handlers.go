@@ -103,7 +103,13 @@ func (apiServer *HelixAPIServer) readDesignDocsFromGit(repoPath string, taskID s
 	// Read all .md files from the task directory
 	var docs []DesignDocument
 	for _, file := range files {
-		if !strings.HasPrefix(file, taskDir+"/") || !strings.HasSuffix(file, ".md") {
+		// Include .md (design docs) and .html (e.g. output.html written by
+		// research agents for downstream consumers like the Gatewaze
+		// newsletter editor).
+		if !strings.HasPrefix(file, taskDir+"/") {
+			continue
+		}
+		if !strings.HasSuffix(file, ".md") && !strings.HasSuffix(file, ".html") {
 			continue
 		}
 
