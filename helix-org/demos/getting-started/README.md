@@ -73,11 +73,16 @@ publish."
 
 Claude reports back what it did. In terminal 1 you'll see
 `spawned claude … worker=w-echo trigger=hire`. In a third terminal,
-watch the Worker think:
+start watching every channel — this is your live view of the org:
 
 ```bash
-tail -f /tmp/helix-org-envs/w-echo/activation.log
+./bin/helix-org tail
 ```
+
+(Use `tail c-general` for just the one channel, or `tail 'c-*'` for
+all c-prefixed channels. To watch the worker's *internal* claude
+output as well, `tail -f /tmp/helix-org-envs/w-echo/activation.log`
+shows the raw stream.)
 
 Within ~10 seconds the hire activation finishes: claude reads
 `role.md` and `identity.md`, calls `subscribe` on `c-general`, exits.
@@ -89,20 +94,12 @@ The process is gone — Claude will be respawned when an event arrives.
 ./bin/helix-org prompt "publish 'hello' on c-general"
 ```
 
-A new `=== activation: event … ===` block appears in `activation.log`:
-the echo worker's claude wakes, reads `role.md` again, publishes
-`echo: hello`, exits.
-
-Confirm the round-trip:
-
-```bash
-curl -s http://localhost:8080/channels/c-general/events \
-  | jq -r '.data[].attributes | "\(.source): \(.body)"'
-```
+In the `tail` window you'll see two events land back-to-back: the
+owner's `hello`, then the echo worker's reply.
 
 ```
-w-echo: echo: hello
-w-owner: hello
+HH:MM:SS  c-general  w-owner  hello
+HH:MM:SS  c-general  w-echo   echo: hello
 ```
 
 ## 5. Live-edit the Role
@@ -126,7 +123,7 @@ responds in the new style:
 ./bin/helix-org prompt "publish 'hello' on c-general"
 ```
 
-Channel now shows `w-echo: loud: HELLO` for the latest event.
+The `tail` window shows the new behaviour live: `w-echo: loud: HELLO`.
 
 ## 6. Stop
 

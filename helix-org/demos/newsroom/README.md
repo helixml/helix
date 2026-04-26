@@ -58,10 +58,10 @@ the voice isn't.
 
 ## Run the demo
 
-Tile seven terminals, one tailing each of `editorial`, `recruiting`,
-`news-wire`, `research-notes`, `drafts`, `bullpen`, `published`. Then
-work from `demos/newsroom/` so the prompts can refer to `./roles/`
-and `./workers/` by relative path.
+Three terminals: server, prompts, and a `helix-org tail` window
+watching every channel as the team works. Run from `demos/newsroom/`
+so the prompts can refer to `./roles/` and `./workers/` by relative
+path.
 
 ### 1. Start the server (terminal 1)
 
@@ -75,6 +75,18 @@ helix-org serve --db /tmp/newsroom.db --envs-dir /tmp/newsroom-envs
 ```bash
 helix-org bootstrap
 ```
+
+### 2½. Watch the room (terminal 3, optional but recommended)
+
+```bash
+helix-org tail
+```
+
+`tail` defaults to `*` — every channel, oldest-first, then live.
+For a single hot channel during a story, narrow with a glob:
+`helix-org tail c-bullpen`, `helix-org tail c-recruiting`,
+`helix-org tail 'c-fact*'`. Multiple windows are fine — each long-
+polls independently.
 
 You now have `w-owner` with grants for every structural tool.
 
@@ -152,11 +164,13 @@ activation reads the new content; behaviour shifts org-wide.
 
 ## What to point at during the demo
 
-- **`recruiting` during cast time** — Renée sources three identities
-  per opening *live*. They did not exist five seconds ago. Maya picks
-  one. The team is *cast*, not authored. **First wow.**
-- **`bullpen` during a story** — journalist vs SEO strategist, voice
-  vs findability. They disagree on something specific. **Second wow.**
+- **`helix-org tail c-recruiting` during cast time** — Renée sources
+  three identities per opening *live*. They did not exist five
+  seconds ago. Maya picks one. The team is *cast*, not authored.
+  **First wow.**
+- **`helix-org tail c-bullpen` during a story** — journalist vs SEO
+  strategist, voice vs findability. They disagree on something
+  specific. **Second wow.**
 - **`update_role` while the team is running** — Phil edits
   `roles/journalist.md` and reruns the prompt from step 5. Every
   journalist's `role.md` rewrites. Next activation, they obey the new
