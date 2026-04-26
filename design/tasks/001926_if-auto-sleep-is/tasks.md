@@ -4,8 +4,8 @@
 - [x] Verify `containerExecutor.StopDesktop()` is idempotent — `HydraExecutor.StopDesktop` at `api/pkg/external-agent/hydra_executor.go:561` already logs and continues on "already stopped" errors. `ZedIntegrationService.StopDesktop` at `api/pkg/services/zed_integration_service.go:613` is a no-op. Both safe to call multiple times.
 - [x] In the keep-alive update handler at `api/pkg/server/spec_driven_task_handlers.go`, after persisting the `KeepAlive` change, if the previous value was `true`, the new value is `false`, AND `task.Status == TaskStatusDone`, AND `task.PlanningSessionID != ""`, call `s.externalAgentExecutor.StopDesktop()` to release resources.
 - [x] Wire `containerExecutor` into the handler — already available as `s.externalAgentExecutor` (used elsewhere in the same file).
-- [~] Add a unit test in `api/pkg/services/` covering `handleDone` for both `KeepAlive=true` (asserts `StopDesktop` is NOT called) and `KeepAlive=false` (asserts current behavior). Use `gomock`.
-- [ ] Add a unit test for the keep-alive update handler covering the "toggle off on Done task" path.
+- [x] Add a unit test in `api/pkg/services/` covering `handleDone` for both `KeepAlive=true` (asserts `StopDesktop` is NOT called) and `KeepAlive=false` (asserts current behavior). Use `gomock`. — added `TestHandleDone_KeepAliveSkipsStop` in `spec_task_orchestrator_test.go`.
+- [x] Add a unit test for the keep-alive update handler covering the "toggle off on Done task" path. — added `spec_driven_task_keep_alive_test.go` with three cases: KeepAlive off on Done (calls StopDesktop), KeepAlive on (doesn't), KeepAlive off on running task (doesn't).
 - [x] Build: `go build ./pkg/server/ ./pkg/services/ ./pkg/store/ ./pkg/types/` — passes.
 - [ ] Manual browser test in inner Helix (`localhost:8080`): merge a PR with Keep Alive ON, verify desktop stays running and lock icon remains visible.
 - [ ] Manual browser test: merge a PR with Keep Alive OFF, verify existing shutdown behavior unchanged.
