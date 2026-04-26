@@ -2607,19 +2607,26 @@ func (apiServer *HelixAPIServer) processPromptQueue(ctx context.Context, session
 		return
 	}
 	if session != nil {
+		// CRITICAL: Order=id DESC so PerPage=1 returns the NEWEST interaction.
+		// Without the explicit order, ListInteractions returns id ASC (oldest
+		// first) and we would ALWAYS check the very first interaction in the
+		// session — which has been Complete for hours — so the busy check
+		// would never fire and queue prompts would dispatch on top of an
+		// actively-streaming Zed turn.
 		interactions, _, err := apiServer.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
 			SessionID:    sessionID,
 			GenerationID: session.GenerationID,
 			PerPage:      1,
+			Order:        "id DESC",
 		})
 		if err != nil {
 			log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to list interactions for queue processing")
 			return
 		}
-		if len(interactions) > 0 && interactions[len(interactions)-1].State == types.InteractionStateWaiting {
+		if len(interactions) > 0 && interactions[0].State == types.InteractionStateWaiting {
 			log.Info().
 				Str("session_id", sessionID).
-				Str("interaction_id", interactions[len(interactions)-1].ID).
+				Str("interaction_id", interactions[0].ID).
 				Msg("Session is busy (last interaction waiting), deferring queue-mode prompt")
 			return
 		}
@@ -2743,13 +2750,19 @@ func (apiServer *HelixAPIServer) sendQueuedPromptToSession(ctx context.Context, 
 	// queue prompt would be sent while the agent is already processing the Zed
 	// user message, causing the agent to bounce it with an empty response.
 	// See: design/2026-04-16-lost-responses-race-condition.md
+	//
+	// CRITICAL: Order=id DESC so PerPage=1 returns the NEWEST interaction.
+	// ListInteractions defaults to id ASC (oldest first) — without the explicit
+	// order, we would get the very first interaction in the session (always
+	// Complete) and the busy check would never fire.
 	latestInteractions, _, recheckErr := apiServer.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
 		SessionID:    sessionID,
 		GenerationID: session.GenerationID,
 		PerPage:      1,
+		Order:        "id DESC",
 	})
-	if recheckErr == nil && len(latestInteractions) > 0 && latestInteractions[len(latestInteractions)-1].State == types.InteractionStateWaiting {
-		return fmt.Errorf("session %s became busy (interaction %s is Waiting), deferring queue prompt", sessionID, latestInteractions[len(latestInteractions)-1].ID)
+	if recheckErr == nil && len(latestInteractions) > 0 && latestInteractions[0].State == types.InteractionStateWaiting {
+		return fmt.Errorf("session %s became busy (interaction %s is Waiting), deferring queue prompt", sessionID, latestInteractions[0].ID)
 	}
 
 	// CRITICAL: Create an interaction BEFORE sending the message
