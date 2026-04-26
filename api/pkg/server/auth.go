@@ -965,6 +965,17 @@ func (s *HelixAPIServer) authenticated(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// If the auth middleware already resolved a user from any source
+	// (Bearer token / API key / OIDC token / cookie), trust that. This
+	// is what allows embed pages to authenticate via ?access_token=...
+	// in the URL even when no session cookie is present.
+	if user := getRequestUser(r); hasUser(user) {
+		writeResponse(w, types.AuthenticatedResponse{
+			Authenticated: true,
+		}, http.StatusOK)
+		return
+	}
+
 	// BFF pattern: Check for session cookie first
 	if s.sessionManager != nil {
 		session, err := s.sessionManager.GetSessionFromRequest(ctx, r)
