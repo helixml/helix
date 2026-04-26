@@ -140,31 +140,24 @@ const (
 	// defaultAutoWakeStuckThreshold is the minimum age of a
 	// `state=waiting` interaction before we consider it stuck.
 	//
-	// 120 s is deliberately conservative. Picking too low produces
-	// false positives when the Anthropic API itself is slow (load,
-	// cold cache, large prompts taking time before the first chunk).
-	// A false positive re-sends the user's prompt while the agent is
-	// mid-something — for idempotent prompts that's a cosmetic
-	// duplicate response, for destructive ones (`rm`, `git push`)
-	// it's a real risk.
+	// 60 s targets the dominant failure mode: agent emits a few early
+	// chunks (tool_call, thinking) then goes silent for minutes while
+	// claude-agent-acp buffers the rest of the turn on its outbound
+	// channel. The streaming-context gate below now requires
+	// `lastPublish` to be older than this same threshold before
+	// considering the session quiescent, so we don't false-positive on
+	// genuinely-still-streaming turns.
 	//
-	// What this DOES NOT need to cover: extended-thinking silence.
-	// Claude's thinking surfaces as `AgentThoughtChunk` ACP session
-	// notifications, which produce `MessageAdded` events to Helix,
-	// which create entries in `apiServer.streamingContexts`. The
-	// streaming-context gate in maybeAutoWake catches the thinking
-	// case directly — we don't need the threshold to be long enough
-	// to wait it out. Same goes for tool-heavy starts: every
-	// `tool_call` entry creates a streaming context.
-	//
-	// What's left for the threshold: the genuinely-blank window
-	// between the user's `session/prompt` and the wrapper's first
-	// outbound notification of any kind. On a healthy session that's
-	// usually 2-10 s; under load or for huge prompts it can stretch.
-	// 120 s is well past observed normal ceilings.
+	// False-positive cost: if the Anthropic API takes >60 s before the
+	// first chunk on a slow turn, we re-send the user's prompt. For
+	// idempotent prompts that's a cosmetic duplicate. For destructive
+	// ones (`rm`, `git push`) it's a real risk — but the auto-wake
+	// re-sends the *same prompt* the user already authorised, so worst
+	// case the agent runs the destructive op twice on its own work
+	// directory. Bounded by autoWakeMaxRetries.
 	//
 	// Override at runtime with HELIX_AUTO_WAKE_STUCK_THRESHOLD_SECONDS.
-	defaultAutoWakeStuckThreshold = 120 * time.Second
+	defaultAutoWakeStuckThreshold = 60 * time.Second
 
 	// autoWakeMaxRetries caps how many wake-ups we attempt for a single
 	// stuck interaction before giving up and marking it state=error.
@@ -282,27 +275,36 @@ func (apiServer *HelixAPIServer) maybeAutoWake(ctx context.Context, stuck *types
 		return
 	}
 
-	// Gate 1b — active streaming context.
+	// Gate 1b — quiescence-aware streaming-context check.
 	//
-	// If the wrapper has dispatched ANY content-bearing event for this
-	// session's current turn, `getOrCreateStreamingContext` will have
-	// created a `streamingContext` entry. That happens for:
+	// `getOrCreateStreamingContext` creates an entry on the first
+	// content-bearing event of a turn (text chunk, thinking, tool_call)
+	// and `flushAndClearStreamingContext` only removes it on
+	// `message_completed` or a fresh WS reconnect. So an active context
+	// is *not* proof of recent activity — when the wrapper buffers the
+	// tail of a turn (the bug this worker exists to mitigate) the
+	// context lives on for minutes after the last visible chunk, with
+	// no `message_completed` ever arriving. Skipping unconditionally on
+	// "context exists" defeats the whole worker for the dominant
+	// failure mode.
 	//
-	//   - text chunks (`agent_message_chunk`)
-	//   - thinking entries (`agent_thought_chunk` — Claude's extended
-	//     thinking is NOT silent at the protocol level)
-	//   - tool calls (`tool_call`, `tool_call_update`)
-	//   - any other session_update with content
-	//
-	// If the context exists, skip — the agent is demonstrably alive on
-	// this session, even if the row in the DB still looks blank to
-	// ListStuckWaitingInteractions (throttled DB writes can lag the
-	// in-memory streaming state by tens of seconds).
+	// Instead: skip only if the context exists AND its `lastPublish`
+	// (the most recent time we forwarded a chunk to the frontend) is
+	// within `threshold`. After `threshold` of in-context silence we
+	// treat the session as quiescent for wake-up purposes, which is
+	// what we want — tool-call cascades and thinking bursts touch
+	// `lastPublish` on every event, so an actively-streaming session
+	// will reliably stay above the threshold.
 	apiServer.streamingContextsMu.RLock()
-	_, hasStreamingCtx := apiServer.streamingContexts[stuck.SessionID]
+	sctx := apiServer.streamingContexts[stuck.SessionID]
 	apiServer.streamingContextsMu.RUnlock()
-	if hasStreamingCtx {
-		return
+	if sctx != nil {
+		sctx.mu.Lock()
+		lastPublish := sctx.lastPublish
+		sctx.mu.Unlock()
+		if time.Since(lastPublish) < threshold {
+			return
+		}
 	}
 
 	// Same threshold, computed against interaction age now that we know
