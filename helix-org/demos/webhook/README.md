@@ -90,11 +90,15 @@ Back in chat:
 > `read_events` on `s-outbox` with `wait=30` until you see the
 > secretary's summary land. Show me.
 
-The cascade: webhook handler appends the payload as an Event on
-`s-inbox` → dispatcher wakes the secretary → the secretary
-summarises → publishes the summary to `s-outbox` and DMs me → the
-outbound emitter POSTs the summary to `localhost:9000`, which
-terminal 2 prints.
+The cascade: webhook handler wraps the payload into the canonical
+`Message` envelope and appends it to `s-inbox` → dispatcher wakes
+the secretary, passing the parsed body → the secretary summarises
+→ publishes the summary to `s-outbox` and DMs me → the outbound
+emitter POSTs the appended `Message` JSON to `localhost:9000`,
+which terminal 2 prints. The catcher sees something like
+`{"from":"w-secretary","body":"<summary>"}` — every event in the
+system is a `Message`, so outbound POSTs carry that envelope
+verbatim.
 
 ## 6. Stop
 

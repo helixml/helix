@@ -18,22 +18,34 @@ const (
 	readEventsMaxWaitSecs  = 60
 )
 
+// eventView is the on-the-wire shape returned by read_events /
+// worker_log. Body is the visible text — for messaging events, the
+// parsed Message.Body; for legacy events that fail to parse, the raw
+// stored Body. Message carries the full canonical envelope when it
+// parses cleanly, letting Roles inspect From/To/threading without
+// re-parsing.
 type eventView struct {
 	ID        domain.EventID  `json:"id"`
 	StreamID  domain.StreamID `json:"streamId"`
 	Source    domain.WorkerID `json:"source"`
 	Body      string          `json:"body"`
+	Message   *domain.Message `json:"message,omitempty"`
 	CreatedAt time.Time       `json:"createdAt"`
 }
 
 func eventViewOf(e domain.Event) eventView {
-	return eventView{
+	view := eventView{
 		ID:        e.ID,
 		StreamID:  e.StreamID,
 		Source:    e.Source,
 		Body:      e.Body,
 		CreatedAt: e.CreatedAt,
 	}
+	if msg, err := e.Message(); err == nil {
+		view.Body = msg.Body
+		view.Message = &msg
+	}
+	return view
 }
 
 // ReadEvents returns the events on the Streams the calling Worker

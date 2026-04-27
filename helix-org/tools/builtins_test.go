@@ -153,8 +153,15 @@ func TestDemoOwnerHiresCEO(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ceo events: %v", err)
 	}
-	if len(ceoEvents) != 1 || ceoEvents[0].Body != "please hire all of your staff" {
-		t.Fatalf("ceo events = %+v", ceoEvents)
+	if len(ceoEvents) != 1 {
+		t.Fatalf("ceo events = %+v, want 1", ceoEvents)
+	}
+	msg, err := ceoEvents[0].Message()
+	if err != nil {
+		t.Fatalf("parse ceo event message: %v", err)
+	}
+	if msg.Body != "please hire all of your staff" {
+		t.Fatalf("ceo event body = %q", msg.Body)
 	}
 }
 
@@ -477,8 +484,18 @@ func TestDM(t *testing.T) {
 		}
 	}
 	events, _ := s.Events.ListForWorker(ctx, "w-bob", 10)
-	if len(events) != 1 || events[0].Body != "hey" {
-		t.Fatalf("bob events = %+v, want one body=hey", events)
+	if len(events) != 1 {
+		t.Fatalf("bob events = %+v, want one", events)
+	}
+	msg, err := events[0].Message()
+	if err != nil {
+		t.Fatalf("parse dm event: %v", err)
+	}
+	if msg.Body != "hey" {
+		t.Fatalf("dm body = %q, want hey", msg.Body)
+	}
+	if msg.From != "w-alice" || len(msg.To) != 1 || msg.To[0] != "w-bob" {
+		t.Fatalf("dm envelope = %+v, want from=w-alice to=[w-bob]", msg)
 	}
 
 	// Bob replies. Reverse direction reuses the same Stream — the IDs

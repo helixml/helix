@@ -100,11 +100,16 @@ func (t *DM) Invoke(ctx context.Context, inv domain.Invocation) (json.RawMessage
 		}
 	}
 
-	event, err := domain.NewEvent(
+	msg := domain.Message{
+		From: string(sender),
+		To:   []string{string(recipient)},
+		Body: args.Body,
+	}
+	event, err := domain.NewMessageEvent(
 		domain.EventID("e-"+t.deps.NewID()),
 		streamID,
 		sender,
-		args.Body,
+		msg,
 		t.deps.Now(),
 	)
 	if err != nil {

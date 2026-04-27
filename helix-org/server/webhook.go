@@ -63,11 +63,15 @@ func (s *Server) webhookHandler() http.Handler {
 			return
 		}
 
-		event, err := domain.NewEvent(
+		// Wrap the inbound bytes into the canonical Message envelope.
+		// From is empty — webhook callers are arbitrary external systems
+		// with no helix Worker identity; routing decisions about "who
+		// sent this" belong in the receiving Role's prompt.
+		event, err := domain.NewMessageEvent(
 			domain.EventID("e-"+uuid.NewString()),
 			streamID,
 			"", // system-emitted; webhooks have no Worker source
-			string(body),
+			domain.Message{Body: string(body)},
 			nowUTC(),
 		)
 		if err != nil {

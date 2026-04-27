@@ -15,6 +15,12 @@ import (
 // does not create Streams or manage subscriptions; for the common
 // "direct message a Worker" case, see the dm tool, which bundles
 // create-stream + subscribe-both + publish into a single call.
+//
+// All events are stored as canonical Message JSON (see domain.Message).
+// The minimal call form — streamId + body — yields a Message with
+// From=caller and Body=body. Optional fields (to, subject, threadId,
+// inReplyTo, messageId, bodyContentType, attachments) let the caller
+// publish a richer envelope when threading or recipients matter.
 type Publish struct {
 	deps Deps
 }
@@ -26,13 +32,22 @@ var publishSchema = mustSchema[publishArgs]()
 func (t *Publish) Name() domain.ToolName { return PublishName }
 func (t *Publish) Description() string {
 	return "Append an Event with the given body to a Stream. Wakes long-poll observers and " +
-		"activates every subscribed AI Worker."
+		"activates every subscribed AI Worker. Optional fields (to, subject, threadId, " +
+		"inReplyTo, messageId, attachments) carry threading and recipient metadata for " +
+		"messaging streams; omit them for plain text publishes."
 }
 func (t *Publish) InputSchema() *jsonschema.Schema { return publishSchema }
 
 type publishArgs struct {
-	StreamID string `json:"streamId"`
-	Body     string `json:"body"`
+	StreamID        string              `json:"streamId"`
+	Body            string              `json:"body"`
+	To              []string            `json:"to,omitempty"`
+	Subject         string              `json:"subject,omitempty"`
+	BodyContentType string              `json:"bodyContentType,omitempty"`
+	ThreadID        string              `json:"threadId,omitempty"`
+	InReplyTo       string              `json:"inReplyTo,omitempty"`
+	MessageID       string              `json:"messageId,omitempty"`
+	Attachments     []domain.Attachment `json:"attachments,omitempty"`
 }
 
 func (t *Publish) Invoke(ctx context.Context, inv domain.Invocation) (json.RawMessage, error) {
@@ -47,11 +62,22 @@ func (t *Publish) Invoke(ctx context.Context, inv domain.Invocation) (json.RawMe
 	if _, err := t.deps.Store.Streams.Get(ctx, streamID); err != nil {
 		return nil, fmt.Errorf("stream %q: %w", streamID, err)
 	}
-	event, err := domain.NewEvent(
+	msg := domain.Message{
+		From:            string(inv.Caller.ID()),
+		To:              args.To,
+		Subject:         args.Subject,
+		Body:            args.Body,
+		BodyContentType: args.BodyContentType,
+		ThreadID:        args.ThreadID,
+		InReplyTo:       args.InReplyTo,
+		MessageID:       args.MessageID,
+		Attachments:     args.Attachments,
+	}
+	event, err := domain.NewMessageEvent(
 		domain.EventID("e-"+t.deps.NewID()),
 		streamID,
 		inv.Caller.ID(),
-		args.Body,
+		msg,
 		t.deps.Now(),
 	)
 	if err != nil {

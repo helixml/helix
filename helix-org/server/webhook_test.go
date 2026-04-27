@@ -108,8 +108,15 @@ func TestWebhookPostAppendsEvent(t *testing.T) {
 	if len(events) != 1 {
 		t.Fatalf("events = %d, want 1", len(events))
 	}
-	if events[0].Body != body {
-		t.Fatalf("body = %q, want %q", events[0].Body, body)
+	msg, err := events[0].Message()
+	if err != nil {
+		t.Fatalf("parse message body: %v", err)
+	}
+	if msg.Body != body {
+		t.Fatalf("message body = %q, want %q", msg.Body, body)
+	}
+	if msg.From != "" {
+		t.Fatalf("message from = %q, want empty (no helix originator)", msg.From)
 	}
 	if events[0].Source != "" {
 		t.Fatalf("source = %q, want empty (system-emitted)", events[0].Source)
@@ -280,8 +287,12 @@ func TestWebhookPreservesBodyExactly(t *testing.T) {
 	if len(events) != 1 {
 		t.Fatalf("events = %d, want 1", len(events))
 	}
-	if events[0].Body != body {
-		t.Fatalf("body mismatch:\n got: %q\nwant: %q", events[0].Body, body)
+	msg, err := events[0].Message()
+	if err != nil {
+		t.Fatalf("parse message: %v", err)
+	}
+	if msg.Body != body {
+		t.Fatalf("message body mismatch:\n got: %q\nwant: %q", msg.Body, body)
 	}
 }
 
@@ -414,8 +425,15 @@ func TestWebhookBridgesInboundToOutbound(t *testing.T) {
 
 	select {
 	case got := <-caught:
-		if got != body {
-			t.Fatalf("outbound body = %q, want %q", got, body)
+		// The outbound POST body is the canonical Message JSON, since
+		// every Stream stores Messages. Decode and check the visible
+		// text.
+		msg, err := domain.DecodeMessage(got)
+		if err != nil {
+			t.Fatalf("outbound POST not valid Message JSON: %v (raw=%q)", err, got)
+		}
+		if msg.Body != body {
+			t.Fatalf("outbound message body = %q, want %q", msg.Body, body)
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatalf("catcher never received outbound POST")

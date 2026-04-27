@@ -95,6 +95,15 @@ func (d *Dispatcher) Dispatch(ctx context.Context, e domain.Event) {
 	if d.spawner == nil {
 		return
 	}
+	// Parse the canonical Message envelope once — every appended event
+	// stores Message JSON in Body. A parse failure here means a
+	// hand-poked or pre-migration event; surface the raw body and warn,
+	// don't crash the activation.
+	msg, err := e.Message()
+	if err != nil {
+		d.logger.Warn("dispatch: parse message", "event", e.ID, "err", err)
+		msg = domain.Message{Body: e.Body}
+	}
 	subs, err := d.store.Subscriptions.ListForStream(ctx, e.StreamID)
 	if err != nil {
 		d.logger.Error("dispatch: list subscriptions", "stream", e.StreamID, "err", err)
@@ -122,7 +131,8 @@ func (d *Dispatcher) Dispatch(ctx context.Context, e domain.Event) {
 			EventID:   e.ID,
 			StreamID:  e.StreamID,
 			Source:    e.Source,
-			Body:      e.Body,
+			Body:      msg.Body, // visible text from the canonical envelope
+			Message:   msg,
 			CreatedAt: e.CreatedAt,
 		}
 		// Decouple from the request context so the activation isn't

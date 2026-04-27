@@ -196,8 +196,15 @@ func TestPublishActivationEventAppendsAndNotifies(t *testing.T) {
 	if events[0].Source != "w-x" {
 		t.Fatalf("source = %q, want w-x", events[0].Source)
 	}
-	if events[0].Body != "assistant: hello" {
-		t.Fatalf("body = %q", events[0].Body)
+	msg, err := events[0].Message()
+	if err != nil {
+		t.Fatalf("parse message: %v", err)
+	}
+	if msg.Body != "assistant: hello" {
+		t.Fatalf("message body = %q", msg.Body)
+	}
+	if msg.From != "w-x" {
+		t.Fatalf("message from = %q, want w-x", msg.From)
 	}
 
 	select {

@@ -41,7 +41,8 @@ type Trigger struct {
 	EventID   domain.EventID
 	StreamID  domain.StreamID
 	Source    domain.WorkerID
-	Body      string
+	Body      string // visible text — i.e. Message.Body, parsed from the event
+	Message   domain.Message
 	CreatedAt time.Time
 }
 
@@ -218,11 +219,11 @@ func publishActivationEvent(ctx context.Context, cfg ClaudeSpawnerConfig, worker
 	if cfg.Store == nil || cfg.NewID == nil || cfg.Now == nil || body == "" {
 		return
 	}
-	event, err := domain.NewEvent(
+	event, err := domain.NewMessageEvent(
 		domain.EventID("e-"+cfg.NewID()),
 		streamID,
 		workerID,
-		body,
+		domain.Message{From: string(workerID), Body: body},
 		cfg.Now(),
 	)
 	if err != nil {
