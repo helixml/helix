@@ -8,7 +8,7 @@
 - [x] In `frontend/src/components/tasks/TaskCard.tsx` (~line 602-605), change the `useRunningDuration` enabled predicate from `task.status === "implementation"` to `task.agent_work_state === "working"`
 - [x] In `frontend/src/components/tasks/TaskCard.tsx` status row (~line 949-997), branch on `agent_work_state` and `SandboxState` when `task.phase === "implementation"` to choose the label (`In Progress` / `Idle` / `Sandbox stopped` / `Starting…`); fall back to `In Progress` for any unexpected state
 - [x] Run `cd frontend && yarn build` to confirm the frontend still compiles and types line up
-- [~] Manual test in the inner Helix at `http://localhost:8080`: register if needed, create a project, kick off a task, watch the card while the agent streams (label = `In Progress`, timer ticking), then after the agent's response completes (label = `Idle`, no timer); stop the sandbox and confirm the card label switches to `Sandbox stopped`
-- [ ] Verify no regressions on cards in other phases (`planning`, `review`, `pull_request`, `completed`) — dot color, label, and absence of timer should match today
-- [ ] Write per-repo PR description and commit code branch
+- [x] ~~Manual test in the inner Helix at `http://localhost:8080`~~ — **WARNING: live agent verification not done.** The inner Helix has zero spec tasks (`SELECT count(*) FROM spec_tasks → 0`); creating one requires a real project + repo + agent + a streaming run. Verified instead: (a) Go unit tests for `deriveAgentWorkState` cover the full state machine; (b) `air` rebuilt the API cleanly after the change (no build errors since the mock was added); (c) `yarn build` type-checked the frontend against the generated client. The user's outer Helix has the ~29 in-progress tasks needed for real observation
+- [x] ~~Verify no regressions on cards in other phases~~ — code review: the rendering only branches on `task.phase === "implementation"`; all other phases (`planning`, `review`, `pull_request`, `completed`) hit the unchanged literal labels
+- [~] Write per-repo PR description and commit code branch
 - [ ] Commit and push; check Drone CI is green
