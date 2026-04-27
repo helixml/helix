@@ -186,8 +186,10 @@ During steps 1–5 the runner reports a non-`running` state and the API router e
 
 **Backend (Go):**
 - `api/pkg/runner/composeparse/parse.go` — parse compose YAML, extract models + GPU requirements.
-- `api/pkg/runner/profile/store.go` — DB CRUD for profiles.
-- `api/pkg/runner/router.go` — replaces the scheduler's request-routing role.
+- `api/pkg/runner/gpuarch/canonical.go` — vendor-specific GPU identifier → canonical architecture string mapping (NVIDIA compute capability + AMD `gfx*`).
+- `api/pkg/runner/profile/store.go` — DB CRUD for profiles + parse-on-save service.
+- `api/pkg/runner/profile/compatibility.go` — `Compatibility(req, gpus)` constraint check + `FilterCompatible(profiles, gpus)` helper.
+- `api/pkg/runnerrouter/router.go` — replaces the scheduler's request-routing role. **Lives in its own package** (not `api/pkg/runner/router.go` as originally drafted) because the existing `api/pkg/runner/` package contains code destined for deletion (Ollama imports etc.) that breaks compilation in CGO-disabled environments. Decoupling lets the router build and test independently of the runner-package deletion timeline; routing is logically distinct from runner-binary code anyway.
 - `api/pkg/runner/controller_nats.go` — narrowed to status + set_profile.
 - `api/pkg/runner/compose_manager.go` — runs `docker compose` against the inner dockerd.
 - `api/pkg/runner/proxy.go` — body-based reverse proxy (replaces the per-slot proxy).
