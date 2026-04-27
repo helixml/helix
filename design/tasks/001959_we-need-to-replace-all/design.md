@@ -39,14 +39,14 @@
 
 ### Decision 1: Reuse Sandbox's DinD Pattern Verbatim
 
-The Sandbox container (`Dockerfile.sandbox`) already runs an inner `dockerd` to host isolated workloads (Wolf desktops, helix-sway). The pattern works in production. We copy it.
+The Sandbox container (`Dockerfile.sandbox`) already runs an inner `dockerd` to host isolated workloads (Wolf desktops, helix-sway). The pattern works in production. We copy it — including the persistent-volume layout and the registry-override mechanism (see Decision 9).
 
 **Rationale:**
 - Avoids reinventing GPU passthrough into nested Docker.
 - Same operational story for ops (logs, debugging, restart semantics).
 - The Hydra abstraction for per-scope dockerd isolation is *not* needed here — one runner has one inner dockerd hosting one compose stack.
 
-**Consequence:** The runner image (`Dockerfile.runner`) shrinks dramatically. No more vLLM/Ollama bundled inside. It only contains: Go binary, docker CLI, dockerd, nvidia-container-toolkit. All model runtimes come from the compose file's images.
+**Consequence:** The runner image (`Dockerfile.runner`) shrinks dramatically. No more vLLM/Ollama bundled inside. It only contains: Go binary, docker CLI, dockerd, nvidia-container-toolkit. All model runtimes come from the compose file's images. Model weights and image layers live in named volumes outside the image so they survive runner upgrades — see Decision 9.
 
 ### Decision 2: Profile = Compose YAML + Derived Metadata
 
@@ -243,6 +243,66 @@ There is no clean migration of existing slots → profiles. Instead:
 4. Operators write profiles for their own hardware and assign them post-deploy.
 
 This is acceptable because runners themselves are not user data — they reconnect and accept new commands. The downtime for an operator is "redeploy + click profile in UI".
+
+## Decision 9: Persistent Storage & Offline Operation
+
+The runner must support fully air-gapped deployments and must not re-download multi-GB model weights on every restart. The Sandbox already solves both problems with a layout we copy.
+
+### Two named volumes mounted into the runner container
+
+| Volume | Mount inside runner | Purpose | Survives restart? | Survives image upgrade? |
+|--------|---------------------|---------|-------------------|--------------------------|
+| `helix-runner-docker-storage` | `/var/lib/docker` | Inner dockerd state — image layers, stopped containers, build cache | Yes | Yes |
+| `helix-runner-models` | `/models` | Shared HuggingFace / model-weight cache for every container the inner dockerd runs | Yes | Yes |
+
+These exactly mirror Sandbox's `sandbox-docker-storage` and `~/.cache/huggingface` patterns (`docker-compose.dev.yaml` lines 268–303 and line 15). Operators upgrading the runner image keep all their pulled images and downloaded weights.
+
+### Convention for compose authors: `/models` is the cache root
+
+Operators write their profile compose files using `/models` (or `${HF_HOME:-/models}`) as the cache mount path:
+
+```yaml
+volumes:
+  - /models:/root/.cache/huggingface
+environment:
+  - HF_HOME=/root/.cache/huggingface
+  - HF_HUB_OFFLINE=1
+```
+
+Because the inner dockerd runs *inside* the runner container, its host filesystem is the runner container's filesystem — so `/models` from the operator's perspective resolves to the `helix-runner-models` named volume. No path rewriting, no magic. The user's example compose can be ported by changing `/prod/models` → `/models`.
+
+We document the convention in the operator guide; we do *not* implement automatic path substitution. Magic substitution is a footgun (operators paste a working compose, it silently breaks because we rewrite a path they meant literally).
+
+### Three modes of registry access
+
+To match what Sandbox already supports plus an explicit offline mode:
+
+1. **Default (online, public registry)** — runner does `docker compose pull` then `docker compose up -d`. Image refs in the profile YAML are taken as-is (e.g. `vllm/vllm-openai:latest`).
+2. **Registry mirror (`HELIX_RUNNER_REGISTRY=mirror.corp.example.com`)** — copy of `HELIX_SANDBOX_REGISTRY` (`Dockerfile.sandbox` line 240, `sandbox/04-start-dockerd.sh` lines 205–235). Before each `pull`/`up`, the runner rewrites the leading registry portion of every `image:` field so `vllm/vllm-openai:latest` becomes `mirror.corp.example.com/vllm/vllm-openai:latest`. Same `sed`-style substitution Sandbox uses today.
+3. **Offline (`HELIX_RUNNER_OFFLINE=true`)** — runner skips `docker compose pull` entirely; relies on images already being in the inner dockerd's `/var/lib/docker`. If a referenced image is missing, the runner fails the profile assignment with a clear message listing which images are absent. Combined with `HF_HUB_OFFLINE=1` in the operator's compose env (already in the user's example), this gives true air-gapped operation.
+
+The three modes compose: an air-gapped deployment typically sets *both* `HELIX_RUNNER_REGISTRY` (so any rebuild that does need a pull goes to the internal mirror) and `HELIX_RUNNER_OFFLINE=true` (so no accidental external calls).
+
+### Image cleanup ordering
+
+Sandbox's startup script enforces "pull all new images BEFORE pruning old ones" because pruning first loses shared layers and forces a full re-download of the new images (`sandbox/04-start-dockerd.sh` lines 269–360, plus the rationale in `design/2026-01-12-sandbox-registry-based-images.md`). The runner's profile-switch logic must do the same:
+
+1. (Online modes) `docker compose -f new.yaml pull`
+2. `docker compose -f old.yaml down --remove-orphans`
+3. `docker compose -f new.yaml up -d`
+4. (Eventually, on a low-water mark) `docker image prune` of images no longer referenced by any known profile
+
+**Don't** prune between steps 2 and 3. It costs gigabytes of re-pulls.
+
+### What we do NOT do
+
+- **No model preloading by the runner.** The runner does not download model weights on the operator's behalf. The operator either populates the `helix-runner-models` volume out-of-band (network filesystem, scp, restic snapshot, whatever they prefer), or relies on the first compose `up` to download with `HF_HUB_OFFLINE` unset. Trying to add a "pre-stage these weights" feature in the runner duplicates work the operator's existing tooling already does.
+- **No tarball-based image distribution.** Sandbox already moved away from this (`design/2026-01-12-sandbox-registry-based-images.md`); we follow suit. Operators wanting offline image distribution run a local registry mirror.
+- **No per-profile model isolation.** Both the model cache and the image cache are shared across all profiles on a given runner. This is the right default — the same `Qwen3.5-35B` weights are useful to multiple profiles. If a profile's compose author wants isolation, they can mount a sub-path.
+
+### Registry credentials
+
+Same plumbing as Sandbox today: Docker config on the host (`~/.docker/config.json`), or `imagePullSecrets` for the helm chart. No new mechanism. If the operator's mirror needs credentials, they configure it the same way they would for any DinD setup.
 
 ## What Dies (Deletion Catalogue)
 

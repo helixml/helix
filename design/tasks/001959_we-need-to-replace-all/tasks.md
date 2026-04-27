@@ -41,12 +41,36 @@
 
 - [ ] Strip `Dockerfile.runner` to: golang build artifact + dockerd + docker CLI + nvidia-container-toolkit (no vLLM, no Ollama, no axolotl, no diffusers).
 - [ ] Implement `api/pkg/runner/compose_manager.go`:
-  - Apply `set_profile`: down current → write `/etc/helix/active.yaml` → pull → up -d → poll readiness.
-  - Apply `clear_profile`: down current → delete file.
+  - Apply `set_profile`: pull-new (unless offline) → down-old → up-new → poll readiness. **Never** prune between down-old and up-new.
+  - Apply `clear_profile`: down current → delete `/etc/helix/active.yaml`.
+  - Honour `HELIX_RUNNER_REGISTRY` (rewrite leading registry portion of `image:` fields) and `HELIX_RUNNER_OFFLINE` (skip pull; fail fast if any referenced image is absent from `/var/lib/docker`).
   - Stream concise progress events back via NATS status updates.
 - [ ] Implement `api/pkg/runner/proxy.go`: body-buffered, model-aware reverse proxy. Returns 404 on unknown model.
 - [ ] Replace runner's HTTP server (`api/pkg/runner/server.go`) routes with just: `POST /v1/chat/completions`, `POST /v1/embeddings`, `POST /v1/images/generations`, `GET /api/v1/status`, `GET /api/v1/services/{name}/logs`.
 - [ ] Add startup behaviour: on boot, if the API has previously assigned a profile, fetch + apply it before reporting `running`.
+
+## Runner Persistence & Offline Operation
+
+- [ ] In `docker-compose.yaml` and `docker-compose.dev.yaml`, declare two named volumes for the runner service:
+  - `helix-runner-docker-storage:/var/lib/docker:rw`
+  - `helix-runner-models:/models:rw`
+  - Same lifecycle conventions as Sandbox's `sandbox-docker-storage` and HF cache mounts (`docker-compose.dev.yaml` lines 268–303 and line 15) — survives container restart and image upgrade.
+- [ ] In `charts/helix-runner/`, add equivalent PVCs for the two volumes; ensure the helm chart preserves them across pod restarts and image bumps.
+- [ ] Forward `HUGGING_FACE_HUB_TOKEN` from the runner container env into compose services that declare it (the user's example compose pattern).
+- [ ] Implement registry-rewrite in `compose_manager.go`: when `HELIX_RUNNER_REGISTRY` is set, rewrite the leading registry portion of every `image:` field in the active YAML before invoking docker compose. Mirror the substitution from `sandbox/04-start-dockerd.sh` lines 205–235 (use the same regex if practical so behaviour is identical).
+- [ ] Implement `HELIX_RUNNER_OFFLINE=true`: skip `docker compose pull`; before `up -d`, query the inner dockerd for each image referenced in the YAML and fail the assignment with a clear list if any are absent.
+- [ ] Implement image-prune-on-low-water-mark as a *separate* periodic task in the runner — never inline with profile switches. Use `docker image prune --filter "until=72h"` or similar; prune must never run between `down-old` and `up-new`.
+- [ ] Document `/models` as the canonical compose-side mount path in the operator guide; provide a sample profile (the user's example, with `/prod/models` swapped to `/models`) to make this obvious.
+
+### Verification (manual, requires GPU host)
+
+- [ ] Configure runner with `HELIX_RUNNER_OFFLINE=true` *without* pre-populating any images; assign a profile; confirm assignment fails with a clear list of missing images.
+- [ ] Pre-populate the inner dockerd with required images (via `docker pull` against an online runner first); set `HELIX_RUNNER_OFFLINE=true`; confirm profile assignment succeeds with no network access.
+- [ ] Pre-populate `helix-runner-models` with a model's weights; set `HF_HUB_OFFLINE=1` in the compose env; confirm vLLM container starts without contacting HuggingFace.
+- [ ] Restart the runner container; confirm both image cache (`docker images` inside inner dockerd) and model cache (contents of `/models`) are intact.
+- [ ] Upgrade the runner image (`docker compose pull && up -d` on the *outer* compose); confirm both caches survive.
+- [ ] With `HELIX_RUNNER_REGISTRY=mirror.local`, assign a profile; confirm `image:` references in the active YAML are rewritten to the mirror; confirm pull goes to the mirror.
+- [ ] Switch between two profiles that share an image; confirm no re-pull happens (image cache shared); confirm prune does not run between switches.
 
 ## Backend: Deletions (do all of this in the same change set as the new code)
 

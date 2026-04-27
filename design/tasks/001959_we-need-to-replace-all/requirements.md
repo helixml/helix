@@ -142,6 +142,28 @@ We are not leaving skeletons. Everything below is gone in the same change set. A
 - [ ] `go vet ./...` clean.
 - [ ] `git grep -nE "scheduler\.|Scheduler\b|RunnerSlot\b|GGUF|memory_estimation|ollama/ollama|axolotl|diffusers_runtime|SchedulingDecision|GlobalAllocationDecision|Prewarm"` returns *only* legitimate hits (e.g. release-notes mentioning what was removed). No live references.
 
+### AC11: Persistent Caching & Offline / Air-Gapped Operation
+The runner must be usable in fully air-gapped deployments and must not re-download multi-GB model weights or container images on every restart. We mirror the Sandbox patterns.
+
+- [ ] **Two named volumes** are mounted into the runner container by default:
+  - `helix-runner-docker-storage` → `/var/lib/docker` (inner dockerd state, image layers, build cache).
+  - `helix-runner-models` → `/models` (HuggingFace / model-weight cache shared across all containers in any profile).
+  - Both volumes survive runner container restart *and* runner image upgrade.
+- [ ] **Convention:** profile compose files mount their model cache from `/models` (e.g. `volumes: - /models:/root/.cache/huggingface`), and operators are documented on this in the operator guide. The runner does not perform automatic path substitution.
+- [ ] **Three registry modes** are supported:
+  - *Default (online):* `docker compose pull && docker compose up -d` against image refs as written in the profile.
+  - *Mirror:* setting `HELIX_RUNNER_REGISTRY=mirror.corp.example.com` rewrites the leading registry portion of every `image:` field before pull/up. Same `sed`-style substitution Sandbox already uses (`sandbox/04-start-dockerd.sh` lines 205–235).
+  - *Offline:* setting `HELIX_RUNNER_OFFLINE=true` skips the `pull` step entirely; relies on images already present in `/var/lib/docker`. If a referenced image is absent, the profile assignment fails with a message listing which images are missing.
+- [ ] The three modes compose: a typical air-gapped deployment sets both `HELIX_RUNNER_REGISTRY` and `HELIX_RUNNER_OFFLINE=true`.
+- [ ] **Image cleanup ordering** matches Sandbox: when switching profiles, pull-new → down-old → up-new, *then* (on a separate low-water-mark trigger) prune images that are no longer referenced. Never prune between `down` and `up` — that destroys shared layers and forces a full re-download.
+- [ ] **HF_TOKEN passthrough:** the `HUGGING_FACE_HUB_TOKEN` env var on the runner container is forwarded into every compose service that declares it (matching the user's example compose). Operators configure the secret once, on the runner.
+- [ ] **Offline + HF_HUB_OFFLINE=1** in the compose env (already in the user's example) gives true offline operation: no registry access, no HuggingFace access. This combination is what we test for AC11 sign-off.
+
+### Non-Goals for AC11
+- The runner does **not** download or pre-stage model weights for operators. The `helix-runner-models` volume is populated out-of-band (network filesystem, scp, snapshot restore, or first-online compose up) and operators use whatever tooling they already use.
+- The runner does **not** distribute images via tarballs. Sandbox already moved away from this pattern (`design/2026-01-12-sandbox-registry-based-images.md`); operators wanting offline image distribution run a local registry mirror.
+- Per-profile cache isolation is not provided. The model and image caches are shared across all profiles on a runner — this is the right default (same weights are useful to multiple profiles); operators wanting isolation mount a subpath.
+
 ### AC10: CGO-Free Runner Build (Adopt After Deletions)
 **API server keeps CGO=1.** The `-tags ORT` build tag and `github.com/yalue/onnxruntime_go` dependency are required by **Kodit**, not by anything in the runner stack. `api/pkg/server/kodit_init.go:261` (`preflightORT()`) checks for `libonnxruntime.so` at runtime when Kodit's local-ONNX embedding model is in use; this is a hard dependency for Kodit's code-intelligence indexing. We do not touch this.
 
