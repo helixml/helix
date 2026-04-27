@@ -1,6 +1,6 @@
 # Implementation Tasks
 
-- [ ] In `api/pkg/openai/openai_client.go` `openAIClientInterceptor.Do()` (~line 722): add status code check so `reasoningFieldMapper` only wraps 2xx response bodies
+- [~] In `api/pkg/openai/openai_client.go` `openAIClientInterceptor.Do()` (~line 722): add status code check so `reasoningFieldMapper` only wraps 2xx response bodies
 - [ ] In `api/pkg/openai/openai_client.go` `listOpenAIModels()` (~line 458): read and include the response body in the non-200 error message (match the pattern used in `listAnthropicModels()`)
 - [ ] Write a unit test for `openAIClientInterceptor.Do()` verifying that a 401 response with plain-text body passes through without JSON parsing errors
 - [ ] Write a unit test for `listOpenAIModels()` verifying the error message includes the provider's response body text
