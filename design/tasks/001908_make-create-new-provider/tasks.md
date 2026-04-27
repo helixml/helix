@@ -1,7 +1,7 @@
 # Implementation Tasks
 
-- [~] Add an `api_key_url?: string` field to the `Provider` interface in `frontend/src/components/providers/types.ts`, and populate it for the hosted entries (OpenAI, Anthropic, Google Gemini, NVIDIA NIM, Groq, Cerebras, xAI, TogetherAI, Fireworks, AWS Bedrock).
-- [ ] Add an `NvidiaLogo` SVG React component at `frontend/src/components/providers/logos/nvidia.tsx` following the existing `openai.tsx` / `anthropic.tsx` pattern.
+- [x] Add an `api_key_url?: string` field to the `Provider` interface in `frontend/src/components/providers/types.ts`, and populate it for the hosted entries (OpenAI, Anthropic, Google Gemini, NVIDIA NIM, Groq, Cerebras, xAI, TogetherAI, Fireworks, AWS Bedrock).
+- [~] Add an `NvidiaLogo` SVG React component at `frontend/src/components/providers/logos/nvidia.tsx` following the existing `openai.tsx` / `anthropic.tsx` pattern.
 - [ ] Add a new entry to `PROVIDERS` for **NVIDIA NIM** with `base_url: 'https://integrate.api.nvidia.com/v1'`, the new logo, and `api_key_url: 'https://build.nvidia.com/'`.
 - [ ] In `CreateProviderEndpointDialog.tsx`, add a `selectedProviderId` state (default `'user/custom'`).
 - [ ] Insert a new **Provider** `<Select>` as the first input inside the dialog `<Stack>`, populated from `PROVIDERS` (logo + name in each `MenuItem`).
