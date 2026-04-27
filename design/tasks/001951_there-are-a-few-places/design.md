@@ -83,6 +83,14 @@ Rules for this task:
 
 Verification step in `tasks.md` covers a side-by-side visual check against an adjacent tab (e.g. "MCP") to confirm no jarring colour break when switching tabs in the agent settings sidebar.
 
+## Implementation Notes (discovered during implementation)
+
+- **`OAuthSettings.tsx` is dead code.** The audit table called it out as the file with an unmasked RSA private key field. During implementation I confirmed it has zero imports across the codebase (`grep -rn "OAuthSettings" frontend/src/`). Git history shows two commits — `a6ff086ad first pass`, `534a9edeb wip on oauth providers` — i.e. abandoned in favour of `frontend/src/components/dashboard/OAuthProvidersTable.tsx`, which is the live admin component reachable from Admin Panel → OAuth Providers.
+- **The live OAuth admin (`OAuthProvidersTable.tsx`) does not have a private key field at all.** It only has `client_secret`, which already uses `type="password"` (verified at line 848). So the OAuth audit row in the design table was a false alarm — there is no live RSA private key leak.
+- **Action taken:** No code change to either `OAuthSettings.tsx` (dead code, leave untouched) or `OAuthProvidersTable.tsx` (already correct). Removed the OAuth task from the implementation list.
+- **Follow-up suggestion (not in this PR):** `OAuthSettings.tsx` should probably be deleted as dead code. Out of scope for a security fix; flag as a separate cleanup task.
+- **MaskedSecret layout fix:** initial implementation used `maxWidth: revealed ? 480 : 'none'` on the value text. When revealed, a long key (~50 chars) pushed the eye/copy icons off-screen in narrow table cells. Fixed by capping at `maxWidth: 320` always, with `flexShrink: 1` and `minWidth: 0` so the text ellipsises while icons stay visible. Full key is still in the `title` attribute and copyable via the icon.
+
 ## Decisions
 
 - **No partial masking.** Either fully hidden or fully revealed. Reasoning: prefix/suffix leakage is what the user is asking us to remove, and an inconsistent mid-mask between screens is worse than one consistent rule.
