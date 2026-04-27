@@ -120,14 +120,17 @@
 - [ ] `git grep -nE "scheduler\.|Scheduler\b|RunnerSlot\b|GGUF|memory_estimation|ollama/ollama|axolotl|diffusers_runtime|SchedulingDecision|GlobalAllocationDecision|Prewarm|tensor.*binpack|HELIX_SLOT_TTL|HELIX_MODEL_TTL|HELIX_SCHEDULING_STRATEGY|HELIX_QUEUE_SIZE"` returns only legitimate hits (release notes / migration mentions). No live references.
 - [ ] `frontend/` builds clean; no unused imports flagged by tsc/eslint.
 
-## CGO-Free Build (Investigation Then Adopt)
+## CGO-Free Runner Build (Adopt After Deletions)
 
-- [ ] After the deletions above, run `git grep -E '^import \"C\"' api/` — should return only `pkg/desktop/*` (separate binaries, unaffected).
-- [ ] Identify whether any remaining code path in the API server still requires `github.com/yalue/onnxruntime_go` (the `-tags ORT` build tag). If embeddings now route exclusively through compose'd containers, this dep is dead.
-- [ ] If dead: drop `github.com/yalue/onnxruntime_go` from `go.mod`; remove `-tags ORT` from `Dockerfile`; flip both `Dockerfile` (API server) and `Dockerfile.runner` to `CGO_ENABLED=0`.
-- [ ] Confirm clean image builds and a clean smoke test (start API + runner, send chat completion, check `ldd` on the binaries shows no surprising dynamic links).
-- [ ] If something still requires CGO, write `design/2026-MM-DD-cgo-after-runner-rewrite.md` documenting the dep + reason and leave CGO=1. Do not ship a half-disabled state.
-- [ ] Out of scope: desktop binaries (`desktop-bridge` etc.) keep CGO=1 — they need xkb/wayland/pipewire.
+**Important:** the API server keeps `CGO_ENABLED=1` and `-tags ORT`. `github.com/yalue/onnxruntime_go` is required by **Kodit** (`api/pkg/server/kodit_init.go:261` — `preflightORT()` checks for `libonnxruntime.so` when Kodit's local ONNX embedder is in use). Kodit is unrelated to runners and we do not touch it. **Do not** drop the ORT dep, do not remove `-tags ORT`, do not flip the API server's `Dockerfile` to CGO=0.
+
+The runner is a different story: its only CGO drivers are the Ollama Go SDK imports we are deleting in Category 2.
+
+- [ ] After the deletions above, run `git grep -E '^import \"C\"' runner-cmd/ api/pkg/runner/` — should return nothing.
+- [ ] Flip `Dockerfile.runner` to `CGO_ENABLED=0` and drop the `-tags "!rocm"` tag (paired with the runtime split that no longer exists).
+- [ ] Confirm clean runner image build; `ldd /helix-runner` should show no surprising dynamic links (ideally a static binary).
+- [ ] If an indirect runner dep still requires CGO (e.g. via shared `provider_manager` code), write `design/2026-MM-DD-cgo-after-runner-rewrite.md` documenting the dep + reason and leave runner CGO=1. Do not ship a half-disabled state. Do not go hunting for the indirect dep to swap it out — scope creep.
+- [ ] Out of scope: API server `Dockerfile` (CGO=1 stays for Kodit), desktop binaries (`desktop-bridge` etc., keep CGO=1 for xkb/wayland/pipewire).
 
 ## Frontend: Profile UI
 

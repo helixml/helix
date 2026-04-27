@@ -273,26 +273,22 @@ The runner's HTTP surface today is mostly slot-shaped (`POST /api/v1/slots`, `DE
 ### Verification of completeness
 A reviewer should be able to run `git grep -nE "scheduler\.|RunnerSlot\b|GGUF|memory_estimation|ollama/ollama|axolotl|diffusers_runtime|SchedulingDecision|GlobalAllocationDecision|Prewarm"` and find nothing live. This is the litmus test. If something remains, either it's load-bearing for something legitimate (document why) or we missed it (delete it).
 
-## Decision 8: CGO Off, If We Can
+## Decision 8: CGO Off — Runner Only
 
-After the deletions in Category 2 (GGUF/Ollama memory estimation), the runner's only reason to compile with `CGO_ENABLED=1` should be gone. After deleting any embedding fallback that relied on `github.com/yalue/onnxruntime_go`, the API server's `-tags ORT` build tag also has no purpose.
+Earlier draft of this doc speculated that both the API server and the runner could flip to `CGO_ENABLED=0` after the deletions. **That was wrong on the API server side.** The API server's `-tags ORT` build tag and `github.com/yalue/onnxruntime_go` dependency exist for **Kodit** (code-intelligence indexing), not for any runner-related embedding fallback. `api/pkg/server/kodit_init.go:261` defines `preflightORT()` which fails fast if `libonnxruntime.so` isn't present whenever Kodit is enabled with a local-ONNX embedding model. Kodit is wholly orthogonal to this work and we do not touch it.
 
-Concretely, today's situation:
+So the actual situation:
 
-| Binary | CGO | Reason |
-|--------|-----|--------|
-| API server (`Dockerfile`) | `=1`, `-tags ORT` | onnxruntime for embedding fallback |
-| Runner (`Dockerfile.runner`) | `=1` | Ollama Go SDK (`fs/ggml`, `llm`) for memory estimation |
-| Sandbox helpers (`hydra`, `sandbox-heartbeat`) | `=0` already | n/a |
-| Desktop binaries (`desktop-bridge`) | `=1` | xkb / wayland / pipewire bindings — *not affected by this work* |
+| Binary | CGO today | CGO after this change | Reason |
+|--------|-----------|-----------------------|--------|
+| API server (`Dockerfile`) | `=1`, `-tags ORT` | **unchanged** | onnxruntime for **Kodit** local embedding (`api/pkg/server/kodit_init.go:261`) |
+| Runner (`Dockerfile.runner`) | `=1`, `-tags "!rocm"` | **`=0`, no tags** | only driver was Ollama Go SDK (`fs/ggml`, `llm`) for memory estimation; deleted in Category 2 |
+| Sandbox helpers (`hydra`, `sandbox-heartbeat`) | `=0` already | unchanged | n/a |
+| Desktop binaries (`desktop-bridge`) | `=1` | unchanged | xkb / wayland / pipewire bindings — separate concern |
 
-After the change:
-- Delete `memory_estimation_handlers.go` → runner's only CGO driver gone → flip `Dockerfile.runner` to `CGO_ENABLED=0` and drop the `!rocm` tag (was paired with the runtime split).
-- Audit whether any embedding code path on the API server still needs `onnxruntime_go`. If not (because all embeddings now route through compose'd vLLM containers), drop the dep, drop `-tags ORT`, flip `Dockerfile` to `CGO_ENABLED=0`.
+**The runner change is the win we get for free.** Once `memory_estimation_handlers.go`, `ollama_runtime.go`, and `ollama_model_controller.go` are gone, `git grep '^import \"C\"' runner-cmd/ api/pkg/runner/` should return nothing, and we can ship a static Go runner binary: smaller image, faster CI, simpler cross-compilation, no glibc/musl coupling for the runner.
 
-**Why this matters:** pure-Go binaries cross-compile trivially, build faster, produce smaller images, and remove glibc/musl version coupling that bites us when the base image moves. It is not a goal in itself, but it is a real win available essentially for free as a side effect of the deletions.
-
-**Risk:** an indirect dependency (e.g. inside the rate limiter, the OpenAI client, the metrics stack) might still pull a CGO-requiring package. If that happens, document it (`design/2026-MM-DD-cgo-after-runner-rewrite.md`) and leave CGO=1 — don't ship a half-disabled state. Don't try to remove the indirect dep; that's scope creep.
+**Risk:** an indirect runner dependency might still pull a CGO-requiring package. If so, document it (`design/2026-MM-DD-cgo-after-runner-rewrite.md`) and leave runner CGO=1. Don't ship a half-disabled state, and don't go hunting for the indirect dep to swap it out — that's scope creep.
 
 ## Open Questions
 

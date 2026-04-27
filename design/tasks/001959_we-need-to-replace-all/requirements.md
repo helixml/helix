@@ -142,14 +142,18 @@ We are not leaving skeletons. Everything below is gone in the same change set. A
 - [ ] `go vet ./...` clean.
 - [ ] `git grep -nE "scheduler\.|Scheduler\b|RunnerSlot\b|GGUF|memory_estimation|ollama/ollama|axolotl|diffusers_runtime|SchedulingDecision|GlobalAllocationDecision|Prewarm"` returns *only* legitimate hits (e.g. release-notes mentioning what was removed). No live references.
 
-### AC10: CGO-Free Build (Investigate; Adopt If Possible)
-The current main `Dockerfile` builds the API server with `CGO_ENABLED=1 -tags ORT` because of `github.com/yalue/onnxruntime_go` (embedding fallback) and the runner uses `CGO_ENABLED=1` because of the `github.com/ollama/ollama/{api,discover,fs/ggml,llm}` imports in the deleted memory-estimation code.
+### AC10: CGO-Free Runner Build (Adopt After Deletions)
+**API server keeps CGO=1.** The `-tags ORT` build tag and `github.com/yalue/onnxruntime_go` dependency are required by **Kodit**, not by anything in the runner stack. `api/pkg/server/kodit_init.go:261` (`preflightORT()`) checks for `libonnxruntime.so` at runtime when Kodit's local-ONNX embedding model is in use; this is a hard dependency for Kodit's code-intelligence indexing. We do not touch this.
 
-After AC8's deletions:
-- [ ] Audit remaining CGO requirements: `git grep -E '^import \"C\"'` in `api/` (should now find only `pkg/desktop/*` which builds separate binaries) and `git grep -nE 'CGO_ENABLED=1'` in `Dockerfile*`.
-- [ ] If nothing in the API or runner build paths still requires CGO, switch `Dockerfile` and `Dockerfile.runner` to `CGO_ENABLED=0` and drop the `-tags ORT` build tag. Pure-Go builds give us: smaller images, faster CI, no glibc/musl version coupling, simpler cross-compilation.
-- [ ] If something *does* still require CGO (e.g. an indirect dependency from `provider_manager` or rate limiter), document what and why in `design/2026-MM-DD-cgo-after-runner-rewrite.md` and leave CGO on. Don't ship a half-disabled state.
-- [ ] The desktop / sandbox binaries (`desktop-bridge`, etc.) keep `CGO_ENABLED=1` — they need xkb/wayland/pipewire bindings. This AC is about the API server and the runner only.
+**Runner flips to CGO=0.** Today `Dockerfile.runner` uses `CGO_ENABLED=1` solely because `memory_estimation_handlers.go` and `ollama_runtime.go` import `github.com/ollama/ollama/{api,discover,fs/ggml,llm}` (which are CGO-heavy via llama.cpp bindings). After AC8's deletions the runner has no CGO drivers left.
+
+- [ ] After the deletions land, run `git grep -E '^import \"C\"' runner-cmd/ api/pkg/runner/` — should return nothing.
+- [ ] Flip `Dockerfile.runner` to `CGO_ENABLED=0` and drop the `-tags "!rocm"` tag (it was paired with the runtime split that no longer exists).
+- [ ] Confirm the runner image builds clean and a smoke test passes (`ldd /helix-runner` should show no surprising dynamic links — ideally a static binary).
+- [ ] If an indirect dep on the runner side *does* still pull CGO (e.g. via `provider_manager` shared with the API server), document the dep in `design/2026-MM-DD-cgo-after-runner-rewrite.md` and leave CGO=1. Don't ship a half-disabled state.
+- [ ] **Out of scope:** the API server `Dockerfile` (CGO=1 / `-tags ORT` stays for Kodit), and the desktop/sandbox binaries (`desktop-bridge`, etc., keep CGO=1 for xkb/wayland/pipewire). This AC is about the runner image only.
+
+The win is narrower than initially scoped (just the runner, not the API server), but still real: smaller runner image, faster runner CI, simpler runner cross-compilation, no glibc/musl coupling on the runner side.
 
 ### AC9: Caller-Facing API Surface is Preserved
 The internal switch from scheduler-to-runners to router-to-runners must be invisible to every existing caller. Specifically:
