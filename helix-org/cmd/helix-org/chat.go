@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"syscall"
 )
@@ -87,7 +88,10 @@ func runChat(args []string) error {
 		switch {
 		case *resume:
 			cmd = append(cmd, "--resume")
-		case !*newSession:
+		case !*newSession && hasClaudeSession():
+			// Only ask claude to continue when a session actually exists
+			// for this cwd; otherwise --continue exits with "No conversation
+			// found to continue" on a first run.
 			cmd = append(cmd, "--continue")
 		}
 	}
@@ -100,4 +104,30 @@ func runChat(args []string) error {
 		return fmt.Errorf("exec claude: %w", err)
 	}
 	return nil
+}
+
+// hasClaudeSession reports whether claude has at least one session stored
+// for the current working directory. Claude keys its per-cwd session log
+// under ~/.claude/projects/<cwd-with-slashes-as-hyphens>/, with one .jsonl
+// per session.
+func hasClaudeSession() bool {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return false
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return false
+	}
+	encoded := strings.ReplaceAll(cwd, "/", "-")
+	entries, err := os.ReadDir(filepath.Join(home, ".claude", "projects", encoded))
+	if err != nil {
+		return false
+	}
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasSuffix(e.Name(), ".jsonl") {
+			return true
+		}
+	}
+	return false
 }
