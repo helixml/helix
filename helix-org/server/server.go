@@ -6,32 +6,45 @@
 package server
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 	"time"
 
 	"github.com/helixml/helix-org/broadcast"
+	"github.com/helixml/helix-org/domain"
 	"github.com/helixml/helix-org/store"
 	"github.com/helixml/helix-org/tools"
 )
+
+// Dispatcher is the subset of the dispatcher this package needs:
+// fan an Event out to subscribed AI Workers. Defining the interface
+// here (rather than importing dispatch) keeps the import edge
+// one-directional — dispatch already imports server's siblings.
+type Dispatcher interface {
+	Dispatch(ctx context.Context, event domain.Event)
+}
 
 // Server wires handlers over a store and the tool registry.
 type Server struct {
 	store       *store.Store
 	registry    *tools.Registry
 	broadcaster *broadcast.Broadcaster
+	dispatcher  Dispatcher
 	logger      *slog.Logger
 }
 
-// New returns a Server bound to the given store, registry, broadcaster
-// and logger. If logger is nil, a discard logger is used. The
-// broadcaster wakes long-poll readers (e.g. read_events with wait>0);
-// it may be nil in tests that don't exercise long-poll paths.
-func New(s *store.Store, registry *tools.Registry, broadcaster *broadcast.Broadcaster, logger *slog.Logger) *Server {
+// New returns a Server bound to the given store, registry, broadcaster,
+// dispatcher and logger. If logger is nil, a discard logger is used.
+// The broadcaster wakes long-poll readers; it may be nil in tests.
+// The dispatcher is required only for routes that fan-out events to
+// subscribed Workers (e.g. /webhooks/{streamID}); leave it nil in
+// tests that don't exercise those paths.
+func New(s *store.Store, registry *tools.Registry, broadcaster *broadcast.Broadcaster, dispatcher Dispatcher, logger *slog.Logger) *Server {
 	if logger == nil {
 		logger = slog.New(slog.NewTextHandler(discardWriter{}, nil))
 	}
-	return &Server{store: s, registry: registry, broadcaster: broadcaster, logger: logger}
+	return &Server{store: s, registry: registry, broadcaster: broadcaster, dispatcher: dispatcher, logger: logger}
 }
 
 // Handler returns an http.Handler with all routes registered and the
@@ -39,6 +52,7 @@ func New(s *store.Store, registry *tools.Registry, broadcaster *broadcast.Broadc
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.Handle("/workers/{id}/mcp", s.mcpHandler())
+	mux.Handle("POST /webhooks/{streamID}", s.webhookHandler())
 	return s.requestLogger(mux)
 }
 

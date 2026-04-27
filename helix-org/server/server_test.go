@@ -31,7 +31,7 @@ func newTestServer(t *testing.T) (*httptest.Server, domain.WorkerID) {
 		t.Fatalf("register ping: %v", err)
 	}
 
-	srv := httptest.NewServer(server.New(s, reg, nil, nil).Handler())
+	srv := httptest.NewServer(server.New(s, reg, nil, nil, nil).Handler())
 	t.Cleanup(srv.Close)
 
 	ctx := context.Background()

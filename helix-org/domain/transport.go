@@ -17,6 +17,14 @@ const (
 	// TransportLocal is the default: SQLite + broadcaster + dispatcher.
 	// No external I/O.
 	TransportLocal TransportKind = "local"
+
+	// TransportWebhook accepts inbound HTTP POSTs to /webhooks/<streamID>
+	// and turns each body into an Event on the Stream. Outbound is not
+	// (yet) covered by this kind. No config required — the path uses
+	// the Stream's own ID as the secret-by-obscurity, which is enough
+	// for low-stakes use; production callers should add a signing
+	// secret on top.
+	TransportWebhook TransportKind = "webhook"
 )
 
 // Transport describes how events on a Stream move to and from the
@@ -43,7 +51,7 @@ func (t Transport) Validate() error {
 		return errors.New("transport kind is empty")
 	}
 	switch t.Kind {
-	case TransportLocal:
+	case TransportLocal, TransportWebhook:
 		return nil
 	default:
 		return errors.New("unknown transport kind: " + string(t.Kind))

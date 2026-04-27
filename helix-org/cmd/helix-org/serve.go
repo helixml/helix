@@ -75,7 +75,7 @@ func runServe(args []string) error {
 
 	srv := &http.Server{
 		Addr:              *addr,
-		Handler:           server.New(store, reg, bc, logger).Handler(),
+		Handler:           server.New(store, reg, bc, deps.Dispatcher, logger).Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 

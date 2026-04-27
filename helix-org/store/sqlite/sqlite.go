@@ -14,6 +14,11 @@ import (
 
 // Open opens a SQLite database at the given path (use ":memory:" for tests)
 // and runs AutoMigrate. It returns a Store bound to the concrete repos.
+//
+// For ":memory:" DSNs, the connection pool is pinned to a single
+// connection. Without this, every new connection in the pool gets its
+// own private in-memory database — concurrent HTTP requests would
+// each see a different (empty) DB. File-backed DSNs are unaffected.
 func Open(dsn string) (*store.Store, error) {
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Silent),
@@ -23,6 +28,13 @@ func Open(dsn string) (*store.Store, error) {
 	})
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite %q: %w", dsn, err)
+	}
+	if dsn == ":memory:" {
+		sqlDB, err := db.DB()
+		if err != nil {
+			return nil, fmt.Errorf("get sql.DB: %w", err)
+		}
+		sqlDB.SetMaxOpenConns(1)
 	}
 	if err := db.AutoMigrate(
 		&roleRow{},
