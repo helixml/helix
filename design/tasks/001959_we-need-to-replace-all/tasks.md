@@ -12,7 +12,7 @@
 - [x] Unit tests for `composeparse` covering: `--served-model-name`, `--model` fallback, multi-GPU `device_ids`, `tensor-parallel-size`, services with no GPU reservation (count=0). Plus AMD device passthrough, mixed-vendor rejection, flag=value syntax, string command form, sidecar services skipped, all 5 port forms, NVIDIA `count:` fallback.
 - [x] Bonus: `sample_profiles_test.go` validates the five committed `design/sample-profiles/*.yaml` parse cleanly with expected model + GPU counts.
 - [x] Implement `api/pkg/runner/gpuarch/canonical.go`: shared mapping for NVIDIA compute capability → architecture canonical string and AMD `gfx*` → architecture string. One file, used by both runner (to label its GPUs) and API server (to validate profiles). Add table-driven tests. Adds `IsNVIDIA`/`IsAMD` predicates as a side-bonus for compatibility checks.
-- [~] Implement `api/pkg/runner/profile/store.go` (CRUD against the new tables; re-derive `Count` + `Models` on save; persist vendor/architectures/model_match/min_vram_bytes verbatim from the request).
+- [x] Implement `api/pkg/runner/profile/store.go` (CRUD against the new tables; re-derive `Count` + `Models` on save; persist vendor/architectures/model_match/min_vram_bytes verbatim from the request). Also added store-level CRUD in `store_runner_profiles.go` and `RunnerProfilePrefix=rprof_` to `system/uuid.go`.
 - [ ] Add HTTP routes in `api/pkg/server/`:
   - `GET    /api/v1/runner-profiles`
   - `POST   /api/v1/runner-profiles`
