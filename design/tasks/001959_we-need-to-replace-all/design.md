@@ -414,6 +414,25 @@ So the actual situation:
 
 **Risk:** an indirect runner dependency might still pull a CGO-requiring package. If so, document it (`design/2026-MM-DD-cgo-after-runner-rewrite.md`) and leave runner CGO=1. Don't ship a half-disabled state, and don't go hunting for the indirect dep to swap it out — that's scope creep.
 
+## Implementation Notes (as we go)
+
+### Foundation layer landed (PR 1)
+What's done and what subsequent agents should build on:
+
+- **Data model:** `types.RunnerProfile` and `types.RunnerAssignment` are GORM types registered in `store.postgres.AutoMigrate`. Per `api/pkg/store/migrations/README.md` this codebase uses AutoMigrate for new tables — explicit SQL migrations are reserved for renames/alters.
+- **Compose parsing:** `api/pkg/runner/composeparse/` is the source of truth for "what does this YAML expose?". Validated against all five `design/sample-profiles/*.yaml` via `sample_profiles_test.go` — that test breaks loudly if the parser regresses against any committed sample. Parser handles both NVIDIA-style (`deploy.resources.reservations.devices`) and AMD-style (`devices: [/dev/kfd, /dev/dri/renderD*]` + `group_add`) GPU declarations and rejects mixing them in one service.
+- **Architecture mapping:** `api/pkg/runner/gpuarch/canonical.go` is the single shared mapping file — adding a new architecture is one entry. Used by both runner (label its GPUs) and API server (validate profile fit). NVIDIA mapping is by compute capability major version with a special case for 8.9 = Ada.
+- **Profile service:** `api/pkg/runner/profile/` enforces the parse-on-save invariant. Callers must go through this package to write profiles; calling the store directly bypasses re-derivation of `Models` + `GPURequirement.Count`.
+- **Compatibility check:** `profile.Compatibility(req, gpus)` returns nil or `*IncompatibilityReason` naming the failing constraint. Index-existence (does the YAML reference a GPU index that doesn't exist on this runner) is deliberately NOT here — it operates on the parsed compose, not on the profile's declared count, and lives at the assignment layer.
+- **Router:** `api/pkg/runnerrouter/` rather than `api/pkg/runner/router.go` as originally planned. The existing `api/pkg/runner/` package can't compile without CGO + Ollama deps that are due for deletion (see AC8 / Decision 11). Decoupling lets the router build and test independently of the runner-package deletion timeline. Routing is logically distinct from runner-binary code anyway.
+- **HTTP routes:** Five admin endpoints for profile CRUD live in `api/pkg/server/runner_profile_handlers.go`. Validation/parse errors → 400; missing IDs → 404. Assign-profile / clear-profile / compatible-profiles routes are NOT yet wired — they need `RunnerStatus` to carry `vendor` and `architecture` per-GPU, which lands with the runner-binary rewrite (AC2).
+
+### Gotchas surfaced during foundation work
+
+- **`api/pkg/runner/` won't compile in CGO_ENABLED=0 environments** until the deletion of `memory_estimation_handlers.go` and the Ollama Go SDK imports (AC8 + Decision 8). This is why the router lives in `api/pkg/runnerrouter/` rather than as a sibling file. Future agents adding more API-server-side code that's logically "part of the runner subsystem" should put it under a new sibling package (or `api/pkg/runnerXXX/`) rather than inside `api/pkg/runner/` until the rewrite lands.
+- **`store_mocks.go` must be regenerated** with `mockgen -source store.go -destination store_mocks.go -package store` whenever the `Store` interface gains methods. Caught by `*store.MockStore does not implement store.Store` build errors.
+- **The CLAUDE.md test pattern requires CGo** for tree-sitter and other packages. Foundation packages in this PR were intentionally written CGO-free (no Ollama, no tree-sitter, no other native deps) so they test cleanly without `gcc`/`libc6-dev` on the host. Keep new foundation code CGO-free where possible.
+
 ## Open Questions
 
 1. **Do we need to namespace inner-dockerd networks per runner?** Probably not — each runner has its own inner dockerd, so the default bridge network is already isolated. Confirm during implementation.
