@@ -1,7 +1,7 @@
 # Implementation Tasks
 
-- [~] In `api/pkg/store/`, confirm whether a batched "latest interaction per session" query already exists; if not, add `GetLatestInteractionsForSessions(ctx, sessionIDs []string) (map[string]*types.Interaction, error)` using `SELECT DISTINCT ON (session_id) ... ORDER BY session_id, created_at DESC`
-- [ ] In `api/pkg/server/spec_driven_task_handlers.go` `listTasks` enrichment loop (~line 258-318), after the existing `SessionUpdatedAt` / `SandboxState` block, batch-fetch latest interactions for all `PlanningSessionID`s and populate `task.AgentWorkState` per the state-machine table in `design.md`
+- [x] In `api/pkg/store/`, confirm whether a batched "latest interaction per session" query already exists; if not, add `GetLatestInteractionsForSessions(ctx, sessionIDs []string) (map[string]*types.Interaction, error)` using `SELECT DISTINCT ON (session_id) ... ORDER BY session_id, created_at DESC`
+- [~] In `api/pkg/server/spec_driven_task_handlers.go` `listTasks` enrichment loop (~line 258-318), after the existing `SessionUpdatedAt` / `SandboxState` block, batch-fetch latest interactions for all `PlanningSessionID`s and populate `task.AgentWorkState` per the state-machine table in `design.md`
 - [ ] Apply the same derivation to any other handler that returns `SpecTask`s to the frontend (e.g. single-task GET) — search for callers that read `SandboxState` to find the matching set, and extract a small helper `deriveAgentWorkState(task, sandboxState, latestInteraction)` so both paths stay in sync
 - [ ] Add a unit test in `api/pkg/server/` for `deriveAgentWorkState` covering: sandbox absent, sandbox starting, running + waiting interaction, running + complete interaction, running + no interaction, post-implementation status
 - [ ] Run `go build ./api/pkg/server/ ./api/pkg/store/ ./api/pkg/types/` to confirm the backend still compiles
