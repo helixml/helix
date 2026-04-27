@@ -234,6 +234,79 @@ func TestSwapThinkingType_AdaptivePreservesExistingOutputConfigEffort(t *testing
 	assert.Equal(t, "keep_me", outputConfig["other_field"], "sibling fields under output_config must be preserved")
 }
 
+func TestThinkingRetryTransport_FlipFlopRecovers(t *testing.T) {
+	// Vertex's LB can route consecutive retries to pods with opposite
+	// thinking.type expectations. For opus-4-7 the original request is
+	// adaptive; pod A rejects with "want enabled"; we swap and retry; pod B
+	// rejects with "want adaptive"; we must keep going rather than give up.
+	rejectAdaptive := `{"type":"error","error":{"type":"invalid_request_error","message":"thinking: Input tag 'adaptive' found using 'type' does not match any of the expected tags: 'disabled', 'enabled'"}}`
+	rejectEnabled := `{"type":"error","error":{"type":"invalid_request_error","message":"\"thinking.type.enabled\" is not supported for this model. Use \"thinking.type.adaptive\" and \"output_config.effort\" to control thinking behavior."}}`
+	success := `{"id":"msg_flip","type":"message","content":[]}`
+
+	rt := &fakeRoundTripper{
+		responses: []*http.Response{
+			newJSONResponse(http.StatusBadRequest, rejectAdaptive), // attempt 1: adaptive → pod A
+			newJSONResponse(http.StatusBadRequest, rejectEnabled),  // attempt 2: enabled → pod B
+			newJSONResponse(http.StatusOK, success),                // attempt 3: adaptive → pod that accepts
+		},
+	}
+	transport := &thinkingRetryTransport{base: rt}
+
+	req := newRequestWithThinking(t, map[string]interface{}{
+		"type": "adaptive",
+	})
+
+	resp, err := transport.RoundTrip(req)
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	assert.Equal(t, int32(3), rt.receivedCalls.Load(), "should retry past the first flip until success")
+
+	// Last sent body must be adaptive again, with output_config.effort populated.
+	var lastBody map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(rt.receivedBody[2], &lastBody))
+	var thinking map[string]interface{}
+	require.NoError(t, json.Unmarshal(lastBody["thinking"], &thinking))
+	assert.Equal(t, "adaptive", thinking["type"])
+	var outputConfig map[string]interface{}
+	require.NoError(t, json.Unmarshal(lastBody["output_config"], &outputConfig))
+	assert.Equal(t, "medium", outputConfig["effort"])
+}
+
+func TestThinkingRetryTransport_FlipFlopExhaustsAndReturnsLast400(t *testing.T) {
+	// If the LB keeps flip-flopping for the whole retry budget, return the
+	// last 400 to the caller rather than hanging or dropping the response.
+	rejectAdaptive := `{"type":"error","error":{"type":"invalid_request_error","message":"thinking: Input tag 'adaptive' found using 'type' does not match any of the expected tags: 'disabled', 'enabled'"}}`
+	rejectEnabled := `{"type":"error","error":{"type":"invalid_request_error","message":"\"thinking.type.enabled\" is not supported for this model. Use \"thinking.type.adaptive\" and \"output_config.effort\" to control thinking behavior."}}`
+
+	responses := make([]*http.Response, maxThinkingRetries)
+	for i := 0; i < maxThinkingRetries; i++ {
+		if i%2 == 0 {
+			responses[i] = newJSONResponse(http.StatusBadRequest, rejectAdaptive)
+		} else {
+			responses[i] = newJSONResponse(http.StatusBadRequest, rejectEnabled)
+		}
+	}
+	rt := &fakeRoundTripper{responses: responses}
+	transport := &thinkingRetryTransport{base: rt}
+
+	req := newRequestWithThinking(t, map[string]interface{}{
+		"type": "adaptive",
+	})
+
+	resp, err := transport.RoundTrip(req)
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+	assert.Equal(t, int32(maxThinkingRetries), rt.receivedCalls.Load())
+
+	// The returned body must be readable and non-empty (callers downstream
+	// rely on being able to forward it).
+	body, readErr := io.ReadAll(resp.Body)
+	require.NoError(t, readErr)
+	assert.NotEmpty(t, body)
+}
+
 func TestThinkingRetryTransport_NonThinking400PassesThrough(t *testing.T) {
 	rejection := `{"type":"error","error":{"type":"invalid_request_error","message":"max_tokens too high"}}`
 

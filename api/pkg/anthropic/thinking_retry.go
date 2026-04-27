@@ -28,11 +28,22 @@ import (
 //	 Use "thinking.type.adaptive" and "output_config.effort" to control
 //	 thinking behavior.`
 //
-// We can't predict which pod the LB will pick. Instead, on a 400 that matches
-// either pattern, swap the thinking.type and retry once.
+// We can't predict which pod the LB will pick. On a 400 that matches either
+// pattern, swap the thinking.type and retry. If the retry hits a pod with
+// the OPPOSITE constraint (e.g. opus-4-7 traffic that gets routed to a new
+// pod requiring adaptive after we just swapped to enabled), we keep flipping
+// and retrying up to maxThinkingRetries total attempts. With ~50/50 LB
+// distribution this drives the failure probability below 1% within a few
+// retries while bounding latency.
 type thinkingRetryTransport struct {
 	base http.RoundTripper
 }
+
+// maxThinkingRetries is the total number of attempts (initial + retries) we'll
+// make against Vertex when chasing schema-mismatch 400s. Each retry alternates
+// thinking.type based on the latest pod's complaint, so an even number of
+// retries explores both forms equally.
+const maxThinkingRetries = 5
 
 func (t *thinkingRetryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	// Skip non-POST or anything without a body — only Anthropic /v1/messages
@@ -69,59 +80,76 @@ func (t *thinkingRetryTransport) RoundTrip(req *http.Request) (*http.Response, e
 		req.Header.Del("Content-Length")
 	}
 
-	req.Body = io.NopCloser(bytes.NewReader(origBody))
-	// Repopulate GetBody too in case the underlying transport wants to retry on
-	// a transport-level redirect.
-	req.GetBody = func() (io.ReadCloser, error) {
-		return io.NopCloser(bytes.NewReader(origBody)), nil
+	body := origBody
+	var resp *http.Response
+	var respBody []byte
+
+	for attempt := 0; attempt < maxThinkingRetries; attempt++ {
+		attemptReq := req
+		if attempt > 0 {
+			attemptReq = req.Clone(req.Context())
+		}
+		// Capture the current body in a per-iteration variable so the
+		// GetBody closure doesn't observe a later reassignment.
+		attemptBody := body
+		attemptReq.Body = io.NopCloser(bytes.NewReader(attemptBody))
+		attemptReq.ContentLength = int64(len(attemptBody))
+		attemptReq.GetBody = func() (io.ReadCloser, error) {
+			return io.NopCloser(bytes.NewReader(attemptBody)), nil
+		}
+		// Drop any precomputed Content-Length header so the transport rewrites it.
+		attemptReq.Header.Del("Content-Length")
+
+		var rtErr error
+		resp, rtErr = t.base.RoundTrip(attemptReq)
+		if rtErr != nil || resp == nil || resp.StatusCode != http.StatusBadRequest {
+			return resp, rtErr
+		}
+
+		// Buffer the response body so we can inspect it. If it's not a thinking
+		// schema mismatch we replay it back to the caller unchanged.
+		var readErr error
+		respBody, readErr = io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+		if readErr != nil {
+			return nil, readErr
+		}
+
+		altType := detectThinkingTypeMismatch(respBody)
+		if altType == "" {
+			resp.Body = io.NopCloser(bytes.NewReader(respBody))
+			resp.ContentLength = int64(len(respBody))
+			return resp, nil
+		}
+
+		newBody, ok := swapThinkingType(body, altType)
+		if !ok {
+			// Body didn't have a thinking field, or wasn't valid JSON — surface
+			// the original 400 so the caller sees the actual error.
+			resp.Body = io.NopCloser(bytes.NewReader(respBody))
+			resp.ContentLength = int64(len(respBody))
+			return resp, nil
+		}
+
+		log.Info().
+			Str("alt_type", altType).
+			Int("attempt", attempt+1).
+			Int("max_attempts", maxThinkingRetries).
+			Int("orig_len", len(body)).
+			Int("new_len", len(newBody)).
+			Msg("retrying Anthropic request with alternate thinking.type after Vertex 400")
+
+		body = newBody
 	}
 
-	resp, err := t.base.RoundTrip(req)
-	if err != nil || resp == nil || resp.StatusCode != http.StatusBadRequest {
-		return resp, err
-	}
-
-	// Buffer the response body so we can inspect it. If it's not a thinking
-	// schema mismatch, we replay the original body to the caller unchanged.
-	respBody, readErr := io.ReadAll(resp.Body)
-	_ = resp.Body.Close()
-	if readErr != nil {
-		return nil, readErr
-	}
-
-	altType := detectThinkingTypeMismatch(respBody)
-	if altType == "" {
-		resp.Body = io.NopCloser(bytes.NewReader(respBody))
-		resp.ContentLength = int64(len(respBody))
-		return resp, nil
-	}
-
-	newBody, ok := swapThinkingType(origBody, altType)
-	if !ok {
-		// Body didn't have a thinking field, or wasn't valid JSON — surface the
-		// original 400 so the caller sees the actual error.
-		resp.Body = io.NopCloser(bytes.NewReader(respBody))
-		resp.ContentLength = int64(len(respBody))
-		return resp, nil
-	}
-
-	log.Info().
-		Str("alt_type", altType).
-		Int("orig_len", len(origBody)).
-		Int("new_len", len(newBody)).
-		Msg("retrying Anthropic request with alternate thinking.type after Vertex 400")
-
-	retryReq := req.Clone(req.Context())
-	retryReq.Body = io.NopCloser(bytes.NewReader(newBody))
-	retryReq.ContentLength = int64(len(newBody))
-	retryReq.GetBody = func() (io.ReadCloser, error) {
-		return io.NopCloser(bytes.NewReader(newBody)), nil
-	}
-	// Drop any precomputed Content-Length header so the transport rewrites it
-	// from retryReq.ContentLength.
-	retryReq.Header.Del("Content-Length")
-
-	return t.base.RoundTrip(retryReq)
+	// Exhausted retries — return the most recent 400 so the caller sees the
+	// actual error rather than a generic timeout.
+	log.Warn().
+		Int("max_attempts", maxThinkingRetries).
+		Msg("exhausted thinking.type retries against Vertex — returning last 400 to caller")
+	resp.Body = io.NopCloser(bytes.NewReader(respBody))
+	resp.ContentLength = int64(len(respBody))
+	return resp, nil
 }
 
 // detectThinkingTypeMismatch inspects a 400 response body for either of the
