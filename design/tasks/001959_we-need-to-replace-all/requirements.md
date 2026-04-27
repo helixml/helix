@@ -60,7 +60,8 @@ A profile satisfying *only* `vendor: nvidia` is the "any NVIDIA" case. A profile
 - [ ] Vendor/architecture/compute-capability are derived on the runner: NVIDIA via `nvidia-smi --query-gpu=name,compute_cap`; AMD via `rocm-smi`. A small lookup table in the runner maps compute capability → architecture canonical string so the API server doesn't have to know the mapping.
 
 ### AC3: Profile Assignment
-- [ ] In the admin UI, each connected runner shows a "Profile" dropdown containing only profiles whose GPU requirements are satisfied by the runner's hardware.
+- [ ] In the admin UI, each connected runner shows a "Profile" dropdown containing **only profiles whose GPU compatibility specification (AC1a) is satisfied by every GPU referenced in the profile's compose YAML against the runner's reported hardware**. Filtering happens server-side via `GET /api/v1/runners/{id}/compatible-profiles` so the UI cannot accidentally show an incompatible option.
+- [ ] Profiles excluded from a given runner's dropdown can still be inspected from the global Profiles tab — but the assignment endpoint will reject the same profile with a named-constraint error if a client tries to bypass the filter (defence in depth).
 - [ ] Setting the profile triggers the runner to: stop the previous compose stack (if any), pull images, and `docker compose up -d` the new one.
 - [ ] Runner reports the assignment state: `assigning`, `pulling`, `starting`, `running`, `failed` with error message.
 
@@ -90,7 +91,7 @@ A profile satisfying *only* `vendor: nvidia` is the "any NVIDIA" case. A profile
 
 ## Out of Scope
 
-- **Auto-selecting a profile based on hardware.** v1 requires the operator to pick. A future "best fit" heuristic can come later.
+- **Auto-*selecting* a profile and applying it without operator action.** v1 requires the operator to click. The dropdown they pick from is *already filtered* to only profiles that fit the runner's hardware (see AC3 and AC6) — what's out of scope is the system deciding for them which of the eligible profiles to apply. A future "best fit" heuristic that pre-selects an eligible profile (e.g. the one that exposes the most models, or the one most recently used on similar hardware) can come later.
 - **Per-request load balancing across containers within a runner.** Each model has one container per profile. Operators wanting more throughput can add replicas to the compose file (treated as opaque).
 - **Hot-reload of a single service in the compose stack.** Profile changes restart the whole stack.
 - **GPU resource arbitration between models.** The compose author is responsible for setting `gpu-memory-utilization` and `device_ids` correctly. We do not bin-pack.
