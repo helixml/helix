@@ -61,6 +61,7 @@ func (s *WebSocketSyncSuite) SetupTest() {
 		contextMappings:             make(map[string]string),
 		requestToSessionMapping:     make(map[string]string),
 		requestToInteractionMapping: make(map[string]string),
+		interactionToPromptMapping:  make(map[string]string),
 		externalAgentSessionMapping: make(map[string]string),
 		externalAgentUserMapping:    make(map[string]string),
 		sessionCommentTimeout:       make(map[string]*time.Timer),
@@ -882,9 +883,10 @@ func (s *WebSocketSyncSuite) TestAgentReady_WithPendingPrompt() {
 			return &types.Interaction{ID: "int-prompt", SessionID: "ses_pending"}, nil
 		},
 	)
-	// Dispatch failure path: with no WS connection registered, the prompt is
-	// marked failed so the queue UI shows retry instead of sticking on 'sending'.
-	s.store.EXPECT().MarkPromptAsFailed(gomock.Any(), "prompt-1", gomock.Any()).Return(nil)
+	// No-WS dispatch path: the interaction is persisted and the
+	// interactionToPromptMapping is left intact so handleMessageAdded marks the
+	// prompt 'sent' once Zed acknowledges via pickupWaitingInteraction. We must
+	// NOT mark it failed here.
 	// GetSpecTask for getAgentNameForSession + autoStartDevContainerForSession
 	s.store.EXPECT().GetSpecTask(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound).AnyTimes()
 
@@ -1002,7 +1004,6 @@ func (s *WebSocketSyncSuite) TestProcessPromptQueue_HasPending() {
 		Status:    "pending",
 	}
 	s.store.EXPECT().GetNextPendingPrompt(gomock.Any(), "ses_pq").Return(prompt, nil)
-	// MarkPromptAsPending no longer called - prompt is atomically claimed by GetNextPendingPrompt
 
 	// sendQueuedPromptToSession calls
 	session := &types.Session{
@@ -1019,15 +1020,26 @@ func (s *WebSocketSyncSuite) TestProcessPromptQueue_HasPending() {
 	)
 	s.store.EXPECT().GetSpecTask(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound).AnyTimes()
 
-	// sendCommandToExternalAgent will fail (no WS connection). Under the
-	// deferred-mark-sent flow, dispatch failure inside sendQueuedPromptToSession
-	// marks the prompt as failed (so the user sees retry), and the caller's
-	// MarkPromptAsSent has been removed entirely — the prompt is marked sent
-	// later by handleMessageAdded when Zed actually starts responding.
-	s.store.EXPECT().MarkPromptAsFailed(gomock.Any(), "prompt-pq", gomock.Any()).Return(nil)
+	// sendCommandToExternalAgent fails with ErrNoExternalAgentWS (no WS
+	// registered). The agent is sleeping, autoStartDevContainerForSession kicks
+	// off, and the persisted Waiting interaction will be delivered by
+	// pickupWaitingInteraction once the agent reconnects. The prompt MUST stay
+	// in 'sending' (handleMessageAdded marks it 'sent' via interactionToPromptMapping
+	// when Zed acknowledges) — marking it failed here used to surface a
+	// misleading "no WebSocket connection" error in the queue UI and trigger a
+	// retry that collided with the in-flight delivery.
+	// So: no MarkPromptAsFailed expectation.
 
 	s.server.processPromptQueue(context.Background(), "ses_pq")
 	time.Sleep(50 * time.Millisecond) // let autoStartDevContainerForSession goroutine complete
+
+	// Mapping must persist past the no-WS failure so handleMessageAdded can
+	// mark the prompt 'sent' when Zed eventually responds to int-pq.
+	s.server.contextMappingsMutex.Lock()
+	mappedPromptID, ok := s.server.interactionToPromptMapping["int-pq"]
+	s.server.contextMappingsMutex.Unlock()
+	s.True(ok, "interactionToPromptMapping should be retained after no-WS failure")
+	s.Equal("prompt-pq", mappedPromptID)
 }
 
 func (s *WebSocketSyncSuite) TestProcessPromptQueue_SendFails_GetSessionFails() {
@@ -1071,8 +1083,6 @@ func (s *WebSocketSyncSuite) TestProcessAnyPendingPrompt_HasPending() {
 		Content:   "any prompt",
 	}
 	s.store.EXPECT().GetAnyPendingPrompt(gomock.Any(), "ses_any").Return(prompt, nil)
-	// Note: ClaimPromptForSending is NOT called — GetAnyPendingPrompt already atomically claimed it
-	// MarkPromptAsSent is NOT called here under the deferred-mark flow.
 
 	session := &types.Session{
 		ID:    "ses_any",
@@ -1087,8 +1097,10 @@ func (s *WebSocketSyncSuite) TestProcessAnyPendingPrompt_HasPending() {
 		&types.Interaction{ID: "int-any", SessionID: "ses_any"}, nil,
 	)
 	s.store.EXPECT().GetSpecTask(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound).AnyTimes()
-	// No WS connection → dispatch fails → prompt marked failed (so retry kicks in).
-	s.store.EXPECT().MarkPromptAsFailed(gomock.Any(), "prompt-any", gomock.Any()).Return(nil)
+	// No WS connection → dispatch returns ErrNoExternalAgentWS → prompt stays
+	// in 'sending' (interaction persisted, pickupWaitingInteraction will deliver
+	// it on reconnect, handleMessageAdded marks it sent).
+	// No MarkPromptAsFailed expectation.
 
 	s.server.processAnyPendingPrompt(context.Background(), "ses_any")
 	time.Sleep(50 * time.Millisecond) // let autoStartDevContainerForSession goroutine complete
@@ -1114,52 +1126,109 @@ func (s *WebSocketSyncSuite) TestProcessAnyPendingPrompt_SendFails_MarkedFailed(
 // sendQueuedPromptToSession — in-memory state cleanup on send failure
 // ──────────────────────────────────────────────────────────────────────────────
 
-func (s *WebSocketSyncSuite) TestSendQueuedPrompt_SendFails_CleansUpInMemoryState() {
-	// When sendCommandToExternalAgent fails (no WS connection),
-	// requestToSessionMapping and requestToInteractionMapping must be cleaned
-	// up so pickupWaitingInteraction sets them fresh on reconnect.
-	// Otherwise a stale message_completed from the agent's previous context
-	// gets matched to the new interaction (wrong response bug).
+func (s *WebSocketSyncSuite) TestSendQueuedPrompt_NoWS_KeepsMappingForLaterDelivery() {
+	// When sendCommandToExternalAgent returns ErrNoExternalAgentWS (agent is
+	// sleeping), the persisted Waiting interaction will be delivered by
+	// pickupWaitingInteraction once the agent reconnects. We keep the mappings
+	// (especially interactionToPromptMapping) intact so that handleMessageAdded
+	// can mark the prompt 'sent' when Zed acknowledges the existing interaction.
+	// The prompt is NOT marked failed in this case.
 
 	session := &types.Session{
-		ID:    "ses_cleanup",
+		ID:    "ses_nows",
 		Owner: "user-1",
 	}
-	s.store.EXPECT().GetSession(gomock.Any(), "ses_cleanup").Return(session, nil).AnyTimes()
-	// Re-check idle state before creating interaction
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_nows").Return(session, nil).AnyTimes()
 	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(
 		[]*types.Interaction{}, int64(0), nil,
 	)
 	s.store.EXPECT().CreateInteraction(gomock.Any(), gomock.Any()).Return(
-		&types.Interaction{ID: "int-cleanup", SessionID: "ses_cleanup"}, nil,
+		&types.Interaction{ID: "int-nows", SessionID: "ses_nows"}, nil,
 	)
 	s.store.EXPECT().GetSpecTask(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound).AnyTimes()
 
 	prompt := &types.PromptHistoryEntry{
-		ID:        "prompt-cleanup",
-		SessionID: "ses_cleanup",
+		ID:        "prompt-nows",
+		SessionID: "ses_nows",
 		Content:   "test prompt",
 	}
 
-	// Dispatch failure now also marks the prompt as failed so the queue UI
-	// surfaces the failure (under the deferred-mark-sent flow) instead of
-	// leaving it stuck in 'sending' forever.
-	s.store.EXPECT().MarkPromptAsFailed(gomock.Any(), "prompt-cleanup", gomock.Any()).Return(nil)
+	// No MarkPromptAsFailed expectation — the no-WS path must not surface as a
+	// queue failure.
 
-	// No WS connection registered → sendCommandToExternalAgent will fail
-	err := s.server.sendQueuedPromptToSession(context.Background(), "ses_cleanup", prompt)
-	s.NoError(err) // interaction was created, send failure is not returned as error
-
+	err := s.server.sendQueuedPromptToSession(context.Background(), "ses_nows", prompt)
+	s.NoError(err)
 	time.Sleep(50 * time.Millisecond) // let autoStartDevContainerForSession goroutine complete
 
-	// Verify in-memory state was cleaned up
+	// All three mappings must survive the no-WS dispatch failure: pickupWaitingInteraction
+	// reuses requestToSessionMapping (or makes its own), and handleMessageAdded
+	// needs interactionToPromptMapping to mark the prompt 'sent' on Zed's first
+	// message_added.
 	s.server.contextMappingsMutex.Lock()
-	_, hasSessionMapping := s.server.requestToSessionMapping["int-cleanup"]
-	_, hasInteractionMapping := s.server.requestToInteractionMapping["int-cleanup"]
+	mappedPrompt, hasPromptMapping := s.server.interactionToPromptMapping["int-nows"]
 	s.server.contextMappingsMutex.Unlock()
+	s.True(hasPromptMapping, "interactionToPromptMapping must persist past the no-WS failure")
+	s.Equal("prompt-nows", mappedPrompt)
+}
 
-	s.False(hasSessionMapping, "requestToSessionMapping should be cleaned up after send failure")
-	s.False(hasInteractionMapping, "requestToInteractionMapping should be cleaned up after send failure")
+func (s *WebSocketSyncSuite) TestSendQueuedPrompt_BusyWithOwnInteraction_ReturnsSuccess() {
+	// Regression: after the no-WS path stashes I1 with mapping[I1] = P1 and the
+	// retry timer fires while pickupWaitingInteraction is still in flight, the
+	// busy re-check must recognise the in-flight interaction as our own and
+	// return success — NOT "session became busy" (which previously marked the
+	// prompt failed and made it look like delivery had failed twice).
+
+	// Pre-seed the mapping as if a previous attempt persisted I1 for P1.
+	s.server.interactionToPromptMapping["int-inflight"] = "prompt-busy"
+
+	session := &types.Session{ID: "ses_busy", Owner: "user-1"}
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_busy").Return(session, nil)
+	// Latest interaction is the one we already dispatched, still Waiting.
+	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(
+		[]*types.Interaction{{ID: "int-inflight", State: types.InteractionStateWaiting}}, int64(1), nil,
+	)
+	// No CreateInteraction, no MarkPromptAsFailed — the function must return
+	// nil without doing any further work.
+
+	prompt := &types.PromptHistoryEntry{
+		ID:        "prompt-busy",
+		SessionID: "ses_busy",
+		Content:   "retry of in-flight prompt",
+	}
+
+	err := s.server.sendQueuedPromptToSession(context.Background(), "ses_busy", prompt)
+	s.NoError(err, "in-flight delivery must not surface as a busy/failure error")
+
+	// Mapping must still be present so handleMessageAdded can mark it sent later.
+	s.server.contextMappingsMutex.Lock()
+	mapped, ok := s.server.interactionToPromptMapping["int-inflight"]
+	s.server.contextMappingsMutex.Unlock()
+	s.True(ok)
+	s.Equal("prompt-busy", mapped)
+}
+
+func (s *WebSocketSyncSuite) TestSendQueuedPrompt_BusyWithOtherInteraction_DefersAsBefore() {
+	// Counterpart to the test above: when the in-flight Waiting interaction is
+	// NOT our own (some other prompt or a Zed-initiated user message), the
+	// busy-check must still defer with an error so the queue retries later.
+
+	s.server.interactionToPromptMapping["int-other"] = "prompt-other"
+
+	session := &types.Session{ID: "ses_busy2", Owner: "user-1"}
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_busy2").Return(session, nil)
+	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(
+		[]*types.Interaction{{ID: "int-other", State: types.InteractionStateWaiting}}, int64(1), nil,
+	)
+
+	prompt := &types.PromptHistoryEntry{
+		ID:        "prompt-mine",
+		SessionID: "ses_busy2",
+		Content:   "I should wait my turn",
+	}
+
+	err := s.server.sendQueuedPromptToSession(context.Background(), "ses_busy2", prompt)
+	s.Error(err)
+	s.Contains(err.Error(), "became busy")
 }
 
 // ──────────────────────────────────────────────────────────────────────────────

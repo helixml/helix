@@ -165,6 +165,26 @@ const SortableQueueItem: FC<SortableQueueItemProps> = ({
 
   const isFailed = entry.status === 'failed'
 
+  // A transient failure is one we expect to recover from automatically: the
+  // agent is sleeping/booting, the prior turn hasn't drained yet, the WebSocket
+  // is mid-reconnect, etc. The retry will land soon and the message will get
+  // through. These should look like a soft "still working on it" rather than a
+  // hard red error — they're not the user's problem and we don't want them to
+  // act on the warning. Anything else (auth failures, malformed payloads) stays
+  // red so it's visually distinct.
+  const transientErrorMarkers = [
+    'no WebSocket',
+    'no external agent WebSocket',
+    'became busy',
+    'deferring queue prompt',
+    'channel full',
+    'connection replaced',
+    'empty response',
+  ]
+  const isTransientFailure = isFailed && !!entry.errorMessage &&
+    transientErrorMarkers.some(marker => entry.errorMessage!.includes(marker))
+  const failColor = isTransientFailure ? 'warning.main' : 'error.main'
+
   // Force re-render every second for failed items with retry countdown
   const [, forceUpdate] = useState(0)
   useEffect(() => {
@@ -191,7 +211,10 @@ const SortableQueueItem: FC<SortableQueueItemProps> = ({
           : isEditing
             ? (theme) => alpha(theme.palette.info.main, 0.12)
             : isFailed
-              ? (theme) => alpha(theme.palette.error.main, 0.08)
+              ? (theme) => alpha(
+                  isTransientFailure ? theme.palette.warning.main : theme.palette.error.main,
+                  0.08,
+                )
               : 'transparent',
         transition: 'background-color 0.2s',
         '&:hover': !isEditing && !isSending && !isDragging ? {
@@ -310,7 +333,7 @@ const SortableQueueItem: FC<SortableQueueItemProps> = ({
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',
                 whiteSpace: 'nowrap',
-                color: isFailed ? 'error.main' : 'text.primary',
+                color: isFailed ? failColor : 'text.primary',
                 flex: 1,
               }}
             >
@@ -330,23 +353,28 @@ const SortableQueueItem: FC<SortableQueueItemProps> = ({
           </Box>
           {isFailed && (
             <Box>
-              <Typography variant="caption" sx={{ color: 'error.main', display: 'block' }}>
+              <Typography variant="caption" sx={{ color: failColor, display: 'block' }}>
                 {entry.nextRetryAt ? (
                   (() => {
                     const secondsUntilRetry = Math.max(0, Math.ceil((entry.nextRetryAt - Date.now()) / 1000))
+                    if (isTransientFailure) {
+                      return secondsUntilRetry > 0
+                        ? `Waiting for agent — retrying in ${secondsUntilRetry}s`
+                        : 'Waiting for agent — retrying now...'
+                    }
                     return secondsUntilRetry > 0
                       ? `Failed - retrying in ${secondsUntilRetry}s`
                       : 'Failed - retrying now...'
                   })()
                 ) : (
-                  'Failed - will retry'
+                  isTransientFailure ? 'Waiting for agent' : 'Failed - will retry'
                 )}
               </Typography>
               {entry.errorMessage && (
                 <Typography
                   variant="caption"
                   sx={{
-                    color: 'error.main',
+                    color: failColor,
                     opacity: 0.8,
                     display: 'block',
                     whiteSpace: 'normal',
