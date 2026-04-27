@@ -4881,8 +4881,22 @@ func (mr *MockStoreMockRecorder) LookupKnowledge(ctx, q any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LookupKnowledge", reflect.TypeOf((*MockStore)(nil).LookupKnowledge), ctx, q)
 }
 
+// MarkPromptAsCrashed mocks base method.
+func (m *MockStore) MarkPromptAsCrashed(ctx context.Context, promptID, errorMsg string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "MarkPromptAsCrashed", ctx, promptID, errorMsg)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// MarkPromptAsCrashed indicates an expected call of MarkPromptAsCrashed.
+func (mr *MockStoreMockRecorder) MarkPromptAsCrashed(ctx, promptID, errorMsg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkPromptAsCrashed", reflect.TypeOf((*MockStore)(nil).MarkPromptAsCrashed), ctx, promptID, errorMsg)
+}
+
 // MarkPromptAsFailed mocks base method.
-func (m *MockStore) MarkPromptAsFailed(ctx context.Context, promptID string, errorMsg string) error {
+func (m *MockStore) MarkPromptAsFailed(ctx context.Context, promptID, errorMsg string) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "MarkPromptAsFailed", ctx, promptID, errorMsg)
 	ret0, _ := ret[0].(error)
@@ -4978,6 +4992,21 @@ func (m *MockStore) RequeueBouncedPrompt(ctx context.Context, sessionID string) 
 func (mr *MockStoreMockRecorder) RequeueBouncedPrompt(ctx, sessionID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RequeueBouncedPrompt", reflect.TypeOf((*MockStore)(nil).RequeueBouncedPrompt), ctx, sessionID)
+}
+
+// ResetCrashedPromptsForSession mocks base method.
+func (m *MockStore) ResetCrashedPromptsForSession(ctx context.Context, sessionID string) (int, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ResetCrashedPromptsForSession", ctx, sessionID)
+	ret0, _ := ret[0].(int)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ResetCrashedPromptsForSession indicates an expected call of ResetCrashedPromptsForSession.
+func (mr *MockStoreMockRecorder) ResetCrashedPromptsForSession(ctx, sessionID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ResetCrashedPromptsForSession", reflect.TypeOf((*MockStore)(nil).ResetCrashedPromptsForSession), ctx, sessionID)
 }
 
 // ResetRunningExecutions mocks base method.

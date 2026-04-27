@@ -1264,6 +1264,91 @@ func (s *WebSocketSyncSuite) TestFindSessionByZedThreadID_NotFound() {
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
+// handleThreadLoadError tests — Claude Agent crash detection
+// ──────────────────────────────────────────────────────────────────────────────
+
+func (s *WebSocketSyncSuite) TestThreadLoadError_AgentCrash_MarksPromptCrashed() {
+	// Map an interaction to a prompt so the crash path has a prompt to update.
+	s.server.contextMappings["thread-crashed"] = "ses_crash"
+	s.server.interactionToPromptMapping["int-crashed"] = "prompt-crashed"
+
+	session := &types.Session{ID: "ses_crash", GenerationID: 1}
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_crash").Return(session, nil)
+	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(
+		[]*types.Interaction{{ID: "int-crashed", State: types.InteractionStateWaiting}}, int64(1), nil,
+	)
+	s.store.EXPECT().UpdateInteraction(gomock.Any(), gomock.Any()).Return(nil, nil)
+
+	// Crash detection: the error string includes "Claude Agent process exited"
+	// → MarkPromptAsCrashed (not MarkPromptAsFailed) so auto-retry stops.
+	s.store.EXPECT().MarkPromptAsCrashed(gomock.Any(), "prompt-crashed", gomock.Any()).Return(nil)
+
+	syncMsg := &types.SyncMessage{
+		EventType: "thread_load_error",
+		Data: map[string]interface{}{
+			"acp_thread_id": "thread-crashed",
+			"request_id":    "int-crashed",
+			"error":         "Failed to send follow-up: Internal error: The Claude Agent process exited unexpectedly. Please start a new session.",
+		},
+	}
+	err := s.server.handleThreadLoadError("ses_crash", syncMsg)
+	s.NoError(err)
+}
+
+func (s *WebSocketSyncSuite) TestThreadLoadError_SessionNotFound_AlsoCrash() {
+	// "Session not found" is the steady-state error after the Claude Agent
+	// process is gone. Same crash path applies.
+	s.server.contextMappings["thread-snf"] = "ses_snf"
+	s.server.interactionToPromptMapping["int-snf"] = "prompt-snf"
+
+	session := &types.Session{ID: "ses_snf", GenerationID: 1}
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_snf").Return(session, nil)
+	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(
+		[]*types.Interaction{{ID: "int-snf", State: types.InteractionStateWaiting}}, int64(1), nil,
+	)
+	s.store.EXPECT().UpdateInteraction(gomock.Any(), gomock.Any()).Return(nil, nil)
+	s.store.EXPECT().MarkPromptAsCrashed(gomock.Any(), "prompt-snf", gomock.Any()).Return(nil)
+
+	syncMsg := &types.SyncMessage{
+		EventType: "thread_load_error",
+		Data: map[string]interface{}{
+			"acp_thread_id": "thread-snf",
+			"request_id":    "int-snf",
+			"error":         "Failed to send follow-up: Session not found",
+		},
+	}
+	err := s.server.handleThreadLoadError("ses_snf", syncMsg)
+	s.NoError(err)
+}
+
+func (s *WebSocketSyncSuite) TestThreadLoadError_TransientError_StillUsesMarkAsFailed() {
+	// Non-crash thread_load_errors (e.g. socket closed mid-flight, transient
+	// failure) must still go through the normal MarkPromptAsFailed path so the
+	// queue's exponential backoff can recover automatically.
+	s.server.contextMappings["thread-transient"] = "ses_transient"
+	s.server.interactionToPromptMapping["int-transient"] = "prompt-transient"
+
+	session := &types.Session{ID: "ses_transient", GenerationID: 1}
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_transient").Return(session, nil)
+	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(
+		[]*types.Interaction{{ID: "int-transient", State: types.InteractionStateWaiting}}, int64(1), nil,
+	)
+	s.store.EXPECT().UpdateInteraction(gomock.Any(), gomock.Any()).Return(nil, nil)
+	s.store.EXPECT().MarkPromptAsFailed(gomock.Any(), "prompt-transient", gomock.Any()).Return(nil)
+
+	syncMsg := &types.SyncMessage{
+		EventType: "thread_load_error",
+		Data: map[string]interface{}{
+			"acp_thread_id": "thread-transient",
+			"request_id":    "int-transient",
+			"error":         "Failed to send follow-up: API Error: The socket connection was closed unexpectedly.",
+		},
+	}
+	err := s.server.handleThreadLoadError("ses_transient", syncMsg)
+	s.NoError(err)
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
 // handleUserCreatedThread tests
 // ──────────────────────────────────────────────────────────────────────────────
 

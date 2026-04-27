@@ -128,6 +128,8 @@ interface SortableQueueItemProps {
   handleRemoveFromQueue: (id: string) => void
   handleToggleInterrupt: (id: string) => void
   truncateContent: (content: string, maxLen?: number) => string
+  handleRestartAgent: () => void
+  isRestarting: boolean
 }
 
 // Sortable queue item component
@@ -147,6 +149,8 @@ const SortableQueueItem: FC<SortableQueueItemProps> = ({
   handleRemoveFromQueue,
   handleToggleInterrupt,
   truncateContent,
+  handleRestartAgent,
+  isRestarting,
 }) => {
   const {
     attributes,
@@ -181,9 +185,23 @@ const SortableQueueItem: FC<SortableQueueItemProps> = ({
     'connection replaced',
     'empty response',
   ]
-  const isTransientFailure = isFailed && !!entry.errorMessage &&
+  // A *crashed* failure is the terminal Claude Agent process death case. The
+  // backend detects these strings in handleThreadLoadError and calls
+  // MarkPromptAsCrashed (pinning next_retry_at far in the future) so the
+  // queue's auto-retry stops. The user has to click Restart to recover —
+  // restart clears ZedThreadID + re-sends, causing Zed to spawn a fresh thread
+  // and Claude Agent process. Detected by error_message marker (authoritative)
+  // rather than nextRetryAt timestamp comparison so the UI reacts immediately
+  // even before the polled prompt sync lands the new next_retry_at value.
+  const crashedErrorMarkers = [
+    'Claude Agent process exited',
+    'Session not found',
+  ]
+  const isCrashed = isFailed && !!entry.errorMessage &&
+    crashedErrorMarkers.some(marker => entry.errorMessage!.includes(marker))
+  const isTransientFailure = !isCrashed && isFailed && !!entry.errorMessage &&
     transientErrorMarkers.some(marker => entry.errorMessage!.includes(marker))
-  const failColor = isTransientFailure ? 'warning.main' : 'error.main'
+  const failColor = isCrashed ? 'error.main' : isTransientFailure ? 'warning.main' : 'error.main'
 
   // Force re-render every second for failed items with retry countdown
   const [, forceUpdate] = useState(0)
@@ -353,8 +371,10 @@ const SortableQueueItem: FC<SortableQueueItemProps> = ({
           </Box>
           {isFailed && (
             <Box>
-              <Typography variant="caption" sx={{ color: failColor, display: 'block' }}>
-                {entry.nextRetryAt ? (
+              <Typography variant="caption" sx={{ color: failColor, display: 'block', fontWeight: isCrashed ? 600 : 'inherit' }}>
+                {isCrashed ? (
+                  'Agent crashed. Click restart to attempt to recover.'
+                ) : entry.nextRetryAt ? (
                   (() => {
                     const secondsUntilRetry = Math.max(0, Math.ceil((entry.nextRetryAt - Date.now()) / 1000))
                     if (isTransientFailure) {
@@ -370,7 +390,47 @@ const SortableQueueItem: FC<SortableQueueItemProps> = ({
                   isTransientFailure ? 'Waiting for agent' : 'Failed - will retry'
                 )}
               </Typography>
-              {entry.errorMessage && (
+              {isCrashed && (
+                <Box sx={{ mt: 0.5 }}>
+                  <Box
+                    component="button"
+                    onClick={(e: React.MouseEvent) => {
+                      e.stopPropagation()
+                      handleRestartAgent()
+                    }}
+                    disabled={isRestarting}
+                    sx={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 0.5,
+                      px: 1,
+                      py: 0.25,
+                      border: '1px solid',
+                      borderColor: 'error.main',
+                      borderRadius: 1,
+                      bgcolor: 'transparent',
+                      color: 'error.main',
+                      cursor: isRestarting ? 'wait' : 'pointer',
+                      fontSize: '0.75rem',
+                      fontFamily: 'inherit',
+                      '&:hover': !isRestarting ? {
+                        bgcolor: (theme) => alpha(theme.palette.error.main, 0.08),
+                      } : undefined,
+                      '&:disabled': { opacity: 0.6 },
+                    }}
+                  >
+                    {isRestarting ? (
+                      <>
+                        <CircularProgress size={10} sx={{ color: 'error.main' }} />
+                        Restarting...
+                      </>
+                    ) : (
+                      'Restart'
+                    )}
+                  </Box>
+                </Box>
+              )}
+              {entry.errorMessage && !isCrashed && (
                 <Typography
                   variant="caption"
                   sx={{
@@ -453,6 +513,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
   const editTextareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [sendingId, setSendingId] = useState<string | null>(null)
+  const [isRestartingAgent, setIsRestartingAgent] = useState(false)
   // Pending attachments that will be sent with the message
   const [attachments, setAttachments] = useState<PendingAttachment[]>([])
   const [isUploading, setIsUploading] = useState(false)
@@ -634,6 +695,25 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
       updateInterrupt(entryId, entry.interrupt === false)
     }
   }, [failedPrompts, pendingPrompts, updateInterrupt])
+
+  // Restart Zed thread after a Claude Agent crash. Calls the backend endpoint
+  // which clears the dead acp_thread_id and resets crashed prompts back to
+  // pending — the queue then re-dispatches them, Zed creates a fresh thread,
+  // and a new Claude Agent ACP wrapper is spawned. The local queue UI catches
+  // up via the existing prompt-history poll (~1-2s) so we just disable the
+  // button while the request is in flight; we don't optimistically mutate
+  // local state because the backend is the source of truth for prompt status.
+  const handleRestartAgent = useCallback(() => {
+    if (!apiClient || !sessionId || isRestartingAgent) return
+    setIsRestartingAgent(true)
+    apiClient.v1SessionsRestartAgentCreate(sessionId)
+      .catch((err: unknown) => {
+        console.error('Failed to restart agent thread:', err)
+      })
+      .finally(() => {
+        setIsRestartingAgent(false)
+      })
+  }, [apiClient, sessionId, isRestartingAgent])
 
   // Start editing a queued message.
   // To genuinely pause sending, we remove the entry from the backend queue
@@ -1086,6 +1166,8 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
                       handleRemoveFromQueue={handleRemoveFromQueue}
                       handleToggleInterrupt={handleToggleInterrupt}
                       truncateContent={truncateContent}
+                      handleRestartAgent={handleRestartAgent}
+                      isRestarting={isRestartingAgent}
                     />
                   ))}
               </SortableContext>

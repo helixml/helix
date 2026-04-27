@@ -29,6 +29,32 @@ import (
 // Callers distinguish this from real send failures using errors.Is.
 var ErrNoExternalAgentWS = errors.New("no external agent WebSocket connection")
 
+// agentCrashErrorMarkers identify thread_load_error events that originate from
+// the Claude Agent ACP wrapper inside Zed having exited. Once the wrapper
+// process is gone, every subsequent follow-up the user sends bounces with
+// "Session not found" — Zed's THREAD_SERVICE has no agent to dispatch to and
+// no first-class way to respawn one for an existing thread. Helix's only
+// recovery is to abandon the dead acp_thread_id and create a fresh thread,
+// which we don't do silently because the user loses the chat history kept in
+// the dead process. Instead the queue surfaces a Restart button; the handler
+// wired up by ResetCrashedPromptsForSession clears ZedThreadID and re-sends
+// the prompt so the next dispatch creates a new thread.
+var agentCrashErrorMarkers = []string{
+	"Claude Agent process exited",
+	"Session not found",
+}
+
+// isAgentCrashError reports whether errMsg matches a known terminal Claude
+// Agent failure that no number of auto-retries can recover from.
+func isAgentCrashError(errMsg string) bool {
+	for _, marker := range agentCrashErrorMarkers {
+		if strings.Contains(errMsg, marker) {
+			return true
+		}
+	}
+	return false
+}
+
 // streamingContext caches DB query results during token streaming to avoid
 // redundant queries. Created on first message_added, cleared on message_completed.
 // Also buffers interaction updates: DB writes are throttled to at most once per
@@ -3086,6 +3112,13 @@ func (apiServer *HelixAPIServer) handleThreadLoadError(sessionID string, syncMsg
 						// in 'sending' state (deferred MarkPromptAsSent flow), mark
 						// the prompt as failed so the user sees retry, not a
 						// stuck "queued" entry.
+						//
+						// Distinguish terminal Claude Agent crashes (process exit,
+						// "Session not found") from transient errors. For crashes,
+						// auto-retry is futile — every subsequent send hits the same
+						// dead process and rebounds. We pin next_retry_at far in the
+						// future via MarkPromptAsCrashed so the queue stops looping,
+						// and the frontend's crash detector renders a Restart button.
 						apiServer.contextMappingsMutex.Lock()
 						promptID, hasPrompt := apiServer.interactionToPromptMapping[interactions[i].ID]
 						if hasPrompt {
@@ -3093,11 +3126,23 @@ func (apiServer *HelixAPIServer) handleThreadLoadError(sessionID string, syncMsg
 						}
 						apiServer.contextMappingsMutex.Unlock()
 						if hasPrompt {
-							if markErr := apiServer.Controller.Options.Store.MarkPromptAsFailed(context.Background(), promptID, fmt.Sprintf("Thread load failed: %s", errorMsg)); markErr != nil {
+							failureMsg := fmt.Sprintf("Thread load failed: %s", errorMsg)
+							var markErr error
+							if isAgentCrashError(errorMsg) {
+								log.Warn().
+									Str("prompt_id", promptID).
+									Str("interaction_id", interactions[i].ID).
+									Str("acp_thread_id", acpThreadID).
+									Msg("💥 [HELIX] Claude Agent crashed — marking prompt crashed (suppress auto-retry, awaits user Restart)")
+								markErr = apiServer.Controller.Options.Store.MarkPromptAsCrashed(context.Background(), promptID, failureMsg)
+							} else {
+								markErr = apiServer.Controller.Options.Store.MarkPromptAsFailed(context.Background(), promptID, failureMsg)
+							}
+							if markErr != nil {
 								log.Error().Err(markErr).
 									Str("prompt_id", promptID).
 									Str("interaction_id", interactions[i].ID).
-									Msg("Failed to mark prompt as failed after thread load error")
+									Msg("Failed to mark prompt after thread load error")
 							}
 						}
 
