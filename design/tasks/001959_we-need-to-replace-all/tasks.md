@@ -39,7 +39,8 @@
 
 ## Runner Binary
 
-- [ ] Strip `Dockerfile.runner` to: golang build artifact + dockerd + docker CLI + nvidia-container-toolkit (no vLLM, no Ollama, no axolotl, no diffusers).
+- [ ] Strip `Dockerfile.runner` to: golang build artifact + dockerd + docker CLI + **both** nvidia-container-toolkit (for NVIDIA GPUs) and AMD container runtime support (for AMD/ROCm GPUs — see "AMD GPU Support" task block below). No vLLM, no Ollama, no axolotl, no diffusers. The same image must support either vendor at runtime; vendor-specific runtime activation is decided by what the operator's compose file requests.
+- [ ] Build `Dockerfile.runner` as a **multi-arch image targeting `linux/amd64` and `linux/arm64`** (use `docker buildx build --platform linux/amd64,linux/arm64 ...`). NVIDIA runs on both (x86 + Jetson/Grace); AMD ROCm is x86-only in practice but the runner binary itself must still build for arm64 so dev machines (Apple Silicon) can run the runner without a GPU profile attached.
 - [ ] Implement `api/pkg/runner/compose_manager.go`:
   - Apply `set_profile`: pull-new (unless offline) → down-old → up-new → poll readiness. **Never** prune between down-old and up-new.
   - Apply `clear_profile`: down current → delete `/etc/helix/active.yaml`.
@@ -48,6 +49,35 @@
 - [ ] Implement `api/pkg/runner/proxy.go`: body-buffered, model-aware reverse proxy. Returns 404 on unknown model.
 - [ ] Replace runner's HTTP server (`api/pkg/runner/server.go`) routes with just: `POST /v1/chat/completions`, `POST /v1/embeddings`, `POST /v1/images/generations`, `GET /api/v1/status`, `GET /api/v1/services/{name}/logs`.
 - [ ] Add startup behaviour: on boot, if the API has previously assigned a profile, fetch + apply it before reporting `running`.
+
+## AMD GPU Support (parity with NVIDIA)
+
+AMD's containerised GPU story is different from NVIDIA's: there is no single `--gpus all` flag. The standard pattern is to mount `/dev/kfd` (the kernel fusion driver) and `/dev/dri` (DRM render nodes) into the container and add the user to the `video` and `render` groups. The newer AMD Container Toolkit (`amd-container-toolkit`) automates this in a way analogous to nvidia-container-toolkit, but it's relatively new — the runner must work on hosts that have *either*.
+
+- [ ] In `Dockerfile.runner`: install **both** runtimes side-by-side:
+  - `nvidia-container-toolkit` (configured via `nvidia-ctk runtime configure --runtime=docker`)
+  - `amd-container-toolkit` if available on the base image's package source; otherwise document the manual fallback (mount `/dev/kfd` and `/dev/dri`, `group_add: [video, render]`) and ensure the inner dockerd is launched with permission to do that.
+- [ ] In the inner dockerd's `daemon.json`, register both `nvidia` and (if present) `amd` runtimes so compose files can reference either.
+- [ ] In `composeparse/parse.go`: handle **both** GPU declaration styles when extracting the `Count` of GPUs a profile requests:
+  - NVIDIA style (the user's example): `deploy.resources.reservations.devices` with `driver: nvidia` and `device_ids: [...]`.
+  - AMD style: top-level `devices: [/dev/kfd, /dev/dri/renderDN]` plus `group_add: [video, render]`. Count is inferred from the number of distinct `/dev/dri/renderD*` entries (or `/dev/dri/card*` if used). If no GPU device entries are present, count=0 and the profile is treated as CPU-only.
+  - Reject ambiguous/mixed declarations (a single service with both styles) with a clear error.
+- [ ] On the runner, when applying a profile, ensure the inner dockerd has the right runtime registered for the profile's vendor (if vendor=nvidia, fail fast if `nvidia` runtime not registered; same for `amd`). This catches "wrong base image / missing toolkit" before `docker compose up` produces an opaque error.
+- [ ] Sample profile `design/sample-profiles/amd-mi300x-vllm.yaml` must use the AMD-style declaration (devices + group_add + `image: rocm/vllm:...`), not the NVIDIA style. This is the reference operators copy when writing their own AMD profiles.
+- [ ] Verify `gpuarch/canonical.go` covers both vendor codepaths: NVIDIA compute-capability → arch and AMD `gfx*` → arch (gfx906→vega20, gfx90a→cdna2, gfx942→cdna3, gfx1100→rdna3, etc.). Cite the source of mappings (AMD's LLVM target docs) in a comment so future agents know where to update.
+
+### Multi-Arch Build (linux/amd64 + linux/arm64)
+
+- [ ] Configure CI (`cloudbuild.yaml` or equivalent) to build `Dockerfile.runner` for both `linux/amd64` and `linux/arm64` and push a multi-arch manifest. NVIDIA Jetson/Grace ship arm64; AMD ROCm is x86-only in practice; operators on Apple Silicon dev machines need arm64 to run the runner without a GPU profile.
+- [ ] Confirm the Go build line uses `GOOS=linux GOARCH=$TARGETARCH` (or equivalent buildx-aware) so the binary is the right arch in each layer.
+- [ ] Spot-check the inner dockerd, docker CLI, and nvidia/amd container toolkit packages all have arm64 variants in their respective apt sources. If amd-container-toolkit lacks arm64 packaging (likely — AMD doesn't ship ROCm for arm64), allow the build to skip its install on arm64 with a clear log message: "AMD runtime omitted on arm64; arm64 runners cannot host AMD GPU profiles."
+- [ ] Add a CI smoke test that pulls the multi-arch image on both architectures and runs `helix-runner --version`.
+
+### Verification
+
+- [ ] On an NVIDIA host: assign a profile written in NVIDIA style; confirm GPU passthrough works.
+- [ ] On an AMD host (if available): assign a profile written in AMD style; confirm `/dev/kfd` and `/dev/dri` are present in the container and rocm-smi inside the container sees the GPU.
+- [ ] On an arm64 dev machine (no GPU): runner starts, registers with API, can be assigned a CPU-only profile (or rejects GPU profiles with the clear "no GPU available" message from AC1a's vendor check).
 
 ## Runner Persistence & Offline Operation
 

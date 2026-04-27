@@ -68,7 +68,14 @@ A profile satisfying *only* `vendor: nvidia` is the "any NVIDIA" case. A profile
 ### AC4: Compose Runs in Docker-in-Docker
 - [ ] The runner container runs an inner dockerd (same DinD pattern as Sandbox uses today via `Dockerfile.sandbox`).
 - [ ] All compose services run inside that inner dockerd; the host docker daemon is not touched.
-- [ ] GPUs are passed through to the inner dockerd so `device_ids: ["0"]` etc. works as in the user's example.
+- [ ] **Both NVIDIA and AMD GPU passthrough work** (see AC12). NVIDIA via nvidia-container-toolkit and `deploy.resources.reservations.devices` (the user's example syntax). AMD via device passthrough — `/dev/kfd` and `/dev/dri` mounted in, `group_add: [video, render]`. The compose parser handles either declaration style; the inner dockerd has both runtimes registered if the host supports them.
+
+### AC12: Dual GPU Vendor + Multi-Arch
+- [ ] The runner image is **a single multi-arch manifest covering `linux/amd64` and `linux/arm64`**. Reasons: NVIDIA ships on both (Jetson, Grace Hopper), Apple Silicon dev machines need arm64 to run the runner without a GPU profile, deploys shouldn't need to know what they're pulling.
+- [ ] The runner image installs **both** `nvidia-container-toolkit` and AMD container runtime support side-by-side (`amd-container-toolkit` where packaged, manual `/dev/kfd` + `/dev/dri` + `group_add` configuration where not). Vendor is implicit at profile-assignment time, not at runner-image-build time. One image, either vendor.
+- [ ] On arm64 the AMD toolkit install is skipped (ROCm is x86-only in practice) with a clear log: "AMD runtime omitted on arm64; arm64 runners cannot host AMD GPU profiles." This is logged once at runner startup, not on every profile assignment.
+- [ ] The compose parser (`composeparse/parse.go`) accepts both NVIDIA-style (`deploy.resources.reservations.devices`) and AMD-style (`devices: [/dev/kfd, /dev/dri/...]` + `group_add`) GPU declarations. Mixing both styles in one service is rejected with a clear error.
+- [ ] Pre-flight: when applying a profile, the runner verifies the inner dockerd has the required runtime registered for the profile's vendor; otherwise fails fast with a clear message ("profile requires the nvidia runtime but it is not registered on this runner") rather than producing an opaque `docker compose up` error.
 
 ### AC5: Reverse Proxy Routes by Model Name
 - [ ] Runner exposes a single HTTP endpoint (e.g. `POST /v1/chat/completions`, `POST /v1/embeddings`) to the API server.

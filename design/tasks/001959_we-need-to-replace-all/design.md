@@ -46,7 +46,7 @@ The Sandbox container (`Dockerfile.sandbox`) already runs an inner `dockerd` to 
 - Same operational story for ops (logs, debugging, restart semantics).
 - The Hydra abstraction for per-scope dockerd isolation is *not* needed here — one runner has one inner dockerd hosting one compose stack.
 
-**Consequence:** The runner image (`Dockerfile.runner`) shrinks dramatically. No more vLLM/Ollama bundled inside. It only contains: Go binary, docker CLI, dockerd, nvidia-container-toolkit. All model runtimes come from the compose file's images. Model weights and image layers live in named volumes outside the image so they survive runner upgrades — see Decision 9.
+**Consequence:** The runner image (`Dockerfile.runner`) shrinks dramatically. No more vLLM/Ollama bundled inside. It only contains: Go binary, docker CLI, dockerd, **both** nvidia-container-toolkit and AMD container runtime support (see Decision 10). All model runtimes come from the compose file's images. Model weights and image layers live in named volumes outside the image so they survive runner upgrades — see Decision 9.
 
 ### Decision 2: Profile = Compose YAML + Derived Metadata
 
@@ -303,6 +303,32 @@ Sandbox's startup script enforces "pull all new images BEFORE pruning old ones" 
 ### Registry credentials
 
 Same plumbing as Sandbox today: Docker config on the host (`~/.docker/config.json`), or `imagePullSecrets` for the helm chart. No new mechanism. If the operator's mirror needs credentials, they configure it the same way they would for any DinD setup.
+
+## Decision 10: Dual GPU Vendor + Multi-Arch Runner Image
+
+### Both NVIDIA and AMD runtimes in the same image
+
+NVIDIA and AMD have completely different containerised-GPU mechanisms. NVIDIA uses `nvidia-container-toolkit` and a `nvidia` Docker runtime, with the `--gpus all` (or `deploy.resources.reservations.devices` in compose) syntax. AMD uses device passthrough — `/dev/kfd` (kernel fusion driver) and `/dev/dri` (DRM render nodes) — with `group_add: [video, render]`. The newer `amd-container-toolkit` automates this similar to how nvidia-container-toolkit does, but it's relatively new and not on every base image.
+
+We install **both** in the runner image. Vendor selection is implicit: the operator's profile compose file declares the syntax (NVIDIA-style or AMD-style), and the inner dockerd uses whatever runtime it finds registered. A runner on a host with only NVIDIA hardware will simply never get assigned an AMD-style profile (filtered out at AC1a's vendor check); the AMD runtime support sits dormant. Same the other way round. There is no per-vendor build of the runner image — one image works for either, which keeps deploys simple.
+
+The compose parser (`composeparse/parse.go`) handles both declaration styles when extracting GPU count:
+- **NVIDIA:** `deploy.resources.reservations.devices` with `driver: nvidia` and `device_ids: [...]`. Count = `len(device_ids)`.
+- **AMD:** top-level `devices:` containing `/dev/dri/renderD*` entries plus `group_add: [video, render]`. Count = number of distinct render-node entries. (`/dev/kfd` is shared and not counted.)
+- A single service with both styles is rejected as ambiguous.
+
+Pre-flight: when applying a profile, the runner checks the inner dockerd has the required runtime registered for the profile's vendor. If a vendor=nvidia profile is assigned to an inner dockerd without the `nvidia` runtime, fail fast with a clear message rather than producing an opaque `docker compose up` error.
+
+### Multi-arch build: `linux/amd64` and `linux/arm64`
+
+The runner image must be a multi-arch manifest covering both. Reasons:
+- NVIDIA ships GPUs on both x86 (datacenter, workstation) and arm64 (Jetson, Grace Hopper).
+- AMD ROCm is x86-only in practice, but operators on Apple Silicon dev machines need an arm64 runner image to run the runner without attaching a GPU profile (or with a CPU-only profile).
+- A unified multi-arch manifest means deploy commands don't need to know what they're pulling.
+
+Build: `docker buildx build --platform linux/amd64,linux/arm64 -f Dockerfile.runner -t ... --push`. The Go build line uses `GOOS=linux GOARCH=$TARGETARCH` so the right binary lands in each layer.
+
+**Caveat:** AMD's `amd-container-toolkit` likely lacks arm64 packaging (since ROCm is x86-only). The `Dockerfile.runner` should skip the AMD-toolkit install on arm64 with a logged note: "AMD runtime omitted on arm64; arm64 runners cannot host AMD GPU profiles." NVIDIA-toolkit ships arm64 packages and stays on both architectures.
 
 ## What Dies (Deletion Catalogue)
 
