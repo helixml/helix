@@ -26,7 +26,7 @@
 
 ## Backend: Runner Router (replaces scheduler)
 
-- [ ] Implement `api/pkg/runner/router.go` with `PickRunner(model)` (round-robin across runners whose active profile contains the model and are in `running` state).
+- [~] Implement `api/pkg/runner/router.go` with `PickRunner(model)` (round-robin across runners whose active profile contains the model and are in `running` state).
 - [ ] Wire `/v1/chat/completions`, `/v1/embeddings`, `/v1/images/generations` (and any other OpenAI-compatible endpoints currently routed via the scheduler) through the new router.
 - [ ] **Repoint `api/pkg/openai/helix_openai_client.go`** so the two `scheduler.Enqueue` call sites (lines 305 and 399 today — chat completions and embeddings) call the new router instead. Public method signatures must not change. Drop the `scheduler` import; add a router dependency to the client constructor and update wherever the client is instantiated.
 - [ ] Wire `/v1/models` to return the union of model names across all currently-`running` profiles.
