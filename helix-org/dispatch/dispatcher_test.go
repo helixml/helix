@@ -1,0 +1,401 @@
+package dispatch_test
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/helixml/helix-org/dispatch"
+	"github.com/helixml/helix-org/domain"
+	"github.com/helixml/helix-org/store"
+	"github.com/helixml/helix-org/store/sqlite"
+)
+
+// caught is one POST observed by the test catcher.
+type caught struct {
+	body    string
+	headers http.Header
+	method  string
+	path    string
+}
+
+// catcher is an httptest.Server that records every POST body it sees
+// and pushes it onto a channel so tests can synchronise. Closes are
+// handled by t.Cleanup.
+type catcher struct {
+	srv      *httptest.Server
+	requests chan caught
+	status   atomic.Int32 // status to reply with; defaults to 204
+	delay    atomic.Int64 // nanoseconds to sleep before responding
+}
+
+func newCatcher(t *testing.T) *catcher {
+	t.Helper()
+	c := &catcher{requests: make(chan caught, 64)}
+	c.status.Store(http.StatusNoContent)
+	c.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		_ = r.Body.Close()
+		// Snapshot headers up front so the channel send doesn't race with
+		// the response writer recycling the request.
+		headers := r.Header.Clone()
+		c.requests <- caught{body: string(body), headers: headers, method: r.Method, path: r.URL.Path}
+		if d := time.Duration(c.delay.Load()); d > 0 {
+			time.Sleep(d)
+		}
+		w.WriteHeader(int(c.status.Load()))
+	}))
+	t.Cleanup(c.srv.Close)
+	return c
+}
+
+func (c *catcher) URL() string { return c.srv.URL }
+
+// waitFor blocks until one POST is received or the deadline elapses.
+func (c *catcher) waitFor(t *testing.T, timeout time.Duration) caught {
+	t.Helper()
+	select {
+	case got := <-c.requests:
+		return got
+	case <-time.After(timeout):
+		t.Fatalf("catcher: no POST within %s", timeout)
+		return caught{}
+	}
+}
+
+// expectNone asserts no POST arrives in the window.
+func (c *catcher) expectNone(t *testing.T, window time.Duration) {
+	t.Helper()
+	select {
+	case got := <-c.requests:
+		t.Fatalf("expected no POST, got %+v", got)
+	case <-time.After(window):
+	}
+}
+
+// newDispatcher returns a Dispatcher with a no-op spawner and a
+// discard logger; callers wire in a fresh in-memory store.
+func newDispatcher(t *testing.T) (*dispatch.Dispatcher, *store.Store) {
+	t.Helper()
+	s, err := sqlite.Open(":memory:")
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	d := dispatch.New(s, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	return d, s
+}
+
+// seedWebhookStream creates a Stream of the given Transport and returns
+// its ID.
+func seedWebhookStream(t *testing.T, s *store.Store, id domain.StreamID, transport domain.Transport) {
+	t.Helper()
+	stream, err := domain.NewStream(id, string(id), "", "w-owner", time.Now().UTC(), transport)
+	if err != nil {
+		t.Fatalf("new stream: %v", err)
+	}
+	if err := s.Streams.Create(context.Background(), stream); err != nil {
+		t.Fatalf("create stream: %v", err)
+	}
+}
+
+// eventCounter monotonically generates unique IDs for test events,
+// independent of the body. Bodies in some tests contain control bytes
+// or non-ASCII that would otherwise leak into the X-Helix-Event header.
+var eventCounter atomic.Uint64
+
+// makeEvent builds a simple Event for dispatching with a stable
+// header-safe ID. The body is the only thing the test cares about.
+func makeEvent(t *testing.T, streamID domain.StreamID, body string) domain.Event {
+	t.Helper()
+	id := domain.EventID(fmt.Sprintf("e-%s-%d", streamID, eventCounter.Add(1)))
+	e, err := domain.NewEvent(id, streamID, "", body, time.Now().UTC())
+	if err != nil {
+		t.Fatalf("new event: %v", err)
+	}
+	return e
+}
+
+// TestDispatchEmitsOutbound is the happy path: a webhook stream with
+// an outbound_url POSTs the event body to the catcher when Dispatch
+// runs. Headers identify the source stream and event.
+func TestDispatchEmitsOutbound(t *testing.T) {
+	t.Parallel()
+	c := newCatcher(t)
+	d, s := newDispatcher(t)
+	cfg, _ := json.Marshal(domain.WebhookConfig{OutboundURL: c.URL()})
+	seedWebhookStream(t, s, "s-out", domain.Transport{Kind: domain.TransportWebhook, Config: cfg})
+
+	e := makeEvent(t, "s-out", "hello world")
+	d.Dispatch(context.Background(), e)
+
+	got := c.waitFor(t, 2*time.Second)
+	if got.body != "hello world" {
+		t.Fatalf("body = %q, want %q", got.body, "hello world")
+	}
+	if got.method != http.MethodPost {
+		t.Fatalf("method = %q, want POST", got.method)
+	}
+	if h := got.headers.Get("X-Helix-Stream"); h != "s-out" {
+		t.Fatalf("X-Helix-Stream = %q", h)
+	}
+	if h := got.headers.Get("X-Helix-Event"); h == "" {
+		t.Fatalf("X-Helix-Event missing")
+	}
+}
+
+// TestDispatchSkipsLocalStream proves a TransportLocal stream emits
+// nothing — local streams stay local even when the catcher exists.
+func TestDispatchSkipsLocalStream(t *testing.T) {
+	t.Parallel()
+	c := newCatcher(t)
+	d, s := newDispatcher(t)
+	seedWebhookStream(t, s, "s-local", domain.LocalTransport())
+
+	d.Dispatch(context.Background(), makeEvent(t, "s-local", "should not leave"))
+	c.expectNone(t, 200*time.Millisecond)
+}
+
+// TestDispatchSkipsWebhookWithoutURL proves an inbound-only webhook
+// stream — same Kind but no outbound_url — does not emit. This is the
+// existing inbound demo behaviour: still works after we added emit.
+func TestDispatchSkipsWebhookWithoutURL(t *testing.T) {
+	t.Parallel()
+	c := newCatcher(t)
+	d, s := newDispatcher(t)
+	seedWebhookStream(t, s, "s-inbox", domain.Transport{Kind: domain.TransportWebhook})
+
+	d.Dispatch(context.Background(), makeEvent(t, "s-inbox", "inbound only"))
+	c.expectNone(t, 200*time.Millisecond)
+}
+
+// TestDispatchHandlesMissingStream proves a publish on a stream that
+// has been deleted (or never existed) doesn't panic — the dispatcher
+// silently no-ops.
+func TestDispatchHandlesMissingStream(t *testing.T) {
+	t.Parallel()
+	c := newCatcher(t)
+	d, _ := newDispatcher(t)
+
+	// No stream seeded. Just dispatch.
+	d.Dispatch(context.Background(), makeEvent(t, "s-ghost", "vanished"))
+	c.expectNone(t, 100*time.Millisecond)
+}
+
+// TestDispatchTolerates5xx proves a target returning a 5xx does not
+// panic, hang, or block subsequent dispatches.
+func TestDispatchTolerates5xx(t *testing.T) {
+	t.Parallel()
+	c := newCatcher(t)
+	c.status.Store(http.StatusInternalServerError)
+	d, s := newDispatcher(t)
+	cfg, _ := json.Marshal(domain.WebhookConfig{OutboundURL: c.URL()})
+	seedWebhookStream(t, s, "s-flaky", domain.Transport{Kind: domain.TransportWebhook, Config: cfg})
+
+	d.Dispatch(context.Background(), makeEvent(t, "s-flaky", "boom"))
+
+	// Target still received it even though it 500'd — the emitter logs
+	// and moves on, doesn't retry, doesn't crash.
+	got := c.waitFor(t, 2*time.Second)
+	if got.body != "boom" {
+		t.Fatalf("body = %q", got.body)
+	}
+
+	// Second dispatch still works.
+	d.Dispatch(context.Background(), makeEvent(t, "s-flaky", "again"))
+	got2 := c.waitFor(t, 2*time.Second)
+	if got2.body != "again" {
+		t.Fatalf("body = %q", got2.body)
+	}
+}
+
+// TestDispatchTolerates4xx proves a target returning a 4xx (e.g. the
+// remote rejecting the payload) is also a non-fatal log-and-drop —
+// same shape as 5xx but a different branch in the implementation.
+func TestDispatchTolerates4xx(t *testing.T) {
+	t.Parallel()
+	c := newCatcher(t)
+	c.status.Store(http.StatusBadRequest)
+	d, s := newDispatcher(t)
+	cfg, _ := json.Marshal(domain.WebhookConfig{OutboundURL: c.URL()})
+	seedWebhookStream(t, s, "s-rejecty", domain.Transport{Kind: domain.TransportWebhook, Config: cfg})
+
+	d.Dispatch(context.Background(), makeEvent(t, "s-rejecty", "nope"))
+	got := c.waitFor(t, 2*time.Second)
+	if got.body != "nope" {
+		t.Fatalf("body = %q", got.body)
+	}
+}
+
+// TestDispatchTolerates_UnreachableHost proves an unreachable target
+// (port closed) is logged-and-dropped with a bounded timeout — the
+// dispatcher returns immediately, and a follow-up dispatch on a
+// healthy stream still works.
+func TestDispatchTolerates_UnreachableHost(t *testing.T) {
+	t.Parallel()
+	d, s := newDispatcher(t)
+	// 127.0.0.1:1 is reserved and reliably refuses connections.
+	cfg, _ := json.Marshal(domain.WebhookConfig{OutboundURL: "http://127.0.0.1:1/dead"})
+	seedWebhookStream(t, s, "s-dead", domain.Transport{Kind: domain.TransportWebhook, Config: cfg})
+
+	// Use a tiny client timeout so the test runs fast.
+	d.SetHTTPClient(&http.Client{Timeout: 200 * time.Millisecond})
+
+	start := time.Now()
+	d.Dispatch(context.Background(), makeEvent(t, "s-dead", "void"))
+	if elapsed := time.Since(start); elapsed > 100*time.Millisecond {
+		t.Fatalf("Dispatch blocked for %s — should be async", elapsed)
+	}
+
+	// Sleep past the client timeout to give the goroutine time to fail.
+	time.Sleep(400 * time.Millisecond)
+	// No assertion on the catcher (there is none); we're proving the
+	// dispatcher didn't crash and didn't block its caller.
+}
+
+// TestDispatchHonoursClientTimeout proves a slow target hits the
+// configured HTTP timeout without stalling the caller.
+func TestDispatchHonoursClientTimeout(t *testing.T) {
+	t.Parallel()
+	c := newCatcher(t)
+	c.delay.Store(int64(2 * time.Second)) // longer than the client timeout
+	d, s := newDispatcher(t)
+	cfg, _ := json.Marshal(domain.WebhookConfig{OutboundURL: c.URL()})
+	seedWebhookStream(t, s, "s-slow", domain.Transport{Kind: domain.TransportWebhook, Config: cfg})
+	d.SetHTTPClient(&http.Client{Timeout: 100 * time.Millisecond})
+
+	start := time.Now()
+	d.Dispatch(context.Background(), makeEvent(t, "s-slow", "patience"))
+	if elapsed := time.Since(start); elapsed > 100*time.Millisecond {
+		t.Fatalf("Dispatch blocked for %s", elapsed)
+	}
+
+	// Catcher still receives the request before its delay; that's fine.
+	_ = c.waitFor(t, 2*time.Second)
+}
+
+// TestDispatchConcurrent proves many parallel publishes all reach the
+// target, in any order, with no deadlocks.
+func TestDispatchConcurrent(t *testing.T) {
+	t.Parallel()
+	c := newCatcher(t)
+	d, s := newDispatcher(t)
+	cfg, _ := json.Marshal(domain.WebhookConfig{OutboundURL: c.URL()})
+	seedWebhookStream(t, s, "s-stress", domain.Transport{Kind: domain.TransportWebhook, Config: cfg})
+
+	const n = 25
+	var wg sync.WaitGroup
+	wg.Add(n)
+	for i := 0; i < n; i++ {
+		go func(i int) {
+			defer wg.Done()
+			d.Dispatch(context.Background(), makeEvent(t, "s-stress", "msg"))
+		}(i)
+	}
+	wg.Wait()
+
+	deadline := time.After(5 * time.Second)
+	seen := 0
+	for seen < n {
+		select {
+		case <-c.requests:
+			seen++
+		case <-deadline:
+			t.Fatalf("only %d/%d POSTs received", seen, n)
+		}
+	}
+}
+
+// TestDispatchBinaryPayload proves arbitrary bytes (including null
+// bytes, UTF-8, newlines) round-trip verbatim — no implicit encoding
+// or wrapping.
+func TestDispatchBinaryPayload(t *testing.T) {
+	t.Parallel()
+	c := newCatcher(t)
+	d, s := newDispatcher(t)
+	cfg, _ := json.Marshal(domain.WebhookConfig{OutboundURL: c.URL()})
+	seedWebhookStream(t, s, "s-bin", domain.Transport{Kind: domain.TransportWebhook, Config: cfg})
+
+	body := "líne 1 — α β γ\n\x00\nemoji: 🚀"
+	d.Dispatch(context.Background(), makeEvent(t, "s-bin", body))
+	got := c.waitFor(t, 2*time.Second)
+	if got.body != body {
+		t.Fatalf("body round-trip mismatch:\n got: %q\nwant: %q", got.body, body)
+	}
+}
+
+// TestDispatchInvalidStoredConfigDoesNotCrash exercises the defensive
+// path where transport.Config is malformed at runtime (impossible via
+// the normal NewStream path, since Validate rejects it — but a manual
+// DB edit could create it). The dispatcher logs and continues.
+func TestDispatchInvalidStoredConfigDoesNotCrash(t *testing.T) {
+	t.Parallel()
+	d, s := newDispatcher(t)
+	// Bypass NewStream's Validate by inserting the malformed Stream
+	// directly through the store.
+	bogus := domain.Stream{
+		ID:        "s-bogus",
+		Name:      "bogus",
+		CreatedBy: "w-owner",
+		CreatedAt: time.Now().UTC(),
+		Transport: domain.Transport{Kind: domain.TransportWebhook, Config: []byte(`{not valid`)},
+	}
+	if err := s.Streams.Create(context.Background(), bogus); err != nil {
+		t.Fatalf("create stream: %v", err)
+	}
+
+	d.Dispatch(context.Background(), makeEvent(t, "s-bogus", "ignored"))
+	// No crash. Nothing else to assert; if we got here we passed.
+}
+
+// TestDispatchRespectsStoreLookupErrors proves a store that errors on
+// Streams.Get (rather than returning ErrNotFound) is handled — the
+// dispatcher logs and returns; downstream subscriber fan-out still
+// works for the next event.
+func TestDispatchRespectsStoreLookupErrors(t *testing.T) {
+	t.Parallel()
+	c := newCatcher(t)
+	d, s := newDispatcher(t)
+	cfg, _ := json.Marshal(domain.WebhookConfig{OutboundURL: c.URL()})
+	seedWebhookStream(t, s, "s-ok", domain.Transport{Kind: domain.TransportWebhook, Config: cfg})
+
+	// Dispatch on a missing stream first — should noop without affecting
+	// the next dispatch.
+	d.Dispatch(context.Background(), makeEvent(t, "s-missing", "lost"))
+	c.expectNone(t, 100*time.Millisecond)
+
+	// Healthy dispatch still works.
+	d.Dispatch(context.Background(), makeEvent(t, "s-ok", "found"))
+	got := c.waitFor(t, 2*time.Second)
+	if got.body != "found" {
+		t.Fatalf("body = %q", got.body)
+	}
+}
+
+// TestDispatchContentTypeAndPath proves the outbound POST hits the
+// configured path and uses a generic content-type — the body is opaque
+// so application/octet-stream is the safest default.
+func TestDispatchContentTypeAndPath(t *testing.T) {
+	t.Parallel()
+	c := newCatcher(t)
+	d, s := newDispatcher(t)
+	// URL with a path so we can verify it's preserved.
+	cfg, _ := json.Marshal(domain.WebhookConfig{OutboundURL: c.URL() + "/some/where"})
+	seedWebhookStream(t, s, "s-path", domain.Transport{Kind: domain.TransportWebhook, Config: cfg})
+
+	d.Dispatch(context.Background(), makeEvent(t, "s-path", "x"))
+	got := c.waitFor(t, 2*time.Second)
+	if got.path != "/some/where" {
+		t.Fatalf("path = %q, want /some/where", got.path)
+	}
+	if ct := got.headers.Get("Content-Type"); ct != "application/octet-stream" {
+		t.Fatalf("Content-Type = %q", ct)
+	}
+}

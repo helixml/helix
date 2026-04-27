@@ -3,8 +3,10 @@ package server_test
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -13,6 +15,7 @@ import (
 	"time"
 
 	"github.com/helixml/helix-org/broadcast"
+	"github.com/helixml/helix-org/dispatch"
 	"github.com/helixml/helix-org/domain"
 	"github.com/helixml/helix-org/server"
 	"github.com/helixml/helix-org/store"
@@ -356,5 +359,65 @@ func TestWebhookDoesNotLeakAcrossStreams(t *testing.T) {
 	}
 	if len(otherEvents) != 0 {
 		t.Fatalf("other events = %d, want 0 (no leakage)", len(otherEvents))
+	}
+}
+
+// TestWebhookBridgesInboundToOutbound wires the real dispatcher
+// (rather than the test-only recordingDispatcher) and proves the full
+// chain: an external POST to /webhooks/<streamID> triggers an
+// outbound POST to the configured catcher when the same Stream has
+// both inbound and outbound configured. This is the bidirectional
+// case end-to-end.
+func TestWebhookBridgesInboundToOutbound(t *testing.T) {
+	t.Parallel()
+	// Outbound catcher.
+	caught := make(chan string, 1)
+	catcher := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		_ = r.Body.Close()
+		caught <- string(body)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	t.Cleanup(catcher.Close)
+
+	// Real store + real dispatcher (with nil spawner, so subscriber
+	// fan-out is a no-op but emit still runs).
+	st, err := sqlite.Open(":memory:")
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	d := dispatch.New(st, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	srv := httptest.NewServer(server.New(st, tools.NewRegistry(), broadcast.New(), d, nil).Handler())
+	t.Cleanup(srv.Close)
+
+	// Stream is both inbound (kind == webhook, accepts POSTs) and
+	// outbound (config has outbound_url) at once.
+	cfg, _ := json.Marshal(domain.WebhookConfig{OutboundURL: catcher.URL})
+	stream, err := domain.NewStream("s-bridge", "bridge", "", "w-owner", time.Now().UTC(),
+		domain.Transport{Kind: domain.TransportWebhook, Config: cfg})
+	if err != nil {
+		t.Fatalf("new stream: %v", err)
+	}
+	if err := st.Streams.Create(context.Background(), stream); err != nil {
+		t.Fatalf("create stream: %v", err)
+	}
+
+	body := "round-trip text"
+	resp, err := http.Post(srv.URL+"/webhooks/s-bridge", "text/plain", strings.NewReader(body))
+	if err != nil {
+		t.Fatalf("POST: %v", err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("inbound status = %d", resp.StatusCode)
+	}
+
+	select {
+	case got := <-caught:
+		if got != body {
+			t.Fatalf("outbound body = %q, want %q", got, body)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatalf("catcher never received outbound POST")
 	}
 }
