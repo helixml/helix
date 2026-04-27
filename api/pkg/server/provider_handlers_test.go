@@ -353,6 +353,77 @@ func (s *ProviderHandlersSuite) TestCreateProviderEndpoint_WarmsCacheAndMasksAPI
 	}
 }
 
+// When a custom endpoint has a static Models list and upstream /v1/models
+// errors (e.g. the upstream doesn't implement that route), getProviderModels
+// must synthesize entries from Models so the picker is non-empty and chat
+// completions routing can find the model.
+func (s *ProviderHandlersSuite) TestGetProviderModels_SynthesizesFromStaticListOnError() {
+	endpoint := &types.ProviderEndpoint{
+		Name:    "hermes",
+		Owner:   "user_id",
+		BaseURL: "http://hermes.local",
+		Models:  []string{"hermes-agent"},
+	}
+
+	s.manager.EXPECT().GetClient(gomock.Any(), &manager.GetClientRequest{
+		Provider: "hermes",
+		Owner:    "user_id",
+	}).Return(s.openAiClient, nil)
+
+	s.openAiClient.EXPECT().ListModels(gomock.Any()).Return(nil, errors.New("404 not found"))
+	s.modelInfoProvider.EXPECT().GetModelInfo(gomock.Any(), gomock.Any()).Return(nil, errors.New("not found"))
+
+	models, err := s.server.getProviderModels(context.Background(), endpoint)
+	s.Require().NoError(err)
+	s.Require().Len(models, 1)
+	s.Equal("hermes-agent", models[0].ID)
+	s.Equal("chat", models[0].Type)
+	s.True(models[0].Enabled)
+	s.Equal("hermes", models[0].OwnedBy)
+}
+
+// Upstream returning an empty list with a static Models list configured should
+// also fall back to the synthesized list (some endpoints answer /v1/models with
+// `{"data":[]}`).
+func (s *ProviderHandlersSuite) TestGetProviderModels_SynthesizesFromStaticListOnEmptyUpstream() {
+	endpoint := &types.ProviderEndpoint{
+		Name:    "hermes",
+		Owner:   "user_id_2",
+		BaseURL: "http://hermes-empty.local",
+		Models:  []string{"hermes-agent", "hermes-mini"},
+	}
+
+	s.manager.EXPECT().GetClient(gomock.Any(), gomock.Any()).Return(s.openAiClient, nil)
+	s.openAiClient.EXPECT().ListModels(gomock.Any()).Return([]types.OpenAIModel{}, nil)
+	s.modelInfoProvider.EXPECT().GetModelInfo(gomock.Any(), gomock.Any()).Return(nil, errors.New("not found")).Times(2)
+
+	models, err := s.server.getProviderModels(context.Background(), endpoint)
+	s.Require().NoError(err)
+	s.Require().Len(models, 2)
+	s.Equal("hermes-agent", models[0].ID)
+	s.Equal("hermes-mini", models[1].ID)
+	for _, m := range models {
+		s.Equal("chat", m.Type)
+		s.True(m.Enabled)
+	}
+}
+
+// When upstream errors AND no static Models list is set, the call still errors
+// (no behaviour change for non-static endpoints).
+func (s *ProviderHandlersSuite) TestGetProviderModels_ErrorsWhenNoStaticListAndUpstreamFails() {
+	endpoint := &types.ProviderEndpoint{
+		Name:    "broken",
+		Owner:   "user_id_3",
+		BaseURL: "http://broken.local",
+	}
+
+	s.manager.EXPECT().GetClient(gomock.Any(), gomock.Any()).Return(s.openAiClient, nil)
+	s.openAiClient.EXPECT().ListModels(gomock.Any()).Return(nil, errors.New("connection refused"))
+
+	_, err := s.server.getProviderModels(context.Background(), endpoint)
+	s.Require().Error(err)
+}
+
 func (s *ProviderHandlersSuite) TestUpdateProviderEndpoint_SwitchUserToGlobal() {
 	s.server.Cfg.Providers.EnableCustomUserProviders = true
 	endpointID := "ep_123"

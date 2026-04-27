@@ -120,19 +120,58 @@ const InferenceTextField: FC<{
       }
     }
 
+    const attachImageFile = (file: File) => {
+      const reader = new FileReader()
+      reader.onloadend = () => {
+        setSelectedImage(reader.result as string)
+        setSelectedImageName(file.name)
+        if (onAttachedImagesChange) {
+          onAttachedImagesChange([...attachedImages, file])
+        }
+      }
+      reader.readAsDataURL(file)
+    }
+
     const handleImageFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
       const file = event.target.files?.[0]
       if (file) {
-        const reader = new FileReader()
-        reader.onloadend = () => {
-          setSelectedImage(reader.result as string)
-          setSelectedImageName(file.name)
-          if (onAttachedImagesChange) {
-            onAttachedImagesChange([...attachedImages, file])
-          }
-        }
-        reader.readAsDataURL(file)
+        attachImageFile(file)
       }
+    }
+
+    // Intercept Cmd+V / Ctrl+V image pastes from the clipboard (e.g. screenshot
+    // copies on macOS, "Copy image" from another browser tab) and attach them
+    // the same way the file picker does. We only swallow the paste when the
+    // clipboard actually contains an image — text pastes still fall through.
+    const handlePaste = (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
+      if (!onAttachedImagesChange) return
+      const items = event.clipboardData?.items
+      if (!items || items.length === 0) return
+
+      const imageFiles: File[] = []
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i]
+        if (item.kind !== 'file') continue
+        if (!item.type.startsWith('image/')) continue
+        const file = item.getAsFile()
+        if (file) imageFiles.push(file)
+      }
+
+      if (imageFiles.length === 0) return
+
+      event.preventDefault()
+      const next = [...attachedImages, ...imageFiles]
+      onAttachedImagesChange(next)
+
+      // Update the preview to show the most recently pasted image so the user
+      // gets immediate feedback that the paste landed.
+      const last = imageFiles[imageFiles.length - 1]
+      const reader = new FileReader()
+      reader.onloadend = () => {
+        setSelectedImage(reader.result as string)
+        setSelectedImageName(last.name || `pasted-image-${Date.now()}.png`)
+      }
+      reader.readAsDataURL(last)
     }
 
     const usePromptLabel = promptLabel || PROMPT_LABELS[type]
@@ -180,6 +219,7 @@ const InferenceTextField: FC<{
               value={value}
               onChange={handleTextareaChange}
               onKeyDown={handleKeyDown as any}
+              onPaste={handlePaste}
               rows={1}
               style={{
                 width: '100%',
@@ -224,10 +264,62 @@ const InferenceTextField: FC<{
                   <AttachFileIcon sx={{ color: 'rgba(255, 255, 255, 0.7)', fontSize: '20px' }} />
                 </Box>
               </Tooltip>
-              {selectedImageName && (
-                <Typography sx={{ color: 'rgba(255, 255, 255, 0.7)', fontSize: '0.8rem', ml: 0.5, maxWidth: '100px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {selectedImageName}
-                </Typography>
+              {selectedImage && (
+                <Box
+                  sx={{
+                    position: 'relative',
+                    ml: 0.5,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 0.75,
+                  }}
+                >
+                  <Tooltip title={selectedImageName || 'Attached image'} placement="top">
+                    <Box
+                      component="img"
+                      src={selectedImage}
+                      alt={selectedImageName || 'Attached image'}
+                      sx={{
+                        width: 36,
+                        height: 36,
+                        objectFit: 'cover',
+                        borderRadius: '6px',
+                        border: '1px solid rgba(255, 255, 255, 0.2)',
+                      }}
+                    />
+                  </Tooltip>
+                  <Typography sx={{ color: 'rgba(255, 255, 255, 0.7)', fontSize: '0.8rem', maxWidth: '120px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {selectedImageName}
+                  </Typography>
+                  <Box
+                    role="button"
+                    aria-label="Remove attached image"
+                    onClick={() => {
+                      setSelectedImage(null)
+                      setSelectedImageName(null)
+                      if (imageInputRef.current) imageInputRef.current.value = ''
+                      if (onAttachedImagesChange) onAttachedImagesChange([])
+                    }}
+                    sx={{
+                      width: 18,
+                      height: 18,
+                      borderRadius: '50%',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      cursor: 'pointer',
+                      fontSize: '12px',
+                      color: 'rgba(255, 255, 255, 0.7)',
+                      border: '1px solid rgba(255, 255, 255, 0.3)',
+                      '&:hover': {
+                        color: 'rgba(255, 255, 255, 1)',
+                        borderColor: 'rgba(255, 255, 255, 0.6)',
+                      },
+                    }}
+                  >
+                    ×
+                  </Box>
+                </Box>
               )}
               <input
                 type="file"

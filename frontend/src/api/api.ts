@@ -4622,6 +4622,12 @@ export interface TypesServerConfigForFrontend {
   auth_provider?: TypesAuthProvider;
   /** Charging for usage */
   billing_enabled?: boolean;
+  /**
+   * DefaultChatSystemPrompt is the system prompt the platform applies to
+   * direct model chats when the user has not customised one. Surfaced to
+   * the frontend so the chat-settings page can prefill the textbox.
+   */
+  default_chat_system_prompt?: string;
   deployment_id?: string;
   disable_llm_call_logging?: boolean;
   /** "mac-desktop", "server", "cloud", etc. */
@@ -6028,6 +6034,22 @@ export interface TypesUpdateProviderEndpoint {
 
 export interface TypesUpdateTeamRequest {
   name?: string;
+}
+
+export interface TypesUserChatSettings {
+  frequency_penalty?: number;
+  max_tokens?: number;
+  presence_penalty?: number;
+  system_prompt?: string;
+  /**
+   * SystemPromptEnabled toggles whether any system prompt at all is sent
+   * to the model. Pointer so nil means "not set" and we fall back to the
+   * default-on behaviour. When explicitly false, no system prompt is sent
+   * regardless of SystemPrompt.
+   */
+  system_prompt_enabled?: boolean;
+  temperature?: number;
+  top_p?: number;
 }
 
 export interface TypesUpdateUserGuidelinesRequest {
@@ -13836,6 +13858,44 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/users/me/guidelines-history`,
         method: "GET",
         secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Get the current user's default chat settings (applied when chatting without an app)
+     *
+     * @tags Users
+     * @name V1UsersMeChatSettingsList
+     * @summary Get user chat settings
+     * @request GET:/api/v1/users/me/chat-settings
+     * @secure
+     */
+    v1UsersMeChatSettingsList: (params: RequestParams = {}) =>
+      this.request<TypesUserChatSettings, SystemHTTPError>({
+        path: `/api/v1/users/me/chat-settings`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Update the current user's default chat settings
+     *
+     * @tags Users
+     * @name V1UsersMeChatSettingsUpdate
+     * @summary Update user chat settings
+     * @request PUT:/api/v1/users/me/chat-settings
+     * @secure
+     */
+    v1UsersMeChatSettingsUpdate: (request: TypesUserChatSettings, params: RequestParams = {}) =>
+      this.request<TypesUserChatSettings, SystemHTTPError>({
+        path: `/api/v1/users/me/chat-settings`,
+        method: "PUT",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
         format: "json",
         ...params,
       }),
