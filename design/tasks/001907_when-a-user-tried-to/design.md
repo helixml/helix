@@ -83,3 +83,10 @@ No new dependencies, no API changes, no config changes.
 - Manual end-to-end test confirmed: spun up a fake provider on port 9878 returning HTTP 401 with `text/plain` body `"Unauthorized: Invalid API Key"`, registered it via `/api/v1/provider-endpoints`, then called `/v1/models?provider=fake-nvidia-401`. Got the new error: `failed to get models from '...' provider: 401 Unauthorized - Unauthorized: Invalid API Key`. See `screenshots/manual-test-output.txt`.
 - The `renameReasoningField` function already had a `jsonStr[0] != '{'` guard, but the wrapper still appended `\n` and went through `bufio.Scanner` (1MB line cap). Skipping the wrap entirely is cleaner than trying to make it resilient — error bodies don't need any transformation.
 - Pattern note: `listAnthropicModels()` in `openai_client_anthropic.go:65` already includes the body in error messages — `listOpenAIModels()` was the outlier and now matches.
+
+### UI surfacing (added after manual testing)
+
+- The backend fix corrected the `error` field on `/api/v1/provider-endpoints?with_models=true`, but the existing Providers page (`frontend/src/pages/Providers.tsx`) was calling it with `with_models=false` AND wasn't rendering the field — so misconfigured providers showed up as a green "Connected" tile with no indication anything was wrong. End users would never see the corrected error text without digging through API logs.
+- Fix: switch the page's `useListProviders` call to `loadModels: true` and render a red MUI `Alert` plus a red "Fix Connection" button on any tile whose endpoint has `status === 'error'`. Applies to both predefined providers (OpenAI/Anthropic/etc.) and custom endpoints.
+- Visual confirmation in `screenshots/03-error-tile-closeup.png`: the broken `ui-demo-nvidia` tile now shows the full upstream message ("401 Unauthorized - Unauthorized: Invalid API Key") and a clear call-to-action.
+- Note: `useListProviders` already supported `loadModels: true` — no service-layer changes needed. The `error` and `status` fields were already on `TypesProviderEndpoint`.

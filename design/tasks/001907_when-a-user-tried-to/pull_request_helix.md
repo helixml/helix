@@ -16,12 +16,21 @@ failed to get models from '...' provider: 401 Unauthorized - Unauthorized: Inval
 
 ## Changes
 
+**Backend (root-cause fix):**
 - `api/pkg/openai/openai_client.go` — `openAIClientInterceptor.Do()`: only wrap response bodies in `reasoningFieldMapper` for 2xx status codes. Error bodies pass through unmodified so go-openai can surface them to the caller.
 - `api/pkg/openai/openai_client.go` — `listOpenAIModels()`: include the response body text in the non-200 error message (matches the pattern already used by `listAnthropicModels()`).
 - `api/pkg/openai/openai_client_test.go` — three new tests:
   - `TestInterceptor_NonJSON401BodyPassesThrough`
   - `TestInterceptor_2xxBodyIsWrapped`
   - `TestListModels_NonJSON401_IncludesUpstreamBody`
+
+**Frontend (so end users actually see the fixed error):**
+- `frontend/src/pages/Providers.tsx` — load endpoints with `with_models=true` so `status` and `error` populate; render a red Alert with the upstream error message and a red "Fix Connection" button on tiles where `status === 'error'`. Applies to both predefined providers and custom OpenAI-compatible endpoints.
+
+## Screenshots
+
+Broken provider tile after the fix (NVIDIA NIM with a wrong API key):
+![Provider tile with error](https://github.com/helixml/helix/raw/helix-specs/design/tasks/001907_when-a-user-tried-to/screenshots/03-error-tile-closeup.png)
 
 ## Test plan
 
