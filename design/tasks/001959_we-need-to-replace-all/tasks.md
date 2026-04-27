@@ -2,7 +2,7 @@
 
 ## Spike (do first, may invalidate parts of the design)
 
-- [ ] Confirm GPU passthrough into nested dockerd works (`--gpus all` on outer + nvidia-container-toolkit in inner image). **Use a tiny model** — the dev hardware is a single 16 GB GPU shared with desktop workloads, so the user's full sample compose (8 GPUs, ~700 GB total VRAM) is irrelevant for derisking. Pick something like `Qwen/Qwen2.5-0.5B-Instruct` on vLLM with `--gpu-memory-utilization 0.2 --max-model-len 4096` on `device_ids: ["0"]`. The spike is "does the GPU show up inside the inner container and produce one valid completion?" — nothing more. If GPU passthrough doesn't work, revisit Decision 1 in `design.md` before any other implementation. Save the working tiny-spike compose as `design/sample-profiles/dev-spike-tiny.yaml` so future agents on similar hardware can re-run it.
+- [ ] **BLOCKED — needs GPU host.** Confirm GPU passthrough into nested dockerd works (`--gpus all` on outer + nvidia-container-toolkit in inner image). **Use a tiny model** — the dev hardware is a single 16 GB GPU shared with desktop workloads, so the user's full sample compose (8 GPUs, ~700 GB total VRAM) is irrelevant for derisking. Pick something like `Qwen/Qwen2.5-0.5B-Instruct` on vLLM with `--gpu-memory-utilization 0.2 --max-model-len 4096` on `device_ids: ["0"]`. The spike is "does the GPU show up inside the inner container and produce one valid completion?" — nothing more. If GPU passthrough doesn't work, revisit Decision 1 in `design.md` before any other implementation. Save the working tiny-spike compose as `design/sample-profiles/dev-spike-tiny.yaml` so future agents on similar hardware can re-run it.
 - [ ] Confirm the `helixml/helix` org's NATS deployment can survive removal of all slot-related subjects (no external consumers).
 
 ## Backend: Profile Storage & API
@@ -231,11 +231,11 @@ The runner is a different story: its only CGO drivers are the Ollama Go SDK impo
 
 ## Sample Profiles
 
-- [ ] Commit the user's example compose as `design/sample-profiles/8xH100-vllm.yaml` with GPU req: vendor=nvidia, architectures=[hopper], model_match=`^NVIDIA H100`, min_vram=80GB.
-- [ ] Add `design/sample-profiles/any-nvidia-blackwell-4gpu.yaml` — vendor=nvidia, architectures=[blackwell], no model_match.
-- [ ] Add `design/sample-profiles/any-nvidia-dev-single-gpu.yaml` — vendor=nvidia, no arch restriction, min_vram=24GB. (Demonstrates the permissive case.)
-- [ ] Add `design/sample-profiles/dev-spike-tiny.yaml` — single tiny model (e.g. `Qwen2.5-0.5B-Instruct`) on `device_ids: ["0"]` with `--gpu-memory-utilization 0.2`. Sized to coexist with desktop workloads on a shared 16 GB dev GPU. This is the profile the spike uses; it's also the profile any future agent should reach for when validating on similar dev hardware.
-- [ ] Add `design/sample-profiles/amd-mi300x-vllm.yaml` — vendor=amd, architectures=[cdna3], using `rocm/vllm` images. (Demonstrates the AMD path; even if we have no AMD hardware to test against right now, it documents the intent.)
+- [~] Commit the user's example compose as `design/sample-profiles/8xH100-vllm.yaml` with GPU req: vendor=nvidia, architectures=[hopper], model_match=`^NVIDIA H100`, min_vram=80GB.
+- [~] Add `design/sample-profiles/any-nvidia-blackwell-4gpu.yaml` — vendor=nvidia, architectures=[blackwell], no model_match.
+- [~] Add `design/sample-profiles/any-nvidia-dev-single-gpu.yaml` — vendor=nvidia, no arch restriction, min_vram=24GB. (Demonstrates the permissive case.)
+- [~] Add `design/sample-profiles/dev-spike-tiny.yaml` — single tiny model (e.g. `Qwen2.5-0.5B-Instruct`) on `device_ids: ["0"]` with `--gpu-memory-utilization 0.2`. Sized to coexist with desktop workloads on a shared 16 GB dev GPU. This is the profile the spike uses; it's also the profile any future agent should reach for when validating on similar dev hardware.
+- [~] Add `design/sample-profiles/amd-mi300x-vllm.yaml` — vendor=amd, architectures=[cdna3], using `rocm/vllm` images. (Demonstrates the AMD path; even if we have no AMD hardware to test against right now, it documents the intent.)
 
 ## Manual Verification (no automated coverage possible — flag as user-tested)
 
