@@ -100,6 +100,8 @@ Container names from the compose file are reachable via Docker's built-in DNS wi
 
 ### Decision 4: API Server Routing — Simple Map, Not Scheduler
 
+The internal Helix OpenAI client (`api/pkg/openai/helix_openai_client.go`) currently calls `scheduler.Enqueue(work)` (lines 305, 399) for both chat and embedding requests. We change *only* the implementation of those methods to call into the new router; the client's public interface (the `go-openai` interface implementation) is unchanged. Every in-tree caller — sessions handlers, embeddings handler, summary service, cron triggers, provider manager — keeps working without touching their imports.
+
 Replace `api/pkg/scheduler/scheduler.go` with a much smaller `api/pkg/runner/router.go`:
 
 ```go
@@ -124,6 +126,8 @@ func (r *Router) PickRunner(modelName string) (*RunnerState, error) {
 That is essentially the entire scheduling logic. The bin-packing scheduler (`scheduler.go`, `slot.go`, the global allocation decisions, the eviction logic) is deleted.
 
 **Rationale:** The user explicitly framed this as a *simplification*. If we keep any of the slot-allocation machinery "just in case", we have done the wrong thing. Operators express intent in the compose file; we obey it.
+
+**One intentional caller-visible behaviour change:** the old scheduler would queue a request for a registered-but-unloaded model and load it on demand. The new router has no concept of "load on demand" — if the model isn't in some currently-`running` profile, the request returns 503 immediately with the list of available models. This is the *only* behaviour change visible to callers of `helix_openai_client` and the OpenAI-compatible HTTP endpoints; everything else (signatures, streaming semantics, error envelopes for normal cases) is preserved.
 
 ### Decision 5: Runner ↔ API Communication — Keep NATS
 

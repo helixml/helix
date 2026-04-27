@@ -89,6 +89,26 @@ A profile satisfying *only* `vendor: nvidia` is the "any NVIDIA" case. A profile
 - [ ] All existing scheduler code (`api/pkg/scheduler/`), per-slot runtime code (`vllm_runtime.go`, `ollama_runtime.go`, slot CRUD handlers), and slot data model are removed in the same change set. We are not maintaining both systems.
 - [ ] Helix-managed model registry (`HelixModelsTable`) becomes informational-only (lists models known to be available across profiles); model loading is no longer driven from it.
 
+### AC9: Caller-Facing API Surface is Preserved
+The internal switch from scheduler-to-runners to router-to-runners must be invisible to every existing caller. Specifically:
+
+- [ ] **Internal Go OpenAI client (`api/pkg/openai/helix_openai_client.go`)** — its public method signatures (`CreateChatCompletion`, `CreateChatCompletionStream`, `CreateEmbeddings`, etc., implementing the `go-openai` interface) remain unchanged. Internally it stops calling `scheduler.Enqueue` and starts calling the new `Router`. Every existing in-tree consumer of this client keeps working without modification:
+  - `api/pkg/server/openai_chat_handlers.go` (session/agent inference)
+  - `api/pkg/server/openai_embeddings_handlers.go`
+  - `api/pkg/server/openai_model_handlers.go`
+  - `api/pkg/server/summary_service.go` (auto-titling, summarisation)
+  - `api/pkg/server/provider_handlers.go`
+  - `api/pkg/trigger/cron/` (scheduled inference)
+  - `api/pkg/openai/manager/provider_manager.go` (the "helix" provider entry)
+- [ ] **External OpenAI-compatible HTTP endpoints** continue to work with no client-side changes:
+  - `POST /v1/chat/completions` (incl. streaming)
+  - `POST /v1/embeddings`
+  - `POST /v1/images/generations` (if any profile exposes an image model)
+  - `GET  /v1/models` — returns the union of model names across all currently-`running` profiles
+- [ ] **Sessions endpoint and the full chat-session flow keep working end-to-end.** A user creating a session via `POST /api/v1/sessions`, sending messages, and receiving streamed responses must see no behavioural difference (other than the obvious: only models in some currently-assigned profile are available; previously the scheduler could load any registered model on demand).
+- [ ] **Provider selection is unchanged.** `provider_manager.go` continues to route requests for the `"helix"` provider to the in-process Helix client; other providers (OpenAI, Anthropic, Google, custom OpenAI-compatible endpoints) are untouched by this change.
+- [ ] **Error semantics for unavailable models change in one specific way:** previously, requesting an unloaded but registered model would queue and eventually load it. Now, requesting a model not in any currently-`running` profile returns HTTP 503 immediately with a list of currently-available models. This is the only intentional caller-visible behaviour change, and is documented in release notes.
+
 ## Out of Scope
 
 - **Auto-*selecting* a profile and applying it without operator action.** v1 requires the operator to click. The dropdown they pick from is *already filtered* to only profiles that fit the runner's hardware (see AC3 and AC6) — what's out of scope is the system deciding for them which of the eligible profiles to apply. A future "best fit" heuristic that pre-selects an eligible profile (e.g. the one that exposes the most models, or the one most recently used on similar hardware) can come later.
@@ -97,4 +117,4 @@ A profile satisfying *only* `vendor: nvidia` is the "any NVIDIA" case. A profile
 - **GPU resource arbitration between models.** The compose author is responsible for setting `gpu-memory-utilization` and `device_ids` correctly. We do not bin-pack.
 - **Fine-tuning workloads (Axolotl).** Out of scope for this change; if needed later, add to compose.
 - **Image generation (Diffusers).** Same — declare in compose if needed.
-- **Backwards compatibility with the old slot API.** Clients using `/api/v1/slots/...` directly will break. The user-facing OpenAI-compatible endpoint (`/v1/chat/completions`) is unchanged.
+- **Backwards compatibility with the old slot API.** Clients using `/api/v1/slots/...` directly (slot create/list/delete, per-slot proxy paths) will break — this was an internal API between the scheduler and the runner and is gone. *All caller-facing surface — the OpenAI-compatible endpoints, sessions, the internal Helix OpenAI Go client — is preserved; see AC9.*

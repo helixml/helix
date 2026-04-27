@@ -27,7 +27,9 @@
 
 - [ ] Implement `api/pkg/runner/router.go` with `PickRunner(model)` (round-robin across runners whose active profile contains the model and are in `running` state).
 - [ ] Wire `/v1/chat/completions`, `/v1/embeddings`, `/v1/images/generations` (and any other OpenAI-compatible endpoints currently routed via the scheduler) through the new router.
-- [ ] Return HTTP 503 with a list of currently-available models when no runner qualifies.
+- [ ] **Repoint `api/pkg/openai/helix_openai_client.go`** so the two `scheduler.Enqueue` call sites (lines 305 and 399 today — chat completions and embeddings) call the new router instead. Public method signatures must not change. Drop the `scheduler` import; add a router dependency to the client constructor and update wherever the client is instantiated.
+- [ ] Wire `/v1/models` to return the union of model names across all currently-`running` profiles.
+- [ ] Return HTTP 503 with a list of currently-available models when no runner qualifies. Use the same error shape from both the HTTP path and the in-process `helix_openai_client` path so callers see consistent errors.
 
 ## Backend: NATS Surface Reduction
 
@@ -85,6 +87,10 @@
 
 - [ ] Bring up a runner against a real GPU host. Assign the 8xH100 profile. Verify all five containers come up.
 - [ ] Send a chat completion for `qwen3.5-35b` to the API and confirm it routes through.
+- [ ] Send an embeddings request for `Qwen/Qwen3-VL-Embedding-8B` and confirm it routes through.
+- [ ] Create a session via `POST /api/v1/sessions`, send messages, confirm streaming responses work end-to-end (this exercises `helix_openai_client.go` → router path).
+- [ ] Trigger summary/auto-titling on a session and confirm it works (exercises `summary_service.go` → `helix_openai_client` → router).
+- [ ] Request a model that isn't in any currently-running profile; confirm HTTP 503 with the list of available models, and the same error class returned via the in-process client.
 - [ ] Switch the runner to a different profile. Verify the previous stack is torn down and the new one comes up.
 - [ ] Assign a profile that requires more GPUs than the runner has and confirm a clear error.
 - [ ] Try to assign an `vendor=amd` profile to an NVIDIA runner; confirm rejection names the failing constraint.
