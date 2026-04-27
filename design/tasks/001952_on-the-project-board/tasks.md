@@ -5,9 +5,10 @@
 - [x] ~~Apply the same derivation to any other handler that returns `SpecTask`s to the frontend (e.g. single-task GET)~~ — N/A. Only `listTasks` populates `SandboxState` today; the kanban only consumes `listTasks`. A helper `deriveAgentWorkState(task, latestInteraction)` is in place so future callers can reuse it
 - [x] Add a unit test in `api/pkg/server/` for `deriveAgentWorkState` covering: sandbox absent, sandbox starting, running + waiting interaction, running + complete interaction, running + no interaction, post-implementation status
 - [x] Run `go build ./api/pkg/server/ ./api/pkg/store/ ./api/pkg/types/` to confirm the backend still compiles
-- [~] In `frontend/src/components/tasks/TaskCard.tsx` (~line 602-605), change the `useRunningDuration` enabled predicate from `task.status === "implementation"` to `task.agent_work_state === "working"`
-- [ ] In `frontend/src/components/tasks/TaskCard.tsx` status row (~line 949-997), branch on `agent_work_state` and `SandboxState` when `task.phase === "implementation"` to choose the label (`In Progress` / `Idle` / `Sandbox stopped` / `Starting…`); fall back to `In Progress` for any unexpected state
-- [ ] Run `cd frontend && yarn build` to confirm the frontend still compiles and types line up
-- [ ] Manual test in the inner Helix at `http://localhost:8080`: register if needed, create a project, kick off a task, watch the card while the agent streams (label = `In Progress`, timer ticking), then after the agent's response completes (label = `Idle`, no timer); stop the sandbox and confirm the card label switches to `Sandbox stopped`
+- [x] In `frontend/src/components/tasks/TaskCard.tsx` (~line 602-605), change the `useRunningDuration` enabled predicate from `task.status === "implementation"` to `task.agent_work_state === "working"`
+- [x] In `frontend/src/components/tasks/TaskCard.tsx` status row (~line 949-997), branch on `agent_work_state` and `SandboxState` when `task.phase === "implementation"` to choose the label (`In Progress` / `Idle` / `Sandbox stopped` / `Starting…`); fall back to `In Progress` for any unexpected state
+- [x] Run `cd frontend && yarn build` to confirm the frontend still compiles and types line up
+- [~] Manual test in the inner Helix at `http://localhost:8080`: register if needed, create a project, kick off a task, watch the card while the agent streams (label = `In Progress`, timer ticking), then after the agent's response completes (label = `Idle`, no timer); stop the sandbox and confirm the card label switches to `Sandbox stopped`
 - [ ] Verify no regressions on cards in other phases (`planning`, `review`, `pull_request`, `completed`) — dot color, label, and absence of timer should match today
+- [ ] Write per-repo PR description and commit code branch
 - [ ] Commit and push; check Drone CI is green
