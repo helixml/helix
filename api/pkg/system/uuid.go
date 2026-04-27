@@ -47,6 +47,7 @@ const (
 	AttentionEventPrefix       = "atev_"
 	EvaluationSuitePrefix      = "evs_"
 	EvaluationRunPrefix        = "evr_"
+	RunnerProfilePrefix        = "rprof_"
 )
 
 func GenerateUUID() string {
@@ -214,4 +215,8 @@ func GenerateEvaluationSuiteID() string {
 
 func GenerateEvaluationRunID() string {
 	return fmt.Sprintf("%s%s", EvaluationRunPrefix, newID())
+}
+
+func GenerateRunnerProfileID() string {
+	return fmt.Sprintf("%s%s", RunnerProfilePrefix, newID())
 }

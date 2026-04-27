@@ -285,6 +285,20 @@ type Store interface {
 	ListSlots(ctx context.Context, runnerID string) ([]*types.RunnerSlot, error)
 	ListAllSlots(ctx context.Context) ([]*types.RunnerSlot, error)
 
+	// runner profiles (compose-based runner replacement)
+	CreateRunnerProfile(ctx context.Context, p *types.RunnerProfile) (*types.RunnerProfile, error)
+	GetRunnerProfile(ctx context.Context, id string) (*types.RunnerProfile, error)
+	GetRunnerProfileByName(ctx context.Context, name string) (*types.RunnerProfile, error)
+	UpdateRunnerProfile(ctx context.Context, p *types.RunnerProfile) (*types.RunnerProfile, error)
+	DeleteRunnerProfile(ctx context.Context, id string) error
+	ListRunnerProfiles(ctx context.Context) ([]*types.RunnerProfile, error)
+
+	// runner-to-profile assignments
+	GetRunnerAssignment(ctx context.Context, runnerID string) (*types.RunnerAssignment, error)
+	SetRunnerAssignment(ctx context.Context, a *types.RunnerAssignment) (*types.RunnerAssignment, error)
+	DeleteRunnerAssignment(ctx context.Context, runnerID string) error
+	ListRunnerAssignments(ctx context.Context) ([]*types.RunnerAssignment, error)
+
 	// step infos
 	CreateStepInfo(ctx context.Context, stepInfo *types.StepInfo) (*types.StepInfo, error)
 	ListStepInfos(ctx context.Context, query *ListStepInfosQuery) ([]*types.StepInfo, error)

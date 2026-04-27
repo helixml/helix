@@ -24,7 +24,6 @@ import (
 type MockStore struct {
 	ctrl     *gomock.Controller
 	recorder *MockStoreMockRecorder
-	isgomock struct{}
 }
 
 // MockStoreMockRecorder is the mock recorder for MockStore.
@@ -743,6 +742,21 @@ func (m *MockStore) CreateRole(ctx context.Context, role *types.Role) (*types.Ro
 func (mr *MockStoreMockRecorder) CreateRole(ctx, role any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateRole", reflect.TypeOf((*MockStore)(nil).CreateRole), ctx, role)
+}
+
+// CreateRunnerProfile mocks base method.
+func (m *MockStore) CreateRunnerProfile(ctx context.Context, p *types.RunnerProfile) (*types.RunnerProfile, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateRunnerProfile", ctx, p)
+	ret0, _ := ret[0].(*types.RunnerProfile)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CreateRunnerProfile indicates an expected call of CreateRunnerProfile.
+func (mr *MockStoreMockRecorder) CreateRunnerProfile(ctx, p any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateRunnerProfile", reflect.TypeOf((*MockStore)(nil).CreateRunnerProfile), ctx, p)
 }
 
 // CreateSampleProject mocks base method.
@@ -1600,6 +1614,34 @@ func (m *MockStore) DeleteRole(ctx context.Context, id string) error {
 func (mr *MockStoreMockRecorder) DeleteRole(ctx, id any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteRole", reflect.TypeOf((*MockStore)(nil).DeleteRole), ctx, id)
+}
+
+// DeleteRunnerAssignment mocks base method.
+func (m *MockStore) DeleteRunnerAssignment(ctx context.Context, runnerID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteRunnerAssignment", ctx, runnerID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteRunnerAssignment indicates an expected call of DeleteRunnerAssignment.
+func (mr *MockStoreMockRecorder) DeleteRunnerAssignment(ctx, runnerID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteRunnerAssignment", reflect.TypeOf((*MockStore)(nil).DeleteRunnerAssignment), ctx, runnerID)
+}
+
+// DeleteRunnerProfile mocks base method.
+func (m *MockStore) DeleteRunnerProfile(ctx context.Context, id string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteRunnerProfile", ctx, id)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteRunnerProfile indicates an expected call of DeleteRunnerProfile.
+func (mr *MockStoreMockRecorder) DeleteRunnerProfile(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteRunnerProfile", reflect.TypeOf((*MockStore)(nil).DeleteRunnerProfile), ctx, id)
 }
 
 // DeleteSampleProject mocks base method.
@@ -2941,6 +2983,51 @@ func (m *MockStore) GetRole(ctx context.Context, id string) (*types.Role, error)
 func (mr *MockStoreMockRecorder) GetRole(ctx, id any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetRole", reflect.TypeOf((*MockStore)(nil).GetRole), ctx, id)
+}
+
+// GetRunnerAssignment mocks base method.
+func (m *MockStore) GetRunnerAssignment(ctx context.Context, runnerID string) (*types.RunnerAssignment, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetRunnerAssignment", ctx, runnerID)
+	ret0, _ := ret[0].(*types.RunnerAssignment)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetRunnerAssignment indicates an expected call of GetRunnerAssignment.
+func (mr *MockStoreMockRecorder) GetRunnerAssignment(ctx, runnerID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetRunnerAssignment", reflect.TypeOf((*MockStore)(nil).GetRunnerAssignment), ctx, runnerID)
+}
+
+// GetRunnerProfile mocks base method.
+func (m *MockStore) GetRunnerProfile(ctx context.Context, id string) (*types.RunnerProfile, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetRunnerProfile", ctx, id)
+	ret0, _ := ret[0].(*types.RunnerProfile)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetRunnerProfile indicates an expected call of GetRunnerProfile.
+func (mr *MockStoreMockRecorder) GetRunnerProfile(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetRunnerProfile", reflect.TypeOf((*MockStore)(nil).GetRunnerProfile), ctx, id)
+}
+
+// GetRunnerProfileByName mocks base method.
+func (m *MockStore) GetRunnerProfileByName(ctx context.Context, name string) (*types.RunnerProfile, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetRunnerProfileByName", ctx, name)
+	ret0, _ := ret[0].(*types.RunnerProfile)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetRunnerProfileByName indicates an expected call of GetRunnerProfileByName.
+func (mr *MockStoreMockRecorder) GetRunnerProfileByName(ctx, name any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetRunnerProfileByName", reflect.TypeOf((*MockStore)(nil).GetRunnerProfileByName), ctx, name)
 }
 
 // GetSampleProject mocks base method.
@@ -4399,6 +4486,36 @@ func (mr *MockStoreMockRecorder) ListRoles(ctx, organizationID any) *gomock.Call
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListRoles", reflect.TypeOf((*MockStore)(nil).ListRoles), ctx, organizationID)
 }
 
+// ListRunnerAssignments mocks base method.
+func (m *MockStore) ListRunnerAssignments(ctx context.Context) ([]*types.RunnerAssignment, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListRunnerAssignments", ctx)
+	ret0, _ := ret[0].([]*types.RunnerAssignment)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListRunnerAssignments indicates an expected call of ListRunnerAssignments.
+func (mr *MockStoreMockRecorder) ListRunnerAssignments(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListRunnerAssignments", reflect.TypeOf((*MockStore)(nil).ListRunnerAssignments), ctx)
+}
+
+// ListRunnerProfiles mocks base method.
+func (m *MockStore) ListRunnerProfiles(ctx context.Context) ([]*types.RunnerProfile, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListRunnerProfiles", ctx)
+	ret0, _ := ret[0].([]*types.RunnerProfile)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListRunnerProfiles indicates an expected call of ListRunnerProfiles.
+func (mr *MockStoreMockRecorder) ListRunnerProfiles(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListRunnerProfiles", reflect.TypeOf((*MockStore)(nil).ListRunnerProfiles), ctx)
+}
+
 // ListSampleProjects mocks base method.
 func (m *MockStore) ListSampleProjects(ctx context.Context) ([]*types.SampleProject, error) {
 	m.ctrl.T.Helper()
@@ -4882,7 +4999,7 @@ func (mr *MockStoreMockRecorder) LookupKnowledge(ctx, q any) *gomock.Call {
 }
 
 // MarkPromptAsFailed mocks base method.
-func (m *MockStore) MarkPromptAsFailed(ctx context.Context, promptID string, errorMsg string) error {
+func (m *MockStore) MarkPromptAsFailed(ctx context.Context, promptID, errorMsg string) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "MarkPromptAsFailed", ctx, promptID, errorMsg)
 	ret0, _ := ret[0].(error)
@@ -5109,6 +5226,21 @@ func (m *MockStore) SetProjectPrimaryRepository(ctx context.Context, projectID, 
 func (mr *MockStoreMockRecorder) SetProjectPrimaryRepository(ctx, projectID, repoID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetProjectPrimaryRepository", reflect.TypeOf((*MockStore)(nil).SetProjectPrimaryRepository), ctx, projectID, repoID)
+}
+
+// SetRunnerAssignment mocks base method.
+func (m *MockStore) SetRunnerAssignment(ctx context.Context, a *types.RunnerAssignment) (*types.RunnerAssignment, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetRunnerAssignment", ctx, a)
+	ret0, _ := ret[0].(*types.RunnerAssignment)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SetRunnerAssignment indicates an expected call of SetRunnerAssignment.
+func (mr *MockStoreMockRecorder) SetRunnerAssignment(ctx, a any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetRunnerAssignment", reflect.TypeOf((*MockStore)(nil).SetRunnerAssignment), ctx, a)
 }
 
 // SpawnWorkSession mocks base method.
@@ -5664,6 +5796,21 @@ func (m *MockStore) UpdateRole(ctx context.Context, role *types.Role) (*types.Ro
 func (mr *MockStoreMockRecorder) UpdateRole(ctx, role any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateRole", reflect.TypeOf((*MockStore)(nil).UpdateRole), ctx, role)
+}
+
+// UpdateRunnerProfile mocks base method.
+func (m *MockStore) UpdateRunnerProfile(ctx context.Context, p *types.RunnerProfile) (*types.RunnerProfile, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateRunnerProfile", ctx, p)
+	ret0, _ := ret[0].(*types.RunnerProfile)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UpdateRunnerProfile indicates an expected call of UpdateRunnerProfile.
+func (mr *MockStoreMockRecorder) UpdateRunnerProfile(ctx, p any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateRunnerProfile", reflect.TypeOf((*MockStore)(nil).UpdateRunnerProfile), ctx, p)
 }
 
 // UpdateSandboxHeartbeat mocks base method.
