@@ -13,13 +13,9 @@ description: Helix ML runner chart
 type: application
 icon: https://helix.ml/logo.png
 
-# This is the chart version. This version number should be incremented each time you make changes
-# to the chart and its templates, including the app version.
-# Versions are expected to follow Semantic Versioning (https://semver.org/)
-version: 0.3.9
-
-# This is the version number of the application being deployed. This version number should be
-# incremented each time you make changes to the application. Versions are not expected to
-# follow Semantic Versioning. They should reflect the version the application is using.
-# It is recommended to use it with quotes.
-appVersion: "2.7.10"
+# version and appVersion are stamped from the release tag at CI build time by
+# scripts/render-charts.sh. This template is the only file in git; Chart.yaml
+# is generated and gitignored. Do NOT install this chart from source — use the
+# published helm repo at https://charts.helixml.tech.
+version: __VERSION__
+appVersion: "__VERSION__"

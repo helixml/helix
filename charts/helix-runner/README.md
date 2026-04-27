@@ -1,23 +1,15 @@
 # HelixML runner on k8s
 
-Once you have the control-plane running, install the runner with the following command:
-
-```bash
-helm upgrade --install helix-runner \
-  ./helix-runner -f helix-runner/values.yaml \
-  -f helix-runner/values-example.yaml
-```
+> **Do not install this chart from source.** `Chart.yaml` is generated from `Chart.yaml.tmpl` by CI at release time and is not committed to git — installing from a clone produces a chart with a sentinel version that won't match any release. Use the published Helm repository below.
 
 ## Install from repository
 
+Once you have the control-plane running:
+
 ```bash
-helm repo add helix https://charts.helixml.tech 
+helm repo add helix https://charts.helixml.tech
 helm repo update
-```
 
-Then, install the runner:
-
-```bash
 helm upgrade --install helix-runner helix/helix-runner \
   --set runner.host="<host>" \
   --set runner.token="<token>" \
@@ -25,6 +17,20 @@ helm upgrade --install helix-runner helix/helix-runner \
 ```
 
 Set `replicaCount` to the number of runner pods you want to deploy. You can also target specific GPUs, e.g. `--set nodeSelector."nvidia\.com/gpu\.product"="NVIDIA-GeForce-RTX-3090-Ti"`
+
+## Developing on the chart
+
+`Chart.yaml` is generated from `Chart.yaml.tmpl` and gitignored, so `helm lint`
+and `helm template` will fail with `Chart.yaml file is missing` on a fresh
+clone. Render it first from the repo root:
+
+```bash
+sh scripts/render-charts.sh
+helm lint charts/helix-runner
+```
+
+Without `DRONE_TAG`/`TAG_NAME`, the script stamps a sentinel version that is
+fine for lint/template iteration but will not produce a usable release.
 
 ## Multi-GPU Support
 

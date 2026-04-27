@@ -63,6 +63,10 @@ steps:
   - name: helm-lint
     image: alpine/helm:3.16.4
     commands:
+      # Render Chart.yaml from Chart.yaml.tmpl. No DRONE_TAG on push events, so
+      # the script stamps a sentinel version — fine for lint/template since the
+      # rendered output is never published from this pipeline.
+      - sh scripts/render-charts.sh
       # Fetch subchart dependencies (postgresql, common) before lint/template
       - helm dependency build charts/helix-controlplane
       # Lint all three charts with default values
@@ -81,6 +85,14 @@ steps:
       - helm template test-release charts/helix-sandbox -f charts/helix-sandbox/values-eks.yaml > /dev/null
       - helm template test-release charts/helix-sandbox -f charts/helix-sandbox/values-gke.yaml > /dev/null
       - helm template test-release charts/helix-sandbox -f charts/helix-sandbox/values-aks.yaml > /dev/null
+      # Re-render with a synthetic real-looking tag and re-lint to catch
+      # template breakage that only surfaces with a non-sentinel version
+      # (the tag-build pipeline runs render-charts.sh with DRONE_TAG and we
+      # want to fail in PR rather than mid-release if substitution breaks).
+      - DRONE_TAG=v9.9.9-rendertest sh scripts/render-charts.sh
+      - helm lint charts/helix-controlplane
+      - helm lint charts/helix-runner
+      - helm lint charts/helix-sandbox
     when:
       event:
         - push
