@@ -8,10 +8,11 @@
 ## Backend: Profile Storage & API
 
 - [x] Add `runner_profiles` and `runner_assignments` tables (migration in `api/pkg/store/`). Implementation note: project uses GORM AutoMigrate (per `api/pkg/store/migrations/README.md` — explicit SQL migrations are reserved for renames/alters), so this is just adding GORM types + registering in `postgres.go` AutoMigrate call. Types live in new file `api/pkg/types/runner_profile.go`.
-- [~] Implement `api/pkg/runner/composeparse/parse.go`: extract `ProfileModel[]` and the `Count` (union of `device_ids`) from a compose YAML string. Vendor/architecture/model-match/min-VRAM are operator inputs, not parsed.
-- [~] Unit tests for `composeparse` covering: `--served-model-name`, `--model` fallback, multi-GPU `device_ids`, `tensor-parallel-size`, services with no GPU reservation (count=0).
+- [x] Implement `api/pkg/runner/composeparse/parse.go`: extract `ProfileModel[]` and the `Count` (union of `device_ids`) from a compose YAML string. Vendor/architecture/model-match/min-VRAM are operator inputs, not parsed.
+- [x] Unit tests for `composeparse` covering: `--served-model-name`, `--model` fallback, multi-GPU `device_ids`, `tensor-parallel-size`, services with no GPU reservation (count=0). Plus AMD device passthrough, mixed-vendor rejection, flag=value syntax, string command form, sidecar services skipped, all 5 port forms, NVIDIA `count:` fallback.
+- [x] Bonus: `sample_profiles_test.go` validates the five committed `design/sample-profiles/*.yaml` parse cleanly with expected model + GPU counts.
 - [x] Implement `api/pkg/runner/gpuarch/canonical.go`: shared mapping for NVIDIA compute capability → architecture canonical string and AMD `gfx*` → architecture string. One file, used by both runner (to label its GPUs) and API server (to validate profiles). Add table-driven tests. Adds `IsNVIDIA`/`IsAMD` predicates as a side-bonus for compatibility checks.
-- [ ] Implement `api/pkg/runner/profile/store.go` (CRUD against the new tables; re-derive `Count` + `Models` on save; persist vendor/architectures/model_match/min_vram_bytes verbatim from the request).
+- [~] Implement `api/pkg/runner/profile/store.go` (CRUD against the new tables; re-derive `Count` + `Models` on save; persist vendor/architectures/model_match/min_vram_bytes verbatim from the request).
 - [ ] Add HTTP routes in `api/pkg/server/`:
   - `GET    /api/v1/runner-profiles`
   - `POST   /api/v1/runner-profiles`
