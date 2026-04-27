@@ -18,6 +18,20 @@ helm upgrade --install helix-runner helix/helix-runner \
 
 Set `replicaCount` to the number of runner pods you want to deploy. You can also target specific GPUs, e.g. `--set nodeSelector."nvidia\.com/gpu\.product"="NVIDIA-GeForce-RTX-3090-Ti"`
 
+## Developing on the chart
+
+`Chart.yaml` is generated from `Chart.yaml.tmpl` and gitignored, so `helm lint`
+and `helm template` will fail with `Chart.yaml file is missing` on a fresh
+clone. Render it first from the repo root:
+
+```bash
+sh scripts/render-charts.sh
+helm lint charts/helix-runner
+```
+
+Without `DRONE_TAG`/`TAG_NAME`, the script stamps a sentinel version that is
+fine for lint/template iteration but will not produce a usable release.
+
 ## Multi-GPU Support
 
 Each runner pod can manage multiple GPUs. Configure this with the `gpuCount` setting:

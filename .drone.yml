@@ -85,6 +85,14 @@ steps:
       - helm template test-release charts/helix-sandbox -f charts/helix-sandbox/values-eks.yaml > /dev/null
       - helm template test-release charts/helix-sandbox -f charts/helix-sandbox/values-gke.yaml > /dev/null
       - helm template test-release charts/helix-sandbox -f charts/helix-sandbox/values-aks.yaml > /dev/null
+      # Re-render with a synthetic real-looking tag and re-lint to catch
+      # template breakage that only surfaces with a non-sentinel version
+      # (the tag-build pipeline runs render-charts.sh with DRONE_TAG and we
+      # want to fail in PR rather than mid-release if substitution breaks).
+      - DRONE_TAG=v9.9.9-rendertest sh scripts/render-charts.sh
+      - helm lint charts/helix-controlplane
+      - helm lint charts/helix-runner
+      - helm lint charts/helix-sandbox
     when:
       event:
         - push

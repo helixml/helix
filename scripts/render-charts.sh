@@ -25,7 +25,7 @@ if [ -z "${VERSION}" ]; then
   echo "WARN: real installs use https://charts.helixml.tech." >&2
 fi
 
-if ! echo "${VERSION}" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+'; then
+if ! echo "${VERSION}" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$'; then
   echo "ERROR: VERSION '${VERSION}' is not valid semver" >&2
   exit 1
 fi
