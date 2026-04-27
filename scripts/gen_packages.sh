@@ -41,17 +41,9 @@ do
     # Will generate a helm package per chart in a folder
     echo "$d"
 
-    # Fetch Helm chart dependencies from OCI registries before packaging
-    # This is required for charts that reference remote dependencies (e.g., bitnami charts)
-    # without bundled .tgz files in the charts/ subdirectory.
-    #
-    # The helix-controlplane chart declares dependencies like:
-    #   - postgresql: oci://registry-1.docker.io/bitnamicharts
-    #   - common: oci://registry-1.docker.io/bitnamicharts
-    #
-    # Running `helm dependency update` downloads these from the remote registry
-    # and creates them in the chart's charts/ directory so they can be packaged
-    # together with the main chart.
+    # Fetch any Helm chart dependencies before packaging.
+    # Running `helm dependency update` downloads dependencies declared in Chart.yaml
+    # and places them in the chart's charts/ directory for packaging.
     helm dependency update "$d" || true
 
     helm package "$d"
