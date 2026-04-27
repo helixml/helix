@@ -88,3 +88,15 @@ Unchanged. The existing URL/HTTPS/duplicate-name checks already cover the preset
 - **Reuse `PROVIDERS`** rather than introducing a parallel list — single source of truth across the codebase.
 - **Preset = Custom by default** — preserves the current power-user flow (open form, type URL, done).
 - **Edit dialog out of scope** — once a record exists, the preset picker adds no value; would need a separate "did the URL match a known provider?" inference that isn't worth the complexity.
+
+## Implementation Notes
+
+- **`api_key_url` was the right call.** Parsing URLs out of the existing `setup_instructions` strings would have been brittle — a fresh optional field is one line per entry, easy to read, easy to extend. Populated for OpenAI, Anthropic, Google, NVIDIA, AWS, Groq, Cerebras, xAI, TogetherAI, Fireworks. Ollama is skipped (it has no public console — keys are local).
+- **Logo rendering.** `Provider.logo` is a union of `string | React.ComponentType`. The dialog gets a tiny helper `renderProviderLogo()` that branches: string → `<img>`, component → `<LogoComponent width={20} height={20} />`. Sized to 20×20 in the dropdown for compactness.
+- **Name-preserve rule works as intended.** If the user types `my-anthropic`, picks Anthropic preset, then picks OpenAI, the name stays `my-anthropic`. If they leave name empty, picking Anthropic fills it with `Anthropic`; picking OpenAI after that does NOT overwrite (because `Anthropic` is now non-empty). Minor wart for users flipping between two presets, but the alternative (always overwrite) is worse — it would clobber explicit user input.
+- **Reset on close.** `handleClose` already nulled out form state; added `setSelectedProviderId(CUSTOM_PROVIDER_ID)` so reopening the dialog starts clean.
+- **Fresh logo asset.** Created `frontend/src/components/providers/logos/nvidia.tsx` with NVIDIA's eye-mark in a 32-viewbox SVG (the existing logos use 16-viewbox). Both render at 20×20 in the dropdown without issue.
+- **Existing duplicate-name validation is case-insensitive**, so `Anthropic` (preset suggestion) collides with the seeded `anthropic` system endpoint. Users see the existing inline error and can rename — no new code needed.
+- **Build verified inside `helix-frontend-1` container** (`docker compose -f docker-compose.dev.yaml exec frontend yarn build`) since `node_modules` aren't installed on the host. 50.35s clean build, no TS errors. Vite HMR picked the changes up live during browser testing.
+- **Other `PROVIDERS` consumers** (`AdvancedModelPicker`, `ApiIntegrations`, `AddApiSkillDialog`, `PricingTable`, `OAuthSettings`, `OAuthConnections`, `OAuthProvidersTable`) were not actively rendered, but the change is purely additive: a new array element with all required fields and the new field optional. The build covers type compatibility; no runtime logic depends on a specific provider list shape.
+- **Type select rendering oddity.** Noticed the `Type` select shows a zero-width `​` rather than the label after dialog reopen — pre-existing bug, unrelated to this work. Endpoint still creates with the correct default (`user`).
