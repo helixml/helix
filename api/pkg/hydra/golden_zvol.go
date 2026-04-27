@@ -32,6 +32,14 @@ const (
 	// so only used space is allocated. 500G is generous ceiling.
 	zvolDefaultSize = "500G"
 
+	// zvolBlockSize is the volblocksize for new zvols. The inner XFS uses
+	// 4K blocks; the ZFS default of 16K means each XFS metadata write
+	// triggers a 4K → 16K read-modify-write at the zvol layer (4× write
+	// amplification). 8K halves that amplification while keeping lz4
+	// compression effective. Immutable after zvol creation, so this only
+	// affects newly-created zvols.
+	zvolBlockSize = "8K"
+
 	// zvolMountBase is where cloned zvols are mounted.
 	zvolMountBase = "/container-docker/zvol-mounts"
 )
@@ -667,6 +675,7 @@ func CreateGoldenZvol(projectID string) (string, error) {
 	// Create thin-provisioned zvol with dedup=off. Block sharing comes from
 	// ZFS clones (free, no DDT involvement), so dedup adds only overhead here.
 	if err := runCmd("zfs", "create", "-V", zvolDefaultSize, "-s",
+		"-o", "volblocksize="+zvolBlockSize,
 		"-o", "dedup=off", "-o", "compression=lz4",
 		zvolName); err != nil {
 		return "", fmt.Errorf("zfs create %s failed: %w", zvolName, err)
@@ -721,6 +730,7 @@ func CreateSessionZvol(sessionID string) (string, error) {
 
 	// Create thin-provisioned zvol with dedup=off (same rationale as golden zvols).
 	if err := runCmd("zfs", "create", "-V", zvolDefaultSize, "-s",
+		"-o", "volblocksize="+zvolBlockSize,
 		"-o", "dedup=off", "-o", "compression=lz4",
 		zvolName); err != nil {
 		return "", fmt.Errorf("zfs create %s failed: %w", zvolName, err)
@@ -919,6 +929,7 @@ func MigrateGoldenToZvol(projectID string) error {
 	}
 
 	if err := runCmd("zfs", "create", "-V", zvolDefaultSize, "-s",
+		"-o", "volblocksize="+zvolBlockSize,
 		"-o", "dedup=off", "-o", "compression=lz4",
 		goldenName); err != nil {
 		return fmt.Errorf("zfs create %s failed: %w", goldenName, err)
