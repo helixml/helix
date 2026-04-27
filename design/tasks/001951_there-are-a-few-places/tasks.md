@@ -8,4 +8,4 @@
 - [x] Manual test in the inner Helix at `http://localhost:8080`: registered `test@helix.ml`, created `testorg`, created an agent, opened the Keys tab — auto-created API key shown as `••••••••••••••••` by default, eye toggle reveals the full key, copy works in both states. Code examples render `"hl-••••••••"` by default, "Show key in code" toggle reveals real key inside snippets, COPY button always copies the snippet with the real key. Dark theme verified — no white form elements.
 - [x] Ran `yarn build` in the frontend container — build succeeds in 40.75s, no type errors.
 - [x] Screenshots saved: `01-keys-tab-masked-default.png` (default masked state), `02-keys-tab-revealed.png` (key revealed), `03-code-example-revealed.png` (code example with key visible).
-- [~] Push code branch `feature/001951-there-are-a-few-places` and write PR description.
+- [x] Pushed code branch `feature/001951-there-are-a-few-places` (commit `073d8f1c3`) and wrote `pull_request_helix.md`.
