@@ -2,7 +2,6 @@ import React, { FC, useState, useCallback } from 'react'
 import Button from '@mui/material/Button'
 import AddIcon from '@mui/icons-material/Add'
 import Container from '@mui/material/Container'
-import Box from '@mui/material/Box'
 
 import Page from '../components/system/Page'
 import OrgsTable from '../components/orgs/OrgsTable'
@@ -69,16 +68,14 @@ const Orgs: FC = () => {
         </Button>
       }
     >
-      <Container maxWidth="xl">
-        <Box sx={{ mt: 3 }}>
-          <OrgsTable
-            data={account.organizationTools.organizations}
-            userID={account.user?.id}
-            onEdit={handleEdit}
-            onDelete={handleDelete}
-            loading={account.organizationTools.loading}
-          />
-        </Box>
+      <Container maxWidth="lg" sx={{ mt: 4 }}>
+        <OrgsTable
+          data={account.organizationTools.organizations}
+          userID={account.user?.id}
+          onEdit={handleEdit}
+          onDelete={handleDelete}
+          loading={account.organizationTools.loading}
+        />
       </Container>
 
       <EditOrgWindow

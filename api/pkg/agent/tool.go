@@ -21,6 +21,15 @@ type Tool interface {
 	Execute(ctx context.Context, meta Meta, args map[string]interface{}) (string, error)
 }
 
+// ToolWithImages extends Tool for tools that return multimodal content
+// (e.g. rendered document page images) alongside their text result.
+// The agent loop injects the images as a user message with image_url
+// parts so the LLM can see them via its vision capabilities.
+type ToolWithImages interface {
+	Tool
+	ExecuteWithImages(ctx context.Context, meta Meta, args map[string]any) (string, []openai.ChatMessagePart, error)
+}
+
 func getUniqueToolCalls(toolCalls []openai.ToolCall) []openai.ToolCall {
 	seen := make(map[string]bool)
 

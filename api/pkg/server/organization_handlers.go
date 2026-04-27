@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -92,8 +93,12 @@ func (apiServer *HelixAPIServer) listOrganizations(rw http.ResponseWriter, r *ht
 				http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)
 				return
 			}
+			org.Member = true
+
 			organizations = append(organizations, org)
 		}
+
+		apiServer.populateOrgProjectCounts(r.Context(), organizations)
 
 		writeResponse(rw, organizations, http.StatusOK)
 		return
@@ -107,7 +112,77 @@ func (apiServer *HelixAPIServer) listOrganizations(rw http.ResponseWriter, r *ht
 		return
 	}
 
+	memberships, err := apiServer.Store.ListOrganizationMemberships(r.Context(), &store.ListOrganizationMembershipsQuery{
+		UserID: user.ID,
+	})
+	if err != nil {
+		log.Err(err).Msg("error listing organization memberships")
+		http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	membershipByOrgID := make(map[string]struct{}, len(memberships))
+	for _, membership := range memberships {
+		membershipByOrgID[membership.OrganizationID] = struct{}{}
+	}
+
+	for _, organization := range organizations {
+		if organization == nil {
+			continue
+		}
+		_, isMember := membershipByOrgID[organization.ID]
+		organization.Member = isMember
+	}
+
+	apiServer.populateOrgProjectCounts(r.Context(), organizations)
+
+	sort.SliceStable(organizations, func(i, j int) bool {
+		iMember := organizations[i] != nil && organizations[i].Member
+		jMember := organizations[j] != nil && organizations[j].Member
+		if iMember != jMember {
+			return iMember
+		}
+
+		iDisplayName := ""
+		jDisplayName := ""
+		if organizations[i] != nil {
+			iDisplayName = strings.ToLower(organizations[i].DisplayName)
+		}
+		if organizations[j] != nil {
+			jDisplayName = strings.ToLower(organizations[j].DisplayName)
+		}
+		if iDisplayName != jDisplayName {
+			return iDisplayName < jDisplayName
+		}
+
+		iName := ""
+		jName := ""
+		if organizations[i] != nil {
+			iName = strings.ToLower(organizations[i].Name)
+		}
+		if organizations[j] != nil {
+			jName = strings.ToLower(organizations[j].Name)
+		}
+		return iName < jName
+	})
+
 	writeResponse(rw, organizations, http.StatusOK)
+}
+
+func (apiServer *HelixAPIServer) populateOrgProjectCounts(ctx context.Context, orgs []*types.Organization) {
+	for _, org := range orgs {
+		if org == nil {
+			continue
+		}
+		count, err := apiServer.Store.GetProjectsCount(ctx, &store.GetProjectsCountQuery{
+			OrganizationID: org.ID,
+		})
+		if err != nil {
+			log.Err(err).Str("org_id", org.ID).Msg("error getting project count for organization")
+			continue
+		}
+		org.ProjectCount = int(count)
+	}
 }
 
 // getOrganization godoc
@@ -311,6 +386,24 @@ func (apiServer *HelixAPIServer) deleteOrganization(rw http.ResponseWriter, r *h
 		log.Err(err).Msg("error authorizing org owner")
 		http.Error(rw, "Could not authorize org owner: "+err.Error(), http.StatusInternalServerError)
 		return
+	}
+
+	// Remove all repositories
+	repositories, err := apiServer.Store.ListGitRepositories(r.Context(), &types.ListGitRepositoriesRequest{
+		OrganizationID: orgID,
+	})
+	if err != nil {
+		log.Err(err).Msg("error listing repositories")
+		http.Error(rw, "Could not list repositories: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	for _, repository := range repositories {
+		err := apiServer.gitRepositoryService.DeleteRepository(r.Context(), repository.ID)
+		if err != nil {
+			log.Err(err).Msg("error deleting repository")
+			http.Error(rw, "Could not delete repository: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
 	}
 
 	err = apiServer.Store.DeleteOrganization(r.Context(), orgID)

@@ -15,8 +15,10 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
@@ -259,6 +261,12 @@ func getHelixDataDir() string {
 // getVMDir returns the writable VM directory
 func (vm *VMManager) getVMDir() string {
 	return filepath.Join(getHelixDataDir(), "vm", "helix-desktop")
+}
+
+// getPIDFilePath returns the path to the QEMU PID file.
+// Written on start, deleted on clean exit, used by killStaleQEMU on next launch.
+func (vm *VMManager) getPIDFilePath() string {
+	return filepath.Join(getHelixDataDir(), "qemu.pid")
 }
 
 // getVMImagePath returns the path to the root disk image
@@ -520,6 +528,39 @@ func copyFile(src, dst string) error {
 }
 
 // Start starts the VM
+// checkSystemRequirements verifies the host meets minimum requirements.
+// Returns a user-facing error message if requirements are not met.
+func checkSystemRequirements() error {
+	version, err := syscall.Sysctl("kern.osproductversion")
+	if err != nil {
+		log.Printf("Warning: could not determine macOS version: %v", err)
+		return nil // don't block on detection failure
+	}
+
+	parts := strings.SplitN(version, ".", 3)
+	if len(parts) < 1 {
+		return nil
+	}
+	major, err := strconv.Atoi(parts[0])
+	if err != nil {
+		return nil
+	}
+
+	// Require macOS 14.0 (Sonoma) or later. The QEMU binary is built with
+	// MACOSX_DEPLOYMENT_TARGET=14.0 and Apple's Hypervisor.framework features
+	// we depend on were stabilized in Sonoma.
+	if major < 14 {
+		return fmt.Errorf("Helix requires macOS 14.0 (Sonoma) or later. You are running macOS %s. Please update your operating system.", version)
+	}
+
+	memMB := getSystemMemoryMB()
+	if memMB > 0 && memMB < 8*1024 {
+		return fmt.Errorf("Helix requires at least 8 GB of RAM. This machine has %d MB.", memMB)
+	}
+
+	return nil
+}
+
 func (vm *VMManager) Start() error {
 	vm.statusMu.Lock()
 	if vm.status.State != VMStateStopped && vm.status.State != VMStateError {
@@ -534,6 +575,12 @@ func (vm *VMManager) Start() error {
 	vm.statusMu.Unlock()
 
 	vm.emitStatus()
+
+	// Check system requirements before anything else
+	if err := checkSystemRequirements(); err != nil {
+		vm.setError(err)
+		return err
+	}
 
 	// Kill any orphaned QEMU process from a previous crash
 	vm.killStaleQEMU()
@@ -559,18 +606,35 @@ func (vm *VMManager) Start() error {
 	return nil
 }
 
-// killStaleQEMU checks for an orphaned QEMU process holding the QMP port
-// and kills it. This handles the case where the app was force-quit but QEMU
-// kept running.
+// killStaleQEMU checks for an orphaned QEMU process from a previous run and
+// kills it. This handles the case where the app was force-quit but QEMU kept
+// running. It first tries the PID file (fast path), then falls back to lsof.
 func (vm *VMManager) killStaleQEMU() {
-	// Check if QMP port is in use
+	// Fast path: if we wrote a PID file on the previous launch, kill that process directly.
+	pidFile := vm.getPIDFilePath()
+	if data, err := os.ReadFile(pidFile); err == nil {
+		if pid, err := strconv.Atoi(strings.TrimSpace(string(data))); err == nil && pid > 0 {
+			log.Printf("Found stale QEMU PID file: killing PID %d", pid)
+			if proc, err := os.FindProcess(pid); err == nil {
+				// Kill the process group if possible, otherwise the process directly.
+				if pgid, err := syscall.Getpgid(pid); err == nil && pgid > 0 {
+					syscall.Kill(-pgid, syscall.SIGKILL)
+				} else {
+					proc.Kill()
+				}
+			}
+		}
+		os.Remove(pidFile)
+	}
+
+	// Check if QMP port is still in use (handles the PID file miss case).
 	conn, err := net.DialTimeout("tcp", fmt.Sprintf("localhost:%d", vm.config.QMPPort), 500*time.Millisecond)
 	if err != nil {
 		// Port is free, no stale process
 		return
 	}
 	conn.Close()
-	log.Printf("QMP port %d is in use — looking for stale QEMU process", vm.config.QMPPort)
+	log.Printf("QMP port %d is in use — looking for stale QEMU process via lsof", vm.config.QMPPort)
 
 	// Use lsof to find the PID holding the port
 	cmd := exec.Command("lsof", "-ti", fmt.Sprintf("tcp:%d", vm.config.QMPPort))
@@ -714,7 +778,7 @@ func (vm *VMManager) runVM(ctx context.Context) {
 		// Too small causes virglrenderer to block in proxy_socket_receive_reply,
 		// which deadlocks the BQL and hangs the entire VM.
 		// EDID enabled with 5K preferred resolution so 5120x2880 is available as a DRM mode.
-		"-device", fmt.Sprintf("virtio-gpu-gl-pci,id=gpu0,hostmem=1024M,blob=true,venus=true,edid=on,xres=5120,yres=2880,helix-port=%d", vm.config.FrameExportPort),
+		"-device", fmt.Sprintf("virtio-gpu-gl-pci,id=gpu0,hostmem=%s,blob=true,venus=true,edid=on,xres=5120,yres=2880,helix-port=%d", getGPUHostMem(), vm.config.FrameExportPort),
 		// 16 virtual display outputs: index 0 for VM console, 1-15 for container desktops.
 		// Matches UTM plist AdditionalArguments config.
 		"-global", "virtio-gpu-gl-pci.max_outputs=16",
@@ -744,6 +808,8 @@ func (vm *VMManager) runVM(ctx context.Context) {
 
 	vm.cmd = exec.CommandContext(ctx, qemuPath, args...)
 	vm.cmd.Env = vm.buildQEMUEnv()
+	// Place QEMU in its own process group so ForceStop can kill the whole group.
+	vm.cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
 	// Pipe serial console (QEMU stdio = guest /dev/ttyAMA0) through ring buffer
 	stdoutPipe, err := vm.cmd.StdoutPipe()
@@ -769,6 +835,10 @@ func (vm *VMManager) runVM(ctx context.Context) {
 		vm.setError(fmt.Errorf("failed to start VM: %w", err))
 		return
 	}
+
+	// Record the PID so killStaleQEMU can find it if the app is force-killed.
+	pidFile := vm.getPIDFilePath()
+	os.WriteFile(pidFile, []byte(strconv.Itoa(vm.cmd.Process.Pid)), 0644)
 
 	vm.startTime = time.Now()
 	vm.statusMu.Lock()
@@ -817,12 +887,21 @@ func (vm *VMManager) runVM(ctx context.Context) {
 	// Forward QEMU stderr to both os.Stderr and the logs ring buffer.
 	// QEMU prints warnings, errors, and virglrenderer diagnostics to stderr
 	// which were previously invisible in the UI.
+	// Also keep recent lines so we can include them in crash error messages.
+	var recentStderr []string
+	var recentStderrMu sync.Mutex
 	go func() {
 		scanner := bufio.NewScanner(stderrPipe)
 		for scanner.Scan() {
 			line := scanner.Text()
 			fmt.Fprintln(os.Stderr, line) // keep original stderr behavior
 			vm.appendLogs([]byte(fmt.Sprintf("\x1b[33m[QEMU] %s\x1b[0m\r\n", line)))
+			recentStderrMu.Lock()
+			recentStderr = append(recentStderr, line)
+			if len(recentStderr) > 20 {
+				recentStderr = recentStderr[len(recentStderr)-20:]
+			}
+			recentStderrMu.Unlock()
 		}
 	}()
 
@@ -831,6 +910,9 @@ func (vm *VMManager) runVM(ctx context.Context) {
 
 	// Wait for process to exit
 	err = vm.cmd.Wait()
+
+	// Clean exit — remove the PID file so killStaleQEMU knows no stale process exists.
+	os.Remove(vm.getPIDFilePath())
 
 	vm.stackStarted = false
 	vm.statusMu.Lock()
@@ -842,7 +924,18 @@ func (vm *VMManager) runVM(ctx context.Context) {
 		vm.status.State = VMStateStopped
 	} else if err != nil {
 		vm.status.State = VMStateError
-		vm.status.ErrorMsg = err.Error()
+		// Include recent stderr lines in the error message so users see
+		// actionable info (e.g. dyld errors) instead of just "abort trap".
+		recentStderrMu.Lock()
+		stderrContext := make([]string, len(recentStderr))
+		copy(stderrContext, recentStderr)
+		recentStderrMu.Unlock()
+		if len(stderrContext) > 0 {
+			vm.status.ErrorMsg = fmt.Sprintf("QEMU exited: %v\n\n%s", err, strings.Join(stderrContext, "\n"))
+		} else {
+			vm.status.ErrorMsg = fmt.Sprintf("QEMU exited: %v", err)
+		}
+		log.Printf("VM error: %s", vm.status.ErrorMsg)
 	} else {
 		vm.status.State = VMStateStopped
 	}
@@ -1542,6 +1635,26 @@ func (vm *VMManager) Stop() error {
 	return nil
 }
 
+// ForceStop immediately kills the QEMU process regardless of VM state.
+// Called during app shutdown to ensure no orphaned QEMU process remains.
+// Unlike Stop(), it skips the graceful QMP shutdown and the 5-second grace period.
+func (vm *VMManager) ForceStop() {
+	if vm.cancelFunc != nil {
+		vm.cancelFunc()
+	}
+	if vm.cmd != nil && vm.cmd.Process != nil {
+		// Kill the entire process group to catch any QEMU child processes.
+		pgid, err := syscall.Getpgid(vm.cmd.Process.Pid)
+		if err == nil && pgid > 0 {
+			syscall.Kill(-pgid, syscall.SIGKILL)
+		} else {
+			vm.cmd.Process.Kill()
+		}
+	}
+	// Remove PID file so next launch doesn't try to kill an already-dead process.
+	os.Remove(vm.getPIDFilePath())
+}
+
 // sendQMPCommand sends a command to QEMU via QMP
 func (vm *VMManager) sendQMPCommand(command string) error {
 	conn, err := net.DialTimeout("tcp", fmt.Sprintf("localhost:%d", vm.config.QMPPort), 2*time.Second)
@@ -1608,6 +1721,35 @@ func (vm *VMManager) getAppBundlePath() string {
 //  3. Bundled in app: Contents/MacOS/qemu-system-aarch64 (production mode)
 //  4. System PATH: qemu-system-aarch64
 //
+// getGPUHostMem returns the hostmem size for virtio-gpu-gl-pci, scaled by
+// system RAM.
+//
+// Context: virtio-gpu-gl-pci with hostmem=512M combined with
+// ipa-granule-size=0x1000 (36-bit IPA space) causes a PCI host bridge
+// memory resource conflict on M1 Macs. The entire PCI bus fails to
+// initialise, making all virtio devices — including the boot disk —
+// invisible to UEFI ("Out Of Resource!" / PciHostBridgeResourceConflict).
+// 256M avoids this while still supporting 2-4 concurrent desktops.
+//
+// Each desktop needs ~64-128MB of GPU blob resources, so:
+//   - <=8GB RAM:  256M (2-4 desktops)
+//   - <=16GB RAM: 256M (2-4 desktops)
+//   - >16GB RAM:  1024M (8+ desktops)
+func getGPUHostMem() string {
+	memMB := getSystemMemoryMB()
+	var hostmem string
+	switch {
+	case memMB <= 8*1024:
+		hostmem = "256M"
+	case memMB <= 16*1024:
+		hostmem = "256M"
+	default:
+		hostmem = "1024M"
+	}
+	log.Printf("GPU hostmem: %s (system RAM: %d MB)", hostmem, memMB)
+	return hostmem
+}
+
 // QEMU is built as a dylib + thin wrapper. The wrapper (75KB) has main() and
 // loads libqemu-aarch64-softmmu.dylib via @executable_path. You cannot execute
 // a .dylib directly — the wrapper executable is required.

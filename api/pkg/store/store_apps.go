@@ -396,12 +396,12 @@ func setAppDefaults(apps ...*types.App) {
 				assistant.ReasoningEffort = types.ReasoningEffortNone
 			}
 
-			if assistant.Temperature == 0 {
+			// Only default temperature if neither temperature nor top_p is set.
+			// Setting both causes errors on some providers (e.g. Anthropic).
+			// When either is 0 (unset), omitempty drops it from the JSON,
+			// letting the provider use its own default.
+			if assistant.Temperature == 0 && assistant.TopP == 0 {
 				assistant.Temperature = 0.1
-			}
-
-			if assistant.TopP == 0 {
-				assistant.TopP = 1
 			}
 
 			// Infer credential type for claude_code agents missing the field.

@@ -339,6 +339,7 @@ func (v *VideoStreamer) Start(ctx context.Context) error {
 			v.config.UserID,
 			userName,
 			v.config.AvatarURL,
+			v.config.ClientUniqueID,
 			v.ws,
 			&v.wsMu, // Share mutex to prevent concurrent WebSocket writes
 		)
@@ -442,6 +443,7 @@ func (v *VideoStreamer) startScanoutMode(ctx context.Context) error {
 			v.config.UserID,
 			userName,
 			v.config.AvatarURL,
+			v.config.ClientUniqueID,
 			v.ws,
 			&v.wsMu,
 		)
@@ -463,14 +465,17 @@ func (v *VideoStreamer) startScanoutMode(ctx context.Context) error {
 
 // selectEncoder chooses the best available encoder
 // Priority order:
-// 0. HELIX_ENCODER env var override (for testing/benchmarking)
-// 1. NVIDIA NVENC (nvh264enc) - fastest, lowest latency
-// 2. Intel QSV (qsvh264enc) - Intel Quick Sync Video
-// 3. VA-API (vah264enc) - Intel/AMD VA-API
-// 4. VA-API Legacy (vaapih264enc) - older VA-API plugin
-// 5. VA-API LP (vah264lpenc) - Intel/AMD VA-API Low Power mode
-// 6. OpenH264 (openh264enc) - Cisco's software encoder (installed by default)
-// 7. x264 (x264enc) - software fallback (requires gst-plugins-ugly)
+// 0. HELIX_ENCODER env var override (vsock|openh264|x264|nvenc|vaapi|vaapi-legacy).
+//    On AMD, VA-API is skipped in auto-detect due to a historical radeonsi+gst-va
+//    runtime crash. To opt in (newer mesa/gst-va releases have fixed it), set
+//    HELIX_ENCODER=vaapi (or vaapi-legacy for gst-vaapi plugin).
+// 1. NVIDIA NVENC (nvh264enc): fastest, lowest latency
+// 2. Intel QSV (qsvh264enc): Intel Quick Sync Video
+// 3. VA-API (vah264enc): Intel VA-API (skipped on AMD by default due to historical crash)
+// 4. VA-API Legacy (vaapih264enc): older VA-API plugin (skipped on AMD by default)
+// 5. VA-API LP (vah264lpenc): Intel VA-API Low Power mode (skipped on AMD)
+// 6. OpenH264 (openh264enc): Cisco's software encoder (AMD default)
+// 7. x264 (x264enc): software fallback (requires gst-plugins-ugly)
 func (v *VideoStreamer) selectEncoder() string {
 	// Check for explicit encoder override via environment variable
 	if override := os.Getenv("HELIX_ENCODER"); override != "" {
@@ -487,6 +492,20 @@ func (v *VideoStreamer) selectEncoder() string {
 		case "nvenc":
 			v.logger.Info("using NVIDIA NVENC encoder (forced via HELIX_ENCODER)")
 			return "nvenc"
+		case "vaapi":
+			if !checkGstElement("vah264enc") {
+				v.logger.Warn("HELIX_ENCODER=vaapi requested but vah264enc element not available, using auto-detect")
+				break
+			}
+			v.logger.Info("using VA-API encoder (forced via HELIX_ENCODER)")
+			return "vaapi"
+		case "vaapi-legacy":
+			if !checkGstElement("vaapih264enc") {
+				v.logger.Warn("HELIX_ENCODER=vaapi-legacy requested but vaapih264enc element not available, using auto-detect")
+				break
+			}
+			v.logger.Info("using VA-API legacy encoder (forced via HELIX_ENCODER)")
+			return "vaapi-legacy"
 		default:
 			v.logger.Warn("unknown HELIX_ENCODER value, using auto-detect", "value", override)
 		}
@@ -512,17 +531,25 @@ func (v *VideoStreamer) selectEncoder() string {
 	}
 
 	// Try VA-API (Intel/AMD) - check both new (vah264enc) and old (vaapih264enc) plugins
-	if checkGstElement("vah264enc") {
+	// Skip VA-API on AMD: the encoder element exists but crashes at runtime with
+	// "gst_buffer_insert_memory: assertion 'mem != NULL' failed". AMD's radeonsi
+	// VA-API driver has encoding support issues with GStreamer's gst-va plugin.
+	// OpenH264 is a reliable software fallback that produces browser-compatible H.264.
+	isAMD := os.Getenv("LIBVA_DRIVER_NAME") == "radeonsi"
+	if isAMD {
+		v.logger.Info("AMD GPU detected (LIBVA_DRIVER_NAME=radeonsi), skipping VA-API encoders (known runtime crash)")
+	}
+	if !isAMD && checkGstElement("vah264enc") {
 		v.logger.Info("using VA-API encoder (gst-va plugin)")
 		return "vaapi"
 	}
-	if checkGstElement("vaapih264enc") {
+	if !isAMD && checkGstElement("vaapih264enc") {
 		v.logger.Info("using VA-API encoder (gst-vaapi plugin)")
 		return "vaapi-legacy"
 	}
 
-	// Try VA-API Low Power mode (some Intel chips)
-	if checkGstElement("vah264lpenc") {
+	// Try VA-API Low Power mode (Intel chips only, skip on AMD)
+	if !isAMD && checkGstElement("vah264lpenc") {
 		v.logger.Info("using VA-API Low Power encoder")
 		return "vaapi-lp"
 	}
@@ -544,9 +571,11 @@ func (v *VideoStreamer) selectEncoder() string {
 	return "openh264"
 }
 
-// checkGstElement checks if a GStreamer element is available.
-// Uses go-gst bindings to query the element factory.
-func checkGstElement(element string) bool {
+// checkGstElement reports whether a GStreamer element is available.
+// It is a package-level var (not a function) so selectEncoder tests can
+// substitute a deterministic stub without needing a real gstreamer
+// installation on the build host.
+var checkGstElement = func(element string) bool {
 	InitGStreamer()
 	return CheckGstElement(element)
 }
@@ -1341,7 +1370,14 @@ func (v *VideoStreamer) heartbeat(ctx context.Context) {
 		case <-ticker.C:
 			// Use WebSocket ping frame, not binary message
 			if _, err := v.writeMessage(websocket.PingMessage, nil); err != nil {
-				v.logger.Debug("ping failed", "err", err)
+				v.logger.Warn("ping failed, closing dead connection", "err", err)
+				// Close the underlying TCP connection to unblock ReadMessage() in the main
+				// handler loop. We close at the TCP level (not ws.Close()) because ws.Close()
+				// writes a close frame, which is a write operation — calling it without wsMu
+				// while another goroutine may be writing would be a concurrent write violation.
+				// Closing the underlying conn is safe for concurrent use and causes any
+				// in-progress reads/writes to fail immediately.
+				v.ws.UnderlyingConn().Close()
 				return
 			}
 		}
@@ -1687,6 +1723,21 @@ func handleStreamWebSocketInternal(w http.ResponseWriter, r *http.Request, nodeI
 	}
 
 	logger.Info("stream WebSocket connected", "remote", r.RemoteAddr)
+
+	// Set up pong handler with read deadline as defense-in-depth against dead connections.
+	// The server heartbeat sends WebSocket pings every 5s; the client's browser automatically
+	// responds with pongs. If pongs stop arriving (client is dead), the read deadline expires
+	// and ReadMessage() returns an error, triggering cleanup via the defer chain.
+	//
+	// Note: This deadline also acts as a 30s timeout for the init message handshake below.
+	// The pong handler only becomes active once the heartbeat goroutine starts sending pings
+	// (after streamer.Start()), but the deadline ensures connections that never send init
+	// are cleaned up rather than blocking forever.
+	ws.SetReadDeadline(time.Now().Add(30 * time.Second))
+	ws.SetPongHandler(func(string) error {
+		ws.SetReadDeadline(time.Now().Add(30 * time.Second))
+		return nil
+	})
 
 	// Wait for init message from client
 	// Like the Rust implementation, we skip any binary messages that arrive before the JSON init

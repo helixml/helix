@@ -60,3 +60,123 @@ Create the name of the service account to use
 {{- default "default" .Values.serviceAccount.name }}
 {{- end }}
 {{- end }}
+
+{{/*
+Renders a value that contains a template.
+Replaces Bitnami common.tplvalues.render.
+Usage: {{ include "helix-controlplane.tplvalues.render" (dict "value" .Values.some.value "context" $) }}
+*/}}
+{{- define "helix-controlplane.tplvalues.render" -}}
+{{- if typeIs "string" .value }}
+{{- tpl .value .context }}
+{{- else }}
+{{- tpl (.value | toYaml) .context }}
+{{- end }}
+{{- end -}}
+
+{{/*
+Return the appropriate storageClass for a PVC.
+Replaces Bitnami common.storage.class.
+Usage: {{ include "helix-controlplane.storage.class" (dict "persistence" .Values.some.persistence "global" .Values.global) }}
+*/}}
+{{- define "helix-controlplane.storage.class" -}}
+{{- $storageClass := "" -}}
+{{- if .global -}}
+{{- if .global.storageClass -}}
+{{- $storageClass = .global.storageClass -}}
+{{- end -}}
+{{- end -}}
+{{- if .persistence.storageClass -}}
+{{- $storageClass = .persistence.storageClass -}}
+{{- end -}}
+{{- if $storageClass -}}
+{{- if (eq "-" $storageClass) }}
+storageClassName: ""
+{{- else }}
+storageClassName: {{ $storageClass | quote }}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+PostgreSQL image reference, honoring global.imageRegistry.
+Usage: image: {{ include "helix-controlplane.postgres-image" . | quote }}
+*/}}
+{{- define "helix-controlplane.postgres-image" -}}
+{{- if .Values.global.imageRegistry -}}
+{{ .Values.global.imageRegistry }}/{{ .Values.postgresql.image.repository }}:{{ .Values.postgresql.image.tag }}
+{{- else -}}
+{{ .Values.postgresql.image.repository }}:{{ .Values.postgresql.image.tag }}
+{{- end -}}
+{{- end -}}
+
+{{/*
+PostgreSQL connection environment variables.
+Used by both the init container and main controlplane container.
+*/}}
+{{- define "helix-controlplane.postgres-env" -}}
+{{- if .Values.postgresql.enabled }}
+- name: POSTGRES_HOST
+  value: {{ include "helix-controlplane.fullname" . }}-postgres
+- name: POSTGRES_PORT
+  value: "5432"
+{{- if .Values.postgresql.auth.existingSecret }}
+- name: POSTGRES_USER
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.postgresql.auth.existingSecret }}
+      key: {{ .Values.postgresql.auth.usernameKey | default "username" }}
+- name: POSTGRES_PASSWORD
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.postgresql.auth.existingSecret }}
+      key: {{ .Values.postgresql.auth.passwordKey | default "password" }}
+- name: POSTGRES_DATABASE
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.postgresql.auth.existingSecret }}
+      key: {{ .Values.postgresql.auth.databaseKey | default "database" }}
+{{- else }}
+- name: POSTGRES_USER
+  value: {{ .Values.postgresql.auth.username }}
+- name: POSTGRES_PASSWORD
+  value: {{ .Values.postgresql.auth.password }}
+- name: POSTGRES_DATABASE
+  value: {{ .Values.postgresql.auth.database }}
+{{- end }}
+{{- else if .Values.postgresql.external.existingSecret }}
+- name: POSTGRES_HOST
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.postgresql.external.existingSecret }}
+      key: {{ .Values.postgresql.external.existingSecretHostKey | default "host" }}
+- name: POSTGRES_PORT
+  value: {{ .Values.postgresql.external.port | default 5432 | quote }}
+- name: POSTGRES_USER
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.postgresql.external.existingSecret }}
+      key: {{ .Values.postgresql.external.existingSecretUserKey | default "user" }}
+- name: POSTGRES_PASSWORD
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.postgresql.external.existingSecret }}
+      key: {{ .Values.postgresql.external.existingSecretPasswordKey | default "password" }}
+- name: POSTGRES_DATABASE
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.postgresql.external.existingSecret }}
+      key: {{ .Values.postgresql.external.existingSecretDatabaseKey | default "database" }}
+{{- else }}
+- name: POSTGRES_HOST
+  value: {{ .Values.postgresql.external.host }}
+- name: POSTGRES_PORT
+  value: {{ .Values.postgresql.external.port | default 5432 | quote }}
+- name: POSTGRES_USER
+  value: {{ .Values.postgresql.external.user }}
+- name: POSTGRES_PASSWORD
+  value: {{ .Values.postgresql.external.password }}
+- name: POSTGRES_DATABASE
+  value: {{ .Values.postgresql.external.database }}
+{{- end }}
+{{- end }}

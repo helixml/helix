@@ -19,6 +19,7 @@ import { prettyBytes } from "../../utils/format";
 import { useGetDashboardData } from "../../services/dashboardService";
 import { TypesDashboardRunner, TypesGPUStatus } from "../../api/api";
 import useRouter from "../../hooks/useRouter";
+import { useSettingsDialog } from "../../contexts/settingsDialog";
 import { useFloatingRunnerState } from "../../contexts/floatingRunnerState";
 import { useResize } from "../../hooks/useResize";
 
@@ -113,8 +114,9 @@ const FloatingRunnerState: FC<FloatingRunnerStateProps> = ({ onClose }) => {
         });
     };
 
+    const settingsDialog = useSettingsDialog();
     const handleViewFullDashboard = () => {
-        router.navigate("dashboard", { tab: "runners" });
+        settingsDialog.openDialog('admin', { tab: 'runners' });
     };
 
     useEffect(() => {

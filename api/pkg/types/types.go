@@ -1,6 +1,7 @@
 package types
 
 import (
+	"context"
 	"database/sql"
 	"database/sql/driver"
 	"encoding/json"
@@ -43,7 +44,7 @@ type Interaction struct {
 
 	// TODO: add the full multi-part response content
 	// ResponseMessageContent MessageContent `json:"response_message_content"` // LLM response
-	ResponseMessage        string         `json:"response_message"`                                  // LLM response
+	ResponseMessage        string         `json:"response_message,omitempty"`                        // LLM response (legacy — omit from wire when empty)
 	ResponseFormat         ResponseFormat `json:"response_format" gorm:"type:jsonb;serializer:json"` // e.g. json
 	ResponseFormatResponse string         `json:"response_format_response"`                          // e.g. json
 
@@ -79,6 +80,13 @@ type Interaction struct {
 	// current message's portion during streaming updates, preserving earlier messages.
 	LastZedMessageOffset int `json:"last_zed_message_offset,omitempty"`
 
+	// ResponseEntries holds the structured response as an ordered list of typed entries.
+	// Each entry is either "text" (assistant prose) or "tool_call" (tool invocation),
+	// preserving the ordering and boundaries that Zed's internal Vec<AgentThreadEntry> has.
+	// This is populated on completion alongside ResponseMessage (flat string, backward compat).
+	// The frontend uses this to render entries with the correct component in the correct order.
+	ResponseEntries datatypes.JSON `json:"response_entries,omitempty" gorm:"type:jsonb"`
+
 	// Summary is a one-line description of this interaction for search/indexing.
 	// Generated lazily on first access or via background job.
 	Summary          string     `json:"summary,omitempty"`
@@ -88,6 +96,13 @@ type Interaction struct {
 
 	Feedback        Feedback `json:"feedback" gorm:"index"`
 	FeedbackMessage string   `json:"feedback_message"`
+
+	// AutoWakeCount tracks how many times the auto-wake worker has sent a
+	// follow-up "continue" prompt to unstick this interaction. Zero means
+	// this is a normal user-initiated interaction; non-zero on an
+	// auto-wake interaction itself records which retry attempt it is.
+	// See design/2026-04-25-zed-claude-async-event-flush-on-user-input.md.
+	AutoWakeCount int `json:"auto_wake_count" gorm:"default:0;not null"`
 }
 
 type FeedbackRequest struct {
@@ -100,12 +115,6 @@ type Feedback string
 const (
 	FeedbackLike    Feedback = "like"
 	FeedbackDislike Feedback = "dislike"
-)
-
-// DesiredState constants for session reconciliation
-const (
-	DesiredStateRunning = "running" // Container should exist, reconciler will restart if missing
-	DesiredStateStopped = "stopped" // Container can be terminated, no auto-restart
 )
 
 func InteractionsToOpenAIMessages(systemPrompt string, interactions []*Interaction) []openai.ChatCompletionMessage {
@@ -275,12 +284,6 @@ type RAGSettings struct {
 	IndexURL  string `json:"index_url" yaml:"index_url"`   // the URL of the index endpoint (defaults to Helix RAG_INDEX_URL env var)
 	QueryURL  string `json:"query_url" yaml:"query_url"`   // the URL of the query endpoint (defaults to Helix RAG_QUERY_URL env var)
 	DeleteURL string `json:"delete_url" yaml:"delete_url"` // the URL of the delete endpoint (defaults to Helix RAG_DELETE_URL env var)
-
-	Typesense struct {
-		URL        string `json:"url" yaml:"url"`
-		APIKey     string `json:"api_key" yaml:"api_key"`
-		Collection string `json:"collection" yaml:"collection"`
-	} `json:"typesense" yaml:"typesense"`
 }
 
 func (r RAGSettings) Value() (driver.Value, error) {
@@ -392,12 +395,12 @@ type SessionMetadata struct {
 	SessionRole             string               `json:"session_role,omitempty"`              // "planning", "implementation", "coordination", "exploratory"
 	ImplementationTaskIndex int                  `json:"implementation_task_index,omitempty"` // Index of implementation task this session handles
 	ZedThreadID             string               `json:"zed_thread_id,omitempty"`             // Associated Zed thread ID
+	ZedAgentName            string               `json:"zed_agent_name,omitempty"`            // Agent name used when thread was created (e.g., "zed-agent", "claude", "qwen")
 	ZedInstanceID           string               `json:"zed_instance_id,omitempty"`           // Associated Zed instance ID
 	ExternalAgentConfig     *ExternalAgentConfig `json:"external_agent_config,omitempty"`     // Configuration for external agents
 	ExternalAgentID         string               `json:"external_agent_id,omitempty"`         // NEW: External agent ID for this session
 	ExternalAgentStatus     string               `json:"external_agent_status,omitempty"`     // NEW: External agent status (running, stopped, terminated_idle)
-	DesiredState            string               `json:"desired_state,omitempty"`             // "running" = should be running, "stopped" = can terminate
-	Phase                   string               `json:"phase,omitempty"`                     // NEW: SpecTask phase (planning, implementation)
+Phase                   string               `json:"phase,omitempty"`                     // NEW: SpecTask phase (planning, implementation)
 	DevContainerID          string               `json:"dev_container_id,omitempty"`          // Dev container ID for streaming
 	SwayVersion             string               `json:"sway_version,omitempty"`              // helix-sway image version (commit hash) running in this session
 	GPUVendor               string               `json:"gpu_vendor,omitempty"`                // GPU vendor of sandbox running this session (nvidia, amd, intel, none)
@@ -438,7 +441,8 @@ type SessionMetadata struct {
 
 	// which assistant are we talking to?
 	AssistantID    string            `json:"assistant_id"`
-	AppQueryParams map[string]string `json:"app_query_params"` // Passing through user defined app params
+	AppQueryParams map[string]string `json:"app_query_params"`                  // Passing through user defined app params
+	CallbackURL    string            `json:"callback_url,omitempty"`            // Webhook URL to POST on session completion
 }
 
 // the packet we put a list of sessions into so pagination is supported and we know the total amount
@@ -468,6 +472,8 @@ type SessionChatRequest struct {
 	SessionID           string               `json:"session_id"`      // If empty, we will start a new session
 	InteractionID       string               `json:"interaction_id"`  // If empty, we will start a new interaction
 	Stream              bool                 `json:"stream"`          // If true, we will stream the response
+	SessionRole         string               `json:"session_role,omitempty"` // e.g. "job" — categorizes sessions for filtering
+	CallbackURL         string               `json:"callback_url,omitempty"` // Webhook URL to POST on session completion
 	Type                SessionType          `json:"type"`            // e.g. text, image
 	LoraDir             string               `json:"lora_dir"`
 	SystemPrompt        string               `json:"system"`                          // System message, only applicable when starting a new session
@@ -874,12 +880,27 @@ type WebsocketEvent struct {
 	WorkerTaskResponse *RunnerTaskResponse         `json:"worker_task_response"`
 	InferenceResponse  *RunnerLLMInferenceResponse `json:"inference_response"`
 	StepInfo           *StepInfo                   `json:"step_info"`
-	// Patch fields for efficient streaming updates (interaction_patch events).
-	// Instead of sending the full interaction, we send only the changed portion
-	// of ResponseMessage. Frontend applies: content = content[:PatchOffset] + Patch
-	Patch       string `json:"patch,omitempty"`        // Content from PatchOffset onwards
-	PatchOffset int    `json:"patch_offset,omitempty"` // Byte position of first change
-	TotalLength int    `json:"total_length,omitempty"` // Final content length after patch
+	// Per-entry structured patches for streaming (interaction_patch events).
+	// Each EntryPatch carries a per-entry string patch (offset/patch/length) so the
+	// frontend can maintain a ResponseEntry[] with correct type boundaries during
+	// streaming. EntryCount is the total number of entries so the frontend can grow
+	// its array when new entries appear.
+	EntryPatches []EntryPatch `json:"entry_patches,omitempty"`
+	EntryCount   int          `json:"entry_count,omitempty"`
+}
+
+// EntryPatch is a per-entry delta for structured streaming. The frontend
+// applies the same patch logic as the flat content patch, but scoped to a
+// single ResponseEntry's content.
+type EntryPatch struct {
+	Index       int    `json:"index"`                  // Position in the entries array
+	MessageID   string `json:"message_id"`             // Zed message_id for this entry
+	Type        string `json:"type"`                   // "text" or "tool_call"
+	Patch       string `json:"patch,omitempty"`        // Content delta from PatchOffset onwards
+	PatchOffset int    `json:"patch_offset,omitempty"` // UTF-16 offset of first change in this entry
+	TotalLength int    `json:"total_length,omitempty"` // Final content length of this entry after patch
+	ToolName    string `json:"tool_name,omitempty"`    // For tool_call: the tool label
+	ToolStatus  string `json:"tool_status,omitempty"`  // For tool_call: "Completed", "In Progress", etc.
 }
 
 type StepInfoType string
@@ -1015,8 +1036,9 @@ type ServerConfigForFrontend struct {
 	RegistrationEnabled                    bool                 `json:"registration_enabled"`
 	AuthProvider                           AuthProvider         `json:"auth_provider"`
 	FilestorePrefix                        string               `json:"filestore_prefix"`
-	StripeEnabled                          bool                 `json:"stripe_enabled"`  // Stripe top-ups enabled
-	BillingEnabled                         bool                 `json:"billing_enabled"` // Charging for usage
+	StripeEnabled                          bool                 `json:"stripe_enabled"`              // Stripe top-ups enabled
+	BillingEnabled                         bool                 `json:"billing_enabled"`             // Charging for usage
+	RequireActiveSubscription              bool                 `json:"require_active_subscription"` // Require an active subscription before allowing to use the product
 	SentryDSNFrontend                      string               `json:"sentry_dsn_frontend"`
 	GoogleAnalyticsFrontend                string               `json:"google_analytics_frontend"`
 	EvalUserID                             string               `json:"eval_user_id"`
@@ -1031,6 +1053,7 @@ type ServerConfigForFrontend struct {
 	License                                *FrontendLicenseInfo `json:"license,omitempty"`
 	OrganizationsCreateEnabledForNonAdmins bool                 `json:"organizations_create_enabled_for_non_admins"`
 	ProvidersManagementEnabled             bool                 `json:"providers_management_enabled"` // Controls if users can add their own AI provider API keys
+	HasProviders                           bool                 `json:"has_providers"`                // Whether any global AI provider with enabled chat models exists
 	MaxConcurrentDesktops                  int                  `json:"max_concurrent_desktops"`
 	ActiveConcurrentDesktops               int                  `json:"active_concurrent_desktops"`
 	Edition                                string               `json:"edition,omitempty"` // "mac-desktop", "server", "cloud", etc.
@@ -1825,9 +1848,15 @@ type CrispTrigger struct {
 }
 
 type CronTrigger struct {
-	Enabled  bool   `json:"enabled,omitempty" yaml:"enabled,omitempty"`
-	Schedule string `json:"schedule,omitempty" yaml:"schedule,omitempty"`
-	Input    string `json:"input,omitempty" yaml:"input,omitempty"`
+	Enabled     bool     `json:"enabled,omitempty" yaml:"enabled,omitempty"`
+	Schedule    string   `json:"schedule,omitempty" yaml:"schedule,omitempty"`
+	Input       string   `json:"input,omitempty" yaml:"input,omitempty"`
+	InputFile   string   `json:"input_file,omitempty" yaml:"input_file,omitempty"`     // File path in helix-specs worktree to use as prompt (overrides Input)
+	AgentType   string   `json:"agent_type,omitempty" yaml:"agent_type,omitempty"`     // "helix" (default) or "zed_external"
+	Emails      []string `json:"emails,omitempty" yaml:"emails,omitempty"`
+	CallbackURL string   `json:"callback_url,omitempty" yaml:"callback_url,omitempty"` // Webhook URL to POST on completion
+	Action      string   `json:"action,omitempty" yaml:"action,omitempty"`             // "session" (default) or "spec_task"
+	ProjectID   string   `json:"project_id,omitempty" yaml:"project_id,omitempty"`     // Target project for spec_task action
 }
 
 // AzureDevOpsTrigger - once enabled, a trigger in the database will be created
@@ -1972,6 +2001,12 @@ type DesktopAgent struct {
 
 	// Golden build mode: session builds a golden Docker cache snapshot
 	GoldenBuild bool `json:"golden_build,omitempty"`
+
+	// OnBeforeCreate is called inside the session lock, after the "already running"
+	// check passes, right before creating the container. Used to refresh API keys
+	// that may have been revoked by a concurrent StopDesktop.
+	// If nil, no callback is executed.
+	OnBeforeCreate func(ctx context.Context, agent *DesktopAgent) error `json:"-"`
 }
 
 // GetEffectiveResolution returns the display dimensions based on Resolution preset
@@ -2116,6 +2151,9 @@ type DataEntity struct {
 	// of a lora dataset.
 	ParentDataEntity string           `json:"parent_entity"`
 	Config           DataEntityConfig `json:"config" gorm:"jsonb"`
+	// KoditRepositoryID is the Kodit repository ID associated with this data entity's
+	// filestore path. Null when no Kodit repository has been registered for this entity.
+	KoditRepositoryID *int64 `json:"kodit_repository_id,omitempty" gorm:"column:kodit_repository_id"`
 }
 
 type ScriptRunType string
@@ -2409,9 +2447,13 @@ type LLMCall struct {
 	PromptTokens     int64          `json:"prompt_tokens"`
 	CompletionTokens int64          `json:"completion_tokens"`
 	TotalTokens      int64          `json:"total_tokens"`
+	CacheReadTokens  int64          `json:"cache_read_tokens"`  // prompt tokens served from provider cache (subset of PromptTokens)
+	CacheWriteTokens int64          `json:"cache_write_tokens"` // prompt tokens written to provider cache (Anthropic only; subset of PromptTokens)
 	PromptCost       float64        `json:"prompt_cost"`
 	CompletionCost   float64        `json:"completion_cost"`
-	TotalCost        float64        `json:"total_cost"` // Total cost of the call (prompt and completion tokens)
+	CacheReadCost    float64        `json:"cache_read_cost"`
+	CacheWriteCost   float64        `json:"cache_write_cost"`
+	TotalCost        float64        `json:"total_cost"` // Prompt + completion + cache read + cache write
 	Stream           bool           `json:"stream"`
 	Error            string         `json:"error"`
 }
@@ -2617,9 +2659,13 @@ type UsageMetric struct {
 	PromptTokens      int       `json:"prompt_tokens"`
 	CompletionTokens  int       `json:"completion_tokens"`
 	TotalTokens       int       `json:"total_tokens"`
+	CacheReadTokens   int       `json:"cache_read_tokens"`
+	CacheWriteTokens  int       `json:"cache_write_tokens"`
 	PromptCost        float64   `json:"prompt_cost"`
 	CompletionCost    float64   `json:"completion_cost"`
-	TotalCost         float64   `json:"total_cost"` // Total cost of the call (prompt and completion tokens)
+	CacheReadCost     float64   `json:"cache_read_cost"`
+	CacheWriteCost    float64   `json:"cache_write_cost"`
+	TotalCost         float64   `json:"total_cost"` // Prompt + completion + cache read + cache write
 	DurationMs        int       `json:"duration_ms"`
 	RequestSizeBytes  int       `json:"request_size_bytes"`
 	ResponseSizeBytes int       `json:"response_size_bytes"`
@@ -2630,6 +2676,30 @@ type UsersAggregatedUsageMetric struct {
 	Metrics []AggregatedUsageMetric `json:"metrics"`
 }
 
+// UserModelUsage is a per-(provider, model) aggregate of a user's inference usage.
+type UserModelUsage struct {
+	Provider         string    `json:"provider"`
+	Model            string    `json:"model"`
+	TotalRequests    int64     `json:"total_requests"`
+	TotalTokens      int64     `json:"total_tokens"`
+	PromptTokens     int64     `json:"prompt_tokens"`
+	CompletionTokens int64     `json:"completion_tokens"`
+	CacheReadTokens  int64     `json:"cache_read_tokens"`
+	CacheWriteTokens int64     `json:"cache_write_tokens"`
+	TotalCost        float64   `json:"total_cost"`
+	FirstUsed        time.Time `json:"first_used"`
+	LastUsed         time.Time `json:"last_used"`
+}
+
+// UserStatsResponse is the admin-only overview payload for a user's activity.
+type UserStatsResponse struct {
+	User           *User            `json:"user"`
+	LastActiveAt   *time.Time       `json:"last_active_at,omitempty"`
+	ProjectsCount  int64            `json:"projects_count"`
+	SpecTasksCount int64            `json:"spec_tasks_count"`
+	Models         []UserModelUsage `json:"models"`
+}
+
 type AggregatedUsageMetric struct {
 	// ID    string    `json:"id" gorm:"primaryKey"`
 	Date time.Time `json:"date"` // The date of the metric (without time, just the date)
@@ -2637,9 +2707,13 @@ type AggregatedUsageMetric struct {
 	PromptTokens      int     `json:"prompt_tokens"`
 	CompletionTokens  int     `json:"completion_tokens"`
 	TotalTokens       int     `json:"total_tokens"`
+	CacheReadTokens   int     `json:"cache_read_tokens"`
+	CacheWriteTokens  int     `json:"cache_write_tokens"`
 	PromptCost        float64 `json:"prompt_cost"`
 	CompletionCost    float64 `json:"completion_cost"`
-	TotalCost         float64 `json:"total_cost"` // Total cost of the call (prompt and completion tokens)
+	CacheReadCost     float64 `json:"cache_read_cost"`
+	CacheWriteCost    float64 `json:"cache_write_cost"`
+	TotalCost         float64 `json:"total_cost"` // Prompt + completion + cache read + cache write
 	LatencyMs         float64 `json:"latency_ms"`
 	RequestSizeBytes  int     `json:"request_size_bytes"`
 	ResponseSizeBytes int     `json:"response_size_bytes"`
@@ -2947,6 +3021,20 @@ type Notification struct {
 	// Populated by the provider
 	Email     string
 	FirstName string
+
+	// If set, send to these emails instead of the session owner
+	Emails []string
+
+	// If set, POST notification payload to this URL
+	CallbackURL string
+}
+
+// SessionOutputResponse is returned by GET /sessions/{id}/output
+type SessionOutputResponse struct {
+	SessionID  string `json:"session_id"`
+	Status     string `json:"status"`     // "waiting", "complete", "error"
+	Output     string `json:"output"`     // Last interaction's response text
+	DurationMs int64  `json:"duration_ms"`
 }
 
 // StreamingTokenResponse contains token for accessing streaming session
@@ -3098,6 +3186,9 @@ type SandboxInstance struct {
 	ActiveSandboxes int  `json:"active_sandboxes" gorm:"default:0"` // Number of active desktop containers
 	MaxSandboxes    int  `json:"max_sandboxes" gorm:"default:10"`   // Maximum allowed containers
 	PrivilegedMode  bool `json:"privileged_mode" gorm:"default:false"`
+
+	// Helix version running on this sandbox (git commit hash or release version)
+	HelixVersion string `json:"helix_version,omitempty" gorm:"type:varchar(255)"`
 }
 
 // TableName returns the table name for GORM
@@ -3124,6 +3215,9 @@ type SandboxHeartbeatRequest struct {
 
 	// Privileged mode (host Docker access for development)
 	PrivilegedModeEnabled bool `json:"privileged_mode_enabled,omitempty"`
+
+	// Helix version running on this sandbox (git commit hash or release version)
+	HelixVersion string `json:"helix_version,omitempty"`
 }
 
 // DiskUsageMetric represents disk usage for a single mount point
@@ -3159,4 +3253,36 @@ type DiskUsageHistory struct {
 // TableName returns the table name for GORM
 func (DiskUsageHistory) TableName() string {
 	return "disk_usage_history"
+}
+
+// TextFromInteraction returns the plain-text response for an interaction,
+// preferring ResponseEntries (structured) over ResponseMessage (legacy flat string).
+// TextFromEntries reconstructs plain text from a ResponseEntries JSON blob,
+// falling back to fallback when entries are absent or contain no text.
+func TextFromEntries(responseEntries json.RawMessage, fallback string) string {
+	if len(responseEntries) > 0 {
+		var entries []struct {
+			Type    string `json:"type"`
+			Content string `json:"content"`
+		}
+		if err := json.Unmarshal(responseEntries, &entries); err == nil {
+			var sb strings.Builder
+			for _, e := range entries {
+				if e.Type == "text" {
+					sb.WriteString(e.Content)
+				}
+			}
+			if sb.Len() > 0 {
+				return sb.String()
+			}
+		}
+	}
+	return fallback
+}
+
+// TextFromInteraction returns the plain-text response for an interaction.
+// ResponseEntries became the primary source in the response_entries migration;
+// ResponseMessage is kept only for backwards compat with old interactions.
+func TextFromInteraction(i *Interaction) string {
+	return TextFromEntries(json.RawMessage(i.ResponseEntries), i.ResponseMessage)
 }

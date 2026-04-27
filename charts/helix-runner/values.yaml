@@ -10,10 +10,10 @@ replicaCount: 1
 deploymentStrategy: "auto"
 
 image:
-  repository: registry.helixml.tech/helix/runner
+  repository: ghcr.io/helixml/runner
   pullPolicy: IfNotPresent
   # Overrides the image tag whose default is the chart appVersion.
-  tag: "latest"
+  tag: ""
 
 imagePullSecrets: []
 nameOverride: ""
@@ -33,7 +33,22 @@ runner:
   huggingfaceToken: ""
   # Alternative: read Hugging Face token from a Kubernetes secret (leave huggingfaceToken empty when using this)
   huggingfaceTokenExistingSecret: ""
-  huggingfaceTokenExistingSecretKey: ""  # defaults to "token" if not specified 
+  huggingfaceTokenExistingSecretKey: ""  # defaults to "token" if not specified
+  # Enable/disable the embedded Ollama runtime on the runner
+  # Set to false if using an external LLM provider and don't need local model pulling
+  ollamaEnabled: true
+  # Additional environment variables to set on the runner container
+  # Useful for proxy configuration, custom CA certs, etc.
+  # Note: cannot override env vars already defined in the template (API_TOKEN, HF_TOKEN, RUNTIME_OLLAMA_ENABLED)
+  # Example:
+  #   extraEnv:
+  #     - name: HTTPS_PROXY
+  #       value: "http://proxy:8080"
+  #     - name: HTTP_PROXY
+  #       value: "http://proxy:8080"
+  #     - name: NO_PROXY
+  #       value: "localhost,127.0.0.1,10.0.0.0/8"
+  extraEnv: []
 
 # GPU configuration
 # Number of GPUs this runner should manage
@@ -41,18 +56,23 @@ runner:
 # The runner will automatically detect and use all allocated GPUs
 gpuCount: 1
 
+# Kubernetes resource key used to request GPUs. Defaults to NVIDIA; set to
+# "amd.com/gpu" for AMD/ROCm clusters. Other device-plugin keys are supported
+# as long as the upstream device plugin is installed.
+gpuResourceKey: "nvidia.com/gpu"
+
 # GKE-specific setup for GPU containers
 # Enables NVIDIA library path registration with ldconfig so that
 # Ollama and vLLM can find libcuda.so on GKE nodes
 # Set to true when running on Google Kubernetes Engine
 gkeSetup: false
 
-# Both node selectors and resources need to target
+# Extra pod resource requests/limits (CPU, memory, hugepages, etc.).
+# GPU requests are driven by gpuResourceKey + gpuCount above; you do NOT
+# need to set a GPU key here.
 resources:
-  limits:
-    nvidia.com/gpu: '1'
-  requests:
-    nvidia.com/gpu: '1'
+  limits: {}
+  requests: {}
 
 serviceAccount:
   # Specifies whether a service account should be created

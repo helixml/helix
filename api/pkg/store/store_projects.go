@@ -99,6 +99,21 @@ func (s *PostgresStore) ListProjects(ctx context.Context, req *ListProjectsQuery
 	return projects, nil
 }
 
+// ListProjectsWithActiveGoldenBuild returns projects where at least one sandbox
+// has docker_cache_status with status "building". Used on API startup to recover
+// stale golden builds whose monitoring goroutines died during a restart.
+func (s *PostgresStore) ListProjectsWithActiveGoldenBuild(ctx context.Context) ([]*types.Project, error) {
+	var projects []*types.Project
+	err := s.gdb.WithContext(ctx).
+		Where("metadata->'docker_cache_status'->'sandboxes' IS NOT NULL").
+		Where("metadata::text LIKE ?", `%"status":"building"%`).
+		Find(&projects).Error
+	if err != nil {
+		return nil, fmt.Errorf("error listing projects with active golden builds: %w", err)
+	}
+	return projects, nil
+}
+
 type projectTaskStats struct {
 	ProjectID              string  `gorm:"column:project_id"`
 	TotalTasks             int     `gorm:"column:total_tasks"`

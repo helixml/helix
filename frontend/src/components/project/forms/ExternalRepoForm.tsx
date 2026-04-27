@@ -221,7 +221,7 @@ const ExternalRepoForm: FC<ExternalRepoFormProps> = ({
                 Create a token
               </Link>
               <Typography variant="caption" component="span">
-                {' '}(needs repo scope for private repos)
+                {' '}(needs repo and workflow scopes)
               </Typography>
             </Box>
           }

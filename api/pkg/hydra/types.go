@@ -149,3 +149,9 @@ type SystemStatsResponse struct {
 	ActiveContainers int       `json:"active_containers"`
 	ActiveSessions   int       `json:"active_sessions"`
 }
+
+// VersionResponse is the response for the version endpoint
+type VersionResponse struct {
+	Version string   `json:"version"`
+	Routes  []string `json:"routes"`
+}

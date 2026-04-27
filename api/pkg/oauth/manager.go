@@ -140,7 +140,7 @@ func (m *Manager) InitProvider(ctx context.Context, config *types.OAuthProvider)
 
 // GetProvider returns a provider with the given id.
 func (m *Manager) GetProvider(id string) (Provider, error) {
-	log.Debug().Str("provider_id", id).Msg("Looking up OAuth provider by ID")
+	log.Trace().Str("provider_id", id).Msg("Looking up OAuth provider by ID")
 
 	// Try with read lock first
 	m.mutex.RLock()
@@ -150,7 +150,7 @@ func (m *Manager) GetProvider(id string) (Provider, error) {
 	for providerID := range m.providers {
 		availableIDs = append(availableIDs, providerID)
 	}
-	log.Debug().Strs("available_providers", availableIDs).Int("count", len(m.providers)).Msg("Available providers in memory")
+	log.Trace().Strs("available_providers", availableIDs).Int("count", len(m.providers)).Msg("Available providers in memory")
 
 	provider, found := m.providers[id]
 
@@ -170,7 +170,7 @@ func (m *Manager) GetProvider(id string) (Provider, error) {
 
 	// Return early if we found the provider
 	if found {
-		log.Debug().Str("provider_id", id).Str("provider_name", provider.GetName()).Msg("Found OAuth provider")
+		log.Trace().Str("provider_id", id).Str("provider_name", provider.GetName()).Msg("Found OAuth provider")
 		return provider, nil
 	}
 
@@ -627,7 +627,7 @@ func (m *Manager) TestGitHubConnection(ctx context.Context, connection *types.OA
 // GetTokenForTool retrieves an OAuth token for a tool's OAuth provider and required scopes
 // This is used during tool execution to inject OAuth tokens
 func (m *Manager) GetTokenForTool(ctx context.Context, userID string, providerName string, requiredScopes []string) (string, error) {
-	log.Info().Str("user_id", userID).Str("provider_name", providerName).Strs("required_scopes", requiredScopes).Msg("getting token for tool")
+	log.Trace().Str("user_id", userID).Str("provider_name", providerName).Strs("required_scopes", requiredScopes).Msg("getting token for tool")
 
 	provider, err := m.GetProviderByName(ctx, providerName)
 	if err != nil {
@@ -693,7 +693,7 @@ func (m *Manager) GetTokenForTool(ctx context.Context, userID string, providerNa
 			continue
 		}
 
-		log.Info().
+		log.Trace().
 			Str("user_id", userID).
 			Str("provider_name", providerName).
 			Str("connection_id", connection.ID).
@@ -740,7 +740,7 @@ func (m *Manager) GetProviderByName(ctx context.Context, name string) (*types.OA
 		return nil, fmt.Errorf("failed to list providers: %w", err)
 	}
 
-	log.Info().
+	log.Trace().
 		Str("requested_provider", name).
 		Int("available_providers", len(providers)).
 		Msg("Looking for provider by name")
@@ -748,7 +748,7 @@ func (m *Manager) GetProviderByName(ctx context.Context, name string) (*types.OA
 	// First try exact match
 	for _, provider := range providers {
 		if provider.Name == name {
-			log.Info().
+			log.Trace().
 				Str("requested_provider", name).
 				Str("found_provider", provider.Name).
 				Str("provider_id", provider.ID).
@@ -760,7 +760,7 @@ func (m *Manager) GetProviderByName(ctx context.Context, name string) (*types.OA
 	// Then try case-insensitive match
 	for _, provider := range providers {
 		if strings.EqualFold(provider.Name, name) {
-			log.Info().
+			log.Trace().
 				Str("requested_provider", name).
 				Str("found_provider", provider.Name).
 				Str("provider_id", provider.ID).

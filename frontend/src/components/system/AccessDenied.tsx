@@ -4,10 +4,10 @@ import Button from '@mui/material/Button';
 import Typography from '@mui/material/Typography';
 import LockIcon from '@mui/icons-material/Lock';
 import HomeIcon from '@mui/icons-material/Home';
-import useRouter from '../../hooks/useRouter';
+import useAccount from '../../hooks/useAccount';
 
 const AccessDenied: React.FC = () => {
-  const router = useRouter();
+  const account = useAccount();
 
   return (
     <Box
@@ -31,7 +31,7 @@ const AccessDenied: React.FC = () => {
         variant="contained"
         color="secondary"
         startIcon={<HomeIcon />}
-        onClick={() => router.navigate('projects')}
+        onClick={() => account.orgNavigate('projects')}
         sx={{ mt: 2 }}
       >
         Back to Projects

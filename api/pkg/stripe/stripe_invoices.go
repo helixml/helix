@@ -5,11 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 	"github.com/stripe/stripe-go/v76"
+	"github.com/stripe/stripe-go/v76/product"
 )
 
 func (s *Stripe) handleInvoicePaymentPaidEvent(event stripe.Event) error {
@@ -48,8 +50,46 @@ func (s *Stripe) handleInvoicePaymentPaidEvent(event stripe.Event) error {
 		return fmt.Errorf("error getting wallet from stripe: %s", err.Error())
 	}
 
-	// Top-up the wallet by the amount of the invoice
-	amount := float64(invoice.AmountPaid) / 100.0
+	productID := getSubscriptionInvoiceProductID(&invoice)
+	if productID == "" {
+		log.Info().
+			Str("invoice_id", invoice.ID).
+			Msg("no subscription product found on invoice lines, skipping subscription topup")
+		return nil
+	}
+
+	prod, err := product.Get(productID, nil)
+	if err != nil {
+		return fmt.Errorf("failed to get product from stripe: %w", err)
+	}
+
+	creditsValue, ok := prod.Metadata["credits"]
+	if !ok || creditsValue == "" {
+		log.Info().
+			Str("invoice_id", invoice.ID).
+			Str("product_id", productID).
+			Msg("product credits metadata missing, skipping subscription topup")
+		return nil
+	}
+
+	amount, err := strconv.ParseFloat(creditsValue, 64)
+	if err != nil {
+		log.Warn().
+			Str("invoice_id", invoice.ID).
+			Str("product_id", productID).
+			Str("credits", creditsValue).
+			Msg("invalid product credits metadata, skipping subscription topup")
+		return nil
+	}
+
+	if amount <= 0 {
+		log.Info().
+			Str("invoice_id", invoice.ID).
+			Str("product_id", productID).
+			Float64("credits", amount).
+			Msg("non-positive product credits metadata, skipping subscription topup")
+		return nil
+	}
 
 	_, err = s.store.UpdateWalletBalance(context.Background(), wallet.ID, amount, types.TransactionMetadata{
 		TransactionType: types.TransactionTypeSubscription,
@@ -60,4 +100,24 @@ func (s *Stripe) handleInvoicePaymentPaidEvent(event stripe.Event) error {
 	}
 
 	return nil
+}
+
+func getSubscriptionInvoiceProductID(invoice *stripe.Invoice) string {
+	if invoice == nil || invoice.Lines == nil {
+		return ""
+	}
+
+	for _, line := range invoice.Lines.Data {
+		if line == nil || line.Type != stripe.InvoiceLineItemTypeSubscription {
+			continue
+		}
+		if line.Price != nil && line.Price.Product != nil && line.Price.Product.ID != "" {
+			return line.Price.Product.ID
+		}
+		if line.Plan != nil && line.Plan.Product != nil && line.Plan.Product.ID != "" {
+			return line.Plan.Product.ID
+		}
+	}
+
+	return ""
 }

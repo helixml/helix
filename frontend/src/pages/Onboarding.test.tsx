@@ -26,6 +26,8 @@ let mockAccountValue: any = {
     orgID: '',
     loadOrganizations: mockLoadOrganizations,
   },
+  dismissOnboarding: vi.fn(),
+  orgNavigate: vi.fn(),
 }
 
 vi.mock('../hooks/useAccount', () => ({
@@ -41,6 +43,7 @@ vi.mock('../hooks/useApi', () => ({
       v1ProjectsCreate: mockV1ProjectsCreate,
       v1SpecTasksFromPromptCreate: mockV1SpecTasksFromPromptCreate,
       v1ProviderEndpointsList: mockV1ProviderEndpointsList,
+      v1AppsUpdate: vi.fn().mockResolvedValue({}),
     }),
   }),
 }))
@@ -108,8 +111,41 @@ vi.mock('../services/systemSettingsService', () => ({
   useUpdateSystemSettings: () => ({ mutate: vi.fn(), isPending: false }),
 }))
 
+vi.mock('../services/userService', () => ({
+  useGetConfig: () => ({
+    data: { billing_enabled: true },
+    isLoading: false
+  }),
+}))
+
+vi.mock('../services/useBilling', () => ({
+  useGetWallet: () => ({
+    data: {
+      subscription_status: 'active',
+      subscription_created: 0,
+      subscription_current_period_start: 0,
+      subscription_current_period_end: 0,
+      balance: 0
+    },
+    refetch: vi.fn(),
+    isFetching: false
+  }),
+}))
+
+vi.mock('../components/account/ClaudeSubscriptionConnect', () => ({
+  default: () => null,
+  useClaudeSubscriptions: () => ({ data: [] }),
+}))
+
 vi.mock('../components/providers/AddProviderDialog', () => ({
   default: () => null,
+}))
+
+vi.mock('../services/providersService', () => ({
+  useListProviders: () => ({
+    data: [],
+    isLoading: false
+  }),
 }))
 
 function setAccountWithOrgs(orgs: any[]) {
@@ -122,22 +158,36 @@ function setAccountWithOrgs(orgs: any[]) {
       loadOrganizations: mockLoadOrganizations,
     },
     dismissOnboarding: vi.fn(),
+    orgNavigate: vi.fn(),
   }
 }
 
 async function selectExistingOrgAndContinue() {
-  // Step 1 is now org setup - click continue with existing org
+  // Step 1 is org setup - click continue with existing org
   fireEvent.click(screen.getByRole('button', { name: /continue with this organization/i }))
 }
 
+async function skipSubscriptionStep() {
+  // Step 2 is subscription - click continue to skip it
+  await waitFor(() => {
+    expect(screen.getByRole('button', { name: /continue/i })).toBeInTheDocument()
+  })
+  fireEvent.click(screen.getByRole('button', { name: /continue/i }))
+}
+
 async function skipProviderStep() {
+  // Step 3 is providers - click "I'll do this later"
+  await waitFor(() => {
+    expect(screen.getByRole('button', { name: /I'll do this later/i })).toBeInTheDocument()
+  })
   const skipBtn = screen.getByRole('button', { name: /I'll do this later/i })
   fireEvent.click(skipBtn)
 }
 
 async function selectExistingOrgAndGoToProjectStep() {
-  // Step 1: select org, Step 2: skip provider, then we're at Step 3: project
+  // Step 1: select org, Step 2: skip subscription, Step 3: skip provider, then we're at Step 4: project
   await selectExistingOrgAndContinue()
+  await skipSubscriptionStep()
   await skipProviderStep()
   await waitFor(() => {
     expect(screen.getByLabelText(/project name/i)).toBeInTheDocument()
@@ -245,7 +295,8 @@ describe('Onboarding', () => {
         })
       })
 
-      // After org creation, we're on step 2 (providers) - skip it
+      // After org creation, we're on step 2 (subscription) - skip it, then step 3 (providers) - skip it
+      await skipSubscriptionStep()
       await skipProviderStep()
 
       await waitFor(() => {
@@ -436,7 +487,11 @@ describe('Onboarding', () => {
         expect(mockV1UsersMeOnboardingCreate).toHaveBeenCalled()
       })
 
-      expect(mockNavigateReplace).toHaveBeenCalledWith('org_project-specs', { org_id: 'acme', id: 'proj-nav' })
+      expect(mockAccountValue.orgNavigate).toHaveBeenCalledWith('project-specs', {
+        org_id: 'acme',
+        id: 'proj-nav',
+        highlight: 'task-nav',
+      })
 
       vi.useRealTimers()
     })

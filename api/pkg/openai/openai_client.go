@@ -1,6 +1,7 @@
 package openai
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/tls"
@@ -122,6 +123,13 @@ type RetryableClient struct {
 	apiKey         string
 	models         []string
 	billingEnabled bool
+	isAnthropic    bool // true if this client is for an Anthropic-compatible provider
+}
+
+// SetIsAnthropic marks this client as an Anthropic-compatible provider.
+// This is used to determine the correct API format for model listing.
+func (c *RetryableClient) SetIsAnthropic(isAnthropic bool) {
+	c.isAnthropic = isAnthropic
 }
 
 // APIKey - returns the API key used by the client, used for testing
@@ -180,6 +188,11 @@ func (c *RetryableClient) CreateChatCompletion(ctx context.Context, request open
 	// Trim trailing whitespace from message content to prevent API errors
 	request = trimMessageContent(request)
 
+	// Use native genai SDK for Google providers
+	if isGoogleProvider(c.baseURL) {
+		return c.createGoogleChatCompletion(ctx, request)
+	}
+
 	// Perform request with retries
 	err = retry.Do(func() error {
 		resp, err = c.apiClient.CreateChatCompletion(ctx, request)
@@ -237,15 +250,20 @@ func (c *RetryableClient) CreateChatCompletionStream(ctx context.Context, reques
 		return nil, err
 	}
 
+	// Trim trailing whitespace from message content to prevent API errors
+	request = trimMessageContent(request)
+
+	// Use native genai SDK for Google providers
+	if isGoogleProvider(c.baseURL) {
+		return c.createGoogleChatCompletionStream(ctx, request)
+	}
+
 	// Always include usage
 	if request.StreamOptions == nil {
 		request.StreamOptions = &openai.StreamOptions{}
 	}
 
 	request.StreamOptions.IncludeUsage = true
-
-	// Trim trailing whitespace from message content to prevent API errors
-	request = trimMessageContent(request)
 
 	return c.apiClient.CreateChatCompletionStream(ctx, request)
 }
@@ -274,7 +292,7 @@ func (c *RetryableClient) ListModels(ctx context.Context) ([]types.OpenAIModel, 
 			log.Error().Err(err).Msg("failed to list models from Google")
 			return nil, err
 		}
-	case isAnthropicProvider(c.baseURL):
+	case c.isAnthropic:
 		models, err = c.listAnthropicModels(ctx)
 		if err != nil {
 			log.Error().Err(err).Msg("failed to list models from Anthropic")
@@ -362,12 +380,14 @@ func (c *RetryableClient) ListModels(ctx context.Context) ([]types.OpenAIModel, 
 		}
 	}
 
-	// If there's a GPT model, filter out non-GPT models
+	// If there's a GPT model, filter out non-GPT models (but keep embedding models)
 	if hasGPTModel {
 		filteredModels := make([]types.OpenAIModel, 0)
 		for _, m := range models {
-			// gpt, o3, o1, etc
-			if strings.HasPrefix(m.ID, "gpt-") || strings.HasPrefix(m.ID, "o3") || strings.HasPrefix(m.ID, "o1") || strings.HasPrefix(m.ID, "o4") {
+			if strings.HasPrefix(m.ID, "text-embedding-") {
+				m.Type = "embed"
+				filteredModels = append(filteredModels, m)
+			} else if strings.HasPrefix(m.ID, "gpt-") || strings.HasPrefix(m.ID, "o3") || strings.HasPrefix(m.ID, "o1") || strings.HasPrefix(m.ID, "o4") {
 				// Add the type chat. This is needed
 				// for UI to correctly allow filtering
 				m.Type = "chat"
@@ -411,12 +431,12 @@ func (c *RetryableClient) listOpenAIModels(ctx context.Context) ([]types.OpenAIM
 			transportType = fmt.Sprintf("%T", c.httpClient.Transport)
 		}
 	}
-	log.Debug().
+	log.Trace().
 		Str("url", url).
 		Str("base_url", c.baseURL).
 		Str("transport_type", transportType).
 		Bool("tls_skip_verify", tlsSkipVerify).
-		Msg("listOpenAIModels: Transport config for direct httpClient.Do request")
+		Msg("listOpenAIModels: transport config for direct httpClient.Do request")
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -506,10 +526,15 @@ func (c *RetryableClient) CreateEmbeddings(ctx context.Context, request openai.E
 }
 
 func (c *RetryableClient) CreateFlexibleEmbeddings(ctx context.Context, request types.FlexibleEmbeddingRequest) (types.FlexibleEmbeddingResponse, error) {
-	url := c.baseURL + "/v1/embeddings"
+	url := c.baseURL + "/embeddings"
 
 	var responseBody types.FlexibleEmbeddingResponse
 	var err error
+
+	// Ensure encoding_format is "float" so we get []float32 back (not base64 strings)
+	if request.EncodingFormat == "" {
+		request.EncodingFormat = "float"
+	}
 
 	// Marshal the request to JSON
 	requestBody, err := json.Marshal(request)
@@ -688,6 +713,15 @@ func (c *openAIClientInterceptor) Do(req *http.Request) (*http.Response, error) 
 		return resp, err
 	}
 
+	// Some providers (e.g. Together AI) use "reasoning" as the JSON field name
+	// for thinking model output, while the go-openai library expects
+	// "reasoning_content" (DeepSeek's convention). Rewrite on the fly so the
+	// field deserializes correctly regardless of which convention the upstream
+	// provider uses.
+	if resp != nil && resp.Body != nil {
+		resp.Body = &reasoningFieldMapper{ReadCloser: resp.Body}
+	}
+
 	// Handle rate limiting for all provider responses
 	if c.rateLimiter != nil {
 		// Update rate limiter from response headers
@@ -718,6 +752,119 @@ func (c *openAIClientInterceptor) Do(req *http.Request) (*http.Response, error) 
 	}
 
 	return resp, err
+}
+
+// reasoningFieldMapper wraps a response body and rewrites the "reasoning"
+// JSON field to "reasoning_content" so the go-openai library can deserialize
+// it. Some providers (e.g. Together AI) use "reasoning" while the library
+// expects "reasoning_content". Works for both streaming (SSE) and
+// non-streaming responses by line-buffering and doing proper JSON parsing.
+type reasoningFieldMapper struct {
+	io.ReadCloser
+	scanner *bufio.Scanner
+	buf     []byte
+	done    bool
+	readErr error
+}
+
+func (r *reasoningFieldMapper) Read(p []byte) (int, error) {
+	// Drain buffered output from previous scan
+	if len(r.buf) > 0 {
+		n := copy(p, r.buf)
+		r.buf = r.buf[n:]
+		if len(r.buf) == 0 && r.done {
+			return n, r.readErr
+		}
+		return n, nil
+	}
+	if r.done {
+		return 0, r.readErr
+	}
+
+	if r.scanner == nil {
+		r.scanner = bufio.NewScanner(r.ReadCloser)
+		r.scanner.Buffer(make([]byte, 0, 256*1024), 1024*1024)
+	}
+
+	if !r.scanner.Scan() {
+		r.done = true
+		if err := r.scanner.Err(); err != nil {
+			r.readErr = err
+		} else {
+			r.readErr = io.EOF
+		}
+		return 0, r.readErr
+	}
+
+	line := r.scanner.Text()
+	transformed := renameReasoningField(line)
+	r.buf = []byte(transformed + "\n")
+
+	n := copy(p, r.buf)
+	r.buf = r.buf[n:]
+	return n, nil
+}
+
+// renameReasoningField parses a line that may contain JSON (either a raw JSON
+// body or an SSE "data: {json}" line) and renames any top-level "reasoning"
+// keys inside choice message/delta objects to "reasoning_content".
+func renameReasoningField(line string) string {
+	jsonStr := line
+	prefix := ""
+
+	if strings.HasPrefix(line, "data: ") {
+		jsonStr = line[6:]
+		prefix = "data: "
+	}
+
+	if len(jsonStr) == 0 || jsonStr[0] != '{' {
+		return line
+	}
+
+	var obj map[string]any
+	if err := json.Unmarshal([]byte(jsonStr), &obj); err != nil {
+		return line
+	}
+
+	if !renameReasoningInChoices(obj) {
+		return line
+	}
+
+	out, err := json.Marshal(obj)
+	if err != nil {
+		return line
+	}
+	return prefix + string(out)
+}
+
+// renameReasoningInChoices walks into choices[].message and choices[].delta,
+// renaming "reasoning" to "reasoning_content". Returns true if any rename
+// was performed.
+func renameReasoningInChoices(obj map[string]any) bool {
+	choices, ok := obj["choices"].([]any)
+	if !ok {
+		return false
+	}
+
+	changed := false
+	for _, c := range choices {
+		choice, ok := c.(map[string]any)
+		if !ok {
+			continue
+		}
+		for _, key := range []string{"message", "delta"} {
+			msg, ok := choice[key].(map[string]any)
+			if !ok {
+				continue
+			}
+			if val, has := msg["reasoning"]; has {
+				msg["reasoning_content"] = val
+				delete(msg, "reasoning")
+				changed = true
+			}
+		}
+	}
+	return changed
 }
 
 // estimateRequestTokens estimates the number of tokens needed for a request

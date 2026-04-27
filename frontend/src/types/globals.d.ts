@@ -139,6 +139,14 @@ declare module './lib/helix-stream/component/input' {
   export const SelectComponent: any;
 }
 
+declare module './lib/helix-stream/component/error' {
+  export function showErrorPopup(message: string): void;
+}
+
+declare module './lib/helix-stream/component/modal/form' {
+  export const FormModal: any;
+}
+
 
 // Missing API types
 declare type AgentSandboxesDebugResponse = any;

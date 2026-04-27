@@ -6,92 +6,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestInjectLanguageModelAPIKey(t *testing.T) {
-	tests := []struct {
-		name           string
-		apiToken       string
-		helixSettings  map[string]interface{}
-		wantAPIKeySet  bool
-		wantProviders  []string // providers that should have api_key
-	}{
-		{
-			name:     "injects api_key into single provider",
-			apiToken: "test-token",
-			helixSettings: map[string]interface{}{
-				"language_models": map[string]interface{}{
-					"openai": map[string]interface{}{
-						"api_url": "http://localhost:8080/v1",
-					},
-				},
-			},
-			wantAPIKeySet: true,
-			wantProviders: []string{"openai"},
-		},
-		{
-			name:     "injects api_key into multiple providers",
-			apiToken: "test-token",
-			helixSettings: map[string]interface{}{
-				"language_models": map[string]interface{}{
-					"openai": map[string]interface{}{
-						"api_url": "http://localhost:8080/v1",
-					},
-					"anthropic": map[string]interface{}{
-						"api_url": "http://localhost:8080/v1",
-					},
-				},
-			},
-			wantAPIKeySet: true,
-			wantProviders: []string{"openai", "anthropic"},
-		},
-		{
-			name:     "does nothing when apiToken is empty",
-			apiToken: "",
-			helixSettings: map[string]interface{}{
-				"language_models": map[string]interface{}{
-					"openai": map[string]interface{}{
-						"api_url": "http://localhost:8080/v1",
-					},
-				},
-			},
-			wantAPIKeySet: false,
-			wantProviders: []string{},
-		},
-		{
-			name:     "does nothing when language_models is missing",
-			apiToken: "test-token",
-			helixSettings: map[string]interface{}{
-				"theme": "dark",
-			},
-			wantAPIKeySet: false,
-			wantProviders: []string{},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			d := &SettingsDaemon{
-				apiToken:      tt.apiToken,
-				helixSettings: tt.helixSettings,
-			}
-
-			d.injectLanguageModelAPIKey()
-
-			// Check if api_key was set in the expected providers
-			if languageModels, ok := d.helixSettings["language_models"].(map[string]interface{}); ok {
-				for _, provider := range tt.wantProviders {
-					if providerConfig, ok := languageModels[provider].(map[string]interface{}); ok {
-						if tt.wantAPIKeySet {
-							assert.Equal(t, tt.apiToken, providerConfig["api_key"], "api_key should be set for %s", provider)
-						} else {
-							assert.Nil(t, providerConfig["api_key"], "api_key should not be set for %s", provider)
-						}
-					}
-				}
-			}
-		})
-	}
-}
-
 func TestInjectAvailableModels(t *testing.T) {
 	tests := []struct {
 		name            string
@@ -99,6 +13,7 @@ func TestInjectAvailableModels(t *testing.T) {
 		helixSettings   map[string]interface{}
 		wantModel       string
 		wantProvider    string
+		wantSkipped     bool // true if injection should be skipped (e.g. anthropic built-in)
 	}{
 		{
 			name: "adds model to existing openai provider",
@@ -141,20 +56,19 @@ func TestInjectAvailableModels(t *testing.T) {
 			wantProvider: "openai",
 		},
 		{
-			name: "adds to anthropic provider",
+			name: "skips injection for anthropic provider — Zed has built-in definitions",
 			codeAgentConfig: &CodeAgentConfig{
-				Model:   "claude-custom",
+				Model:   "claude-opus-4-6",
 				APIType: "anthropic",
 			},
 			helixSettings: map[string]interface{}{
 				"language_models": map[string]interface{}{
 					"anthropic": map[string]interface{}{
-						"api_url": "http://localhost:8080/v1",
+						"api_url": "http://localhost:8080",
 					},
 				},
 			},
-			wantModel:    "claude-custom",
-			wantProvider: "anthropic",
+			wantSkipped: true,
 		},
 		{
 			name:            "does nothing when codeAgentConfig is nil",
@@ -204,6 +118,21 @@ func TestInjectAvailableModels(t *testing.T) {
 			wantModel:    "existing-model",
 			wantProvider: "openai",
 		},
+		{
+			name: "uses 200K fallback when MaxTokens is 0",
+			codeAgentConfig: &CodeAgentConfig{
+				Model:     "nebius/some-model",
+				APIType:   "openai",
+				MaxTokens: 0,
+			},
+			helixSettings: map[string]interface{}{
+				"language_models": map[string]interface{}{
+					"openai": map[string]interface{}{},
+				},
+			},
+			wantModel:    "nebius/some-model",
+			wantProvider: "openai",
+		},
 	}
 
 	for _, tt := range tests {
@@ -215,9 +144,22 @@ func TestInjectAvailableModels(t *testing.T) {
 
 			d.injectAvailableModels()
 
-			// Verify the model was added to the correct provider
+			if tt.wantSkipped {
+				// Anthropic models should NOT be injected — verify no available_models added
+				languageModels, ok := d.helixSettings["language_models"].(map[string]interface{})
+				if ok {
+					if providerConfig, ok := languageModels["anthropic"].(map[string]interface{}); ok {
+						availableModels, exists := providerConfig["available_models"]
+						if exists {
+							assert.Nil(t, availableModels, "available_models should not be set for anthropic provider")
+						}
+					}
+				}
+				return
+			}
+
+			// Expected no changes
 			if tt.wantModel == "" || tt.wantProvider == "" {
-				// Expected no changes
 				return
 			}
 
@@ -236,6 +178,19 @@ func TestInjectAvailableModels(t *testing.T) {
 				return ""
 			}
 
+			// Helper to get max_tokens from either map or struct
+			getMaxTokens := func(m interface{}) int {
+				if model, ok := m.(map[string]interface{}); ok {
+					if v, ok := model["max_tokens"].(int); ok {
+						return v
+					}
+				}
+				if model, ok := m.(AvailableModel); ok {
+					return model.MaxTokens
+				}
+				return 0
+			}
+
 			// Find the model
 			found := false
 			for _, m := range availableModels {
@@ -245,11 +200,9 @@ func TestInjectAvailableModels(t *testing.T) {
 					if model, ok := m.(AvailableModel); ok {
 						assert.Equal(t, tt.wantModel, model.DisplayName, "display_name should match model name")
 						assert.NotZero(t, model.MaxTokens, "max_tokens should be set")
-						// MaxOutputTokens can be 0 (omitted via omitempty) - Zed uses model defaults
 					} else if model, ok := m.(map[string]interface{}); ok {
 						assert.Equal(t, tt.wantModel, model["display_name"], "display_name should match model name")
 						assert.NotNil(t, model["max_tokens"], "max_tokens should be set")
-						// max_output_tokens can be absent - Zed uses model defaults
 					}
 					break
 				}
@@ -265,6 +218,17 @@ func TestInjectAvailableModels(t *testing.T) {
 					}
 				}
 				assert.Equal(t, 1, count, "should not duplicate model")
+			}
+
+			// For the 200K fallback test, verify the default is applied
+			if tt.name == "uses 200K fallback when MaxTokens is 0" {
+				for _, m := range availableModels {
+					if getModelName(m) == tt.wantModel {
+						maxTokens := getMaxTokens(m)
+						assert.Equal(t, 200000, maxTokens, "should use 200K fallback when MaxTokens is 0")
+						break
+					}
+				}
 			}
 		})
 	}

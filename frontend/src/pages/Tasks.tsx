@@ -17,6 +17,8 @@ import useApps from '../hooks/useApps'
 import useSnackbar from '../hooks/useSnackbar'
 import useApi from '../hooks/useApi'
 import useRouter from '../hooks/useRouter'
+import useSubscriptionGate from '../hooks/useSubscriptionGate'
+import Paywall from '../components/subscription/Paywall'
 
 import { TypesTriggerConfiguration } from '../api/api'
 
@@ -32,6 +34,7 @@ const Tasks: FC = () => {
   const snackbar = useSnackbar()
   const api = useApi()
   const router = useRouter()
+  const { paywallActive, navigateToBilling } = useSubscriptionGate()
   const [dialogOpen, setDialogOpen] = useState(false)
   const [selectedTask, setSelectedTask] = useState<TypesTriggerConfiguration | undefined>()
   const [deletingTask, setDeletingTask] = useState<TypesTriggerConfiguration | undefined>()
@@ -222,7 +225,9 @@ const Tasks: FC = () => {
       )}
     >
       <Container maxWidth="xl" sx={{ mb: 4 }}>
-        {renderContent()}
+        <Paywall active={paywallActive} onBillingClick={navigateToBilling}>
+          {renderContent()}
+        </Paywall>
       </Container>
 
       {/* Task Dialog */}

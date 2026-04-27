@@ -117,6 +117,103 @@ func (apiServer *HelixAPIServer) searchUsers(rw http.ResponseWriter, r *http.Req
 	}, http.StatusOK)
 }
 
+// getUserStats godoc
+// @Summary Get user stats (admin only)
+// @Description Returns an overview of a user's activity: projects owned, spec tasks created, per-model inference usage, and an effective last-active timestamp combining tracked auth activity with usage-metric data.
+// @Tags    users
+// @Accept  json
+// @Produce json
+// @Param id path string true "User ID"
+// @Success 200 {object} types.UserStatsResponse
+// @Router /api/v1/users/{id}/stats [get]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) getUserStats(rw http.ResponseWriter, r *http.Request) {
+	requester := getRequestUser(r)
+	if requester == nil || !requester.Admin {
+		http.Error(rw, "only admins can view user stats", http.StatusForbidden)
+		return
+	}
+
+	userID := mux.Vars(r)["id"]
+	if userID == "" {
+		http.Error(rw, "user ID is required", http.StatusBadRequest)
+		return
+	}
+
+	ctx := r.Context()
+
+	user, err := apiServer.Store.GetUser(ctx, &store.GetUserQuery{ID: userID})
+	if err != nil {
+		http.Error(rw, fmt.Sprintf("error getting user '%s': %v", userID, err), http.StatusInternalServerError)
+		return
+	}
+	user.Token = ""
+	user.TokenType = ""
+	user.PasswordHash = nil
+
+	projectsCount, err := apiServer.Store.GetProjectsCount(ctx, &store.GetProjectsCountQuery{UserID: userID})
+	if err != nil {
+		http.Error(rw, fmt.Sprintf("error counting projects: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	specTasksCount, err := apiServer.Store.GetSpecTasksCount(ctx, &store.GetSpecTasksCountQuery{
+		UserID:          userID,
+		IncludeArchived: true,
+		IncludeDone:     true,
+	})
+	if err != nil {
+		http.Error(rw, fmt.Sprintf("error counting spec tasks: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	models, err := apiServer.Store.GetUserModelUsage(ctx, userID)
+	if err != nil {
+		http.Error(rw, fmt.Sprintf("error getting model usage: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	lastUsage, err := apiServer.Store.GetUserLastUsage(ctx, userID)
+	if err != nil {
+		http.Error(rw, fmt.Sprintf("error getting last usage: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Effective last-active time: the most recent of tracked auth (last_seen_at),
+	// last inference request, and updated_at (bumped when admin changes a user).
+	var lastActive *time.Time
+	pick := func(t time.Time) {
+		if t.IsZero() {
+			return
+		}
+		if lastActive == nil || t.After(*lastActive) {
+			copy := t
+			lastActive = &copy
+		}
+	}
+	if user.LastSeenAt != nil {
+		pick(*user.LastSeenAt)
+	}
+	pick(lastUsage)
+	pick(user.UpdatedAt)
+
+	materializedModels := make([]types.UserModelUsage, 0, len(models))
+	for _, m := range models {
+		if m == nil {
+			continue
+		}
+		materializedModels = append(materializedModels, *m)
+	}
+
+	writeResponse(rw, &types.UserStatsResponse{
+		User:           user,
+		LastActiveAt:   lastActive,
+		ProjectsCount:  projectsCount,
+		SpecTasksCount: specTasksCount,
+		Models:         materializedModels,
+	}, http.StatusOK)
+}
+
 // getUserTokenUsage godoc
 // @Summary Get user token usage
 // @Description Get current user's monthly token usage and limits
@@ -367,4 +464,29 @@ func (apiServer *HelixAPIServer) completeOnboarding(rw http.ResponseWriter, r *h
 	updatedUser.TokenType = ""
 
 	writeResponse(rw, updatedUser, http.StatusOK)
+}
+
+// getPinnedProjects godoc
+// @Summary Get pinned project IDs
+// @Description Get the list of project IDs pinned by the current user
+// @Tags Users
+// @Produce json
+// @Success 200 {object} server.PinnedProjectsResponse
+// @Failure 401 {object} system.HTTPError
+// @Failure 500 {object} system.HTTPError
+// @Security BearerAuth
+// @Router /api/v1/users/me/pinned-projects [get]
+func (s *HelixAPIServer) getPinnedProjects(_ http.ResponseWriter, r *http.Request) (*PinnedProjectsResponse, *system.HTTPError) {
+	user := getRequestUser(r)
+
+	userMeta, err := s.Store.EnsureUserMeta(r.Context(), types.UserMeta{ID: user.ID})
+	if err != nil {
+		return nil, system.NewHTTPError500(fmt.Sprintf("failed to load user meta: %v", err))
+	}
+
+	ids := userMeta.Config.PinnedProjectIDs
+	if ids == nil {
+		ids = []string{}
+	}
+	return &PinnedProjectsResponse{PinnedProjectIDs: ids}, nil
 }

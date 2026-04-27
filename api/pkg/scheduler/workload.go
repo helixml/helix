@@ -271,10 +271,10 @@ func (w *Workload) ToLLMInferenceRequest() *types.RunnerLLMInferenceRequest {
 			Role:    openai.ChatMessageRoleUser,
 			Content: interaction.PromptMessage,
 		})
-		if interaction.ResponseMessage != "" {
+		if responseText := types.TextFromInteraction(interaction); responseText != "" {
 			chatCompletionMessages = append(chatCompletionMessages, openai.ChatCompletionMessage{
 				Role:    openai.ChatMessageRoleAssistant,
-				Content: interaction.ResponseMessage,
+				Content: responseText,
 			})
 		}
 	}

@@ -71,6 +71,23 @@ export function useCreateOrg() {
   })
 }
 
+export function useDeleteOrg() {
+  const api = useApi()
+  const apiClient = api.getApiClient()
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const response = await apiClient.v1OrganizationsDelete(id)
+      return response.data
+    },
+    onSuccess: (_, id) => {
+      queryClient.invalidateQueries({ queryKey: orgListQueryKey() })
+      queryClient.removeQueries({ queryKey: getOrgByIdQueryKey(id) })
+    },
+  })
+}
+
 export function useGetOrgUsage(id: string, enabled?: boolean) {
   const api = useApi()
   const apiClient = api.getApiClient()  

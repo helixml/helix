@@ -1,11 +1,11 @@
 import { useState, useEffect, useCallback } from 'react'
 import useApi from './useApi'
 import useSnackbar from './useSnackbar'
-import { 
+import {
   ServerSampleTypesResponse,
   ServerSampleType,
-  ServerCreateSampleRepositoryRequest,
-  ServicesGitRepository,
+  TypesCreateSampleRepositoryRequest,
+  TypesGitRepository,
   ServerInitializeSampleRepositoriesRequest,
   ServerInitializeSampleRepositoriesResponse
 } from '../api/api'
@@ -53,7 +53,7 @@ export const useSampleTypes = () => {
     return []
   }, []) // No dependencies to avoid infinite loops
 
-  const createSampleRepository = useCallback(async (request: ServerCreateSampleRepositoryRequest): Promise<ServicesGitRepository> => {
+  const createSampleRepository = useCallback(async (request: TypesCreateSampleRepositoryRequest): Promise<TypesGitRepository> => {
     const result = await api.getApiClient().v1SamplesRepositoriesCreate(request)
     if (!result.data) {
       throw new Error('No data returned from API')
@@ -94,7 +94,7 @@ export const useCreateSampleRepository = () => {
   const [loading, setLoading] = useState(false)
   const { createSampleRepository } = useSampleTypes()
 
-  const create = useCallback(async (request: ServerCreateSampleRepositoryRequest) => {
+  const create = useCallback(async (request: TypesCreateSampleRepositoryRequest) => {
     setLoading(true)
     try {
       return await createSampleRepository(request)

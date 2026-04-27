@@ -31,10 +31,8 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -43,6 +41,7 @@ import (
 	"html/template"
 
 	"github.com/helixml/helix/api/pkg/apps"
+	"github.com/helixml/helix/api/pkg/cli"
 	cliutil "github.com/helixml/helix/api/pkg/cli/util"
 	"github.com/helixml/helix/api/pkg/client"
 	"github.com/helixml/helix/api/pkg/system"
@@ -361,7 +360,7 @@ var htmlTemplate = `
                 <div class="tab" data-tab="rag-benchmark">RAG Benchmark</div>
                 {{end}}
             </div>
-            
+
             <div id="test-results" class="tab-content active">
                 <div class="section">
                     <table>
@@ -394,7 +393,7 @@ var htmlTemplate = `
                     </table>
                 </div>
             </div>
-            
+
             {{if .RAGMetrics}}
             <div id="rag-benchmark" class="tab-content">
                 <div class="section">
@@ -457,10 +456,10 @@ var htmlTemplate = `
                 // Remove active class from all tabs and content
                 document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
                 document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-                
+
                 // Add active class to clicked tab
                 tab.classList.add('active');
-                
+
                 // Show corresponding content
                 const tabId = tab.getAttribute('data-tab');
                 document.getElementById(tabId).classList.add('active');
@@ -515,23 +514,23 @@ var htmlTemplate = `
             isResizing = true;
             startY = e.clientY;
             startHeight = parseInt(window.getComputedStyle(iframeContainer).height);
-            
+
             // Show the overlay to capture mouse events
             resizeOverlay.style.display = 'block';
-            
+
             // Add resizing class for visual feedback
             document.body.classList.add('resizing');
         });
 
         document.addEventListener('mousemove', function(e) {
             if (!isResizing) return;
-            
+
             const deltaY = startY - e.clientY;
             let newHeight = startHeight + deltaY;
-            
+
             // Set reasonable limits
             newHeight = Math.max(150, Math.min(newHeight, window.innerHeight - 100));
-            
+
             iframeContainer.style.height = newHeight + 'px';
             adjustContentHeight();
         });
@@ -555,7 +554,7 @@ var htmlTemplate = `
 
         // Add additional style for body when resizing
         const style = document.createElement('style');
-        style.textContent = 
+        style.textContent =
             'body.resizing {' +
             '    cursor: ns-resize !important;' +
             '    user-select: none;' +
@@ -588,7 +587,7 @@ var htmlTemplate = `
         document.addEventListener('mousemove', function(e) {
             lastMouseX = e.clientX;
             lastMouseY = e.clientY;
-            
+
             if (activeElement) {
                 updateTooltipPosition(e);
             }
@@ -686,13 +685,14 @@ func NewTestCmd() *cobra.Command {
 	var deleteExtraFiles bool
 	var knowledgeTimeout time.Duration
 	var skipCleanup bool
+	var organization string
 
 	cmd := &cobra.Command{
 		Use:   "test",
 		Short: "Run tests for Helix agent",
 		Long:  `This command runs tests defined in helix.yaml or a specified YAML file and evaluates the results.`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runTest(cmd, yamlFile, evaluationModel, syncFiles, deleteExtraFiles, knowledgeTimeout, skipCleanup)
+			return runTest(cmd, yamlFile, evaluationModel, syncFiles, deleteExtraFiles, knowledgeTimeout, skipCleanup, organization)
 		},
 	}
 
@@ -702,14 +702,28 @@ func NewTestCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&deleteExtraFiles, "delete", false, "When used with --rsync, delete files in filestore that don't exist locally (similar to rsync --delete)")
 	cmd.Flags().DurationVar(&knowledgeTimeout, "knowledge-timeout", 5*time.Minute, "Timeout when waiting for knowledge indexing")
 	cmd.Flags().BoolVar(&skipCleanup, "skip-cleanup", false, "Skip cleaning up the test app after tests complete")
+	cmd.Flags().StringVarP(&organization, "organization", "o", "", "Organization ID or name (defaults to first org)")
 
 	return cmd
 }
 
-func runTest(cmd *cobra.Command, yamlFile string, evaluationModel string, syncFiles []string, deleteExtraFiles bool, knowledgeTimeout time.Duration, skipCleanup bool) error {
+func runTest(cmd *cobra.Command, yamlFile string, evaluationModel string, syncFiles []string, deleteExtraFiles bool, knowledgeTimeout time.Duration, skipCleanup bool, organization string) error {
 	appConfig, helixYamlContent, err := readHelixYaml(yamlFile)
 	if err != nil {
 		return err
+	}
+
+	// Resolve organization: explicit flag or default to first org
+	apiClient, err := client.NewClientFromEnv()
+	if err != nil {
+		return err
+	}
+	organizationID, err := cli.ResolveOrganization(cmd.Context(), apiClient, organization)
+	if err != nil {
+		return fmt.Errorf("failed to resolve organization: %w", err)
+	}
+	if organizationID != "" {
+		fmt.Printf("Using organization: %s\n", organizationID)
 	}
 
 	testID := system.GenerateTestRunID()
@@ -733,7 +747,7 @@ func runTest(cmd *cobra.Command, yamlFile string, evaluationModel string, syncFi
 	fmt.Printf("Using evaluation model: %s\n", evaluationModel)
 
 	// Deploy the app with the namespaced name and appConfig
-	appID, err := deployApp(namespacedAppName, yamlFile)
+	appID, err := deployApp(namespacedAppName, yamlFile, organizationID)
 	if err != nil {
 		return fmt.Errorf("error deploying app: %v", err)
 	}
@@ -743,7 +757,7 @@ func runTest(cmd *cobra.Command, yamlFile string, evaluationModel string, syncFi
 	// Setup cleanup function
 	cleanup := func() {
 		if !skipCleanup {
-			if err := deleteApp(namespacedAppName); err != nil {
+			if err := deleteApp(namespacedAppName, organizationID); err != nil {
 				fmt.Printf("Error deleting app: %v\n", err)
 			}
 		}
@@ -1430,16 +1444,6 @@ func writeResultsToFile(results *TestResults) error {
 	fmt.Printf("Latest HTML report written to %s\n", reportLatestFilename)
 	fmt.Printf("Summary written to %s\n", summaryFilename)
 	fmt.Printf("Latest summary written to summary_latest.md\n")
-	helixURL := getHelixURL()
-	if strings.Contains(helixURL, "ngrok") {
-		helixURL = "http://localhost:8080"
-	}
-	fmt.Printf("View results at: %s/files?path=/test-runs/%s\n", helixURL, results.TestID)
-
-	// Attempt to open the HTML report in the default browser
-	if isGraphicalEnvironment() {
-		openBrowser(getHelixURL() + "/files?path=/test-runs/" + results.TestID)
-	}
 
 	return nil
 }
@@ -1452,7 +1456,7 @@ func truncate(s string, n int) string {
 	return s[:n] + "..."
 }
 
-func deployApp(namespacedAppName string, yamlFile string) (string, error) {
+func deployApp(namespacedAppName string, yamlFile string, organizationID string) (string, error) {
 	apiClient, err := client.NewClientFromEnv()
 	if err != nil {
 		return "", fmt.Errorf("failed to create API client: %w", err)
@@ -1477,6 +1481,10 @@ func deployApp(namespacedAppName string, yamlFile string) (string, error) {
 		},
 	}
 
+	if organizationID != "" {
+		app.OrganizationID = organizationID
+	}
+
 	createdApp, err := apiClient.CreateApp(context.Background(), app)
 	if err != nil {
 		return "", fmt.Errorf("failed to create app: %w", err)
@@ -1485,7 +1493,7 @@ func deployApp(namespacedAppName string, yamlFile string) (string, error) {
 	return createdApp.ID, nil
 }
 
-func deleteApp(namespacedAppName string) error {
+func deleteApp(namespacedAppName string, organizationID string) error {
 	apiClient, err := client.NewClientFromEnv()
 	if err != nil {
 		return fmt.Errorf("failed to create API client: %w", err)
@@ -1493,8 +1501,13 @@ func deleteApp(namespacedAppName string) error {
 
 	ctx := context.Background()
 
-	// First, we need to look up the app by name
-	existingApps, err := apiClient.ListApps(ctx, &client.AppFilter{})
+	// Scope the app lookup to the organization if provided
+	filter := &client.AppFilter{}
+	if organizationID != "" {
+		filter.OrganizationID = organizationID
+	}
+
+	existingApps, err := apiClient.ListApps(ctx, filter)
 	if err != nil {
 		return fmt.Errorf("failed to list apps: %w", err)
 	}
@@ -1517,47 +1530,6 @@ func deleteApp(namespacedAppName string) error {
 	}
 
 	return nil
-}
-
-// isGraphicalEnvironment checks if the user is in a graphical environment
-func isGraphicalEnvironment() bool {
-	switch runtime.GOOS {
-	case "linux":
-		// Check for common Linux graphical environment variables
-		display := os.Getenv("DISPLAY")
-		wayland := os.Getenv("WAYLAND_DISPLAY")
-		return display != "" || wayland != ""
-	case "darwin":
-		// On macOS, we assume a graphical environment is always present
-		return true
-	case "windows":
-		// On Windows, check if the process is interactive
-		_, err := exec.LookPath("cmd.exe")
-		return err == nil
-	default:
-		// For other operating systems, assume no graphical environment
-		return false
-	}
-}
-
-// openBrowser attempts to open the given URL in the default browser
-func openBrowser(url string) {
-	var err error
-
-	switch runtime.GOOS {
-	case "linux":
-		err = exec.Command("xdg-open", url).Start()
-	case "windows":
-		err = exec.Command("rundll32", "url.dll,FileProtocolHandler", url).Start()
-	case "darwin":
-		err = exec.Command("open", url).Start()
-	default:
-		err = fmt.Errorf("unsupported platform")
-	}
-
-	if err != nil {
-		fmt.Printf("Error opening browser: %v\n", err)
-	}
 }
 
 func getAvailableModels(apiKey, helixURL string) ([]string, error) {

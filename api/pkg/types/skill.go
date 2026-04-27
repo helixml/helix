@@ -22,14 +22,23 @@ type SkillMetadata struct {
 
 // SkillSpec contains the skill specification
 type SkillSpec struct {
-	Description     string     `yaml:"description" json:"description"`
-	SystemPrompt    string     `yaml:"systemPrompt" json:"systemPrompt"`
-	Icon            SkillIcon  `yaml:"icon" json:"icon"`
-	OAuth           SkillOAuth `yaml:"oauth" json:"oauth"`
-	API             SkillAPI   `yaml:"api" json:"api"`
-	Configurable    bool       `yaml:"configurable" json:"configurable"`
-	SkipUnknownKeys bool       `yaml:"skipUnknownKeys" json:"skipUnknownKeys"`
-	TransformOutput bool       `yaml:"transformOutput" json:"transformOutput"`
+	Description     string        `yaml:"description" json:"description"`
+	SystemPrompt    string        `yaml:"systemPrompt" json:"systemPrompt"`
+	Icon            SkillIcon     `yaml:"icon" json:"icon"`
+	OAuth           SkillOAuth    `yaml:"oauth" json:"oauth"`
+	API             SkillAPI      `yaml:"api" json:"api"`
+	MCP             *SkillMCPSpec `yaml:"mcp,omitempty" json:"mcp,omitempty"`
+	Configurable    bool          `yaml:"configurable" json:"configurable"`
+	SkipUnknownKeys bool          `yaml:"skipUnknownKeys" json:"skipUnknownKeys"`
+	TransformOutput bool          `yaml:"transformOutput" json:"transformOutput"`
+}
+
+// SkillMCPSpec defines an MCP-backed skill. When AutoProvision is true the
+// server generates the URL and auth token automatically from platform config
+// and the requesting user's API key — no user input is required.
+type SkillMCPSpec struct {
+	Transport     string `yaml:"transport" json:"transport"`         // "http" or "sse"
+	AutoProvision bool   `yaml:"autoProvision" json:"autoProvision"` // if true, URL+auth are generated server-side
 }
 
 // SkillIcon defines how the skill icon should be displayed
@@ -87,6 +96,9 @@ type SkillDefinition struct {
 	// Transform JSON into readable text to reduce the
 	// size of the response body
 	TransformOutput bool `json:"transformOutput"`
+
+	// MCP configuration (present when this skill is MCP-backed rather than API-backed)
+	MCP *SkillMCPSpec `json:"mcp,omitempty"`
 
 	// Metadata
 	Configurable bool      `json:"configurable"`

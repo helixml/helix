@@ -42,6 +42,13 @@ const (
 
 	// SharedRegistryPort is the port the registry listens on
 	SharedRegistryPort = "5000"
+
+	// SharedBuildKitGCKeepBytes is the max BuildKit cache size before GC evicts.
+	// Default is 10% of disk (~93 GiB on 931 GiB), but our full build cache is
+	// ~94 GB. BuildKit doesn't refresh LastUsedAt on cache hits, so golden build
+	// entries look "stale" to GC and get evicted when later builds temporarily
+	// push the cache over the limit. 300 GiB prevents GC from ever running.
+	SharedBuildKitGCKeepBytes int64 = 300 * 1024 * 1024 * 1024
 )
 
 // Manager manages the Hydra runtime (dev containers, shared BuildKit).
@@ -237,14 +244,38 @@ func (m *Manager) configureBuildKitRegistry(ctx context.Context) error {
 	checkCmd := exec.CommandContext(ctx, "docker", "exec", SharedBuildKitContainerName,
 		"cat", "/etc/buildkit/buildkitd.toml")
 	if existingConfig, err := checkCmd.Output(); err == nil {
-		if strings.Contains(string(existingConfig), registryAddr) {
-			log.Debug().Str("registry", registryAddr).Msg("BuildKit already configured for registry")
+		configStr := string(existingConfig)
+		if strings.Contains(configStr, registryAddr) && strings.Contains(configStr, "worker.oci") {
+			log.Debug().Str("registry", registryAddr).Msg("BuildKit already configured")
 			return nil
 		}
 	}
 
-	// Write buildkitd.toml to trust the insecure registry
-	tomlContent := fmt.Sprintf("[registry.\"%s\"]\n  http = true\n  insecure = true\n", registryAddr)
+	// Write buildkitd.toml with registry trust and GC policy.
+	//
+	// BuildKit's default GC caps at 10% of disk (~93GB on our 931GB partition),
+	// but the full build cache is ~96GB. GC evicts golden build layers during or
+	// after the build, so subsequent sessions get cache misses and rebuild from
+	// scratch. Raise the limit to 300GB.
+	tomlContent := fmt.Sprintf(`[registry."%s"]
+  http = true
+  insecure = true
+
+[worker.oci]
+  gc = true
+  [[worker.oci.gcpolicy]]
+    keepDuration = 172800
+    keepBytes = 10737418240
+    filters = ["type==source.local", "type==exec.cachemount", "type==source.git.checkout"]
+  [[worker.oci.gcpolicy]]
+    keepDuration = 5184000
+    keepBytes = %d
+  [[worker.oci.gcpolicy]]
+    keepBytes = %d
+  [[worker.oci.gcpolicy]]
+    all = true
+    keepBytes = %d
+`, registryAddr, SharedBuildKitGCKeepBytes, SharedBuildKitGCKeepBytes, SharedBuildKitGCKeepBytes)
 	writeCmd := exec.CommandContext(ctx, "docker", "exec", SharedBuildKitContainerName,
 		"sh", "-c", fmt.Sprintf("mkdir -p /etc/buildkit && cat > /etc/buildkit/buildkitd.toml << 'EOF'\n%sEOF", tomlContent))
 	if output, err := writeCmd.CombinedOutput(); err != nil {
@@ -262,7 +293,8 @@ func (m *Manager) configureBuildKitRegistry(ctx context.Context) error {
 
 	log.Info().
 		Str("registry", registryAddr).
-		Msg("Configured BuildKit to trust insecure registry")
+		Int64("gc_keep_bytes", SharedBuildKitGCKeepBytes).
+		Msg("Configured BuildKit with registry trust and GC policy (300 GiB)")
 	return nil
 }
 

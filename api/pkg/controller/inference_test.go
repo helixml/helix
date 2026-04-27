@@ -470,6 +470,50 @@ func (suite *ControllerSuite) Test_EvaluateSecrets() {
 	suite.Equal("secret_value", app.Config.Helix.Assistants[0].Tools[0].Config.API.Headers["X-Secret-Key"])
 }
 
+func (suite *ControllerSuite) Test_EvaluateSecrets_ExcludesProjectScoped() {
+	app := &types.App{
+		ID:     "app_id",
+		Global: true,
+		Config: types.AppConfig{
+			Helix: types.AppHelixConfig{
+				Assistants: []types.AssistantConfig{
+					{
+						ID: "0",
+						Tools: []*types.Tool{
+							{
+								ID: "tool_id",
+								Config: types.ToolConfig{
+									API: &types.ToolAPIConfig{
+										Model: "gpt-4o",
+										Headers: map[string]string{
+											"X-Secret-Key": "${API_KEY}",
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	// Mock returns three "API_KEY" entries: a user-level one and two
+	// project-scoped ones with different values. Only the user-level value
+	// must end up in the rendered config.
+	suite.store.EXPECT().ListSecrets(gomock.Any(), &store.ListSecretsQuery{
+		Owner: suite.user.ID,
+	}).Return([]*types.Secret{
+		{Name: "API_KEY", Value: []byte("user_value")},
+		{Name: "API_KEY", Value: []byte("project_a_value"), ProjectID: "proj_a"},
+		{Name: "API_KEY", Value: []byte("project_b_value"), ProjectID: "proj_b"},
+	}, nil)
+
+	app, err := suite.controller.evaluateSecrets(suite.ctx, suite.user, app)
+	suite.NoError(err)
+	suite.Equal("user_value", app.Config.Helix.Assistants[0].Tools[0].Config.API.Headers["X-Secret-Key"])
+}
+
 func Test_setSystemPrompt(t *testing.T) {
 	type args struct {
 		req          *openai.ChatCompletionRequest

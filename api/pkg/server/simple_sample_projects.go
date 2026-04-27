@@ -28,7 +28,7 @@ type SimpleSampleProject struct {
 	DemoURL       string             `json:"demo_url,omitempty"`
 	Difficulty    string             `json:"difficulty"`
 	Category      string             `json:"category"`
-	Enabled       bool               `json:"enabled"`                   // Whether this sample project is shown to users
+	Enabled       bool               `json:"enabled"` // Whether this sample project is shown to users
 
 	// Skills configures project-level skills that will be added when the project is created
 	// These overlay on top of agent-level skills
@@ -976,7 +976,6 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 			Description:    fmt.Sprintf("Helix codebase for %s", createdProject.Name),
 			OwnerID:        user.ID,
 			OrganizationID: createdProject.OrganizationID,
-			ProjectID:      createdProject.ID,
 			RepoType:       "code",
 			Status:         "ready",
 			LocalPath:      codeRepoPath,
@@ -1047,7 +1046,6 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 			Description:    "Jupyter notebooks for financial analysis",
 			OwnerID:        user.ID,
 			OrganizationID: createdProject.OrganizationID,
-			ProjectID:      createdProject.ID,
 			RepoType:       "code",
 			Status:         "ready",
 			LocalPath:      notebooksPath,
@@ -1089,7 +1087,6 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 			Description:    "Python library for financial analysis and portfolio management",
 			OwnerID:        user.ID,
 			OrganizationID: createdProject.OrganizationID,
-			ProjectID:      createdProject.ID,
 			RepoType:       "code",
 			Status:         "ready",
 			LocalPath:      pyforestPath,
@@ -1219,7 +1216,6 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 				Description:    fmt.Sprintf("Code repository for %s", createdShapeProject.Name),
 				OwnerID:        user.ID,
 				OrganizationID: createdShapeProject.OrganizationID,
-				ProjectID:      createdShapeProject.ID,
 				RepoType:       "code",
 				Status:         "ready",
 				LocalPath:      codeRepoPath,
@@ -1268,7 +1264,6 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 					taskPrompt := sampleProject.TaskPrompts[i]
 					task := &types.SpecTask{
 						ID:             system.GenerateSpecTaskID(),
-						ProjectID:      createdShapeProject.ID,
 						UserID:         user.ID,
 						OrganizationID: createdShapeProject.OrganizationID,
 						Name:           generateTaskNameFromPrompt(taskPrompt.Prompt),
@@ -1428,7 +1423,6 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 				Description:       fmt.Sprintf("GitHub repository %s/%s", finalOwner, finalRepo),
 				OwnerID:           user.ID,
 				OrganizationID:    createdProject.OrganizationID,
-				ProjectID:         createdProject.ID,
 				RepoType:          types.GitRepositoryTypeCode,
 				Status:            types.GitRepositoryStatusCloning, // Start in cloning status
 				IsExternal:        true,
@@ -1548,7 +1542,6 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 			Description:    fmt.Sprintf("Code repository for %s", createdProject.Name),
 			OwnerID:        user.ID,
 			OrganizationID: createdProject.OrganizationID,
-			ProjectID:      createdProject.ID,
 			RepoType:       "code", // Helix-hosted code repo (cloned from LocalPath)
 			Status:         "ready",
 			LocalPath:      codeRepoPath,
@@ -1669,9 +1662,9 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 			TechnicalDesign:    "", // Will be generated when agent picks up task
 			ImplementationPlan: "", // Will be generated when agent picks up task
 
-			CreatedBy:  user.ID,
-			CreatedAt:  time.Now(),
-			UpdatedAt:  time.Now(),
+			CreatedBy: user.ID,
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
 		}
 
 		// Set HelixAppID if we found an agent app

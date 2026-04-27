@@ -1,6 +1,5 @@
 import React, { FC, useEffect, useState } from 'react'
 import Box from '@mui/material/Box'
-import Button from '@mui/material/Button'
 import Container from '@mui/material/Container'
 import Grid from '@mui/material/Grid'
 
@@ -29,6 +28,7 @@ import useRouter from '../hooks/useRouter'
 import useSnackbar from '../hooks/useSnackbar'
 import useThemeConfig from '../hooks/useThemeConfig'
 import AppUsage from '../components/app/AppUsage'
+import EvaluationTab from '../components/app/EvaluationTab'
 import IdeIntegrationSection from '../components/app/IdeIntegrationSection'
 import useLightTheme from '../hooks/useLightTheme'
 import Skills from '../components/app/Skills'
@@ -42,7 +42,6 @@ const App: FC = () => {
   const theme = useTheme()
   const {
     params,
-    navigate,
   } = useRouter()
 
   const appTools = useApp(params.app_id)
@@ -59,17 +58,6 @@ const App: FC = () => {
   
   // Get tab from URL params instead of local state
   const tabValue = params.tab || 'appearance';
-
-  /**
-   * Launches the app - we assume the app has been saving we it's been edited
-   */
-  const handleLaunch = async () => {
-    if (!appTools.app) {
-      snackbar.error('We have no app to launch')
-      return
-    }
-    account.orgNavigate('new', { app_id: appTools.id, resource_type: 'apps' })
-  }
 
   useEffect(() => {
     const checkAccess = async () => {
@@ -102,24 +90,12 @@ const App: FC = () => {
       breadcrumbs={[
         {
           title: 'Agents',
-          routeName: 'apps'
+          routeName: 'agents'
         },
         {
           title: appTools.flatApp?.name || 'Agent',
         }
       ]}
-      topbarContent={(
-        <Box sx={{ textAlign: 'right' }}>
-          <Button
-            type="button"
-            color="secondary"
-            variant="outlined"
-            onClick={handleLaunch}
-          >
-            Launch
-          </Button>
-        </Box>
-      )}
     >
       <Container
         maxWidth="xl"
@@ -152,6 +128,7 @@ const App: FC = () => {
                         { appTools.flatApp && (
                           <Skills
                             app={appTools.flatApp}
+                            appId={appTools.id}
                             onUpdate={appTools.saveFlatApp}
                           />
                         )}
@@ -165,9 +142,14 @@ const App: FC = () => {
                             app={appTools.flatApp}
                             onUpdate={appTools.saveFlatApp}
                             appId={appTools.id}
-                            navigate={navigate}
                           />
                         )}
+                      </Box>
+                    </Grid>
+                  ) : tabValue === 'evaluation' ? (
+                    <Grid item xs={12} sx={{ overflow: 'auto', pb: 8, ...lightTheme.scrollbar }}>
+                      <Box sx={{ mt: "-1px", borderTop: '1px solid #303047', p: 0 }}>
+                        <EvaluationTab appId={appTools.id} />
                       </Box>
                     </Grid>
                   ) : tabValue === 'memories' ? (
@@ -190,7 +172,6 @@ const App: FC = () => {
                           showErrors={appTools.showErrors}
                           appId={appTools.id}
                           appName={appTools.flatApp?.name}
-                          navigate={navigate}
                         />
                       </Box>
                     </Grid>

@@ -28,6 +28,7 @@ import vllmLogo from '../../../assets/img/vllm-logo.png';
 import helixLogo from '../../../assets/img/logo.png';
 import googleLogo from '../../../assets/img/providers/google.svg';
 import anthropicLogo from '../../../assets/img/providers/anthropic.png';
+import fireworksLogo from '../../../assets/img/providers/fireworks.png';
 import { Bot } from 'lucide-react';
 
 interface ModelWithProvider extends TypesOpenAIModel {
@@ -48,6 +49,9 @@ const getProviderIcon = (provider: TypesProviderEndpoint): React.ReactNode => {
     }
     if (provider.name === 'anthropic' || provider.base_url?.startsWith('https://api.anthropic.com/')) {
         return <Avatar src={anthropicLogo} sx={{ width: 24, height: 24 }} variant="square" />;
+    }
+    if (provider.base_url?.startsWith('https://api.fireworks.ai/')) {
+        return <Avatar src={fireworksLogo} sx={{ width: 24, height: 24 }} variant="square" />;
     }
     if (provider.available_models?.length && provider.available_models[0].owned_by === "vllm") {
         return <Avatar src={vllmLogo} sx={{ width: 24, height: 24, bgcolor: '#fff' }} variant="square" />;
@@ -104,7 +108,7 @@ const PricingTable: FC = () => {
         ) ?? [];
     }, [providers]);
 
-    const getModelPricingInfo = (model: ModelWithProvider): { prompt?: string; completion?: string; source: "provider" | "dynamic" | "none"; dynamicModelInfo?: TypesDynamicModelInfo } => {
+    const getModelPricingInfo = (model: ModelWithProvider): { prompt?: string; completion?: string; cacheRead?: string; cacheWrite?: string; source: "provider" | "dynamic" | "none"; dynamicModelInfo?: TypesDynamicModelInfo } => {
         const providerPricing = model.model_info?.pricing;
         const hasProviderPricing = providerPricing && (providerPricing.prompt || providerPricing.completion);
 
@@ -121,6 +125,8 @@ const PricingTable: FC = () => {
             return {
                 prompt: dynamicInfo.model_info?.pricing?.prompt,
                 completion: dynamicInfo.model_info?.pricing?.completion,
+                cacheRead: dynamicInfo.model_info?.pricing?.input_cache_read,
+                cacheWrite: dynamicInfo.model_info?.pricing?.input_cache_write,
                 source: "dynamic",
                 dynamicModelInfo: dynamicInfo,
             };
@@ -130,6 +136,8 @@ const PricingTable: FC = () => {
             return {
                 prompt: providerPricing?.prompt,
                 completion: providerPricing?.completion,
+                cacheRead: providerPricing?.input_cache_read,
+                cacheWrite: providerPricing?.input_cache_write,
                 source: "provider",
             };
         }
@@ -184,6 +192,8 @@ const PricingTable: FC = () => {
                 pricing: pricingInfo.source === "provider" ? {
                     prompt: pricingInfo.prompt,
                     completion: pricingInfo.completion,
+                    input_cache_read: pricingInfo.cacheRead,
+                    input_cache_write: pricingInfo.cacheWrite,
                 } : {},
             },
         };
@@ -241,8 +251,18 @@ const PricingTable: FC = () => {
                             <TableCell>Provider</TableCell>
                             <TableCell>Model</TableCell>
                             <TableCell>Type</TableCell>
-                            <TableCell align="center">Input Price (per 1M tokens)</TableCell>
-                            <TableCell align="center">Output Price (per 1M tokens)</TableCell>
+                            <TableCell align="center">Input (per 1M)</TableCell>
+                            <TableCell align="center">Output (per 1M)</TableCell>
+                            <TableCell align="center">
+                                <Tooltip title="Price per 1M cached-input tokens (cache hits). Blank = billed at Input rate.">
+                                    <span>Cache Read (per 1M)</span>
+                                </Tooltip>
+                            </TableCell>
+                            <TableCell align="center">
+                                <Tooltip title="Price per 1M cache-write tokens (Anthropic cache creation). Blank = billed at Input rate.">
+                                    <span>Cache Write (per 1M)</span>
+                                </Tooltip>
+                            </TableCell>
                             <TableCell align="center">Source</TableCell>
                             <TableCell align="center">Actions</TableCell>
                         </TableRow>
@@ -288,6 +308,16 @@ const PricingTable: FC = () => {
                                     <TableCell align="center">
                                         <Typography variant="body2" sx={{ fontWeight: pricing.completion ? "medium" : "normal" }}>
                                             {pricing.completion ? formatPrice(pricing.completion) : "-"}
+                                        </Typography>
+                                    </TableCell>
+                                    <TableCell align="center">
+                                        <Typography variant="body2" color={pricing.cacheRead ? "text.primary" : "text.secondary"}>
+                                            {pricing.cacheRead ? formatPrice(pricing.cacheRead) : "-"}
+                                        </Typography>
+                                    </TableCell>
+                                    <TableCell align="center">
+                                        <Typography variant="body2" color={pricing.cacheWrite ? "text.primary" : "text.secondary"}>
+                                            {pricing.cacheWrite ? formatPrice(pricing.cacheWrite) : "-"}
                                         </Typography>
                                     </TableCell>
                                     <TableCell align="center">

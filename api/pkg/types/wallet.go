@@ -19,10 +19,22 @@ type Wallet struct {
 	SubscriptionCurrentPeriodStart int64                     `json:"subscription_current_period_start"`
 	SubscriptionCurrentPeriodEnd   int64                     `json:"subscription_current_period_end"`
 	SubscriptionCreated            int64                     `json:"subscription_created"`
+	SubscriptionCancelAtPeriodEnd  bool                      `json:"subscription_cancel_at_period_end"`
 
 	UserID  string  `json:"user_id" gorm:"index"`
 	OrgID   string  `json:"org_id" gorm:"index"` // If belongs to an organization
 	Balance float64 `json:"balance"`
+}
+
+func (w *Wallet) IsSubscriptionActive() bool {
+	switch w.SubscriptionStatus {
+	case stripe.SubscriptionStatusActive:
+		return true
+	case stripe.SubscriptionStatusTrialing:
+		return true
+
+	}
+	return false
 }
 
 type TransactionMetadata struct {

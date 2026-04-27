@@ -6,12 +6,13 @@ description: |
   connectivity to the Helix control plane. Supports NVIDIA, AMD, Intel GPUs and software rendering.
 
 type: application
+icon: https://helix.ml/logo.png
 
 # Chart version - increment on changes to chart templates
-version: 0.2.0
+version: 0.2.2
 
 # Application version - matches helix-sandbox container version
-appVersion: "1.0.0"
+appVersion: "2.7.10"
 
 keywords:
   - helix

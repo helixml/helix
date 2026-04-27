@@ -204,9 +204,10 @@ func (r *AIAppReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	logger := log.FromContext(context.Background())
 	logger.Info("Initializing Helix client", "url", helixURL)
 
+	tlsSkipVerify := os.Getenv("HELIX_TLS_SKIP_VERIFY") == "true"
+
 	var err error
-	// TODO: Add HELIX_TLS_SKIP_VERIFY env var support for enterprise deployments
-	r.helix, err = helixclient.NewClient(helixURL, helixAPIKey, false)
+	r.helix, err = helixclient.NewClient(helixURL, helixAPIKey, tlsSkipVerify)
 	if err != nil {
 		return fmt.Errorf("failed to create Helix client: %w", err)
 	}

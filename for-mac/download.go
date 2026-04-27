@@ -82,7 +82,7 @@ var fastHTTPClient = &http.Client{
 		ResponseHeaderTimeout: 10 * time.Second, // server must respond within 10s
 		WriteBufferSize:       256 * 1024,
 		ReadBufferSize:        1024 * 1024, // 1MB TCP read buffer
-		DisableCompression:  true,        // Don't waste CPU decompressing binary blobs
+		DisableCompression:    true,        // Don't waste CPU decompressing binary blobs
 	},
 }
 
@@ -169,7 +169,7 @@ func (d *VMDownloader) CheckFilesExist() (allExist bool, missing []VMManifestFil
 }
 
 // DownloadAll downloads all missing VM images with progress reporting
-func (d *VMDownloader) DownloadAll(ctx interface{ EventsEmit(string, ...interface{}) }) error {
+func (d *VMDownloader) DownloadAll(emitter interface{ EventsEmit(string, ...interface{}) }) error {
 	d.mu.Lock()
 	if d.running {
 		d.mu.Unlock()
@@ -178,6 +178,18 @@ func (d *VMDownloader) DownloadAll(ctx interface{ EventsEmit(string, ...interfac
 	d.running = true
 	d.cancel = make(chan struct{})
 	d.mu.Unlock()
+
+	// Create a context that cancels when d.cancel is closed, so all
+	// downstream functions use context.Context uniformly.
+	ctx, ctxCancel := context.WithCancel(context.Background())
+	go func() {
+		select {
+		case <-d.cancel:
+			ctxCancel()
+		case <-ctx.Done():
+		}
+	}()
+	defer ctxCancel()
 
 	defer func() {
 		d.mu.Lock()
@@ -222,7 +234,7 @@ func (d *VMDownloader) DownloadAll(ctx interface{ EventsEmit(string, ...interfac
 
 	for _, f := range missing {
 		select {
-		case <-d.cancel:
+		case <-ctx.Done():
 			return fmt.Errorf("download cancelled")
 		default:
 		}
@@ -231,24 +243,26 @@ func (d *VMDownloader) DownloadAll(ctx interface{ EventsEmit(string, ...interfac
 		for fileAttempt := 0; fileAttempt < maxFileRetries; fileAttempt++ {
 			if fileAttempt > 0 {
 				log.Printf("Retrying file %s (attempt %d/%d): %v", f.Name, fileAttempt+1, maxFileRetries, fileErr)
-				d.emitProgress(ctx, DownloadProgress{
+				d.emitProgress(emitter, DownloadProgress{
 					File:   f.Name,
 					Status: "retrying",
 					Error:  fileErr.Error(),
 				})
 				select {
-				case <-d.cancel:
+				case <-ctx.Done():
 					return fmt.Errorf("download cancelled")
 				case <-time.After(5 * time.Second):
 				}
 			}
-			fileErr = d.downloadFileParallel(ctx, f, vmDir)
+			dlURL := fmt.Sprintf("%s/%s/%s", d.manifest.BaseURL, d.manifest.Version, f.Name)
+			dlDest := filepath.Join(vmDir, f.Name)
+			fileErr = d.downloadFileParallel(ctx, emitter, f, dlURL, dlDest)
 			if fileErr == nil {
 				break
 			}
 		}
 		if fileErr != nil {
-			d.emitProgress(ctx, DownloadProgress{
+			d.emitProgress(emitter, DownloadProgress{
 				File:   f.Name,
 				Status: "error",
 				Error:  fileErr.Error(),
@@ -261,15 +275,15 @@ func (d *VMDownloader) DownloadAll(ctx interface{ EventsEmit(string, ...interfac
 			compressedPath := filepath.Join(vmDir, f.Name)
 			decompressedPath := filepath.Join(vmDir, f.DecompressedName)
 
-			d.emitProgress(ctx, DownloadProgress{
+			d.emitProgress(emitter, DownloadProgress{
 				File:       f.DecompressedName,
 				BytesDone:  0,
 				BytesTotal: f.DecompressedSize,
 				Status:     "decompressing",
 			})
 
-			if err := d.decompressZstd(ctx, compressedPath, decompressedPath, f); err != nil {
-				d.emitProgress(ctx, DownloadProgress{
+			if err := d.decompressZstd(ctx, emitter, compressedPath, decompressedPath, f); err != nil {
+				d.emitProgress(emitter, DownloadProgress{
 					File:   f.DecompressedName,
 					Status: "error",
 					Error:  err.Error(),
@@ -282,7 +296,7 @@ func (d *VMDownloader) DownloadAll(ctx interface{ EventsEmit(string, ...interfac
 		}
 	}
 
-	d.emitProgress(ctx, DownloadProgress{
+	d.emitProgress(emitter, DownloadProgress{
 		Status: "complete",
 	})
 
@@ -292,15 +306,13 @@ func (d *VMDownloader) DownloadAll(ctx interface{ EventsEmit(string, ...interfac
 // downloadFileParallel downloads a single file using N parallel HTTP Range
 // requests. Each goroutine fetches a chunk and writes it at the correct
 // offset using WriteAt. Progress is tracked atomically across all goroutines.
-func (d *VMDownloader) downloadFileParallel(ctx interface{ EventsEmit(string, ...interface{}) }, f VMManifestFile, vmDir string) error {
-	destPath := filepath.Join(vmDir, f.Name)
+func (d *VMDownloader) downloadFileParallel(ctx context.Context, emitter interface{ EventsEmit(string, ...interface{}) }, f VMManifestFile, url, destPath string) error {
 	tmpPath := destPath + ".tmp"
-	url := fmt.Sprintf("%s/%s/%s", d.manifest.BaseURL, d.manifest.Version, f.Name)
 
 	log.Printf("Downloading %s from %s (%d parallel connections)", f.Name, url, downloadConcurrency)
 
 	// Verify server supports Range requests with a HEAD
-	headReq, err := http.NewRequest("HEAD", url, nil)
+	headReq, err := http.NewRequestWithContext(ctx, "HEAD", url, nil)
 	if err != nil {
 		return fmt.Errorf("failed to create HEAD request for %s: %w", f.Name, err)
 	}
@@ -325,7 +337,7 @@ func (d *VMDownloader) downloadFileParallel(ctx interface{ EventsEmit(string, ..
 	if !supportsRange || f.Size < 10*1024*1024 {
 		// Fall back to single-connection for small files or no Range support
 		log.Printf("Using single connection for %s (Range support: %v, size: %d)", f.Name, supportsRange, f.Size)
-		return d.downloadFileSingle(ctx, f, vmDir)
+		return d.downloadFileSingle(ctx, emitter, f, url, destPath)
 	}
 
 	// Build chunk list — fixed-size chunks, decoupled from concurrency.
@@ -451,7 +463,7 @@ func (d *VMDownloader) downloadFileParallel(ctx interface{ EventsEmit(string, ..
 
 			for {
 				select {
-				case <-d.cancel:
+				case <-ctx.Done():
 					return
 				case <-stopProgress:
 					return
@@ -483,7 +495,7 @@ func (d *VMDownloader) downloadFileParallel(ctx interface{ EventsEmit(string, ..
 						pct = 100
 					}
 
-					d.emitProgress(ctx, DownloadProgress{
+					d.emitProgress(emitter, DownloadProgress{
 						File:       f.Name,
 						BytesDone:  done,
 						BytesTotal: f.Size,
@@ -522,7 +534,7 @@ func (d *VMDownloader) downloadFileParallel(ctx interface{ EventsEmit(string, ..
 					if chunkErr.Load() != nil {
 						return
 					}
-					if err := d.downloadChunk(outFile, url, chunk.Start, chunk.End, &totalDone); err != nil {
+					if err := d.downloadChunk(ctx, outFile, url, chunk.Start, chunk.End, &totalDone); err != nil {
 						chunkErr.CompareAndSwap(nil, err)
 						return
 					}
@@ -539,7 +551,7 @@ func (d *VMDownloader) downloadFileParallel(ctx interface{ EventsEmit(string, ..
 
 		// Emit "finalizing" status while the OS flushes dirty pages to disk.
 		// Close on an 8 GB file can take 30-60s as the page cache drains.
-		d.emitProgress(ctx, DownloadProgress{
+		d.emitProgress(emitter, DownloadProgress{
 			File:       f.Name,
 			BytesDone:  f.Size,
 			BytesTotal: f.Size,
@@ -555,17 +567,23 @@ func (d *VMDownloader) downloadFileParallel(ctx interface{ EventsEmit(string, ..
 	}
 
 verify:
-	// Verify SHA256 with progress (hashing 8 GB takes 30-60s)
-	hash, err := d.sha256FileWithProgress(ctx, tmpPath, f)
-	if err != nil {
-		return fmt.Errorf("failed to hash %s: %w", f.Name, err)
-	}
+	// Verify SHA256 with progress (hashing 8 GB takes 30-60s).
+	// Skip verification when SHA256 is empty (e.g. DownloadURL for DMGs).
+	if f.SHA256 != "" {
+		hash, err := d.sha256FileWithProgress(emitter, tmpPath, f)
+		if err != nil {
+			return fmt.Errorf("failed to hash %s: %w", f.Name, err)
+		}
 
-	if hash != f.SHA256 {
-		// SHA256 mismatch — delete everything so next attempt starts fresh
-		os.Remove(tmpPath)
-		os.Remove(progressPath)
-		return fmt.Errorf("SHA256 mismatch for %s: expected %s, got %s", f.Name, f.SHA256, hash)
+		if hash != f.SHA256 {
+			// SHA256 mismatch — delete everything so next attempt starts fresh
+			os.Remove(tmpPath)
+			os.Remove(progressPath)
+			return fmt.Errorf("SHA256 mismatch for %s: expected %s, got %s", f.Name, f.SHA256, hash)
+		}
+		log.Printf("Downloaded and verified %s (%d bytes, %d connections)", f.Name, f.Size, downloadConcurrency)
+	} else {
+		log.Printf("Downloaded %s (%d bytes, %d connections, SHA256 skipped)", f.Name, f.Size, downloadConcurrency)
 	}
 
 	// Success — clean up progress file and atomic rename
@@ -574,7 +592,6 @@ verify:
 		return fmt.Errorf("failed to move %s into place: %w", f.Name, err)
 	}
 
-	log.Printf("Downloaded and verified %s (%d bytes, %d connections)", f.Name, f.Size, downloadConcurrency)
 	return nil
 }
 
@@ -590,7 +607,7 @@ const downloadStallTimeout = 30 * time.Second
 // downloadChunk downloads a byte range and writes it to the file at the
 // correct offset. Tracks bytes downloaded via the atomic counter.
 // Retries on transient errors (network failures, 416/5xx from CDN edges).
-func (d *VMDownloader) downloadChunk(outFile *os.File, url string, start, end int64, totalDone *atomic.Int64) error {
+func (d *VMDownloader) downloadChunk(ctx context.Context, outFile *os.File, url string, start, end int64, totalDone *atomic.Int64) error {
 	var lastErr error
 	for attempt := 0; attempt < maxChunkRetries; attempt++ {
 		if attempt > 0 {
@@ -601,13 +618,13 @@ func (d *VMDownloader) downloadChunk(outFile *os.File, url string, start, end in
 			log.Printf("Retrying chunk %d-%d (attempt %d/%d, backoff %v): %v",
 				start, end, attempt+1, maxChunkRetries, backoff, lastErr)
 			select {
-			case <-d.cancel:
+			case <-ctx.Done():
 				return fmt.Errorf("download cancelled")
 			case <-time.After(backoff):
 			}
 		}
 
-		lastErr = d.downloadChunkOnce(outFile, url, start, end, totalDone)
+		lastErr = d.downloadChunkOnce(ctx, outFile, url, start, end, totalDone)
 		if lastErr == nil {
 			return nil
 		}
@@ -615,22 +632,13 @@ func (d *VMDownloader) downloadChunk(outFile *os.File, url string, start, end in
 	return fmt.Errorf("chunk %d-%d failed after %d attempts: %w", start, end, maxChunkRetries, lastErr)
 }
 
-func (d *VMDownloader) downloadChunkOnce(outFile *os.File, url string, start, end int64, totalDone *atomic.Int64) error {
+func (d *VMDownloader) downloadChunkOnce(parentCtx context.Context, outFile *os.File, url string, start, end int64, totalDone *atomic.Int64) error {
 	// Context with stall detection: if no bytes arrive for 30s, cancel the
 	// request. This aborts the blocked Read and forces a retry on a fresh
 	// TCP connection — critical for surviving WiFi/cellular network switches
 	// where the old socket is dead but the OS hasn't noticed yet.
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(parentCtx)
 	defer cancel()
-
-	// Also cancel if the user cancels the download globally.
-	go func() {
-		select {
-		case <-d.cancel:
-			cancel()
-		case <-ctx.Done():
-		}
-	}()
 
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
@@ -683,14 +691,12 @@ func (d *VMDownloader) downloadChunkOnce(outFile *os.File, url string, start, en
 
 // downloadFileSingle downloads a file with a single connection (fallback for
 // small files or servers that don't support Range requests).
-func (d *VMDownloader) downloadFileSingle(ctx interface{ EventsEmit(string, ...interface{}) }, f VMManifestFile, vmDir string) error {
-	destPath := filepath.Join(vmDir, f.Name)
+func (d *VMDownloader) downloadFileSingle(ctx context.Context, emitter interface{ EventsEmit(string, ...interface{}) }, f VMManifestFile, url, destPath string) error {
 	tmpPath := destPath + ".tmp"
-	url := fmt.Sprintf("%s/%s/%s", d.manifest.BaseURL, d.manifest.Version, f.Name)
 
 	log.Printf("Downloading %s from %s (single connection)", f.Name, url)
 
-	req, err := http.NewRequest("GET", url, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return fmt.Errorf("failed to create request for %s: %w", f.Name, err)
 	}
@@ -720,7 +726,7 @@ func (d *VMDownloader) downloadFileSingle(ctx interface{ EventsEmit(string, ...i
 
 	for {
 		select {
-		case <-d.cancel:
+		case <-ctx.Done():
 			return fmt.Errorf("download cancelled")
 		default:
 		}
@@ -749,7 +755,7 @@ func (d *VMDownloader) downloadFileSingle(ctx interface{ EventsEmit(string, ...i
 					pct = 100
 				}
 
-				d.emitProgress(ctx, DownloadProgress{
+				d.emitProgress(emitter, DownloadProgress{
 					File:       f.Name,
 					BytesDone:  bytesDone,
 					BytesTotal: f.Size,
@@ -774,35 +780,39 @@ func (d *VMDownloader) downloadFileSingle(ctx interface{ EventsEmit(string, ...i
 
 	outFile.Close()
 
-	// Verify SHA256
-	d.emitProgress(ctx, DownloadProgress{
-		File:       f.Name,
-		BytesDone:  f.Size,
-		BytesTotal: f.Size,
-		Percent:    100,
-		Status:     "verifying",
-	})
+	// Verify SHA256 (skip when empty, e.g. DownloadURL for DMGs)
+	if f.SHA256 != "" {
+		d.emitProgress(emitter, DownloadProgress{
+			File:       f.Name,
+			BytesDone:  f.Size,
+			BytesTotal: f.Size,
+			Percent:    100,
+			Status:     "verifying",
+		})
 
-	hash, err := sha256File(tmpPath)
-	if err != nil {
-		return fmt.Errorf("failed to hash %s: %w", f.Name, err)
-	}
+		hash, err := sha256File(tmpPath)
+		if err != nil {
+			return fmt.Errorf("failed to hash %s: %w", f.Name, err)
+		}
 
-	if hash != f.SHA256 {
-		os.Remove(tmpPath)
-		return fmt.Errorf("SHA256 mismatch for %s: expected %s, got %s", f.Name, f.SHA256, hash)
+		if hash != f.SHA256 {
+			os.Remove(tmpPath)
+			return fmt.Errorf("SHA256 mismatch for %s: expected %s, got %s", f.Name, f.SHA256, hash)
+		}
+		log.Printf("Downloaded and verified %s (%d bytes)", f.Name, f.Size)
+	} else {
+		log.Printf("Downloaded %s (%d bytes, SHA256 skipped)", f.Name, f.Size)
 	}
 
 	if err := os.Rename(tmpPath, destPath); err != nil {
 		return fmt.Errorf("failed to move %s into place: %w", f.Name, err)
 	}
 
-	log.Printf("Downloaded and verified %s (%d bytes)", f.Name, f.Size)
 	return nil
 }
 
 // decompressZstd decompresses a .zst file with progress reporting.
-func (d *VMDownloader) decompressZstd(ctx interface{ EventsEmit(string, ...interface{}) }, srcPath, dstPath string, f VMManifestFile) error {
+func (d *VMDownloader) decompressZstd(ctx context.Context, emitter interface{ EventsEmit(string, ...interface{}) }, srcPath, dstPath string, f VMManifestFile) error {
 	log.Printf("Decompressing %s → %s (zstd)", srcPath, dstPath)
 
 	src, err := os.Open(srcPath)
@@ -829,7 +839,7 @@ func (d *VMDownloader) decompressZstd(ctx interface{ EventsEmit(string, ...inter
 
 	for {
 		select {
-		case <-d.cancel:
+		case <-ctx.Done():
 			dst.Close()
 			os.Remove(tmpPath)
 			return fmt.Errorf("decompression cancelled")
@@ -850,7 +860,7 @@ func (d *VMDownloader) decompressZstd(ctx interface{ EventsEmit(string, ...inter
 				if pct > 100 {
 					pct = 100
 				}
-				d.emitProgress(ctx, DownloadProgress{
+				d.emitProgress(emitter, DownloadProgress{
 					File:       f.DecompressedName,
 					BytesDone:  written,
 					BytesTotal: f.DecompressedSize,
@@ -917,12 +927,41 @@ func (d *VMDownloader) IsRunning() bool {
 	return d.running
 }
 
-func (d *VMDownloader) emitProgress(ctx interface{ EventsEmit(string, ...interface{}) }, p DownloadProgress) {
+func (d *VMDownloader) emitProgress(emitter interface{ EventsEmit(string, ...interface{}) }, p DownloadProgress) {
 	d.mu.Lock()
 	d.progress = p
 	d.mu.Unlock()
 
-	ctx.EventsEmit("download:progress", p)
+	emitter.EventsEmit("download:progress", p)
+}
+
+// DownloadURL downloads a file from an arbitrary URL using the parallel
+// downloader. This is used for files not described by a VMManifestFile
+// (e.g. DMG updates). SHA256 verification is skipped.
+func (d *VMDownloader) DownloadURL(ctx context.Context, emitter interface{ EventsEmit(string, ...interface{}) }, url, destPath string) error {
+	fileName := filepath.Base(destPath)
+
+	log.Printf("DownloadURL: %s → %s", url, destPath)
+
+	// Build a synthetic VMManifestFile. Size will be determined by the HEAD
+	// request inside downloadFileParallel. SHA256 is empty so verification
+	// is skipped.
+	syntheticFile := VMManifestFile{
+		Name:   fileName,
+		Size:   0,  // will be populated from HEAD response
+		SHA256: "", // skip verification
+	}
+
+	return d.downloadFileParallel(ctx, emitter, syntheticFile, url, destPath)
+}
+
+// SetManifest sets the manifest on the downloader. Used by the updater to
+// configure the downloader with a CDN-fetched manifest before calling
+// downloadFileParallel.
+func (d *VMDownloader) SetManifest(m *VMManifest) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.manifest = m
 }
 
 // sha256File computes the SHA256 hash of a file
@@ -942,7 +981,7 @@ func sha256File(path string) (string, error) {
 }
 
 // sha256FileWithProgress hashes a file while emitting "verifying" progress.
-func (d *VMDownloader) sha256FileWithProgress(ctx interface{ EventsEmit(string, ...interface{}) }, path string, f VMManifestFile) (string, error) {
+func (d *VMDownloader) sha256FileWithProgress(emitter interface{ EventsEmit(string, ...interface{}) }, path string, f VMManifestFile) (string, error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return "", err
@@ -965,7 +1004,7 @@ func (d *VMDownloader) sha256FileWithProgress(ctx interface{ EventsEmit(string, 
 				if pct > 100 {
 					pct = 100
 				}
-				d.emitProgress(ctx, DownloadProgress{
+				d.emitProgress(emitter, DownloadProgress{
 					File:       f.Name,
 					BytesDone:  hashed,
 					BytesTotal: f.Size,

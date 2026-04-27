@@ -124,25 +124,25 @@ func IsNewer(current, latest string) bool {
 
 // CombinedUpdateProgress reports combined (VM + DMG) download status.
 type CombinedUpdateProgress struct {
-	Phase        string  `json:"phase"`          // "downloading_vm", "downloading_app", "ready"
-	OverallPct   float64 `json:"overall_pct"`    // 0-100 across both downloads
-	StepLabel    string  `json:"step_label"`     // human-readable, e.g. "Downloading system update (1/2)..."
-	BytesDone    int64   `json:"bytes_done"`     // current step bytes
-	BytesTotal   int64   `json:"bytes_total"`    // current step total
-	Speed        string  `json:"speed,omitempty"`
-	ETA          string  `json:"eta,omitempty"`
-	Error        string  `json:"error,omitempty"`
+	Phase      string  `json:"phase"`       // "downloading_vm", "downloading_app", "ready"
+	OverallPct float64 `json:"overall_pct"` // 0-100 across both downloads
+	StepLabel  string  `json:"step_label"`  // human-readable, e.g. "Downloading system update (1/2)..."
+	BytesDone  int64   `json:"bytes_done"`  // current step bytes
+	BytesTotal int64   `json:"bytes_total"` // current step total
+	Speed      string  `json:"speed,omitempty"`
+	ETA        string  `json:"eta,omitempty"`
+	Error      string  `json:"error,omitempty"`
 }
 
 // Updater handles checking for and applying updates.
 type Updater struct {
-	mu              sync.Mutex
-	info            UpdateInfo
-	appCancelFunc   context.CancelFunc // cancel for app update download
-	vmCancelFunc    context.CancelFunc // cancel for VM update download
-	appCtx          context.Context    // Wails app context for event emission
-	vmDownloading      bool               // true while DownloadVMUpdate is running
-	combinedRunning    bool               // true while StartCombinedUpdate is running
+	mu                 sync.Mutex
+	info               UpdateInfo
+	appCancelFunc      context.CancelFunc   // cancel for app update download
+	vmCancelFunc       context.CancelFunc   // cancel for VM update download
+	appCtx             context.Context      // Wails app context for event emission
+	vmDownloading      bool                 // true while DownloadVMUpdate is running
+	combinedRunning    bool                 // true while StartCombinedUpdate is running
 	vmProgressOverride func(UpdateProgress) // optional override for VM progress emission (used by combined flow)
 }
 
@@ -357,14 +357,14 @@ func (u *Updater) StartCombinedUpdate(settings *SettingsManager, downloader *VMD
 	}
 	dmgPath := filepath.Join(updatesDir, "Helix-for-Mac.dmg")
 
-	ctx, cancel := context.WithCancel(context.Background())
+	dmgCtx, dmgCancel := context.WithCancel(context.Background())
 	u.mu.Lock()
-	u.appCancelFunc = cancel
+	u.appCancelFunc = dmgCancel
 	u.mu.Unlock()
-	defer cancel()
+	defer dmgCancel()
 
 	// Download DMG with progress scaled to 90-100%
-	if err := u.downloadFile(ctx, info.DMGURL, dmgPath, "downloading_app", func(p UpdateProgress) {
+	dmgEmitter := &updateEmitter{defaultPhase: "downloading_app", emitFn: func(p UpdateProgress) {
 		u.emitAppProgress(p)
 		overallPct := 90.0 + p.Percent*0.1
 		u.emitCombinedProgress(CombinedUpdateProgress{
@@ -376,7 +376,8 @@ func (u *Updater) StartCombinedUpdate(settings *SettingsManager, downloader *VMD
 			Speed:      p.Speed,
 			ETA:        p.ETA,
 		})
-	}); err != nil {
+	}}
+	if err := downloader.DownloadURL(dmgCtx, dmgEmitter, info.DMGURL, dmgPath); err != nil {
 		return fmt.Errorf("DMG download failed: %w", err)
 	}
 
@@ -407,7 +408,7 @@ func (u *Updater) StartCombinedUpdate(settings *SettingsManager, downloader *VMD
 
 // ApplyAppUpdate downloads the new DMG, mounts it, copies the .app over the
 // current one, and restarts the app.
-func (u *Updater) ApplyAppUpdate(appCtx context.Context) error {
+func (u *Updater) ApplyAppUpdate(appCtx context.Context, downloader *VMDownloader) error {
 	u.mu.Lock()
 	info := u.info
 	u.mu.Unlock()
@@ -434,13 +435,14 @@ func (u *Updater) ApplyAppUpdate(appCtx context.Context) error {
 		// Download DMG
 		u.emitAppProgress(UpdateProgress{Phase: "downloading_app", Percent: 0})
 
-		ctx, cancel := context.WithCancel(context.Background())
+		dmgCtx, dmgCancel := context.WithCancel(context.Background())
 		u.mu.Lock()
-		u.appCancelFunc = cancel
+		u.appCancelFunc = dmgCancel
 		u.mu.Unlock()
-		defer cancel()
+		defer dmgCancel()
 
-		if err := u.downloadFile(ctx, info.DMGURL, dmgPath, "downloading_app", u.emitAppProgress); err != nil {
+		appEmitter := &updateEmitter{emitFn: u.emitAppProgress, defaultPhase: "downloading_app"}
+		if err := downloader.DownloadURL(dmgCtx, appEmitter, info.DMGURL, dmgPath); err != nil {
 			return fmt.Errorf("failed to download update: %w", err)
 		}
 	}
@@ -597,6 +599,11 @@ func (u *Updater) DownloadVMUpdate(settings *SettingsManager, downloader *VMDown
 	u.mu.Unlock()
 	defer cancel()
 
+	// Set the manifest on the downloader so downloadFileParallel can use it.
+	downloader.SetManifest(&manifest)
+
+	emitter := &updateEmitter{emitFn: u.emitVMProgress, defaultPhase: "downloading_vm"}
+
 	// Download each file in the manifest to a .staged path
 	for _, f := range manifest.Files {
 		select {
@@ -614,21 +621,20 @@ func (u *Updater) DownloadVMUpdate(settings *SettingsManager, downloader *VMDown
 		stagedPath := filepath.Join(vmDir, finalName+".staged")
 		downloadURL := fmt.Sprintf("%s/%s/%s", manifest.BaseURL, manifest.Version, f.Name)
 
-		// Download the file
+		// Download the file using the parallel downloader
 		if f.Compression == "zstd" {
 			// Download compressed, then decompress to .staged
 			compressedPath := stagedPath + ".zst"
-			if err := u.downloadFile(ctx, downloadURL, compressedPath, "downloading_vm", u.emitVMProgress); err != nil {
+			if err := downloader.downloadFileParallel(ctx, emitter, f, downloadURL, compressedPath); err != nil {
 				return fmt.Errorf("failed to download %s: %w", f.Name, err)
 			}
 			// Decompress
-			emitter := &updateEmitter{emitFn: u.emitVMProgress}
-			if err := downloader.decompressZstd(emitter, compressedPath, stagedPath, f); err != nil {
+			if err := downloader.decompressZstd(ctx, emitter, compressedPath, stagedPath, f); err != nil {
 				return fmt.Errorf("failed to decompress %s: %w", f.Name, err)
 			}
 			os.Remove(compressedPath)
 		} else {
-			if err := u.downloadFile(ctx, downloadURL, stagedPath, "downloading_vm", u.emitVMProgress); err != nil {
+			if err := downloader.downloadFileParallel(ctx, emitter, f, downloadURL, stagedPath); err != nil {
 				return fmt.Errorf("failed to download %s: %w", f.Name, err)
 			}
 		}
@@ -654,17 +660,29 @@ func (u *Updater) DownloadVMUpdate(settings *SettingsManager, downloader *VMDown
 }
 
 // updateEmitter adapts the VMDownloader's emitter interface for update progress.
+// defaultPhase controls the base phase string (e.g. "downloading_vm" or
+// "downloading_app") so the same adapter works for both VM and DMG downloads.
 type updateEmitter struct {
-	emitFn func(UpdateProgress)
+	emitFn       func(UpdateProgress)
+	defaultPhase string // "downloading_vm" or "downloading_app"
 }
 
 func (e *updateEmitter) EventsEmit(eventName string, data ...interface{}) {
-	// We only care about progress events for the UI; the decompressor
+	// We only care about progress events for the UI; the downloader
 	// emits "download:progress" events which we translate.
 	if len(data) > 0 {
 		if p, ok := data[0].(DownloadProgress); ok {
+			phase := e.defaultPhase
+			if phase == "" {
+				phase = "downloading_vm"
+			}
+			if p.Status == "decompressing" {
+				phase = "decompressing_vm"
+			} else if p.Status == "verifying" {
+				phase = "verifying_vm"
+			}
 			e.emitFn(UpdateProgress{
-				Phase:      "downloading_vm",
+				Phase:      phase,
 				BytesDone:  p.BytesDone,
 				BytesTotal: p.BytesTotal,
 				Percent:    p.Percent,
@@ -772,104 +790,6 @@ func GetStagedVMVersion() string {
 		return ""
 	}
 	return strings.TrimSpace(string(data))
-}
-
-// downloadFile downloads a URL to a local path with progress reporting.
-func (u *Updater) downloadFile(ctx context.Context, url, destPath, phase string, emitFn func(UpdateProgress)) error {
-	tmpPath := destPath + ".tmp"
-
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
-	if err != nil {
-		return err
-	}
-
-	resp, err := fastHTTPClient.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("HTTP %d downloading %s", resp.StatusCode, url)
-	}
-
-	totalSize := resp.ContentLength
-
-	out, err := os.OpenFile(tmpPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
-	if err != nil {
-		return err
-	}
-
-	buf := make([]byte, 256*1024)
-	var done int64
-	lastReport := time.Now()
-	lastBytes := int64(0)
-	smoothedSpeed := 0.0
-	const emaAlpha = 0.15
-
-	for {
-		select {
-		case <-ctx.Done():
-			out.Close()
-			os.Remove(tmpPath)
-			return fmt.Errorf("download cancelled")
-		default:
-		}
-
-		n, readErr := resp.Body.Read(buf)
-		if n > 0 {
-			if _, writeErr := out.Write(buf[:n]); writeErr != nil {
-				out.Close()
-				os.Remove(tmpPath)
-				return writeErr
-			}
-			done += int64(n)
-
-			if time.Since(lastReport) > 300*time.Millisecond {
-				elapsed := time.Since(lastReport).Seconds()
-				instantSpeed := float64(done-lastBytes) / elapsed
-				if smoothedSpeed == 0 {
-					smoothedSpeed = instantSpeed
-				} else {
-					smoothedSpeed = emaAlpha*instantSpeed + (1-emaAlpha)*smoothedSpeed
-				}
-
-				pct := 0.0
-				eta := "--"
-				if totalSize > 0 {
-					pct = float64(done) / float64(totalSize) * 100
-					if smoothedSpeed > 0 {
-						eta = formatDuration(float64(totalSize-done) / smoothedSpeed)
-					}
-				}
-
-				emitFn(UpdateProgress{
-					Phase:      phase,
-					BytesDone:  done,
-					BytesTotal: totalSize,
-					Percent:    pct,
-					Speed:      formatSpeed(smoothedSpeed),
-					ETA:        eta,
-				})
-
-				lastReport = time.Now()
-				lastBytes = done
-			}
-		}
-
-		if readErr == io.EOF {
-			break
-		}
-		if readErr != nil {
-			out.Close()
-			os.Remove(tmpPath)
-			return readErr
-		}
-	}
-
-	out.Close()
-
-	return os.Rename(tmpPath, destPath)
 }
 
 // mountDMG mounts a DMG and returns the mount point.

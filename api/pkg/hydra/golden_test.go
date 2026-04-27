@@ -548,3 +548,77 @@ func TestParallelCopyDir_MixedContent(t *testing.T) {
 
 	assertIdenticalFS(t, src, dst)
 }
+
+func TestPruneUnreferencedOverlay2Layers(t *testing.T) {
+	dockerDir := t.TempDir()
+
+	// Create overlay2 dirs: 3 referenced, 2 orphaned
+	overlay2 := filepath.Join(dockerDir, "overlay2")
+	os.MkdirAll(filepath.Join(overlay2, "l"), 0755)
+	for _, name := range []string{"layer-aaa", "layer-bbb", "layer-ccc", "orphan-111", "orphan-222"} {
+		dir := filepath.Join(overlay2, name, "diff")
+		os.MkdirAll(dir, 0755)
+		os.WriteFile(filepath.Join(dir, "data"), []byte("some layer data"), 0644)
+	}
+
+	// Create symlinks in l/ — some point to valid dirs, some to orphans
+	os.Symlink("../layer-aaa/diff", filepath.Join(overlay2, "l", "AAAA"))
+	os.Symlink("../orphan-111/diff", filepath.Join(overlay2, "l", "OOOO"))
+
+	// Create layerdb with cache-id files referencing only the 3 valid layers
+	layerdb := filepath.Join(dockerDir, "image", "overlay2", "layerdb", "sha256")
+	for i, cacheID := range []string{"layer-aaa", "layer-bbb", "layer-ccc"} {
+		chainID := fmt.Sprintf("chain%d", i)
+		dir := filepath.Join(layerdb, chainID)
+		os.MkdirAll(dir, 0755)
+		os.WriteFile(filepath.Join(dir, "cache-id"), []byte(cacheID), 0644)
+	}
+
+	pruneUnreferencedOverlay2Layers(dockerDir)
+
+	// Referenced layers must still exist
+	for _, name := range []string{"layer-aaa", "layer-bbb", "layer-ccc"} {
+		if _, err := os.Stat(filepath.Join(overlay2, name)); err != nil {
+			t.Errorf("referenced layer %s was incorrectly removed", name)
+		}
+	}
+
+	// Orphaned layers must be gone
+	for _, name := range []string{"orphan-111", "orphan-222"} {
+		if _, err := os.Stat(filepath.Join(overlay2, name)); !os.IsNotExist(err) {
+			t.Errorf("orphaned layer %s was not removed", name)
+		}
+	}
+
+	// l/ dir must still exist
+	if _, err := os.Stat(filepath.Join(overlay2, "l")); err != nil {
+		t.Error("overlay2/l/ directory was incorrectly removed")
+	}
+
+	// Valid symlink must still exist
+	if _, err := os.Lstat(filepath.Join(overlay2, "l", "AAAA")); err != nil {
+		t.Error("valid symlink l/AAAA was incorrectly removed")
+	}
+
+	// Stale symlink (pointed to orphan) must be gone
+	if _, err := os.Lstat(filepath.Join(overlay2, "l", "OOOO")); !os.IsNotExist(err) {
+		t.Error("stale symlink l/OOOO was not removed")
+	}
+}
+
+func TestPruneUnreferencedOverlay2Layers_EmptyLayerdb(t *testing.T) {
+	dockerDir := t.TempDir()
+
+	// Create overlay2 with some dirs but no layerdb — should NOT delete anything (safety)
+	overlay2 := filepath.Join(dockerDir, "overlay2")
+	os.MkdirAll(filepath.Join(overlay2, "l"), 0755)
+	os.MkdirAll(filepath.Join(overlay2, "some-layer", "diff"), 0755)
+
+	// No layerdb at all
+	pruneUnreferencedOverlay2Layers(dockerDir)
+
+	// Layer must NOT be deleted (safety: empty layerdb means we can't tell what's valid)
+	if _, err := os.Stat(filepath.Join(overlay2, "some-layer")); err != nil {
+		t.Error("layer was deleted despite empty layerdb (safety violation)")
+	}
+}

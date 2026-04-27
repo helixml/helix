@@ -5,7 +5,7 @@ import Button from '@mui/material/Button';
 import TextField from '@mui/material/TextField';
 import Grid from '@mui/material/Grid';
 import AddIcon from '@mui/icons-material/Add';
-import { IAssistantZapier } from '../../types';
+import { TypesAssistantZapier } from '../../api/api';
 import Link from '@mui/material/Link';
 import Window from '../widgets/Window';
 import DeleteIcon from '@mui/icons-material/Delete';
@@ -16,8 +16,8 @@ import ListItemIcon from '@mui/material/ListItemIcon';
 import FiberManualRecordIcon from '@mui/icons-material/FiberManualRecord';
 
 interface ZapierIntegrationsProps {
-  zapier: IAssistantZapier[];
-  onSaveZapierTool: (tool: IAssistantZapier, index?: number) => void;
+  zapier: TypesAssistantZapier[];
+  onSaveZapierTool: (tool: TypesAssistantZapier, index?: number) => void;
   onDeleteZapierTool: (toolIndex: number) => void;
   isReadOnly: boolean;
 }
@@ -28,11 +28,11 @@ const ZapierIntegrations: React.FC<ZapierIntegrationsProps> = ({
   onDeleteZapierTool,
   isReadOnly
 }) => {
-  const [editingTool, setEditingTool] = useState<{tool: IAssistantZapier, index: number} | null>(null);
+  const [editingTool, setEditingTool] = useState<{tool: TypesAssistantZapier, index: number} | null>(null);
   const [showErrors, setShowErrors] = useState(false);
 
   const onAddZapierTool = useCallback(() => {
-    const newTool: IAssistantZapier = {
+    const newTool: TypesAssistantZapier = {
       name: '',
       description: '',
       api_key: '',
@@ -67,7 +67,7 @@ const ZapierIntegrations: React.FC<ZapierIntegrationsProps> = ({
     setEditingTool(null);
   };
 
-  const updateEditingTool = (updates: Partial<IAssistantZapier>) => {
+  const updateEditingTool = (updates: Partial<TypesAssistantZapier>) => {
     if (editingTool) {
       setEditingTool({
         ...editingTool,

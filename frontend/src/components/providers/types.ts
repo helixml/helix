@@ -4,10 +4,13 @@ import AnthropicLogo from './logos/anthropic';
 import GroqLogo from './logos/groq';
 import CerebrasLogo from './logos/cerebras';
 import AWSLogo from './logos/aws';
+import XaiLogo from './logos/xai';
+import CustomLogo from './logos/custom';
 
 // Direct image imports
 import togetheraiLogo from '../../../assets/img/together-logo.png'
 import googleLogo from '../../../assets/img/providers/google.svg';
+import fireworksLogo from '../../../assets/img/providers/fireworks.png';
 import { OllamaIcon } from "../icons/ProviderIcons";
 
 export interface Provider {
@@ -20,7 +23,11 @@ export interface Provider {
   base_url: string;
   configurable_base_url?: boolean;
 
-  optional_api_key?: boolean; // If provider doesn't need an API key 
+  optional_api_key?: boolean; // If provider doesn't need an API key
+
+  // A custom provider lets the user pick a name and a base URL for any
+  // OpenAI-compatible endpoint; multiple instances per user are allowed.
+  is_custom?: boolean;
 
   setup_instructions: string;
 }
@@ -82,23 +89,53 @@ export const PROVIDERS: Provider[] = [
     setup_instructions: "Get your API key from https://cloud.cerebras.ai/"
   },
   {
+    id: 'user/xai',
+    alias: ['xai', 'xai-api', 'grok'],
+    name: 'xAI Grok',
+    description: 'Access xAI Grok models via their OpenAI-compatible API.',
+    logo: XaiLogo,
+    base_url: "https://api.x.ai/v1",
+    setup_instructions: "Get your API key from https://console.x.ai/ (API Keys section)"
+  },
+  {
     id: 'user/togetherai',
     alias: ['togetherai', 'togetherai-api'],
     name: 'TogetherAI',
     description: 'Integrate with TogetherAI for ultra-fast LLM inference.',
-    logo: togetheraiLogo, 
+    logo: togetheraiLogo,
     base_url: "https://api.together.xyz/v1",
     setup_instructions: "Get your API key from https://api.together.xyz/"
+  },
+  {
+    id: 'user/fireworks',
+    alias: ['fireworks', 'fireworks-api'],
+    name: 'Fireworks AI',
+    description: 'Fireworks AI offers cheap and fast LLM infernece.',
+    logo: fireworksLogo,
+    base_url: "https://api.fireworks.ai/inference/v1",
+    setup_instructions: "Register at https://fireworks.ai and get your API key from https://app.fireworks.ai/settings/users/api-keys"
   },
   {
     id: 'user/ollama',
     alias: ['ollama', 'ollama-api'],
     name: 'Ollama',
     description: 'Integrate with Ollama which is running on your local machine or server.',
-    logo: OllamaIcon, 
+    logo: OllamaIcon,
     base_url: "http://host.docker.internal:11434/v1",
     configurable_base_url: true,
     optional_api_key: true,
     setup_instructions: "Open Ollama settings and turn on 'Expose Ollama to the network'"
+  },
+  {
+    id: 'user/custom',
+    alias: ['custom'],
+    name: 'Custom Provider',
+    description: 'Connect any OpenAI-compatible API by providing a base URL and optional API key.',
+    logo: CustomLogo,
+    base_url: '',
+    configurable_base_url: true,
+    optional_api_key: true,
+    is_custom: true,
+    setup_instructions: 'Give your provider a unique name, the OpenAI-compatible base URL, and an API key if the endpoint requires one.'
   }
 ];

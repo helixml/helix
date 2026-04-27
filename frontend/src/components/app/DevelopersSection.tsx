@@ -11,6 +11,7 @@ import CheckIcon from '@mui/icons-material/Check';
 import MonacoEditor from '../widgets/MonacoEditor';
 import { generateYamlFilename } from '../../utils/format';
 import useSnackbar from '../../hooks/useSnackbar';
+import { useSettingsDialog } from '../../contexts/settingsDialog';
 
 interface DevelopersSectionProps {
   schema: string;
@@ -18,7 +19,6 @@ interface DevelopersSectionProps {
   showErrors: boolean;
   appId: string;
   appName?: string;
-  navigate: (route: string) => void;
 }
 
 const DevelopersSection: React.FC<DevelopersSectionProps> = ({
@@ -27,8 +27,8 @@ const DevelopersSection: React.FC<DevelopersSectionProps> = ({
   showErrors,
   appId,
   appName,
-  navigate,
 }) => {
+  const settingsDialog = useSettingsDialog();
   const yamlFilename = generateYamlFilename(appName || 'app');
   const snackbar = useSnackbar();
   const [inspectCopied, setInspectCopied] = React.useState(false);
@@ -176,7 +176,7 @@ const DevelopersSection: React.FC<DevelopersSectionProps> = ({
       <Typography variant="body2" sx={{ mt: 2, mb: 1 }}>
         Don't have the CLI installed? 
         <Link 
-          onClick={() => navigate('account')}
+          onClick={() => settingsDialog.openDialog('account')}
           sx={{ ml: 1, textDecoration: 'underline', cursor: 'pointer' }}
         >
           Install it from your account page

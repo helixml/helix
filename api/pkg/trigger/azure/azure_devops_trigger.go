@@ -201,7 +201,7 @@ func (a *AzureDevOps) processEvent(ctx context.Context, triggerConfig *types.Tri
 
 	log.Info().
 		Str("app_id", app.ID).
-		Str("resp_content", resp.ResponseMessage).
+		Str("resp_content", types.TextFromInteraction(resp)).
 		Msg("Azure DevOps event processed")
 
 	return nil

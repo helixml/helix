@@ -54,8 +54,7 @@ type AuditMetadata struct {
 	InteractionID string `json:"interaction_id,omitempty"` // For scrolling to specific interaction in session view
 
 	// Pull request information
-	PullRequestID  string `json:"pull_request_id,omitempty"`
-	PullRequestURL string `json:"pull_request_url,omitempty"`
+	PullRequests []RepoPR `json:"pull_requests,omitempty"`
 
 	// External system tracking (e.g., Azure DevOps)
 	ExternalTaskID  string `json:"external_task_id,omitempty"`

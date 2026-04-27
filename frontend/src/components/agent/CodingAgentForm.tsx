@@ -1,4 +1,5 @@
 import React, { forwardRef, useImperativeHandle, useState } from 'react'
+import { useCodingAgentProviderState } from './useCodingAgentProviderState'
 import { Alert, Box, Button, CircularProgress, FormControl, FormControlLabel, MenuItem, Radio, RadioGroup, Select, TextField, Typography } from '@mui/material'
 import { SxProps, Theme } from '@mui/material/styles'
 
@@ -25,8 +26,6 @@ interface CodingAgentFormProps {
   value: CodingAgentFormValue
   onChange: (value: CodingAgentFormValue) => void
   disabled?: boolean
-  hasClaudeSubscription?: boolean
-  hasAnthropicProvider?: boolean
   recommendedModels: string[]
   modelPickerHint?: string
   modelPickerDisplayMode?: 'short' | 'full'
@@ -70,8 +69,6 @@ const CodingAgentForm = forwardRef<CodingAgentFormHandle, CodingAgentFormProps>(
   value,
   onChange,
   disabled = false,
-  hasClaudeSubscription = false,
-  hasAnthropicProvider = false,
   recommendedModels,
   modelPickerHint = 'Choose a capable model for agentic coding.',
   modelPickerDisplayMode = 'short',
@@ -107,6 +104,7 @@ const CodingAgentForm = forwardRef<CodingAgentFormHandle, CodingAgentFormProps>(
   const apps = useApps()
   const [createError, setCreateError] = useState('')
   const [isCreating, setIsCreating] = useState(false)
+  const { hasAnthropicProvider, hasClaudeSubscription } = useCodingAgentProviderState(value, onChange)
   const showModelPicker = value.codeAgentRuntime !== 'claude_code' || value.claudeCodeMode === 'api_key'
   const isClaudeCodeSubscription = value.codeAgentRuntime === 'claude_code' && value.claudeCodeMode === 'subscription'
 
@@ -268,7 +266,7 @@ const CodingAgentForm = forwardRef<CodingAgentFormHandle, CodingAgentFormProps>(
                 control={<Radio size="small" sx={claudeRadioSx} />}
                 disabled={!hasClaudeSubscription}
                 label={
-                  <Typography variant="body2">
+                  <Typography variant="body2" color="inherit">
                     Claude Subscription{hasClaudeSubscription ? ' (connected)' : ' (not connected)'}
                   </Typography>
                 }
@@ -278,7 +276,7 @@ const CodingAgentForm = forwardRef<CodingAgentFormHandle, CodingAgentFormProps>(
                 control={<Radio size="small" sx={claudeRadioSx} />}
                 disabled={!hasAnthropicProvider}
                 label={
-                  <Typography variant="body2">
+                  <Typography variant="body2" color="inherit">
                     Anthropic API Key{hasAnthropicProvider ? ' (configured)' : ' (not configured)'}
                   </Typography>
                 }

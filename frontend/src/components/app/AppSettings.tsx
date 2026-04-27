@@ -27,7 +27,6 @@ import {
   IAppFlatState,
   IAgentType,
   IExternalAgentConfig,
-  AGENT_TYPE_HELIX_BASIC,
   AGENT_TYPE_HELIX_AGENT,
   AGENT_TYPE_ZED_EXTERNAL,
 } from '../../types'
@@ -244,15 +243,16 @@ const AppSettings: FC<AppSettingsProps> = ({
   const [memory, setMemory] = useState(app.memory || false)
   const [max_iterations, setMaxIterations] = useState(app.max_iterations ?? DEFAULT_VALUES.max_iterations)
 
-  // Agent type settings
-  const [default_agent_type, setDefaultAgentType] = useState<IAgentType>(app.default_agent_type || AGENT_TYPE_HELIX_BASIC)
+  // Agent type settings — auto-migrate helix_basic to helix_agent
+  const migratedAgentType = (app.default_agent_type === 'helix_basic' || !app.default_agent_type) ? AGENT_TYPE_HELIX_AGENT : app.default_agent_type
+  const [default_agent_type, setDefaultAgentType] = useState<IAgentType>(migratedAgentType)
   const [external_agent_config, setExternalAgentConfig] = useState<IExternalAgentConfig>(app.external_agent_config || {})
   const [reasoning_model, setReasoningModel] = useState(app.reasoning_model || '')
   const [reasoning_model_provider, setReasoningModelProvider] = useState(app.reasoning_model_provider || '')
   const [reasoning_model_effort, setReasoningModelEffort] = useState(app.reasoning_model_effort || 'none')
   const [generation_model, setGenerationModel] = useState(app.generation_model || '')
   const [generation_model_provider, setGenerationModelProvider] = useState(app.generation_model_provider || '')
-  const [code_agent_runtime, setCodeAgentRuntime] = useState<'zed_agent' | 'qwen_code' | 'claude_code'>(app.code_agent_runtime || 'zed_agent')
+  const [code_agent_runtime, setCodeAgentRuntime] = useState<'zed_agent' | 'qwen_code' | 'claude_code' | 'gemini_cli' | 'codex_cli'>(app.code_agent_runtime || 'zed_agent')
   // External agent display settings
   const [resolution, setResolution] = useState<'1080p' | '4k' | '5k'>(app.external_agent_config?.resolution as '1080p' | '4k' | '5k' || '1080p')
   const [desktopType, setDesktopType] = useState<'ubuntu' | 'sway'>(app.external_agent_config?.desktop_type as 'ubuntu' | 'sway' || 'ubuntu')
@@ -283,9 +283,7 @@ const AppSettings: FC<AppSettingsProps> = ({
   })
   const { data: claudeSubscriptions } = useClaudeSubscriptions()
   const hasClaudeSubscription = (claudeSubscriptions?.length ?? 0) > 0
-  const hasAnthropicProvider = providerEndpoints.some(
-    ep => ep.endpoint_type === 'user' && ep.name === 'anthropic'
-  )
+  const hasAnthropicProvider = providerEndpoints.some(ep => ep.name === 'anthropic')
 
   // Advanced settings state
   const [contextLimit, setContextLimit] = useState(app.context_limit || 0)
@@ -337,7 +335,7 @@ const AppSettings: FC<AppSettingsProps> = ({
       setModel(app.model || '')
       // Agent configuration
       setAgentMode(app.agent_mode || false)
-      setDefaultAgentType(app.default_agent_type || AGENT_TYPE_HELIX_BASIC)
+      setDefaultAgentType((app.default_agent_type === 'helix_basic' || !app.default_agent_type) ? AGENT_TYPE_HELIX_AGENT : app.default_agent_type)
       setExternalAgentConfig(app.external_agent_config || {})
       // Reasoning configuration
       setReasoningModel(app.reasoning_model || '')
@@ -377,6 +375,13 @@ const AppSettings: FC<AppSettingsProps> = ({
       isInitialized.current = true
     }
   }, [app]) // Still depend on app, but we'll only use it for initialization
+
+  // Auto-migrate helix_basic agents to helix_agent on first load
+  useEffect(() => {
+    if (app.default_agent_type === 'helix_basic') {
+      onUpdate({ ...app, default_agent_type: AGENT_TYPE_HELIX_AGENT })
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Create debounced version of the update function
   const debouncedUpdate = useDebounce((field: 'contextLimit' | 'frequencyPenalty' | 'maxTokens' | 'presencePenalty' | 'reasoningEffort' | 'temperature' | 'topP' | 'system_prompt' | 'maxIterations', value: number | string) => {
@@ -662,34 +667,6 @@ const AppSettings: FC<AppSettingsProps> = ({
           size="small"
         />
       </Box>
-
-      {/* Basic Agent Configuration - Model Selection Only */}
-      {default_agent_type === AGENT_TYPE_HELIX_BASIC && (
-        <Box sx={{ mb: 3 }}>
-          <Typography variant="subtitle1" sx={{ mb: 2 }}>Basic Agent Model</Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            Choose the model for simple conversational AI (no multi-turn tool use, useful for RAG).
-          </Typography>
-          <AdvancedModelPicker
-            recommendedModels={RECOMMENDED_MODELS.smallGeneration}
-            hint="Choose a fast, efficient model for simple conversations and RAG tasks."
-            selectedProvider={provider}
-            selectedModelId={model}
-            onSelectModel={(provider, modelId) => {
-              setModel(modelId);
-              setProvider(provider);
-              const updatedApp: IAppFlatState = {
-                ...app,
-                model: modelId,
-                provider: provider,
-              };
-              onUpdate(updatedApp);
-            }}
-            currentType="text"
-            displayMode="short"
-          />
-        </Box>
-      )}
 
       {/* External Agent Configuration */}
       {default_agent_type === AGENT_TYPE_ZED_EXTERNAL && (
@@ -1351,187 +1328,6 @@ const AppSettings: FC<AppSettingsProps> = ({
         )}
       </Box>
 
-      {showAdvanced && default_agent_type === AGENT_TYPE_HELIX_BASIC && (
-        <Box sx={{ mb: 3 }}>
-          <Box sx={{ mb: 3 }}>
-            <Stack direction="row" alignItems="center">
-              <Typography gutterBottom>Context Limit</Typography>
-              <ResetLink field="context_limit" value={contextLimit} onClick={() => handleReset('context_limit')} />
-            </Stack>
-            <Typography variant="body2" color="text.secondary">
-              The number of messages to include in the context for the AI assistant. When set to 1, the AI assistant will only see and remember the most recent message.
-            </Typography>
-            <FormControl fullWidth sx={{ mt: 1 }}>
-              <Select
-                value={contextLimit}
-                onChange={(e) => handleAdvancedChangeWithDebounce('contextLimit', e.target.value as number)}
-                disabled={readOnly}
-              >
-                <MenuItem value={0}>All Previous Messages</MenuItem>
-                {Array.from({length: 100}, (_, i) => i + 1).map(num => (
-                  <MenuItem key={num} value={num}>{num} Message{num > 1 ? 's' : ''}</MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-          </Box>
-
-          <Box sx={{ mb: 3 }}>
-            <Stack direction="row" alignItems="center">
-              <Typography gutterBottom>Temperature ({temperature.toFixed(2)})</Typography>
-              <ResetLink field="temperature" value={temperature} onClick={() => handleReset('temperature')} />
-            </Stack>
-            <Typography variant="body2" color="text.secondary">
-              Controls randomness in the output. Lower values make it more focused and precise, while higher values make it more creative.
-            </Typography>
-            <Box sx={{ display: 'flex', alignItems: 'center', mt: 1 }}>
-              <Typography variant="caption" sx={{ mr: 2, ml: 0.9 }}></Typography>
-              <Box sx={{ flexGrow: 1 }}>
-                <Slider
-                  value={temperature}
-                  onChange={(_, value) => handleAdvancedChangeWithDebounce('temperature', value as number)}
-                  min={0}
-                  max={2}
-                  step={0.01}
-                  marks={[
-                    { value: 0, label: 'Precise' },
-                    { value: 1, label: 'Neutral' },
-                    { value: 2, label: 'Creative' },
-                  ]}
-                  disabled={readOnly}
-                />
-              </Box>
-              <Typography variant="caption" sx={{ mr: 3 }}></Typography>
-            </Box>
-          </Box>
-
-          <Box sx={{ mb: 3 }}>
-            <Stack direction="row" alignItems="center">
-              <Typography gutterBottom>Frequency Penalty ({frequencyPenalty.toFixed(2)})</Typography>
-              <ResetLink field="frequency_penalty" value={frequencyPenalty} onClick={() => handleReset('frequency_penalty')} />
-            </Stack>
-            <Typography variant="body2" color="text.secondary">
-              Controls how much the model penalizes itself for repeating the same information. Higher values reduce repetition in longer conversations.
-            </Typography>
-            <Box sx={{ display: 'flex', alignItems: 'center', mt: 1 }}>
-              <Typography variant="caption" sx={{ mr: 2, ml: 0.9 }}></Typography>
-              <Box sx={{ flexGrow: 1 }}>
-                <Slider
-                  value={frequencyPenalty}
-                  onChange={(_, value) => handleAdvancedChangeWithDebounce('frequencyPenalty', value as number)}
-                  min={0}
-                  max={2}
-                  step={0.01}
-                  marks={[
-                    { value: 0, label: 'Balanced' },
-                    { value: 2, label: 'Less Repetition' },
-                  ]}
-                  disabled={readOnly}
-                />
-              </Box>
-              <Typography variant="caption" sx={{ mr: 3 }}></Typography>
-            </Box>
-          </Box>
-
-          <Box sx={{ mb: 3 }}>
-            <Stack direction="row" alignItems="center">
-              <Typography gutterBottom>Presence Penalty ({presencePenalty.toFixed(2)})</Typography>
-              <ResetLink field="presence_penalty" value={presencePenalty} onClick={() => handleReset('presence_penalty')} />
-            </Stack>
-            <Typography variant="body2" color="text.secondary">
-              Increases the model's likelihood to talk about new topics. Higher values (2) make it more open-minded, while lower values (0) maintain balanced responses.
-            </Typography>
-            <Box sx={{ display: 'flex', alignItems: 'center', mt: 1 }}>
-              <Typography variant="caption" sx={{ mr: 2, ml: 0.9 }}></Typography>
-              <Box sx={{ flexGrow: 1 }}>
-                <Slider
-                value={presencePenalty}
-                onChange={(_, value) => handleAdvancedChangeWithDebounce('presencePenalty', value as number)}
-                min={0}
-                max={2}
-                step={0.01}
-                marks={[
-                  { value: 0, label: 'Balanced' },
-                  { value: 2, label: 'Open-Minded' },
-                ]}
-                disabled={readOnly}
-                />
-              </Box>
-              <Typography variant="caption" sx={{ mr: 3 }}></Typography>
-            </Box>
-          </Box>
-
-          <Box sx={{ mb: 3 }}>
-            <Stack direction="row" alignItems="center">
-              <Typography gutterBottom>Top P ({topP.toFixed(2)})</Typography>
-              <ResetLink field="top_p" value={topP} onClick={() => handleReset('top_p')} />
-            </Stack>
-            <Typography variant="body2" color="text.secondary">
-              Controls diversity via nucleus sampling. Lower values (near 0) make output more focused, while higher values (near 1) allow more diverse responses.
-            </Typography>
-            <Box sx={{ display: 'flex', alignItems: 'center', mt: 1 }}>
-              <Typography variant="caption" sx={{ mr: 2, ml: 0.9 }}></Typography>
-              <Box sx={{ flexGrow: 1 }}>
-                <Slider
-                value={topP}
-                onChange={(_, value) => handleAdvancedChangeWithDebounce('topP', value as number)}
-                min={0}
-                max={1}
-                step={0.01}
-                marks={[
-                  { value: 0, label: 'Precise' },
-                  { value: 1, label: 'Creative' },
-                ]}
-                disabled={readOnly}
-                />
-              </Box>
-              <Typography variant="caption" sx={{ mr: 3 }}></Typography>
-            </Box>
-          </Box>
-
-          <Box sx={{ mb: 3 }}>
-            <Stack direction="row" alignItems="center">
-              <Typography gutterBottom>Max Tokens</Typography>
-              <ResetLink field="max_tokens" value={maxTokens} onClick={() => handleReset('max_tokens')} />
-            </Stack>
-            <Typography variant="body2" color="text.secondary">
-              The maximum number of tokens to generate before stopping.
-            </Typography>
-
-            <TextField
-              sx={{ mt: 1 }}
-              type="number"
-              value={maxTokens}
-              onChange={(e) => handleAdvancedChangeWithDebounce('maxTokens', parseInt(e.target.value))}
-              fullWidth
-              disabled={readOnly}
-            />
-          </Box>
-
-          <Box sx={{ mb: 3 }}>
-            <Stack direction="row" alignItems="center">
-              <Typography gutterBottom>Reasoning Effort</Typography>
-              <ResetLink field="reasoning_effort" value={reasoningEffort} onClick={() => handleReset('reasoning_effort')} />
-            </Stack>
-            <Typography variant="body2" color="text.secondary">
-              Controls the effort on reasoning for reasoning models. Reducing reasoning effort can result in faster responses and fewer tokens used on reasoning in a response.
-            </Typography>
-            <FormControl fullWidth sx={{ mt: 1 }}>
-              <Select
-                value={reasoningEffort}
-                onChange={(e) => handleAdvancedChangeWithDebounce('reasoningEffort', e.target.value)}
-                disabled={readOnly}
-            >
-              <MenuItem value="none">None</MenuItem>
-              <MenuItem value="low">Low</MenuItem>
-              <MenuItem value="medium">Medium</MenuItem>
-              <MenuItem value="high">High</MenuItem>
-              </Select>
-            </FormControl>
-          </Box>
-
-          <Divider sx={{ mb: 3, mt: 3 }} />
-        </Box>
-      )}
     </Box>
   )
 }

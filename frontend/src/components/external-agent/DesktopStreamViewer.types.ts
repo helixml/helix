@@ -17,6 +17,8 @@ export interface DesktopStreamViewerProps {
   // When true, suppress the connection overlay (parent component is showing its own overlay)
   // This prevents multiple spinners stacking when container state changes
   suppressOverlay?: boolean;
+  showLoadingOverlay?: boolean;
+  isRestart?: boolean;
 }
 
 // Stats for video streaming

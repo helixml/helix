@@ -49,11 +49,14 @@ import { getAssistant } from '../utils/apps'
 import useApps from '../hooks/useApps'
 import useMediaQuery from '@mui/material/useMediaQuery'
 import useLightTheme from '../hooks/useLightTheme'
+import useSubscriptionGate from '../hooks/useSubscriptionGate'
+import Paywall from '../components/subscription/Paywall'
 import AdvancedModelPicker from '../components/create/AdvancedModelPicker'
 import { useListSessionSteps } from '../services/sessionService'
 import PlayArrow from '@mui/icons-material/PlayArrow'
 import CircularProgress from '@mui/material/CircularProgress'
 import StopIcon from '@mui/icons-material/Stop'
+import { useGetConfig } from '../services/userService'
 
 // Hook to track sandbox/desktop state for external agent sessions
 const useSandboxState = (sessionId: string) => {
@@ -232,6 +235,9 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
   const api = useApi()
   const router = useRouter()
   const account = useAccount()
+  const { paywallActive, navigateToBilling } = useSubscriptionGate()
+  const { data: serverConfigData } = useGetConfig()
+  const isCloud = serverConfigData?.edition === 'cloud'
 
   let sessionID = router.params.session_id
 
@@ -1352,6 +1358,7 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
   if (!session?.data) return null
 
   return (
+    <Paywall active={paywallActive} onBillingClick={navigateToBilling}>
     <Box
       sx={{
         width: '100%',
@@ -1621,7 +1628,7 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
           submitTitle="Login / Register"
         >
           <Typography gutterBottom>
-            You can login with your Google account or your organization's SSO provider.
+            {isCloud ? 'Sign in to your Helix account to continue.' : "You can login with your Google account or your organization's SSO provider."}
           </Typography>
           <Typography>
             This session will be cloned into your account and you can continue from there.
@@ -1711,8 +1718,9 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
             )}
           </Box>
         </Window>
-      )}    
+      )}
     </Box>
+    </Paywall>
   )
 }
 

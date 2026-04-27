@@ -19,6 +19,7 @@ import {
   CircularProgress,
   Chip,
   Alert,
+  InputAdornment,
 } from "@mui/material";
 import {
   Close as CloseIcon,
@@ -34,6 +35,7 @@ import {
   Launch as LaunchIcon,
   Computer as DesktopIcon,
   RateReview as ReviewIcon,
+  Search as SearchIcon,
 } from "@mui/icons-material";
 import {
   Panel,
@@ -50,6 +52,9 @@ import {
 } from "../../api/api";
 import useSnackbar from "../../hooks/useSnackbar";
 import useApi from "../../hooks/useApi";
+import { useOAuthFlow } from "../../hooks/useOAuthFlow";
+import { useListOAuthProviders } from "../../services/oauthProvidersService";
+import { findOAuthProviderForType } from "../../utils/oauthProviders";
 import { useUpdateSpecTask, useSpecTask } from "../../services/specTaskService";
 import { useQuery } from "@tanstack/react-query";
 import { getBrowserLocale } from "../../hooks/useBrowserLocale";
@@ -392,11 +397,17 @@ const PanelTab: React.FC<PanelTabProps> = ({
       return tab.desktopTitle || "Human Desktop";
     }
     if (!hasSession) {
-      return displayTask?.name || displayTask?.description || "Task details";
+      return (
+        <span style={{ whiteSpace: "pre-wrap" }}>
+          {displayTask?.description || displayTask?.name || "Task details"}
+        </span>
+      );
     }
     if (titleHistory.length === 0) {
       return (
-        displayTask?.name || displayTask?.description || "No title history yet"
+        <span style={{ whiteSpace: "pre-wrap" }}>
+          {displayTask?.description || displayTask?.name || "No title history yet"}
+        </span>
       );
     }
     return (
@@ -758,7 +769,16 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
   const snackbar = useSnackbar();
   const account = useAccount();
   const streaming = useStreaming();
+
+  // OAuth flow — planner without GitHub OAuth gets 422 oauth_required from
+  // start-planning; open the connect flow instead of surfacing the raw
+  // string.
+  const { startOAuthFlow } = useOAuthFlow();
+  const { data: oauthProviders } = useListOAuthProviders();
+  const gitHubProvider = findOAuthProviderForType(oauthProviders, "github");
+
   const [menuAnchor, setMenuAnchor] = useState<null | HTMLElement>(null);
+  const [taskSearchQuery, setTaskSearchQuery] = useState("");
   const [isActioning, setIsActioning] = useState(false);
   const [dragOverEdge, setDragOverEdge] = useState<
     "left" | "right" | "top" | "bottom" | null
@@ -778,6 +798,17 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
   const unopenedTasks = tasks.filter(
     (t) => !panel.tabs.some((tab) => tab.id === t.id),
   );
+
+  // Filter tasks by search query
+  const filteredTasks = useMemo(() => {
+    if (!taskSearchQuery.trim()) return unopenedTasks;
+    const query = taskSearchQuery.toLowerCase();
+    return unopenedTasks.filter((task) => {
+      const title =
+        task.user_short_title || task.short_title || task.name || "";
+      return title.toLowerCase().includes(query);
+    });
+  }, [unopenedTasks, taskSearchQuery]);
 
   // Get refreshed task data for the active tab (from the tasks prop which is periodically refetched)
   const activeTask = activeTab
@@ -831,6 +862,36 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
       });
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
+        // 422 + oauth_required → open the GitHub connect flow so the user
+        // can retry, instead of surfacing the raw error.
+        if (
+          response.status === 422 &&
+          errorData?.error === "oauth_required"
+        ) {
+          if (gitHubProvider?.id) {
+            snackbar.info("Connect GitHub to start planning this task.");
+            startOAuthFlow({
+              providerId: gitHubProvider.id,
+              scopes: ["repo"],
+              onSuccess: () => {
+                snackbar.success(
+                  "GitHub connected. Click Start Planning again to continue.",
+                );
+              },
+              onError: (oauthError) => {
+                snackbar.error(`GitHub connection failed: ${oauthError}`);
+              },
+            });
+          } else {
+            // No GitHub provider is configured system-wide. The backend's
+            // error message is PR-centric and actionless for this user, so
+            // override it with admin-direction guidance.
+            snackbar.error(
+              "GitHub OAuth is not configured on this Helix instance. Ask your administrator to set it up before starting planning.",
+            );
+          }
+          return;
+        }
         throw new Error(
           errorData.error ||
             errorData.message ||
@@ -917,16 +978,13 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
       const response = await api
         .getApiClient()
         .v1SpecTasksApproveImplementationCreate(activeTask.id);
-      if (response.data?.pull_request_url) {
-        snackbar.success(
-          `Pull request opened! View PR: ${response.data.pull_request_url}`,
-        );
-      } else if (response.data?.pull_request_id) {
-        snackbar.success(
-          "Pull request #" +
-            response.data.pull_request_id +
-            " opened - awaiting merge",
-        );
+      if (response.data?.repo_pull_requests && response.data.repo_pull_requests.length > 0) {
+        const prs = response.data.repo_pull_requests;
+        if (prs.length === 1 && prs[0].pr_url) {
+          snackbar.success(`Pull request opened! View PR: ${prs[0].pr_url}`);
+        } else {
+          snackbar.success(`${prs.length} pull request(s) opened - awaiting merge`);
+        }
       } else {
         snackbar.success(
           "Implementation approved! Agent will merge to your primary branch...",
@@ -1192,9 +1250,39 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
         <Menu
           anchorEl={menuAnchor}
           open={Boolean(menuAnchor)}
-          onClose={() => setMenuAnchor(null)}
+          onClose={() => {
+            setMenuAnchor(null);
+            setTaskSearchQuery("");
+          }}
           slotProps={{ paper: { sx: { maxHeight: 400, width: 280 } } }}
         >
+          {/* Search bar */}
+          <Box sx={{ px: 1.5, py: 1 }}>
+            <TextField
+              size="small"
+              fullWidth
+              placeholder="Search tasks..."
+              value={taskSearchQuery}
+              onChange={(e) => setTaskSearchQuery(e.target.value)}
+              autoFocus
+              onKeyDown={(e) => e.stopPropagation()}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SearchIcon
+                      sx={{ fontSize: 18, color: "text.secondary" }}
+                    />
+                  </InputAdornment>
+                ),
+              }}
+              sx={{
+                "& .MuiOutlinedInput-root": {
+                  fontSize: "0.875rem",
+                },
+              }}
+            />
+          </Box>
+          <Divider />
           {/* Create new task option */}
           {projectId && (
             <>
@@ -1267,15 +1355,19 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
           >
             Tasks
           </Typography>
-          {unopenedTasks.length === 0 ? (
+          {filteredTasks.length === 0 ? (
             <MenuItem disabled>
               <ListItemText
-                primary="All tasks are open"
+                primary={
+                  unopenedTasks.length === 0
+                    ? "All tasks are open"
+                    : "No matching tasks"
+                }
                 primaryTypographyProps={{ fontSize: "0.875rem" }}
               />
             </MenuItem>
           ) : (
-            unopenedTasks.slice(0, 15).map((task) => (
+            filteredTasks.slice(0, 15).map((task) => (
               <React.Fragment key={task.id}>
                 <MenuItem
                   onClick={() => {
@@ -1392,6 +1484,13 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
               specTaskId={activeTab.taskId}
               reviewId={activeTab.reviewId}
               onClose={() => onTabClose(panel.id, activeTab.id)}
+              onImplementationStarted={() => {
+                onTabClose(panel.id, activeTab.id);
+                const task = tasks.find((t) => t.id === activeTab.taskId);
+                if (task) {
+                  onAddTab(panel.id, task);
+                }
+              }}
               hideTitle={true}
             />
           ) : activeTab.type === "create" ? (

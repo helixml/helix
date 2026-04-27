@@ -15,6 +15,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/data"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
@@ -60,7 +61,8 @@ type HeartbeatRequest struct {
 	DiskUsage             []DiskUsageMetric    `json:"disk_usage,omitempty"`
 	ContainerUsage        []ContainerDiskUsage `json:"container_usage,omitempty"`
 	PrivilegedModeEnabled bool                 `json:"privileged_mode_enabled,omitempty"`
-	GPUVendor             string               `json:"gpu_vendor,omitempty"` // nvidia, amd, intel, none
+	GPUVendor             string               `json:"gpu_vendor,omitempty"`    // nvidia, amd, intel, none
+	HelixVersion          string               `json:"helix_version,omitempty"` // git commit hash or release version
 }
 
 func main() {
@@ -135,6 +137,7 @@ func sendHeartbeat(apiURL, runnerToken, sandboxInstanceID string, privilegedMode
 		ContainerUsage:        containerUsage,
 		PrivilegedModeEnabled: privilegedModeEnabled,
 		GPUVendor:             gpuVendor,
+		HelixVersion:          data.GetHelixVersion(),
 	}
 
 	// Log disk status

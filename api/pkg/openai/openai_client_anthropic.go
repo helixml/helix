@@ -12,9 +12,8 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 )
 
-func isAnthropicProvider(baseURL string) bool {
-	return strings.Contains(baseURL, "https://api.anthropic.com")
-}
+// DefaultAnthropicBaseURL is used when no ANTHROPIC_BASE_URL is configured.
+const DefaultAnthropicBaseURL = "https://api.anthropic.com"
 
 type ListAnthropicModelsResponse struct {
 	Data    []AnthropicModel `json:"data"`
@@ -30,8 +29,22 @@ type AnthropicModel struct {
 	Type        string    `json:"type"`
 }
 
+// listAnthropicModels fetches models from an Anthropic-compatible endpoint.
+// It uses c.baseURL to support both direct Anthropic API and proxy configurations.
 func (c *RetryableClient) listAnthropicModels(ctx context.Context) ([]types.OpenAIModel, error) {
-	url := "https://api.anthropic.com/v1/models"
+	// Use c.baseURL if set, otherwise default to Anthropic's API
+	baseURL := c.baseURL
+	if baseURL == "" {
+		baseURL = DefaultAnthropicBaseURL + "/v1"
+	}
+
+	// Ensure baseURL ends with /v1 for the models endpoint
+	baseURL = strings.TrimSuffix(baseURL, "/")
+	if !strings.HasSuffix(baseURL, "/v1") {
+		baseURL = baseURL + "/v1"
+	}
+
+	url := baseURL + "/models"
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -48,7 +61,8 @@ func (c *RetryableClient) listAnthropicModels(ctx context.Context) ([]types.Open
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to get models from '%s' provider: %s", url, resp.Status)
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("failed to get models from '%s' provider: %s - %s", url, resp.Status, string(body))
 	}
 
 	body, err := io.ReadAll(resp.Body)
@@ -67,9 +81,8 @@ func (c *RetryableClient) listAnthropicModels(ctx context.Context) ([]types.Open
 			ID:          model.ID,
 			Description: model.DisplayName,
 			Type:        "chat",
-			// All models have 200k length
-			// Ref: https://docs.anthropic.com/en/docs/about-claude/models/overview#model-comparison-table
-			ContextLength: 200000,
+			// Don't hardcode context length - let model info provider fill it in
+			// via getProviderModels which enriches models with ModelInfo
 		})
 	}
 	return openaiModels, nil
