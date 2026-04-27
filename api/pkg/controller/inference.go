@@ -828,7 +828,20 @@ func (c *Controller) selectAndConfigureTool(ctx context.Context, user *types.Use
 
 func (c *Controller) loadAssistant(ctx context.Context, user *types.User, opts *ChatCompletionOptions) (*types.AssistantConfig, error) {
 	if opts.AppID == "" {
-		return &types.AssistantConfig{}, nil
+		// No app — pull the user's stored chat defaults (system prompt, temperature, etc.)
+		// and present them as an implicit assistant config so the existing inference
+		// code path applies them uniformly. Pre-fill the system prompt with the
+		// platform default so users who have not customised their settings still
+		// get a sensible system prompt.
+		assistant := &types.AssistantConfig{
+			SystemPrompt: types.DefaultChatSystemPrompt,
+		}
+		if user != nil && user.ID != "" {
+			if meta, err := c.Options.Store.GetUserMeta(ctx, user.ID); err == nil {
+				meta.ChatSettings.ApplyToAssistantConfig(assistant)
+			}
+		}
+		return assistant, nil
 	}
 
 	app, err := c.Options.Store.GetAppWithTools(ctx, opts.AppID)

@@ -149,6 +149,7 @@ func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*agent
 	}
 
 	lastUserMessage := getLastMessage(req.Request)
+	lastUserMessageRef := getLastMessageRef(req.Request)
 
 	// Get API skills
 	for _, assistantTool := range req.Assistant.Tools {
@@ -266,19 +267,29 @@ func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*agent
 	)
 	messageHistory := agent.NewMessageList()
 
-	// Add request messages except the last user message
-	for _, message := range req.Request.Messages[:len(req.Request.Messages)-1] {
-		messageText, err := types.GetMessageText(&message)
-		if err != nil {
-			log.Error().Any("request", req.Request).Err(err).Msg("failed to get message text")
-			continue
-		}
-		// TODO: multi-content messages
+	// Add request messages except the last user message. Preserve MultiContent
+	// (image_url / future attachment parts) so vision-capable models can reason
+	// about earlier turns' images, not just text.
+	for i := range req.Request.Messages[:len(req.Request.Messages)-1] {
+		message := req.Request.Messages[i]
 		switch message.Role {
-		case openai.ChatMessageRoleUser:
-			messageHistory.Add(agent.UserMessage(messageText))
-		case openai.ChatMessageRoleSystem, openai.ChatMessageRoleAssistant:
-			messageHistory.Add(agent.AssistantMessage(messageText))
+		case openai.ChatMessageRoleUser, openai.ChatMessageRoleSystem, openai.ChatMessageRoleAssistant:
+			// Map system→assistant for history (legacy behaviour).
+			role := message.Role
+			if role == openai.ChatMessageRoleSystem {
+				role = openai.ChatMessageRoleAssistant
+			}
+			if len(message.MultiContent) > 0 {
+				messageHistory.Add(&openai.ChatCompletionMessage{
+					Role:         role,
+					MultiContent: message.MultiContent,
+				})
+			} else {
+				messageHistory.Add(&openai.ChatCompletionMessage{
+					Role:    role,
+					Content: message.Content,
+				})
+			}
 		}
 	}
 
@@ -291,8 +302,19 @@ func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*agent
 		Extra:         map[string]string{},
 	}, req.Options.Conversational)
 
-	// Get user message, could be in the part or content
-	session.In(lastUserMessage)
+	// Hand the last user message to the agent. If MultiContent is present
+	// (e.g. images attached by the caller), preserve it so vision models can
+	// reason about the attachment; otherwise pass plain text.
+	if lastUserMessageRef != nil && len(lastUserMessageRef.MultiContent) > 0 {
+		session.InMessage(&openai.ChatCompletionMessage{
+			Role:         openai.ChatMessageRoleUser,
+			Content:      lastUserMessageRef.Content,
+			MultiContent: lastUserMessageRef.MultiContent,
+		})
+	} else {
+		// Get user message, could be in the part or content
+		session.In(lastUserMessage)
+	}
 
 	return session, ragAccumulator, nil
 }

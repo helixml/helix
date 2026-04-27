@@ -1050,6 +1050,10 @@ type ServerConfigForFrontend struct {
 	MaxConcurrentDesktops                  int                  `json:"max_concurrent_desktops"`
 	ActiveConcurrentDesktops               int                  `json:"active_concurrent_desktops"`
 	Edition                                string               `json:"edition,omitempty"` // "mac-desktop", "server", "cloud", etc.
+	// DefaultChatSystemPrompt is the system prompt the platform applies to
+	// direct model chats when the user has not customised one. Surfaced to
+	// the frontend so the chat-settings page can prefill the textbox.
+	DefaultChatSystemPrompt string `json:"default_chat_system_prompt"`
 }
 
 // a short version of a session that we keep for the dashboard
