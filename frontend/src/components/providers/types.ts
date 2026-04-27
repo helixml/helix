@@ -5,6 +5,7 @@ import GroqLogo from './logos/groq';
 import CerebrasLogo from './logos/cerebras';
 import AWSLogo from './logos/aws';
 import XaiLogo from './logos/xai';
+import NvidiaLogo from './logos/nvidia';
 import CustomLogo from './logos/custom';
 
 // Direct image imports
@@ -30,6 +31,10 @@ export interface Provider {
   is_custom?: boolean;
 
   setup_instructions: string;
+
+  // Direct URL to the provider's API key / console page.
+  // Used by the Create Provider Endpoint dialog to render a "Get API key" link.
+  api_key_url?: string;
 }
 
 export const PROVIDERS: Provider[] = [
@@ -40,7 +45,8 @@ export const PROVIDERS: Provider[] = [
     description: 'Connect to OpenAI for GPT models, image generation, and more.',
     logo: OpenAILogo,
     base_url: "https://api.openai.com/v1",
-    setup_instructions: "Get your API key from https://platform.openai.com/settings/organization/api-keys"
+    setup_instructions: "Get your API key from https://platform.openai.com/settings/organization/api-keys",
+    api_key_url: "https://platform.openai.com/settings/organization/api-keys"
   },
   {
     id: 'user/google',
@@ -50,7 +56,8 @@ export const PROVIDERS: Provider[] = [
     logo: googleLogo,
     // Gemini URL
     base_url: "https://generativelanguage.googleapis.com/v1beta/openai",
-    setup_instructions: "Get your API key from https://aistudio.google.com/apikey"
+    setup_instructions: "Get your API key from https://aistudio.google.com/apikey",
+    api_key_url: "https://aistudio.google.com/apikey"
   },
   {
     id: 'user/anthropic',
@@ -59,7 +66,18 @@ export const PROVIDERS: Provider[] = [
     description: 'Access Anthropic Claude models for advanced language tasks.',
     logo: AnthropicLogo,
     base_url: "https://api.anthropic.com/v1",
-    setup_instructions: "Get your API key from https://platform.claude.com/settings/keys"
+    setup_instructions: "Get your API key from https://platform.claude.com/settings/keys",
+    api_key_url: "https://platform.claude.com/settings/keys"
+  },
+  {
+    id: 'user/nvidia',
+    alias: ['nvidia', 'nvidia-nim', 'nvidia-api'],
+    name: 'NVIDIA NIM',
+    description: 'NVIDIA-hosted, OpenAI-compatible inference for hosted LLMs.',
+    logo: NvidiaLogo,
+    base_url: "https://integrate.api.nvidia.com/v1",
+    setup_instructions: "Get your API key from https://build.nvidia.com/ (Settings → API Keys)",
+    api_key_url: "https://build.nvidia.com/"
   },
   {
     id: 'user/aws',
@@ -68,7 +86,8 @@ export const PROVIDERS: Provider[] = [
     description: 'Use AWS for AI models and services.',
     logo: AWSLogo,
     base_url: "https://bedrock.us-east-1.amazonaws.com",
-    setup_instructions: "Get your API key from https://console.aws.amazon.com/bedrock/home?region=us-east-1#/providers"
+    setup_instructions: "Get your API key from https://console.aws.amazon.com/bedrock/home?region=us-east-1#/providers",
+    api_key_url: "https://console.aws.amazon.com/bedrock/home?region=us-east-1#/providers"
   },
   {
     id: 'user/groq',
@@ -77,7 +96,8 @@ export const PROVIDERS: Provider[] = [
     description: 'Integrate with Groq for ultra-fast LLM inference.',
     logo: GroqLogo,
     base_url: "https://api.groq.com/openai/v1",
-    setup_instructions: "Get your API key from https://console.groq.com/"
+    setup_instructions: "Get your API key from https://console.groq.com/",
+    api_key_url: "https://console.groq.com/"
   },
   {
     id: 'user/cerebras',
@@ -86,7 +106,8 @@ export const PROVIDERS: Provider[] = [
     description: 'Integrate with Cerebras for ultra-fast LLM inference.',
     logo: CerebrasLogo,
     base_url: "https://api.cerebras.ai/v1",
-    setup_instructions: "Get your API key from https://cloud.cerebras.ai/"
+    setup_instructions: "Get your API key from https://cloud.cerebras.ai/",
+    api_key_url: "https://cloud.cerebras.ai/"
   },
   {
     id: 'user/xai',
@@ -95,7 +116,8 @@ export const PROVIDERS: Provider[] = [
     description: 'Access xAI Grok models via their OpenAI-compatible API.',
     logo: XaiLogo,
     base_url: "https://api.x.ai/v1",
-    setup_instructions: "Get your API key from https://console.x.ai/ (API Keys section)"
+    setup_instructions: "Get your API key from https://console.x.ai/ (API Keys section)",
+    api_key_url: "https://console.x.ai/"
   },
   {
     id: 'user/togetherai',
@@ -104,7 +126,8 @@ export const PROVIDERS: Provider[] = [
     description: 'Integrate with TogetherAI for ultra-fast LLM inference.',
     logo: togetheraiLogo,
     base_url: "https://api.together.xyz/v1",
-    setup_instructions: "Get your API key from https://api.together.xyz/"
+    setup_instructions: "Get your API key from https://api.together.xyz/",
+    api_key_url: "https://api.together.xyz/"
   },
   {
     id: 'user/fireworks',
@@ -113,7 +136,8 @@ export const PROVIDERS: Provider[] = [
     description: 'Fireworks AI offers cheap and fast LLM infernece.',
     logo: fireworksLogo,
     base_url: "https://api.fireworks.ai/inference/v1",
-    setup_instructions: "Register at https://fireworks.ai and get your API key from https://app.fireworks.ai/settings/users/api-keys"
+    setup_instructions: "Register at https://fireworks.ai and get your API key from https://app.fireworks.ai/settings/users/api-keys",
+    api_key_url: "https://app.fireworks.ai/settings/users/api-keys"
   },
   {
     id: 'user/ollama',
