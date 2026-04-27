@@ -304,6 +304,42 @@ Sandbox's startup script enforces "pull all new images BEFORE pruning old ones" 
 
 Same plumbing as Sandbox today: Docker config on the host (`~/.docker/config.json`), or `imagePullSecrets` for the helm chart. No new mechanism. If the operator's mirror needs credentials, they configure it the same way they would for any DinD setup.
 
+## Decision 11: Total Rewrite of the Runner Binary, Not Incremental Refactor
+
+The runner Go code is rewritten from scratch in the same change set as the deletions. We do *not* try to evolve the existing `api/pkg/runner/` package in place. The package keeps its name (`api/pkg/runner/`); its contents are entirely new.
+
+### Why a rewrite, not a refactor
+
+Honest accounting of how much of today's runner code survives:
+
+| Survives | What | Roughly how much |
+|----------|------|------------------|
+| Yes, copied forward verbatim or near-verbatim | NATS connection plumbing — connect/reconnect, heartbeat cadence, subject naming pattern | ~100 lines |
+| Yes, reused as a shape | HTTP server scaffolding — mux setup, middleware order, log/auth wiring | ~50 lines |
+| Yes, slimmed down | `gpu.go` — vendor/arch/total-VRAM detection (AC8 already says "slim down, don't delete") | ~150 lines after slimming |
+| Yes, fields removed | `RunnerStatus` type — keep the struct, drop `AllocatedMemory`, `Models`, `GPUMemoryStats` | ~30 lines |
+| Yes, mostly intact | `runner-cmd/helix-runner/main.go` — flag parsing, log setup, signal handling | ~80 lines |
+| **No** | Slot lifecycle, slot CRUD handlers, vLLM/Ollama/Axolotl/Diffusers runtimes, process supervision, GGUF memory estimation, per-slot reverse proxy, scheduler client, slot state machine | ~6,000+ lines |
+
+That's roughly 400 lines of ~6,500 surviving — 6%. Calling that a "refactor" is dishonest. It's a rewrite that copies a few load-bearing utilities forward.
+
+### Why this matters for *how* the work is done
+
+If we frame this as "modify the existing runner package", the implementer's reflex is to thread changes through existing files, preserve existing structure, and make targeted edits. The result is new responsibilities shaped by old defaults: the ComposeManager ends up looking like a Runtime because Runtime is what the surrounding scaffolding expects; the new proxy reuses the per-slot proxy's URL conventions because those URLs are still in adjacent files; the DinD lifecycle hooks into the slot state machine because the state machine is right there. Six months from now, "compose runner" reads like a layer over "slot runner" with awkward seams.
+
+If we frame this as "delete the package contents and write new ones in the same change set", the new code is shaped by the new responsibilities. The compose manager is what it is; the proxy is what it is; the state machine is the simple `assigning → pulling → starting → running → failed` loop the design calls for. The handful of surviving utilities get copied forward as utilities, with no implication that the surrounding architecture should match.
+
+### How this maps to the work
+
+- The change set deletes every file currently under `api/pkg/runner/` (per AC8) and adds the new files in the same change set. Mid-PR, it's fine for the package to be empty for a few commits.
+- The few surviving pieces are copied forward as plain files in the new package, not preserved as edits-in-place. Use `git mv` only if the file truly is unchanged (e.g. a NATS helper); otherwise it's a delete + rewrite.
+- The new package has a different shape: `compose_manager.go`, `proxy.go`, `controller_nats.go` (narrowed), `pre_flight.go`, `gpu_inventory.go` (the slimmed-down GPU file), `server.go`, plus tests. No `slot.go`, no `*_runtime.go`, no `process_monitor.go`, no `commander.go`.
+- Reviewing the resulting PR is "read the new files top-to-bottom", not "diff against the old structure". This is a feature.
+
+### Implications for AC8 and the verification step
+
+AC8's `git grep` litmus test (no live references to `scheduler.`, `RunnerSlot`, `GGUF`, etc.) becomes stricter under a rewrite framing: there should also be no references to the *internal abstractions* of the old runner that we used to lean on (`Runtime` interface, slot state machine types, per-slot URL builders). If an implementer finds themselves importing one of those into the new code, that's a signal they're regressing toward the old design.
+
 ## Decision 10: Dual GPU Vendor + Multi-Arch Runner Image
 
 ### Both NVIDIA and AMD runtimes in the same image

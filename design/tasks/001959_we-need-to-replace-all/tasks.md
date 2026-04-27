@@ -37,8 +37,30 @@
 - [ ] Delete subjects + handlers for slot create/delete/list/inference.
 - [ ] Persist the last-known assignment per runner; on runner reconnect, re-send `set_profile` so the runner re-applies after restart.
 
-## Runner Binary
+## Runner Binary (Rewrite, Not Refactor)
 
+**Framing reminder (see Decision 11 in design.md):** the runner Go code is rewritten in the same change set as the deletions, not evolved in place. Roughly 6% of the existing runner code survives — copied forward as utilities. Don't try to thread changes through existing files; delete the package contents per AC8 and write new ones. The new package keeps the name `api/pkg/runner/` but its contents are entirely new.
+
+**Surviving pieces to copy forward (as plain new files in the rewritten package, not edits-in-place):**
+- [ ] NATS connection plumbing — connect/reconnect, heartbeat cadence (~100 lines from today's `controller_nats.go`).
+- [ ] HTTP server scaffolding — mux, middleware, log/auth wiring (~50 lines from today's `server.go`).
+- [ ] GPU detection for vendor/arch/total-VRAM reporting — slimmed subset of today's `gpu.go` (~150 lines after slimming).
+- [ ] `RunnerStatus` type minus dead fields (`AllocatedMemory`, `Models`, `GPUMemoryStats`).
+- [ ] `runner-cmd/helix-runner/main.go` — flag parsing, log setup, signal handling.
+
+If you find yourself importing `Runtime`, slot state machine types, per-slot URL builders, or any other internal abstraction of the old runner into the new code, **stop** — that's a signal you're regressing toward the old design.
+
+**New files (everything else) — give them their own shape, not the old one's shape:**
+- [ ] `api/pkg/runner/compose_manager.go` — calls docker CLI, manages YAML, polls health.
+- [ ] `api/pkg/runner/proxy.go` — body-buffered, model-aware reverse proxy.
+- [ ] `api/pkg/runner/controller_nats.go` — narrowed surface (status out, set_profile/clear_profile in).
+- [ ] `api/pkg/runner/pre_flight.go` — runtime registration check, image presence check.
+- [ ] `api/pkg/runner/gpu_inventory.go` — the slimmed-down GPU file under a name that reflects what it now does.
+- [ ] `api/pkg/runner/server.go` — narrowed routes (`POST /v1/chat/completions`, `POST /v1/embeddings`, `POST /v1/images/generations`, `GET /api/v1/status`, `GET /api/v1/services/{name}/logs`).
+- [ ] Profile state machine: `assigning → pulling → starting → running → failed`. Implement directly; do not lift from the old slot state machine.
+- [ ] Tests for each new file.
+
+**Image build:**
 - [ ] Strip `Dockerfile.runner` to: golang build artifact + dockerd + docker CLI + **both** nvidia-container-toolkit (for NVIDIA GPUs) and AMD container runtime support (for AMD/ROCm GPUs — see "AMD GPU Support" task block below). No vLLM, no Ollama, no axolotl, no diffusers. The same image must support either vendor at runtime; vendor-specific runtime activation is decided by what the operator's compose file requests.
 - [ ] Build `Dockerfile.runner` as a **multi-arch image targeting `linux/amd64` and `linux/arm64`** (use `docker buildx build --platform linux/amd64,linux/arm64 ...`). NVIDIA runs on both (x86 + Jetson/Grace); AMD ROCm is x86-only in practice but the runner binary itself must still build for arm64 so dev machines (Apple Silicon) can run the runner without a GPU profile attached.
 - [ ] Implement `api/pkg/runner/compose_manager.go`:
@@ -172,6 +194,7 @@ AMD's containerised GPU story is different from NVIDIA's: there is no single `--
 - [ ] `go build ./...` clean.
 - [ ] `go vet ./...` clean.
 - [ ] `git grep -nE "scheduler\.|Scheduler\b|RunnerSlot\b|GGUF|memory_estimation|ollama/ollama|axolotl|diffusers_runtime|SchedulingDecision|GlobalAllocationDecision|Prewarm|tensor.*binpack|HELIX_SLOT_TTL|HELIX_MODEL_TTL|HELIX_SCHEDULING_STRATEGY|HELIX_QUEUE_SIZE"` returns only legitimate hits (release notes / migration mentions). No live references.
+- [ ] **Rewrite-not-refactor litmus test:** `git grep -nE "Runtime\b|VLLMRuntime|OllamaRuntime|slotState|perSlotProxy|slotURL"` in the new `api/pkg/runner/` returns nothing. If any of those internal abstractions appear in the new code, the implementer regressed toward the old design and the rewrite framing has been violated — push back in review.
 - [ ] `frontend/` builds clean; no unused imports flagged by tsc/eslint.
 
 ## CGO-Free Runner Build (Adopt After Deletions)

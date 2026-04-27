@@ -92,8 +92,12 @@ A profile satisfying *only* `vendor: nvidia` is the "any NVIDIA" case. A profile
 - [ ] Each runner card shows: active profile name, list of services in the profile, health status per service, per-GPU memory chart (already exists, keep).
 - [ ] Logs for each service are viewable (tail of `docker compose logs <service>` in the runner's inner dockerd).
 
-### AC8: Migration & Exhaustive Dead-Code Removal
-We are not leaving skeletons. Everything below is gone in the same change set. A reviewer should be able to `git grep` for any of these names and find no live references.
+### AC8: Migration & Exhaustive Dead-Code Removal (Rewrite, Not Refactor)
+The runner Go code is **rewritten from scratch** in the same change set as the deletions, not evolved in place — see Decision 11 in `design.md` for the rationale (roughly 6% of today's runner code survives; the rest is genuinely new; threading changes through old files leaks the old design's shape into the new responsibilities).
+
+A handful of utilities are copied forward as plain new files in the rewritten package: NATS connection plumbing, HTTP server scaffolding, GPU detection for vendor/arch reporting (slimmed), the `RunnerStatus` type minus dead fields, and `runner-cmd/helix-runner/main.go`'s flag parsing / log setup / signal handling. Everything else under `api/pkg/runner/` is deleted and replaced.
+
+We are not leaving skeletons. Everything below is gone in the same change set. A reviewer should be able to `git grep` for any of these names and find no live references — *and* a reviewer should be able to `git grep` the *new* `api/pkg/runner/` for old internal abstractions (`Runtime`, `VLLMRuntime`, `OllamaRuntime`, `slotState`, `perSlotProxy`) and find none. If they appear, the rewrite framing was violated.
 
 **Backend Go code to delete in full:**
 - [ ] `api/pkg/scheduler/` — entire package (~28 files including `scheduler.go`, `global_allocator.go`, `slot.go`, `slot_store.go`, `cache.go`, `queue.go`, `workload.go`, `runner.go`, `model_allocation.go`, `decisions.go`, `errors.go`, `util.go`, `test_helpers.go`, and all `*_test.go`). This includes the GPU bin-packing logic, the multi-GPU eviction logic, the prewarming cache, the workload queue, and **specifically all the code that tries to bin-pack while also handling tensor parallelism** (which was the source of the `multi_gpu_eviction_test.go` and `memory_calculation_inconsistency_test.go` complexity).
