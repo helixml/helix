@@ -31,17 +31,33 @@ As a Helix operator, I want the admin dashboard to show, per runner: the active 
 As a developer using the Helix API, when I send a chat completion for `qwen3.5-35b`, I want the API server to route it to a runner whose active profile includes `qwen3.5-35b`, and to the right container inside that runner, so that the experience is identical to today.
 
 ### US6: Profiles are Validated Before Assignment
-As a Helix operator, when I assign a profile to a runner, I want the system to reject the assignment if the profile's GPU requirements do not match the runner's hardware (more GPUs requested than present, wrong GPU model), so I get a useful error instead of a half-started compose stack.
+As a Helix operator, when I assign a profile to a runner, I want the system to reject the assignment if the profile's GPU requirements do not match the runner's hardware, so I get a useful error instead of a half-started compose stack. "Match" must be expressive enough to cover:
+- **Vendor** (NVIDIA vs AMD) — mandatory because compose images target one or the other (`vllm/vllm-openai` is CUDA, `rocm/vllm` is ROCm). A profile must never be assigned across vendors.
+- **Architecture family** (Blackwell, Hopper, Ampere, Ada Lovelace; CDNA3, RDNA3) — required when the compose images contain kernels compiled for a specific arch (e.g. FP8 paths for Hopper/Blackwell, Flash Attention 3 for Hopper+).
+- **Specific GPU model** (e.g. only H100 80GB) — required when memory budgets or kernel choices in the compose file are tight.
+- **"Any NVIDIA" / "Any AMD"** — permissive profiles that should match any GPU of the right vendor, useful for small/dev workloads.
 
 ## Acceptance Criteria
 
 ### AC1: Profile CRUD
-- [ ] Profiles are stored in the database with: name, description, compose YAML, declared GPU requirements (count, min VRAM per GPU, optional GPU model regex), set of model names exposed.
+- [ ] Profiles are stored in the database with: name, description, compose YAML, set of model names exposed, **and an operator-declared GPU compatibility specification** (see AC1a).
 - [ ] Admin UI supports create/edit/delete via a new "Runner Profiles" tab in the dashboard.
-- [ ] On save, the YAML is parsed and the model list + GPU requirement is extracted automatically and stored alongside the raw YAML.
+- [ ] On save, the YAML is parsed and the model list + the count of GPUs referenced is extracted automatically. Vendor / architecture / model-match rules are entered separately by the operator (they cannot be inferred from a compose file alone).
+
+### AC1a: GPU Compatibility Specification
+A profile's GPU compatibility has these fields, all optional except `count`:
+- [ ] `count` (int, required) — number of GPUs the compose file expects to use, derived from the union of `device_ids` across all services.
+- [ ] `vendor` (`nvidia` | `amd` | unset) — when set, every GPU on the runner must match.
+- [ ] `architectures` (list of strings, e.g. `["hopper", "blackwell"]`) — when non-empty, every referenced GPU's architecture must be in the list. Empty list = any architecture of the chosen vendor.
+- [ ] `model_match` (regex, optional) — when set, every referenced GPU's marketing name must match (e.g. `^NVIDIA H100`).
+- [ ] `min_vram_bytes` (int, optional) — when set, every referenced GPU's total VRAM must be ≥ this.
+
+A profile satisfying *only* `vendor: nvidia` is the "any NVIDIA" case. A profile setting `vendor`, `architectures`, *and* `model_match` is the "tight Blackwell-only" case. The four fields compose freely.
 
 ### AC2: Runner Hardware Reporting
-- [ ] On connect, runner reports: hostname, GPU count, per-GPU model name, per-GPU total VRAM, driver version. (This already exists in `TypesGPUStatus` — keep it.)
+- [ ] On connect, runner reports per GPU: index, marketing model name, total VRAM, driver version (already in `TypesGPUStatus`).
+- [ ] **New fields:** vendor (`nvidia` | `amd`), architecture (canonical string, e.g. `hopper`, `blackwell`, `ampere`, `ada`, `cdna3`, `rdna3`), and — for NVIDIA — compute capability (e.g. `9.0`).
+- [ ] Vendor/architecture/compute-capability are derived on the runner: NVIDIA via `nvidia-smi --query-gpu=name,compute_cap`; AMD via `rocm-smi`. A small lookup table in the runner maps compute capability → architecture canonical string so the API server doesn't have to know the mapping.
 
 ### AC3: Profile Assignment
 - [ ] In the admin UI, each connected runner shows a "Profile" dropdown containing only profiles whose GPU requirements are satisfied by the runner's hardware.

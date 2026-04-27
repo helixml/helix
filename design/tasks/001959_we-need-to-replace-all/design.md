@@ -58,8 +58,8 @@ type RunnerProfile struct {
     Name          string                  // "8xH100 production"
     Description   string
     ComposeYAML   string                  // raw text the operator wrote
-    Models        []ProfileModel          // derived: name, container_name, port
-    GPURequirement ProfileGPURequirement  // derived: count, min VRAM, optional model regex
+    Models        []ProfileModel          // derived from YAML
+    GPURequirement ProfileGPURequirement  // partly derived (Count), partly operator-declared
     CreatedAt, UpdatedAt time.Time
 }
 
@@ -67,6 +67,14 @@ type ProfileModel struct {
     Name          string  // value of --served-model-name, or --model basename
     ContainerName string  // from compose service.container_name
     InternalPort  int     // first 8000-mapped port, or first ports[] entry
+}
+
+type ProfileGPURequirement struct {
+    Count          int       // required; derived from union of device_ids across services
+    Vendor         GPUVendor // optional: "nvidia" | "amd" | "" (any)
+    Architectures  []string  // optional whitelist, e.g. ["hopper", "blackwell"]; empty = any
+    ModelMatch     string    // optional regex against GPU marketing name
+    MinVRAMBytes   int64     // optional
 }
 ```
 
@@ -132,14 +140,27 @@ All slot-related subjects are removed. `RunnerController` shrinks accordingly.
 
 ### Decision 6: Profile Compatibility Check
 
-Before assigning a profile to a runner, validate:
+Each constraint in `ProfileGPURequirement` is optional except `Count`. Constraints compose with AND. Validation order (cheapest first, fail fast):
 
-1. `len(runner.GPUs) >= profile.GPURequirement.Count`
-2. For each GPU index referenced in the compose YAML: that index exists on the runner.
-3. If `profile.GPURequirement.MinVRAMBytes > 0`: each referenced GPU's `total_memory >= MinVRAMBytes`.
-4. If `profile.GPURequirement.GPUModelRegex != ""`: each referenced GPU's `model_name` matches.
+1. **Index existence** — for every GPU index referenced in the compose YAML, that index exists on the runner. (Catches `device_ids: ["7"]` against a 4-GPU box.)
+2. **Vendor** — if set, every referenced GPU's vendor must match. This is the load-bearing one: a CUDA-image profile assigned to an AMD box won't even start.
+3. **Architecture** — if non-empty, every referenced GPU's architecture canonical string must be in the list. (`["hopper", "blackwell"]` matches H100 and B200; rejects A100.)
+4. **ModelMatch** — if set, every referenced GPU's marketing name must match the regex.
+5. **MinVRAMBytes** — if set, every referenced GPU's `total_memory >= MinVRAMBytes`.
 
-Done in the API server (not the runner) so the UI can pre-filter the dropdown.
+All five run in the API server, not the runner, so the admin UI can pre-filter the assignment dropdown to *only profiles a given runner could run*. Validation errors are returned with the failing constraint named ("profile requires Hopper or Blackwell; runner GPU 0 is Ampere") so operators can fix either side.
+
+**Architecture canonicalization** lives in one Go file shared by runner (writer) and API server (reader). NVIDIA compute-capability mapping (12.x → blackwell, 9.x → hopper, 8.x → ampere, 8.9 → ada) and AMD `gfx*` mapping (gfx942 → cdna3, etc.) are both there. Adding a new architecture = one line in that file.
+
+**Examples of how the four optional fields compose in practice:**
+
+| Profile intent | `Vendor` | `Architectures` | `ModelMatch` | `MinVRAMBytes` |
+|----------------|----------|-----------------|--------------|----------------|
+| 8xH100 production (tight) | `nvidia` | `["hopper"]` | `^NVIDIA H100` | 80 GB |
+| Any 4×NVIDIA Blackwell    | `nvidia` | `["blackwell"]` | (unset) | (unset) |
+| Any NVIDIA, dev workload  | `nvidia` | (empty) | (unset) | 24 GB |
+| AMD MI300X embedding      | `amd`    | `["cdna3"]` | `MI300X` | (unset) |
+| Truly any GPU             | (unset)  | (empty) | (unset) | (unset) |
 
 ### Decision 7: Profile Switching is Not Zero-Downtime
 

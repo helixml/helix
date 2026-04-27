@@ -8,9 +8,10 @@
 ## Backend: Profile Storage & API
 
 - [ ] Add `runner_profiles` and `runner_assignments` tables (migration in `api/pkg/store/`).
-- [ ] Implement `api/pkg/runner/composeparse/parse.go`: extract `ProfileModel[]` and `ProfileGPURequirement` from a compose YAML string.
-- [ ] Unit tests for `composeparse` covering: `--served-model-name`, `--model` fallback, multi-GPU `device_ids`, `tensor-parallel-size`.
-- [ ] Implement `api/pkg/runner/profile/store.go` (CRUD against the new tables; re-derive metadata on save).
+- [ ] Implement `api/pkg/runner/composeparse/parse.go`: extract `ProfileModel[]` and the `Count` (union of `device_ids`) from a compose YAML string. Vendor/architecture/model-match/min-VRAM are operator inputs, not parsed.
+- [ ] Unit tests for `composeparse` covering: `--served-model-name`, `--model` fallback, multi-GPU `device_ids`, `tensor-parallel-size`, services with no GPU reservation (count=0).
+- [ ] Implement `api/pkg/runner/gpuarch/canonical.go`: shared mapping for NVIDIA compute capability → architecture canonical string and AMD `gfx*` → architecture string. One file, used by both runner (to label its GPUs) and API server (to validate profiles). Add table-driven tests.
+- [ ] Implement `api/pkg/runner/profile/store.go` (CRUD against the new tables; re-derive `Count` + `Models` on save; persist vendor/architectures/model_match/min_vram_bytes verbatim from the request).
 - [ ] Add HTTP routes in `api/pkg/server/`:
   - `GET    /api/v1/runner-profiles`
   - `POST   /api/v1/runner-profiles`
@@ -19,7 +20,8 @@
   - `DELETE /api/v1/runner-profiles/{id}`
   - `POST   /api/v1/runners/{runner_id}/assign-profile` (body: `{"profile_id": "..."}`)
   - `POST   /api/v1/runners/{runner_id}/clear-profile`
-- [ ] Add profile-compatibility check to the assign endpoint (count, VRAM, optional regex).
+- [ ] Add profile-compatibility check to the assign endpoint: index existence → vendor → architecture → model_match regex → min VRAM, returning a single named-constraint failure on mismatch.
+- [ ] Filter the assignment dropdown server-side: `GET /api/v1/runners/{id}/compatible-profiles` returns only profiles that pass all five checks against the runner's reported hardware.
 
 ## Backend: Runner Router (replaces scheduler)
 
@@ -61,8 +63,9 @@
 
 ## Frontend: Runner Assignment UI
 
-- [ ] In `RunnerSummary.tsx`, add a "Profile" dropdown showing only profiles whose GPU requirements fit the runner's reported hardware.
-- [ ] On change, call `POST /api/v1/runners/{id}/assign-profile`.
+- [ ] In `RunnerSummary.tsx`, add a "Profile" dropdown populated from `GET /api/v1/runners/{id}/compatible-profiles` (server-filtered).
+- [ ] Display per-runner the inferred vendor + architecture + per-GPU model so operators can see *why* a given profile is or isn't shown.
+- [ ] On change, call `POST /api/v1/runners/{id}/assign-profile`. On error, surface the named-constraint failure verbatim.
 - [ ] Replace the slot list with a list of services from the active profile, rendered via a modified `ModelInstanceSummary.tsx` (status, health, "View Logs" button).
 - [ ] Keep the per-GPU memory chart unchanged.
 
@@ -73,8 +76,10 @@
 
 ## Sample Profiles
 
-- [ ] Commit the user's example compose as `design/sample-profiles/8xH100-vllm.yaml`.
-- [ ] Add at least one smaller form factor (e.g. `2xL40S-qwen-only.yaml`) so operators have starting points.
+- [ ] Commit the user's example compose as `design/sample-profiles/8xH100-vllm.yaml` with GPU req: vendor=nvidia, architectures=[hopper], model_match=`^NVIDIA H100`, min_vram=80GB.
+- [ ] Add `design/sample-profiles/any-nvidia-blackwell-4gpu.yaml` — vendor=nvidia, architectures=[blackwell], no model_match.
+- [ ] Add `design/sample-profiles/any-nvidia-dev-single-gpu.yaml` — vendor=nvidia, no arch restriction, min_vram=24GB. (Demonstrates the permissive case.)
+- [ ] Add `design/sample-profiles/amd-mi300x-vllm.yaml` — vendor=amd, architectures=[cdna3], using `rocm/vllm` images. (Demonstrates the AMD path; even if we have no AMD hardware to test against right now, it documents the intent.)
 
 ## Manual Verification (no automated coverage possible — flag as user-tested)
 
@@ -82,6 +87,9 @@
 - [ ] Send a chat completion for `qwen3.5-35b` to the API and confirm it routes through.
 - [ ] Switch the runner to a different profile. Verify the previous stack is torn down and the new one comes up.
 - [ ] Assign a profile that requires more GPUs than the runner has and confirm a clear error.
+- [ ] Try to assign an `vendor=amd` profile to an NVIDIA runner; confirm rejection names the failing constraint.
+- [ ] Try to assign an `architectures=[blackwell]` profile to a Hopper runner; confirm rejection names the failing constraint.
+- [ ] Confirm `GET /api/v1/runners/{id}/compatible-profiles` excludes profiles whose constraints don't match.
 - [ ] Restart the runner; confirm it re-applies its assigned profile automatically on boot.
 - [ ] Confirm the admin dashboard correctly lists active services and per-service logs.
 
