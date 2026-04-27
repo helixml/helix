@@ -36,14 +36,23 @@ import (
 // don't speak HTTP back fail fast and the next event isn't blocked.
 const outboundTimeout = 5 * time.Second
 
+// EmailEmitter is the subset of an email transport the dispatcher
+// invokes for outbound emit on email-kind Streams. Defining it here
+// keeps the dispatcher decoupled from any specific provider package.
+type EmailEmitter interface {
+	Emit(ctx context.Context, event domain.Event) error
+}
+
 // Dispatcher routes Events to subscribed AI Workers and runs the
 // configured Spawner for each one. It also emits outbound webhook
-// POSTs for Streams whose Transport is configured for them.
+// POSTs and outbound email sends for Streams whose Transport is
+// configured for them.
 type Dispatcher struct {
-	store      *store.Store
-	spawner    tools.Spawner
-	logger     *slog.Logger
-	httpClient *http.Client
+	store        *store.Store
+	spawner      tools.Spawner
+	logger       *slog.Logger
+	httpClient   *http.Client
+	emailEmitter EmailEmitter
 
 	// per-worker mutexes serialise activations. Each is created on first
 	// use via sync.Map.LoadOrStore.
@@ -66,6 +75,13 @@ func New(s *store.Store, spawner tools.Spawner, logger *slog.Logger) *Dispatcher
 // SetHTTPClient replaces the HTTP client used for outbound webhook
 // POSTs. Intended for tests only.
 func (d *Dispatcher) SetHTTPClient(c *http.Client) { d.httpClient = c }
+
+// SetEmailEmitter wires in the email transport's outbound emitter.
+// Constructor injection isn't an option because the email transport
+// also takes a Dispatcher (for inbound activation), so the wiring
+// goes Dispatcher.New → Transport.New → Dispatcher.SetEmailEmitter.
+// Nil is allowed (email-kind streams will then no-op on outbound).
+func (d *Dispatcher) SetEmailEmitter(e EmailEmitter) { d.emailEmitter = e }
 
 // DispatchHire fires a hire-time activation for a freshly-created AI
 // Worker. Returns immediately; the activation runs on a goroutine with
@@ -173,34 +189,52 @@ func (d *Dispatcher) lockFor(workerID domain.WorkerID) *sync.Mutex {
 	return got.(*sync.Mutex)
 }
 
-// emitOutbound POSTs the event body to the Stream's outbound URL, if
-// the Stream's Transport is webhook with an outbound_url configured.
-// No-op for any other Transport, for webhook streams with no
-// outbound_url, or for streams that have been deleted between append
-// and dispatch. Failures (lookup, HTTP, non-2xx, timeout) are logged
-// and dropped — the underlying append has already succeeded.
+// emitOutbound dispatches Event-level outbound traffic for Streams
+// whose Transport is configured for it: webhook (HTTP POST) or email
+// (Postmark API). No-op for local Streams or for transports without
+// the necessary config. Failures are logged and dropped — the
+// underlying append has already succeeded.
+//
+// Events with empty Source ("system-emitted", typically inbound
+// events from this transport's own webhook handler) are not
+// re-emitted. Otherwise a bidirectional Stream (one that's both
+// inbound and outbound on the same provider) would echo every
+// inbound message straight back out to itself — never useful, often
+// catastrophic. Worker-published events (Source != "") still emit.
 //
 // Runs on a goroutine with its own background context so a slow
 // target never stalls the caller.
 func (d *Dispatcher) emitOutbound(ctx context.Context, e domain.Event) {
+	if e.Source == "" {
+		return
+	}
 	stream, err := d.store.Streams.Get(ctx, e.StreamID)
 	if err != nil {
 		// Stream was deleted, or store error. Either way nothing to emit;
 		// the append-side code path has already logged anything material.
 		return
 	}
-	if stream.Transport.Kind != domain.TransportWebhook {
-		return
+	switch stream.Transport.Kind {
+	case domain.TransportWebhook:
+		cfg, err := stream.Transport.WebhookConfig()
+		if err != nil {
+			d.logger.Warn("dispatch.emit.config", "stream", e.StreamID, "err", err)
+			return
+		}
+		if cfg.OutboundURL == "" {
+			return
+		}
+		go d.postOutbound(cfg.OutboundURL, e) //nolint:gosec // intentional: the POST outlives the request that triggered Dispatch
+	case domain.TransportEmail:
+		if d.emailEmitter == nil {
+			return
+		}
+		go func() { //nolint:gosec // intentional: the send outlives the request that triggered Dispatch
+			if err := d.emailEmitter.Emit(context.Background(), e); err != nil {
+				d.logger.Warn("dispatch.emit.email", "stream", e.StreamID, "event", e.ID, "err", err)
+			}
+		}()
 	}
-	cfg, err := stream.Transport.WebhookConfig()
-	if err != nil {
-		d.logger.Warn("dispatch.emit.config", "stream", e.StreamID, "err", err)
-		return
-	}
-	if cfg.OutboundURL == "" {
-		return
-	}
-	go d.postOutbound(cfg.OutboundURL, e) //nolint:gosec // intentional: the POST outlives the request that triggered Dispatch
 }
 
 // postOutbound is the synchronous body of emitOutbound, split out so

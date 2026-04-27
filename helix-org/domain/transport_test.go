@@ -95,6 +95,65 @@ func TestTransportValidate(t *testing.T) {
 			},
 			wantErr: "outbound_url",
 		},
+		{
+			name: "email valid alias",
+			t: Transport{
+				Kind:   TransportEmail,
+				Config: json.RawMessage(`{"alias":"sam"}`),
+			},
+		},
+		{
+			name: "email valid alias with dash",
+			t: Transport{
+				Kind:   TransportEmail,
+				Config: json.RawMessage(`{"alias":"customer-service"}`),
+			},
+		},
+		{
+			name:    "email missing alias",
+			t:       Transport{Kind: TransportEmail},
+			wantErr: "alias is required",
+		},
+		{
+			name: "email empty alias",
+			t: Transport{
+				Kind:   TransportEmail,
+				Config: json.RawMessage(`{"alias":""}`),
+			},
+			wantErr: "alias is required",
+		},
+		{
+			name: "email alias with @",
+			t: Transport{
+				Kind:   TransportEmail,
+				Config: json.RawMessage(`{"alias":"sam@x"}`),
+			},
+			wantErr: "lowercase alphanumeric",
+		},
+		{
+			name: "email alias with +",
+			t: Transport{
+				Kind:   TransportEmail,
+				Config: json.RawMessage(`{"alias":"sa+m"}`),
+			},
+			wantErr: "lowercase alphanumeric",
+		},
+		{
+			name: "email alias with dot",
+			t: Transport{
+				Kind:   TransportEmail,
+				Config: json.RawMessage(`{"alias":"sam.x"}`),
+			},
+			wantErr: "lowercase alphanumeric",
+		},
+		{
+			name: "email alias uppercase",
+			t: Transport{
+				Kind:   TransportEmail,
+				Config: json.RawMessage(`{"alias":"Sam"}`),
+			},
+			wantErr: "lowercase alphanumeric",
+		},
 	}
 
 	for _, tc := range cases {

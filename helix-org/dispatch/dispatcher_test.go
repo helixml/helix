@@ -112,11 +112,13 @@ func seedWebhookStream(t *testing.T, s *store.Store, id domain.StreamID, transpo
 var eventCounter atomic.Uint64
 
 // makeEvent builds a simple Event for dispatching with a stable
-// header-safe ID. The body is the only thing the test cares about.
+// header-safe ID. Source is set to a non-empty sentinel so emit
+// runs (events with empty Source are treated as inbound and skipped
+// by the dispatcher to avoid echo loops).
 func makeEvent(t *testing.T, streamID domain.StreamID, body string) domain.Event {
 	t.Helper()
 	id := domain.EventID(fmt.Sprintf("e-%s-%d", streamID, eventCounter.Add(1)))
-	e, err := domain.NewEvent(id, streamID, "", body, time.Now().UTC())
+	e, err := domain.NewEvent(id, streamID, "w-test", body, time.Now().UTC())
 	if err != nil {
 		t.Fatalf("new event: %v", err)
 	}

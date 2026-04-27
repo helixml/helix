@@ -90,6 +90,18 @@ type Environments interface {
 	Get(ctx context.Context, workerID domain.WorkerID) (domain.Environment, error)
 }
 
+// Configs persists operational-config rows: transport credentials,
+// claude binary path, model selection, etc. Keys are flat dot-
+// namespaced strings; values are JSON-encoded. See design/config.md
+// for the org-graph-vs-ops split. Configs are written exclusively
+// through the helix-org config CLI — never via MCP.
+type Configs interface {
+	Set(ctx context.Context, cfg domain.Config) error
+	Get(ctx context.Context, key string) (domain.Config, error)
+	List(ctx context.Context, prefix string) ([]domain.Config, error)
+	Delete(ctx context.Context, key string) error
+}
+
 // Store bundles all repositories a single concrete implementation provides.
 // Handlers and tools depend on the narrower interfaces above; Store is the
 // wiring point.
@@ -102,4 +114,5 @@ type Store struct {
 	Subscriptions Subscriptions
 	Events        Events
 	Environments  Environments
+	Configs       Configs
 }

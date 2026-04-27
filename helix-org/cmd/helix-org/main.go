@@ -27,6 +27,8 @@ func run(args []string) error {
 		return runBootstrap(args[1:])
 	case "chat":
 		return runChat(args[1:])
+	case "config":
+		return runConfig(args[1:])
 	case "help", "-h", "--help":
 		printUsage()
 		return nil
@@ -51,6 +53,10 @@ Subcommands:
               Worker's MCP endpoint (default: w-owner). Continues
               the most recent session in the current directory;
               pass --resume for the picker or --new for a fresh one.
+  config      Read or write operational configuration (transport
+              credentials, claude binary, model, public URL, etc.).
+              CLI-only — never via MCP. See design/config.md.
+              Subcommands: set, get, list, delete.
   help        Show this message.
 
 Run 'helix-org <subcommand> --help' for per-subcommand flags.`)

@@ -173,6 +173,20 @@ to write next, to validate the design is generic enough:
 The envelope holds across all of them. `Extra` does the work of
 absorbing per-transport metadata; the canonical fields stay stable.
 
+## Transport credentials
+
+Transport credentials (Postmark token, Slack bot token, AWS keys,
+etc.) are **not** part of stream config and **not** part of
+`Message`. They live in operational config — see
+[`config.md`](config.md) — and are settable only through the
+`helix-org config` CLI, never via MCP. Streams just declare a
+routing identity (`alias`, channel ID, etc.); the transport joins
+that with server-level credentials at runtime.
+
+This keeps secrets out of the LLM path entirely: nothing about
+Postmark tokens or Slack bot tokens ever appears in a chat
+transcript, an activation log, or a prompt sent to Anthropic.
+
 ## What changes in existing code
 
 1. **`domain/message.go`** (new) — `Message`, `Attachment`,

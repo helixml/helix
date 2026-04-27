@@ -15,10 +15,12 @@ import (
 	"time"
 
 	"github.com/helixml/helix-org/broadcast"
+	"github.com/helixml/helix-org/config"
 	"github.com/helixml/helix-org/dispatch"
 	"github.com/helixml/helix-org/server"
 	"github.com/helixml/helix-org/store/sqlite"
 	"github.com/helixml/helix-org/tools"
+	"github.com/helixml/helix-org/transports/postmark"
 )
 
 func runServe(args []string) error {
@@ -65,8 +67,21 @@ func runServe(args []string) error {
 		Now:         deps.Now,
 		NewID:       deps.NewID,
 	})
-	deps.Dispatcher = dispatch.New(store, spawner, logger)
+	dispatcher := dispatch.New(store, spawner, logger)
+	deps.Dispatcher = dispatcher
 	logger.Info("dispatcher enabled", "claude-bin", *claudeBin, "public-url", *publicURL, "envs-dir", absEnvsDir, "model", *model)
+
+	// Operational config registry — Postmark + future provider creds
+	// live here, mutated only via the helix-org config CLI. See
+	// design/config.md.
+	configReg := config.New(store.Configs)
+	registerAllConfigSpecs(configReg)
+
+	// Email transport: shares the dispatcher (for inbound activations)
+	// and registers itself as the dispatcher's outbound email emitter.
+	emailTransport := postmark.New(configReg, store, bc, dispatcher, logger)
+	dispatcher.SetEmailEmitter(emailTransport)
+	logger.Info("email transport enabled", "provider", "postmark")
 
 	reg := tools.NewRegistry()
 	if err := tools.RegisterBuiltins(reg, deps); err != nil {
@@ -74,8 +89,10 @@ func runServe(args []string) error {
 	}
 
 	srv := &http.Server{
-		Addr:              *addr,
-		Handler:           server.New(store, reg, bc, deps.Dispatcher, logger).Handler(),
+		Addr: *addr,
+		Handler: server.New(store, reg, bc, deps.Dispatcher, logger).Handler(
+			server.Route{Pattern: "POST /email/postmark", Handler: emailTransport.HandleInbound()},
+		),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 

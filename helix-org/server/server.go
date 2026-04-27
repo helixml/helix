@@ -47,12 +47,24 @@ func New(s *store.Store, registry *tools.Registry, broadcaster *broadcast.Broadc
 	return &Server{store: s, registry: registry, broadcaster: broadcaster, dispatcher: dispatcher, logger: logger}
 }
 
-// Handler returns an http.Handler with all routes registered and the
-// request-logging middleware applied.
-func (s *Server) Handler() http.Handler {
+// Route is a (pattern, handler) pair callers pass to Handler so
+// transports can mount their own inbound endpoints (e.g. the email
+// transport's /email/postmark) without server.go importing them.
+type Route struct {
+	Pattern string
+	Handler http.Handler
+}
+
+// Handler returns an http.Handler with all built-in routes registered
+// (MCP per-worker, /webhooks/{streamID}) plus any extras passed in by
+// the wiring layer. The request-logging middleware wraps the lot.
+func (s *Server) Handler(extras ...Route) http.Handler {
 	mux := http.NewServeMux()
 	mux.Handle("/workers/{id}/mcp", s.mcpHandler())
 	mux.Handle("POST /webhooks/{streamID}", s.webhookHandler())
+	for _, r := range extras {
+		mux.Handle(r.Pattern, r.Handler)
+	}
 	return s.requestLogger(mux)
 }
 

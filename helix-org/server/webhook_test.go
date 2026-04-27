@@ -373,15 +373,15 @@ func TestWebhookDoesNotLeakAcrossStreams(t *testing.T) {
 	}
 }
 
-// TestWebhookBridgesInboundToOutbound wires the real dispatcher
-// (rather than the test-only recordingDispatcher) and proves the full
-// chain: an external POST to /webhooks/<streamID> triggers an
-// outbound POST to the configured catcher when the same Stream has
-// both inbound and outbound configured. This is the bidirectional
-// case end-to-end.
-func TestWebhookBridgesInboundToOutbound(t *testing.T) {
+// TestWebhookInboundDoesNotEcho proves that a bidirectional webhook
+// Stream (one with both inbound and outbound configured) does *not*
+// echo inbound POSTs back out to its own outbound URL. The dispatcher
+// skips emit for events with empty Source — i.e. events that came
+// from this transport's own inbound — so a stream that's
+// bidirectional doesn't loop. Only Worker-published events
+// (Source != "") emit outbound.
+func TestWebhookInboundDoesNotEcho(t *testing.T) {
 	t.Parallel()
-	// Outbound catcher.
 	caught := make(chan string, 1)
 	catcher := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
@@ -391,8 +391,6 @@ func TestWebhookBridgesInboundToOutbound(t *testing.T) {
 	}))
 	t.Cleanup(catcher.Close)
 
-	// Real store + real dispatcher (with nil spawner, so subscriber
-	// fan-out is a no-op but emit still runs).
 	st, err := sqlite.Open(":memory:")
 	if err != nil {
 		t.Fatalf("open: %v", err)
@@ -401,8 +399,6 @@ func TestWebhookBridgesInboundToOutbound(t *testing.T) {
 	srv := httptest.NewServer(server.New(st, tools.NewRegistry(), broadcast.New(), d, nil).Handler())
 	t.Cleanup(srv.Close)
 
-	// Stream is both inbound (kind == webhook, accepts POSTs) and
-	// outbound (config has outbound_url) at once.
 	cfg, _ := json.Marshal(domain.WebhookConfig{OutboundURL: catcher.URL})
 	stream, err := domain.NewStream("s-bridge", "bridge", "", "w-owner", time.Now().UTC(),
 		domain.Transport{Kind: domain.TransportWebhook, Config: cfg})
@@ -425,17 +421,9 @@ func TestWebhookBridgesInboundToOutbound(t *testing.T) {
 
 	select {
 	case got := <-caught:
-		// The outbound POST body is the canonical Message JSON, since
-		// every Stream stores Messages. Decode and check the visible
-		// text.
-		msg, err := domain.DecodeMessage(got)
-		if err != nil {
-			t.Fatalf("outbound POST not valid Message JSON: %v (raw=%q)", err, got)
-		}
-		if msg.Body != body {
-			t.Fatalf("outbound message body = %q, want %q", msg.Body, body)
-		}
-	case <-time.After(3 * time.Second):
-		t.Fatalf("catcher never received outbound POST")
+		t.Fatalf("inbound event echoed to outbound: %q", got)
+	case <-time.After(500 * time.Millisecond):
+		// Expected: nothing arrives at the catcher because inbound
+		// events have empty Source and the dispatcher skips emit.
 	}
 }

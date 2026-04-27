@@ -45,6 +45,7 @@ func Open(dsn string) (*store.Store, error) {
 		&subscriptionRow{},
 		&eventRow{},
 		&environmentRow{},
+		&configRow{},
 	); err != nil {
 		return nil, fmt.Errorf("auto-migrate: %w", err)
 	}
@@ -57,5 +58,6 @@ func Open(dsn string) (*store.Store, error) {
 		Subscriptions: &subscriptionsRepo{db: db},
 		Events:        &eventsRepo{db: db},
 		Environments:  &environmentsRepo{db: db},
+		Configs:       &configsRepo{db: db},
 	}, nil
 }
