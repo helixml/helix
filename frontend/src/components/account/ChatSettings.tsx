@@ -1,4 +1,4 @@
-import React, { FC, useCallback, useEffect, useMemo, useState } from 'react'
+import { FC, useCallback, useEffect, useMemo, useState } from 'react'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import Collapse from '@mui/material/Collapse'
@@ -266,30 +266,31 @@ const ChatSettings: FC = () => {
         </Grid>
       </Grid>
 
-      <Box
+      <Grid
+        container
+        spacing={2}
         sx={{
           position: 'sticky',
           bottom: 0,
-          display: 'flex',
-          justifyContent: 'flex-end',
-          py: 1.5,
-          px: 2,
           backgroundColor: themeConfig.darkPanel,
           borderTop: '1px solid',
           borderColor: 'divider',
           borderRadius: 2,
+          p: 2,
           zIndex: 1,
         }}
       >
-        <Button
-          variant="contained"
-          color="secondary"
-          onClick={handleSave}
-          disabled={disabled}
-        >
-          {isSaving ? 'Saving…' : 'Save'}
-        </Button>
-      </Box>
+        <Grid item xs={12} sx={{ display: 'flex', justifyContent: 'flex-end' }}>
+          <Button
+            variant="contained"
+            color="secondary"
+            onClick={handleSave}
+            disabled={disabled}
+          >
+            {isSaving ? 'Saving…' : 'Save'}
+          </Button>
+        </Grid>
+      </Grid>
     </>
   )
 }
