@@ -301,6 +301,204 @@ func TestStreamMembers(t *testing.T) {
 	}
 }
 
+// TestInviteWorkers verifies one Worker can subscribe others to a
+// Stream — the primitive that lets the initiator open a DM by creating
+// a Stream and adding both parties, without requiring the recipient to
+// self-subscribe first.
+func TestInviteWorkers(t *testing.T) {
+	t.Parallel()
+
+	s, err := sqlite.Open(":memory:")
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	envsDir := t.TempDir()
+
+	reg := tools.NewRegistry()
+	deps := tools.DefaultDeps(s)
+	deps.EnvsDir = envsDir
+	if err := tools.RegisterBuiltins(reg, deps); err != nil {
+		t.Fatalf("register builtins: %v", err)
+	}
+	srv := httptest.NewServer(server.New(s, reg, nil, nil).Handler())
+	t.Cleanup(srv.Close)
+
+	ctx := context.Background()
+	now := time.Now().UTC()
+	ownerRole, _ := domain.NewRole("r-owner", "# Owner", now)
+	mustCreate(t, s.Roles.Create(ctx, ownerRole))
+	rootPos, _ := domain.NewPosition("p-root", "r-owner", nil)
+	mustCreate(t, s.Positions.Create(ctx, rootPos))
+	owner, _ := domain.NewHumanWorker("w-owner", []domain.PositionID{"p-root"})
+	mustCreate(t, s.Workers.Create(ctx, owner))
+	alice, _ := domain.NewAIWorker("w-alice", []domain.PositionID{"p-root"})
+	mustCreate(t, s.Workers.Create(ctx, alice))
+	bob, _ := domain.NewAIWorker("w-bob", []domain.PositionID{"p-root"})
+	mustCreate(t, s.Workers.Create(ctx, bob))
+	for _, name := range []domain.ToolName{
+		tools.CreateStreamName,
+		tools.InviteWorkersName,
+		tools.StreamMembersName,
+	} {
+		g, _ := domain.NewToolGrant(domain.GrantID("g-owner-"+name), "w-owner", name)
+		mustCreate(t, s.Grants.Create(ctx, g))
+	}
+
+	ownerSession := connectMCP(t, srv.URL, "w-owner")
+
+	invokeExpectID(t, ownerSession, tools.CreateStreamName, map[string]any{
+		"id":   "s-dm",
+		"name": "alice ↔ bob",
+	})
+
+	// Owner adds both parties to the stream in one call.
+	invokeOK(t, ownerSession, tools.InviteWorkersName, map[string]any{
+		"streamId":  "s-dm",
+		"workerIds": []string{"w-alice", "w-bob"},
+	})
+
+	got := membersOf(t, ownerSession, "s-dm")
+	if len(got) != 2 {
+		t.Fatalf("members after invite = %v, want two", got)
+	}
+	want := map[string]bool{"w-alice": true, "w-bob": true}
+	for _, m := range got {
+		if !want[m] {
+			t.Fatalf("unexpected member %q in %v", m, got)
+		}
+	}
+
+	// Idempotent: re-inviting an already-subscribed worker alongside a
+	// new one is a no-op for the existing subscription and a success
+	// for the rest.
+	invokeOK(t, ownerSession, tools.InviteWorkersName, map[string]any{
+		"streamId":  "s-dm",
+		"workerIds": []string{"w-alice", "w-owner"},
+	})
+	got = membersOf(t, ownerSession, "s-dm")
+	if len(got) != 3 {
+		t.Fatalf("members after re-invite = %v, want three", got)
+	}
+
+	// Unknown worker -> error, no partial subscription created.
+	if _, err := invokeTool(t, ownerSession, tools.InviteWorkersName, map[string]any{
+		"streamId":  "s-dm",
+		"workerIds": []string{"w-ghost"},
+	}); err == nil {
+		t.Fatalf("inviting unknown worker should error")
+	}
+	if got = membersOf(t, ownerSession, "s-dm"); len(got) != 3 {
+		t.Fatalf("members after failed invite = %v, want three (unchanged)", got)
+	}
+}
+
+// TestDM exercises the dm tool: a single call from Alice to Bob
+// creates the per-pair Stream, subscribes both, and publishes the
+// body. A second DM in the reverse direction reuses the same Stream.
+func TestDM(t *testing.T) {
+	t.Parallel()
+
+	s, err := sqlite.Open(":memory:")
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	envsDir := t.TempDir()
+
+	reg := tools.NewRegistry()
+	deps := tools.DefaultDeps(s)
+	deps.EnvsDir = envsDir
+	if err := tools.RegisterBuiltins(reg, deps); err != nil {
+		t.Fatalf("register builtins: %v", err)
+	}
+	srv := httptest.NewServer(server.New(s, reg, nil, nil).Handler())
+	t.Cleanup(srv.Close)
+
+	ctx := context.Background()
+	now := time.Now().UTC()
+	ownerRole, _ := domain.NewRole("r-owner", "# Owner", now)
+	mustCreate(t, s.Roles.Create(ctx, ownerRole))
+	rootPos, _ := domain.NewPosition("p-root", "r-owner", nil)
+	mustCreate(t, s.Positions.Create(ctx, rootPos))
+	alice, _ := domain.NewHumanWorker("w-alice", []domain.PositionID{"p-root"})
+	mustCreate(t, s.Workers.Create(ctx, alice))
+	bob, _ := domain.NewAIWorker("w-bob", []domain.PositionID{"p-root"})
+	mustCreate(t, s.Workers.Create(ctx, bob))
+	for _, name := range []domain.ToolName{tools.DMName, tools.ReadEventsName} {
+		g, _ := domain.NewToolGrant(domain.GrantID("g-alice-"+name), "w-alice", name)
+		mustCreate(t, s.Grants.Create(ctx, g))
+	}
+	bobDMGrant, _ := domain.NewToolGrant("g-bob-dm", "w-bob", tools.DMName)
+	mustCreate(t, s.Grants.Create(ctx, bobDMGrant))
+
+	aliceSession := connectMCP(t, srv.URL, "w-alice")
+	bobSession := connectMCP(t, srv.URL, "w-bob")
+
+	// Alice DMs Bob — single call does it all.
+	raw, err := invokeTool(t, aliceSession, tools.DMName, map[string]any{
+		"toWorkerId": "w-bob",
+		"body":       "hey",
+	})
+	if err != nil {
+		t.Fatalf("dm: %v", err)
+	}
+	var out struct {
+		ID       string `json:"id"`
+		StreamID string `json:"streamId"`
+		To       string `json:"to"`
+	}
+	if err := json.Unmarshal(raw, &out); err != nil {
+		t.Fatalf("unmarshal dm: %v", err)
+	}
+	if out.StreamID != "s-dm-w-alice-w-bob" {
+		t.Fatalf("streamId = %q, want s-dm-w-alice-w-bob", out.StreamID)
+	}
+	if out.To != "w-bob" {
+		t.Fatalf("to = %q, want w-bob", out.To)
+	}
+
+	// Both parties are subscribed; the event landed in the store.
+	for _, wid := range []domain.WorkerID{"w-alice", "w-bob"} {
+		if _, err := s.Subscriptions.Find(ctx, wid, domain.StreamID(out.StreamID)); err != nil {
+			t.Fatalf("%s not subscribed to %s: %v", wid, out.StreamID, err)
+		}
+	}
+	events, _ := s.Events.ListForWorker(ctx, "w-bob", 10)
+	if len(events) != 1 || events[0].Body != "hey" {
+		t.Fatalf("bob events = %+v, want one body=hey", events)
+	}
+
+	// Bob replies. Reverse direction reuses the same Stream — the IDs
+	// are sorted, so A→B and B→A share one ordered conversation.
+	raw, err = invokeTool(t, bobSession, tools.DMName, map[string]any{
+		"toWorkerId": "w-alice",
+		"body":       "hi back",
+	})
+	if err != nil {
+		t.Fatalf("reply dm: %v", err)
+	}
+	var reply struct {
+		StreamID string `json:"streamId"`
+	}
+	_ = json.Unmarshal(raw, &reply)
+	if reply.StreamID != out.StreamID {
+		t.Fatalf("reply streamId = %q, want %q (DM stream should be reused)", reply.StreamID, out.StreamID)
+	}
+
+	// Alice can read the conversation through her own subscription.
+	events, _ = s.Events.ListForWorker(ctx, "w-alice", 10)
+	if len(events) != 2 {
+		t.Fatalf("alice events = %+v, want two", events)
+	}
+
+	// Self-DM is rejected up-front.
+	if _, err := invokeTool(t, aliceSession, tools.DMName, map[string]any{
+		"toWorkerId": "w-alice",
+		"body":       "hi me",
+	}); err == nil {
+		t.Fatalf("DM to self should error")
+	}
+}
+
 // TestReadsOverMCP exercises the new read tools: an Owner with the
 // full builtin grant set lists workers, lists streams, and reads back
 // events on subscribed streams, all over MCP.

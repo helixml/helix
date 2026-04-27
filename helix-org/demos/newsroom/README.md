@@ -109,7 +109,21 @@ journalist drafts → journalist and SEO strategist argue in `s-bullpen`
 about the title → fact-checker blocks one number → researcher
 re-verifies → Maya ships. PR URL lands on `s-published`.
 
-## 6. Live-edit a Role
+## 6. DM a Worker
+
+The `dm` tool sends a private message to one Worker. The first call
+between any two Workers creates the per-pair Stream; subsequent DMs
+reuse it, so the back-and-forth stays in one ordered place:
+
+> DM the fact-checker: "any pattern in the blocks this week —
+> sourcing, numbers, framing?" Then `read_events` on the returned
+> streamId with `wait=30` until they reply.
+
+`dm` is sugar over `create_stream` + `invite_workers` + `publish` —
+useful when you know who you want to talk to. For group threads or
+named channels, reach for the underlying tools directly.
+
+## 7. Live-edit a Role
 
 Edit `roles/journalist.md` however you like, then in the chat:
 
@@ -119,7 +133,7 @@ Edit `roles/journalist.md` however you like, then in the chat:
 Every journalist's `role.md` rewrites in place. Their next
 activation reads the new content; behaviour shifts org-wide.
 
-## 7. Stop
+## 8. Stop
 
 Ctrl-C terminal 1.
 

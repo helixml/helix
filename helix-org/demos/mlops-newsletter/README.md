@@ -28,7 +28,7 @@ cd demos/mlops-newsletter
 ```bash
 cd demos/mlops-newsletter
 ../../bin/helix-org bootstrap --db /tmp/mlops.db --envs-dir /tmp/mlops-envs
-../../bin/helix-org chat
+../../bin/helix-org chat --new
 ```
 
 Everything below is typed into this chat.

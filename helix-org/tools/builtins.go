@@ -91,7 +91,9 @@ func RegisterBuiltins(reg *Registry, deps Deps) error {
 		&StreamMembers{deps: deps},
 		&Subscribe{deps: deps},
 		&Unsubscribe{deps: deps},
+		&InviteWorkers{deps: deps},
 		&Publish{deps: deps},
+		&DM{deps: deps},
 		// Reads. Each is a thin wrapper around a store call; together
 		// they replace the jsonapi GET handlers the server used to expose.
 		&ListRoles{deps: deps},

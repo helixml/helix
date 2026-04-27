@@ -13,8 +13,8 @@ import (
 )
 
 // Subscribe adds a Subscription between the caller and the given
-// Stream. A Worker subscribes themselves; subscribing other Workers is
-// not an operation the tool layer exposes.
+// Stream. A Worker subscribes themselves; see invite_workers for
+// adding other Workers to a Stream.
 type Subscribe struct {
 	deps Deps
 }

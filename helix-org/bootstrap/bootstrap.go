@@ -111,7 +111,9 @@ func Run(ctx context.Context, s *store.Store, params Params) (Result, error) {
 		tools.StreamMembersName,
 		tools.SubscribeName,
 		tools.UnsubscribeName,
+		tools.InviteWorkersName,
 		tools.PublishName,
+		tools.DMName,
 		// Reads.
 		tools.ListRolesName,
 		tools.GetRoleName,

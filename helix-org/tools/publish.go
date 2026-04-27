@@ -12,9 +12,9 @@ import (
 
 // Publish appends an Event to a named Stream, attributed to the caller.
 // It does exactly one thing: append an event to an existing Stream. It
-// does not create Streams, manage subscriptions, or implement DM sugar;
-// callers who want to direct-message another Worker are expected to
-// create_stream and subscribe themselves, then publish.
+// does not create Streams or manage subscriptions; for the common
+// "direct message a Worker" case, see the dm tool, which bundles
+// create-stream + subscribe-both + publish into a single call.
 type Publish struct {
 	deps Deps
 }
