@@ -25,6 +25,8 @@ func run(args []string) error {
 		return runServe(args[1:])
 	case "bootstrap":
 		return runBootstrap(args[1:])
+	case "chat":
+		return runChat(args[1:])
 	case "help", "-h", "--help":
 		printUsage()
 		return nil
@@ -45,6 +47,10 @@ Subcommands:
               --install-claude-mcp to register the owner's MCP
               endpoint with the local claude CLI so plain 'claude'
               sessions can drive the org.
+  chat        Open an interactive claude session pointed at a
+              Worker's MCP endpoint (default: w-owner). Continues
+              the most recent session in the current directory;
+              pass --resume for the picker or --new for a fresh one.
   help        Show this message.
 
 Run 'helix-org <subcommand> --help' for per-subcommand flags.`)
