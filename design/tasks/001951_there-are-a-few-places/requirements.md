@@ -47,10 +47,15 @@ There are other places with the same shape of problem (audit list in design.md).
 - [ ] All other identified locations (see `design.md` § Audit) use a consistent masked-secret pattern (`type="password"` or the new shared component) — no full secret rendered visibly by default.
 - [ ] No new "decorative" partial mask (e.g. `abc12...xyz`): either fully hidden or fully revealed.
 
+### Dark theme consistency
+- [ ] All form elements on the agent Keys tab — Add API Key button, the masked-secret rows, the reveal/copy icon buttons, the code-examples reveal toggle, and the OAuth private-key field — render against the app's dark theme. No element shows up with a white/light background or black-on-white text that breaks the surrounding palette.
+- [ ] The new `<MaskedSecret>` component is theme-consistent out of the box and does not require its callers to pass extra `sx` overrides to look right in dark mode.
+- [ ] Manual visual check: the Keys tab matches the visual style of the adjacent "MCP" and "Usage" tabs in the same agent settings sidebar (no jarring colour break when switching tabs).
+
 ### Cross-cutting
 - [ ] No backend API changes required for this iteration (frontend-only). Backend hardening (return only masked keys after creation) is called out as follow-up in `design.md` but is out of scope.
 - [ ] Behaviour works in both dev (`yarn dev`) and prod (`yarn build`) modes.
-- [ ] Verified manually in the inner Helix at `http://localhost:8080`.
+- [ ] Verified manually in the inner Helix at `http://localhost:8080`, in dark mode (the default).
 
 ## Out of scope
 

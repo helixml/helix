@@ -1,10 +1,11 @@
 # Implementation Tasks
 
-- [ ] Create `frontend/src/components/widgets/MaskedSecret.tsx` per the props/behaviour in design.md (fixed-length bullets, eye toggle, copy button, 30 s auto-hide, hide on `visibilitychange`).
+- [ ] Create `frontend/src/components/widgets/MaskedSecret.tsx` per the props/behaviour in design.md (fixed-length bullets, eye toggle, copy button, 30 s auto-hide, hide on `visibilitychange`). Style explicitly for dark mode using the `DarkTextField` palette from `frontend/src/components/app/AzureDevOpsSkill.tsx:51-73` (text `#F8FAFC`, border `#4A5568`, focused border `#3182CE`) — do NOT rely on global MUI defaults, which render light.
 - [ ] Replace the `Chip` + `CopyKeyButton` group in `frontend/src/components/app/APIKeysSection.tsx` with `<MaskedSecret value={apiKey.key} />`; delete the now-unused `maskKey()` and `CopyKeyButton`.
 - [ ] In `frontend/src/components/app/CodeExamples.tsx`, add a `showKey` toggle (default `false`); render snippets with a masked placeholder (`hl-••••••••`) when hidden, but always copy with the real key. Auto-hide after 30 s and on `visibilitychange`.
 - [ ] In `frontend/src/components/settings/OAuthSettings.tsx`, switch the OAuth 1.0a Private Key field (line 328-338) to the masked-when-not-focused pattern using `<MaskedSecret>` for display and the existing multiline TextField for editing.
-- [ ] Manual test in the inner Helix at `http://localhost:8080`: register `test@helix.ml`, create an org, create an agent, add an API key, confirm both the Keys table and the Code Examples panel hide the key by default and that copy still works in both places.
+- [ ] Audit every visible element on the Keys tab in dark mode (the default). For each one that renders with a light/white background — including the existing Add API Key button, the table cells, any `<Chip>`, the new reveal/copy icons, and the OAuth private-key field — apply the `DarkTextField`-style fix. Compare side-by-side with the adjacent "MCP" tab; the two tabs should look visually consistent.
+- [ ] Manual test in the inner Helix at `http://localhost:8080`: register `test@helix.ml`, create an org, create an agent, add an API key, confirm both the Keys table and the Code Examples panel hide the key by default and that copy still works in both places. Verify in dark mode that no form element renders white.
 - [ ] Run `cd frontend && yarn build` and fix any type errors before committing.
-- [ ] Take before/after screenshots of the agent Keys tab and attach them to the PR description.
+- [ ] Take before/after screenshots of the agent Keys tab in dark mode (showing both the masking change and the dark-theme fix) and attach them to the PR description.
 - [ ] Open PR against `helixml/helix`, link this design doc, and check Drone CI green.

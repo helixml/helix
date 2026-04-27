@@ -65,12 +65,31 @@ Behaviour:
   - (B) Simpler fallback: render `value` as fixed-length bullets when not focused; reveal on focus. Same UX as (A) but without the dedicated component.
 - Pick (A) for consistency.
 
+## Dark theme consistency
+
+The reviewer flagged that form elements on the current Keys tab render with light/white backgrounds, breaking the dark theme. This is a known shape of bug in this codebase: the global MUI `ThemeProvider` (`frontend/src/contexts/theme.tsx`) only defines overrides for `MuiDialog`, `MuiMenu`, and `MuiCssBaseline` — there are **no global overrides** for `MuiTextField`, `MuiChip`, `MuiTable`, `MuiPaper`, etc. So those components fall back to MUI defaults, which include light surface colours that fight the dark `#121214` / `#1e1e24` palette defined in `frontend/src/themes.tsx`.
+
+Workaround pattern already in the codebase: locally-styled wrappers like `DarkTextField` defined ad-hoc in `frontend/src/components/app/AzureDevOpsSkill.tsx:51-73` and `frontend/src/components/app/AddApiSkillDialog.tsx:89` (explicit `#F8FAFC` text on `#4A5568` border for outlined fields). We follow the same convention rather than touching the global theme — fixing the global theme is a much larger change with risk of regression across every screen.
+
+Rules for this task:
+
+- **`<MaskedSecret>` must be dark-theme-correct without caller overrides.** Use either `useTheme()` to read `theme.palette` and apply explicit `color` / `backgroundColor` / `borderColor`, or build it as a `styled()` wrapper following the `DarkTextField` pattern at `AzureDevOpsSkill.tsx:51-73`. Hex values to match the existing dark wrappers: text `#F8FAFC` / `#e0e0e0`, border `#4A5568`, focused border `#3182CE`, panel `#1e1e24`.
+- **Audit every component touched on the Keys tab**, not just the secret display:
+  - `APIKeysSection.tsx` — the `<Chip variant="outlined">` and `<Button variant="outlined">` need verification under dark mode; if either renders light, switch to a styled wrapper or set explicit `sx` colours.
+  - `CodeExamples.tsx` — the new "Show key" toggle button must match the existing dark "Copy" overlay (`rgba(0, 0, 0, 0.6)` background, light text).
+  - `OAuthSettings.tsx` private-key field — the masked-when-not-focused state must use the dark surface, not a default light TextField.
+- **Do not introduce a new colour palette.** Reuse the hex values already in `themes.tsx` (`#121214`, `#1e1e24`, `#e0e0e0`) or the `DarkTextField` palette referenced above. No new "branded" colours.
+- **Out of scope** — promoting the local `DarkTextField` pattern to a shared component, or adding `MuiTextField` / `MuiChip` overrides to the global theme. Those are tempting cleanups but would touch every screen in the app and need their own task.
+
+Verification step in `tasks.md` covers a side-by-side visual check against an adjacent tab (e.g. "MCP") to confirm no jarring colour break when switching tabs in the agent settings sidebar.
+
 ## Decisions
 
 - **No partial masking.** Either fully hidden or fully revealed. Reasoning: prefix/suffix leakage is what the user is asking us to remove, and an inconsistent mid-mask between screens is worse than one consistent rule.
 - **No backend change in this iteration.** The "right" long-term fix is for `GET /apps/:id/api_keys` to never return the full key after creation (cf. GitHub, Stripe, AWS). That is a breaking API change with downstream impact (CLI, generated SDK, code examples panel) — handled as a follow-up task, not in this PR.
 - **Auto-hide on reveal.** 30 s timer + immediate hide on tab/window blur. Catches the common "I revealed it to copy and then walked away" case.
 - **Same lucide icons as the rest of the file.** `APIKeysSection.tsx` uses `lucide-react`; `Account.tsx` uses MUI icons. Use lucide in `MaskedSecret` to match the surface where the primary fix lands; both icon sets coexist in the codebase already.
+- **Style `MaskedSecret` defensively against the missing global theme overrides.** Don't assume `MuiTextField` / `MuiChip` defaults will look right in dark mode — they don't. Apply explicit colours from the `DarkTextField` palette (`AzureDevOpsSkill.tsx:51-73`) or read `useTheme()`. See "Dark theme consistency" section above.
 
 ## Codebase notes for future agents
 
