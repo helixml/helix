@@ -260,6 +260,32 @@ func (s *PostgresStore) DeleteInteraction(ctx context.Context, interactionID str
 	return nil
 }
 
+// GetLatestInteractionsForSessions returns the newest interaction for each
+// supplied session ID, keyed by session_id. Sessions with no interactions are
+// absent from the returned map. Used by the spec-task list handler to derive
+// agent_work_state from the in-flight interaction state without N round-trips.
+func (s *PostgresStore) GetLatestInteractionsForSessions(ctx context.Context, sessionIDs []string) (map[string]*types.Interaction, error) {
+	result := make(map[string]*types.Interaction, len(sessionIDs))
+	if len(sessionIDs) == 0 {
+		return result, nil
+	}
+
+	var interactions []*types.Interaction
+	err := s.gdb.WithContext(ctx).
+		Raw(`SELECT DISTINCT ON (session_id) *
+		     FROM interactions
+		     WHERE session_id IN ?
+		     ORDER BY session_id, created DESC, generation_id DESC`, sessionIDs).
+		Scan(&interactions).Error
+	if err != nil {
+		return nil, err
+	}
+	for _, interaction := range interactions {
+		result[interaction.SessionID] = interaction
+	}
+	return result, nil
+}
+
 func (s *PostgresStore) ListInteractions(ctx context.Context, query *types.ListInteractionsQuery) ([]*types.Interaction, int64, error) {
 	db := s.gdb.WithContext(ctx)
 

@@ -314,6 +314,18 @@ func (s *HelixAPIServer) listTasks(w http.ResponseWriter, r *http.Request) {
 					task.SandboxStatusMessage = cfg.StatusMessage
 				}
 			}
+
+			// Derive AgentWorkState from sandbox state + latest interaction state.
+			// This drives the per-card "In Progress vs Idle" indicator so the timer
+			// only ticks when the agent is actually streaming a response.
+			latestInteractions, err := s.Store.GetLatestInteractionsForSessions(ctx, sessionIDs)
+			if err != nil {
+				log.Warn().Err(err).Msg("failed to fetch latest interactions for agent_work_state derivation")
+				latestInteractions = nil
+			}
+			for _, task := range tasks {
+				task.AgentWorkState = deriveAgentWorkState(task, latestInteractions[task.PlanningSessionID])
+			}
 		}
 	}
 
@@ -1530,4 +1542,34 @@ func (s *HelixAPIServer) updateBoardSettings(w http.ResponseWriter, r *http.Requ
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(settings)
+}
+
+// deriveAgentWorkState maps the SandboxState + latest-interaction state to a
+// coarse work-state used by the project board card UI.
+//
+//	sandbox=absent/starting → ""        (UI falls back to sandbox status hint)
+//	sandbox=running, latest=Waiting     → "working"
+//	sandbox=running, latest=Complete/   → "idle"
+//	  Error / no interaction
+//	post-implementation status (review, → "done"
+//	  pull_request, done)
+//
+// The "done" branch is mostly for completeness — those phases use their own
+// dot/label and never show the timer.
+func deriveAgentWorkState(task *types.SpecTask, latest *types.Interaction) types.AgentWorkState {
+	switch task.Status {
+	case types.TaskStatusImplementationReview,
+		types.TaskStatusPullRequest,
+		types.TaskStatusDone:
+		return types.AgentWorkStateDone
+	}
+
+	if task.SandboxState != "running" {
+		return ""
+	}
+
+	if latest != nil && latest.State == types.InteractionStateWaiting {
+		return types.AgentWorkStateWorking
+	}
+	return types.AgentWorkStateIdle
 }
