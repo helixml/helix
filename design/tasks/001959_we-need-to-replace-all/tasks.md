@@ -13,14 +13,14 @@
 - [x] Bonus: `sample_profiles_test.go` validates the five committed `design/sample-profiles/*.yaml` parse cleanly with expected model + GPU counts.
 - [x] Implement `api/pkg/runner/gpuarch/canonical.go`: shared mapping for NVIDIA compute capability → architecture canonical string and AMD `gfx*` → architecture string. One file, used by both runner (to label its GPUs) and API server (to validate profiles). Add table-driven tests. Adds `IsNVIDIA`/`IsAMD` predicates as a side-bonus for compatibility checks.
 - [x] Implement `api/pkg/runner/profile/store.go` (CRUD against the new tables; re-derive `Count` + `Models` on save; persist vendor/architectures/model_match/min_vram_bytes verbatim from the request). Also added store-level CRUD in `store_runner_profiles.go` and `RunnerProfilePrefix=rprof_` to `system/uuid.go`.
-- [ ] Add HTTP routes in `api/pkg/server/`:
-  - `GET    /api/v1/runner-profiles`
-  - `POST   /api/v1/runner-profiles`
-  - `GET    /api/v1/runner-profiles/{id}`
-  - `PUT    /api/v1/runner-profiles/{id}`
-  - `DELETE /api/v1/runner-profiles/{id}`
-  - `POST   /api/v1/runners/{runner_id}/assign-profile` (body: `{"profile_id": "..."}`)
-  - `POST   /api/v1/runners/{runner_id}/clear-profile`
+- [~] Add HTTP routes in `api/pkg/server/`:
+  - [x] `GET    /api/v1/runner-profiles`
+  - [x] `POST   /api/v1/runner-profiles`
+  - [x] `GET    /api/v1/runner-profiles/{id}`
+  - [x] `PUT    /api/v1/runner-profiles/{id}`
+  - [x] `DELETE /api/v1/runner-profiles/{id}`
+  - [ ] `POST   /api/v1/runners/{runner_id}/assign-profile` (body: `{"profile_id": "..."}`) — needs runner status with vendor+arch fields, wired in runner-binary rewrite
+  - [ ] `POST   /api/v1/runners/{runner_id}/clear-profile` — same dependency
 - [x] Add profile-compatibility check (`profile.Compatibility()`): count → vendor → architecture → model_match regex → min VRAM, returning a single named-constraint failure on mismatch via `*IncompatibilityReason`. Index-existence check belongs at the assignment layer (operates on parsed compose, not declared count) — to be wired when the assign endpoint is implemented.
 - [x] Filter the assignment dropdown server-side: implemented as `profile.FilterCompatible()` helper. HTTP route `GET /api/v1/runners/{id}/compatible-profiles` to be wired in the next task block.
 
