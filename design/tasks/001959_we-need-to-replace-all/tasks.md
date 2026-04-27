@@ -21,7 +21,7 @@
   - `DELETE /api/v1/runner-profiles/{id}`
   - `POST   /api/v1/runners/{runner_id}/assign-profile` (body: `{"profile_id": "..."}`)
   - `POST   /api/v1/runners/{runner_id}/clear-profile`
-- [ ] Add profile-compatibility check to the assign endpoint: index existence → vendor → architecture → model_match regex → min VRAM, returning a single named-constraint failure on mismatch.
+- [~] Add profile-compatibility check to the assign endpoint: index existence → vendor → architecture → model_match regex → min VRAM, returning a single named-constraint failure on mismatch.
 - [ ] Filter the assignment dropdown server-side: `GET /api/v1/runners/{id}/compatible-profiles` returns only profiles that pass all five checks against the runner's reported hardware.
 
 ## Backend: Runner Router (replaces scheduler)
