@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Box, Grid, Card, CardHeader, CardContent, CardActions, Avatar, Typography, Button, Tooltip, Divider } from '@mui/material';
+import { Box, Grid, Card, CardHeader, CardContent, CardActions, Avatar, Typography, Button, Tooltip, Divider, Alert } from '@mui/material';
 import Container from '@mui/material/Container';
 import Page from '../components/system/Page';
 import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
@@ -31,9 +31,12 @@ const Providers: React.FC = () => {
   // Get org if orgName is set (hooks must be called before any early returns)
   const { data: org, isLoading: isLoadingOrg } = useGetOrgByName(orgName, orgName !== undefined)
 
-  // Get provider endpoints
+  // Get provider endpoints. Load models so the API populates `status` and
+  // `error` for each endpoint — that's how a misconfigured provider (e.g.
+  // wrong API key on NVIDIA NIM) surfaces a human-readable failure on this
+  // page instead of looking "Connected" while silently broken.
   const { data: providerEndpoints = [], isLoading: isLoadingProviders, refetch: loadData } = useListProviders({
-    loadModels: false,
+    loadModels: true,
     orgId: org?.id,
     enabled: !isLoadingOrg,
   });
@@ -222,6 +225,15 @@ const Providers: React.FC = () => {
                     <Typography variant="body2" color="text.secondary">
                       {provider.description}
                     </Typography>
+                    {existingProvider?.status === 'error' && existingProvider.error && (
+                      <Alert
+                        severity="error"
+                        variant="outlined"
+                        sx={{ mt: 2, textAlign: 'left', wordBreak: 'break-word' }}
+                      >
+                        {existingProvider.error}
+                      </Alert>
+                    )}
                   </CardContent>
                   <CardActions sx={{ justifyContent: 'center', pb: 2 }}>
                     <Tooltip
@@ -237,12 +249,12 @@ const Providers: React.FC = () => {
                         <Button
                           size="small"
                           variant={isConfigured ? 'outlined' : 'text'}
-                          color={isConfigured ? 'success' : 'secondary'}
+                          color={isConfigured ? (existingProvider?.status === 'error' ? 'error' : 'success') : 'secondary'}
                           onClick={() => handleOpenDialog(provider)}
                           startIcon={isConfigured ? <CheckCircleIcon /> : <AddCircleOutlineIcon />}
                           disabled={!editAllowed && !isConfigured}
                         >
-                          {isConfigured ? 'Connected' : 'Connect'}
+                          {isConfigured ? (existingProvider?.status === 'error' ? 'Fix Connection' : 'Connected') : 'Connect'}
                         </Button>
                       </span>
                     </Tooltip>
@@ -300,17 +312,26 @@ const Providers: React.FC = () => {
                     <Typography variant="body2" color="text.secondary" sx={{ wordBreak: 'break-all' }}>
                       {endpoint.base_url}
                     </Typography>
+                    {endpoint.status === 'error' && endpoint.error && (
+                      <Alert
+                        severity="error"
+                        variant="outlined"
+                        sx={{ mt: 2, textAlign: 'left', wordBreak: 'break-word' }}
+                      >
+                        {endpoint.error}
+                      </Alert>
+                    )}
                   </CardContent>
                   <CardActions sx={{ justifyContent: 'center', pb: 2 }}>
                     <Button
                       size="small"
                       variant="outlined"
-                      color="success"
+                      color={endpoint.status === 'error' ? 'error' : 'success'}
                       onClick={() => handleOpenDialog(customCardProvider)}
                       startIcon={<CheckCircleIcon />}
                       disabled={!editAllowed}
                     >
-                      Connected
+                      {endpoint.status === 'error' ? 'Fix Connection' : 'Connected'}
                     </Button>
                   </CardActions>
                 </Card>
