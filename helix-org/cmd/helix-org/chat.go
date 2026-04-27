@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 )
 
 // runChat exec's a `claude` session pointed at a Worker's MCP endpoint,
@@ -88,11 +90,16 @@ func runChat(args []string) error {
 		switch {
 		case *resume:
 			cmd = append(cmd, "--resume")
-		case !*newSession && hasClaudeSession():
-			// Only ask claude to continue when a session actually exists
-			// for this cwd; otherwise --continue exits with "No conversation
-			// found to continue" on a first run.
-			cmd = append(cmd, "--continue")
+		case !*newSession:
+			// Resume the latest session for this cwd by explicit ID. We
+			// avoid `--continue` because its "most recent resumable session"
+			// heuristic refuses sessions whose log ended on certain non-user
+			// events ("No conversation found to continue"), even when the
+			// session is fine to resume by ID. If there is no prior session,
+			// we pass nothing and claude starts fresh.
+			if sid := latestClaudeSessionID(); sid != "" {
+				cmd = append(cmd, "--resume", sid)
+			}
 		}
 	}
 
@@ -106,28 +113,60 @@ func runChat(args []string) error {
 	return nil
 }
 
-// hasClaudeSession reports whether claude has at least one session stored
-// for the current working directory. Claude keys its per-cwd session log
-// under ~/.claude/projects/<cwd-with-slashes-as-hyphens>/, with one .jsonl
-// per session.
-func hasClaudeSession() bool {
+// latestClaudeSessionID returns the sessionId of the most recently
+// modified .jsonl in claude's per-cwd session store, or "" if none.
+// Claude stores sessions under ~/.claude/projects/<cwd-with-slashes-
+// as-hyphens>/<uuid>.jsonl, with one JSON event per line (the first
+// line carries the session's `sessionId`).
+func latestClaudeSessionID() string {
 	cwd, err := os.Getwd()
 	if err != nil {
-		return false
+		return ""
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return false
+		return ""
 	}
-	encoded := strings.ReplaceAll(cwd, "/", "-")
-	entries, err := os.ReadDir(filepath.Join(home, ".claude", "projects", encoded))
+	dir := filepath.Join(home, ".claude", "projects", strings.ReplaceAll(cwd, "/", "-"))
+	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return false
+		return ""
 	}
+	var (
+		newestPath string
+		newestTime time.Time
+	)
 	for _, e := range entries {
-		if !e.IsDir() && strings.HasSuffix(e.Name(), ".jsonl") {
-			return true
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".jsonl") {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+		if info.ModTime().After(newestTime) {
+			newestTime = info.ModTime()
+			newestPath = filepath.Join(dir, e.Name())
 		}
 	}
-	return false
+	if newestPath == "" {
+		return ""
+	}
+	f, err := os.Open(newestPath) //nolint:gosec // path is built from a known prefix and a directory entry name
+	if err != nil {
+		return ""
+	}
+	defer func() { _ = f.Close() }()
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	if !scanner.Scan() {
+		return ""
+	}
+	var record struct {
+		SessionID string `json:"sessionId"`
+	}
+	if err := json.Unmarshal(scanner.Bytes(), &record); err != nil {
+		return ""
+	}
+	return record.SessionID
 }
