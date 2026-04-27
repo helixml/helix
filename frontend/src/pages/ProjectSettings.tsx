@@ -1280,9 +1280,11 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
       </Box>
 
       {/* ZFS Snapshot/Clone Tree — below the Docker Cache flex row */}
-      {zfsTree?.available && zfsTree?.golden && zfsTree.golden.children?.some(
-        (snap: TypesZFSTreeNode) => snap.children && snap.children.length > 0
-      ) && (
+      {/* Render whenever a golden exists, even with no snapshots or clones —
+          a freshly-built golden with zero clones is still useful information
+          (otherwise the panel silently disappears post-build until the first
+          session clones from it). */}
+      {zfsTree?.available && zfsTree?.golden && (
         <Box sx={{ mt: 1, mb: 4, p: 2, bgcolor: "background.paper", borderRadius: 1, border: "1px solid", borderColor: "divider" }}>
           <Typography variant="subtitle2" sx={{ mb: 1, display: "flex", alignItems: "center", gap: 0.5 }}>
             <HubIcon fontSize="small" sx={{ color: "primary.main" }} />
