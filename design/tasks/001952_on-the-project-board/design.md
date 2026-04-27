@@ -63,6 +63,22 @@ The Go field already exists (`api/pkg/types/simple_spec_task.go:151`) and is in 
 - **Per-task DB query vs batched.** Don't do per-task — there can be tens of in-flight tasks. The single batched `latest interaction per session` query keeps `listTasks` performance flat.
 - **`Idle` vs `Awaiting review` label.** The agent doesn't actually know whether the human is reviewing or whether the agent is between turns. `Idle` is the honest description of what we can detect; `Awaiting review` would imply more semantic certainty than the data supports. If the user later wants `Awaiting review` specifically, we'd need to detect "agent has explicitly emitted a final/done signal" — currently no such signal exists.
 
+## Performance with ~29 in-progress tasks
+
+A real board today has ~29 tasks in the In Progress column with no filters applied, polled every 30s. Walk through what this change does to the load.
+
+**Backend, per `listTasks` call:**
+- Today: one tasks query + one `GetSessionsByIDs` batched lookup + per-session executor liveness check.
+- After: one extra batched `GetLatestInteractionsForSessions` call. With `interactions.session_id` already indexed (`api/pkg/types/types.go:37`), this is a single `SELECT DISTINCT ON (session_id) ... WHERE session_id = ANY($1) ORDER BY session_id, created_at DESC` returning ≤29 rows. Sub-millisecond on a warm cache, low-single-digit ms cold. Verify the planner picks the index; if it doesn't, add `CREATE INDEX ... ON interactions (session_id, created_at DESC)` (a normal GORM AutoMigrate definition) — but the existing `session_id` index alone is almost certainly enough at this size.
+- Even at 10× scale (≈300 in-progress tasks), this is one batched query against an indexed column. Not a bottleneck.
+
+**Frontend, per board render:**
+- Today, every card whose `task.status === "implementation"` mounts a `useRunningDuration` hook with a `setInterval` ticking every 1 second (`TaskCard.tsx:246`). With 29 in-progress tasks, that is **29 × 1 Hz = 29 setState calls per second**, each triggering a re-render of one card.
+- After this change, only cards where `agent_work_state === "working"` tick. In normal use the working subset is much smaller than the in-progress subset (most cards are sitting idle waiting for review — that's the whole point of the bug). Realistic working count is closer to the WIP-implied bound (a handful of agents actually streaming at once), so we end up with **fewer** active timers than today, not more.
+- The 30s React Query refetch already runs today; we don't add a new poll. The only delta is that more cards may *change label* on a refetch (timer appears/disappears), which is a single re-render per affected card.
+
+**Net effect:** modest backend cost (one batched indexed query), real frontend win (fewer per-second timer ticks). The 29-tasks-in-progress case is squarely in the comfortable zone. If we ever do see slowness it will be from the existing per-session executor liveness loop, not from this addition — and that's a separate optimisation.
+
 ## Files Touched
 
 Backend:
