@@ -7,7 +7,7 @@ with different briefs to see how the angle drives everything else.
 
 The only files on disk are the three Roles in [`roles/`](roles).
 Streams, positions, identities, and the team itself are all spun
-up by a single `helix-org prompt` call.
+up by a single `claude` call after bootstrap.
 
 ## Setup
 
@@ -27,22 +27,26 @@ cd demos/mlops-newsletter
 ## 2. Bootstrap the Owner (terminal 2)
 
 ```bash
-../../bin/helix-org bootstrap
+../../bin/helix-org bootstrap --install-claude-mcp
 ```
+
+`--install-claude-mcp` registers the owner's MCP endpoint with your
+`claude` CLI under user scope so the next step can call helix tools
+straight from `claude`.
 
 ## 3. Spin up the team — one prompt
 
 ```bash
-../../bin/helix-org prompt "Set up an MLOps newsletter team from
-this directory. For each .md file under ./roles/, call create_role
-with id='r-' + the file's basename (e.g. roles/editor.md ->
-r-editor) and content equal to the file body. Create three positions
-p-editor, p-researcher, p-journalist under p-root, each pointing at
-the matching role. Hire three AI workers w-editor, w-researcher,
-w-journalist into them. For each hire set identityContent to a
-one-line stub like 'You are the <role>.' Read each role.md to find
-its 'Tools (MCP)' line and grant exactly those tool names. Confirm
-when done."
+claude -p --permission-mode bypassPermissions "Set up an MLOps
+newsletter team from this directory. For each .md file under
+./roles/, call create_role with id='r-' + the file's basename
+(e.g. roles/editor.md -> r-editor) and content equal to the file
+body. Create three positions p-editor, p-researcher, p-journalist
+under p-root, each pointing at the matching role. Hire three AI
+workers w-editor, w-researcher, w-journalist into them. For each
+hire set identityContent to a one-line stub like 'You are the
+<role>.' Read each role.md to find its 'Tools (MCP)' line and grant
+exactly those tool names. Confirm when done."
 ```
 
 The editor's hire activation creates the five streams and
@@ -51,21 +55,22 @@ subscribes; the researcher and journalist subscribe to their inputs.
 
 ## 4. Watch the cascade
 
-In a third terminal, tail every stream — this is the live view of
-the team thinking out loud:
+In a third terminal, ask `claude` to watch every stream — the live
+view of the team thinking out loud. The owner's MCP entry is
+already registered, so plain `claude` works:
 
 ```bash
-../../bin/helix-org tail
+claude --permission-mode bypassPermissions "List every stream, subscribe me to all of them, then loop read_events with wait=60, summarising each event as it lands. Don't stop until I interrupt."
 ```
 
-`tail` defaults to `*` (all streams). Use `tail 's-news*'` for a
-glob, or `tail s-newsletter` for a single stream.
+Narrow it however you like — "just the s-news* streams", "only
+s-newsletter" — by tweaking the same prompt.
 
 Then publish a brief from terminal 2:
 
 ```bash
-../../bin/helix-org prompt "publish to s-briefs: 'Time for this
-week's MLOps newsletter. Surprise me with the angle.'"
+claude -p --permission-mode bypassPermissions "publish to s-briefs:
+'Time for this week's MLOps newsletter. Surprise me with the angle.'"
 ```
 
 The cascade you'll see in the tail:
@@ -75,18 +80,19 @@ The cascade you'll see in the tail:
 - Journalist wakes, writes ~250 words, publishes to `s-drafts`.
 - Editor wakes again, polishes and publishes to `s-newsletter`.
 
-To see only the finished issues:
+To see only the finished issues, restart the watcher with a
+narrower scope:
 
 ```bash
-../../bin/helix-org tail s-newsletter
+claude --permission-mode bypassPermissions "Subscribe me to s-newsletter only and tell me about every event as it lands. Loop read_events with wait=60 until I interrupt."
 ```
 
 ## 5. Run it again with a different brief
 
 ```bash
-../../bin/helix-org prompt "publish to s-briefs: 'New issue. This
-week, focus on what is quietly broken in MLOps tooling that nobody
-talks about.'"
+claude -p --permission-mode bypassPermissions "publish to s-briefs:
+'New issue. This week, focus on what is quietly broken in MLOps
+tooling that nobody talks about.'"
 ```
 
 The angle in the second issue will be sharper and more specific

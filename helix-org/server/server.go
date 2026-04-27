@@ -1,10 +1,8 @@
-// Package server exposes the HTTP surface. There are exactly two
-// endpoints: /workers/{id}/mcp — every Worker is its own MCP server,
+// Package server exposes the HTTP surface. There is exactly one
+// endpoint: /workers/{id}/mcp — every Worker is its own MCP server,
 // scoped to the tools that Worker holds grants for, and used for both
-// reads and mutations of the org graph — and /tail, a cross-channel
-// operator diagnostic kept on HTTP because it has no Worker identity.
-// The CLI bootstraps by opening the store directly; there is no other
-// HTTP write path.
+// reads and mutations of the org graph. The CLI bootstraps by opening
+// the store directly; there is no other HTTP write path.
 package server
 
 import (
@@ -26,9 +24,9 @@ type Server struct {
 }
 
 // New returns a Server bound to the given store, registry, broadcaster
-// and logger. If logger is nil, a discard logger is used. If broadcaster
-// is nil, /tail silently falls back to plain polling — ?wait= is honoured
-// but fires only on timeout.
+// and logger. If logger is nil, a discard logger is used. The
+// broadcaster wakes long-poll readers (e.g. read_events with wait>0);
+// it may be nil in tests that don't exercise long-poll paths.
 func New(s *store.Store, registry *tools.Registry, broadcaster *broadcast.Broadcaster, logger *slog.Logger) *Server {
 	if logger == nil {
 		logger = slog.New(slog.NewTextHandler(discardWriter{}, nil))
@@ -41,7 +39,6 @@ func New(s *store.Store, registry *tools.Registry, broadcaster *broadcast.Broadc
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.Handle("/workers/{id}/mcp", s.mcpHandler())
-	mux.HandleFunc("GET /tail", s.tail)
 	return s.requestLogger(mux)
 }
 

@@ -18,6 +18,10 @@ not by scraping CVs.
 
 ## Triggers
 
+**On hire.** Subscribe to `s-recruiting`. If `subscribe` errors with
+`record not found`, the editor's hire activation hasn't created the
+stream yet — sleep 5 seconds via `Bash` and retry, up to 6 times.
+
 **On a manager posting an opening.** If the brief is too thin to
 spread candidates around, reply once asking for the angle (who
 *not* to hire for this slot? what's the team gap?), then wait.

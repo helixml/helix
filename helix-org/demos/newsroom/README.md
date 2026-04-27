@@ -58,7 +58,7 @@ the voice isn't.
 
 ## Run the demo
 
-Three terminals: server, prompts, and a `helix-org tail` window
+Three terminals: server, prompts, and a second `claude` session
 watching every stream as the team works. Run from `demos/newsroom/`
 so the prompts can refer to `./roles/` and `./workers/` by relative
 path.
@@ -73,27 +73,32 @@ helix-org serve --db /tmp/newsroom.db --envs-dir /tmp/newsroom-envs
 ### 2. Bootstrap the Owner (terminal 2)
 
 ```bash
-helix-org bootstrap
+helix-org bootstrap --install-claude-mcp
 ```
+
+`--install-claude-mcp` registers the owner's MCP endpoint with your
+`claude` CLI under user scope, so plain `claude` sessions in step 3
+and step 5 can drive the org.
 
 ### 2½. Watch the room (terminal 3, optional but recommended)
 
 ```bash
-helix-org tail
+claude --permission-mode bypassPermissions "List every stream, subscribe me to all of them, then loop read_events with wait=60, summarising each event as it lands. Don't stop until I interrupt."
 ```
 
-`tail` defaults to `*` — every stream, oldest-first, then live.
-For a single hot stream during a story, narrow with a glob:
-`helix-org tail s-bullpen`, `helix-org tail s-recruiting`,
-`helix-org tail 's-fact*'`. Multiple windows are fine — each long-
-polls independently.
+Claude calls `subscribe` per stream then long-polls `read_events`,
+streaming a one-line summary as each event arrives. To narrow during
+a story, ask the same prompt with a different scope — e.g.
+"Subscribe me to s-bullpen and s-recruiting only…", or "…just the
+s-fact* streams". Multiple watcher sessions are fine; each is its
+own MCP client and the broadcaster wakes them all.
 
 You now have `w-owner` with grants for every structural tool.
 
 ### 3. Phil scaffolds the team — one prompt
 
 ```bash
-helix-org prompt "Set up the newsroom from this directory:
+claude -p --permission-mode bypassPermissions "Set up the newsroom from this directory:
 
 1. For each .md file under ./roles/, call create_role with
    id='r-' + the file's basename (e.g. roles/editor-in-chief.md ->
@@ -136,7 +141,7 @@ When you see "Newsroom is up" on `editorial`, the team is live.
 To push a brief into `editorial`:
 
 ```bash
-helix-org prompt "publish to s-editorial: 'Mistral released Foo this morning, see if there's a piece in it.'"
+claude -p --permission-mode bypassPermissions "publish to s-editorial: 'Mistral released Foo this morning, see if there's a piece in it.'"
 ```
 
 Felix (news-scout) pitches → Maya picks → researcher researches →
@@ -149,7 +154,7 @@ their next activation, edit the file then run:
 
 ```bash
 # edit roles/journalist.md however you like, then:
-helix-org prompt "Update the journalist role: replace its content with the current contents of ./roles/journalist.md."
+claude -p --permission-mode bypassPermissions "Update the journalist role: replace its content with the current contents of ./roles/journalist.md."
 ```
 
 Every journalist's `role.md` rewrites in place. Their next event
@@ -164,13 +169,14 @@ activation reads the new content; behaviour shifts org-wide.
 
 ## What to point at during the demo
 
-- **`helix-org tail s-recruiting` during cast time** — Renée sources
-  three identities per opening *live*. They did not exist five
-  seconds ago. Maya picks one. The team is *cast*, not authored.
+- **Watch `s-recruiting` during cast time** — ask the watcher
+  session to "narrow down to s-recruiting". Renée sources three
+  identities per opening *live*. They did not exist five seconds
+  ago. Maya picks one. The team is *cast*, not authored.
   **First wow.**
-- **`helix-org tail s-bullpen` during a story** — journalist vs SEO
-  strategist, voice vs findability. They disagree on something
-  specific. **Second wow.**
+- **Watch `s-bullpen` during a story** — same trick: narrow to
+  s-bullpen. Journalist vs SEO strategist, voice vs findability.
+  They disagree on something specific. **Second wow.**
 - **`update_role` while the team is running** — Phil edits
   `roles/journalist.md` and reruns the prompt from step 5. Every
   journalist's `role.md` rewrites. Next activation, they obey the new

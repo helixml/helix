@@ -18,16 +18,14 @@ import (
 // Broadcaster is safe for concurrent use. The zero value is not usable;
 // use New.
 type Broadcaster struct {
-	mu      sync.Mutex
-	subs    map[domain.StreamID]map[chan struct{}]struct{}
-	allSubs map[chan struct{}]struct{}
+	mu   sync.Mutex
+	subs map[domain.StreamID]map[chan struct{}]struct{}
 }
 
 // New returns a ready-to-use Broadcaster.
 func New() *Broadcaster {
 	return &Broadcaster{
-		subs:    make(map[domain.StreamID]map[chan struct{}]struct{}),
-		allSubs: make(map[chan struct{}]struct{}),
+		subs: make(map[domain.StreamID]map[chan struct{}]struct{}),
 	}
 }
 
@@ -67,10 +65,10 @@ func (b *Broadcaster) Unsubscribe(streamIDs []domain.StreamID, ch chan struct{})
 	}
 }
 
-// Notify wakes every subscriber that registered interest in streamID,
-// plus every wildcard subscriber registered via SubscribeAll. Non-blocking:
-// if a subscriber's wake-up channel is already full, the signal is
-// coalesced. Subscribers are expected to re-query the store after waking.
+// Notify wakes every subscriber that registered interest in streamID.
+// Non-blocking: if a subscriber's wake-up channel is already full, the
+// signal is coalesced. Subscribers are expected to re-query the store
+// after waking.
 func (b *Broadcaster) Notify(streamID domain.StreamID) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -80,33 +78,4 @@ func (b *Broadcaster) Notify(streamID domain.StreamID) {
 		default:
 		}
 	}
-	for ch := range b.allSubs {
-		select {
-		case ch <- struct{}{}:
-		default:
-		}
-	}
-}
-
-// SubscribeAll registers a wake-up channel that fires on every Notify
-// regardless of which Stream was published to. This is the "tail
-// everything" subscription used by readers that follow stream-globs
-// (including new streams created mid-tail). Like Subscribe, the returned
-// channel is buffered (size 1) and notifications coalesce.
-//
-// Callers MUST call UnsubscribeAll with the returned channel when done.
-func (b *Broadcaster) SubscribeAll() chan struct{} {
-	ch := make(chan struct{}, 1)
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	b.allSubs[ch] = struct{}{}
-	return ch
-}
-
-// UnsubscribeAll removes a wildcard subscriber. Safe to call with a
-// channel that was never subscribed.
-func (b *Broadcaster) UnsubscribeAll(ch chan struct{}) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	delete(b.allSubs, ch)
 }

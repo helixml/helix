@@ -3,7 +3,6 @@ package server_test
 import (
 	"context"
 	"encoding/json"
-	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
@@ -59,32 +58,6 @@ func newTestServer(t *testing.T) (*httptest.Server, domain.WorkerID) {
 	return srv, "w-ceo"
 }
 
-type envelope struct {
-	Data   json.RawMessage `json:"data"`
-	Errors json.RawMessage `json:"errors"`
-}
-
-// withGet performs a GET against url and invokes fn with the response. The
-// response body is closed after fn returns; this shape keeps bodyclose happy
-// because Do and Close sit in the same function.
-func withGet(t *testing.T, url string, fn func(res *http.Response, env envelope)) {
-	t.Helper()
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, url, nil)
-	if err != nil {
-		t.Fatalf("build request: %v", err)
-	}
-	res, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatalf("GET %s: %v", url, err)
-	}
-	defer func() { _ = res.Body.Close() }()
-	var env envelope
-	if err := json.NewDecoder(res.Body).Decode(&env); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	fn(res, env)
-}
-
 // connectMCP returns an MCP client session bound to the given worker's
 // /mcp endpoint. The session is closed when the test ends.
 func connectMCP(t *testing.T, baseURL string, workerID domain.WorkerID) *mcp.ClientSession {
@@ -100,80 +73,6 @@ func connectMCP(t *testing.T, baseURL string, workerID domain.WorkerID) *mcp.Cli
 	}
 	t.Cleanup(func() { _ = session.Close() })
 	return session
-}
-
-// TestTailMatchesGlob seeds three streams and four events, then tails
-// "s-news*" and asserts only the two news events come back, oldest first.
-// Also checks that since= advances the cursor.
-func TestTailMatchesGlob(t *testing.T) {
-	t.Parallel()
-	s, err := sqlite.Open(":memory:")
-	if err != nil {
-		t.Fatalf("open sqlite: %v", err)
-	}
-	srv := httptest.NewServer(server.New(s, tools.NewRegistry(), nil, nil).Handler())
-	t.Cleanup(srv.Close)
-
-	ctx := context.Background()
-	now := time.Date(2026, 4, 25, 12, 0, 0, 0, time.UTC)
-	for _, c := range []struct{ id, name string }{
-		{"s-news-wire", "news-wire"},
-		{"s-newsletter", "newsletter"},
-		{"s-other", "other"},
-	} {
-		st, _ := domain.NewStream(domain.StreamID(c.id), c.name, "", "w-owner", now, domain.Transport{})
-		if err := s.Streams.Create(ctx, st); err != nil {
-			t.Fatalf("seed stream %s: %v", c.id, err)
-		}
-	}
-	for i, e := range []struct{ id, st string }{
-		{"e-1", "s-news-wire"},
-		{"e-2", "s-other"},
-		{"e-3", "s-newsletter"},
-		{"e-4", "s-other"},
-	} {
-		ev, _ := domain.NewEvent(domain.EventID(e.id), domain.StreamID(e.st), "w-owner", "x", now.Add(time.Duration(i+1)*time.Second))
-		if err := s.Events.Append(ctx, ev); err != nil {
-			t.Fatalf("seed event %s: %v", e.id, err)
-		}
-	}
-
-	withGet(t, srv.URL+"/tail?match=s-news*", func(res *http.Response, env envelope) {
-		if res.StatusCode != http.StatusOK {
-			t.Fatalf("status = %d", res.StatusCode)
-		}
-		var resources []server.Resource
-		if err := json.Unmarshal(env.Data, &resources); err != nil {
-			t.Fatalf("decode: %v", err)
-		}
-		if len(resources) != 2 {
-			t.Fatalf("got %d events, want 2 (e-1, e-3)", len(resources))
-		}
-		if resources[0].ID != "e-1" || resources[1].ID != "e-3" {
-			t.Fatalf("ids = [%s, %s], want [e-1, e-3]", resources[0].ID, resources[1].ID)
-		}
-	})
-
-	withGet(t, srv.URL+"/tail?match=s-news*&since=e-1", func(res *http.Response, env envelope) {
-		var resources []server.Resource
-		if err := json.Unmarshal(env.Data, &resources); err != nil {
-			t.Fatalf("decode: %v", err)
-		}
-		if len(resources) != 1 || resources[0].ID != "e-3" {
-			t.Fatalf("since=e-1 returned %+v, want only e-3", resources)
-		}
-	})
-
-	// Default match is "*" — all four events.
-	withGet(t, srv.URL+"/tail", func(res *http.Response, env envelope) {
-		var resources []server.Resource
-		if err := json.Unmarshal(env.Data, &resources); err != nil {
-			t.Fatalf("decode: %v", err)
-		}
-		if len(resources) != 4 {
-			t.Fatalf("default match returned %d events, want 4", len(resources))
-		}
-	})
 }
 
 // TestMCPListTools confirms that the MCP tool list a worker sees is the

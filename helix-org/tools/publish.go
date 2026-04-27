@@ -60,7 +60,7 @@ func (t *Publish) Invoke(ctx context.Context, inv domain.Invocation) (json.RawMe
 	if err := t.deps.Store.Events.Append(ctx, event); err != nil {
 		return nil, err
 	}
-	// Wake HTTP long-poll observers (humans curling /tail).
+	// Wake long-poll observers (read_events with wait>0).
 	if t.deps.Broadcaster != nil {
 		t.deps.Broadcaster.Notify(streamID)
 	}
