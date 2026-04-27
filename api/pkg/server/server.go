@@ -1034,6 +1034,14 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	adminRouter.HandleFunc("/llm_calls", system.Wrapper(apiServer.listLLMCalls)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/slots/{slot_id}", system.DefaultWrapper(apiServer.deleteSlot)).Methods(http.MethodDelete)
 
+	// Runner profiles (compose-based runner replacement). All routes are
+	// admin-only — operators define and assign profiles.
+	adminRouter.HandleFunc("/runner-profiles", apiServer.listRunnerProfiles).Methods(http.MethodGet)
+	adminRouter.HandleFunc("/runner-profiles", apiServer.createRunnerProfile).Methods(http.MethodPost)
+	adminRouter.HandleFunc("/runner-profiles/{id}", apiServer.getRunnerProfile).Methods(http.MethodGet)
+	adminRouter.HandleFunc("/runner-profiles/{id}", apiServer.updateRunnerProfile).Methods(http.MethodPut)
+	adminRouter.HandleFunc("/runner-profiles/{id}", apiServer.deleteRunnerProfile).Methods(http.MethodDelete)
+
 	// Logs endpoints - proxy to runner
 	adminRouter.HandleFunc("/logs", apiServer.getLogsSummary).Methods(http.MethodGet)
 	adminRouter.HandleFunc("/logs/{slot_id}", apiServer.getSlotLogs).Methods(http.MethodGet)
