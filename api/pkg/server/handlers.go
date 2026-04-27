@@ -106,6 +106,7 @@ func (apiServer *HelixAPIServer) getConfig(ctx context.Context) (types.ServerCon
 		License:                                licenseInfo,
 		OrganizationsCreateEnabledForNonAdmins: apiServer.Cfg.Organizations.CreateEnabledForNonAdmins,
 		Edition:                                apiServer.Cfg.Edition,
+		DefaultChatSystemPrompt:                types.DefaultChatSystemPrompt,
 	}
 
 	systemSettings, err := apiServer.Store.GetSystemSettings(ctx)

@@ -84,6 +84,8 @@ func (suite *OpenAIChatSuite) SetupTest() {
 	suite.store.EXPECT().DeleteSlot(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	suite.store.EXPECT().ListModels(gomock.Any(), gomock.Any()).Return([]*types.Model{}, nil).AnyTimes()
 	suite.store.EXPECT().GetEffectiveSystemSettings(gomock.Any()).Return(&types.SystemSettings{}, nil).AnyTimes()
+	// loadAssistant pulls per-user chat defaults when there's no app in scope.
+	suite.store.EXPECT().GetUserMeta(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound).AnyTimes()
 	// Provider prefix lookup - return not found by default (model namespaces like "meta-llama" are not providers)
 	suite.store.EXPECT().GetProviderEndpoint(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound).AnyTimes()
 	// ListProviderEndpoints is called to check for model in user's custom providers

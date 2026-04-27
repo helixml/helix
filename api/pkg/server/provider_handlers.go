@@ -290,11 +290,30 @@ func (s *HelixAPIServer) getProviderModels(ctx context.Context, providerEndpoint
 
 		models, err := provider.ListModels(fetchCtx)
 		if err != nil {
-			log.Err(err).
-				Str("provider", providerEndpoint.Name).
-				Str("owner", providerEndpoint.Owner).
-				Msg("error listing models")
-			return nil, err
+			// Custom endpoints often don't expose /v1/models. If a static Models
+			// list is configured, treat that as the source of truth so the picker
+			// and chat-completions routing both work.
+			if len(providerEndpoint.Models) > 0 {
+				log.Debug().
+					Err(err).
+					Str("provider", providerEndpoint.Name).
+					Str("owner", providerEndpoint.Owner).
+					Strs("static_models", providerEndpoint.Models).
+					Msg("upstream /v1/models failed; using static Models list")
+				models = synthesizeModelsFromStaticList(providerEndpoint)
+			} else {
+				log.Err(err).
+					Str("provider", providerEndpoint.Name).
+					Str("owner", providerEndpoint.Owner).
+					Msg("error listing models")
+				return nil, err
+			}
+		}
+
+		// Same fallback when upstream returned an empty list but the endpoint
+		// has a static Models list configured.
+		if len(models) == 0 && len(providerEndpoint.Models) > 0 {
+			models = synthesizeModelsFromStaticList(providerEndpoint)
 		}
 
 		for idx, m := range models {
@@ -338,6 +357,24 @@ func (s *HelixAPIServer) getProviderModels(ctx context.Context, providerEndpoint
 	}
 
 	return result.([]types.OpenAIModel), nil
+}
+
+// synthesizeModelsFromStaticList builds OpenAIModel entries from the endpoint's
+// static Models list. Used when the upstream doesn't expose /v1/models — this
+// lets users register a custom endpoint with a preset model and have it appear
+// in the model picker and resolve correctly in /v1/chat/completions routing.
+func synthesizeModelsFromStaticList(providerEndpoint *types.ProviderEndpoint) []types.OpenAIModel {
+	models := make([]types.OpenAIModel, 0, len(providerEndpoint.Models))
+	for _, name := range providerEndpoint.Models {
+		models = append(models, types.OpenAIModel{
+			ID:      name,
+			Object:  "model",
+			OwnedBy: providerEndpoint.Name,
+			Type:    "chat",
+			Enabled: true,
+		})
+	}
+	return models
 }
 
 // createProviderEndpoint godoc

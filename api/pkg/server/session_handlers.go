@@ -469,14 +469,19 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 		startReq.Type = types.SessionTypeText
 	}
 
-	// If there's no app and no system prompt, set the default system prompt
+	// If there's no app and no system prompt, prefer the user's stored chat default,
+	// then fall back to the platform default.
 	if startReq.AppID == "" && startReq.SystemPrompt == "" {
-		startReq.SystemPrompt = `You are a helpful assistant called Helix, built on a platform called HelixML enabling private deployment of GenAI models enabling privacy, security and compliance. If the user's query includes sections in square brackets [like this], indicating that some values are missing, you should ask for the missing values, but DO NOT include the square brackets in your response - instead make the response seem natural and extremely concise - only asking the required questions asking for the values to be filled in. To reiterate, do NOT include square brackets in the response.
+		if meta, err := s.Store.GetUserMeta(ctx, user.ID); err == nil && meta.ChatSettings.SystemPrompt != "" {
+			startReq.SystemPrompt = meta.ChatSettings.SystemPrompt
+		} else {
+			startReq.SystemPrompt = `You are a helpful assistant called Helix, built on a platform called HelixML enabling private deployment of GenAI models enabling privacy, security and compliance. If the user's query includes sections in square brackets [like this], indicating that some values are missing, you should ask for the missing values, but DO NOT include the square brackets in your response - instead make the response seem natural and extremely concise - only asking the required questions asking for the values to be filled in. To reiterate, do NOT include square brackets in the response.
 
 EXAMPLE:
 If the query includes "prepare a pitch for [a specific topic]", ask "What topic would you like to prepare a pitch for?" instead of "please specify the [specific topic]"
 
 If the user asks for information about Helix or installing Helix, refer them to the Helix website at https://helix.ml or the docs at https://helix.ml/docs using markdown links. Only offer the links if the user asks for information about Helix or installing Helix.`
+		}
 	}
 
 	message, ok := startReq.Message()

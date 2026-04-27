@@ -387,6 +387,107 @@ func (apiServer *HelixAPIServer) updateUserGuidelines(rw http.ResponseWriter, r 
 	}, http.StatusOK)
 }
 
+// getUserChatSettings godoc
+// @Summary Get user chat settings
+// @Description Get the current user's default chat settings (applied when chatting without an app)
+// @Tags Users
+// @Produce json
+// @Success 200 {object} types.UserChatSettings
+// @Failure 401 {object} system.HTTPError
+// @Router /api/v1/users/me/chat-settings [get]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) getUserChatSettings(rw http.ResponseWriter, r *http.Request) {
+	user := getRequestUser(r)
+	if user == nil {
+		http.Error(rw, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	userMeta, err := apiServer.Store.GetUserMeta(r.Context(), user.ID)
+	if err != nil {
+		if err == store.ErrNotFound {
+			writeResponse(rw, &types.UserChatSettings{}, http.StatusOK)
+			return
+		}
+		log.Error().Err(err).Str("user_id", user.ID).Msg("failed to get user meta")
+		http.Error(rw, "Failed to get user chat settings", http.StatusInternalServerError)
+		return
+	}
+
+	writeResponse(rw, &userMeta.ChatSettings, http.StatusOK)
+}
+
+// updateUserChatSettings godoc
+// @Summary Update user chat settings
+// @Description Update the current user's default chat settings (system prompt + LLM parameters used when chatting without an app)
+// @Tags Users
+// @Accept json
+// @Produce json
+// @Param request body types.UserChatSettings true "Chat settings to persist"
+// @Success 200 {object} types.UserChatSettings
+// @Failure 400 {object} system.HTTPError
+// @Failure 401 {object} system.HTTPError
+// @Router /api/v1/users/me/chat-settings [put]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) updateUserChatSettings(rw http.ResponseWriter, r *http.Request) {
+	user := getRequestUser(r)
+	if user == nil {
+		http.Error(rw, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	var req types.UserChatSettings
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(rw, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if err := validateChatSettings(req); err != nil {
+		http.Error(rw, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	userMeta, err := apiServer.Store.GetUserMeta(r.Context(), user.ID)
+	if err != nil {
+		if err != store.ErrNotFound {
+			log.Error().Err(err).Str("user_id", user.ID).Msg("failed to get user meta")
+			http.Error(rw, "Failed to update chat settings", http.StatusInternalServerError)
+			return
+		}
+		userMeta = &types.UserMeta{ID: user.ID}
+	}
+
+	userMeta.ChatSettings = req
+
+	updated, err := apiServer.Store.EnsureUserMeta(r.Context(), *userMeta)
+	if err != nil {
+		log.Error().Err(err).Str("user_id", user.ID).Msg("failed to persist chat settings")
+		http.Error(rw, "Failed to update chat settings", http.StatusInternalServerError)
+		return
+	}
+
+	writeResponse(rw, &updated.ChatSettings, http.StatusOK)
+}
+
+func validateChatSettings(s types.UserChatSettings) error {
+	if s.Temperature != nil && (*s.Temperature < 0 || *s.Temperature > 2) {
+		return fmt.Errorf("temperature must be between 0 and 2")
+	}
+	if s.TopP != nil && (*s.TopP < 0 || *s.TopP > 1) {
+		return fmt.Errorf("top_p must be between 0 and 1")
+	}
+	if s.MaxTokens != nil && *s.MaxTokens < 0 {
+		return fmt.Errorf("max_tokens must be >= 0")
+	}
+	if s.FrequencyPenalty != nil && (*s.FrequencyPenalty < -2 || *s.FrequencyPenalty > 2) {
+		return fmt.Errorf("frequency_penalty must be between -2 and 2")
+	}
+	if s.PresencePenalty != nil && (*s.PresencePenalty < -2 || *s.PresencePenalty > 2) {
+		return fmt.Errorf("presence_penalty must be between -2 and 2")
+	}
+	return nil
+}
+
 // getUserGuidelinesHistory godoc
 // @Summary Get user guidelines history
 // @Description Get the version history of the current user's personal workspace guidelines
