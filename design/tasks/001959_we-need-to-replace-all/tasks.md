@@ -48,13 +48,86 @@
 - [ ] Replace runner's HTTP server (`api/pkg/runner/server.go`) routes with just: `POST /v1/chat/completions`, `POST /v1/embeddings`, `POST /v1/images/generations`, `GET /api/v1/status`, `GET /api/v1/services/{name}/logs`.
 - [ ] Add startup behaviour: on boot, if the API has previously assigned a profile, fetch + apply it before reporting `running`.
 
-## Backend: Deletions
+## Backend: Deletions (do all of this in the same change set as the new code)
 
-- [ ] Delete `api/pkg/scheduler/` entirely.
-- [ ] Delete `api/pkg/runner/{vllm,ollama,axolotl,diffusers}_runtime.go` and any helpers only used by them.
-- [ ] Delete `api/pkg/runner/slot.go` and `RunnerSlot` from `api/pkg/types/runner.go`.
-- [ ] Delete slot CRUD handlers and tests.
-- [ ] Remove all imports + dead references; `go build ./...` and `go vet ./...` are clean.
+### Scheduler package — delete in full
+- [ ] `api/pkg/scheduler/` — every file: `scheduler.go`, `global_allocator.go`, `slot.go`, `slot_store.go`, `cache.go`, `queue.go`, `workload.go`, `runner.go`, `model_allocation.go`, `decisions.go`, `errors.go`, `util.go`, `test_helpers.go`, and every `*_test.go`. **Specifically including** the bin-pack-meets-tensor-parallel logic (`global_allocator.go`, `multi_gpu_eviction_test.go`, `memory_calculation_inconsistency_test.go`, `model_allocation_integration_test.go`) — that combined complexity is the whole point of replacing this.
+
+### Runtime files & process supervision — delete in full
+- [ ] `api/pkg/runner/vllm_runtime.go`
+- [ ] `api/pkg/runner/ollama_runtime.go`
+- [ ] `api/pkg/runner/axolotl_runtime.go`
+- [ ] `api/pkg/runner/diffusers_runtime.go`
+- [ ] `api/pkg/runner/ollama_model_controller.go`
+- [ ] `api/pkg/runner/process_monitor.go`, `commander.go`, `commander_mocks.go`
+
+### Memory estimation — delete in full
+- [ ] `api/pkg/runner/memory_estimation_handlers.go` (the file that imports `github.com/ollama/ollama/{api,discover,fs/ggml,llm}` for GGUF parsing)
+- [ ] `api/pkg/server/memory_estimation_handlers.go`
+- [ ] `api/pkg/types/memory.go`
+- [ ] Drop `github.com/ollama/ollama` from `go.mod` and run `go mod tidy`.
+
+### GPU helpers — slim down, don't delete
+- [ ] `api/pkg/runner/gpu.go` / `gpu_memory_tracker.go` — keep only what's needed to *report* per-GPU inventory (vendor, arch, total VRAM, used VRAM) for AC2. Delete per-slot allocation logic.
+
+### Slot CRUD & per-slot proxy
+- [ ] `api/pkg/runner/slot.go` and slot route registrations in `api/pkg/runner/server.go`.
+- [ ] `api/pkg/runner/openai_finetuning_handlers.go`, `helix_finetuning_handlers.go`, `helix_image_handlers.go`.
+- [ ] `api/pkg/server/handlers.go` — remove `deleteSlot()` (line ~1090) and `getSchedulerHeartbeats()` (line ~405) handlers, and their `@Router` annotations.
+- [ ] `api/pkg/controller/handlers.go` — remove `DeleteSlotFromScheduler()`, `RunnerSlots()`, and any other slot-listing methods.
+- [ ] `api/pkg/openai/helix_openai_server.go` — inspect; delete if it exists only to bridge the scheduler.
+
+### Types
+- [ ] `api/pkg/types/runner.go`: delete `RunnerSlot`, `CreateRunnerSlotRequest`, `CreateRunnerSlotAttributes`, `ListRunnerSlotsResponse`, `RunnerModelStatus`, `Runtime` enum.
+- [ ] `api/pkg/types/types.go`: delete `SchedulingDecisionType`, `SchedulingDecision`, `GlobalSchedulingDecision`, `GlobalAllocationDecision`, `AllocationPlanView`, `GPUMemoryStats`.
+- [ ] `api/pkg/types/runner.go` `RunnerStatus`: drop `AllocatedMemory`, `Models`, `GPUMemoryStats` fields.
+- [ ] `api/pkg/types/models.go` `HelixModel`: drop `Prewarm` field.
+
+### Database
+- [ ] `api/pkg/store/store_slots.go` — delete the file and remove its methods from the `Store` interface.
+- [ ] Add an explicit migration that drops the `runner_slots` table (don't rely on GORM AutoMigrate to ignore orphaned tables).
+- [ ] Drop any scheduling-decision/allocation-history tables if they exist.
+
+### Config / env vars
+- [ ] `api/pkg/config/config.go` `Helix` struct: remove `ModelTTL`, `SlotTTL`, `SchedulingStrategy`, `QueueSize`.
+- [ ] Remove `HELIX_MODEL_TTL`, `HELIX_SLOT_TTL`, `HELIX_SCHEDULING_STRATEGY`, `HELIX_QUEUE_SIZE` from `.env.example` and any sample configs.
+
+### CLI wiring
+- [ ] `api/cmd/helix/serve.go`: remove `NewScheduler()` call site (~line 332) and the `PrewarmNewRunner` callback wiring (~line 375). Wire the new `Router` in their place.
+
+### Frontend dead code
+- [ ] Delete `frontend/src/components/dashboard/GlobalSchedulingVisualization.tsx`.
+- [ ] Delete `frontend/src/components/dashboard/SchedulingDecisionsTable.tsx`.
+- [ ] Delete `frontend/src/components/dashboard/SchedulerHealthIndicators.tsx`.
+- [ ] Remove `MemoryEstimateCell` from `HelixModelsTable.tsx` and its helpers.
+- [ ] Remove dead React Query hooks: `useDeleteSlot`, slot list queries, `v1SchedulerHeartbeatsList`, `v1MemoryEstimationsList`.
+- [ ] Remove the `Dashboard.tsx` tabs that hosted the deleted components.
+- [ ] After `update_openapi`, spot-check `frontend/src/api/api.ts` to confirm `TypesRunnerSlot`, `TypesSchedulingDecision`, etc. are gone.
+
+### Docker / Helm
+- [ ] Strip `Dockerfile.runner`: remove vLLM CUDA venv setup, vLLM ROCm venv setup, Ollama binary install, Axolotl fake venv, Diffusers, Python toolchain, model preload cache, all `wget`/`pip` lines tied to those. End state: golang build + dockerd + docker CLI + nvidia-container-toolkit only.
+- [ ] Delete `docker-compose.runner.yaml` (was for the standalone runner).
+- [ ] `charts/helix-runner/values.yaml` and `templates/deployment.yaml`: remove vLLM env vars, Ollama config, model-preload values, scheduling-strategy values. Confirm chart still produces a working pod.
+
+### Docs
+- [ ] Delete or rewrite `helix/design/` docs that explain the scheduler/slot/prewarming model. Add a note pointing at the new design doc.
+- [ ] Update `docs/` operator pages: replace per-slot scheduler explanation with profile model.
+- [ ] Rewrite `charts/helix-runner/README.md`.
+
+### Verification
+- [ ] `go build ./...` clean.
+- [ ] `go vet ./...` clean.
+- [ ] `git grep -nE "scheduler\.|Scheduler\b|RunnerSlot\b|GGUF|memory_estimation|ollama/ollama|axolotl|diffusers_runtime|SchedulingDecision|GlobalAllocationDecision|Prewarm|tensor.*binpack|HELIX_SLOT_TTL|HELIX_MODEL_TTL|HELIX_SCHEDULING_STRATEGY|HELIX_QUEUE_SIZE"` returns only legitimate hits (release notes / migration mentions). No live references.
+- [ ] `frontend/` builds clean; no unused imports flagged by tsc/eslint.
+
+## CGO-Free Build (Investigation Then Adopt)
+
+- [ ] After the deletions above, run `git grep -E '^import \"C\"' api/` — should return only `pkg/desktop/*` (separate binaries, unaffected).
+- [ ] Identify whether any remaining code path in the API server still requires `github.com/yalue/onnxruntime_go` (the `-tags ORT` build tag). If embeddings now route exclusively through compose'd containers, this dep is dead.
+- [ ] If dead: drop `github.com/yalue/onnxruntime_go` from `go.mod`; remove `-tags ORT` from `Dockerfile`; flip both `Dockerfile` (API server) and `Dockerfile.runner` to `CGO_ENABLED=0`.
+- [ ] Confirm clean image builds and a clean smoke test (start API + runner, send chat completion, check `ldd` on the binaries shows no surprising dynamic links).
+- [ ] If something still requires CGO, write `design/2026-MM-DD-cgo-after-runner-rewrite.md` documenting the dep + reason and leave CGO=1. Do not ship a half-disabled state.
+- [ ] Out of scope: desktop binaries (`desktop-bridge` etc.) keep CGO=1 — they need xkb/wayland/pipewire.
 
 ## Frontend: Profile UI
 

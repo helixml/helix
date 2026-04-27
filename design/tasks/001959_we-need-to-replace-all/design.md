@@ -244,6 +244,56 @@ There is no clean migration of existing slots → profiles. Instead:
 
 This is acceptable because runners themselves are not user data — they reconnect and accept new commands. The downtime for an operator is "redeploy + click profile in UI".
 
+## What Dies (Deletion Catalogue)
+
+This is a *simplification*, and the test of whether we got it right is whether the codebase shrinks substantially. The full file-level list lives in `requirements.md` AC8; this section captures the *categories* of code that disappear and why.
+
+### Category 1: The bin-pack-meets-tensor-parallel scheduler
+The current `api/pkg/scheduler/` package solves a hard problem: pick GPUs for a model that may need 1, 2, 4, or 8 GPUs (tensor parallel), while also bin-packing smaller models onto the GPUs that are left, while also evicting stale slots when the queue gets congested, while also keeping a mathematically-proven invariant that allocated memory ≤ total memory. The implementation is correct but expensive to maintain — the `multi_gpu_eviction_test.go`, `memory_calculation_inconsistency_test.go`, `model_allocation_integration_test.go` files exist because every interaction between bin-packing, eviction, and tensor parallelism is a corner case.
+
+In the new world, the operator declares the layout in compose: `device_ids: ["2","3","4","5"]` + `--tensor-parallel-size 4` says "this model owns these four GPUs." There is no allocator. The whole package — `global_allocator.go`, `model_allocation.go`, the eviction logic, the queue, the prewarming cache — goes.
+
+### Category 2: GGUF / Ollama memory estimation
+`api/pkg/runner/memory_estimation_handlers.go` (and its API-server-side counterpart `api/pkg/server/memory_estimation_handlers.go`) imports `github.com/ollama/ollama/{api,discover,fs/ggml,llm}` to parse GGUF files and predict how much VRAM a given Ollama model + context length will consume. This was load-bearing for the scheduler — it had to predict before allocating. With compose, the operator types `--gpu-memory-utilization 0.45` and that's the budget. We don't predict; we don't need to. Both files plus the `api/pkg/types/memory.go` types disappear.
+
+This deletion is what lets us drop the `github.com/ollama/ollama` dependency entirely (combined with deleting `ollama_runtime.go` and `ollama_model_controller.go`).
+
+### Category 3: Custom Go runtimes
+Four files (`vllm_runtime.go`, `ollama_runtime.go`, `axolotl_runtime.go`, `diffusers_runtime.go`) plus their helpers (`process_monitor.go`, `commander.go`, `ollama_model_controller.go`) exist to spawn and supervise model server subprocesses with carefully-crafted command lines, random localhost ports, and per-process lifecycle. All of that becomes `docker compose up -d` against the operator's YAML.
+
+### Category 4: Per-slot HTTP proxy + slot CRUD
+The runner's HTTP surface today is mostly slot-shaped (`POST /api/v1/slots`, `DELETE /api/v1/slots/{id}`, `POST /api/v1/slots/{id}/v1/chat/completions`). The new surface is profile-shaped (`POST /v1/chat/completions` with model name in the body, plus a status endpoint). The slot URL space and the per-slot proxy logic in `api/pkg/runner/server.go` and `openai_*_handlers.go` go.
+
+### Category 5: Frontend scheduler visualisations
+`GlobalSchedulingVisualization.tsx`, `SchedulingDecisionsTable.tsx`, `SchedulerHealthIndicators.tsx` — these visualise things that no longer happen. The runner card components (`RunnerSummary`, `ModelInstanceSummary`, `FloatingRunnerState`) are *kept* and adapted; the scheduler-decision components are deleted outright. Any `MemoryEstimateCell` references in `HelixModelsTable.tsx` go too.
+
+### Category 6: DB tables, env vars, CLI flags
+`runner_slots` table dropped via explicit migration. `HELIX_MODEL_TTL`, `HELIX_SLOT_TTL`, `HELIX_SCHEDULING_STRATEGY`, `HELIX_QUEUE_SIZE` env vars + corresponding fields in `api/pkg/config/config.go` removed. `NewScheduler()` and `PrewarmNewRunner` callback wiring in `api/cmd/helix/serve.go` removed.
+
+### Verification of completeness
+A reviewer should be able to run `git grep -nE "scheduler\.|RunnerSlot\b|GGUF|memory_estimation|ollama/ollama|axolotl|diffusers_runtime|SchedulingDecision|GlobalAllocationDecision|Prewarm"` and find nothing live. This is the litmus test. If something remains, either it's load-bearing for something legitimate (document why) or we missed it (delete it).
+
+## Decision 8: CGO Off, If We Can
+
+After the deletions in Category 2 (GGUF/Ollama memory estimation), the runner's only reason to compile with `CGO_ENABLED=1` should be gone. After deleting any embedding fallback that relied on `github.com/yalue/onnxruntime_go`, the API server's `-tags ORT` build tag also has no purpose.
+
+Concretely, today's situation:
+
+| Binary | CGO | Reason |
+|--------|-----|--------|
+| API server (`Dockerfile`) | `=1`, `-tags ORT` | onnxruntime for embedding fallback |
+| Runner (`Dockerfile.runner`) | `=1` | Ollama Go SDK (`fs/ggml`, `llm`) for memory estimation |
+| Sandbox helpers (`hydra`, `sandbox-heartbeat`) | `=0` already | n/a |
+| Desktop binaries (`desktop-bridge`) | `=1` | xkb / wayland / pipewire bindings — *not affected by this work* |
+
+After the change:
+- Delete `memory_estimation_handlers.go` → runner's only CGO driver gone → flip `Dockerfile.runner` to `CGO_ENABLED=0` and drop the `!rocm` tag (was paired with the runtime split).
+- Audit whether any embedding code path on the API server still needs `onnxruntime_go`. If not (because all embeddings now route through compose'd vLLM containers), drop the dep, drop `-tags ORT`, flip `Dockerfile` to `CGO_ENABLED=0`.
+
+**Why this matters:** pure-Go binaries cross-compile trivially, build faster, produce smaller images, and remove glibc/musl version coupling that bites us when the base image moves. It is not a goal in itself, but it is a real win available essentially for free as a side effect of the deletions.
+
+**Risk:** an indirect dependency (e.g. inside the rate limiter, the OpenAI client, the metrics stack) might still pull a CGO-requiring package. If that happens, document it (`design/2026-MM-DD-cgo-after-runner-rewrite.md`) and leave CGO=1 — don't ship a half-disabled state. Don't try to remove the indirect dep; that's scope creep.
+
 ## Open Questions
 
 1. **Do we need to namespace inner-dockerd networks per runner?** Probably not — each runner has its own inner dockerd, so the default bridge network is already isolated. Confirm during implementation.

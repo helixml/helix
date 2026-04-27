@@ -85,9 +85,71 @@ A profile satisfying *only* `vendor: nvidia` is the "any NVIDIA" case. A profile
 - [ ] Each runner card shows: active profile name, list of services in the profile, health status per service, per-GPU memory chart (already exists, keep).
 - [ ] Logs for each service are viewable (tail of `docker compose logs <service>` in the runner's inner dockerd).
 
-### AC8: Migration
-- [ ] All existing scheduler code (`api/pkg/scheduler/`), per-slot runtime code (`vllm_runtime.go`, `ollama_runtime.go`, slot CRUD handlers), and slot data model are removed in the same change set. We are not maintaining both systems.
-- [ ] Helix-managed model registry (`HelixModelsTable`) becomes informational-only (lists models known to be available across profiles); model loading is no longer driven from it.
+### AC8: Migration & Exhaustive Dead-Code Removal
+We are not leaving skeletons. Everything below is gone in the same change set. A reviewer should be able to `git grep` for any of these names and find no live references.
+
+**Backend Go code to delete in full:**
+- [ ] `api/pkg/scheduler/` — entire package (~28 files including `scheduler.go`, `global_allocator.go`, `slot.go`, `slot_store.go`, `cache.go`, `queue.go`, `workload.go`, `runner.go`, `model_allocation.go`, `decisions.go`, `errors.go`, `util.go`, `test_helpers.go`, and all `*_test.go`). This includes the GPU bin-packing logic, the multi-GPU eviction logic, the prewarming cache, the workload queue, and **specifically all the code that tries to bin-pack while also handling tensor parallelism** (which was the source of the `multi_gpu_eviction_test.go` and `memory_calculation_inconsistency_test.go` complexity).
+- [ ] `api/pkg/runner/vllm_runtime.go`, `ollama_runtime.go`, `axolotl_runtime.go`, `diffusers_runtime.go` — every custom runtime. All model serving moves to stock images (`vllm/vllm-openai`, `rocm/vllm`, etc.) declared in compose.
+- [ ] `api/pkg/runner/ollama_model_controller.go` — Ollama model pulling/caching helpers.
+- [ ] `api/pkg/runner/memory_estimation_handlers.go` — **delete in full**. This is the file that imports `github.com/ollama/ollama/{api,discover,fs/ggml,llm}` and goes to great lengths to estimate Ollama model memory by parsing GGUF files. With compose, the operator declares GPU memory budget via `--gpu-memory-utilization` directly; we do no estimation.
+- [ ] `api/pkg/runner/gpu_memory_tracker.go` — per-slot GPU memory accounting.
+- [ ] `api/pkg/runner/gpu.go` — only the slot-allocation parts; keep whatever is needed to *report* GPU inventory to the API server (vendor / arch / VRAM) for AC2.
+- [ ] `api/pkg/runner/process_monitor.go`, `commander.go`, `commander_mocks.go` — process spawning DSL used only by the deleted runtimes.
+- [ ] `api/pkg/runner/openai_finetuning_handlers.go`, `helix_finetuning_handlers.go`, `helix_image_handlers.go` — slot-based fine-tuning + Helix-native image endpoints. (OpenAI-compatible image generation goes through the proxy like chat/embeddings.)
+- [ ] `api/pkg/runner/slot.go` and slot CRUD route registrations in `api/pkg/runner/server.go`.
+- [ ] `api/pkg/server/memory_estimation_handlers.go` — the API-server-side counterpart.
+- [ ] `api/pkg/server/handlers.go` — `deleteSlot()` handler and `getSchedulerHeartbeats()` handler.
+- [ ] `api/pkg/controller/handlers.go` — `DeleteSlotFromScheduler()`, `RunnerSlots()`, and any other slot-listing methods.
+- [ ] `api/pkg/store/store_slots.go` — entire file (CreateSlot, GetSlot, UpdateSlot, DeleteSlot, ListSlots, ListAllSlots) and the slot methods on the `Store` interface.
+- [ ] `api/pkg/openai/helix_openai_server.go` — if this exists only to bridge the scheduler. Inspect; keep only what `helix_openai_client` legitimately needs.
+
+**Types to delete:**
+- [ ] `api/pkg/types/runner.go`: `RunnerSlot`, `CreateRunnerSlotRequest`, `CreateRunnerSlotAttributes`, `ListRunnerSlotsResponse`, `RunnerModelStatus`, the `Runtime` enum (no longer meaningful — the container image declares the runtime).
+- [ ] `api/pkg/types/types.go`: `SchedulingDecisionType`, `SchedulingDecision`, `GlobalSchedulingDecision`, `GlobalAllocationDecision`, `AllocationPlanView`, `GPUMemoryStats`.
+- [ ] `api/pkg/types/memory.go` — Ollama memory-estimation types.
+- [ ] `RunnerStatus.AllocatedMemory`, `RunnerStatus.Models`, `RunnerStatus.GPUMemoryStats` fields (the new equivalent is "active profile + per-service health").
+- [ ] `HelixModel.Prewarm` field — prewarming is gone.
+
+**Database:**
+- [ ] Drop the `runner_slots` table via an explicit migration (don't rely on GORM's autoMigrate ignoring orphaned tables).
+- [ ] Same for any scheduling-decision/allocation-history tables if they exist.
+
+**Frontend dead code:**
+- [ ] `frontend/src/components/dashboard/GlobalSchedulingVisualization.tsx`, `SchedulingDecisionsTable.tsx`, `SchedulerHealthIndicators.tsx` — all visualisations of scheduler decisions.
+- [ ] Any React Query hooks targeting deleted endpoints (`useDeleteSlot`, slot list queries, `v1SchedulerHeartbeatsList`, `v1MemoryEstimationsList`).
+- [ ] `MemoryEstimateCell` in `HelixModelsTable.tsx` and any helpers behind it.
+- [ ] Generated types for deleted endpoints in `frontend/src/api/api.ts` (auto-removed by `update_openapi`, but spot-check).
+
+**Docker / CI / Charts:**
+- [ ] Strip `Dockerfile.runner` to: golang build + dockerd + docker CLI + nvidia-container-toolkit. Remove vLLM CUDA venv setup, vLLM ROCm venv setup, Ollama binary install, Axolotl fake venv, Diffusers, the model preload cache, all related Python and CUDA layer installs.
+- [ ] Remove `docker-compose.runner.yaml` if it's purely for the standalone runner.
+- [ ] Strip `charts/helix-runner/` of vLLM/Ollama/Axolotl env vars, model-preload values, scheduling-strategy values. Confirm the chart still produces a working pod with the new minimal image.
+
+**Config / env vars to remove from `api/pkg/config/config.go` and `.env.example`:**
+- [ ] `HELIX_MODEL_TTL`, `HELIX_SLOT_TTL`, `HELIX_SCHEDULING_STRATEGY`, `HELIX_QUEUE_SIZE`, and any other scheduler-tuning knobs.
+
+**CLI wiring:**
+- [ ] `api/cmd/helix/serve.go`: remove `NewScheduler()` call site and the `PrewarmNewRunner` callback wiring.
+
+**Docs:**
+- [ ] Any `helix/design/` docs explaining scheduler semantics, slot allocation, prewarming, multi-GPU eviction, GGUF memory estimation. Either delete or replace with a redirect note pointing at the new design.
+- [ ] Update `docs/` operator-facing pages.
+- [ ] `charts/helix-runner/README.md`.
+
+**Verification (must pass before merge):**
+- [ ] `go build ./...` clean.
+- [ ] `go vet ./...` clean.
+- [ ] `git grep -nE "scheduler\.|Scheduler\b|RunnerSlot\b|GGUF|memory_estimation|ollama/ollama|axolotl|diffusers_runtime|SchedulingDecision|GlobalAllocationDecision|Prewarm"` returns *only* legitimate hits (e.g. release-notes mentioning what was removed). No live references.
+
+### AC10: CGO-Free Build (Investigate; Adopt If Possible)
+The current main `Dockerfile` builds the API server with `CGO_ENABLED=1 -tags ORT` because of `github.com/yalue/onnxruntime_go` (embedding fallback) and the runner uses `CGO_ENABLED=1` because of the `github.com/ollama/ollama/{api,discover,fs/ggml,llm}` imports in the deleted memory-estimation code.
+
+After AC8's deletions:
+- [ ] Audit remaining CGO requirements: `git grep -E '^import \"C\"'` in `api/` (should now find only `pkg/desktop/*` which builds separate binaries) and `git grep -nE 'CGO_ENABLED=1'` in `Dockerfile*`.
+- [ ] If nothing in the API or runner build paths still requires CGO, switch `Dockerfile` and `Dockerfile.runner` to `CGO_ENABLED=0` and drop the `-tags ORT` build tag. Pure-Go builds give us: smaller images, faster CI, no glibc/musl version coupling, simpler cross-compilation.
+- [ ] If something *does* still require CGO (e.g. an indirect dependency from `provider_manager` or rate limiter), document what and why in `design/2026-MM-DD-cgo-after-runner-rewrite.md` and leave CGO on. Don't ship a half-disabled state.
+- [ ] The desktop / sandbox binaries (`desktop-bridge`, etc.) keep `CGO_ENABLED=1` — they need xkb/wayland/pipewire bindings. This AC is about the API server and the runner only.
 
 ### AC9: Caller-Facing API Surface is Preserved
 The internal switch from scheduler-to-runners to router-to-runners must be invisible to every existing caller. Specifically:
