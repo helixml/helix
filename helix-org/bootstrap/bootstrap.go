@@ -129,6 +129,7 @@ func Run(ctx context.Context, s *store.Store, params Params) (Result, error) {
 		tools.ListStreamEventsName,
 		tools.GetGrantName,
 		tools.ReadEventsName,
+		tools.WorkerLogName,
 	}
 	for _, name := range defaults {
 		g, err := domain.NewToolGrant(

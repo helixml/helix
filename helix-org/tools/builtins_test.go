@@ -121,6 +121,20 @@ func TestDemoOwnerHiresCEO(t *testing.T) {
 		}
 	}
 
+	// hire_worker also creates the activation stream and subscribes the
+	// hiring Worker (the owner) so they can audit by reading events.
+	if _, err := s.Streams.Get(ctx, "s-activations-w-ceo"); err != nil {
+		t.Fatalf("activation stream missing for w-ceo: %v", err)
+	}
+	if _, err := s.Subscriptions.Find(ctx, "w-owner", "s-activations-w-ceo"); err != nil {
+		t.Fatalf("owner not subscribed to w-ceo activations: %v", err)
+	}
+	// The new Worker themselves is intentionally NOT subscribed —
+	// otherwise self-published events would loop the dispatcher.
+	if _, err := s.Subscriptions.Find(ctx, "w-ceo", "s-activations-w-ceo"); err == nil {
+		t.Fatalf("w-ceo should NOT be subscribed to its own activation stream")
+	}
+
 	// Stand in for the CEO's hire activation: subscribe to the
 	// stream they were told about. The dispatcher isn't wired in
 	// this test, so we drive it manually.
@@ -617,6 +631,122 @@ func membersOf(t *testing.T, session *mcp.ClientSession, streamID string) []stri
 		t.Fatalf("unmarshal members: %v", err)
 	}
 	return out.Members
+}
+
+// TestWorkerLog covers the worker_log shortcut: read a Worker's
+// activation transcript by workerId without having to know the stream
+// naming convention. The first call auto-subscribes the caller; later
+// calls are pure reads. since/limit semantics mirror read_events.
+func TestWorkerLog(t *testing.T) {
+	t.Parallel()
+
+	s, err := sqlite.Open(":memory:")
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	envsDir := t.TempDir()
+
+	reg := tools.NewRegistry()
+	deps := tools.DefaultDeps(s)
+	deps.EnvsDir = envsDir
+	if err := tools.RegisterBuiltins(reg, deps); err != nil {
+		t.Fatalf("register builtins: %v", err)
+	}
+	srv := httptest.NewServer(server.New(s, reg, nil, nil).Handler())
+	t.Cleanup(srv.Close)
+
+	ctx := context.Background()
+	now := time.Now().UTC()
+
+	ownerRole, _ := domain.NewRole("r-owner", "# Owner", now)
+	mustCreate(t, s.Roles.Create(ctx, ownerRole))
+	rootPos, _ := domain.NewPosition("p-root", "r-owner", nil)
+	mustCreate(t, s.Positions.Create(ctx, rootPos))
+	owner, _ := domain.NewHumanWorker("w-owner", []domain.PositionID{"p-root"})
+	mustCreate(t, s.Workers.Create(ctx, owner))
+	bot, _ := domain.NewAIWorker("w-bot", []domain.PositionID{"p-root"})
+	mustCreate(t, s.Workers.Create(ctx, bot))
+
+	// Pre-create the activation stream + seed a couple of events. In
+	// production hire_worker creates the stream and the spawner
+	// publishes events; here we shortcut.
+	streamID := domain.StreamID("s-activations-w-bot")
+	stream, _ := domain.NewStream(streamID, "Activations: w-bot", "", "w-owner", now, domain.Transport{})
+	mustCreate(t, s.Streams.Create(ctx, stream))
+	for i, body := range []string{"--- session start ---", "assistant: hello", "=== exit: ok ==="} {
+		ev, _ := domain.NewEvent(
+			domain.EventID(fmt.Sprintf("e-%d", i)),
+			streamID,
+			"w-bot",
+			body,
+			now.Add(time.Duration(i)*time.Second),
+		)
+		mustCreate(t, s.Events.Append(ctx, ev))
+	}
+
+	for _, name := range []domain.ToolName{tools.WorkerLogName} {
+		g, _ := domain.NewToolGrant(domain.GrantID("g-owner-"+name), "w-owner", name)
+		mustCreate(t, s.Grants.Create(ctx, g))
+	}
+
+	ownerSession := connectMCP(t, srv.URL, "w-owner")
+
+	// First call: returns events newest-first AND auto-subscribes owner.
+	raw, err := invokeTool(t, ownerSession, tools.WorkerLogName, map[string]any{
+		"workerId": "w-bot",
+	})
+	if err != nil {
+		t.Fatalf("worker_log: %v", err)
+	}
+	var out struct {
+		Events []struct {
+			ID   string `json:"id"`
+			Body string `json:"body"`
+		} `json:"events"`
+	}
+	if err := json.Unmarshal(raw, &out); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(out.Events) != 3 {
+		t.Fatalf("events = %d, want 3", len(out.Events))
+	}
+	// Newest first.
+	if out.Events[0].Body != "=== exit: ok ===" {
+		t.Fatalf("newest = %q, want exit marker", out.Events[0].Body)
+	}
+	if _, err := s.Subscriptions.Find(ctx, "w-owner", streamID); err != nil {
+		t.Fatalf("owner not subscribed after worker_log: %v", err)
+	}
+
+	// since= filters out events at or before the given ID. Pass the
+	// middle event's ID; only the newer event ("exit") should remain.
+	mid := out.Events[1].ID
+	raw, err = invokeTool(t, ownerSession, tools.WorkerLogName, map[string]any{
+		"workerId": "w-bot",
+		"since":    mid,
+	})
+	if err != nil {
+		t.Fatalf("worker_log since: %v", err)
+	}
+	_ = json.Unmarshal(raw, &out)
+	if len(out.Events) != 1 || out.Events[0].Body != "=== exit: ok ===" {
+		t.Fatalf("since-filtered = %+v, want exit only", out.Events)
+	}
+
+	// Unknown worker errors with a clear message.
+	if _, err := invokeTool(t, ownerSession, tools.WorkerLogName, map[string]any{
+		"workerId": "w-ghost",
+	}); err == nil {
+		t.Fatalf("worker_log on unknown worker should error")
+	}
+
+	// Human Worker has no activation stream — clear error, not a generic
+	// "stream not found".
+	if _, err := invokeTool(t, ownerSession, tools.WorkerLogName, map[string]any{
+		"workerId": "w-owner",
+	}); err == nil {
+		t.Fatalf("worker_log on human worker should error")
+	}
 }
 
 // Helpers

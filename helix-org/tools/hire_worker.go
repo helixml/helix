@@ -34,6 +34,14 @@ import (
 // hire_worker does not subscribe to Channels; the manager does that
 // explicitly after the Worker is alive, typically via the Worker's own
 // on-hire activation.
+//
+// For AI Workers, hire_worker also creates the per-Worker activation
+// Stream (s-activations-<workerID>) and subscribes the hiring Worker to
+// it. The Spawner publishes one event per assistant message, tool call,
+// and tool result to that Stream — the hiring Worker can audit their
+// hires by calling read_events on it. The new Worker themselves is
+// intentionally never subscribed to their own activation Stream
+// (otherwise self-published events would re-trigger them indefinitely).
 type HireWorker struct {
 	deps Deps
 }
@@ -158,6 +166,12 @@ func (t *HireWorker) Invoke(ctx context.Context, inv domain.Invocation) (json.Ra
 		}
 	}
 
+	if args.Kind == domain.WorkerKindAI {
+		if err := createActivationStream(ctx, t.deps, id, inv.Caller.ID()); err != nil {
+			return nil, err
+		}
+	}
+
 	if args.Kind == domain.WorkerKindAI && t.deps.Dispatcher != nil {
 		t.deps.Dispatcher.DispatchHire(ctx, id, envPath)
 	}
@@ -172,6 +186,38 @@ func writeEnvFile(envPath, name, content string) error {
 	full := filepath.Join(envPath, name)
 	if err := os.WriteFile(full, []byte(content), 0o600); err != nil {
 		return fmt.Errorf("write %q: %w", full, err)
+	}
+	return nil
+}
+
+// createActivationStream creates the per-Worker activation Stream and
+// subscribes the hiring Worker to it. The Stream ID is deterministic
+// (s-activations-<workerID>) so the Spawner can find it without an
+// extra lookup.
+func createActivationStream(ctx context.Context, deps Deps, workerID, hiringWorkerID domain.WorkerID) error {
+	streamID := activationStreamID(workerID)
+	stream, err := domain.NewStream(
+		streamID,
+		"Activations: "+string(workerID),
+		"Per-message activation transcript for "+string(workerID)+
+			" — assistant text, tool calls, tool results. "+
+			"Read with read_events to audit a hire.",
+		hiringWorkerID,
+		deps.Now(),
+		domain.Transport{},
+	)
+	if err != nil {
+		return fmt.Errorf("activation stream: %w", err)
+	}
+	if err := deps.Store.Streams.Create(ctx, stream); err != nil {
+		return fmt.Errorf("create activation stream: %w", err)
+	}
+	sub, err := domain.NewSubscription(hiringWorkerID, streamID, deps.Now())
+	if err != nil {
+		return fmt.Errorf("activation subscription: %w", err)
+	}
+	if err := deps.Store.Subscriptions.Create(ctx, sub); err != nil {
+		return fmt.Errorf("subscribe %q to activation stream: %w", hiringWorkerID, err)
 	}
 	return nil
 }

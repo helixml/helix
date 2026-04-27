@@ -39,12 +39,13 @@ typed into this chat.
 > role `r-echo` whose job is, on hire, to subscribe to `s-general`,
 > and on each new event there, publish `echo: <body>`. Create a
 > position for that role reporting to me, and hire an AI worker
-> `w-echo` for it with grants to subscribe and publish.
+> `w-echo` for it with grants to subscribe and publish. Then
+> `worker_log` on `w-echo` with `wait=30` until you see
+> `=== exit: ok ===` so I know the hire activation finished.
 
-In terminal 1 you'll see `spawned claude … worker=w-echo
-trigger=hire`. ~10 seconds later the hire activation finishes:
-`w-echo` reads `role.md` and `identity.md`, calls `subscribe`, and
-exits. It will be respawned when an event arrives.
+You'll watch the hire activation in chat: `--- session start ---`,
+the `subscribe` tool call, then `=== exit: ok ===`. The Worker
+exits and will be respawned when an event arrives on `s-general`.
 
 ## 4. Wake the worker
 

@@ -123,7 +123,22 @@ reuse it, so the back-and-forth stays in one ordered place:
 useful when you know who you want to talk to. For group threads or
 named channels, reach for the underlying tools directly.
 
-## 7. Live-edit a Role
+## 7. Watch a Worker work
+
+The `worker_log` tool tails one Worker's activation transcript —
+their assistant text, tool calls, tool results — without you having
+to know the stream-naming convention:
+
+> `worker_log` on `w-fact-checker` with `wait=60`. Show me the
+> next activation as it lands.
+
+You'll see `=== activation: event ... ===`, `--- session start ---`,
+each `tool_use` they fire, the matching `tool_result`, and finally
+`=== exit: ok ===`. `worker_log` is sugar over `subscribe` +
+`read_events` scoped to that Worker's activation Stream
+(`s-activations-w-fact-checker`).
+
+## 8. Live-edit a Role
 
 Edit `roles/journalist.md` however you like, then in the chat:
 
@@ -133,7 +148,7 @@ Edit `roles/journalist.md` however you like, then in the chat:
 Every journalist's `role.md` rewrites in place. Their next
 activation reads the new content; behaviour shifts org-wide.
 
-## 8. Stop
+## 9. Stop
 
 Ctrl-C terminal 1.
 
@@ -144,6 +159,8 @@ Ctrl-C terminal 1.
   one. The team is *cast*, not authored.
 - **`s-bullpen` during a story.** Journalist vs SEO strategist, voice
   vs findability. They disagree on something specific.
+- **`worker_log w-fact-checker` during a block.** The exact tool call
+  and reasoning, live. Inspection without leaving the chat.
 - **`update_role` while the team is running.** A one-file edit shifts
   org-wide behaviour on the next activation.
 - `ls /tmp/newsroom-envs/w-renee/candidates/researcher/` — three

@@ -110,6 +110,7 @@ func RegisterBuiltins(reg *Registry, deps Deps) error {
 		&ListStreamEvents{deps: deps},
 		&GetGrant{deps: deps},
 		&ReadEvents{deps: deps},
+		&WorkerLog{deps: deps},
 	}
 	for _, tool := range builtins {
 		if err := reg.Register(tool); err != nil {

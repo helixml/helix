@@ -15,7 +15,9 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/helixml/helix-org/broadcast"
 	"github.com/helixml/helix-org/domain"
+	"github.com/helixml/helix-org/store"
 )
 
 // TriggerKind discriminates why a Spawner is being invoked.
@@ -55,12 +57,30 @@ type ClaudeSpawnerConfig struct {
 	Model string
 	// Logger receives spawn bookkeeping. Must be non-nil.
 	Logger *slog.Logger
+
+	// Store, Broadcaster, Now and NewID are used to publish per-message
+	// activation events to the Worker's activation Stream
+	// (s-activations-<workerID>). Store and NewID and Now are required;
+	// Broadcaster is optional (long-poll observers won't wake without it).
+	Store       *store.Store
+	Broadcaster *broadcast.Broadcaster
+	Now         Clock
+	NewID       IDGen
 }
 
 // mcpServerName is the key under which the helix MCP server is registered
 // in each Worker's mcp.json. Tool names surface in Claude as
 // mcp__<mcpServerName>__<toolName>.
 const mcpServerName = "helix"
+
+// activationStreamID returns the deterministic Stream ID where a Worker's
+// activation transcript is published — assistant text, tool calls, tool
+// results, lifecycle markers. One Stream per Worker; created at hire
+// time by hire_worker, written to by the Spawner, read by anyone with a
+// subscription (typically the hiring Worker).
+func activationStreamID(workerID domain.WorkerID) domain.StreamID {
+	return domain.StreamID("s-activations-" + string(workerID))
+}
 
 // ClaudeSpawner returns a Spawner that runs `claude -p` in the new
 // Worker's Environment directory and BLOCKS until claude exits. The
@@ -86,9 +106,11 @@ const mcpServerName = "helix"
 //
 // Claude is run with --output-format stream-json so every assistant
 // message, tool call, and tool result flows through a parser in this
-// process that writes a human-readable transcript to
-// <envPath>/activation.log, alongside the raw JSONL in
-// <envPath>/activation.jsonl for anyone who wants to dig in.
+// process that publishes one Event per atomic message segment to the
+// Worker's activation Stream (s-activations-<workerID>). Observers
+// (typically the hiring Worker, auto-subscribed at hire) watch via
+// read_events on that Stream — the same primitive every other read
+// flows through. There is no on-disk transcript.
 func ClaudeSpawner(cfg ClaudeSpawnerConfig) Spawner {
 	return func(ctx context.Context, workerID domain.WorkerID, envPath string, trigger Trigger) error {
 		entryFile := filepath.Join(envPath, "agent.md")
@@ -122,30 +144,28 @@ func ClaudeSpawner(cfg ClaudeSpawnerConfig) Spawner {
 			"HELIX_WORKER_ID="+string(workerID),
 		)
 
-		// Pretty transcript + raw JSONL, side by side.
-		prettyPath := filepath.Join(envPath, "activation.log")
-		rawPath := filepath.Join(envPath, "activation.jsonl")
-		pretty, err := os.OpenFile(prettyPath, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o600) //nolint:gosec // path under trusted env dir
-		if err != nil {
-			return fmt.Errorf("open %q: %w", prettyPath, err)
+		streamID := activationStreamID(workerID)
+		publish := func(body string) {
+			publishActivationEvent(ctx, cfg, workerID, streamID, body)
 		}
-		defer func() { _ = pretty.Close() }()
-		raw, err := os.OpenFile(rawPath, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o600) //nolint:gosec // path under trusted env dir
-		if err != nil {
-			return fmt.Errorf("open %q: %w", rawPath, err)
-		}
-		defer func() { _ = raw.Close() }()
 
-		// Stamp a separator into the pretty log so consecutive activations
-		// are easy to tell apart.
-		_, _ = fmt.Fprintf(pretty, "\n[%s] === activation: %s ===\n",
-			time.Now().Format("15:04:05"), describeTrigger(trigger))
+		// Mark the start of this activation on the stream so consecutive
+		// activations are easy to tell apart for an observer reading
+		// events. The trigger description matches what callers see when
+		// inspecting their hires.
+		publish(fmt.Sprintf("=== activation: %s ===", describeTrigger(trigger)))
 
 		stdout, err := cmd.StdoutPipe()
 		if err != nil {
 			return fmt.Errorf("stdout pipe: %w", err)
 		}
-		cmd.Stderr = pretty
+		// Claude's stderr is rare and usually a hard failure (bad flag,
+		// missing binary). Fold it into the activation stream so it's
+		// visible alongside the rest of the transcript.
+		stderrR, err := cmd.StderrPipe()
+		if err != nil {
+			return fmt.Errorf("stderr pipe: %w", err)
+		}
 		cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 
 		if err := cmd.Start(); err != nil {
@@ -157,19 +177,64 @@ func ClaudeSpawner(cfg ClaudeSpawnerConfig) Spawner {
 			"pid", pid,
 			"env", envPath,
 			"trigger", trigger.Kind,
-			"log", prettyPath,
+			"stream", streamID,
 		)
 
+		// Drain stderr in the background so the pipe doesn't block.
+		stderrDone := make(chan struct{})
+		go func() {
+			defer close(stderrDone)
+			scanner := bufio.NewScanner(stderrR)
+			for scanner.Scan() {
+				publish("stderr: " + oneLine(scanner.Text(), 500))
+			}
+		}()
+
 		// Parse stream-json synchronously (blocks until stdout closes).
-		streamTranscript(stdout, raw, pretty)
+		streamTranscript(stdout, publish)
+		<-stderrDone
 
 		err = cmd.Wait()
+		publish(fmt.Sprintf("=== exit: %s ===", okOr(errString(err))))
 		cfg.Logger.Info("claude exited",
 			"worker", workerID,
 			"pid", pid,
 			"err", errString(err),
 		)
 		return err
+	}
+}
+
+// publishActivationEvent appends one Event to the Worker's activation
+// Stream and notifies long-poll observers. It does NOT go through the
+// dispatcher: per-message events would otherwise re-trigger any
+// subscribed AI Worker on every line, which would be unbounded. The
+// Worker themselves is intentionally never subscribed to their own
+// activation stream for the same reason.
+//
+// All errors are logged and swallowed; a transient SQLite hiccup must
+// not abort the activation.
+func publishActivationEvent(ctx context.Context, cfg ClaudeSpawnerConfig, workerID domain.WorkerID, streamID domain.StreamID, body string) {
+	if cfg.Store == nil || cfg.NewID == nil || cfg.Now == nil || body == "" {
+		return
+	}
+	event, err := domain.NewEvent(
+		domain.EventID("e-"+cfg.NewID()),
+		streamID,
+		workerID,
+		body,
+		cfg.Now(),
+	)
+	if err != nil {
+		cfg.Logger.Warn("activation event: build", "worker", workerID, "err", err)
+		return
+	}
+	if err := cfg.Store.Events.Append(ctx, event); err != nil {
+		cfg.Logger.Warn("activation event: append", "worker", workerID, "err", err)
+		return
+	}
+	if cfg.Broadcaster != nil {
+		cfg.Broadcaster.Notify(streamID)
 	}
 }
 
@@ -208,6 +273,13 @@ func errString(err error) string {
 		return ""
 	}
 	return err.Error()
+}
+
+func okOr(s string) string {
+	if s == "" {
+		return "ok"
+	}
+	return s
 }
 
 // buildPrompt assembles the per-activation prompt: identity hint +
@@ -265,26 +337,25 @@ func describeTrigger(t Trigger) string {
 }
 
 // streamTranscript reads newline-delimited JSON from r (claude's stdout)
-// and writes both the raw JSONL to rawOut and a human-readable transcript
-// to prettyOut. Any lines that fail to parse as JSON are echoed verbatim
-// to prettyOut so nothing ever gets silently dropped.
-func streamTranscript(r io.Reader, rawOut, prettyOut io.Writer) {
+// and calls publish once per atomic message segment — assistant text,
+// tool call, tool result, system init, run result. Lines that don't
+// parse as JSON are published verbatim so nothing is silently dropped.
+func streamTranscript(r io.Reader, publish func(body string)) {
 	scanner := bufio.NewScanner(r)
 	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
 	for scanner.Scan() {
 		line := scanner.Bytes()
-		_, _ = rawOut.Write(line)
-		_, _ = rawOut.Write([]byte("\n"))
-
 		var ev streamEvent
 		if err := json.Unmarshal(line, &ev); err != nil {
-			_, _ = fmt.Fprintf(prettyOut, "%s\n", line)
+			publish(oneLine(string(line), 500))
 			continue
 		}
-		renderPretty(prettyOut, ev)
+		for _, body := range renderEvent(ev) {
+			publish(body)
+		}
 	}
 	if err := scanner.Err(); err != nil && !errors.Is(err, io.EOF) {
-		_, _ = fmt.Fprintf(prettyOut, "[stream] scanner error: %v\n", err)
+		publish(fmt.Sprintf("[stream] scanner error: %v", err))
 	}
 }
 
@@ -313,39 +384,44 @@ type contentSegment struct {
 	IsError   bool            `json:"is_error,omitempty"`
 }
 
-func renderPretty(w io.Writer, ev streamEvent) {
-	ts := time.Now().Format("15:04:05")
+// renderEvent turns one parsed stream-json line into zero or more
+// transcript bodies — one per atomic segment. Each becomes its own
+// Event on the Worker's activation Stream.
+func renderEvent(ev streamEvent) []string {
 	switch ev.Type {
 	case "system":
 		if ev.Subtype == "init" {
-			_, _ = fmt.Fprintf(w, "[%s] --- session start ---\n", ts)
+			return []string{"--- session start ---"}
 		}
 	case "result":
 		tag := "result"
 		if ev.IsError {
 			tag = "result-error"
 		}
-		_, _ = fmt.Fprintf(w, "[%s] %s: %s\n", ts, tag, oneLine(ev.Result, 500))
+		return []string{fmt.Sprintf("%s: %s", tag, oneLine(ev.Result, 500))}
 	case "assistant":
 		var msg messagePayload
 		if err := json.Unmarshal(ev.Message, &msg); err != nil {
-			return
+			return nil
 		}
+		var out []string
 		for _, seg := range msg.Content {
 			switch seg.Type {
 			case "text":
 				if seg.Text != "" {
-					_, _ = fmt.Fprintf(w, "[%s] assistant: %s\n", ts, oneLine(seg.Text, 500))
+					out = append(out, fmt.Sprintf("assistant: %s", oneLine(seg.Text, 500)))
 				}
 			case "tool_use":
-				_, _ = fmt.Fprintf(w, "[%s] tool_use %s: %s\n", ts, seg.Name, oneLine(string(seg.Input), 500))
+				out = append(out, fmt.Sprintf("tool_use %s: %s", seg.Name, oneLine(string(seg.Input), 500)))
 			}
 		}
+		return out
 	case "user":
 		var msg messagePayload
 		if err := json.Unmarshal(ev.Message, &msg); err != nil {
-			return
+			return nil
 		}
+		var out []string
 		for _, seg := range msg.Content {
 			if seg.Type != "tool_result" {
 				continue
@@ -354,9 +430,11 @@ func renderPretty(w io.Writer, ev streamEvent) {
 			if seg.IsError {
 				tag = "tool_result-error"
 			}
-			_, _ = fmt.Fprintf(w, "[%s] %s: %s\n", ts, tag, oneLine(string(seg.Content), 500))
+			out = append(out, fmt.Sprintf("%s: %s", tag, oneLine(string(seg.Content), 500)))
 		}
+		return out
 	}
+	return nil
 }
 
 // oneLine collapses whitespace and clips to max runes for readability.

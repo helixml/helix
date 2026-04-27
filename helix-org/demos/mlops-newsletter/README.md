@@ -64,7 +64,12 @@ The cascade you'll see:
 - Journalist wakes, writes ~250 words, publishes to `s-drafts`.
 - Editor wakes again, polishes, publishes to `s-newsletter`.
 
-Press Ctrl-C in the chat to stop the read loop, then continue.
+Want to peek inside one of them?
+
+> `worker_log` on `w-researcher` with `wait=30`. Tail their
+> next activation — assistant text, tool calls, tool results.
+
+Press Ctrl-C in the chat to stop either loop, then continue.
 
 ## 5. Run it again with a sharper brief
 

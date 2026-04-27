@@ -56,10 +56,14 @@ func runServe(args []string) error {
 	deps.EnvsDir = absEnvsDir
 
 	spawner := tools.ClaudeSpawner(tools.ClaudeSpawnerConfig{
-		ClaudeBin: *claudeBin,
-		PublicURL: *publicURL,
-		Model:     *model,
-		Logger:    logger,
+		ClaudeBin:   *claudeBin,
+		PublicURL:   *publicURL,
+		Model:       *model,
+		Logger:      logger,
+		Store:       store,
+		Broadcaster: bc,
+		Now:         deps.Now,
+		NewID:       deps.NewID,
 	})
 	deps.Dispatcher = dispatch.New(store, spawner, logger)
 	logger.Info("dispatcher enabled", "claude-bin", *claudeBin, "public-url", *publicURL, "envs-dir", absEnvsDir, "model", *model)
