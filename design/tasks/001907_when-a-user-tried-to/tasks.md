@@ -6,3 +6,4 @@
 - [x] Write a unit test for `listOpenAIModels()` verifying the error message includes the provider's response body text
 - [x] Manual test: configure an NVIDIA provider with an invalid API key, verify the error message shows the 401 status and upstream text instead of "invalid character"
 - [x] Write per-repo PR description (`pull_request_helix.md`)
+- [~] Surface the per-provider `error` and `status` fields on the Providers UI page so end users can self-diagnose without reading API logs
