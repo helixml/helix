@@ -58,3 +58,11 @@ Existing running sessions are unaffected (they already booted), which is fine �
 - The script has its own `cleanup_and_prompt` trap that catches *script* failures and offers a debug shell. That's separate from the git editor issue — the editor opens *during* execution, before any trap fires.
 - `git config --global pull.rebase false` (line 157) is intentional; don't try to "fix" it here.
 - `GIT_MERGE_AUTOEDIT` has been the documented git knob for this since git 1.7 — stable and safe to rely on.
+
+## Implementation Notes
+
+- **TTY-gated bug**: confirmed via local repro that git only opens the editor on `git pull` when stdin is a TTY (and `GIT_MERGE_AUTOEDIT` is unset). In non-TTY contexts (e.g., piped/CI), git silently uses the default message even without the env var. That's why the bug surfaces in the agent session — the script runs inside a kitty terminal — but doesn't show up when running the script piped through `tee` or under `bash -c`.
+- **Verified locally** with a throwaway git repo + `script(1)` to fake a TTY:
+  - Auto-mergeable divergence + `GIT_MERGE_AUTOEDIT=no` → silent merge commit, no editor (sentinel `GIT_EDITOR=false` did not trip).
+  - Conflicting divergence + `GIT_MERGE_AUTOEDIT=no` → "Automatic merge failed; fix conflicts" → git exits non-zero, which the script's existing `|| { echo FATAL; exit 1; }` catches.
+- The actual desktop-image rebuild (`./stack build-ubuntu`) and live agent-session verification are deployment/QA steps left to the reviewer — the script change itself is already proven by the local repro above.
