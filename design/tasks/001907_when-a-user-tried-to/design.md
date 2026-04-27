@@ -72,3 +72,14 @@ Only `api/pkg/openai/openai_client.go` needs changes. Two surgical edits:
 2. Include response body in the `listOpenAIModels` error message (~line 458)
 
 No new dependencies, no API changes, no config changes.
+
+## Implementation Notes
+
+- Both edits made in `api/pkg/openai/openai_client.go`. Tests added to `api/pkg/openai/openai_client_test.go`:
+  - `TestInterceptor_NonJSON401BodyPassesThrough` — verifies the wrapper is bypassed for non-2xx and the raw body bytes survive intact
+  - `TestInterceptor_2xxBodyIsWrapped` — guards the success path so the reasoning-field rename keeps working for Together AI etc.
+  - `TestListModels_NonJSON401_IncludesUpstreamBody` — verifies the user-facing error string contains the 401 status AND the upstream body text, and does NOT contain the old "invalid character 'U'" string
+- All three tests pass with `CGO_ENABLED=0`. Full openai package suite (`go test ./api/pkg/openai/`) still passes.
+- Manual end-to-end test confirmed: spun up a fake provider on port 9878 returning HTTP 401 with `text/plain` body `"Unauthorized: Invalid API Key"`, registered it via `/api/v1/provider-endpoints`, then called `/v1/models?provider=fake-nvidia-401`. Got the new error: `failed to get models from '...' provider: 401 Unauthorized - Unauthorized: Invalid API Key`. See `screenshots/manual-test-output.txt`.
+- The `renameReasoningField` function already had a `jsonStr[0] != '{'` guard, but the wrapper still appended `\n` and went through `bufio.Scanner` (1MB line cap). Skipping the wrap entirely is cleaner than trying to make it resilient — error bodies don't need any transformation.
+- Pattern note: `listAnthropicModels()` in `openai_client_anthropic.go:65` already includes the body in error messages — `listOpenAIModels()` was the outlier and now matches.
