@@ -22,10 +22,15 @@ build-errors.log
 vendor
 */**/out.md
 charts/helix-controlplane/charts/*.tgz
-helix-runner
-zed-build
-helix
-tmp
+# Chart.yaml is rendered from Chart.yaml.tmpl by scripts/render-charts.sh.
+# Source-of-truth is the .tmpl file; the rendered Chart.yaml is build output.
+charts/*/Chart.yaml
+# Anchor build-binary patterns to the repo root so they don't shadow same-named
+# subdirectories elsewhere (e.g. charts/helix-runner/).
+/helix-runner
+/zed-build
+/helix
+/tmp
 zed-config/development_credentials
 
 # Large binary files

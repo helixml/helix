@@ -63,6 +63,10 @@ steps:
   - name: helm-lint
     image: alpine/helm:3.16.4
     commands:
+      # Render Chart.yaml from Chart.yaml.tmpl. No DRONE_TAG on push events, so
+      # the script stamps a sentinel version — fine for lint/template since the
+      # rendered output is never published from this pipeline.
+      - sh scripts/render-charts.sh
       # Fetch subchart dependencies (postgresql, common) before lint/template
       - helm dependency build charts/helix-controlplane
       # Lint all three charts with default values
