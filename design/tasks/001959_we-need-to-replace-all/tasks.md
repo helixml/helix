@@ -7,10 +7,10 @@
 
 ## Backend: Profile Storage & API
 
-- [ ] Add `runner_profiles` and `runner_assignments` tables (migration in `api/pkg/store/`).
-- [ ] Implement `api/pkg/runner/composeparse/parse.go`: extract `ProfileModel[]` and the `Count` (union of `device_ids`) from a compose YAML string. Vendor/architecture/model-match/min-VRAM are operator inputs, not parsed.
-- [ ] Unit tests for `composeparse` covering: `--served-model-name`, `--model` fallback, multi-GPU `device_ids`, `tensor-parallel-size`, services with no GPU reservation (count=0).
-- [ ] Implement `api/pkg/runner/gpuarch/canonical.go`: shared mapping for NVIDIA compute capability → architecture canonical string and AMD `gfx*` → architecture string. One file, used by both runner (to label its GPUs) and API server (to validate profiles). Add table-driven tests.
+- [~] Add `runner_profiles` and `runner_assignments` tables (migration in `api/pkg/store/`).
+- [~] Implement `api/pkg/runner/composeparse/parse.go`: extract `ProfileModel[]` and the `Count` (union of `device_ids`) from a compose YAML string. Vendor/architecture/model-match/min-VRAM are operator inputs, not parsed.
+- [~] Unit tests for `composeparse` covering: `--served-model-name`, `--model` fallback, multi-GPU `device_ids`, `tensor-parallel-size`, services with no GPU reservation (count=0).
+- [~] Implement `api/pkg/runner/gpuarch/canonical.go`: shared mapping for NVIDIA compute capability → architecture canonical string and AMD `gfx*` → architecture string. One file, used by both runner (to label its GPUs) and API server (to validate profiles). Add table-driven tests.
 - [ ] Implement `api/pkg/runner/profile/store.go` (CRUD against the new tables; re-derive `Count` + `Models` on save; persist vendor/architectures/model_match/min_vram_bytes verbatim from the request).
 - [ ] Add HTTP routes in `api/pkg/server/`:
   - `GET    /api/v1/runner-profiles`
@@ -231,11 +231,12 @@ The runner is a different story: its only CGO drivers are the Ollama Go SDK impo
 
 ## Sample Profiles
 
-- [~] Commit the user's example compose as `design/sample-profiles/8xH100-vllm.yaml` with GPU req: vendor=nvidia, architectures=[hopper], model_match=`^NVIDIA H100`, min_vram=80GB.
-- [~] Add `design/sample-profiles/any-nvidia-blackwell-4gpu.yaml` — vendor=nvidia, architectures=[blackwell], no model_match.
-- [~] Add `design/sample-profiles/any-nvidia-dev-single-gpu.yaml` — vendor=nvidia, no arch restriction, min_vram=24GB. (Demonstrates the permissive case.)
-- [~] Add `design/sample-profiles/dev-spike-tiny.yaml` — single tiny model (e.g. `Qwen2.5-0.5B-Instruct`) on `device_ids: ["0"]` with `--gpu-memory-utilization 0.2`. Sized to coexist with desktop workloads on a shared 16 GB dev GPU. This is the profile the spike uses; it's also the profile any future agent should reach for when validating on similar dev hardware.
-- [~] Add `design/sample-profiles/amd-mi300x-vllm.yaml` — vendor=amd, architectures=[cdna3], using `rocm/vllm` images. (Demonstrates the AMD path; even if we have no AMD hardware to test against right now, it documents the intent.)
+- [x] Commit the user's example compose as `design/sample-profiles/8xH100-vllm.yaml` with GPU req: vendor=nvidia, architectures=[hopper], model_match=`^NVIDIA H100`, min_vram=80GB.
+- [x] Add `design/sample-profiles/any-nvidia-blackwell-4gpu.yaml` — vendor=nvidia, architectures=[blackwell], no model_match.
+- [x] Add `design/sample-profiles/any-nvidia-dev-single-gpu.yaml` — vendor=nvidia, no arch restriction, min_vram=24GB. (Demonstrates the permissive case.)
+- [x] Add `design/sample-profiles/dev-spike-tiny.yaml` — single tiny model (e.g. `Qwen2.5-0.5B-Instruct`) on `device_ids: ["0"]` with `--gpu-memory-utilization 0.2`. Sized to coexist with desktop workloads on a shared 16 GB dev GPU. This is the profile the spike uses; it's also the profile any future agent should reach for when validating on similar dev hardware.
+- [x] Add `design/sample-profiles/amd-mi300x-vllm.yaml` — vendor=amd, architectures=[cdna3], using `rocm/vllm` images. (Demonstrates the AMD path; even if we have no AMD hardware to test against right now, it documents the intent.)
+- [x] Bonus: `design/sample-profiles/README.md` documenting conventions, NVIDIA-vs-AMD declaration syntax, and per-profile hardware/model summary.
 
 ## Manual Verification (no automated coverage possible — flag as user-tested)
 
