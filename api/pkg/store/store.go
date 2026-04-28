@@ -732,6 +732,19 @@ type Store interface {
 	// for exponential backoff. errorMsg is shown to the user in the UI; pass err.Error()
 	// from whatever produced the failure. Truncated to 500 chars by the implementation.
 	MarkPromptAsFailed(ctx context.Context, promptID string, errorMsg string) error
+	// MarkPromptAsCrashed records the failure reason but pins next_retry_at far in the
+	// future so the auto-retry loop never picks the prompt back up. Used for terminal
+	// errors that no number of retries can recover from (e.g. the Claude Agent process
+	// inside Zed exited and Helix has no way to respawn it without the user creating a
+	// fresh thread). The frontend recognises this state and offers a manual Restart
+	// action which calls ResetCrashedPromptsForSession to undo it.
+	MarkPromptAsCrashed(ctx context.Context, promptID string, errorMsg string) error
+	// ResetCrashedPromptsForSession finds every prompt for sessionID whose status is
+	// 'failed' and whose next_retry_at is the far-future sentinel set by
+	// MarkPromptAsCrashed, and resets them to status='pending' with retry_count=0,
+	// next_retry_at=NULL, error_message=''. Returns the number of prompts reset.
+	// Called when the user clicks Restart after a Claude Agent crash.
+	ResetCrashedPromptsForSession(ctx context.Context, sessionID string) (int, error)
 	// RequeueBouncedPrompt finds the most recent "sent" prompt for a session and marks
 	// it as "failed" so the retry mechanism picks it up. Used when message_completed
 	// arrives with an empty response (bounce).
