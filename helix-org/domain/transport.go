@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"sort"
+	"strings"
 )
 
 // TransportKind names the implementation that owns a Stream's I/O.
@@ -55,6 +57,30 @@ const (
 	// envelope sender unless the Stream's Message specifies
 	// otherwise.
 	TransportEmail TransportKind = "email"
+
+	// TransportGitHub is an inbound-only GitHub webhooks transport.
+	// Provider credentials live at server level (see
+	// config.transport.github); per-stream config carries the routing
+	// `repo` and an `events` whitelist.
+	//
+	// Inbound: GitHub POSTs to a single installation URL
+	// (/github/webhook). The transport HMAC-verifies the delivery
+	// against the installation's webhook_secret, then fans the event
+	// out to every Stream whose Config.Repo matches the payload's
+	// repository.full_name and whose Config.Events list contains the
+	// X-GitHub-Event header value. The Message envelope is mapped
+	// from the upstream payload verbatim — Subject = issue/PR title,
+	// Body = issue/PR/comment/review body, ThreadID = "#<number>",
+	// MessageID = X-GitHub-Delivery, From = sender.login, Extra = the
+	// full payload with one synthetic top-level key (`event`) added
+	// from the X-GitHub-Event header.
+	//
+	// Outbound: not supported. Acting on a repo (label, comment,
+	// review, open PR) is the Worker's job via `gh` in its
+	// Environment; the github transport rejects publish calls
+	// loudly rather than silently dropping. See
+	// design/github-transport.md.
+	TransportGitHub TransportKind = "github"
 )
 
 // Transport describes how events on a Stream move to and from the
@@ -94,6 +120,37 @@ type EmailConfig struct {
 	Alias string `json:"alias,omitempty"`
 }
 
+// GitHubConfig is the parsed shape of Transport.Config when
+// Kind == TransportGitHub. Provider credentials (token, webhook
+// secret) live in server-level config; per-stream config carries
+// the routing identity.
+type GitHubConfig struct {
+	// Repo is the GitHub `owner/name` whose webhook deliveries land
+	// on this Stream. Matched case-insensitively against
+	// `repository.full_name` in the payload.
+	Repo string `json:"repo,omitempty"`
+
+	// Events is the whitelist of GitHub event types
+	// (X-GitHub-Event header values) the Stream wants. Anything not
+	// listed is dropped at the transport without becoming an Event,
+	// so subscribed Workers don't activate for events they'd ignore.
+	// Required and non-empty.
+	Events []string `json:"events,omitempty"`
+}
+
+// knownGitHubEvents enumerates the event types the transport
+// currently accepts in a Stream's `events` whitelist. The list is
+// deliberately narrow — adding an event is a one-line edit here
+// plus tests, but unknown event names are rejected at create_stream
+// time so typos surface early.
+var knownGitHubEvents = map[string]struct{}{
+	"issues":                      {},
+	"issue_comment":               {},
+	"pull_request":                {},
+	"pull_request_review":         {},
+	"pull_request_review_comment": {},
+}
+
 // WebhookConfig parses Transport.Config as a WebhookConfig. Returns the
 // zero value with no error when Config is empty. Errors only on JSON
 // shape problems — semantic validation happens in Validate().
@@ -124,6 +181,23 @@ func (t Transport) EmailConfig() (EmailConfig, error) {
 	}
 	if err := json.Unmarshal(t.Config, &c); err != nil {
 		return EmailConfig{}, fmt.Errorf("parse email config: %w", err)
+	}
+	return c, nil
+}
+
+// GitHubConfig parses Transport.Config as a GitHubConfig. Returns the
+// zero value with no error when Config is empty. Errors only on JSON
+// shape problems — semantic validation happens in Validate().
+func (t Transport) GitHubConfig() (GitHubConfig, error) {
+	if t.Kind != TransportGitHub {
+		return GitHubConfig{}, fmt.Errorf("transport kind is %q, not github", t.Kind)
+	}
+	var c GitHubConfig
+	if len(t.Config) == 0 {
+		return c, nil
+	}
+	if err := json.Unmarshal(t.Config, &c); err != nil {
+		return GitHubConfig{}, fmt.Errorf("parse github config: %w", err)
 	}
 	return c, nil
 }
@@ -170,9 +244,45 @@ func (t Transport) Validate() error {
 			return fmt.Errorf("email transport: alias %q must be lowercase alphanumeric / dash / underscore (no @, +, dots)", c.Alias)
 		}
 		return nil
+	case TransportGitHub:
+		c, err := t.GitHubConfig()
+		if err != nil {
+			return err
+		}
+		if c.Repo == "" {
+			return errors.New("github transport: repo is required")
+		}
+		// Repo must be exactly "owner/name" — one slash, both halves
+		// non-empty. Anything else is a typo we'd rather catch at
+		// create_stream time than have webhook deliveries silently
+		// miss the stream.
+		parts := strings.Split(c.Repo, "/")
+		if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+			return fmt.Errorf("github transport: repo %q must be of the form owner/name", c.Repo)
+		}
+		if len(c.Events) == 0 {
+			return errors.New("github transport: events whitelist is required and must be non-empty")
+		}
+		for _, ev := range c.Events {
+			if _, ok := knownGitHubEvents[ev]; !ok {
+				return fmt.Errorf("github transport: unknown event %q (supported: %s)", ev, knownGitHubEventsList())
+			}
+		}
+		return nil
 	default:
 		return errors.New("unknown transport kind: " + string(t.Kind))
 	}
+}
+
+// knownGitHubEventsList renders the supported event names alphabetically
+// for use in error messages. Cheap; called only on validation failures.
+func knownGitHubEventsList() string {
+	out := make([]string, 0, len(knownGitHubEvents))
+	for k := range knownGitHubEvents {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return strings.Join(out, ", ")
 }
 
 // isValidEmailAlias enforces a conservative alias shape so it can be

@@ -40,4 +40,10 @@ func registerAllConfigSpecs(r *config.Registry) {
 		Secrets:     []string{"token"},
 		Description: `Postmark account config: {"token","inbound","from"}. Required only if any Stream uses transport=email.`,
 	})
+	r.Register(config.Spec{
+		Key:         "transport.github",
+		Type:        config.TypeObject,
+		Secrets:     []string{"token", "webhook_secret"},
+		Description: `GitHub webhooks config: {"token","webhook_secret"}. Required only if any Stream uses transport=github. token is the gh PAT used by Workers; webhook_secret is the HMAC secret GitHub signs deliveries with.`,
+	})
 }

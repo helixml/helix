@@ -59,8 +59,17 @@ func (t *Publish) Invoke(ctx context.Context, inv domain.Invocation) (json.RawMe
 		return nil, fmt.Errorf("streamId and body are required")
 	}
 	streamID := domain.StreamID(args.StreamID)
-	if _, err := t.deps.Store.Streams.Get(ctx, streamID); err != nil {
+	stream, err := t.deps.Store.Streams.Get(ctx, streamID)
+	if err != nil {
 		return nil, fmt.Errorf("stream %q: %w", streamID, err)
+	}
+	// GitHub streams are inbound-only. Acting on a repo (label,
+	// comment, review, open PR) is the Worker's job via `gh` in its
+	// Environment — wrapping each github action behind publish would
+	// reinvent the gh CLI's flag set with worse ergonomics. Surface
+	// the mistake loudly rather than silently no-op'ing.
+	if stream.Transport.Kind == domain.TransportGitHub {
+		return nil, fmt.Errorf("stream %q: publish is not supported on github transport streams; use `gh` from your Environment to act on the repo", streamID)
 	}
 	msg := domain.Message{
 		From:            string(inv.Caller.ID()),

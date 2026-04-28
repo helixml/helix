@@ -20,6 +20,7 @@ import (
 	"github.com/helixml/helix-org/server"
 	"github.com/helixml/helix-org/store/sqlite"
 	"github.com/helixml/helix-org/tools"
+	githubtransport "github.com/helixml/helix-org/transports/github"
 	"github.com/helixml/helix-org/transports/postmark"
 )
 
@@ -83,6 +84,14 @@ func runServe(args []string) error {
 	dispatcher.SetEmailEmitter(emailTransport)
 	logger.Info("email transport enabled", "provider", "postmark")
 
+	// GitHub transport: inbound only. Webhook deliveries POST to
+	// /github/webhook; the transport HMAC-verifies, fans out to every
+	// Stream whose repo+events match, and activates subscribed Workers
+	// via the dispatcher. Outbound is the Worker's job via `gh`; the
+	// publish tool rejects writes to a github stream loudly.
+	githubInbound := githubtransport.New(configReg, store, bc, dispatcher, logger)
+	logger.Info("github transport enabled")
+
 	reg := tools.NewRegistry()
 	if err := tools.RegisterBuiltins(reg, deps); err != nil {
 		return fmt.Errorf("register builtins: %w", err)
@@ -92,6 +101,7 @@ func runServe(args []string) error {
 		Addr: *addr,
 		Handler: server.New(store, reg, bc, deps.Dispatcher, logger).Handler(
 			server.Route{Pattern: "POST /email/postmark", Handler: emailTransport.HandleInbound()},
+			server.Route{Pattern: "POST /github/webhook", Handler: githubInbound.HandleInbound()},
 		),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
