@@ -50,22 +50,16 @@ func TestDeriveAgentWorkState(t *testing.T) {
 			want:   types.AgentWorkStateIdle,
 		},
 		{
-			name:   "post-implementation: implementation_review → done",
-			task:   &types.SpecTask{Status: types.TaskStatusImplementationReview, SandboxState: "running"},
-			latest: &types.Interaction{State: types.InteractionStateWaiting},
-			want:   types.AgentWorkStateDone,
+			name:   "running + editing interaction → idle (only Waiting counts as working)",
+			task:   &types.SpecTask{Status: types.TaskStatusImplementation, SandboxState: "running"},
+			latest: &types.Interaction{State: types.InteractionStateEditing},
+			want:   types.AgentWorkStateIdle,
 		},
 		{
-			name:   "post-implementation: pull_request → done",
-			task:   &types.SpecTask{Status: types.TaskStatusPullRequest, SandboxState: "absent"},
-			latest: nil,
-			want:   types.AgentWorkStateDone,
-		},
-		{
-			name:   "post-implementation: done → done",
-			task:   &types.SpecTask{Status: types.TaskStatusDone, SandboxState: "absent"},
-			latest: nil,
-			want:   types.AgentWorkStateDone,
+			name:   "running + none-state interaction → idle (transient pre-Waiting state)",
+			task:   &types.SpecTask{Status: types.TaskStatusImplementation, SandboxState: "running"},
+			latest: &types.Interaction{State: types.InteractionStateNone},
+			want:   types.AgentWorkStateIdle,
 		},
 	}
 

@@ -318,13 +318,16 @@ func (s *HelixAPIServer) listTasks(w http.ResponseWriter, r *http.Request) {
 			// Derive AgentWorkState from sandbox state + latest interaction state.
 			// This drives the per-card "In Progress vs Idle" indicator so the timer
 			// only ticks when the agent is actually streaming a response.
+			// On query error: leave AgentWorkState empty so the UI falls back to the
+			// existing "In Progress" label rather than mass-flipping every running
+			// card to "Idle".
 			latestInteractions, err := s.Store.GetLatestInteractionsForSessions(ctx, sessionIDs)
 			if err != nil {
 				log.Warn().Err(err).Msg("failed to fetch latest interactions for agent_work_state derivation")
-				latestInteractions = nil
-			}
-			for _, task := range tasks {
-				task.AgentWorkState = deriveAgentWorkState(task, latestInteractions[task.PlanningSessionID])
+			} else {
+				for _, task := range tasks {
+					task.AgentWorkState = deriveAgentWorkState(task, latestInteractions[task.PlanningSessionID])
+				}
 			}
 		}
 	}
@@ -1549,21 +1552,13 @@ func (s *HelixAPIServer) updateBoardSettings(w http.ResponseWriter, r *http.Requ
 //
 //	sandbox=absent/starting → ""        (UI falls back to sandbox status hint)
 //	sandbox=running, latest=Waiting     → "working"
-//	sandbox=running, latest=Complete/   → "idle"
-//	  Error / no interaction
-//	post-implementation status (review, → "done"
-//	  pull_request, done)
+//	sandbox=running, anything else      → "idle"
 //
-// The "done" branch is mostly for completeness — those phases use their own
-// dot/label and never show the timer.
+// Only InteractionStateWaiting counts as "working". Editing/None/Complete/Error
+// and a missing interaction all collapse to "idle" — the brief gap between row
+// insert (state="") and the worker setting state="waiting" can flicker a card
+// to "Idle" at poll time, which is acceptable at 30s polling.
 func deriveAgentWorkState(task *types.SpecTask, latest *types.Interaction) types.AgentWorkState {
-	switch task.Status {
-	case types.TaskStatusImplementationReview,
-		types.TaskStatusPullRequest,
-		types.TaskStatusDone:
-		return types.AgentWorkStateDone
-	}
-
 	if task.SandboxState != "running" {
 		return ""
 	}
