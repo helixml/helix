@@ -1,0 +1,147 @@
+# GPU-cloud integration test matrix.
+#
+# Two enabled smoke entries (1× A100 + 1× MI300X) validate the AMD and
+# NVIDIA code paths end-to-end on real cloud GPUs. Customer-deployment
+# entries (4× A100, 4× L40S × 3, 8× MI300X) are present but disabled —
+# their stock was empty at both Verda and Hot Aisle on 2026-04-28; flip
+# back to `enabled: true` once stock returns.
+#
+# Provider split:
+#   - NVIDIA → Verda (was DataCrunch). KVM VMs, full root, EU/Nordic DCs.
+#     Auth: OAuth2 client_credentials at api.verda.com/v1/oauth2/token.
+#   - AMD MI300X → Hot Aisle. KVM VMs with ROCm + Docker preinstalled.
+#     Auth: Bearer at admin.hotaisle.app/api/. Spec-matched POST (no
+#     SKU names — see specsForInstanceType in hotaisle.go).
+#
+# Smoke pass cost (30 min/entry): 1×A100 ($0.65) + 1×MI300X ($1.00) ≈ $1.65.
+
+default_scenarios:
+  - boot_smoke
+  - compatibility_filter
+  - assignment_apply
+  - inference_roundtrip
+  - profile_switch
+  - clear_profile
+  - incompatible_rejection
+
+entries:
+  # ===== Enabled smoke entries (run today) =====
+
+  # 1× A100 80GB on Verda — the cheapest NVIDIA validator. Stock
+  # confirmed in FIN-01 on 2026-04-28. Profile is the dev-tier vLLM
+  # which fits in a single A100 with room to spare.
+  - id: a100-1x-smoke
+    enabled: true
+    provider: verda
+    instance_type: 1A100.22V    # 1× A100 SXM4 80GB, 22 vCPU
+    gpu_count: 1
+    region: FIN-01
+    profile: design/sample-profiles/any-nvidia-dev-single-gpu.yaml
+    profile_metadata:
+      vendor: nvidia
+      architectures: [ampere]
+      min_vram_bytes: 85899345920  # 80 GiB
+    secondary_profiles_for_switch:
+      - design/sample-profiles/dev-spike-tiny.yaml
+    incompatible_profile: design/sample-profiles/amd-mi300x-vllm.yaml
+
+  # 1× MI300X on Hot Aisle — the AMD validator. Stock confirmed
+  # (6 available) on 2026-04-28. The amd-mi300x-vllm profile already
+  # uses 1× GPU (one renderD128 mount), so no profile change needed.
+  - id: mi300x-1x-smoke
+    enabled: true
+    provider: hotaisle
+    instance_type: 1xMI300X      # mapped to specs in hotaisle.go specsForInstanceType
+    gpu_count: 1
+    region: ""                    # Hot Aisle assigns from inventory; no region picker on POST
+    profile: design/sample-profiles/amd-mi300x-vllm.yaml
+    profile_metadata:
+      vendor: amd
+      architectures: [cdna3]
+      model_match: MI300X
+      min_vram_bytes: 206158430208  # 192 GiB per GPU
+    secondary_profiles_for_switch: []
+    incompatible_profile: design/sample-profiles/8xH100-vllm.yaml
+
+  # ===== Customer-deployment entries (disabled until stock returns) =====
+  #
+  # All five disabled below model the customer's actual deployment:
+  #   Node 1: 4× A100 80GB     (currently 0 in stock at Verda)
+  #   Nodes 2-4: 4× L40S each  (Verda lists L40S in catalogue but 0 in stock anywhere)
+  #   Node 5: 8× MI300X        (Hot Aisle bare-metal product was empty)
+  # Re-enable when:
+  #   - `GET /v1/instance-availability` at Verda lists 4A100.88V or 4L40S.80V, OR
+  #   - Hot Aisle's bare-metal `available/` endpoint returns an 8× SKU, OR
+  #   - We sign up at TensorWave / Vultr Bare Metal as a third provider.
+
+  - id: node1-a100-4x
+    enabled: false
+    provider: verda
+    instance_type: 4A100.88V
+    gpu_count: 4
+    region: FIN-01
+    profile: design/sample-profiles/8xH100-vllm.yaml
+    profile_metadata:
+      vendor: nvidia
+      architectures: [ampere]
+      min_vram_bytes: 85899345920
+    secondary_profiles_for_switch: []
+    incompatible_profile: design/sample-profiles/amd-mi300x-vllm.yaml
+
+  - id: node2-l40s-4x
+    enabled: false
+    provider: verda
+    instance_type: 4L40S.80V
+    gpu_count: 4
+    region: FIN-01
+    profile: design/sample-profiles/any-nvidia-dev-single-gpu.yaml
+    profile_metadata:
+      vendor: nvidia
+      architectures: [ada]
+      min_vram_bytes: 51539607552
+    secondary_profiles_for_switch:
+      - design/sample-profiles/dev-spike-tiny.yaml
+    incompatible_profile: design/sample-profiles/8xH100-vllm.yaml
+
+  - id: node3-l40s-4x
+    enabled: false
+    provider: verda
+    instance_type: 4L40S.80V
+    gpu_count: 4
+    region: FIN-01
+    profile: design/sample-profiles/any-nvidia-dev-single-gpu.yaml
+    profile_metadata:
+      vendor: nvidia
+      architectures: [ada]
+      min_vram_bytes: 51539607552
+    secondary_profiles_for_switch: []
+    incompatible_profile: design/sample-profiles/8xH100-vllm.yaml
+
+  - id: node4-l40s-4x
+    enabled: false
+    provider: verda
+    instance_type: 4L40S.80V
+    gpu_count: 4
+    region: FIN-01
+    profile: design/sample-profiles/any-nvidia-dev-single-gpu.yaml
+    profile_metadata:
+      vendor: nvidia
+      architectures: [ada]
+      min_vram_bytes: 51539607552
+    secondary_profiles_for_switch: []
+    incompatible_profile: design/sample-profiles/8xH100-vllm.yaml
+
+  - id: node5-mi300x-8x
+    enabled: false
+    provider: hotaisle
+    instance_type: 8xMI300X
+    gpu_count: 8
+    region: ""
+    profile: design/sample-profiles/amd-mi300x-vllm.yaml
+    profile_metadata:
+      vendor: amd
+      architectures: [cdna3]
+      model_match: MI300X
+      min_vram_bytes: 206158430208
+    secondary_profiles_for_switch: []
+    incompatible_profile: design/sample-profiles/8xH100-vllm.yaml

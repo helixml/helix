@@ -25,7 +25,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/helixml/helix/integration-test/runpod/internal/provision"
+	"github.com/helixml/helix/integration-test/gpucloud/internal/provision"
 )
 
 // Result is one scenario's outcome.

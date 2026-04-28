@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/helixml/helix/integration-test/runpod/internal/scenarios"
+	"github.com/helixml/helix/integration-test/gpucloud/internal/scenarios"
 )
 
 // Result is one matrix entry's outcome.
@@ -52,7 +52,7 @@ type junitSkipped struct {
 // WriteJUnit emits a flat testsuite where each scenario across all
 // matrix entries is its own test case.
 func WriteJUnit(path string, results []Result) error {
-	suite := junitTestsuite{Name: "runpod-it"}
+	suite := junitTestsuite{Name: "gpucloud-it"}
 	for _, r := range results {
 		for _, s := range r.Scenarios {
 			tc := junitTestcase{
