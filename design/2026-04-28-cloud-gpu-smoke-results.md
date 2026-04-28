@@ -4,13 +4,14 @@ End-to-end validation of the helix sandbox-absorbs-runner architecture on real c
 
 ## TL;DR
 
-Architecture works on real cloud GPU VMs from both providers, single-GPU and multi-GPU. Total spend: **$3.95** (Verda $3.82 + Hot Aisle $0.13).
+Architecture works on real cloud GPU VMs from both providers, single-GPU and multi-GPU, **including the full desktop streaming stack and a real interesting model**. Total spend: **$4.62** (Verda $4.49 + Hot Aisle $0.13).
 
 | Provider | Hardware | Result | Spend |
 |---|---|---|---|
 | Verda | 1× A100 80GB SXM4 (FIN-01) | ✅ Sandbox boots, nested DinD with NVIDIA runtime, vLLM serves Qwen 0.5B chat completion through 2 layers of Docker | $0.43 |
 | Hot Aisle | 1× MI300X 192GB | ✅ Sandbox boots, nested DinD with AMD passthrough, ROCm visible inside inner DinD via `rocm-smi` | $0.13 |
 | Verda | 4× RTX PRO 6000 Blackwell (FIN-03) | ✅ All 4 GPUs visible in nested DinD; tensor-parallel-2 vLLM serves chat completion ("YES") with weights sharded across 2 Blackwells; Hydra spawns helix-ubuntu desktop container with correct GPU detection | $3.39 |
+| Verda | 1× A100 80GB SXM4 (FIN-01, 200GB disk) | ✅ **Qwen 2.5 14B running** (68GB VRAM); ✅ **Full GNOME desktop running** (Mutter + Xwayland + PipeWire + desktop-bridge with DmaBuf zero-copy); ✅ Real PNG screenshot captured via desktop-bridge HTTP API — Helix Setup wizard rendered. See `cloud-smoke-screenshots/`. | $0.67 |
 
 ## Multi-GPU + desktop test (4× RTX PRO 6000 Blackwell)
 
@@ -26,6 +27,41 @@ Provisioned a 4× RTX PRO 6000 Blackwell box on Verda FIN-03 ($6.76/hr, 384 GB t
 - **Important quirk discovered**: Hydra rejects `image: foo:latest` with the explicit error *"image uses :latest tag - API should resolve versions from sandbox heartbeat, not pass :latest to Hydra"*. Production caller (helix API) reads the version from the sandbox's heartbeat; the manual smoke needed `helix-ubuntu:ea6ccc` instead.
 
 The desktop container itself exited cleanly after cont-init.d completed because we didn't mount `/var/lib/docker` and didn't have a real Helix API for the WebSocket sync — the container expects to be driven by the full helix stack. The architectural pieces (Hydra spawn, GPU detection, per-GPU device permissions, udev for Mutter) are all confirmed working on cloud GPU. Full end-to-end desktop streaming is a separate test that needs the live helix API + frontend, not just the sandbox.
+
+## Real desktop + interesting model on cloud A100 (run #4, 200GB disk)
+
+Re-provisioned a fresh 1× A100 80GB at Verda with a 200GB OS volume (the default 50GB disk wasn't enough for sandbox + helix-ubuntu + a 14B model). Spent: $0.67.
+
+**Qwen 2.5 14B Instruct served real chat completion** through the new architecture:
+- POST `/v1/chat/completions` against the inner-DinD vLLM returned 84-token completion that *understood its environment*: *"I am running in a nested Docker environment on a NVIDIA A100 80GB GPU in Finland, utilizing the Helix sandbox-absorbs-runner architecture..."*
+- 68 GB of A100 VRAM used (84% of 80 GB) — the model and KV cache fit cleanly with `--max-model-len 8192 --gpu-memory-utilization 0.85`.
+- Loaded with `--enable-auto-tool-choice --tool-call-parser hermes` so it can be a real production model, not just a smoke target.
+
+**Full GNOME desktop runs on the same A100** alongside Qwen 14B:
+- POST to Hydra's socket `/api/v1/dev-containers` with required mounts (`/var/lib/docker` volume + `/data/workspace` bind + `/home/retro/work` bind), env vars (`WORKSPACE_DIR`, `XDG_RUNTIME_DIR`, `UNAME=retro`), and `privileged: true` got the helix-ubuntu container fully booted.
+- Process tree inside the desktop container: `gnome-shell --headless --unsafe-mode --virtual-monitor 1280x720@30` (= **Mutter**), `Xwayland`, `pipewire`, `desktop-bridge`, `mutter-x11-frames`, `gnome-shell-calendar-server`, etc. — the production desktop stack.
+- desktop-bridge logs show its connection to Mutter's ScreenCast portal via D-Bus, with **DmaBuf zero-copy enabled** (the GPU-accelerated video pipeline path):
+  ```
+  [desktop-bridge] video session ready (standalone, DmaBuf enabled)
+  [desktop-bridge] starting input bridge socket_path=/run/user/1000/helix-input.sock
+  [desktop-bridge] HTTP server starting port=9876
+  [desktop-bridge] session health check OK   (every 10s thereafter)
+  ```
+- desktop-bridge HTTP API at `:9876/screenshot` returned a **94 KB JPEG of the running desktop** — captured via Mutter's ScreenCast portal, encoded by GStreamer using the GPU. Image saved at `design/cloud-smoke-screenshots/2026-04-28-cloud-a100-gnome-desktop.png` and `2026-04-28-cloud-a100-desktop-with-qwen14b.png`. Visible: GNOME 1280x720 desktop with the standard purple/pink wallpaper, dock with Chrome/Files/Terminal/Apps, and the **Helix Setup wizard** running in a ghostty terminal window (failing as expected because we didn't supply USER_API_TOKEN/HELIX_REPOSITORIES, but rendered correctly — proving the pipeline works).
+
+**Required environment for desktop spawn (folded into the doc for future reference)**:
+- Mounts:
+  - `desktop-docker-data:/var/lib/docker` (volume) — without this, `17-start-dockerd.sh` does `exit 0` which terminates the sourced entrypoint
+  - `<host-workspace>:/data/workspace` (bind)
+  - `<host-workspace>:/home/retro/work` (bind) — startup.sh has `if [ ! -d /home/retro/work ]; exit 1`
+- Env:
+  - `GPU_VENDOR=nvidia` (or `amd`)
+  - `WORKSPACE_DIR=/data/workspace`
+  - `XDG_RUNTIME_DIR=/run/user/1000` — startup.sh writes `$XDG_RUNTIME_DIR/start_gnome` and execs it; if unset, it tries to exec `/start_gnome` which doesn't exist
+  - `UNAME=retro`
+- `privileged: true` (otherwise the desktop's own dockerd inside it can't init cgroups)
+
+The third level of DinD also worked: sandbox dockerd (level 2 in nested) → desktop's own dockerd (level 3) → vLLM container (would be level 4 if we ran one inside the desktop). Storage driver overlay2 holds across all levels via the named-volume trick.
 
 ## What was validated
 
