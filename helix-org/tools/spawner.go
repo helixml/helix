@@ -38,10 +38,14 @@ type Trigger struct {
 	Kind TriggerKind
 
 	// Event fields, set when Kind == TriggerEvent.
-	EventID   domain.EventID
-	StreamID  domain.StreamID
-	Source    domain.WorkerID
-	Body      string // visible text — i.e. Message.Body, parsed from the event
+	EventID  domain.EventID
+	StreamID domain.StreamID
+	Source   domain.WorkerID
+	// Message is the canonical envelope parsed from the event body.
+	// Every populated field (From, Subject, ThreadID, MessageID,
+	// Extra, …) is rendered into the activation prompt so the
+	// Worker can branch on transport-shaped metadata directly,
+	// without a separate read_events round-trip.
 	Message   domain.Message
 	CreatedAt time.Time
 }
@@ -294,8 +298,7 @@ func buildPrompt(workerID domain.WorkerID, mandate string, trigger Trigger) stri
 	case TriggerHire:
 		ctx.WriteString("You have just been hired. This is your first activation. Complete any one-time setup your role describes, then exit. The runtime will re-activate you when an event arrives on a Stream you subscribe to.\n")
 	case TriggerEvent:
-		fmt.Fprintf(&ctx, "A new event arrived on a Stream you subscribe to.\n\n  stream: %s\n  source: %s\n  time:   %s\n  body:\n%s\n",
-			trigger.StreamID, trigger.Source, trigger.CreatedAt.Format(time.RFC3339), indentBlock(trigger.Body, "    "))
+		ctx.WriteString(renderTrigger(trigger))
 	default:
 		fmt.Fprintf(&ctx, "Activation kind: %q.\n", trigger.Kind)
 	}
@@ -311,6 +314,57 @@ the work and exit.
 
 Act now. No preamble.
 `, workerID, mandate, ctx.String())
+}
+
+// renderTrigger formats an event-kind Trigger for the activation
+// prompt. Every populated field of the canonical Message envelope is
+// rendered so the Worker can branch on Subject, From, ThreadID, Extra,
+// etc. directly — no separate read_events round-trip needed for the
+// trigger event itself. Empty fields are omitted to keep the prompt
+// tight.
+//
+// Header keys are aligned for legibility but the parser the Worker is
+// going to apply (Claude reading the prompt) is robust to spacing, so
+// "neat" is for humans tailing the prompt.
+func renderTrigger(t Trigger) string {
+	var b strings.Builder
+	b.WriteString("A new event arrived on a Stream you subscribe to.\n\n")
+	fmt.Fprintf(&b, "  stream:      %s\n", t.StreamID)
+	fmt.Fprintf(&b, "  event:       %s\n", t.EventID)
+	fmt.Fprintf(&b, "  time:        %s\n", t.CreatedAt.Format(time.RFC3339))
+	if t.Source != "" {
+		fmt.Fprintf(&b, "  source:      %s\n", t.Source)
+	}
+	m := t.Message
+	if m.From != "" {
+		fmt.Fprintf(&b, "  from:        %s\n", m.From)
+	}
+	if len(m.To) > 0 {
+		fmt.Fprintf(&b, "  to:          %s\n", strings.Join(m.To, ", "))
+	}
+	if m.Subject != "" {
+		fmt.Fprintf(&b, "  subject:     %s\n", m.Subject)
+	}
+	if m.ThreadID != "" {
+		fmt.Fprintf(&b, "  thread_id:   %s\n", m.ThreadID)
+	}
+	if m.InReplyTo != "" {
+		fmt.Fprintf(&b, "  in_reply_to: %s\n", m.InReplyTo)
+	}
+	if m.MessageID != "" {
+		fmt.Fprintf(&b, "  message_id:  %s\n", m.MessageID)
+	}
+	if m.Body != "" {
+		b.WriteString("  body:\n")
+		b.WriteString(indentBlock(m.Body, "    "))
+		b.WriteByte('\n')
+	}
+	if len(m.Extra) > 0 {
+		b.WriteString("  extra:\n")
+		b.WriteString(indentBlock(string(m.Extra), "    "))
+		b.WriteByte('\n')
+	}
+	return b.String()
 }
 
 // indentBlock prefixes every line of s with prefix. Used so multi-line

@@ -147,8 +147,7 @@ func (d *Dispatcher) Dispatch(ctx context.Context, e domain.Event) {
 			EventID:   e.ID,
 			StreamID:  e.StreamID,
 			Source:    e.Source,
-			Body:      msg.Body, // visible text from the canonical envelope
-			Message:   msg,
+			Message:   msg, // full canonical envelope; rendered by the spawner into the activation prompt
 			CreatedAt: e.CreatedAt,
 		}
 		// Decouple from the request context so the activation isn't

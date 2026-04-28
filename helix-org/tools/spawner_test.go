@@ -221,6 +221,175 @@ func TestPublishActivationEventAppendsAndNotifies(t *testing.T) {
 	}
 }
 
+// TestRenderTriggerGitHub: a github-shaped event (issue.opened) must
+// surface every populated envelope field in the prompt, including
+// Subject (issue title), From (sender.login), ThreadID (#42), and
+// Extra (the full webhook body with the synthetic `event` key
+// injected). Without this, the Worker only sees Body and has to
+// call read_events to learn what kind of trigger fired — which is
+// exactly the bug that caused the docs-engineer to misroute issue
+// #3 to PR #2 during the README's E2E run.
+func TestRenderTriggerGitHub(t *testing.T) {
+	t.Parallel()
+
+	extra := []byte(`{"action":"opened","event":"issues","issue":{"id":12345,"number":42,"title":"x","body":"y"},"sender":{"login":"philwinder"},"repository":{"full_name":"helixml/helix-org"}}`)
+	tr := Trigger{
+		Kind:      TriggerEvent,
+		EventID:   "e-abc",
+		StreamID:  "s-github",
+		Source:    "", // system-emitted (inbound webhook)
+		CreatedAt: time.Date(2026, 4, 28, 12, 27, 23, 0, time.UTC),
+		Message: domain.Message{
+			From:      "philwinder",
+			Subject:   "README setup steps mention an env var that no longer exists",
+			Body:      "Step 3 references HELIX_FOO; the code reads HELIX_BAR now.",
+			ThreadID:  "#42",
+			MessageID: "delivery-uuid-1",
+			Extra:     extra,
+		},
+	}
+
+	got := renderTrigger(tr)
+
+	wants := []string{
+		"stream:      s-github",
+		"event:       e-abc",
+		"time:        2026-04-28T12:27:23Z",
+		"from:        philwinder",
+		"subject:     README setup steps mention an env var that no longer exists",
+		"thread_id:   #42",
+		"message_id:  delivery-uuid-1",
+		"Step 3 references HELIX_FOO",                    // body content
+		`"event":"issues"`,                               // Extra includes the synthetic event key
+		`"action":"opened"`,                              // Extra preserves the upstream action
+		`"sender":{"login":"philwinder"}`,                // Extra preserves nested objects
+		`"repository":{"full_name":"helixml/helix-org"}`, // Extra preserves repo info
+	}
+	for _, w := range wants {
+		if !strings.Contains(got, w) {
+			t.Errorf("renderTrigger output missing %q\n--- output ---\n%s", w, got)
+		}
+	}
+
+	// Empty fields must be omitted (cleanliness), not rendered as
+	// "to: ", "in_reply_to: ", etc.
+	for _, omit := range []string{"to:", "in_reply_to:", "source:"} {
+		if strings.Contains(got, omit) {
+			t.Errorf("renderTrigger output should omit empty %q\n--- output ---\n%s", omit, got)
+		}
+	}
+}
+
+// TestRenderTriggerEmail: an email-shaped event must surface
+// To, InReplyTo, ThreadID — which is how the email demo's customer-
+// service role pairs replies back to the original thread. The
+// previous prompt format only carried Body, forcing the role to
+// call read_events for the headers; this test pins the fix.
+func TestRenderTriggerEmail(t *testing.T) {
+	t.Parallel()
+
+	tr := Trigger{
+		Kind:      TriggerEvent,
+		EventID:   "e-1",
+		StreamID:  "s-support",
+		Source:    "", // inbound
+		CreatedAt: time.Date(2026, 4, 28, 10, 0, 0, 0, time.UTC),
+		Message: domain.Message{
+			From:      "alice@example.com",
+			To:        []string{"abc123+sam@inbound.postmarkapp.com"},
+			Subject:   "[eng] Re: Webhook stream isn't firing",
+			Body:      "Most webhook flow issues are config or subscription mismatches.",
+			ThreadID:  "<root@example.com>",
+			InReplyTo: "<original@example.com>",
+			MessageID: "<msg-2@example.com>",
+		},
+	}
+
+	got := renderTrigger(tr)
+
+	wants := []string{
+		"from:        alice@example.com",
+		"to:          abc123+sam@inbound.postmarkapp.com",
+		"subject:     [eng] Re: Webhook stream isn't firing",
+		"thread_id:   <root@example.com>",
+		"in_reply_to: <original@example.com>",
+		"message_id:  <msg-2@example.com>",
+		"Most webhook flow issues",
+	}
+	for _, w := range wants {
+		if !strings.Contains(got, w) {
+			t.Errorf("renderTrigger output missing %q\n--- output ---\n%s", w, got)
+		}
+	}
+}
+
+// TestRenderTriggerWorkerPublished: when an internal Worker
+// publishes a plain message (no Subject, no ThreadID, just Body),
+// the rendered prompt should still carry source (the publisher's
+// WorkerID) and from, but skip every empty field.
+func TestRenderTriggerWorkerPublished(t *testing.T) {
+	t.Parallel()
+
+	tr := Trigger{
+		Kind:      TriggerEvent,
+		EventID:   "e-1",
+		StreamID:  "s-general",
+		Source:    "w-alice",
+		CreatedAt: time.Date(2026, 4, 28, 10, 0, 0, 0, time.UTC),
+		Message: domain.Message{
+			From: "w-alice",
+			Body: "hello",
+		},
+	}
+	got := renderTrigger(tr)
+
+	for _, w := range []string{"source:      w-alice", "from:        w-alice", "hello"} {
+		if !strings.Contains(got, w) {
+			t.Errorf("renderTrigger output missing %q\n--- output ---\n%s", w, got)
+		}
+	}
+	for _, omit := range []string{"to:", "subject:", "thread_id:", "in_reply_to:", "message_id:", "extra:"} {
+		if strings.Contains(got, omit) {
+			t.Errorf("renderTrigger output should omit empty %q\n--- output ---\n%s", omit, got)
+		}
+	}
+}
+
+// TestBuildPromptIncludesEnvelope checks the integration: a Trigger
+// with full envelope fields produces a prompt whose === Trigger ===
+// section carries all of them. Guards against a future refactor
+// that decouples renderTrigger from buildPrompt.
+func TestBuildPromptIncludesEnvelope(t *testing.T) {
+	t.Parallel()
+
+	tr := Trigger{
+		Kind:      TriggerEvent,
+		EventID:   "e-abc",
+		StreamID:  "s-github",
+		CreatedAt: time.Date(2026, 4, 28, 12, 27, 23, 0, time.UTC),
+		Message: domain.Message{
+			From:    "philwinder",
+			Subject: "Confusing example in the docs",
+			Body:    "The README has an install command that doesn't run as written.",
+			Extra:   []byte(`{"event":"issues","action":"opened"}`),
+		},
+	}
+	prompt := buildPrompt("w-doc-engineer", "[role.md contents]", tr)
+
+	if !strings.Contains(prompt, "=== Trigger ===") || !strings.Contains(prompt, "=== end trigger ===") {
+		t.Fatalf("trigger fences missing\n%s", prompt)
+	}
+	for _, w := range []string{
+		"subject:     Confusing example in the docs",
+		"from:        philwinder",
+		`"event":"issues"`,
+	} {
+		if !strings.Contains(prompt, w) {
+			t.Errorf("prompt missing %q", w)
+		}
+	}
+}
+
 func jsonRaw(s string) []byte { return []byte(s) }
 
 func equalSlice(a, b []string) bool {
