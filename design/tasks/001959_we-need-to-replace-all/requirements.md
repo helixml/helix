@@ -1,8 +1,53 @@
-# Requirements: Replace Runner Infrastructure with Compose Profiles
+# Requirements: Unified Helix Worker (replaces runner + sandbox)
 
-## Problem Statement
+> **2026-04-28 architectural pivot:** the user observed that the new compose-based runner and the existing Sandbox container are converging structurally — both are DinD wrappers around GPU containers. We unify them into a single deployable artifact, the "Helix worker," that hosts both LLM inference services (declarative compose profiles) and agent desktop sessions (dynamic via Hydra). Operators pick per-node what mix runs there. This document is updated throughout to reflect that pivot — references to "runner" and "sandbox" are replaced by "worker" where they refer to the unified artifact, but kept where they refer to logically distinct subsystems (the *inference router* is still about routing LLM requests; *Hydra* still owns desktop session lifecycle).
 
-The current runner implementation is a sophisticated dynamic scheduler:
+
+
+## Problem Statement (Unified Worker)
+
+Helix today ships two GPU-bearing container artifacts that have evolved
+into very similar shapes:
+
+- **Sandbox** (`Dockerfile.sandbox`): inner dockerd + Hydra. Hosts dynamic
+  agent desktop containers (Wolf, helix-sway). Operationally: pull images
+  on startup from a registry, manage per-scope dockerds for isolation.
+- **Runner** (`Dockerfile.runner`, current): custom Go binary that spawns
+  vLLM/Ollama subprocesses. Operationally: scheduler over NATS decides
+  what runs where; bin-packs GPUs; predicts memory.
+
+The runner replacement we set out to design — operator-defined Docker
+Compose profiles running inside DinD — is structurally a thin variation
+on what Sandbox already does. Continuing to ship two artifacts is paying
+twice for: image build pipelines, helm charts, registry credential
+plumbing, GPU passthrough setup, multi-arch build matrices, security
+review, ops monitoring. And it forecloses the option of mixing inference
+and agent workloads on the same hardware, which is real money on the
+table for operators with bursty inference loads.
+
+We therefore unify into a single artifact, the **Helix worker**:
+
+- One Docker image that bundles the inner dockerd, Hydra, and the
+  compose-profile manager.
+- One deployable unit (helm chart, compose service).
+- Two coexisting subsystems sharing the same node hardware:
+  - The **inference router** routes LLM requests by model name to
+    workers whose active profile exposes that model.
+  - **Hydra** routes agent session requests to workers and spawns
+    per-scope desktop containers in the same inner dockerd that hosts
+    inference services.
+- Operators pick per worker (per profile) what mix runs there: pure
+  inference node, pure agent node, or mixed (e.g. inference on GPUs 0–5,
+  agent desktops on GPUs 6–7).
+
+The deletion mandate (AC8) and rewrite framing (Decision 11 in
+design.md) still apply to the runner-side code; the Sandbox-side code
+stays largely intact and is integrated into the worker rather than
+replaced.
+
+### Original problem statement (scheduler complexity)
+
+The runner replacement still removes the sophisticated dynamic scheduler:
 
 - A central scheduler (`api/pkg/scheduler/scheduler.go`) bin-packs models onto GPUs at request time.
 - The runner (`api/pkg/runner/`) spawns vLLM/Ollama subprocesses on demand via custom Go runtimes (`vllm_runtime.go`, `ollama_runtime.go`), each on a random localhost port.

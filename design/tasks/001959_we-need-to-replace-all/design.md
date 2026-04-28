@@ -1,4 +1,7 @@
-# Design: Compose-Profile Runner
+# Design: Unified Helix Worker (compose-profile inference + Hydra agent desktops)
+
+> **2026-04-28 architectural pivot:** the original draft of this design described a "compose-profile runner" replacing the existing runner while leaving Sandbox alone. After implementing the foundation layer we observed that the new runner and Sandbox are structurally the same thing — both are DinD wrappers around GPU containers — and decided to unify them into a single deployable artifact. This document captures the unified design. Decisions 12 and 13 explain the unification specifically; the rest of the doc reads naturally with "worker" = the unified artifact.
+
 
 ## Architecture Overview
 
@@ -432,6 +435,130 @@ What's done and what subsequent agents should build on:
 - **`api/pkg/runner/` won't compile in CGO_ENABLED=0 environments** until the deletion of `memory_estimation_handlers.go` and the Ollama Go SDK imports (AC8 + Decision 8). This is why the router lives in `api/pkg/runnerrouter/` rather than as a sibling file. Future agents adding more API-server-side code that's logically "part of the runner subsystem" should put it under a new sibling package (or `api/pkg/runnerXXX/`) rather than inside `api/pkg/runner/` until the rewrite lands.
 - **`store_mocks.go` must be regenerated** with `mockgen -source store.go -destination store_mocks.go -package store` whenever the `Store` interface gains methods. Caught by `*store.MockStore does not implement store.Store` build errors.
 - **The CLAUDE.md test pattern requires CGo** for tree-sitter and other packages. Foundation packages in this PR were intentionally written CGO-free (no Ollama, no tree-sitter, no other native deps) so they test cleanly without `gcc`/`libc6-dev` on the host. Keep new foundation code CGO-free where possible.
+
+## Decision 12: Unify Runner and Sandbox into a Single "Worker" Image
+
+**Context:** today's Sandbox container (`Dockerfile.sandbox`) and the new
+compose-profile runner are converging structurally. Sandbox runs an inner
+dockerd to host dynamic agent desktop containers via Hydra. The new runner
+runs an inner dockerd to host static LLM inference containers via the
+compose manager. They differ in *what they orchestrate* (dynamic desktops
+vs. declarative inference), not in *how they orchestrate* (DinD with GPU
+passthrough).
+
+**Decision:** ship one Docker image — `Dockerfile.worker` — that bundles
+both subsystems. Operators deploy one pod type. Per worker (per assigned
+profile) they choose what mix runs there: pure inference, pure agent
+desktops, or mixed.
+
+### What lives in the worker image
+
+| Component | Source | Role |
+|-----------|--------|------|
+| Inner dockerd | from Sandbox base | host all GPU containers |
+| nvidia-container-toolkit + AMD container runtime | shared | dual-vendor GPU passthrough |
+| Hydra (Go binary) | unchanged from today | per-scope desktop dockerd isolation; spawn agent containers on demand |
+| Compose manager (Go binary, new) | this work | apply assigned inference profile; pull / up / down compose stacks |
+| Inference proxy (Go binary, new) | this work | body-aware reverse proxy: model name → container in inner dockerd |
+| Status reporter (Go) | shared | report per-GPU inventory + active services + active desktop sessions |
+
+The two binaries — `hydra` and the new compose manager — coexist as
+separate processes managed by `s6-overlay` (or whatever supervisor
+Sandbox uses today). They share the inner dockerd and the host GPU
+inventory; they don't talk to each other directly. The API server has
+both subsystems active simultaneously and routes accordingly.
+
+### What "mixed workload" looks like in a profile
+
+A worker profile is still a Docker Compose YAML. Inference services are
+declared as before:
+
+```yaml
+services:
+  vllm-qwen:
+    image: vllm/vllm-openai:latest
+    deploy: { resources: { reservations: { devices: [{driver: nvidia, device_ids: ["0","1"]}]}}}
+```
+
+For mixed-mode profiles, the operator additionally declares the GPU
+pool that Hydra is allowed to use for dynamic agent desktops:
+
+```yaml
+services:
+  vllm-qwen:
+    deploy: { resources: { reservations: { devices: [{driver: nvidia, device_ids: ["0","1"]}]}}}
+  vllm-embedding:
+    deploy: { resources: { reservations: { devices: [{driver: nvidia, device_ids: ["2"]}]}}}
+
+x-helix:
+  hydra-gpu-pool: ["3", "4", "5", "6", "7"]
+```
+
+The `x-helix` extension is a top-level compose key that holds Helix-
+specific metadata that doesn't fit the standard schema. The compose
+parser extracts `hydra-gpu-pool` and exposes it to Hydra at profile-apply
+time so Hydra knows which GPU indices it may schedule against.
+
+If `x-helix.hydra-gpu-pool` is absent, the worker is "pure inference" —
+Hydra is present but receives no GPU pool and refuses to spawn
+GPU-requiring agent sessions on this worker. Conversely, an empty
+`services:` map means "pure agent" — no inference, all GPUs go to Hydra.
+
+### Why this is cheap to do now
+
+- `runnerrouter` (already shipped) routes inference. Hydra (already
+  shipped) routes agent sessions. They don't compete; they consume
+  the same node inventory in non-overlapping ways.
+- `composeparse` (already shipped) only needs an `x-helix` extraction
+  pass, which is one extra YAML field to read.
+- `profile.RunnerProfile` (already shipped) gains an optional
+  `HydraGPUPool []string` field. Compatibility checks unchanged.
+- `Dockerfile.worker` is `Dockerfile.sandbox` with the new compose
+  manager and inference proxy binaries copied in.
+
+### What the unification does NOT change
+
+- The compose-based inference path (Decisions 1–11): still applies,
+  still validated by the same tests.
+- Hydra's per-scope dockerd isolation: unchanged.
+- The deletion mandate (AC8) for the existing runner Go code: still
+  applies — the old `api/pkg/runner/` is gone, replaced by the new
+  worker-side code.
+- The CGO investigation (Decision 8): still applies to the worker
+  image, with the wrinkle that Hydra's existing CGO-free build is
+  preserved.
+
+## Decision 13: Unified Worker Status, Not Two Status Surfaces
+
+The API server currently surfaces two separate status types in the admin
+UI: `RunnerStatus` (per-GPU memory, slots, models) and `SandboxInstance`
+(connected sandboxes, sessions, health). After unification these collapse
+into one `WorkerStatus`:
+
+```go
+type WorkerStatus struct {
+    ID            string                  // worker ID (NATS-reported)
+    URL           string                  // address for proxying
+    Version       string
+    LastSeen      time.Time
+
+    // Hardware inventory (was RunnerStatus.GPUs).
+    GPUs          []GPUStatus             // per-GPU: vendor, arch, total/used VRAM, model name
+
+    // Inference subsystem state (replaces RunnerStatus.Slots / .Models).
+    ActiveProfile *RunnerProfile          // nil if no profile assigned
+    ProfileStatus string                  // "running" | "starting" | "pulling" | ...
+    ServiceHealth map[string]string       // service name → "healthy" | "starting" | "failed"
+
+    // Agent subsystem state (was SandboxInstance fields).
+    HydraGPUPool  []string                // GPU indices reserved for Hydra (from profile x-helix)
+    Sessions      []DesktopSessionSummary // active agent desktops
+}
+```
+
+The frontend gets one `WorkerSummary` card that shows per-GPU usage,
+inference services, and active desktop sessions. The two existing UI
+trees (`RunnerSummary`, `AgentSandboxes`) collapse into one.
 
 ## Open Questions
 

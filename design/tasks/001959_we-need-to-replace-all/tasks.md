@@ -1,5 +1,10 @@
 # Implementation Tasks
 
+> **2026-04-28 architectural pivot:** the task list below originally talked about replacing only the Runner. We have unified Runner and Sandbox into a single "worker" image (see Decision 12 in design.md). Where a task references "runner image" or "runner binary," it now means the unified worker. Where it references "runner profile assignment" or "inference router," those concepts are unchanged — the inference subsystem inside the worker. Hydra-related tasks have been added at the end. Naming changes:
+> - `runnerrouter` Go package → `inferencerouter` (router routes *inference*; the worker as a whole hosts more than inference).
+> - `Dockerfile.runner` → `Dockerfile.worker` (bundles Hydra + compose manager + inference proxy).
+
+
 ## Spike (do first, may invalidate parts of the design)
 
 - [ ] **BLOCKED — needs GPU host.** Confirm GPU passthrough into nested dockerd works (`--gpus all` on outer + nvidia-container-toolkit in inner image). **Use a tiny model** — the dev hardware is a single 16 GB GPU shared with desktop workloads, so the user's full sample compose (8 GPUs, ~700 GB total VRAM) is irrelevant for derisking. Pick something like `Qwen/Qwen2.5-0.5B-Instruct` on vLLM with `--gpu-memory-utilization 0.2 --max-model-len 4096` on `device_ids: ["0"]`. The spike is "does the GPU show up inside the inner container and produce one valid completion?" — nothing more. If GPU passthrough doesn't work, revisit Decision 1 in `design.md` before any other implementation. Save the working tiny-spike compose as `design/sample-profiles/dev-spike-tiny.yaml` so future agents on similar hardware can re-run it.
@@ -198,7 +203,21 @@ AMD's containerised GPU story is different from NVIDIA's: there is no single `--
 - [ ] **Rewrite-not-refactor litmus test:** `git grep -nE "Runtime\b|VLLMRuntime|OllamaRuntime|slotState|perSlotProxy|slotURL"` in the new `api/pkg/runner/` returns nothing. If any of those internal abstractions appear in the new code, the implementer regressed toward the old design and the rewrite framing has been violated — push back in review.
 - [ ] `frontend/` builds clean; no unused imports flagged by tsc/eslint.
 
-## CGO-Free Runner Build (Adopt After Deletions)
+## Worker Unification (NEW — 2026-04-28 pivot)
+
+- [ ] Rename `api/pkg/runnerrouter/` → `api/pkg/inferencerouter/` (and update all imports).
+- [ ] Add `HydraGPUPool []string` field to `types.RunnerProfile.GPURequirement` (or as a sibling field; an `x-helix` block on the parsed profile).
+- [ ] Extend `composeparse.Parse` to read top-level `x-helix.hydra-gpu-pool` and surface it on `ParseResult`.
+- [ ] Persist `HydraGPUPool` on `RunnerProfile` (jsonb).
+- [ ] Add a unified `types.WorkerStatus` (combining today's `RunnerStatus` + `SandboxInstance` shape — see Decision 13). Drop the slot-related fields per AC8.
+- [ ] Build `Dockerfile.worker` from Sandbox base, copying in the new compose-manager + inference-proxy binaries (see Worker Image task block).
+- [ ] Compose subsystem and Hydra subsystem coexist as separate processes in the worker, supervised by Sandbox's existing supervisor.
+- [ ] On profile assignment, pass `hydra-gpu-pool` to Hydra so it knows which GPUs it may schedule against.
+- [ ] If `x-helix.hydra-gpu-pool` is empty/absent, Hydra rejects GPU-requiring desktop sessions on this worker (pure-inference worker).
+- [ ] If `services:` is empty, the compose manager is a no-op (pure-agent worker).
+- [ ] Frontend: collapse `RunnerSummary` + `AgentSandboxes` into a single `WorkerSummary` card (per-GPU usage, inference services, active desktop sessions).
+
+## CGO-Free Worker Build (Adopt After Deletions)
 
 **Important:** the API server keeps `CGO_ENABLED=1` and `-tags ORT`. `github.com/yalue/onnxruntime_go` is required by **Kodit** (`api/pkg/server/kodit_init.go:261` — `preflightORT()` checks for `libonnxruntime.so` when Kodit's local ONNX embedder is in use). Kodit is unrelated to runners and we do not touch it. **Do not** drop the ORT dep, do not remove `-tags ORT`, do not flip the API server's `Dockerfile` to CGO=0.
 
