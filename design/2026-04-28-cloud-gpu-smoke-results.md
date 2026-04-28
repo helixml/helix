@@ -4,12 +4,28 @@ End-to-end validation of the helix sandbox-absorbs-runner architecture on real c
 
 ## TL;DR
 
-Architecture works on real cloud GPU VMs from both providers. Total spend: **$0.56** (Verda $0.43 + Hot Aisle $0.13).
+Architecture works on real cloud GPU VMs from both providers, single-GPU and multi-GPU. Total spend: **$3.95** (Verda $3.82 + Hot Aisle $0.13).
 
 | Provider | Hardware | Result | Spend |
 |---|---|---|---|
 | Verda | 1× A100 80GB SXM4 (FIN-01) | ✅ Sandbox boots, nested DinD with NVIDIA runtime, vLLM serves Qwen 0.5B chat completion through 2 layers of Docker | $0.43 |
 | Hot Aisle | 1× MI300X 192GB | ✅ Sandbox boots, nested DinD with AMD passthrough, ROCm visible inside inner DinD via `rocm-smi` | $0.13 |
+| Verda | 4× RTX PRO 6000 Blackwell (FIN-03) | ✅ All 4 GPUs visible in nested DinD; tensor-parallel-2 vLLM serves chat completion ("YES") with weights sharded across 2 Blackwells; Hydra spawns helix-ubuntu desktop container with correct GPU detection | $3.39 |
+
+## Multi-GPU + desktop test (4× RTX PRO 6000 Blackwell)
+
+Provisioned a 4× RTX PRO 6000 Blackwell box on Verda FIN-03 ($6.76/hr, 384 GB total VRAM) and put the new architecture through its paces:
+
+- **All 4 Blackwell GPUs visible inside nested DinD**: `nvidia-smi -L` from `docker exec helix-sandbox bash -lc 'docker run --rm --gpus all nvidia/cuda:12.8 nvidia-smi -L'` listed all four `NVIDIA RTX PRO 6000 Blackwell Server Edition` cards. Confirms the `--gpus all --runtime=nvidia` flag carries through both Docker layers without per-GPU hand-waving.
+- **Tensor-parallel inference works**: vLLM with `--tensor-parallel-size 2 --device_ids ["0","1"]` initialized NCCL world_size=2, sharded Qwen 2.5 0.5B across two Blackwells, and answered a chat completion ("YES"). Both GPUs showed 1833 MiB used in `nvidia-smi`. (TP=4 was attempted; failed because Qwen 0.5B has 14 attention heads which isn't divisible by 4 — vLLM's own validation, not an architecture issue. TP=4 with a 7B model started loading correctly but stalled on HF download — bandwidth issue on the cloud egress, not architecture.)
+- **Hydra spawns desktop containers via its socket API**: a `POST /api/v1/dev-containers` against `unix:///var/run/hydra/hydra.sock` returned 201 Created with a real container running, including:
+  - `render_node: /dev/dri/renderD128` (Hydra picked GPU 0)
+  - `gpu_vendor: nvidia`
+  - All 4 cards (`/dev/dri/card1-4` + `renderD128-131`) chmod'd to the `video` group
+  - `detect-render-node.sh` correctly identified the NVIDIA driver, picked GPU 0, set `WLR_DRM_DEVICES=/dev/dri/card1` for Sway, created udev entries for Mutter (`/run/udev/data/c226:128`)
+- **Important quirk discovered**: Hydra rejects `image: foo:latest` with the explicit error *"image uses :latest tag - API should resolve versions from sandbox heartbeat, not pass :latest to Hydra"*. Production caller (helix API) reads the version from the sandbox's heartbeat; the manual smoke needed `helix-ubuntu:ea6ccc` instead.
+
+The desktop container itself exited cleanly after cont-init.d completed because we didn't mount `/var/lib/docker` and didn't have a real Helix API for the WebSocket sync — the container expects to be driven by the full helix stack. The architectural pieces (Hydra spawn, GPU detection, per-GPU device permissions, udev for Mutter) are all confirmed working on cloud GPU. Full end-to-end desktop streaming is a separate test that needs the live helix API + frontend, not just the sandbox.
 
 ## What was validated
 
