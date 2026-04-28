@@ -1591,18 +1591,46 @@ func (apiServer *HelixAPIServer) getOrCreateStreamingContext(ctx context.Context
 	// When the user types in Zed, the interaction is created without a mapping.
 	// Zed reuses the same request_id for the response, so we need to register
 	// it here so handleMessageCompleted can route correctly.
-	if requestID != "" && newInteractionID != "" && newInteractionID != expectedInteractionID {
+	//
+	// CRITICAL: distinguish "request_id never seen" from "request_id already
+	// consumed by handleMessageCompleted (sentinel '')". The wrapper inside Zed
+	// buffers events that aren't direct ACP responses (background bash, hooks,
+	// subagent completions, etc. — see auto_wake_stuck_interactions.go) and
+	// flushes them later tagged with the *last* request_id it saw. Those
+	// flushed events show up here with a request_id whose mapping was already
+	// consumed; rebinding that consumed sentinel to the current Waiting
+	// interaction defeats handleMessageCompleted's duplicate-completion dedup
+	// and prematurely marks an unrelated mid-turn interaction Complete. See
+	// design/2026-04-28-stale-request-id-rebind-loses-zed-updates.md.
+	if requestID != "" && newInteractionID != "" {
 		apiServer.contextMappingsMutex.Lock()
 		if apiServer.requestToInteractionMapping == nil {
 			apiServer.requestToInteractionMapping = make(map[string]string)
 		}
-		apiServer.requestToInteractionMapping[requestID] = newInteractionID
-		apiServer.contextMappingsMutex.Unlock()
-		log.Info().
-			Str("session_id", helixSessionID).
-			Str("request_id", requestID).
-			Str("interaction_id", newInteractionID).
-			Msg("🗺️ [HELIX] Populated requestToInteractionMapping from streaming context (Zed-initiated message)")
+		existing, alreadySeen := apiServer.requestToInteractionMapping[requestID]
+		switch {
+		case alreadySeen && existing == "":
+			// Stale wrapper replay — leave the consumed sentinel in place so the
+			// follow-up message_completed is dropped by the dedup. Streaming
+			// tokens still flow into the current interaction via the most-recent-
+			// Waiting fallback at line 1551-1558, so no content is lost.
+			apiServer.contextMappingsMutex.Unlock()
+			log.Debug().
+				Str("session_id", helixSessionID).
+				Str("request_id", requestID).
+				Str("would_have_bound", newInteractionID).
+				Msg("🛡️ [HELIX] Ignoring stale request_id rebind (mapping previously consumed by completion)")
+		case existing != newInteractionID:
+			apiServer.requestToInteractionMapping[requestID] = newInteractionID
+			apiServer.contextMappingsMutex.Unlock()
+			log.Info().
+				Str("session_id", helixSessionID).
+				Str("request_id", requestID).
+				Str("interaction_id", newInteractionID).
+				Msg("🗺️ [HELIX] Populated requestToInteractionMapping from streaming context (Zed-initiated message)")
+		default:
+			apiServer.contextMappingsMutex.Unlock()
+		}
 	}
 
 	// If we have an existing context (from a transition), update it instead of creating new

@@ -1264,6 +1264,79 @@ func (s *WebSocketSyncSuite) TestFindSessionByZedThreadID_NotFound() {
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
+// getOrCreateStreamingContext — stale request_id rebind protection
+// (regression for design/2026-04-28-stale-request-id-rebind-loses-zed-updates.md)
+// ──────────────────────────────────────────────────────────────────────────────
+
+func (s *WebSocketSyncSuite) TestStreamingContext_StaleRequestIDRebind_PreservesConsumedSentinel() {
+	// Scenario reproduced from the spt_01kq8cnjzfqc51nn0c6ddxkw8r incident:
+	// 1. handleMessageCompleted previously consumed the mapping for req_X by
+	//    setting requestToInteractionMapping[req_X] = "" (the dedup sentinel).
+	// 2. The wrapper inside Zed flushes a buffered message_added later, tagged
+	//    with the *stale* req_X.
+	// 3. getOrCreateStreamingContext is called with helixSessionID + req_X for
+	//    that flushed event, finds the most-recent Waiting interaction (a
+	//    different turn), and used to overwrite the consumed sentinel — which
+	//    later let a stale message_completed for req_X mark the new turn
+	//    complete prematurely.
+	//
+	// After the fix the rebind must be skipped when the existing mapping is the
+	// consumed sentinel; the sentinel must remain "" so the next stale
+	// message_completed is routed through the duplicate-detection branch.
+
+	s.server.requestToInteractionMapping["req_stale"] = "" // pre-consumed sentinel
+
+	helixSession := &types.Session{ID: "ses_stale", GenerationID: 1}
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_stale").Return(helixSession, nil)
+	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(
+		[]*types.Interaction{
+			{ID: "int-old", State: types.InteractionStateComplete},
+			{ID: "int-new", State: types.InteractionStateWaiting},
+		},
+		int64(2), nil,
+	)
+
+	sctx := s.server.getOrCreateStreamingContext(context.Background(), "ses_stale", "req_stale")
+	s.NotNil(sctx)
+	// Streaming context must still find an interaction to attach content to —
+	// the most-recent Waiting one — because the wrapper's buffered tokens have
+	// to land somewhere visible to the user.
+	s.Equal("int-new", sctx.interactionID)
+
+	// The consumed sentinel must be intact so handleMessageCompleted's dedup
+	// drops the stale completion that follows.
+	s.server.contextMappingsMutex.Lock()
+	mapped, exists := s.server.requestToInteractionMapping["req_stale"]
+	s.server.contextMappingsMutex.Unlock()
+	s.True(exists, "mapping entry should still exist")
+	s.Equal("", mapped, "consumed sentinel must NOT be overwritten by stale rebind")
+}
+
+func (s *WebSocketSyncSuite) TestStreamingContext_FirstSightRequestID_RegistersMapping() {
+	// Counterpart to the test above: when the request_id has never been seen
+	// (genuine Zed-initiated message — user typed in Zed, no prior dispatch
+	// from Helix), the mapping MUST still be populated so handleMessageCompleted
+	// can route the eventual completion correctly.
+
+	helixSession := &types.Session{ID: "ses_fresh", GenerationID: 1}
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_fresh").Return(helixSession, nil)
+	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(
+		[]*types.Interaction{{ID: "int-fresh", State: types.InteractionStateWaiting}},
+		int64(1), nil,
+	)
+
+	sctx := s.server.getOrCreateStreamingContext(context.Background(), "ses_fresh", "req_fresh")
+	s.NotNil(sctx)
+	s.Equal("int-fresh", sctx.interactionID)
+
+	s.server.contextMappingsMutex.Lock()
+	mapped, exists := s.server.requestToInteractionMapping["req_fresh"]
+	s.server.contextMappingsMutex.Unlock()
+	s.True(exists)
+	s.Equal("int-fresh", mapped, "first-sight request_id must be registered for completion routing")
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
 // handleThreadLoadError tests — Claude Agent crash detection
 // ──────────────────────────────────────────────────────────────────────────────
 
