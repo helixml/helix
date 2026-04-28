@@ -344,6 +344,8 @@ func NewServer(
 		scheduler:         scheduler,
 		inferenceRouter:   inferencerouter.NewRouter(),
 		pingService:       pingService,
+		// Note: inferenceServer's router wired below post-construction
+		// (avoids order-of-init issues with the apiServer literal).
 		authenticator:     authenticator,
 		oidcClient:        oidcClient,
 		oauthManager:      oauthManager,
@@ -366,6 +368,14 @@ func NewServer(
 		sampleProjectCodeService: services.NewSampleProjectCodeService(),
 		connman:                  connectionManager,
 		auditLogService:          services.NewAuditLogService(store),
+	}
+
+	// Sandbox-absorbs-runner: wire the inference router into the
+	// internal helix server so it picks sandboxes by model name. Safe
+	// to call even when no sandboxes are connected — the router returns
+	// ErrNoRunner and enqueueRequest falls back to the scheduler path.
+	if apiServer.inferenceServer != nil {
+		apiServer.inferenceServer.SetInferenceRouter(apiServer.inferenceRouter)
 	}
 
 	contextMappings := &controller.ExternalAgentRequestContextMappings{

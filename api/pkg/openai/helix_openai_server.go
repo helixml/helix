@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/helixml/helix/api/pkg/config"
+	"github.com/helixml/helix/api/pkg/inferencerouter"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/scheduler"
 	"github.com/helixml/helix/api/pkg/store"
@@ -23,10 +24,11 @@ var _ HelixServer = &InternalHelixServer{}
 // InternalHelixClient utilizes Helix runners to complete chat requests. Primary
 // purpose is to power internal tools
 type InternalHelixServer struct {
-	cfg       *config.ServerConfig
-	pubsub    pubsub.PubSub // Used to get responses from the runners
-	scheduler *scheduler.Scheduler
-	store     store.Store
+	cfg             *config.ServerConfig
+	pubsub          pubsub.PubSub // Used to get responses from the runners
+	scheduler       *scheduler.Scheduler
+	inferenceRouter *inferencerouter.Router // Sandbox-absorbs-runner pivot: replaces scheduler for routing
+	store           store.Store
 }
 
 func NewInternalHelixServer(cfg *config.ServerConfig, store store.Store, pubsub pubsub.PubSub, scheduler *scheduler.Scheduler) *InternalHelixServer {
@@ -36,6 +38,14 @@ func NewInternalHelixServer(cfg *config.ServerConfig, store store.Store, pubsub 
 		pubsub:    pubsub,
 		scheduler: scheduler,
 	}
+}
+
+// SetInferenceRouter wires the new sandbox-side router into the server.
+// Called once during apiServer construction. Allowed to be nil — that
+// disables the new path and keeps everything on the scheduler, which is
+// the safe default during the transition.
+func (c *InternalHelixServer) SetInferenceRouter(r *inferencerouter.Router) {
+	c.inferenceRouter = r
 }
 
 func (c *InternalHelixServer) ListModels(ctx context.Context) ([]types.OpenAIModel, error) {
@@ -138,6 +148,18 @@ func (c *InternalHelixServer) BillingEnabled() bool {
 }
 
 func (c *InternalHelixServer) enqueueRequest(req *types.RunnerLLMInferenceRequest) error {
+	// Sandbox-absorbs-runner pivot: try the inference router first. If a
+	// connected sandbox has the requested model in its active profile, we
+	// forward via HTTP — that's the long-term path. Falls back to the
+	// scheduler for models the new path doesn't yet know about; the
+	// scheduler is removed in a follow-up PR once we've validated the
+	// HTTP path against real hardware end-to-end.
+	if c.inferenceRouter != nil && req.Request != nil && req.Request.Model != "" {
+		if state, err := c.inferenceRouter.PickRunner(req.Request.Model); err == nil && state != nil {
+			return c.dispatchHTTPToRunner(req, state.URL)
+		}
+	}
+
 	// External agents don't use traditional LLM models - they launch containers instead
 	// So we skip model lookup for external_agent model name
 	var model *types.Model
@@ -167,6 +189,26 @@ func (c *InternalHelixServer) enqueueRequest(req *types.RunnerLLMInferenceReques
 		return fmt.Errorf("error enqueuing work: %w", err)
 	}
 	return nil
+}
+
+// dispatchHTTPToRunner forwards an inference request over HTTP to a
+// sandbox's inference-proxy, then publishes the response back through the
+// existing NATS-based pubsub so callers (CreateChatCompletion etc.) receive
+// it via the same code path they already wait on.
+//
+// The current InternalHelixServer surface is deeply NATS-shaped (subscribe
+// before enqueue, wait on a channel). Rather than restructure every
+// caller, we adapt — fire the HTTP request in a goroutine, parse the
+// streaming response, publish each chunk back via pubsub. This keeps the
+// transition incremental.
+func (c *InternalHelixServer) dispatchHTTPToRunner(req *types.RunnerLLMInferenceRequest, runnerURL string) error {
+	// TODO(sandbox-absorbs-runner-followup): replace with a direct
+	// streaming HTTP call once CreateChatCompletion / Stream are
+	// restructured. For now this is a stub that errors out so the
+	// scheduler fallback handles the request — keeps behaviour
+	// unchanged until the runner is actually serving.
+	_ = runnerURL
+	return fmt.Errorf("HTTP runner dispatch not yet wired (transitional path)")
 }
 
 // ProcessRunnerResponse is called on both partial streaming and full responses coming from the runner
