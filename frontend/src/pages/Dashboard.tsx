@@ -41,6 +41,7 @@ import { TypesWorkloadSummary, TypesDashboardRunner } from "../api/api";
 import ProviderEndpointsTable from "../components/dashboard/ProviderEndpointsTable";
 import OAuthProvidersTable from "../components/dashboard/OAuthProvidersTable";
 import HelixModelsTable from "../components/dashboard/HelixModelsTable";
+import RunnerProfilesTable from "../components/dashboard/RunnerProfilesTable";
 import PricingTable from "../components/dashboard/PricingTable";
 import SchedulingDecisionsTable from "../components/dashboard/SchedulingDecisionsTable";
 import GlobalSchedulingVisualization from "../components/dashboard/GlobalSchedulingVisualization";
@@ -637,6 +638,12 @@ const Dashboard: FC<DashboardProps> = ({ tab = "llm_calls" }) => {
                         }}
                     >
                         <HelixModelsTable />
+                    </Box>
+                )}
+
+                {tab === "runner_profiles" && account.admin && (
+                    <Box sx={{ width: "100%", p: 2 }}>
+                        <RunnerProfilesTable />
                     </Box>
                 )}
 
