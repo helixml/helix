@@ -1,6 +1,9 @@
 # Changelog
 
-## [Unreleased]
+## [2.11.0-rc2]
+
+### Fixed
+- Removed the Bitnami PostgreSQL subchart dependency that was inadvertently still being rendered. `helm upgrade` deletes the orphaned Bitnami `postgresql` StatefulSet. See [UPGRADE.md](UPGRADE.md) for the optional PVC cleanup.
 
 ## [2.9.0] - 2026-03-13
 
