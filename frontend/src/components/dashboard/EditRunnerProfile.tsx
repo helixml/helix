@@ -21,9 +21,13 @@ import {
   useCreateRunnerProfile,
   useUpdateRunnerProfile,
 } from "../../services/runnerProfilesService";
+import { PickedTemplate } from "./ProfileGallery";
 
 interface Props {
   profile?: RunnerProfile;
+  // When opening "from template" the gallery hands a PickedTemplate;
+  // we use it to pre-populate the form on first render.
+  template?: PickedTemplate;
   onClose: () => void;
 }
 
@@ -61,21 +65,26 @@ services:
       - "0.20"
 `;
 
-const EditRunnerProfile: FC<Props> = ({ profile, onClose }) => {
+const EditRunnerProfile: FC<Props> = ({ profile, template, onClose }) => {
   const isEdit = Boolean(profile);
-  const [name, setName] = useState(profile?.name || "");
-  const [description, setDescription] = useState(profile?.description || "");
-  const [composeYAML, setComposeYAML] = useState(profile?.compose_yaml || SAMPLE_COMPOSE);
-  const [vendor, setVendor] = useState<"" | "nvidia" | "amd">(
-    (profile?.gpu_requirement?.vendor as "" | "nvidia" | "amd") || "",
-  );
-  const [architectures, setArchitectures] = useState<string>(
-    (profile?.gpu_requirement?.architectures || []).join(", "),
-  );
-  const [modelMatch, setModelMatch] = useState(profile?.gpu_requirement?.model_match || "");
-  const [minVRAMBytes, setMinVRAMBytes] = useState(
-    profile?.gpu_requirement?.min_vram_bytes?.toString() || "",
-  );
+  // Initial values prefer the existing profile, then a freshly-picked
+  // template, then sample defaults.
+  const init = {
+    name: profile?.name || template?.name || "",
+    description: profile?.description || template?.description || "",
+    composeYAML: profile?.compose_yaml || template?.composeYAML || SAMPLE_COMPOSE,
+    vendor: (profile?.gpu_requirement?.vendor as "" | "nvidia" | "amd") || template?.vendor || "",
+    architectures: (profile?.gpu_requirement?.architectures || template?.architectures || []).join(", "),
+    modelMatch: profile?.gpu_requirement?.model_match || template?.modelMatch || "",
+    minVRAMBytes: (profile?.gpu_requirement?.min_vram_bytes ?? template?.minVRAMBytes ?? 0).toString(),
+  };
+  const [name, setName] = useState(init.name);
+  const [description, setDescription] = useState(init.description);
+  const [composeYAML, setComposeYAML] = useState(init.composeYAML);
+  const [vendor, setVendor] = useState<"" | "nvidia" | "amd">(init.vendor);
+  const [architectures, setArchitectures] = useState<string>(init.architectures);
+  const [modelMatch, setModelMatch] = useState(init.modelMatch);
+  const [minVRAMBytes, setMinVRAMBytes] = useState(init.minVRAMBytes === "0" ? "" : init.minVRAMBytes);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
   const createMutation = useCreateRunnerProfile();

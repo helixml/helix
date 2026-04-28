@@ -25,6 +25,7 @@ import {
   useListRunnerProfiles,
 } from "../../services/runnerProfilesService";
 import EditRunnerProfile from "./EditRunnerProfile";
+import ProfileGallery, { PickedTemplate } from "./ProfileGallery";
 
 const formatBytes = (n?: number) => {
   if (!n) return "—";
@@ -39,6 +40,8 @@ const RunnerProfilesTable: FC = () => {
 
   const [editing, setEditing] = useState<RunnerProfile | null>(null);
   const [creating, setCreating] = useState(false);
+  const [galleryOpen, setGalleryOpen] = useState(false);
+  const [template, setTemplate] = useState<PickedTemplate | null>(null);
 
   if (isLoading) return <CircularProgress />;
   if (error) {
@@ -63,9 +66,14 @@ const RunnerProfilesTable: FC = () => {
     <Box sx={{ width: "100%" }}>
       <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 2 }}>
         <Typography variant="h5">Runner Profiles</Typography>
-        <Button startIcon={<AddIcon />} variant="contained" onClick={() => setCreating(true)}>
-          New profile
-        </Button>
+        <Box sx={{ display: "flex", gap: 1 }}>
+          <Button startIcon={<AddIcon />} variant="outlined" onClick={() => setCreating(true)}>
+            Blank
+          </Button>
+          <Button startIcon={<AddIcon />} variant="contained" onClick={() => setGalleryOpen(true)}>
+            From template
+          </Button>
+        </Box>
       </Box>
 
       <Typography variant="body2" sx={{ mb: 2, color: "text.secondary" }}>
@@ -155,12 +163,24 @@ const RunnerProfilesTable: FC = () => {
       {(creating || editing) && (
         <EditRunnerProfile
           profile={editing || undefined}
+          template={template || undefined}
           onClose={() => {
             setEditing(null);
             setCreating(false);
+            setTemplate(null);
           }}
         />
       )}
+
+      <ProfileGallery
+        open={galleryOpen}
+        onClose={() => setGalleryOpen(false)}
+        onPick={(t) => {
+          setTemplate(t);
+          setCreating(true);
+          setGalleryOpen(false);
+        }}
+      />
     </Box>
   );
 };
