@@ -1,4 +1,4 @@
-# Sandbox absorbs runner: compose-based inference, scheduler deleted, RunPod test harness scaffolded
+# Sandbox absorbs runner: compose-based inference, scheduler deleted, multi-provider GPU-cloud test harness scaffolded
 
 Replaces the entire runner / scheduler / slot infrastructure with the
 sandbox-absorbs-runner architecture. Sandbox bundles two new binaries
@@ -63,17 +63,36 @@ involvement.
 - `dev-spike-tiny.yaml` — Qwen2.5-0.5B at 20% VRAM (the spike profile).
 - `README.md` documenting conventions.
 
-### RunPod-backed integration test harness (Decision 14)
-Full scaffolding shipped, **awaiting `RUNPOD_API_KEY` for live runs**:
-- `integration-test/runpod/matrix.yaml` — 5 form-factor entries enabled (RTX 4090, 1×H100 SXM, 4×H100 SXM, 1×A100, 1×MI300X) + 1 deferred (Blackwell).
-- `cmd/runpod-it/main.go` — harness binary with `--dry-run`, `--only`, `--no-cache`, `--parallel`, `--max-daily-usd` flags.
-- `internal/provision/` — RunPod REST API client + dry-run stub.
+### Multi-provider GPU-cloud integration test harness (Decision 14, amended)
+Full scaffolding shipped, **awaiting Hot Aisle + Verda API keys for live runs**:
+- `integration-test/gpucloud/matrix.yaml` — 5 entries matching the **customer's actual deployment**: 1× node of 4× A100 80GB SXM4, 3× nodes of 4× L40S, 1× node of 8× MI300X 192GB.
+- `cmd/gpucloud-it/main.go` — harness binary with `--dry-run`, `--only`, `--no-cache`, `--parallel`, `--max-daily-usd` flags.
+- `internal/provision/` — `Multi` dispatcher with two real implementations: **Hot Aisle** for AMD MI300X (`hotaisle.go`) and **Verda** (was DataCrunch) for NVIDIA L40S/A100 (`verda.go`). Shared `cloudinit.go` builds the bootstrap script per GPU vendor.
 - `internal/scenarios/` — seven scenarios (boot smoke, compatibility filter, assignment+apply, inference roundtrip, profile switch, clear, incompatible rejection).
 - `internal/cache/` — green-result cache keyed on (entry-id + profile-yaml-sha + harness-build-sha); 7-day stale cutoff.
 - `internal/report/` — JUnit XML for CI + Markdown for PR comments.
-- Cost controls: 30/35min wall-clock, parallelism cap, daily $ budget that queries RunPod billing API at start.
-- README documenting matrix entries, scenarios, cost controls, and CI integration plan.
-- Dry-run verified: 5 enabled entries listed cleanly.
+- Cost controls: 30/35min wall-clock, parallelism cap, daily $ budget that sums spend across both providers' billing APIs at start.
+- README documenting customer-config matrix, scenarios, cost controls, and CI integration plan.
+- Dry-run verified: 5 enabled entries listed cleanly with correct per-entry provider tags.
+
+**Why two providers instead of one**: see Decision 14 amendment in `design.md`. tl;dr: RunPod's standard pods can't run DinD (no CAP_SYS_ADMIN, AppArmor blocks userns nesting); Lambda/Vultr have zero on-demand stock for our SKUs; Crusoe is sales-gated; TensorDock has no AMD; Vast.ai is container-only on datacenter cards. Hot Aisle (AMD specialist) + Verda (NVIDIA, real KVM VMs) was the only self-serve, real-VM, MI300X-inclusive combination that survived contact.
+
+**Cost per full validation pass**: ~$16 for 30 min (vs the ~$5–20 estimate from the original RunPod-only design — actually cheaper, despite using a more expensive AMD-specialist for the MI300X entry).
+
+### **Live cloud validation done 2026-04-28** (NEW)
+
+**Both NVIDIA and AMD paths verified end-to-end on real cloud GPU VMs.** Total spend: $0.56.
+
+- **Verda 1× A100 80GB** (FIN-01): sandbox boots → nested DinD with NVIDIA runtime → vLLM serves Qwen 0.5B → real chat completion roundtrip ("Yes, I can hear you. How may I assist you today?"). Spend: $0.43.
+- **Hot Aisle 1× MI300X**: sandbox boots → nested DinD with AMD passthrough → ROCm visible inside inner DinD via `rocm-smi` (MI300X VF detected). Spend: $0.13.
+
+The uncertain pieces (DinD-on-cloud-VM, NVIDIA passthrough through 2 layers of Docker, AMD `/dev/kfd` + `/dev/dri` passthrough through 2 layers, sandbox-image cont-init.d on a fresh cloud VM) are all confirmed working. Critical fix discovered: the sandbox needs a named volume mount at `/var/lib/docker` so the inner dockerd doesn't try to nest overlayfs-on-overlayfs (`failed to mount overlay: invalid argument`).
+
+Full smoke notes + provisioner-shape fixes folded back into code: see `design/2026-04-28-cloud-gpu-smoke-results.md`.
+
+### Decision 15 added (deferred): per-session GPU pinning on multi-GPU hosts
+
+When desktops run on a 4× L40S or 8× MI300X box, Hydra needs to pin each session to a specific GPU and have Mutter + GStreamer-encoder use the same GPU. Three coordinated knobs documented in design.md Decision 15; estimated half-day implementation; deferred until we have multi-GPU validation hardware in hand.
 
 ## End-to-end validation on RTX 2000 Ada (real hardware)
 
@@ -108,16 +127,19 @@ go build ./...
 go test ./api/pkg/runner/... ./api/pkg/inferencerouter/ \
         ./api/pkg/composemgr/ ./api/pkg/inferenceproxy/ ./api/pkg/gpudetect/
 
-# RunPod harness dry-run
-go run ./integration-test/runpod/cmd/runpod-it --dry-run
+# GPU-cloud harness dry-run
+go run ./integration-test/gpucloud/cmd/gpucloud-it --dry-run
 ```
 
-Live RunPod runs: blocked on `RUNPOD_API_KEY` provisioning. Once available:
+Live runs: blocked on Hot Aisle + Verda accounts. Once available:
 ```bash
-export RUNPOD_API_KEY=...
+export HOTAISLE_API_KEY=...
+export HOTAISLE_TEAM=helixml
+export VERDA_API_KEY=...
+export VERDA_SSH_KEY_ID=...
 export HELIX_API_URL=https://test.helix.example.com
 export RUNNER_TOKEN=...
-go run ./integration-test/runpod/cmd/runpod-it --only rtx4090
+go run ./integration-test/gpucloud/cmd/gpucloud-it --only node2-l40s-4x  # cheapest single entry
 ```
 
 ## Design references
@@ -126,7 +148,7 @@ go run ./integration-test/runpod/cmd/runpod-it --only rtx4090
 - Design: `helix-specs/design/tasks/001959_we-need-to-replace-all/design.md` (Decisions 1–14)
 - Tasks: `helix-specs/design/tasks/001959_we-need-to-replace-all/tasks.md` (all items closed or `[~]` with reasoning)
 - Sample profiles: `design/sample-profiles/`
-- RunPod harness: `integration-test/runpod/`
+- GPU-cloud harness: `integration-test/gpucloud/`
 - Spike result: design.md "Spike Result (2026-04-28)"
 
 ## Notes for reviewers

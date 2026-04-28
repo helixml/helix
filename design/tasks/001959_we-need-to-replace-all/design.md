@@ -685,6 +685,45 @@ GPU rental is dollars per hour, not cents. The harness must be aggressive about 
 
 This is **planning only**. The first follow-up PR ships the harness scaffolding + matrix; a second PR wires it into Drone with cost controls.
 
+### Amendment 2026-04-28: provider switched to Hot Aisle + Verda; matrix re-scoped to customer config
+
+The RunPod assumption above did not survive contact with reality:
+
+- **RunPod's standard pods cannot run Docker-in-Docker.** No `CAP_SYS_ADMIN`, AppArmor `docker-default (enforce)` blocks `unshare(CLONE_NEWUSER)`, pod is already in a userns. Helix sandbox fundamentally needs DinD (Hydra → desktops, compose-manager → inference). Verified live on three RunPod pods.
+- **AMD MI300X has zero RunPod stock** as of the cutover (their API returned null for every gpuCount). Industry-wide MI300X scarcity, not specific to RunPod.
+- Six self-serve clouds evaluated (RunPod, Lambda, TensorDock, Crusoe, Vultr, Vast.ai). All rejected: container-only, sales-gated, no AMD, or zero stock.
+
+**Replacement vendor split** (see `integration-test/gpucloud/README.md`):
+
+- **Hot Aisle** (admin.hotaisle.app/api/docs/) for AMD MI300X — real VMs, ROCm + Docker preinstalled, $1.99/GPU/hr, self-serve via SSH TUI + Stripe.
+- **Verda** (api.verda.com/v1/docs, formerly DataCrunch) for NVIDIA L40S + A100 80GB — KVM VMs, full root, $0.91 L40S / $1.29 A100 per GPU/hr, self-serve credit card.
+
+Both providers sit behind a single `internal/provision.Multi` dispatcher; matrix entries pick provider via a `provider:` field. Engineering cost was negligible — the Provisioner interface was already provider-agnostic by design.
+
+**Matrix re-scoped** from "all GPU form factors we might support" to **customer-deployment validation**: 1× node of 4× A100 80GB, 3× nodes of 4× L40S each, 1× node of 8× MI300X. Generic-form-factor entries (RTX 4090, single-H100) were dropped because the actual customer deployment doesn't include them — paying to test irrelevant hardware was wasted spend.
+
+Full matrix-pass cost: **~$16 per 30-min validation**. Live runs blocked only on user signing up at hotaisle.xyz + console.verda.com (both self-serve, takes minutes).
+
+## Decision 15: Per-session GPU pinning on multi-GPU hosts (deferred)
+
+On a multi-GPU host (e.g. customer's 8× MI300X node, the 4× L40S nodes), Hydra-spawned desktop sessions need to be pinned to a specific GPU so:
+
+- Sessions don't all crowd onto GPU 0 by default;
+- The Mutter compositor renders on the chosen GPU;
+- The desktop-bridge GStreamer encoder (NV-ENC for NVIDIA, VA-API for AMD) uses the same GPU as the compositor — otherwise we cross-GPU memory-copy every frame.
+
+**Three coordinated knobs**:
+
+1. **Container-level (Hydra)**: today `api/pkg/hydra/devcontainer.go` passes `NVIDIA_VISIBLE_DEVICES=all` and globs all `/dev/dri/renderD*`. Per-session pinning: take a `gpu_index` parameter, emit `NVIDIA_VISIBLE_DEVICES=<n>` (NVIDIA) or `--device /dev/dri/renderD<128+n>` only (AMD).
+2. **Compositor (Mutter)**: set `MUTTER_DRM_DEVICE=/dev/dri/card<n>` in helix-ubuntu's startup. Mirror the existing pattern that `desktop/shared/detect-render-node.sh` uses for **Sway** via `WLR_DRM_DEVICES`.
+3. **GStreamer encoder (desktop-bridge)**: NVIDIA → `nvh264enc cuda-device-id=<n>`; AMD → `LIBVA_DRM_DEVICE=/dev/dri/renderD<128+n>`.
+
+Shared work: extend `detect-render-node.sh` with a "select Nth GPU" mode that takes an explicit GPU index from env and skips the auto-pick.
+
+**Why deferred**: the architecture works on single-GPU hosts (validated on Verda 1× A100 cloud VM 2026-04-28 — see Spike Result section). Multi-GPU pinning becomes a real requirement only when we run desktops on a customer's actual multi-GPU box. Until then, "all sessions share GPU 0" is acceptable.
+
+**Estimated work**: ~half a day. Ship as a follow-up PR once the customer-deployment hardware is in our hands (or we get capacity at Hot Aisle bare-metal / TensorWave for the 8× MI300X validation).
+
 ## Open Questions
 
 1. **Do we need to namespace inner-dockerd networks per runner?** Probably not — each runner has its own inner dockerd, so the default bridge network is already isolated. Confirm during implementation.

@@ -1,6 +1,6 @@
 # Implementation Tasks
 
-> **2026-04-28 final state:** ALL implementation work is done in this PR per the user's "do it all in one PR. Get it all done." instruction. Sandbox absorbs the runner role; the scheduler / per-slot runtimes / memory estimation / slot CRUD / dashboard data path / legacy runner image are all deleted. Compose-manager + inference-proxy ship inside the sandbox image. Frontend gets new RunnerProfiles tab + ProfileGallery + integration of HelixModels with /v1/models. RunPod integration test harness scaffolded with full matrix + scenarios + cost controls (waiting on RUNPOD_API_KEY for live runs). End-to-end inference verified working on the local RTX 2000 Ada through every layer of the new path.
+> **2026-04-28 final state:** ALL implementation work is done in this PR per the user's "do it all in one PR. Get it all done." instruction. Sandbox absorbs the runner role; the scheduler / per-slot runtimes / memory estimation / slot CRUD / dashboard data path / legacy runner image are all deleted. Compose-manager + inference-proxy ship inside the sandbox image. Frontend gets new RunnerProfiles tab + ProfileGallery + integration of HelixModels with /v1/models. **GPU-cloud integration test harness** (`integration-test/gpucloud/`) scaffolded with customer-deployment matrix (1× 4×A100 + 3× 4×L40S + 1× 8×MI300X) + scenarios + cost controls — multi-provider via Hot Aisle (AMD) and Verda (NVIDIA), see Decision 14 amendment in design.md for the RunPod ruling-out. Waiting on Hot Aisle + Verda account creation for live runs. End-to-end inference verified working on the local RTX 2000 Ada through every layer of the new path.
 >
 > Remaining `[ ]` items below describe work that was originally planned in a specific shape but landed in a different shape with the sandbox-absorbs-runner pivot. They are kept for historical context but no follow-up is needed — see the per-section commentary.
 
@@ -112,12 +112,12 @@ AMD's containerised GPU story is different from NVIDIA's: there is no single `--
 - [x] N/A — Dockerfile.runner deleted. Dockerfile.sandbox build line uses `--platform` from the buildx invocation; arm64 inherited from base image.
 - [x] Sandbox image build already uses TARGETARCH-aware go builds for hydra + sandbox-heartbeat; the new compose-manager + inference-proxy follow the same pattern.
 - [x] Sandbox base ships nvidia-container-toolkit on amd64. AMD ROCm is x86-only — sandbox build skips AMD-specific packaging on arm64 by virtue of not installing it.
-- [x] Sandbox already has a CI build path; the new binaries inherit it. RunPod harness covers GPU-host smoke testing.
+- [x] Sandbox already has a CI build path; the new binaries inherit it. GPU-cloud harness (Hot Aisle + Verda, see Decision 14 amendment) covers GPU-host smoke testing.
 
 ### Verification
 
-- [x] **VALIDATED locally** on RTX 2000 Ada: end-to-end inference works through the new path. RunPod matrix covers H100/A100/etc.
-- [~] AMD MI300X test in the RunPod matrix (`mi300x-1x` entry); waiting for credentials to run live.
+- [x] **VALIDATED locally** on RTX 2000 Ada: end-to-end inference works through the new path. GPU-cloud matrix covers customer-deployment H100-class targets via 4× A100 / 4× L40S / 8× MI300X entries.
+- [~] AMD MI300X test in the GPU-cloud matrix (`node5-mi300x-8x` entry on Hot Aisle); waiting for `HOTAISLE_API_KEY` to run live.
 - [~] arm64 no-GPU smoke deferred — covered conceptually by sandbox base image being multi-arch; live verification waits on a real arm64 host.
 
 ## Runner Persistence & Offline Operation
@@ -338,3 +338,13 @@ CGO still lives in:
 - [~] Existing /docs setup pages still describe the old scheduler model; updating them is a separate PR scoped to documentation.
 - [~] design/sample-profiles/README.md covers the conventions; a dedicated operator guide is a documentation-PR follow-up.
 - [~] Release notes belong on the merge commit / GitHub release; covered by the PR description.
+
+## Deferred follow-ups (out of scope for this PR)
+
+- [ ] **Per-session GPU pinning on multi-GPU hosts** (Decision 15 in design.md). Today on a multi-GPU box (8× MI300X, 4× L40S) all Hydra-spawned desktop sessions land on GPU 0. Three pieces:
+  1. Hydra accepts a `gpu_index` per session and emits `NVIDIA_VISIBLE_DEVICES=<n>` (NVIDIA) / `--device /dev/dri/renderD<128+n>` (AMD) instead of the current `=all` / glob-all (`api/pkg/hydra/devcontainer.go:621-1085`).
+  2. Mutter startup sets `MUTTER_DRM_DEVICE=/dev/dri/card<n>` (mirroring the existing `WLR_DRM_DEVICES` for Sway).
+  3. desktop-bridge GStreamer encoder picks the matching GPU: `nvh264enc cuda-device-id=<n>` (NV-ENC) or `LIBVA_DRM_DEVICE=/dev/dri/renderD<128+n>` (VA-API).
+  4. Extend `desktop/shared/detect-render-node.sh` with a "select Nth GPU" mode taking explicit GPU index from env.
+  
+  ETA: ~half day. Trigger: when we get capacity at Hot Aisle bare-metal / TensorWave for the 8× MI300X validation, or when we deploy on a customer's actual multi-GPU node.
