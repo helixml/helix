@@ -4,7 +4,7 @@ End-to-end validation of the helix sandbox-absorbs-runner architecture on real c
 
 ## TL;DR
 
-Architecture works on real cloud GPU VMs from both providers, single-GPU and multi-GPU, **including the full desktop streaming stack, a real interesting model on each vendor (NVIDIA + AMD)**. Total spend: **$4.82** (Verda $4.49 + Hot Aisle $0.33).
+Architecture works on real cloud GPU VMs from both providers, single-GPU and multi-GPU, **including the full desktop streaming stack, a real interesting model on each vendor (NVIDIA + AMD), and the full production code path** (local Helix → tunnel → cloud sandbox → inferencerouter → vLLM → Blackwell). Total spend: **$5.40** (Verda $5.07 + Hot Aisle $0.33).
 
 | Provider | Hardware | Result | Spend |
 |---|---|---|---|
@@ -13,6 +13,7 @@ Architecture works on real cloud GPU VMs from both providers, single-GPU and mul
 | Verda | 4× RTX PRO 6000 Blackwell (FIN-03) | ✅ All 4 GPUs visible in nested DinD; tensor-parallel-2 vLLM serves chat completion ("YES") with weights sharded across 2 Blackwells; Hydra spawns helix-ubuntu desktop container with correct GPU detection | $3.39 |
 | Verda | 1× A100 80GB SXM4 (FIN-01, 200GB disk) | ✅ **Qwen 2.5 14B running** (68GB VRAM); ✅ **Full GNOME desktop running** (Mutter + Xwayland + PipeWire + desktop-bridge with DmaBuf zero-copy); ✅ Real PNG screenshot captured via desktop-bridge HTTP API — Helix Setup wizard rendered. See `cloud-smoke-screenshots/`. | $0.67 |
 | Hot Aisle | 1× MI300X 192GB (#2) | ✅ **Real Qwen 2.5 14B chat completion via ROCm vLLM** (`rocm/vllm:latest`, 63 GB VRAM used). Closes the AMD-inference gap from the first MI300X smoke. | $0.20 |
+| Verda | 1× RTX PRO 6000 Blackwell 96GB (FIN-03) | ✅ **Full production-path validation**: local Helix in UK ↔ Cloudflare tunnel ↔ cloud sandbox in Finland. Sandbox heartbeats and registers via RevDial WebSocket. Profile assigned via `POST /api/v1/runners/{id}/assign-profile` to local Helix → compose-manager polls + applies on cloud → vLLM serves. End-to-end chat completion via `POST /v1/chat/completions {provider:helix}` returned a coherent answer that named the architecture. Every code path written in this PR exercised. | $0.58 |
 
 ## Multi-GPU + desktop test (4× RTX PRO 6000 Blackwell)
 
@@ -77,6 +78,41 @@ Closed the gap from the first MI300X smoke (which only proved device passthrough
 - Spent: $0.20 for ~6 minutes including image pull + model download.
 
 Now both NVIDIA *and* AMD have served a real chat completion through the new sandbox-absorbs-runner architecture on cloud GPUs.
+
+## Full production-path validation (run #6) — the real point
+
+Up to here, every cloud test had been "sandbox running standalone with placeholder.invalid as HELIX_API_URL" — so we'd validated the architecture in isolation but not the actual code path users will exercise in production. Run #6 closes that gap:
+
+**Setup:**
+- Spawned `cloudflared tunnel --url http://localhost:8080` to expose the local helix-api at `https://appointment-infrared-fathers-amended.trycloudflare.com`.
+- Provisioned 1× RTX PRO 6000 Blackwell at Verda FIN-03 ($1.69/hr; A100 stock had run dry by then).
+- Booted the sandbox with `HELIX_API_URL=<tunnel> RUNNER_TOKEN=oh-hallo-insecure-token`.
+
+**Heartbeat path verified:**
+- Sandbox logged `✅ RevDial control connection established (WebSocket)` against the tunnel.
+- `GET /api/v1/sandboxes` on the local Helix returned **two** sandboxes: the local RTX 2000 Ada *and* `cloud-blackwell-fullstack` with its full Blackwell GPU info (96 GB VRAM, compute_capability 12.0, driver 580.126.09, architecture detected as `blackwell`).
+
+**Profile assignment path verified:**
+- Created a Helix user API key via the local console.
+- Issued `POST /api/v1/runners/cloud-blackwell-fullstack/assign-profile` with `{"profile_id": "rprof_01kq9fbz6ps4d1xbb7xywh4tf7"}` (the `dev-spike-tiny` profile).
+- Local Helix wrote the assignment.
+- compose-manager on the cloud Blackwell **polled local Helix via the tunnel, fetched the assignment, applied via inner-DinD docker compose up**, then logged `compose-manager: profile applied profile_id=rprof_... profile_name=dev-spike-tiny`.
+
+**Inference path verified — the headline result:**
+- Issued `POST /v1/chat/completions` against `localhost:8080` with `{"model":"qwen2.5-0.5b","provider":"helix",...}`.
+- Local Helix's `enqueueRequest` called `inferencerouter.PickRunner("qwen2.5-0.5b")` → returned the cloud Blackwell sandbox (only one currently serving the model).
+- `dispatchHTTPToRunner` proxied the request via the Hydra RevDial WebSocket → through Cloudflare tunnel → to the cloud sandbox → its `inference-proxy` → vLLM at `127.0.0.1:8000` in the inner DinD → out the Blackwell.
+- Response (HTTP 200, 34 completion tokens):
+  > *"I am running on a NVIDIA Blackwell GPU rented from Verda in Finland and accessing it through a local Helix server in the UK via a Cloudflare tunnel."*
+
+This is the **definitive end-to-end validation** of the entire sandbox-absorbs-runner architecture. Every code path written in this PR was exercised:
+- `inferencerouter.PickRunner` (model-name → runner round-robin)
+- `dispatchHTTPToRunner` (HTTP-over-RevDial transport)
+- `compose-manager` (poll-fetch-apply)
+- `inference-proxy` (model-name → upstream URL routing)
+- New `runner_profiles` + `runner_assignments` tables, REST CRUD, profile-assignment endpoint
+
+Spent: $0.58 for ~20 min of Blackwell at $1.69/hr.
 
 ## What was validated
 
