@@ -40,6 +40,7 @@ import (
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/quota"
 	"github.com/helixml/helix/api/pkg/revdial"
+	"github.com/helixml/helix/api/pkg/inferencerouter"
 	"github.com/helixml/helix/api/pkg/scheduler"
 	"github.com/helixml/helix/api/pkg/server/spa"
 	"github.com/helixml/helix/api/pkg/services"
@@ -118,6 +119,7 @@ type HelixAPIServer struct {
 	skillManager              *api_skill.Manager
 	router                    *mux.Router
 	scheduler                 *scheduler.Scheduler
+	inferenceRouter           *inferencerouter.Router
 	pingService               *version.PingService
 	authenticator             auth.Authenticator
 	oidcClient                auth.OIDC
@@ -340,6 +342,7 @@ func NewServer(
 		knowledgeManager:  knowledgeManager,
 		skillManager:      skillManager,
 		scheduler:         scheduler,
+		inferenceRouter:   inferencerouter.NewRouter(),
 		pingService:       pingService,
 		authenticator:     authenticator,
 		oidcClient:        oidcClient,
@@ -1041,6 +1044,16 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	adminRouter.HandleFunc("/runner-profiles/{id}", apiServer.getRunnerProfile).Methods(http.MethodGet)
 	adminRouter.HandleFunc("/runner-profiles/{id}", apiServer.updateRunnerProfile).Methods(http.MethodPut)
 	adminRouter.HandleFunc("/runner-profiles/{id}", apiServer.deleteRunnerProfile).Methods(http.MethodDelete)
+	adminRouter.HandleFunc("/runners/{runner_id}/compatible-profiles", apiServer.listCompatibleRunnerProfiles).Methods(http.MethodGet)
+	adminRouter.HandleFunc("/runners/{runner_id}/assignment", apiServer.getRunnerAssignment).Methods(http.MethodGet)
+	adminRouter.HandleFunc("/runners/{runner_id}/assign-profile", apiServer.assignRunnerProfile).Methods(http.MethodPost)
+	adminRouter.HandleFunc("/runners/{runner_id}/clear-profile", apiServer.clearRunnerProfile).Methods(http.MethodPost)
+
+	// OpenAI-compatible /v1/models — union of models across runners whose
+	// active profile is `running`. No auth on the read; matches OpenAI's
+	// public-list convention. The chat/embeddings/images endpoints (which
+	// stream actual inference) keep their existing auth.
+	authRouter.HandleFunc("/v1/models", apiServer.listInferenceModels).Methods(http.MethodGet)
 
 	// Logs endpoints - proxy to runner
 	adminRouter.HandleFunc("/logs", apiServer.getLogsSummary).Methods(http.MethodGet)

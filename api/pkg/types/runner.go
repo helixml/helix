@@ -54,6 +54,13 @@ type GPUStatus struct {
 	ModelName     string `json:"model_name"`     // GPU model name (e.g., "NVIDIA H100 PCIe", "AMD Radeon RX 7900 XTX")
 	DriverVersion string `json:"driver_version"` // GPU driver version (NVIDIA or AMD)
 	SDKVersion    string `json:"sdk_version"`    // GPU SDK version (CUDA for NVIDIA, ROCm for AMD)
+
+	// Sandbox-absorbs-runner pivot fields (AC2 in requirements.md).
+	// Populated by the worker on its periodic status report; consumed by
+	// the API server's profile-compatibility check.
+	Vendor            GPUVendor `json:"vendor,omitempty"`             // "nvidia" | "amd"
+	Architecture      string    `json:"architecture,omitempty"`       // canonical arch from gpuarch (e.g. "hopper")
+	ComputeCapability string    `json:"compute_capability,omitempty"` // NVIDIA only — raw "9.0" / "8.6" etc.
 }
 
 // GPUInfoForEstimation represents GPU information sent from controlplane for memory estimation
