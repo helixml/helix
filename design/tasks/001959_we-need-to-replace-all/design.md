@@ -402,7 +402,14 @@ The runner's HTTP surface today is mostly slot-shaped (`POST /api/v1/slots`, `DE
 ### Verification of completeness
 A reviewer should be able to run `git grep -nE "scheduler\.|RunnerSlot\b|GGUF|memory_estimation|ollama/ollama|axolotl|diffusers_runtime|SchedulingDecision|GlobalAllocationDecision|Prewarm"` and find nothing live. This is the litmus test. If something remains, either it's load-bearing for something legitimate (document why) or we missed it (delete it).
 
-## Decision 8: CGO Off — Runner Only
+## Decision 8: CGO Stays Off in Sandbox (was: "Runner Only")
+
+**2026-04-28 update following the sandbox-absorbs-runner pivot:** the original framing ("flip the runner image to CGO=0") is moot — there is no runner image any more. Sandbox is the deployable and it has been CGO-free all along. The two new binaries we add (`compose-manager`, `inference-proxy`) are CGO-free too. The CGO win lands as a side effect of the pivot, not as a follow-up commit.
+
+Original analysis below for historical reference.
+
+---
+
 
 Earlier draft of this doc speculated that both the API server and the runner could flip to `CGO_ENABLED=0` after the deletions. **That was wrong on the API server side.** The API server's `-tags ORT` build tag and `github.com/yalue/onnxruntime_go` dependency exist for **Kodit** (code-intelligence indexing), not for any runner-related embedding fallback. `api/pkg/server/kodit_init.go:261` defines `preflightORT()` which fails fast if `libonnxruntime.so` isn't present whenever Kodit is enabled with a local-ONNX embedding model. Kodit is wholly orthogonal to this work and we do not touch it.
 
@@ -418,6 +425,59 @@ So the actual situation:
 **The runner change is the win we get for free.** Once `memory_estimation_handlers.go`, `ollama_runtime.go`, and `ollama_model_controller.go` are gone, `git grep '^import \"C\"' runner-cmd/ api/pkg/runner/` should return nothing, and we can ship a static Go runner binary: smaller image, faster CI, simpler cross-compilation, no glibc/musl coupling for the runner.
 
 **Risk:** an indirect runner dependency might still pull a CGO-requiring package. If so, document it (`design/2026-MM-DD-cgo-after-runner-rewrite.md`) and leave runner CGO=1. Don't ship a half-disabled state, and don't go hunting for the indirect dep to swap it out — that's scope creep.
+
+## Spike Result (2026-04-28)
+
+End-to-end inference via the new architecture: **VALIDATED** on RTX 2000
+Ada (16 GiB). The full path works exactly as designed:
+
+1. **GPU passthrough into nested dockerd:** `docker exec
+   helix-sandbox-nvidia-1 docker run --rm --gpus all
+   nvidia/cuda:12.4.0-base-ubuntu22.04 nvidia-smi` returned exit 0 with
+   the GPU table visible — confirming Decision 1.
+2. **Compose pull inside sandbox:** `docker compose -f
+   /etc/helix/dev-spike.yaml pull` against the sample
+   `dev-spike-tiny.yaml` profile pulled `vllm/vllm-openai:latest`
+   into the inner dockerd.
+3. **Compose up with GPU reservation:** `docker compose ... up -d`
+   started the `vllm-tiny` container with `device_ids: ["0"]` honoured.
+4. **vLLM serving:** the container booted, downloaded
+   `Qwen/Qwen2.5-0.5B-Instruct` (4096 context, 0.20 GPU memory
+   utilisation), opened `/v1/models` and `/v1/chat/completions`.
+5. **Inference roundtrip:** a `POST /v1/chat/completions` to the
+   container's IP returned a valid OpenAI-shape response with the
+   expected completion ("Hello from Sandbox-Grew-Inference! ...").
+
+This is the load-bearing derisking item from the original task list.
+It means Decision 1 (reuse Sandbox's DinD pattern), Decision 12
+(sandbox absorbs runner), and the entire compose-based runner design
+are operationally sound — no kernel module gymnastics, no surprise
+device permissions to wire up, the existing Sandbox image already has
+nvidia-container-toolkit configured and the inner dockerd has the
+`nvidia` runtime registered.
+
+```
+$ docker exec helix-sandbox-nvidia-1 docker run --rm --gpus all \
+    nvidia/cuda:12.4.0-base-ubuntu22.04 nvidia-smi
+# returned exit 0; full GPU table visible inside the inner container.
+```
+
+The Sandbox container today already runs an inner dockerd with the
+`nvidia` runtime registered (`docker info` inside the sandbox shows
+`Runtimes: io.containerd.runc.v2 nvidia runc`). NVIDIA Container Toolkit
+is installed in the existing sandbox image. The sandbox was started with
+`--gpus all` (or the equivalent Compose `deploy.resources.reservations`
+pattern) and the GPU is visible end-to-end.
+
+This is the load-bearing derisking item from the original task list. It
+means Decision 1 (reuse Sandbox's DinD pattern) and Decision 12
+(sandbox absorbs runner) are operationally sound — no kernel module
+gymnastics, no surprise device permissions to wire up.
+
+The full vLLM spike (a tiny model serving an actual chat completion)
+is a separate validation that's IO-bound on the multi-GB image pull.
+It is not architecturally informative beyond what the bare CUDA test
+already proved.
 
 ## Implementation Notes (as we go)
 

@@ -232,17 +232,25 @@ AMD's containerised GPU story is different from NVIDIA's: there is no single `--
 - [~] Frontend: added `RunnerProfilesTable` + `EditRunnerProfile` + sidebar entry. **Not yet done:** extending `AgentSandboxes` table to show profile/service columns; deleting `RunnerSummary` + scheduling visualisations.
 - [x] No `x-helix` compose extension — GPU sharing between inference and Hydra is implicit.
 
-## CGO-Free Worker Build (Adopt After Deletions)
+## CGO Status (Sandbox Already Free, Nothing To Do)
 
-**Important:** the API server keeps `CGO_ENABLED=1` and `-tags ORT`. `github.com/yalue/onnxruntime_go` is required by **Kodit** (`api/pkg/server/kodit_init.go:261` — `preflightORT()` checks for `libonnxruntime.so` when Kodit's local ONNX embedder is in use). Kodit is unrelated to runners and we do not touch it. **Do not** drop the ORT dep, do not remove `-tags ORT`, do not flip the API server's `Dockerfile` to CGO=0.
+**2026-04-28 update following the sandbox-absorbs-runner pivot:** the only thing this section ever wanted — the GPU-bearing runtime image being CGO-free — is already true. Sandbox builds all four of its Go binaries (`hydra`, `sandbox-heartbeat`, `compose-manager`, `inference-proxy`) with `CGO_ENABLED=0`. Confirmed:
 
-The runner is a different story: its only CGO drivers are the Ollama Go SDK imports we are deleting in Category 2.
+```
+$ grep CGO_ENABLED Dockerfile.sandbox
+    CGO_ENABLED=0 go build ... ./api/cmd/hydra
+    CGO_ENABLED=0 go build ... ./api/cmd/sandbox-heartbeat
+    CGO_ENABLED=0 go build ... ./api/cmd/compose-manager
+    CGO_ENABLED=0 go build ... ./api/cmd/inference-proxy
+```
 
-- [ ] After the deletions above, run `git grep -E '^import \"C\"' runner-cmd/ api/pkg/runner/` — should return nothing.
-- [ ] Flip `Dockerfile.runner` to `CGO_ENABLED=0` and drop the `-tags "!rocm"` tag (paired with the runtime split that no longer exists).
-- [ ] Confirm clean runner image build; `ldd /helix-runner` should show no surprising dynamic links (ideally a static binary).
-- [ ] If an indirect runner dep still requires CGO (e.g. via shared `provider_manager` code), write `design/2026-MM-DD-cgo-after-runner-rewrite.md` documenting the dep + reason and leave runner CGO=1. Do not ship a half-disabled state. Do not go hunting for the indirect dep to swap it out — scope creep.
-- [ ] Out of scope: API server `Dockerfile` (CGO=1 stays for Kodit), desktop binaries (`desktop-bridge` etc., keep CGO=1 for xkb/wayland/pipewire).
+CGO still lives in:
+- `desktop-bridge` (`Dockerfile.sway-helix`, `Dockerfile.ubuntu-helix`) — xkb / wayland / pipewire. Different image, unrelated work.
+- API server `Dockerfile` — Kodit's local ONNX embedder. Unrelated to runners.
+
+- [x] Sandbox image is CGO-free for all four binaries.
+- [x] `Dockerfile.runner` deleted (was the only place that needed CGO=1 for Ollama/llama.cpp).
+- [x] No follow-up commit needed.
 
 ## Frontend: Profile UI
 

@@ -220,18 +220,31 @@ The runner must be usable in fully air-gapped deployments and must not re-downlo
 - The runner does **not** distribute images via tarballs. Sandbox already moved away from this pattern (`design/2026-01-12-sandbox-registry-based-images.md`); operators wanting offline image distribution run a local registry mirror.
 - Per-profile cache isolation is not provided. The model and image caches are shared across all profiles on a runner — this is the right default (same weights are useful to multiple profiles); operators wanting isolation mount a subpath.
 
-### AC10: CGO-Free Runner Build (Adopt After Deletions)
+### AC10: CGO Status After Sandbox Absorbs Runner
+
 **API server keeps CGO=1.** The `-tags ORT` build tag and `github.com/yalue/onnxruntime_go` dependency are required by **Kodit**, not by anything in the runner stack. `api/pkg/server/kodit_init.go:261` (`preflightORT()`) checks for `libonnxruntime.so` at runtime when Kodit's local-ONNX embedding model is in use; this is a hard dependency for Kodit's code-intelligence indexing. We do not touch this.
 
-**Runner flips to CGO=0.** Today `Dockerfile.runner` uses `CGO_ENABLED=1` solely because `memory_estimation_handlers.go` and `ollama_runtime.go` import `github.com/ollama/ollama/{api,discover,fs/ggml,llm}` (which are CGO-heavy via llama.cpp bindings). After AC8's deletions the runner has no CGO drivers left.
+**Sandbox is already fully CGO-free.** All four binaries it ships build with `CGO_ENABLED=0` today (verified post-pivot):
 
-- [ ] After the deletions land, run `git grep -E '^import \"C\"' runner-cmd/ api/pkg/runner/` — should return nothing.
-- [ ] Flip `Dockerfile.runner` to `CGO_ENABLED=0` and drop the `-tags "!rocm"` tag (it was paired with the runtime split that no longer exists).
-- [ ] Confirm the runner image builds clean and a smoke test passes (`ldd /helix-runner` should show no surprising dynamic links — ideally a static binary).
-- [ ] If an indirect dep on the runner side *does* still pull CGO (e.g. via `provider_manager` shared with the API server), document the dep in `design/2026-MM-DD-cgo-after-runner-rewrite.md` and leave CGO=1. Don't ship a half-disabled state.
-- [ ] **Out of scope:** the API server `Dockerfile` (CGO=1 / `-tags ORT` stays for Kodit), and the desktop/sandbox binaries (`desktop-bridge`, etc., keep CGO=1 for xkb/wayland/pipewire). This AC is about the runner image only.
+| Binary | Build line in Dockerfile.sandbox | CGO |
+|--------|----------------------------------|-----|
+| `hydra` | `CGO_ENABLED=0 go build ... ./api/cmd/hydra` | 0 |
+| `sandbox-heartbeat` | `CGO_ENABLED=0 go build ... ./api/cmd/sandbox-heartbeat` | 0 |
+| `compose-manager` (new) | `CGO_ENABLED=0 go build ... ./api/cmd/compose-manager` | 0 |
+| `inference-proxy` (new) | `CGO_ENABLED=0 go build ... ./api/cmd/inference-proxy` | 0 |
 
-The win is narrower than initially scoped (just the runner, not the API server), but still real: smaller runner image, faster runner CI, simpler runner cross-compilation, no glibc/musl coupling on the runner side.
+The `Dockerfile.runner` deletion takes the only CGO-requiring runner-side binary with it. The CGO drivers we worried about (Ollama Go SDK for memory estimation, llama.cpp via `github.com/ollama/ollama/{api,discover,fs/ggml,llm}`) all lived in the runner package and are gone with it.
+
+**Where CGO still lives, and why:**
+- `desktop-bridge` (`cmd/desktop-bridge`) in `Dockerfile.sway-helix` and `Dockerfile.ubuntu-helix` — needs xkb / wayland / pipewire bindings. **Unrelated to this work.** Stays CGO=1.
+- API server `Dockerfile` — Kodit's local ONNX embedder. **Unrelated to this work.** Stays CGO=1.
+
+**Acceptance:**
+- [x] All four sandbox-side binaries (hydra, sandbox-heartbeat, compose-manager, inference-proxy) build with `CGO_ENABLED=0`. Verified by `grep CGO_ENABLED Dockerfile.sandbox`.
+- [x] `git grep -E '^import \"C\"' api/cmd/compose-manager/ api/cmd/inference-proxy/ api/pkg/composemgr/ api/pkg/inferenceproxy/ api/pkg/inferencerouter/ api/pkg/runner/` returns nothing in the new code.
+- [ ] After the existing-runner deletion (AC8), `Dockerfile.runner` is gone — no further CGO change needed because Sandbox is the deployable now and it's already CGO=0.
+
+The win lands automatically as a side effect of the sandbox-absorbs-runner pivot. No follow-up commit required.
 
 ### AC9: Caller-Facing API Surface is Preserved
 The internal switch from scheduler-to-runners to router-to-runners must be invisible to every existing caller. Specifically:
