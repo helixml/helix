@@ -8,8 +8,8 @@
 
 ## Spike (do first, may invalidate parts of the design)
 
-- [ ] **BLOCKED — needs GPU host.** Confirm GPU passthrough into nested dockerd works (`--gpus all` on outer + nvidia-container-toolkit in inner image). **Use a tiny model** — the dev hardware is a single 16 GB GPU shared with desktop workloads, so the user's full sample compose (8 GPUs, ~700 GB total VRAM) is irrelevant for derisking. Pick something like `Qwen/Qwen2.5-0.5B-Instruct` on vLLM with `--gpu-memory-utilization 0.2 --max-model-len 4096` on `device_ids: ["0"]`. The spike is "does the GPU show up inside the inner container and produce one valid completion?" — nothing more. If GPU passthrough doesn't work, revisit Decision 1 in `design.md` before any other implementation. Save the working tiny-spike compose as `design/sample-profiles/dev-spike-tiny.yaml` so future agents on similar hardware can re-run it.
-- [ ] Confirm the `helixml/helix` org's NATS deployment can survive removal of all slot-related subjects (no external consumers).
+- [x] **VALIDATED on RTX 2000 Ada (16 GiB).** GPU passthrough into nested dockerd works. The full chain works end-to-end: docker compose pull/up of `dev-spike-tiny.yaml` inside the sandbox's inner dockerd; vLLM serves Qwen2.5-0.5B; chat completion roundtrips through the new API server → inferencerouter → dispatchHTTPToRunner → sandbox inference-proxy → vLLM path with no scheduler involvement. See "Spike Result" in design.md for the full chain.
+- [~] Confirm the `helixml/helix` org's NATS deployment can survive removal of all slot-related subjects — **deferred** to scheduler-deletion follow-up PR.
 
 ## Backend: Profile Storage & API
 

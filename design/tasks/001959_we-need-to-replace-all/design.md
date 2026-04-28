@@ -444,9 +444,17 @@ Ada (16 GiB). The full path works exactly as designed:
 4. **vLLM serving:** the container booted, downloaded
    `Qwen/Qwen2.5-0.5B-Instruct` (4096 context, 0.20 GPU memory
    utilisation), opened `/v1/models` and `/v1/chat/completions`.
-5. **Inference roundtrip:** a `POST /v1/chat/completions` to the
-   container's IP returned a valid OpenAI-shape response with the
-   expected completion ("Hello from Sandbox-Grew-Inference! ...").
+5. **Inference roundtrip (direct to vLLM):** a `POST /v1/chat/completions`
+   to the container's IP returned a valid OpenAI-shape response.
+6. **Inference roundtrip (via inference-proxy):** the same request to
+   the sandbox-side `inference-proxy` on `:8090` returned the same
+   response — proving the model-name routing + body-aware proxy
+   layer.
+7. **End-to-end via API server:** `POST http://localhost:8080/v1/chat/completions`
+   with `{model: "qwen2.5-0.5b", provider: "helix", ...}` returned a
+   valid OpenAI-shape response — proving the full new path:
+   API server → `inferencerouter.PickRunner` → `dispatchHTTPToRunner`
+   → sandbox inference-proxy → vLLM. Bypasses the scheduler entirely.
 
 This is the load-bearing derisking item from the original task list.
 It means Decision 1 (reuse Sandbox's DinD pattern), Decision 12
