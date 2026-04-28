@@ -49,22 +49,15 @@ backend resolver and frontend router both accept. No extra DB lookup needed.
 
 ## Edge Case: Empty OrganizationID
 
-If a cron trigger were ever fired against a session without an `OrganizationID`
-(personal session), the new URL would render as `<AppURL>/orgs//session/<id>`
-which would also 404. In practice the cron trigger path always sets
-`OrganizationID` from the parent app, so this should not happen — but to be
-safe, fall back to the previous `/session/<id>` shape when `OrganizationID` is
-empty. This preserves existing (broken) behaviour for the edge case rather than
-making it worse, and surfaces the missing personal-session route as a separate
-follow-up.
+The cron trigger code in `api/pkg/trigger/trigger_cron.go:473` always sets
+`Session.OrganizationID` from the parent app. If a notification is ever sent
+for a session that lacks `OrganizationID`, that is an upstream data bug and
+should be fixed there.
 
-```go
-sessionURL := fmt.Sprintf("%s/session/%s", e.cfg.AppURL, n.Session.ID)
-if n.Session.OrganizationID != "" {
-    sessionURL = fmt.Sprintf("%s/orgs/%s/session/%s",
-        e.cfg.AppURL, n.Session.OrganizationID, n.Session.ID)
-}
-```
+CLAUDE.md guidance: **no fallbacks, no dead code paths**. We construct the URL
+unconditionally with the org segment. If `OrganizationID` is somehow empty the
+URL will render as `<AppURL>/orgs//session/<id>` and 404 — a visible failure
+that points back at the real bug rather than masking it.
 
 ## Alternatives Considered
 
