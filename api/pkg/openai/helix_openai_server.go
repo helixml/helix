@@ -14,7 +14,6 @@ import (
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/inferencerouter"
 	"github.com/helixml/helix/api/pkg/pubsub"
-	"github.com/helixml/helix/api/pkg/scheduler"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -32,17 +31,20 @@ var _ HelixServer = &InternalHelixServer{}
 type InternalHelixServer struct {
 	cfg             *config.ServerConfig
 	pubsub          pubsub.PubSub // Used to get responses from the runners
-	scheduler       *scheduler.Scheduler
 	inferenceRouter *inferencerouter.Router // Sandbox-absorbs-runner pivot: replaces scheduler for routing
 	store           store.Store
 }
 
-func NewInternalHelixServer(cfg *config.ServerConfig, store store.Store, pubsub pubsub.PubSub, scheduler *scheduler.Scheduler) *InternalHelixServer {
+// NewInternalHelixServer constructs the in-process OpenAI-compatible
+// "helix" provider. Scheduler argument removed in the sandbox-absorbs-
+// runner pivot; the inference router replaces it (set via
+// SetInferenceRouter post-construction so the apiServer literal can wire
+// fields without ordering pain).
+func NewInternalHelixServer(cfg *config.ServerConfig, store store.Store, pubsub pubsub.PubSub) *InternalHelixServer {
 	return &InternalHelixServer{
-		cfg:       cfg,
-		store:     store,
-		pubsub:    pubsub,
-		scheduler: scheduler,
+		cfg:    cfg,
+		store:  store,
+		pubsub: pubsub,
 	}
 }
 
@@ -116,28 +118,18 @@ func (c *InternalHelixServer) ListModels(ctx context.Context) ([]types.OpenAIMod
 	return models, nil
 }
 
-// getAvailableModelsFromRunners returns a map of model IDs that are actually available on connected runners
+// getAvailableModelsFromRunners returns a map of model IDs that are
+// currently being served by a connected sandbox's active profile. Used
+// by ListModels to filter the registered Helix models to those backed
+// by a running profile.
 func (c *InternalHelixServer) getAvailableModelsFromRunners() map[string]bool {
 	availableModels := make(map[string]bool)
-
-	// Get all runner statuses from the scheduler
-	runnerStatuses, err := c.scheduler.RunnerStatus()
-	if err != nil {
-		// If we can't get runner status, return empty map (no models available)
-		// This is safer than returning all models when we can't verify availability
+	if c.inferenceRouter == nil {
 		return availableModels
 	}
-
-	// Process each runner's model status
-	for _, status := range runnerStatuses {
-		// Add models that are available (not downloading and no error)
-		for _, modelStatus := range status.Models {
-			if !modelStatus.DownloadInProgress && modelStatus.Error == "" {
-				availableModels[modelStatus.ModelID] = true
-			}
-		}
+	for _, m := range c.inferenceRouter.AvailableModels() {
+		availableModels[m] = true
 	}
-
 	return availableModels
 }
 
@@ -154,47 +146,22 @@ func (c *InternalHelixServer) BillingEnabled() bool {
 }
 
 func (c *InternalHelixServer) enqueueRequest(req *types.RunnerLLMInferenceRequest) error {
-	// Sandbox-absorbs-runner pivot: try the inference router first. If a
-	// connected sandbox has the requested model in its active profile, we
-	// forward via HTTP — that's the long-term path. Falls back to the
-	// scheduler for models the new path doesn't yet know about; the
-	// scheduler is removed in a follow-up PR once we've validated the
-	// HTTP path against real hardware end-to-end.
-	if c.inferenceRouter != nil && req.Request != nil && req.Request.Model != "" {
-		if state, err := c.inferenceRouter.PickRunner(req.Request.Model); err == nil && state != nil {
-			return c.dispatchHTTPToRunner(req, state.URL)
-		}
+	// Sandbox-absorbs-runner pivot: the inference router is the only path.
+	// Pick a sandbox that has the requested model in its currently-running
+	// profile and forward via HTTP. If no sandbox can serve it, return
+	// NoRunnerError (which carries the available-models list for a useful
+	// 503 to the caller). No scheduler fallback — see AC8 / Decision 11.
+	if c.inferenceRouter == nil {
+		return fmt.Errorf("inference router not initialised")
 	}
-
-	// External agents don't use traditional LLM models - they launch containers instead
-	// So we skip model lookup for external_agent model name
-	var model *types.Model
-	if req.Request.Model == "external_agent" {
-		// Create a dummy model for external agents - not actually used for inference
-		model = &types.Model{
-			ID:   "external_agent",
-			Name: "External Agent",
-			Type: types.ModelTypeChat,
-		}
-	} else {
-		// Normal model lookup for traditional LLM requests
-		var err error
-		model, err = c.store.GetModel(context.Background(), req.Request.Model)
-		if err != nil {
-			return fmt.Errorf("model '%s' not found in helix provider (local scheduler) - check if this model exists in your configured models or if you meant to route to a different provider: %w", req.Request.Model, err)
-		}
+	if req.Request == nil || req.Request.Model == "" {
+		return fmt.Errorf("inference request missing model name")
 	}
-
-	work, err := scheduler.NewLLMWorkload(req, model)
+	state, err := c.inferenceRouter.PickRunner(req.Request.Model)
 	if err != nil {
-		return fmt.Errorf("error creating workload: %w", err)
+		return err
 	}
-
-	err = c.scheduler.Enqueue(work)
-	if err != nil {
-		return fmt.Errorf("error enqueuing work: %w", err)
-	}
-	return nil
+	return c.dispatchHTTPToRunner(req, state.URL)
 }
 
 // dispatchHTTPToRunner forwards an inference request over HTTP to a

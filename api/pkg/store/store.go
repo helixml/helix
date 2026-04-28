@@ -277,14 +277,6 @@ type Store interface {
 	// their stale in-memory copy) cannot race with the bump.
 	IncrementInteractionAutoWakeCount(ctx context.Context, interactionID string) (int, error)
 
-	// slots
-	CreateSlot(ctx context.Context, slot *types.RunnerSlot) (*types.RunnerSlot, error)
-	GetSlot(ctx context.Context, id string) (*types.RunnerSlot, error)
-	UpdateSlot(ctx context.Context, slot *types.RunnerSlot) (*types.RunnerSlot, error)
-	DeleteSlot(ctx context.Context, id string) error
-	ListSlots(ctx context.Context, runnerID string) ([]*types.RunnerSlot, error)
-	ListAllSlots(ctx context.Context) ([]*types.RunnerSlot, error)
-
 	// runner profiles (compose-based runner replacement)
 	CreateRunnerProfile(ctx context.Context, p *types.RunnerProfile) (*types.RunnerProfile, error)
 	GetRunnerProfile(ctx context.Context, id string) (*types.RunnerProfile, error)

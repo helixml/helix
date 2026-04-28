@@ -183,7 +183,6 @@ func (s *PostgresStore) runMigrations() error {
 		&types.Model{},
 		&types.DynamicModelInfo{},
 		&types.StepInfo{},
-		&types.RunnerSlot{},
 		&types.RunnerProfile{},
 		&types.RunnerAssignment{},
 		&types.SlackThread{},

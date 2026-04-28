@@ -54,7 +54,6 @@ type MultiClientManager struct {
 	globalClients     map[types.Provider]*providerClient
 	globalClientsMu   *sync.RWMutex
 	wg                sync.WaitGroup
-	runnerController  RunnerControllerStatus
 	mu                sync.RWMutex
 }
 
@@ -289,9 +288,13 @@ func (m *MultiClientManager) updateClientAPIKeyFromFile(provider types.Provider,
 	return nil
 }
 
-// SetRunnerController implements ProviderManager.SetRunnerController
-func (m *MultiClientManager) SetRunnerController(controller RunnerControllerStatus) {
-	m.runnerController = controller
+// SetRunnerController implements ProviderManager.SetRunnerController.
+// Sandbox-absorbs-runner pivot: this is now a no-op. Runner availability
+// is checked by the inferencerouter at request-routing time, not at
+// provider-listing time. The helix provider is always listed; individual
+// model availability flows via /v1/models from the router.
+func (m *MultiClientManager) SetRunnerController(_ RunnerControllerStatus) {
+	// no-op
 }
 
 func (m *MultiClientManager) ListProviders(ctx context.Context, owner string) ([]types.Provider, error) {
@@ -300,15 +303,6 @@ func (m *MultiClientManager) ListProviders(ctx context.Context, owner string) ([
 
 	providers := make([]types.Provider, 0, len(m.globalClients))
 	for provider := range m.globalClients {
-		// Skip the Helix provider if there are no runners
-		if provider == types.ProviderHelix && m.runnerController != nil {
-			runnerIDs := m.runnerController.RunnerIDs()
-			if len(runnerIDs) == 0 {
-				// No runners available, skip adding Helix provider
-				continue
-			}
-		}
-
 		providers = append(providers, provider)
 	}
 
