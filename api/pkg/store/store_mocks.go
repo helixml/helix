@@ -2478,6 +2478,21 @@ func (mr *MockStoreMockRecorder) GetInteractionsSummary(ctx, sessionID, generati
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetInteractionsSummary", reflect.TypeOf((*MockStore)(nil).GetInteractionsSummary), ctx, sessionID, generationID)
 }
 
+// GetLatestInteractionsForSessions mocks base method.
+func (m *MockStore) GetLatestInteractionsForSessions(ctx context.Context, sessionIDs []string) (map[string]*types.Interaction, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetLatestInteractionsForSessions", ctx, sessionIDs)
+	ret0, _ := ret[0].(map[string]*types.Interaction)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetLatestInteractionsForSessions indicates an expected call of GetLatestInteractionsForSessions.
+func (mr *MockStoreMockRecorder) GetLatestInteractionsForSessions(ctx, sessionIDs any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetLatestInteractionsForSessions", reflect.TypeOf((*MockStore)(nil).GetLatestInteractionsForSessions), ctx, sessionIDs)
+}
+
 // GetKnowledge mocks base method.
 func (m *MockStore) GetKnowledge(ctx context.Context, id string) (*types.Knowledge, error) {
 	m.ctrl.T.Helper()

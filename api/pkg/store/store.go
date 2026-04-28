@@ -250,6 +250,7 @@ type Store interface {
 	// interactions
 	GetInteractionsSummary(ctx context.Context, sessionID string, generationID int) (count int64, maxUpdated time.Time, err error)
 	ListInteractions(ctx context.Context, query *types.ListInteractionsQuery) ([]*types.Interaction, int64, error)
+	GetLatestInteractionsForSessions(ctx context.Context, sessionIDs []string) (map[string]*types.Interaction, error) // Batch fetch newest interaction per session for activity detection
 	CreateInteraction(ctx context.Context, interaction *types.Interaction) (*types.Interaction, error)
 	CreateInteractions(ctx context.Context, interactions ...*types.Interaction) error
 	GetInteraction(ctx context.Context, id string) (*types.Interaction, error)
