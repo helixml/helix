@@ -1,8 +1,8 @@
 # Upgrade Guide
 
-## Upgrading from 2.9.0 - 2.11.0-rc1 (incomplete-Bitnami-removal releases)
+## Upgrading to 2.11.0-rc2
 
-Charts 2.9.0 through 2.11.0-rc1 shipped with an incomplete Bitnami removal: the new self-managed Postgres Deployment was created and used by the controlplane, but the Bitnami `postgresql` StatefulSet (`{release}-postgresql`) and its PVC (`data-{release}-postgresql-0`) were also created and ran idle alongside it. `helm upgrade` to a release with the completed removal will delete the orphaned Bitnami StatefulSet. The PVC fate depends on its `reclaimPolicy`. There is no data risk - the controlplane never wrote to the Bitnami instance - but you may want to manually delete the orphaned PVC after upgrade to free storage:
+`helm upgrade` removes the orphaned Bitnami `postgresql` StatefulSet left behind by earlier releases. No data risk. To reclaim storage, manually delete the orphaned PVC after upgrade:
 
 ```bash
 kubectl delete pvc data-<release>-postgresql-0 -n <namespace>

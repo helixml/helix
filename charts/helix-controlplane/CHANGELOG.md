@@ -1,9 +1,9 @@
 # Changelog
 
-## [Unreleased]
+## [2.11.0-rc2]
 
 ### Fixed
-- Completed Bitnami PostgreSQL removal. The 2.9.0 change removed the subchart from `values.yaml` and added the self-managed Deployment, but left the `dependencies:` block in `Chart.yaml.tmpl`. Every published chart from 2.9.0 through 2.11.0-rc1 still vendored and rendered the Bitnami `postgresql` StatefulSet, `secrets`, `networkpolicy`, `serviceaccount`, and two `Service`s alongside the new self-managed Postgres. The controlplane was always pointing at the new self-managed Postgres (`{release}-helix-controlplane-postgres`), so the Bitnami StatefulSet was dead weight - no data risk on upgrade, but wasted PVC and memory. `helm upgrade` to a release containing this fix removes the orphaned Bitnami resources.
+- Removed the Bitnami PostgreSQL subchart dependency that was inadvertently still being rendered. `helm upgrade` deletes the orphaned Bitnami `postgresql` StatefulSet. See [UPGRADE.md](UPGRADE.md) for the optional PVC cleanup.
 
 ## [2.9.0] - 2026-03-13
 
