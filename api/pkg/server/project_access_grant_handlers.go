@@ -169,7 +169,7 @@ func (apiServer *HelixAPIServer) createProjectAccessGrant(rw http.ResponseWriter
 		targetUser, err := apiServer.Store.GetUser(r.Context(), query)
 		if err != nil {
 			if errors.Is(err, store.ErrNotFound) {
-				writeErrResponse(rw, fmt.Errorf("user '%s' was not found. They need to register an account before they can be added to a project", req.UserReference), http.StatusNotFound)
+				writeErrResponse(rw, fmt.Errorf("could not add '%s' to the project or organisation: no user with that email exists. Ask them to register an account first, then try again", req.UserReference), http.StatusNotFound)
 				return
 			}
 			writeErrResponse(rw, fmt.Errorf("error looking up user '%s': %w", req.UserReference, err), http.StatusInternalServerError)
