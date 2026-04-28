@@ -3193,6 +3193,34 @@ type SandboxInstance struct {
 
 	// Helix version running on this sandbox (git commit hash or release version)
 	HelixVersion string `json:"helix_version,omitempty" gorm:"type:varchar(255)"`
+
+	// --- Sandbox-absorbs-runner pivot fields (Decision 13 in design.md) ---
+	// Populated by the sandbox's compose-manager process (where present).
+	// Drive the API server's inference router and the admin UI's
+	// per-sandbox profile / service display.
+
+	// GPUs is the per-GPU inventory the sandbox reports for inference
+	// scheduling. Vendor / Architecture / ComputeCapability on each
+	// entry are the load-bearing fields for profile compatibility.
+	GPUs datatypes.JSON `json:"gpus,omitempty" gorm:"type:jsonb" swaggertype:"array,object"`
+
+	// ActiveProfileID is the ID of the runner profile this sandbox is
+	// currently running (or attempting to run). Empty for pure-agent
+	// sandboxes with no profile assigned.
+	ActiveProfileID string `json:"active_profile_id,omitempty" gorm:"type:varchar(255);index"`
+
+	// ProfileStatus tracks the compose stack lifecycle:
+	// "" | "assigning" | "pulling" | "starting" | "running" | "failed".
+	ProfileStatus string `json:"profile_status,omitempty" gorm:"type:varchar(50)"`
+
+	// ProfileError carries the failure detail when ProfileStatus="failed".
+	ProfileError string `json:"profile_error,omitempty" gorm:"type:text"`
+
+	// ServiceHealth maps compose service name -> health string
+	// ("healthy" | "starting" | "failed" | "unknown"). Reported by
+	// compose-manager polling each container's /v1/models endpoint
+	// (or vendor-specific health endpoint).
+	ServiceHealth datatypes.JSON `json:"service_health,omitempty" gorm:"type:jsonb" swaggertype:"object,string"`
 }
 
 // TableName returns the table name for GORM
@@ -3222,6 +3250,25 @@ type SandboxHeartbeatRequest struct {
 
 	// Helix version running on this sandbox (git commit hash or release version)
 	HelixVersion string `json:"helix_version,omitempty"`
+
+	// --- Sandbox-absorbs-runner pivot fields ---
+	// Reported by the compose-manager process inside the sandbox.
+
+	// GPUs is the per-GPU inventory used by the API server's profile
+	// compatibility check. Empty for sandboxes that don't host inference.
+	GPUs []GPUStatus `json:"gpus,omitempty"`
+
+	// ProfileStatus reports the compose stack lifecycle. Empty when no
+	// profile is assigned. Allowed values: "assigning" | "pulling" |
+	// "starting" | "running" | "failed".
+	ProfileStatus string `json:"profile_status,omitempty"`
+
+	// ProfileError carries the failure detail when ProfileStatus="failed".
+	ProfileError string `json:"profile_error,omitempty"`
+
+	// ServiceHealth maps compose service name -> health string.
+	// "healthy" | "starting" | "failed" | "unknown".
+	ServiceHealth map[string]string `json:"service_health,omitempty"`
 }
 
 // DiskUsageMetric represents disk usage for a single mount point

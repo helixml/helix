@@ -1,27 +1,62 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
+	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/rs/zerolog/log"
 
+	"github.com/helixml/helix/api/pkg/inferencerouter"
 	"github.com/helixml/helix/api/pkg/runner/profile"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 )
 
+// refreshInferenceRouterFromHeartbeat is called after a sandbox heartbeat
+// is processed. It pushes the latest inference-relevant state into the
+// in-memory inferencerouter so request routing reflects the new
+// hardware / profile / health view immediately.
+//
+// If the heartbeat carries no GPU information (a pure-agent sandbox),
+// the router still records the runner so it appears in admin views, but
+// it won't be picked for any inference request because RouteableModels()
+// requires a non-nil ActiveProfile + Status="running".
+func (apiServer *HelixAPIServer) refreshInferenceRouterFromHeartbeat(ctx context.Context, sandboxID string, hb *types.SandboxHeartbeatRequest) {
+	if apiServer.inferenceRouter == nil {
+		return
+	}
+	// Look up the assignment to find the active profile (if any).
+	var activeProfile *types.RunnerProfile
+	if asn, err := apiServer.Store.GetRunnerAssignment(ctx, sandboxID); err == nil {
+		if p, perr := apiServer.runnerProfileService().Get(ctx, asn.ProfileID); perr == nil {
+			activeProfile = p
+		}
+	}
+	// URL: read from the registered SandboxInstance (the sandbox registers
+	// its IPAddress/Hostname on first connect; heartbeats refresh).
+	url := ""
+	if inst, err := apiServer.Store.GetSandbox(ctx, sandboxID); err == nil && inst != nil {
+		url = "http://" + inst.IPAddress
+	}
+	apiServer.inferenceRouter.SetRunnerState(&inferencerouter.RunnerState{
+		ID:            sandboxID,
+		URL:           url,
+		Status:        hb.ProfileStatus,
+		ActiveProfile: activeProfile,
+		GPUs:          hb.GPUs,
+		LastSeen:      time.Now(),
+	})
+}
+
 // runnerInfoFromAPI returns the GPU inventory for a given runner ID, sourced
 // from the inference router's in-memory state (populated by sandbox status
-// heartbeats). Returns nil if the runner isn't connected.
-//
-// Until the worker (sandbox absorbs runner) reporting wires GPU vendor +
-// arch into the heartbeat, GPUStatus.Vendor / .Architecture may be empty,
-// in which case vendor / architecture compatibility checks for that GPU
-// will fail. That's the right behaviour — we'd rather refuse assignment
-// than guess.
+// heartbeats). Returns empty slice if the runner isn't connected — the
+// compatibility check then fails on the count constraint, which is the
+// right behaviour (don't guess at hardware).
 func (apiServer *HelixAPIServer) runnerInfoFromAPI(runnerID string) []profile.RunnerGPUInfo {
 	if apiServer.inferenceRouter == nil {
 		return nil
@@ -30,16 +65,17 @@ func (apiServer *HelixAPIServer) runnerInfoFromAPI(runnerID string) []profile.Ru
 	if state == nil {
 		return nil
 	}
-	// The router's RunnerState doesn't yet carry GPU inventory directly —
-	// it lives on whichever status type the worker sends (today
-	// types.RunnerStatus or types.SandboxInstance after the absorption).
-	// Until that wiring lands, return an empty slice, which makes vendor /
-	// architecture / vram checks pass-through as "no GPUs known" — the
-	// count check then catches any non-trivial profile.
-	//
-	// TODO(sandbox-absorbs-runner): once SandboxInstance carries GPUs,
-	// populate this from state.GPUs.
-	return nil
+	out := make([]profile.RunnerGPUInfo, 0, len(state.GPUs))
+	for _, g := range state.GPUs {
+		out = append(out, profile.RunnerGPUInfo{
+			Index:        g.Index,
+			Vendor:       g.Vendor,
+			Architecture: g.Architecture,
+			ModelName:    g.ModelName,
+			TotalVRAM:    g.TotalMemory,
+		})
+	}
+	return out
 }
 
 type runnerProfileAssignRequest struct {
