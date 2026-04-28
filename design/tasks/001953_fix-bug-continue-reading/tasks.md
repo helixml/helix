@@ -1,6 +1,6 @@
 # Implementation Tasks
 
-- [ ] Update `SessionURL` construction in `api/pkg/notification/notification_email.go` for `EventCronTriggerComplete` (line ~166) to use `/orgs/<OrganizationID>/session/<SessionID>` when `OrganizationID` is set, falling back to `/session/<SessionID>` otherwise
+- [~] Update `SessionURL` construction in `api/pkg/notification/notification_email.go` for `EventCronTriggerComplete` (line ~166) to use `/orgs/<OrganizationID>/session/<SessionID>` when `OrganizationID` is set, falling back to `/session/<SessionID>` otherwise
 - [ ] Apply the same change for `EventCronTriggerFailed` (line ~179)
 - [ ] Add a unit test in `api/pkg/notification/notification_email_test.go` covering both events: with and without `Session.OrganizationID` set, asserting the generated URL shape
 - [ ] `go build ./api/pkg/notification/...` and run the new unit test
