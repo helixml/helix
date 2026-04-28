@@ -1,4 +1,4 @@
-import React, { FC, useState } from 'react';
+import React, { FC } from 'react';
 import Typography from '@mui/material/Typography';
 import Button from '@mui/material/Button';
 import Box from '@mui/material/Box';
@@ -8,11 +8,11 @@ import TableCell from '@mui/material/TableCell';
 import TableContainer from '@mui/material/TableContainer';
 import TableHead from '@mui/material/TableHead';
 import TableRow from '@mui/material/TableRow';
-import Chip from '@mui/material/Chip';
 import IconButton from '@mui/material/IconButton';
 import Tooltip from '@mui/material/Tooltip';
-import { Copy, Check, Trash2, Plus } from 'lucide-react';
+import { Trash2, Plus } from 'lucide-react';
 
+import MaskedSecret from '../widgets/MaskedSecret';
 import { IApiKey } from '../../types';
 
 interface APIKeysSectionProps {
@@ -23,33 +23,6 @@ interface APIKeysSectionProps {
   setAllowedDomains: (domains: string[]) => void;
   isReadOnly: boolean;
 }
-
-function maskKey(key: string): string {
-  if (key.length <= 8) return key;
-  return key.slice(0, 5) + '...' + key.slice(-3);
-}
-
-const CopyKeyButton: FC<{ apiKey: string }> = ({ apiKey }) => {
-  const [copied, setCopied] = useState(false);
-
-  const handleCopy = async () => {
-    try {
-      await navigator.clipboard.writeText(apiKey);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch (err) {
-      console.error('Failed to copy:', err);
-    }
-  };
-
-  return (
-    <Tooltip title={copied ? 'Copied!' : 'Copy API key'}>
-      <IconButton size="small" onClick={handleCopy}>
-        {copied ? <Check size={16} /> : <Copy size={16} />}
-      </IconButton>
-    </Tooltip>
-  );
-};
 
 const APIKeysSection: React.FC<APIKeysSectionProps> = ({
   apiKeys,
@@ -101,15 +74,7 @@ const APIKeysSection: React.FC<APIKeysSectionProps> = ({
               apiKeys.map((apiKey) => (
                 <TableRow key={apiKey.key} hover>
                   <TableCell>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      <Chip
-                        label={maskKey(apiKey.key)}
-                        size="small"
-                        variant="outlined"
-                        sx={{ fontFamily: 'monospace', fontSize: '0.8rem' }}
-                      />
-                      <CopyKeyButton apiKey={apiKey.key} />
-                    </Box>
+                    <MaskedSecret value={apiKey.key} ariaLabel="API key" />
                   </TableCell>
                   <TableCell align="right">
                     <Tooltip title="Delete API Key">
