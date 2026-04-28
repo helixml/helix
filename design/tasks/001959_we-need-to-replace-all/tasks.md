@@ -341,10 +341,43 @@ CGO still lives in:
 
 ## Deferred follow-ups (out of scope for this PR)
 
-- [x] **Per-session GPU pinning on multi-GPU hosts** (Decision 15 in design.md). **Implemented in this PR** during the cloud GPU validation campaign — `detect-render-node.sh` was observed always picking GPU 0 on the 4× Blackwell box, confirming the gap was real. Pieces shipped:
-  1. ✅ `CreateDevContainerRequest.GPUIndex *int` (nil = legacy "all GPUs"); Hydra `configureGPU()` emits `DeviceIDs: ["<n>"]` for NVIDIA and only mounts the matching `/dev/dri/renderD<128+n>` + `/dev/dri/card<n>` for AMD/Intel via the new `pickDRIDevices()` helper. Unit test `TestPickDRIDevices` covers the helper.
-  2. ✅ Mutter side: `detect-render-node.sh` writes the udev `mutter-device-preferred-primary` tag against the pinned card device, and Mutter follows the udev tag — no separate `MUTTER_DRM_DEVICE` needed.
-  3. ✅ GStreamer side: `nvh264enc cuda-device-id=0` is correct from the container's perspective because `NVIDIA_VISIBLE_DEVICES=N` causes CUDA to reindex (the only visible GPU is index 0 inside the container). `LIBVA_DRM_DEVICE` follows `HELIX_RENDER_NODE` already.
-  4. ✅ `detect-render-node.sh` honours `HELIX_GPU_INDEX` env var: fast-paths to `/dev/dri/renderD$((128+idx))` + `/dev/dri/card$idx`, falls through to auto-detect if the device isn't there.
-  
-  Follow-up (separate PR): API server-side wiring to map a session → GPU index when the user has multiple sessions on one runner. The underlying knob is now available; the policy layer that picks the index for a given session is a separate concern.
+- [x] **Per-session GPU pinning on multi-GPU hosts** (Decision 15 in design.md). **Implemented + live-tested on cloud during this PR.** Pieces shipped:
+  1. ✅ `CreateDevContainerRequest.GPUIndex *int` (nil = legacy "all GPUs"); Hydra `configureGPU()` emits NVIDIA `DeviceIDs: ["<n>"]` and only mounts the matching renderD+card pair for AMD/Intel via `enumerateDRMDevices()` which does a **PCI BDF walk** — critical for hosts where device numbering doesn't line up (e.g. Azure puts virtio-gpu at card0/renderD128 + real NVIDIA at card1/renderD129). Unit tests cover the Azure-mixed-host case + stable PCI-BDF ordering + headless compute (no card device).
+  2. ✅ `detect-render-node.sh` fast-path also does the PCI walk + sort-by-BDF — same algorithm as the Go side.
+  3. ✅ Mutter side: udev `mutter-device-preferred-primary` tag against the pinned card; Mutter follows it.
+  4. ✅ GStreamer side: `LIBVA_DRM_DEVICE` follows `HELIX_RENDER_NODE` (AMD/Intel); for NVIDIA NVENC the container's CUDA reindexes so `cuda-device-id=0` is correct.
+  5. ✅ Defensive `CUDA_VISIBLE_DEVICES`/`HIP_VISIBLE_DEVICES` set alongside `NVIDIA_VISIBLE_DEVICES` because of the nested-DinD limitation (see below).
+
+- [ ] **Decision 15 v2: cgroup-level NVIDIA device restriction in nested DinD.** The live-test on 2× Blackwell discovered that `NVIDIA_VISIBLE_DEVICES` does not actually restrict `/dev/nvidia*` device-node visibility inside containers when those containers are children of a sandbox launched with `--gpus all`. The cgroup-level restriction at the inner-dockerd layer is a no-op because the parent cgroup already permits all devices. Workaround shipped (CUDA_VISIBLE_DEVICES) lets CUDA workloads honor the pin, but `nvidia-smi` and `/dev/nvidia*` visibility leaks. Real fix probably requires either (a) the sandbox launching with `--gpus device=...` per-active-session at the outermost level, or (b) explicit `--device-cgroup-rule` setup in the inner dockerd. Both have implications for the inference-profile path which uses `--gpus all` for tensor-parallel.
+
+- [ ] **MI300X cannot host desktops** — confirmed live: `radeonsi: error: can't create a graphics context on a compute chip`. CDNA-class compute cards have no display engine + no encoder hardware. Customer's Node 5 (8× MI300X) is **inference-only**. For AMD desktop support we need an RDNA card (W7900/W6800/etc.) with VCN encoders. Code change needed: Hydra should reject `gpu_vendor: amd` desktop spawn requests when the underlying GPU is a CDNA chip — surface the error early instead of letting Mutter exit at runtime. Detection: AMD's `gpuarch` canonical mapping already distinguishes `cdna3`/`rdna3`/etc., so Hydra can refuse-with-error if a desktop is requested on a CDNA arch.
+
+## Audit follow-ups (gaps surfaced during cloud validation, not blocking ship)
+
+The cloud-GPU validation campaign + post-mortem audit surfaced gaps in the broader sandbox-absorbs-runner work that aren't blocking ship but should be tracked:
+
+- [ ] **Compose ↔ desktop GPU coordination has zero runtime enforcement.** Compose-pinned inference services (e.g. `device_ids: ["0","1","2","3"]`) and Hydra-pinned desktops (`gpu_index: 3`) can collide on the same GPU → OOM. Today operators must manually leave GPUs unclaimed in the profile YAML; no central registry. The "desktop-headroom" marker in the ProfileGallery is a UI hint, not a runtime constraint.
+
+- [ ] **Streaming chat completions** untested. Cloud test used non-streaming. `dispatchHTTPToRunner` may or may not stream-pass-through correctly over RevDial WebSocket.
+
+- [ ] **Profile re-assignment mid-flight** untested. What if you change a runner's profile while it's serving requests? compose-manager presumably tears down + brings up; behaviour for in-flight requests unclear.
+
+- [ ] **Profile YAML in-place edits don't trigger reapply.** compose-manager polls for *assignment* changes (profile_id), not *YAML* changes. Edit the profile YAML keeping the same id → compose-manager keeps running the old stack.
+
+- [ ] **`runner_slots` table not dropped.** GORM AutoMigrate doesn't drop. Fresh DBs are clean; production DBs migrating from older helix keep the dead table forever. Decision needed: explicit migration to drop, or document.
+
+- [ ] **inference-proxy `active.yaml` schema undocumented.** Hand-written YAML in cloud test #1 didn't satisfy the proxy. compose-manager presumably writes the right format. Schema should be documented + tested.
+
+- [ ] **External agent regression untested.** Removed special-case in openai_server; `git grep "external_agent"` showed no live use, but no end-to-end external-agent session was run through.
+
+- [ ] **Multi-tenant runner_profiles** — does the table scope by org? Auth on the CRUD endpoints? Not verified.
+
+- [ ] **Profile delete with active assignment** — cascade? reject? leave orphan? Not specified.
+
+- [ ] **Logs collection deleted.** Operators have no in-product way to see why a vLLM container failed to start. SSH-onto-runner is the workaround. Real operator regression.
+
+- [ ] **No live browser smoke of the new RunnerProfiles tab.** Vite builds clean, but TS compile-time != runtime.
+
+- [ ] **NVENC verified as configured but not as producing frames.** The cloud desktop test exercised the screencast portal (uses jpegenc, software). NVENC is only invoked when a video-stream client subscribes; that path was not exercised.
+
+- [ ] **Cloudflared tunnel used in cloud test #6 has no auth gate.** Anyone with the URL could hit the local helix and burn credits. For real CI we need a persistent named tunnel or RevDial against an mTLS-authenticated public endpoint.
