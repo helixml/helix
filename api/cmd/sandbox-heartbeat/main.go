@@ -16,6 +16,8 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/data"
+	"github.com/helixml/helix/api/pkg/gpudetect"
+	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
@@ -63,6 +65,11 @@ type HeartbeatRequest struct {
 	PrivilegedModeEnabled bool                 `json:"privileged_mode_enabled,omitempty"`
 	GPUVendor             string               `json:"gpu_vendor,omitempty"`    // nvidia, amd, intel, none
 	HelixVersion          string               `json:"helix_version,omitempty"` // git commit hash or release version
+
+	// Sandbox-absorbs-runner pivot: rich GPU inventory used by the inference
+	// router's profile-compatibility check. Detected via nvidia-smi /
+	// rocm-smi by the gpudetect package. Empty on hosts without GPUs.
+	GPUs []types.GPUStatus `json:"gpus,omitempty"`
 }
 
 func main() {
@@ -130,6 +137,14 @@ func sendHeartbeat(apiURL, runnerToken, sandboxInstanceID string, privilegedMode
 	// Read GPU vendor from environment (set by install.sh on the sandbox)
 	gpuVendor := os.Getenv("GPU_VENDOR") // nvidia, amd, intel, none
 
+	// Sandbox-absorbs-runner pivot: probe nvidia-smi / rocm-smi for the
+	// rich inventory the inference router's compatibility check needs.
+	// 5s timeout — if probes hang we ship the heartbeat without GPU data
+	// rather than block the loop.
+	probeCtx, probeCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	gpus := gpudetect.Detect(probeCtx)
+	probeCancel()
+
 	// Build request
 	req := HeartbeatRequest{
 		DesktopVersions:       desktopVersions,
@@ -138,6 +153,7 @@ func sendHeartbeat(apiURL, runnerToken, sandboxInstanceID string, privilegedMode
 		PrivilegedModeEnabled: privilegedModeEnabled,
 		GPUVendor:             gpuVendor,
 		HelixVersion:          data.GetHelixVersion(),
+		GPUs:                  gpus,
 	}
 
 	// Log disk status
