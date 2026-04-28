@@ -341,10 +341,10 @@ CGO still lives in:
 
 ## Deferred follow-ups (out of scope for this PR)
 
-- [ ] **Per-session GPU pinning on multi-GPU hosts** (Decision 15 in design.md). Today on a multi-GPU box (8× MI300X, 4× L40S) all Hydra-spawned desktop sessions land on GPU 0. Three pieces:
-  1. Hydra accepts a `gpu_index` per session and emits `NVIDIA_VISIBLE_DEVICES=<n>` (NVIDIA) / `--device /dev/dri/renderD<128+n>` (AMD) instead of the current `=all` / glob-all (`api/pkg/hydra/devcontainer.go:621-1085`).
-  2. Mutter startup sets `MUTTER_DRM_DEVICE=/dev/dri/card<n>` (mirroring the existing `WLR_DRM_DEVICES` for Sway).
-  3. desktop-bridge GStreamer encoder picks the matching GPU: `nvh264enc cuda-device-id=<n>` (NV-ENC) or `LIBVA_DRM_DEVICE=/dev/dri/renderD<128+n>` (VA-API).
-  4. Extend `desktop/shared/detect-render-node.sh` with a "select Nth GPU" mode taking explicit GPU index from env.
+- [x] **Per-session GPU pinning on multi-GPU hosts** (Decision 15 in design.md). **Implemented in this PR** during the cloud GPU validation campaign — `detect-render-node.sh` was observed always picking GPU 0 on the 4× Blackwell box, confirming the gap was real. Pieces shipped:
+  1. ✅ `CreateDevContainerRequest.GPUIndex *int` (nil = legacy "all GPUs"); Hydra `configureGPU()` emits `DeviceIDs: ["<n>"]` for NVIDIA and only mounts the matching `/dev/dri/renderD<128+n>` + `/dev/dri/card<n>` for AMD/Intel via the new `pickDRIDevices()` helper. Unit test `TestPickDRIDevices` covers the helper.
+  2. ✅ Mutter side: `detect-render-node.sh` writes the udev `mutter-device-preferred-primary` tag against the pinned card device, and Mutter follows the udev tag — no separate `MUTTER_DRM_DEVICE` needed.
+  3. ✅ GStreamer side: `nvh264enc cuda-device-id=0` is correct from the container's perspective because `NVIDIA_VISIBLE_DEVICES=N` causes CUDA to reindex (the only visible GPU is index 0 inside the container). `LIBVA_DRM_DEVICE` follows `HELIX_RENDER_NODE` already.
+  4. ✅ `detect-render-node.sh` honours `HELIX_GPU_INDEX` env var: fast-paths to `/dev/dri/renderD$((128+idx))` + `/dev/dri/card$idx`, falls through to auto-detect if the device isn't there.
   
-  ETA: ~half day. Trigger: when we get capacity at Hot Aisle bare-metal / TensorWave for the 8× MI300X validation, or when we deploy on a customer's actual multi-GPU node.
+  Follow-up (separate PR): API server-side wiring to map a session → GPU index when the user has multiple sessions on one runner. The underlying knob is now available; the policy layer that picks the index for a given session is a separate concern.

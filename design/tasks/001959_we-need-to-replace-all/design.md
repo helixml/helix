@@ -704,7 +704,7 @@ Both providers sit behind a single `internal/provision.Multi` dispatcher; matrix
 
 Full matrix-pass cost: **~$16 per 30-min validation**. Live runs blocked only on user signing up at hotaisle.xyz + console.verda.com (both self-serve, takes minutes).
 
-## Decision 15: Per-session GPU pinning on multi-GPU hosts (deferred)
+## Decision 15: Per-session GPU pinning on multi-GPU hosts (implemented)
 
 On a multi-GPU host (e.g. customer's 8× MI300X node, the 4× L40S nodes), Hydra-spawned desktop sessions need to be pinned to a specific GPU so:
 
@@ -720,9 +720,21 @@ On a multi-GPU host (e.g. customer's 8× MI300X node, the 4× L40S nodes), Hydra
 
 Shared work: extend `detect-render-node.sh` with a "select Nth GPU" mode that takes an explicit GPU index from env and skips the auto-pick.
 
-**Why deferred**: the architecture works on single-GPU hosts (validated on Verda 1× A100 cloud VM 2026-04-28 — see Spike Result section). Multi-GPU pinning becomes a real requirement only when we run desktops on a customer's actual multi-GPU box. Until then, "all sessions share GPU 0" is acceptable.
+**Status (2026-04-28): implemented in this PR.** During the cloud GPU validation campaign on a 4× RTX PRO 6000 Blackwell box, the existing `detect-render-node.sh` was observed always picking GPU 0 — confirming this gap was real, not theoretical. So we did the half-day of work rather than ship the PR with the gap.
 
-**Estimated work**: ~half a day. Ship as a follow-up PR once the customer-deployment hardware is in our hands (or we get capacity at Hot Aisle bare-metal / TensorWave for the 8× MI300X validation).
+The implementation:
+- `CreateDevContainerRequest.GPUIndex *int` (nil = all GPUs, current behaviour preserved for legacy callers).
+- `configureGPU()` in `api/pkg/hydra/devcontainer.go` threads the index through:
+  - NVIDIA: `DeviceRequests[].DeviceIDs = []string{"<n>"}` (instead of `["all"]`)
+  - AMD/Intel: only the matching renderD<128+n> + cardN is mounted (`pickDRIDevices()` helper, unit-tested)
+- `HELIX_GPU_INDEX=<n>` env var set in the container so `detect-render-node.sh` picks the matching pair on hosts where multiple devices are still visible.
+- `detect-render-node.sh` fast-paths to `/dev/dri/renderD$((128+idx))` + `/dev/dri/card$idx` when `HELIX_GPU_INDEX` is set, falls through to the existing auto-detect loop if not (or if the device isn't there).
+
+What does **not** require code changes (CUDA reindexes inside the container):
+- GStreamer `nvh264enc cuda-device-id=...` — Inside the container, the only visible NVIDIA GPU is at index 0 (host index N). `cuda-device-id=0` is correct from the container's perspective.
+- AMD `LIBVA_DRM_DEVICE` — already follows `HELIX_RENDER_NODE` from the script.
+
+API server-side wiring (mapping a session → GPU index when the user has multiple sessions on one runner) is the next-PR follow-up; this PR ships the underlying knob so it's available when the API layer is ready.
 
 ## Open Questions
 
