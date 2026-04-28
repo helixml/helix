@@ -87,22 +87,34 @@ func activationStreamID(workerID domain.WorkerID) domain.StreamID {
 	return domain.StreamID("s-activations-" + string(workerID))
 }
 
+// agentMDStub is the fixed entry-point text projected into every
+// Worker's Environment at activation time. The Spawner reads it;
+// Claude follows it. Same for every Worker — not per-hire state.
+const agentMDStub = `Read role.md (your job) and identity.md (who you are).
+Then act on the trigger described below.
+Each activation is a single turn — do the work and exit.
+`
+
 // ClaudeSpawner returns a Spawner that runs `claude -p` in the new
 // Worker's Environment directory and BLOCKS until claude exits. The
 // dispatcher is responsible for serialising calls per Worker.
 //
-// The Worker's identity, role, and activation flow live as three
-// markdown files in envPath, written by hire_worker:
+// State lives in the domain (DB), not on disk. Before exec'ing claude,
+// the Spawner projects current state into the Environment as three
+// markdown files:
 //
-//   - role.md     — the Role's canonical content (job description,
-//     channels, duties). Updated by the owner via update_role.
-//   - identity.md — the Worker's per-hire identity (name, voice,
-//     stance). Set at hire, immutable thereafter.
-//   - agent.md    — a fixed entry-point stub instructing the agent
-//     to read role.md and identity.md and act on the trigger.
+//   - role.md     — the canonical Role.Content read from the store.
+//     `update_role` rewrites the DB row; the next activation picks it
+//     up here.
+//   - identity.md — the Worker's IdentityContent read from the store.
+//     `update_identity` rewrites the DB row; same lazy projection.
+//   - agent.md    — a fixed entry-point stub (agentMDStub) instructing
+//     the agent to read role.md and identity.md and act on the trigger.
 //
-// The Spawner reads agent.md and embeds it in the prompt; Claude reads
-// role.md and identity.md from cwd as its first action.
+// This is the single seam that knows "how to make role/identity visible
+// to a worker." Local envs write files (today). When envs eventually
+// go remote (SSH targets, container exec, prompt-only), only this
+// projection step swaps strategy — tools and bootstrap don't change.
 //
 // Tools are exposed to the agent over MCP. Per activation the Spawner
 // writes <envPath>/mcp.json pointing at /workers/<id>/mcp on the helix
@@ -118,10 +130,8 @@ func activationStreamID(workerID domain.WorkerID) domain.StreamID {
 // flows through. There is no on-disk transcript.
 func ClaudeSpawner(cfg ClaudeSpawnerConfig) Spawner {
 	return func(ctx context.Context, workerID domain.WorkerID, envPath string, trigger Trigger) error {
-		entryFile := filepath.Join(envPath, "agent.md")
-		mandate, err := os.ReadFile(entryFile) //nolint:gosec // path sourced from trusted server state
-		if err != nil {
-			return fmt.Errorf("read entry-point %q: %w", entryFile, err)
+		if err := projectEnv(ctx, cfg.Store, workerID, envPath); err != nil {
+			return fmt.Errorf("project env for %s: %w", workerID, err)
 		}
 
 		mcpConfigPath, err := writeMCPConfig(envPath, cfg.PublicURL, workerID)
@@ -129,7 +139,7 @@ func ClaudeSpawner(cfg ClaudeSpawnerConfig) Spawner {
 			return fmt.Errorf("write mcp config: %w", err)
 		}
 
-		prompt := buildPrompt(workerID, string(mandate), trigger)
+		prompt := buildPrompt(workerID, agentMDStub, trigger)
 
 		args := []string{
 			"-p", prompt,
@@ -208,6 +218,59 @@ func ClaudeSpawner(cfg ClaudeSpawnerConfig) Spawner {
 		)
 		return err
 	}
+}
+
+// projectEnv writes the current canonical state of a Worker — role,
+// identity, and the fixed agent.md entry stub — into envPath. Called
+// once per activation, just before claude is exec'd. Reads from the
+// domain (DB); writes to disk (env). The DB is the source of truth;
+// disk is a per-activation projection.
+//
+// A Worker may hold multiple positions; we project the role of the
+// first listed. In practice today every Worker has exactly one
+// position (hire_worker only ever assigns one). If multi-position
+// Workers become real, this is the seam to revisit.
+func projectEnv(ctx context.Context, s *store.Store, workerID domain.WorkerID, envPath string) error {
+	if s == nil {
+		return fmt.Errorf("spawner has no store")
+	}
+	worker, err := s.Workers.Get(ctx, workerID)
+	if err != nil {
+		return fmt.Errorf("get worker: %w", err)
+	}
+	positions := worker.Positions()
+	if len(positions) == 0 {
+		return fmt.Errorf("worker %s has no positions", workerID)
+	}
+	pos, err := s.Positions.Get(ctx, positions[0])
+	if err != nil {
+		return fmt.Errorf("get position: %w", err)
+	}
+	role, err := s.Roles.Get(ctx, pos.RoleID)
+	if err != nil {
+		return fmt.Errorf("get role: %w", err)
+	}
+	if err := writeEnvFile(envPath, "role.md", role.Content); err != nil {
+		return err
+	}
+	if err := writeEnvFile(envPath, "identity.md", worker.IdentityContent()); err != nil {
+		return err
+	}
+	if err := writeEnvFile(envPath, "agent.md", agentMDStub); err != nil {
+		return err
+	}
+	return nil
+}
+
+// writeEnvFile writes content to a file inside a Worker's Environment
+// directory. The mode is 0o600 — these files describe behaviour and
+// identity and shouldn't be world-readable.
+func writeEnvFile(envPath, name, content string) error {
+	full := filepath.Join(envPath, name)
+	if err := os.WriteFile(full, []byte(content), 0o600); err != nil {
+		return fmt.Errorf("write %q: %w", full, err)
+	}
+	return nil
 }
 
 // publishActivationEvent appends one Event to the Worker's activation

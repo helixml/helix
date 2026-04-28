@@ -38,7 +38,7 @@ func TestPublishRejectsGitHubStream(t *testing.T) {
 	if err := st.Streams.Create(ctx, stream); err != nil {
 		t.Fatalf("create stream: %v", err)
 	}
-	caller, _ := domain.NewHumanWorker("w-owner", []domain.PositionID{"p-root"})
+	caller, _ := domain.NewHumanWorker("w-owner", []domain.PositionID{"p-root"}, "")
 
 	deps := DefaultDeps(st)
 	tool := &Publish{deps: deps}
@@ -85,7 +85,7 @@ func TestPublishLocalStreamStillWorks(t *testing.T) {
 	if err := st.Streams.Create(ctx, stream); err != nil {
 		t.Fatalf("create stream: %v", err)
 	}
-	caller, _ := domain.NewHumanWorker("w-owner", []domain.PositionID{"p-root"})
+	caller, _ := domain.NewHumanWorker("w-owner", []domain.PositionID{"p-root"}, "")
 
 	deps := DefaultDeps(st)
 	tool := &Publish{deps: deps}

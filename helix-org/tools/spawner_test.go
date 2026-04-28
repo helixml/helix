@@ -4,6 +4,8 @@ import (
 	"context"
 	"io"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -12,6 +14,16 @@ import (
 	"github.com/helixml/helix-org/domain"
 	"github.com/helixml/helix-org/store/sqlite"
 )
+
+// readFile reads a single file inside dir. Tests use t.TempDir() so
+// path traversal isn't a concern.
+func readFile(dir, name string) (string, error) {
+	b, err := os.ReadFile(filepath.Join(dir, name)) //nolint:gosec // dir is t.TempDir()
+	if err != nil {
+		return "", err
+	}
+	return string(b), nil
+}
 
 // TestRenderEvent covers the parsed-line → transcript-body rules. Each
 // claude stream-json line maps to zero or more bodies, one per atomic
@@ -387,6 +399,80 @@ func TestBuildPromptIncludesEnvelope(t *testing.T) {
 		if !strings.Contains(prompt, w) {
 			t.Errorf("prompt missing %q", w)
 		}
+	}
+}
+
+// TestProjectEnvWritesCanonicalState pins the contract: projectEnv
+// reads the worker / position / role from the store and writes
+// role.md, identity.md, and agent.md into envPath. Subsequent
+// activations re-run this so updates land before claude is exec'd —
+// no separate fan-out tool needed.
+func TestProjectEnvWritesCanonicalState(t *testing.T) {
+	t.Parallel()
+
+	s, err := sqlite.Open(":memory:")
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	ctx := context.Background()
+	now := time.Date(2026, 4, 28, 12, 0, 0, 0, time.UTC)
+
+	role, _ := domain.NewRole("r-eng", "# Role: Engineer\nBuild stuff.", now)
+	if err := s.Roles.Create(ctx, role); err != nil {
+		t.Fatalf("create role: %v", err)
+	}
+	pos, _ := domain.NewPosition("p-eng", "r-eng", nil)
+	if err := s.Positions.Create(ctx, pos); err != nil {
+		t.Fatalf("create position: %v", err)
+	}
+	worker, _ := domain.NewAIWorker("w-eng", []domain.PositionID{"p-eng"}, "# Persona\nAlice.")
+	if err := s.Workers.Create(ctx, worker); err != nil {
+		t.Fatalf("create worker: %v", err)
+	}
+
+	envPath := t.TempDir()
+	if err := projectEnv(ctx, s, "w-eng", envPath); err != nil {
+		t.Fatalf("projectEnv: %v", err)
+	}
+
+	want := map[string]string{
+		"role.md":     "# Role: Engineer\nBuild stuff.",
+		"identity.md": "# Persona\nAlice.",
+		"agent.md":    agentMDStub,
+	}
+	for name, expected := range want {
+		got, err := readFile(envPath, name)
+		if err != nil {
+			t.Fatalf("read %s: %v", name, err)
+		}
+		if got != expected {
+			t.Errorf("%s = %q, want %q", name, got, expected)
+		}
+	}
+
+	// Update the role in the DB; re-project; the new content lands.
+	updated := domain.Role{ID: role.ID, Content: "# Role: Engineer v2", CreatedAt: role.CreatedAt, UpdatedAt: now}
+	if err := s.Roles.Update(ctx, updated); err != nil {
+		t.Fatalf("update role: %v", err)
+	}
+	if err := projectEnv(ctx, s, "w-eng", envPath); err != nil {
+		t.Fatalf("re-project: %v", err)
+	}
+	got, _ := readFile(envPath, "role.md")
+	if got != "# Role: Engineer v2" {
+		t.Fatalf("post-update role.md = %q", got)
+	}
+
+	// Same for identity via the domain.
+	if err := s.Workers.Update(ctx, worker.WithIdentityContent("# Persona\nAlice (v2).")); err != nil {
+		t.Fatalf("update worker: %v", err)
+	}
+	if err := projectEnv(ctx, s, "w-eng", envPath); err != nil {
+		t.Fatalf("re-project after identity update: %v", err)
+	}
+	got, _ = readFile(envPath, "identity.md")
+	if got != "# Persona\nAlice (v2)." {
+		t.Fatalf("post-update identity.md = %q", got)
 	}
 }
 

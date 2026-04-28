@@ -9,19 +9,21 @@ func TestNewHumanWorker(t *testing.T) {
 		name      string
 		id        WorkerID
 		positions []PositionID
+		identity  string
 		wantErr   bool
 	}{
-		{"valid", "w-1", []PositionID{"p-ceo"}, false},
-		{"empty id", "", []PositionID{"p-ceo"}, true},
-		{"no positions (vacated)", "w-1", nil, false},
-		{"empty position id", "w-1", []PositionID{""}, true},
-		{"duplicate positions", "w-1", []PositionID{"p-ceo", "p-ceo"}, true},
+		{"valid", "w-1", []PositionID{"p-ceo"}, "i am the ceo", false},
+		{"valid empty identity", "w-1", []PositionID{"p-ceo"}, "", false},
+		{"empty id", "", []PositionID{"p-ceo"}, "", true},
+		{"no positions (vacated)", "w-1", nil, "", false},
+		{"empty position id", "w-1", []PositionID{""}, "", true},
+		{"duplicate positions", "w-1", []PositionID{"p-ceo", "p-ceo"}, "", true},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			w, err := NewHumanWorker(tc.id, tc.positions)
+			w, err := NewHumanWorker(tc.id, tc.positions, tc.identity)
 			gotErr := err != nil
 			if gotErr != tc.wantErr {
 				t.Fatalf("NewHumanWorker error = %v, wantErr = %v", err, tc.wantErr)
@@ -33,6 +35,9 @@ func TestNewHumanWorker(t *testing.T) {
 				if w.ID() != tc.id {
 					t.Fatalf("ID = %q, want %q", w.ID(), tc.id)
 				}
+				if w.IdentityContent() != tc.identity {
+					t.Fatalf("IdentityContent = %q, want %q", w.IdentityContent(), tc.identity)
+				}
 			}
 		})
 	}
@@ -41,7 +46,7 @@ func TestNewHumanWorker(t *testing.T) {
 func TestNewAIWorker(t *testing.T) {
 	t.Parallel()
 
-	w, err := NewAIWorker("w-ai", []PositionID{"p-docs"})
+	w, err := NewAIWorker("w-ai", []PositionID{"p-docs"}, "you are the docs editor")
 	if err != nil {
 		t.Fatalf("NewAIWorker: %v", err)
 	}
@@ -51,13 +56,38 @@ func TestNewAIWorker(t *testing.T) {
 	if got := w.Positions(); len(got) != 1 || got[0] != "p-docs" {
 		t.Fatalf("Positions = %v, want [p-docs]", got)
 	}
+	if w.IdentityContent() != "you are the docs editor" {
+		t.Fatalf("IdentityContent = %q", w.IdentityContent())
+	}
+}
+
+func TestWorkerWithIdentityContent(t *testing.T) {
+	t.Parallel()
+
+	w, err := NewAIWorker("w-1", []PositionID{"p-1"}, "old")
+	if err != nil {
+		t.Fatalf("NewAIWorker: %v", err)
+	}
+	updated := w.WithIdentityContent("new")
+	if w.IdentityContent() != "old" {
+		t.Fatalf("original mutated: %q", w.IdentityContent())
+	}
+	if updated.IdentityContent() != "new" {
+		t.Fatalf("updated identity = %q, want %q", updated.IdentityContent(), "new")
+	}
+	if updated.ID() != w.ID() {
+		t.Fatalf("ID changed: %q vs %q", updated.ID(), w.ID())
+	}
+	if updated.Kind() != w.Kind() {
+		t.Fatalf("Kind changed: %q vs %q", updated.Kind(), w.Kind())
+	}
 }
 
 func TestWorkerPositionsIsolation(t *testing.T) {
 	t.Parallel()
 
 	positions := []PositionID{"p-ceo"}
-	w, err := NewHumanWorker("w-1", positions)
+	w, err := NewHumanWorker("w-1", positions, "")
 	if err != nil {
 		t.Fatalf("NewHumanWorker: %v", err)
 	}

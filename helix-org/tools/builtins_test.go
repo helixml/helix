@@ -25,8 +25,9 @@ import (
 // Owner is pre-seeded. Owner creates a #general Stream, subscribes
 // themselves, defines a CEO Role (markdown content), creates a Position,
 // then hires the CEO with inline grants and an identityContent. The
-// Worker's role.md / identity.md / agent.md are written under EnvsDir
-// by hire_worker. Owner publishes; CEO sees it.
+// Worker's IdentityContent is stored in the domain alongside the Role —
+// no env files are written at hire (the spawner projects them at
+// activation). Owner publishes; CEO sees it.
 func TestDemoOwnerHiresCEO(t *testing.T) {
 	t.Parallel()
 
@@ -56,7 +57,7 @@ func TestDemoOwnerHiresCEO(t *testing.T) {
 	mustCreate(t, s.Roles.Create(ctx, ownerRole))
 	rootPos, _ := domain.NewPosition("p-root", "r-owner", nil)
 	mustCreate(t, s.Positions.Create(ctx, rootPos))
-	owner, _ := domain.NewHumanWorker("w-owner", []domain.PositionID{"p-root"})
+	owner, _ := domain.NewHumanWorker("w-owner", []domain.PositionID{"p-root"}, "")
 	mustCreate(t, s.Workers.Create(ctx, owner))
 	ownerEnvPath := filepath.Join(envsDir, "w-owner")
 	if err := os.MkdirAll(ownerEnvPath, 0o750); err != nil {
@@ -109,16 +110,23 @@ func TestDemoOwnerHiresCEO(t *testing.T) {
 		},
 	})
 
-	// hire_worker stamps the trio of files under EnvsDir/<id>/.
+	// hire_worker creates the env directory but does not write files —
+	// the spawner projects role.md / identity.md / agent.md at
+	// activation time. So we should see the directory exist but be
+	// empty after a hire.
 	ceoEnvPath := filepath.Join(envsDir, "w-ceo")
-	for _, name := range []string{"role.md", "identity.md", "agent.md"} {
-		data, err := os.ReadFile(filepath.Join(ceoEnvPath, name)) //nolint:gosec // path is t.TempDir() + known filename
-		if err != nil {
-			t.Fatalf("read %s: %v", name, err)
-		}
-		if len(data) == 0 {
-			t.Fatalf("%s is empty", name)
-		}
+	if entries, err := os.ReadDir(ceoEnvPath); err != nil {
+		t.Fatalf("expected env dir to exist: %v", err)
+	} else if len(entries) != 0 {
+		t.Fatalf("expected empty env dir, got %d entries", len(entries))
+	}
+	// IdentityContent lives in the domain.
+	ceoWorker, err := s.Workers.Get(ctx, "w-ceo")
+	if err != nil {
+		t.Fatalf("get w-ceo: %v", err)
+	}
+	if ceoWorker.IdentityContent() != "# Meina Gladstone\nCEO. Decisive, warm, direct." {
+		t.Fatalf("ceo identity = %q", ceoWorker.IdentityContent())
 	}
 
 	// hire_worker also creates the activation stream and subscribes the
@@ -165,9 +173,14 @@ func TestDemoOwnerHiresCEO(t *testing.T) {
 	}
 }
 
-// TestUpdateRoleFanOut hires two workers under the same Role, runs
-// update_role, and asserts both Workers' role.md is rewritten.
-func TestUpdateRoleFanOut(t *testing.T) {
+// TestUpdateRoleAndIdentityAreDomainWrites pins the post-refactor
+// contract: update_role and update_identity are pure DB mutations.
+// The spawner is the only thing that projects state into envs, so
+// after a tool call the on-disk files (if any) are stale and only
+// the DB row reflects the change. This test hires two workers and
+// asserts that both `update_role` and `update_identity` flow through
+// the domain alone — no fan-out walks, no cross-env writes.
+func TestUpdateRoleAndIdentityAreDomainWrites(t *testing.T) {
 	t.Parallel()
 
 	s, err := sqlite.Open(":memory:")
@@ -192,11 +205,12 @@ func TestUpdateRoleFanOut(t *testing.T) {
 	mustCreate(t, s.Roles.Create(ctx, ownerRole))
 	rootPos, _ := domain.NewPosition("p-root", "r-owner", nil)
 	mustCreate(t, s.Positions.Create(ctx, rootPos))
-	owner, _ := domain.NewHumanWorker("w-owner", []domain.PositionID{"p-root"})
+	owner, _ := domain.NewHumanWorker("w-owner", []domain.PositionID{"p-root"}, "")
 	mustCreate(t, s.Workers.Create(ctx, owner))
 	for _, name := range []domain.ToolName{
 		tools.CreateRoleName,
 		tools.UpdateRoleName,
+		tools.UpdateIdentityName,
 		tools.CreatePositionName,
 		tools.HireWorkerName,
 	} {
@@ -225,11 +239,14 @@ func TestUpdateRoleFanOut(t *testing.T) {
 		"identityContent": "# Bob",
 	})
 
-	// Sanity: both workers have the v1 content on disk.
+	// hire_worker does not write env files; the dirs exist but are empty.
 	for _, id := range []string{"w-a", "w-b"} {
-		data, _ := os.ReadFile(filepath.Join(envsDir, id, "role.md")) //nolint:gosec // path is t.TempDir() + known filename
-		if string(data) != "# Engineer v1\nBuild stuff." {
-			t.Fatalf("%s pre-update role.md = %q", id, string(data))
+		entries, err := os.ReadDir(filepath.Join(envsDir, id))
+		if err != nil {
+			t.Fatalf("read %s env dir: %v", id, err)
+		}
+		if len(entries) != 0 {
+			t.Fatalf("%s env should be empty after hire, got %d entries", id, len(entries))
 		}
 	}
 
@@ -238,22 +255,41 @@ func TestUpdateRoleFanOut(t *testing.T) {
 		"content": "# Engineer v2\nBuild better stuff.",
 	})
 
-	// Both workers' role.md should reflect the new content.
+	// Role row in the DB now carries the new content; nothing was
+	// written to disk by the tool.
+	got, err := s.Roles.Get(ctx, "r-eng")
+	if err != nil {
+		t.Fatalf("get r-eng: %v", err)
+	}
+	if got.Content != "# Engineer v2\nBuild better stuff." {
+		t.Fatalf("r-eng content = %q", got.Content)
+	}
 	for _, id := range []string{"w-a", "w-b"} {
-		data, err := os.ReadFile(filepath.Join(envsDir, id, "role.md")) //nolint:gosec // path is t.TempDir() + known filename
-		if err != nil {
-			t.Fatalf("read %s role.md: %v", id, err)
-		}
-		if string(data) != "# Engineer v2\nBuild better stuff." {
-			t.Fatalf("%s post-update role.md = %q", id, string(data))
+		entries, _ := os.ReadDir(filepath.Join(envsDir, id))
+		if len(entries) != 0 {
+			t.Fatalf("%s env should still be empty after update_role, got %d entries", id, len(entries))
 		}
 	}
-	// And identity.md is untouched.
-	for id, want := range map[string]string{"w-a": "# Alice", "w-b": "# Bob"} {
-		data, _ := os.ReadFile(filepath.Join(envsDir, id, "identity.md")) //nolint:gosec // path is t.TempDir() + known filename
-		if string(data) != want {
-			t.Fatalf("%s identity.md = %q, want %q", id, string(data), want)
-		}
+
+	// update_identity rewrites Worker.IdentityContent on the DB row.
+	invokeExpectID(t, ownerSession, tools.UpdateIdentityName, map[string]any{
+		"workerId": "w-a",
+		"content":  "# Alice (v2)\nNow with extra spice.",
+	})
+	wa, err := s.Workers.Get(ctx, "w-a")
+	if err != nil {
+		t.Fatalf("get w-a: %v", err)
+	}
+	if wa.IdentityContent() != "# Alice (v2)\nNow with extra spice." {
+		t.Fatalf("w-a identity = %q", wa.IdentityContent())
+	}
+	// w-b's identity is untouched.
+	wb, err := s.Workers.Get(ctx, "w-b")
+	if err != nil {
+		t.Fatalf("get w-b: %v", err)
+	}
+	if wb.IdentityContent() != "# Bob" {
+		t.Fatalf("w-b identity changed: %q", wb.IdentityContent())
 	}
 }
 
@@ -287,9 +323,9 @@ func TestStreamMembers(t *testing.T) {
 	mustCreate(t, s.Roles.Create(ctx, ownerRole))
 	rootPos, _ := domain.NewPosition("p-root", "r-owner", nil)
 	mustCreate(t, s.Positions.Create(ctx, rootPos))
-	owner, _ := domain.NewHumanWorker("w-owner", []domain.PositionID{"p-root"})
+	owner, _ := domain.NewHumanWorker("w-owner", []domain.PositionID{"p-root"}, "")
 	mustCreate(t, s.Workers.Create(ctx, owner))
-	worker, _ := domain.NewAIWorker("w-listener", []domain.PositionID{"p-root"})
+	worker, _ := domain.NewAIWorker("w-listener", []domain.PositionID{"p-root"}, "")
 	mustCreate(t, s.Workers.Create(ctx, worker))
 	for _, name := range []domain.ToolName{
 		tools.CreateStreamName,
@@ -350,11 +386,11 @@ func TestInviteWorkers(t *testing.T) {
 	mustCreate(t, s.Roles.Create(ctx, ownerRole))
 	rootPos, _ := domain.NewPosition("p-root", "r-owner", nil)
 	mustCreate(t, s.Positions.Create(ctx, rootPos))
-	owner, _ := domain.NewHumanWorker("w-owner", []domain.PositionID{"p-root"})
+	owner, _ := domain.NewHumanWorker("w-owner", []domain.PositionID{"p-root"}, "")
 	mustCreate(t, s.Workers.Create(ctx, owner))
-	alice, _ := domain.NewAIWorker("w-alice", []domain.PositionID{"p-root"})
+	alice, _ := domain.NewAIWorker("w-alice", []domain.PositionID{"p-root"}, "")
 	mustCreate(t, s.Workers.Create(ctx, alice))
-	bob, _ := domain.NewAIWorker("w-bob", []domain.PositionID{"p-root"})
+	bob, _ := domain.NewAIWorker("w-bob", []domain.PositionID{"p-root"}, "")
 	mustCreate(t, s.Workers.Create(ctx, bob))
 	for _, name := range []domain.ToolName{
 		tools.CreateStreamName,
@@ -440,9 +476,9 @@ func TestDM(t *testing.T) {
 	mustCreate(t, s.Roles.Create(ctx, ownerRole))
 	rootPos, _ := domain.NewPosition("p-root", "r-owner", nil)
 	mustCreate(t, s.Positions.Create(ctx, rootPos))
-	alice, _ := domain.NewHumanWorker("w-alice", []domain.PositionID{"p-root"})
+	alice, _ := domain.NewHumanWorker("w-alice", []domain.PositionID{"p-root"}, "")
 	mustCreate(t, s.Workers.Create(ctx, alice))
-	bob, _ := domain.NewAIWorker("w-bob", []domain.PositionID{"p-root"})
+	bob, _ := domain.NewAIWorker("w-bob", []domain.PositionID{"p-root"}, "")
 	mustCreate(t, s.Workers.Create(ctx, bob))
 	for _, name := range []domain.ToolName{tools.DMName, tools.ReadEventsName} {
 		g, _ := domain.NewToolGrant(domain.GrantID("g-alice-"+name), "w-alice", name)
@@ -557,7 +593,7 @@ func TestReadsOverMCP(t *testing.T) {
 	mustCreate(t, s.Roles.Create(ctx, ownerRole))
 	rootPos, _ := domain.NewPosition("p-root", "r-owner", nil)
 	mustCreate(t, s.Positions.Create(ctx, rootPos))
-	owner, _ := domain.NewHumanWorker("w-owner", []domain.PositionID{"p-root"})
+	owner, _ := domain.NewHumanWorker("w-owner", []domain.PositionID{"p-root"}, "")
 	mustCreate(t, s.Workers.Create(ctx, owner))
 	for _, name := range []domain.ToolName{
 		tools.CreateStreamName,
@@ -679,9 +715,9 @@ func TestWorkerLog(t *testing.T) {
 	mustCreate(t, s.Roles.Create(ctx, ownerRole))
 	rootPos, _ := domain.NewPosition("p-root", "r-owner", nil)
 	mustCreate(t, s.Positions.Create(ctx, rootPos))
-	owner, _ := domain.NewHumanWorker("w-owner", []domain.PositionID{"p-root"})
+	owner, _ := domain.NewHumanWorker("w-owner", []domain.PositionID{"p-root"}, "")
 	mustCreate(t, s.Workers.Create(ctx, owner))
-	bot, _ := domain.NewAIWorker("w-bot", []domain.PositionID{"p-root"})
+	bot, _ := domain.NewAIWorker("w-bot", []domain.PositionID{"p-root"}, "")
 	mustCreate(t, s.Workers.Create(ctx, bot))
 
 	// Pre-create the activation stream + seed a couple of events. In

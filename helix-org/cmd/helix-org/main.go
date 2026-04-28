@@ -1,6 +1,7 @@
-// Helix Org CLI: runs the HTTP server and bootstraps the initial owner
-// Worker. Beyond bootstrap, mutations are made via MCP — point an MCP
-// client at /workers/{id}/mcp on the running server.
+// Helix Org CLI: runs the HTTP server. The first start of `serve`
+// against an empty database creates the initial owner Worker. Beyond
+// that, every mutation goes through MCP — point an MCP client (or the
+// `chat` subcommand) at /workers/{id}/mcp on the running server.
 package main
 
 import (
@@ -23,8 +24,6 @@ func run(args []string) error {
 	switch args[0] {
 	case "serve":
 		return runServe(args[1:])
-	case "bootstrap":
-		return runBootstrap(args[1:])
 	case "chat":
 		return runChat(args[1:])
 	case "config":
@@ -42,13 +41,10 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, `usage: helix-org <subcommand> [flags]
 
 Subcommands:
-  serve       Run the HTTP server. Exposes one endpoint:
-              /workers/{id}/mcp (Streamable HTTP MCP transport).
-  bootstrap   Create the initial owner Worker by writing directly to
-              the SQLite store. Run before 'serve'. Pass
-              --install-claude-mcp to register the owner's MCP
-              endpoint with the local claude CLI so plain 'claude'
-              sessions can drive the org.
+  serve       Run the HTTP server. On first start against an empty
+              database, creates the initial owner Worker. Exposes
+              /workers/{id}/mcp (Streamable HTTP MCP transport) and
+              the /ui/ HTML surface.
   chat        Open an interactive claude session pointed at a
               Worker's MCP endpoint (default: w-owner). Continues
               the most recent session in the current directory;

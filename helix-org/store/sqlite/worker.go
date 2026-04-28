@@ -14,11 +14,12 @@ import (
 )
 
 type workerRow struct {
-	ID        string `gorm:"primaryKey;type:text"`
-	Kind      string `gorm:"not null"` // "human" or "ai"
-	Positions string // JSON array of position ids
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	ID              string `gorm:"primaryKey;type:text"`
+	Kind            string `gorm:"not null"` // "human" or "ai"
+	Positions       string // JSON array of position ids
+	IdentityContent string // markdown body — domain-owned persona/profile, projected by the spawner
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
 }
 
 func (workerRow) TableName() string { return "workers" }
@@ -66,6 +67,32 @@ func (r *workersRepo) List(ctx context.Context) ([]domain.Worker, error) {
 	return out, nil
 }
 
+// Update rewrites the mutable fields of an existing worker row.
+// Positions and Kind are not user-editable and are kept aligned with
+// the existing record on save — only IdentityContent is intended to
+// change today, but we write all mutable fields for forward-compat.
+func (r *workersRepo) Update(ctx context.Context, worker domain.Worker) error {
+	row, err := workerToRow(worker)
+	if err != nil {
+		return err
+	}
+	res := r.db.WithContext(ctx).
+		Model(&workerRow{}).
+		Where("id = ?", row.ID).
+		Updates(map[string]any{
+			"identity_content": row.IdentityContent,
+			"positions":        row.Positions,
+			"kind":             row.Kind,
+		})
+	if res.Error != nil {
+		return fmt.Errorf("update worker %q: %w", row.ID, res.Error)
+	}
+	if res.RowsAffected == 0 {
+		return fmt.Errorf("worker %q: %w", worker.ID(), store.ErrNotFound)
+	}
+	return nil
+}
+
 func workerToRow(worker domain.Worker) (workerRow, error) {
 	positions := worker.Positions()
 	encoded, err := json.Marshal(positions)
@@ -73,9 +100,10 @@ func workerToRow(worker domain.Worker) (workerRow, error) {
 		return workerRow{}, fmt.Errorf("marshal positions: %w", err)
 	}
 	return workerRow{
-		ID:        string(worker.ID()),
-		Kind:      string(worker.Kind()),
-		Positions: string(encoded),
+		ID:              string(worker.ID()),
+		Kind:            string(worker.Kind()),
+		Positions:       string(encoded),
+		IdentityContent: worker.IdentityContent(),
 	}, nil
 }
 
@@ -88,9 +116,9 @@ func rowToWorker(row workerRow) (domain.Worker, error) {
 	}
 	switch domain.WorkerKind(row.Kind) {
 	case domain.WorkerKindHuman:
-		return domain.NewHumanWorker(domain.WorkerID(row.ID), positions)
+		return domain.NewHumanWorker(domain.WorkerID(row.ID), positions, row.IdentityContent)
 	case domain.WorkerKindAI:
-		return domain.NewAIWorker(domain.WorkerID(row.ID), positions)
+		return domain.NewAIWorker(domain.WorkerID(row.ID), positions, row.IdentityContent)
 	default:
 		return nil, fmt.Errorf("unknown worker kind %q", row.Kind)
 	}

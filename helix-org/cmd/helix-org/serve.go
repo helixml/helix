@@ -14,10 +14,13 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/helixml/helix-org/bootstrap"
 	"github.com/helixml/helix-org/broadcast"
 	"github.com/helixml/helix-org/config"
 	"github.com/helixml/helix-org/dispatch"
 	"github.com/helixml/helix-org/server"
+	"github.com/helixml/helix-org/server/chat"
+	"github.com/helixml/helix-org/server/ui"
 	"github.com/helixml/helix-org/store/sqlite"
 	"github.com/helixml/helix-org/tools"
 	githubtransport "github.com/helixml/helix-org/transports/github"
@@ -51,6 +54,29 @@ func runServe(args []string) error {
 	store, err := sqlite.Open(*dbPath)
 	if err != nil {
 		return fmt.Errorf("open store: %w", err)
+	}
+
+	// First start against an empty DB creates the owner Worker. On
+	// subsequent starts ErrAlreadyInitialised is the normal case; any
+	// other error is fatal.
+	ownerEnvPath := filepath.Join(absEnvsDir, "w-owner")
+	if err := os.MkdirAll(ownerEnvPath, 0o750); err != nil {
+		return fmt.Errorf("create owner env %q: %w", ownerEnvPath, err)
+	}
+	switch result, err := bootstrap.Run(context.Background(), store, bootstrap.Params{
+		EnvironmentPath: ownerEnvPath,
+	}); {
+	case err == nil:
+		logger.Info("bootstrap created owner",
+			"workerId", result.WorkerID,
+			"roleId", result.RoleID,
+			"positionId", result.PositionID,
+			"environmentPath", result.EnvironmentPath,
+		)
+	case errors.Is(err, bootstrap.ErrAlreadyInitialised):
+		logger.Info("bootstrap skipped: already initialised", "db", *dbPath)
+	default:
+		return fmt.Errorf("bootstrap: %w", err)
 	}
 
 	bc := broadcast.New()
@@ -97,11 +123,67 @@ func runServe(args []string) error {
 		return fmt.Errorf("register builtins: %w", err)
 	}
 
+	// UI chat surface: long-lived `claude` subprocess in the server's
+	// cwd, bridged to the browser via SSE + form POST. The session
+	// resumes claude's per-cwd transcript so terminal `helix-org chat`
+	// from this directory continues the same conversation.
+	cwd, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("getwd: %w", err)
+	}
+	chatBridge := chat.New(
+		*claudeBin,
+		cwd,
+		strings.TrimRight(*publicURL, "/")+"/workers/w-owner/mcp",
+		logger,
+	)
+
+	// Snapshot config registry → ui.SettingsView so the UI doesn't
+	// need to import config. This is captured once at startup;
+	// /ui/settings re-resolves the per-spec configured flag against
+	// the store on each render.
+	specs := configReg.Specs()
+	uiSpecs := make([]ui.SettingsSpec, 0, len(specs))
+	for _, sp := range specs {
+		uiSpecs = append(uiSpecs, ui.SettingsSpec{
+			Key:         sp.Key,
+			Type:        string(sp.Type),
+			Required:    sp.Required,
+			Description: sp.Description,
+		})
+	}
+	uiHandler := ui.Handler(ui.Deps{
+		Store:       store,
+		Configs:     configReg,
+		Bridge:      chatBridge,
+		ChatCWD:     cwd,
+		Broadcaster: bc,
+		Dispatcher:  dispatcher,
+		NewID:       deps.NewID,
+		Now:         deps.Now,
+		Settings: ui.SettingsView{
+			Owner:     "w-owner",
+			PublicURL: *publicURL,
+			DBPath:    *dbPath,
+			EnvsDir:   absEnvsDir,
+			Specs:     uiSpecs,
+		},
+	})
+	rootRedirect := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/ui/", http.StatusFound)
+	})
+
 	srv := &http.Server{
 		Addr: *addr,
 		Handler: server.New(store, reg, bc, deps.Dispatcher, logger).Handler(
 			server.Route{Pattern: "POST /email/postmark", Handler: emailTransport.HandleInbound()},
 			server.Route{Pattern: "POST /github/webhook", Handler: githubInbound.HandleInbound()},
+			server.Route{Pattern: "GET /ui/chat/stream", Handler: chatBridge.StreamHandler()},
+			server.Route{Pattern: "POST /ui/chat/send", Handler: chatBridge.SendHandler()},
+			server.Route{Pattern: "POST /ui/chat/new", Handler: chatBridge.NewHandler()},
+			server.Route{Pattern: "POST /ui/chat/switch", Handler: chatBridge.SwitchHandler()},
+			server.Route{Pattern: "/ui/", Handler: uiHandler},
+			server.Route{Pattern: "GET /{$}", Handler: rootRedirect},
 		),
 		ReadHeaderTimeout: 10 * time.Second,
 	}

@@ -83,6 +83,7 @@ func RegisterBuiltins(reg *Registry, deps Deps) error {
 		// Mutations.
 		&CreateRole{deps: deps},
 		&UpdateRole{deps: deps},
+		&UpdateIdentity{deps: deps},
 		&CreatePosition{deps: deps},
 		&HireWorker{deps: deps},
 		&GrantTool{deps: deps},

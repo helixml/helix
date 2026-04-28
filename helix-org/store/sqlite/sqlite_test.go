@@ -120,7 +120,7 @@ func TestWorkersHumanAndAI(t *testing.T) {
 	s := newStore(t)
 	ctx := context.Background()
 
-	human, err := domain.NewHumanWorker("w-owner", []domain.PositionID{"p-root"})
+	human, err := domain.NewHumanWorker("w-owner", []domain.PositionID{"p-root"}, "i am the owner")
 	if err != nil {
 		t.Fatalf("NewHumanWorker: %v", err)
 	}
@@ -128,7 +128,7 @@ func TestWorkersHumanAndAI(t *testing.T) {
 		t.Fatalf("Create human: %v", err)
 	}
 
-	ai, err := domain.NewAIWorker("w-ceo", []domain.PositionID{"p-ceo"})
+	ai, err := domain.NewAIWorker("w-ceo", []domain.PositionID{"p-ceo"}, "you are the ceo")
 	if err != nil {
 		t.Fatalf("NewAIWorker: %v", err)
 	}

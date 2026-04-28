@@ -29,11 +29,16 @@ type Positions interface {
 	ListChildren(ctx context.Context, parent domain.PositionID) ([]domain.Position, error)
 }
 
-// Workers persists humans and AIs.
+// Workers persists humans and AIs. Update mutates fields the system
+// allows changing in place — currently just IdentityContent (set at
+// hire by the caller, replaced wholesale by update_identity). Identity
+// is the per-Worker description; the system holds it in the domain
+// rather than on disk so it survives any change in env layout.
 type Workers interface {
 	Create(ctx context.Context, worker domain.Worker) error
 	Get(ctx context.Context, id domain.WorkerID) (domain.Worker, error)
 	List(ctx context.Context) ([]domain.Worker, error)
+	Update(ctx context.Context, worker domain.Worker) error
 }
 
 // Grants persists tool grants.

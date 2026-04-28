@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+{{ template "head" .Head }}
+<body class="grain min-h-screen">
+    <div class="flex min-h-screen">
+        {{ template "sidebar" .Sidebar }}
+
+        <main class="flex-1 px-10 py-10 overflow-y-auto">
+            <div class="max-w-[1200px] mx-auto">
+                <div class="rise rise-1 flex items-baseline gap-3 mb-1">
+                    <h1 class="font-display text-[40px] leading-none tracking-[-0.01em] font-light" style="color: var(--ink); font-variation-settings: 'opsz' 96;">Streams</h1>
+                    <span class="font-mono text-[12px]" style="color: var(--ink-muted);">/ events live here</span>
+                </div>
+                <p class="rise rise-2 text-[14px]" style="color: var(--ink-soft);">Pick a stream to inspect history or send a message. The owner is the publisher.</p>
+
+                {{ if .HasFlash }}
+                <div class="rise rise-2 mt-4 px-4 py-3 rounded-[10px] text-[13px]"
+                     style="{{ if ne .FlashError "" }}background: #FBE9E2; border: 1px solid #E8B7A6; color: #6E2A1A;{{ else }}background: rgba(63,91,67,0.08); border: 1px solid rgba(63,91,67,0.2); color: var(--accent);{{ end }}">
+                    {{ if ne .FlashError "" }}{{ .FlashError }}{{ else }}{{ .Flash }}{{ end }}
+                </div>
+                {{ end }}
+
+                <div class="rise rise-3 mt-8 grid gap-6" style="grid-template-columns: 280px 1fr;">
+                    <aside class="card-soft p-3" style="align-self: start;">
+                        <header class="px-2 pt-1 pb-3">
+                            <h2 class="font-display text-[16px] font-light" style="color: var(--ink);">All streams</h2>
+                            <p class="font-mono text-[11px] mt-1" style="color: var(--ink-muted);">{{ len .Streams }} total</p>
+                        </header>
+                        {{ if .HasStreams }}
+                        <ul class="flex flex-col gap-[2px]">
+                            {{ range .Streams }}
+                            <li>
+                                <a href="/ui/streams?id={{ .ID }}" class="block px-3 py-2 rounded-[8px] {{ if .IsActive }}is-active{{ end }}"
+                                    style="border: 1px solid {{ if .IsActive }}var(--accent){{ else }}transparent{{ end }}; background: {{ if .IsActive }}rgba(63,91,67,0.08){{ else }}transparent{{ end }};">
+                                    <div class="font-mono text-[13px]" style="color: var(--ink);">{{ .Name }}</div>
+                                    <div class="font-mono text-[10px] mt-0.5 flex items-center gap-2" style="color: var(--ink-muted);">
+                                        <span>{{ .ID }}</span>
+                                        <span class="px-1.5 py-0.5 rounded-full uppercase tracking-[.12em]" style="background: var(--canvas-grain); color: var(--ink-soft);">{{ .Kind }}</span>
+                                    </div>
+                                </a>
+                            </li>
+                            {{ end }}
+                        </ul>
+                        {{ else }}
+                        <p class="px-2 py-3 font-mono text-[12px]" style="color: var(--ink-muted);">No streams yet. Open <a href="/ui/" style="color: var(--accent);">chat</a> and try “create a stream s-news”.</p>
+                        {{ end }}
+                    </aside>
+
+                    <section class="card-soft p-6">
+                        {{ if .IsHint }}
+                        <div class="px-4 py-12 text-center" style="color: var(--ink-muted);">
+                            <p class="font-display text-[20px] font-light" style="color: var(--ink);">No stream selected.</p>
+                            <p class="font-mono text-[12px] mt-2">Pick one on the left to see its history and send messages.</p>
+                        </div>
+                        {{ end }}
+
+                        {{ if .HasSelection }}
+                        <header class="mb-6">
+                            <div class="flex items-baseline gap-3">
+                                <h2 class="font-display text-[24px] font-light" style="color: var(--ink);">{{ .SelectedName }}</h2>
+                                <span class="font-mono text-[11px] uppercase tracking-[.16em]" style="color: var(--ink-muted);">{{ .SelectedKind }}</span>
+                            </div>
+                            <p class="font-mono text-[12px] mt-1" style="color: var(--ink-soft);">
+                                {{ .SelectedID }} · created by <span style="color: var(--ink);">{{ .SelectedCreatedBy }}</span> · {{ .SelectedCreatedAt }}
+                            </p>
+                            {{ if ne .SelectedDesc "" }}
+                            <p class="text-[13px] mt-2" style="color: var(--ink);">{{ .SelectedDesc }}</p>
+                            {{ end }}
+                            {{ if .HasSubscribers }}
+                            <p class="font-mono text-[11px] mt-2" style="color: var(--ink-muted);">subscribers: {{ range $i, $s := .Subscribers }}{{ if $i }}, {{ end }}<span style="color: var(--ink-soft);">{{ $s }}</span>{{ end }}</p>
+                            {{ end }}
+                        </header>
+
+                        <section class="mb-6">
+                            <h3 class="font-display text-[15px] font-light mb-2" style="color: var(--ink);">Send</h3>
+                            {{ if .CanPublish }}
+                            <form method="POST" action="/ui/streams/publish" class="flex flex-col gap-2">
+                                <input type="hidden" name="stream_id" value="{{ .SelectedID }}" />
+                                <div class="grid gap-2" style="grid-template-columns: 1fr 1fr;">
+                                    <input type="text" name="to" placeholder="to (optional, comma-separated)"
+                                        class="font-mono text-[12px] px-3 py-2 rounded-[8px]"
+                                        style="background: var(--canvas-grain); border: 1px solid var(--line); color: var(--ink);" />
+                                    <input type="text" name="subject" placeholder="subject (optional)"
+                                        class="font-mono text-[12px] px-3 py-2 rounded-[8px]"
+                                        style="background: var(--canvas-grain); border: 1px solid var(--line); color: var(--ink);" />
+                                </div>
+                                <textarea name="body" rows="4" required placeholder="body…"
+                                    class="font-mono text-[12px] px-3 py-2 rounded-[8px]"
+                                    style="background: var(--canvas-grain); border: 1px solid var(--line); color: var(--ink); resize: vertical;"></textarea>
+                                <div class="flex items-center justify-between">
+                                    <button type="submit" class="px-3 py-1.5 rounded-full text-[12px] font-mono" style="background: var(--accent); color: var(--accent-on);">Publish as {{ .Owner }}</button>
+                                    <span class="font-mono text-[11px]" style="color: var(--ink-muted);">subscribed AI workers will be activated</span>
+                                </div>
+                            </form>
+                            {{ else }}
+                            <p class="px-3 py-3 rounded-[8px] font-mono text-[12px]" style="background: #FBE9E2; border: 1px solid #E8B7A6; color: #6E2A1A;">
+                                Send disabled · {{ .PublishDisabledReason }}
+                            </p>
+                            {{ end }}
+                        </section>
+
+                        <section>
+                            <div class="flex items-baseline justify-between mb-2">
+                                <h3 class="font-display text-[15px] font-light" style="color: var(--ink);">Recent events</h3>
+                                <span class="font-mono text-[11px]" style="color: var(--ink-muted);">newest first · up to 50</span>
+                            </div>
+                            {{ if .HasEvents }}
+                            <ul class="flex flex-col gap-2">
+                                {{ range .Events }}
+                                <li class="px-4 py-3 rounded-[10px]" style="background: var(--surface); border: 1px solid var(--line);">
+                                    <div class="flex items-baseline justify-between gap-3">
+                                        <div class="font-mono text-[12px]" style="color: var(--ink);">
+                                            <span style="color: var(--accent);">{{ if ne .From "" }}{{ .From }}{{ else }}{{ .Source }}{{ end }}</span>
+                                            {{ if ne .To "" }}<span style="color: var(--ink-muted);"> → {{ .To }}</span>{{ end }}
+                                        </div>
+                                        <span class="font-mono text-[10px]" style="color: var(--ink-muted);">{{ .CreatedAt }}</span>
+                                    </div>
+                                    {{ if ne .Subject "" }}
+                                    <div class="font-display text-[14px] mt-1" style="color: var(--ink);">{{ .Subject }}</div>
+                                    {{ end }}
+                                    {{ if .HasMessage }}
+                                    <pre class="font-mono text-[12px] mt-2 whitespace-pre-wrap" style="color: var(--ink-soft);">{{ .MessageBody }}</pre>
+                                    {{ else }}
+                                    <pre class="font-mono text-[11px] mt-2 whitespace-pre-wrap" style="color: var(--ink-muted);">{{ .Body }}</pre>
+                                    {{ end }}
+                                    <div class="font-mono text-[10px] mt-2" style="color: var(--ink-muted);">{{ .ID }}</div>
+                                </li>
+                                {{ end }}
+                            </ul>
+                            {{ else }}
+                            <p class="px-3 py-3 font-mono text-[12px]" style="color: var(--ink-muted);">No events on this stream yet.</p>
+                            {{ end }}
+                        </section>
+                        {{ end }}
+                    </section>
+                </div>
+            </div>
+        </main>
+    </div>
+</body>
+</html>

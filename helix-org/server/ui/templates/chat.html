@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+{{ template "head" .Head }}
+<body class="grain h-screen overflow-hidden">
+    <div class="flex h-full">
+        {{ template "sidebar" .Sidebar }}
+
+        <main class="flex-1 flex flex-col h-full">
+            <!-- Conversation: greeting at top, messages stream below it,
+                 scrolls inside this region. -->
+            <div id="chat-scroll" class="flex-1 overflow-y-auto">
+                <div class="max-w-[760px] mx-auto px-6 pt-16 pb-6 flex flex-col items-center">
+                    <div class="rise rise-1 mb-6" style="color: var(--accent);">
+                        <svg viewBox="0 0 64 64" class="w-12 h-12" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
+                            <path d="M14 8 C 40 22, 24 42, 50 56" />
+                            <path d="M50 8 C 24 22, 40 42, 14 56" />
+                            <path d="M22 18 L 42 18" stroke-width="1.4" opacity=".55" />
+                            <path d="M22 32 L 42 32" stroke-width="1.4" opacity=".55" />
+                            <path d="M22 46 L 42 46" stroke-width="1.4" opacity=".55" />
+                        </svg>
+                    </div>
+
+                    <h1 class="rise rise-2 font-display text-[40px] sm:text-[48px] leading-[1.05] tracking-[-0.01em] font-light text-center" style="color: var(--ink); font-variation-settings: 'opsz' 144;">
+                        Back at it, <span style="color: var(--accent);">{{ .Greeting }}</span>
+                    </h1>
+
+                    <p class="rise rise-2 mt-3 text-[13px] font-mono" style="color: var(--ink-muted);">
+                        Talk to a worker · hire a role · shape the org
+                    </p>
+
+                    <div id="chat-log"
+                         class="w-full mt-10 flex flex-col"
+                         hx-ext="sse"
+                         sse-connect="/ui/chat/stream"
+                         sse-swap="message"
+                         hx-swap="beforeend scroll:#chat-scroll:bottom">{{ .History }}</div>
+                </div>
+            </div>
+
+            <!-- Pinned composer + chips. -->
+            <div class="border-t" style="background: var(--surface); border-color: var(--line);">
+                <div class="max-w-[760px] mx-auto px-6 py-4">
+                    <form class="rise rise-3 input-shell w-full text-left"
+                          hx-post="/ui/chat/send"
+                          hx-target="#chat-log"
+                          hx-swap="beforeend scroll:#chat-scroll:bottom"
+                          hx-on::after-request="if(event.detail.successful){this.querySelector('textarea').value=''}">
+                        <div class="px-5 pt-4">
+                            <textarea name="message" rows="1"
+                                placeholder="What should the org do next?"
+                                class="w-full resize-none text-[15px] placeholder:text-[var(--ink-muted)]"
+                                style="color: var(--ink); background: transparent; border: 0; outline: none; padding: 0; box-shadow: none;"
+                                onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();this.form.requestSubmit();}"></textarea>
+                        </div>
+                        <div class="px-3 pb-3 pt-1 flex items-center justify-end gap-2">
+                            <span class="px-3 py-1.5 rounded-full text-[12px] font-mono" style="color: var(--ink-soft);">
+                                claude · sonnet&nbsp;4.6
+                            </span>
+                            <button type="submit" class="grid place-items-center w-8 h-8 rounded-full" style="background: var(--accent); color: var(--accent-on);" title="Send">
+                                <svg viewBox="0 0 24 24" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l14-7-7 14-2-5-5-2z"/></svg>
+                            </button>
+                        </div>
+                    </form>
+
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        // Scroll the conversation to the bottom on initial load so
+        // the latest turn is in view when resuming a session.
+        window.addEventListener('load', function () {
+            var el = document.getElementById('chat-scroll');
+            if (el) { el.scrollTop = el.scrollHeight; }
+        });
+    </script>
+</body>
+</html>

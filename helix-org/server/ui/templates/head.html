@@ -1,0 +1,112 @@
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{{ .Title }} · helix-org</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300..600&family=Geist:wght@300..700&family=Geist+Mono:wght@400..600&display=swap" rel="stylesheet">
+
+    <link href="https://cdn.jsdelivr.net/npm/daisyui@5" rel="stylesheet" type="text/css" />
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+    <script src="https://unpkg.com/htmx-ext-sse@2.2.2"></script>
+
+    <style>
+        :root {
+            --canvas: #F5F1E8;
+            --canvas-grain: #EFEAE0;
+            --surface: #FBFAF5;
+            --surface-elev: #FFFFFF;
+            --line: #E4DED1;
+            --line-soft: #EDE7DA;
+            --ink: #15140F;
+            --ink-soft: #4A463C;
+            --ink-muted: #8A8474;
+            --accent: #3F5B43;
+            --accent-soft: #5C7A60;
+            --accent-on: #FBFAF5;
+        }
+
+        html, body { background: var(--canvas); color: var(--ink); }
+        body {
+            font-family: 'Geist', ui-sans-serif, system-ui, sans-serif;
+            font-feature-settings: 'ss01', 'cv11';
+            -webkit-font-smoothing: antialiased;
+            text-rendering: optimizeLegibility;
+            position: relative;
+        }
+
+        .font-display { font-family: 'Fraunces', ui-serif, Georgia, serif; font-feature-settings: 'ss01'; }
+        .font-mono    { font-family: 'Geist Mono', ui-monospace, SFMono-Regular, monospace; }
+
+        body.grain::before {
+            content: '';
+            position: fixed; inset: 0;
+            pointer-events: none;
+            opacity: .035;
+            z-index: 0;
+            background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='220' height='220'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 0.7 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+        }
+        body.grain > * { position: relative; z-index: 1; }
+
+        @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+        .rise   { opacity: 0; animation: rise .55s cubic-bezier(.2,.7,.2,1) forwards; }
+        .rise-1 { animation-delay:  60ms; }
+        .rise-2 { animation-delay: 140ms; }
+        .rise-3 { animation-delay: 220ms; }
+        .rise-4 { animation-delay: 300ms; }
+
+        .nav-link {
+            display: flex; align-items: center; gap: 10px;
+            padding: 7px 10px; border-radius: 7px;
+            color: var(--ink-soft);
+            font-size: 14px;
+            transition: background .15s ease, color .15s ease;
+        }
+        .nav-link:hover { background: var(--line-soft); color: var(--ink); }
+        .nav-link.is-active { background: var(--surface-elev); color: var(--ink); box-shadow: 0 1px 0 var(--line); }
+        .nav-link svg { width: 16px; height: 16px; stroke-width: 1.6; }
+
+        .recent-item {
+            display: block; padding: 5px 10px; border-radius: 6px;
+            color: var(--ink-soft); font-size: 13px;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+            transition: background .15s, color .15s;
+            cursor: pointer;
+            background: transparent;
+            border: 0;
+            font: inherit;
+        }
+        .recent-item:hover { background: var(--line-soft); color: var(--ink); }
+        .recent-item.is-active { background: var(--surface-elev); color: var(--ink); box-shadow: 0 1px 0 var(--line); }
+
+        .input-shell {
+            background: var(--surface-elev);
+            border: 1px solid var(--line);
+            border-radius: 22px;
+            box-shadow:
+                0 1px 0 rgba(0,0,0,.02),
+                0 12px 40px -20px rgba(20,20,15,.18),
+                0 2px 8px -4px rgba(20,20,15,.06);
+            transition: box-shadow .25s ease, border-color .25s ease;
+        }
+        .input-shell:focus-within {
+            border-color: var(--accent-soft);
+            box-shadow:
+                0 0 0 4px rgba(63,91,67,.10),
+                0 12px 50px -20px rgba(20,20,15,.22);
+        }
+
+        .card-soft {
+            background: var(--surface-elev);
+            border: 1px solid var(--line);
+            border-radius: 14px;
+        }
+
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: var(--line); border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #D6CEB8; }
+    </style>
+</head>

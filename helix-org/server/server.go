@@ -84,8 +84,12 @@ func (s *Server) requestLogger(next http.Handler) http.Handler {
 	})
 }
 
-// statusCapture wraps http.ResponseWriter to record the status code that
-// was written so the logging middleware can report it.
+// statusCapture wraps http.ResponseWriter to record the status code
+// that was written so the logging middleware can report it. Flush is
+// passed through so streaming handlers (SSE, MCP streamable HTTP) keep
+// working when the middleware is in the chain — without it,
+// w.(http.Flusher) fails the type assertion and the handler errors
+// out.
 type statusCapture struct {
 	http.ResponseWriter
 	status int
@@ -94,6 +98,12 @@ type statusCapture struct {
 func (s *statusCapture) WriteHeader(code int) {
 	s.status = code
 	s.ResponseWriter.WriteHeader(code)
+}
+
+func (s *statusCapture) Flush() {
+	if f, ok := s.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
 }
 
 // discardWriter is an io.Writer that throws away everything.

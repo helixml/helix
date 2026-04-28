@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+{{ template "head" .Head }}
+<body class="grain min-h-screen">
+    <div class="flex min-h-screen">
+        {{ template "sidebar" .Sidebar }}
+
+        <main class="flex-1 px-10 py-10 overflow-y-auto">
+            <div class="max-w-[1200px] mx-auto">
+                <div class="rise rise-1 flex items-baseline gap-3 mb-1">
+                    <h1 class="font-display text-[40px] leading-none tracking-[-0.01em] font-light" style="color: var(--ink); font-variation-settings: 'opsz' 96;">The org</h1>
+                    <span class="font-mono text-[12px]" style="color: var(--ink-muted);">click anything in the chart</span>
+                </div>
+                <p class="rise rise-2 text-[14px]" style="color: var(--ink-soft);">A prompt-driven hierarchy. Click a position to edit its role; click a worker to edit its persona.</p>
+
+                {{ if .HasFlash }}
+                <div class="rise rise-2 mt-4 px-4 py-3 rounded-[10px] text-[13px]"
+                     style="{{ if ne .FlashError "" }}background: #FBE9E2; border: 1px solid #E8B7A6; color: #6E2A1A;{{ else }}background: rgba(63,91,67,0.08); border: 1px solid rgba(63,91,67,0.2); color: var(--accent);{{ end }}">
+                    {{ if ne .FlashError "" }}{{ .FlashError }}{{ else }}{{ .Flash }}{{ end }}
+                </div>
+                {{ end }}
+
+                {{ if .HasChart }}
+                <section class="rise rise-3 mt-8 card-soft p-6">
+                    <header class="flex items-center justify-between mb-4">
+                        <h2 class="font-display text-[20px] font-light" style="color: var(--ink);">Org chart</h2>
+                        <span class="font-mono text-[11px]" style="color: var(--ink-muted);">click a node to inspect</span>
+                    </header>
+                    <div class="overflow-x-auto">{{ .ChartSVG }}</div>
+                </section>
+                {{ else }}
+                <section class="rise rise-3 mt-8 card-soft px-6 py-12 text-center">
+                    <p class="font-display text-[20px] font-light" style="color: var(--ink);">The org is empty.</p>
+                    <p class="font-mono text-[12px] mt-2" style="color: var(--ink-muted);">Open the <a href="/ui/" style="color: var(--accent);">chat</a> and try “hire me a CEO”.</p>
+                </section>
+                {{ end }}
+
+                <section id="org-detail" class="rise rise-4 mt-6 card-soft p-6 mb-12">
+                    {{ if .HasDetail }}
+                    {{ .DetailHTML }}
+                    {{ else }}
+                    <div class="px-4 py-12 text-center" style="color: var(--ink-muted);">
+                        <p class="font-display text-[20px] font-light" style="color: var(--ink);">Pick something to inspect.</p>
+                        <p class="font-mono text-[12px] mt-2">Click a position node to edit its role. Click a worker badge to edit its persona.</p>
+                    </div>
+                    {{ end }}
+                </section>
+            </div>
+        </main>
+    </div>
+</body>
+</html>

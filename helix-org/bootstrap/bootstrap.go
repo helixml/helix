@@ -61,8 +61,8 @@ func Run(ctx context.Context, s *store.Store, params Params) (Result, error) {
 	role, err := domain.NewRole(
 		"r-owner",
 		"# Owner\n\nYou are the owner of this organisation. You hold every structural "+
-			"tool and may reshape the org as you see fit. Edit role.md to record what the "+
-			"owner role means here.\n",
+			"tool and may reshape the org as you see fit. Edit the role from /ui/org or via "+
+			"the update_role MCP tool.\n",
 		now,
 	)
 	if err != nil {
@@ -80,7 +80,9 @@ func Run(ctx context.Context, s *store.Store, params Params) (Result, error) {
 		return Result{}, fmt.Errorf("create root position: %w", err)
 	}
 
-	owner, err := domain.NewHumanWorker(domain.WorkerID("w-owner"), []domain.PositionID{rootPos.ID})
+	ownerIdentity := "# Owner\n\nThe person running this org. Edit this from /ui/org to " +
+		"introduce yourself — your name, voice, and how you want subordinates to address you.\n"
+	owner, err := domain.NewHumanWorker(domain.WorkerID("w-owner"), []domain.PositionID{rootPos.ID}, ownerIdentity)
 	if err != nil {
 		return Result{}, err
 	}
@@ -103,6 +105,7 @@ func Run(ctx context.Context, s *store.Store, params Params) (Result, error) {
 		// Mutations.
 		tools.CreateRoleName,
 		tools.UpdateRoleName,
+		tools.UpdateIdentityName,
 		tools.CreatePositionName,
 		tools.HireWorkerName,
 		tools.GrantToolName,

@@ -43,7 +43,7 @@ func newTestServer(t *testing.T) (*httptest.Server, domain.WorkerID) {
 	if err := s.Positions.Create(ctx, root); err != nil {
 		t.Fatalf("seed root: %v", err)
 	}
-	ai, _ := domain.NewAIWorker("w-ceo", []domain.PositionID{"p-root"})
+	ai, _ := domain.NewAIWorker("w-ceo", []domain.PositionID{"p-root"}, "")
 	if err := s.Workers.Create(ctx, ai); err != nil {
 		t.Fatalf("seed worker: %v", err)
 	}

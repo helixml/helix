@@ -10,14 +10,15 @@ import (
 	"github.com/helixml/helix-org/domain"
 )
 
-// UpdateRole rewrites the canonical content of a Role and propagates it
-// to every Worker filling a Position with that Role: their role.md is
-// rewritten in place. Workers can never modify their own Role — only
-// the owner does, via this tool. The next normal activation picks up
-// the new content; nothing is published or notified.
+// UpdateRole rewrites the canonical content of a Role. It is a single
+// DB write — the new content takes effect on the next activation of
+// every Worker filling a Position with this Role, because the Spawner
+// projects current Role state into the Environment at the start of
+// every activation. There is no fan-out, no cross-Environment write,
+// and no on-disk source of truth.
 //
-// Cross-Environment writes are intentional: tools are explicitly
-// allowed to cross Worker boundaries when the action is owner-driven.
+// Workers can never modify their own Role — only the owner does, via
+// this tool.
 type UpdateRole struct {
 	deps Deps
 }
@@ -29,8 +30,9 @@ var updateRoleSchema = mustSchema[updateRoleArgs]()
 func (t *UpdateRole) Name() domain.ToolName           { return UpdateRoleName }
 func (t *UpdateRole) InputSchema() *jsonschema.Schema { return updateRoleSchema }
 func (t *UpdateRole) Description() string {
-	return "Replace a Role's markdown content. Atomically rewrites role.md in every Worker's " +
-		"Environment that runs this Role. Owner-only."
+	return "Replace a Role's markdown content. The change takes effect on each Worker's " +
+		"next activation, when the Spawner projects current Role state into their " +
+		"Environment. Owner-only."
 }
 
 type updateRoleArgs struct {
@@ -65,66 +67,5 @@ func (t *UpdateRole) Invoke(ctx context.Context, inv domain.Invocation) (json.Ra
 	if err := t.deps.Store.Roles.Update(ctx, updated); err != nil {
 		return nil, fmt.Errorf("update role: %w", err)
 	}
-
-	written, err := t.fanOut(ctx, roleID, args.Content)
-	if err != nil {
-		return nil, err
-	}
-	return json.Marshal(map[string]any{
-		"id":             string(roleID),
-		"workersUpdated": written,
-	})
-}
-
-// fanOut rewrites role.md in every Environment whose Worker is in a
-// Position with this RoleID. Returns the count of Environments written.
-// A missing Environment for a Worker is logged but doesn't fail the
-// whole operation — the Role update is the source of truth and any
-// hire that follows will pick up the new content from storage.
-func (t *UpdateRole) fanOut(ctx context.Context, roleID domain.RoleID, content string) (int, error) {
-	positions, err := t.deps.Store.Positions.List(ctx)
-	if err != nil {
-		return 0, fmt.Errorf("list positions: %w", err)
-	}
-	matching := make(map[domain.PositionID]struct{})
-	for _, p := range positions {
-		if p.RoleID == roleID {
-			matching[p.ID] = struct{}{}
-		}
-	}
-	if len(matching) == 0 {
-		return 0, nil
-	}
-
-	workers, err := t.deps.Store.Workers.List(ctx)
-	if err != nil {
-		return 0, fmt.Errorf("list workers: %w", err)
-	}
-	written := 0
-	for _, w := range workers {
-		if !workerInPositions(w, matching) {
-			continue
-		}
-		env, err := t.deps.Store.Environments.Get(ctx, w.ID())
-		if err != nil {
-			// Worker has no Environment row — odd but don't fail the
-			// update. The Role was already saved; future hires will
-			// see it.
-			continue
-		}
-		if err := writeEnvFile(env.Path, "role.md", content); err != nil {
-			return written, fmt.Errorf("worker %q: %w", w.ID(), err)
-		}
-		written++
-	}
-	return written, nil
-}
-
-func workerInPositions(w domain.Worker, positions map[domain.PositionID]struct{}) bool {
-	for _, p := range w.Positions() {
-		if _, ok := positions[p]; ok {
-			return true
-		}
-	}
-	return false
+	return json.Marshal(map[string]string{"id": string(roleID)})
 }
