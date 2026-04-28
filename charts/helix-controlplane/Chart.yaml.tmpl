@@ -19,14 +19,3 @@ icon: https://helix.ml/logo.png
 # published helm repo at https://charts.helixml.tech.
 version: __VERSION__
 appVersion: "__VERSION__"
-
-dependencies:
-  - condition: postgresql.enabled
-    name: postgresql
-    repository: oci://registry-1.docker.io/bitnamicharts
-    version: 14.x.x
-  - name: common
-    repository: oci://registry-1.docker.io/bitnamicharts
-    tags:
-      - bitnami-common
-    version: 2.x.x
