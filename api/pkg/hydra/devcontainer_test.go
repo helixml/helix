@@ -107,3 +107,79 @@ func TestResolveRegistryImage(t *testing.T) {
 		}
 	})
 }
+
+func TestPickDRIDevices(t *testing.T) {
+	// Stage a tmp dir as our fake /dev/dri so the helper's filepath.Glob
+	// has something deterministic to match. We pass an absolute glob
+	// pattern based on this dir.
+	dir := t.TempDir()
+	for _, name := range []string{"renderD128", "renderD129", "renderD130", "card0", "card1", "card2"} {
+		if err := os.WriteFile(filepath.Join(dir, name), nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	idx := func(i int) *int { return &i }
+
+	for _, tt := range []struct {
+		name     string
+		glob     string
+		gpuIndex *int
+		offset   int
+		want     []string
+	}{
+		{
+			name:     "render nil index returns all 3",
+			glob:     filepath.Join(dir, "renderD*"),
+			gpuIndex: nil,
+			offset:   128,
+			want:     []string{filepath.Join(dir, "renderD128"), filepath.Join(dir, "renderD129"), filepath.Join(dir, "renderD130")},
+		},
+		{
+			name:     "render index 0 picks renderD128",
+			glob:     filepath.Join(dir, "renderD*"),
+			gpuIndex: idx(0),
+			offset:   128,
+			want:     []string{filepath.Join(dir, "renderD128")},
+		},
+		{
+			name:     "render index 2 picks renderD130",
+			glob:     filepath.Join(dir, "renderD*"),
+			gpuIndex: idx(2),
+			offset:   128,
+			want:     []string{filepath.Join(dir, "renderD130")},
+		},
+		{
+			name:     "card index 0 picks card0",
+			glob:     filepath.Join(dir, "card*"),
+			gpuIndex: idx(0),
+			offset:   0,
+			want:     []string{filepath.Join(dir, "card0")},
+		},
+		{
+			name:     "card index 2 picks card2",
+			glob:     filepath.Join(dir, "card*"),
+			gpuIndex: idx(2),
+			offset:   0,
+			want:     []string{filepath.Join(dir, "card2")},
+		},
+		{
+			name:     "render index 99 (no match) returns empty",
+			glob:     filepath.Join(dir, "renderD*"),
+			gpuIndex: idx(99),
+			offset:   128,
+			want:     nil,
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			got := pickDRIDevices(tt.glob, tt.gpuIndex, tt.offset)
+			if len(got) != len(tt.want) {
+				t.Fatalf("got %d devices, want %d: got=%v want=%v", len(got), len(tt.want), got, tt.want)
+			}
+			for i := range got {
+				if got[i] != tt.want[i] {
+					t.Errorf("got[%d]=%s want=%s", i, got[i], tt.want[i])
+				}
+			}
+		})
+	}
+}

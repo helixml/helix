@@ -317,7 +317,7 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 	}
 
 	// Configure GPU passthrough
-	dm.configureGPU(hostConfig, req.GPUVendor)
+	dm.configureGPU(hostConfig, req.GPUVendor, req.GPUIndex)
 
 	// Network configuration is nil for host network mode
 	// (host network mode shares the sandbox's network namespace, so no separate network config needed)
@@ -626,12 +626,26 @@ func (dm *DevContainerManager) buildEnv(req *CreateDevContainerRequest) []string
 			}
 		}
 		if !hasVisibleDevices {
-			env = append(env, "NVIDIA_VISIBLE_DEVICES=all")
+			// Decision 15: per-session GPU pinning on multi-GPU hosts.
+			// If the request specifies GPUIndex, expose only that GPU.
+			// Otherwise default to "all" (legacy behaviour).
+			if req.GPUIndex != nil {
+				env = append(env, fmt.Sprintf("NVIDIA_VISIBLE_DEVICES=%d", *req.GPUIndex))
+			} else {
+				env = append(env, "NVIDIA_VISIBLE_DEVICES=all")
+			}
 		}
 		if !hasDriverCaps {
 			// Use explicit capabilities instead of "all" for GKE/cloud compatibility
 			env = append(env, "NVIDIA_DRIVER_CAPABILITIES=compute,utility,video,graphics,display")
 		}
+	}
+
+	// Decision 15: tell detect-render-node.sh which GPU to pick. This drives
+	// Mutter via udev tags + the GStreamer encoder via HELIX_RENDER_NODE.
+	// Set even for non-NVIDIA so AMD/Intel paths can also pin.
+	if req.GPUIndex != nil {
+		env = append(env, fmt.Sprintf("HELIX_GPU_INDEX=%d", *req.GPUIndex))
 	}
 
 	// For virtio-gpu (macOS ARM): set scanout mode environment variables
@@ -1009,22 +1023,64 @@ func (dm *DevContainerManager) buildExtraHosts() []string {
 	return extraHosts
 }
 
-// configureGPU adds GPU-specific Docker configuration
-func (dm *DevContainerManager) configureGPU(hostConfig *container.HostConfig, vendor string) {
+// pickDRIDevices returns the host /dev/dri devices to expose to the
+// container. If gpuIndex is nil, returns the full glob (legacy).
+// Otherwise returns only the device whose minor number is
+// (offset + gpuIndex) — for renderD* devices that's offset=128
+// (renderD128 = GPU 0), for card* it's offset=0 (card0 = GPU 0).
+//
+// Returns an empty slice (not error) if the requested device doesn't
+// exist on the host; the caller logs and the container will fall back
+// to software rendering rather than crashing.
+func pickDRIDevices(globPattern string, gpuIndex *int, offset int) []string {
+	all, _ := filepath.Glob(globPattern)
+	if gpuIndex == nil {
+		return all
+	}
+	target := fmt.Sprintf("%d", offset+*gpuIndex)
+	for _, dev := range all {
+		// Strip the prefix to get the minor-number suffix
+		// (e.g. /dev/dri/renderD129 -> "129"; /dev/dri/card1 -> "1")
+		base := filepath.Base(dev)
+		var num string
+		if strings.HasPrefix(base, "renderD") {
+			num = strings.TrimPrefix(base, "renderD")
+		} else if strings.HasPrefix(base, "card") {
+			num = strings.TrimPrefix(base, "card")
+		}
+		if num == target {
+			return []string{dev}
+		}
+	}
+	return nil
+}
+
+// configureGPU adds GPU-specific Docker configuration. If gpuIndex is
+// non-nil, the dev container is pinned to that specific GPU (Decision 15
+// in the sandbox-absorbs-runner design): NVIDIA uses
+// `--gpus device=<n>`, AMD/Intel mount only the matching renderD<128+n>
+// + cardN. nil means "expose all GPUs" (legacy behaviour).
+func (dm *DevContainerManager) configureGPU(hostConfig *container.HostConfig, vendor string, gpuIndex *int) {
 	switch vendor {
 	case "nvidia":
 		// NVIDIA: use nvidia-container-runtime
 		hostConfig.Runtime = "nvidia"
+		deviceIDs := []string{"all"}
+		if gpuIndex != nil {
+			deviceIDs = []string{strconv.Itoa(*gpuIndex)}
+		}
 		hostConfig.DeviceRequests = []container.DeviceRequest{
 			{
-				DeviceIDs:    []string{"all"},
+				DeviceIDs:    deviceIDs,
 				Capabilities: [][]string{{"gpu"}},
 			},
 		}
-		log.Debug().Msg("Configured NVIDIA GPU passthrough")
+		log.Debug().Strs("device_ids", deviceIDs).Msg("Configured NVIDIA GPU passthrough")
 
 	case "amd":
-		// AMD: mount /dev/kfd and /dev/dri/* for VA-API encoding
+		// AMD: mount /dev/kfd and /dev/dri/* for VA-API encoding.
+		// /dev/kfd is shared across all AMD GPUs (one device for the whole
+		// system), so it's always mounted regardless of pinning.
 		hostConfig.Devices = append(hostConfig.Devices,
 			container.DeviceMapping{
 				PathOnHost:        "/dev/kfd",
@@ -1032,8 +1088,7 @@ func (dm *DevContainerManager) configureGPU(hostConfig *container.HostConfig, ve
 				CgroupPermissions: "rwm",
 			},
 		)
-		// Also mount all DRI render nodes for VA-API
-		driDevices, _ := filepath.Glob("/dev/dri/renderD*")
+		driDevices := pickDRIDevices("/dev/dri/renderD*", gpuIndex, 128)
 		for _, dev := range driDevices {
 			hostConfig.Devices = append(hostConfig.Devices,
 				container.DeviceMapping{
@@ -1043,8 +1098,9 @@ func (dm *DevContainerManager) configureGPU(hostConfig *container.HostConfig, ve
 				},
 			)
 		}
-		// Also mount card devices for display
-		cardDevices, _ := filepath.Glob("/dev/dri/card*")
+		// card devices for display — Mutter wants the card device matching
+		// the render node. Card numbering doesn't have a +128 offset.
+		cardDevices := pickDRIDevices("/dev/dri/card*", gpuIndex, 0)
 		for _, dev := range cardDevices {
 			hostConfig.Devices = append(hostConfig.Devices,
 				container.DeviceMapping{
@@ -1054,11 +1110,11 @@ func (dm *DevContainerManager) configureGPU(hostConfig *container.HostConfig, ve
 				},
 			)
 		}
-		log.Debug().Int("render_devices", len(driDevices)).Int("card_devices", len(cardDevices)).Msg("Configured AMD GPU passthrough")
+		log.Debug().Int("render_devices", len(driDevices)).Int("card_devices", len(cardDevices)).Interface("gpu_index", gpuIndex).Msg("Configured AMD GPU passthrough")
 
 	case "intel":
 		// Intel: mount /dev/dri/* for VA-API encoding (same as AMD, minus /dev/kfd)
-		driDevices, _ := filepath.Glob("/dev/dri/renderD*")
+		driDevices := pickDRIDevices("/dev/dri/renderD*", gpuIndex, 128)
 		for _, dev := range driDevices {
 			hostConfig.Devices = append(hostConfig.Devices,
 				container.DeviceMapping{
@@ -1068,7 +1124,7 @@ func (dm *DevContainerManager) configureGPU(hostConfig *container.HostConfig, ve
 				},
 			)
 		}
-		cardDevices, _ := filepath.Glob("/dev/dri/card*")
+		cardDevices := pickDRIDevices("/dev/dri/card*", gpuIndex, 0)
 		for _, dev := range cardDevices {
 			hostConfig.Devices = append(hostConfig.Devices,
 				container.DeviceMapping{
@@ -1078,7 +1134,7 @@ func (dm *DevContainerManager) configureGPU(hostConfig *container.HostConfig, ve
 				},
 			)
 		}
-		log.Debug().Int("render_devices", len(driDevices)).Int("card_devices", len(cardDevices)).Msg("Configured Intel GPU passthrough")
+		log.Debug().Int("render_devices", len(driDevices)).Int("card_devices", len(cardDevices)).Interface("gpu_index", gpuIndex).Msg("Configured Intel GPU passthrough")
 
 	default:
 		// Unknown/virtio GPU: mount /dev/dri/* if available (e.g., virtio-gpu on macOS/UTM)

@@ -55,10 +55,30 @@ detect_render_node() {
             ;;
     esac
 
+    # Decision 15: per-session GPU pinning. If HELIX_GPU_INDEX is set,
+    # prefer the renderD<128+N> + card<N> pair. Hydra restricts /dev/dri
+    # mounts so usually only those two devices exist in the container,
+    # but on hosts that mount all-devices we still want to land on the
+    # right one. This block is a fast-path that runs before the
+    # auto-detect loop; if the requested device isn't present, fall
+    # through to the loop and pick whatever's first.
+    if [ -n "${HELIX_GPU_INDEX:-}" ]; then
+        local idx="$HELIX_GPU_INDEX"
+        local pinned_render="/dev/dri/renderD$((128 + idx))"
+        local pinned_card="/dev/dri/card${idx}"
+        if [ -e "$pinned_render" ] && [ -e "$pinned_card" ]; then
+            detected_node="$pinned_render"
+            detected_card="$pinned_card"
+            echo "[render-node] HELIX_GPU_INDEX=$idx -> $detected_node + $detected_card"
+        else
+            echo "[render-node] HELIX_GPU_INDEX=$idx requested but $pinned_render or $pinned_card missing — falling back to auto-detect"
+        fi
+    fi
+
     # Find render node AND card device matching the target driver
     # renderD* = render-only node (for GPU compute/encoding)
     # card* = full DRM node (for display output, required by compositors)
-    if [ -d "/sys/class/drm" ]; then
+    if [ -z "$detected_node" ] && [ -d "/sys/class/drm" ]; then
         for render_node in /dev/dri/renderD*; do
             if [ -e "$render_node" ]; then
                 node_name=$(basename "$render_node")
