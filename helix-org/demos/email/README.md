@@ -1,40 +1,37 @@
 # Email
 
-A customer-service team that runs entirely over email. Customers
-email `support@yourdomain.com`; Sam (a helix-org Worker) reads the
-mail, drafts a reply, and replies — by email. The whole back-and-
-forth lives on one Stream, `s-support`, with `transport: email`.
-Threading preserves the conversation: a customer's reply lands on
-the same Stream, threaded to Sam's earlier message via standard
-`In-Reply-To` / `References` headers.
+A two-Worker support team that talks to customers — and to each
+other — by email. Sam is customer service (alias `sam`); Lee is
+engineering (alias `engineer`). When a customer emails Sam with a
+technical question Sam can't answer, he forwards it to Lee at
+Lee's helix alias. Lee replies by email. Sam paraphrases for the
+customer and replies. Every hop crosses Postmark; every Stream
+(`s-support`, `s-engineer`) is bidirectional.
 
-> **Status note.** The email transport itself isn't shipped yet —
-> this demo describes the experience once it is. The Postmark
-> setup steps (DNS, API tokens, inbound webhook URL) are real
-> and reusable today; the helix-org chat prompts are the target
-> shape of the email transport's stream-config and the
-> `customer-service` role.
-
-About 15 minutes the first time (Postmark account, DNS records,
-domain verification). Re-runs after that are one chat prompt.
+About 20 minutes the first time (Postmark account + Sender
+Signature). Re-runs after that are one chat prompt.
 
 ## What this demo shows
 
-- **One Stream, both directions.** `s-support` is bidirectional
-  email: inbound POSTs from Postmark land as Events; outbound
-  events on the same Stream become outbound emails via Postmark's
-  send API. Same envelope (`domain.Message`) in both directions.
-- **External humans as participants.** `Message.From` carries the
-  customer's email address (`alice@example.com`) verbatim; Sam's
-  outbound carries `support@yourdomain.com`. No prefixes — value
-  shape disambiguates.
-- **Threading by header.** Sam sets `InReplyTo` and `ThreadID` on
-  the outbound Message. Postmark renders them as RFC2822 headers.
-  Mail clients show one threaded conversation. Replies arrive on
-  the same Stream so Sam can read prior history before answering.
-- **Role drives behaviour.** Customer-service tone, escalation
-  rules, when to refuse — all in `roles/customer-service.md`.
-  Switching to a snarkier voice is a `update_role` away.
+- **Both directions on every Stream.** `s-support` and `s-engineer`
+  each accept inbound mail at their `+alias` address *and* render
+  outbound `publish` calls back through Postmark's send API.
+  Same `domain.Message` envelope in both directions; the only
+  per-stream config is `{"alias": "..."}`.
+- **Workers as email participants.** Sam emails Lee. Lee emails
+  Sam. The customer emails Sam. All three legs use the same
+  transport, the same envelope, the same alias-based routing.
+  Workers are first-class email participants.
+- **Threading is the spine.** Sam sets `ThreadID` on his
+  escalation to Lee. Lee preserves it on his reply. Sam reads it
+  back to find the original customer query in `s-support` history
+  and threads his customer-facing reply to it. The whole
+  conversation is one logical thread despite four physical
+  emails.
+- **Role drives behaviour.** Sam decides "answer myself or
+  forward" by reading his own role text — there's no hard-coded
+  routing table. Editing `roles/customer-service.md` and running
+  `update_role` shifts the policy live.
 
 ## Prerequisites
 
@@ -49,21 +46,20 @@ domain verification). Re-runs after that are one chat prompt.
 - `helix-org` and `claude` on PATH; `jq` and `curl` for the setup
   commands below.
 
-> **For this installation, Postmark is already wired up.**
-> Server `helix-org` (ID 19042071) is provisioned, the Sender
-> Signature on `phil@winder.ai` is confirmed, and a sanity-check
-> send round-tripped through `phil@winder.ai`'s inbox. Tokens
-> live in `~/.helix/postmark` (mode 0600); source it before
-> running anything that calls Postmark:
+> **For this installation, Postmark is already wired up and
+> approved.** Server `helix-org` (ID 19042071) is provisioned, the
+> Sender Signature on `phil@winder.ai` is confirmed, and the
+> account is past pending-approval, so cross-domain sends to
+> `+alias@inbound.postmarkapp.com` work. Tokens live in
+> `~/.helix/postmark` (mode 0600); source it before running
+> anything that calls Postmark:
 >
 > ```bash
 > set -a && source ~/.helix/postmark && set +a
 > ```
 >
-> The InboundHookUrl is still empty — it'll be set when the
-> email transport ships and the demo can be pointed at a public
-> URL. Skip the Postmark setup section below; it's there for
-> first-time installations.
+> Skip the Postmark setup section below; it's there for first-time
+> installations.
 
 (With your own domain, you can graduate to `support@yourdomain.com`
 later — see the production setup notes at the end of the
@@ -238,22 +234,31 @@ source ~/.helix/postmark
 ./bin/helix-org config set --db /tmp/email.db transport.postmark "{
   \"token\":\"$POSTMARK_SERVER_TOKEN\",
   \"inbound\":\"$POSTMARK_INBOUND\",
-  \"from\":\"$POSTMARK_FROM\",
-  \"disable_reply_to\":true
+  \"from\":\"$POSTMARK_FROM\"
 }"
 ```
 
-`disable_reply_to:true` is a workaround for Postmark's
-"pending approval" restriction on new accounts. Postmark counts
-`Reply-To` as a recipient for the same-domain rule, so a
-`Reply-To` at `inbound.postmarkapp.com` blocks any send from a
-`winder.ai` `From`. With Reply-To off, replies route to whatever
-the customer's mail client defaults to (usually the From address)
-rather than back into helix — fine for testing one-shot replies,
-but the customer→Sam round trip won't close until Postmark
-approves the account. Drop the flag once approved.
+(For pending-approval Postmark accounts, append
+`,\"disable_reply_to\":true` — outbound succeeds but customer
+replies won't route back through helix until approval lands.)
 
-### 2. Start the server (terminal 1)
+### 2. Substitute `<INBOUND_HASH>` into role files
+
+The roles at `roles/customer-service.md` and `roles/engineer.md`
+each contain `<INBOUND_HASH>+<other-alias>@inbound.postmarkapp.com`
+addresses so each Worker knows where to email the other. Fill in
+your hash before creating the roles:
+
+```bash
+HASH="${POSTMARK_INBOUND%%@*}"
+mkdir -p /tmp/email-run/roles /tmp/email-run/workers
+for f in demos/email/roles/*.md; do
+  sed "s/<INBOUND_HASH>/$HASH/g" "$f" > /tmp/email-run/roles/$(basename "$f")
+done
+cp demos/email/workers/*.md /tmp/email-run/workers/
+```
+
+### 3. Start the server (terminal 1)
 
 ```bash
 ./bin/helix-org serve --db /tmp/email.db --envs-dir /tmp/email-envs
@@ -262,16 +267,17 @@ approves the account. Drop the flag once approved.
 The server logs `email transport enabled provider=postmark` once
 the Postmark config is loaded.
 
-### 3. Expose helix-org publicly (terminal 2)
+### 4. Expose helix-org publicly (terminal 2)
 
 ```bash
 cloudflared tunnel --url http://localhost:8080
 ```
 
 Or `ngrok http 8080` if you have ngrok set up. Note the public
-URL it prints (e.g. `https://accounts-bookmarks-permission-bloomberg.trycloudflare.com`).
+URL it prints (e.g.
+`https://accounts-bookmarks-permission-bloomberg.trycloudflare.com`).
 
-### 4. Point Postmark's inbound webhook at helix-org
+### 5. Point Postmark's inbound webhook at helix-org
 
 ```bash
 source ~/.helix/postmark
@@ -283,98 +289,94 @@ curl -sS -X PUT "https://api.postmarkapp.com/server" \
   -d "{\"InboundHookUrl\": \"${CF_URL}/email/postmark\"}"
 ```
 
-The path is `/email/postmark` (not `/email/postmark/<streamID>`).
+The path is `/email/postmark` (one URL for the whole installation).
 The transport extracts the alias from `OriginalRecipient` —
-mail to `<hash>+sam@inbound.postmarkapp.com` routes to the
-Stream whose alias is `sam`.
+mail to `<hash>+sam@inbound.postmarkapp.com` routes to the Stream
+whose alias is `sam`, mail to `<hash>+engineer@…` routes to the
+Stream whose alias is `engineer`.
 
-### 5. Hire Sam (terminal 3)
+### 6. Hire Sam and Lee (terminal 3)
 
 ```bash
-cd demos/email
+cd /tmp/email-run
 ../../bin/helix-org chat --new
 ```
 
-> Set up customer service from this directory.
+> Set up the support team from this directory.
 >
-> 1. Read `./roles/customer-service.md` and create role
->    `r-customer-service` from it.
+> **Customer service.** Read `./roles/customer-service.md` and
+> create role `r-customer-service` from its body. Create stream
+> `s-support` with transport.kind `email` and config
+> `{"alias":"sam"}`. Position `p-customer-service` under `p-root`
+> with that role. Hire AI worker `w-sam` with identityContent
+> from `./workers/sam.md`. Grant the tools listed in the role's
+> `## Tools (MCP)` section.
 >
-> 2. Create stream `s-support` with transport kind `email` and
->    config `{"alias":"sam"}`. (Provider creds are server-level —
->    in the `transport.postmark` config row — so the stream only
->    declares the routing identity.)
+> **Engineering.** Read `./roles/engineer.md` and create role
+> `r-engineer`. Create stream `s-engineer` with transport.kind
+> `email` and config `{"alias":"engineer"}`. Position `p-engineer`
+> under `p-root` with that role. Hire AI worker `w-lee` with
+> identityContent from `./workers/lee.md`. Grant the tools listed
+> in the role's `## Tools (MCP)` section.
 >
-> 3. Create position `p-customer-service` under `p-root` with
->    role `r-customer-service`.
->
-> 4. Hire AI worker `w-sam` into it with `identityContent` from
->    `./workers/sam.md`.
->
-> 5. Read `roles/customer-service.md`'s `## Tools (MCP)` line and
->    grant exactly those tools to `w-sam`.
->
-> 6. `worker_log` on `w-sam` with `wait=60` until you see
->    `=== exit: ok ===` to confirm Sam is subscribed and ready.
+> Then `worker_log` on each Worker (`w-sam`, `w-lee`) with
+> `wait=60` until you see `=== exit: ok ===` to confirm they're
+> subscribed and ready.
 
-### 6. Test: send Sam an email
+### 7. Send Sam an escalation-grade email
 
-From your normal mail client (Gmail, etc.), send an email to
-`<your-inbound-hash>+sam@inbound.postmarkapp.com`:
+From your normal mail client (Gmail, etc.), send an email to your
+`+sam` alias address:
 
-> **To:** `6b3bd15f407ea200e7607799b4c9eae8+sam@inbound.postmarkapp.com`
-> *(your hash will be different — see `~/.helix/postmark`)*
+> **To:** `<your-inbound-hash>+sam@inbound.postmarkapp.com`
+> *(your hash is in `~/.helix/postmark`)*
 >
-> **Subject:** Webhook stream isn't firing
+> **Subject:** How does the email transport route inbound mail?
 >
-> Hi support — I've got a stream with transport=webhook but my
-> POSTs aren't waking the worker. Subscriber is set, server logs
-> show 200 on the POST. What am I missing?
+> Hi support — I'm trying to figure out how mail to my Postmark
+> hash address actually finds the right helix-org Stream. Is the
+> stream ID in the URL? In the address? Somewhere else?
 >
 > — Phil
 
+This is a question Sam can't answer himself (it's about
+helix-org internals), so he'll forward it to Lee.
+
+### 8. Watch the four-hop cascade
+
 Back in chat:
 
-> Subscribe me to `s-support`. `read_events` with `wait=60` until
-> the email lands and Sam replies. Show me both verbatim.
+> Subscribe me to `s-support` and `s-engineer`. `read_events` with
+> `wait=120` until I interrupt; print every event verbatim as it
+> arrives.
 
-The cascade: Postmark receives at the alias address → POSTs JSON
-to `${tunnel}/email/postmark` → email transport extracts `+sam`
-from the recipient, finds the matching Stream, builds
-`Message{From:"phil@gmail.com", Subject:"...", Body:"...",
-MessageID:"<...>"}` and appends to `s-support` → dispatcher wakes
-Sam (Source=="" inbound events still trigger subscriber
-activations; what gets *suppressed* is the outbound emit on those
-events, so a bidirectional stream doesn't echo to itself) → Sam
-reads, drafts a reply, `publish`es to `s-support` with `to`,
-`subject`, `inReplyTo`, `threadId` set → email transport renders
-the outbound `Message` and POSTs Postmark's `/email` API → your
-inbox lights up. ~15–25 seconds end to end (Sam's claude
-activation is the slow part).
+You'll see, in order:
 
-### 7. Stop
+1. **Customer query** lands on `s-support` (`From: phil@…`,
+   `Subject: How does the email transport…`).
+2. **Sam's escalation** appears on `s-support`
+   (`To: <hash>+engineer@…`, paraphrased question for Lee). Postmark
+   sends it; their inbound webhook re-delivers it as…
+3. **Sam's escalation arrives on `s-engineer`** (`From: phil@…`
+   — Postmark renders our verified Sender Sig as From regardless
+   of which Worker published — but the Subject and Body are Sam's).
+4. **Lee's reply** appears on `s-engineer` (`To: <hash>+sam@…`,
+   `Subject: [eng] Re: …`, technical answer signed `— Lee`).
+   Postmark routes it back to…
+5. **Lee's reply arrives on `s-support`** (`Subject: [eng] Re: …`).
+   Sam reactivates, sees the `[eng]` prefix, walks `s-support`
+   history by `ThreadID` to find the customer's original query,
+   paraphrases Lee's answer.
+6. **Sam's customer-facing reply** appears on `s-support`
+   (`To: phil@winder.ai`, plain `Re: …` subject, paraphrased,
+   signed `— Sam`). Postmark sends it. Your inbox lights up.
+
+End-to-end ≈ 60–120 seconds (four claude activations: Sam,
+Lee, Sam-again; cold-start dominates).
+
+### 9. Stop
 
 Ctrl-C terminals 1 and 2.
-
-### Closing the customer-reply loop
-
-Once your Postmark account is approved (request from the Postmark
-UI; usually <24h), set `disable_reply_to:false`:
-
-```bash
-./bin/helix-org config set --db /tmp/email.db transport.postmark "{
-  \"token\":\"$POSTMARK_SERVER_TOKEN\",
-  \"inbound\":\"$POSTMARK_INBOUND\",
-  \"from\":\"$POSTMARK_FROM\"
-}"
-```
-
-The change takes effect on the next outbound send — no restart.
-After that, Sam's outbound emails carry `Reply-To:
-<hash>+sam@inbound.postmarkapp.com`, the customer's reply routes
-back through Postmark's inbound to `s-support`, and Sam
-activates again on the new event. Threading via `Message-ID` /
-`In-Reply-To` keeps the conversation in one thread.
 
 ## What this shows
 
@@ -410,6 +412,17 @@ activates again on the new event. Threading via `Message-ID` /
   Stream that's both inbound and outbound on the same provider
   doesn't ping-pong. Worker-published events (`Source!=""`) emit
   normally.
+- **Workers as first-class email participants.** Sam emails Lee.
+  Lee emails Sam. The customer emails Sam. All three legs use the
+  same transport, the same envelope, and the same alias-based
+  routing — Workers aren't a special case. Hiring a third
+  participant (Robin in legal? alias `legal`?) is two new
+  Streams + two new role files, no transport changes.
+- **`ThreadID` as the conversation spine.** Sam's escalation
+  carries the customer's `ThreadID`; Lee preserves it; Sam reads
+  it back to find the original customer. The whole four-hop
+  cascade is one logical thread despite four physical Postmark
+  send/receive pairs.
 
 ## What this doesn't cover (yet)
 
