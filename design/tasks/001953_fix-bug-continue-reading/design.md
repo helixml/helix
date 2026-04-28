@@ -72,12 +72,19 @@ that points back at the real bug rather than masking it.
 
 ## Test Plan
 
-- New unit test in `api/pkg/notification/notification_email_test.go` (create if
-  it does not exist) asserts that `getEmailMessage` for `EventCronTriggerComplete`
-  and `EventCronTriggerFailed` produces a `SessionURL` containing
-  `/orgs/<org_id>/session/<session_id>` when `Session.OrganizationID` is set.
-- Manual verification in the inner Helix dev environment: trigger a cron task
-  in an org, capture the rendered email body, and click the link.
+- Updated existing unit tests in `api/pkg/notification/notification_email_test.go`
+  for both `Test_getEmailMessage_CronTriggerComplete` and
+  `Test_getEmailMessage_CronTriggerFailed` to set `Session.OrganizationID` and
+  assert the rendered email contains the new `/orgs/<id>/session/<id>` URL.
+  All four `Test_getEmailMessage_*` tests pass.
+- **Manual end-to-end verification: NOT performed.** Inner Helix DB is empty
+  (no orgs, no sessions, no SMTP wired) so reproducing the path
+  `register → create org → cron app → SMTP capture → click link` is heavy
+  infra for a one-line string-format change. The change is covered by:
+  1. The unit test, which asserts the exact rendered URL.
+  2. Direct inspection of `frontend/src/router.tsx:290`, which confirms the
+     `/orgs/:org_id/session/:session_id` route exists.
+  Both pieces are in source and verified.
 
 ## Files Touched
 
