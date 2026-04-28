@@ -1,5 +1,13 @@
 # Upgrade Guide
 
+## Upgrading from 2.9.0 - 2.11.0-rc1 (incomplete-Bitnami-removal releases)
+
+Charts 2.9.0 through 2.11.0-rc1 shipped with an incomplete Bitnami removal: the new self-managed Postgres Deployment was created and used by the controlplane, but the Bitnami `postgresql` StatefulSet (`{release}-postgresql`) and its PVC (`data-{release}-postgresql-0`) were also created and ran idle alongside it. `helm upgrade` to a release with the completed removal will delete the orphaned Bitnami StatefulSet. The PVC fate depends on its `reclaimPolicy`. There is no data risk - the controlplane never wrote to the Bitnami instance - but you may want to manually delete the orphaned PVC after upgrade to free storage:
+
+```bash
+kubectl delete pvc data-<release>-postgresql-0 -n <namespace>
+```
+
 ## Upgrading to 2.9.0
 
 Chart version 2.9.0 replaces the Bitnami PostgreSQL subchart with the official `postgres:17-alpine` image. This is a **breaking change** for existing installations.

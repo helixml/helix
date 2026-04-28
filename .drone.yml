@@ -67,8 +67,6 @@ steps:
       # the script stamps a sentinel version — fine for lint/template since the
       # rendered output is never published from this pipeline.
       - sh scripts/render-charts.sh
-      # Fetch subchart dependencies (postgresql, common) before lint/template
-      - helm dependency build charts/helix-controlplane
       # Lint all three charts with default values
       - helm lint charts/helix-controlplane
       - helm lint charts/helix-runner
