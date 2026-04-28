@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -629,8 +630,23 @@ func (dm *DevContainerManager) buildEnv(req *CreateDevContainerRequest) []string
 			// Decision 15: per-session GPU pinning on multi-GPU hosts.
 			// If the request specifies GPUIndex, expose only that GPU.
 			// Otherwise default to "all" (legacy behaviour).
+			//
+			// IMPORTANT: in nested-DinD setups (sandbox -> inner dockerd
+			// -> desktop container) the cgroup-level device restriction
+			// from NVIDIA_VISIBLE_DEVICES does NOT actually take effect
+			// because the outer sandbox container was launched with
+			// `--gpus all` so all /dev/nvidia* nodes are inherited.
+			// Verified live on a 2x Blackwell box: nvidia-smi inside
+			// pin-0 still saw GPU 1. The DRM device pinning (PCI walk)
+			// IS effective (Mutter+GStreamer get the right card), but
+			// CUDA visibility leaks. We set both NVIDIA_VISIBLE_DEVICES
+			// AND CUDA_VISIBLE_DEVICES to the index so CUDA workloads
+			// inside the desktop respect the pin even if /dev/nvidia*
+			// nodes leak. Real cgroup-level restriction in nested DinD
+			// is a separate problem documented in Decision 15 follow-ups.
 			if req.GPUIndex != nil {
 				env = append(env, fmt.Sprintf("NVIDIA_VISIBLE_DEVICES=%d", *req.GPUIndex))
+				env = append(env, fmt.Sprintf("CUDA_VISIBLE_DEVICES=%d", *req.GPUIndex))
 			} else {
 				env = append(env, "NVIDIA_VISIBLE_DEVICES=all")
 			}
@@ -643,9 +659,17 @@ func (dm *DevContainerManager) buildEnv(req *CreateDevContainerRequest) []string
 
 	// Decision 15: tell detect-render-node.sh which GPU to pick. This drives
 	// Mutter via udev tags + the GStreamer encoder via HELIX_RENDER_NODE.
-	// Set even for non-NVIDIA so AMD/Intel paths can also pin.
+	// Set for all vendors so AMD/Intel paths also pin via the script's
+	// PCI walk fast-path. Live-tested on 2x Blackwell box: each desktop
+	// correctly picked its assigned card via PCI BDF (not by index suffix).
 	if req.GPUIndex != nil {
 		env = append(env, fmt.Sprintf("HELIX_GPU_INDEX=%d", *req.GPUIndex))
+		// AMD equivalent of CUDA_VISIBLE_DEVICES — ROCm honours this for
+		// HIP workloads even when /dev/dri leaks (same nested-DinD caveat).
+		if req.GPUVendor == "amd" {
+			env = append(env, fmt.Sprintf("HIP_VISIBLE_DEVICES=%d", *req.GPUIndex))
+			env = append(env, fmt.Sprintf("ROCR_VISIBLE_DEVICES=%d", *req.GPUIndex))
+		}
 	}
 
 	// For virtio-gpu (macOS ARM): set scanout mode environment variables
@@ -1023,36 +1047,142 @@ func (dm *DevContainerManager) buildExtraHosts() []string {
 	return extraHosts
 }
 
-// pickDRIDevices returns the host /dev/dri devices to expose to the
-// container. If gpuIndex is nil, returns the full glob (legacy).
-// Otherwise returns only the device whose minor number is
-// (offset + gpuIndex) — for renderD* devices that's offset=128
-// (renderD128 = GPU 0), for card* it's offset=0 (card0 = GPU 0).
+// drmDevice describes one GPU's host DRM nodes. Pairing render nodes
+// with card devices by PCI BDF (rather than by index suffix) is what
+// lets us pin correctly on hosts where the device numbering doesn't
+// line up — e.g. Azure spawns instances with virtio-gpu at card0/
+// renderD128 and the real NVIDIA at card1/renderD129, but other hosts
+// can have card0=NVIDIA + virtio-gpu at card2 with NO render node.
+type drmDevice struct {
+	renderNode string // e.g. /dev/dri/renderD129
+	cardDevice string // e.g. /dev/dri/card1 (may not be index-aligned with renderNode)
+	pciAddr    string // e.g. 0000:01:00.0
+	driver     string // kernel driver: "nvidia", "amdgpu", "i915", "virtio_gpu", etc.
+}
+
+// enumerateDRMDevices returns all GPU DRM devices on the host, sorted
+// by PCI BDF for stable ordering across reboots. If targetDriver is
+// non-empty, only devices owned by that kernel driver are returned.
 //
-// Returns an empty slice (not error) if the requested device doesn't
-// exist on the host; the caller logs and the container will fall back
-// to software rendering rather than crashing.
-func pickDRIDevices(globPattern string, gpuIndex *int, offset int) []string {
-	all, _ := filepath.Glob(globPattern)
-	if gpuIndex == nil {
-		return all
-	}
-	target := fmt.Sprintf("%d", offset+*gpuIndex)
-	for _, dev := range all {
-		// Strip the prefix to get the minor-number suffix
-		// (e.g. /dev/dri/renderD129 -> "129"; /dev/dri/card1 -> "1")
-		base := filepath.Base(dev)
-		var num string
-		if strings.HasPrefix(base, "renderD") {
-			num = strings.TrimPrefix(base, "renderD")
-		} else if strings.HasPrefix(base, "card") {
-			num = strings.TrimPrefix(base, "card")
+// Stable PCI-BDF ordering is the contract for `gpu_index` on
+// multi-GPU hosts: index 0 is the first matching device by BDF
+// (smallest), index 1 the second, etc. — so "the operator's idea of
+// GPU 1" stays the same across container restarts and host reboots.
+func enumerateDRMDevices(targetDriver string) []drmDevice {
+	return enumerateDRMDevicesIn("/dev", "/sys", targetDriver)
+}
+
+// enumerateDRMDevicesIn is the test-injectable form of
+// enumerateDRMDevices — it parameterises the dev and sysfs roots so
+// tests can stand up a synthetic /sys/class/drm tree.
+//
+// This is the function with the actual PCI walk:
+//   1. Glob `<devRoot>/dri/renderD*` to find render nodes (compute path).
+//   2. For each render node, look up `<sysfsRoot>/class/drm/<base>/device`
+//      to get the PCI BDF and driver name.
+//   3. Filter to targetDriver if set.
+//   4. For each matching render node, find the sibling card device by
+//      walking `<sysfsRoot>/class/drm/card*/device` and matching BDF.
+//   5. Sort the resulting list by PCI BDF.
+//
+// A render node with no sibling card device is still returned (cards
+// are display-only nodes; some headless compute GPUs have no card device).
+func enumerateDRMDevicesIn(devRoot, sysfsRoot, targetDriver string) []drmDevice {
+	var devs []drmDevice
+
+	renderNodes, _ := filepath.Glob(filepath.Join(devRoot, "dri", "renderD*"))
+	for _, rn := range renderNodes {
+		base := filepath.Base(rn)
+		pciAddr, driver, ok := readDRMSysfs(sysfsRoot, base)
+		if !ok {
+			continue
 		}
-		if num == target {
-			return []string{dev}
+		if targetDriver != "" && driver != targetDriver {
+			continue
+		}
+		card := findCardForPCI(devRoot, sysfsRoot, pciAddr)
+		devs = append(devs, drmDevice{
+			renderNode: rn,
+			cardDevice: card,
+			pciAddr:    pciAddr,
+			driver:     driver,
+		})
+	}
+
+	sort.Slice(devs, func(i, j int) bool {
+		return devs[i].pciAddr < devs[j].pciAddr
+	})
+	return devs
+}
+
+// readDRMSysfs reads /sys/class/drm/<name>/device — returns the PCI BDF
+// (basename of the resolved device symlink, e.g. "0000:01:00.0") and
+// the driver name (basename of the device/driver symlink). ok is false
+// if either symlink is missing.
+func readDRMSysfs(sysfsRoot, name string) (pciAddr, driver string, ok bool) {
+	devLink := filepath.Join(sysfsRoot, "class", "drm", name, "device")
+	pciTarget, err := filepath.EvalSymlinks(devLink)
+	if err != nil {
+		return "", "", false
+	}
+	pciAddr = filepath.Base(pciTarget)
+	drvLink := filepath.Join(devLink, "driver")
+	drvTarget, err := filepath.EvalSymlinks(drvLink)
+	if err != nil {
+		// device with no driver bound — still count it but driver is unknown
+		return pciAddr, "", true
+	}
+	driver = filepath.Base(drvTarget)
+	return pciAddr, driver, true
+}
+
+// findCardForPCI walks card* devices in sysfs and returns the dev path
+// of the one whose PCI BDF matches. Returns "" if no card device for
+// that PCI device (e.g. compute-only headless cards with no display).
+func findCardForPCI(devRoot, sysfsRoot, targetPCI string) string {
+	cards, _ := filepath.Glob(filepath.Join(devRoot, "dri", "card*"))
+	for _, c := range cards {
+		base := filepath.Base(c)
+		pci, _, ok := readDRMSysfs(sysfsRoot, base)
+		if ok && pci == targetPCI {
+			return c
 		}
 	}
-	return nil
+	return ""
+}
+
+// gpuDevicePaths returns the host device paths to expose to a
+// container for a given vendor. If gpuIndex is nil, all matching GPUs
+// are returned (legacy behaviour). Otherwise only the Nth-by-PCI-BDF
+// device's render and card paths are returned.
+//
+// `vendor` must be one of "amd", "intel", or "" (any). NVIDIA goes
+// through the nvidia-container-runtime DeviceRequests path, not raw
+// device mounts, so it's not handled here.
+func gpuDevicePaths(vendor string, gpuIndex *int) []string {
+	var driver string
+	switch vendor {
+	case "amd":
+		driver = "amdgpu"
+	case "intel":
+		driver = "i915"
+	}
+	devs := enumerateDRMDevices(driver)
+	if gpuIndex != nil {
+		idx := *gpuIndex
+		if idx < 0 || idx >= len(devs) {
+			return nil
+		}
+		devs = devs[idx : idx+1]
+	}
+	var out []string
+	for _, d := range devs {
+		out = append(out, d.renderNode)
+		if d.cardDevice != "" {
+			out = append(out, d.cardDevice)
+		}
+	}
+	return out
 }
 
 // configureGPU adds GPU-specific Docker configuration. If gpuIndex is
@@ -1078,9 +1208,13 @@ func (dm *DevContainerManager) configureGPU(hostConfig *container.HostConfig, ve
 		log.Debug().Strs("device_ids", deviceIDs).Msg("Configured NVIDIA GPU passthrough")
 
 	case "amd":
-		// AMD: mount /dev/kfd and /dev/dri/* for VA-API encoding.
-		// /dev/kfd is shared across all AMD GPUs (one device for the whole
-		// system), so it's always mounted regardless of pinning.
+		// AMD: mount /dev/kfd (shared across all AMD GPUs — always
+		// mounted regardless of pinning) plus the matching render+card
+		// pair for the requested GPU. gpuDevicePaths walks PCI sysfs to
+		// find the right render+card pair: critical on hosts where
+		// device numbering doesn't line up (Azure spawns instances with
+		// virtio-gpu at card0/renderD128 and the real GPU at card1/
+		// renderD129; a naive cardN-by-index would pin to virtio).
 		hostConfig.Devices = append(hostConfig.Devices,
 			container.DeviceMapping{
 				PathOnHost:        "/dev/kfd",
@@ -1088,8 +1222,8 @@ func (dm *DevContainerManager) configureGPU(hostConfig *container.HostConfig, ve
 				CgroupPermissions: "rwm",
 			},
 		)
-		driDevices := pickDRIDevices("/dev/dri/renderD*", gpuIndex, 128)
-		for _, dev := range driDevices {
+		paths := gpuDevicePaths("amd", gpuIndex)
+		for _, dev := range paths {
 			hostConfig.Devices = append(hostConfig.Devices,
 				container.DeviceMapping{
 					PathOnHost:        dev,
@@ -1098,24 +1232,13 @@ func (dm *DevContainerManager) configureGPU(hostConfig *container.HostConfig, ve
 				},
 			)
 		}
-		// card devices for display — Mutter wants the card device matching
-		// the render node. Card numbering doesn't have a +128 offset.
-		cardDevices := pickDRIDevices("/dev/dri/card*", gpuIndex, 0)
-		for _, dev := range cardDevices {
-			hostConfig.Devices = append(hostConfig.Devices,
-				container.DeviceMapping{
-					PathOnHost:        dev,
-					PathInContainer:   dev,
-					CgroupPermissions: "rwm",
-				},
-			)
-		}
-		log.Debug().Int("render_devices", len(driDevices)).Int("card_devices", len(cardDevices)).Interface("gpu_index", gpuIndex).Msg("Configured AMD GPU passthrough")
+		log.Debug().Strs("paths", paths).Interface("gpu_index", gpuIndex).Msg("Configured AMD GPU passthrough")
 
 	case "intel":
-		// Intel: mount /dev/dri/* for VA-API encoding (same as AMD, minus /dev/kfd)
-		driDevices := pickDRIDevices("/dev/dri/renderD*", gpuIndex, 128)
-		for _, dev := range driDevices {
+		// Intel: same approach as AMD (PCI walk picks the right card),
+		// minus /dev/kfd which is AMD-specific.
+		paths := gpuDevicePaths("intel", gpuIndex)
+		for _, dev := range paths {
 			hostConfig.Devices = append(hostConfig.Devices,
 				container.DeviceMapping{
 					PathOnHost:        dev,
@@ -1124,17 +1247,7 @@ func (dm *DevContainerManager) configureGPU(hostConfig *container.HostConfig, ve
 				},
 			)
 		}
-		cardDevices := pickDRIDevices("/dev/dri/card*", gpuIndex, 0)
-		for _, dev := range cardDevices {
-			hostConfig.Devices = append(hostConfig.Devices,
-				container.DeviceMapping{
-					PathOnHost:        dev,
-					PathInContainer:   dev,
-					CgroupPermissions: "rwm",
-				},
-			)
-		}
-		log.Debug().Int("render_devices", len(driDevices)).Int("card_devices", len(cardDevices)).Interface("gpu_index", gpuIndex).Msg("Configured Intel GPU passthrough")
+		log.Debug().Strs("paths", paths).Interface("gpu_index", gpuIndex).Msg("Configured Intel GPU passthrough")
 
 	default:
 		// Unknown/virtio GPU: mount /dev/dri/* if available (e.g., virtio-gpu on macOS/UTM)

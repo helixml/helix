@@ -4,7 +4,12 @@ End-to-end validation of the helix sandbox-absorbs-runner architecture on real c
 
 ## TL;DR
 
-Architecture works on real cloud GPU VMs from both providers, single-GPU and multi-GPU, **including the full desktop streaming stack, a real interesting model on each vendor (NVIDIA + AMD), and the full production code path** (local Helix → tunnel → cloud sandbox → inferencerouter → vLLM → Blackwell). Total spend: **$5.40** (Verda $5.07 + Hot Aisle $0.33).
+Architecture works on real cloud GPU VMs from both providers, single-GPU and multi-GPU, **including the full desktop streaming stack, real chat completions on each vendor, the full production code path** (local Helix → tunnel → cloud sandbox → inferencerouter → vLLM → Blackwell), **and Decision 15 per-session GPU pinning live-tested on a 2× Blackwell box (PCI walk works, NVIDIA visibility leaks documented).** Total spend: **~$8** (Verda ≈ $7.40 + Hot Aisle ≈ $0.55).
+
+**Key findings from live multi-GPU + AMD-desktop tests:**
+- ✅ DRM PCI walk pinning works perfectly on multi-GPU NVIDIA — exactly the Azure-style scenario you'd worry about (cards picked by PCI BDF, not by index suffix).
+- ❌ **NVIDIA `NVIDIA_VISIBLE_DEVICES` does NOT actually restrict GPU visibility in nested-DinD setups** — verified live, both `/dev/nvidia0` and `/dev/nvidia1` visible in containers we asked to pin to one. DRM pinning still effective for compositor/encoder. Workaround shipped: also set `CUDA_VISIBLE_DEVICES` so CUDA workloads honor the pin even if device nodes leak.
+- ❌ **MI300X cannot run a GNOME desktop** — `radeonsi: error: can't create a graphics context on a compute chip`. CDNA-class compute cards (MI200/MI300/MI300X) strip display+encode hardware. Customer's Node 5 (8× MI300X) can do inference but cannot host desktops; for AMD desktops you need an RDNA card (W7900 etc.) with VCN encoders + display engine.
 
 | Provider | Hardware | Result | Spend |
 |---|---|---|---|
@@ -153,3 +158,43 @@ go run ./integration-test/gpucloud/cmd/gpucloud-it --only a100-1x-smoke
 # Hot Aisle smoke
 go run ./integration-test/gpucloud/cmd/gpucloud-it --only mi300x-1x-smoke
 ```
+
+## Decision 15 live-test: per-session GPU pinning on 2× Blackwell
+
+After implementing Decision 15, the user pushed to live-test it (rather than trust the unit tests + build). Provisioned `2RTXPRO6000.60V` at Verda FIN-03 ($3.38/hr), spawned two helix-ubuntu desktops via Hydra socket — one with `gpu_index: 0`, one with `gpu_index: 1`.
+
+**What worked end-to-end (the part that actually matters for the desktop pipeline):**
+
+- **DRM PCI walk pinning**. The host had cards `card0`/`card1`/`card2` with the two NVIDIA Blackwells at PCI BDFs `0000:04:00.0` and `0000:05:00.0`. Naive index mapping would have pinned `gpu_index=0` to `card0`, but the PCI walk correctly mapped:
+  - `gpu_index=0` → `/dev/dri/renderD128` + `/dev/dri/card1` (PCI `0000:04:00.0`)
+  - `gpu_index=1` → `/dev/dri/renderD129` + `/dev/dri/card2` (PCI `0000:05:00.0`)
+- `WLR_DRM_DEVICES` and Mutter udev tags both pointed at the right card per container.
+- Both desktops booted independently, both rendered the GNOME shell + Helix Setup wizard, both produced screenshots via the screencast portal: see `cloud-smoke-screenshots/2026-04-28-blackwell-pin-{0,1}.png`.
+
+**What didn't work as advertised (real bug, surfaced by the live test):**
+
+- **`NVIDIA_VISIBLE_DEVICES` does NOT actually restrict GPU visibility in nested DinD.** Inside `ubuntu-pin-0` (asked to pin to GPU 0), `nvidia-smi -L` listed BOTH GPUs and `/dev/nvidia0` + `/dev/nvidia1` were both present. Same for `ubuntu-pin-1`. The container's `Config.Env` correctly had `NVIDIA_VISIBLE_DEVICES=0` and `HostConfig.DeviceRequests` correctly had `DeviceIDs: ["0"]`, so the inner-dockerd is being told "expose only GPU 0" — but the nvidia-container-runtime hook can't actually restrict because the outer sandbox container was launched with `--gpus all`, so the parent cgroup already permits all `/dev/nvidia*` device nodes. The cgroup-level restriction at the inner layer is a no-op.
+
+  **Workaround shipped (Decision 15 v2):** in addition to `NVIDIA_VISIBLE_DEVICES`, also set `CUDA_VISIBLE_DEVICES=<n>` so CUDA workloads inside the desktop honor the pin even though `/dev/nvidia*` device nodes leak. (For AMD: same pattern with `HIP_VISIBLE_DEVICES` + `ROCR_VISIBLE_DEVICES`.) `nvidia-smi` still shows all GPUs from the container — that's cosmetic, doesn't affect what CUDA actually uses.
+
+  **Properly fixing the cgroup-level restriction in nested DinD** is a separate problem that probably requires either (a) the sandbox launching with `--gpus device=...` per-active-session at the outermost level, or (b) explicit `--device-cgroup-rule` setup in the inner dockerd. Both have implications for the inference-profile path that uses `--gpus all`. Documented as a Decision 15 v2 follow-up.
+
+## Live-test 2: AMD desktop on MI300X — CDNA cannot run a desktop
+
+Spun up Hot Aisle 1× MI300X to validate the AMD desktop path. Pinning code path worked perfectly — only `/dev/dri/renderD128` was mounted (others denied because of `gpu_index: 0`), Mutter logged appropriate "no such file" errors trying to open `renderD129`–`renderD135` (proving the pin took effect). Then:
+
+```
+radeonsi: error: can't create a graphics context on a compute chip
+libmutter-Message: Failed to initialize accelerated iGPU/dGPU framebuffer sharing: Not hardware accelerated
+libmutter-Message: GPU /dev/dri/renderD128 selected primary given udev rule
+radeonsi: error: can't create a graphics context on a compute chip
+radeonsi: error: can't create a graphics context on a compute chip
+radeonsi: error: can't create a graphics context on a compute chip
+Failed to setup: Unable to initialize the Clutter backend: no available drivers found.
+```
+
+**MI300X is a CDNA-3 compute-only chip — no display engine, no encode hardware.** Mesa's `radeonsi` driver refuses to create an OpenGL graphics context. Mutter falls back through every `accelerated...` path and exits with no available Clutter backend. This is a hardware limitation, not a code bug.
+
+**Customer-deployment implication:** the customer's Node 5 (8× MI300X) is **inference-only**. Helix desktops cannot be hosted on it. If the customer wants AMD-vendor desktops, the fleet needs an RDNA card (W7900, W6800, etc.) with VCN encoders + display engine. Inference workloads (vLLM-on-ROCm via `amd-mi300x-vllm.yaml`) work fine on MI300X — already validated in run #5.
+
+This is an architectural finding that affects deployment planning. Worth raising with the customer before they finalize hardware.
