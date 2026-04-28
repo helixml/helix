@@ -147,6 +147,30 @@ export function useAssignRunnerProfile() {
   });
 }
 
+// Profile-derived list of currently-available models. Source of truth =
+// the union of models exposed by every connected sandbox whose active
+// profile is "running". Used to overlay an "available now" badge on
+// HelixModelsTable so the registry tab shows what's actually being served.
+export interface OpenAIModelEntry {
+  id: string;
+  object: string;
+  created: number;
+  owned_by: string;
+}
+export interface OpenAIModelsResponse {
+  object: string;
+  data: OpenAIModelEntry[];
+}
+
+export function useListInferenceModels() {
+  return useQuery<OpenAIModelsResponse>({
+    queryKey: ["inferenceModels"],
+    queryFn: async () => (await axios.get<OpenAIModelsResponse>("/api/v1/v1/models")).data,
+    staleTime: 5000,
+    refetchInterval: 10000,
+  });
+}
+
 export function useClearRunnerProfile() {
   const queryClient = useQueryClient();
   return useMutation({
