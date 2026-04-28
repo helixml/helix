@@ -66,11 +66,14 @@ axios.interceptors.request.use(csrfInterceptor)
 // with the actual error message from the backend response body. This ensures that
 // catch blocks using `error.message` show the real error, not just the status code.
 const enhanceErrorMessage = (error: any) => {
-  if (error.response?.data && typeof error.response.data === 'string') {
-    const body = error.response.data.trim()
+  const data = error.response?.data
+  if (data && typeof data === 'string') {
+    const body = data.trim()
     if (body.length > 0 && body.length < 1000 && !body.startsWith('<!')) {
       error.message = body
     }
+  } else if (data && typeof data === 'object' && typeof data.message === 'string' && data.message.length > 0) {
+    error.message = data.message
   }
   return Promise.reject(error)
 }
