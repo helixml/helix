@@ -397,25 +397,6 @@ export interface ISessionFilter {
   older?: string,
 }
 
-export interface IGlobalSchedulingDecision {
-  created: string,
-  runner_id: string,
-  session_id: string,
-  interaction_id: string,
-  filter: ISessionFilter,
-  mode: ISessionMode,
-  model_name: string,
-}
-
-export interface ISlot {
-  id: string,
-  runtime: string,
-  model: string,
-  version: string,
-  active: boolean,
-  ready: boolean,
-  status: string,
-}
 
 export interface LLMInferenceRequest {
   RequestID: string,
