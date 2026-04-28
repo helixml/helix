@@ -32,10 +32,16 @@ type ProfileGPURequirement struct {
 	MinVRAMBytes  int64     `json:"min_vram_bytes,omitempty"` // optional, per-GPU minimum
 }
 
-// RunnerProfile is a named compose-based runner configuration. The compose
-// YAML is the source of truth; Models and GPURequirement.Count are derived
-// from it on save. Vendor / Architectures / ModelMatch / MinVRAMBytes are
-// operator-declared.
+// RunnerProfile is a named compose-based configuration applied to a Sandbox.
+// The compose YAML is the source of truth; Models and GPURequirement.Count
+// are derived from it on save. Vendor / Architectures / ModelMatch /
+// MinVRAMBytes are operator-declared.
+//
+// Naming note: kept as `RunnerProfile` (rather than renamed to
+// `SandboxProfile` or just `Profile`) to avoid churn on the GORM table
+// name and on already-shipped tests. Conceptually it is "the compose
+// profile assigned to a sandbox" — see Decision 12 in design.md for the
+// architectural pivot that absorbs the runner role into Sandbox.
 type RunnerProfile struct {
 	ID             string                `json:"id" gorm:"primaryKey"`
 	Name           string                `json:"name" gorm:"uniqueIndex;not null"`
