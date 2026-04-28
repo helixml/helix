@@ -25,8 +25,10 @@ package composemgr
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -193,6 +195,10 @@ func (m *Manager) Apply(ctx context.Context, p *types.RunnerProfile) error {
 		return err
 	}
 	m.setStatus(p, "running", "")
+	// Persist again to capture the now-populated ServiceHealth alongside
+	// the running status. waitReady updates ServiceHealth incrementally
+	// but doesn't trigger setStatus.
+	m.persistStatus(m.Snapshot())
 	return nil
 }
 
@@ -305,11 +311,40 @@ func (m *Manager) waitReady(ctx context.Context, parsed *composeparse.ParseResul
 
 func (m *Manager) setStatus(p *types.RunnerProfile, status, errStr string) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	m.state.ProfileID = p.ID
 	m.state.ProfileName = p.Name
 	m.state.Status = status
 	m.state.Error = errStr
+	stateCopy := m.state
+	m.mu.Unlock()
+	m.persistStatus(stateCopy)
+}
+
+// persistStatus writes the current state to <ConfigDir>/status.json so
+// other processes inside the sandbox (specifically sandbox-heartbeat) can
+// pick it up and forward to the API server. Best-effort — failures don't
+// block the manager.
+func (m *Manager) persistStatus(s State) {
+	path := filepath.Join(m.opts.ConfigDir, "status.json")
+	data, err := jsonMarshal(s)
+	if err != nil {
+		return
+	}
+	_ = os.WriteFile(path, data, 0o644)
+}
+
+// jsonMarshal is split out so tests can stub if needed; kept tiny.
+func jsonMarshal(v any) ([]byte, error) {
+	type alias = State
+	out, err := jsonMarshalIndent(v, "", "")
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func jsonMarshalIndent(v any, prefix, indent string) ([]byte, error) {
+	return json.MarshalIndent(v, prefix, indent)
 }
 
 func (m *Manager) setFailed(p *types.RunnerProfile, err error) {
@@ -350,17 +385,24 @@ func rewriteRegistry(yaml, mirror string) string {
 	})
 }
 
-// pingService is a stub readiness check that hits container_name:port/v1/models.
-// Real implementation should use net/http with a short timeout.
-func pingService(_ context.Context, containerName string, port int) bool {
-	if containerName == "" || port == 0 {
+// pingService probes the upstream's /v1/models endpoint via the host port
+// mapping that compose declared. The compose-manager runs in the outer
+// sandbox network namespace where 127.0.0.1:<host_port> reaches the inner
+// container — same path the inference-proxy uses at request time.
+func pingService(ctx context.Context, _ string, port int) bool {
+	if port == 0 {
 		return false
 	}
-	// For v1 we shell out via exec — we want to check Docker's internal DNS,
-	// not the host network. The docker exec is the cheapest cross-platform
-	// way to do this without pulling in extra deps for this initial cut.
-	cmd := exec.Command("docker", "exec", containerName,
-		"wget", "-q", "-O", "/dev/null", "-T", "2",
-		fmt.Sprintf("http://localhost:%d/v1/models", port))
-	return cmd.Run() == nil
+	url := fmt.Sprintf("http://127.0.0.1:%d/v1/models", port)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return false
+	}
+	client := &http.Client{Timeout: 3 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	return resp.StatusCode >= 200 && resp.StatusCode < 300
 }

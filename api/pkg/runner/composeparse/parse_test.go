@@ -75,8 +75,9 @@ services:
 	if got, want := r.Models[0].ContainerName, "embed"; got != want {
 		t.Errorf("container name: got %q, want %q", got, want)
 	}
-	// Port form "host:container" → take container.
-	if got, want := r.Models[0].InternalPort, 8000; got != want {
+	// Port form "host:container" → take host (8001). The host port is
+	// what the inference-proxy reaches via 127.0.0.1:<host_port>.
+	if got, want := r.Models[0].InternalPort, 8001; got != want {
 		t.Errorf("port: got %d, want %d", got, want)
 	}
 }
@@ -274,16 +275,16 @@ services:
 
 func TestParse_PortForms(t *testing.T) {
 	cases := []struct {
-		name    string
+		name     string
 		yamlPort string
-		want    int
+		want     int // host port — what the inference-proxy uses
 	}{
-		{"ip-host-container", `["127.0.0.1:8000:8001"]`, 8001},
-		{"host-container", `["8000:8001"]`, 8001},
+		{"ip-host-container", `["127.0.0.1:8000:8001"]`, 8000},
+		{"host-container", `["8000:8001"]`, 8000},
 		{"single", `["8000"]`, 8000},
 		{"single-int", `[8000]`, 8000},
-		{"target-mapping", `[{target: 8001, published: 8000}]`, 8001},
-		{"with-protocol", `["8000:8001/tcp"]`, 8001},
+		{"target-mapping", `[{target: 8001, published: 8000}]`, 8000},
+		{"with-protocol", `["8000:8001/tcp"]`, 8000},
 		{"range", `["8000-8005:8000-8005"]`, 8000},
 	}
 	for _, tc := range cases {

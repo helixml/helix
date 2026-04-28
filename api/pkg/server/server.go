@@ -1059,6 +1059,14 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	adminRouter.HandleFunc("/runners/{runner_id}/assign-profile", apiServer.assignRunnerProfile).Methods(http.MethodPost)
 	adminRouter.HandleFunc("/runners/{runner_id}/clear-profile", apiServer.clearRunnerProfile).Methods(http.MethodPost)
 
+	// Runner-token-authenticated read paths so the sandbox-side compose-
+	// manager can fetch its own assignment + profile content using the
+	// shared runner token. Distinct paths avoid colliding with the
+	// admin-only /runners/{id}/... namespace (gorilla/mux matches the
+	// admin subrouter first and rejects the runner token).
+	runnerRouter.HandleFunc("/runner/{runner_id}/assignment", apiServer.getRunnerAssignment).Methods(http.MethodGet)
+	runnerRouter.HandleFunc("/runner/profiles/{id}", apiServer.getRunnerProfile).Methods(http.MethodGet)
+
 	// OpenAI-compatible /v1/models — union of models across runners whose
 	// active profile is `running`. No auth on the read; matches OpenAI's
 	// public-list convention. The chat/embeddings/images endpoints (which

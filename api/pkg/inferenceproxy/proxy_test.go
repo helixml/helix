@@ -34,14 +34,16 @@ func TestNewLookup(t *testing.T) {
 	if len(models) != 1 || models[0] != "qwen-tiny" {
 		t.Errorf("models: got %v, want [qwen-tiny]", models)
 	}
-	if got := l.upstreamFor("qwen-tiny"); got != "http://vllm-tiny:8000" {
-		t.Errorf("upstream: got %q, want http://vllm-tiny:8000", got)
+	// Upstream is 127.0.0.1:<host_port>. composeparse extracts host port
+	// from "8000:8000" — the first 8000 (host side).
+	if got := l.upstreamFor("qwen-tiny"); got != "http://127.0.0.1:8000" {
+		t.Errorf("upstream: got %q, want http://127.0.0.1:8000", got)
 	}
 	if got := l.upstreamFor("Unknown"); got != "" {
 		t.Errorf("unknown model should return empty; got %q", got)
 	}
 	// Case-insensitive match.
-	if got := l.upstreamFor("QWEN-TINY"); got != "http://vllm-tiny:8000" {
+	if got := l.upstreamFor("QWEN-TINY"); got != "http://127.0.0.1:8000" {
 		t.Errorf("case-insensitive lookup failed; got %q", got)
 	}
 }

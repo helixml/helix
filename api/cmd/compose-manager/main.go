@@ -138,15 +138,16 @@ func waitForSignal(cancel context.CancelFunc) {
 	cancel()
 }
 
-// fetchAssignment hits GET /api/v1/runners/{id}/assignment. Returns nil
-// without error if the runner has no assignment (404 is a normal state).
+// fetchAssignment hits GET /api/v1/runner/{id}/assignment (the runner-
+// token-authenticated path). Returns nil without error if the runner has
+// no assignment (404 is a normal state).
 func fetchAssignment(ctx context.Context, c *http.Client, base, token, runnerID string) (*types.RunnerAssignment, error) {
-	url := base + "/api/v1/runners/" + runnerID + "/assignment"
+	url := base + "/api/v1/runner/" + runnerID + "/assignment"
 	return getJSON[types.RunnerAssignment](ctx, c, url, token, true)
 }
 
-// fetchProfile hits GET /api/v1/runner-profiles/{id}.
+// fetchProfile hits GET /api/v1/runner/profiles/{id} (runner-token path).
 func fetchProfile(ctx context.Context, c *http.Client, base, token, profileID string) (*types.RunnerProfile, error) {
-	url := base + "/api/v1/runner-profiles/" + profileID
+	url := base + "/api/v1/runner/profiles/" + profileID
 	return getJSON[types.RunnerProfile](ctx, c, url, token, false)
 }

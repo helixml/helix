@@ -70,6 +70,39 @@ type HeartbeatRequest struct {
 	// router's profile-compatibility check. Detected via nvidia-smi /
 	// rocm-smi by the gpudetect package. Empty on hosts without GPUs.
 	GPUs []types.GPUStatus `json:"gpus,omitempty"`
+
+	// Inference subsystem state, read from the status.json file the
+	// compose-manager writes after each Apply.
+	ProfileStatus string            `json:"profile_status,omitempty"`
+	ProfileError  string            `json:"profile_error,omitempty"`
+	ServiceHealth map[string]string `json:"service_health,omitempty"`
+}
+
+// composeManagerStatusFile is where compose-manager persists its current
+// view (profile id, status, service health) for sandbox-heartbeat to pick
+// up and forward to the API server. The path is intentionally a constant
+// here — the compose-manager defaults to the same /etc/helix/status.json.
+const composeManagerStatusFile = "/etc/helix/status.json"
+
+// readComposeManagerStatus parses the compose-manager status.json. Returns
+// zero values on any error (file missing is the common case before any
+// profile is applied).
+func readComposeManagerStatus() (status, errMsg string, health map[string]string) {
+	data, err := os.ReadFile(composeManagerStatusFile)
+	if err != nil {
+		return "", "", nil
+	}
+	var s struct {
+		ProfileID     string            `json:"ProfileID"`
+		ProfileName   string            `json:"ProfileName"`
+		Status        string            `json:"Status"`
+		Error         string            `json:"Error"`
+		ServiceHealth map[string]string `json:"ServiceHealth"`
+	}
+	if err := json.Unmarshal(data, &s); err != nil {
+		return "", "", nil
+	}
+	return s.Status, s.Error, s.ServiceHealth
 }
 
 func main() {
@@ -145,6 +178,12 @@ func sendHeartbeat(apiURL, runnerToken, sandboxInstanceID string, privilegedMode
 	gpus := gpudetect.Detect(probeCtx)
 	probeCancel()
 
+	// Read compose-manager status from the file it writes after each Apply.
+	// Best-effort — if the file is missing or malformed, we ship the
+	// heartbeat without inference subsystem state (the API server then
+	// treats the sandbox as not-running-anything).
+	profileStatus, profileError, serviceHealth := readComposeManagerStatus()
+
 	// Build request
 	req := HeartbeatRequest{
 		DesktopVersions:       desktopVersions,
@@ -154,6 +193,9 @@ func sendHeartbeat(apiURL, runnerToken, sandboxInstanceID string, privilegedMode
 		GPUVendor:             gpuVendor,
 		HelixVersion:          data.GetHelixVersion(),
 		GPUs:                  gpus,
+		ProfileStatus:         profileStatus,
+		ProfileError:          profileError,
+		ServiceHealth:         serviceHealth,
 	}
 
 	// Log disk status

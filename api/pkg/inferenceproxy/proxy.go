@@ -73,16 +73,22 @@ func (l *ModelLookup) Replace(other *ModelLookup) {
 	l.entries = other.entries
 }
 
-// upstreamFor returns the http://container:port URL for a given model
+// upstreamFor returns the http://localhost:port URL for a given model
 // name, or an empty string if not found.
+//
+// The inference-proxy runs in the outer sandbox network namespace; it
+// can't resolve the inner dockerd's container DNS. Compose `ports:`
+// mappings expose the inner container on 127.0.0.1:<host_port> in the
+// sandbox network — that's what we route to. composeparse extracts the
+// host port (not the container port) into the `port` field.
 func (l *ModelLookup) upstreamFor(model string) string {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
 	t, ok := l.entries[strings.ToLower(model)]
-	if !ok || t.container == "" || t.port == 0 {
+	if !ok || t.port == 0 {
 		return ""
 	}
-	return fmt.Sprintf("http://%s:%d", t.container, t.port)
+	return fmt.Sprintf("http://127.0.0.1:%d", t.port)
 }
 
 // Handler returns an HTTP handler that proxies OpenAI-compatible requests.

@@ -3202,7 +3202,9 @@ type SandboxInstance struct {
 	// GPUs is the per-GPU inventory the sandbox reports for inference
 	// scheduling. Vendor / Architecture / ComputeCapability on each
 	// entry are the load-bearing fields for profile compatibility.
-	GPUs datatypes.JSON `json:"gpus,omitempty" gorm:"type:jsonb" swaggertype:"array,object"`
+	// Explicit column tag because GORM's default snake_case derivation
+	// turns `GPUs` into `gp_us`.
+	GPUs datatypes.JSON `json:"gpus,omitempty" gorm:"column:gpus;type:jsonb" swaggertype:"array,object"`
 
 	// ActiveProfileID is the ID of the runner profile this sandbox is
 	// currently running (or attempting to run). Empty for pure-agent

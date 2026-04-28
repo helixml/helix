@@ -279,43 +279,112 @@ func flagValue(tokens []string, flagName string) string {
 	return ""
 }
 
-// extractInternalPort returns the target port (the port inside the
-// container) from a `ports:` mapping. Falls back to `expose:` if no
-// published port. Returns 0 if neither is present.
+// extractInternalPort returns the host-mapped port from a service's
+// `ports:` mapping. The inference-proxy runs in the outer sandbox network
+// namespace; it can't resolve the inner dockerd's container DNS, so it
+// reaches services via 127.0.0.1:<host_port> exposed by docker compose
+// `ports:` mappings. Falls back to `expose:` (container port) if no
+// host port mapping is declared, but in practice the inference-proxy
+// requires host mappings to work.
 //
-// Handles the three port-spec forms:
-//   - "127.0.0.1:8000:8001"  -> 8001
-//   - "8000:8001"            -> 8001
-//   - "8000"                 -> 8000
+// Handles the port-spec forms:
+//   - "127.0.0.1:8000:8001"  -> 8000  (host port — middle chunk)
+//   - "8000:8001"            -> 8000  (host port — first chunk)
+//   - "8000"                 -> 8000  (only one port, treat as host)
 //   - 8000                   -> 8000
-//   - {target: 8001, ...}    -> 8001
+//   - {published: 8000, target: 8001} -> 8000
+//
+// The container port (the LAST chunk) is no longer extracted because
+// nothing in the API server / inference-proxy path uses it.
 func extractInternalPort(ports, expose []yaml.Node) int {
 	for _, n := range ports {
-		if p := portFromNode(n); p > 0 {
+		if p := hostPortFromNode(n); p > 0 {
 			return p
 		}
 	}
 	for _, n := range expose {
-		if p := portFromNode(n); p > 0 {
+		// `expose:` declares container ports only. As a degraded
+		// fallback we return that — the inference-proxy will fail with
+		// connection refused, which is a cleaner error than 0.
+		if p := containerPortFromNode(n); p > 0 {
 			return p
 		}
 	}
 	return 0
 }
 
-func portFromNode(n yaml.Node) int {
+// hostPortFromNode returns the host-side port from a compose `ports:`
+// entry. The host port is whichever is on the left of the colon: with
+// "ip:host:container" it's the middle, with "host:container" it's the
+// first, with bare "8000" or 8000 it's the value.
+func hostPortFromNode(n yaml.Node) int {
 	switch n.Kind {
 	case yaml.ScalarNode:
-		s := n.Value
-		// "host:container" or "ip:host:container" → take last colon-separated chunk.
-		if i := strings.LastIndex(s, ":"); i >= 0 {
-			s = s[i+1:]
-		}
-		// May include a "/tcp" or "/udp" suffix.
+		s := strings.TrimSpace(n.Value)
+		// Strip trailing "/tcp" or "/udp" if present.
 		if i := strings.Index(s, "/"); i >= 0 {
 			s = s[:i]
 		}
+		// Split on colon. Forms:
+		//   "host"                 -> [host]
+		//   "host:container"       -> [host, container]
+		//   "ip:host:container"    -> [ip, host, container]
+		parts := strings.Split(s, ":")
+		var hostStr string
+		switch len(parts) {
+		case 1:
+			hostStr = parts[0]
+		case 2:
+			hostStr = parts[0]
+		case 3:
+			hostStr = parts[1]
+		default:
+			return 0
+		}
 		// May be a range "8000-8005" — take the first.
+		if i := strings.Index(hostStr, "-"); i >= 0 {
+			hostStr = hostStr[:i]
+		}
+		v, err := strconv.Atoi(strings.TrimSpace(hostStr))
+		if err != nil {
+			return 0
+		}
+		return v
+	case yaml.MappingNode:
+		// Look for `published: NNNN`. (Falls back to `target` if
+		// `published` is absent — in that case host = container.)
+		var target int
+		for i := 0; i < len(n.Content)-1; i += 2 {
+			k, v := n.Content[i], n.Content[i+1]
+			if v.Kind != yaml.ScalarNode {
+				continue
+			}
+			if k.Value == "published" {
+				if p, err := strconv.Atoi(v.Value); err == nil {
+					return p
+				}
+			}
+			if k.Value == "target" {
+				if p, err := strconv.Atoi(v.Value); err == nil {
+					target = p
+				}
+			}
+		}
+		return target
+	}
+	return 0
+}
+
+func containerPortFromNode(n yaml.Node) int {
+	switch n.Kind {
+	case yaml.ScalarNode:
+		s := strings.TrimSpace(n.Value)
+		if i := strings.LastIndex(s, ":"); i >= 0 {
+			s = s[i+1:]
+		}
+		if i := strings.Index(s, "/"); i >= 0 {
+			s = s[:i]
+		}
 		if i := strings.Index(s, "-"); i >= 0 {
 			s = s[:i]
 		}
@@ -324,16 +393,6 @@ func portFromNode(n yaml.Node) int {
 			return 0
 		}
 		return v
-	case yaml.MappingNode:
-		// Look for `target: NNNN`.
-		for i := 0; i < len(n.Content)-1; i += 2 {
-			k, v := n.Content[i], n.Content[i+1]
-			if k.Value == "target" && v.Kind == yaml.ScalarNode {
-				if p, err := strconv.Atoi(v.Value); err == nil {
-					return p
-				}
-			}
-		}
 	}
 	return 0
 }

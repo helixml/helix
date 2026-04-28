@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -15,6 +17,14 @@ import (
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 )
+
+// envFallback is a tiny helper: returns the env var value or fallback.
+func envFallback(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
+}
 
 // refreshInferenceRouterFromHeartbeat is called after a sandbox heartbeat
 // is processed. It pushes the latest inference-relevant state into the
@@ -36,11 +46,30 @@ func (apiServer *HelixAPIServer) refreshInferenceRouterFromHeartbeat(ctx context
 			activeProfile = p
 		}
 	}
-	// URL: read from the registered SandboxInstance (the sandbox registers
-	// its IPAddress/Hostname on first connect; heartbeats refresh).
+	// URL the API server uses to reach this sandbox's inference-proxy.
+	// dispatchHTTPToRunner appends :8090.
+	//
+	// For dev mode (HELIX_DEV_SANDBOX_HOST set), use that. Otherwise prefer
+	// the sandbox's registered Hostname (resolvable inside the docker
+	// network), falling back to IPAddress with any embedded source port
+	// stripped.
+	//
+	// TODO(multi-sandbox): for production with multiple sandboxes we need
+	// a discovery mechanism more robust than the registered hostname —
+	// the sandbox's own /etc/hostname is the random Docker container ID,
+	// which isn't resolvable from elsewhere.
 	url := ""
-	if inst, err := apiServer.Store.GetSandbox(ctx, sandboxID); err == nil && inst != nil {
-		url = "http://" + inst.IPAddress
+	if devHost := strings.TrimSpace(envFallback("HELIX_DEV_SANDBOX_HOST", "")); devHost != "" {
+		url = "http://" + devHost
+	} else if inst, err := apiServer.Store.GetSandbox(ctx, sandboxID); err == nil && inst != nil {
+		host := inst.Hostname
+		if host == "" {
+			host = inst.IPAddress
+			if i := strings.Index(host, ":"); i >= 0 {
+				host = host[:i]
+			}
+		}
+		url = "http://" + host
 	}
 	apiServer.inferenceRouter.SetRunnerState(&inferencerouter.RunnerState{
 		ID:            sandboxID,
