@@ -196,6 +196,7 @@ AMD's containerised GPU story is different from NVIDIA's: there is no single `--
 - [ ] Delete `frontend/src/components/dashboard/SchedulingDecisionsTable.tsx`.
 - [ ] Delete `frontend/src/components/dashboard/SchedulerHealthIndicators.tsx`.
 - [ ] Remove `MemoryEstimateCell` from `HelixModelsTable.tsx` and its helpers.
+- [ ] **Probably delete the entire "Helix Models" tab** (`HelixModelsTable.tsx`, `EditHelixModel.tsx`, `helixModelsService.ts`, the `helix_models` Dashboard branch, and the sidebar entry). The new compose-profile mechanism is the source of truth for "what models exist and where they run." The Helix Models registry is parallel and confusing. **Investigate first:** `HelixModel` carries pricing data (per-token cost) and is used by `api/pkg/openai/manager/` for model→provider routing. Killing the table needs (a) pricing moved to a new home (per-profile, or a standalone pricing concept) and (b) provider-manager routing decoupled from `HelixModel`. Until that investigation completes, keep the tab informational-only as the original AC8 said.
 - [ ] Remove dead React Query hooks: `useDeleteSlot`, slot list queries, `v1SchedulerHeartbeatsList`, `v1MemoryEstimationsList`.
 - [ ] Remove the `Dashboard.tsx` tabs that hosted the deleted components.
 - [ ] After `update_openapi`, spot-check `frontend/src/api/api.ts` to confirm `TypesRunnerSlot`, `TypesSchedulingDecision`, etc. are gone.
