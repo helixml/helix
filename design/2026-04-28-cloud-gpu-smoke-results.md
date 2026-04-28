@@ -4,7 +4,7 @@ End-to-end validation of the helix sandbox-absorbs-runner architecture on real c
 
 ## TL;DR
 
-Architecture works on real cloud GPU VMs from both providers, single-GPU and multi-GPU, **including the full desktop streaming stack and a real interesting model**. Total spend: **$4.62** (Verda $4.49 + Hot Aisle $0.13).
+Architecture works on real cloud GPU VMs from both providers, single-GPU and multi-GPU, **including the full desktop streaming stack, a real interesting model on each vendor (NVIDIA + AMD)**. Total spend: **$4.82** (Verda $4.49 + Hot Aisle $0.33).
 
 | Provider | Hardware | Result | Spend |
 |---|---|---|---|
@@ -12,6 +12,7 @@ Architecture works on real cloud GPU VMs from both providers, single-GPU and mul
 | Hot Aisle | 1× MI300X 192GB | ✅ Sandbox boots, nested DinD with AMD passthrough, ROCm visible inside inner DinD via `rocm-smi` | $0.13 |
 | Verda | 4× RTX PRO 6000 Blackwell (FIN-03) | ✅ All 4 GPUs visible in nested DinD; tensor-parallel-2 vLLM serves chat completion ("YES") with weights sharded across 2 Blackwells; Hydra spawns helix-ubuntu desktop container with correct GPU detection | $3.39 |
 | Verda | 1× A100 80GB SXM4 (FIN-01, 200GB disk) | ✅ **Qwen 2.5 14B running** (68GB VRAM); ✅ **Full GNOME desktop running** (Mutter + Xwayland + PipeWire + desktop-bridge with DmaBuf zero-copy); ✅ Real PNG screenshot captured via desktop-bridge HTTP API — Helix Setup wizard rendered. See `cloud-smoke-screenshots/`. | $0.67 |
+| Hot Aisle | 1× MI300X 192GB (#2) | ✅ **Real Qwen 2.5 14B chat completion via ROCm vLLM** (`rocm/vllm:latest`, 63 GB VRAM used). Closes the AMD-inference gap from the first MI300X smoke. | $0.20 |
 
 ## Multi-GPU + desktop test (4× RTX PRO 6000 Blackwell)
 
@@ -62,6 +63,20 @@ Re-provisioned a fresh 1× A100 80GB at Verda with a 200GB OS volume (the defaul
 - `privileged: true` (otherwise the desktop's own dockerd inside it can't init cgroups)
 
 The third level of DinD also worked: sandbox dockerd (level 2 in nested) → desktop's own dockerd (level 3) → vLLM container (would be level 4 if we ran one inside the desktop). Storage driver overlay2 holds across all levels via the named-volume trick.
+
+## Real AMD inference on MI300X (run #5)
+
+Closed the gap from the first MI300X smoke (which only proved device passthrough, not actual inference). Re-provisioned a Hot Aisle 1× MI300X (`enc1-gpuvm002`, $1.99/hr, 12 TB disk — much more generous than Verda) and ran ROCm vLLM with a real model:
+
+- **`rocm/vllm:latest`** image. Note: unlike `vllm/vllm-openai`, this image has no default entrypoint (`Cmd: [/bin/bash]`), so the compose YAML needs `entrypoint: ["vllm", "serve"]` then args separately. Updated the AMD profile pattern accordingly.
+- **Qwen 2.5 14B Instruct** loaded into 63 GB of MI300X VRAM (33% of 192 GB).
+- Chat completion via `POST /v1/chat/completions` returned an 86-token coherent answer:
+  > *"I am running on an AMD Instinct MI300X with 192GB of HBM3 memory, served by vLLM-on-ROCm inside a nested Docker container setup. Compared to the NVIDIA H100, the MI300X stands out due to its integrated CPU and GPU cores on the same die, potentially offering better latency and throughput..."*
+  > 
+  > (model knowledge nit: the "integrated CPU+GPU on same die" detail is true of MI300A, not MI300X — but the inference path is what we're testing, not Qwen's chip-spec recall)
+- Spent: $0.20 for ~6 minutes including image pull + model download.
+
+Now both NVIDIA *and* AMD have served a real chat completion through the new sandbox-absorbs-runner architecture on cloud GPUs.
 
 ## What was validated
 
