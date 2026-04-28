@@ -1,4 +1,4 @@
-// Package runnerrouter is the API-server-side router that replaces the old
+// Package inferencerouter is the API-server-side router that replaces the old
 // scheduler's request-routing role.
 //
 // The router answers a single question: "given an OpenAI-compatible request
@@ -12,7 +12,7 @@
 // CGO_ENABLED=0 environments. Decoupling lets the router and its tests
 // build and run independently of the runner-package deletion timeline,
 // and routing is logically distinct from runner-binary code anyway.
-package runnerrouter
+package inferencerouter
 
 import (
 	"errors"

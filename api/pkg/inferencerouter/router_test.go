@@ -1,4 +1,4 @@
-package runnerrouter
+package inferencerouter
 
 import (
 	"errors"
