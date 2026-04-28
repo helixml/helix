@@ -1,9 +1,15 @@
 package openai
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
+	"strings"
+	"time"
 
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/inferencerouter"
@@ -193,22 +199,126 @@ func (c *InternalHelixServer) enqueueRequest(req *types.RunnerLLMInferenceReques
 
 // dispatchHTTPToRunner forwards an inference request over HTTP to a
 // sandbox's inference-proxy, then publishes the response back through the
-// existing NATS-based pubsub so callers (CreateChatCompletion etc.) receive
-// it via the same code path they already wait on.
+// existing pubsub queue so callers (CreateChatCompletion / Stream /
+// CreateEmbeddings) receive it via the same code path they already wait
+// on. Returning nil here means "request accepted, response will arrive
+// asynchronously via pubsub" — the same contract as the scheduler path.
 //
-// The current InternalHelixServer surface is deeply NATS-shaped (subscribe
-// before enqueue, wait on a channel). Rather than restructure every
-// caller, we adapt — fire the HTTP request in a goroutine, parse the
-// streaming response, publish each chunk back via pubsub. This keeps the
-// transition incremental.
+// Streaming is handled by reading the SSE stream from the sandbox and
+// publishing each chunk to the same pubsub queue with the same shape the
+// runner used to publish.
 func (c *InternalHelixServer) dispatchHTTPToRunner(req *types.RunnerLLMInferenceRequest, runnerURL string) error {
-	// TODO(sandbox-absorbs-runner-followup): replace with a direct
-	// streaming HTTP call once CreateChatCompletion / Stream are
-	// restructured. For now this is a stub that errors out so the
-	// scheduler fallback handles the request — keeps behaviour
-	// unchanged until the runner is actually serving.
-	_ = runnerURL
-	return fmt.Errorf("HTTP runner dispatch not yet wired (transitional path)")
+	if runnerURL == "" {
+		return fmt.Errorf("dispatchHTTPToRunner: runner URL is empty")
+	}
+	// inference-proxy listens on port 8090 inside the sandbox by default.
+	// runnerURL from refreshInferenceRouterFromHeartbeat is "http://<ip>"
+	// (no port). Append.
+	target := runnerURL + ":8090"
+
+	// Pick the upstream path based on what the request carries.
+	var path string
+	var bodyStruct any
+	switch {
+	case req.Embeddings && req.FlexibleEmbeddingRequest != nil:
+		path = "/v1/embeddings"
+		bodyStruct = req.FlexibleEmbeddingRequest
+	case req.Embeddings:
+		path = "/v1/embeddings"
+		bodyStruct = req.EmbeddingRequest
+	default:
+		path = "/v1/chat/completions"
+		bodyStruct = req.Request
+	}
+
+	body, err := json.Marshal(bodyStruct)
+	if err != nil {
+		return fmt.Errorf("marshal request body: %w", err)
+	}
+
+	go c.dispatchAndPublish(req, target+path, body)
+	return nil
+}
+
+// dispatchAndPublish does the actual HTTP roundtrip in a background
+// goroutine and publishes the result(s) into the same pubsub queue the
+// scheduler-based path uses. Errors are wrapped into a
+// RunnerNatsReplyResponse with the Error field set so callers see them
+// through their existing subscribe-and-wait code.
+func (c *InternalHelixServer) dispatchAndPublish(req *types.RunnerLLMInferenceRequest, url string, body []byte) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	publishErr := func(msg string) {
+		log.Warn().Str("request_id", req.RequestID).Str("url", url).Str("err", msg).Msg("dispatch HTTP -> sandbox failed")
+		reply, _ := json.Marshal(&types.RunnerNatsReplyResponse{Error: msg})
+		_ = c.pubsub.Publish(ctx, pubsub.GetRunnerResponsesQueue(req.OwnerID, req.RequestID), reply)
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		publishErr("build request: " + err.Error())
+		return
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 5 * time.Minute}
+	resp, err := client.Do(httpReq)
+	if err != nil {
+		publishErr("HTTP roundtrip: " + err.Error())
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
+		publishErr(fmt.Sprintf("upstream %s: %s", resp.Status, strings.TrimSpace(string(respBody))))
+		return
+	}
+
+	// Streaming responses use SSE. The non-streaming path returns one
+	// JSON document. We detect SSE by Content-Type.
+	contentType := resp.Header.Get("Content-Type")
+	if strings.Contains(contentType, "text/event-stream") {
+		c.streamSSEToPubsub(ctx, req, resp.Body)
+		return
+	}
+
+	// Non-streaming: read entire body, publish once.
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		publishErr("read response: " + err.Error())
+		return
+	}
+	reply, _ := json.Marshal(&types.RunnerNatsReplyResponse{Response: respBody})
+	if err := c.pubsub.Publish(ctx, pubsub.GetRunnerResponsesQueue(req.OwnerID, req.RequestID), reply); err != nil {
+		log.Warn().Err(err).Str("request_id", req.RequestID).Msg("publish runner response")
+	}
+}
+
+// streamSSEToPubsub reads SSE chunks from the sandbox and publishes each
+// one as a separate RunnerNatsReplyResponse to the pubsub queue, matching
+// the format the existing CreateChatCompletionStream handler expects
+// ("data: {...}" lines).
+func (c *InternalHelixServer) streamSSEToPubsub(ctx context.Context, req *types.RunnerLLMInferenceRequest, body io.Reader) {
+	scanner := bufio.NewScanner(body)
+	scanner.Buffer(make([]byte, 64*1024), 4*1024*1024) // 4 MiB max line — generous for big chunks
+	for scanner.Scan() {
+		line := scanner.Text()
+		if line == "" || line == "data: [DONE]" {
+			continue
+		}
+		// Pass the raw SSE line through; downstream code expects
+		// "data: {...}" and trims the prefix itself.
+		reply, _ := json.Marshal(&types.RunnerNatsReplyResponse{Response: []byte(line)})
+		if err := c.pubsub.Publish(ctx, pubsub.GetRunnerResponsesQueue(req.OwnerID, req.RequestID), reply); err != nil {
+			log.Warn().Err(err).Str("request_id", req.RequestID).Msg("publish runner stream chunk")
+			return
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		log.Warn().Err(err).Str("request_id", req.RequestID).Msg("SSE scan error")
+	}
 }
 
 // ProcessRunnerResponse is called on both partial streaming and full responses coming from the runner
