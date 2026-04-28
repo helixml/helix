@@ -1,6 +1,6 @@
-# Requirements: Unified Helix Worker (replaces runner + sandbox)
+# Requirements: Sandbox Grows Inference (deletes the runner image)
 
-> **2026-04-28 architectural pivot:** the user observed that the new compose-based runner and the existing Sandbox container are converging structurally — both are DinD wrappers around GPU containers. We unify them into a single deployable artifact, the "Helix worker," that hosts both LLM inference services (declarative compose profiles) and agent desktop sessions (dynamic via Hydra). Operators pick per-node what mix runs there. This document is updated throughout to reflect that pivot — references to "runner" and "sandbox" are replaced by "worker" where they refer to the unified artifact, but kept where they refer to logically distinct subsystems (the *inference router* is still about routing LLM requests; *Hydra* still owns desktop session lifecycle).
+> **2026-04-28 architectural pivot:** the user observed that the new compose-based runner and the existing Sandbox container are converging structurally — both are DinD wrappers around GPU containers. The cleanest framing: **Sandbox just grows the ability to run LLMs and we wire in routing to them.** The runner image (`Dockerfile.runner`) is deleted entirely. Sandbox absorbs the role: two new Go binaries (`compose-manager`, `inference-proxy`) ship inside the existing `Dockerfile.sandbox`. Hydra and Sandbox's other features stay as-is. The API server's inference router picks a sandbox by model name. This is a smaller, lower-risk change than inventing a new "worker" image — Sandbox is already production-mature.
 
 
 

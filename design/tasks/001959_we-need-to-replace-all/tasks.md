@@ -1,8 +1,9 @@
 # Implementation Tasks
 
-> **2026-04-28 architectural pivot:** the task list below originally talked about replacing only the Runner. We have unified Runner and Sandbox into a single "worker" image (see Decision 12 in design.md). Where a task references "runner image" or "runner binary," it now means the unified worker. Where it references "runner profile assignment" or "inference router," those concepts are unchanged — the inference subsystem inside the worker. Hydra-related tasks have been added at the end. Naming changes:
-> - `runnerrouter` Go package → `inferencerouter` (router routes *inference*; the worker as a whole hosts more than inference).
-> - `Dockerfile.runner` → `Dockerfile.worker` (bundles Hydra + compose manager + inference proxy).
+> **2026-04-28 architectural pivot:** the task list originally talked about replacing the Runner. We refined: **Sandbox absorbs the runner role.** `Dockerfile.runner` is deleted entirely; `Dockerfile.sandbox` gains two new binaries (`compose-manager`, `inference-proxy`). No new image type. See Decision 12 in design.md. Where a task says "runner image," read "delete it." Where it says "runner binary rewrite," read "compose-manager + inference-proxy added to Sandbox."
+> - `runnerrouter` Go package → `inferencerouter` (already done — routes inference to sandboxes).
+> - `Dockerfile.runner` → **deleted**.
+> - GPU sharing is implicit: GPUs claimed by inference services in compose are off-limits to Hydra; the rest are Hydra's. No `x-helix` extension.
 
 
 ## Spike (do first, may invalidate parts of the design)
@@ -203,19 +204,17 @@ AMD's containerised GPU story is different from NVIDIA's: there is no single `--
 - [ ] **Rewrite-not-refactor litmus test:** `git grep -nE "Runtime\b|VLLMRuntime|OllamaRuntime|slotState|perSlotProxy|slotURL"` in the new `api/pkg/runner/` returns nothing. If any of those internal abstractions appear in the new code, the implementer regressed toward the old design and the rewrite framing has been violated — push back in review.
 - [ ] `frontend/` builds clean; no unused imports flagged by tsc/eslint.
 
-## Worker Unification (NEW — 2026-04-28 pivot)
+## Sandbox Absorbs Runner (NEW — 2026-04-28 pivot)
 
-- [ ] Rename `api/pkg/runnerrouter/` → `api/pkg/inferencerouter/` (and update all imports).
-- [ ] Add `HydraGPUPool []string` field to `types.RunnerProfile.GPURequirement` (or as a sibling field; an `x-helix` block on the parsed profile).
-- [ ] Extend `composeparse.Parse` to read top-level `x-helix.hydra-gpu-pool` and surface it on `ParseResult`.
-- [ ] Persist `HydraGPUPool` on `RunnerProfile` (jsonb).
-- [ ] Add a unified `types.WorkerStatus` (combining today's `RunnerStatus` + `SandboxInstance` shape — see Decision 13). Drop the slot-related fields per AC8.
-- [ ] Build `Dockerfile.worker` from Sandbox base, copying in the new compose-manager + inference-proxy binaries (see Worker Image task block).
-- [ ] Compose subsystem and Hydra subsystem coexist as separate processes in the worker, supervised by Sandbox's existing supervisor.
-- [ ] On profile assignment, pass `hydra-gpu-pool` to Hydra so it knows which GPUs it may schedule against.
-- [ ] If `x-helix.hydra-gpu-pool` is empty/absent, Hydra rejects GPU-requiring desktop sessions on this worker (pure-inference worker).
-- [ ] If `services:` is empty, the compose manager is a no-op (pure-agent worker).
-- [ ] Frontend: collapse `RunnerSummary` + `AgentSandboxes` into a single `WorkerSummary` card (per-GPU usage, inference services, active desktop sessions).
+- [x] Rename `api/pkg/runnerrouter/` → `api/pkg/inferencerouter/`.
+- [ ] Extend `types.SandboxInstance` (or whatever the existing sandbox-status type is) with: `GPUs []GPUStatus`, `ActiveProfile *RunnerProfile`, `ProfileStatus string`, `ServiceHealth map[string]string`. See Decision 13 in design.md.
+- [ ] Wire `inferencerouter.Router.SetRunnerState` to be called from the existing sandbox connect/heartbeat path. The "runner ID" in the router is just the sandbox ID.
+- [ ] Write `api/cmd/compose-manager/main.go`: applies an assigned profile by running `docker compose pull && up -d` against the inner dockerd, polls service health, reports state via NATS. Started under Sandbox's supervisor.
+- [ ] Write `api/cmd/inference-proxy/main.go`: body-aware reverse proxy listening on a known port. Reads request body's `model` field; forwards to matching container in inner dockerd via Docker DNS.
+- [ ] Extend `Dockerfile.sandbox`: add COPY lines for the two new binaries from a builder stage; add supervisor entries.
+- [ ] Delete `Dockerfile.runner` and `docker-compose.runner.yaml`.
+- [ ] Frontend: extend `AgentSandboxes` table with profile / service columns; delete `RunnerSummary` and slot/scheduling visualisations per AC8.
+- [ ] No `x-helix` compose extension — GPU sharing between inference and Hydra is implicit (whatever GPUs aren't claimed by inference services in the compose are Hydra's).
 
 ## CGO-Free Worker Build (Adopt After Deletions)
 
