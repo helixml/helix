@@ -25,18 +25,19 @@
   - [x] `GET    /api/v1/runner-profiles/{id}`
   - [x] `PUT    /api/v1/runner-profiles/{id}`
   - [x] `DELETE /api/v1/runner-profiles/{id}`
-  - [ ] `POST   /api/v1/runners/{runner_id}/assign-profile` (body: `{"profile_id": "..."}`) — needs runner status with vendor+arch fields, wired in runner-binary rewrite
-  - [ ] `POST   /api/v1/runners/{runner_id}/clear-profile` — same dependency
+  - [x] `POST   /api/v1/runners/{runner_id}/assign-profile` (body: `{"profile_id": "..."}`) — wired with compatibility check (returns 422 with named-constraint failure on mismatch).
+  - [x] `POST   /api/v1/runners/{runner_id}/clear-profile` — idempotent, returns 204.
+  - [x] `GET    /api/v1/runners/{runner_id}/compatible-profiles` — server-side filtering for the dropdown.
+  - [x] `GET    /api/v1/runners/{runner_id}/assignment` — current assignment for a runner.
 - [x] Add profile-compatibility check (`profile.Compatibility()`): count → vendor → architecture → model_match regex → min VRAM, returning a single named-constraint failure on mismatch via `*IncompatibilityReason`. Index-existence check belongs at the assignment layer (operates on parsed compose, not declared count) — to be wired when the assign endpoint is implemented.
 - [x] Filter the assignment dropdown server-side: implemented as `profile.FilterCompatible()` helper. HTTP route `GET /api/v1/runners/{id}/compatible-profiles` to be wired in the next task block.
 
-## Backend: Runner Router (replaces scheduler)
+## Backend: Inference Router (replaces scheduler)
 
-- [x] Implement `api/pkg/runnerrouter/router.go` (renamed from the originally-planned `api/pkg/runner/router.go` — see design.md for the why) with `PickRunner(model)` (round-robin across runners whose active profile contains the model and are in `running` state). Includes `NoRunnerError` carrying available-models list, `AvailableModels()` for the `/v1/models` endpoint, and per-model round-robin counters so rotation for one model doesn't trample another.
-- [ ] Wire `/v1/chat/completions`, `/v1/embeddings`, `/v1/images/generations` (and any other OpenAI-compatible endpoints currently routed via the scheduler) through the new router.
-- [ ] **Repoint `api/pkg/openai/helix_openai_client.go`** so the two `scheduler.Enqueue` call sites (lines 305 and 399 today — chat completions and embeddings) call the new router instead. Public method signatures must not change. Drop the `scheduler` import; add a router dependency to the client constructor and update wherever the client is instantiated.
-- [ ] Wire `/v1/models` to return the union of model names across all currently-`running` profiles.
-- [ ] Return HTTP 503 with a list of currently-available models when no runner qualifies. Use the same error shape from both the HTTP path and the in-process `helix_openai_client` path so callers see consistent errors.
+- [x] Implement `api/pkg/inferencerouter/router.go` (renamed twice — first from `api/pkg/runner/router.go` in design.md, then from `runnerrouter` for the sandbox-absorbs-runner pivot). `PickRunner(model)` round-robins across sandboxes whose active profile contains the model and are `running`. Includes `NoRunnerError` carrying available-models list, `AvailableModels()` for the `/v1/models` endpoint, and per-model round-robin counters.
+- [x] Wire `/v1/models` — returns the union of model names across all sandboxes whose active profile is `running`. OpenAI-compatible response shape.
+- [~] **Repoint `api/pkg/openai/helix_openai_client.go`** — done as transitional repoint. `enqueueRequest` first tries `inferenceRouter.PickRunner(model)`; if a connected sandbox can serve, calls `dispatchHTTPToRunner` (currently a stub returning error → falls back to scheduler path). Once GPU validation confirms HTTP-via-router works end-to-end, the stub becomes a real implementation and the scheduler fallback is deleted. The split is a deliberate transitional state — keeps the API server building and the existing path serving while the new one is brought online.
+- [~] Return HTTP 503 with available-models list — implemented inside the inference proxy + `NoRunnerError`. The transitional helix_openai_client path still uses the scheduler error shape; converges when scheduler is removed.
 
 ## Backend: NATS Surface Reduction
 
@@ -44,7 +45,19 @@
 - [ ] Delete subjects + handlers for slot create/delete/list/inference.
 - [ ] Persist the last-known assignment per runner; on runner reconnect, re-send `set_profile` so the runner re-applies after restart.
 
-## Runner Binary (Rewrite, Not Refactor)
+## Runner Binary (post-pivot: this is now sandbox-side compose-manager + inference-proxy)
+
+> **Sandbox-absorbs-runner pivot:** the sections below were originally about
+> rewriting the standalone runner binary. After the pivot the work splits
+> into two new binaries that ship inside Sandbox: `compose-manager`
+> applies profiles via docker compose, `inference-proxy` does model-name
+> routing. The "rewrite, not refactor" framing still applies: the existing
+> `api/pkg/runner/` package is destined for deletion (AC8). Items below
+> tagged `[~]` are the "transitional" state (the new binaries are shipped;
+> the old api/pkg/runner code lingers as fallback). Items tagged `[ ]`
+> remain genuinely outstanding.
+
+
 
 **Framing reminder (see Decision 11 in design.md):** the runner Go code is rewritten in the same change set as the deletions, not evolved in place. Roughly 6% of the existing runner code survives — copied forward as utilities. Don't try to thread changes through existing files; delete the package contents per AC8 and write new ones. The new package keeps the name `api/pkg/runner/` but its contents are entirely new.
 
@@ -58,18 +71,18 @@
 If you find yourself importing `Runtime`, slot state machine types, per-slot URL builders, or any other internal abstraction of the old runner into the new code, **stop** — that's a signal you're regressing toward the old design.
 
 **New files (everything else) — give them their own shape, not the old one's shape:**
-- [ ] `api/pkg/runner/compose_manager.go` — calls docker CLI, manages YAML, polls health.
-- [ ] `api/pkg/runner/proxy.go` — body-buffered, model-aware reverse proxy.
-- [ ] `api/pkg/runner/controller_nats.go` — narrowed surface (status out, set_profile/clear_profile in).
-- [ ] `api/pkg/runner/pre_flight.go` — runtime registration check, image presence check.
-- [ ] `api/pkg/runner/gpu_inventory.go` — the slimmed-down GPU file under a name that reflects what it now does.
-- [ ] `api/pkg/runner/server.go` — narrowed routes (`POST /v1/chat/completions`, `POST /v1/embeddings`, `POST /v1/images/generations`, `GET /api/v1/status`, `GET /api/v1/services/{name}/logs`).
-- [ ] Profile state machine: `assigning → pulling → starting → running → failed`. Implement directly; do not lift from the old slot state machine.
-- [ ] Tests for each new file.
+- [x] `api/pkg/composemgr/manager.go` — calls docker CLI, manages YAML, polls health, registry rewrite, offline mode. Replaces the originally-planned `api/pkg/runner/compose_manager.go`. 9 tests.
+- [x] `api/pkg/inferenceproxy/proxy.go` — body-buffered, model-aware reverse proxy. Replaces `api/pkg/runner/proxy.go`. 6 tests.
+- [~] `api/pkg/runner/controller_nats.go` — narrowed surface — **deferred**: the existing api/pkg/runner package is on the deletion list, narrowing it makes no sense. The new model is: compose-manager polls HTTP, inference-proxy serves HTTP. No NATS for the inference subsystem; Sandbox keeps using NATS only for the agent-desktop subsystem.
+- [~] Pre-flight runtime registration check — **deferred to follow-up PR** (compose-manager logs and fails on `up -d` if runtime missing; explicit pre-flight is a UX improvement, not a correctness requirement).
+- [~] GPU inventory — **deferred to follow-up PR**: GPUStatus already has the fields; the sandbox heartbeat is the right time to populate them via `nvidia-smi --query-gpu=...` / `rocm-smi`. Currently GPUs[] is reported empty by the sandbox heartbeat, which makes the compatibility check fail-closed (refuses non-trivial profiles) — the safe default until GPU detection lands.
+- [x] Inference HTTP routes — implemented in `api/pkg/inferenceproxy/proxy.go` (Handler() serves `/v1/chat/completions`, `/v1/embeddings`, `/v1/images/generations`, `/v1/models`).
+- [x] Profile state machine: `assigning → pulling → starting → running → failed` implemented in `api/pkg/composemgr` (setStatus + setFailed methods). Lifecycle is exactly the design.
+- [x] Tests for each new file (composemgr: 9 tests, inferenceproxy: 6 tests).
 
-**Image build:**
-- [ ] Strip `Dockerfile.runner` to: golang build artifact + dockerd + docker CLI + **both** nvidia-container-toolkit (for NVIDIA GPUs) and AMD container runtime support (for AMD/ROCm GPUs — see "AMD GPU Support" task block below). No vLLM, no Ollama, no axolotl, no diffusers. The same image must support either vendor at runtime; vendor-specific runtime activation is decided by what the operator's compose file requests.
-- [ ] Build `Dockerfile.runner` as a **multi-arch image targeting `linux/amd64` and `linux/arm64`** (use `docker buildx build --platform linux/amd64,linux/arm64 ...`). NVIDIA runs on both (x86 + Jetson/Grace); AMD ROCm is x86-only in practice but the runner binary itself must still build for arm64 so dev machines (Apple Silicon) can run the runner without a GPU profile attached.
+**Image build (post-pivot — Sandbox is now the GPU-bearing image):**
+- [x] `Dockerfile.runner` deleted. Sandbox image (`Dockerfile.sandbox`) extended with two new builder stages (compose-manager, inference-proxy) + COPYs into `/usr/local/bin/` + cont-init.d hooks + `/etc/helix` directory.
+- [~] Multi-arch build for `linux/amd64` + `linux/arm64` — Sandbox already builds for both; the new binaries inherit that. **Verification deferred** to first CI build of Sandbox after this PR.
 - [ ] Implement `api/pkg/runner/compose_manager.go`:
   - Apply `set_profile`: pull-new (unless offline) → down-old → up-new → poll readiness. **Never** prune between down-old and up-new.
   - Apply `clear_profile`: down current → delete `/etc/helix/active.yaml`.
@@ -207,14 +220,17 @@ AMD's containerised GPU story is different from NVIDIA's: there is no single `--
 ## Sandbox Absorbs Runner (NEW — 2026-04-28 pivot)
 
 - [x] Rename `api/pkg/runnerrouter/` → `api/pkg/inferencerouter/`.
-- [ ] Extend `types.SandboxInstance` (or whatever the existing sandbox-status type is) with: `GPUs []GPUStatus`, `ActiveProfile *RunnerProfile`, `ProfileStatus string`, `ServiceHealth map[string]string`. See Decision 13 in design.md.
-- [ ] Wire `inferencerouter.Router.SetRunnerState` to be called from the existing sandbox connect/heartbeat path. The "runner ID" in the router is just the sandbox ID.
-- [ ] Write `api/cmd/compose-manager/main.go`: applies an assigned profile by running `docker compose pull && up -d` against the inner dockerd, polls service health, reports state via NATS. Started under Sandbox's supervisor.
-- [ ] Write `api/cmd/inference-proxy/main.go`: body-aware reverse proxy listening on a known port. Reads request body's `model` field; forwards to matching container in inner dockerd via Docker DNS.
-- [ ] Extend `Dockerfile.sandbox`: add COPY lines for the two new binaries from a builder stage; add supervisor entries.
-- [ ] Delete `Dockerfile.runner` and `docker-compose.runner.yaml`.
-- [ ] Frontend: extend `AgentSandboxes` table with profile / service columns; delete `RunnerSummary` and slot/scheduling visualisations per AC8.
-- [ ] No `x-helix` compose extension — GPU sharing between inference and Hydra is implicit (whatever GPUs aren't claimed by inference services in the compose are Hydra's).
+- [x] Extend `types.SandboxInstance` (and `SandboxHeartbeatRequest`) with: `GPUs []GPUStatus`, `ActiveProfileID string`, `ProfileStatus string`, `ProfileError string`, `ServiceHealth map[string]string`.
+- [x] Wire `inferencerouter.Router.SetRunnerState` from sandbox heartbeat (`refreshInferenceRouterFromHeartbeat` in `runner_assignment_handlers.go`): looks up assignment, fetches active profile, pushes RunnerState carrying GPUs + URL + active profile + status.
+- [x] Write `api/cmd/compose-manager/main.go` — reconciliation loop polling `/api/v1/runners/{id}/assignment`, applies via `composemgr.Manager.Apply()`, periodic prune ticker.
+- [x] Write `api/pkg/composemgr/` library — Apply / Clear / Trim / RegistryRewrite. 9 unit tests.
+- [x] Write `api/cmd/inference-proxy/main.go` — HTTP server reading active.yaml, reloads on SIGHUP + 30s mtime poll.
+- [x] Write `api/pkg/inferenceproxy/` library — model-name-aware reverse proxy. 6 unit tests.
+- [x] Extend `Dockerfile.sandbox`: two new builder stages + COPYs + cont-init.d hooks (`80-start-compose-manager`, `85-start-inference-proxy`).
+- [x] Delete `Dockerfile.runner`, `Dockerfile.runner.dockerignore`, `docker-compose.runner.yaml`.
+- [x] Delete `charts/helix-runner/` Helm chart entirely.
+- [~] Frontend: added `RunnerProfilesTable` + `EditRunnerProfile` + sidebar entry. **Not yet done:** extending `AgentSandboxes` table to show profile/service columns; deleting `RunnerSummary` + scheduling visualisations.
+- [x] No `x-helix` compose extension — GPU sharing between inference and Hydra is implicit.
 
 ## CGO-Free Worker Build (Adopt After Deletions)
 
