@@ -196,7 +196,7 @@ AMD's containerised GPU story is different from NVIDIA's: there is no single `--
 - [ ] Delete `frontend/src/components/dashboard/SchedulingDecisionsTable.tsx`.
 - [ ] Delete `frontend/src/components/dashboard/SchedulerHealthIndicators.tsx`.
 - [ ] Remove `MemoryEstimateCell` from `HelixModelsTable.tsx` and its helpers.
-- [ ] **Probably delete the entire "Helix Models" tab** (`HelixModelsTable.tsx`, `EditHelixModel.tsx`, `helixModelsService.ts`, the `helix_models` Dashboard branch, and the sidebar entry). The new compose-profile mechanism is the source of truth for "what models exist and where they run." The Helix Models registry is parallel and confusing. **Investigate first:** `HelixModel` carries pricing data (per-token cost) and is used by `api/pkg/openai/manager/` for model→provider routing. Killing the table needs (a) pricing moved to a new home (per-profile, or a standalone pricing concept) and (b) provider-manager routing decoupled from `HelixModel`. Until that investigation completes, keep the tab informational-only as the original AC8 said.
+- [ ] **Integrate (don't kill) the "Helix Models" tab.** Original AC8 said "informational-only." Refined: the tab evolves into a unified model registry where the *list* of models comes from active profiles' derived `Models` field (the source of truth — what's actually running), and the existing `HelixModel` records overlay metadata that doesn't fit on a compose service: pricing per-token, display name, marketing description, provider routing hints. UI shows a row per model with a clear distinction: "from profile X" badge if backed by a running profile, "registered metadata only (not currently served)" if there's a HelixModel without a matching profile. Deletes only the parts that the scheduler drove (memory estimation, prewarm flag, runtime field — the operator's compose declares the runtime).
 - [ ] Remove dead React Query hooks: `useDeleteSlot`, slot list queries, `v1SchedulerHeartbeatsList`, `v1MemoryEstimationsList`.
 - [ ] Remove the `Dashboard.tsx` tabs that hosted the deleted components.
 - [ ] After `update_openapi`, spot-check `frontend/src/api/api.ts` to confirm `TypesRunnerSlot`, `TypesSchedulingDecision`, etc. are gone.
@@ -232,6 +232,42 @@ AMD's containerised GPU story is different from NVIDIA's: there is no single `--
 - [x] Delete `charts/helix-runner/` Helm chart entirely.
 - [~] Frontend: added `RunnerProfilesTable` + `EditRunnerProfile` + sidebar entry. **Not yet done:** extending `AgentSandboxes` table to show profile/service columns; deleting `RunnerSummary` + scheduling visualisations.
 - [x] No `x-helix` compose extension — GPU sharing between inference and Hydra is implicit.
+
+## RunPod-Backed Integration Test System (Planned, Separate PR)
+
+See Decision 14 in design.md for the full plan. This task block is the
+work breakdown for the follow-up PRs.
+
+### Phase 1 — harness scaffolding (deferred to its own PR)
+
+- [ ] `integration-test/runpod/matrix.yaml`: form factor × profile × scenarios. Initial entries: RTX 4090 (dev), 1×H100 SXM, 4×H100 SXM, 1×A100 80GB, 1×MI300X. Skip Blackwell until RunPod offers it.
+- [ ] `integration-test/runpod/cmd/runpod-it/main.go`: harness binary. Reads matrix, loops over entries, dispatches each to the provisioner.
+- [ ] `integration-test/runpod/internal/provision/`: thin wrapper around RunPod's REST API (POST `/v2/pod`, GET `/v2/pod/{id}`, POST `/v2/pod/{id}/stop`). Auth via `RUNPOD_API_KEY` env var. Templates a cloud-init that installs Docker + nvidia-container-toolkit + pulls the helix-sandbox image + boots it pointing at the test API server.
+- [ ] `integration-test/runpod/internal/scenarios/`: the seven test scenarios (Boot smoke / Compatibility filter / Assignment / Inference / Profile switch / Clear / Incompatible rejection). Each takes a sandbox URL + auth and a profile, returns pass/fail with a structured reason.
+- [ ] `integration-test/runpod/internal/report/`: writes per-form-factor results to JUnit XML for CI consumption + a markdown summary suitable for posting to a PR comment.
+
+### Phase 2 — cost controls
+
+- [ ] Wall-clock kill: 30-minute soft, 35-minute hard via RunPod API.
+- [ ] Result cache: hash (sandbox image digest, profile YAML SHA, test code git SHA), keyed in S3 or a small Postgres table. Skip with "green-by-cache" if all three match a prior green.
+- [ ] Parallelism cap: configurable max concurrent pods (default 4) so we don't blow through RunPod account limits or the daily $ budget.
+- [ ] Daily $ budget: reads `MAX_DAILY_RUNPOD_USD`, queries RunPod's billing API at start, refuses to schedule if today's spend already exceeds. Alerts on approach to limit.
+
+### Phase 3 — CI integration
+
+- [ ] `.drone.yml`: new `runpod-integration` pipeline, scheduled nightly on `main`, triggerable on demand via `[runpod-it]` commit-message tag (not every PR — too expensive).
+- [ ] Drone secrets: `RUNPOD_API_KEY`, `RUNPOD_NETWORK_VOLUME_ID` (for the persistent /models cache).
+- [ ] Slack/PR notifications on failure (one ping per failing form factor, not per test).
+
+### Phase 4 — model cache reuse
+
+- [ ] Persistent RunPod network volume mounted into every pod at `/models`, populated on first run with the model weights for every profile in the matrix. Subsequent runs hit a warm cache → minutes saved per test.
+
+### Out of scope for this work
+
+- ARM64 Grace Hopper / Jetson — covered later when a customer asks.
+- Hyperscaler alternatives (AWS spot, Azure NDv5, GCP A3) — RunPod first; switching providers is a separate PR.
+- Stress / load testing — the matrix is functional smoke testing, not performance.
 
 ## CGO Status (Sandbox Already Free, Nothing To Do)
 

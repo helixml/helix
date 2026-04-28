@@ -609,6 +609,82 @@ active inference services, and active agent desktop sessions. The
 existing `AgentSandboxes` table grows columns; `RunnerSummary` and the
 slot-related visualisations are deleted per AC8.
 
+## Decision 14: RunPod-Backed Integration Test System (planned)
+
+**Problem.** The compatibility check, profile assignment, and inference roundtrip differ subtly across GPU vendors, architectures, and form factors:
+
+- An NVIDIA Hopper sandbox handles FP8 paths that an Ampere sandbox doesn't.
+- An AMD MI300X sandbox uses `/dev/kfd` + `/dev/dri/render*` device passthrough; NVIDIA uses `--gpus all` + nvidia-container-toolkit.
+- Tensor-parallel layouts (4×H100 with NVLink) behave differently from the same model on independent GPUs.
+- Multi-arch image (linux/arm64) on Jetson / Grace Hopper has its own quirks.
+
+We can validate the dev-spike-tiny path on whatever happens to be the developer's local hardware, but production support claims for the form factors in `design/sample-profiles/*.yaml` need to be backed by tests on real hardware of each shape. Hand-running these tests is unsustainable; we want a CI step that provisions on demand.
+
+**Decision.** Build an integration test harness that:
+
+1. Reads a matrix of (form factor → sample profile → test scenarios) from a config file.
+2. For each entry, calls the **RunPod API** to provision an on-demand pod with the matching GPU type + count + region.
+3. Bootstraps the pod with the latest `helix-sandbox` image (built and pushed by the same CI run, or a stable release tag).
+4. Points the sandbox at a test API server (either a transient one we spin up, or a long-lived staging server).
+5. Runs the assigned profile's smoke tests (model loads, /v1/models reports it, chat completion roundtrips, profile switch works, incompatible profile is rejected).
+6. Tears the pod down.
+7. Reports per-form-factor green/red back to the PR or release.
+
+**Why RunPod.** It's the cheapest on-demand GPU rental with API access that covers the matrix we care about (consumer Ada through datacenter Hopper / Blackwell, plus AMD MI300X). Alternative: cloud GPUs via Lambda Labs, Crusoe, or hyperscaler spot instances — all viable, RunPod is just the fastest to ship against.
+
+### Form-factor matrix
+
+| Form factor | RunPod GPU type | What it validates |
+|-------------|------------------|-------------------|
+| Consumer dev | RTX 4090 24 GiB | "any-nvidia-dev" curated profile, dev-spike-tiny |
+| Single Hopper | H100 80 GiB SXM | "single-h100-35b" profile, FP8 chat |
+| Single Hopper PCIe | H100 80 GiB PCIe | Confirms PCIe vs SXM doesn't break anything |
+| 4×H100 | 4× H100 SXM | Tensor-parallel layouts (TP=4) |
+| Single A100 | A100 80 GiB | Ampere arch, no FP8 — confirms vendor=nvidia + arch=ampere matching |
+| Blackwell | B100 / B200 (when RunPod offers) | Blackwell-specific paths; deferred until availability |
+| AMD MI300X | MI300X 192 GiB | AMD device passthrough, ROCm vLLM image, gfx942 → cdna3 mapping |
+| Multi-vendor mismatch | A single host can't have both — covered by unit tests in `profile.Compatibility` |
+
+We don't bother with: ARM64 Grace Hopper (low priority until a customer asks), every NVIDIA architecture in a separate test (Turing/Volta GPUs are too small to run the curated profiles).
+
+### Scenarios per form factor
+
+For each form factor + assigned-compatible-profile combination:
+
+1. **Boot smoke.** Sandbox connects to API, heartbeat lands, GPU inventory shows the expected vendor + arch + VRAM.
+2. **Compatibility filter.** `GET /api/v1/runners/{id}/compatible-profiles` returns the profile we expect to fit, excludes profiles for other architectures.
+3. **Assignment + apply.** `POST /assign-profile`, wait for `profile_status: running`, confirm `service_health` shows all services healthy.
+4. **Inference roundtrip.** `POST /v1/chat/completions` with the profile's model, verify a sane response. For embeddings, `POST /v1/embeddings`.
+5. **Profile switch.** Assign a *different* compatible profile; confirm the old stack tears down and the new one comes up; previous models are no longer reachable, new models are.
+6. **Clear.** `POST /clear-profile`; confirm compose-manager teardown + idle state.
+7. **Incompatible-profile rejection.** Assign a profile that requires a different architecture; confirm 422 with the expected named-constraint error.
+
+### Cost control
+
+GPU rental is dollars per hour, not cents. The harness must be aggressive about cost:
+
+- **Hard wall-clock per test:** 30 minutes max, killed at 35 minutes via the RunPod API regardless of test state. (Includes provisioning, image pull, model download, test execution.)
+- **Skip unchanged matrix entries.** Hash (sandbox image digest + profile YAML + test code commit) — if all three match a previous green run, mark green-by-cache, don't provision.
+- **Parallelism by form factor.** Different GPU types are independent; run them concurrently. Bounded by RunPod account limits + cost budget.
+- **Pre-warm where possible.** RunPod offers persistent network volumes — keep a populated `/models` cache across runs so vLLM's HuggingFace download isn't repeated every test.
+- **Dollar budget knob.** A single config value (`MAX_DAILY_RUNPOD_USD=200`) the harness reads before scheduling; refuses to start if today's spend already exceeds it.
+
+### Where it lives
+
+- `integration-test/runpod/` — new directory.
+- `integration-test/runpod/matrix.yaml` — the form-factor × profile × scenarios matrix.
+- `integration-test/runpod/cmd/runpod-it/main.go` — the harness binary.
+- `integration-test/runpod/internal/{provision,scenarios,report}/` — the building blocks.
+- `.drone.yml` — new pipeline `runpod-integration` that runs nightly + on demand for release branches (not on every PR — too expensive). Triggered manually by adding `[runpod-it]` to a commit message.
+
+### What this PR does NOT do
+
+- Does not implement the harness. Sample compose profiles, tests, matrix file all stay design.
+- Does not add the RunPod API key as a Drone secret yet.
+- Does not commit RunPod-specific code into the helix repo until we've confirmed RunPod is the right vendor (could be Lambda, Crusoe, or hyperscaler spot — first-time setup decision).
+
+This is **planning only**. The first follow-up PR ships the harness scaffolding + matrix; a second PR wires it into Drone with cost controls.
+
 ## Open Questions
 
 1. **Do we need to namespace inner-dockerd networks per runner?** Probably not — each runner has its own inner dockerd, so the default bridge network is already isolated. Confirm during implementation.
