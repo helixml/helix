@@ -1465,10 +1465,10 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
 
       {/* Debug Info */}
       <Divider sx={{ my: 2 }} />
-      <Box sx={{ mt: 2, p: 2, bgcolor: "grey.900", borderRadius: 1 }}>
+      <Box sx={{ mt: 2, p: 2, bgcolor: lightTheme.isLight ? "grey.100" : "grey.900", borderRadius: 1 }}>
         <Typography
           variant="caption"
-          color="grey.400"
+          color={lightTheme.isLight ? "grey.700" : "grey.400"}
           display="block"
           gutterBottom
         >
@@ -1476,14 +1476,14 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
         </Typography>
         <Typography
           variant="caption"
-          color="grey.300"
+          color={lightTheme.isLight ? "grey.800" : "grey.300"}
           sx={{ fontFamily: "monospace", display: "block" }}
         >
           Task ID: {task?.id || "N/A"}
         </Typography>
         <Typography
           variant="caption"
-          color="grey.300"
+          color={lightTheme.isLight ? "grey.800" : "grey.300"}
           sx={{ fontFamily: "monospace", display: "block" }}
         >
           Task #:{" "}
@@ -1495,7 +1495,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
           <Tooltip title="Spectask branches push changes to upstream repository">
             <Typography
               variant="caption"
-              color="grey.300"
+              color={lightTheme.isLight ? "grey.800" : "grey.300"}
               sx={{ fontFamily: "monospace", display: "block" }}
             >
               Branch: {task.branch_name}{" "}
@@ -1509,7 +1509,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
           <Tooltip title="Base branch pulls updates from upstream repository">
             <Typography
               variant="caption"
-              color="grey.300"
+              color={lightTheme.isLight ? "grey.800" : "grey.300"}
               sx={{ fontFamily: "monospace", display: "block" }}
             >
               Base: {task.base_branch}{" "}
@@ -1521,7 +1521,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
         )}
         <Typography
           variant="caption"
-          color="grey.300"
+          color={lightTheme.isLight ? "grey.800" : "grey.300"}
           sx={{ fontFamily: "monospace", display: "block" }}
         >
           Specs Folder: {task?.design_doc_path || "N/A"}
@@ -1529,7 +1529,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
         {activeSessionId && (
           <Typography
             variant="caption"
-            color="grey.300"
+            color={lightTheme.isLight ? "grey.800" : "grey.300"}
             sx={{ fontFamily: "monospace", display: "block" }}
           >
             Session ID: {activeSessionId}
@@ -1538,7 +1538,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
         {sessionData?.config?.sway_version && (
           <Typography
             variant="caption"
-            color="grey.300"
+            color={lightTheme.isLight ? "grey.800" : "grey.300"}
             sx={{ fontFamily: "monospace", display: "block" }}
           >
             Desktop: {sessionData.config.sway_version}
@@ -1547,7 +1547,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
         {sessionData?.config?.gpu_vendor && (
           <Typography
             variant="caption"
-            color="grey.300"
+            color={lightTheme.isLight ? "grey.800" : "grey.300"}
             sx={{ fontFamily: "monospace", display: "block" }}
           >
             GPU: {sessionData.config.gpu_vendor.toUpperCase()}
@@ -1556,7 +1556,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
         {sessionData?.config?.render_node && (
           <Typography
             variant="caption"
-            color="grey.300"
+            color={lightTheme.isLight ? "grey.800" : "grey.300"}
             sx={{ fontFamily: "monospace", display: "block" }}
           >
             Render: {sessionData.config.render_node}
