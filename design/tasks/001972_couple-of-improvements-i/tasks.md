@@ -29,7 +29,9 @@
   - `spec_task` → call `services.CreateSpecTaskFromProposal` (refactored above); set `ParentTaskID = proposal.SpecTaskID` on new task; store `result_task_id`
   - `mark_complete` → set `task.AgentMarkedCompleteAt = now`; if user clicked Approve (not Send Back), also set `task.Status = Done`, `task.CompletedAt = now`
 - [ ] On failure, set `Status = failed`, store `result_error`
-- [ ] Send agent follow-up message via `agent_instruction_service` (new helper `SendProposalDecisionInstruction`)
+- [ ] Add six new prompt templates to `agent_instruction_service.go` next to the existing `revisionPromptTemplate` / `mergePromptTemplate` / `commentPromptTemplate`: `prProposalApprovedPromptTemplate`, `prProposalRejectedPromptTemplate`, `specTaskProposalApprovedPromptTemplate`, `specTaskProposalRejectedPromptTemplate`, `markCompleteConfirmedPromptTemplate`, `markCompleteSentBackPromptTemplate`
+- [ ] Add `ProposalDecisionPromptData` struct (mirrors `ApprovalPromptData`) and `BuildProposalDecisionPrompt(task, proposal)` builder that selects the template by `proposal.Kind` + `proposal.Status`
+- [ ] Add `SendProposalDecisionInstruction(ctx, task, proposal)` that renders the template and delivers it via the existing user-turn-message path (same call site already used for review comments today)
 - [ ] Audit-log via `audit_log_service.go`
 - [ ] Add swagger annotations to handlers; run `./stack update_openapi`
 

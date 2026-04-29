@@ -171,15 +171,99 @@ The MCP tool handlers live in a new file `api/pkg/server/mcp_backend_helix_propo
 4. Emits a pubsub event `spec_task.proposal.created` so the frontend updates without polling (existing pubsub infrastructure in `api/pkg/pubsub/`).
 5. Returns a structured success payload to the agent.
 
-### Awaiting the user's decision (out of scope for v1)
+### Awaiting the user's decision — async, via prompt templates
 
-The MCP tool returns immediately with `proposal_id` and a status of "pending". The agent does not block. When the user decides, the decision is delivered to the agent as a follow-up message in its session via the existing `agent_instruction_service` mechanism (the same channel used to send approval/revision/comment prompts today). Message text:
+**Yes, this is exactly the same pattern as every other user-action-back-to-agent handoff.** The MCP tool returns immediately with `{proposal_id, status: "pending"}`. The agent does not block on the MCP call. When the user clicks Approve / Reject / Mark Done / Send Back in the UI, the decision flows back to the agent as a **plain text user-turn message** rendered from a Go `text/template`, sent via the existing `SendInstructionToAgent` path — identical to how `revisionPromptTemplate`, `mergePromptTemplate`, `commentPromptTemplate`, and `implementationReviewPromptTemplate` already work today in `api/pkg/services/agent_instruction_service.go`.
 
-> Your proposal `<id>` was **approved** (PR opened: `<url>`).
-> *(or)*
-> Your proposal `<id>` was **rejected**: `<reason>`.
+Concretely, four new templates are added to `agent_instruction_service.go` alongside the existing ones, and a single new entry point `SendProposalDecisionInstruction(ctx, task, proposal)` selects the right template by `proposal.Kind` and `proposal.Status`:
 
-This is consistent with the existing async pattern (review comments, approval, revision requests are all delivered as messages, not synchronous returns).
+```go
+// PR proposal — approved
+var prProposalApprovedPromptTemplate = template.Must(template.New("prProposalApproved").Parse(`# PR Proposal Approved
+
+Speak English.
+
+Your proposal to open a pull request was approved by {{.DecidedByEmail}}.
+
+**Branch:** {{.HeadBranch}} → {{.BaseBranch}}
+**PR:** {{.PRURL}} (#{{.PRNumber}})
+{{if .UserComment}}
+**Reviewer note:** {{.UserComment}}
+{{end}}{{if .UserEdits}}
+The reviewer adjusted your proposal before approving:
+{{.UserEdits}}
+{{end}}
+You may continue working. If you want to open more PRs for this task, use ` + "`propose_pull_request`" + ` again.
+`))
+
+// PR proposal — rejected
+var prProposalRejectedPromptTemplate = template.Must(template.New("prProposalRejected").Parse(`# PR Proposal Rejected
+
+Speak English.
+
+Your proposal to open a pull request was rejected by {{.DecidedByEmail}}.
+
+**Branch you proposed:** {{.HeadBranch}} → {{.BaseBranch}}
+**Reason:** {{.UserComment}}
+
+Do not retry the same proposal. Address the feedback (in the design docs and in your code if relevant), then either propose a corrected PR or continue with the existing approach.
+`))
+
+// Spec task proposal — approved
+var specTaskProposalApprovedPromptTemplate = template.Must(template.New("specTaskProposalApproved").Parse(`# Spec Task Proposal Approved
+
+Speak English.
+
+Your proposal to create a follow-up task was approved by {{.DecidedByEmail}}.
+
+**New task:** {{.ResultTaskID}} — {{.TaskName}}
+{{if .UserEdits}}
+The reviewer adjusted your proposal before approving:
+{{.UserEdits}}
+{{end}}
+The task is now in the project backlog. Continue with your current task.
+`))
+
+// Spec task proposal — rejected
+var specTaskProposalRejectedPromptTemplate = template.Must(template.New("specTaskProposalRejected").Parse(`# Spec Task Proposal Rejected
+
+Speak English.
+
+Your proposal to create a new task ({{.TaskName}}) was rejected by {{.DecidedByEmail}}.
+
+**Reason:** {{.UserComment}}
+
+Continue with your current task. Do not re-propose the same follow-up.
+`))
+
+// Mark-complete — confirmed (task moved to done)
+var markCompleteConfirmedPromptTemplate = template.Must(template.New("markCompleteConfirmed").Parse(`# Task Marked Done
+
+Speak English.
+
+{{.DecidedByEmail}} confirmed your mark-complete proposal. The task has been moved to **done**.
+
+No further action required. Do not push more changes.
+`))
+
+// Mark-complete — sent back
+var markCompleteSentBackPromptTemplate = template.Must(template.New("markCompleteSentBack").Parse(`# Mark-Complete Sent Back
+
+Speak English.
+
+{{.DecidedByEmail}} reviewed your mark-complete proposal and sent it back with feedback:
+
+{{.UserComment}}
+
+Address the feedback. When you are ready, you may call ` + "`mark_task_complete`" + ` again.
+`))
+```
+
+The templates live next to the existing ones (`revisionPromptTemplate`, `mergePromptTemplate`, etc.) so the pattern is unmistakable to anyone reading the file. `ProposalDecisionPromptData` is the analogue of `ApprovalPromptData` / `RevisionPromptData`.
+
+**Delivery path** (unchanged from existing flows): the rendered template string is passed to whatever `agent_instruction_service` already uses to insert a user-turn message into the active spec task session — the same call site that delivers review comments today. The agent sees it on its next turn just as if the user typed it into the chat.
+
+This means: no new transport, no long-polling MCP request, no special "wait for decision" behaviour anywhere. The agent calls the MCP tool, gets an immediate "queued" response, keeps working (or pauses if it has nothing to do), and the decision arrives later as a normal session turn. Existing pattern, end-to-end.
 
 ---
 

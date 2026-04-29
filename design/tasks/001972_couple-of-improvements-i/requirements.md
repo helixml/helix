@@ -10,6 +10,8 @@ Two related limitations in the spec task workflow:
 
 Both gaps share a constraint: any agent action that can fill the board with garbage or push to an arbitrary branch on a real GitHub/GitLab/ADO repo must be **proposed**, then approved by the user in the Helix UI. We do not give the agent unfettered write access to either the board or to arbitrary remote branches.
 
+**Mechanism (matches existing patterns).** The agent makes an MCP call (e.g. `propose_pull_request`) which returns immediately with a pending proposal ID. The user clicks Approve / Reject / Mark Done / Send Back in the UI, and the decision is delivered back to the agent as a **plain text user-turn message rendered from a Go `text/template`** — the same mechanism used today to deliver review comments, revision requests, approval, and merge instructions (`api/pkg/services/agent_instruction_service.go`). No new transport, no long-running MCP requests; the agent sees the decision on its next turn just as if the user typed it.
+
 ---
 
 ## User Stories
