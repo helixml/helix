@@ -81,7 +81,12 @@ type streamingContext struct {
 	// in-place instead of appending duplicates. A new accumulator per call would
 	// lose the message_id→content mapping because the DB only stores the joined string.
 	accumulator *wsprotocol.MessageAccumulator
-	mu          sync.Mutex
+	// priorMessageIDs are message_ids from earlier completed interactions in
+	// this session. Seeded into the accumulator so Zed's flush_streaming_throttle
+	// re-sends of prior-turn entries are dropped instead of leaking into the
+	// current interaction's response_entries.
+	priorMessageIDs []string
+	mu              sync.Mutex
 }
 
 const (
@@ -1206,6 +1211,10 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 					targetInteraction.LastZedMessageOffset,
 					targetInteraction.ResponseEntries,
 				)
+				// Drop replays of message_ids that belong to earlier
+				// interactions in this session — Zed's flush_streaming_throttle
+				// resends ALL ACP thread entries on every event.
+				sctx.accumulator.SetPriorMessageIDs(sctx.priorMessageIDs)
 			}
 			acc := sctx.accumulator
 			prevMessageID := acc.LastMessageID
@@ -1633,12 +1642,15 @@ func (apiServer *HelixAPIServer) getOrCreateStreamingContext(ctx context.Context
 		}
 	}
 
+	priorMsgIDs := collectPriorMessageIDs(interactions, newInteractionID)
+
 	// If we have an existing context (from a transition), update it instead of creating new
 	if exists && sctx != nil {
 		sctx.mu.Lock()
 		sctx.session = helixSession
 		sctx.interaction = targetInteraction
 		sctx.interactionID = newInteractionID
+		sctx.priorMessageIDs = priorMsgIDs
 		sctx.mu.Unlock()
 
 		log.Info().
@@ -1651,9 +1663,10 @@ func (apiServer *HelixAPIServer) getOrCreateStreamingContext(ctx context.Context
 
 	// Create new context
 	sctx = &streamingContext{
-		session:       helixSession,
-		interaction:   targetInteraction,
-		interactionID: newInteractionID,
+		session:         helixSession,
+		interaction:     targetInteraction,
+		interactionID:   newInteractionID,
+		priorMessageIDs: priorMsgIDs,
 	}
 
 	apiServer.streamingContextsMu.Lock()
@@ -1672,6 +1685,36 @@ func (apiServer *HelixAPIServer) getOrCreateStreamingContext(ctx context.Context
 		Msg("📦 [PERF] Created streaming context cache (will skip DB queries on subsequent tokens)")
 
 	return sctx
+}
+
+// collectPriorMessageIDs harvests message_ids stored in response_entries of
+// completed interactions in this session, excluding the target interaction.
+// These ids are seeded into the new interaction's accumulator so Zed's
+// flush_streaming_throttle replays of prior-turn entries are dropped instead
+// of leaking into the new interaction's response_entries.
+func collectPriorMessageIDs(interactions []*types.Interaction, targetInteractionID string) []string {
+	if len(interactions) == 0 {
+		return nil
+	}
+	var ids []string
+	for _, i := range interactions {
+		if i == nil || i.ID == targetInteractionID {
+			continue
+		}
+		if len(i.ResponseEntries) == 0 {
+			continue
+		}
+		var entries []wsprotocol.ResponseEntry
+		if err := json.Unmarshal(i.ResponseEntries, &entries); err != nil {
+			continue
+		}
+		for _, e := range entries {
+			if e.MessageID != "" {
+				ids = append(ids, e.MessageID)
+			}
+		}
+	}
+	return ids
 }
 
 // flushAndClearStreamingContext flushes any dirty interaction state to the DB,
