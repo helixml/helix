@@ -34,16 +34,16 @@ Both gaps share a constraint: any agent action that can fill the board with garb
 
 ---
 
-### 2. Agent opens multiple PRs for the same spec task
+### 2. Agent opens zero, one, or many PRs for the same spec task
 
-**As an implementation agent**, I want to open more than one PR for the same spec task (each from a different branch, optionally targeting different bases), so that I can split work into reviewable slices without inventing a new spec task per slice.
+**As an implementation agent**, I want to open any number of PRs for a spec task — including zero — so that the workflow matches the actual nature of the work.
 
 **Acceptance Criteria:**
 
-- The agent may call `propose_pull_request` multiple times for the same spec task. Each call creates a separate proposal; each approved proposal results in a tracked PR appended to `task.RepoPullRequests`.
-- The existing "all PRs merged → task done" heuristic is **disabled** for tasks where the agent has used `propose_pull_request` (or, equivalently, where the agent has called `mark_task_complete` — see Story 4). Falls back to existing behaviour for legacy tasks that do not use the new tools.
-- The Kanban / task UI visibly lists all PRs attached to the task with their state (open / merged / closed).
-- The system never auto-creates a PR on its own once the agent is using the proposal flow. The current implicit "Open PR" button still works; using the agent-driven flow does not break it.
+- The agent may call `propose_pull_request` zero or more times for the same spec task. Each call creates a separate proposal; each approved proposal results in a tracked PR appended to `task.RepoPullRequests`.
+- **Zero-PR tasks are first-class.** Some tasks (research, analysis, doc-only updates that live in the spec branch) legitimately ship no code. These tasks complete via `mark_task_complete` (Story 4) without ever calling `propose_pull_request`. Nothing in the system requires a PR to exist for a task to reach `done`.
+- The Kanban / task UI visibly lists all PRs attached to the task with their state (open / merged / closed). For zero-PR tasks the PR section is hidden or shows "No PRs (knowledge-only task)".
+- The system never auto-creates a PR on its own. The existing "Open PR" button in the UI continues to work for the simple single-PR case; agent-driven proposals are an additive path.
 
 ---
 
@@ -62,16 +62,21 @@ Both gaps share a constraint: any agent action that can fill the board with garb
 
 ---
 
-### 4. Agent declares the task complete
+### 4. Agent declares the task complete (the only path to `done`)
 
-**As an implementation agent**, I want to declare that a spec task is finished (independently of how many PRs are merged), so that the task moves to `done` based on my judgment, not the brittle "all PRs merged" heuristic.
+**As an implementation agent**, I want to declare that a spec task is finished, regardless of how many PRs exist or what state they're in, so that the task moves to `done` based on my judgment — and so the brittle "all PRs merged" heuristic stops cutting agents off mid-work.
 
 **Acceptance Criteria:**
 
 - The agent calls a new MCP tool `mark_task_complete(reason?)`.
-- This marks the task as **agent-claims-complete** internally and surfaces a UI affordance for the user to confirm. The task does **not** automatically move to `done` — the user clicks **Mark Done** (or **Send Back** with feedback). This keeps the user in the loop and consistent with the "agent proposes, user approves" pattern.
-- A spec task may have any number of open / merged / closed PRs at the time `mark_task_complete` is called; the orchestrator no longer requires "all PRs merged" to allow completion.
-- For tasks where the agent never calls `mark_task_complete`, the existing "all PRs merged → done" behaviour is preserved (backwards-compatible).
+- This creates a pending `mark_complete` proposal. The user clicks **Mark Done** (or **Send Back** with feedback) in the Helix UI to actually transition the task to `done`. Same agent-proposes, user-approves pattern as the other proposals.
+- A spec task may have **any** number of PRs at the time `mark_task_complete` is called: zero, one, several, all merged, none merged, mixed states. None of that affects task completion logic. Completion is decoupled from PR state.
+- **The orchestrator's auto-transition to `done` based on PR / branch merge detection is removed entirely.** The four current sites in `spec_task_orchestrator.go` (lines ~781, ~851, ~1080, ~1123) that move tasks to `done` when "all PRs merged" / "branch merged to main" / "externally-opened PR found merged" / "branch detected merged without PR" are deleted. The PR-polling loop continues to run — but only to update `RepoPR.PRState` for UI display, never to change `task.Status`.
+- The user may still manually move a task to `done` from the UI (existing affordance unchanged). The two paths to `done` are: (a) the agent calls `mark_task_complete` and the user confirms, or (b) the user marks it done directly. **No third path.**
+
+**Why kill the heuristic entirely** (not just gate it):
+
+The current behaviour terminates spec task agents prematurely. An agent that has opened a PR and is now writing follow-up notes / answering review comments / preparing a second PR gets killed when the first PR happens to merge. The agent's session is shut down based on a guess at completion; real work in progress is lost. Removing the heuristic — not gating it on a flag — eliminates the premature-termination class of bug. There is no "legacy task" backwards-compatibility carve-out to preserve, because the heuristic is precisely what we're calling unreliable.
 
 ---
 
@@ -88,18 +93,23 @@ Both gaps share a constraint: any agent action that can fill the board with garb
 
 ---
 
-### 6. Prompt updates so the agent knows about the new tools
+### 6. Prompt updates so the agent knows about the new tools and the new completion model
 
-**As an agent**, I need the planning and implementation prompts to tell me these proposal tools exist and when to use them.
+**As an agent**, I need the planning and implementation prompts to tell me these proposal tools exist, when to use them, and that zero-PR completion is a legitimate outcome.
 
 **Acceptance Criteria:**
 
 - `api/pkg/services/spec_task_prompts.go` (planning prompt) is updated to mention that:
   - The agent may use `propose_spec_task` to propose follow-up tasks discovered during planning.
-  - It must NOT use `CreateSpecTask` directly during implementation (that tool is only for Optimus chat sessions).
+  - It must NOT use `CreateSpecTask` directly (that tool is only for Optimus chat sessions).
+  - **Some tasks won't need any code changes** — research, analysis, and pure-knowledge tasks are valid and complete with `mark_task_complete` alone.
+
 - `api/pkg/services/agent_instruction_service.go` (implementation/approval prompt) is updated to mention:
-  - The agent may use `propose_pull_request` to open additional PRs (e.g., when splitting work).
-  - The agent may use `mark_task_complete` to declare the task done; otherwise the existing "all PRs merged" heuristic applies.
+  - The agent may use `propose_pull_request` to open one or more PRs when there is code to ship. Opening **zero** PRs is a valid outcome.
+  - **`mark_task_complete` is the only way the task moves to `done`.** There is no auto-completion based on PRs merging. The agent must call it explicitly when the work is judged finished, even for tasks with no PRs and even for tasks where every PR is already merged.
+  - **Knowledge capture is encouraged whether or not there's a PR.** Two channels:
+    - **Spec branch (`helix-specs`)** — forward-only, no PR needed. Push design notes, gotchas, architecture decisions, post-mortem learnings to `design/tasks/{task_dir}/design.md` or new files in the same directory. Pushes to this branch happen continuously throughout the task; one more push at the end with "what I learned" is the cheapest possible knowledge capture.
+    - **Main repo markdown files** — for content that should live alongside the code (`README.md`, `docs/`, `ARCHITECTURE.md`, etc.), include the file in a `propose_pull_request` like any other code change. A doc-only PR is fine.
   - The current instruction "Do NOT create pull requests yourself" remains in force for `gh pr create` / GitHub MCP tools — `propose_pull_request` is the **only** sanctioned route.
 
 ---

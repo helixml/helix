@@ -100,11 +100,12 @@ GORM AutoMigrate handles the schema. New file: `api/pkg/store/spec_task_proposal
 
 ```go
 // api/pkg/types/simple_spec_task.go
-AgentMarkedCompleteAt *time.Time `json:"agent_marked_complete_at,omitempty"` // set when agent calls mark_task_complete
-ParentTaskID          string     `json:"parent_task_id,omitempty" gorm:"size:255;index"` // set when task was spawned via spec_task proposal
+ParentTaskID string `json:"parent_task_id,omitempty" gorm:"size:255;index"` // set when task was spawned via spec_task proposal
 ```
 
 `ParentTaskID` enables lineage display ("spawned from task #1971") in the UI.
+
+(There is intentionally **no** `AgentMarkedCompleteAt` field. The "agent thinks the task is complete" UI state is derived from `SELECT FROM spec_task_proposals WHERE spec_task_id=? AND kind='mark_complete' AND status='pending'` — see the orchestrator section.)
 
 ---
 
@@ -291,21 +292,39 @@ New REST endpoints (added to `api/pkg/server/spec_task_proposal_handlers.go`):
 
 ---
 
-## Orchestrator Changes
+## Orchestrator Changes — Delete the "all PRs merged → done" heuristic outright
 
-`api/pkg/services/spec_task_orchestrator.go` — `pollPullRequests` / `handlePullRequest`:
+The current orchestrator transitions tasks to `done` from **four** different code paths in `api/pkg/services/spec_task_orchestrator.go`, all triggered by PR / branch merge detection:
 
-```go
-// Existing logic: if allMerged && len(task.RepoPullRequests) > 0 → task.Status = Done
-// New logic:
-//   - If task.AgentMarkedCompleteAt != nil → DO NOT auto-transition on PR merge.
-//     The user is in control via the mark-complete proposal flow.
-//   - Else → existing behaviour (backwards compat for tasks not using new tools).
-```
+| Line | Trigger | Action |
+|---|---|---|
+| ~781 | `allMerged && len(task.RepoPullRequests) > 0` | `task.Status = Done` |
+| ~851 | branch detected merged to main, no PRs tracked | `task.Status = Done` |
+| ~1080 | externally-opened PR found and already merged | `task.Status = Done` |
+| ~1123 | branch merged to main (no PR found), fallback check | `task.Status = Done` |
 
-This is a ~5-line change: gate the `if allMerged` block on `task.AgentMarkedCompleteAt == nil`.
+**All four are deleted.** The orchestrator no longer transitions any task to `done` on PR or branch state. The PR polling loop (`prPollLoop` / `pollPullRequests`) **continues to run** and continues to update `RepoPR.PRState` for every tracked PR — that's still valuable for UI display and for the `result_pr_*` fields on proposals — but it never modifies `task.Status` or `task.MergedAt` / `task.CompletedAt`.
 
-No changes needed to the PR polling itself — it still polls all tracked PRs and updates their `PRState`.
+### Why delete, not gate
+
+The original design here gated the heuristic on `task.AgentMarkedCompleteAt == nil` to preserve "legacy" behaviour. Per follow-up requirements: **there is no legacy behaviour worth preserving**. The heuristic is the bug. It cuts agents off mid-work whenever an unrelated PR happens to merge while the agent is doing follow-up work, knowledge capture, or preparing the next slice. Gating it would leave the bug live for any task that doesn't happen to call `mark_task_complete`. Deleting it makes the model uniform.
+
+### The two — and only two — paths to `done`
+
+1. **Agent proposes + user confirms** — agent calls `mark_task_complete`, user clicks **Mark Done** in the UI, the proposal-decision handler sets `task.Status = Done`, `task.CompletedAt = now`. (See "API Surface" section.)
+2. **User marks done directly** — the existing manual UI affordance to set status. Unchanged.
+
+Nothing else writes `task.Status = TaskStatusDone` from the orchestrator going forward. (Other writers — e.g. `handleSpecApproved` setting other statuses — are untouched.)
+
+### `AgentMarkedCompleteAt` is no longer needed
+
+Earlier drafts of this design added `AgentMarkedCompleteAt *time.Time` to `SpecTask` as a "gate" against auto-completion. With the heuristic deleted there is nothing to gate. **Removed from the schema.**
+
+The "agent thinks the task is complete, awaiting your confirmation" UI state is derived purely from the existence of a `pending` `mark_complete` proposal in `spec_task_proposals` — no denormalised flag on `SpecTask`.
+
+### `task.MergedToMain` / `task.MergedAt`
+
+These remain useful as informational fields (displayed in UI, used for filtering/sorting). They get set from the PR polling loop when PR state transitions to `merged`, but **only as informational metadata**, not as a trigger for any status transition. They no longer imply task completion.
 
 ---
 
@@ -338,6 +357,13 @@ If during planning you discover that a related but separable piece of work shoul
 as its own spec task, propose it via the `propose_spec_task` MCP tool. The user must approve
 it before it appears on the board. Do NOT use `CreateSpecTask` — that tool is reserved for
 chat sessions with the project manager agent.
+
+## Not Every Task Needs Code
+
+Some tasks legitimately produce zero pull requests — research, analysis, documentation
+updates that live in the spec branch, knowledge consolidation. That's fine. The
+implementation phase will still happen (so you have an environment to investigate in),
+but you may finish without ever opening a PR.
 ```
 
 ### Implementation prompt (`api/pkg/services/agent_instruction_service.go`)
@@ -349,26 +375,59 @@ Replace the current `5.` step:
 with:
 
 ```markdown
-5. **Opening pull requests**
+5. **Opening pull requests (zero, one, or many)**
 
-   The user can click "Open PR" in the UI as before — that still works for the default branch.
+   If your task produces code changes, open one or more PRs via the `propose_pull_request`
+   MCP tool. Each call creates a pending proposal for the user to approve in the UI. You
+   may call it multiple times per task to ship work as a series of reviewable slices, and
+   you may request a non-default branch name; the user can override it during approval.
 
-   If you need to ship work as a series of PRs (e.g., a refactor split into reviewable slices),
-   use the `propose_pull_request` MCP tool. You may call it multiple times per task. Each call
-   creates a pending proposal for the user to approve in the UI. You may request a non-default
-   branch name; the user can override it.
+   The simple "click Open PR in the UI" path still works for single-PR tasks — you don't
+   have to use `propose_pull_request` if there's only one PR and it goes on the default
+   branch.
+
+   **Opening zero PRs is a valid outcome.** Some tasks (research, analysis, knowledge work,
+   doc-only updates that live in the spec branch) finish without any code changes. That's
+   fine. Just call `mark_task_complete` when you're done — see step 7.
 
    Do NOT use `gh pr create`, the GitHub MCP tools, or any other direct route to open PRs —
    `propose_pull_request` is the only sanctioned mechanism.
 
-6. **Declaring the task done**
+6. **Capture knowledge as you go**
 
-   When you believe the work is complete, call `mark_task_complete` with a brief summary.
-   The user will confirm in the UI. Without this call, the task moves to "done" only when
-   all tracked PRs are merged (the legacy heuristic).
+   You have two channels for writing down what you learned. Use both as appropriate:
+
+   - **Spec branch (`helix-specs`) — no PR needed, push freely.** This branch is forward-only
+     and you push to it constantly throughout the task anyway. At minimum, update
+     `design/tasks/{task_dir}/design.md` with: gotchas you hit, design decisions you made,
+     why you picked approach A over B, things future agents on similar tasks should know.
+     You can also add new files (`learnings.md`, `architecture-notes.md`) in the same task
+     directory. None of this needs a PR — it's already pushed and visible.
+
+   - **Main repo markdown files — use `propose_pull_request` like any code change.** For
+     content that should live next to the code (`README.md`, `docs/`, `ARCHITECTURE.md`,
+     etc.), include the file in a regular PR proposal. Doc-only PRs are valid.
+
+   When in doubt, prefer the spec branch — it's friction-free and the knowledge is
+   guaranteed to be captured.
+
+7. **Declaring the task done — REQUIRED**
+
+   `mark_task_complete` is the **only** way the task moves to `done`. There is no
+   automatic completion based on PRs merging (the old "all PRs merged → done" heuristic
+   has been removed because it cut agents off mid-work). You must call `mark_task_complete`
+   explicitly when the work is finished, regardless of how many PRs you opened or what
+   state they're in.
+
+   - Zero PRs and you've captured what you needed → call `mark_task_complete`.
+   - One PR open and waiting for review → call `mark_task_complete` after pushing.
+   - All PRs merged → call `mark_task_complete`.
+
+   The user clicks Mark Done (or Send Back with feedback) in the UI to confirm. Without
+   your explicit call the task stays in its current state forever.
 
    If during implementation you discover follow-up work that should be its own task, use
-   `propose_spec_task` to propose it.
+   `propose_spec_task` to propose it before calling `mark_task_complete`.
 ```
 
 ---
