@@ -28,8 +28,8 @@
   - [x] `POST   /api/v1/runners/{runner_id}/clear-profile` — idempotent, returns 204.
   - [x] `GET    /api/v1/runners/{runner_id}/compatible-profiles` — server-side filtering for the dropdown.
   - [x] `GET    /api/v1/runners/{runner_id}/assignment` — current assignment for a runner.
-- [x] Add profile-compatibility check (`profile.Compatibility()`): count → vendor → architecture → model_match regex → min VRAM, returning a single named-constraint failure on mismatch via `*IncompatibilityReason`. Index-existence check belongs at the assignment layer (operates on parsed compose, not declared count) — to be wired when the assign endpoint is implemented.
-- [x] Filter the assignment dropdown server-side: implemented as `profile.FilterCompatible()` helper. HTTP route `GET /api/v1/runners/{id}/compatible-profiles` to be wired in the next task block.
+- [x] Add profile-compatibility check (`profile.Compatibility()`): count → vendor → architecture → model_match regex → min VRAM, returning a single named-constraint failure on mismatch via `*IncompatibilityReason`. Wired into the assign endpoint (L27 above): a 422 with a named-constraint failure detail is returned on mismatch. Live-verified locally with hopper-only profile on Ada GPU: returned `incompatible: architecture — profile requires one of [hopper], runner GPU 0 is "ada"`.
+- [x] Filter the assignment dropdown server-side: implemented as `profile.FilterCompatible()` helper, wired as `GET /api/v1/runners/{id}/compatible-profiles` (L29 above). Live-verified locally: returns `dev-spike-tiny` but excludes `hopper-only` when the runner reports Ada arch.
 
 ## Backend: Inference Router (replaces scheduler)
 
