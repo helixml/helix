@@ -177,10 +177,10 @@ We are not leaving skeletons. Everything below is gone in the same change set. A
 - [ ] `MemoryEstimateCell` in `HelixModelsTable.tsx` and any helpers behind it.
 - [ ] Generated types for deleted endpoints in `frontend/src/api/api.ts` (auto-removed by `update_openapi`, but spot-check).
 
-**Docker / CI / Charts:**
-- [ ] Strip `Dockerfile.runner` to: golang build + dockerd + docker CLI + nvidia-container-toolkit. Remove vLLM CUDA venv setup, vLLM ROCm venv setup, Ollama binary install, Axolotl fake venv, Diffusers, the model preload cache, all related Python and CUDA layer installs.
-- [ ] Remove `docker-compose.runner.yaml` if it's purely for the standalone runner.
-- [ ] Strip `charts/helix-runner/` of vLLM/Ollama/Axolotl env vars, model-preload values, scheduling-strategy values. Confirm the chart still produces a working pod with the new minimal image.
+**Docker / CI / Charts:** *(superseded by Decision 12 / sandbox-absorbs-runner pivot — files deleted entirely instead of stripped. Original wording preserved for context.)*
+- [x] ~~Strip `Dockerfile.runner`~~ → **Deleted entirely.** Sandbox image (`Dockerfile.sandbox`) gained `compose-manager` + `inference-proxy` builder stages instead. No standalone runner image.
+- [x] ~~Remove `docker-compose.runner.yaml` if it's purely for the standalone runner.~~ → **Deleted.**
+- [x] ~~Strip `charts/helix-runner/`~~ → **Deleted entirely.** Operators deploy the sandbox image; no separate runner Helm chart exists.
 
 **Config / env vars to remove from `api/pkg/config/config.go` and `.env.example`:**
 - [ ] `HELIX_MODEL_TTL`, `HELIX_SLOT_TTL`, `HELIX_SCHEDULING_STRATEGY`, `HELIX_QUEUE_SIZE`, and any other scheduler-tuning knobs.
@@ -242,7 +242,7 @@ The `Dockerfile.runner` deletion takes the only CGO-requiring runner-side binary
 **Acceptance:**
 - [x] All four sandbox-side binaries (hydra, sandbox-heartbeat, compose-manager, inference-proxy) build with `CGO_ENABLED=0`. Verified by `grep CGO_ENABLED Dockerfile.sandbox`.
 - [x] `git grep -E '^import \"C\"' api/cmd/compose-manager/ api/cmd/inference-proxy/ api/pkg/composemgr/ api/pkg/inferenceproxy/ api/pkg/inferencerouter/ api/pkg/runner/` returns nothing in the new code.
-- [ ] After the existing-runner deletion (AC8), `Dockerfile.runner` is gone — no further CGO change needed because Sandbox is the deployable now and it's already CGO=0.
+- [x] After the existing-runner deletion (AC8), `Dockerfile.runner` is gone — no further CGO change needed because Sandbox is the deployable now and it's already CGO=0. **Done in this PR.**
 
 The win lands automatically as a side effect of the sandbox-absorbs-runner pivot. No follow-up commit required.
 

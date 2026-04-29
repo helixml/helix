@@ -1,6 +1,6 @@
 # Implementation Tasks
 
-> **2026-04-28 final state:** ALL implementation work is done in this PR per the user's "do it all in one PR. Get it all done." instruction. Sandbox absorbs the runner role; the scheduler / per-slot runtimes / memory estimation / slot CRUD / dashboard data path / legacy runner image are all deleted. Compose-manager + inference-proxy ship inside the sandbox image. Frontend gets new RunnerProfiles tab + ProfileGallery + integration of HelixModels with /v1/models. **GPU-cloud integration test harness** (`integration-test/gpucloud/`) scaffolded with customer-deployment matrix (1× 4×A100 + 3× 4×L40S + 1× 8×MI300X) + scenarios + cost controls — multi-provider via Hot Aisle (AMD) and Verda (NVIDIA), see Decision 14 amendment in design.md for the RunPod ruling-out. Waiting on Hot Aisle + Verda account creation for live runs. End-to-end inference verified working on the local RTX 2000 Ada through every layer of the new path.
+> **2026-04-28 final state:** ALL implementation work is done in this PR per the user's "do it all in one PR. Get it all done." instruction. Sandbox absorbs the runner role; the scheduler / per-slot runtimes / memory estimation / slot CRUD / dashboard data path / legacy runner image are all deleted entirely (no standalone runner binary, image, or chart exists anymore). Compose-manager + inference-proxy ship inside the sandbox image. Frontend gets new RunnerProfiles tab + ProfileGallery + integration of HelixModels with /v1/models. **GPU-cloud integration test harness** (`integration-test/gpucloud/`) shipped with the customer-deployment matrix (1× 4×A100 + 3× 4×L40S + 1× 8×MI300X disabled-pending-stock + 2 enabled smoke entries) + scenarios + cost controls — multi-provider via Hot Aisle (AMD) and Verda (NVIDIA), see Decision 14 amendment in design.md for the RunPod ruling-out. **Decision 15** (per-session GPU pinning on multi-GPU hosts) implemented + live-tested on cloud Blackwell. **Live cloud validation done across 8 sessions** ($8 spend): NVIDIA single-GPU + multi-GPU (TP=2 sharded inference + 2 desktops with PCI-walk pinning) on Blackwell + A100; AMD MI300X serving real Qwen 14B chat completions via ROCm vLLM; full production code path (local Helix → Cloudflare tunnel → cloud sandbox → inferencerouter → vLLM → Blackwell) — see `helix/design/2026-04-28-cloud-gpu-smoke-results.md`. Two real-bugs-found-and-fixed (PCI walk for Azure-style mixed hosts; CUDA_VISIBLE_DEVICES workaround for nested-DinD NVIDIA visibility leak), one architectural finding (MI300X cannot host desktops — CDNA-class compute cards have no display engine).
 >
 > Remaining `[ ]` items below describe work that was originally planned in a specific shape but landed in a different shape with the sandbox-absorbs-runner pivot. They are kept for historical context but no follow-up is needed — see the per-section commentary.
 
@@ -35,8 +35,8 @@
 
 - [x] Implement `api/pkg/inferencerouter/router.go` (renamed twice — first from `api/pkg/runner/router.go` in design.md, then from `runnerrouter` for the sandbox-absorbs-runner pivot). `PickRunner(model)` round-robins across sandboxes whose active profile contains the model and are `running`. Includes `NoRunnerError` carrying available-models list, `AvailableModels()` for the `/v1/models` endpoint, and per-model round-robin counters.
 - [x] Wire `/v1/models` — returns the union of model names across all sandboxes whose active profile is `running`. OpenAI-compatible response shape.
-- [~] **Repoint `api/pkg/openai/helix_openai_client.go`** — done as transitional repoint. `enqueueRequest` first tries `inferenceRouter.PickRunner(model)`; if a connected sandbox can serve, calls `dispatchHTTPToRunner` (currently a stub returning error → falls back to scheduler path). Once GPU validation confirms HTTP-via-router works end-to-end, the stub becomes a real implementation and the scheduler fallback is deleted. The split is a deliberate transitional state — keeps the API server building and the existing path serving while the new one is brought online.
-- [~] Return HTTP 503 with available-models list — implemented inside the inference proxy + `NoRunnerError`. The transitional helix_openai_client path still uses the scheduler error shape; converges when scheduler is removed.
+- [x] **Repoint `api/pkg/openai/helix_openai_server.go`** — done. `enqueueRequest` calls `inferenceRouter.PickRunner(model)`, then `dispatchHTTPToRunner` (full implementation, not a stub). No scheduler fallback — scheduler package is deleted. Source comment: *"Sandbox-absorbs-runner pivot: the inference router is the only path."* Live-validated end-to-end on cloud Blackwell via the cloudflared-tunneled local Helix in run #6.
+- [x] Return HTTP 503 with available-models list — `NoRunnerError` carries `AvailableModels []string`; `enqueueRequest` returns it; `CreateChatCompletion` surfaces it as 503 with the available-models list in the response body.
 
 ## Backend: NATS Surface Reduction
 
@@ -74,7 +74,7 @@ If you find yourself importing `Runtime`, slot state machine types, per-slot URL
 - [x] `api/pkg/inferenceproxy/proxy.go` — body-buffered, model-aware reverse proxy. Replaces `api/pkg/runner/proxy.go`. 6 tests.
 - [~] `api/pkg/runner/controller_nats.go` — narrowed surface — **deferred**: the existing api/pkg/runner package is on the deletion list, narrowing it makes no sense. The new model is: compose-manager polls HTTP, inference-proxy serves HTTP. No NATS for the inference subsystem; Sandbox keeps using NATS only for the agent-desktop subsystem.
 - [~] Pre-flight runtime registration check — **deferred to follow-up PR** (compose-manager logs and fails on `up -d` if runtime missing; explicit pre-flight is a UX improvement, not a correctness requirement).
-- [~] GPU inventory — **deferred to follow-up PR**: GPUStatus already has the fields; the sandbox heartbeat is the right time to populate them via `nvidia-smi --query-gpu=...` / `rocm-smi`. Currently GPUs[] is reported empty by the sandbox heartbeat, which makes the compatibility check fail-closed (refuses non-trivial profiles) — the safe default until GPU detection lands.
+- [x] GPU inventory — done. `api/pkg/gpudetect/gpudetect.go` parses `nvidia-smi --query-gpu=...` and `rocm-smi`; `api/cmd/sandbox-heartbeat/main.go:178` calls `gpudetect.Detect(probeCtx)` and the result populates the heartbeat's `GPUs` field. Live-verified on cloud: `GET /api/v1/sandboxes` against the local Helix returned the cloud Blackwell with full GPU info (`architecture: blackwell, driver_version: 580.126.09, total_memory: 102641958912, compute_capability: 12.0`).
 - [x] Inference HTTP routes — implemented in `api/pkg/inferenceproxy/proxy.go` (Handler() serves `/v1/chat/completions`, `/v1/embeddings`, `/v1/images/generations`, `/v1/models`).
 - [x] Profile state machine: `assigning → pulling → starting → running → failed` implemented in `api/pkg/composemgr` (setStatus + setFailed methods). Lifecycle is exactly the design.
 - [x] Tests for each new file (composemgr: 9 tests, inferenceproxy: 6 tests).
@@ -116,8 +116,8 @@ AMD's containerised GPU story is different from NVIDIA's: there is no single `--
 
 ### Verification
 
-- [x] **VALIDATED locally** on RTX 2000 Ada: end-to-end inference works through the new path. GPU-cloud matrix covers customer-deployment H100-class targets via 4× A100 / 4× L40S / 8× MI300X entries.
-- [~] AMD MI300X test in the GPU-cloud matrix (`node5-mi300x-8x` entry on Hot Aisle); waiting for `HOTAISLE_API_KEY` to run live.
+- [x] **VALIDATED locally** on RTX 2000 Ada AND on cloud Blackwell + cloud A100 + cloud MI300X: end-to-end inference works through the new path. See `helix/design/2026-04-28-cloud-gpu-smoke-results.md` for the 8-session campaign details.
+- [x] AMD MI300X live-validated on Hot Aisle: `rocm/vllm:latest` with Qwen 2.5 14B served a real chat completion via the inference proxy; 63 GB of MI300X VRAM used. The 8× MI300X customer-deployment entry stays disabled in `matrix.yaml` because Hot Aisle bare-metal stock was empty on 2026-04-28; flip to enabled when stock returns.
 - [~] arm64 no-GPU smoke deferred — covered conceptually by sandbox base image being multi-arch; live verification waits on a real arm64 host.
 
 ## Runner Persistence & Offline Operation
@@ -135,13 +135,13 @@ AMD's containerised GPU story is different from NVIDIA's: there is no single `--
 
 ### Verification (manual, requires GPU host)
 
-- [~] Manual verification deferred to a follow-up GPU-bearing test (the RunPod matrix could add an offline-mode entry).
-- [~] Same — covered by RunPod offline-mode test plan.
-- [~] Same — covered by RunPod offline-mode test plan.
-- [x] **VALIDATED locally**: sandbox restart preserves /var/lib/docker (inner dockerd images) and /cache/huggingface (model weights). Profile re-applies cleanly via compose-manager polling.
-- [~] Manual upgrade test deferred — sandbox image rebuild + restart cycle works in dev (verified during this PR).
-- [~] Logic implemented + unit-tested in composemgr; integration test deferred to first RunPod run with a private registry.
-- [~] Same — RunPod profile_switch scenario covers the no-re-pull check.
+- [~] Manual offline-mode verification deferred to a future GPU-cloud matrix entry (HOTAISLE_DAILY_BUDGET-bounded). The harness (`integration-test/gpucloud/`) is in place; offline-mode is a small profile-yaml variant, not blocked on infra.
+- [~] Same — covered by future gpucloud offline-mode entry.
+- [~] Same — covered by future gpucloud offline-mode entry.
+- [x] **VALIDATED locally + on cloud**: sandbox restart preserves /var/lib/docker (inner dockerd images) and /cache/huggingface (model weights). Profile re-applies cleanly via compose-manager polling. Live-verified on cloud in run #6: compose-manager picked up the assignment after the tunnel came up and applied the profile.
+- [~] Manual upgrade test deferred — sandbox image rebuild + restart cycle worked in dev (verified during this PR) and cloud (rebuilt + re-pushed image multiple times during the 8-session validation campaign).
+- [~] Logic implemented + unit-tested in composemgr; first-class integration test deferred to a future gpucloud matrix entry with a private registry.
+- [~] Same — gpucloud profile_switch scenario covers the no-re-pull check (scaffolded, not yet exercised live).
 
 ## Backend: Deletions (do all of this in the same change set as the new code)
 
@@ -201,7 +201,7 @@ AMD's containerised GPU story is different from NVIDIA's: there is no single `--
 - [x] After `update_openapi`, spot-check `frontend/src/api/api.ts` to confirm `TypesRunnerSlot`, `TypesSchedulingDecision`, etc. are gone.
 
 ### Docker / Helm
-- [x] Strip `Dockerfile.runner`: remove vLLM CUDA venv setup, vLLM ROCm venv setup, Ollama binary install, Axolotl fake venv, Diffusers, Python toolchain, model preload cache, all `wget`/`pip` lines tied to those. End state: golang build + dockerd + docker CLI + nvidia-container-toolkit only.
+- [x] `Dockerfile.runner` deleted entirely (sandbox-absorbs-runner pivot). The original plan was to strip the file down to just dockerd + nvidia-container-toolkit; the pivot superseded that — the sandbox image already has both, and runs the new `compose-manager` + `inference-proxy` binaries inside. No standalone runner image exists anymore.
 - [x] Delete `docker-compose.runner.yaml` (was for the standalone runner).
 - [x] `charts/helix-runner/` deleted entirely.
 
@@ -232,40 +232,45 @@ AMD's containerised GPU story is different from NVIDIA's: there is no single `--
 - [~] Frontend: added `RunnerProfilesTable` + `EditRunnerProfile` + sidebar entry. **Not yet done:** extending `AgentSandboxes` table to show profile/service columns; deleting `RunnerSummary` + scheduling visualisations.
 - [x] No `x-helix` compose extension — GPU sharing between inference and Hydra is implicit.
 
-## RunPod-Backed Integration Test System (Planned, Separate PR)
+## GPU-Cloud Integration Test System (shipped in this PR; partially live-validated)
 
-See Decision 14 in design.md for the full plan. This task block is the
-work breakdown for the follow-up PRs.
+**2026-04-28 update**: this section originally planned a RunPod-backed harness
+as a separate follow-up PR. Decision 14 was amended in design.md when RunPod
+was ruled out (DinD blocked, AMD zero-stock); the harness now targets
+**Hot Aisle (AMD MI300X) + Verda (NVIDIA L40S/A100/Blackwell)** and lives
+at `integration-test/gpucloud/` (renamed from `runpod/`). Eight live cloud
+sessions validated the architecture; full notes in
+`helix/design/2026-04-28-cloud-gpu-smoke-results.md`.
 
-### Phase 1 — harness scaffolding (deferred to its own PR)
+### Phase 1 — harness scaffolding
 
-- [x] integration-test/runpod/matrix.yaml — 5 entries (rtx4090, h100-sxm-1x, h100-sxm-4x, a100-80gb-1x, mi300x-1x) + Blackwell deferred.
-- [x] cmd/runpod-it/main.go shipped with --dry-run, --only, --no-cache, --parallel, --max-daily-usd flags.
-- [x] internal/provision/ implements RunPod REST API (POST /v2/pod, GET /v2/pod/{id}, POST /v2/pod/{id}/stop, GET /v2/billing/usage). Plus dry-run stub.
-- [x] internal/scenarios/ implements all seven scenarios + the API helpers used by them.
-- [x] internal/report/ writes JUnit XML + Markdown summary. Tested (artifacts produced in dry-run mode).
+- [x] `integration-test/gpucloud/matrix.yaml` — 2 enabled smoke entries (1× A100, 1× MI300X) + 5 disabled customer-deployment entries (1× 4×A100, 3× 4×L40S, 1× 8×MI300X) waiting for stock to return. Disabled entries have notes about the stock check that will flip them.
+- [x] `cmd/gpucloud-it/main.go` shipped with `--dry-run`, `--only`, `--no-cache`, `--parallel`, `--max-daily-usd` flags.
+- [x] `internal/provision/` implements two real provisioners: `hotaisle.go` (spec-matched POST to admin.hotaisle.app, name-keyed teardown) and `verda.go` (OAuth2 client_credentials with token caching, `PUT /v1/instances {action:"delete"}` teardown). Multi-provider dispatcher in `provision.go`. Cloud-init shared helper in `cloudinit.go`.
+- [x] `internal/scenarios/` implements all seven scenarios + the API helpers used by them.
+- [x] `internal/report/` writes JUnit XML + Markdown summary. Tested (artifacts produced in dry-run mode).
 
 ### Phase 2 — cost controls
 
-- [x] 35-min hard via context.WithTimeout in runEntry; RunPod pod also created with terminationMinutes:35 belt-and-braces.
+- [x] 35-min hard via context.WithTimeout in runEntry; the cloud sandbox cloud-init also installs a `nohup bash -c 'sleep 2100 && shutdown -h now' &` belt-and-braces.
 - [x] Result cache in internal/cache/ keys on (entry-id + profile-yaml-sha + harness-build-sha); 7-day stale cutoff; on-disk JSON files.
 - [x] --parallel flag (default 4); semaphore in runMatrix bounds concurrent goroutines.
-- [x] --max-daily-usd flag (default 200); harness queries RunPod billing API at start; refuses to schedule if exceeded.
+- [x] --max-daily-usd flag (default 200); harness queries each provider's billing API (Hot Aisle balance, Verda balance) and sums; refuses to schedule if exceeded.
 
 ### Phase 3 — CI integration
 
-- [~] Deferred to first PR adding the RUNPOD_API_KEY Drone secret. Harness ready; pipeline yaml is one line each: `runpod-it --max-daily-usd $RUNPOD_DAILY_BUDGET_USD`.
-- [~] Same — wired when secret is added.
+- [~] Deferred to first PR adding `HOTAISLE_API_KEY`/`HOTAISLE_TEAM` + `VERDA_CLIENT_ID`/`VERDA_CLIENT_SECRET`/`VERDA_SSH_KEY_ID` as Drone secrets. Harness ready; pipeline yaml line: `gpucloud-it --max-daily-usd $GPUCLOUD_DAILY_BUDGET_USD`.
+- [~] Same — wired when secrets are added.
 - [~] Markdown report ships in this PR; PR-comment posting wired when CI step lands.
 
 ### Phase 4 — model cache reuse
 
-- [~] Phase 4 — wired when first GPU-bearing runs surface the cold-start cost.
+- [~] Phase 4 — wired when first nightly CI runs surface the cold-start cost. Cloud test #4 already paid 5+ minutes for Qwen 14B HF download; would benefit from a shared HF cache mount.
 
 ### Out of scope for this work
 
 - ARM64 Grace Hopper / Jetson — covered later when a customer asks.
-- Hyperscaler alternatives (AWS spot, Azure NDv5, GCP A3) — RunPod first; switching providers is a separate PR.
+- Hyperscaler alternatives (AWS spot, Azure NDv5, GCP A3) — Hot Aisle + Verda first; switching providers (or adding a third) is a separate PR. Decision 14 amendment lists the providers we ruled out and why.
 - Stress / load testing — the matrix is functional smoke testing, not performance.
 
 ## CGO Status (Sandbox Already Free, Nothing To Do)
@@ -325,7 +330,7 @@ CGO still lives in:
 - [~] Sessions path goes through the same helix-openai client; conceptually covered. Live verification needs a fresh session smoke test.
 - [~] Same — exercises the same code path as chat completion via the openai client.
 - [x] **VALIDATED**: enqueueRequest returns NoRunnerError when router can't pick. Error includes available-models list. Caller surfaces 503.
-- [~] compose-manager Apply() correctly downs the old stack before upping the new — covered by manager.go logic and tested in unit tests. Live profile-switch verification deferred to RunPod matrix.
+- [~] compose-manager Apply() correctly downs the old stack before upping the new — covered by manager.go logic and tested in unit tests. Live profile-switch verification deferred to a future gpucloud matrix run.
 - [x] **VALIDATED**: profile.Compatibility() count check returns IncompatibilityReason{Constraint:"count"} → 422 to client.
 - [x] **VALIDATED locally** with hopper-only profile on Ada GPU: 422 with "incompatible: architecture — profile requires one of [hopper], runner GPU 0 is "ada"".
 - [x] Same code path as the architectures test above; same 422 with named-constraint detail.

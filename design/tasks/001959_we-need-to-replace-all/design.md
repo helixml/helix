@@ -206,8 +206,8 @@ During steps 1–5 the runner reports a non-`running` state and the API router e
 - `api/pkg/runner/slot.go` and slot CRUD handlers in `server.go`.
 - `api/pkg/types/runner.go` `RunnerSlot` struct.
 
-**Runner image:**
-- `Dockerfile.runner` — strip down to: golang build + dockerd + docker CLI + nvidia-container-toolkit. No vLLM/Ollama installs.
+**Runner image:** *(superseded by Decision 12 — Dockerfile.runner was deleted entirely; the sandbox image gained `compose-manager` + `inference-proxy` binaries instead. Original wording preserved below for historical context.)*
+- `Dockerfile.runner` — ~~strip down to: golang build + dockerd + docker CLI + nvidia-container-toolkit. No vLLM/Ollama installs.~~ **Deleted entirely (Decision 12).**
 
 **Frontend:**
 - New: `frontend/src/components/dashboard/RunnerProfilesTable.tsx` — CRUD list, similar shape to `HelixModelsTable.tsx`.
@@ -669,21 +669,21 @@ GPU rental is dollars per hour, not cents. The harness must be aggressive about 
 - **Pre-warm where possible.** RunPod offers persistent network volumes — keep a populated `/models` cache across runs so vLLM's HuggingFace download isn't repeated every test.
 - **Dollar budget knob.** A single config value (`MAX_DAILY_RUNPOD_USD=200`) the harness reads before scheduling; refuses to start if today's spend already exceeds it.
 
-### Where it lives
+### Where it lives *(updated 2026-04-28 by the amendment below — directory renamed when RunPod was ruled out)*
 
-- `integration-test/runpod/` — new directory.
-- `integration-test/runpod/matrix.yaml` — the form-factor × profile × scenarios matrix.
-- `integration-test/runpod/cmd/runpod-it/main.go` — the harness binary.
-- `integration-test/runpod/internal/{provision,scenarios,report}/` — the building blocks.
-- `.drone.yml` — new pipeline `runpod-integration` that runs nightly + on demand for release branches (not on every PR — too expensive). Triggered manually by adding `[runpod-it]` to a commit message.
+- `integration-test/gpucloud/` — new directory.
+- `integration-test/gpucloud/matrix.yaml` — the form-factor × profile × scenarios matrix.
+- `integration-test/gpucloud/cmd/gpucloud-it/main.go` — the harness binary.
+- `integration-test/gpucloud/internal/{provision,scenarios,report,cache}/` — the building blocks. Provision has two real implementations (`hotaisle.go`, `verda.go`) behind a Multi dispatcher.
+- `.drone.yml` — new pipeline `gpucloud-integration` that runs nightly + on demand for release branches (not on every PR — too expensive). Triggered manually by adding `[gpucloud-it]` to a commit message.
 
-### What this PR does NOT do
+### What this PR does NOT do *(scope expanded 2026-04-28 — see status note below)*
 
-- Does not implement the harness. Sample compose profiles, tests, matrix file all stay design.
-- Does not add the RunPod API key as a Drone secret yet.
-- Does not commit RunPod-specific code into the helix repo until we've confirmed RunPod is the right vendor (could be Lambda, Crusoe, or hyperscaler spot — first-time setup decision).
+The original plan was for the harness to be a separate follow-up PR ("planning only"). After the architectural pivot landed, the harness was actually shipped in this same PR with two real provider implementations (Hot Aisle for AMD MI300X, Verda for NVIDIA L40S/A100/Blackwell), the customer-deployment matrix, and 8 live cloud sessions of validation. The original "this PR does NOT do" bullets are preserved below as historical context only:
 
-This is **planning only**. The first follow-up PR ships the harness scaffolding + matrix; a second PR wires it into Drone with cost controls.
+- ~~Does not implement the harness. Sample compose profiles, tests, matrix file all stay design.~~ **Implemented**: full harness shipped at `integration-test/gpucloud/`.
+- ~~Does not add the RunPod API key as a Drone secret yet.~~ **Still true** (Drone secrets are `HOTAISLE_API_KEY`/`HOTAISLE_TEAM` + `VERDA_CLIENT_ID`/`VERDA_CLIENT_SECRET`/`VERDA_SSH_KEY_ID`; wired in a follow-up PR when nightly CI lands).
+- ~~Does not commit RunPod-specific code into the helix repo until we've confirmed RunPod is the right vendor.~~ **Resolved by amendment**: RunPod was ruled out, Hot Aisle + Verda chosen. See amendment below.
 
 ### Amendment 2026-04-28: provider switched to Hot Aisle + Verda; matrix re-scoped to customer config
 

@@ -64,7 +64,7 @@ involvement.
 - `README.md` documenting conventions.
 
 ### Multi-provider GPU-cloud integration test harness (Decision 14, amended)
-Full scaffolding shipped, **awaiting Hot Aisle + Verda API keys for live runs**:
+Full scaffolding shipped + **8 live cloud sessions validated end-to-end**, cumulative cost $8 (see `helix/design/2026-04-28-cloud-gpu-smoke-results.md`):
 - `integration-test/gpucloud/matrix.yaml` — 5 entries matching the **customer's actual deployment**: 1× node of 4× A100 80GB SXM4, 3× nodes of 4× L40S, 1× node of 8× MI300X 192GB.
 - `cmd/gpucloud-it/main.go` — harness binary with `--dry-run`, `--only`, `--no-cache`, `--parallel`, `--max-daily-usd` flags.
 - `internal/provision/` — `Multi` dispatcher with two real implementations: **Hot Aisle** for AMD MI300X (`hotaisle.go`) and **Verda** (was DataCrunch) for NVIDIA L40S/A100 (`verda.go`). Shared `cloudinit.go` builds the bootstrap script per GPU vendor.
