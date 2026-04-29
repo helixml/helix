@@ -1,5 +1,22 @@
 # Implementation Tasks
 
+## Cleanup: rename `PlanningSessionID` → `AgentSessionID` (do this FIRST)
+
+Do this before the MCP-tools work so the new code reads naturally and we only update one set of call sites.
+
+- [ ] Rename `SpecTask.PlanningSessionID` → `SpecTask.AgentSessionID` in `api/pkg/types/simple_spec_task.go` (struct field, JSON tag, GORM column tag → `column:agent_session_id`)
+- [ ] Rename `SpecTaskFilters.PlanningSessionID` → `SpecTaskFilters.AgentSessionID` in the same file
+- [ ] Delete the unused constants `AgentTypeSpecGeneration` and `AgentTypeImplementation` from `simple_spec_task.go` (verified zero non-definition usages)
+- [ ] Add an explicit Postgres column-rename migration: `ALTER TABLE spec_tasks RENAME COLUMN planning_session_id TO agent_session_id;` (idempotent: gate on `IF EXISTS (... column_name = 'planning_session_id' ...)`); run it at startup before `AutoMigrate`
+- [ ] Rename `Store.GetPendingCommentByPlanningSessionID` → `Store.GetPendingCommentByAgentSessionID` in `api/pkg/store/store.go`, `store_postgres.go`, `memorystore/memorystore.go`, and regenerate `store_mocks.go`
+- [ ] Search-and-replace all Go callers of the old name (the field, the filter, the store method, the parameter name `planningSessionID`/`planningSessionId`)
+- [ ] Update the comment-only "planning_session_id -> ..." reference at `api/pkg/server/server.go:112`
+- [ ] Update the now-obsolete struct-comment block above the field (the apologising comment that says "single Helix session for entire workflow"); the new name is self-documenting, so remove the apology
+- [ ] Run `./stack update_openapi` so swagger emits `agent_session_id`
+- [ ] Search-and-replace all frontend references `task.planning_session_id` → `task.agent_session_id` and `planningSessionId` → `agentSessionId` in `frontend/src/`
+- [ ] Verify: `grep -rn "PlanningSessionID\|planning_session_id" api/ frontend/src/` returns zero matches outside of the migration script
+- [ ] Build verification: `go build ./pkg/server/ ./pkg/store/ ./pkg/types/` and `cd frontend && yarn build`
+
 ## Backend — data model
 
 - [ ] Add `SpecTaskProposal` type, `SpecTaskProposalKind`, `SpecTaskProposalStatus` constants in `api/pkg/types/spec_task_proposal.go`
@@ -13,7 +30,7 @@
 
 - [ ] Refactor `api/pkg/agent/skill/project/spec_task_create_tool.go:Execute` so the task-creation core is exposed as `services.CreateSpecTaskFromProposal(ctx, store, request)` and the existing tool calls into it
 - [ ] Add `api/pkg/server/mcp_backend_helix_proposals.go` defining the three MCP tools (`propose_pull_request`, `propose_spec_task`, `mark_task_complete`) and their handlers
-- [ ] Wire `addSpecTaskProposalTools()` into `HelixMCPBackend.addToolsFromAssistant` — invoked only when `session_id` resolves to a spec task session via `store.ListSpecTasks(filters{PlanningSessionID: sessionID})`
+- [ ] Wire `addSpecTaskProposalTools()` into `HelixMCPBackend.addToolsFromAssistant` — invoked only when `session_id` resolves to a spec task session via `store.ListSpecTasks(filters{AgentSessionID: sessionID})` (uses the renamed filter from the cleanup section)
 - [ ] Each tool handler: validate inputs, insert `SpecTaskProposal`, publish `spec_task.proposal.created` pubsub event, return `{proposal_id, status: "pending"}`
 
 ## Backend — REST API

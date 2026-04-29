@@ -104,8 +104,26 @@ Both gaps share a constraint: any agent action that can fill the board with garb
 
 ---
 
+### 7. Cleanup: rename `PlanningSessionID` → `AgentSessionID`
+
+**As a developer reading the codebase**, I want the data model to reflect reality — there is one agent per spec task, not two — so the naming stops misleading me into thinking there are separate planning and implementation agent instances.
+
+**Acceptance Criteria:**
+
+- The struct field `SpecTask.PlanningSessionID`, the JSON/swagger field `planning_session_id`, the `SpecTaskFilters.PlanningSessionID` filter, and the store method `Store.GetPendingCommentByPlanningSessionID` are all renamed to use `AgentSessionID` / `agent_session_id` / `GetPendingCommentByAgentSessionID`.
+- The DB column `spec_tasks.planning_session_id` is renamed via an explicit Postgres `ALTER TABLE ... RENAME COLUMN` migration (GORM AutoMigrate does not rename columns).
+- The unused constants `AgentTypeSpecGeneration` and `AgentTypeImplementation` (which currently have **zero** non-definition usages anywhere in the codebase) are deleted.
+- The frontend regenerates the API client (`./stack update_openapi`) and updates all TS references from `task.planning_session_id` to `task.agent_session_id` in lockstep.
+- No backwards-compatibility aliasing (no dual-name JSON tags, no fallback lookups). One name, one path.
+- The phase-named prompt builders (`BuildPlanningPrompt`, `planningPromptTemplate`) and the workflow status constants (`TaskStatusSpecGeneration`, `TaskStatusImplementation`) are **not** renamed — those describe phases of work, which remain a real distinction. Only the *agent/session* naming gets cleaned up.
+
+This cleanup ships in the same PR as the new MCP tools because the new tool registration logic looks up the spec task from the session ID — adding three new call sites that filter by `PlanningSessionID` would double down on the wrong name at exactly the wrong moment.
+
+---
+
 ## Out of Scope
 
+- Renaming `BuildPlanningPrompt` / `planningPromptTemplate` / `TaskStatusSpecGeneration` / `TaskStatusImplementation` — these name *phases of work* and remain accurate; only the agent/session naming is cleaned up.
 - Auto-approval of proposals (no `spec_task_proposals.auto_approve` policy yet).
 - A separate "agent says it's done" → automatic merge / close flow that bypasses user confirmation.
 - Deletion or editing of already-approved-and-opened PRs through proposals (the agent must use existing PR comment / close mechanisms for that).
