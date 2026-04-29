@@ -165,7 +165,10 @@ func (s *HelixAPIServer) decideSpecTaskProposal(w http.ResponseWriter, r *http.R
 	// Apply user edits before dispatching so downstream sees the final values.
 	if len(req.EditedPayload) > 0 {
 		applyEditedPayload(proposal, req.EditedPayload)
-		proposal.EditedPayload = req.EditedPayload
+		// Persist the edits as JSON for the audit log + agent message rendering.
+		if encoded, encErr := json.Marshal(req.EditedPayload); encErr == nil {
+			proposal.EditedPayload = encoded
+		}
 	}
 
 	now := time.Now()
@@ -379,12 +382,7 @@ func (s *HelixAPIServer) sendProposalDecisionToAgent(ctx context.Context, task *
 
 // applyEditedPayload merges the user's payload edits onto the proposal in-place.
 // Only fields relevant to the proposal Kind are read; unknown keys are ignored.
-func applyEditedPayload(proposal *types.SpecTaskProposal, raw []byte) {
-	var edits map[string]any
-	if err := json.Unmarshal(raw, &edits); err != nil {
-		log.Warn().Err(err).Str("proposal_id", proposal.ID).Msg("Failed to parse edited_payload — ignoring")
-		return
-	}
+func applyEditedPayload(proposal *types.SpecTaskProposal, edits map[string]interface{}) {
 	if v, ok := edits["pr_repository_id"].(string); ok {
 		proposal.PRRepositoryID = v
 	}

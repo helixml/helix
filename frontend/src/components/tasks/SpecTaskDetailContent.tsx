@@ -59,6 +59,7 @@ import ExternalAgentDesktopViewer, {
 import DiffViewer from "./DiffViewer";
 import { getCSRFToken } from "../../utils/csrf";
 import SpecTaskActionButtons from "./SpecTaskActionButtons";
+import PendingProposalsPanel from "../specTask/PendingProposalsPanel";
 import useSnackbar from "../../hooks/useSnackbar";
 import useAccount from "../../hooks/useAccount";
 import useApi from "../../hooks/useApi";
@@ -2265,6 +2266,13 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                     )}
                   </Box>
                 </Box>
+
+                {/* Pending agent proposals (PR / sub-task / mark-complete) */}
+                {task.id && (
+                  <Box sx={{ px: 2 }}>
+                    <PendingProposalsPanel taskId={task.id} />
+                  </Box>
+                )}
 
                 {/* In split-view layout, "chat" falls through to desktop since chat
                     is already visible in the left panel */}

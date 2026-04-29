@@ -93,9 +93,9 @@ type SpecTaskProposalFilters struct {
 
 // ProposalDecisionRequest is the body of POST /api/v1/proposals/{id}/decide
 type ProposalDecisionRequest struct {
-	Decision      string         `json:"decision" validate:"required,oneof=approve reject"` // "approve" or "reject"
-	Comment       string         `json:"comment,omitempty"`
-	EditedPayload datatypes.JSON `json:"edited_payload,omitempty"` // optional: user edits to the proposal payload
+	Decision      string                 `json:"decision" validate:"required,oneof=approve reject"` // "approve" or "reject"
+	Comment       string                 `json:"comment,omitempty"`
+	EditedPayload map[string]interface{} `json:"edited_payload,omitempty"` // optional: user edits to the proposal payload (PR head_branch / title / etc.)
 }
 
 // ProposalDecisionResponse is what the decide endpoint returns.

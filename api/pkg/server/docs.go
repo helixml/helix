@@ -26977,11 +26977,9 @@ const docTemplate = `{
                     ]
                 },
                 "edited_payload": {
-                    "description": "optional: user edits to the proposal payload",
-                    "type": "array",
-                    "items": {
-                        "type": "integer"
-                    }
+                    "description": "optional: user edits to the proposal payload (PR head_branch / title / etc.)",
+                    "type": "object",
+                    "additionalProperties": true
                 }
             }
         },

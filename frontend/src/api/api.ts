@@ -4133,8 +4133,8 @@ export interface TypesProposalDecisionRequest {
   comment?: string;
   /** "approve" or "reject" */
   decision: "approve" | "reject";
-  /** optional: user edits to the proposal payload */
-  edited_payload?: number[];
+  /** optional: user edits to the proposal payload (PR head_branch / title / etc.) */
+  edited_payload?: Record<string, any>;
 }
 
 export interface TypesProposalDecisionResponse {

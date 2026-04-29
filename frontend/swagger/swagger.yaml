@@ -6791,10 +6791,10 @@ definitions:
         - reject
         type: string
       edited_payload:
-        description: 'optional: user edits to the proposal payload'
-        items:
-          type: integer
-        type: array
+        additionalProperties: true
+        description: 'optional: user edits to the proposal payload (PR head_branch
+          / title / etc.)'
+        type: object
     required:
     - decision
     type: object
