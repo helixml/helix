@@ -324,23 +324,30 @@ func (apiServer *HelixAPIServer) updateUserColorScheme(rw http.ResponseWriter, r
 		return
 	}
 
+	// EnsureUserMeta only merges a small allowlist of fields (Stripe), so we
+	// fetch + mutate + Update/Create directly to make sure ColorScheme persists.
 	userMeta, err := apiServer.Store.GetUserMeta(r.Context(), user.ID)
-	if err != nil {
-		if err == store.ErrNotFound {
-			userMeta = &types.UserMeta{ID: user.ID}
-		} else {
-			log.Error().Err(err).Str("user_id", user.ID).Msg("failed to get user meta")
+	if err != nil && err != store.ErrNotFound {
+		log.Error().Err(err).Str("user_id", user.ID).Msg("failed to get user meta")
+		http.Error(rw, "Failed to update color scheme", http.StatusInternalServerError)
+		return
+	}
+
+	if userMeta == nil {
+		userMeta = &types.UserMeta{ID: user.ID}
+		userMeta.Config.ColorScheme = req.ColorScheme
+		if _, err := apiServer.Store.CreateUserMeta(r.Context(), *userMeta); err != nil {
+			log.Error().Err(err).Str("user_id", user.ID).Msg("failed to create user meta")
 			http.Error(rw, "Failed to update color scheme", http.StatusInternalServerError)
 			return
 		}
-	}
-
-	userMeta.Config.ColorScheme = req.ColorScheme
-
-	if _, err := apiServer.Store.EnsureUserMeta(r.Context(), *userMeta); err != nil {
-		log.Error().Err(err).Str("user_id", user.ID).Msg("failed to save color scheme")
-		http.Error(rw, "Failed to update color scheme", http.StatusInternalServerError)
-		return
+	} else {
+		userMeta.Config.ColorScheme = req.ColorScheme
+		if _, err := apiServer.Store.UpdateUserMeta(r.Context(), *userMeta); err != nil {
+			log.Error().Err(err).Str("user_id", user.ID).Msg("failed to update user meta")
+			http.Error(rw, "Failed to update color scheme", http.StatusInternalServerError)
+			return
+		}
 	}
 
 	apiServer.publishUserColorSchemeChange(r.Context(), user.ID, req.ColorScheme)

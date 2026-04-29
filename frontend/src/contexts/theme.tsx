@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState, ReactNode } from 'react'
 import { createTheme, ThemeProvider } from '@mui/material/styles'
 import useThemeConfig from '../hooks/useThemeConfig'
+import useApi from '../hooks/useApi'
 import { PaletteMode } from '@mui/material'
 
 const THEME_MODE_KEY = 'themeMode'
@@ -19,6 +20,7 @@ export const ThemeContext = React.createContext({
 
 export const ThemeProviderWrapper = ({ children }: { children: ReactNode }) => {
   const themeConfig = useThemeConfig()
+  const api = useApi()
   const [mode, setMode] = useState<PaletteMode>(getInitialMode)
 
   // Live OS preference sync: follow the OS only while the user has not explicitly
@@ -228,6 +230,11 @@ export const ThemeProviderWrapper = ({ children }: { children: ReactNode }) => {
     setMode((prevMode) => {
       const next = prevMode === 'dark' ? 'light' : 'dark'
       localStorage.setItem(THEME_MODE_KEY, next)
+      // Fire-and-forget: persist to the user's account so any spec-task
+      // sessions they own can mirror the theme into GNOME and Zed within
+      // ~100ms via the settings-sync-daemon's WS subscription.
+      api.getApiClient().v1UsersMeColorSchemeUpdate({ color_scheme: next })
+        .catch(() => { /* non-fatal: anonymous users or transient errors */ })
       return next
     })
   }
