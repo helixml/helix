@@ -118,6 +118,15 @@ Forward `interrupt` to `sendChatMessageToExternalAgent`.
 - Manual end-to-end in inner Helix per requirements §6: start a long-running agent turn, drop a comment, observe the prior turn cancel and the comment response begin within a few seconds.
 - Existing E2E (`./run_docker_e2e.sh`) still passes — it covers interrupt semantics on the prompt-queue path, which this change does not touch.
 
+## Implementation Notes (added during execution)
+
+- **Scope expanded by one caller**: `spec_driven_task_service.go:1410` (auto-revision instruction triggered when a task transitions to revision state) was not in the original caller table but it sends the same `BuildRevisionInstructionPrompt` as the request-changes branch of `respondToDesignReview`. It's reviewer-driven feedback delivered via the state machine — same semantic as a comment — so it now passes `interrupt=true`.
+- **`SpecTaskMessageSender` type updated**: the type in `api/pkg/services/git_http_server.go` had the param named `docPath` (legacy/misleading) but the binding works by type position not by name. Updated to `notifyUserID` and added `interrupt bool`. The Go binding at `server.go:489` matches automatically.
+- **Cross-repo test helper `SendChatMessage`**: kept the existing `SendChatMessage(sessionID, message, requestID) error` signature defaulting `interrupt=false`, because the Zed e2e test server (`zed/crates/external_websocket_sync/e2e-test/helix-ws-test-server/main.go:389,995`) calls it. Changing the signature would require a coordinated cross-repo bump for no benefit. Added `SendChatMessageWithInterrupt` for tests that exercise interrupt.
+- **No agent-side change needed**: confirmed `prompt.Interrupt` on the prompt-history path already passes `"interrupt": ...` in the same `chat_message` Data field at `websocket_external_agent_sync.go:2845`. Zed/Claude/Qwen already consume this.
+- **CGo prerequisite for local tests**: `go test ./pkg/server/` needs `gcc` for tree-sitter. Installed `gcc libc6-dev` and ran `CGO_ENABLED=1 go test ...`. Documented in `CLAUDE.md`.
+- **Tests added**: two focused unit tests in `websocket_external_agent_sync_test.go` (`TestSendChatMessage_InterruptTrue` / `_False`) capture the outgoing `chat_message` command from the WebSocket send channel and assert `Data["interrupt"]` is the expected bool. Full `TestWebSocketSyncSuite` and `pkg/services/...` pass green locally.
+
 ## Notes for Future Implementers
 
 - `prompt.Interrupt` in the prompt-history flow defaults to `false` (queue mode). The spec-comment flow does not have an analogous defaulting concern: every spec-comment caller will explicitly pass `true`.
