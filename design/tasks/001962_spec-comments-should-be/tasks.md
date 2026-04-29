@@ -1,14 +1,17 @@
 # Implementation Tasks
 
 - [x] Add `interrupt bool` parameter to `sendChatMessageToExternalAgent` in `api/pkg/server/websocket_external_agent_sync.go` and include `"interrupt": interrupt` in the `chat_message` command `Data`
-- [~] Add `interrupt bool` parameter to `sendMessageToSpecTaskAgent` in `api/pkg/server/spec_task_design_review_handlers.go` and forward it to `sendChatMessageToExternalAgent`
-- [ ] Update `SendMessageToAgent` field type on `specDrivenTaskService` (and any interface it satisfies) to match the new signature; fix the binding at `api/pkg/server/server.go:489`
-- [ ] Update `sendCommentToAgentNow` (around `spec_task_design_review_handlers.go:1021`) to pass `interrupt=true`
-- [ ] Update the request-changes branch of `respondToDesignReview` (around `spec_task_design_review_handlers.go:378`) to pass `interrupt=true`
-- [ ] Update `sendApprovalInstructionToAgent` (around `spec_task_design_review_handlers.go:1572`) to pass `interrupt=false`
-- [ ] Update workflow callers in `spec_task_workflow_handlers.go:211` and `:294` to pass `interrupt=false`
-- [ ] Update `api/pkg/server/test_helpers.go:74` and any other test/internal callers of `sendChatMessageToExternalAgent` for the new signature
-- [ ] Update existing tests in `api/pkg/server/websocket_external_agent_sync_test.go` that call `sendChatMessageToExternalAgent` directly
+- [x] Add `interrupt bool` parameter to `sendMessageToSpecTaskAgent` in `api/pkg/server/spec_task_design_review_handlers.go` and forward it to `sendChatMessageToExternalAgent`
+- [x] Update `SpecTaskMessageSender` type in `api/pkg/services/git_http_server.go` to include `interrupt bool` (the binding at `api/pkg/server/server.go:489` works automatically since signatures match)
+- [x] Update `sendCommentToAgentNow` to pass `interrupt=true`
+- [x] Update the request-changes branch of `respondToDesignReview` to pass `interrupt=true`
+- [x] Update `sendApprovalInstructionToAgent` to pass `interrupt=false`
+- [x] Update workflow callers in `spec_task_workflow_handlers.go` (post-merge push, rebase) to pass `interrupt=false`
+- [x] Update `agent_instruction_service.go` approval-flow caller to pass `interrupt=false`
+- [x] Update `spec_driven_task_service.go` auto-revision caller to pass `interrupt=true` (revision instruction is reviewer-driven feedback, equivalent to a comment)
+- [x] Update `api/pkg/server/test_helpers.go` `SendChatMessage` shim — defaults to `interrupt=false` (preserves cross-repo e2e test compatibility); add `SendChatMessageWithInterrupt` for tests that exercise the interrupt path
+- [x] Update `spec_driven_task_service_test.go` mock sender signature for new bool param
+- [x] No existing direct callers of `sendChatMessageToExternalAgent` in `websocket_external_agent_sync_test.go` (verified via grep — tests use `QueueCommand` / `handleMessageCompleted` paths)
 - [ ] Add a unit test asserting `chat_message` outgoing `Data["interrupt"] == true` when the spec-comment path is used, and `false` for approval/workflow paths
 - [ ] `go build ./api/pkg/server/ ./api/pkg/services/` succeeds
 - [ ] Manual end-to-end in inner Helix: start a spec task, let the agent begin a long response, drop a new design-review comment, confirm the prior turn cancels and the comment response starts within a few seconds
