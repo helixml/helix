@@ -1157,7 +1157,7 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
                       ? 'transparent'
                       : currentOrgSlug === org.name
                         ? 'rgba(0, 229, 255, 0.15)'
-                        : '#2D3748',
+                        : lightTheme.highlightColor,
                 },
               }}
             >
@@ -1194,11 +1194,11 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
               <Box sx={{ flex: 1 }}>
                 <Typography
                   variant="body1"
-                  sx={{ color: org.member === false ? '#CBD5E1' : '#F8FAFC', fontWeight: 500 }}
+                  sx={{ color: org.member === false ? lightTheme.textColorFaded : lightTheme.textColor, fontWeight: 500 }}
                 >
                   {org.display_name || org.name}
                 </Typography>
-                <Typography variant="body2" sx={{ color: '#A0AEC0' }}>
+                <Typography variant="body2" sx={{ color: lightTheme.textColorFaded }}>
                   {org.member === false ? 'Not a member' : 'Organization workspace'}
                 </Typography>
               </Box>
