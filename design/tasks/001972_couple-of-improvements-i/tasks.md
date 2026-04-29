@@ -4,18 +4,18 @@
 
 Do this before the MCP-tools work so the new code reads naturally and we only update one set of call sites.
 
-- [~] Rename `SpecTask.PlanningSessionID` → `SpecTask.AgentSessionID` in `api/pkg/types/simple_spec_task.go` (struct field, JSON tag, GORM column tag → `column:agent_session_id`)
-- [ ] Rename `SpecTaskFilters.PlanningSessionID` → `SpecTaskFilters.AgentSessionID` in the same file
-- [ ] Delete the unused constants `AgentTypeSpecGeneration` and `AgentTypeImplementation` from `simple_spec_task.go` (verified zero non-definition usages)
-- [ ] Add an explicit Postgres column-rename migration: `ALTER TABLE spec_tasks RENAME COLUMN planning_session_id TO agent_session_id;` (idempotent: gate on `IF EXISTS (... column_name = 'planning_session_id' ...)`); run it at startup before `AutoMigrate`
-- [ ] Rename `Store.GetPendingCommentByPlanningSessionID` → `Store.GetPendingCommentByAgentSessionID` in `api/pkg/store/store.go`, `store_postgres.go`, `memorystore/memorystore.go`, and regenerate `store_mocks.go`
-- [ ] Search-and-replace all Go callers of the old name (the field, the filter, the store method, the parameter name `planningSessionID`/`planningSessionId`)
-- [ ] Update the comment-only "planning_session_id -> ..." reference at `api/pkg/server/server.go:112`
-- [ ] Update the now-obsolete struct-comment block above the field (the apologising comment that says "single Helix session for entire workflow"); the new name is self-documenting, so remove the apology
+- [x] Rename `SpecTask.PlanningSessionID` → `SpecTask.AgentSessionID` in `api/pkg/types/simple_spec_task.go` (struct field, JSON tag, GORM column tag → `column:agent_session_id`)
+- [x] Rename `SpecTaskFilters.PlanningSessionID` → `SpecTaskFilters.AgentSessionID` in the same file
+- [x] Delete the unused constants `AgentTypeSpecGeneration` and `AgentTypeImplementation` from `simple_spec_task.go` (verified zero non-definition usages)
+- [x] GORM Migrator-based column rename in postgres.go (idempotent HasColumn check + RenameColumn before AutoMigrate): `ALTER TABLE spec_tasks RENAME COLUMN planning_session_id TO agent_session_id;` (idempotent: gate on `IF EXISTS (... column_name = 'planning_session_id' ...)`); run it at startup before `AutoMigrate`
+- [x] Rename `Store.GetPendingCommentByPlanningSessionID` → `Store.GetPendingCommentByAgentSessionID` in `api/pkg/store/store.go`, `store_postgres.go`, `memorystore/memorystore.go`, and regenerate `store_mocks.go`
+- [x] Search-and-replace all Go callers of the old name (the field, the filter, the store method, the parameter name `planningSessionID`/`planningSessionId`)
+- [x] Update the comment-only "planning_session_id -> ..." reference at `api/pkg/server/server.go:112`
+- [x] Update the now-obsolete struct-comment block above the field (the apologising comment that says "single Helix session for entire workflow"); the new name is self-documenting, so remove the apology
 - [ ] Run `./stack update_openapi` so swagger emits `agent_session_id`
-- [ ] Search-and-replace all frontend references `task.planning_session_id` → `task.agent_session_id` and `planningSessionId` → `agentSessionId` in `frontend/src/`
-- [ ] Verify: `grep -rn "PlanningSessionID\|planning_session_id" api/ frontend/src/` returns zero matches outside of the migration script
-- [ ] Build verification: `go build ./pkg/server/ ./pkg/store/ ./pkg/types/` and `cd frontend && yarn build`
+- [x] Search-and-replace all frontend references `task.planning_session_id` → `task.agent_session_id` and `planningSessionId` → `agentSessionId` in `frontend/src/`
+- [x] Verify: `grep -rn "PlanningSessionID\|planning_session_id" api/ frontend/src/` returns zero matches outside of the migration script
+- [x] Build verification (api passed; update_openapi pending; yarn build pending): `go build ./pkg/server/ ./pkg/store/ ./pkg/types/` and `cd frontend && yarn build`
 
 ## Backend — data model
 
