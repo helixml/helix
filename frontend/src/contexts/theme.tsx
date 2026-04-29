@@ -1,4 +1,4 @@
-import React, { useMemo, useState, ReactNode } from 'react'
+import React, { useEffect, useMemo, useState, ReactNode } from 'react'
 import { createTheme, ThemeProvider } from '@mui/material/styles'
 import useThemeConfig from '../hooks/useThemeConfig'
 import { PaletteMode } from '@mui/material'
@@ -20,6 +20,18 @@ export const ThemeContext = React.createContext({
 export const ThemeProviderWrapper = ({ children }: { children: ReactNode }) => {
   const themeConfig = useThemeConfig()
   const [mode, setMode] = useState<PaletteMode>(getInitialMode)
+
+  // Live OS preference sync: follow the OS only while the user has not explicitly
+  // toggled (no entry in localStorage). Once they toggle, their explicit choice wins.
+  useEffect(() => {
+    const mql = window.matchMedia('(prefers-color-scheme: light)')
+    const handler = (e: MediaQueryListEvent) => {
+      if (localStorage.getItem(THEME_MODE_KEY)) return
+      setMode(e.matches ? 'light' : 'dark')
+    }
+    mql.addEventListener('change', handler)
+    return () => mql.removeEventListener('change', handler)
+  }, [])
 
   const isLight = mode === 'light'
 
@@ -74,6 +86,18 @@ export const ThemeProviderWrapper = ({ children }: { children: ReactNode }) => {
       typography: {
         fontFamily: "IBM Plex Sans, Helvetica, Arial, sans-serif",
         fontSize: 14,
+        // Light mode is often viewed in sunlight — bump weights for readability.
+        ...(isLight && {
+          fontWeightLight: 400,
+          fontWeightRegular: 500,
+          fontWeightMedium: 600,
+          fontWeightBold: 700,
+          body1: { fontWeight: 500 },
+          body2: { fontWeight: 500 },
+          subtitle1: { fontWeight: 600 },
+          subtitle2: { fontWeight: 600 },
+          button: { fontWeight: 600 },
+        }),
       },
       components: {
         MuiCssBaseline: {

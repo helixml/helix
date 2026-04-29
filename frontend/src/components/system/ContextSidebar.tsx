@@ -64,11 +64,11 @@ const ContextSidebar: FC<ContextSidebarProps> = ({
             key={item.id}
             sx={{
               borderRadius: '12px',
-              cursor: 'pointer',              
+              cursor: 'pointer',
               mx: 1,
               transition: 'all 0.2s ease-in-out',
               '&:hover': {
-                backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                backgroundColor: lightTheme.isLight ? 'rgba(0, 0, 0, 0.04)' : 'rgba(255, 255, 255, 0.05)',
               },
             }}
             disablePadding
@@ -82,13 +82,13 @@ const ContextSidebar: FC<ContextSidebarProps> = ({
                 px: isCompact ? 1.5 : 2,
                 minHeight: isCompact ? 40 : 48,
                 '&.Mui-selected': {
-                  backgroundColor: 'rgba(255, 255, 255, 0.08)',
+                  backgroundColor: lightTheme.isLight ? 'rgba(0, 0, 0, 0.06)' : 'rgba(255, 255, 255, 0.08)',
                   '&:hover': {
-                    backgroundColor: 'rgba(255, 255, 255, 0.12)',
+                    backgroundColor: lightTheme.isLight ? 'rgba(0, 0, 0, 0.10)' : 'rgba(255, 255, 255, 0.12)',
                   },
                 },
                 '&:hover': {
-                  backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                  backgroundColor: lightTheme.isLight ? 'rgba(0, 0, 0, 0.04)' : 'rgba(255, 255, 255, 0.05)',
                 },
               }}
             >
@@ -115,8 +115,8 @@ const ContextSidebar: FC<ContextSidebarProps> = ({
                 }}
                 primaryTypographyProps={{
                   fontSize: isCompact ? '0.78rem' : '0.85rem',
-                  fontWeight: item.isActive ? 600 : 500,
-                  color: item.isActive ? '#fff' : lightTheme.textColorFaded,
+                  fontWeight: item.isActive ? 700 : (lightTheme.isLight ? 600 : 500),
+                  color: item.isActive ? lightTheme.textColor : lightTheme.textColorFaded,
                 }}
               />
             </ListItemButton>

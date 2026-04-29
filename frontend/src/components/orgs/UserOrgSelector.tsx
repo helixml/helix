@@ -100,51 +100,63 @@ interface NavButtonProps {
   label: string
 }
 
-const NavButton: FC<NavButtonProps> = ({ icon, tooltip, isActive, onClick, label }) => (
-  <Tooltip title={tooltip} placement="right">
-    <Box
-      onClick={onClick}
-      sx={{
-        mt: 1,
-        width: AVATAR_SIZE + 8,
-        height: AVATAR_SIZE + 8,
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        cursor: 'pointer',
-        color: isActive ? '#E2E8F0' : '#A0AEC0',
-        backgroundColor: isActive ? 'rgba(226, 232, 240, 0.15)' : 'transparent',
-        borderRadius: 1,
-        border: isActive ? '1px solid rgba(226, 232, 240, 0.3)' : '1px solid transparent',
-        transform: isActive ? 'scale(1.05)' : 'scale(1)',
-        '&:hover': {
-          color: '#E2E8F0',
-          transform: isActive ? 'scale(1.08)' : 'scale(1.1)',
-          backgroundColor: isActive ? 'rgba(226, 232, 240, 0.2)' : 'rgba(226, 232, 240, 0.1)',
-        },
-        transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-      }}
-    >
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        {icon}
-      </Box>
-      <Typography
-        variant="caption"
+const NavButton: FC<NavButtonProps> = ({ icon, tooltip, isActive, onClick, label }) => {
+  const lightTheme = useLightTheme()
+  const isLight = lightTheme.isLight
+  const activeText = isLight ? '#0F172A' : '#E2E8F0'
+  const inactiveText = isLight ? '#475569' : '#A0AEC0'
+  const activeBg = isLight ? 'rgba(15, 23, 42, 0.08)' : 'rgba(226, 232, 240, 0.15)'
+  const activeBorder = isLight ? 'rgba(15, 23, 42, 0.18)' : 'rgba(226, 232, 240, 0.3)'
+  const hoverBg = isLight
+    ? (isActive ? 'rgba(15, 23, 42, 0.12)' : 'rgba(15, 23, 42, 0.05)')
+    : (isActive ? 'rgba(226, 232, 240, 0.2)' : 'rgba(226, 232, 240, 0.1)')
+  const labelInactive = isLight ? '#64748B' : '#6B7280'
+  return (
+    <Tooltip title={tooltip} placement="right">
+      <Box
+        onClick={onClick}
         sx={{
-          fontSize: '0.65rem',
-          color: isActive ? '#E2E8F0' : '#6B7280',
-          textAlign: 'center',
-          lineHeight: 1,
-          mt: 0.8,
-          fontWeight: isActive ? 'bold' : 'normal',
+          mt: 1,
+          width: AVATAR_SIZE + 8,
+          height: AVATAR_SIZE + 8,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          cursor: 'pointer',
+          color: isActive ? activeText : inactiveText,
+          backgroundColor: isActive ? activeBg : 'transparent',
+          borderRadius: 1,
+          border: isActive ? `1px solid ${activeBorder}` : '1px solid transparent',
+          transform: isActive ? 'scale(1.05)' : 'scale(1)',
+          '&:hover': {
+            color: activeText,
+            transform: isActive ? 'scale(1.08)' : 'scale(1.1)',
+            backgroundColor: hoverBg,
+          },
+          transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
         }}
       >
-        {label}
-      </Typography>
-    </Box>
-  </Tooltip>
-)
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          {icon}
+        </Box>
+        <Typography
+          variant="caption"
+          sx={{
+            fontSize: '0.65rem',
+            color: isActive ? activeText : labelInactive,
+            textAlign: 'center',
+            lineHeight: 1,
+            mt: 0.8,
+            fontWeight: isActive ? 'bold' : (isLight ? 600 : 'normal'),
+          }}
+        >
+          {label}
+        </Typography>
+      </Box>
+    </Tooltip>
+  )
+}
 
 const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) => {
   const account = useAccount()

@@ -484,10 +484,10 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
         onClick={(e) => { e.stopPropagation(); drawerOpen ? handleDrawerClose() : handleDrawerOpen() }}
         sx={{
           ml: 0.5,
-          color: 'rgba(255,255,255,0.6)',
+          color: lightTheme.isLight ? 'rgba(0,0,0,0.7)' : 'rgba(255,255,255,0.6)',
           '&:hover': {
-            color: 'rgba(255,255,255,0.9)',
-            backgroundColor: 'rgba(255,255,255,0.06)',
+            color: lightTheme.isLight ? 'rgba(0,0,0,0.95)' : 'rgba(255,255,255,0.9)',
+            backgroundColor: lightTheme.isLight ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.06)',
           },
         }}
       >
@@ -500,8 +500,8 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
               height: 15,
               minWidth: 15,
               ...(!hasNew && totalCount > 0 && {
-                backgroundColor: 'rgba(255,255,255,0.25)',
-                color: 'rgba(0,0,0,0.7)',
+                backgroundColor: lightTheme.isLight ? 'rgba(0,0,0,0.55)' : 'rgba(255,255,255,0.25)',
+                color: lightTheme.isLight ? '#fff' : 'rgba(0,0,0,0.7)',
               }),
             },
           }}

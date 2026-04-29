@@ -308,23 +308,24 @@ const Page: React.FC<{
                     cursor: 'pointer',
                     '& .MuiOutlinedInput-root': {
                       cursor: 'pointer',
-                      background: lightTheme.isLight ? 'rgba(0,0,0,0.03)' : 'rgba(255,255,255,0.03)',
+                      background: lightTheme.isLight ? '#fff' : 'rgba(255,255,255,0.03)',
                       '& fieldset': {
-                        borderColor: lightTheme.isLight ? 'rgba(0,0,0,0.12)' : 'rgba(255,255,255,0.08)',
+                        borderColor: lightTheme.isLight ? 'rgba(0,0,0,0.35)' : 'rgba(255,255,255,0.08)',
                       },
                       '&:hover fieldset': {
-                        borderColor: lightTheme.isLight ? 'rgba(0,0,0,0.25)' : 'rgba(255,255,255,0.15)',
+                        borderColor: lightTheme.isLight ? 'rgba(0,0,0,0.55)' : 'rgba(255,255,255,0.15)',
                       },
                       '&.Mui-focused fieldset': {
-                        borderColor: lightTheme.isLight ? 'rgba(0,0,0,0.25)' : 'rgba(255,255,255,0.15)',
+                        borderColor: lightTheme.isLight ? 'rgba(0,0,0,0.55)' : 'rgba(255,255,255,0.15)',
                         borderWidth: 1,
                       },
                     },
                     '& .MuiInputBase-input': {
                       cursor: 'pointer',
                       color: lightTheme.textColor,
+                      fontWeight: lightTheme.isLight ? 500 : 400,
                       '&::placeholder': {
-                        color: lightTheme.textColorFaded,
+                        color: lightTheme.isLight ? 'rgba(0,0,0,0.6)' : lightTheme.textColorFaded,
                         opacity: 1,
                       },
                     },
