@@ -973,6 +973,80 @@ func (s *WebSocketSyncSuite) TestAgentReady_NoOpenThreadWhenThreadIDPresent() {
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
+// sendChatMessageToExternalAgent tests — interrupt flag plumbing
+// ──────────────────────────────────────────────────────────────────────────────
+
+func (s *WebSocketSyncSuite) TestSendChatMessage_InterruptTrue() {
+	// Verifies the interrupt flag is forwarded into the chat_message command Data,
+	// matching the semantic spec-task design-review comments rely on.
+	sessionID := "ses_interrupt_true"
+
+	sendChan := make(chan types.ExternalAgentCommand, 4)
+	conn := &ExternalAgentWSConnection{SessionID: sessionID, SendChan: sendChan}
+	s.server.externalAgentWSManager.registerConnection(sessionID, conn)
+
+	session := &types.Session{
+		ID:    sessionID,
+		Owner: "user-1",
+		Metadata: types.SessionMetadata{
+			AgentType:   "zed_external",
+			ZedThreadID: "thread-int",
+		},
+	}
+	s.store.EXPECT().GetSession(gomock.Any(), sessionID).Return(session, nil)
+	s.store.EXPECT().CreateInteraction(gomock.Any(), gomock.Any()).Return(
+		&types.Interaction{ID: "int-1", SessionID: sessionID}, nil,
+	)
+
+	_, err := s.server.sendChatMessageToExternalAgent(sessionID, "review feedback", "req-int-1", true)
+	s.NoError(err)
+
+	select {
+	case cmd := <-sendChan:
+		s.Equal("chat_message", cmd.Type)
+		s.Equal(true, cmd.Data["interrupt"], "interrupt=true must be forwarded into chat_message command")
+		s.Equal("review feedback", cmd.Data["message"])
+		s.Equal("req-int-1", cmd.Data["request_id"])
+	case <-time.After(time.Second):
+		s.Fail("expected chat_message command on send channel")
+	}
+}
+
+func (s *WebSocketSyncSuite) TestSendChatMessage_InterruptFalse() {
+	// System-driven messages (approval kickoff, post-merge instructions) must NOT
+	// carry interrupt=true — they should respect the agent's queue.
+	sessionID := "ses_interrupt_false"
+
+	sendChan := make(chan types.ExternalAgentCommand, 4)
+	conn := &ExternalAgentWSConnection{SessionID: sessionID, SendChan: sendChan}
+	s.server.externalAgentWSManager.registerConnection(sessionID, conn)
+
+	session := &types.Session{
+		ID:    sessionID,
+		Owner: "user-2",
+		Metadata: types.SessionMetadata{
+			AgentType:   "zed_external",
+			ZedThreadID: "thread-noint",
+		},
+	}
+	s.store.EXPECT().GetSession(gomock.Any(), sessionID).Return(session, nil)
+	s.store.EXPECT().CreateInteraction(gomock.Any(), gomock.Any()).Return(
+		&types.Interaction{ID: "int-2", SessionID: sessionID}, nil,
+	)
+
+	_, err := s.server.sendChatMessageToExternalAgent(sessionID, "approval kickoff", "req-noint-1", false)
+	s.NoError(err)
+
+	select {
+	case cmd := <-sendChan:
+		s.Equal("chat_message", cmd.Type)
+		s.Equal(false, cmd.Data["interrupt"], "interrupt=false must be forwarded into chat_message command")
+	case <-time.After(time.Second):
+		s.Fail("expected chat_message command on send channel")
+	}
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
 // processPromptQueue tests
 // ──────────────────────────────────────────────────────────────────────────────
 

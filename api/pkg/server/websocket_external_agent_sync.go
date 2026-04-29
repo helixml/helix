@@ -1709,7 +1709,12 @@ func (apiServer *HelixAPIServer) handleContextTitleChanged(sessionID string, syn
 // to an external agent. It creates a waiting interaction, enqueues it for response
 // routing, and sends the WebSocket command. All callers that need to send a message
 // to an agent should use this function.
-func (apiServer *HelixAPIServer) sendChatMessageToExternalAgent(sessionID, message, requestID string) (interactionID string, err error) {
+//
+// interrupt=true tells the agent to cancel its current turn before processing the
+// message, matching the semantic used by prompt-history queue messages. Used for
+// reactive feedback (e.g. design review comments) where the latest input should
+// take priority over in-flight work.
+func (apiServer *HelixAPIServer) sendChatMessageToExternalAgent(sessionID, message, requestID string, interrupt bool) (interactionID string, err error) {
 	ctx := context.Background()
 
 	// Look up the session to get its ZedThreadID and agent name
@@ -1766,6 +1771,7 @@ func (apiServer *HelixAPIServer) sendChatMessageToExternalAgent(sessionID, messa
 			"request_id":    requestID,
 			"acp_thread_id": acpThreadID, // Use existing thread if available, nil = create new
 			"agent_name":    agentName,   // Which agent to use (e.g., "claude", "qwen", "zed-agent")
+			"interrupt":     interrupt,   // Tell agent to cancel current turn before sending (mirrors prompt-queue path)
 		},
 	}
 
