@@ -294,16 +294,17 @@ New REST endpoints (added to `api/pkg/server/spec_task_proposal_handlers.go`):
 
 ## Orchestrator Changes — Delete the "all PRs merged → done" heuristic outright
 
-The current orchestrator transitions tasks to `done` from **four** different code paths in `api/pkg/services/spec_task_orchestrator.go`, all triggered by PR / branch merge detection:
+The current orchestrator transitions tasks to `done` from **five** different code paths, all triggered by PR / branch merge detection (four in the orchestrator itself, one in the git HTTP server):
 
-| Line | Trigger | Action |
+| File:Line | Trigger | Action |
 |---|---|---|
-| ~781 | `allMerged && len(task.RepoPullRequests) > 0` | `task.Status = Done` |
-| ~851 | branch detected merged to main, no PRs tracked | `task.Status = Done` |
-| ~1080 | externally-opened PR found and already merged | `task.Status = Done` |
-| ~1123 | branch merged to main (no PR found), fallback check | `task.Status = Done` |
+| `services/spec_task_orchestrator.go:~781` | `allMerged && len(task.RepoPullRequests) > 0` | `task.Status = Done` |
+| `services/spec_task_orchestrator.go:~851` | branch detected merged to main, no PRs tracked | `task.Status = Done` |
+| `services/spec_task_orchestrator.go:~1080` | externally-opened PR found and already merged | `task.Status = Done` |
+| `services/spec_task_orchestrator.go:~1123` | branch merged to main (no PR found), fallback check | `task.Status = Done` |
+| **`services/git_http_server.go:~1008-1051`** (`handleMainBranchPush`) | direct push to main detected; transitions any `implementation_review` task whose branch was merged into main | `task.Status = Done` |
 
-**All four are deleted.** The orchestrator no longer transitions any task to `done` on PR or branch state. The PR polling loop (`prPollLoop` / `pollPullRequests`) **continues to run** and continues to update `RepoPR.PRState` for every tracked PR — that's still valuable for UI display and for the `result_pr_*` fields on proposals — but it never modifies `task.Status` or `task.MergedAt` / `task.CompletedAt`.
+**All five are deleted.** No code path remaining anywhere transitions a task to `done` on PR or branch state. The PR polling loop (`prPollLoop` / `pollPullRequests`) **continues to run** and continues to update `RepoPR.PRState` for every tracked PR — that's still valuable for UI display and for the `result_pr_*` fields on proposals — but it never modifies `task.Status` or `task.MergedAt` / `task.CompletedAt`. Likewise `handleMainBranchPush` either keeps its other side effects (audit-log push events, etc.) and just stops touching `task.Status`, or is reduced to a no-op for spec tasks.
 
 ### Why delete, not gate
 
@@ -341,6 +342,94 @@ A new hook `useSpecTaskProposals(taskId)` wraps `v1SpecTasksProposalsList` (gene
 A subtle badge appears on the project board next to any task with pending proposals. The board page uses `v1ProjectsProposalsPendingCount` to render an aggregated count.
 
 **No new pages.** Everything renders inside the existing task card / detail surface.
+
+---
+
+## Full Catalog of Spec-Task Agent Prompts (and Disposition)
+
+A code-wide audit found **8 Go `text/template` prompts + 2 `.tmpl` files + 8 builder/sender functions** that send instructions to a spec task agent. Some of the prompts I didn't initially catalog are part of the merge/push lifecycle that is being significantly rewritten by this task. Below is the complete list with disposition.
+
+### Templates
+
+| File:Line | Variable / Filename | Triggered when | Disposition |
+|---|---|---|---|
+| `services/spec_task_prompts.go:28` | `planningPromptTemplate` | Task starts spec generation | **EDIT** — add "Spawning Follow-Up Tasks" + "Not Every Task Needs Code" sections (covered above) |
+| `services/agent_instruction_service.go:126` | `approvalPromptTemplate` | Design approved → implementation begins | **EDIT** — replace step 5 with the three new steps (PRs / knowledge / mark complete) covered above |
+| `services/agent_instruction_service.go:370` | `commentPromptTemplate` | Reviewer leaves an inline comment on a design doc | **NO CHANGE** — already minimal, just instructs agent to update design docs and push |
+| `services/agent_instruction_service.go:390` | `implementationReviewPromptTemplate` | Agent has pushed code; task moves to `implementation_review` | **NO CHANGE** — generic "code pushed, user will test" message; works fine for tasks that opened a PR. For zero-PR tasks this prompt simply never fires (no code push happens). |
+| `services/agent_instruction_service.go:402` | `revisionPromptTemplate` | Reviewer requests changes during spec review | **NO CHANGE** — operates on design docs in spec branch, not on PR/completion lifecycle |
+| `services/agent_instruction_service.go:420` | `mergePromptTemplate` | After implementation approval — tells the agent to `git merge && git push` to base | **DELETE** — see "Merge instruction: delete it" below |
+| `prompts/helix_code_prompts.go:25` | `tmpl` (loaded from `templates/agent_implementation_approved_push.tmpl`) | After implementation approval — tells the agent to commit/push and notes "the Pull Request has been opened automatically" | **EDIT** — see "ImplementationApprovedPush: edit, don't delete" below |
+| `prompts/helix_code_prompts.go:51` | `tmpl` (loaded from `templates/agent_rebase_required.tmpl`) | Detected branch divergence; agent must rebase before merge can complete | **EDIT** — strip references to "merge" / "PR will close on merge" if any; the agent's job becomes "rebase + push to keep the open PR(s) up to date", and `mark_task_complete` remains the only path to `done` |
+
+### Builder / sender functions
+
+| File:Line | Function | Calls template | Disposition |
+|---|---|---|---|
+| `services/spec_task_prompts.go:152` | `BuildPlanningPrompt` | `planningPromptTemplate` | **EDIT** wording (template change covers this) |
+| `services/agent_instruction_service.go:440` | `BuildApprovalInstructionPrompt` | `approvalPromptTemplate` | **EDIT** wording (template change covers this) |
+| `services/agent_instruction_service.go:522` | `BuildCommentPrompt` | `commentPromptTemplate` | NO CHANGE |
+| `services/agent_instruction_service.go:554` | `BuildImplementationReviewPrompt` | `implementationReviewPromptTemplate` | NO CHANGE |
+| `services/agent_instruction_service.go:571` | `BuildRevisionInstructionPrompt` | `revisionPromptTemplate` | NO CHANGE |
+| `services/agent_instruction_service.go:588` | `BuildMergeInstructionPrompt` | `mergePromptTemplate` | **DELETE** (see below) |
+| `services/agent_instruction_service.go:786` | `SendMergeInstruction` | calls `BuildMergeInstructionPrompt` and dispatches to agent | **DELETE** (see below) |
+| `prompts/helix_code_prompts.go:11` | `ImplementationApprovedPushInstruction` | wraps `agent_implementation_approved_push.tmpl` | **EDIT** wording |
+| `prompts/helix_code_prompts.go:36` | `RebaseRequiredInstruction` | wraps `agent_rebase_required.tmpl` | **EDIT** wording |
+
+### `.tmpl` files
+
+| File | Disposition |
+|---|---|
+| `prompts/templates/agent_implementation_approved_push.tmpl` | **EDIT** — currently says *"the Pull Request has been opened automatically"*. Under the new model: PRs are opened via `propose_pull_request` (agent-driven) or via the legacy "Open PR" button (user-driven). Reword to: push your remaining changes; if you used `propose_pull_request`, the PR is now open and tracked; **call `mark_task_complete` when the work is finished — pushing alone does not move the task to done**. |
+| `prompts/templates/agent_rebase_required.tmpl` | **EDIT** — strip any "task will close on merge" wording; clarify that rebase keeps existing PRs current but does not affect task status. `mark_task_complete` remains the only path to `done`. |
+
+### Plus: callers that fire prompts at agents
+
+These are not templates themselves but they're the wiring that delivers prompts to the agent. Audit found these ones; all keep working (no signature changes), but several call the templates we're editing/deleting:
+
+| File:Line | What it does |
+|---|---|
+| `services/spec_driven_task_service.go:359` | Sends planning prompt on task start — uses edited `BuildPlanningPrompt` |
+| `services/spec_driven_task_service.go:1340` | Sends approval/implementation prompt on design approval — uses edited `BuildApprovalInstructionPrompt` |
+| `services/spec_driven_task_service.go:1409` | Sends revision prompt — `BuildRevisionInstructionPrompt`, no change |
+| `services/agent_instruction_service.go:608` | `SendApprovalInstruction` — uses edited `BuildApprovalInstructionPrompt` |
+| `services/agent_instruction_service.go:746` | `SendImplementationReviewRequest` — no change |
+| `services/agent_instruction_service.go:766` | `SendRevisionInstruction` — no change |
+| `services/agent_instruction_service.go:786` | `SendMergeInstruction` — **DELETE** entirely (see below); audit all callers and remove |
+| `server/spec_task_design_review_handlers.go:377` | Design rejection handler — `BuildRevisionInstructionPrompt`, no change |
+| `server/spec_task_design_review_handlers.go:1015` | Comment reply — `BuildCommentPrompt`, no change |
+| `server/spec_task_design_review_handlers.go:1570` | Approval endpoint — `BuildApprovalInstructionPrompt`, edited |
+
+### Merge instruction: delete it
+
+`SendMergeInstruction` / `BuildMergeInstructionPrompt` / `mergePromptTemplate` exists to tell the agent *"your implementation was approved — now run `git merge && git push origin BASE_BRANCH`"*. Under the new model this is wrong on two counts:
+
+1. **For external repos (GitHub / GitLab / ADO / Gitea):** merging happens on the external platform, not via the agent's local git. The user clicks Merge on GitHub (or via Helix's "Open PR" / proposal-driven PR flow). The agent has no business pushing directly to `main`.
+2. **For internal-only repos:** merging directly is theoretically OK, but it would *also* trigger the now-deleted `handleMainBranchPush` auto-transition. With that gone, the merge instruction has no follow-on effect — and `mark_task_complete` is the explicit signal anyway.
+
+**Decision: delete the entire merge-instruction code path.** Remove `mergePromptTemplate`, `BuildMergeInstructionPrompt`, `SendMergeInstruction`, the `.tmpl` (none here — it's inline), and every caller. Audit all call sites of `SendMergeInstruction` (search the repo) and replace the contract: implementation approval no longer sends *any* merge prompt; the agent learns about approval through the `propose_pull_request`-decision flow (PR was approved/opened) or simply via the existing comment/notification channels. Completion still requires `mark_task_complete`.
+
+### `ImplementationApprovedPush`: edit, don't delete
+
+This one is genuinely useful — it's a "you've been approved, push your remaining uncommitted changes" nudge. We keep the push behaviour but rewrite the message to:
+
+- Drop the "the Pull Request has been opened automatically" line (no longer accurate in the proposal-driven world).
+- Add a clear instruction that pushing alone does **not** complete the task — the agent must call `mark_task_complete` when the work is judged done.
+- Mention that `propose_pull_request` is the route to open additional PRs.
+
+### Audit result for completion sites
+
+Code-wide search confirmed FIVE sites that auto-transition a task to `TaskStatusDone` based on PR/branch state (one more than my earlier draft caught):
+
+| File:Line | Trigger | Status |
+|---|---|---|
+| `services/spec_task_orchestrator.go:~781` | `allMerged && len(RepoPullRequests) > 0` | **DELETE** |
+| `services/spec_task_orchestrator.go:~851` | branch detected merged to main, no PRs tracked | **DELETE** |
+| `services/spec_task_orchestrator.go:~1080` | externally-opened PR found and already merged | **DELETE** |
+| `services/spec_task_orchestrator.go:~1123` | branch merged to main fallback | **DELETE** |
+| **`services/git_http_server.go:~1008-1051`** (`handleMainBranchPush`) | **direct push to main detected; transitions `implementation_review` task → done** | **DELETE** (was missing from earlier draft of this design) |
+
+After all five deletions, `task.Status = TaskStatusDone` is written from exactly two places in the entire codebase: (a) the new proposal-decision handler when a `mark_complete` proposal is approved, and (b) any pre-existing manual user "set status to done" handler. The PR audit task in tasks.md requires this to be documented in the PR description as proof.
 
 ---
 

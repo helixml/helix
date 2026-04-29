@@ -52,30 +52,59 @@ Do this before the MCP-tools work so the new code reads naturally and we only up
 - [ ] Audit-log via `audit_log_service.go`
 - [ ] Add swagger annotations to handlers; run `./stack update_openapi`
 
-## Backend — orchestrator (delete all auto-transitions to `done`)
+## Backend — orchestrator + git_http_server (delete all auto-transitions to `done`)
+
+There are **five** auto-transition sites across two files. All five must die.
 
 - [ ] Delete the `if allMerged` block at `api/pkg/services/spec_task_orchestrator.go:~778-799` that sets `task.Status = TaskStatusDone` when all PRs merge. Keep the per-PR state-tracking loop (it still updates `RepoPR.PRState` for UI display).
-- [ ] Delete the "Detected merged branch, moving task to done" block at `~848-857` (no PRs tracked, branch merged to main fallback).
-- [ ] Delete the "Detected externally-opened PR, already merged → done" block at `~1080-1086`.
-- [ ] Delete the "branch merged to main (no PR found), fallback check" block at `~1116-1129`.
-- [ ] After deletions, audit `spec_task_orchestrator.go` to confirm: the only places that still write `task.Status = TaskStatusDone` are (a) NONE in this file, (b) the proposal-decision handler in `spec_task_proposal_handlers.go` (mark_complete approval), and (c) any pre-existing manual user "set status to done" handler. Document the audit result in the PR description.
+- [ ] Delete the "Detected merged branch, moving task to done" block at `spec_task_orchestrator.go:~848-857` (no PRs tracked, branch merged to main fallback).
+- [ ] Delete the "Detected externally-opened PR, already merged → done" block at `spec_task_orchestrator.go:~1080-1086`.
+- [ ] Delete the "branch merged to main (no PR found), fallback check" block at `spec_task_orchestrator.go:~1116-1129`.
+- [ ] **NEW:** Delete the `task.Status = TaskStatusDone` path in `api/pkg/services/git_http_server.go:handleMainBranchPush:~1023-1049`. The function may still log "branch merged to main" (or be removed entirely if that's the only thing it does for spec tasks); either way it no longer touches `task.Status`.
+- [ ] After deletions, audit the entire codebase: `grep -rn "task.Status = types.TaskStatusDone\|TaskStatusDone$" api/` should show writes only from (a) the new proposal-decision handler in `spec_task_proposal_handlers.go` (mark_complete approval) and (b) any pre-existing manual user "set status to done" handler. **Document the grep output in the PR description as proof.**
 - [ ] Update `task.MergedToMain` / `task.MergedAt` so they're still set as informational metadata when a PR transitions to merged in the polling loop — but make explicit (in code comments) that they no longer trigger any task status transition.
 - [ ] Unit tests:
-  - All 4 auto-transition test cases (if they exist) are deleted or repurposed to assert the **opposite** — "after PR merge, task remains in `pull_request` status; only `RepoPR.PRState` is updated to `merged`".
+  - All 5 auto-transition test cases (if they exist) are deleted or repurposed to assert the **opposite** — "after PR merge, task remains in `pull_request` status; only `RepoPR.PRState` is updated to `merged`".
+  - "Direct push to main while task in `implementation_review`" test: assert task status does NOT change.
   - New test: `mark_complete` proposal approved → task transitions to `done`, `CompletedAt` set.
   - New test: `mark_complete` proposal rejected (Send Back) → task stays in current status, agent receives the rejection prompt template.
 
-## Backend — prompts
+## Backend — prompts (catalog of every spec-task agent prompt)
 
-- [ ] Update `api/pkg/services/spec_task_prompts.go` planning template:
-  - Add "Spawning Follow-Up Tasks (Optional)" section: mention `propose_spec_task`; clarify `CreateSpecTask` is for Optimus chat only
-  - Add "Not Every Task Needs Code" section: explicitly state that zero-PR completion is valid for research / analysis / knowledge tasks
-- [ ] Update `api/pkg/services/agent_instruction_service.go` implementation template — replace the existing single `5.` step with:
+Code-wide audit found 8 Go `text/template` prompts + 2 `.tmpl` files + 8 builder/sender functions. Disposition for each:
+
+### Templates that need EDITING
+
+- [ ] `api/pkg/services/spec_task_prompts.go:28` `planningPromptTemplate`:
+  - Add "Spawning Follow-Up Tasks (Optional)" section — mention `propose_spec_task`; clarify `CreateSpecTask` is for Optimus chat only
+  - Add "Not Every Task Needs Code" section — explicitly state that zero-PR completion is valid
+- [ ] `api/pkg/services/agent_instruction_service.go:126` `approvalPromptTemplate` — replace the existing single `5.` step with the three new steps:
   - **Step 5 — "Opening pull requests (zero, one, or many)"**: explains `propose_pull_request`, that opening zero PRs is valid, that the simple "Open PR" button still works for single-PR tasks, and that `gh pr create` / GitHub MCP tools are still forbidden.
   - **Step 6 — "Capture knowledge as you go"**: two channels — spec branch (no PR needed) and main repo markdown files (via `propose_pull_request`). Spec branch preferred when in doubt.
-  - **Step 7 — "Declaring the task done — REQUIRED"**: `mark_task_complete` is the ONLY way to reach `done`. Must be called explicitly regardless of PR count or state. Old "all PRs merged → done" heuristic is gone.
-- [ ] Verify both prompt builders still produce valid output for cloned tasks (`ClonedTaskPreamble` still injected correctly)
-- [ ] Manual prompt-eval check: feed the new prompts to a few cloned-and-fresh task scenarios and verify the agent doesn't get confused about when to call `mark_task_complete` vs when to wait
+  - **Step 7 — "Declaring the task done — REQUIRED"**: `mark_task_complete` is the ONLY way to reach `done`.
+- [ ] `api/pkg/prompts/templates/agent_implementation_approved_push.tmpl` — drop the line *"the Pull Request has been opened automatically"*; add explicit instruction that pushing alone does NOT complete the task; mention `propose_pull_request` is the route for additional PRs; mention `mark_task_complete` is required for completion.
+- [ ] `api/pkg/prompts/templates/agent_rebase_required.tmpl` — strip any "merge → close" wording; clarify that rebasing keeps existing PRs current but does not affect task status; `mark_task_complete` remains the only path to `done`.
+
+### Templates / functions / call sites to DELETE entirely
+
+- [ ] DELETE `api/pkg/services/agent_instruction_service.go:420` `mergePromptTemplate`
+- [ ] DELETE `api/pkg/services/agent_instruction_service.go:588` `BuildMergeInstructionPrompt`
+- [ ] DELETE `api/pkg/services/agent_instruction_service.go:786` `SendMergeInstruction`
+- [ ] DELETE the `MergePromptData` struct and any `MergeInstructionData` types if used only here
+- [ ] Audit all callers of `SendMergeInstruction`: `grep -rn "SendMergeInstruction\|BuildMergeInstructionPrompt" api/` — every call site must be removed (likely in `spec_driven_task_service.go` or the implementation-approval handler). Implementation approval no longer sends a merge prompt at all; the agent learns about approval through proposal decision messages and the existing UI/notification channels.
+- [ ] Update tests that assert `SendMergeInstruction` was called → assert it is NOT called
+
+### Templates that stay UNCHANGED (verified by audit, no PR/completion lifecycle wording)
+
+- [ ] No-op verify: `commentPromptTemplate` (`agent_instruction_service.go:370`) — minimal design-doc-update message, unaffected by completion model change.
+- [ ] No-op verify: `implementationReviewPromptTemplate` (`agent_instruction_service.go:390`) — generic "code pushed, user will test" message; for zero-PR tasks it simply never fires.
+- [ ] No-op verify: `revisionPromptTemplate` (`agent_instruction_service.go:402`) — operates on design docs in spec branch, no completion logic.
+
+### Verification
+
+- [ ] Verify every edited prompt builder still produces valid output for cloned tasks (`ClonedTaskPreamble` still injected correctly)
+- [ ] Manual prompt-eval check: run a few cloned-and-fresh task scenarios and verify the agent doesn't get confused about when to call `mark_task_complete` vs when to wait
+- [ ] After all edits + deletions, grep `api/` for any remaining mention of "all PRs merged", "branch merged to main → done", "merge to base", or "Pull Request has been opened automatically" — there should be zero remaining hits in agent-facing prompts.
 
 ## Frontend — proposals UI
 
