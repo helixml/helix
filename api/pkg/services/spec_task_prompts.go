@@ -123,6 +123,14 @@ The project startup script (installs deps, starts dev servers) runs automaticall
 
 If the startup script hasn't run yet, the log won't exist. You can re-run it manually: ` + "`bash /home/retro/work/helix-specs/.helix/startup.sh`" + `
 
+## Spawning Follow-Up Tasks (Optional)
+
+If during planning you discover that a related but separable piece of work should be tracked as its own spec task, propose it via the ` + "`propose_spec_task`" + ` MCP tool. The user must approve it before it appears on the board. Do NOT use ` + "`CreateSpecTask`" + ` — that tool is reserved for chat sessions with the project-manager agent.
+
+## Not Every Task Needs Code
+
+Some tasks legitimately produce zero pull requests — research, analysis, documentation updates that live in the spec branch, knowledge consolidation. That's fine. The implementation phase will still happen (so you have an environment to investigate in), but you may finish without ever opening a PR. When the work is done, call ` + "`mark_task_complete`" + ` — that's the only way the task moves to ` + "`done`" + `.
+
 ## Document Your Learnings
 
 **Your design docs may be cloned to similar projects.** Write down what you discover:

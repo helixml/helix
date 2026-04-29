@@ -15,4 +15,6 @@ git push origin {{ $.BranchName }}
 {{- end }}
 ```
 
-If all your changes are already committed and pushed, no action is needed - the Pull Request has been opened automatically.
+**Pushing alone does NOT complete the task.** When the work is judged finished, call the `mark_task_complete` MCP tool — that is the only way the task reaches `done`.
+
+If you need to open additional pull requests (e.g. to ship work as a series of slices), use the `propose_pull_request` MCP tool. The user approves each proposal in the Helix UI before any push or PR creation happens.

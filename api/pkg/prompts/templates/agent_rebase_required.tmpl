@@ -13,4 +13,4 @@ Please update your branch to include the latest changes from {{ .DefaultBranch }
 3. Push your updated branch:
    git push origin {{ .BranchName }}
 
-After you complete the rebase and push, please tell the user they need to click "Accept" again to approve the merged code and complete the task.
+Rebasing keeps any open PRs current — it does not affect task status. When the work is judged finished, call the `mark_task_complete` MCP tool to declare completion (the user confirms in the Helix UI). That is the only path the task takes to `done`.

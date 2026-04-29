@@ -775,28 +775,33 @@ func (o *SpecTaskOrchestrator) processExternalPullRequestStatus(ctx context.Cont
 		}
 	}
 
+	// COMPLETION MODEL CHANGE: tasks no longer auto-transition to done based on
+	// PR merge state. The agent must explicitly call mark_task_complete (proposal
+	// approved by user in the Helix UI) to move a task to done. We still observe
+	// PR state for UI display (RepoPR.PRState updated above) and to set the
+	// informational MergedAt / MergedToMain fields below — but neither triggers
+	// a status transition.
 	if allMerged && len(task.RepoPullRequests) > 0 {
-		// ALL PRs merged - move to done
-		now := time.Now()
-		task.Status = types.TaskStatusDone
-		task.StatusUpdatedAt = &now
-		task.MergedToMain = true
-		task.MergedAt = &now
-		task.CompletedAt = &now
-		task.UpdatedAt = now
-		log.Info().
-			Str("task_id", task.ID).
-			Msg("PR merged! Moving task to done")
+		// Set informational metadata for the UI; do NOT touch task.Status.
+		if !task.MergedToMain {
+			now := time.Now()
+			task.MergedToMain = true
+			task.MergedAt = &now
+			task.UpdatedAt = now
+			updated = true
+			log.Debug().
+				Str("task_id", task.ID).
+				Msg("All PRs merged — recording metadata; task stays in current status until mark_task_complete is approved")
 
-		// Trigger golden Docker cache build if enabled for this project
-		if o.goldenBuildService != nil && task.ProjectID != "" {
-			project, err := o.store.GetProject(ctx, task.ProjectID)
-			if err == nil && project != nil {
-				o.goldenBuildService.TriggerGoldenBuild(ctx, project)
+			// Trigger golden Docker cache build if enabled (this is a build-cache
+			// optimisation, not a task status transition).
+			if o.goldenBuildService != nil && task.ProjectID != "" {
+				project, err := o.store.GetProject(ctx, task.ProjectID)
+				if err == nil && project != nil {
+					o.goldenBuildService.TriggerGoldenBuild(ctx, project)
+				}
 			}
 		}
-
-		return o.store.UpdateSpecTask(ctx, task)
 	}
 
 	if allClosed && !anyOpen && len(task.RepoPullRequests) > 0 {
@@ -810,51 +815,6 @@ func (o *SpecTaskOrchestrator) processExternalPullRequestStatus(ctx context.Cont
 	if updated {
 		task.UpdatedAt = time.Now()
 		return o.store.UpdateSpecTask(ctx, task)
-	}
-
-	// If no PRs are tracked (or all PRs are closed), check if the branch has
-	// been merged to main directly. This handles cases where the PR was created
-	// and merged on GitHub before we could link it, or where the branch was
-	// identical to main (no commits between them).
-	if !anyOpen && task.BranchName != "" {
-		project, err := o.store.GetProject(ctx, task.ProjectID)
-		if err != nil {
-			log.Debug().Err(err).Str("task_id", task.ID).Msg("Failed to get project for branch-merge check")
-			return nil
-		}
-		if project.DefaultRepoID == "" {
-			return nil
-		}
-		repo, err := o.store.GetGitRepository(ctx, project.DefaultRepoID)
-		if err != nil {
-			log.Debug().Err(err).Str("task_id", task.ID).Msg("Failed to get repo for branch-merge check")
-			return nil
-		}
-
-		merged, mergeErr := o.gitService.IsBranchMerged(ctx, project.DefaultRepoID, task.BranchName, repo.DefaultBranch)
-		if mergeErr != nil {
-			if task.LastPushCommitHash != "" {
-				merged, mergeErr = o.gitService.IsCommitInBranch(ctx, project.DefaultRepoID, task.LastPushCommitHash, repo.DefaultBranch)
-				if mergeErr != nil {
-					log.Debug().Err(mergeErr).Str("task_id", task.ID).Msg("Failed to check if commit is in main")
-					return nil
-				}
-			} else {
-				log.Debug().Err(mergeErr).Str("task_id", task.ID).Str("branch", task.BranchName).Msg("Failed to check if branch is merged")
-				return nil
-			}
-		}
-
-		if merged {
-			log.Info().Str("task_id", task.ID).Str("branch", task.BranchName).Msg("Detected merged branch, moving task to done")
-			now := time.Now()
-			task.Status = types.TaskStatusDone
-			task.MergedToMain = true
-			task.MergedAt = &now
-			task.CompletedAt = &now
-			task.UpdatedAt = now
-			return o.store.UpdateSpecTask(ctx, task)
-		}
 	}
 
 	return nil
@@ -1059,15 +1019,12 @@ func (o *SpecTaskOrchestrator) checkTaskForExternalPRActivity(ctx context.Contex
 				return nil
 			}
 
-			// Check if PR is already merged
+			// Externally-opened PR is already merged. We record it on the task so
+			// the UI shows the merged PR, but we do NOT transition the task to
+			// done — that requires the agent's mark_task_complete proposal to be
+			// approved by the user. The PR-poll loop will keep RepoPR.PRState
+			// fresh.
 			if pr.State == types.PullRequestStateMerged && branchMatches {
-				log.Info().
-					Str("task_id", task.ID).
-					Str("pr_id", pr.ID).
-					Str("branch", task.BranchName).
-					Str("repo_name", repo.Name).
-					Msg("Detected merged PR, moving task to done status")
-
 				now := time.Now()
 				task.RepoPullRequests = append(task.RepoPullRequests, types.RepoPR{
 					RepositoryID:   repo.ID,
@@ -1077,56 +1034,27 @@ func (o *SpecTaskOrchestrator) checkTaskForExternalPRActivity(ctx context.Contex
 					PRURL:          pr.URL,
 					PRState:        string(pr.State),
 				})
-				task.Status = types.TaskStatusDone
-				task.MergedToMain = true
-				task.MergedAt = &now
-				task.CompletedAt = &now
+				if !task.MergedToMain {
+					task.MergedToMain = true
+					task.MergedAt = &now
+				}
 				task.UpdatedAt = now
+				log.Debug().
+					Str("task_id", task.ID).
+					Str("pr_id", pr.ID).
+					Str("branch", task.BranchName).
+					Str("repo_name", repo.Name).
+					Msg("Recorded externally-opened merged PR; task stays in current status until mark_task_complete is approved")
 				return o.store.UpdateSpecTask(ctx, task)
 			}
 		}
 	}
 
-	// Fallback: check if branch has been merged to main in the primary repo
-	// (handles squash-merges or branch deletion after merge)
-	if project.DefaultRepoID == "" {
-		return nil
-	}
-	repo, err := o.gitService.GetRepository(ctx, project.DefaultRepoID)
-	if err != nil {
-		return fmt.Errorf("failed to get default repository: %w", err)
-	}
-	if !repo.IsExternal {
-		return nil
-	}
-
-	merged, err := o.gitService.IsBranchMerged(ctx, project.DefaultRepoID, task.BranchName, repo.DefaultBranch)
-	if err != nil {
-		if task.LastPushCommitHash != "" {
-			merged, err = o.gitService.IsCommitInBranch(ctx, project.DefaultRepoID, task.LastPushCommitHash, repo.DefaultBranch)
-			if err != nil {
-				log.Debug().Err(err).Str("task_id", task.ID).Msg("Failed to check if commit is in main branch")
-				return nil
-			}
-		} else {
-			return nil
-		}
-	}
-
-	if merged {
-		log.Info().
-			Str("task_id", task.ID).
-			Str("branch", task.BranchName).
-			Msg("Detected merged branch (no PR found), moving task to done status")
-
-		now := time.Now()
-		task.Status = types.TaskStatusDone
-		task.MergedToMain = true
-		task.MergedAt = &now
-		task.CompletedAt = &now
-		task.UpdatedAt = now
-		return o.store.UpdateSpecTask(ctx, task)
-	}
+	// Branch-merge detection (squash-merge / branch deleted after merge) used
+	// to also transition tasks to done. Removed under the new completion model:
+	// task.Status only changes via approved mark_task_complete proposals or
+	// direct user action. The branch-merge state is reflected via RepoPR.PRState
+	// for any tracked PRs and the informational MergedToMain / MergedAt fields.
 
 	return nil
 }
