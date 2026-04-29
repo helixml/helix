@@ -136,6 +136,19 @@ func (s *PostgresStore) runMigrations() error {
 		}
 	}
 
+	// One-time column rename: spec_tasks.planning_session_id -> agent_session_id.
+	// The original name reflected an early design with separate planning and
+	// implementation agents. In reality there is one agent per spec task for the
+	// whole lifecycle. GORM AutoMigrate cannot rename columns; we do it here via
+	// the GORM Migrator before AutoMigrate runs (otherwise AutoMigrate would add
+	// a new agent_session_id column and orphan the existing data).
+	// Idempotent: HasColumn check makes this a no-op after the first successful run.
+	if s.gdb.Migrator().HasTable(&types.SpecTask{}) && s.gdb.Migrator().HasColumn(&types.SpecTask{}, "planning_session_id") {
+		if err := s.gdb.Migrator().RenameColumn(&types.SpecTask{}, "planning_session_id", "agent_session_id"); err != nil {
+			return fmt.Errorf("failed to rename spec_tasks.planning_session_id to agent_session_id: %w", err)
+		}
+	}
+
 	// One-time data fix: truncate oversized session names before AutoMigrate
 	// adds the varchar(255) constraint. Safe to run on every startup because
 	// the WHERE clause makes it a no-op once all names are within bounds.
@@ -204,6 +217,7 @@ func (s *PostgresStore) runMigrations() error {
 		&types.SpecTaskDesignReviewComment{},
 		&types.SpecTaskDesignReviewCommentReply{},
 		&types.SpecTaskGitPushEvent{},
+		&types.SpecTaskProposal{},
 		&types.GitRepository{},
 		&types.ProjectRepository{}, // Junction table for project-repository many-to-many relationship
 		&types.SpecTaskImplementationTask{},

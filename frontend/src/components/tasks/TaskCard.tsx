@@ -109,7 +109,7 @@ export interface SpecTaskWithExtras {
     | "completed"
     | "failed"
     | "queued";
-  planning_session_id?: string;
+  agent_session_id?: string;
   archived?: boolean;
   metadata?: { error?: string; error_timestamp?: string };
   merged_to_main?: boolean;
@@ -1100,7 +1100,7 @@ function TaskCardInner({
         )}
 
         {/* Queued state: waiting for orchestrator to create session */}
-        {isQueued && !task.planning_session_id && (
+        {isQueued && !task.agent_session_id && (
           <Box
             sx={{
               display: "flex",
@@ -1122,12 +1122,12 @@ function TaskCardInner({
 
         {/* Live screenshot for active sessions - click opens desktop viewer */}
         {/* Don't show for completed/merged tasks - the container is shut down */}
-        {task.planning_session_id &&
+        {task.agent_session_id &&
           task.phase !== "completed" &&
           !task.merged_to_main &&
           !taskError && (
             <LiveAgentScreenshot
-              sessionId={task.planning_session_id}
+              sessionId={task.agent_session_id}
               projectId={projectId}
               startupErrorMessage={
                 typeof task.metadata?.error === "string"

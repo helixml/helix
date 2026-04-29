@@ -44,7 +44,7 @@ func (s *SpecTaskOrchestratorTestSuite) TestHandleDone_StopsDesktop() {
 	ctx := context.Background()
 	task := &types.SpecTask{
 		ID:                "task-123",
-		PlanningSessionID: "session-456",
+		AgentSessionID: "session-456",
 		Status:            types.TaskStatusDone,
 	}
 
@@ -58,7 +58,7 @@ func (s *SpecTaskOrchestratorTestSuite) TestHandleDone_KeepAliveSkipsStop() {
 	ctx := context.Background()
 	task := &types.SpecTask{
 		ID:                "task-keep-alive",
-		PlanningSessionID: "session-keep-alive",
+		AgentSessionID: "session-keep-alive",
 		Status:            types.TaskStatusDone,
 		KeepAlive:         true,
 	}

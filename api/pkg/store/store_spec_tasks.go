@@ -134,7 +134,7 @@ func (s *PostgresStore) UpdateSpecTask(ctx context.Context, task *types.SpecTask
 	log.Info().
 		Str("task_id", task.ID).
 		Str("status", task.Status.String()).
-		Str("planning_session_id", task.PlanningSessionID).
+		Str("agent_session_id", task.AgentSessionID).
 		Msg("Updated spec task")
 
 	_ = s.notifyTaskUpdates(ctx, StoreEventOperationUpdated, task)
@@ -409,9 +409,9 @@ func (s *PostgresStore) ListSpecTasks(ctx context.Context, filters *types.SpecTa
 	if filters.BranchName != "" {
 		db = db.Where("branch_name = ?", filters.BranchName)
 	}
-	// PlanningSessionID filter - reverse lookup from session to spec task
-	if filters.PlanningSessionID != "" {
-		db = db.Where("planning_session_id = ?", filters.PlanningSessionID)
+	// AgentSessionID filter - reverse lookup from session to spec task
+	if filters.AgentSessionID != "" {
+		db = db.Where("agent_session_id = ?", filters.AgentSessionID)
 	}
 	// Labels filter - tasks must have ALL specified labels (AND semantics via JSONB containment)
 	for _, label := range filters.Labels {

@@ -166,7 +166,7 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_ListIdleDesktops_SkipsKee
 		ProjectID:         "proj_test_" + system.GenerateUUID(),
 		UserID:            "user_id",
 		Name:              "keep-alive-test",
-		PlanningSessionID: session.ID,
+		AgentSessionID: session.ID,
 		KeepAlive:         true,
 		CreatedAt:         time.Now(),
 		UpdatedAt:         time.Now(),

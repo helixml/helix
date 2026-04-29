@@ -203,7 +203,7 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 				log.Error().
 					Err(err).
 					Str("task_id", specTask.ID).
-					Str("planning_session_id", specTask.PlanningSessionID).
+					Str("agent_session_id", specTask.AgentSessionID).
 					Msg("Failed to generate push instruction for agent")
 				return
 			}
@@ -213,7 +213,7 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 				log.Error().
 					Err(err).
 					Str("task_id", specTask.ID).
-					Str("planning_session_id", specTask.PlanningSessionID).
+					Str("agent_session_id", specTask.AgentSessionID).
 					Msg("Failed to send push instruction to agent via WebSocket")
 			} else {
 				log.Info().
@@ -871,30 +871,30 @@ func (s *HelixAPIServer) stopAgentSession(w http.ResponseWriter, r *http.Request
 	}
 
 	// Stop the container via Hydra executor if there's an active session
-	if specTask.PlanningSessionID != "" && s.externalAgentExecutor != nil {
+	if specTask.AgentSessionID != "" && s.externalAgentExecutor != nil {
 		log.Info().
 			Str("task_id", specTask.ID).
-			Str("session_id", specTask.PlanningSessionID).
+			Str("session_id", specTask.AgentSessionID).
 			Str("user_id", user.ID).
 			Msg("Stopping agent container via Hydra")
 
-		if err := s.externalAgentExecutor.StopDesktop(ctx, specTask.PlanningSessionID); err != nil {
+		if err := s.externalAgentExecutor.StopDesktop(ctx, specTask.AgentSessionID); err != nil {
 			log.Warn().
 				Err(err).
-				Str("session_id", specTask.PlanningSessionID).
+				Str("session_id", specTask.AgentSessionID).
 				Msg("Failed to stop agent container (may already be stopped)")
 			// Don't return error - container might already be gone
 		} else {
 			log.Info().
 				Str("task_id", specTask.ID).
-				Str("session_id", specTask.PlanningSessionID).
+				Str("session_id", specTask.AgentSessionID).
 				Msg("Agent container stopped successfully")
 		}
 	} else {
 		log.Info().
 			Str("task_id", specTask.ID).
 			Str("user_id", user.ID).
-			Bool("has_session", specTask.PlanningSessionID != "").
+			Bool("has_session", specTask.AgentSessionID != "").
 			Bool("has_executor", s.externalAgentExecutor != nil).
 			Msg("Agent stop requested (no container to stop)")
 	}

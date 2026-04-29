@@ -932,6 +932,20 @@ func (mr *MockStoreMockRecorder) CreateSpecTaskImplementationTask(ctx, implTask 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateSpecTaskImplementationTask", reflect.TypeOf((*MockStore)(nil).CreateSpecTaskImplementationTask), ctx, implTask)
 }
 
+// CreateSpecTaskProposal mocks base method.
+func (m *MockStore) CreateSpecTaskProposal(ctx context.Context, proposal *types.SpecTaskProposal) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateSpecTaskProposal", ctx, proposal)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// CreateSpecTaskProposal indicates an expected call of CreateSpecTaskProposal.
+func (mr *MockStoreMockRecorder) CreateSpecTaskProposal(ctx, proposal any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateSpecTaskProposal", reflect.TypeOf((*MockStore)(nil).CreateSpecTaskProposal), ctx, proposal)
+}
+
 // CreateSpecTaskWorkSession mocks base method.
 func (m *MockStore) CreateSpecTaskWorkSession(ctx context.Context, workSession *types.SpecTaskWorkSession) error {
 	m.ctrl.T.Helper()
@@ -2478,21 +2492,6 @@ func (mr *MockStoreMockRecorder) GetInteractionsSummary(ctx, sessionID, generati
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetInteractionsSummary", reflect.TypeOf((*MockStore)(nil).GetInteractionsSummary), ctx, sessionID, generationID)
 }
 
-// GetLatestInteractionsForSessions mocks base method.
-func (m *MockStore) GetLatestInteractionsForSessions(ctx context.Context, sessionIDs []string) (map[string]*types.Interaction, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetLatestInteractionsForSessions", ctx, sessionIDs)
-	ret0, _ := ret[0].(map[string]*types.Interaction)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// GetLatestInteractionsForSessions indicates an expected call of GetLatestInteractionsForSessions.
-func (mr *MockStoreMockRecorder) GetLatestInteractionsForSessions(ctx, sessionIDs any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetLatestInteractionsForSessions", reflect.TypeOf((*MockStore)(nil).GetLatestInteractionsForSessions), ctx, sessionIDs)
-}
-
 // GetKnowledge mocks base method.
 func (m *MockStore) GetKnowledge(ctx context.Context, id string) (*types.Knowledge, error) {
 	m.ctrl.T.Helper()
@@ -2536,6 +2535,21 @@ func (m *MockStore) GetLatestDesignReview(ctx context.Context, specTaskID string
 func (mr *MockStoreMockRecorder) GetLatestDesignReview(ctx, specTaskID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetLatestDesignReview", reflect.TypeOf((*MockStore)(nil).GetLatestDesignReview), ctx, specTaskID)
+}
+
+// GetLatestInteractionsForSessions mocks base method.
+func (m *MockStore) GetLatestInteractionsForSessions(ctx context.Context, sessionIDs []string) (map[string]*types.Interaction, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetLatestInteractionsForSessions", ctx, sessionIDs)
+	ret0, _ := ret[0].(map[string]*types.Interaction)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetLatestInteractionsForSessions indicates an expected call of GetLatestInteractionsForSessions.
+func (mr *MockStoreMockRecorder) GetLatestInteractionsForSessions(ctx, sessionIDs any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetLatestInteractionsForSessions", reflect.TypeOf((*MockStore)(nil).GetLatestInteractionsForSessions), ctx, sessionIDs)
 }
 
 // GetLicenseKey mocks base method.
@@ -2599,18 +2613,18 @@ func (mr *MockStoreMockRecorder) GetNextPendingPrompt(ctx, sessionID any) *gomoc
 }
 
 // GetNextQueuedCommentForSession mocks base method.
-func (m *MockStore) GetNextQueuedCommentForSession(ctx context.Context, planningSessionID string) (*types.SpecTaskDesignReviewComment, error) {
+func (m *MockStore) GetNextQueuedCommentForSession(ctx context.Context, agentSessionID string) (*types.SpecTaskDesignReviewComment, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetNextQueuedCommentForSession", ctx, planningSessionID)
+	ret := m.ctrl.Call(m, "GetNextQueuedCommentForSession", ctx, agentSessionID)
 	ret0, _ := ret[0].(*types.SpecTaskDesignReviewComment)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // GetNextQueuedCommentForSession indicates an expected call of GetNextQueuedCommentForSession.
-func (mr *MockStoreMockRecorder) GetNextQueuedCommentForSession(ctx, planningSessionID any) *gomock.Call {
+func (mr *MockStoreMockRecorder) GetNextQueuedCommentForSession(ctx, agentSessionID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetNextQueuedCommentForSession", reflect.TypeOf((*MockStore)(nil).GetNextQueuedCommentForSession), ctx, planningSessionID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetNextQueuedCommentForSession", reflect.TypeOf((*MockStore)(nil).GetNextQueuedCommentForSession), ctx, agentSessionID)
 }
 
 // GetOAuthConnection mocks base method.
@@ -2763,19 +2777,19 @@ func (mr *MockStoreMockRecorder) GetOrganizationMembership(ctx, q any) *gomock.C
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetOrganizationMembership", reflect.TypeOf((*MockStore)(nil).GetOrganizationMembership), ctx, q)
 }
 
-// GetPendingCommentByPlanningSessionID mocks base method.
-func (m *MockStore) GetPendingCommentByPlanningSessionID(ctx context.Context, planningSessionID string) (*types.SpecTaskDesignReviewComment, error) {
+// GetPendingCommentByAgentSessionID mocks base method.
+func (m *MockStore) GetPendingCommentByAgentSessionID(ctx context.Context, agentSessionID string) (*types.SpecTaskDesignReviewComment, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetPendingCommentByPlanningSessionID", ctx, planningSessionID)
+	ret := m.ctrl.Call(m, "GetPendingCommentByAgentSessionID", ctx, agentSessionID)
 	ret0, _ := ret[0].(*types.SpecTaskDesignReviewComment)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
-// GetPendingCommentByPlanningSessionID indicates an expected call of GetPendingCommentByPlanningSessionID.
-func (mr *MockStoreMockRecorder) GetPendingCommentByPlanningSessionID(ctx, planningSessionID any) *gomock.Call {
+// GetPendingCommentByAgentSessionID indicates an expected call of GetPendingCommentByAgentSessionID.
+func (mr *MockStoreMockRecorder) GetPendingCommentByAgentSessionID(ctx, agentSessionID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPendingCommentByPlanningSessionID", reflect.TypeOf((*MockStore)(nil).GetPendingCommentByPlanningSessionID), ctx, planningSessionID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPendingCommentByAgentSessionID", reflect.TypeOf((*MockStore)(nil).GetPendingCommentByAgentSessionID), ctx, agentSessionID)
 }
 
 // GetProject mocks base method.
@@ -3303,6 +3317,21 @@ func (mr *MockStoreMockRecorder) GetSpecTaskProgress(ctx, specTaskID any) *gomoc
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSpecTaskProgress", reflect.TypeOf((*MockStore)(nil).GetSpecTaskProgress), ctx, specTaskID)
 }
 
+// GetSpecTaskProposal mocks base method.
+func (m *MockStore) GetSpecTaskProposal(ctx context.Context, id string) (*types.SpecTaskProposal, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetSpecTaskProposal", ctx, id)
+	ret0, _ := ret[0].(*types.SpecTaskProposal)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetSpecTaskProposal indicates an expected call of GetSpecTaskProposal.
+func (mr *MockStoreMockRecorder) GetSpecTaskProposal(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSpecTaskProposal", reflect.TypeOf((*MockStore)(nil).GetSpecTaskProposal), ctx, id)
+}
+
 // GetSpecTaskWorkSession mocks base method.
 func (m *MockStore) GetSpecTaskWorkSession(ctx context.Context, id string) (*types.SpecTaskWorkSession, error) {
 	m.ctrl.T.Helper()
@@ -3767,18 +3796,18 @@ func (mr *MockStoreMockRecorder) IncrementSandboxContainerCount(ctx, id any) *go
 }
 
 // IsCommentBeingProcessedForSession mocks base method.
-func (m *MockStore) IsCommentBeingProcessedForSession(ctx context.Context, planningSessionID string) (bool, error) {
+func (m *MockStore) IsCommentBeingProcessedForSession(ctx context.Context, agentSessionID string) (bool, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "IsCommentBeingProcessedForSession", ctx, planningSessionID)
+	ret := m.ctrl.Call(m, "IsCommentBeingProcessedForSession", ctx, agentSessionID)
 	ret0, _ := ret[0].(bool)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // IsCommentBeingProcessedForSession indicates an expected call of IsCommentBeingProcessedForSession.
-func (mr *MockStoreMockRecorder) IsCommentBeingProcessedForSession(ctx, planningSessionID any) *gomock.Call {
+func (mr *MockStoreMockRecorder) IsCommentBeingProcessedForSession(ctx, agentSessionID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsCommentBeingProcessedForSession", reflect.TypeOf((*MockStore)(nil).IsCommentBeingProcessedForSession), ctx, planningSessionID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsCommentBeingProcessedForSession", reflect.TypeOf((*MockStore)(nil).IsCommentBeingProcessedForSession), ctx, agentSessionID)
 }
 
 // ListAPIKeys mocks base method.
@@ -4638,6 +4667,21 @@ func (m *MockStore) ListSpecTaskImplementationTasks(ctx context.Context, specTas
 func (mr *MockStoreMockRecorder) ListSpecTaskImplementationTasks(ctx, specTaskID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListSpecTaskImplementationTasks", reflect.TypeOf((*MockStore)(nil).ListSpecTaskImplementationTasks), ctx, specTaskID)
+}
+
+// ListSpecTaskProposals mocks base method.
+func (m *MockStore) ListSpecTaskProposals(ctx context.Context, filters *types.SpecTaskProposalFilters) ([]*types.SpecTaskProposal, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListSpecTaskProposals", ctx, filters)
+	ret0, _ := ret[0].([]*types.SpecTaskProposal)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListSpecTaskProposals indicates an expected call of ListSpecTaskProposals.
+func (mr *MockStoreMockRecorder) ListSpecTaskProposals(ctx, filters any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListSpecTaskProposals", reflect.TypeOf((*MockStore)(nil).ListSpecTaskProposals), ctx, filters)
 }
 
 // ListSpecTaskWorkSessions mocks base method.
@@ -5922,6 +5966,20 @@ func (m *MockStore) UpdateSpecTaskImplementationTask(ctx context.Context, implTa
 func (mr *MockStoreMockRecorder) UpdateSpecTaskImplementationTask(ctx, implTask any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateSpecTaskImplementationTask", reflect.TypeOf((*MockStore)(nil).UpdateSpecTaskImplementationTask), ctx, implTask)
+}
+
+// UpdateSpecTaskProposal mocks base method.
+func (m *MockStore) UpdateSpecTaskProposal(ctx context.Context, proposal *types.SpecTaskProposal) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateSpecTaskProposal", ctx, proposal)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateSpecTaskProposal indicates an expected call of UpdateSpecTaskProposal.
+func (mr *MockStoreMockRecorder) UpdateSpecTaskProposal(ctx, proposal any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateSpecTaskProposal", reflect.TypeOf((*MockStore)(nil).UpdateSpecTaskProposal), ctx, proposal)
 }
 
 // UpdateSpecTaskWorkSession mocks base method.

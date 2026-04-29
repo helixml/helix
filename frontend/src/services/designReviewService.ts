@@ -126,7 +126,7 @@ export function useDesignReviewComments(specTaskId: string, reviewId: string, op
 export interface CommentQueueStatus {
   current_comment_id?: string
   queued_comment_ids: string[]
-  planning_session_id?: string
+  agent_session_id?: string
 }
 
 export function useCommentQueueStatus(specTaskId: string, reviewId: string, options?: { enabled?: boolean; refetchInterval?: number }) {
@@ -140,7 +140,7 @@ export function useCommentQueueStatus(specTaskId: string, reviewId: string, opti
       return response.data as CommentQueueStatus
     },
     enabled: options?.enabled !== false && !!specTaskId && !!reviewId,
-    // Poll every second when enabled to pick up current_comment_id and planning_session_id
+    // Poll every second when enabled to pick up current_comment_id and agent_session_id
     // This is critical for WebSocket subscription to work - without polling,
     // the subscription never gets the session ID needed to connect
     refetchInterval: options?.refetchInterval ?? 1000,

@@ -895,8 +895,8 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
   // Sort helper: tasks needing human attention (agent finished) float to top
   const sortWithAttentionFirst = (tasks: SpecTaskWithExtras[]) => {
     return [...tasks].sort((a, b) => {
-      const aNeedsAttention = a.agent_work_state !== undefined && a.agent_work_state !== "working" && !!a.planning_session_id;
-      const bNeedsAttention = b.agent_work_state !== undefined && b.agent_work_state !== "working" && !!b.planning_session_id;
+      const aNeedsAttention = a.agent_work_state !== undefined && a.agent_work_state !== "working" && !!a.agent_session_id;
+      const bNeedsAttention = b.agent_work_state !== undefined && b.agent_work_state !== "working" && !!b.agent_session_id;
       if (aNeedsAttention && !bNeedsAttention) return -1;
       if (!aNeedsAttention && bNeedsAttention) return 1;
       return 0; // preserve existing order for same-attention tasks
@@ -1282,7 +1282,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
       // waiting for the next background poll interval (default 10s).
       queryClient.invalidateQueries({ queryKey: ["spec-tasks"] });
 
-      // Aggressive polling after starting planning to catch planning_session_id update
+      // Aggressive polling after starting planning to catch agent_session_id update
       // Poll at 1s, 2s, 4s, 6s intervals to catch the async session creation
       const pollForSessionId = async (retryCount = 0, maxRetries = 6) => {
         const response = await api.getApiClient().v1SpecTasksList({
@@ -1311,7 +1311,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
 
         setTasks(enhancedTasks);
 
-        // Check if the task has planning_session_id now
+        // Check if the task has agent_session_id now
         const updatedTask = specTasks.find((t) => t.id === task.id);
 
         // Check if task failed during async agent launch (error stored in metadata)
@@ -1321,10 +1321,10 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
           return;
         }
 
-        if (updatedTask?.planning_session_id) {
+        if (updatedTask?.agent_session_id) {
           console.log(
             "✅ Planning session ID populated:",
-            updatedTask.planning_session_id,
+            updatedTask.agent_session_id,
           );
           return; // Session ID found, stop polling
         }

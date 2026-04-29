@@ -1217,7 +1217,7 @@ func (o *SpecTaskOrchestrator) handleDone(ctx context.Context, task *types.SpecT
 		return nil
 	}
 
-	err := o.containerExecutor.StopDesktop(ctx, task.PlanningSessionID)
+	err := o.containerExecutor.StopDesktop(ctx, task.AgentSessionID)
 	if err != nil {
 		return fmt.Errorf("failed to stop desktop: %w", err)
 	}

@@ -57,8 +57,12 @@ func (b *HelixMCPBackend) ServeHTTP(w http.ResponseWriter, r *http.Request, user
 		return
 	}
 
-	// Get or create SSE server for this app
-	sseServer, err := b.getOrCreateServer(r.Context(), user, appID)
+	// session_id is optional for non-spec-task sessions; when present and matching
+	// a spec task it unlocks the proposal MCP tools (propose_pull_request, etc.)
+	sessionID := r.URL.Query().Get("session_id")
+
+	// Get or create SSE server for this (user, app, session) triple
+	sseServer, err := b.getOrCreateServer(r.Context(), user, appID, sessionID)
 	if err != nil {
 		log.Error().Err(err).Str("app_id", appID).Msg("failed to create MCP server for app")
 		http.Error(w, "failed to initialize MCP server: "+err.Error(), http.StatusInternalServerError)
@@ -82,10 +86,12 @@ func (b *HelixMCPBackend) ServeHTTP(w http.ResponseWriter, r *http.Request, user
 	sseServer.ServeHTTP(w, r)
 }
 
-// getOrCreateServer gets or creates an SSE server for the given app
-func (b *HelixMCPBackend) getOrCreateServer(ctx context.Context, user *types.User, appID string) (*server.SSEServer, error) {
-	// Check cache first (with TTL check)
-	cacheKey := fmt.Sprintf("%s:%s", user.ID, appID)
+// getOrCreateServer gets or creates an SSE server for the given (user, app, session) triple.
+// session_id is optional and when matched to a spec task unlocks the proposal MCP tools.
+func (b *HelixMCPBackend) getOrCreateServer(ctx context.Context, user *types.User, appID, sessionID string) (*server.SSEServer, error) {
+	// Cache per (user, app, session) so proposal tools (which depend on the session
+	// resolving to a spec task) are correctly scoped.
+	cacheKey := fmt.Sprintf("%s:%s:%s", user.ID, appID, sessionID)
 	cacheTTL := 5 * time.Minute
 
 	b.serversMu.RLock()
@@ -138,6 +144,14 @@ func (b *HelixMCPBackend) getOrCreateServer(ctx context.Context, user *types.Use
 		assistant := &app.Config.Helix.Assistants[0]
 		if err := b.addToolsFromAssistant(ctx, mcpServer, user, app, assistant); err != nil {
 			log.Warn().Err(err).Str("app_id", appID).Msg("failed to add tools from assistant")
+		}
+	}
+
+	// If this session is the agent session for a spec task, expose the proposal MCP
+	// tools (propose_pull_request, propose_spec_task, mark_task_complete).
+	if sessionID != "" {
+		if err := b.addSpecTaskProposalTools(ctx, mcpServer, sessionID); err != nil {
+			log.Debug().Err(err).Str("session_id", sessionID).Msg("did not register spec task proposal tools (session is not a spec task agent session)")
 		}
 	}
 

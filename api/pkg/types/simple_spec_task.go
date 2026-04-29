@@ -124,9 +124,9 @@ type SpecTask struct {
 	// Git repository attachments: REMOVED - now inherited from parent Project
 	// Repos are managed at the project level. Access via project.DefaultRepoID and GetProjectRepositories(project_id)
 
-	// Session tracking (single Helix session for entire workflow - planning + implementation)
-	// The same external agent/session is reused throughout the entire SpecTask lifecycle
-	PlanningSessionID string `json:"planning_session_id,omitempty" gorm:"size:255;index"`
+	// AgentSessionID is the single Helix session backing the agent for this spec task.
+	// One agent, one session for the whole lifecycle (planning + implementation phases).
+	AgentSessionID string `json:"agent_session_id,omitempty" gorm:"column:agent_session_id;size:255;index"`
 
 	// External agent tracking (single agent per SpecTask, spans entire workflow)
 	ExternalAgentID string `json:"external_agent_id,omitempty" gorm:"size:255;index"`
@@ -203,6 +203,10 @@ type SpecTask struct {
 	ClonedFromProjectID string `json:"cloned_from_project_id,omitempty" gorm:"size:255;index"` // Original project
 	CloneGroupID        string `json:"clone_group_id,omitempty" gorm:"size:255;index"`         // Groups tasks from same clone operation
 
+	// Parent task tracking — set when this task was spawned via an approved
+	// SpecTaskProposal of kind=spec_task. Enables UI lineage display.
+	ParentTaskID string `json:"parent_task_id,omitempty" gorm:"size:255;index"`
+
 	// Relationships (loaded via joins, not stored in database)
 	// NOTE: Use GORM preloading to load these when needed:
 	//   db.Preload("WorkSessions").Preload("ZedThreads").Find(&specTask)
@@ -262,7 +266,7 @@ type SpecTaskFilters struct {
 	ArchivedOnly      bool           `json:"archived_only,omitempty"`       // If true, show only archived tasks
 	DesignDocPath     string         `json:"design_doc_path,omitempty"`     // Filter by exact DesignDocPath (for git push detection)
 	BranchName        string         `json:"branch_name,omitempty"`         // Filter by exact BranchName (for uniqueness check)
-	PlanningSessionID string         `json:"planning_session_id,omitempty"` // Filter by PlanningSessionID (reverse lookup)
+	AgentSessionID    string         `json:"agent_session_id,omitempty"`    // Filter by AgentSessionID (reverse lookup)
 	Labels            []string       `json:"labels,omitempty"`              // Filter tasks that have ALL of these labels (AND semantics)
 }
 
@@ -311,12 +315,6 @@ const (
 	// Error states
 	TaskStatusSpecFailed           SpecTaskStatus = "spec_failed"           // Spec generation failed
 	TaskStatusImplementationFailed SpecTaskStatus = "implementation_failed" // Implementation failed
-)
-
-// Agent specialization types
-const (
-	AgentTypeSpecGeneration = "spec_generation" // Helix agents for planning/specs
-	AgentTypeImplementation = "implementation"  // Zed agents for coding
 )
 
 // SpecApprovalRequest represents a request for human spec approval

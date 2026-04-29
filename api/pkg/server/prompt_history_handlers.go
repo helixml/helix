@@ -87,12 +87,12 @@ func (apiServer *HelixAPIServer) processPendingPromptsForIdleSessions(ctx contex
 
 	// Determine the canonical planning session for this spec task.
 	// We only deliver prompts to the session that is the authoritative planning session
-	// (task.PlanningSessionID). If a duplicate orphan session was created by a race
+	// (task.AgentSessionID). If a duplicate orphan session was created by a race
 	// condition (issue #10), we must not deliver prompts to it — that causes duplicate
 	// message sends (issue #2) and confuses the agent (issue #9).
 	var canonicalSessionID string
 	if specTask, taskErr := apiServer.Store.GetSpecTask(ctx, specTaskID); taskErr == nil && specTask != nil {
-		canonicalSessionID = specTask.PlanningSessionID
+		canonicalSessionID = specTask.AgentSessionID
 	}
 
 	// Collect pending prompts per session

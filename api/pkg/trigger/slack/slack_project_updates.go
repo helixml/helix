@@ -98,8 +98,8 @@ func (s *SlackBot) postProjectUpdateNew(ctx context.Context, task *types.SpecTas
 	// Reuse the spectask's existing planning session if available, otherwise create a new one.
 	// This maintains the 1:1 session-to-spectask invariant.
 	var createdSession *types.Session
-	if task.PlanningSessionID != "" {
-		existing, err := s.store.GetSession(ctx, task.PlanningSessionID)
+	if task.AgentSessionID != "" {
+		existing, err := s.store.GetSession(ctx, task.AgentSessionID)
 		if err == nil && existing != nil {
 			createdSession = existing
 		}

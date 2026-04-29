@@ -90,7 +90,7 @@ func (s *PromptHistoryHandlersSuite) TestProcessPendingPromptsForIdleSessions_Id
 	// GetSpecTask is called to determine the canonical planning session (fix #10b)
 	s.store.EXPECT().
 		GetSpecTask(gomock.Any(), "task-123").
-		Return(&types.SpecTask{ID: "task-123", PlanningSessionID: sessionID}, nil)
+		Return(&types.SpecTask{ID: "task-123", AgentSessionID: sessionID}, nil)
 
 	// GetSession for the session (used to load session + check interactions)
 	session := &types.Session{
@@ -135,7 +135,7 @@ func (s *PromptHistoryHandlersSuite) TestProcessPendingPromptsForIdleSessions_Id
 	// GetSpecTask is called to determine the canonical planning session (fix #10b)
 	s.store.EXPECT().
 		GetSpecTask(gomock.Any(), "task-456").
-		Return(&types.SpecTask{ID: "task-456", PlanningSessionID: sessionID}, nil)
+		Return(&types.SpecTask{ID: "task-456", AgentSessionID: sessionID}, nil)
 
 	session := &types.Session{
 		ID:           sessionID,
@@ -177,7 +177,7 @@ func (s *PromptHistoryHandlersSuite) TestProcessPendingPromptsForIdleSessions_Bu
 	// GetSpecTask is called to determine the canonical planning session (fix #10b)
 	s.store.EXPECT().
 		GetSpecTask(gomock.Any(), "task-789").
-		Return(&types.SpecTask{ID: "task-789", PlanningSessionID: sessionID}, nil)
+		Return(&types.SpecTask{ID: "task-789", AgentSessionID: sessionID}, nil)
 
 	session := &types.Session{
 		ID:           sessionID,

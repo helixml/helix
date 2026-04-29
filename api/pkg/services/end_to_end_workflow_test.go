@@ -65,7 +65,7 @@ func TestCompleteSpecTaskMultiSessionWorkflow(t *testing.T) {
 		// Transition to spec generation
 		specTask.Status = types.TaskStatusSpecGeneration
 		specTask.ExternalAgentID = "helix-planning-agent"
-		specTask.PlanningSessionID = "planning_session_123"
+		specTask.AgentSessionID = "planning_session_123"
 
 		// Simulate planning agent output
 		generatedSpecs := &SpecGeneration{

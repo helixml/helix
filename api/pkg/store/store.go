@@ -553,9 +553,9 @@ type Store interface {
 	GetCommentByInteractionID(ctx context.Context, interactionID string) (*types.SpecTaskDesignReviewComment, error)
 	GetCommentByRequestID(ctx context.Context, requestID string) (*types.SpecTaskDesignReviewComment, error)
 	GetUnresolvedCommentsForTask(ctx context.Context, specTaskID string) ([]types.SpecTaskDesignReviewComment, error)
-	GetPendingCommentByPlanningSessionID(ctx context.Context, planningSessionID string) (*types.SpecTaskDesignReviewComment, error)
-	GetNextQueuedCommentForSession(ctx context.Context, planningSessionID string) (*types.SpecTaskDesignReviewComment, error)
-	IsCommentBeingProcessedForSession(ctx context.Context, planningSessionID string) (bool, error)
+	GetPendingCommentByAgentSessionID(ctx context.Context, agentSessionID string) (*types.SpecTaskDesignReviewComment, error)
+	GetNextQueuedCommentForSession(ctx context.Context, agentSessionID string) (*types.SpecTaskDesignReviewComment, error)
+	IsCommentBeingProcessedForSession(ctx context.Context, agentSessionID string) (bool, error)
 	GetSessionsWithPendingComments(ctx context.Context) ([]string, error)
 	ResetStuckComments(ctx context.Context) (int64, error)
 
@@ -563,6 +563,12 @@ type Store interface {
 	CreateSpecTaskDesignReviewCommentReply(ctx context.Context, reply *types.SpecTaskDesignReviewCommentReply) error
 	GetSpecTaskDesignReviewCommentReply(ctx context.Context, id string) (*types.SpecTaskDesignReviewCommentReply, error)
 	ListSpecTaskDesignReviewCommentReplies(ctx context.Context, commentID string) ([]types.SpecTaskDesignReviewCommentReply, error)
+
+	// spec task proposals (agent proposes PR / sub-task / mark-complete; user approves in UI)
+	CreateSpecTaskProposal(ctx context.Context, proposal *types.SpecTaskProposal) error
+	GetSpecTaskProposal(ctx context.Context, id string) (*types.SpecTaskProposal, error)
+	ListSpecTaskProposals(ctx context.Context, filters *types.SpecTaskProposalFilters) ([]*types.SpecTaskProposal, error)
+	UpdateSpecTaskProposal(ctx context.Context, proposal *types.SpecTaskProposal) error
 
 	// git push events
 	CreateSpecTaskGitPushEvent(ctx context.Context, event *types.SpecTaskGitPushEvent) error

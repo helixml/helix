@@ -417,7 +417,7 @@ func TestSpecDrivenTaskService_ApproveSpecs_LosesAtomicTransitionRace(t *testing
 		ID:                "task-loser",
 		ProjectID:         "project-1",
 		Status:            types.TaskStatusSpecApproved,
-		PlanningSessionID: "ses-loser",
+		AgentSessionID: "ses-loser",
 		SpecApproval:      &types.SpecApprovalResponse{Approved: true, ApprovedBy: "user-1"},
 		TaskNumber:        99,
 		Name:              "loser-task",
@@ -510,7 +510,7 @@ func TestSyncGitIdentityToApprover_Success(t *testing.T) {
 			return &types.User{ID: "approver-1", FullName: "Approver One", Email: "approver@example.com"}, nil
 		})
 
-	task := &types.SpecTask{ID: "task-1", PlanningSessionID: "ses-1", SpecApprovedBy: "approver-1"}
+	task := &types.SpecTask{ID: "task-1", AgentSessionID: "ses-1", SpecApprovedBy: "approver-1"}
 	require.NoError(t, svc.syncGitIdentityToUser(context.Background(), task, task.SpecApprovedBy, "approver"))
 
 	require.Len(t, *calls, 2, "expected email then name")
@@ -544,7 +544,7 @@ func TestSyncGitIdentityToApprover_FallsBackToUsernameThenEmailLocalPart(t *test
 
 			mockStore.EXPECT().GetUser(gomock.Any(), gomock.Any()).Return(tc.user, nil)
 
-			task := &types.SpecTask{ID: "task-1", PlanningSessionID: "ses-1", SpecApprovedBy: "u"}
+			task := &types.SpecTask{ID: "task-1", AgentSessionID: "ses-1", SpecApprovedBy: "u"}
 			require.NoError(t, svc.syncGitIdentityToUser(context.Background(), task, task.SpecApprovedBy, "approver"))
 
 			require.Len(t, *calls, 2)
@@ -559,7 +559,7 @@ func TestSyncGitIdentityToApprover_NoOpCases(t *testing.T) {
 		svc, _, ctrl := newIdentitySyncService(t, exec)
 		defer ctrl.Finish()
 		svc.SetTestMode(true)
-		require.NoError(t, svc.syncGitIdentityToUser(context.Background(), &types.SpecTask{PlanningSessionID: "s", SpecApprovedBy: "u"}, "u", "approver"))
+		require.NoError(t, svc.syncGitIdentityToUser(context.Background(), &types.SpecTask{AgentSessionID: "s", SpecApprovedBy: "u"}, "u", "approver"))
 		assert.Empty(t, *calls, "testMode should not exec")
 	})
 	t.Run("no session", func(t *testing.T) {
@@ -573,19 +573,19 @@ func TestSyncGitIdentityToApprover_NoOpCases(t *testing.T) {
 		exec, calls := recordingExec()
 		svc, _, ctrl := newIdentitySyncService(t, exec)
 		defer ctrl.Finish()
-		require.NoError(t, svc.syncGitIdentityToUser(context.Background(), &types.SpecTask{PlanningSessionID: "s"}, "", "approver"))
+		require.NoError(t, svc.syncGitIdentityToUser(context.Background(), &types.SpecTask{AgentSessionID: "s"}, "", "approver"))
 		assert.Empty(t, *calls)
 	})
 	t.Run("ExecInDesktop nil", func(t *testing.T) {
 		svc, _, ctrl := newIdentitySyncService(t, nil)
 		defer ctrl.Finish()
-		require.NoError(t, svc.syncGitIdentityToUser(context.Background(), &types.SpecTask{PlanningSessionID: "s", SpecApprovedBy: "u"}, "u", "approver"))
+		require.NoError(t, svc.syncGitIdentityToUser(context.Background(), &types.SpecTask{AgentSessionID: "s", SpecApprovedBy: "u"}, "u", "approver"))
 	})
 }
 
 func TestSyncGitIdentityToApprover_ErrorsSurface(t *testing.T) {
 	ctx := context.Background()
-	baseTask := &types.SpecTask{ID: "task-1", PlanningSessionID: "ses-1", SpecApprovedBy: "u"}
+	baseTask := &types.SpecTask{ID: "task-1", AgentSessionID: "ses-1", SpecApprovedBy: "u"}
 
 	t.Run("GetUser error bubbles up", func(t *testing.T) {
 		exec, calls := recordingExec()
@@ -652,7 +652,7 @@ func TestSyncGitIdentityToUser_UsesExplicitUserID(t *testing.T) {
 	// helper honours the userID argument, not the task field.
 	task := &types.SpecTask{
 		ID:                "task-x",
-		PlanningSessionID: "ses-x",
+		AgentSessionID: "ses-x",
 		SpecApprovedBy:    "someone-else",
 		PlanningStartedBy: "planner-42",
 	}

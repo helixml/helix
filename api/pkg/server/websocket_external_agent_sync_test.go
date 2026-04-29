@@ -332,7 +332,7 @@ func (s *WebSocketSyncSuite) TestMessageAdded_AssistantFirstMessage() {
 	// Goroutine calls
 	s.store.EXPECT().GetCommentByInteractionID(gomock.Any(), "int-1").
 		Return(nil, store.ErrNotFound).AnyTimes()
-	s.store.EXPECT().GetPendingCommentByPlanningSessionID(gomock.Any(), "ses_1").
+	s.store.EXPECT().GetPendingCommentByAgentSessionID(gomock.Any(), "ses_1").
 		Return(nil, nil).AnyTimes()
 
 	syncMsg := &types.SyncMessage{
@@ -382,7 +382,7 @@ func (s *WebSocketSyncSuite) TestMessageAdded_AssistantSameMessageID_StreamingUp
 
 	s.store.EXPECT().GetCommentByInteractionID(gomock.Any(), "int-2").
 		Return(nil, store.ErrNotFound).AnyTimes()
-	s.store.EXPECT().GetPendingCommentByPlanningSessionID(gomock.Any(), "ses_2").
+	s.store.EXPECT().GetPendingCommentByAgentSessionID(gomock.Any(), "ses_2").
 		Return(nil, nil).AnyTimes()
 
 	syncMsg := &types.SyncMessage{
@@ -434,7 +434,7 @@ func (s *WebSocketSyncSuite) TestMessageAdded_AssistantNewMessageID_MultiEntry()
 
 	s.store.EXPECT().GetCommentByInteractionID(gomock.Any(), "int-3").
 		Return(nil, store.ErrNotFound).AnyTimes()
-	s.store.EXPECT().GetPendingCommentByPlanningSessionID(gomock.Any(), "ses_3").
+	s.store.EXPECT().GetPendingCommentByAgentSessionID(gomock.Any(), "ses_3").
 		Return(nil, nil).AnyTimes()
 
 	syncMsg := &types.SyncMessage{
@@ -646,8 +646,8 @@ func (s *WebSocketSyncSuite) TestMessageCompleted_Normal() {
 
 	// processPromptQueue calls GetNextPendingPrompt
 	s.store.EXPECT().GetNextPendingPrompt(gomock.Any(), "ses_mc").Return(nil, nil).AnyTimes()
-	// GetPendingCommentByPlanningSessionID for fallback comment handling
-	s.store.EXPECT().GetPendingCommentByPlanningSessionID(gomock.Any(), "ses_mc").Return(nil, nil).AnyTimes()
+	// GetPendingCommentByAgentSessionID for fallback comment handling
+	s.store.EXPECT().GetPendingCommentByAgentSessionID(gomock.Any(), "ses_mc").Return(nil, nil).AnyTimes()
 
 	syncMsg := &types.SyncMessage{
 		EventType: "message_completed",
@@ -684,7 +684,7 @@ func (s *WebSocketSyncSuite) TestMessageCompleted_NoWaitingInteraction() {
 
 	// processPromptQueue still runs
 	s.store.EXPECT().GetNextPendingPrompt(gomock.Any(), "ses_nw").Return(nil, nil).AnyTimes()
-	s.store.EXPECT().GetPendingCommentByPlanningSessionID(gomock.Any(), "ses_nw").Return(nil, nil).AnyTimes()
+	s.store.EXPECT().GetPendingCommentByAgentSessionID(gomock.Any(), "ses_nw").Return(nil, nil).AnyTimes()
 
 	syncMsg := &types.SyncMessage{
 		EventType: "message_completed",
@@ -732,7 +732,7 @@ func (s *WebSocketSyncSuite) TestMessageCompleted_ContextMappingMiss_DBFallback(
 		},
 	)
 	s.store.EXPECT().GetNextPendingPrompt(gomock.Any(), "ses_mc_fb").Return(nil, nil).AnyTimes()
-	s.store.EXPECT().GetPendingCommentByPlanningSessionID(gomock.Any(), "ses_mc_fb").Return(nil, nil).AnyTimes()
+	s.store.EXPECT().GetPendingCommentByAgentSessionID(gomock.Any(), "ses_mc_fb").Return(nil, nil).AnyTimes()
 
 	syncMsg := &types.SyncMessage{
 		EventType: "message_completed",
@@ -1572,7 +1572,7 @@ func (s *WebSocketSyncSuite) TestFinalizeComment_CommentExists() {
 
 	specTask := &types.SpecTask{
 		ID:                "spec-fin",
-		PlanningSessionID: "ses_planning",
+		AgentSessionID: "ses_planning",
 	}
 	// Called twice: once from populateAgentResponseFromSession, once from processNextCommentInQueue
 	s.store.EXPECT().GetSpecTask(gomock.Any(), "spec-fin").Return(specTask, nil).Times(2)
@@ -1817,7 +1817,7 @@ func (s *WebSocketSyncSuite) TestStreamingContextCache_ClearedOnMessageCompleted
 	s.store.EXPECT().GetInteraction(gomock.Any(), "int-clear").Return(waitingInteraction, nil)
 	s.store.EXPECT().UpdateInteraction(gomock.Any(), gomock.Any()).Return(waitingInteraction, nil)
 	s.store.EXPECT().GetNextPendingPrompt(gomock.Any(), "ses_clear").Return(nil, nil).AnyTimes()
-	s.store.EXPECT().GetPendingCommentByPlanningSessionID(gomock.Any(), "ses_clear").Return(nil, nil).AnyTimes()
+	s.store.EXPECT().GetPendingCommentByAgentSessionID(gomock.Any(), "ses_clear").Return(nil, nil).AnyTimes()
 
 	syncMsg := &types.SyncMessage{
 		EventType: "message_completed",
@@ -2010,7 +2010,7 @@ func (s *WebSocketSyncSuite) TestStreamingThrottle_DirtyFlushOnMessageCompleted(
 	).After(flushUpdate)
 
 	s.store.EXPECT().GetNextPendingPrompt(gomock.Any(), "ses_flush").Return(nil, nil).AnyTimes()
-	s.store.EXPECT().GetPendingCommentByPlanningSessionID(gomock.Any(), "ses_flush").Return(nil, nil).AnyTimes()
+	s.store.EXPECT().GetPendingCommentByAgentSessionID(gomock.Any(), "ses_flush").Return(nil, nil).AnyTimes()
 
 	syncMsg := &types.SyncMessage{
 		EventType: "message_completed",

@@ -379,7 +379,7 @@ WITH desktop_last_activity AS (
       AND s.config->>'dev_container_id' != ''
       AND NOT EXISTS (
           SELECT 1 FROM spec_tasks st
-          WHERE st.planning_session_id = s.id
+          WHERE st.agent_session_id = s.id
             AND st.keep_alive = true
       )
     GROUP BY s.config->>'dev_container_id'

@@ -259,8 +259,8 @@ func (s *HelixAPIServer) listTasks(w http.ResponseWriter, r *http.Request) {
 	// Collect all session IDs and batch query for efficiency
 	sessionIDs := make([]string, 0)
 	for _, task := range tasks {
-		if task.PlanningSessionID != "" {
-			sessionIDs = append(sessionIDs, task.PlanningSessionID)
+		if task.AgentSessionID != "" {
+			sessionIDs = append(sessionIDs, task.AgentSessionID)
 		}
 	}
 	if len(sessionIDs) > 0 {
@@ -275,7 +275,7 @@ func (s *HelixAPIServer) listTasks(w http.ResponseWriter, r *http.Request) {
 			// Live-check the executor to avoid stale DB metadata after sandbox restarts
 			// (same pattern as getSession in session_handlers.go).
 			for _, task := range tasks {
-				if session, ok := sessionMap[task.PlanningSessionID]; ok {
+				if session, ok := sessionMap[task.AgentSessionID]; ok {
 					task.SessionUpdatedAt = &session.Updated
 
 					// Live-check container status against the executor, overriding stale DB values.
@@ -326,7 +326,7 @@ func (s *HelixAPIServer) listTasks(w http.ResponseWriter, r *http.Request) {
 				log.Warn().Err(err).Msg("failed to fetch latest interactions for agent_work_state derivation")
 			} else {
 				for _, task := range tasks {
-					task.AgentWorkState = deriveAgentWorkState(task, latestInteractions[task.PlanningSessionID])
+					task.AgentWorkState = deriveAgentWorkState(task, latestInteractions[task.AgentSessionID])
 				}
 			}
 		}
@@ -613,7 +613,7 @@ func (s *HelixAPIServer) getTaskProgress(w http.ResponseWriter, r *http.Request)
 		Specification: PhaseProgress{
 			Status:        getSpecificationStatus(task.Status),
 			Agent:         "", // No separate agent field needed
-			SessionID:     task.PlanningSessionID,
+			SessionID:     task.AgentSessionID,
 			StartedAt:     &task.CreatedAt, // Spec generation starts when task is created
 			CompletedAt:   task.SpecApprovedAt,
 			RevisionCount: task.SpecRevisionCount,
@@ -621,7 +621,7 @@ func (s *HelixAPIServer) getTaskProgress(w http.ResponseWriter, r *http.Request)
 		Implementation: PhaseProgress{
 			Status:    getImplementationStatus(task.Status),
 			Agent:     "",                     // No separate agent - reuses planning agent
-			SessionID: task.PlanningSessionID, // Same session continues into implementation
+			SessionID: task.AgentSessionID, // Same session continues into implementation
 			StartedAt: task.SpecApprovedAt,
 			// CompletedAt will be set when implementation is done
 		},
@@ -704,14 +704,14 @@ func (s *HelixAPIServer) getBatchTaskProgress(w http.ResponseWriter, r *http.Req
 			UpdatedAt: task.UpdatedAt,
 			Specification: PhaseProgress{
 				Status:        getSpecificationStatus(task.Status),
-				SessionID:     task.PlanningSessionID,
+				SessionID:     task.AgentSessionID,
 				StartedAt:     &task.CreatedAt,
 				CompletedAt:   task.SpecApprovedAt,
 				RevisionCount: task.SpecRevisionCount,
 			},
 			Implementation: PhaseProgress{
 				Status:    getImplementationStatus(task.Status),
-				SessionID: task.PlanningSessionID,
+				SessionID: task.AgentSessionID,
 				StartedAt: task.SpecApprovedAt,
 			},
 		}
@@ -962,7 +962,7 @@ func (s *HelixAPIServer) updateSpecTask(w http.ResponseWriter, r *http.Request) 
 			task.SpecRevisionCount = 0
 			task.ImplementationApprovedBy = ""
 			task.ImplementationApprovedAt = nil
-			task.PlanningSessionID = ""
+			task.AgentSessionID = ""
 			task.ExternalAgentID = ""
 			task.ZedInstanceID = ""
 			task.LastPushCommitHash = ""
@@ -992,18 +992,18 @@ func (s *HelixAPIServer) updateSpecTask(w http.ResponseWriter, r *http.Request) 
 		task.HelixAppID = updateReq.HelixAppID
 
 		// Sync session's ParentApp so restart uses new agent's display settings
-		if task.PlanningSessionID != "" {
-			session, err := s.Store.GetSession(ctx, task.PlanningSessionID)
+		if task.AgentSessionID != "" {
+			session, err := s.Store.GetSession(ctx, task.AgentSessionID)
 			if err == nil && session != nil && session.ParentApp != updateReq.HelixAppID {
 				session.ParentApp = updateReq.HelixAppID
 				if _, err := s.Store.UpdateSession(ctx, *session); err != nil {
 					log.Warn().Err(err).
-						Str("session_id", task.PlanningSessionID).
+						Str("session_id", task.AgentSessionID).
 						Str("new_agent", updateReq.HelixAppID).
 						Msg("Failed to update session ParentApp (continuing)")
 				} else {
 					log.Info().
-						Str("session_id", task.PlanningSessionID).
+						Str("session_id", task.AgentSessionID).
 						Str("new_agent", updateReq.HelixAppID).
 						Msg("Updated session ParentApp to match spec task agent")
 				}
@@ -1080,18 +1080,18 @@ func (s *HelixAPIServer) updateSpecTask(w http.ResponseWriter, r *http.Request) 
 	// the orchestrator's handleDone() has already exited without stopping the
 	// desktop (because KeepAlive was true at the time). Release the desktop now
 	// so the user has an explicit way to free the resources after merge.
-	if previousKeepAlive && !task.KeepAlive && task.Status == types.TaskStatusDone && task.PlanningSessionID != "" {
-		stopErr := s.externalAgentExecutor.StopDesktop(ctx, task.PlanningSessionID)
+	if previousKeepAlive && !task.KeepAlive && task.Status == types.TaskStatusDone && task.AgentSessionID != "" {
+		stopErr := s.externalAgentExecutor.StopDesktop(ctx, task.AgentSessionID)
 		if stopErr != nil {
 			log.Warn().
 				Err(stopErr).
 				Str("task_id", taskID).
-				Str("session_id", task.PlanningSessionID).
+				Str("session_id", task.AgentSessionID).
 				Msg("Failed to stop desktop after KeepAlive turned off on Done task (continuing)")
 		} else {
 			log.Info().
 				Str("task_id", taskID).
-				Str("session_id", task.PlanningSessionID).
+				Str("session_id", task.AgentSessionID).
 				Msg("Stopped desktop after KeepAlive turned off on Done task")
 		}
 	}
@@ -1219,20 +1219,20 @@ func (s *HelixAPIServer) archiveSpecTask(w http.ResponseWriter, r *http.Request)
 	// When archiving, stop any running external agents
 	if req.Archived {
 		// Stop the external agent if it's running
-		if task.PlanningSessionID != "" {
-			session, sessionErr := s.Store.GetSession(ctx, task.PlanningSessionID)
+		if task.AgentSessionID != "" {
+			session, sessionErr := s.Store.GetSession(ctx, task.AgentSessionID)
 			if sessionErr == nil && session.Metadata.AgentType == "zed_external" {
-				stopErr := s.externalAgentExecutor.StopDesktop(ctx, task.PlanningSessionID)
+				stopErr := s.externalAgentExecutor.StopDesktop(ctx, task.AgentSessionID)
 				if stopErr != nil {
 					log.Warn().
 						Err(stopErr).
 						Str("task_id", taskID).
-						Str("session_id", task.PlanningSessionID).
+						Str("session_id", task.AgentSessionID).
 						Msg("Failed to stop agent session when archiving (continuing anyway)")
 				} else {
 					log.Info().
 						Str("task_id", taskID).
-						Str("session_id", task.PlanningSessionID).
+						Str("session_id", task.AgentSessionID).
 						Msg("Stopped agent session before archiving")
 				}
 			}

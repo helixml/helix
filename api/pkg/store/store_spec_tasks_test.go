@@ -178,7 +178,7 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_UpdateSpecTask() {
 	task.Name = "Updated Name"
 	task.Status = types.TaskStatusSpecGeneration
 	task.Priority = types.SpecTaskPriorityHigh
-	task.PlanningSessionID = "session-123"
+	task.AgentSessionID = "session-123"
 
 	err = suite.db.UpdateSpecTask(suite.ctx, task)
 	suite.NoError(err)
@@ -188,7 +188,7 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_UpdateSpecTask() {
 	suite.Equal("Updated Name", retrieved.Name)
 	suite.Equal(types.TaskStatusSpecGeneration, retrieved.Status)
 	suite.Equal(types.SpecTaskPriorityHigh, retrieved.Priority)
-	suite.Equal("session-123", retrieved.PlanningSessionID)
+	suite.Equal("session-123", retrieved.AgentSessionID)
 }
 
 func (suite *PostgresStoreTestSuite) TestPostgresStore_UpdateSpecTask_EmptyID() {

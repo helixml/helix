@@ -2558,12 +2558,12 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 		}
 	} else {
 		// FALLBACK: Session-based lookup (for agents that don't echo request_id)
-		// This may fail if helixSessionID != planning_session_id, but we try anyway
+		// This may fail if helixSessionID != agent_session_id, but we try anyway
 		log.Debug().
 			Str("helix_session_id", helixSessionID).
 			Msg("No request_id in message_completed data, falling back to session-based lookup")
 
-		pendingComment, err := apiServer.Store.GetPendingCommentByPlanningSessionID(context.Background(), helixSessionID)
+		pendingComment, err := apiServer.Store.GetPendingCommentByAgentSessionID(context.Background(), helixSessionID)
 		if err == nil && pendingComment != nil {
 			requestID := pendingComment.RequestID
 			commentID := pendingComment.ID

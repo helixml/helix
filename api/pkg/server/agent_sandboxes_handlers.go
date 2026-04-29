@@ -296,7 +296,7 @@ func (apiServer *HelixAPIServer) queryVideoStats(ctx context.Context, hydraClien
 
 // findSpecTaskForSession resolves a helix session ID to its parent SpecTask.
 // Tries the work session path first (implementation sessions), then falls back
-// to checking PlanningSessionID (planning/spec-generation sessions).
+// to checking AgentSessionID (planning/spec-generation sessions).
 func (apiServer *HelixAPIServer) findSpecTaskForSession(ctx context.Context, sessionID string) *types.SpecTask {
 	// Path 1: session → work session → spec task (covers implementation sessions)
 	workSession, err := apiServer.Store.GetSpecTaskWorkSessionByHelixSession(ctx, sessionID)
@@ -309,7 +309,7 @@ func (apiServer *HelixAPIServer) findSpecTaskForSession(ctx context.Context, ses
 
 	// Path 2: session is the planning session on the spec task itself
 	tasks, err := apiServer.Store.ListSpecTasks(ctx, &types.SpecTaskFilters{
-		PlanningSessionID: sessionID,
+		AgentSessionID: sessionID,
 		Limit:             1,
 	})
 	if err == nil && len(tasks) > 0 {
