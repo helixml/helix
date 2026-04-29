@@ -16,5 +16,5 @@
 - [x] `go build ./pkg/server/ ./pkg/services/ ./pkg/types/ ./pkg/store/` succeeds
 - [x] `go test -run TestWebSocketSyncSuite ./pkg/server/` passes (full suite)
 - [x] `go test ./pkg/services/...` passes (full suite, includes spec_driven_task_service_test)
-- [ ] Manual end-to-end in inner Helix: start a spec task, let the agent begin a long response, drop a new design-review comment, confirm the prior turn cancels and the comment response starts within a few seconds
-- [ ] Push branch, open PR with link to this design doc, monitor Drone CI, fix any failures
+- [ ] Manual end-to-end in inner Helix: start a spec task, let the agent begin a long response, drop a new design-review comment, confirm the prior turn cancels and the comment response starts within a few seconds (WARNING: NOT manually tested yet — unit tests cover the wire-format change; reviewer should validate end-to-end before merge)
+- [x] Push branch (`feature/001962-spec-comments-should-be`); user opens PR via the Helix "Open PR" UI
