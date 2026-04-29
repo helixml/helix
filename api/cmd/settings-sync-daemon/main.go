@@ -10,11 +10,13 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
+	"github.com/gorilla/websocket"
 )
 
 const (
@@ -86,6 +88,7 @@ type helixConfigResponse struct {
 	ExternalSync                map[string]interface{} `json:"external_sync"`
 	Agent                       map[string]interface{} `json:"agent"`
 	Theme                       string                 `json:"theme"`
+	ColorScheme                 string                 `json:"color_scheme"`
 	Version                     int64                  `json:"version"`
 	CodeAgentConfig             *CodeAgentConfig       `json:"code_agent_config"`
 	ClaudeSubscriptionAvailable bool                   `json:"claude_subscription_available,omitempty"`
@@ -721,8 +724,13 @@ func main() {
 		log.Fatalf("Failed to start file watcher: %v", err)
 	}
 
-	// Start polling loop for Helix changes
+	// Start polling loop for Helix changes (slow safety net, 30s)
 	go daemon.pollHelixChanges()
+
+	// Start a websocket subscriber for instant config-change notifications.
+	// The API publishes a "config_changed" event to session-updates.<owner>.<session>
+	// when the user toggles their color scheme; we re-sync immediately.
+	go daemon.subscribeConfigEvents()
 
 	// HTTP server for health checks and manual triggers
 	http.HandleFunc("/health", daemon.healthCheck)
@@ -817,7 +825,103 @@ func (d *SettingsDaemon) syncFromHelix() error {
 		d.helixSettings["agent_servers"] = agentServers
 	}
 
+	// Mirror the session owner's color scheme to the GNOME desktop. This is best-effort:
+	// gsettings may fail if dconf is not available (e.g. not yet inside dbus-run-session)
+	// or if the setting is unsupported on this distro — we just log and move on.
+	d.applyGNOMEColorScheme(config.ColorScheme)
+
 	return d.writeSettings(d.helixSettings)
+}
+
+// subscribeConfigEvents connects to the API's user websocket for this session and
+// triggers an immediate re-sync whenever a config_changed event arrives. Reconnects
+// forever on failure with a 5s backoff. Falls back to the 30s poll loop if the WS
+// is unreachable.
+func (d *SettingsDaemon) subscribeConfigEvents() {
+	for {
+		if err := d.runConfigEventLoop(); err != nil {
+			log.Printf("config event WS disconnected: %v (reconnecting in 5s)", err)
+		}
+		time.Sleep(5 * time.Second)
+	}
+}
+
+func (d *SettingsDaemon) runConfigEventLoop() error {
+	wsURL, err := url.Parse(d.apiURL)
+	if err != nil {
+		return fmt.Errorf("bad api url: %w", err)
+	}
+	switch wsURL.Scheme {
+	case "https":
+		wsURL.Scheme = "wss"
+	default:
+		wsURL.Scheme = "ws"
+	}
+	wsURL.Path = "/api/v1/ws/user"
+	q := wsURL.Query()
+	q.Set("session_id", d.sessionID)
+	wsURL.RawQuery = q.Encode()
+
+	dialer := *websocket.DefaultDialer
+	dialer.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+	dialer.HandshakeTimeout = 10 * time.Second
+
+	header := http.Header{}
+	if d.apiToken != "" {
+		header.Set("Authorization", "Bearer "+d.apiToken)
+	}
+
+	conn, _, err := dialer.Dial(wsURL.String(), header)
+	if err != nil {
+		return fmt.Errorf("dial: %w", err)
+	}
+	defer conn.Close()
+	log.Printf("config event WS connected (%s)", wsURL.String())
+
+	for {
+		_, msg, err := conn.ReadMessage()
+		if err != nil {
+			return fmt.Errorf("read: %w", err)
+		}
+		var evt struct {
+			Type        string `json:"type"`
+			Field       string `json:"field"`
+			ColorScheme string `json:"color_scheme"`
+		}
+		if err := json.Unmarshal(msg, &evt); err != nil {
+			continue // not all session-updates events are config_changed; ignore noise
+		}
+		if evt.Type != "config_changed" {
+			continue
+		}
+		log.Printf("config_changed event: field=%s color_scheme=%s", evt.Field, evt.ColorScheme)
+		if err := d.syncFromHelix(); err != nil {
+			log.Printf("re-sync after config_changed failed: %v", err)
+		}
+	}
+}
+
+// applyGNOMEColorScheme runs gsettings to switch GNOME's color-scheme between
+// prefer-light and prefer-dark. Empty string is treated as dark for now (matches
+// the default Yaru Dark loaded by startup-app.sh).
+func (d *SettingsDaemon) applyGNOMEColorScheme(scheme string) {
+	gtkPreferDark := "true"
+	colorScheme := "prefer-dark"
+	if scheme == "light" {
+		gtkPreferDark = "false"
+		colorScheme = "prefer-light"
+	}
+
+	cmds := [][]string{
+		{"gsettings", "set", "org.gnome.desktop.interface", "color-scheme", colorScheme},
+		{"gsettings", "set", "org.gnome.desktop.interface", "gtk-application-prefer-dark-theme", gtkPreferDark},
+	}
+	for _, c := range cmds {
+		out, err := exec.Command(c[0], c[1:]...).CombinedOutput()
+		if err != nil {
+			log.Printf("gsettings %v failed: %v (%s)", c[1:], err, strings.TrimSpace(string(out)))
+		}
+	}
 }
 
 // SECURITY_PROTECTED_FIELDS must not be synced to the Helix API
