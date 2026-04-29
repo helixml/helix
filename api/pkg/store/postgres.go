@@ -140,12 +140,31 @@ func (s *PostgresStore) runMigrations() error {
 	// The original name reflected an early design with separate planning and
 	// implementation agents. In reality there is one agent per spec task for the
 	// whole lifecycle. GORM AutoMigrate cannot rename columns; we do it here via
-	// the GORM Migrator before AutoMigrate runs (otherwise AutoMigrate would add
-	// a new agent_session_id column and orphan the existing data).
-	// Idempotent: HasColumn check makes this a no-op after the first successful run.
-	if s.gdb.Migrator().HasTable(&types.SpecTask{}) && s.gdb.Migrator().HasColumn(&types.SpecTask{}, "planning_session_id") {
-		if err := s.gdb.Migrator().RenameColumn(&types.SpecTask{}, "planning_session_id", "agent_session_id"); err != nil {
-			return fmt.Errorf("failed to rename spec_tasks.planning_session_id to agent_session_id: %w", err)
+	// the GORM Migrator before AutoMigrate runs.
+	//
+	// Three states are possible on startup:
+	//   1. Only planning_session_id exists (pre-rename DB)        -> rename.
+	//   2. Both columns exist (AutoMigrate ran with the new struct
+	//      between deployments, adding an empty agent_session_id)  -> drop the
+	//      empty new column first, then rename to preserve data.
+	//   3. Only agent_session_id exists                            -> no-op.
+	if s.gdb.Migrator().HasTable(&types.SpecTask{}) {
+		hasOld := s.gdb.Migrator().HasColumn(&types.SpecTask{}, "planning_session_id")
+		hasNew := s.gdb.Migrator().HasColumn(&types.SpecTask{}, "agent_session_id")
+		if hasOld && hasNew {
+			// State 2: drop the empty new column added by AutoMigrate, then rename.
+			if err := s.gdb.WithContext(context.Background()).Exec(
+				"ALTER TABLE spec_tasks DROP COLUMN agent_session_id",
+			).Error; err != nil {
+				return fmt.Errorf("failed to drop transient agent_session_id column before rename: %w", err)
+			}
+			hasNew = false
+		}
+		if hasOld && !hasNew {
+			// State 1: rename, preserving data and the index.
+			if err := s.gdb.Migrator().RenameColumn(&types.SpecTask{}, "planning_session_id", "agent_session_id"); err != nil {
+				return fmt.Errorf("failed to rename spec_tasks.planning_session_id to agent_session_id: %w", err)
+			}
 		}
 	}
 
