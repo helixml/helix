@@ -905,23 +905,16 @@ func (d *SettingsDaemon) runConfigEventLoop() error {
 // prefer-light and prefer-dark. Empty string is treated as dark for now (matches
 // the default Yaru Dark loaded by startup-app.sh).
 func (d *SettingsDaemon) applyGNOMEColorScheme(scheme string) {
-	gtkPreferDark := "true"
 	colorScheme := "prefer-dark"
 	if scheme == "light" {
-		gtkPreferDark = "false"
 		colorScheme = "prefer-light"
 	}
-
-	cmds := [][]string{
-		{"gsettings", "set", "org.gnome.desktop.interface", "color-scheme", colorScheme},
-		{"gsettings", "set", "org.gnome.desktop.interface", "gtk-application-prefer-dark-theme", gtkPreferDark},
+	out, err := exec.Command("gsettings", "set", "org.gnome.desktop.interface", "color-scheme", colorScheme).CombinedOutput()
+	if err != nil {
+		log.Printf("gsettings color-scheme=%s failed: %v (%s)", colorScheme, err, strings.TrimSpace(string(out)))
+		return
 	}
-	for _, c := range cmds {
-		out, err := exec.Command(c[0], c[1:]...).CombinedOutput()
-		if err != nil {
-			log.Printf("gsettings %v failed: %v (%s)", c[1:], err, strings.TrimSpace(string(out)))
-		}
-	}
+	log.Printf("applied GNOME color-scheme=%s", colorScheme)
 }
 
 // SECURITY_PROTECTED_FIELDS must not be synced to the Helix API

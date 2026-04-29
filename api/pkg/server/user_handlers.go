@@ -359,7 +359,10 @@ func (apiServer *HelixAPIServer) updateUserColorScheme(rw http.ResponseWriter, r
 // the user so the in-desktop settings-sync-daemon can apply the new theme to
 // GNOME and Zed within ~100ms (no 30s poll wait).
 func (apiServer *HelixAPIServer) publishUserColorSchemeChange(ctx context.Context, userID, colorScheme string) {
-	sessions, _, err := apiServer.Store.ListSessions(ctx, store.ListSessionsQuery{Owner: userID})
+	// Spec-task sessions are owner_type=user, model_name=external_agent, and may
+	// belong to an org — none of which are matched by the default ListSessions
+	// filters. Query the DB directly to find every live session this user owns.
+	sessions, err := apiServer.Store.ListSessionsByOwner(ctx, userID)
 	if err != nil {
 		log.Warn().Err(err).Str("user_id", userID).Msg("failed to list sessions for color scheme push")
 		return
@@ -373,10 +376,13 @@ func (apiServer *HelixAPIServer) publishUserColorSchemeChange(ctx context.Contex
 		log.Warn().Err(err).Msg("failed to marshal color scheme event")
 		return
 	}
+	log.Info().Str("user_id", userID).Str("color_scheme", colorScheme).Int("session_count", len(sessions)).Msg("publishing color_scheme change to user sessions")
 	for _, s := range sessions {
 		topic := pubsub.GetSessionQueue(userID, s.ID)
 		if err := apiServer.pubsub.Publish(ctx, topic, payload); err != nil {
-			log.Debug().Err(err).Str("topic", topic).Msg("failed to publish color scheme event")
+			log.Warn().Err(err).Str("topic", topic).Msg("failed to publish color scheme event")
+		} else {
+			log.Debug().Str("topic", topic).Msg("published color_scheme event")
 		}
 	}
 }

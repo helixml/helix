@@ -24,7 +24,6 @@ import (
 type MockStore struct {
 	ctrl     *gomock.Controller
 	recorder *MockStoreMockRecorder
-	isgomock struct{}
 }
 
 // MockStoreMockRecorder is the mock recorder for MockStore.
@@ -4443,6 +4442,21 @@ func (m *MockStore) ListSessions(ctx context.Context, query ListSessionsQuery) (
 func (mr *MockStoreMockRecorder) ListSessions(ctx, query any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListSessions", reflect.TypeOf((*MockStore)(nil).ListSessions), ctx, query)
+}
+
+// ListSessionsByOwner mocks base method.
+func (m *MockStore) ListSessionsByOwner(ctx context.Context, ownerID string) ([]*types.Session, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListSessionsByOwner", ctx, ownerID)
+	ret0, _ := ret[0].([]*types.Session)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListSessionsByOwner indicates an expected call of ListSessionsByOwner.
+func (mr *MockStoreMockRecorder) ListSessionsByOwner(ctx, ownerID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListSessionsByOwner", reflect.TypeOf((*MockStore)(nil).ListSessionsByOwner), ctx, ownerID)
 }
 
 // ListSessionsBySandbox mocks base method.
