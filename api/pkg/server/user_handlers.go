@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -288,6 +289,89 @@ func (apiServer *HelixAPIServer) updateUserGuidelines(rw http.ResponseWriter, r 
 		GuidelinesUpdatedAt: updatedMeta.GuidelinesUpdatedAt,
 		GuidelinesUpdatedBy: updatedMeta.GuidelinesUpdatedBy,
 	}, http.StatusOK)
+}
+
+// updateUserColorScheme godoc
+// @Summary Update user color scheme preference
+// @Description Set the user's UI color scheme. Propagates instantly to GNOME and Zed in any spec-task sessions owned by this user.
+// @Tags Users
+// @Accept json
+// @Produce json
+// @Param request body types.UpdateUserColorSchemeRequest true "Color scheme update request"
+// @Success 200 {object} types.UpdateUserColorSchemeRequest
+// @Failure 400 {object} system.HTTPError
+// @Failure 401 {object} system.HTTPError
+// @Router /api/v1/users/me/color-scheme [put]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) updateUserColorScheme(rw http.ResponseWriter, r *http.Request) {
+	user := getRequestUser(r)
+	if user == nil {
+		http.Error(rw, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	var req types.UpdateUserColorSchemeRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(rw, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	switch req.ColorScheme {
+	case "", "light", "dark":
+		// ok
+	default:
+		http.Error(rw, "color_scheme must be 'light', 'dark', or empty", http.StatusBadRequest)
+		return
+	}
+
+	userMeta, err := apiServer.Store.GetUserMeta(r.Context(), user.ID)
+	if err != nil {
+		if err == store.ErrNotFound {
+			userMeta = &types.UserMeta{ID: user.ID}
+		} else {
+			log.Error().Err(err).Str("user_id", user.ID).Msg("failed to get user meta")
+			http.Error(rw, "Failed to update color scheme", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	userMeta.Config.ColorScheme = req.ColorScheme
+
+	if _, err := apiServer.Store.EnsureUserMeta(r.Context(), *userMeta); err != nil {
+		log.Error().Err(err).Str("user_id", user.ID).Msg("failed to save color scheme")
+		http.Error(rw, "Failed to update color scheme", http.StatusInternalServerError)
+		return
+	}
+
+	apiServer.publishUserColorSchemeChange(r.Context(), user.ID, req.ColorScheme)
+
+	writeResponse(rw, &req, http.StatusOK)
+}
+
+// publishUserColorSchemeChange notifies every active spec-task session owned by
+// the user so the in-desktop settings-sync-daemon can apply the new theme to
+// GNOME and Zed within ~100ms (no 30s poll wait).
+func (apiServer *HelixAPIServer) publishUserColorSchemeChange(ctx context.Context, userID, colorScheme string) {
+	sessions, _, err := apiServer.Store.ListSessions(ctx, store.ListSessionsQuery{Owner: userID})
+	if err != nil {
+		log.Warn().Err(err).Str("user_id", userID).Msg("failed to list sessions for color scheme push")
+		return
+	}
+	payload, err := json.Marshal(map[string]string{
+		"type":         "config_changed",
+		"field":        "color_scheme",
+		"color_scheme": colorScheme,
+	})
+	if err != nil {
+		log.Warn().Err(err).Msg("failed to marshal color scheme event")
+		return
+	}
+	for _, s := range sessions {
+		topic := pubsub.GetSessionQueue(userID, s.ID)
+		if err := apiServer.pubsub.Publish(ctx, topic, payload); err != nil {
+			log.Debug().Err(err).Str("topic", topic).Msg("failed to publish color scheme event")
+		}
+	}
 }
 
 // getUserGuidelinesHistory godoc
