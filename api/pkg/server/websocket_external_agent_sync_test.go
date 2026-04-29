@@ -451,6 +451,82 @@ func (s *WebSocketSyncSuite) TestMessageAdded_AssistantNewMessageID_MultiEntry()
 	s.NoError(err)
 }
 
+// TestMessageAdded_PriorInteractionMessageIDsAreFiltered reproduces the
+// cross-interaction response_entries leak surfaced by the e2e RESPONSE
+// ENTRIES ISOLATION VALIDATION step in Drone build #1024 (tag 2.11.0).
+//
+// Scenario: session has a completed prior interaction (int-prior, msg_id
+// "msg-A") and a fresh waiting interaction (int-current, no entries yet).
+// Zed's flush_streaming_throttle replays msg-A as a message_added event
+// targeted at the current thread. Without the prior-id filter the replay
+// landed in int-current's response_entries; the validator then rejected the
+// build for ISOLATION VIOLATION. The handler must drop the replay.
+func (s *WebSocketSyncSuite) TestMessageAdded_PriorInteractionMessageIDsAreFiltered() {
+	s.server.contextMappings["thread-leak"] = "ses_leak"
+
+	session := &types.Session{
+		ID:    "ses_leak",
+		Owner: "user-1",
+	}
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_leak").Return(session, nil)
+
+	priorInteraction := &types.Interaction{
+		ID:              "int-prior",
+		SessionID:       "ses_leak",
+		State:           types.InteractionStateComplete,
+		ResponseMessage: "Prior turn answer",
+		ResponseEntries: []byte(`[{"type":"text","content":"Prior turn answer","message_id":"msg-A"}]`),
+	}
+	currentInteraction := &types.Interaction{
+		ID:        "int-current",
+		SessionID: "ses_leak",
+		State:     types.InteractionStateWaiting,
+	}
+	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(
+		[]*types.Interaction{priorInteraction, currentInteraction}, int64(2), nil,
+	)
+
+	// UpdateInteraction is the only place the leak would surface. Capture
+	// every call so we can assert msg-A never appears in int-current's
+	// response_entries.
+	var lastUpdate *types.Interaction
+	s.store.EXPECT().UpdateInteraction(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, interaction *types.Interaction) (*types.Interaction, error) {
+			lastUpdate = interaction
+			return interaction, nil
+		},
+	).AnyTimes()
+
+	s.store.EXPECT().GetCommentByInteractionID(gomock.Any(), "int-current").
+		Return(nil, store.ErrNotFound).AnyTimes()
+	s.store.EXPECT().GetPendingCommentByPlanningSessionID(gomock.Any(), "ses_leak").
+		Return(nil, nil).AnyTimes()
+
+	// Zed's flush_streaming_throttle replays the prior turn's msg-A while
+	// streaming the new turn. Helix routes it to int-current (the only
+	// Waiting interaction). Without the filter this would land in
+	// int-current.ResponseEntries.
+	replay := &types.SyncMessage{
+		EventType: "message_added",
+		Data: map[string]interface{}{
+			"acp_thread_id": "thread-leak",
+			"message_id":    "msg-A",
+			"content":       "Prior turn answer",
+			"role":          "assistant",
+		},
+	}
+	s.NoError(s.server.handleMessageAdded("agent-1", replay))
+
+	if lastUpdate != nil && len(lastUpdate.ResponseEntries) > 0 {
+		var entries []wsprotocol.ResponseEntry
+		s.NoError(json.Unmarshal(lastUpdate.ResponseEntries, &entries))
+		for _, e := range entries {
+			s.NotEqual("msg-A", e.MessageID,
+				"msg-A belongs to int-prior and must never be persisted to int-current")
+		}
+	}
+}
+
 func (s *WebSocketSyncSuite) TestMessageAdded_UserMessage() {
 	s.server.contextMappings["thread-user"] = "ses_user"
 
