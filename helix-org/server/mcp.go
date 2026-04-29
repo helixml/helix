@@ -8,6 +8,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/helixml/helix-org/domain"
+	"github.com/helixml/helix-org/prompts"
 )
 
 // mcpHandler returns an http.Handler that speaks MCP over the Streamable
@@ -56,7 +57,9 @@ func (s *Server) buildMCPServer(r *http.Request) *mcp.Server {
 		Version: "0.1.0",
 	}, nil)
 
+	heldTools := make(map[domain.ToolName]bool, len(grants))
 	for _, g := range grants {
+		heldTools[g.ToolName] = true
 		tool, err := s.registry.Get(g.ToolName)
 		if err != nil {
 			// A grant pointing at a tool we don't know about. Skip silently;
@@ -65,6 +68,15 @@ func (s *Server) buildMCPServer(r *http.Request) *mcp.Server {
 			continue
 		}
 		registerToolForWorker(srv, tool, worker, g, s.logger.With("worker", workerID, "tool", g.ToolName))
+	}
+
+	if s.prompts != nil {
+		for _, p := range s.prompts.All() {
+			if req := p.RequiresTool(); req != "" && !heldTools[req] {
+				continue
+			}
+			registerPromptForWorker(srv, p, s.logger.With("worker", workerID, "prompt", p.Name()))
+		}
 	}
 
 	return srv
@@ -99,6 +111,51 @@ func registerToolForWorker(srv *mcp.Server, tool domain.Tool, caller domain.Work
 		}
 		return &mcp.CallToolResult{
 			Content: []mcp.Content{&mcp.TextContent{Text: string(result)}},
+		}, nil
+	})
+}
+
+// registerPromptForWorker binds a single prompt onto the per-worker
+// MCP server. The handler renders the prompt's template into seed
+// messages; the LLM consumes those and drives the conversation,
+// usually ending in a tool call (create_role, update_identity, …).
+//
+// Visibility is decided in buildMCPServer; by the time we get here the
+// prompt is already in the worker's allowed set.
+func registerPromptForWorker(srv *mcp.Server, p prompts.Prompt, logger interface {
+	Info(msg string, args ...any)
+}) {
+	args := p.Arguments()
+	mcpArgs := make([]*mcp.PromptArgument, 0, len(args))
+	for _, a := range args {
+		mcpArgs = append(mcpArgs, &mcp.PromptArgument{
+			Name:        a.Name,
+			Title:       a.Title,
+			Description: a.Description,
+			Required:    a.Required,
+		})
+	}
+	srv.AddPrompt(&mcp.Prompt{
+		Name:        string(p.Name()),
+		Title:       p.Title(),
+		Description: p.Description(),
+		Arguments:   mcpArgs,
+	}, func(ctx context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
+		messages, err := p.Render(ctx, req.Params.Arguments)
+		if err != nil {
+			logger.Info("mcp.prompt_error", "err", err.Error())
+			return nil, err
+		}
+		out := make([]*mcp.PromptMessage, 0, len(messages))
+		for _, m := range messages {
+			out = append(out, &mcp.PromptMessage{
+				Role:    mcp.Role(m.Role),
+				Content: &mcp.TextContent{Text: m.Text},
+			})
+		}
+		return &mcp.GetPromptResult{
+			Description: p.Description(),
+			Messages:    out,
 		}, nil
 	})
 }

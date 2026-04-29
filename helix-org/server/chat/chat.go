@@ -22,9 +22,12 @@ import (
 	"log/slog"
 	"net/http"
 	"os/exec"
+	"sort"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/helixml/helix-org/prompts"
 )
 
 // Bridge owns the chat subprocess and the SSE fan-out. Construct one
@@ -34,6 +37,14 @@ type Bridge struct {
 	cwd       string
 	mcpURL    string
 	logger    *slog.Logger
+	// prompts is the optional MCP-prompt registry. When set, SendHandler
+	// intercepts inputs that start with `/<name>` and replaces them with
+	// the prompt's rendered seed text before forwarding to claude.
+	// Reason: claude in stream-json mode does not process slash commands —
+	// it just wraps the raw text as a user message — so MCP prompts
+	// (which Claude Code's interactive TUI handles natively) are dead on
+	// arrival here unless we expand them server-side.
+	prompts *prompts.Registry
 
 	mu             sync.Mutex // guards sess, forceNew, resumeSID, freshFromPath
 	sess           *session
@@ -63,6 +74,16 @@ func New(claudeBin, cwd, mcpURL string, logger *slog.Logger) *Bridge {
 		logger = slog.Default()
 	}
 	return &Bridge{claudeBin: claudeBin, cwd: cwd, mcpURL: mcpURL, logger: logger}
+}
+
+// WithPrompts attaches a prompts.Registry so the bridge can resolve
+// `/<name>` inputs in the chat textarea into MCP-prompt seed text
+// before handing the message to claude. Returns the same Bridge so the
+// call can be chained off New. nil is equivalent to no prompts —
+// slash commands fall through to claude unchanged.
+func (b *Bridge) WithPrompts(reg *prompts.Registry) *Bridge {
+	b.prompts = reg
+	return b
 }
 
 // session is one running claude subprocess plus its SSE listeners. It
@@ -418,6 +439,13 @@ func (b *Bridge) SendHandler() http.Handler {
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
+		// User-facing bubble shows the original input — if they typed
+		// `/role marketing director`, that's what they expect to see in
+		// their own conversation, not the expanded interview text.
+		bubble := msg
+		if expanded, ok := b.expandSlashCommand(r.Context(), msg); ok {
+			msg = expanded
+		}
 		s, err := b.ensure(r.Context())
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -428,7 +456,99 @@ func (b *Bridge) SendHandler() http.Handler {
 			return
 		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_, _ = fmt.Fprint(w, renderUserBubble(msg))
+		_, _ = fmt.Fprint(w, renderUserBubble(bubble))
+	})
+}
+
+// expandSlashCommand intercepts inputs of the form `/<name> <rest>` and
+// replaces them with the rendered text of an MCP prompt registered
+// under <name>. Returns (expanded, true) on a hit, ("", false) if the
+// input isn't a slash command, the registry isn't attached, or the
+// prompt name isn't known. The fall-through case lets the message reach
+// claude unchanged so that anything we don't recognise (e.g. claude's
+// own built-ins like `/clear`) keeps working as far as it ever did.
+//
+// Argument convention: this is the smallest thing that works for
+// today's prompts — it threads any text after the command name into
+// the prompt's *first declared argument*. That's enough for `/role`
+// (one optional `hint` arg) and any other single-arg prompt; multi-arg
+// prompts will need real parsing when we have one.
+func (b *Bridge) expandSlashCommand(ctx context.Context, msg string) (string, bool) {
+	if b.prompts == nil || !strings.HasPrefix(msg, "/") {
+		return "", false
+	}
+	name, rest, _ := strings.Cut(msg[1:], " ")
+	if name == "" {
+		return "", false
+	}
+	p, err := b.prompts.Get(prompts.Name(name))
+	if err != nil {
+		return "", false
+	}
+	args := map[string]string{}
+	rest = strings.TrimSpace(rest)
+	if rest != "" {
+		if a := p.Arguments(); len(a) > 0 {
+			args[a[0].Name] = rest
+		}
+	}
+	rendered, err := p.Render(ctx, args)
+	if err != nil {
+		b.logger.Info("chat slash command render failed", "name", name, "err", err)
+		return "", false
+	}
+	parts := make([]string, 0, len(rendered))
+	for _, m := range rendered {
+		parts = append(parts, m.Text)
+	}
+	return strings.Join(parts, "\n\n"), true
+}
+
+// CommandsHandler renders the slash-command typeahead at POST
+// /ui/chat/commands. The textarea fires this on keyup; the body is the
+// current value, keyed `message`. We respond with a (possibly empty)
+// HTML fragment that htmx swaps into #slash-suggestions: an empty
+// response hides the dropdown, a list of buttons exposes each matching
+// prompt with its title and description.
+//
+// We don't filter by which Worker holds which grant here — the chat
+// surface today is the owner's, and the SendHandler intercepts and
+// expands locally without going through the per-worker MCP visibility
+// pipeline. If we open the chat to non-owner Workers later, this
+// endpoint should call into the same gating logic the per-worker MCP
+// server uses.
+func (b *Bridge) CommandsHandler() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		if b.prompts == nil {
+			return
+		}
+		r.Body = http.MaxBytesReader(w, r.Body, 4<<10)
+		if err := r.ParseForm(); err != nil {
+			return
+		}
+		msg := r.PostFormValue("message")
+		if !strings.HasPrefix(msg, "/") {
+			return
+		}
+		// Match against the first whitespace-delimited token (minus
+		// leading slash). Once the user types past `/<name> ` they're
+		// composing an argument, not picking a command — keep the
+		// chosen prompt highlighted but stop filtering further.
+		token, _, _ := strings.Cut(msg[1:], " ")
+		prefix := strings.ToLower(token)
+
+		all := b.prompts.All()
+		matches := make([]prompts.Prompt, 0, len(all))
+		for _, p := range all {
+			if strings.HasPrefix(strings.ToLower(string(p.Name())), prefix) {
+				matches = append(matches, p)
+			}
+		}
+		sort.Slice(matches, func(i, j int) bool { return matches[i].Name() < matches[j].Name() })
+		for _, p := range matches {
+			_, _ = fmt.Fprint(w, renderSlashSuggestion(p))
+		}
 	})
 }
 

@@ -40,16 +40,28 @@
             <!-- Pinned composer + chips. -->
             <div class="border-t" style="background: var(--surface); border-color: var(--line);">
                 <div class="max-w-[760px] mx-auto px-6 py-4">
+                    <!-- Slash-command typeahead. Empty by default; the
+                         textarea's keyup htmx trigger populates it with
+                         matching prompts when the user types `/`, and
+                         the server clears it (returns empty fragment)
+                         as soon as the input no longer starts with `/`. -->
+                    <div id="slash-suggestions"
+                         class="rounded-2xl mb-2 overflow-hidden empty:hidden"
+                         style="background: var(--surface); border: 1px solid var(--line);"></div>
                     <form class="rise rise-3 input-shell w-full text-left"
                           hx-post="/ui/chat/send"
                           hx-target="#chat-log"
                           hx-swap="beforeend scroll:#chat-scroll:bottom"
-                          hx-on::after-request="if(event.detail.successful){this.querySelector('textarea').value=''}">
+                          hx-on::after-request="if(event.target===this && event.detail.successful){this.querySelector('textarea').value='';document.getElementById('slash-suggestions').innerHTML='';}">
                         <div class="px-5 pt-4">
                             <textarea name="message" rows="1"
-                                placeholder="What should the org do next?"
+                                placeholder="What should the org do next?  Try /role cto"
                                 class="w-full resize-none text-[15px] placeholder:text-[var(--ink-muted)]"
                                 style="color: var(--ink); background: transparent; border: 0; outline: none; padding: 0; box-shadow: none;"
+                                hx-post="/ui/chat/commands"
+                                hx-trigger="keyup changed delay:80ms"
+                                hx-target="#slash-suggestions"
+                                hx-swap="innerHTML"
                                 onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();this.form.requestSubmit();}"></textarea>
                         </div>
                         <div class="px-3 pb-3 pt-1 flex items-center justify-end gap-2">

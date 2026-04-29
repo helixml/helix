@@ -83,6 +83,14 @@ const (
 	TransportGitHub TransportKind = "github"
 )
 
+// TransportKindValues lists every valid TransportKind. Source of truth
+// for the JSON Schema `enum` constraint surfaced through MCP and for
+// listing valid options in validation errors. Adding a new transport
+// means touching this one place.
+func TransportKindValues() []TransportKind {
+	return []TransportKind{TransportLocal, TransportWebhook, TransportEmail, TransportGitHub}
+}
+
 // Transport describes how events on a Stream move to and from the
 // outside world. Internal Streams use TransportLocal — that is still a
 // transport, just one whose endpoints are both inside the system.
@@ -270,7 +278,7 @@ func (t Transport) Validate() error {
 		}
 		return nil
 	default:
-		return errors.New("unknown transport kind: " + string(t.Kind))
+		return fmt.Errorf("unknown transport kind %q (valid: %s)", t.Kind, QuotedList(TransportKindValues()))
 	}
 }
 

@@ -22,6 +22,11 @@ coverage.html
 # Media
 *.mp4
 *.gif
+*.png
 
 # Notes
 TODO.md
+
+# Data
+*.db
+envs/

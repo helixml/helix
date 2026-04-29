@@ -18,6 +18,7 @@ import (
 	"github.com/helixml/helix-org/broadcast"
 	"github.com/helixml/helix-org/config"
 	"github.com/helixml/helix-org/dispatch"
+	"github.com/helixml/helix-org/prompts"
 	"github.com/helixml/helix-org/server"
 	"github.com/helixml/helix-org/server/chat"
 	"github.com/helixml/helix-org/server/ui"
@@ -123,6 +124,14 @@ func runServe(args []string) error {
 		return fmt.Errorf("register builtins: %w", err)
 	}
 
+	// Prompts: server-defined slash commands. Surfaced per-worker
+	// alongside tools, gated by tool grants so a Worker only sees
+	// prompts that end in a tool call they can actually make.
+	promptReg := prompts.NewRegistry()
+	if err := prompts.RegisterBuiltins(promptReg); err != nil {
+		return fmt.Errorf("register prompt builtins: %w", err)
+	}
+
 	// UI chat surface: long-lived `claude` subprocess in the server's
 	// cwd, bridged to the browser via SSE + form POST. The session
 	// resumes claude's per-cwd transcript so terminal `helix-org chat`
@@ -136,7 +145,7 @@ func runServe(args []string) error {
 		cwd,
 		strings.TrimRight(*publicURL, "/")+"/workers/w-owner/mcp",
 		logger,
-	)
+	).WithPrompts(promptReg)
 
 	// Snapshot config registry → ui.SettingsView so the UI doesn't
 	// need to import config. This is captured once at startup;
@@ -175,11 +184,12 @@ func runServe(args []string) error {
 
 	srv := &http.Server{
 		Addr: *addr,
-		Handler: server.New(store, reg, bc, deps.Dispatcher, logger).Handler(
+		Handler: server.New(store, reg, bc, deps.Dispatcher, logger).WithPrompts(promptReg).Handler(
 			server.Route{Pattern: "POST /email/postmark", Handler: emailTransport.HandleInbound()},
 			server.Route{Pattern: "POST /github/webhook", Handler: githubInbound.HandleInbound()},
 			server.Route{Pattern: "GET /ui/chat/stream", Handler: chatBridge.StreamHandler()},
 			server.Route{Pattern: "POST /ui/chat/send", Handler: chatBridge.SendHandler()},
+			server.Route{Pattern: "POST /ui/chat/commands", Handler: chatBridge.CommandsHandler()},
 			server.Route{Pattern: "POST /ui/chat/new", Handler: chatBridge.NewHandler()},
 			server.Route{Pattern: "POST /ui/chat/switch", Handler: chatBridge.SwitchHandler()},
 			server.Route{Pattern: "/ui/", Handler: uiHandler},

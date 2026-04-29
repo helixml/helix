@@ -4,12 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/helixml/helix-org/domain"
+	"github.com/helixml/helix-org/prompts"
 	"github.com/helixml/helix-org/server"
 	"github.com/helixml/helix-org/store/sqlite"
 	"github.com/helixml/helix-org/tools"
@@ -155,5 +157,123 @@ func TestMCPUngrantedToolHidden(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatalf("expected error for ungranted tool, got nil")
+	}
+}
+
+// newTestServerWithPrompts mirrors newTestServer but also attaches a
+// prompts registry containing new_role. Whether the worker actually
+// sees the prompt depends on whether they hold the gating grant
+// (create_role); callers exercise both branches.
+func newTestServerWithPrompts(t *testing.T, grantCreateRole bool) (*httptest.Server, domain.WorkerID) {
+	t.Helper()
+	s, err := sqlite.Open(":memory:")
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+
+	reg := tools.NewRegistry()
+	if err := reg.Register(tools.Ping{}); err != nil {
+		t.Fatalf("register ping: %v", err)
+	}
+	if err := tools.RegisterBuiltins(reg, tools.DefaultDeps(s)); err != nil {
+		t.Fatalf("register builtins: %v", err)
+	}
+
+	promptReg := prompts.NewRegistry()
+	if err := promptReg.Register(prompts.Role{}); err != nil {
+		t.Fatalf("register new_role: %v", err)
+	}
+
+	srv := httptest.NewServer(server.New(s, reg, nil, nil, nil).WithPrompts(promptReg).Handler())
+	t.Cleanup(srv.Close)
+
+	ctx := context.Background()
+	role, _ := domain.NewRole("r-ceo", "# CEO", time.Now().UTC())
+	_ = s.Roles.Create(ctx, role)
+	root, _ := domain.NewPosition("p-root", "r-ceo", nil)
+	_ = s.Positions.Create(ctx, root)
+	ai, _ := domain.NewAIWorker("w-ceo", []domain.PositionID{"p-root"}, "")
+	_ = s.Workers.Create(ctx, ai)
+	pingGrant, _ := domain.NewToolGrant("g-ping", "w-ceo", tools.PingName)
+	_ = s.Grants.Create(ctx, pingGrant)
+	if grantCreateRole {
+		g, _ := domain.NewToolGrant("g-create-role", "w-ceo", tools.CreateRoleName)
+		if err := s.Grants.Create(ctx, g); err != nil {
+			t.Fatalf("seed create_role grant: %v", err)
+		}
+	}
+	return srv, "w-ceo"
+}
+
+// TestMCPListPromptsVisibleWithGrant confirms that a prompt gated on a
+// tool grant shows up exactly when the worker holds that grant.
+func TestMCPListPromptsVisibleWithGrant(t *testing.T) {
+	t.Parallel()
+	srv, workerID := newTestServerWithPrompts(t, true)
+	session := connectMCP(t, srv.URL, workerID)
+
+	res, err := session.ListPrompts(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("list prompts: %v", err)
+	}
+	got := make(map[string]bool, len(res.Prompts))
+	for _, p := range res.Prompts {
+		got[p.Name] = true
+	}
+	if !got[string(prompts.RoleName)] {
+		t.Errorf("new_role missing from list: %+v", got)
+	}
+}
+
+// TestMCPListPromptsHiddenWithoutGrant confirms the gating: a worker
+// without create_role does NOT see the new_role prompt, because the
+// final tool call would fail anyway.
+func TestMCPListPromptsHiddenWithoutGrant(t *testing.T) {
+	t.Parallel()
+	srv, workerID := newTestServerWithPrompts(t, false)
+	session := connectMCP(t, srv.URL, workerID)
+
+	res, err := session.ListPrompts(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("list prompts: %v", err)
+	}
+	for _, p := range res.Prompts {
+		if p.Name == string(prompts.RoleName) {
+			t.Errorf("new_role visible without create_role grant: %+v", p)
+		}
+	}
+}
+
+// TestMCPGetPromptReturnsSeedMessages exercises the full prompts/get
+// round-trip: the rendered template lands as the user-role seed message
+// in the conversation.
+func TestMCPGetPromptReturnsSeedMessages(t *testing.T) {
+	t.Parallel()
+	srv, workerID := newTestServerWithPrompts(t, true)
+	session := connectMCP(t, srv.URL, workerID)
+
+	res, err := session.GetPrompt(context.Background(), &mcp.GetPromptParams{
+		Name:      string(prompts.RoleName),
+		Arguments: map[string]string{"hint": "VP marketing"},
+	})
+	if err != nil {
+		t.Fatalf("get prompt: %v", err)
+	}
+	if len(res.Messages) != 1 {
+		t.Fatalf("messages = %d, want 1", len(res.Messages))
+	}
+	msg := res.Messages[0]
+	if msg.Role != "user" {
+		t.Errorf("role = %q, want user", msg.Role)
+	}
+	text, ok := msg.Content.(*mcp.TextContent)
+	if !ok {
+		t.Fatalf("content = %T, want *TextContent", msg.Content)
+	}
+	if !strings.Contains(text.Text, "VP marketing") {
+		t.Errorf("hint not threaded through: %s", text.Text)
+	}
+	if !strings.Contains(text.Text, "create_role") {
+		t.Errorf("template missing create_role reference")
 	}
 }

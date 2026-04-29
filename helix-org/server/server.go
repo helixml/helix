@@ -13,6 +13,7 @@ import (
 
 	"github.com/helixml/helix-org/broadcast"
 	"github.com/helixml/helix-org/domain"
+	"github.com/helixml/helix-org/prompts"
 	"github.com/helixml/helix-org/store"
 	"github.com/helixml/helix-org/tools"
 )
@@ -29,6 +30,7 @@ type Dispatcher interface {
 type Server struct {
 	store       *store.Store
 	registry    *tools.Registry
+	prompts     *prompts.Registry
 	broadcaster *broadcast.Broadcaster
 	dispatcher  Dispatcher
 	logger      *slog.Logger
@@ -45,6 +47,16 @@ func New(s *store.Store, registry *tools.Registry, broadcaster *broadcast.Broadc
 		logger = slog.New(slog.NewTextHandler(discardWriter{}, nil))
 	}
 	return &Server{store: s, registry: registry, broadcaster: broadcaster, dispatcher: dispatcher, logger: logger}
+}
+
+// WithPrompts attaches a prompts.Registry so the per-worker MCP server
+// will surface MCP prompts (slash commands) alongside tools. Returns
+// the same Server so the call can be chained off New. Passing nil is
+// equivalent to no prompts registered — the MCP server just answers
+// prompts/list with an empty list.
+func (s *Server) WithPrompts(reg *prompts.Registry) *Server {
+	s.prompts = reg
+	return s
 }
 
 // Route is a (pattern, handler) pair callers pass to Handler so

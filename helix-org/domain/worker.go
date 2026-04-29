@@ -13,6 +13,26 @@ const (
 	WorkerKindAI    WorkerKind = "ai"
 )
 
+// WorkerKindValues lists every valid WorkerKind. Source of truth for
+// the JSON Schema `enum` constraint surfaced through MCP and for
+// listing valid options in validation errors. Adding a new kind means
+// touching this one place.
+func WorkerKindValues() []WorkerKind {
+	return []WorkerKind{WorkerKindHuman, WorkerKindAI}
+}
+
+// Validate returns an error if k is not one of the known worker kinds.
+// The error lists the valid options verbatim so a client that posted
+// a bad value can self-correct without reading source.
+func (k WorkerKind) Validate() error {
+	for _, v := range WorkerKindValues() {
+		if k == v {
+			return nil
+		}
+	}
+	return fmt.Errorf("unknown worker kind %q (valid: %s)", k, QuotedList(WorkerKindValues()))
+}
+
 // Worker is the common abstraction over humans and AI agents occupying
 // Positions. HumanWorker and AIWorker are the only concrete
 // implementations; the unexported marker method keeps the set closed.

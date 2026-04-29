@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"html"
 	"strings"
+
+	"github.com/helixml/helix-org/prompts"
 )
 
 // streamEvent captures the parts of claude's stream-json format the
@@ -130,6 +132,31 @@ func renderAssistantEvent(messageJSON json.RawMessage) []string {
 		}
 	}
 	return out
+}
+
+// renderSlashSuggestion renders one row in the slash-command dropdown.
+// Clicking the row fills the textarea with `/<name> ` (trailing space
+// so the user can keep typing arguments) and clears the dropdown.
+//
+// The inline onclick is the smallest thing that works — it does the
+// two DOM ops that have no reasonable server-rendered equivalent
+// (mutating the textarea value, hiding the suggestion list). Anything
+// fancier than this would mean adopting a JS framework, which we don't
+// need.
+func renderSlashSuggestion(p prompts.Prompt) string {
+	name := html.EscapeString(string(p.Name()))
+	title := html.EscapeString(p.Title())
+	desc := html.EscapeString(p.Description())
+	return fmt.Sprintf(
+		`<button type="button"
+		         class="block w-full text-left px-4 py-2 hover:bg-[var(--surface-elev)] border-b border-[var(--line)] last:border-b-0"
+		         onclick="var t=document.querySelector('textarea[name=&quot;message&quot;]');t.value='/%s ';t.focus();var s=document.getElementById('slash-suggestions');if(s){s.innerHTML='';}">
+		   <span class="font-mono text-[14px]" style="color: var(--accent);">/%s</span>
+		   <span class="text-[13px]" style="color: var(--ink);"> — %s</span>
+		   <div class="text-[12px] mt-0.5" style="color: var(--ink-muted);">%s</div>
+		 </button>`,
+		name, name, title, desc,
+	)
 }
 
 func renderUserBubble(text string) string {

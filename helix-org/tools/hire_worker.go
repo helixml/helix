@@ -76,6 +76,9 @@ func (t *HireWorker) Invoke(ctx context.Context, inv domain.Invocation) (json.Ra
 	if err := json.Unmarshal(inv.Args, &args); err != nil {
 		return nil, fmt.Errorf("parse args: %w", err)
 	}
+	if err := args.Kind.Validate(); err != nil {
+		return nil, err
+	}
 	if args.IdentityContent == "" {
 		return nil, fmt.Errorf("identityContent is required")
 	}
@@ -109,7 +112,8 @@ func (t *HireWorker) Invoke(ctx context.Context, inv domain.Invocation) (json.Ra
 		}
 		worker = w
 	default:
-		return nil, fmt.Errorf("unknown worker kind %q", args.Kind)
+		// Unreachable: Validate() above already rejected unknown kinds.
+		return nil, args.Kind.Validate()
 	}
 
 	// The env directory exists so it can be the Worker's cwd at
