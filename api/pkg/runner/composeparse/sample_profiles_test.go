@@ -26,14 +26,19 @@ func TestParse_SampleProfiles(t *testing.T) {
 		// compatibility check on an 8-GPU host passes with desktop headroom.
 		{"8xRTX6000Pro-vllm.yaml", 5, 7},
 		// 4x A100 80GB multi-model layout. 4 services on GPUs 0,1,2; GPU 3
-		// reserved for desktops. GPUCount = 3 so compatibility check on
-		// the 4-GPU host passes with explicit desktop headroom.
+		// reserved for desktops (software-encoded — A100 has no NVENC and
+		// no display engine, so desktop video falls back to libx264 in
+		// GStreamer; CPU-bound but workable). GPUCount = 3 so the
+		// compatibility check on a 4-GPU host passes with explicit
+		// desktop headroom.
 		{"4xA100-vllm.yaml", 4, 3},
 		// 4x L40S 48GB multi-model layout. Same 4-services-on-3-GPUs shape
 		// as the A100 profile; sized for L40S's 48GB VRAM so different
-		// model choices. Designed to be deployed identically across a
-		// fleet of nodes (sandboxes serving the same model names →
-		// inference router round-robins).
+		// model choices. Unlike A100, L40S has full NVENC + display
+		// engine, so the reserved GPU 3 gets hardware-accelerated desktop
+		// streaming. Designed to be deployed identically across a fleet
+		// of nodes (sandboxes serving the same model names → inference
+		// router round-robins).
 		{"4xL40S-vllm.yaml", 4, 3},
 		// 8x MI300X 192GB (CDNA-3 compute-only) flagship layout. One
 		// service: DeepSeek-V4-Pro 862B FP8 with TP=8 across all GPUs.

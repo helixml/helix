@@ -706,7 +706,7 @@ export const curatedProfiles: CuratedProfile[] = [
   {
     id: "4xa100-vllm",
     name: "4×A100 80GB — multi-model stack",
-    description: "4× A100 80GB. Embeddings + GLM-4.7-Flash + Qwen3.6-35B-A3B MoE on GPUs 0-2; **GPU 3 reserved for Hydra desktops** (Decision 15: spawn with `gpu_index: 3`). A100 has no NVENC, so desktop encoding falls back to libx264 software — fine for 1-2 concurrent sessions.",
+    description: "4× A100 80GB. Embeddings + GLM-4.7-Flash + Qwen3.6-35B-A3B MoE on GPUs 0-2; **GPU 3 reserved for Hydra desktops, software-encoded only** (Decision 15: spawn with `gpu_index: 3`). A100 has no NVENC and no display engine — Mutter renders via the nvidia DRM/KMS path and GStreamer falls back to libx264 (CPU-bound; fine for 1-2 concurrent sessions). For hardware-accelerated desktops on the same hardware tier, prefer L40S.",
     pros: [
       "Mid-tier inference + agent desktops on the same node",
       "GLM-4.7-Flash 31B + Qwen3.6-35B-A3B MoE = top-tier reasoning + tool calling",

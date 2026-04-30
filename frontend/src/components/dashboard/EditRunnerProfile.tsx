@@ -143,7 +143,17 @@ const EditRunnerProfile: FC<Props> = ({ profile, template, onClose }) => {
           </Typography>
           <Typography variant="caption" color="text.secondary" sx={{ mb: 1 }}>
             Filter which sandboxes can host this profile. Leave blank for "any
-            GPU." Count comes from the compose YAML below.
+            GPU." Count comes from the compose YAML below. For NVIDIA GPUs,
+            check NVENC/NVDEC availability per SKU at the{" "}
+            <a
+              href="https://developer.nvidia.com/video-encode-decode-support-matrix"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              NVIDIA Video Encode/Decode Support Matrix
+            </a>{" "}
+            — datacenter compute SKUs (A100, H100) lack NVENC and fall back to
+            software encode for desktop streaming.
           </Typography>
 
           <FormControl size="small">
