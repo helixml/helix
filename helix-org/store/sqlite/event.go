@@ -89,6 +89,18 @@ func (r *eventsRepo) ListSince(ctx context.Context, streamIDs []domain.StreamID,
 	return rowsToEvents(rows)
 }
 
+func (r *eventsRepo) ListAll(ctx context.Context, limit int) ([]domain.Event, error) {
+	query := r.db.WithContext(ctx).Order("created_at DESC, id DESC")
+	if limit > 0 {
+		query = query.Limit(limit)
+	}
+	var rows []eventRow
+	if err := query.Find(&rows).Error; err != nil {
+		return nil, fmt.Errorf("list all events: %w", err)
+	}
+	return rowsToEvents(rows)
+}
+
 func (r *eventsRepo) ListForWorker(ctx context.Context, workerID domain.WorkerID, limit int) ([]domain.Event, error) {
 	// Join events with subscriptions to return only events on streams the
 	// worker subscribes to, newest first.

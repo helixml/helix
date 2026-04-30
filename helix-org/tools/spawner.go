@@ -3,6 +3,7 @@ package tools
 import (
 	"bufio"
 	"context"
+	_ "embed"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -41,6 +42,13 @@ type Trigger struct {
 	EventID  domain.EventID
 	StreamID domain.StreamID
 	Source   domain.WorkerID
+	// SourceKind is the WorkerKind ("human" / "ai") of Source — looked
+	// up by the dispatcher at fan-out time and rendered into the
+	// activation prompt so the recipient can apply the org-wide policy
+	// (agent.md) of de-prioritising AI-origin events. Empty when the
+	// event has no internal Source (system-emitted, or inbound from an
+	// external transport with no resolved Worker).
+	SourceKind domain.WorkerKind
 	// Message is the canonical envelope parsed from the event body.
 	// Every populated field (From, Subject, ThreadID, MessageID,
 	// Extra, …) is rendered into the activation prompt so the
@@ -58,8 +66,16 @@ type ClaudeSpawnerConfig struct {
 	// helix-org MCP endpoint. Each Worker's tools are exposed at
 	// PublicURL + "/workers/{workerID}/mcp".
 	PublicURL string
-	// Model, if non-empty, is passed to claude as --model.
+	// Model, if non-empty, is passed to claude as --model. Aliases like
+	// "sonnet" or "opus" resolve to the latest model in that family.
 	Model string
+	// Effort, if non-empty, is passed to claude as --effort. Valid
+	// values are low|medium|high|xhigh|max. Defaults to "low" upstream
+	// because every Worker activation runs claude headlessly and a
+	// run-away effort budget is what blew up the first multi-agent
+	// demo — keeping the floor low contains cost without preventing
+	// operators from cranking it up per deployment.
+	Effort string
 	// Logger receives spawn bookkeeping. Must be non-nil.
 	Logger *slog.Logger
 
@@ -87,13 +103,16 @@ func activationStreamID(workerID domain.WorkerID) domain.StreamID {
 	return domain.StreamID("s-activations-" + string(workerID))
 }
 
-// agentMDStub is the fixed entry-point text projected into every
-// Worker's Environment at activation time. The Spawner reads it;
-// Claude follows it. Same for every Worker — not per-hire state.
-const agentMDStub = `Read role.md (your job) and identity.md (who you are).
-Then act on the trigger described below.
-Each activation is a single turn — do the work and exit.
-`
+// agentMDContent is the fixed entry-point text projected into every
+// Worker's Environment at activation time. The Spawner writes it to
+// `agent.md`; Claude reads it. Same for every Worker — not per-hire
+// state, not editable by Roles. It's the org-wide policy on how to
+// be an agent: speaking discipline, log.md hygiene, AI-origin vs
+// human-origin handling. Lives in a template file so it can be
+// edited like prose without touching code.
+//
+//go:embed templates/agent.md
+var agentMDContent string
 
 // ClaudeSpawner returns a Spawner that runs `claude -p` in the new
 // Worker's Environment directory and BLOCKS until claude exits. The
@@ -108,8 +127,9 @@ Each activation is a single turn — do the work and exit.
 //     up here.
 //   - identity.md — the Worker's IdentityContent read from the store.
 //     `update_identity` rewrites the DB row; same lazy projection.
-//   - agent.md    — a fixed entry-point stub (agentMDStub) instructing
-//     the agent to read role.md and identity.md and act on the trigger.
+//   - agent.md    — agentMDContent (templates/agent.md), the fixed
+//     org-wide policy on speaking discipline, log.md hygiene, and
+//     AI-origin vs human-origin handling. Same for every Worker.
 //
 // This is the single seam that knows "how to make role/identity visible
 // to a worker." Local envs write files (today). When envs eventually
@@ -139,7 +159,7 @@ func ClaudeSpawner(cfg ClaudeSpawnerConfig) Spawner {
 			return fmt.Errorf("write mcp config: %w", err)
 		}
 
-		prompt := buildPrompt(workerID, agentMDStub, trigger)
+		prompt := buildPrompt(workerID, agentMDContent, trigger)
 
 		args := []string{
 			"-p", prompt,
@@ -151,6 +171,9 @@ func ClaudeSpawner(cfg ClaudeSpawnerConfig) Spawner {
 		}
 		if cfg.Model != "" {
 			args = append(args, "--model", cfg.Model)
+		}
+		if cfg.Effort != "" {
+			args = append(args, "--effort", cfg.Effort)
 		}
 
 		cmd := exec.CommandContext(ctx, cfg.ClaudeBin, args...) //nolint:gosec // spawning claude with generated prompt is this Spawner's purpose
@@ -256,7 +279,7 @@ func projectEnv(ctx context.Context, s *store.Store, workerID domain.WorkerID, e
 	if err := writeEnvFile(envPath, "identity.md", worker.IdentityContent()); err != nil {
 		return err
 	}
-	if err := writeEnvFile(envPath, "agent.md", agentMDStub); err != nil {
+	if err := writeEnvFile(envPath, "agent.md", agentMDContent); err != nil {
 		return err
 	}
 	return nil
@@ -397,6 +420,14 @@ func renderTrigger(t Trigger) string {
 	fmt.Fprintf(&b, "  time:        %s\n", t.CreatedAt.Format(time.RFC3339))
 	if t.Source != "" {
 		fmt.Fprintf(&b, "  source:      %s\n", t.Source)
+	}
+	// source_kind drives the agent.md priority rule: AI-origin events
+	// are low-priority by default. Always emit when known (even when
+	// Source itself is empty — a future inbound transport that can
+	// classify origin without resolving a Worker still needs to flag
+	// AI vs human here).
+	if t.SourceKind != "" {
+		fmt.Fprintf(&b, "  source_kind: %s\n", t.SourceKind)
 	}
 	m := t.Message
 	if m.From != "" {

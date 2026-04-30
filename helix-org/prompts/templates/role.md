@@ -75,9 +75,21 @@ direction most likely to want a tweak:
 If I name an edit, call `update_role` and show the new version.
 If I say "next" (or anything indicating I want to hire), drive the
 hire conversationally: ask only for a name + one-line vibe for the
-person, then call `create_position` (under `p-root` unless I said
-otherwise) and `hire_worker` (kind: `ai`, with sensible default
-grants matching the Role's tool list). Don't ask permission for
-each tool call — chain them.
+person, then chain:
+
+1. `create_position` under `p-root` (unless I said otherwise).
+2. `hire_worker` — kind `ai`, id `w-<lowercase-firstname>`, grants
+   matching the Role's Tools section.
+3. **Stand up their streams.** For each stream the Role's Streams
+   section lists:
+   - call `list_streams` first — another Worker may already have
+     created it
+   - if it exists, `subscribe` the new Worker
+   - if not, `create_stream` then `subscribe`
+
+   A Worker hired without their streams subscribed is half-hired —
+   they have nothing to listen to.
+
+Don't ask permission for each tool call — chain them.
 
 Never restart the draft from scratch. Modify in place.

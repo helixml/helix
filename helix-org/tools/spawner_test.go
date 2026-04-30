@@ -438,7 +438,7 @@ func TestProjectEnvWritesCanonicalState(t *testing.T) {
 	want := map[string]string{
 		"role.md":     "# Role: Engineer\nBuild stuff.",
 		"identity.md": "# Persona\nAlice.",
-		"agent.md":    agentMDStub,
+		"agent.md":    agentMDContent,
 	}
 	for name, expected := range want {
 		got, err := readFile(envPath, name)

@@ -35,7 +35,8 @@ func runServe(args []string) error {
 	publicURL := fs.String("public-url", "", "Base URL spawned Workers use to reach the MCP endpoint. Defaults to http://localhost<addr-port>.")
 	envsDir := fs.String("envs-dir", "./envs", "Directory under which each Worker's Environment lives (one subdirectory per workerID).")
 	claudeBin := fs.String("claude-bin", "claude", "Path to the claude CLI used to embody AI Workers")
-	model := fs.String("model", "", "Claude model to pass via --model (empty = let claude choose)")
+	model := fs.String("model", "sonnet", "Claude model alias or full name (e.g. 'sonnet', 'opus', 'claude-sonnet-4-6'). Default sonnet to keep activation costs predictable.")
+	effort := fs.String("effort", "low", "Claude effort/thinking level (low|medium|high|xhigh|max). Defaults to low to minimise per-activation cost.")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -89,6 +90,7 @@ func runServe(args []string) error {
 		ClaudeBin:   *claudeBin,
 		PublicURL:   *publicURL,
 		Model:       *model,
+		Effort:      *effort,
 		Logger:      logger,
 		Store:       store,
 		Broadcaster: bc,
@@ -97,7 +99,7 @@ func runServe(args []string) error {
 	})
 	dispatcher := dispatch.New(store, spawner, logger)
 	deps.Dispatcher = dispatcher
-	logger.Info("dispatcher enabled", "claude-bin", *claudeBin, "public-url", *publicURL, "envs-dir", absEnvsDir, "model", *model)
+	logger.Info("dispatcher enabled", "claude-bin", *claudeBin, "public-url", *publicURL, "envs-dir", absEnvsDir, "model", *model, "effort", *effort)
 
 	// Operational config registry — Postmark + future provider creds
 	// live here, mutated only via the helix-org config CLI. See

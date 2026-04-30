@@ -299,11 +299,19 @@ func (b *Bridge) StreamHandler() http.Handler {
 		for {
 			select {
 			case frag := <-ch:
-				// SSE data: lines must not contain raw newlines —
-				// collapse them to spaces. The rendered fragments are
-				// already single-line by construction.
-				safe := strings.ReplaceAll(frag, "\n", " ")
-				_, _ = fmt.Fprintf(w, "event: message\ndata: %s\n\n", safe)
+				// SSE forbids raw `\n` inside a `data:` line — `\n\n`
+				// terminates the event. The spec's own answer is to
+				// split multi-line payloads across repeated `data:`
+				// lines, which the browser's EventSource rejoins with
+				// `\n`. Markdown-rendered fragments contain real
+				// newlines inside `<pre>` blocks (fenced code), so we
+				// must preserve them; flattening to spaces collapsed
+				// fenced markdown into a single visual line.
+				_, _ = fmt.Fprint(w, "event: message\n")
+				for _, line := range strings.Split(frag, "\n") {
+					_, _ = fmt.Fprintf(w, "data: %s\n", line)
+				}
+				_, _ = fmt.Fprint(w, "\n")
 				flusher.Flush()
 			case <-ping.C:
 				_, _ = fmt.Fprint(w, ": keepalive\n\n")

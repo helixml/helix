@@ -31,8 +31,14 @@ func registerAllConfigSpecs(r *config.Registry) {
 	r.Register(config.Spec{
 		Key:         "claude.model",
 		Type:        config.TypeString,
-		Default:     `""`,
-		Description: "Claude model passed via --model. Empty = let claude choose.",
+		Default:     `"sonnet"`,
+		Description: "Claude model alias or full name passed via --model. Defaults to 'sonnet' to keep activation costs predictable; set to 'opus' or a full name (e.g. 'claude-opus-4-7') to override.",
+	})
+	r.Register(config.Spec{
+		Key:         "claude.effort",
+		Type:        config.TypeString,
+		Default:     `"low"`,
+		Description: "Claude effort/thinking level passed via --effort (low|medium|high|xhigh|max). Defaults to 'low' so multi-agent activations don't burn extended-thinking budget unless explicitly raised.",
 	})
 	r.Register(config.Spec{
 		Key:         "transport.postmark",

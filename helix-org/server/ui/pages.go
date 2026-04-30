@@ -135,6 +135,11 @@ type OrgDetail struct {
 	IdentityContent string
 	Positions       []string
 	HasPositions    bool
+	// Tools is the alphabetically-sorted set of tool names this Worker
+	// holds grants for. Each is what the agent sees as
+	// `mcp__helix__<name>` over the per-worker MCP endpoint.
+	Tools    []string
+	HasTools bool
 
 	Flash      string
 	FlashError string
@@ -215,6 +220,11 @@ type StreamsPage struct {
 	PublishDisabledReason string
 	Events                []EventCard
 	HasEvents             bool
+	// IsAllStreams is true on the no-selection landing view, where the
+	// right pane shows a unified firehose across every Stream rather
+	// than a hint. Drives an alternate header in the template and
+	// surfaces each card's StreamID column for cross-stream context.
+	IsAllStreams bool
 }
 
 // TemplateText returns the streams page body.
@@ -236,9 +246,14 @@ type StreamRow struct {
 // hand-poked rows may not parse). When HasMessage is false the
 // template falls back to rendering the raw body.
 type EventCard struct {
-	ID          string
-	Source      string
-	CreatedAt   string
+	ID        string
+	Source    string
+	CreatedAt string
+	// StreamID is set only when EventCards from multiple Streams are
+	// rendered together (the "All streams" unified feed). Empty in
+	// the per-stream detail view, where the surrounding header
+	// already names the stream.
+	StreamID    string
 	Body        string // raw Event.Body (Message JSON)
 	HasMessage  bool
 	From        string

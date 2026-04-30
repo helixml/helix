@@ -99,10 +99,25 @@ func ReadHistory(cwd, sid string) []string {
 }
 
 // summarize reads the head of a session jsonl just deeply enough to
-// extract sid + a display title. ok=false means this file should be
-// skipped (no usable sid, or no human-visible turn). The scanner
-// stops once both fields are populated to keep the cost ~O(first
-// user message).
+// extract sid + a display title.
+//
+// Title preference order, best to worst:
+//
+//  1. custom-title — user explicitly named the session via claude's
+//     /title slash command. Highest priority, never overridden.
+//  2. ai-title — claude itself periodically generates a short label
+//     for the session and writes an "ai-title" event. This is what
+//     gives recents a real, descriptive name ("Set up new CEO role
+//     permissions") instead of a truncated first-prompt fragment.
+//  3. firstUserText — fallback when neither title event has landed
+//     yet (very fresh session, or a session that hasn't earned a
+//     generated title). Truncated to a reasonable length.
+//
+// ok=false means this file should be skipped (no usable sid, or no
+// human-visible turn). We can't break early any more — the user's
+// first prompt usually appears before claude has emitted ai-title,
+// so we have to scan the whole file to be sure the better title
+// isn't waiting at the bottom.
 func summarize(path string, mtime time.Time) (SessionInfo, bool) {
 	f, err := os.Open(path) //nolint:gosec // path is built from claudeProjectsDir + a known suffix
 	if err != nil {
@@ -112,14 +127,17 @@ func summarize(path string, mtime time.Time) (SessionInfo, bool) {
 	scanner := bufio.NewScanner(f)
 	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
 	var (
-		sid   string
-		title string
+		sid          string
+		customTitle  string
+		aiTitle      string
+		fallbackText string
 	)
 	for scanner.Scan() {
 		var head struct {
 			SessionID   string          `json:"sessionId"`
 			Type        string          `json:"type"`
 			CustomTitle string          `json:"customTitle,omitempty"`
+			AITitle     string          `json:"aiTitle,omitempty"`
 			Message     json.RawMessage `json:"message,omitempty"`
 		}
 		if err := json.Unmarshal(scanner.Bytes(), &head); err != nil {
@@ -130,23 +148,33 @@ func summarize(path string, mtime time.Time) (SessionInfo, bool) {
 		}
 		switch head.Type {
 		case "custom-title":
-			if t := strings.TrimSpace(head.CustomTitle); t != "" && title == "" {
-				title = t
+			if t := strings.TrimSpace(head.CustomTitle); t != "" && customTitle == "" {
+				customTitle = t
+			}
+		case "ai-title":
+			// Claude rewrites this as the conversation evolves; keep
+			// the latest non-empty value rather than the first.
+			if t := strings.TrimSpace(head.AITitle); t != "" {
+				aiTitle = t
 			}
 		case "user":
-			if title == "" {
+			if fallbackText == "" {
 				if t := firstUserText(head.Message); t != "" {
-					title = t
+					fallbackText = t
 				}
 			}
 		}
-		if sid != "" && title != "" {
+		// custom-title outranks everything; once seen, no later event
+		// can change the answer — bail out so long sessions don't pay
+		// for a full scan.
+		if customTitle != "" && sid != "" {
 			break
 		}
 	}
 	if sid == "" {
 		return SessionInfo{}, false
 	}
+	title := pickTitle(customTitle, aiTitle, fallbackText)
 	if title == "" {
 		// Skip jsonls with no user-visible content — they're
 		// almost always transient bookkeeping (custom-title only,
@@ -154,6 +182,19 @@ func summarize(path string, mtime time.Time) (SessionInfo, bool) {
 		return SessionInfo{}, false
 	}
 	return SessionInfo{SessionID: sid, Title: shortenTitle(title), ModTime: mtime}, true
+}
+
+// pickTitle returns the best title from the candidates in priority
+// order. Extracted so the choice is unit-testable without spinning up
+// a real session jsonl.
+func pickTitle(custom, ai, fallback string) string {
+	if custom != "" {
+		return custom
+	}
+	if ai != "" {
+		return ai
+	}
+	return fallback
 }
 
 // firstUserText extracts a user-visible string from a session jsonl

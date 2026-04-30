@@ -85,6 +85,10 @@ type Events interface {
 	// If `since` does not exist, returns the same as if it were empty. If
 	// limit <= 0, no limit is applied.
 	ListSince(ctx context.Context, streamIDs []domain.StreamID, since domain.EventID, limit int) ([]domain.Event, error)
+	// ListAll returns events across every Stream, newest first. Powers
+	// the unified "All streams" activity feed in the UI. If limit <= 0,
+	// no limit is applied — callers are expected to pass a sane cap.
+	ListAll(ctx context.Context, limit int) ([]domain.Event, error)
 }
 
 // Environments persists the per-Worker directory handle. The manager

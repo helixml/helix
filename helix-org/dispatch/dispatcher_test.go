@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -17,6 +18,7 @@ import (
 	"github.com/helixml/helix-org/domain"
 	"github.com/helixml/helix-org/store"
 	"github.com/helixml/helix-org/store/sqlite"
+	"github.com/helixml/helix-org/tools"
 )
 
 // caught is one POST observed by the test catcher.
@@ -91,6 +93,106 @@ func newDispatcher(t *testing.T) (*dispatch.Dispatcher, *store.Store) {
 	}
 	d := dispatch.New(s, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	return d, s
+}
+
+// recordedActivation captures one Spawner invocation for assertions.
+type recordedActivation struct {
+	WorkerID domain.WorkerID
+	Trigger  tools.Trigger
+}
+
+// newDispatcherWithSpawner returns a Dispatcher whose Spawner records
+// each activation onto a buffered channel. Tests use this to assert
+// who was activated (and not activated) for a given Dispatch call.
+func newDispatcherWithSpawner(t *testing.T) (*dispatch.Dispatcher, *store.Store, <-chan recordedActivation) {
+	t.Helper()
+	s, err := sqlite.Open(":memory:")
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	rec := make(chan recordedActivation, 16)
+	spawner := tools.Spawner(func(_ context.Context, workerID domain.WorkerID, _ string, trigger tools.Trigger) error {
+		rec <- recordedActivation{WorkerID: workerID, Trigger: trigger}
+		return nil
+	})
+	d := dispatch.New(s, spawner, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	return d, s, rec
+}
+
+// drainActivations collects every recorded activation that lands within
+// window, then returns them sorted by WorkerID for stable assertions.
+// A negative timeout uses 200ms — enough for the dispatcher's
+// goroutines to settle but short enough not to slow the suite.
+func drainActivations(t *testing.T, rec <-chan recordedActivation, window time.Duration) []recordedActivation {
+	t.Helper()
+	if window <= 0 {
+		window = 200 * time.Millisecond
+	}
+	deadline := time.After(window)
+	var got []recordedActivation
+	for {
+		select {
+		case r := <-rec:
+			got = append(got, r)
+		case <-deadline:
+			sort.Slice(got, func(i, j int) bool { return got[i].WorkerID < got[j].WorkerID })
+			return got
+		}
+	}
+}
+
+// seedAIWorker creates an AIWorker assigned to a position and persists
+// it. Position is fabricated with a per-test role so the worker can be
+// constructed; tests that don't care about role/position structure use
+// a single shared role row to avoid per-call boilerplate.
+func seedAIWorker(t *testing.T, s *store.Store, workerID domain.WorkerID) {
+	t.Helper()
+	ctx := context.Background()
+	now := time.Now().UTC()
+	roleID := domain.RoleID("r-test")
+	if _, err := s.Roles.Get(ctx, roleID); err != nil {
+		role, err := domain.NewRole(roleID, "# Role: Test\nTest role.", now)
+		if err != nil {
+			t.Fatalf("new role: %v", err)
+		}
+		if err := s.Roles.Create(ctx, role); err != nil {
+			t.Fatalf("create role: %v", err)
+		}
+	}
+	posID := domain.PositionID("p-" + string(workerID))
+	pos, err := domain.NewPosition(posID, roleID, nil)
+	if err != nil {
+		t.Fatalf("new position: %v", err)
+	}
+	if err := s.Positions.Create(ctx, pos); err != nil {
+		t.Fatalf("create position: %v", err)
+	}
+	w, err := domain.NewAIWorker(workerID, []domain.PositionID{posID}, "# "+string(workerID)+"\nTest persona.")
+	if err != nil {
+		t.Fatalf("new worker: %v", err)
+	}
+	if err := s.Workers.Create(ctx, w); err != nil {
+		t.Fatalf("create worker: %v", err)
+	}
+	env, err := domain.NewEnvironment(workerID, t.TempDir(), now)
+	if err != nil {
+		t.Fatalf("new env: %v", err)
+	}
+	if err := s.Environments.Create(ctx, env); err != nil {
+		t.Fatalf("create env: %v", err)
+	}
+}
+
+// seedSubscription persists a Worker→Stream subscription.
+func seedSubscription(t *testing.T, s *store.Store, workerID domain.WorkerID, streamID domain.StreamID) {
+	t.Helper()
+	sub, err := domain.NewSubscription(workerID, streamID, time.Now().UTC())
+	if err != nil {
+		t.Fatalf("new subscription: %v", err)
+	}
+	if err := s.Subscriptions.Create(context.Background(), sub); err != nil {
+		t.Fatalf("create subscription: %v", err)
+	}
 }
 
 // seedWebhookStream creates a Stream of the given Transport and returns
@@ -399,5 +501,77 @@ func TestDispatchContentTypeAndPath(t *testing.T) {
 	}
 	if ct := got.headers.Get("Content-Type"); ct != "application/octet-stream" {
 		t.Fatalf("Content-Type = %q", ct)
+	}
+}
+
+// TestDispatchSkipsPublisher pins the rule that an AI Worker which
+// publishes to a Stream they themselves are subscribed to is NOT
+// re-activated on their own event. This is the cheapest available
+// brake on broadcast cascades — without it, a single publish would
+// activate the publisher in a loop. Other subscribers are still
+// activated normally.
+func TestDispatchSkipsPublisher(t *testing.T) {
+	t.Parallel()
+	d, s, rec := newDispatcherWithSpawner(t)
+	seedWebhookStream(t, s, "s-team", domain.Transport{Kind: domain.TransportLocal})
+	seedAIWorker(t, s, "w-publisher")
+	seedAIWorker(t, s, "w-other")
+	seedSubscription(t, s, "w-publisher", "s-team")
+	seedSubscription(t, s, "w-other", "s-team")
+
+	e, err := domain.NewMessageEvent(
+		"e-1", "s-team", "w-publisher",
+		domain.Message{From: "w-publisher", Body: "hello"},
+		time.Now().UTC(),
+	)
+	if err != nil {
+		t.Fatalf("new event: %v", err)
+	}
+	if err := s.Events.Append(context.Background(), e); err != nil {
+		t.Fatalf("append event: %v", err)
+	}
+	d.Dispatch(context.Background(), e)
+
+	got := drainActivations(t, rec, 0)
+	if len(got) != 1 {
+		t.Fatalf("activations = %d, want 1; got %+v", len(got), got)
+	}
+	if got[0].WorkerID != "w-other" {
+		t.Fatalf("activated worker = %q, want w-other", got[0].WorkerID)
+	}
+}
+
+// TestDispatchAttachesSourceKind pins that the dispatcher resolves the
+// Source Worker's WorkerKind and threads it onto the Trigger so the
+// activation prompt (rendered by spawner.renderTrigger) can surface
+// "source_kind: ai" or "source_kind: human". This is the input that
+// agent.md's "treat AI-origin as low priority" rule keys off of.
+func TestDispatchAttachesSourceKind(t *testing.T) {
+	t.Parallel()
+	d, s, rec := newDispatcherWithSpawner(t)
+	seedWebhookStream(t, s, "s-team", domain.Transport{Kind: domain.TransportLocal})
+	seedAIWorker(t, s, "w-publisher")
+	seedAIWorker(t, s, "w-other")
+	seedSubscription(t, s, "w-other", "s-team")
+
+	e, err := domain.NewMessageEvent(
+		"e-2", "s-team", "w-publisher",
+		domain.Message{From: "w-publisher", Body: "ping"},
+		time.Now().UTC(),
+	)
+	if err != nil {
+		t.Fatalf("new event: %v", err)
+	}
+	if err := s.Events.Append(context.Background(), e); err != nil {
+		t.Fatalf("append event: %v", err)
+	}
+	d.Dispatch(context.Background(), e)
+
+	got := drainActivations(t, rec, 0)
+	if len(got) != 1 {
+		t.Fatalf("activations = %d, want 1", len(got))
+	}
+	if k := got[0].Trigger.SourceKind; k != domain.WorkerKindAI {
+		t.Fatalf("SourceKind = %q, want %q", k, domain.WorkerKindAI)
 	}
 }

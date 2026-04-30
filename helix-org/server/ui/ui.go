@@ -287,6 +287,16 @@ func (u *uiHandler) fillWorkerDetail(ctx context.Context, frag *OrgDetail, worke
 		frag.Positions = append(frag.Positions, string(pid))
 	}
 	frag.HasPositions = len(frag.Positions) > 0
+
+	grants, err := u.deps.Store.Grants.ListByWorker(ctx, workerID)
+	if err != nil {
+		return fmt.Errorf("list grants for %s: %w", workerID, err)
+	}
+	for _, g := range grants {
+		frag.Tools = append(frag.Tools, string(g.ToolName))
+	}
+	sort.Strings(frag.Tools)
+	frag.HasTools = len(frag.Tools) > 0
 	return nil
 }
 
@@ -358,10 +368,49 @@ func (u *uiHandler) handleStreams(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-	} else {
-		page.IsHint = true
+	} else if err := u.fillAllStreamsFeed(ctx, page); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 	render(w, streamsTpl, page)
+}
+
+// fillAllStreamsFeed populates the no-selection landing view with a
+// unified firehose of recent events across every Stream. Capped at 50
+// to keep the page tight; cross-stream context is surfaced via each
+// card's StreamID. Falls back to the hint screen if there are no
+// events at all (fresh org, nothing to show yet).
+func (u *uiHandler) fillAllStreamsFeed(ctx context.Context, page *StreamsPage) error {
+	events, err := u.deps.Store.Events.ListAll(ctx, 50)
+	if err != nil {
+		return fmt.Errorf("list all events: %w", err)
+	}
+	if len(events) == 0 {
+		page.IsHint = true
+		return nil
+	}
+	page.IsAllStreams = true
+	for _, ev := range events {
+		card := EventCard{
+			ID:        string(ev.ID),
+			Source:    string(ev.Source),
+			StreamID:  string(ev.StreamID),
+			CreatedAt: ev.CreatedAt.Format(time.RFC3339),
+			Body:      ev.Body,
+		}
+		if msg, err := ev.Message(); err == nil {
+			card.From = msg.From
+			card.Subject = msg.Subject
+			card.MessageBody = msg.Body
+			card.HasMessage = true
+			if len(msg.To) > 0 {
+				card.To = strings.Join(msg.To, ", ")
+			}
+		}
+		page.Events = append(page.Events, card)
+	}
+	page.HasEvents = true
+	return nil
 }
 
 // fillStreamDetail loads the selected stream's metadata, subscribers,

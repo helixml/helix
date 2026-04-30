@@ -21,10 +21,18 @@
                 {{ end }}
 
                 <div class="rise rise-3 mt-8 grid gap-6" style="grid-template-columns: 280px 1fr;">
-                    <aside class="card-soft p-3" style="align-self: start;">
+                    <aside id="streams-list" class="card-soft p-3" style="align-self: start;"
+                           hx-get="/ui/streams{{ if .HasSelection }}?id={{ .SelectedID }}{{ end }}"
+                           hx-trigger="every 5s"
+                           hx-select="#streams-list"
+                           hx-swap="outerHTML"
+                           hx-disinherit="*">
                         <header class="px-2 pt-1 pb-3">
-                            <h2 class="font-display text-[16px] font-light" style="color: var(--ink);">All streams</h2>
-                            <p class="font-mono text-[11px] mt-1" style="color: var(--ink-muted);">{{ len .Streams }} total</p>
+                            <a href="/ui/streams" class="block rounded-[6px] px-1 -mx-1"
+                               style="{{ if not .HasSelection }}background: rgba(63,91,67,0.08); border: 1px solid var(--accent);{{ else }}border: 1px solid transparent;{{ end }}">
+                                <h2 class="font-display text-[16px] font-light" style="color: var(--ink);">All streams</h2>
+                                <p class="font-mono text-[11px] mt-1" style="color: var(--ink-muted);">{{ len .Streams }} total · unified feed</p>
+                            </a>
                         </header>
                         {{ if .HasStreams }}
                         <ul class="flex flex-col gap-[2px]">
@@ -49,9 +57,49 @@
                     <section class="card-soft p-6">
                         {{ if .IsHint }}
                         <div class="px-4 py-12 text-center" style="color: var(--ink-muted);">
-                            <p class="font-display text-[20px] font-light" style="color: var(--ink);">No stream selected.</p>
-                            <p class="font-mono text-[12px] mt-2">Pick one on the left to see its history and send messages.</p>
+                            <p class="font-display text-[20px] font-light" style="color: var(--ink);">No streams yet.</p>
+                            <p class="font-mono text-[12px] mt-2">Open <a href="/ui/" style="color: var(--accent);">chat</a> and try “create a stream s-news”.</p>
                         </div>
+                        {{ end }}
+
+                        {{ if .IsAllStreams }}
+                        <header class="mb-6">
+                            <div class="flex items-baseline gap-3">
+                                <h2 class="font-display text-[24px] font-light" style="color: var(--ink);">All streams</h2>
+                                <span class="font-mono text-[11px] uppercase tracking-[.16em]" style="color: var(--ink-muted);">unified feed</span>
+                            </div>
+                            <p class="font-mono text-[12px] mt-1" style="color: var(--ink-soft);">Recent events across every Stream — newest first, capped at 50. Pick a stream on the left to drill in.</p>
+                        </header>
+                        <section id="streams-events"
+                                 hx-get="/ui/streams"
+                                 hx-trigger="every 3s"
+                                 hx-select="#streams-events"
+                                 hx-swap="outerHTML"
+                                 hx-disinherit="*">
+                            <ul class="flex flex-col gap-2">
+                                {{ range .Events }}
+                                <li class="px-4 py-3 rounded-[10px]" style="background: var(--surface); border: 1px solid var(--line);">
+                                    <div class="flex items-baseline justify-between gap-3">
+                                        <div class="font-mono text-[12px]" style="color: var(--ink);">
+                                            <a href="/ui/streams?id={{ .StreamID }}" style="color: var(--accent);">{{ .StreamID }}</a>
+                                            {{ if ne .From "" }}<span style="color: var(--ink-muted);"> · {{ .From }}</span>{{ else if ne .Source "" }}<span style="color: var(--ink-muted);"> · {{ .Source }}</span>{{ end }}
+                                            {{ if ne .To "" }}<span style="color: var(--ink-muted);"> → {{ .To }}</span>{{ end }}
+                                        </div>
+                                        <span class="font-mono text-[10px]" style="color: var(--ink-muted);">{{ .CreatedAt }}</span>
+                                    </div>
+                                    {{ if ne .Subject "" }}
+                                    <div class="font-display text-[14px] mt-1" style="color: var(--ink);">{{ .Subject }}</div>
+                                    {{ end }}
+                                    {{ if .HasMessage }}
+                                    <pre class="font-mono text-[12px] mt-2 whitespace-pre-wrap" style="color: var(--ink-soft);">{{ .MessageBody }}</pre>
+                                    {{ else }}
+                                    <pre class="font-mono text-[11px] mt-2 whitespace-pre-wrap" style="color: var(--ink-muted);">{{ .Body }}</pre>
+                                    {{ end }}
+                                    <div class="font-mono text-[10px] mt-2" style="color: var(--ink-muted);">{{ .ID }}</div>
+                                </li>
+                                {{ end }}
+                            </ul>
+                        </section>
                         {{ end }}
 
                         {{ if .HasSelection }}
@@ -99,10 +147,15 @@
                             {{ end }}
                         </section>
 
-                        <section>
+                        <section id="streams-events"
+                                 hx-get="/ui/streams?id={{ .SelectedID }}"
+                                 hx-trigger="every 3s"
+                                 hx-select="#streams-events"
+                                 hx-swap="outerHTML"
+                                 hx-disinherit="*">
                             <div class="flex items-baseline justify-between mb-2">
                                 <h3 class="font-display text-[15px] font-light" style="color: var(--ink);">Recent events</h3>
-                                <span class="font-mono text-[11px]" style="color: var(--ink-muted);">newest first · up to 50</span>
+                                <span class="font-mono text-[11px]" style="color: var(--ink-muted);">newest first · up to 50 · live</span>
                             </div>
                             {{ if .HasEvents }}
                             <ul class="flex flex-col gap-2">

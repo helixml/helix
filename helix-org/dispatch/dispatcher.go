@@ -125,6 +125,16 @@ func (d *Dispatcher) Dispatch(ctx context.Context, e domain.Event) {
 		d.logger.Error("dispatch: list subscriptions", "stream", e.StreamID, "err", err)
 		return
 	}
+	// Resolve the publishing Worker's kind once so every fan-out target
+	// gets the same source_kind on its Trigger. Empty Source (system or
+	// transport inbound) leaves SourceKind empty — agent.md treats that
+	// as human-origin by default.
+	var sourceKind domain.WorkerKind
+	if e.Source != "" {
+		if sourceWorker, err := d.store.Workers.Get(ctx, e.Source); err == nil {
+			sourceKind = sourceWorker.Kind()
+		}
+	}
 	for _, sub := range subs {
 		if sub.WorkerID == e.Source {
 			continue // do not deliver the event back to its publisher
@@ -143,12 +153,13 @@ func (d *Dispatcher) Dispatch(ctx context.Context, e domain.Event) {
 			continue
 		}
 		trigger := tools.Trigger{
-			Kind:      tools.TriggerEvent,
-			EventID:   e.ID,
-			StreamID:  e.StreamID,
-			Source:    e.Source,
-			Message:   msg, // full canonical envelope; rendered by the spawner into the activation prompt
-			CreatedAt: e.CreatedAt,
+			Kind:       tools.TriggerEvent,
+			EventID:    e.ID,
+			StreamID:   e.StreamID,
+			Source:     e.Source,
+			SourceKind: sourceKind,
+			Message:    msg, // full canonical envelope; rendered by the spawner into the activation prompt
+			CreatedAt:  e.CreatedAt,
 		}
 		// Decouple from the request context so the activation isn't
 		// cancelled when the HTTP request that triggered publish returns.

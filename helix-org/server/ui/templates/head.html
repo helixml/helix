@@ -104,6 +104,34 @@
             border-radius: 14px;
         }
 
+        /* Markdown-rendered assistant bubbles. Goldmark emits the
+           usual <p>/<ul>/<ol>/<pre>/<code>/<a> tags; we style only the
+           tags we actually expect to see in chat output. */
+        .md > :first-child { margin-top: 0; }
+        .md > :last-child  { margin-bottom: 0; }
+        .md p              { margin: 0.4em 0; line-height: 1.5; }
+        .md ul, .md ol     { margin: 0.4em 0; padding-left: 1.4em; }
+        .md ul             { list-style: disc; }
+        .md ol             { list-style: decimal; }
+        .md li             { margin: 0.2em 0; }
+        .md li > p         { margin: 0.1em 0; }
+        .md a              { color: var(--accent); text-decoration: underline; }
+        .md strong         { font-weight: 600; color: var(--ink); }
+        .md em             { font-style: italic; }
+        .md h1, .md h2, .md h3, .md h4 { font-weight: 600; margin: 0.6em 0 0.3em; line-height: 1.25; color: var(--ink); }
+        .md h1             { font-size: 1.25em; }
+        .md h2             { font-size: 1.15em; }
+        .md h3             { font-size: 1.05em; }
+        .md h4             { font-size: 1em; }
+        .md blockquote     { margin: 0.4em 0; padding-left: 0.8em; border-left: 2px solid var(--line); color: var(--ink-soft); }
+        .md code           { font-family: 'Geist Mono', ui-monospace, monospace; font-size: 0.92em; background: var(--canvas-grain); padding: 1px 4px; border-radius: 3px; }
+        .md pre            { margin: 0.5em 0; padding: 0.7em 0.9em; background: var(--canvas-grain); border-radius: 6px; overflow-x: auto; }
+        .md pre code       { background: transparent; padding: 0; border-radius: 0; font-size: 0.88em; }
+        .md hr             { margin: 0.8em 0; border: 0; border-top: 1px solid var(--line); }
+        .md table          { border-collapse: collapse; margin: 0.4em 0; }
+        .md th, .md td     { border: 1px solid var(--line); padding: 0.3em 0.6em; }
+        .md th             { background: var(--canvas-grain); font-weight: 600; }
+
         ::-webkit-scrollbar { width: 8px; height: 8px; }
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: var(--line); border-radius: 4px; }

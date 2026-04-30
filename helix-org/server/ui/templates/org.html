@@ -20,20 +20,27 @@
                 </div>
                 {{ end }}
 
+                <div id="org-chart-section"
+                     hx-get="/ui/org"
+                     hx-trigger="every 5s"
+                     hx-select="#org-chart-section"
+                     hx-swap="outerHTML"
+                     hx-disinherit="*">
                 {{ if .HasChart }}
-                <section class="rise rise-3 mt-8 card-soft p-6">
+                <section class="mt-8 card-soft p-6">
                     <header class="flex items-center justify-between mb-4">
                         <h2 class="font-display text-[20px] font-light" style="color: var(--ink);">Org chart</h2>
-                        <span class="font-mono text-[11px]" style="color: var(--ink-muted);">click a node to inspect</span>
+                        <span class="font-mono text-[11px]" style="color: var(--ink-muted);">click a node to inspect · live</span>
                     </header>
                     <div class="overflow-x-auto">{{ .ChartSVG }}</div>
                 </section>
                 {{ else }}
-                <section class="rise rise-3 mt-8 card-soft px-6 py-12 text-center">
+                <section class="mt-8 card-soft px-6 py-12 text-center">
                     <p class="font-display text-[20px] font-light" style="color: var(--ink);">The org is empty.</p>
                     <p class="font-mono text-[12px] mt-2" style="color: var(--ink-muted);">Open the <a href="/ui/" style="color: var(--accent);">chat</a> and try “hire me a CEO”.</p>
                 </section>
                 {{ end }}
+                </div>
 
                 <section id="org-detail" class="rise rise-4 mt-6 card-soft p-6 mb-12">
                     {{ if .HasDetail }}

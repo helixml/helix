@@ -52,16 +52,17 @@
                           hx-post="/ui/chat/send"
                           hx-target="#chat-log"
                           hx-swap="beforeend scroll:#chat-scroll:bottom"
-                          hx-on::after-request="if(event.target===this && event.detail.successful){this.querySelector('textarea').value='';document.getElementById('slash-suggestions').innerHTML='';}">
+                          hx-on::after-request="if(event.target===this && event.detail.successful){var ta=this.querySelector('textarea');ta.value='';ta.style.height='auto';document.getElementById('slash-suggestions').innerHTML='';}">
                         <div class="px-5 pt-4">
                             <textarea name="message" rows="1"
                                 placeholder="What should the org do next?  Try /role cto"
                                 class="w-full resize-none text-[15px] placeholder:text-[var(--ink-muted)]"
-                                style="color: var(--ink); background: transparent; border: 0; outline: none; padding: 0; box-shadow: none;"
+                                style="color: var(--ink); background: transparent; border: 0; outline: none; padding: 0; box-shadow: none; max-height: 200px; overflow-y: auto;"
                                 hx-post="/ui/chat/commands"
                                 hx-trigger="keyup changed delay:80ms"
                                 hx-target="#slash-suggestions"
                                 hx-swap="innerHTML"
+                                oninput="this.style.height='auto';this.style.height=Math.min(this.scrollHeight,200)+'px';"
                                 onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();this.form.requestSubmit();}"></textarea>
                         </div>
                         <div class="px-3 pb-3 pt-1 flex items-center justify-end gap-2">

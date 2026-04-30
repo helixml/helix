@@ -5,6 +5,7 @@ package bootstrap
 
 import (
 	"context"
+	_ "embed"
 	"errors"
 	"fmt"
 	"os"
@@ -16,6 +17,15 @@ import (
 	"github.com/helixml/helix-org/store"
 	"github.com/helixml/helix-org/tools"
 )
+
+// ownerRoleContent is the seed markdown for r-owner. Lives in a
+// template file rather than a string literal so the prose can be
+// edited like any other Role markdown — including the hiring
+// playbook that teaches a fresh owner how to chain create_role →
+// create_position → hire_worker → subscribe their streams.
+//
+//go:embed templates/owner_role.md
+var ownerRoleContent string
 
 // Params controls the bootstrap.
 type Params struct {
@@ -58,13 +68,7 @@ func Run(ctx context.Context, s *store.Store, params Params) (Result, error) {
 	}
 
 	now := time.Now().UTC()
-	role, err := domain.NewRole(
-		"r-owner",
-		"# Owner\n\nYou are the owner of this organisation. You hold every structural "+
-			"tool and may reshape the org as you see fit. Edit the role from /ui/org or via "+
-			"the update_role MCP tool.\n",
-		now,
-	)
+	role, err := domain.NewRole("r-owner", ownerRoleContent, now)
 	if err != nil {
 		return Result{}, err
 	}

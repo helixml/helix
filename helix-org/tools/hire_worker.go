@@ -56,7 +56,14 @@ func (t *HireWorker) Description() string {
 		"profile) is stored in the domain alongside the Worker row; the spawner projects " +
 		"role and identity into the Environment at activation time. Optional `grants` are " +
 		"issued atomically with the hire so the Worker is authorised before the agent " +
-		"process boots."
+		"process boots.\n\n" +
+		"Always supply `id` as a short, real-sounding handle: a lowercase given name " +
+		"prefixed with `w-`, e.g. `w-mark`, `w-priya`, `w-jordan`. Pick a name that fits " +
+		"the Position and isn't already taken. Do NOT pass a UUID and do NOT omit `id` " +
+		"to let the server invent one — the auto-generated `w-<uuid>` form is reserved as " +
+		"a last-resort fallback and is unpleasant to read in logs and UIs. If your first " +
+		"choice collides, try a variant (`w-mark-2`, `w-marko`) rather than falling back " +
+		"to a UUID."
 }
 
 type hireWorkerGrant struct {

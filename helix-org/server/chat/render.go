@@ -1,13 +1,33 @@
 package chat
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"html"
 	"strings"
 
+	"github.com/yuin/goldmark"
+
 	"github.com/helixml/helix-org/prompts"
 )
+
+// markdown is the shared parser/renderer for assistant text. Default
+// goldmark options escape any raw HTML the LLM emits — we never opt
+// into WithUnsafe because the assistant text is not trusted input.
+var markdown = goldmark.New()
+
+// renderMarkdown turns assistant-emitted markdown into safe HTML.
+// On parse error (which the default goldmark cannot really produce
+// for arbitrary text input) we fall back to escaped plaintext so the
+// bubble still renders something legible.
+func renderMarkdown(src string) string {
+	var buf bytes.Buffer
+	if err := markdown.Convert([]byte(src), &buf); err != nil {
+		return html.EscapeString(src)
+	}
+	return buf.String()
+}
 
 // streamEvent captures the parts of claude's stream-json format the
 // chat surface needs to render. The shape is shared between the
@@ -168,8 +188,8 @@ func renderUserBubble(text string) string {
 
 func renderAssistantText(text string) string {
 	return fmt.Sprintf(
-		`<div class="msg msg-asst my-2 mr-auto max-w-[78%%] px-4 py-3 rounded-2xl text-[14px] whitespace-pre-wrap" style="background: var(--surface-elev); border: 1px solid var(--line); color: var(--ink);">%s</div>`,
-		html.EscapeString(text),
+		`<div class="msg msg-asst md my-2 mr-auto max-w-[78%%] px-4 py-3 rounded-2xl text-[14px]" style="background: var(--surface-elev); border: 1px solid var(--line); color: var(--ink);">%s</div>`,
+		renderMarkdown(text),
 	)
 }
 

@@ -88,6 +88,23 @@
         {{ end }}
     </header>
 
+    <section class="mb-6">
+        <div class="flex items-baseline justify-between mb-2">
+            <h3 class="font-display text-[15px] font-light" style="color: var(--ink);">Tools</h3>
+            <span class="font-mono text-[11px]" style="color: var(--ink-muted);">{{ if .HasTools }}{{ len .Tools }} granted{{ else }}none{{ end }} · MCP</span>
+        </div>
+        {{ if .HasTools }}
+        <div class="flex flex-wrap gap-1.5">
+            {{ range .Tools }}
+            <span class="font-mono text-[11px] px-2 py-1 rounded-full"
+                  style="background: var(--canvas-grain); border: 1px solid var(--line); color: var(--ink);">{{ . }}</span>
+            {{ end }}
+        </div>
+        {{ else }}
+        <p class="font-mono text-[12px]" style="color: var(--ink-muted);">No tool grants. This Worker can be activated but cannot mutate the org graph or publish on Streams.</p>
+        {{ end }}
+    </section>
+
     <section>
         <div class="flex items-baseline justify-between mb-2">
             <h3 class="font-display text-[15px] font-light" style="color: var(--ink);">Persona — identity.md</h3>
