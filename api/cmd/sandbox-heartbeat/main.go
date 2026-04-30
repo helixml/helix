@@ -73,9 +73,10 @@ type HeartbeatRequest struct {
 
 	// Inference subsystem state, read from the status.json file the
 	// compose-manager writes after each Apply.
-	ProfileStatus string            `json:"profile_status,omitempty"`
-	ProfileError  string            `json:"profile_error,omitempty"`
-	ServiceHealth map[string]string `json:"service_health,omitempty"`
+	ProfileStatus   string                                       `json:"profile_status,omitempty"`
+	ProfileError    string                                       `json:"profile_error,omitempty"`
+	ServiceHealth   map[string]string                            `json:"service_health,omitempty"`
+	ProfileProgress map[string]types.ServiceDownloadProgress     `json:"profile_progress,omitempty"`
 }
 
 // composeManagerStatusFile is where compose-manager persists its current
@@ -87,22 +88,23 @@ const composeManagerStatusFile = "/etc/helix/status.json"
 // readComposeManagerStatus parses the compose-manager status.json. Returns
 // zero values on any error (file missing is the common case before any
 // profile is applied).
-func readComposeManagerStatus() (status, errMsg string, health map[string]string) {
+func readComposeManagerStatus() (status, errMsg string, health map[string]string, progress map[string]types.ServiceDownloadProgress) {
 	data, err := os.ReadFile(composeManagerStatusFile)
 	if err != nil {
-		return "", "", nil
+		return "", "", nil, nil
 	}
 	var s struct {
-		ProfileID     string            `json:"ProfileID"`
-		ProfileName   string            `json:"ProfileName"`
-		Status        string            `json:"Status"`
-		Error         string            `json:"Error"`
-		ServiceHealth map[string]string `json:"ServiceHealth"`
+		ProfileID     string                                   `json:"ProfileID"`
+		ProfileName   string                                   `json:"ProfileName"`
+		Status        string                                   `json:"Status"`
+		Error         string                                   `json:"Error"`
+		ServiceHealth map[string]string                        `json:"ServiceHealth"`
+		Progress      map[string]types.ServiceDownloadProgress `json:"Progress"`
 	}
 	if err := json.Unmarshal(data, &s); err != nil {
-		return "", "", nil
+		return "", "", nil, nil
 	}
-	return s.Status, s.Error, s.ServiceHealth
+	return s.Status, s.Error, s.ServiceHealth, s.Progress
 }
 
 func main() {
@@ -182,7 +184,7 @@ func sendHeartbeat(apiURL, runnerToken, sandboxInstanceID string, privilegedMode
 	// Best-effort — if the file is missing or malformed, we ship the
 	// heartbeat without inference subsystem state (the API server then
 	// treats the sandbox as not-running-anything).
-	profileStatus, profileError, serviceHealth := readComposeManagerStatus()
+	profileStatus, profileError, serviceHealth, profileProgress := readComposeManagerStatus()
 
 	// Build request
 	req := HeartbeatRequest{
@@ -196,6 +198,7 @@ func sendHeartbeat(apiURL, runnerToken, sandboxInstanceID string, privilegedMode
 		ProfileStatus:         profileStatus,
 		ProfileError:          profileError,
 		ServiceHealth:         serviceHealth,
+		ProfileProgress:       profileProgress,
 	}
 
 	// Log disk status

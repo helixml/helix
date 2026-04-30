@@ -48,6 +48,11 @@ type State struct {
 	Status        string            // "" | "assigning" | "pulling" | "starting" | "running" | "failed"
 	Error         string            // populated when Status == "failed"
 	ServiceHealth map[string]string // service name -> "healthy" | "starting" | "failed" | "unknown"
+	// Progress is per-service model-weights download progress, populated
+	// while Status="starting" and a vLLM service is fetching weights from
+	// HF Hub. Populated by the docker-logs sampler in waitReady — see
+	// hfprogress.go for the parser. Cleared once Status="running".
+	Progress map[string]types.ServiceDownloadProgress
 }
 
 // Options configures the compose manager. Mostly env-var-style knobs.
@@ -123,6 +128,12 @@ func (m *Manager) Snapshot() State {
 		cp.ServiceHealth = make(map[string]string, len(m.state.ServiceHealth))
 		for k, v := range m.state.ServiceHealth {
 			cp.ServiceHealth[k] = v
+		}
+	}
+	if m.state.Progress != nil {
+		cp.Progress = make(map[string]types.ServiceDownloadProgress, len(m.state.Progress))
+		for k, v := range m.state.Progress {
+			cp.Progress[k] = v
 		}
 	}
 	return cp
@@ -275,6 +286,13 @@ func (m *Manager) assertImagesPresent(ctx context.Context, parsed *composeparse.
 // timeout fires. For HTTP services we look for the OpenAI-compatible
 // /v1/models endpoint to return 200. For services without a known port
 // we fall back to "container running".
+//
+// While a service is still "starting" we also sample its container logs
+// for HF Hub download progress so the admin UI can render a progress
+// bar instead of a generic spinner. Progress is best-effort — if the
+// regex doesn't match (e.g. weights are already cached, or vLLM changed
+// its log format) the entry is just absent and the UI falls back to the
+// spinner.
 func (m *Manager) waitReady(ctx context.Context, parsed *composeparse.ParseResult) error {
 	deadline := time.Now().Add(m.opts.ReadinessTimeout)
 	for {
@@ -282,19 +300,31 @@ func (m *Manager) waitReady(ctx context.Context, parsed *composeparse.ParseResul
 			return ctx.Err()
 		}
 		health := map[string]string{}
+		progress := map[string]types.ServiceDownloadProgress{}
 		allHealthy := true
 		for _, svc := range parsed.Models {
 			ok := pingService(ctx, svc.ContainerName, svc.InternalPort)
 			if ok {
 				health[svc.ContainerName] = "healthy"
-			} else {
-				health[svc.ContainerName] = "starting"
-				allHealthy = false
+				continue
+			}
+			health[svc.ContainerName] = "starting"
+			allHealthy = false
+			if p, found := m.sampleProgress(ctx, svc.ContainerName); found {
+				progress[svc.ContainerName] = p
 			}
 		}
 		m.mu.Lock()
 		m.state.ServiceHealth = health
+		if len(progress) > 0 {
+			m.state.Progress = progress
+		} else {
+			m.state.Progress = nil
+		}
 		m.mu.Unlock()
+		// Persist incremental progress so the heartbeat picks it up
+		// without waiting for the next setStatus call.
+		m.persistStatus(m.Snapshot())
 		if allHealthy {
 			return nil
 		}
@@ -309,12 +339,42 @@ func (m *Manager) waitReady(ctx context.Context, parsed *composeparse.ParseResul
 	}
 }
 
+// sampleProgress runs `docker logs <container> --tail 200` and parses the
+// most recent HF Hub progress line. Returns the zero value (false) when
+// the container doesn't exist yet, no progress line matched, or docker
+// errors. Bounded by a 2-second timeout so a slow `docker logs` doesn't
+// block the readiness loop.
+func (m *Manager) sampleProgress(ctx context.Context, container string) (types.ServiceDownloadProgress, bool) {
+	if container == "" {
+		return types.ServiceDownloadProgress{}, false
+	}
+	subCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(subCtx, "docker", "logs", "--tail", "200", container)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return types.ServiceDownloadProgress{}, false
+	}
+	lines := strings.Split(string(out), "\n")
+	p := ParseHFProgress(lines)
+	if p.Percent == 0 && p.Stage == "" {
+		return types.ServiceDownloadProgress{}, false
+	}
+	return p, true
+}
+
 func (m *Manager) setStatus(p *types.RunnerProfile, status, errStr string) {
 	m.mu.Lock()
 	m.state.ProfileID = p.ID
 	m.state.ProfileName = p.Name
 	m.state.Status = status
 	m.state.Error = errStr
+	// Progress is only meaningful while a service is still pulling
+	// weights — once we leave the "starting" phase the bar should
+	// disappear, regardless of whether we ended up running or failed.
+	if status != "starting" {
+		m.state.Progress = nil
+	}
 	stateCopy := m.state
 	m.mu.Unlock()
 	m.persistStatus(stateCopy)

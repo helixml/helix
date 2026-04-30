@@ -2973,6 +2973,12 @@ type SandboxInstance struct {
 	// compose-manager polling each container's /v1/models endpoint
 	// (or vendor-specific health endpoint).
 	ServiceHealth datatypes.JSON `json:"service_health,omitempty" gorm:"type:jsonb" swaggertype:"object,string"`
+
+	// ProfileProgress is per-service download progress for model weights,
+	// surfaced when ProfileStatus="starting" and a vLLM container is
+	// pulling weights from Hugging Face Hub. Empty once all services are
+	// healthy. Map key is compose service name.
+	ProfileProgress datatypes.JSON `json:"profile_progress,omitempty" gorm:"type:jsonb" swaggertype:"object,object"`
 }
 
 // TableName returns the table name for GORM
@@ -3021,6 +3027,31 @@ type SandboxHeartbeatRequest struct {
 	// ServiceHealth maps compose service name -> health string.
 	// "healthy" | "starting" | "failed" | "unknown".
 	ServiceHealth map[string]string `json:"service_health,omitempty"`
+
+	// ProfileProgress is per-service model-weights download progress,
+	// surfaced when ProfileStatus="starting". Empty once all services
+	// finish downloading.
+	ProfileProgress map[string]ServiceDownloadProgress `json:"profile_progress,omitempty"`
+}
+
+// ServiceDownloadProgress is what compose-manager extracts from a vLLM
+// container's stdout while it pulls model weights from Hugging Face Hub.
+// Populated on a best-effort basis — we parse tqdm-style progress lines
+// (e.g. "Downloading shards: 12/47 [09:22<27:18]"). When the regex
+// doesn't match anything for a given container the entry is omitted.
+type ServiceDownloadProgress struct {
+	// Percent is 0-100. Zero means "no progress line parsed yet".
+	Percent int `json:"percent,omitempty"`
+	// Current and Total are the raw N/M from the progress line (e.g.
+	// shards 12 of 47). Useful when Percent is computed.
+	Current int `json:"current,omitempty"`
+	Total   int `json:"total,omitempty"`
+	// ETA is the rendered remaining-time string from the source line
+	// (e.g. "27:18"). Verbatim — not parsed into a duration.
+	ETA string `json:"eta,omitempty"`
+	// Stage is a short tag for what's downloading: "shards", "files",
+	// "weights" or "" if unknown. Drives UI labelling.
+	Stage string `json:"stage,omitempty"`
 }
 
 // DiskUsageMetric represents disk usage for a single mount point

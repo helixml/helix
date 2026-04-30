@@ -57,6 +57,12 @@ func (s *PostgresStore) UpdateSandboxHeartbeat(ctx context.Context, id string, r
 			updates["service_health"] = shJSON
 		}
 	}
+	// Always overwrite ProfileProgress (including with empty) so the
+	// progress bar disappears once a download completes — otherwise stale
+	// "downloading 95%" lingers forever in the admin UI.
+	if pgJSON, err := json.Marshal(req.ProfileProgress); err == nil {
+		updates["profile_progress"] = pgJSON
+	}
 
 	return s.gdb.WithContext(ctx).
 		Model(&types.SandboxInstance{}).
