@@ -1,4 +1,4 @@
-# Helix runner profile: Customer Node 5 — 8x AMD Instinct MI300X 192GB
+# Helix runner profile: 8x AMD Instinct MI300X 192GB — DeepSeek-V4-Pro flagship
 #
 # GPU compatibility (operator-declared, stored alongside this YAML):
 #   vendor:        amd
@@ -6,9 +6,9 @@
 #   model_match:   MI300X
 #   min_vram:      206158430208   # 192 GiB per GPU
 #
-# Customer's Node 5: the big iron — 8x MI300X 192GB = 1.5 TiB total VRAM.
-# This is the flagship-model node. Runs DeepSeek-V4-Pro (862B params, FP8)
-# tensor-parallel-8 across all 8 MI300X cards via vLLM-on-ROCm.
+# 8x MI300X 192GB = 1.5 TiB total VRAM. The flagship-model AMD layout:
+# runs DeepSeek-V4-Pro (862B params, FP8) tensor-parallel-8 across all 8
+# MI300X cards via vLLM-on-ROCm.
 #
 # **No desktops on this node.** MI300X is a CDNA-3 compute chip — it has
 # no display engine, no NVENC/VCN-equivalent, and Mesa's `radeonsi` driver

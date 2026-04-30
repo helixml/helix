@@ -63,9 +63,9 @@ entries:
     secondary_profiles_for_switch: []
     incompatible_profile: design/sample-profiles/8xH100-vllm.yaml
 
-  # ===== Customer-deployment entries (disabled until stock returns) =====
+  # ===== Mixed-fleet entries (disabled until stock returns) =====
   #
-  # All five disabled below model the customer's actual deployment:
+  # All five disabled entries below model a representative 5-node fleet:
   #   Node 1: 4× A100 80GB     (currently 0 in stock at Verda)
   #   Nodes 2-4: 4× L40S each  (Verda lists L40S in catalogue but 0 in stock anywhere)
   #   Node 5: 8× MI300X        (Hot Aisle bare-metal product was empty)
@@ -80,8 +80,8 @@ entries:
     instance_type: 4A100.88V
     gpu_count: 4
     region: FIN-01
-    # Real customer profile (April 2026 best models). GPU 3 reserved for desktops.
-    profile: design/sample-profiles/customer-node1-4xA100.yaml
+    # 4×A100 multi-model profile (April 2026 best models). GPU 3 reserved for desktops.
+    profile: design/sample-profiles/4xA100-vllm.yaml
     profile_metadata:
       vendor: nvidia
       architectures: [ampere]
@@ -97,7 +97,7 @@ entries:
     gpu_count: 4
     region: FIN-01
     # Same profile deployed identically to nodes 2, 3, 4. Inference router round-robins.
-    profile: design/sample-profiles/customer-node2to4-4xL40S.yaml
+    profile: design/sample-profiles/4xL40S-vllm.yaml
     profile_metadata:
       vendor: nvidia
       architectures: [ada]
@@ -112,7 +112,7 @@ entries:
     instance_type: 4L40S.80V
     gpu_count: 4
     region: FIN-01
-    profile: design/sample-profiles/customer-node2to4-4xL40S.yaml
+    profile: design/sample-profiles/4xL40S-vllm.yaml
     profile_metadata:
       vendor: nvidia
       architectures: [ada]
@@ -127,7 +127,7 @@ entries:
     instance_type: 4L40S.80V
     gpu_count: 4
     region: FIN-01
-    profile: design/sample-profiles/customer-node2to4-4xL40S.yaml
+    profile: design/sample-profiles/4xL40S-vllm.yaml
     profile_metadata:
       vendor: nvidia
       architectures: [ada]
@@ -143,7 +143,7 @@ entries:
     gpu_count: 8
     region: ""
     # Big iron: DeepSeek-V4-Pro 862B FP8 with TP=8. No desktops (CDNA can't render).
-    profile: design/sample-profiles/customer-node5-8xMI300X.yaml
+    profile: design/sample-profiles/8xMI300X-deepseek-v4-pro.yaml
     profile_metadata:
       vendor: amd
       architectures: [cdna3]
@@ -152,27 +152,28 @@ entries:
     secondary_profiles_for_switch: []
     incompatible_profile: design/sample-profiles/8xH100-vllm.yaml
 
-  # Customer's actual production-SaaS hardware: 8× RTX PRO 6000 Blackwell
-  # 96GB. Disabled because no cloud provider currently sells this exact SKU
-  # — Verda has 1×/2×/4× RTX PRO 6000 (vbm-...) but not 8×, and Hot Aisle
-  # is AMD-only. Flip enabled when one of:
+  # 8× RTX PRO 6000 Blackwell 96GB — the canonical multi-tenant
+  # multi-model profile. Disabled because no cloud provider currently
+  # sells this exact SKU — Verda has 1×/2×/4× RTX PRO 6000 (vbm-...) but
+  # not 8×, and Hot Aisle is AMD-only. Flip enabled when one of:
   #   - Verda lists a 8RTXPRO6000.240V SKU (their pricing page hints they
   #     might add it; track via GET /v1/instance-types)
-  #   - Customer hardware becomes available for an SSH window before deploy
+  #   - An on-prem 8× RTX PRO 6000 host becomes available for an SSH
+  #     window before deploy
   #   - Someone signs us up at a hyperscaler with the right SKU (Azure NV-series)
   #
-  # When enabled, the 8xRTX6000Pro-prod-saas profile claims GPUs 0-6 and
+  # When enabled, the 8xRTX6000Pro-vllm profile claims GPUs 0-6 and
   # leaves GPU 7 free for agent desktops via Decision 15 (`gpu_index: 7`).
   # The harness should also exercise the desktop-spawn path on this entry
-  # to validate Decision 15 multi-GPU pinning end-to-end on the customer's
-  # actual hardware shape.
-  - id: customer-prod-rtx6000pro-8x
+  # to validate Decision 15 multi-GPU pinning end-to-end on this 8-GPU
+  # hardware shape.
+  - id: rtx6000pro-8x
     enabled: false
     provider: verda
     instance_type: 8RTXPRO6000.240V  # placeholder; doesn't exist in Verda's catalogue today
     gpu_count: 8
     region: FIN-03
-    profile: design/sample-profiles/8xRTX6000Pro-prod-saas.yaml
+    profile: design/sample-profiles/8xRTX6000Pro-vllm.yaml
     profile_metadata:
       vendor: nvidia
       architectures: [blackwell]

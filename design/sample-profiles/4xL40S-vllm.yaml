@@ -1,4 +1,4 @@
-# Helix runner profile: Customer Nodes 2-4 — 4x NVIDIA L40S 48GB
+# Helix runner profile: 4x NVIDIA L40S 48GB — multi-model + desktop headroom
 #
 # GPU compatibility (operator-declared, stored alongside this YAML):
 #   vendor:        nvidia
@@ -6,11 +6,11 @@
 #   model_match:   ^NVIDIA L40S
 #   min_vram:      51539607552   # 48 GiB
 #
-# Customer's Nodes 2, 3, and 4: each has 4x L40S 48GB. This single profile
-# is deployed identically to all three nodes (the inference router round-
-# robins across them — three sandboxes serving the same model names is the
-# multi-runner story). Leaves GPU 3 free for Hydra-spawned agent desktops
-# via Decision 15 (`gpu_index: 3`). Compose parser computes `GPUCount: 3`.
+# 4x L40S 48GB (Ada). Designed to be deployed identically to multiple
+# nodes in a fleet: the inference router round-robins across the
+# sandboxes that serve the same model names. Leaves GPU 3 free for
+# Hydra-spawned agent desktops via Decision 15 (`gpu_index: 3`). Compose
+# parser computes `GPUCount: 3`, so a 4-GPU host has explicit headroom.
 #
 # L40S has full hardware video encoding (NVENC + NVDEC) plus a display
 # engine, so desktops on the reserved GPU 3 get full hardware-accelerated

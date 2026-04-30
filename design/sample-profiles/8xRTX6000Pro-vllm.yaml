@@ -1,4 +1,4 @@
-# Helix runner profile: 8x NVIDIA RTX PRO 6000 Blackwell production SaaS
+# Helix runner profile: 8x NVIDIA RTX PRO 6000 Blackwell — multi-model + desktop headroom
 #
 # GPU compatibility (operator-declared, stored alongside this YAML):
 #   vendor:        nvidia
@@ -6,10 +6,10 @@
 #   model_match:   ^NVIDIA RTX PRO 6000
 #   min_vram:      103079215104   # 96 GiB
 #
-# This is the canonical production profile for the customer's 8x RTX PRO 6000
-# (96 GB Blackwell) host. It deliberately uses GPUs 0-6 for inference and
-# **leaves GPU 7 unused** so Hydra can spawn helix-ubuntu desktop sessions
-# pinned to that GPU via Decision 15 (`gpu_index: 7` in the dev-container
+# Canonical multi-tenant multi-model profile for an 8x RTX PRO 6000 (96 GB
+# Blackwell) host. Deliberately uses GPUs 0-6 for inference and **leaves
+# GPU 7 unused** so Hydra can spawn helix-ubuntu desktop sessions pinned
+# to that GPU via Decision 15 (`gpu_index: 7` in the dev-container
 # request). The compose parser computes `GPUCount: 7` from this YAML — the
 # compatibility check on an 8-GPU host therefore passes with 1 GPU of
 # headroom for desktops on the same node.
@@ -29,9 +29,9 @@
 # registry the sandbox can reach (HELIX_REGISTRY env var on the sandbox
 # points at the local registry container by default).
 #
-# This profile is exported as a curated default in the admin UI's Profile
-# Gallery. Operators with the same hardware can deploy it as-is; with
-# different mixes can use it as a starting point and adjust.
+# Exported as a curated default in the admin UI's Profile Gallery.
+# Operators with the same hardware can deploy it as-is; with different
+# mixes can use it as a starting point and adjust.
 
 services:
   qwen3-vl-embedding:

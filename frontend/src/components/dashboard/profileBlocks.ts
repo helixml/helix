@@ -509,11 +509,11 @@ export const curatedProfiles: CuratedProfile[] = [
     composeYAML: composeFromBlocks([blockChat72BTP4]),
   },
   {
-    id: "8xrtx6000pro-prod-saas",
-    name: "8×RTX PRO 6000 Blackwell production SaaS",
-    description: "Full production-SaaS stack on 8× RTX PRO 6000 Blackwell (96 GB each). Two embedding models share GPU 0 at 45% util each, qwen3.5-35b on GPU 1, minimax-m2.7 tensor-parallel-4 on GPUs 2-5, gemma-4-26b on GPU 6 — and **GPU 7 left free for Hydra-spawned agent desktops on the same node** (Decision 15: spawn with `gpu_index: 7`). This is the canonical multi-tenant production layout.",
+    id: "8xrtx6000pro-vllm",
+    name: "8×RTX PRO 6000 Blackwell — multi-model stack",
+    description: "Full multi-model stack on 8× RTX PRO 6000 Blackwell (96 GB each). Two embedding models share GPU 0 at 45% util each, qwen3.5-35b on GPU 1, minimax-m2.7 tensor-parallel-4 on GPUs 2-5, gemma-4-26b on GPU 6 — and **GPU 7 left free for Hydra-spawned agent desktops on the same node** (Decision 15: spawn with `gpu_index: 7`). The canonical multi-tenant layout for this hardware.",
     pros: [
-      "5 production models running concurrently on one node (incl. text + vision embeddings, mid-size chat, large MoE chat, long-context chat)",
+      "5 models running concurrently on one node (incl. text + vision embeddings, mid-size chat, large MoE chat, long-context chat)",
       "Desktop sessions on the same physical box as inference (GPU 7 reserved)",
       "All 96 GB VRAM cards leave room for full context windows (32K-131K)",
       "FP8 + tensor-parallel-4 + custom kernels (minimax/gemma-specific images)",
@@ -526,7 +526,7 @@ export const curatedProfiles: CuratedProfile[] = [
     // No blockIDs: this profile is hand-tuned (5 specific custom services with
     // model-specific kernels, JSON args, and a deliberate GPU layout). The
     // inline composeYAML is the source of truth — kept identical to
-    // design/sample-profiles/8xRTX6000Pro-prod-saas.yaml so editing either
+    // design/sample-profiles/8xRTX6000Pro-vllm.yaml so editing either
     // updates both.
     blockIDs: [],
     vendor: "nvidia",
@@ -704,24 +704,24 @@ export const curatedProfiles: CuratedProfile[] = [
 `,
   },
   {
-    id: "customer-node1-4xa100",
-    name: "Customer Node 1 — 4×A100 80GB",
-    description: "Customer's Node 1: 4× A100 80GB. Embeddings + GLM-4.7-Flash + Qwen3.6-35B-A3B MoE on GPUs 0-2; **GPU 3 reserved for Hydra desktops** (Decision 15: spawn with `gpu_index: 3`). A100 has no NVENC, so desktop encoding falls back to libx264 software — fine for 1-2 concurrent sessions.",
+    id: "4xa100-vllm",
+    name: "4×A100 80GB — multi-model stack",
+    description: "4× A100 80GB. Embeddings + GLM-4.7-Flash + Qwen3.6-35B-A3B MoE on GPUs 0-2; **GPU 3 reserved for Hydra desktops** (Decision 15: spawn with `gpu_index: 3`). A100 has no NVENC, so desktop encoding falls back to libx264 software — fine for 1-2 concurrent sessions.",
     pros: [
-      "Mid-tier production inference + agent desktops on the same node",
+      "Mid-tier inference + agent desktops on the same node",
       "GLM-4.7-Flash 31B + Qwen3.6-35B-A3B MoE = top-tier reasoning + tool calling",
       "Embeddings on the same node mean RAG queries don't cross hosts",
     ],
     cons: [
       "A100 software-encodes desktop video (CPU-bound; 2 sessions max comfortably)",
-      "Mid-size models — for flagship-tier reasoning use Node 5",
+      "Mid-size models — for flagship-tier reasoning use the 8×MI300X profile",
     ],
     blockIDs: [],
     vendor: "nvidia",
     architectures: ["ampere"],
     modelMatch: "^NVIDIA A100",
     minVRAMBytes: 80 * GIB,
-    composeYAML: `# See design/sample-profiles/customer-node1-4xA100.yaml for the source-of-truth version with full header comments.
+    composeYAML: `# See design/sample-profiles/4xA100-vllm.yaml for the source-of-truth version with full header comments.
 services:
   qwen3-vl-embedding:
     image: vllm/vllm-openai:latest
@@ -762,24 +762,24 @@ services:
 `,
   },
   {
-    id: "customer-node2to4-4xl40s",
-    name: "Customer Nodes 2-4 — 4×L40S 48GB (each)",
-    description: "Customer's Nodes 2, 3, and 4: each 4× L40S 48GB. Same profile deployed to all three; the inference router round-robins across the three sandboxes. Embeddings + Qwen3.5-27B + Qwen3.6-35B-A3B on GPUs 0-2; **GPU 3 reserved for Hydra desktops with full NVENC hardware encoding**.",
+    id: "4xl40s-vllm",
+    name: "4×L40S 48GB — multi-model (round-robin fleet)",
+    description: "4× L40S 48GB. Designed to be deployed identically on multiple nodes; the inference router round-robins across the sandboxes that serve the same model names. Embeddings + Qwen3.5-27B + Qwen3.6-35B-A3B on GPUs 0-2; **GPU 3 reserved for Hydra desktops with full NVENC hardware encoding**.",
     pros: [
-      "Three-node fleet round-robined by the inference router",
+      "Fleet-friendly: deploy identically across N nodes; inference router round-robins",
       "Full hardware-accelerated desktop video (NVENC + display engine)",
       "Mid-tier 27-35B reasoning models + embeddings co-located with desktops",
     ],
     cons: [
       "L40S 48GB caps single-model size below A100/Blackwell tier",
-      "Three separate sandboxes to maintain (one per node)",
+      "One sandbox per node to maintain across the fleet",
     ],
     blockIDs: [],
     vendor: "nvidia",
     architectures: ["ada"],
     modelMatch: "^NVIDIA L40S",
     minVRAMBytes: 48 * GIB,
-    composeYAML: `# See design/sample-profiles/customer-node2to4-4xL40S.yaml for the source-of-truth version with full header comments.
+    composeYAML: `# See design/sample-profiles/4xL40S-vllm.yaml for the source-of-truth version with full header comments.
 services:
   qwen3-vl-embedding:
     image: vllm/vllm-openai:latest
@@ -820,9 +820,9 @@ services:
 `,
   },
   {
-    id: "customer-node5-8xmi300x",
-    name: "Customer Node 5 — 8×MI300X big-iron (inference-only)",
-    description: "Customer's Node 5: the big iron — 8× MI300X 192GB = 1.5 TiB total VRAM. Runs **DeepSeek-V4-Pro 862B FP8 with tensor-parallel-8** across all 8 cards via vLLM-on-ROCm. **No desktops on this node** — MI300X is a CDNA-3 compute chip with no display engine; Mesa's radeonsi refuses to create a graphics context (verified live in cloud GPU campaign run #5).",
+    id: "8xmi300x-deepseek-v4-pro",
+    name: "8×MI300X — DeepSeek-V4-Pro flagship (inference-only)",
+    description: "Big-iron AMD layout — 8× MI300X 192GB = 1.5 TiB total VRAM. Runs **DeepSeek-V4-Pro 862B FP8 with tensor-parallel-8** across all 8 cards via vLLM-on-ROCm. **No desktops on this node** — MI300X is a CDNA-3 compute chip with no display engine; Mesa's radeonsi refuses to create a graphics context (verified live in cloud GPU campaign run #5).",
     pros: [
       "Flagship-tier reasoning: DeepSeek-V4-Pro is the current best open-weights chat model (April 2026)",
       "1.5 TiB total VRAM — runs the 862B-param flagship comfortably with full 131K context",
@@ -838,7 +838,7 @@ services:
     architectures: ["cdna3"],
     modelMatch: "MI300X",
     minVRAMBytes: 192 * GIB,
-    composeYAML: `# See design/sample-profiles/customer-node5-8xMI300X.yaml for the source-of-truth version with full header comments.
+    composeYAML: `# See design/sample-profiles/8xMI300X-deepseek-v4-pro.yaml for the source-of-truth version with full header comments.
 services:
   deepseek-v4-pro:
     image: rocm/vllm:latest
