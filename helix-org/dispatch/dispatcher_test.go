@@ -98,7 +98,7 @@ func newDispatcher(t *testing.T) (*dispatch.Dispatcher, *store.Store) {
 // recordedActivation captures one Spawner invocation for assertions.
 type recordedActivation struct {
 	WorkerID domain.WorkerID
-	Trigger  tools.Trigger
+	Triggers []tools.Trigger
 }
 
 // newDispatcherWithSpawner returns a Dispatcher whose Spawner records
@@ -111,8 +111,8 @@ func newDispatcherWithSpawner(t *testing.T) (*dispatch.Dispatcher, *store.Store,
 		t.Fatalf("open store: %v", err)
 	}
 	rec := make(chan recordedActivation, 16)
-	spawner := tools.Spawner(func(_ context.Context, workerID domain.WorkerID, _ string, trigger tools.Trigger) error {
-		rec <- recordedActivation{WorkerID: workerID, Trigger: trigger}
+	spawner := tools.Spawner(func(_ context.Context, workerID domain.WorkerID, _ string, triggers []tools.Trigger) error {
+		rec <- recordedActivation{WorkerID: workerID, Triggers: triggers}
 		return nil
 	})
 	d := dispatch.New(s, spawner, slog.New(slog.NewTextHandler(io.Discard, nil)))
@@ -571,7 +571,141 @@ func TestDispatchAttachesSourceKind(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("activations = %d, want 1", len(got))
 	}
-	if k := got[0].Trigger.SourceKind; k != domain.WorkerKindAI {
+	if n := len(got[0].Triggers); n != 1 {
+		t.Fatalf("triggers = %d, want 1", n)
+	}
+	if k := got[0].Triggers[0].SourceKind; k != domain.WorkerKindAI {
 		t.Fatalf("SourceKind = %q, want %q", k, domain.WorkerKindAI)
 	}
+}
+
+// TestDispatchCoalescesEvents pins the cost-saving rule that drove this
+// design: while one activation is in flight for a Worker, any further
+// events that arrive on Streams that Worker subscribes to are
+// appended to a per-Worker queue and delivered to the Spawner as one
+// batched activation when the current one finishes — not five
+// separate fresh-claude runs.
+//
+// Shape of the test: the spawner blocks on the very first call so we
+// can publish more events behind it, then we release it and assert
+// the second Spawner call receives all the events that queued during
+// the block as one slice.
+func TestDispatchCoalescesEvents(t *testing.T) {
+	t.Parallel()
+
+	s, err := sqlite.Open(":memory:")
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	rec := make(chan recordedActivation, 8)
+
+	// First Spawner call gates on `release` so the test can stack more
+	// events behind it; subsequent calls return immediately. The atomic
+	// counter is what makes "first" deterministic across the runner's
+	// retry loop.
+	started := make(chan struct{})
+	release := make(chan struct{})
+	var calls atomic.Int32
+	spawner := tools.Spawner(func(_ context.Context, workerID domain.WorkerID, _ string, triggers []tools.Trigger) error {
+		n := calls.Add(1)
+		if n == 1 {
+			close(started)
+			<-release
+		}
+		// Copy the slice so a later mutation in the dispatcher (it doesn't
+		// today, but defensive) can't race with the assertion read.
+		copied := make([]tools.Trigger, len(triggers))
+		copy(copied, triggers)
+		rec <- recordedActivation{WorkerID: workerID, Triggers: copied}
+		return nil
+	})
+	d := dispatch.New(s, spawner, slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	seedWebhookStream(t, s, "s-team", domain.Transport{Kind: domain.TransportLocal})
+	seedAIWorker(t, s, "w-eng")
+	seedSubscription(t, s, "w-eng", "s-team")
+
+	publish := func(id, body string) {
+		ev, err := domain.NewMessageEvent(
+			domain.EventID(id), "s-team", "w-other",
+			domain.Message{From: "w-other", Body: body},
+			time.Now().UTC(),
+		)
+		if err != nil {
+			t.Fatalf("new event: %v", err)
+		}
+		if err := s.Events.Append(context.Background(), ev); err != nil {
+			t.Fatalf("append event: %v", err)
+		}
+		d.Dispatch(context.Background(), ev)
+	}
+
+	// First event kicks off activation #1; the spawner blocks inside it.
+	publish("e-1", "first")
+	<-started
+
+	// Three more events while activation #1 is held. These should NOT
+	// each trigger a fresh Spawner call — they should pool in the queue
+	// and be drained as one batch when activation #1 returns.
+	publish("e-2", "two")
+	publish("e-3", "three")
+	publish("e-4", "four")
+
+	// Give the dispatcher's enqueue goroutines a tick to land. The lock
+	// inside enqueue is uncontended once Dispatch returns, but the
+	// goroutines that resolve subs/env can still be in flight.
+	time.Sleep(100 * time.Millisecond)
+
+	// Release the first activation; the runner now drains the batch.
+	close(release)
+
+	// Two Spawner calls total: one with [e-1], one with [e-2, e-3, e-4].
+	a1 := waitForActivation(t, rec, 2*time.Second)
+	a2 := waitForActivation(t, rec, 2*time.Second)
+
+	if len(a1.Triggers) != 1 || a1.Triggers[0].EventID != "e-1" {
+		t.Fatalf("activation #1 = %d trigger(s) %+v, want [e-1]", len(a1.Triggers), eventIDs(a1.Triggers))
+	}
+	if len(a2.Triggers) != 3 {
+		t.Fatalf("activation #2 = %d triggers %+v, want 3", len(a2.Triggers), eventIDs(a2.Triggers))
+	}
+	wantIDs := []domain.EventID{"e-2", "e-3", "e-4"}
+	for i, want := range wantIDs {
+		if a2.Triggers[i].EventID != want {
+			t.Fatalf("activation #2 trigger order = %+v, want %+v", eventIDs(a2.Triggers), wantIDs)
+		}
+	}
+
+	// And no third activation is fired — the runner exits cleanly when
+	// the queue drains.
+	select {
+	case extra := <-rec:
+		t.Fatalf("unexpected third activation: %+v", extra)
+	case <-time.After(150 * time.Millisecond):
+	}
+
+	if got := calls.Load(); got != 2 {
+		t.Fatalf("Spawner calls = %d, want 2", got)
+	}
+}
+
+// waitForActivation pulls one recordedActivation off rec or fails the
+// test on timeout. Centralised so the coalescing test reads cleanly.
+func waitForActivation(t *testing.T, rec <-chan recordedActivation, timeout time.Duration) recordedActivation {
+	t.Helper()
+	select {
+	case got := <-rec:
+		return got
+	case <-time.After(timeout):
+		t.Fatalf("no activation within %s", timeout)
+		return recordedActivation{}
+	}
+}
+
+func eventIDs(ts []tools.Trigger) []domain.EventID {
+	out := make([]domain.EventID, len(ts))
+	for i, t := range ts {
+		out[i] = t.EventID
+	}
+	return out
 }

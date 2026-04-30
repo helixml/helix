@@ -2,7 +2,7 @@
 // subscribed AI Worker. The server is the event bus; Workers are
 // reactors. Each activation is a single fresh run of the Spawner — no
 // long-running agent loops, no in-process state per worker beyond a
-// per-Worker mutex that serialises overlapping events.
+// per-Worker queue that coalesces overlapping events.
 //
 // Lifecycle:
 //   - hire_worker calls DispatchHire to fire a TriggerHire activation
@@ -10,10 +10,14 @@
 //   - publish calls Dispatch with the freshly-appended Event to fan it
 //     out to every subscribed AI Worker as a TriggerEvent activation.
 //
-// Both calls return immediately; activations run on goroutines. Per-
-// Worker serialisation guarantees only one Spawner at a time per
-// Worker, so two events arriving in quick succession are processed in
-// order, never in parallel.
+// Both calls return immediately; activations run on goroutines. Each
+// Worker has a single runner goroutine that drains a per-Worker
+// queue: new triggers arriving while an activation is in flight are
+// appended and processed as one coalesced batch when the current
+// activation finishes. This collapses webhook cascades (e.g. five
+// GitHub events fired by the worker's own action against a shared
+// auth token) into a single follow-up activation, which keeps cost
+// bounded under burst traffic.
 package dispatch
 
 import (
@@ -54,9 +58,24 @@ type Dispatcher struct {
 	httpClient   *http.Client
 	emailEmitter EmailEmitter
 
-	// per-worker mutexes serialise activations. Each is created on first
+	// per-worker queues coalesce activations. Each is created on first
 	// use via sync.Map.LoadOrStore.
-	locks sync.Map // map[domain.WorkerID]*sync.Mutex
+	queues sync.Map // map[domain.WorkerID]*workerQueue
+}
+
+// workerQueue holds the pending triggers for one Worker plus the
+// state needed to coordinate the single runner goroutine that drains
+// them. New triggers arriving while running == true are appended to
+// pending; the runner picks them up at the top of its next loop
+// iteration and feeds them to the Spawner as a single batched
+// activation. envPath is captured from the most recent enqueue —
+// stable in practice (a Worker's environment doesn't move) but the
+// last writer wins if it ever does.
+type workerQueue struct {
+	mu      sync.Mutex
+	pending []tools.Trigger
+	envPath string
+	running bool
 }
 
 // New returns a Dispatcher. spawner may be nil to disable activation
@@ -93,7 +112,7 @@ func (d *Dispatcher) DispatchHire(_ context.Context, workerID domain.WorkerID, e
 	if d.spawner == nil {
 		return
 	}
-	go d.activate(context.Background(), workerID, envPath, tools.Trigger{Kind: tools.TriggerHire}) //nolint:gosec // intentional: the activation outlives the HTTP request that triggered DispatchHire
+	d.enqueue(workerID, envPath, tools.Trigger{Kind: tools.TriggerHire})
 }
 
 // Dispatch fans an Event out to every AI Worker subscribed to its
@@ -103,9 +122,9 @@ func (d *Dispatcher) DispatchHire(_ context.Context, workerID domain.WorkerID, e
 // runs on its own goroutine with its own background context, so a
 // slow target never stalls the publish that triggered Dispatch.
 //
-// Returns immediately. Per-Worker mutexes serialise overlapping
-// subscriber activations within a Worker; outbound POSTs have no
-// such ordering guarantee.
+// Returns immediately. A per-Worker queue serialises and coalesces
+// overlapping subscriber activations within a Worker; outbound POSTs
+// have no such ordering guarantee.
 func (d *Dispatcher) Dispatch(ctx context.Context, e domain.Event) {
 	d.emitOutbound(ctx, e)
 	if d.spawner == nil {
@@ -161,42 +180,81 @@ func (d *Dispatcher) Dispatch(ctx context.Context, e domain.Event) {
 			Message:    msg, // full canonical envelope; rendered by the spawner into the activation prompt
 			CreatedAt:  e.CreatedAt,
 		}
-		// Decouple from the request context so the activation isn't
-		// cancelled when the HTTP request that triggered publish returns.
-		go d.activate(context.Background(), sub.WorkerID, env.Path, trigger) //nolint:gosec // intentional: the activation outlives the HTTP request that triggered Dispatch
+		d.enqueue(sub.WorkerID, env.Path, trigger)
 	}
 }
 
-// activate acquires the per-Worker mutex, then invokes the Spawner.
-// Spawner is synchronous (returns when claude exits), so the mutex is
-// held for the full activation.
-func (d *Dispatcher) activate(ctx context.Context, workerID domain.WorkerID, envPath string, trigger tools.Trigger) {
-	mu := d.lockFor(workerID)
-	mu.Lock()
-	defer mu.Unlock()
+// enqueue appends a trigger to the Worker's queue and starts the
+// runner goroutine if one isn't already draining the queue. Returns
+// immediately. The activation goroutine outlives the HTTP request
+// that triggered enqueue, so it uses context.Background internally.
+func (d *Dispatcher) enqueue(workerID domain.WorkerID, envPath string, trigger tools.Trigger) {
+	q := d.queueFor(workerID)
+	q.mu.Lock()
+	q.pending = append(q.pending, trigger)
+	q.envPath = envPath // last writer wins; stable in practice
+	if q.running {
+		q.mu.Unlock()
+		return
+	}
+	q.running = true
+	q.mu.Unlock()
+	// Runner outlives the HTTP request that triggered enqueue — it
+	// uses context.Background internally for the same reason.
+	go d.run(workerID, q)
+}
+
+// run drains the Worker's queue, calling the Spawner once per drain
+// with however many triggers accumulated. Exits when an iteration
+// finds the queue empty under the lock — at which point any later
+// enqueue will see running == false and start a fresh runner.
+func (d *Dispatcher) run(workerID domain.WorkerID, q *workerQueue) {
+	for {
+		q.mu.Lock()
+		if len(q.pending) == 0 {
+			q.running = false
+			q.mu.Unlock()
+			return
+		}
+		batch := q.pending
+		q.pending = nil
+		envPath := q.envPath
+		q.mu.Unlock()
+
+		d.activate(context.Background(), workerID, envPath, batch)
+	}
+}
+
+// activate is one synchronous Spawner call. The runner serialises
+// these per-Worker so the Spawner is never invoked concurrently for
+// the same Worker.
+func (d *Dispatcher) activate(ctx context.Context, workerID domain.WorkerID, envPath string, batch []tools.Trigger) {
 	d.logger.Info("dispatch.activate.start",
 		"worker", workerID,
-		"trigger", trigger.Kind,
-		"event", trigger.EventID,
+		"trigger", batch[0].Kind,
+		"triggers", len(batch),
+		"event", batch[0].EventID,
 	)
-	err := d.spawner(ctx, workerID, envPath, trigger)
+	err := d.spawner(ctx, workerID, envPath, batch)
 	if err != nil && !errors.Is(err, context.Canceled) {
 		d.logger.Warn("dispatch.activate.fail",
 			"worker", workerID,
-			"trigger", trigger.Kind,
+			"trigger", batch[0].Kind,
+			"triggers", len(batch),
 			"err", err,
 		)
 		return
 	}
 	d.logger.Info("dispatch.activate.done",
 		"worker", workerID,
-		"trigger", trigger.Kind,
+		"trigger", batch[0].Kind,
+		"triggers", len(batch),
 	)
 }
 
-func (d *Dispatcher) lockFor(workerID domain.WorkerID) *sync.Mutex {
-	got, _ := d.locks.LoadOrStore(workerID, &sync.Mutex{})
-	return got.(*sync.Mutex)
+func (d *Dispatcher) queueFor(workerID domain.WorkerID) *workerQueue {
+	got, _ := d.queues.LoadOrStore(workerID, &workerQueue{})
+	return got.(*workerQueue)
 }
 
 // emitOutbound dispatches Event-level outbound traffic for Streams

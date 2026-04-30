@@ -149,7 +149,10 @@ var agentMDContent string
 // read_events on that Stream — the same primitive every other read
 // flows through. There is no on-disk transcript.
 func ClaudeSpawner(cfg ClaudeSpawnerConfig) Spawner {
-	return func(ctx context.Context, workerID domain.WorkerID, envPath string, trigger Trigger) error {
+	return func(ctx context.Context, workerID domain.WorkerID, envPath string, triggers []Trigger) error {
+		if len(triggers) == 0 {
+			return fmt.Errorf("spawner invoked with no triggers")
+		}
 		if err := projectEnv(ctx, cfg.Store, workerID, envPath); err != nil {
 			return fmt.Errorf("project env for %s: %w", workerID, err)
 		}
@@ -159,7 +162,7 @@ func ClaudeSpawner(cfg ClaudeSpawnerConfig) Spawner {
 			return fmt.Errorf("write mcp config: %w", err)
 		}
 
-		prompt := buildPrompt(workerID, agentMDContent, trigger)
+		prompt := buildPrompt(workerID, agentMDContent, triggers)
 
 		args := []string{
 			"-p", prompt,
@@ -191,7 +194,7 @@ func ClaudeSpawner(cfg ClaudeSpawnerConfig) Spawner {
 		// activations are easy to tell apart for an observer reading
 		// events. The trigger description matches what callers see when
 		// inspecting their hires.
-		publish(fmt.Sprintf("=== activation: %s ===", describeTrigger(trigger)))
+		publish(fmt.Sprintf("=== activation: %s ===", describeTriggers(triggers)))
 
 		stdout, err := cmd.StdoutPipe()
 		if err != nil {
@@ -214,7 +217,8 @@ func ClaudeSpawner(cfg ClaudeSpawnerConfig) Spawner {
 			"worker", workerID,
 			"pid", pid,
 			"env", envPath,
-			"trigger", trigger.Kind,
+			"trigger", triggers[0].Kind,
+			"triggers", len(triggers),
 			"stream", streamID,
 		)
 
@@ -374,19 +378,36 @@ func okOr(s string) string {
 }
 
 // buildPrompt assembles the per-activation prompt: identity hint +
-// agent.md contents + the specific trigger that woke the Worker up.
+// agent.md contents + the triggers that woke the Worker up. The
+// dispatcher coalesces bursts, so a single activation may carry
+// multiple triggers — the prompt frames them as a numbered list when
+// that happens, so the agent can read all of them before deciding
+// what to do (often the most recent supersedes the earlier ones).
 // Tools are exposed natively via MCP under the "helix" server (tool
 // names appear as mcp__helix__<name>); Claude figures the rest out
 // from tools/list.
-func buildPrompt(workerID domain.WorkerID, mandate string, trigger Trigger) string {
+func buildPrompt(workerID domain.WorkerID, mandate string, triggers []Trigger) string {
 	var ctx strings.Builder
-	switch trigger.Kind {
-	case TriggerHire:
-		ctx.WriteString("You have just been hired. This is your first activation. Complete any one-time setup your role describes, then exit. The runtime will re-activate you when an event arrives on a Stream you subscribe to.\n")
-	case TriggerEvent:
-		ctx.WriteString(renderTrigger(trigger))
-	default:
-		fmt.Fprintf(&ctx, "Activation kind: %q.\n", trigger.Kind)
+
+	if len(triggers) > 1 {
+		fmt.Fprintf(&ctx, "%d triggers have queued for you since your last activation. They are listed below in arrival order. Read all of them before deciding what to do — often the latest supersedes earlier ones, and most cascades resolve to a single response or to silence.\n\n", len(triggers))
+	}
+
+	for i, t := range triggers {
+		if len(triggers) > 1 {
+			fmt.Fprintf(&ctx, "[%d/%d]\n", i+1, len(triggers))
+		}
+		switch t.Kind {
+		case TriggerHire:
+			ctx.WriteString("You have just been hired. This is your first activation. Complete any one-time setup your role describes, then exit. The runtime will re-activate you when an event arrives on a Stream you subscribe to.\n")
+		case TriggerEvent:
+			ctx.WriteString(renderTrigger(t))
+		default:
+			fmt.Fprintf(&ctx, "Activation kind: %q.\n", t.Kind)
+		}
+		if len(triggers) > 1 && i < len(triggers)-1 {
+			ctx.WriteByte('\n')
+		}
 	}
 
 	return fmt.Sprintf(`You are Worker %s, running inside helix-org. Your environment is
@@ -483,6 +504,22 @@ func describeTrigger(t Trigger) string {
 	default:
 		return string(t.Kind)
 	}
+}
+
+// describeTriggers labels the activation marker that gets published to
+// the worker's activation stream. A single trigger reuses
+// describeTrigger verbatim so observers see no change for the common
+// case; a coalesced batch summarises as "batch of N" with each
+// trigger's individual description joined by "; ".
+func describeTriggers(triggers []Trigger) string {
+	if len(triggers) == 1 {
+		return describeTrigger(triggers[0])
+	}
+	parts := make([]string, len(triggers))
+	for i, t := range triggers {
+		parts[i] = describeTrigger(t)
+	}
+	return fmt.Sprintf("batch of %d: %s", len(triggers), strings.Join(parts, "; "))
 }
 
 // streamTranscript reads newline-delimited JSON from r (claude's stdout)

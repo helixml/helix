@@ -386,7 +386,7 @@ func TestBuildPromptIncludesEnvelope(t *testing.T) {
 			Extra:   []byte(`{"event":"issues","action":"opened"}`),
 		},
 	}
-	prompt := buildPrompt("w-doc-engineer", "[role.md contents]", tr)
+	prompt := buildPrompt("w-doc-engineer", "[role.md contents]", []Trigger{tr})
 
 	if !strings.Contains(prompt, "=== Trigger ===") || !strings.Contains(prompt, "=== end trigger ===") {
 		t.Fatalf("trigger fences missing\n%s", prompt)

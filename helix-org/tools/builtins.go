@@ -19,9 +19,12 @@ type Clock func() time.Time
 type IDGen func() string
 
 // Spawner runs an AI Worker's agent process for a single activation
-// and BLOCKS until the process exits. The Trigger tells the Spawner
-// (and through it, the agent) why this activation is happening — first
-// hire, or a new event on a subscribed Stream.
+// and BLOCKS until the process exits. The Triggers slice tells the
+// Spawner (and through it, the agent) why this activation is happening
+// — first hire, or one or more events on subscribed Streams that
+// arrived while a previous activation was running. The Dispatcher
+// coalesces bursts so the slice is usually length 1, but the agent
+// must handle longer slices when traffic queues up.
 //
 // Spawners are typically called from inside a Dispatcher that
 // serialises calls per-Worker; callers must not invoke a Spawner for
@@ -29,7 +32,7 @@ type IDGen func() string
 //
 // The zero value — nil — means "no process will be spawned", which is
 // correct for tests and for HumanWorker activations.
-type Spawner func(ctx context.Context, workerID domain.WorkerID, envPath string, trigger Trigger) error
+type Spawner func(ctx context.Context, workerID domain.WorkerID, envPath string, triggers []Trigger) error
 
 // EventDispatcher fans a freshly-published Event out to every
 // subscribed AI Worker as a separate Spawner activation. Tools call it
