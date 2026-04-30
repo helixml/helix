@@ -27,7 +27,7 @@ import (
 )
 
 // RunnerState is what the router knows about one connected runner
-// (a Helix sandbox post-absorption). Populated from NATS heartbeats.
+// (a Helix sandbox post-absorption). Populated from sandbox HTTP heartbeats.
 type RunnerState struct {
 	ID            string
 	URL           string               // e.g. "http://10.0.0.5:8081" — where to forward inference
