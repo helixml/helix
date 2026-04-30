@@ -2,10 +2,19 @@
 
 ## Files Touched
 
-- `frontend/src/components/session/EmbeddedSessionView.tsx` — primary change. Add user-input listeners and accumulator.
+- `frontend/src/components/session/EmbeddedSessionView.tsx` — primary change. Add user-input listeners and accumulator. Also gate `scrollToBottom()` on actual scrollHeight growth.
 - `frontend/src/hooks/useAutoScrollPreference.ts` — add a new exported constant `USER_SCROLL_UNLOCK_PX = 100`.
 
 That's it. No new files, no new hooks. Spec task detail page (`SpecTaskDetailContent.tsx`) does not change — it just renders `EmbeddedSessionView`, which is where the scroll happens.
+
+## Two Independent Changes In One Pass
+
+This task addresses two related but independent issues in the same component. Both are small, both touch the same auto-scroll machinery, and bundling them avoids two consecutive PRs against the same 50-line region.
+
+| # | Issue | Change |
+|---|---|---|
+| 1 | (primary) No way to disengage auto-scroll without clicking the toggle button | Add wheel/touch listeners that flip `autoScroll` OFF after a cumulative ≥ 100px upward gesture |
+| 2 | (secondary, raised in review) `scrollToBottom()` writes `scrollTop` on every poll/WS message even when nothing grew | Gate `scrollToBottom(force=false)` on `scrollHeight` changing since the last scroll write |
 
 ## Key Decision: Listen to User Input, Not Scroll Position
 
@@ -61,6 +70,49 @@ Attach the wheel and touch listeners in a `useEffect` keyed on `containerRef.cur
 - **Not** listening for `keydown` (PageUp etc.) in the first cut. Can be added later if requested; keyboard-driven scroll is rare in this view.
 - **Not** changing the `useAutoScrollPreference` hook's API or the localStorage shape. We just export one new constant from that file.
 - **Not** touching the "Jump to latest" pill, the toggle button, the ResizeObserver auto-scroll path, or initial-mount force-scroll. Those all keep working unchanged because they only read `autoScrollRef.current` — our change only flips that ref OFF earlier than it would otherwise flip.
+
+## Secondary Fix: Gate `scrollToBottom` on Actual Growth
+
+### Root cause
+
+`InteractionLiveStream.tsx:100-115` runs an effect on `[hasContent, message, responseEntries, onMessageUpdate]`. `message` and `responseEntries` are new object/array references on every WebSocket update and every React Query poll that returns updated (even logically-identical) data. The effect throttles to `SCROLL_THROTTLE_MS` but always calls `onMessageUpdate()` (= `scrollToBottom`) at least once per update. `scrollToBottom()` then unconditionally writes `container.scrollTop = container.scrollHeight`. So a session that is producing no new content still incurs one `scrollTop` write per polling interval (3s) and one per any incoming WS message.
+
+### Fix
+
+Add a `lastScrolledHeightRef = useRef(0)` to `EmbeddedSessionView`. Modify `scrollToBottom`:
+
+```ts
+const scrollToBottom = useCallback(
+  (force = false) => {
+    const container = containerRef.current;
+    if (!container) return;
+    if (!force && !autoScrollRef.current) return;
+    // Skip no-op writes: nothing to do if scrollHeight hasn't changed since
+    // the last write. Polling and WS keepalives produce new message refs
+    // without changing rendered height — those should not trigger scrolls.
+    if (!force && container.scrollHeight === lastScrolledHeightRef.current) return;
+    container.scrollTop = container.scrollHeight;
+    lastScrolledHeightRef.current = container.scrollHeight;
+    setHasNewBelow(false);
+    onScrollToBottom?.();
+  },
+  [onScrollToBottom],
+);
+```
+
+Also update `lastScrolledHeightRef.current` in the ResizeObserver path after its `container.scrollTop = container.scrollHeight` write, to keep the two paths in sync.
+
+### Why this is safe
+
+- **Force calls bypass the check.** Initial-mount, session-change, and the jump-to-latest pill all use `scrollToBottom(true)` and continue to scroll unconditionally.
+- **Genuine content growth is unaffected.** When `scrollHeight` actually increases (new tokens from the streaming agent), the comparison fails and the scroll fires.
+- **No new race surface.** `scrollHeight` is read synchronously inside the function. We're not inferring user intent from it (which was the prior bug); we're just deduplicating writes to the same target.
+- **`handleRegenerate`'s `scrollToBottom()` call** (line 293) still works: it's called on user action; if scrollHeight hasn't changed yet, the ResizeObserver will pick up the next growth and scroll then.
+
+### What we are deliberately NOT doing for the secondary fix
+
+- **Not removing `onMessageUpdate={scrollToBottom}` from `InteractionLiveStream`.** It's a generic "message updated" callback; other future uses are imaginable. Gating `scrollToBottom` itself is the smaller, more local fix.
+- **Not removing the throttle in `InteractionLiveStream`.** With the gate in place, the redundant calls cost nothing but a `scrollHeight` read; removing the throttle would only matter if the read itself were expensive (it isn't).
 
 ## Risk / Test Notes
 
