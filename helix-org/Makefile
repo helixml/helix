@@ -29,8 +29,8 @@ build: ## Build the binary into ./bin
 	mkdir -p $(BIN_DIR)
 	$(GO) build $(GOFLAGS) -o $(BIN_DIR)/$(BINARY) $(CMD_PKG)
 
-run: ## Run the app end-to-end (pass flags with ARGS="--foo bar")
-	$(GO) run $(CMD_PKG) $(ARGS)
+run: ## Run `helix-org serve` with opinionated defaults; pass extra flags via ARGS="..."
+	$(GO) run $(CMD_PKG) serve --envs-dir ./envs --db ./helix-org.db --addr :8080 $(ARGS)
 
 test: ## Run tests (use PKG=./path/... to scope)
 	CGO_ENABLED=1 $(GO) test $(GOFLAGS) -race -count=1 $(PKG)
@@ -60,5 +60,7 @@ check: fmt vet lint test ## Format, vet, lint, and test (modifies files)
 
 ci: fmt-check vet lint test ## CI-safe: checks formatting without modifying
 
-clean: ## Remove build artefacts
-	rm -rf $(BIN_DIR) coverage.out coverage.html
+clean: ## Remove build artefacts, kill running servers, wipe local DBs and envs
+	@pkill -f '[h]elix-org serve' 2>/dev/null || true
+	rm -rf $(BIN_DIR) coverage.out coverage.html envs
+	rm -f *.db

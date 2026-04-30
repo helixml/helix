@@ -40,17 +40,20 @@ make tools
 
 ## Build, Test, and Check
 
-Always use `make` commands — never run `go test`, `go vet`, or `golangci-lint` directly. The Makefile sets required build tags, CGO flags, and environment variables that raw `go` commands miss.
+**Always prefer `make` targets over raw shell commands.** The Makefile sets required build tags, CGO flags, environment variables, and opinionated defaults (envs dir, DB path, listen address) that ad-hoc `go run` / `go test` / `golangci-lint` invocations miss. Running raw commands silently drifts from how the project actually builds and runs.
+
+If you find yourself reaching for a multi-step shell incantation to build, run, test, format, lint, clean, or seed local state — **add a `make` target for it instead**, then call that target. Future-you and other agents will reuse it; one-off shell strings rot. Keep targets discoverable via `make help`.
 
 ```bash
 make build                       # Build the binary into ./bin
-make run                         # Run the app end-to-end via `go run`
-make run ARGS="--foo bar"        # Run with CLI flags
+make run                         # Run `helix-org serve` with opinionated defaults (./envs, ./helix-org.db, :8080)
+make run ARGS="--model sonnet"     # Run with extra flags appended after the defaults
 make test                        # Run all tests (race + -count=1)
 make test PKG=./domain/...       # Test a specific package
 make test-cover                  # Run tests + write coverage.out / coverage.html
 make check                       # Format, vet, lint, and test (modifies files)
 make ci                          # CI-safe: fmt-check, vet, lint, test (no writes)
+make clean                       # Kill running servers, remove ./bin, ./envs, *.db, coverage files
 ```
 
 `make check` is for local use — it runs `goimports -w` and may modify files. `make ci` runs `fmt-check` instead, failing if anything is unformatted without touching files. CI must use `make ci`; contributors must pass `make check` locally before pushing.
@@ -58,12 +61,15 @@ make ci                          # CI-safe: fmt-check, vet, lint, test (no write
 ## Running the Project End-to-End
 
 ```bash
-make run                                  # default entry point via `go run`
-make run ARGS="--config ./local.yaml"     # pass flags
+make run                                  # opinionated defaults: serve, ./envs, ./helix-org.db, :8080
+make run ARGS="--model opus"              # append extra flags
+make clean && make run                    # nuke local state (DB + envs + running server) and start fresh
 make build && ./bin/helix-org --help      # compiled binary (matches what CI ships)
 ```
 
 `make run` is for fast iteration. Before pushing or tagging a release, exercise the compiled binary (`make build && ./bin/helix-org ...`) — the `go run` path can mask build-tag or linker differences.
+
+`make clean` is destructive on purpose: it kills any `helix-org serve` process it can find, deletes `./bin`, `./envs`, every `*.db` in the project root, and the coverage artefacts. Use it whenever local state has drifted (stale Workers, half-bootstrapped DB, lingering server holding port 8080).
 
 ## Shipping Code
 
