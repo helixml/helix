@@ -2,12 +2,12 @@
 
 - [x] Add `USER_SCROLL_UNLOCK_PX = 100` constant in `frontend/src/hooks/useAutoScrollPreference.ts` and export it.
 - [~] In `frontend/src/components/session/EmbeddedSessionView.tsx`, add refs: `upwardAccumRef`, `lastWheelTsRef`, `touchStartYRef`, `lastTouchYRef`.
-- [ ] Add a `useEffect` that attaches `wheel`, `touchstart`, `touchmove`, `touchend`, `touchcancel` listeners (all passive) to `containerRef.current` and detaches on cleanup.
-- [ ] Implement the wheel handler: bail if `!autoScrollRef.current`; reset accumulator on direction change or after 500ms gap; accumulate upward delta; call `setAutoScroll(false)` and reset when `>= USER_SCROLL_UNLOCK_PX`.
-- [ ] Implement the touch handlers: track finger Y delta (finger-down = content-up), accumulate, threshold-trigger identical to wheel; reset on touchend / touchcancel.
-- [ ] Add `lastScrolledHeightRef = useRef(0)` to `EmbeddedSessionView`. In `scrollToBottom`, when `force === false`, bail if `container.scrollHeight === lastScrolledHeightRef.current`; otherwise update the ref after the write.
-- [ ] In the ResizeObserver callback's `if (autoScrollRef.current) { ... }` branch, also update `lastScrolledHeightRef.current = container.scrollHeight` after the scroll write to keep both paths in sync.
-- [ ] Update the docstring at the top of `EmbeddedSessionView.tsx` (the "Auto-scroll model" comment, lines 57-71) to document (a) explicit user scroll-up of ≥ 100px now flips the preference OFF, and (b) `scrollToBottom()` is now a no-op when scrollHeight hasn't changed since the last write.
+- [~] Add a `useEffect` that attaches `wheel`, `touchstart`, `touchmove`, `touchend`, `touchcancel` listeners (all passive) to `containerRef.current` and detaches on cleanup.
+- [~] Implement the wheel handler: bail if `!autoScrollRef.current`; reset accumulator on direction change or after 500ms gap; accumulate upward delta; call `setAutoScroll(false)` and reset when `>= USER_SCROLL_UNLOCK_PX`.
+- [~] Implement the touch handlers: track finger Y delta (finger-down = content-up), accumulate, threshold-trigger identical to wheel; reset on touchend / touchcancel.
+- [~] Add `lastScrolledHeightRef = useRef(0)` to `EmbeddedSessionView`. In `scrollToBottom`, when `force === false`, bail if `container.scrollHeight === lastScrolledHeightRef.current`; otherwise update the ref after the write.
+- [~] In the ResizeObserver callback's `if (autoScrollRef.current) { ... }` branch, also update `lastScrolledHeightRef.current = container.scrollHeight` after the scroll write to keep both paths in sync.
+- [~] Update the docstring at the top of `EmbeddedSessionView.tsx` (the "Auto-scroll model" comment, lines 57-71) to document (a) explicit user scroll-up of ≥ 100px now flips the preference OFF, and (b) `scrollToBottom()` is now a no-op when scrollHeight hasn't changed since the last write.
 - [ ] Manual test: open a session with a quiet (non-streaming) interaction history. Add a temporary `console.log` inside `scrollToBottom` before the `scrollTop` write. Wait through several 3s polls. Confirm zero log lines (proves the gate works and polling no longer triggers scroll writes).
 - [ ] Manual test: send a new message, watch the session stream tokens. Confirm scroll writes occur as content grows (gate correctly allows real growth through). Remove the temporary log before committing.
 - [ ] Manual test on Chromium desktop: scroll up with mouse wheel ≥ 100px → toggle flips to OFF, jump-to-latest pill behavior takes over.
