@@ -81,7 +81,9 @@ const EditRunnerProfile: FC<Props> = ({ profile, template, onClose }) => {
   const [name, setName] = useState(init.name);
   const [description, setDescription] = useState(init.description);
   const [composeYAML, setComposeYAML] = useState(init.composeYAML);
-  const [vendor, setVendor] = useState<"" | "nvidia" | "amd">(init.vendor);
+  const [vendor, setVendor] = useState<"" | "nvidia" | "amd">(
+    init.vendor as "" | "nvidia" | "amd",
+  );
   const [architectures, setArchitectures] = useState<string>(init.architectures);
   const [modelMatch, setModelMatch] = useState(init.modelMatch);
   const [minVRAMBytes, setMinVRAMBytes] = useState(init.minVRAMBytes === "0" ? "" : init.minVRAMBytes);

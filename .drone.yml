@@ -69,16 +69,14 @@ steps:
       - sh scripts/render-charts.sh
       # Fetch subchart dependencies (postgresql, common) before lint/template
       - helm dependency build charts/helix-controlplane
-      # Lint all three charts with default values
+      # Lint both charts with default values. (helix-runner was deleted in
+      # 6d660a6d1 — the sandbox absorbed the runner role.)
       - helm lint charts/helix-controlplane
-      - helm lint charts/helix-runner
       - helm lint charts/helix-sandbox
       # Lint controlplane with production-like example values
       - helm lint charts/helix-controlplane -f charts/helix-controlplane/values-example.yaml
-      - helm lint charts/helix-runner -f charts/helix-runner/values-example.yaml
       # Template render to catch runtime errors (missing helpers, bad references)
       - helm template test-release charts/helix-controlplane -f charts/helix-controlplane/values-example.yaml > /dev/null
-      - helm template test-release charts/helix-runner -f charts/helix-runner/values-example.yaml > /dev/null
       - helm template test-release charts/helix-sandbox > /dev/null
       # Template with each sandbox values variant
       - helm template test-release charts/helix-sandbox -f charts/helix-sandbox/values-bare-metal.yaml > /dev/null
@@ -91,7 +89,6 @@ steps:
       # want to fail in PR rather than mid-release if substitution breaks).
       - DRONE_TAG=v9.9.9-rendertest sh scripts/render-charts.sh
       - helm lint charts/helix-controlplane
-      - helm lint charts/helix-runner
       - helm lint charts/helix-sandbox
     when:
       event:
