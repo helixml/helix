@@ -32,6 +32,7 @@ type koditServiceMock struct {
 	deleteRepositoryFn     func(ctx context.Context, koditRepoID int64) error
 	rescanCommitFn         func(ctx context.Context, koditRepoID int64, commitSHA string) error
 	getRepositoryCommitsFn func(ctx context.Context, koditRepoID int64, limit int) ([]repository.Commit, error)
+	renderPageImageFn      func(ctx context.Context, koditRepoID int64, filePath string, page int) ([]byte, error)
 }
 
 var _ services.KoditServicer = (*koditServiceMock)(nil)
@@ -132,7 +133,10 @@ func (m *koditServiceMock) ActiveTasks(context.Context) ([]services.KoditActiveT
 func (m *koditServiceMock) UpdateChunkingConfig(context.Context, int64, int, int, int) error {
 	return nil
 }
-func (m *koditServiceMock) RenderPageImage(context.Context, int64, string, int) ([]byte, error) {
+func (m *koditServiceMock) RenderPageImage(ctx context.Context, id int64, filePath string, page int) ([]byte, error) {
+	if m.renderPageImageFn != nil {
+		return m.renderPageImageFn(ctx, id, filePath, page)
+	}
 	return nil, nil
 }
 
@@ -339,6 +343,45 @@ func (s *KoditRAGSuite) TestQuery_FilenameStripsSubpath() {
 	s.Require().Len(results, 1)
 	s.Equal("dev/apps/app_abc/files/subdir/nested.pdf", results[0].Source)
 	s.Equal("nested.pdf", results[0].Filename)
+}
+
+// TestRenderPageImage_StripsRegisteredDir asserts that RenderPageImage strips
+// the registered-directory prefix from the caller's filestore-relative path
+// before delegating to kodit, since kodit's Blobs.DiskPath expects the path
+// relative to the registered directory.
+func (s *KoditRAGSuite) TestRenderPageImage_StripsRegisteredDir() {
+	repoID := int64(13)
+	entity := &types.DataEntity{
+		ID:                "de_render",
+		KoditRepositoryID: &repoID,
+		Config: types.DataEntityConfig{
+			FilestorePath: "/tmp/helix/filestore/dev/apps/app_xyz/docs",
+		},
+	}
+
+	s.mockStore.EXPECT().
+		GetDataEntity(gomock.Any(), "de_render").
+		Return(entity, nil)
+
+	var capturedPath string
+	s.mockSvc.renderPageImageFn = func(_ context.Context, id int64, filePath string, page int) ([]byte, error) {
+		s.Equal(repoID, id)
+		s.Equal(3, page)
+		capturedPath = filePath
+		return []byte("png"), nil
+	}
+
+	// Caller passes the same filestore-root-relative path that mergeAndConvert
+	// puts on result.Source.
+	bytes, err := s.rag.RenderPageImage(
+		context.Background(),
+		"de_render",
+		"dev/apps/app_xyz/docs/report.pdf",
+		3,
+	)
+	s.NoError(err)
+	s.Equal([]byte("png"), bytes)
+	s.Equal("report.pdf", capturedPath)
 }
 
 func (s *KoditRAGSuite) TestQuery_ErrorWhenNoRepoID() {

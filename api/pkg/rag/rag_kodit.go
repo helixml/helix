@@ -280,6 +280,11 @@ func (k *KoditRAG) mergeAndConvert(entity *types.DataEntity, maxResults int, res
 
 // RenderPageImage implements rag.PageImageRenderer. It renders a document page
 // as a PNG and returns the raw bytes.
+//
+// Callers pass result.Source, which mergeAndConvert sets to the path relative
+// to the filestore root (e.g. "dev/apps/<app_id>/docs/file.pdf"). Kodit's
+// Blobs.DiskPath expects the path relative to the registered directory
+// (e.g. "file.pdf"), so we strip the registered-dir prefix before delegating.
 func (k *KoditRAG) RenderPageImage(ctx context.Context, dataEntityID string, filePath string, page int) ([]byte, error) {
 	entity, err := k.store.GetDataEntity(ctx, dataEntityID)
 	if err != nil {
@@ -288,7 +293,13 @@ func (k *KoditRAG) RenderPageImage(ctx context.Context, dataEntityID string, fil
 	if entity.KoditRepositoryID == nil {
 		return nil, fmt.Errorf("data entity %s has no kodit repository ID", dataEntityID)
 	}
-	return k.kodit.RenderPageImage(ctx, *entity.KoditRepositoryID, filePath, page)
+
+	relDir := strings.TrimPrefix(entity.Config.FilestorePath, k.fsCfg.LocalFSPath)
+	relDir = strings.TrimPrefix(relDir, "/")
+	repoRelPath := strings.TrimPrefix(filePath, relDir)
+	repoRelPath = strings.TrimPrefix(repoRelPath, "/")
+
+	return k.kodit.RenderPageImage(ctx, *entity.KoditRepositoryID, repoRelPath, page)
 }
 
 // Delete cleans up the data entity for a knowledge version. Each version of a
