@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strconv"
+	"strings"
 
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/data"
@@ -234,13 +235,20 @@ func (k *KoditRAG) mergeAndConvert(entity *types.DataEntity, maxResults int, res
 		merged = merged[:maxResults]
 	}
 
+	// Path returned by kodit is relative to the directory that was registered
+	// (entity.Config.FilestorePath, an absolute path on disk). The session
+	// controller and frontend expect Source to be the path relative to the
+	// filestore root so the viewer URL resolves correctly.
+	relDir := strings.TrimPrefix(entity.Config.FilestorePath, k.fsCfg.LocalFSPath)
+	relDir = strings.TrimPrefix(relDir, "/")
+
 	// Convert to RAG results.
 	ragResults := make([]*types.SessionRAGResult, 0, len(merged))
 	for _, r := range merged {
 		result := &types.SessionRAGResult{
 			Content:  r.Content,
-			Source:   r.Path,
-			Filename: r.Path,
+			Source:   filepath.Join(relDir, r.Path),
+			Filename: filepath.Base(r.Path),
 			Distance: 1.0 - r.Score,
 		}
 
