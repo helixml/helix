@@ -1,6 +1,6 @@
 # Implementation Tasks
 
-- [ ] Add `USER_SCROLL_UNLOCK_PX = 100` constant in `frontend/src/hooks/useAutoScrollPreference.ts` and export it.
+- [~] Add `USER_SCROLL_UNLOCK_PX = 100` constant in `frontend/src/hooks/useAutoScrollPreference.ts` and export it.
 - [ ] In `frontend/src/components/session/EmbeddedSessionView.tsx`, add refs: `upwardAccumRef`, `lastWheelTsRef`, `touchStartYRef`, `lastTouchYRef`.
 - [ ] Add a `useEffect` that attaches `wheel`, `touchstart`, `touchmove`, `touchend`, `touchcancel` listeners (all passive) to `containerRef.current` and detaches on cleanup.
 - [ ] Implement the wheel handler: bail if `!autoScrollRef.current`; reset accumulator on direction change or after 500ms gap; accumulate upward delta; call `setAutoScroll(false)` and reset when `>= USER_SCROLL_UNLOCK_PX`.
