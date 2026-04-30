@@ -268,6 +268,79 @@ func (s *KoditRAGSuite) TestQuery_UsesStoredRepoID() {
 	s.Equal("some content", results[0].Content)
 }
 
+// TestQuery_SourceIncludesRegisteredDir asserts that Source carries the path
+// of the kodit-registered directory relative to the filestore root, joined
+// with the file path kodit returned. The session controller relies on this
+// to build the citation viewer URL — if Source is just the basename, the
+// knowledge subfolder gets dropped and the viewer 404s.
+func (s *KoditRAGSuite) TestQuery_SourceIncludesRegisteredDir() {
+	repoID := int64(11)
+	entity := &types.DataEntity{
+		ID:                "de_q2",
+		KoditRepositoryID: &repoID,
+		Config: types.DataEntityConfig{
+			// Absolute on-disk path of the registered directory. LocalFSPath
+			// in SetupTest is "/tmp/helix/filestore", so the filestore-root
+			// relative portion is "dev/apps/app_xyz/docs".
+			FilestorePath: "/tmp/helix/filestore/dev/apps/app_xyz/docs",
+		},
+	}
+
+	s.mockStore.EXPECT().
+		GetDataEntity(gomock.Any(), "de_q2").
+		Return(entity, nil)
+
+	s.mockSvc.semanticSearchFn = func(_ context.Context, _ int64, _ string, _ int, _ string) ([]services.KoditFileResult, error) {
+		return []services.KoditFileResult{
+			{Path: "report.pdf", Content: "snippet", Score: 0.8},
+		}, nil
+	}
+
+	results, err := s.rag.Query(context.Background(), &types.SessionRAGQuery{
+		DataEntityID: "de_q2",
+		Prompt:       "any",
+		MaxResults:   5,
+	})
+	s.NoError(err)
+	s.Require().Len(results, 1)
+	s.Equal("dev/apps/app_xyz/docs/report.pdf", results[0].Source)
+	s.Equal("report.pdf", results[0].Filename)
+}
+
+// TestQuery_FilenameStripsSubpath asserts that when kodit returns a path with
+// a subdirectory (e.g. when the registered directory contains nested folders),
+// Source preserves the full path while Filename is just the basename.
+func (s *KoditRAGSuite) TestQuery_FilenameStripsSubpath() {
+	repoID := int64(12)
+	entity := &types.DataEntity{
+		ID:                "de_q3",
+		KoditRepositoryID: &repoID,
+		Config: types.DataEntityConfig{
+			FilestorePath: "/tmp/helix/filestore/dev/apps/app_abc/files",
+		},
+	}
+
+	s.mockStore.EXPECT().
+		GetDataEntity(gomock.Any(), "de_q3").
+		Return(entity, nil)
+
+	s.mockSvc.semanticSearchFn = func(_ context.Context, _ int64, _ string, _ int, _ string) ([]services.KoditFileResult, error) {
+		return []services.KoditFileResult{
+			{Path: "subdir/nested.pdf", Content: "snippet", Score: 0.7},
+		}, nil
+	}
+
+	results, err := s.rag.Query(context.Background(), &types.SessionRAGQuery{
+		DataEntityID: "de_q3",
+		Prompt:       "any",
+		MaxResults:   5,
+	})
+	s.NoError(err)
+	s.Require().Len(results, 1)
+	s.Equal("dev/apps/app_abc/files/subdir/nested.pdf", results[0].Source)
+	s.Equal("nested.pdf", results[0].Filename)
+}
+
 func (s *KoditRAGSuite) TestQuery_ErrorWhenNoRepoID() {
 	entity := &types.DataEntity{ID: "de_norepo", KoditRepositoryID: nil}
 
