@@ -18,6 +18,13 @@ func TestParse_SampleProfiles(t *testing.T) {
 		// 8xH100: 5 services across GPUs 0,1,2,3,4,5,6 = 7 distinct GPUs.
 		// (services qwen3-vl-embedding and qwen3-text-embedding both use GPU 0.)
 		{"8xH100-vllm.yaml", 5, 7},
+		// 8x RTX PRO 6000 Blackwell production SaaS profile: same 5-service
+		// shape as the 8xH100 layout (qwen3 embeddings sharing GPU 0,
+		// qwen3.5-35b on GPU 1, minimax-m2.7 on GPUs 2-5 TP=4, gemma-4-26b
+		// on GPU 6) — leaves GPU 7 free so Hydra can pin desktops to it
+		// (Decision 15). Crucial property: GPUCount = 7 not 8, so the
+		// compatibility check on an 8-GPU host passes with desktop headroom.
+		{"8xRTX6000Pro-prod-saas.yaml", 5, 7},
 		// 4-GPU Blackwell single TP=4 model on GPUs 0,1,2,3.
 		{"any-nvidia-blackwell-4gpu.yaml", 1, 4},
 		// Single GPU dev profile.

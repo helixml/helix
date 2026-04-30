@@ -145,3 +145,32 @@ entries:
       min_vram_bytes: 206158430208
     secondary_profiles_for_switch: []
     incompatible_profile: design/sample-profiles/8xH100-vllm.yaml
+
+  # Customer's actual production-SaaS hardware: 8× RTX PRO 6000 Blackwell
+  # 96GB. Disabled because no cloud provider currently sells this exact SKU
+  # — Verda has 1×/2×/4× RTX PRO 6000 (vbm-...) but not 8×, and Hot Aisle
+  # is AMD-only. Flip enabled when one of:
+  #   - Verda lists a 8RTXPRO6000.240V SKU (their pricing page hints they
+  #     might add it; track via GET /v1/instance-types)
+  #   - Customer hardware becomes available for an SSH window before deploy
+  #   - Someone signs us up at a hyperscaler with the right SKU (Azure NV-series)
+  #
+  # When enabled, the 8xRTX6000Pro-prod-saas profile claims GPUs 0-6 and
+  # leaves GPU 7 free for agent desktops via Decision 15 (`gpu_index: 7`).
+  # The harness should also exercise the desktop-spawn path on this entry
+  # to validate Decision 15 multi-GPU pinning end-to-end on the customer's
+  # actual hardware shape.
+  - id: customer-prod-rtx6000pro-8x
+    enabled: false
+    provider: verda
+    instance_type: 8RTXPRO6000.240V  # placeholder; doesn't exist in Verda's catalogue today
+    gpu_count: 8
+    region: FIN-03
+    profile: design/sample-profiles/8xRTX6000Pro-prod-saas.yaml
+    profile_metadata:
+      vendor: nvidia
+      architectures: [blackwell]
+      model_match: ^NVIDIA RTX PRO 6000
+      min_vram_bytes: 103079215104  # 96 GiB
+    secondary_profiles_for_switch: []
+    incompatible_profile: design/sample-profiles/amd-mi300x-vllm.yaml

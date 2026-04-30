@@ -1,0 +1,203 @@
+# Helix runner profile: 8x NVIDIA RTX PRO 6000 Blackwell production SaaS
+#
+# GPU compatibility (operator-declared, stored alongside this YAML):
+#   vendor:        nvidia
+#   architectures: [blackwell]
+#   model_match:   ^NVIDIA RTX PRO 6000
+#   min_vram:      103079215104   # 96 GiB
+#
+# This is the canonical production profile for the customer's 8x RTX PRO 6000
+# (96 GB Blackwell) host. It deliberately uses GPUs 0-6 for inference and
+# **leaves GPU 7 unused** so Hydra can spawn helix-ubuntu desktop sessions
+# pinned to that GPU via Decision 15 (`gpu_index: 7` in the dev-container
+# request). The compose parser computes `GPUCount: 7` from this YAML — the
+# compatibility check on an 8-GPU host therefore passes with 1 GPU of
+# headroom for desktops on the same node.
+#
+# GPU layout:
+#   GPU 0 — qwen3-vl-embedding + qwen3-text-embedding (each at 0.45 mem util,
+#           shared on one card; embedding workloads are spiky so they can
+#           coexist without OOM in practice)
+#   GPU 1 — qwen3.5-35b chat (FP8 quant, 0.90 mem util, full 32K context)
+#   GPUs 2-5 — minimax-m2.7 (TP=4, custom image with minimax kernels +
+#           --compilation-config flags)
+#   GPU 6 — gemma-4-26b chat (0.90 mem util, full 131K context, custom image)
+#   GPU 7 — RESERVED for desktops (Hydra spawns with gpu_index: 7)
+#
+# Custom images: `vllm/vllm-openai:minimax27` and `vllm/vllm-openai:gemma4`
+# are operator-built variants with model-specific kernels. Push them to a
+# registry the sandbox can reach (HELIX_REGISTRY env var on the sandbox
+# points at the local registry container by default).
+#
+# This profile is exported as a curated default in the admin UI's Profile
+# Gallery. Operators with the same hardware can deploy it as-is; with
+# different mixes can use it as a starting point and adjust.
+
+services:
+  qwen3-vl-embedding:
+    image: vllm/vllm-openai:latest
+    container_name: vllm-qwen3-embed
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - /prod/models:/root/.cache/huggingface
+    environment:
+      - HUGGING_FACE_HUB_TOKEN
+      - HF_HUB_OFFLINE=1
+    shm_size: 1g
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["0"]
+              capabilities: [gpu]
+    command:
+      - --model
+      - Qwen/Qwen3-VL-Embedding-8B
+      - --runner
+      - pooling
+      - --trust-remote-code
+      - --dtype
+      - auto
+      - --max-model-len
+      - "8192"
+      - --gpu-memory-utilization
+      - "0.45"
+
+  qwen3-text-embedding:
+    image: vllm/vllm-openai:latest
+    container_name: vllm-qwen3-text-embed
+    ports:
+      - "127.0.0.1:8001:8000"
+    volumes:
+      - /prod/models:/root/.cache/huggingface
+    environment:
+      - HUGGING_FACE_HUB_TOKEN
+      - HF_HUB_OFFLINE=1
+    shm_size: 1g
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["0"]
+              capabilities: [gpu]
+    command:
+      - --model
+      - Qwen/Qwen3-Embedding-8B
+      - --runner
+      - pooling
+      - --trust-remote-code
+      - --dtype
+      - auto
+      - --max-model-len
+      - "8192"
+      - --gpu-memory-utilization
+      - "0.45"
+
+  qwen35-35b:
+    image: vllm/vllm-openai:latest
+    container_name: vllm-qwen35-35b
+    ports:
+      - "127.0.0.1:8002:8000"
+    volumes:
+      - /prod/models:/root/.cache/huggingface
+    environment:
+      - HUGGING_FACE_HUB_TOKEN
+      - HF_HUB_OFFLINE=1
+    shm_size: 1g
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["1"]
+              capabilities: [gpu]
+    command:
+      - --model
+      - Qwen/Qwen3.5-35B-A3B-FP8
+      - --trust-remote-code
+      - --served-model-name
+      - qwen3.5-35b
+      - --tensor-parallel-size
+      - "1"
+      - --max-model-len
+      - "32768"
+      - --gpu-memory-utilization
+      - "0.90"
+      - --limit-mm-per-prompt
+      - '{"image":8,"video":0}'
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - qwen3_xml
+      - --reasoning-parser
+      - qwen3
+
+  minimax-m2-7:
+    image: vllm/vllm-openai:minimax27
+    container_name: vllm-minimax-m2-7
+    ports:
+      - "127.0.0.1:8003:8000"
+    volumes:
+      - /prod/models:/root/.cache/huggingface
+    environment:
+      - HUGGING_FACE_HUB_TOKEN
+    shm_size: 1g
+    ipc: host
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["2", "3", "4", "5"]
+              capabilities: [gpu]
+    command:
+      - --model
+      - MiniMaxAI/MiniMax-M2.7
+      - --tensor-parallel-size
+      - "4"
+      - --tool-call-parser
+      - minimax_m2
+      - --reasoning-parser
+      - minimax_m2
+      - --enable-auto-tool-choice
+      - --served-model-name
+      - minimax-m2.7
+      - --trust-remote-code
+      - --compilation-config
+      - '{"mode":3,"pass_config":{"fuse_minimax_qk_norm":true}}'
+
+  gemma4-31b:
+    image: vllm/vllm-openai:gemma4
+    container_name: vllm-gemma4-31b
+    ports:
+      - "127.0.0.1:8004:8000"
+    volumes:
+      - /prod/models:/root/.cache/huggingface
+    environment:
+      - HUGGING_FACE_HUB_TOKEN
+      - HF_HUB_OFFLINE=1
+    shm_size: 1g
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["6"]
+              capabilities: [gpu]
+    command:
+      - --model
+      - google/gemma-4-26B-A4B-it
+      - --trust-remote-code
+      - --served-model-name
+      - gemma-4-26b
+      - --tensor-parallel-size
+      - "1"
+      - --max-model-len
+      - "131072"
+      - --gpu-memory-utilization
+      - "0.90"
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - gemma4
