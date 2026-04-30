@@ -25,6 +25,19 @@ func TestParse_SampleProfiles(t *testing.T) {
 		// (Decision 15). Crucial property: GPUCount = 7 not 8, so the
 		// compatibility check on an 8-GPU host passes with desktop headroom.
 		{"8xRTX6000Pro-prod-saas.yaml", 5, 7},
+		// Customer Node 1: 4x A100 80GB. 4 services on GPUs 0,1,2; GPU 3
+		// reserved for desktops. GPUCount = 3 so compatibility check on
+		// the 4-GPU host passes with explicit desktop headroom.
+		{"customer-node1-4xA100.yaml", 4, 3},
+		// Customer Nodes 2-4: 4x L40S 48GB each. Same 4-services-on-3-GPUs
+		// shape as Node 1; sized for L40S's 48GB VRAM so different model
+		// choices. Deployed identically on all three nodes (3 sandboxes
+		// serving the same model names → inference router round-robins).
+		{"customer-node2to4-4xL40S.yaml", 4, 3},
+		// Customer Node 5: 8x MI300X 192GB (CDNA-3 compute-only). One
+		// service: DeepSeek-V4-Pro 862B FP8 with TP=8 across all GPUs.
+		// GPUCount = 8 (no desktop reserve possible — CDNA can't render).
+		{"customer-node5-8xMI300X.yaml", 1, 8},
 		// 4-GPU Blackwell single TP=4 model on GPUs 0,1,2,3.
 		{"any-nvidia-blackwell-4gpu.yaml", 1, 4},
 		// Single GPU dev profile.

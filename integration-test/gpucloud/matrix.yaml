@@ -80,10 +80,12 @@ entries:
     instance_type: 4A100.88V
     gpu_count: 4
     region: FIN-01
-    profile: design/sample-profiles/8xH100-vllm.yaml
+    # Real customer profile (April 2026 best models). GPU 3 reserved for desktops.
+    profile: design/sample-profiles/customer-node1-4xA100.yaml
     profile_metadata:
       vendor: nvidia
       architectures: [ampere]
+      model_match: ^NVIDIA A100
       min_vram_bytes: 85899345920
     secondary_profiles_for_switch: []
     incompatible_profile: design/sample-profiles/amd-mi300x-vllm.yaml
@@ -94,13 +96,14 @@ entries:
     instance_type: 4L40S.80V
     gpu_count: 4
     region: FIN-01
-    profile: design/sample-profiles/any-nvidia-dev-single-gpu.yaml
+    # Same profile deployed identically to nodes 2, 3, 4. Inference router round-robins.
+    profile: design/sample-profiles/customer-node2to4-4xL40S.yaml
     profile_metadata:
       vendor: nvidia
       architectures: [ada]
+      model_match: ^NVIDIA L40S
       min_vram_bytes: 51539607552
-    secondary_profiles_for_switch:
-      - design/sample-profiles/dev-spike-tiny.yaml
+    secondary_profiles_for_switch: []
     incompatible_profile: design/sample-profiles/8xH100-vllm.yaml
 
   - id: node3-l40s-4x
@@ -109,10 +112,11 @@ entries:
     instance_type: 4L40S.80V
     gpu_count: 4
     region: FIN-01
-    profile: design/sample-profiles/any-nvidia-dev-single-gpu.yaml
+    profile: design/sample-profiles/customer-node2to4-4xL40S.yaml
     profile_metadata:
       vendor: nvidia
       architectures: [ada]
+      model_match: ^NVIDIA L40S
       min_vram_bytes: 51539607552
     secondary_profiles_for_switch: []
     incompatible_profile: design/sample-profiles/8xH100-vllm.yaml
@@ -123,10 +127,11 @@ entries:
     instance_type: 4L40S.80V
     gpu_count: 4
     region: FIN-01
-    profile: design/sample-profiles/any-nvidia-dev-single-gpu.yaml
+    profile: design/sample-profiles/customer-node2to4-4xL40S.yaml
     profile_metadata:
       vendor: nvidia
       architectures: [ada]
+      model_match: ^NVIDIA L40S
       min_vram_bytes: 51539607552
     secondary_profiles_for_switch: []
     incompatible_profile: design/sample-profiles/8xH100-vllm.yaml
@@ -137,7 +142,8 @@ entries:
     instance_type: 8xMI300X
     gpu_count: 8
     region: ""
-    profile: design/sample-profiles/amd-mi300x-vllm.yaml
+    # Big iron: DeepSeek-V4-Pro 862B FP8 with TP=8. No desktops (CDNA can't render).
+    profile: design/sample-profiles/customer-node5-8xMI300X.yaml
     profile_metadata:
       vendor: amd
       architectures: [cdna3]

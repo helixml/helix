@@ -703,4 +703,156 @@ export const curatedProfiles: CuratedProfile[] = [
       - gemma4
 `,
   },
+  {
+    id: "customer-node1-4xa100",
+    name: "Customer Node 1 — 4×A100 80GB",
+    description: "Customer's Node 1: 4× A100 80GB. Embeddings + GLM-4.7-Flash + Qwen3.6-35B-A3B MoE on GPUs 0-2; **GPU 3 reserved for Hydra desktops** (Decision 15: spawn with `gpu_index: 3`). A100 has no NVENC, so desktop encoding falls back to libx264 software — fine for 1-2 concurrent sessions.",
+    pros: [
+      "Mid-tier production inference + agent desktops on the same node",
+      "GLM-4.7-Flash 31B + Qwen3.6-35B-A3B MoE = top-tier reasoning + tool calling",
+      "Embeddings on the same node mean RAG queries don't cross hosts",
+    ],
+    cons: [
+      "A100 software-encodes desktop video (CPU-bound; 2 sessions max comfortably)",
+      "Mid-size models — for flagship-tier reasoning use Node 5",
+    ],
+    blockIDs: [],
+    vendor: "nvidia",
+    architectures: ["ampere"],
+    modelMatch: "^NVIDIA A100",
+    minVRAMBytes: 80 * GIB,
+    composeYAML: `# See design/sample-profiles/customer-node1-4xA100.yaml for the source-of-truth version with full header comments.
+services:
+  qwen3-vl-embedding:
+    image: vllm/vllm-openai:latest
+    container_name: vllm-qwen3-embed
+    ports: ["127.0.0.1:8000:8000"]
+    volumes: [/prod/models:/root/.cache/huggingface]
+    environment: [HUGGING_FACE_HUB_TOKEN, HF_HUB_OFFLINE=1]
+    shm_size: 1g
+    deploy: { resources: { reservations: { devices: [{ driver: nvidia, device_ids: ["0"], capabilities: [gpu] }] } } }
+    command: [--model, Qwen/Qwen3-VL-Embedding-8B, --runner, pooling, --trust-remote-code, --dtype, auto, --max-model-len, "8192", --gpu-memory-utilization, "0.40"]
+  qwen3-text-embedding:
+    image: vllm/vllm-openai:latest
+    container_name: vllm-qwen3-text-embed
+    ports: ["127.0.0.1:8001:8000"]
+    volumes: [/prod/models:/root/.cache/huggingface]
+    environment: [HUGGING_FACE_HUB_TOKEN, HF_HUB_OFFLINE=1]
+    shm_size: 1g
+    deploy: { resources: { reservations: { devices: [{ driver: nvidia, device_ids: ["0"], capabilities: [gpu] }] } } }
+    command: [--model, Qwen/Qwen3-Embedding-8B, --runner, pooling, --trust-remote-code, --dtype, auto, --max-model-len, "8192", --gpu-memory-utilization, "0.40"]
+  glm-4-7-flash-31b:
+    image: vllm/vllm-openai:latest
+    container_name: vllm-glm-flash
+    ports: ["127.0.0.1:8002:8000"]
+    volumes: [/prod/models:/root/.cache/huggingface]
+    environment: [HUGGING_FACE_HUB_TOKEN, HF_HUB_OFFLINE=1]
+    shm_size: 1g
+    deploy: { resources: { reservations: { devices: [{ driver: nvidia, device_ids: ["1"], capabilities: [gpu] }] } } }
+    command: [--model, zai-org/GLM-4.7-Flash, --trust-remote-code, --served-model-name, glm-4.7-flash, --tensor-parallel-size, "1", --max-model-len, "65536", --gpu-memory-utilization, "0.85", --enable-auto-tool-choice, --tool-call-parser, hermes]
+  qwen3-6-35b-a3b:
+    image: vllm/vllm-openai:latest
+    container_name: vllm-qwen36-35b
+    ports: ["127.0.0.1:8003:8000"]
+    volumes: [/prod/models:/root/.cache/huggingface]
+    environment: [HUGGING_FACE_HUB_TOKEN, HF_HUB_OFFLINE=1]
+    shm_size: 1g
+    deploy: { resources: { reservations: { devices: [{ driver: nvidia, device_ids: ["2"], capabilities: [gpu] }] } } }
+    command: [--model, Qwen/Qwen3.6-35B-A3B, --trust-remote-code, --served-model-name, qwen3.6-35b, --tensor-parallel-size, "1", --max-model-len, "65536", --gpu-memory-utilization, "0.85", --enable-auto-tool-choice, --tool-call-parser, hermes, --reasoning-parser, qwen3]
+`,
+  },
+  {
+    id: "customer-node2to4-4xl40s",
+    name: "Customer Nodes 2-4 — 4×L40S 48GB (each)",
+    description: "Customer's Nodes 2, 3, and 4: each 4× L40S 48GB. Same profile deployed to all three; the inference router round-robins across the three sandboxes. Embeddings + Qwen3.5-27B + Qwen3.6-35B-A3B on GPUs 0-2; **GPU 3 reserved for Hydra desktops with full NVENC hardware encoding**.",
+    pros: [
+      "Three-node fleet round-robined by the inference router",
+      "Full hardware-accelerated desktop video (NVENC + display engine)",
+      "Mid-tier 27-35B reasoning models + embeddings co-located with desktops",
+    ],
+    cons: [
+      "L40S 48GB caps single-model size below A100/Blackwell tier",
+      "Three separate sandboxes to maintain (one per node)",
+    ],
+    blockIDs: [],
+    vendor: "nvidia",
+    architectures: ["ada"],
+    modelMatch: "^NVIDIA L40S",
+    minVRAMBytes: 48 * GIB,
+    composeYAML: `# See design/sample-profiles/customer-node2to4-4xL40S.yaml for the source-of-truth version with full header comments.
+services:
+  qwen3-vl-embedding:
+    image: vllm/vllm-openai:latest
+    container_name: vllm-qwen3-embed
+    ports: ["127.0.0.1:8000:8000"]
+    volumes: [/prod/models:/root/.cache/huggingface]
+    environment: [HUGGING_FACE_HUB_TOKEN, HF_HUB_OFFLINE=1]
+    shm_size: 1g
+    deploy: { resources: { reservations: { devices: [{ driver: nvidia, device_ids: ["0"], capabilities: [gpu] }] } } }
+    command: [--model, Qwen/Qwen3-VL-Embedding-8B, --runner, pooling, --trust-remote-code, --dtype, auto, --max-model-len, "8192", --gpu-memory-utilization, "0.40"]
+  qwen3-text-embedding:
+    image: vllm/vllm-openai:latest
+    container_name: vllm-qwen3-text-embed
+    ports: ["127.0.0.1:8001:8000"]
+    volumes: [/prod/models:/root/.cache/huggingface]
+    environment: [HUGGING_FACE_HUB_TOKEN, HF_HUB_OFFLINE=1]
+    shm_size: 1g
+    deploy: { resources: { reservations: { devices: [{ driver: nvidia, device_ids: ["0"], capabilities: [gpu] }] } } }
+    command: [--model, Qwen/Qwen3-Embedding-8B, --runner, pooling, --trust-remote-code, --dtype, auto, --max-model-len, "8192", --gpu-memory-utilization, "0.40"]
+  qwen3-5-27b:
+    image: vllm/vllm-openai:latest
+    container_name: vllm-qwen35-27b
+    ports: ["127.0.0.1:8002:8000"]
+    volumes: [/prod/models:/root/.cache/huggingface]
+    environment: [HUGGING_FACE_HUB_TOKEN, HF_HUB_OFFLINE=1]
+    shm_size: 1g
+    deploy: { resources: { reservations: { devices: [{ driver: nvidia, device_ids: ["1"], capabilities: [gpu] }] } } }
+    command: [--model, Qwen/Qwen3.5-27B, --trust-remote-code, --served-model-name, qwen3.5-27b, --tensor-parallel-size, "1", --max-model-len, "32768", --gpu-memory-utilization, "0.85", --enable-auto-tool-choice, --tool-call-parser, hermes]
+  qwen3-6-35b-a3b:
+    image: vllm/vllm-openai:latest
+    container_name: vllm-qwen36-35b
+    ports: ["127.0.0.1:8003:8000"]
+    volumes: [/prod/models:/root/.cache/huggingface]
+    environment: [HUGGING_FACE_HUB_TOKEN, HF_HUB_OFFLINE=1]
+    shm_size: 1g
+    deploy: { resources: { reservations: { devices: [{ driver: nvidia, device_ids: ["2"], capabilities: [gpu] }] } } }
+    command: [--model, Qwen/Qwen3.6-35B-A3B, --trust-remote-code, --served-model-name, qwen3.6-35b, --tensor-parallel-size, "1", --max-model-len, "32768", --gpu-memory-utilization, "0.85", --enable-auto-tool-choice, --tool-call-parser, hermes, --reasoning-parser, qwen3]
+`,
+  },
+  {
+    id: "customer-node5-8xmi300x",
+    name: "Customer Node 5 — 8×MI300X big-iron (inference-only)",
+    description: "Customer's Node 5: the big iron — 8× MI300X 192GB = 1.5 TiB total VRAM. Runs **DeepSeek-V4-Pro 862B FP8 with tensor-parallel-8** across all 8 cards via vLLM-on-ROCm. **No desktops on this node** — MI300X is a CDNA-3 compute chip with no display engine; Mesa's radeonsi refuses to create a graphics context (verified live in cloud GPU campaign run #5).",
+    pros: [
+      "Flagship-tier reasoning: DeepSeek-V4-Pro is the current best open-weights chat model (April 2026)",
+      "1.5 TiB total VRAM — runs the 862B-param flagship comfortably with full 131K context",
+      "AMD vLLM-on-ROCm path: validated in cloud GPU campaign run #5",
+    ],
+    cons: [
+      "AMD MI300X CDNA — no desktops possible on this node (compute-only chip)",
+      "DeepSeek-V4-Pro cold-start is 5-10 minutes (large weights)",
+      "Requires `rocm/vllm:latest` image and a Mesa+ROCm-aware container runtime",
+    ],
+    blockIDs: [],
+    vendor: "amd",
+    architectures: ["cdna3"],
+    modelMatch: "MI300X",
+    minVRAMBytes: 192 * GIB,
+    composeYAML: `# See design/sample-profiles/customer-node5-8xMI300X.yaml for the source-of-truth version with full header comments.
+services:
+  deepseek-v4-pro:
+    image: rocm/vllm:latest
+    container_name: vllm-deepseek-v4-pro
+    ports: ["127.0.0.1:8000:8000"]
+    volumes: [/prod/models:/root/.cache/huggingface]
+    environment: [HUGGING_FACE_HUB_TOKEN]
+    shm_size: 16g
+    ipc: host
+    devices: [/dev/kfd, /dev/dri/renderD128, /dev/dri/renderD129, /dev/dri/renderD130, /dev/dri/renderD131, /dev/dri/renderD132, /dev/dri/renderD133, /dev/dri/renderD134, /dev/dri/renderD135]
+    group_add: [video]
+    security_opt: ["seccomp:unconfined"]
+    entrypoint: ["vllm", "serve"]
+    command: [deepseek-ai/DeepSeek-V4-Pro, --trust-remote-code, --served-model-name, deepseek-v4-pro, --tensor-parallel-size, "8", --max-model-len, "131072", --gpu-memory-utilization, "0.85", --enable-auto-tool-choice, --tool-call-parser, hermes, --reasoning-parser, deepseek_v4]
+`,
+  },
 ];

@@ -1,0 +1,157 @@
+# Helix runner profile: Customer Nodes 2-4 — 4x NVIDIA L40S 48GB
+#
+# GPU compatibility (operator-declared, stored alongside this YAML):
+#   vendor:        nvidia
+#   architectures: [ada]
+#   model_match:   ^NVIDIA L40S
+#   min_vram:      51539607552   # 48 GiB
+#
+# Customer's Nodes 2, 3, and 4: each has 4x L40S 48GB. This single profile
+# is deployed identically to all three nodes (the inference router round-
+# robins across them — three sandboxes serving the same model names is the
+# multi-runner story). Leaves GPU 3 free for Hydra-spawned agent desktops
+# via Decision 15 (`gpu_index: 3`). Compose parser computes `GPUCount: 3`.
+#
+# L40S has full hardware video encoding (NVENC + NVDEC) plus a display
+# engine, so desktops on the reserved GPU 3 get full hardware-accelerated
+# streaming — much better than the A100 software-encoding fallback.
+#
+# Models are sized for L40S's 48GB VRAM (smaller than A100's 80GB):
+#
+#   GPU 0 — qwen3-vl-embedding + qwen3-text-embedding (sharing at 0.4 each)
+#   GPU 1 — qwen3.5-27b dense chat (FP8, fits one L40S with full context)
+#   GPU 2 — qwen3.6-35b-a3b MoE chat (FP8, 3B active per token — efficient)
+#   GPU 3 — RESERVED for desktops (Hydra spawns with gpu_index: 3)
+
+services:
+  qwen3-vl-embedding:
+    image: vllm/vllm-openai:latest
+    container_name: vllm-qwen3-embed
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - /prod/models:/root/.cache/huggingface
+    environment:
+      - HUGGING_FACE_HUB_TOKEN
+      - HF_HUB_OFFLINE=1
+    shm_size: 1g
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["0"]
+              capabilities: [gpu]
+    command:
+      - --model
+      - Qwen/Qwen3-VL-Embedding-8B
+      - --runner
+      - pooling
+      - --trust-remote-code
+      - --dtype
+      - auto
+      - --max-model-len
+      - "8192"
+      - --gpu-memory-utilization
+      - "0.40"
+
+  qwen3-text-embedding:
+    image: vllm/vllm-openai:latest
+    container_name: vllm-qwen3-text-embed
+    ports:
+      - "127.0.0.1:8001:8000"
+    volumes:
+      - /prod/models:/root/.cache/huggingface
+    environment:
+      - HUGGING_FACE_HUB_TOKEN
+      - HF_HUB_OFFLINE=1
+    shm_size: 1g
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["0"]
+              capabilities: [gpu]
+    command:
+      - --model
+      - Qwen/Qwen3-Embedding-8B
+      - --runner
+      - pooling
+      - --trust-remote-code
+      - --dtype
+      - auto
+      - --max-model-len
+      - "8192"
+      - --gpu-memory-utilization
+      - "0.40"
+
+  qwen3-5-27b:
+    image: vllm/vllm-openai:latest
+    container_name: vllm-qwen35-27b
+    ports:
+      - "127.0.0.1:8002:8000"
+    volumes:
+      - /prod/models:/root/.cache/huggingface
+    environment:
+      - HUGGING_FACE_HUB_TOKEN
+      - HF_HUB_OFFLINE=1
+    shm_size: 1g
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["1"]
+              capabilities: [gpu]
+    command:
+      - --model
+      - Qwen/Qwen3.5-27B
+      - --trust-remote-code
+      - --served-model-name
+      - qwen3.5-27b
+      - --tensor-parallel-size
+      - "1"
+      - --max-model-len
+      - "32768"
+      - --gpu-memory-utilization
+      - "0.85"
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - hermes
+
+  qwen3-6-35b-a3b:
+    image: vllm/vllm-openai:latest
+    container_name: vllm-qwen36-35b
+    ports:
+      - "127.0.0.1:8003:8000"
+    volumes:
+      - /prod/models:/root/.cache/huggingface
+    environment:
+      - HUGGING_FACE_HUB_TOKEN
+      - HF_HUB_OFFLINE=1
+    shm_size: 1g
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["2"]
+              capabilities: [gpu]
+    command:
+      - --model
+      - Qwen/Qwen3.6-35B-A3B
+      - --trust-remote-code
+      - --served-model-name
+      - qwen3.6-35b
+      - --tensor-parallel-size
+      - "1"
+      - --max-model-len
+      - "32768"
+      - --gpu-memory-utilization
+      - "0.85"
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - hermes
+      - --reasoning-parser
+      - qwen3
