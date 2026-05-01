@@ -534,7 +534,20 @@ func (apiServer *HelixAPIServer) buildCodeAgentConfig(ctx context.Context, app *
 	// Find the assistant with AgentType = zed_external
 	for _, assistant := range app.Config.Helix.Assistants {
 		if assistant.AgentType == types.AgentTypeZedExternal {
-			return apiServer.buildCodeAgentConfigFromAssistant(ctx, &assistant, helixURL)
+			// Resolve the agent's stored provider token (ID or legacy name) to
+			// the provider's current canonical name so the model identifier
+			// matches what GenerateZedMCPConfig writes into agent.default_model.
+			// Without this resolution available_models would carry "pe_xxx/..."
+			// while default_model carries "numpty/..." (the renamed provider's
+			// current name) — Zed's model picker fails the lookup and falls
+			// back to its built-in Claude default.
+			//
+			// See deviqon/P1-5-zed-overrides-clobber-helix-default-model.md.
+			snapshot, err := apiServer.getProviderSnapshot(ctx, app.Owner)
+			if err != nil {
+				log.Warn().Err(err).Str("app_id", app.ID).Msg("buildCodeAgentConfig: provider snapshot unavailable; model prefix may not match agent.default_model")
+			}
+			return apiServer.buildCodeAgentConfigFromAssistant(ctx, &assistant, helixURL, snapshot)
 		}
 	}
 	return nil
@@ -544,7 +557,7 @@ func (apiServer *HelixAPIServer) buildCodeAgentConfig(ctx context.Context, app *
 // For zed_external agents, use GenerationModelProvider/GenerationModel - that's where the UI
 // stores the user's model selection for external agents.
 // The CodeAgentRuntime determines how the LLM is configured in Zed (built-in agent vs qwen).
-func (apiServer *HelixAPIServer) buildCodeAgentConfigFromAssistant(ctx context.Context, assistant *types.AssistantConfig, helixURL string) *types.CodeAgentConfig {
+func (apiServer *HelixAPIServer) buildCodeAgentConfigFromAssistant(ctx context.Context, assistant *types.AssistantConfig, helixURL string, providerSnapshot []external_agent.ProviderRef) *types.CodeAgentConfig {
 	// Get the code agent runtime, default to zed_agent
 	runtime := assistant.CodeAgentRuntime
 	if runtime == "" {
@@ -563,6 +576,16 @@ func (apiServer *HelixAPIServer) buildCodeAgentConfigFromAssistant(ctx context.C
 	modelName := assistant.GenerationModel
 	if modelName == "" {
 		modelName = assistant.Model
+	}
+
+	// Resolve the agent's stored provider token (ID or legacy name) to the
+	// provider's current canonical name. Required so the model prefix here
+	// matches what GenerateZedMCPConfig produces for agent.default_model —
+	// see comment in buildCodeAgentConfig.
+	if providerSnapshot != nil && providerName != "" {
+		if resolved, _, ok := external_agent.ResolveProvider(providerName, providerSnapshot); ok {
+			providerName = resolved.Name
+		}
 	}
 
 	// Subscription agents don't need provider/model (they use OAuth credentials).
