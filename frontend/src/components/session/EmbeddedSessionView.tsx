@@ -78,7 +78,7 @@ const EmbeddedSessionView = forwardRef<
   const lightTheme = useLightTheme();
   const containerRef = useRef<HTMLDivElement>(null);
   const queryClient = useQueryClient();
-  const { NewInference, wsConnected } = useStreaming();
+  const { NewInference } = useStreaming();
 
   // Global on/off preference for auto-scroll. Default ON.
   const [autoScroll, setAutoScroll] = useAutoScrollPreference();
@@ -147,15 +147,27 @@ const EmbeddedSessionView = forwardRef<
   );
 
   // Fetch session data with auto-refresh.
-  // When the WebSocket is connected it is the authoritative real-time source,
-  // so we suppress the poll to prevent stale HTTP responses from racing with
-  // and overwriting fresh WebSocket-delivered data. Polling resumes automatically
-  // whenever the WebSocket drops (network hiccup, server restart, etc.).
+  // Always poll session metadata at 3s, regardless of WS state.
+  //
+  // Earlier this was gated on `!wsConnected` to avoid HTTP polls racing
+  // with WS-delivered data — but the WS only delivers interaction-related
+  // events. The session's own metadata (in particular
+  // `config.external_agent_status`) is never broadcast over the WS, so
+  // suppressing polling left that field stale, breaking the
+  // `useSandboxState` hook used by `ExternalAgentDesktopViewer` to render
+  // the "Starting Desktop..." spinner during boot. See incident
+  // 2026-04-25 with ses_01kq0ba2708rawbsfqv2hyyxp2.
+  //
+  // We've also confirmed the original race concern is mitigated by
+  // `streaming.tsx:296-308`, which explicitly preserves the existing
+  // `config` when applying WS-delivered session updates. So polling can't
+  // overwrite a fresher WS value because the WS never updates `config` in
+  // the first place.
   const { data: sessionResponse, refetch: refetchSession } = useGetSession(
     sessionId,
     {
       enabled: !!sessionId,
-      refetchInterval: wsConnected ? false : 3000,
+      refetchInterval: 3000,
       skipInteractions: true,
     },
   );

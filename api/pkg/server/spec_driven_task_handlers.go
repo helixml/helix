@@ -4,6 +4,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"hash/fnv"
 	"net/http"
@@ -30,6 +31,11 @@ import (
 // @Failure 500 {object} types.APIError
 // @Router  /api/v1/spec-tasks/from-prompt [post]
 func (s *HelixAPIServer) createTaskFromPrompt(w http.ResponseWriter, r *http.Request) {
+	addCorsHeaders(w)
+	if r.Method == http.MethodOptions {
+		return
+	}
+
 	user := getRequestUser(r)
 	if user == nil {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
@@ -308,6 +314,21 @@ func (s *HelixAPIServer) listTasks(w http.ResponseWriter, r *http.Request) {
 					task.SandboxStatusMessage = cfg.StatusMessage
 				}
 			}
+
+			// Derive AgentWorkState from sandbox state + latest interaction state.
+			// This drives the per-card "In Progress vs Idle" indicator so the timer
+			// only ticks when the agent is actually streaming a response.
+			// On query error: leave AgentWorkState empty so the UI falls back to the
+			// existing "In Progress" label rather than mass-flipping every running
+			// card to "Idle".
+			latestInteractions, err := s.Store.GetLatestInteractionsForSessions(ctx, sessionIDs)
+			if err != nil {
+				log.Warn().Err(err).Msg("failed to fetch latest interactions for agent_work_state derivation")
+			} else {
+				for _, task := range tasks {
+					task.AgentWorkState = deriveAgentWorkState(task, latestInteractions[task.PlanningSessionID])
+				}
+			}
 		}
 	}
 
@@ -385,6 +406,51 @@ func (s *HelixAPIServer) approveSpecs(w http.ResponseWriter, r *http.Request) {
 		log.Error().Err(err).Msg("Failed to decode approval request")
 		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
+	}
+
+	// When approving specs, validate the approver has GitHub OAuth so their
+	// credentials can be used for commits and push during implementation.
+	if req.Approved {
+		project, err := s.Store.GetProject(ctx, existingTask.ProjectID)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to get project: %v", err), http.StatusInternalServerError)
+			return
+		}
+		if project.DefaultRepoID != "" {
+			repo, err := s.Store.GetGitRepository(ctx, project.DefaultRepoID)
+			if err != nil {
+				http.Error(w, fmt.Sprintf("Failed to get repository: %v", err), http.StatusInternalServerError)
+				return
+			}
+			if err := s.gitRepositoryService.ValidateUserGitHubOAuth(ctx, repo, user.ID); err != nil {
+				var oauthErr *services.OAuthRequiredError
+				if errors.As(err, &oauthErr) {
+					writeResponse(w, map[string]interface{}{
+						"error":         "oauth_required",
+						"message":       oauthErr.Error(),
+						"provider_type": oauthErr.ProviderType,
+					}, http.StatusUnprocessableEntity)
+					return
+				}
+				// Non-OAuthRequired error (usually transient store error).
+				// Don't block approval on infra hiccups; the downstream push
+				// will surface any real auth failure to the user.
+				log.Warn().Err(err).Str("task_id", taskID).Msg("Non-OAuthRequired error validating approver OAuth; proceeding with approval")
+			}
+		}
+
+		// Refuse to queue implementation if the agent's provider/model
+		// snapshot is stale or empty — same backstop as start-planning, so
+		// post-spec approval can't sneak past with a broken config.
+		if reason, vErr := s.validateSpecTaskAgentConfig(ctx, existingTask, user.ID); vErr != nil {
+			log.Warn().Err(vErr).Str("task_id", taskID).Msg("Failed to pre-validate agent config; proceeding with approval")
+		} else if reason != "" {
+			writeResponse(w, map[string]interface{}{
+				"error":   "agent_misconfigured",
+				"message": reason,
+			}, http.StatusUnprocessableEntity)
+			return
+		}
 	}
 
 	now := time.Now()
@@ -783,6 +849,42 @@ func (s *HelixAPIServer) startPlanning(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The user who starts planning becomes the actor for planning-phase
+	// commits/pushes, so their GitHub OAuth must be connected up front.
+	// Otherwise the agent would push specs using either no credentials or
+	// the task creator's token — both are wrong.
+	if project, projErr := s.Store.GetProject(ctx, task.ProjectID); projErr == nil && project.DefaultRepoID != "" {
+		if repo, repoErr := s.Store.GetGitRepository(ctx, project.DefaultRepoID); repoErr == nil {
+			if err := s.gitRepositoryService.ValidateUserGitHubOAuth(ctx, repo, user.ID); err != nil {
+				var oauthErr *services.OAuthRequiredError
+				if errors.As(err, &oauthErr) {
+					writeResponse(w, map[string]interface{}{
+						"error":         "oauth_required",
+						"message":       oauthErr.Error(),
+						"provider_type": oauthErr.ProviderType,
+					}, http.StatusUnprocessableEntity)
+					return
+				}
+				log.Warn().Err(err).Str("task_id", taskID).
+					Msg("Non-OAuthRequired error validating planner OAuth; proceeding with planning")
+			}
+		}
+	}
+
+	// Refuse to queue if the agent's provider/model snapshot is stale or
+	// empty — otherwise the orchestrator would spawn a desktop that boots
+	// fine but can't reach a routable model, and the user has to dig
+	// through API logs to find the cause.
+	if reason, vErr := s.validateSpecTaskAgentConfig(ctx, task, user.ID); vErr != nil {
+		log.Warn().Err(vErr).Str("task_id", taskID).Msg("Failed to pre-validate agent config; proceeding with planning")
+	} else if reason != "" {
+		writeResponse(w, map[string]interface{}{
+			"error":   "agent_misconfigured",
+			"message": reason,
+		}, http.StatusUnprocessableEntity)
+		return
+	}
+
 	task.PlanningOptions = opts
 	task.UpdatedAt = time.Now()
 
@@ -795,6 +897,9 @@ func (s *HelixAPIServer) startPlanning(w http.ResponseWriter, r *http.Request) {
 		task.Status = types.TaskStatusQueuedSpecGeneration
 	}
 	task.StatusUpdatedAt = &now
+	// Record who kicked off planning so downstream push-credential and
+	// container git-identity resolution can attribute to them.
+	task.PlanningStartedBy = user.ID
 
 	// Save the task with queued status first (so response reflects immediate status)
 	err = s.Store.UpdateSpecTask(ctx, task)
@@ -941,6 +1046,7 @@ func (s *HelixAPIServer) updateSpecTask(w http.ResponseWriter, r *http.Request) 
 		task.PublicDesignDocs = *updateReq.PublicDesignDocs
 	}
 	// Update keep alive setting (pointer allows explicit false)
+	previousKeepAlive := task.KeepAlive
 	if updateReq.KeepAlive != nil {
 		task.KeepAlive = *updateReq.KeepAlive
 	}
@@ -995,6 +1101,26 @@ func (s *HelixAPIServer) updateSpecTask(w http.ResponseWriter, r *http.Request) 
 		log.Error().Err(err).Str("task_id", taskID).Msg("Failed to update SpecTask")
 		http.Error(w, fmt.Sprintf("failed to update SpecTask: %v", err), http.StatusInternalServerError)
 		return
+	}
+
+	// If the user just turned KeepAlive off on a task that already reached Done,
+	// the orchestrator's handleDone() has already exited without stopping the
+	// desktop (because KeepAlive was true at the time). Release the desktop now
+	// so the user has an explicit way to free the resources after merge.
+	if previousKeepAlive && !task.KeepAlive && task.Status == types.TaskStatusDone && task.PlanningSessionID != "" {
+		stopErr := s.externalAgentExecutor.StopDesktop(ctx, task.PlanningSessionID)
+		if stopErr != nil {
+			log.Warn().
+				Err(stopErr).
+				Str("task_id", taskID).
+				Str("session_id", task.PlanningSessionID).
+				Msg("Failed to stop desktop after KeepAlive turned off on Done task (continuing)")
+		} else {
+			log.Info().
+				Str("task_id", taskID).
+				Str("session_id", task.PlanningSessionID).
+				Msg("Stopped desktop after KeepAlive turned off on Done task")
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -1446,4 +1572,26 @@ func (s *HelixAPIServer) updateBoardSettings(w http.ResponseWriter, r *http.Requ
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(settings)
+}
+
+// deriveAgentWorkState maps the SandboxState + latest-interaction state to a
+// coarse work-state used by the project board card UI.
+//
+//	sandbox=absent/starting → ""        (UI falls back to sandbox status hint)
+//	sandbox=running, latest=Waiting     → "working"
+//	sandbox=running, anything else      → "idle"
+//
+// Only InteractionStateWaiting counts as "working". Editing/None/Complete/Error
+// and a missing interaction all collapse to "idle" — the brief gap between row
+// insert (state="") and the worker setting state="waiting" can flicker a card
+// to "Idle" at poll time, which is acceptable at 30s polling.
+func deriveAgentWorkState(task *types.SpecTask, latest *types.Interaction) types.AgentWorkState {
+	if task.SandboxState != "running" {
+		return ""
+	}
+
+	if latest != nil && latest.State == types.InteractionStateWaiting {
+		return types.AgentWorkStateWorking
+	}
+	return types.AgentWorkStateIdle
 }

@@ -467,7 +467,11 @@ echo "Setting default user uid=$(id -u ${UNAME}) gid=$(id -g ${UNAME})"
 echo "Setting umask to ${UMASK}"
 umask "${UMASK}"
 echo "Ensure ${UNAME} home directory is writable"
-chown -R "${UNAME}:${UNAME}" "/home/${UNAME}" 2>/dev/null || true
+# Non-recursive: image is built with retro:retro and the persistent home volume is
+# initialized with retro:retro. A recursive chown over a populated home dir at every
+# container start was producing huge metadata-write storms through the ext4-on-zvol +
+# dedup'd ZFS workspace stack (PSI io.full ~67% during cold starts).
+chown "${UNAME}:${UNAME}" "/home/${UNAME}" 2>/dev/null || true
 echo "Ensure XDG_RUNTIME_DIR is writable"
 mkdir -p "${XDG_RUNTIME_DIR:-/run/user/1000}"
 chown -R "${UNAME}:${UNAME}" "${XDG_RUNTIME_DIR:-/run/user/1000}" 2>/dev/null || true

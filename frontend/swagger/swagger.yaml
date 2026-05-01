@@ -1084,24 +1084,6 @@ definitions:
       org_id:
         type: string
     type: object
-  server.DesignDocsResponse:
-    properties:
-      documents:
-        items:
-          $ref: '#/definitions/server.DesignDocument'
-        type: array
-      task_id:
-        type: string
-    type: object
-  server.DesignDocument:
-    properties:
-      content:
-        type: string
-      filename:
-        type: string
-      path:
-        type: string
-    type: object
   server.DevContainerWithClients:
     properties:
       clients:
@@ -2503,6 +2485,14 @@ definitions:
     - AgentWorkStateDone
   types.AggregatedUsageMetric:
     properties:
+      cache_read_cost:
+        type: number
+      cache_read_tokens:
+        type: integer
+      cache_write_cost:
+        type: number
+      cache_write_tokens:
+        type: integer
       completion_cost:
         type: number
       completion_tokens:
@@ -2521,7 +2511,7 @@ definitions:
       response_size_bytes:
         type: integer
       total_cost:
-        description: Total cost of the call (prompt and completion tokens)
+        description: Prompt + completion + cache read + cache write
         type: number
       total_requests:
         type: integer
@@ -3993,6 +3983,12 @@ definitions:
       action:
         description: '"session" (default) or "spec_task"'
         type: string
+      agent_type:
+        description: '"helix" (default) or "zed_external"'
+        type: string
+      callback_url:
+        description: Webhook URL to POST on completion
+        type: string
       emails:
         items:
           type: string
@@ -4000,6 +3996,10 @@ definitions:
       enabled:
         type: boolean
       input:
+        type: string
+      input_file:
+        description: File path in helix-specs worktree to use as prompt (overrides
+          Input)
         type: string
       project_id:
         description: Target project for spec_task action
@@ -5097,6 +5097,14 @@ definitions:
     properties:
       app_id:
         type: string
+      auto_wake_count:
+        description: |-
+          AutoWakeCount tracks how many times the auto-wake worker has sent a
+          follow-up "continue" prompt to unstick this interaction. Zero means
+          this is a normal user-initiated interaction; non-zero on an
+          auto-wake interaction itself records which retry attempt it is.
+          See design/2026-04-25-zed-claude-async-event-flush-on-user-input.md.
+        type: integer
       completed:
         type: string
       created:
@@ -5480,6 +5488,17 @@ definitions:
     properties:
       app_id:
         type: string
+      cache_read_cost:
+        type: number
+      cache_read_tokens:
+        description: prompt tokens served from provider cache (subset of PromptTokens)
+        type: integer
+      cache_write_cost:
+        type: number
+      cache_write_tokens:
+        description: prompt tokens written to provider cache (Anthropic only; subset
+          of PromptTokens)
+        type: integer
       completion_cost:
         type: number
       completion_tokens:
@@ -5527,7 +5546,7 @@ definitions:
       stream:
         type: boolean
       total_cost:
-        description: Total cost of the call (prompt and completion tokens)
+        description: Prompt + completion + cache read + cache write
         type: number
       total_tokens:
         type: integer
@@ -6260,6 +6279,12 @@ definitions:
         type: string
       image:
         type: string
+      input_cache_read:
+        description: price per cached input token read (hit)
+        type: string
+      input_cache_write:
+        description: price per cached input token written (cache creation)
+        type: string
       internal_reasoning:
         type: string
       prompt:
@@ -6661,6 +6686,10 @@ definitions:
         type: string
       deleted_at:
         description: 'Soft-delete: non-nil means user removed from queue'
+        type: string
+      error_message:
+        description: Last failure reason (server-side error string), shown in UI under
+          "Failed - retrying"
         type: string
       id:
         description: 'Composite primary key: ID is globally unique, but we also index
@@ -7644,6 +7673,12 @@ definitions:
       billing_enabled:
         description: Charging for usage
         type: boolean
+      default_chat_system_prompt:
+        description: |-
+          DefaultChatSystemPrompt is the system prompt the platform applies to
+          direct model chats when the user has not customised one. Surfaced to
+          the frontend so the chat-settings page can prefill the textbox.
+        type: string
       deployment_id:
         type: string
       disable_llm_call_logging:
@@ -7894,6 +7929,9 @@ definitions:
       assistant_id:
         description: Which assistant are we speaking to?
         type: string
+      callback_url:
+        description: Webhook URL to POST on session completion
+        type: string
       external_agent_config:
         allOf:
         - $ref: '#/definitions/types.ExternalAgentConfig'
@@ -7926,6 +7964,9 @@ definitions:
         type: boolean
       session_id:
         description: If empty, we will start a new session
+        type: string
+      session_role:
+        description: e.g. "job" — categorizes sessions for filtering
         type: string
       stream:
         description: If true, we will stream the response
@@ -7983,6 +8024,9 @@ definitions:
         description: which assistant are we talking to?
         type: string
       avatar:
+        type: string
+      callback_url:
+        description: Webhook URL to POST on session completion
         type: string
       code_agent_runtime:
         allOf:
@@ -8143,6 +8187,19 @@ definitions:
     - SessionModeInference
     - SessionModeFinetune
     - SessionModeAction
+  types.SessionOutputResponse:
+    properties:
+      duration_ms:
+        type: integer
+      output:
+        description: Last interaction's response text
+        type: string
+      session_id:
+        type: string
+      status:
+        description: '"waiting", "complete", "error"'
+        type: string
+    type: object
   types.SessionRAGResult:
     properties:
       content:
@@ -8473,6 +8530,9 @@ definitions:
           The same external agent/session is reused throughout the entire SpecTask lifecycle
         type: string
       planning_started_at:
+        type: string
+      planning_started_by:
+        description: User who kicked off planning (may differ from CreatedBy)
         type: string
       priority:
         allOf:
@@ -9012,6 +9072,9 @@ definitions:
           The same external agent/session is reused throughout the entire SpecTask lifecycle
         type: string
       planning_started_at:
+        type: string
+      planning_started_by:
+        description: User who kicked off planning (may differ from CreatedBy)
         type: string
       priority:
         allOf:
@@ -10017,6 +10080,11 @@ definitions:
         type: string
       id:
         type: string
+      last_seen_at:
+        description: |-
+          LastSeenAt is the most recent time the user authenticated against the API.
+          Updated (throttled) from auth middleware so the column isn't hammered on every request.
+        type: string
       must_change_password:
         description: if the user must change their password
         type: boolean
@@ -10068,6 +10136,28 @@ definitions:
       is_admin:
         type: boolean
     type: object
+  types.UserChatSettings:
+    properties:
+      frequency_penalty:
+        type: number
+      max_tokens:
+        type: integer
+      presence_penalty:
+        type: number
+      system_prompt:
+        type: string
+      system_prompt_enabled:
+        description: |-
+          SystemPromptEnabled toggles whether any system prompt at all is sent
+          to the model. Pointer so nil means "not set" and we fall back to the
+          default-on behaviour. When explicitly false, no system prompt is sent
+          regardless of SystemPrompt.
+        type: boolean
+      temperature:
+        type: number
+      top_p:
+        type: number
+    type: object
   types.UserGuidelinesResponse:
     properties:
       guidelines:
@@ -10077,6 +10167,31 @@ definitions:
       guidelines_updated_by:
         type: string
       guidelines_version:
+        type: integer
+    type: object
+  types.UserModelUsage:
+    properties:
+      cache_read_tokens:
+        type: integer
+      cache_write_tokens:
+        type: integer
+      completion_tokens:
+        type: integer
+      first_used:
+        type: string
+      last_used:
+        type: string
+      model:
+        type: string
+      prompt_tokens:
+        type: integer
+      provider:
+        type: string
+      total_cost:
+        type: number
+      total_requests:
+        type: integer
+      total_tokens:
         type: integer
     type: object
   types.UserResponse:
@@ -10108,6 +10223,21 @@ definitions:
         items:
           $ref: '#/definitions/types.User'
         type: array
+    type: object
+  types.UserStatsResponse:
+    properties:
+      last_active_at:
+        type: string
+      models:
+        items:
+          $ref: '#/definitions/types.UserModelUsage'
+        type: array
+      projects_count:
+        type: integer
+      spec_tasks_count:
+        type: integer
+      user:
+        $ref: '#/definitions/types.User'
     type: object
   types.UserTokenUsageResponse:
     properties:
@@ -18443,6 +18573,10 @@ paths:
         in: query
         name: project_id
         type: string
+      - description: Filter by session role (e.g. job)
+        in: query
+        name: session_role
+        type: string
       responses:
         "200":
           description: OK
@@ -18797,6 +18931,35 @@ paths:
       summary: Provide feedback for an interaction
       tags:
       - interactions
+  /api/v1/sessions/{id}/output:
+    get:
+      description: Returns the last interaction's response for a session
+      parameters:
+      - description: Session ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.SessionOutputResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Get session output
+      tags:
+      - Sessions
   /api/v1/sessions/{id}/rdp-connection:
     get:
       description: Get streaming connection details for accessing a session
@@ -18817,6 +18980,53 @@ paths:
       summary: Get streaming connection info for a session
       tags:
       - sessions
+  /api/v1/sessions/{id}/restart-agent:
+    post:
+      description: |-
+        Clears the dead acp_thread_id on the session and resets crashed prompts
+        (those marked by MarkPromptAsCrashed when the Claude Agent process exited)
+        back to pending. The next dispatch sends with empty acp_thread_id, causing
+        Zed to create a fresh thread + Claude Agent process. Requires the session
+        to be an external Zed agent. Returns the count of prompts that were reset.
+      parameters:
+      - description: Session ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Restart Zed thread after a Claude Agent crash
+      tags:
+      - Sessions
   /api/v1/sessions/{id}/resume:
     post:
       description: Restarts the external agent container for a session that has been
@@ -19342,35 +19552,6 @@ paths:
       summary: List spec-driven tasks
       tags:
       - spec-driven-tasks
-  /api/v1/spec-tasks/{id}/design-docs:
-    get:
-      description: Get the design documents from helix-specs worktree
-      parameters:
-      - description: SpecTask ID
-        in: path
-        name: id
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/server.DesignDocsResponse'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-      security:
-      - ApiKeyAuth: []
-      summary: Get design docs for SpecTask
-      tags:
-      - SpecTasks
   /api/v1/spec-tasks/{spec_task_id}/approve-implementation:
     post:
       description: Approve the implementation and instruct agent to merge to main
@@ -20695,6 +20876,7 @@ paths:
       description: List users with pagination support and optional filtering by email
         domain or username. Supports ILIKE matching for email domains (e.g., "hotmail.com"
         will find all users with @hotmail.com emails) and partial username matching.
+        Pass `query` to match across email, username, and full_name in one go.
       parameters:
       - description: 'Page number (default: 1)'
         in: query
@@ -20704,6 +20886,10 @@ paths:
         in: query
         name: per_page
         type: integer
+      - description: Free-text search across email, username, and full_name (ILIKE)
+        in: query
+        name: query
+        type: string
       - description: Filter by email domain (e.g., 'hotmail.com') or exact email
         in: query
         name: email
@@ -20779,6 +20965,83 @@ paths:
       summary: Get user details
       tags:
       - users
+  /api/v1/users/{id}/stats:
+    get:
+      consumes:
+      - application/json
+      description: 'Returns an overview of a user''s activity: projects owned, spec
+        tasks created, per-model inference usage, and an effective last-active timestamp
+        combining tracked auth activity with usage-metric data.'
+      parameters:
+      - description: User ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.UserStatsResponse'
+      security:
+      - BearerAuth: []
+      summary: Get user stats (admin only)
+      tags:
+      - users
+  /api/v1/users/me/chat-settings:
+    get:
+      description: Get the current user's default chat settings (applied when chatting
+        without an app)
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.UserChatSettings'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Get user chat settings
+      tags:
+      - Users
+    put:
+      consumes:
+      - application/json
+      description: Update the current user's default chat settings (system prompt
+        + LLM parameters used when chatting without an app)
+      parameters:
+      - description: Chat settings to persist
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.UserChatSettings'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.UserChatSettings'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Update user chat settings
+      tags:
+      - Users
   /api/v1/users/me/guidelines:
     get:
       description: Get the current user's personal workspace guidelines

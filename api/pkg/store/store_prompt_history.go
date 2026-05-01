@@ -256,22 +256,43 @@ func (s *PostgresStore) ClaimPromptForSending(ctx context.Context, promptID stri
 	return result.RowsAffected > 0, nil
 }
 
-// RequeueBouncedPrompt finds the most recent "sent" prompt for a session and marks
-// it as "failed" so the retry mechanism picks it up.
+// RequeueBouncedPrompt finds the most recent in-flight prompt for a session
+// (status 'sent' or 'sending') and marks it as "failed" so the retry mechanism
+// picks it up.
+//
+// Both statuses are considered: under the deferred-mark-sent flow, dispatched
+// prompts stay in 'sending' until Zed actually starts streaming. A bounce
+// before Zed's first message_added arrives leaves the prompt 'sending'. Older
+// flows marked sent on dispatch, leaving bounced prompts 'sent'. Either way,
+// the most recent in-flight prompt for the session is the one to requeue.
 func (s *PostgresStore) RequeueBouncedPrompt(ctx context.Context, sessionID string) error {
 	var prompt types.PromptHistoryEntry
 	err := s.gdb.WithContext(ctx).
-		Where("session_id = ? AND status = 'sent'", sessionID).
+		Where("session_id = ? AND status IN ('sent', 'sending')", sessionID).
 		Order("created_at DESC").
 		First(&prompt).Error
 	if err != nil {
 		return err // no matching prompt found (e.g. Zed user message, not from queue)
 	}
-	return s.MarkPromptAsFailed(ctx, prompt.ID)
+	return s.MarkPromptAsFailed(ctx, prompt.ID, "agent returned an empty response (bounce); requeueing for retry")
 }
 
-// MarkPromptAsFailed marks a prompt as failed with exponential backoff retry
-func (s *PostgresStore) MarkPromptAsFailed(ctx context.Context, promptID string) error {
+// promptErrorMessageMaxLen caps the persisted error string. The UI renders it
+// inline; longer messages produce a wall-of-text in the queue list. Server
+// logs still carry the full error for debugging.
+const promptErrorMessageMaxLen = 500
+
+// crashedPromptRetrySentinel is the next_retry_at value used by
+// MarkPromptAsCrashed to suppress auto-retry. Picked far enough in the future
+// that the queue's exponential-backoff selector will never match it, but a
+// fixed timestamp (not max time.Time) so it serialises cleanly through GORM
+// and Postgres timestamptz. ResetCrashedPromptsForSession identifies crashed
+// rows by matching exactly this value.
+var crashedPromptRetrySentinel = time.Date(9999, 1, 1, 0, 0, 0, 0, time.UTC)
+
+// MarkPromptAsFailed marks a prompt as failed with exponential backoff retry,
+// recording the failure reason for display in the UI.
+func (s *PostgresStore) MarkPromptAsFailed(ctx context.Context, promptID string, errorMsg string) error {
 	// First get the current prompt to read retry count
 	var prompt types.PromptHistoryEntry
 	if err := s.gdb.WithContext(ctx).Where("id = ?", promptID).First(&prompt).Error; err != nil {
@@ -286,6 +307,10 @@ func (s *PostgresStore) MarkPromptAsFailed(ctx context.Context, promptID string)
 	}
 	nextRetry := time.Now().Add(time.Duration(backoffSeconds) * time.Second)
 
+	if len(errorMsg) > promptErrorMessageMaxLen {
+		errorMsg = errorMsg[:promptErrorMessageMaxLen]
+	}
+
 	return s.gdb.WithContext(ctx).
 		Model(&types.PromptHistoryEntry{}).
 		Where("id = ?", promptID).
@@ -293,8 +318,61 @@ func (s *PostgresStore) MarkPromptAsFailed(ctx context.Context, promptID string)
 			"status":        "failed",
 			"retry_count":   newRetryCount,
 			"next_retry_at": nextRetry,
+			"error_message": errorMsg,
 		}).
 		Error
+}
+
+// MarkPromptAsCrashed marks a prompt as failed but pins next_retry_at to a
+// far-future sentinel so the queue's auto-retry never picks it back up. Used
+// for terminal failures (the Claude Agent process inside Zed exited and Helix
+// can't respawn it without a fresh thread). The user must explicitly click
+// Restart to recover, which calls ResetCrashedPromptsForSession.
+//
+// We don't introduce a separate 'crashed' status because GetNextPendingPrompt
+// only selects 'pending' and 'failed' — pinning next_retry_at to year 9999
+// keeps the row out of the selector while still letting existing failed-state
+// UI render naturally with the error message.
+func (s *PostgresStore) MarkPromptAsCrashed(ctx context.Context, promptID string, errorMsg string) error {
+	if len(errorMsg) > promptErrorMessageMaxLen {
+		errorMsg = errorMsg[:promptErrorMessageMaxLen]
+	}
+
+	return s.gdb.WithContext(ctx).
+		Model(&types.PromptHistoryEntry{}).
+		Where("id = ?", promptID).
+		Updates(map[string]interface{}{
+			"status":        "failed",
+			"next_retry_at": crashedPromptRetrySentinel,
+			"error_message": errorMsg,
+		}).
+		Error
+}
+
+// ResetCrashedPromptsForSession resets every prompt for sessionID that was
+// marked crashed by MarkPromptAsCrashed: status becomes 'pending', retry_count
+// is zeroed, next_retry_at and error_message are cleared. The auto-retry
+// selector picks the prompts up on the next idle tick. Returns the number of
+// prompts reset.
+//
+// Identifies crashed rows by next_retry_at = the sentinel; that's a tighter
+// match than checking the error_message text and survives error-message
+// rewording.
+func (s *PostgresStore) ResetCrashedPromptsForSession(ctx context.Context, sessionID string) (int, error) {
+	result := s.gdb.WithContext(ctx).
+		Model(&types.PromptHistoryEntry{}).
+		Where("session_id = ? AND status = ? AND next_retry_at = ? AND deleted_at IS NULL",
+			sessionID, "failed", crashedPromptRetrySentinel).
+		Updates(map[string]interface{}{
+			"status":        "pending",
+			"retry_count":   0,
+			"next_retry_at": nil,
+			"error_message": "",
+		})
+	if result.Error != nil {
+		return 0, result.Error
+	}
+	return int(result.RowsAffected), nil
 }
 
 // ListPromptHistory returns prompt history entries for a user

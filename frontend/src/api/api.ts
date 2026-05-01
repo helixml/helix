@@ -712,17 +712,6 @@ export interface ServerCreateTopUpRequest {
   org_id?: string;
 }
 
-export interface ServerDesignDocsResponse {
-  documents?: ServerDesignDocument[];
-  task_id?: string;
-}
-
-export interface ServerDesignDocument {
-  content?: string;
-  filename?: string;
-  path?: string;
-}
-
 export interface ServerDevContainerWithClients {
   clients?: GithubComHelixmlHelixApiPkgServerClientInfo[];
   container_id?: string;
@@ -1552,6 +1541,10 @@ export enum TypesAgentWorkState {
 }
 
 export interface TypesAggregatedUsageMetric {
+  cache_read_cost?: number;
+  cache_read_tokens?: number;
+  cache_write_cost?: number;
+  cache_write_tokens?: number;
   completion_cost?: number;
   completion_tokens?: number;
   /** ID    string    `json:"id" gorm:"primaryKey"` */
@@ -1561,7 +1554,7 @@ export interface TypesAggregatedUsageMetric {
   prompt_tokens?: number;
   request_size_bytes?: number;
   response_size_bytes?: number;
-  /** Total cost of the call (prompt and completion tokens) */
+  /** Prompt + completion + cache read + cache write */
   total_cost?: number;
   total_requests?: number;
   total_tokens?: number;
@@ -2449,9 +2442,15 @@ export interface TypesCrispTrigger {
 export interface TypesCronTrigger {
   /** "session" (default) or "spec_task" */
   action?: string;
+  /** "helix" (default) or "zed_external" */
+  agent_type?: string;
+  /** Webhook URL to POST on completion */
+  callback_url?: string;
   emails?: string[];
   enabled?: boolean;
   input?: string;
+  /** File path in helix-specs worktree to use as prompt (overrides Input) */
+  input_file?: string;
   /** Target project for spec_task action */
   project_id?: string;
   schedule?: string;
@@ -3098,6 +3097,14 @@ export enum TypesImageURLDetail {
 
 export interface TypesInteraction {
   app_id?: string;
+  /**
+   * AutoWakeCount tracks how many times the auto-wake worker has sent a
+   * follow-up "continue" prompt to unstick this interaction. Zero means
+   * this is a normal user-initiated interaction; non-zero on an
+   * auto-wake interaction itself records which retry attempt it is.
+   * See design/2026-04-25-zed-claude-async-event-flush-on-user-input.md.
+   */
+  auto_wake_count?: number;
   completed?: string;
   created?: string;
   /** if this is defined, the UI will always display it instead of the message (so we can augment the internal prompt with RAG context) */
@@ -3340,6 +3347,12 @@ export interface TypesKnowledgeVersion {
 
 export interface TypesLLMCall {
   app_id?: string;
+  cache_read_cost?: number;
+  /** prompt tokens served from provider cache (subset of PromptTokens) */
+  cache_read_tokens?: number;
+  cache_write_cost?: number;
+  /** prompt tokens written to provider cache (Anthropic only; subset of PromptTokens) */
+  cache_write_tokens?: number;
   completion_cost?: number;
   completion_tokens?: number;
   created?: string;
@@ -3360,7 +3373,7 @@ export interface TypesLLMCall {
   spec_task_id?: string;
   step?: TypesLLMCallStep;
   stream?: boolean;
-  /** Total cost of the call (prompt and completion tokens) */
+  /** Prompt + completion + cache read + cache write */
   total_cost?: number;
   total_tokens?: number;
   updated?: string;
@@ -3789,6 +3802,10 @@ export interface TypesPricing {
   audio?: string;
   completion?: string;
   image?: string;
+  /** price per cached input token read (hit) */
+  input_cache_read?: string;
+  /** price per cached input token written (cache creation) */
+  input_cache_write?: string;
   internal_reasoning?: string;
   prompt?: string;
   request?: string;
@@ -4046,6 +4063,8 @@ export interface TypesPromptHistoryEntry {
   created_at?: string;
   /** Soft-delete: non-nil means user removed from queue */
   deleted_at?: string;
+  /** Last failure reason (server-side error string), shown in UI under "Failed - retrying" */
+  error_message?: string;
   /** Composite primary key: ID is globally unique, but we also index by user+spec_task */
   id?: string;
   /**
@@ -4621,6 +4640,12 @@ export interface TypesServerConfigForFrontend {
   auth_provider?: TypesAuthProvider;
   /** Charging for usage */
   billing_enabled?: boolean;
+  /**
+   * DefaultChatSystemPrompt is the system prompt the platform applies to
+   * direct model chats when the user has not customised one. Surfaced to
+   * the frontend so the chat-settings page can prefill the textbox.
+   */
+  default_chat_system_prompt?: string;
   deployment_id?: string;
   disable_llm_call_logging?: boolean;
   /** "mac-desktop", "server", "cloud", etc. */
@@ -4781,6 +4806,8 @@ export interface TypesSessionChatRequest {
   app_id?: string;
   /** Which assistant are we speaking to? */
   assistant_id?: string;
+  /** Webhook URL to POST on session completion */
+  callback_url?: string;
   /** Configuration for external agents */
   external_agent_config?: TypesExternalAgentConfig;
   /** If empty, we will start a new interaction */
@@ -4800,6 +4827,8 @@ export interface TypesSessionChatRequest {
   regenerate?: boolean;
   /** If empty, we will start a new session */
   session_id?: string;
+  /** e.g. "job" — categorizes sessions for filtering */
+  session_role?: string;
   /** If true, we will stream the response */
   stream?: boolean;
   /** System message, only applicable when starting a new session */
@@ -4833,6 +4862,8 @@ export interface TypesSessionMetadata {
   /** which assistant are we talking to? */
   assistant_id?: string;
   avatar?: string;
+  /** Webhook URL to POST on session completion */
+  callback_url?: string;
   /** Which code agent runtime is used (zed_agent, qwen_code, claude_code, etc.) */
   code_agent_runtime?: TypesCodeAgentRuntime;
   /** Docker container ID */
@@ -4926,6 +4957,15 @@ export enum TypesSessionMode {
   SessionModeInference = "inference",
   SessionModeFinetune = "finetune",
   SessionModeAction = "action",
+}
+
+export interface TypesSessionOutputResponse {
+  duration_ms?: number;
+  /** Last interaction's response text */
+  output?: string;
+  session_id?: string;
+  /** "waiting", "complete", "error" */
+  status?: string;
 }
 
 export interface TypesSessionRAGResult {
@@ -5125,6 +5165,8 @@ export interface TypesSpecTask {
    */
   planning_session_id?: string;
   planning_started_at?: string;
+  /** User who kicked off planning (may differ from CreatedBy) */
+  planning_started_by?: string;
   /** "low", "medium", "high", "critical" */
   priority?: TypesSpecTaskPriority;
   project_id?: string;
@@ -5427,6 +5469,8 @@ export interface TypesSpecTaskWithProject {
    */
   planning_session_id?: string;
   planning_started_at?: string;
+  /** User who kicked off planning (may differ from CreatedBy) */
+  planning_started_by?: string;
   /** "low", "medium", "high", "critical" */
   priority?: TypesSpecTaskPriority;
   project_id?: string;
@@ -6034,6 +6078,11 @@ export interface TypesUser {
   email?: string;
   full_name?: string;
   id?: string;
+  /**
+   * LastSeenAt is the most recent time the user authenticated against the API.
+   * Updated (throttled) from auth middleware so the column isn't hammered on every request.
+   */
+  last_seen_at?: string;
   /** if the user must change their password */
   must_change_password?: boolean;
   onboarding_completed?: boolean;
@@ -6068,11 +6117,41 @@ export interface TypesUserAppAccessResponse {
   is_admin?: boolean;
 }
 
+export interface TypesUserChatSettings {
+  frequency_penalty?: number;
+  max_tokens?: number;
+  presence_penalty?: number;
+  system_prompt?: string;
+  /**
+   * SystemPromptEnabled toggles whether any system prompt at all is sent
+   * to the model. Pointer so nil means "not set" and we fall back to the
+   * default-on behaviour. When explicitly false, no system prompt is sent
+   * regardless of SystemPrompt.
+   */
+  system_prompt_enabled?: boolean;
+  temperature?: number;
+  top_p?: number;
+}
+
 export interface TypesUserGuidelinesResponse {
   guidelines?: string;
   guidelines_updated_at?: string;
   guidelines_updated_by?: string;
   guidelines_version?: number;
+}
+
+export interface TypesUserModelUsage {
+  cache_read_tokens?: number;
+  cache_write_tokens?: number;
+  completion_tokens?: number;
+  first_used?: string;
+  last_used?: string;
+  model?: string;
+  prompt_tokens?: number;
+  provider?: string;
+  total_cost?: number;
+  total_requests?: number;
+  total_tokens?: number;
 }
 
 export interface TypesUserResponse {
@@ -6090,6 +6169,14 @@ export interface TypesUserSearchResponse {
   offset?: number;
   total_count?: number;
   users?: TypesUser[];
+}
+
+export interface TypesUserStatsResponse {
+  last_active_at?: string;
+  models?: TypesUserModelUsage[];
+  projects_count?: number;
+  spec_tasks_count?: number;
+  user?: TypesUser;
 }
 
 export interface TypesUserTokenUsageResponse {
@@ -12153,6 +12240,8 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         search?: string;
         /** Project ID */
         project_id?: string;
+        /** Filter by session role (e.g. job) */
+        session_role?: string;
       },
       params: RequestParams = {},
     ) =>
@@ -12389,6 +12478,24 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Returns the last interaction's response for a session
+     *
+     * @tags Sessions
+     * @name V1SessionsOutputDetail
+     * @summary Get session output
+     * @request GET:/api/v1/sessions/{id}/output
+     * @secure
+     */
+    v1SessionsOutputDetail: (id: string, params: RequestParams = {}) =>
+      this.request<TypesSessionOutputResponse, SystemHTTPError>({
+        path: `/api/v1/sessions/${id}/output`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Get streaming connection details for accessing a session
      *
      * @tags sessions
@@ -12402,6 +12509,24 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/sessions/${id}/rdp-connection`,
         method: "GET",
         secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Clears the dead acp_thread_id on the session and resets crashed prompts (those marked by MarkPromptAsCrashed when the Claude Agent process exited) back to pending. The next dispatch sends with empty acp_thread_id, causing Zed to create a fresh thread + Claude Agent process. Requires the session to be an external Zed agent. Returns the count of prompts that were reset.
+     *
+     * @tags Sessions
+     * @name V1SessionsRestartAgentCreate
+     * @summary Restart Zed thread after a Claude Agent crash
+     * @request POST:/api/v1/sessions/{id}/restart-agent
+     * @secure
+     */
+    v1SessionsRestartAgentCreate: (id: string, params: RequestParams = {}) =>
+      this.request<Record<string, any>, SystemHTTPError>({
+        path: `/api/v1/sessions/${id}/restart-agent`,
+        method: "POST",
+        secure: true,
+        format: "json",
         ...params,
       }),
 
@@ -12757,24 +12882,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/spec-tasks`,
         method: "GET",
         query: query,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Get the design documents from helix-specs worktree
-     *
-     * @tags SpecTasks
-     * @name V1SpecTasksDesignDocsDetail
-     * @summary Get design docs for SpecTask
-     * @request GET:/api/v1/spec-tasks/{id}/design-docs
-     * @secure
-     */
-    v1SpecTasksDesignDocsDetail: (id: string, params: RequestParams = {}) =>
-      this.request<ServerDesignDocsResponse, SystemHTTPError>({
-        path: `/api/v1/spec-tasks/${id}/design-docs`,
-        method: "GET",
-        secure: true,
         format: "json",
         ...params,
       }),
@@ -13640,7 +13747,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description List users with pagination support and optional filtering by email domain or username. Supports ILIKE matching for email domains (e.g., "hotmail.com" will find all users with @hotmail.com emails) and partial username matching.
+     * @description List users with pagination support and optional filtering by email domain or username. Supports ILIKE matching for email domains (e.g., "hotmail.com" will find all users with @hotmail.com emails) and partial username matching. Pass `query` to match across email, username, and full_name in one go.
      *
      * @tags users
      * @name V1UsersList
@@ -13654,6 +13761,8 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         page?: number;
         /** Number of users per page (max: 200, default: 50) */
         per_page?: number;
+        /** Free-text search across email, username, and full_name (ILIKE) */
+        query?: string;
         /** Filter by email domain (e.g., 'hotmail.com') or exact email */
         email?: string;
         /** Filter by username (partial match) */
@@ -13711,6 +13820,63 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/users/${id}`,
         method: "GET",
         secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Returns an overview of a user's activity: projects owned, spec tasks created, per-model inference usage, and an effective last-active timestamp combining tracked auth activity with usage-metric data.
+     *
+     * @tags users
+     * @name V1UsersStatsDetail
+     * @summary Get user stats (admin only)
+     * @request GET:/api/v1/users/{id}/stats
+     * @secure
+     */
+    v1UsersStatsDetail: (id: string, params: RequestParams = {}) =>
+      this.request<TypesUserStatsResponse, any>({
+        path: `/api/v1/users/${id}/stats`,
+        method: "GET",
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Get the current user's default chat settings (applied when chatting without an app)
+     *
+     * @tags Users
+     * @name V1UsersMeChatSettingsList
+     * @summary Get user chat settings
+     * @request GET:/api/v1/users/me/chat-settings
+     * @secure
+     */
+    v1UsersMeChatSettingsList: (params: RequestParams = {}) =>
+      this.request<TypesUserChatSettings, SystemHTTPError>({
+        path: `/api/v1/users/me/chat-settings`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Update the current user's default chat settings (system prompt + LLM parameters used when chatting without an app)
+     *
+     * @tags Users
+     * @name V1UsersMeChatSettingsUpdate
+     * @summary Update user chat settings
+     * @request PUT:/api/v1/users/me/chat-settings
+     * @secure
+     */
+    v1UsersMeChatSettingsUpdate: (request: TypesUserChatSettings, params: RequestParams = {}) =>
+      this.request<TypesUserChatSettings, SystemHTTPError>({
+        path: `/api/v1/users/me/chat-settings`,
+        method: "PUT",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
         ...params,
       }),
 

@@ -177,10 +177,10 @@ func (s *HelixAPIServer) listAppInteractions(_ http.ResponseWriter, r *http.Requ
 		}
 	}
 
-	// Parse query parameters
+	// Parse query parameters. Page is 0-indexed (matches the store's offset = Page * PerPage).
 	page, err := strconv.Atoi(r.URL.Query().Get("page"))
-	if err != nil || page < 1 {
-		page = 1
+	if err != nil || page < 0 {
+		page = 0
 	}
 
 	pageSize, err := strconv.Atoi(r.URL.Query().Get("pageSize"))

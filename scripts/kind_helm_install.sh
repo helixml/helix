@@ -6,7 +6,7 @@ set -euo pipefail
 # the official one from the helixml/helix repository.
 USE_LOCAL_HELM_CHART=${USE_LOCAL_HELM_CHART:-""}
 
-# USE_EXTERNAL_POSTGRES=1 
+# USE_EXTERNAL_POSTGRES=1
 # This option is used to test the chart when using an external postgres instance.
 # The script will install an independent postgres instance using the official helm chart.
 # Helix will be configured to use the external postgres instance.

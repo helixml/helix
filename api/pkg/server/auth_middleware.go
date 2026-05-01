@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
+	"time"
 
 	jwt "github.com/golang-jwt/jwt/v5"
 	authpkg "github.com/helixml/helix/api/pkg/auth"
@@ -14,6 +16,12 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
+
+// lastSeenThrottle limits how often we write users.last_seen_at.
+// Hot-path auth runs on every request; 5 minutes of resolution is plenty
+// for the "when was this user last active" UI while keeping the write
+// rate trivially low.
+const lastSeenThrottle = 5 * time.Minute
 
 var (
 	// Allowed paths for app API keys. Currently we support
@@ -48,6 +56,10 @@ type authMiddleware struct {
 	cfg            authMiddlewareConfig
 	serverCfg      *config.ServerConfig    // Server config for cookie management
 	sessionManager *authpkg.SessionManager // BFF session manager (nil if not using sessions)
+
+	// lastSeenCache tracks the last time we wrote last_seen_at for each user ID
+	// so we can skip the DB write on most requests. Values are time.Time.
+	lastSeenCache sync.Map
 }
 
 func newAuthMiddleware(
@@ -117,6 +129,37 @@ func looksLikeHelixJWT(token string) bool {
 	// Check if issuer is "helix" - this indicates a Helix-generated JWT
 	issuer, _ := claims["iss"].(string)
 	return issuer == "helix"
+}
+
+// touchUserLastSeen records that the user just authenticated. The write is
+// throttled per-user by lastSeenThrottle to keep the cost negligible even on
+// hot paths. Runner / empty users are skipped. The DB write runs in a detached
+// goroutine so the request context cancellation does not abort it.
+func (auth *authMiddleware) touchUserLastSeen(user *types.User) {
+	if user == nil || user.ID == "" {
+		return
+	}
+	if user.TokenType == types.TokenTypeRunner {
+		return
+	}
+
+	now := time.Now()
+	if prev, ok := auth.lastSeenCache.Load(user.ID); ok {
+		if prevTime, ok := prev.(time.Time); ok && now.Sub(prevTime) < lastSeenThrottle {
+			return
+		}
+	}
+	auth.lastSeenCache.Store(user.ID, now)
+
+	// Detach from the request context so the write is not cancelled when
+	// the response finishes. The write is best-effort — log and move on.
+	go func(userID string, at time.Time) {
+		bgCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := auth.store.TouchUserLastSeen(bgCtx, userID, at); err != nil {
+			log.Debug().Err(err).Str("user_id", userID).Msg("failed to update last_seen_at")
+		}
+	}(user.ID, now)
 }
 
 // isAdminWithContext checks admin status.
@@ -312,6 +355,7 @@ func (auth *authMiddleware) extractMiddleware(next http.Handler) http.Handler {
 			user, err = auth.getUserFromSession(r.Context(), r)
 			if err == nil && user != nil {
 				// Successfully authenticated via session
+				auth.touchUserLastSeen(user)
 				r = r.WithContext(setRequestUser(r.Context(), *user))
 				next.ServeHTTP(w, r)
 				return
@@ -370,6 +414,7 @@ func (auth *authMiddleware) extractMiddleware(next http.Handler) http.Handler {
 			}
 		}
 
+		auth.touchUserLastSeen(user)
 		r = r.WithContext(setRequestUser(r.Context(), *user))
 		next.ServeHTTP(w, r)
 	}
@@ -409,6 +454,7 @@ func (auth *authMiddleware) auth(f http.HandlerFunc) http.HandlerFunc {
 			}
 		}
 
+		auth.touchUserLastSeen(user)
 		r = r.WithContext(setRequestUser(r.Context(), *user))
 
 		f(w, r)

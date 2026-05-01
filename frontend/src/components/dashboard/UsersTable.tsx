@@ -16,10 +16,6 @@ import {
     TablePagination,
     InputAdornment,
     IconButton,
-    FormControl,
-    InputLabel,
-    Select,
-    MenuItem,
     Button,
 } from "@mui/material";
 import SearchIcon from "@mui/icons-material/Search";
@@ -28,7 +24,7 @@ import AddIcon from "@mui/icons-material/Add";
 import LockResetIcon from "@mui/icons-material/LockReset";
 import DeleteIcon from "@mui/icons-material/Delete";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
-import { TypesUser, TypesPaginatedUsersList } from "../../api/api";
+import { TypesUser } from "../../api/api";
 import { useListUsers, useAdminApproveUser, UserListQuery } from "../../services/dashboardService";
 import useSnackbar from "../../hooks/useSnackbar";
 import CreateUserDialog from "./CreateUserDialog";
@@ -93,12 +89,36 @@ const formatShortDate = (dateString: string | undefined): string => {
     }
 };
 
+// Relative time for "last active" column - e.g. "5m ago", "3d ago", "never".
+const formatRelative = (dateString: string | undefined): string => {
+    if (!dateString) return "Never";
+    const date = new Date(dateString);
+    const ts = date.getTime();
+    if (!isFinite(ts) || ts <= 0) return "Never";
+    const diffMs = Date.now() - ts;
+    if (diffMs < 0) return "just now";
+    const seconds = Math.floor(diffMs / 1000);
+    if (seconds < 60) return `${seconds}s ago`;
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return `${minutes}m ago`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours}h ago`;
+    const days = Math.floor(hours / 24);
+    if (days < 30) return `${days}d ago`;
+    const months = Math.floor(days / 30);
+    if (months < 12) return `${months}mo ago`;
+    const years = Math.floor(days / 365);
+    return `${years}y ago`;
+};
 
-const UsersTable: FC = () => {
+interface UsersTableProps {
+    onSelectUser?: (userId: string) => void;
+}
+
+const UsersTable: FC<UsersTableProps> = ({ onSelectUser }) => {
     const [searchQuery, setSearchQuery] = useState("");
     const [page, setPage] = useState(0);
     const [rowsPerPage, setRowsPerPage] = useState(25);
-    const [searchType, setSearchType] = useState<"username" | "email">("username");
     const [createDialogOpen, setCreateDialogOpen] = useState(false);
     const [resetPasswordDialogOpen, setResetPasswordDialogOpen] = useState(false);
     const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -136,6 +156,12 @@ const UsersTable: FC = () => {
         setSelectedUser(null);
     };
 
+    const handleRowClick = (user: TypesUser) => {
+        if (user.id && onSelectUser) {
+            onSelectUser(user.id);
+        }
+    };
+
     // Debounced search query
     const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("");
 
@@ -157,15 +183,11 @@ const UsersTable: FC = () => {
         };
 
         if (debouncedSearchQuery.trim()) {
-            if (searchType === "email") {
-                params.email = debouncedSearchQuery.trim();
-            } else {
-                params.username = debouncedSearchQuery.trim();
-            }
+            params.query = debouncedSearchQuery.trim();
         }
 
         return params;
-    }, [page, rowsPerPage, debouncedSearchQuery, searchType]);
+    }, [page, rowsPerPage, debouncedSearchQuery]);
 
     const { data, isLoading, error } = useListUsers(query);
 
@@ -179,12 +201,6 @@ const UsersTable: FC = () => {
     };
 
     const handleClearSearch = () => {
-        setSearchQuery("");
-        setDebouncedSearchQuery("");
-    };
-
-    const handleSearchTypeChange = (event: any) => {
-        setSearchType(event.target.value);
         setSearchQuery("");
         setDebouncedSearchQuery("");
     };
@@ -217,7 +233,6 @@ const UsersTable: FC = () => {
 
     const users = data?.users || [];
     const totalCount = data?.totalCount || 0;
-    const totalPages = data?.totalPages || 0;
 
     return (
         <>
@@ -243,11 +258,12 @@ const UsersTable: FC = () => {
                 >
                     <Box sx={{ display: "flex", alignItems: "center", gap: 2, flex: 1 }}>
                         <TextField
-                            label={`Search by ${searchType}`}
+                            label="Search users"
+                            placeholder="Email, username, or full name"
                             size="small"
                             value={searchQuery}
                             onChange={(e) => setSearchQuery(e.target.value)}
-                            sx={{ minWidth: 300 }}
+                            sx={{ minWidth: 360 }}
                             InputProps={{
                                 startAdornment: (
                                     <InputAdornment position="start">
@@ -268,17 +284,6 @@ const UsersTable: FC = () => {
                                 ),
                             }}
                         />
-                        <FormControl size="small" sx={{ minWidth: 120 }}>
-                            <InputLabel>Search by</InputLabel>
-                            <Select
-                                value={searchType}
-                                label="Search by"
-                                onChange={handleSearchTypeChange}
-                            >
-                                <MenuItem value="username">Username</MenuItem>
-                                <MenuItem value="email">Email</MenuItem>
-                            </Select>
-                        </FormControl>
                     </Box>
                     <Typography variant="body2" color="text.secondary">
                         {totalCount} user{totalCount !== 1 ? "s" : ""} total
@@ -293,6 +298,7 @@ const UsersTable: FC = () => {
                             <TableCell>Email</TableCell>
                             <TableCell>Full Name</TableCell>
                             <TableCell>Admin</TableCell>
+                            <TableCell>Last Active</TableCell>
                             <TableCell>Created At</TableCell>
                             <TableCell align="right">Actions</TableCell>
                         </TableRow>
@@ -300,7 +306,7 @@ const UsersTable: FC = () => {
                     <TableBody>
                         {users.length === 0 ? (
                             <TableRow>
-                                <TableCell colSpan={6} align="center">
+                                <TableCell colSpan={7} align="center">
                                     <Typography variant="body2" color="text.secondary">
                                         {debouncedSearchQuery ? "No users found matching your search" : "No users found"}
                                     </Typography>
@@ -308,7 +314,12 @@ const UsersTable: FC = () => {
                             </TableRow>
                         ) : (
                             users.map((user: TypesUser) => (
-                                <TableRow key={user.id} hover>
+                                <TableRow
+                                    key={user.id}
+                                    hover
+                                    onClick={() => handleRowClick(user)}
+                                    sx={onSelectUser ? { cursor: "pointer" } : undefined}
+                                >
                                     <TableCell>
                                         <Typography variant="body2" sx={{ fontWeight: "medium" }}>
                                             {user.username || "N/A"}
@@ -333,13 +344,26 @@ const UsersTable: FC = () => {
                                         />
                                     </TableCell>
                                     <TableCell>
+                                        <Tooltip title={user.last_seen_at ? formatFullDate(user.last_seen_at) : "Never signed in"}>
+                                            <Typography
+                                                variant="body2"
+                                                color={user.last_seen_at ? "text.primary" : "text.secondary"}
+                                            >
+                                                {formatRelative(user.last_seen_at)}
+                                            </Typography>
+                                        </Tooltip>
+                                    </TableCell>
+                                    <TableCell>
                                         <Tooltip title={formatFullDate(user.created_at)}>
                                             <Typography variant="body2">
                                                 {formatShortDate(user.created_at)}
                                             </Typography>
                                         </Tooltip>
                                     </TableCell>
-                                    <TableCell align="right">
+                                    <TableCell
+                                        align="right"
+                                        onClick={(e) => e.stopPropagation()}
+                                    >
                                         {user.waitlisted && (
                                             <Tooltip title="Approve User">
                                                 <IconButton

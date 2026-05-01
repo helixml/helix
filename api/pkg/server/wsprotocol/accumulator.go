@@ -102,6 +102,15 @@ type MessageAccumulator struct {
 	// Map from message_id to tool metadata (name, status) for tool_call entries
 	messageToolName   map[string]string
 	messageToolStatus map[string]string
+
+	// priorMessageIDs holds message_ids that belong to earlier interactions in
+	// the same session. Zed's flush_streaming_throttle replays ALL ACP thread
+	// entries on every event, so on a follow-up turn the new accumulator keeps
+	// receiving message_added events for the previous turn's entries. Without
+	// this filter those entries leak into the new interaction's
+	// response_entries -- the failure mode caught by the e2e
+	// RESPONSE ENTRIES ISOLATION VALIDATION step.
+	priorMessageIDs map[string]bool
 }
 
 // AddMessage processes a new content update from Zed.
@@ -120,8 +129,32 @@ func (a *MessageAccumulator) AddMessageWithType(messageID, content, entryType st
 	a.AddMessageWithToolInfo(messageID, content, entryType, "", "")
 }
 
+// SetPriorMessageIDs marks message_ids as belonging to earlier interactions in
+// the same session so subsequent AddMessage* calls for those ids are dropped.
+// Idempotent and additive: calling it multiple times unions the sets.
+func (a *MessageAccumulator) SetPriorMessageIDs(ids []string) {
+	if len(ids) == 0 {
+		return
+	}
+	if a.priorMessageIDs == nil {
+		a.priorMessageIDs = make(map[string]bool, len(ids))
+	}
+	for _, id := range ids {
+		if id != "" {
+			a.priorMessageIDs[id] = true
+		}
+	}
+}
+
 // AddMessageWithToolInfo processes a new content update with full tool metadata.
 func (a *MessageAccumulator) AddMessageWithToolInfo(messageID, content, entryType, toolName, toolStatus string) {
+	if a.priorMessageIDs[messageID] {
+		// Belongs to an earlier interaction in this session - Zed's
+		// flush_streaming_throttle replayed it. Drop silently so we don't
+		// pollute the current interaction's response_entries.
+		return
+	}
+
 	// Sanitize content to prevent PostgreSQL errors from null bytes in
 	// terminal output or binary data that Zed captures from tool calls.
 	content = sanitize.ForPostgres(content)

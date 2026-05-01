@@ -19,23 +19,6 @@ export function useGetDashboardData() {
     });
 }
 
-export function useDeleteSlot() {
-    const api = useApi();
-    const apiClient = api.getApiClient();
-    const queryClient = useQueryClient();
-
-    return useMutation({
-        mutationFn: async (slotId: string) => {
-            const response = await apiClient.v1SlotsDelete(slotId);
-            return response.data;
-        },
-        onSuccess: () => {
-            // Invalidate dashboard data to refresh the UI
-            queryClient.invalidateQueries({ queryKey: dashboardQueryKey() });
-        },
-    });
-}
-
 /**
  * User list query parameters interface
  * Supports pagination and filtering options
@@ -45,6 +28,8 @@ export interface UserListQuery {
     page?: number;
     /** Number of users per page (max: 200, default: 50) */
     per_page?: number;
+    /** Free-text search across email, username, and full_name (ILIKE). */
+    query?: string;
     /** Filter by email domain (e.g., 'hotmail.com') or exact email */
     email?: string;
     /** Filter by username (partial match) */
@@ -115,6 +100,23 @@ export function useListUsers(query?: UserListQuery) {
             return response.data;
         },
         placeholderData: (previousData) => previousData, // Keep previous data while fetching new page
+    });
+}
+
+/**
+ * Hook to load per-user admin stats (projects, spec tasks, model usage, last active)
+ */
+export function useUserStats(userId: string | null | undefined) {
+    const api = useApi();
+    const apiClient = api.getApiClient();
+
+    return useQuery({
+        queryKey: ["user-stats", userId],
+        queryFn: async () => {
+            const response = await apiClient.v1UsersStatsDetail(userId as string);
+            return response.data;
+        },
+        enabled: Boolean(userId),
     });
 }
 

@@ -15408,6 +15408,14 @@
                         "schema": {
                             "type": "string"
                         }
+                    },
+                    {
+                        "description": "Filter by session role (e.g. job)",
+                        "name": "session_role",
+                        "in": "query",
+                        "schema": {
+                            "type": "string"
+                        }
                     }
                 ],
                 "responses": {
@@ -16099,6 +16107,63 @@
                 }
             }
         },
+        "/api/v1/sessions/{id}/output": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the last interaction's response for a session",
+                "tags": [
+                    "Sessions"
+                ],
+                "summary": "Get session output",
+                "parameters": [
+                    {
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.SessionOutputResponse"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/sessions/{id}/rdp-connection": {
             "get": {
                 "security": [
@@ -16130,6 +16195,94 @@
                                 "schema": {
                                     "type": "object",
                                     "additionalProperties": true
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/sessions/{id}/restart-agent": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Clears the dead acp_thread_id on the session and resets crashed prompts\n(those marked by MarkPromptAsCrashed when the Claude Agent process exited)\nback to pending. The next dispatch sends with empty acp_thread_id, causing\nZed to create a fresh thread + Claude Agent process. Requires the session\nto be an external Zed agent. Returns the count of prompts that were reset.",
+                "tags": [
+                    "Sessions"
+                ],
+                "summary": "Restart Zed thread after a Claude Agent crash",
+                "parameters": [
+                    {
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": true
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
                                 }
                             }
                         }
@@ -17246,63 +17399,6 @@
                             "application/json": {
                                 "schema": {
                                     "$ref": "#/components/schemas/types.APIError"
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/spec-tasks/{id}/design-docs": {
-            "get": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "description": "Get the design documents from helix-specs worktree",
-                "tags": [
-                    "SpecTasks"
-                ],
-                "summary": "Get design docs for SpecTask",
-                "parameters": [
-                    {
-                        "description": "SpecTask ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true,
-                        "schema": {
-                            "type": "string"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/server.DesignDocsResponse"
-                                }
-                            }
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/system.HTTPError"
-                                }
-                            }
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/system.HTTPError"
                                 }
                             }
                         }
@@ -19637,7 +19733,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "List users with pagination support and optional filtering by email domain or username. Supports ILIKE matching for email domains (e.g., \"hotmail.com\" will find all users with @hotmail.com emails) and partial username matching.",
+                "description": "List users with pagination support and optional filtering by email domain or username. Supports ILIKE matching for email domains (e.g., \"hotmail.com\" will find all users with @hotmail.com emails) and partial username matching. Pass `query` to match across email, username, and full_name in one go.",
                 "tags": [
                     "users"
                 ],
@@ -19657,6 +19753,14 @@
                         "in": "query",
                         "schema": {
                             "type": "integer"
+                        }
+                    },
+                    {
+                        "description": "Free-text search across email, username, and full_name (ILIKE)",
+                        "name": "query",
+                        "in": "query",
+                        "schema": {
+                            "type": "string"
                         }
                     },
                     {
@@ -19742,6 +19846,97 @@
                             "application/json": {
                                 "schema": {
                                     "$ref": "#/components/schemas/types.User"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/users/me/chat-settings": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get the current user's default chat settings (applied when chatting without an app)",
+                "tags": [
+                    "Users"
+                ],
+                "summary": "Get user chat settings",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.UserChatSettings"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Update the current user's default chat settings (system prompt + LLM parameters used when chatting without an app)",
+                "tags": [
+                    "Users"
+                ],
+                "summary": "Update user chat settings",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/types.UserChatSettings"
+                            }
+                        }
+                    },
+                    "description": "Chat settings to persist",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.UserChatSettings"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
                                 }
                             }
                         }
@@ -20088,6 +20283,43 @@
                             "*/*": {
                                 "schema": {
                                     "$ref": "#/components/schemas/types.User"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/users/{id}/stats": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns an overview of a user's activity: projects owned, spec tasks created, per-model inference usage, and an effective last-active timestamp combining tracked auth activity with usage-metric data.",
+                "tags": [
+                    "users"
+                ],
+                "summary": "Get user stats (admin only)",
+                "parameters": [
+                    {
+                        "description": "User ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.UserStatsResponse"
                                 }
                             }
                         }
@@ -22142,34 +22374,6 @@
                         "type": "number"
                     },
                     "org_id": {
-                        "type": "string"
-                    }
-                }
-            },
-            "server.DesignDocsResponse": {
-                "type": "object",
-                "properties": {
-                    "documents": {
-                        "type": "array",
-                        "items": {
-                            "$ref": "#/components/schemas/server.DesignDocument"
-                        }
-                    },
-                    "task_id": {
-                        "type": "string"
-                    }
-                }
-            },
-            "server.DesignDocument": {
-                "type": "object",
-                "properties": {
-                    "content": {
-                        "type": "string"
-                    },
-                    "filename": {
-                        "type": "string"
-                    },
-                    "path": {
                         "type": "string"
                     }
                 }
@@ -24263,6 +24467,18 @@
             "types.AggregatedUsageMetric": {
                 "type": "object",
                 "properties": {
+                    "cache_read_cost": {
+                        "type": "number"
+                    },
+                    "cache_read_tokens": {
+                        "type": "integer"
+                    },
+                    "cache_write_cost": {
+                        "type": "number"
+                    },
+                    "cache_write_tokens": {
+                        "type": "integer"
+                    },
                     "completion_cost": {
                         "type": "number"
                     },
@@ -24289,7 +24505,7 @@
                         "type": "integer"
                     },
                     "total_cost": {
-                        "description": "Total cost of the call (prompt and completion tokens)",
+                        "description": "Prompt + completion + cache read + cache write",
                         "type": "number"
                     },
                     "total_requests": {
@@ -26359,6 +26575,14 @@
                         "description": "\"session\" (default) or \"spec_task\"",
                         "type": "string"
                     },
+                    "agent_type": {
+                        "description": "\"helix\" (default) or \"zed_external\"",
+                        "type": "string"
+                    },
+                    "callback_url": {
+                        "description": "Webhook URL to POST on completion",
+                        "type": "string"
+                    },
                     "emails": {
                         "type": "array",
                         "items": {
@@ -26369,6 +26593,10 @@
                         "type": "boolean"
                     },
                     "input": {
+                        "type": "string"
+                    },
+                    "input_file": {
+                        "description": "File path in helix-specs worktree to use as prompt (overrides Input)",
                         "type": "string"
                     },
                     "project_id": {
@@ -27957,6 +28185,10 @@
                     "app_id": {
                         "type": "string"
                     },
+                    "auto_wake_count": {
+                        "description": "AutoWakeCount tracks how many times the auto-wake worker has sent a\nfollow-up \"continue\" prompt to unstick this interaction. Zero means\nthis is a normal user-initiated interaction; non-zero on an\nauto-wake interaction itself records which retry attempt it is.\nSee design/2026-04-25-zed-claude-async-event-flush-on-user-input.md.",
+                        "type": "integer"
+                    },
                     "completed": {
                         "type": "string"
                     },
@@ -28468,6 +28700,20 @@
                     "app_id": {
                         "type": "string"
                     },
+                    "cache_read_cost": {
+                        "type": "number"
+                    },
+                    "cache_read_tokens": {
+                        "description": "prompt tokens served from provider cache (subset of PromptTokens)",
+                        "type": "integer"
+                    },
+                    "cache_write_cost": {
+                        "type": "number"
+                    },
+                    "cache_write_tokens": {
+                        "description": "prompt tokens written to provider cache (Anthropic only; subset of PromptTokens)",
+                        "type": "integer"
+                    },
                     "completion_cost": {
                         "type": "number"
                     },
@@ -28538,7 +28784,7 @@
                         "type": "boolean"
                     },
                     "total_cost": {
-                        "description": "Total cost of the call (prompt and completion tokens)",
+                        "description": "Prompt + completion + cache read + cache write",
                         "type": "number"
                     },
                     "total_tokens": {
@@ -29590,6 +29836,14 @@
                     "image": {
                         "type": "string"
                     },
+                    "input_cache_read": {
+                        "description": "price per cached input token read (hit)",
+                        "type": "string"
+                    },
+                    "input_cache_write": {
+                        "description": "price per cached input token written (cache creation)",
+                        "type": "string"
+                    },
                     "internal_reasoning": {
                         "type": "string"
                     },
@@ -30165,6 +30419,10 @@
                     },
                     "deleted_at": {
                         "description": "Soft-delete: non-nil means user removed from queue",
+                        "type": "string"
+                    },
+                    "error_message": {
+                        "description": "Last failure reason (server-side error string), shown in UI under \"Failed - retrying\"",
                         "type": "string"
                     },
                     "id": {
@@ -31537,6 +31795,10 @@
                         "description": "Charging for usage",
                         "type": "boolean"
                     },
+                    "default_chat_system_prompt": {
+                        "description": "DefaultChatSystemPrompt is the system prompt the platform applies to\ndirect model chats when the user has not customised one. Surfaced to\nthe frontend so the chat-settings page can prefill the textbox.",
+                        "type": "string"
+                    },
                     "deployment_id": {
                         "type": "string"
                     },
@@ -31884,6 +32146,10 @@
                         "description": "Which assistant are we speaking to?",
                         "type": "string"
                     },
+                    "callback_url": {
+                        "description": "Webhook URL to POST on session completion",
+                        "type": "string"
+                    },
                     "external_agent_config": {
                         "description": "Configuration for external agents",
                         "allOf": [
@@ -31932,6 +32198,10 @@
                     },
                     "session_id": {
                         "description": "If empty, we will start a new session",
+                        "type": "string"
+                    },
+                    "session_role": {
+                        "description": "e.g. \"job\" — categorizes sessions for filtering",
                         "type": "string"
                     },
                     "stream": {
@@ -32016,6 +32286,10 @@
                         "type": "string"
                     },
                     "avatar": {
+                        "type": "string"
+                    },
+                    "callback_url": {
+                        "description": "Webhook URL to POST on session completion",
                         "type": "string"
                     },
                     "code_agent_runtime": {
@@ -32221,6 +32495,25 @@
                     "SessionModeFinetune",
                     "SessionModeAction"
                 ]
+            },
+            "types.SessionOutputResponse": {
+                "type": "object",
+                "properties": {
+                    "duration_ms": {
+                        "type": "integer"
+                    },
+                    "output": {
+                        "description": "Last interaction's response text",
+                        "type": "string"
+                    },
+                    "session_id": {
+                        "type": "string"
+                    },
+                    "status": {
+                        "description": "\"waiting\", \"complete\", \"error\"",
+                        "type": "string"
+                    }
+                }
             },
             "types.SessionRAGResult": {
                 "type": "object",
@@ -32693,6 +32986,10 @@
                         "type": "string"
                     },
                     "planning_started_at": {
+                        "type": "string"
+                    },
+                    "planning_started_by": {
+                        "description": "User who kicked off planning (may differ from CreatedBy)",
                         "type": "string"
                     },
                     "priority": {
@@ -33416,6 +33713,10 @@
                         "type": "string"
                     },
                     "planning_started_at": {
+                        "type": "string"
+                    },
+                    "planning_started_by": {
+                        "description": "User who kicked off planning (may differ from CreatedBy)",
                         "type": "string"
                     },
                     "priority": {
@@ -34845,6 +35146,10 @@
                     "id": {
                         "type": "string"
                     },
+                    "last_seen_at": {
+                        "description": "LastSeenAt is the most recent time the user authenticated against the API.\nUpdated (throttled) from auth middleware so the column isn't hammered on every request.",
+                        "type": "string"
+                    },
                     "must_change_password": {
                         "description": "if the user must change their password",
                         "type": "boolean"
@@ -34919,6 +35224,33 @@
                     }
                 }
             },
+            "types.UserChatSettings": {
+                "type": "object",
+                "properties": {
+                    "frequency_penalty": {
+                        "type": "number"
+                    },
+                    "max_tokens": {
+                        "type": "integer"
+                    },
+                    "presence_penalty": {
+                        "type": "number"
+                    },
+                    "system_prompt": {
+                        "type": "string"
+                    },
+                    "system_prompt_enabled": {
+                        "description": "SystemPromptEnabled toggles whether any system prompt at all is sent\nto the model. Pointer so nil means \"not set\" and we fall back to the\ndefault-on behaviour. When explicitly false, no system prompt is sent\nregardless of SystemPrompt.",
+                        "type": "boolean"
+                    },
+                    "temperature": {
+                        "type": "number"
+                    },
+                    "top_p": {
+                        "type": "number"
+                    }
+                }
+            },
             "types.UserGuidelinesResponse": {
                 "type": "object",
                 "properties": {
@@ -34932,6 +35264,44 @@
                         "type": "string"
                     },
                     "guidelines_version": {
+                        "type": "integer"
+                    }
+                }
+            },
+            "types.UserModelUsage": {
+                "type": "object",
+                "properties": {
+                    "cache_read_tokens": {
+                        "type": "integer"
+                    },
+                    "cache_write_tokens": {
+                        "type": "integer"
+                    },
+                    "completion_tokens": {
+                        "type": "integer"
+                    },
+                    "first_used": {
+                        "type": "string"
+                    },
+                    "last_used": {
+                        "type": "string"
+                    },
+                    "model": {
+                        "type": "string"
+                    },
+                    "prompt_tokens": {
+                        "type": "integer"
+                    },
+                    "provider": {
+                        "type": "string"
+                    },
+                    "total_cost": {
+                        "type": "number"
+                    },
+                    "total_requests": {
+                        "type": "integer"
+                    },
+                    "total_tokens": {
                         "type": "integer"
                     }
                 }
@@ -34979,6 +35349,29 @@
                         "items": {
                             "$ref": "#/components/schemas/types.User"
                         }
+                    }
+                }
+            },
+            "types.UserStatsResponse": {
+                "type": "object",
+                "properties": {
+                    "last_active_at": {
+                        "type": "string"
+                    },
+                    "models": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/types.UserModelUsage"
+                        }
+                    },
+                    "projects_count": {
+                        "type": "integer"
+                    },
+                    "spec_tasks_count": {
+                        "type": "integer"
+                    },
+                    "user": {
+                        "$ref": "#/components/schemas/types.User"
                     }
                 }
             },

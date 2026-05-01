@@ -22,10 +22,12 @@ import Secrets from './pages/Secrets'
 // import NewAgent from './pages/NewAgent'
 import ImportAgent from './pages/ImportAgent'
 import Tasks from './pages/Tasks'
+import Jobs from './pages/Jobs'
 import SpecTasksPage from './pages/SpecTasksPage'
 import SpecTaskDetailPage from './pages/SpecTaskDetailPage'
 import SpecTaskReviewPage from './pages/SpecTaskReviewPage'
 import TeamDesktopPage from './pages/TeamDesktopPage'
+import EmbedTaskPage from './pages/EmbedTaskPage'
 import Projects from './pages/Projects'
 import { FilestoreContextProvider } from './contexts/filestore'
 import Files from './pages/Files'
@@ -95,6 +97,16 @@ const routes: IApplicationRoute[] = [
   },
   render: () => (
     <Apps />
+  ),
+}, {
+  name: 'org_jobs',
+  path: '/orgs/:org_id/jobs',
+  meta: {
+    drawer: false,
+    title: 'Jobs',
+  },
+  render: () => (
+    <Jobs />
   ),
 }, {
   // Backward compat: redirect /apps to /agents
@@ -442,6 +454,15 @@ const routes: IApplicationRoute[] = [
     title: 'Waitlist',
   },
   render: () => <Waitlist />,
+}, {
+  name: 'embed_task',
+  path: '/embed/task/:taskId',
+  meta: {
+    drawer: false,
+    fullscreen: true,
+    title: 'Task',
+  },
+  render: () => <EmbedTaskPage />,
 }, {
   name: 'login',
   path: '/login',

@@ -12701,6 +12701,12 @@ const docTemplate = `{
                         "description": "Project ID",
                         "name": "project_id",
                         "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by session role (e.g. job)",
+                        "name": "session_role",
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -13266,6 +13272,52 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/sessions/{id}/output": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the last interaction's response for a session",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sessions"
+                ],
+                "summary": "Get session output",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.SessionOutputResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/sessions/{id}/rdp-connection": {
             "get": {
                 "security": [
@@ -13293,6 +13345,71 @@ const docTemplate = `{
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/sessions/{id}/restart-agent": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Clears the dead acp_thread_id on the session and resets crashed prompts\n(those marked by MarkPromptAsCrashed when the Claude Agent process exited)\nback to pending. The next dispatch sends with empty acp_thread_id, causing\nZed to create a fresh thread + Claude Agent process. Requires the session\nto be an external Zed agent. Returns the count of prompts that were reset.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sessions"
+                ],
+                "summary": "Restart Zed thread after a Claude Agent crash",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
                         }
                     }
                 }
@@ -14210,52 +14327,6 @@ const docTemplate = `{
                         "description": "Internal Server Error",
                         "schema": {
                             "$ref": "#/definitions/types.APIError"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/spec-tasks/{id}/design-docs": {
-            "get": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "description": "Get the design documents from helix-specs worktree",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "SpecTasks"
-                ],
-                "summary": "Get design docs for SpecTask",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "SpecTask ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/server.DesignDocsResponse"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
                         }
                     }
                 }
@@ -16177,7 +16248,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "List users with pagination support and optional filtering by email domain or username. Supports ILIKE matching for email domains (e.g., \"hotmail.com\" will find all users with @hotmail.com emails) and partial username matching.",
+                "description": "List users with pagination support and optional filtering by email domain or username. Supports ILIKE matching for email domains (e.g., \"hotmail.com\" will find all users with @hotmail.com emails) and partial username matching. Pass ` + "`" + `query` + "`" + ` to match across email, username, and full_name in one go.",
                 "consumes": [
                     "application/json"
                 ],
@@ -16199,6 +16270,12 @@ const docTemplate = `{
                         "type": "integer",
                         "description": "Number of users per page (max: 200, default: 50)",
                         "name": "per_page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Free-text search across email, username, and full_name (ILIKE)",
+                        "name": "query",
                         "in": "query"
                     },
                     {
@@ -16274,6 +16351,86 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/types.User"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/users/me/chat-settings": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get the current user's default chat settings (applied when chatting without an app)",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Users"
+                ],
+                "summary": "Get user chat settings",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.UserChatSettings"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Update the current user's default chat settings (system prompt + LLM parameters used when chatting without an app)",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Users"
+                ],
+                "summary": "Update user chat settings",
+                "parameters": [
+                    {
+                        "description": "Chat settings to persist",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.UserChatSettings"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.UserChatSettings"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
                         }
                     }
                 }
@@ -16564,6 +16721,43 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/types.User"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/users/{id}/stats": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns an overview of a user's activity: projects owned, spec tasks created, per-model inference usage, and an effective last-active timestamp combining tracked auth activity with usage-metric data.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "users"
+                ],
+                "summary": "Get user stats (admin only)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "User ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.UserStatsResponse"
                         }
                     }
                 }
@@ -18488,34 +18682,6 @@ const docTemplate = `{
                     "type": "number"
                 },
                 "org_id": {
-                    "type": "string"
-                }
-            }
-        },
-        "server.DesignDocsResponse": {
-            "type": "object",
-            "properties": {
-                "documents": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/server.DesignDocument"
-                    }
-                },
-                "task_id": {
-                    "type": "string"
-                }
-            }
-        },
-        "server.DesignDocument": {
-            "type": "object",
-            "properties": {
-                "content": {
-                    "type": "string"
-                },
-                "filename": {
-                    "type": "string"
-                },
-                "path": {
                     "type": "string"
                 }
             }
@@ -20609,6 +20775,18 @@ const docTemplate = `{
         "types.AggregatedUsageMetric": {
             "type": "object",
             "properties": {
+                "cache_read_cost": {
+                    "type": "number"
+                },
+                "cache_read_tokens": {
+                    "type": "integer"
+                },
+                "cache_write_cost": {
+                    "type": "number"
+                },
+                "cache_write_tokens": {
+                    "type": "integer"
+                },
                 "completion_cost": {
                     "type": "number"
                 },
@@ -20635,7 +20813,7 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "total_cost": {
-                    "description": "Total cost of the call (prompt and completion tokens)",
+                    "description": "Prompt + completion + cache read + cache write",
                     "type": "number"
                 },
                 "total_requests": {
@@ -22705,6 +22883,14 @@ const docTemplate = `{
                     "description": "\"session\" (default) or \"spec_task\"",
                     "type": "string"
                 },
+                "agent_type": {
+                    "description": "\"helix\" (default) or \"zed_external\"",
+                    "type": "string"
+                },
+                "callback_url": {
+                    "description": "Webhook URL to POST on completion",
+                    "type": "string"
+                },
                 "emails": {
                     "type": "array",
                     "items": {
@@ -22715,6 +22901,10 @@ const docTemplate = `{
                     "type": "boolean"
                 },
                 "input": {
+                    "type": "string"
+                },
+                "input_file": {
+                    "description": "File path in helix-specs worktree to use as prompt (overrides Input)",
                     "type": "string"
                 },
                 "project_id": {
@@ -24303,6 +24493,10 @@ const docTemplate = `{
                 "app_id": {
                     "type": "string"
                 },
+                "auto_wake_count": {
+                    "description": "AutoWakeCount tracks how many times the auto-wake worker has sent a\nfollow-up \"continue\" prompt to unstick this interaction. Zero means\nthis is a normal user-initiated interaction; non-zero on an\nauto-wake interaction itself records which retry attempt it is.\nSee design/2026-04-25-zed-claude-async-event-flush-on-user-input.md.",
+                    "type": "integer"
+                },
                 "completed": {
                     "type": "string"
                 },
@@ -24814,6 +25008,20 @@ const docTemplate = `{
                 "app_id": {
                     "type": "string"
                 },
+                "cache_read_cost": {
+                    "type": "number"
+                },
+                "cache_read_tokens": {
+                    "description": "prompt tokens served from provider cache (subset of PromptTokens)",
+                    "type": "integer"
+                },
+                "cache_write_cost": {
+                    "type": "number"
+                },
+                "cache_write_tokens": {
+                    "description": "prompt tokens written to provider cache (Anthropic only; subset of PromptTokens)",
+                    "type": "integer"
+                },
                 "completion_cost": {
                     "type": "number"
                 },
@@ -24884,7 +25092,7 @@ const docTemplate = `{
                     "type": "boolean"
                 },
                 "total_cost": {
-                    "description": "Total cost of the call (prompt and completion tokens)",
+                    "description": "Prompt + completion + cache read + cache write",
                     "type": "number"
                 },
                 "total_tokens": {
@@ -25936,6 +26144,14 @@ const docTemplate = `{
                 "image": {
                     "type": "string"
                 },
+                "input_cache_read": {
+                    "description": "price per cached input token read (hit)",
+                    "type": "string"
+                },
+                "input_cache_write": {
+                    "description": "price per cached input token written (cache creation)",
+                    "type": "string"
+                },
                 "internal_reasoning": {
                     "type": "string"
                 },
@@ -26511,6 +26727,10 @@ const docTemplate = `{
                 },
                 "deleted_at": {
                     "description": "Soft-delete: non-nil means user removed from queue",
+                    "type": "string"
+                },
+                "error_message": {
+                    "description": "Last failure reason (server-side error string), shown in UI under \"Failed - retrying\"",
                     "type": "string"
                 },
                 "id": {
@@ -27883,6 +28103,10 @@ const docTemplate = `{
                     "description": "Charging for usage",
                     "type": "boolean"
                 },
+                "default_chat_system_prompt": {
+                    "description": "DefaultChatSystemPrompt is the system prompt the platform applies to\ndirect model chats when the user has not customised one. Surfaced to\nthe frontend so the chat-settings page can prefill the textbox.",
+                    "type": "string"
+                },
                 "deployment_id": {
                     "type": "string"
                 },
@@ -28230,6 +28454,10 @@ const docTemplate = `{
                     "description": "Which assistant are we speaking to?",
                     "type": "string"
                 },
+                "callback_url": {
+                    "description": "Webhook URL to POST on session completion",
+                    "type": "string"
+                },
                 "external_agent_config": {
                     "description": "Configuration for external agents",
                     "allOf": [
@@ -28278,6 +28506,10 @@ const docTemplate = `{
                 },
                 "session_id": {
                     "description": "If empty, we will start a new session",
+                    "type": "string"
+                },
+                "session_role": {
+                    "description": "e.g. \"job\" — categorizes sessions for filtering",
                     "type": "string"
                 },
                 "stream": {
@@ -28362,6 +28594,10 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "avatar": {
+                    "type": "string"
+                },
+                "callback_url": {
+                    "description": "Webhook URL to POST on session completion",
                     "type": "string"
                 },
                 "code_agent_runtime": {
@@ -28567,6 +28803,25 @@ const docTemplate = `{
                 "SessionModeFinetune",
                 "SessionModeAction"
             ]
+        },
+        "types.SessionOutputResponse": {
+            "type": "object",
+            "properties": {
+                "duration_ms": {
+                    "type": "integer"
+                },
+                "output": {
+                    "description": "Last interaction's response text",
+                    "type": "string"
+                },
+                "session_id": {
+                    "type": "string"
+                },
+                "status": {
+                    "description": "\"waiting\", \"complete\", \"error\"",
+                    "type": "string"
+                }
+            }
         },
         "types.SessionRAGResult": {
             "type": "object",
@@ -29039,6 +29294,10 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "planning_started_at": {
+                    "type": "string"
+                },
+                "planning_started_by": {
+                    "description": "User who kicked off planning (may differ from CreatedBy)",
                     "type": "string"
                 },
                 "priority": {
@@ -29762,6 +30021,10 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "planning_started_at": {
+                    "type": "string"
+                },
+                "planning_started_by": {
+                    "description": "User who kicked off planning (may differ from CreatedBy)",
                     "type": "string"
                 },
                 "priority": {
@@ -31191,6 +31454,10 @@ const docTemplate = `{
                 "id": {
                     "type": "string"
                 },
+                "last_seen_at": {
+                    "description": "LastSeenAt is the most recent time the user authenticated against the API.\nUpdated (throttled) from auth middleware so the column isn't hammered on every request.",
+                    "type": "string"
+                },
                 "must_change_password": {
                     "description": "if the user must change their password",
                     "type": "boolean"
@@ -31265,6 +31532,33 @@ const docTemplate = `{
                 }
             }
         },
+        "types.UserChatSettings": {
+            "type": "object",
+            "properties": {
+                "frequency_penalty": {
+                    "type": "number"
+                },
+                "max_tokens": {
+                    "type": "integer"
+                },
+                "presence_penalty": {
+                    "type": "number"
+                },
+                "system_prompt": {
+                    "type": "string"
+                },
+                "system_prompt_enabled": {
+                    "description": "SystemPromptEnabled toggles whether any system prompt at all is sent\nto the model. Pointer so nil means \"not set\" and we fall back to the\ndefault-on behaviour. When explicitly false, no system prompt is sent\nregardless of SystemPrompt.",
+                    "type": "boolean"
+                },
+                "temperature": {
+                    "type": "number"
+                },
+                "top_p": {
+                    "type": "number"
+                }
+            }
+        },
         "types.UserGuidelinesResponse": {
             "type": "object",
             "properties": {
@@ -31278,6 +31572,44 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "guidelines_version": {
+                    "type": "integer"
+                }
+            }
+        },
+        "types.UserModelUsage": {
+            "type": "object",
+            "properties": {
+                "cache_read_tokens": {
+                    "type": "integer"
+                },
+                "cache_write_tokens": {
+                    "type": "integer"
+                },
+                "completion_tokens": {
+                    "type": "integer"
+                },
+                "first_used": {
+                    "type": "string"
+                },
+                "last_used": {
+                    "type": "string"
+                },
+                "model": {
+                    "type": "string"
+                },
+                "prompt_tokens": {
+                    "type": "integer"
+                },
+                "provider": {
+                    "type": "string"
+                },
+                "total_cost": {
+                    "type": "number"
+                },
+                "total_requests": {
+                    "type": "integer"
+                },
+                "total_tokens": {
                     "type": "integer"
                 }
             }
@@ -31325,6 +31657,29 @@ const docTemplate = `{
                     "items": {
                         "$ref": "#/definitions/types.User"
                     }
+                }
+            }
+        },
+        "types.UserStatsResponse": {
+            "type": "object",
+            "properties": {
+                "last_active_at": {
+                    "type": "string"
+                },
+                "models": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.UserModelUsage"
+                    }
+                },
+                "projects_count": {
+                    "type": "integer"
+                },
+                "spec_tasks_count": {
+                    "type": "integer"
+                },
+                "user": {
+                    "$ref": "#/definitions/types.User"
                 }
             }
         },

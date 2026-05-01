@@ -15,8 +15,8 @@ import {
   MenuItem,
   Tooltip,
 } from '@mui/material';
-import { SparkLineChart } from '@mui/x-charts';
 import { IProviderEndpoint } from '../../types';
+import { TypesAggregatedUsageMetric } from '../../api/api';
 import AddIcon from '@mui/icons-material/Add';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
 import CreateProviderEndpointDialog from './CreateProviderEndpointDialog';
@@ -24,16 +24,12 @@ import DeleteProviderEndpointDialog from './DeleteProviderEndpointDialog';
 import EditProviderEndpointDialog from './EditProviderEndpointDialog';
 import ProviderEndpointUsageDialog from './ProviderEndpointUsageDialog';
 import EditProviderModelsDialog from './EditProviderModelsDialog';
+import ProviderEndpointUsageBarChart from './ProviderEndpointUsageBarChart';
 import { useApi } from '../../hooks/useApi';
 import useAccount from '../../hooks/useAccount';
 import { useListProviders } from '../../services/providersService';
 import { getUserById } from '../../services/userService';
 import { useGetOrgById } from '../../services/orgService';
-
-interface TypesAggregatedUsageMetric {
-  date: string;
-  total_tokens: number;
-}
 
 // Component to display owner information
 const OwnerInfo: FC<{ ownerId: string; ownerType?: string }> = ({ ownerId, ownerType }) => {
@@ -233,39 +229,10 @@ const ProviderEndpointsTable: FC = () => {
                   </Typography>
                 </TableCell>
                 <TableCell>
-                  <Box sx={{ width: 200, height: 50 }}>
-                    <Tooltip
-                      title={
-                        <Box>
-                          <Typography variant="body2" sx={{ mb: 1 }}>
-                            Owner: {endpoint.owner_type === 'system' ? 'System' : endpoint.owner_type === 'org' ? 'Organization' : 'User'}
-                          </Typography>
-                          <Typography variant="body2">Daily usage:</Typography>
-                          {(usageData[endpoint.name] || []).map((day: TypesAggregatedUsageMetric, i: number) => (
-                            <Typography key={i} variant="caption" component="div">
-                              {new Date(day.date).toLocaleDateString()}: {day.total_tokens || 0} tokens
-                            </Typography>
-                          ))}
-                          <Typography variant="body2" sx={{ mt: 1 }}>
-                            Today: {usageData[endpoint.name]?.[(usageData[endpoint.name] || []).length - 1]?.total_tokens || 0} tokens
-                          </Typography>
-                          <Typography variant="body2">
-                            Total (7 days): {(usageData[endpoint.name] || []).reduce((sum: number, day: TypesAggregatedUsageMetric) => sum + (day.total_tokens || 0), 0)} tokens
-                          </Typography>
-                        </Box>
-                      }
-                    >
-                      <Box onClick={() => handleUsageClick(endpoint)} sx={{ cursor: 'pointer' }}>
-                        <SparkLineChart
-                          data={(usageData[endpoint.name] || []).map(day => day.total_tokens || 0)}
-                          height={50}
-                          width={200}
-                          showTooltip={true}
-                          curve="linear"
-                        />
-                      </Box>
-                    </Tooltip>
-                  </Box>
+                  <ProviderEndpointUsageBarChart
+                    data={usageData[endpoint.name]}
+                    onClick={() => handleUsageClick(endpoint)}
+                  />
                 </TableCell>
                 <TableCell>
                   {isSystemEndpoint(endpoint) ? (

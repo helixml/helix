@@ -98,6 +98,11 @@ func (apiServer *HelixAPIServer) sandboxHeartbeat(rw http.ResponseWriter, req *h
 		return
 	}
 
+	// Sandbox-absorbs-runner pivot: if the heartbeat carries inference
+	// fields (GPUs, ProfileStatus, etc.), push the latest state into the
+	// in-memory inference router so /v1/chat/completions can find it.
+	apiServer.refreshInferenceRouterFromHeartbeat(req.Context(), sandboxID, &heartbeat)
+
 	// Store disk usage history for alerting and trends
 	for _, diskMetric := range heartbeat.DiskUsage {
 		history := &types.DiskUsageHistory{

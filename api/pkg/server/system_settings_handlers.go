@@ -80,17 +80,10 @@ func (apiServer *HelixAPIServer) updateSystemSettings(rw http.ResponseWriter, r 
 		Bool("enforce_quotas_updated", req.EnforceQuotas != nil).
 		Msg("system settings updated by admin")
 
-	// Push updated settings to all connected runners
-	if apiServer.scheduler != nil {
-		runnerController := apiServer.scheduler.GetRunnerController()
-		if runnerController != nil {
-			go func() {
-				// Run in goroutine to avoid blocking the API response
-				runnerController.SyncSystemSettingsToAllRunners(r.Context())
-				log.Info().Msg("initiated system settings sync to all runners")
-			}()
-		}
-	}
+	// Sandbox-absorbs-runner pivot: the old "push system settings to runners
+	// over NATS" mechanism is gone with the scheduler. Sandboxes pick up
+	// changes (notably HuggingFace token) via env var on next restart, or
+	// in future via a dedicated /api/v1/runner/{id}/system-config poll.
 
 	// If the admin changed a kodit embedding setting, reinitialise the kodit
 	// client in-process so the new provider takes effect without a restart.

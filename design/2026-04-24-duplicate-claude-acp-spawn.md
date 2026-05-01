@@ -95,13 +95,121 @@ sufficient. After reproducing, look for either:
 Restart the spec task agent. A fresh container gets a single claude /
 single ACP wrapper and chrome-devtools tools work normally.
 
+## Confirmation via `[ACP_SPAWN]` logging
+
+Added `log::info!` lines in `crates/agent_servers/src/acp.rs` around
+`Child::spawn` (the actual `claude-agent-acp` spawn site). On a freshly
+rebuilt container, `~/work/.zed-state/local-share/logs/Zed.log` showed:
+
+```
+12:50:02  [ACP_SPAWN] About to spawn ACP wrapper agent_id=AgentId("claude-acp") ...
+12:50:02  [ACP_SPAWN] Spawned ACP wrapper pid=8203 agent_id=AgentId("claude-acp")
+12:50:02  [ACP_SPAWN] About to spawn ACP wrapper agent_id=AgentId("claude-acp") ...
+12:50:02  [ACP_SPAWN] Spawned ACP wrapper pid=8211 agent_id=AgentId("claude-acp")
+```
+
+**Same `agent_id` both times, same second** — confirms hypothesis 1 (same
+agent connected twice), not hypothesis 2 (spawn bypasses load lock) or 3
+(sequential acquire/release/acquire).
+
+The race traces back to `crates/external_websocket_sync/src/thread_service.rs`
+having THREE call sites for `server.connect()`:
+
+| Line | Function                       | Triggered by                          |
+|------|--------------------------------|---------------------------------------|
+| 1121 | `create_new_thread_sync`       | new thread (not relevant to resume)   |
+| 1465 | `load_thread_from_agent`       | panel restoration / open path         |
+| 1676 | `open_existing_thread_sync`    | WebSocket `open_thread` command       |
+
+For a resumed session, two of these (typically 1465 + 1676) fire near-
+simultaneously. Each `connect()` independently spawns a fresh ACP wrapper,
+fresh `claude --resume <session>`, and fresh MCP children. One wins the
+npx race for `chrome-devtools-mcp`, the other doesn't. Worse: both
+claudes scribble on the same on-disk session file (`~/.claude/projects/.../<session>.jsonl`).
+
+The existing `THREAD_LOAD_IN_PROGRESS` lock added in `826d32faae` doesn't
+help here — it dedups *thread loads*, not the upstream `connect()` calls
+that happen first.
+
+## Fix: process-global `AgentConnectionCache`
+
+Implemented in `crates/agent_servers/src/connection_cache.rs` (new):
+
+- GPUI `Global` keyed by `(Project entity_id, AgentId)`.
+- Stores `Shared<Task<Result<Rc<dyn AgentConnection>, LoadError>>>` so
+  concurrent callers for the same key share one in-flight connect Task.
+- Once the underlying task resolves, the `Shared` caches the value;
+  subsequent callers get it without re-spawning anything.
+- Failed connects evict the entry so retry can re-attempt.
+
+The three `external_websocket_sync::thread_service` call sites that
+previously called `server.connect()` now go through the cache:
+
+- `create_new_thread_sync` (line ~1121)
+- `load_thread_from_agent` (line ~1465)
+- `open_existing_thread_sync` (line ~1676)
+
+Net result: one `AgentConnection` (and therefore one `claude-agent-acp`
+wrapper, one `claude --resume`, one set of MCP children) per
+`(project, agent_id)` regardless of which thread_service path triggered
+it.
+
+### Scope: thread_service only, not `AgentConnectionStore`
+
+We initially also routed `agent_ui::AgentConnectionStore::start_connection`
+through the cache (zed commit `ba7e97aea6`), then reverted that part
+(`350de991de`) because it broke the both-agent E2E test
+(`E2E_AGENTS="zed-agent,claude" ./run_docker_e2e.sh`): round 2 (claude)
+phase 1 timed out at 0 events. Root cause not fully diagnosed, but the
+empirical signal is clean — with the AgentConnectionStore delegation
+reverted both rounds pass.
+
+`AgentConnectionStore` keeps its existing per-workspace `HashMap` dedup,
+so UI-driven connects are still deduped within the workspace (just not
+across the UI/external boundary). The observed bug was 100% from
+external_websocket_sync paths; a hypothetical UI+external concurrent
+race for the same `(project, agent_id)` is not deduped today and can be
+addressed separately if it surfaces.
+
+### Verification
+
+After the fix, `Zed.log` should show one of:
+
+- One `[ACP_DEDUP] No cached connection, calling server.connect()` followed
+  by one `[ACP_SPAWN] About to spawn` — the only-caller case.
+- One `[ACP_DEDUP] No cached connection` + one or more
+  `[ACP_DEDUP] Reusing connection` for the same `(project, agent)` key,
+  but still only one `[ACP_SPAWN] About to spawn`.
+
+If two `[ACP_SPAWN] About to spawn` lines for the same agent_id appear,
+the bug has resurfaced.
+
+E2E suite (`crates/external_websocket_sync/e2e-test/run_docker_e2e.sh`)
+passes both `zed-agent` and `claude` rounds with
+`E2E_AGENTS="zed-agent,claude"`.
+
+### Caveats
+
+- The first caller's `AgentServerDelegate::new_version_available` watch
+  channel is the only one wired to `server.connect()`. Subsequent
+  callers' delegates are dropped unused. Best-effort UI signal — the core
+  load behaviour is unaffected.
+- `external_websocket_sync` is bound to a single `Entity<Project>` at
+  startup (`init_with_project`). Multi-workspace Zed isn't supported by
+  this protocol today regardless of the cache; the protocol carries no
+  workspace identifier so whichever project initialises the sync first
+  owns all incoming `open_thread` commands. Per-project cache keying is
+  correct for both single- and (hypothetical) multi-workspace cases.
+
 ## Files of interest
 
-- `crates/external_websocket_sync/src/thread_service.rs` (zed) — load lock
-  implementation, lines 55–95 and 1575–1700.
-- `crates/external_websocket_sync/src/websocket_sync.rs` (zed) —
-  `handle_open_thread` at line 499.
+- `crates/agent_servers/src/connection_cache.rs` (zed, new) — the cache.
+- `crates/agent_servers/src/agent_servers.rs` (zed) — re-exports the cache.
+- `crates/agent_servers/src/acp.rs` (zed) — `[ACP_SPAWN]` logs.
+- `crates/external_websocket_sync/src/thread_service.rs` (zed) — three
+  rewritten call sites.
 - `api/pkg/external-agent/zed_config.go` (helix) — MCP config that lists
-  `chrome-devtools` as a stdio MCP (line 246).
+  `chrome-devtools` as a stdio MCP.
 - `api/pkg/server/websocket_external_agent_sync.go` (helix) —
-  `findSessionByZedThreadID` dedup, lines 755 / 1028 / 2145.
+  `findSessionByZedThreadID` dedup (still useful, addresses a different
+  layer).

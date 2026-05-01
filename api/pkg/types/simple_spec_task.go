@@ -179,6 +179,7 @@ type SpecTask struct {
 
 	// Simple tracking
 	EstimatedHours    int        `json:"estimated_hours,omitempty"`
+	PlanningStartedBy string     `json:"planning_started_by,omitempty"` // User who kicked off planning (may differ from CreatedBy)
 	PlanningStartedAt *time.Time `json:"planning_started_at,omitempty"`
 	StartedAt         *time.Time `json:"started_at,omitempty"`
 	CompletedAt       *time.Time `json:"completed_at,omitempty"`

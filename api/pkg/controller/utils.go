@@ -31,3 +31,15 @@ func getLastMessage(req openai.ChatCompletionRequest) string {
 	// Use the regular Content field
 	return lastMessage.Content
 }
+
+// getLastMessageRef returns a pointer to the last message in the request, or
+// nil if the request has no messages. Callers use this when they need to
+// inspect non-text parts (MultiContent) — getLastMessage flattens those to
+// text only.
+func getLastMessageRef(req openai.ChatCompletionRequest) *openai.ChatCompletionMessage {
+	if len(req.Messages) == 0 {
+		return nil
+	}
+	last := req.Messages[len(req.Messages)-1]
+	return &last
+}

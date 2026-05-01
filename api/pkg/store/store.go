@@ -55,6 +55,8 @@ type ListSessionsQuery struct {
 	QuestionSetExecutionID string          `json:"question_set_execution_id"`
 	AppID                  string          `json:"app_id"`
 	ProjectID              string          `json:"project_id"`
+	SessionRole            string          `json:"session_role"`      // Filter by session role (e.g. "job")
+	ExcludeRoles           []string        `json:"exclude_roles"`     // Exclude sessions with these roles
 	IncludeExternalAgents  bool            `json:"include_external_agents"`
 }
 
@@ -142,9 +144,12 @@ type ListUsersQuery struct {
 	Type      types.OwnerType `json:"type"`
 	Email     string          `json:"email"`
 	Username  string          `json:"username"`
-	Page      int
-	PerPage   int
-	Order     string // Defaults to Created Desc
+	// Query is a free-text search matched (ILIKE) against email, username, and full_name.
+	// When set it is OR-combined and takes precedence over the separate Email/Username filters.
+	Query   string `json:"query"`
+	Page    int
+	PerPage int
+	Order   string // Defaults to Created Desc
 }
 
 // SearchUsersQuery defines parameters for searching users with partial matching
@@ -245,20 +250,47 @@ type Store interface {
 	// interactions
 	GetInteractionsSummary(ctx context.Context, sessionID string, generationID int) (count int64, maxUpdated time.Time, err error)
 	ListInteractions(ctx context.Context, query *types.ListInteractionsQuery) ([]*types.Interaction, int64, error)
+	GetLatestInteractionsForSessions(ctx context.Context, sessionIDs []string) (map[string]*types.Interaction, error) // Batch fetch newest interaction per session for activity detection
 	CreateInteraction(ctx context.Context, interaction *types.Interaction) (*types.Interaction, error)
 	CreateInteractions(ctx context.Context, interactions ...*types.Interaction) error
 	GetInteraction(ctx context.Context, id string) (*types.Interaction, error)
 	UpdateInteraction(ctx context.Context, interaction *types.Interaction) (*types.Interaction, error)
 	UpdateInteractionSummary(ctx context.Context, interactionID string, summary string) error
 	DeleteInteraction(ctx context.Context, id string) error
+	// ListStuckWaitingInteractions returns up to `limit` interactions that
+	// are in state=waiting, have produced no response or entries, and were
+	// created before `olderThan`. Used by the auto-wake worker to find
+	// candidates for a "continue" wake-up prompt.
+	ListStuckWaitingInteractions(ctx context.Context, olderThan time.Time, limit int) ([]*types.Interaction, error)
+	// CountAutoWakeAttemptsSince returns the number of interactions in
+	// `sessionID` with auto_wake_count > 0 created strictly after `since`.
+	// Used by the auto-wake worker to enforce a per-stuck-interaction
+	// retry cap.
+	//
+	// DEPRECATED in favour of in-place retry on the stuck row itself
+	// (IncrementInteractionAutoWakeCount). Kept on the interface so old
+	// callers don't break; safe to remove if no one is calling it.
+	CountAutoWakeAttemptsSince(ctx context.Context, sessionID string, since time.Time) (int64, error)
+	// IncrementInteractionAutoWakeCount atomically bumps auto_wake_count
+	// by 1 on the named interaction and returns the new value. Uses a
+	// targeted column UPDATE so concurrent saves from the streaming
+	// path (which use GORM Save and would zero the field back out from
+	// their stale in-memory copy) cannot race with the bump.
+	IncrementInteractionAutoWakeCount(ctx context.Context, interactionID string) (int, error)
 
-	// slots
-	CreateSlot(ctx context.Context, slot *types.RunnerSlot) (*types.RunnerSlot, error)
-	GetSlot(ctx context.Context, id string) (*types.RunnerSlot, error)
-	UpdateSlot(ctx context.Context, slot *types.RunnerSlot) (*types.RunnerSlot, error)
-	DeleteSlot(ctx context.Context, id string) error
-	ListSlots(ctx context.Context, runnerID string) ([]*types.RunnerSlot, error)
-	ListAllSlots(ctx context.Context) ([]*types.RunnerSlot, error)
+	// runner profiles (compose-based runner replacement)
+	CreateRunnerProfile(ctx context.Context, p *types.RunnerProfile) (*types.RunnerProfile, error)
+	GetRunnerProfile(ctx context.Context, id string) (*types.RunnerProfile, error)
+	GetRunnerProfileByName(ctx context.Context, name string) (*types.RunnerProfile, error)
+	UpdateRunnerProfile(ctx context.Context, p *types.RunnerProfile) (*types.RunnerProfile, error)
+	DeleteRunnerProfile(ctx context.Context, id string) error
+	ListRunnerProfiles(ctx context.Context) ([]*types.RunnerProfile, error)
+
+	// runner-to-profile assignments
+	GetRunnerAssignment(ctx context.Context, runnerID string) (*types.RunnerAssignment, error)
+	SetRunnerAssignment(ctx context.Context, a *types.RunnerAssignment) (*types.RunnerAssignment, error)
+	DeleteRunnerAssignment(ctx context.Context, runnerID string) error
+	ListRunnerAssignments(ctx context.Context) ([]*types.RunnerAssignment, error)
 
 	// step infos
 	CreateStepInfo(ctx context.Context, stepInfo *types.StepInfo) (*types.StepInfo, error)
@@ -273,6 +305,7 @@ type Store interface {
 	ListUsers(ctx context.Context, query *ListUsersQuery) ([]*types.User, int64, error)
 	SearchUsers(ctx context.Context, query *SearchUsersQuery) ([]*types.User, int64, error)
 	CountUsers(ctx context.Context) (int64, error)
+	TouchUserLastSeen(ctx context.Context, userID string, at time.Time) error
 
 	// usermeta
 	GetUserMeta(ctx context.Context, id string) (*types.UserMeta, error)
@@ -407,6 +440,8 @@ type Store interface {
 	GetAppDailyUsageMetrics(ctx context.Context, appID string, from time.Time, to time.Time) ([]*types.AggregatedUsageMetric, error)
 	DeleteUsageMetrics(ctx context.Context, appID string) error
 	GetUserMonthlyTokenUsage(ctx context.Context, userID string, providers []string) (int, error)
+	GetUserModelUsage(ctx context.Context, userID string) ([]*types.UserModelUsage, error)
+	GetUserLastUsage(ctx context.Context, userID string) (time.Time, error)
 
 	GetProviderDailyUsageMetrics(ctx context.Context, providerID string, from time.Time, to time.Time) ([]*types.AggregatedUsageMetric, error)
 
@@ -700,7 +735,23 @@ type Store interface {
 	ListPromptHistoryBySpecTask(ctx context.Context, specTaskID string) ([]*types.PromptHistoryEntry, error)
 	MarkPromptAsPending(ctx context.Context, promptID string) error
 	MarkPromptAsSent(ctx context.Context, promptID string) error
-	MarkPromptAsFailed(ctx context.Context, promptID string) error
+	// MarkPromptAsFailed records the failure reason and bumps retry_count + next_retry_at
+	// for exponential backoff. errorMsg is shown to the user in the UI; pass err.Error()
+	// from whatever produced the failure. Truncated to 500 chars by the implementation.
+	MarkPromptAsFailed(ctx context.Context, promptID string, errorMsg string) error
+	// MarkPromptAsCrashed records the failure reason but pins next_retry_at far in the
+	// future so the auto-retry loop never picks the prompt back up. Used for terminal
+	// errors that no number of retries can recover from (e.g. the Claude Agent process
+	// inside Zed exited and Helix has no way to respawn it without the user creating a
+	// fresh thread). The frontend recognises this state and offers a manual Restart
+	// action which calls ResetCrashedPromptsForSession to undo it.
+	MarkPromptAsCrashed(ctx context.Context, promptID string, errorMsg string) error
+	// ResetCrashedPromptsForSession finds every prompt for sessionID whose status is
+	// 'failed' and whose next_retry_at is the far-future sentinel set by
+	// MarkPromptAsCrashed, and resets them to status='pending' with retry_count=0,
+	// next_retry_at=NULL, error_message=''. Returns the number of prompts reset.
+	// Called when the user clicks Restart after a Claude Agent crash.
+	ResetCrashedPromptsForSession(ctx context.Context, sessionID string) (int, error)
 	// RequeueBouncedPrompt finds the most recent "sent" prompt for a session and marks
 	// it as "failed" so the retry mechanism picks it up. Used when message_completed
 	// arrives with an empty response (bounce).

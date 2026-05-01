@@ -98,6 +98,134 @@ func (s *AgentTestSuite) Test_Agent_NoSkills() {
 	}
 }
 
+// Test_Agent_PreservesMultiContent verifies that an attached image (or any
+// other non-text part) on the user message is forwarded to the LLM rather
+// than being stripped to text-only. This is the seam used by the agent
+// pipeline when a vision-capable model is configured.
+func (s *AgentTestSuite) Test_Agent_PreservesMultiContent() {
+	agent := NewAgent(NewLogStepInfoEmitter(), "Test prompt", []Skill{}, 10)
+
+	respCh := make(chan Response)
+
+	var captured openai.ChatCompletionRequest
+	s.generationalOpenaiClient.EXPECT().
+		CreateChatCompletion(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, req openai.ChatCompletionRequest) (openai.ChatCompletionResponse, error) {
+			captured = req
+			return openai.ChatCompletionResponse{
+				Choices: []openai.ChatCompletionChoice{{
+					Message: openai.ChatCompletionMessage{
+						Role:    openai.ChatMessageRoleAssistant,
+						Content: "I can see the image.",
+					},
+				}},
+			}, nil
+		})
+
+	multiContent := []openai.ChatMessagePart{
+		{Type: openai.ChatMessagePartTypeText, Text: "What is in this image?"},
+		{Type: openai.ChatMessagePartTypeImageURL, ImageURL: &openai.ChatMessageImageURL{URL: "data:image/png;base64,iVBORw0KGgo="}},
+	}
+
+	go func() {
+		defer close(respCh)
+		agent.Run(context.Background(), Meta{}, s.llm, &MessageList{
+			Messages: []*openai.ChatCompletionMessage{
+				{
+					Role:         openai.ChatMessageRoleUser,
+					MultiContent: multiContent,
+				},
+			},
+		}, &MemoryBlock{}, &MemoryBlock{}, respCh, false)
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	select {
+	case <-ctx.Done():
+		s.Require().Fail("Context done")
+	case <-respCh:
+	}
+
+	s.Require().NotEmpty(captured.Messages, "LLM must have been called with messages")
+	last := captured.Messages[len(captured.Messages)-1]
+	s.Require().Equal(openai.ChatMessageRoleUser, last.Role)
+	s.Require().Len(last.MultiContent, 2, "image part must reach the LLM unchanged")
+	s.Require().Equal(openai.ChatMessagePartTypeImageURL, last.MultiContent[1].Type)
+	s.Require().NotNil(last.MultiContent[1].ImageURL)
+	s.Require().Equal("data:image/png;base64,iVBORw0KGgo=", last.MultiContent[1].ImageURL.URL)
+}
+
+// Test_Session_InMessage_PreservesMultiContent covers the controller→session
+// seam: session.InMessage must store the message verbatim (with MultiContent)
+// in the history so vision parts reach the LLM.
+func (s *AgentTestSuite) Test_Session_InMessage_PreservesMultiContent() {
+	agent := NewAgent(NewLogStepInfoEmitter(), "Test prompt", []Skill{}, 10)
+
+	var captured openai.ChatCompletionRequest
+	s.generationalOpenaiClient.EXPECT().
+		CreateChatCompletion(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, req openai.ChatCompletionRequest) (openai.ChatCompletionResponse, error) {
+			captured = req
+			return openai.ChatCompletionResponse{
+				Choices: []openai.ChatCompletionChoice{{
+					Message: openai.ChatCompletionMessage{
+						Role:    openai.ChatMessageRoleAssistant,
+						Content: "ok",
+					},
+				}},
+			}, nil
+		})
+
+	mem := &noopMemory{}
+	session := NewSession(context.Background(), NewLogStepInfoEmitter(), s.llm, mem, &MemoryBlock{}, agent, NewMessageList(), Meta{}, false)
+
+	session.InMessage(&openai.ChatCompletionMessage{
+		Role: openai.ChatMessageRoleUser,
+		MultiContent: []openai.ChatMessagePart{
+			{Type: openai.ChatMessagePartTypeText, Text: "Describe."},
+			{Type: openai.ChatMessagePartTypeImageURL, ImageURL: &openai.ChatMessageImageURL{URL: "https://example.com/cat.png"}},
+		},
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	for {
+		select {
+		case <-ctx.Done():
+			s.Require().Fail("timed out")
+			return
+		case resp := <-session.outUserChannel:
+			if resp.Type == ResponseTypeEnd {
+				goto done
+			}
+		}
+	}
+done:
+
+	s.Require().NotEmpty(captured.Messages)
+	var seenImage bool
+	for _, m := range captured.Messages {
+		if m.Role != openai.ChatMessageRoleUser {
+			continue
+		}
+		for _, part := range m.MultiContent {
+			if part.Type == openai.ChatMessagePartTypeImageURL && part.ImageURL != nil && part.ImageURL.URL == "https://example.com/cat.png" {
+				seenImage = true
+			}
+		}
+	}
+	s.Require().True(seenImage, "session.InMessage must forward image parts to the LLM")
+}
+
+// noopMemory satisfies the agent.Memory interface for tests where no memory
+// retrieval is needed.
+type noopMemory struct{}
+
+func (n *noopMemory) Retrieve(_ *Meta) (*MemoryBlock, error) { return &MemoryBlock{}, nil }
+
 func (s *AgentTestSuite) Test_Agent_NoSkills_Conversational() {
 	agent := NewAgent(NewLogStepInfoEmitter(), "Test prompt", []Skill{}, 10)
 

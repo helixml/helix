@@ -836,6 +836,22 @@ var USER_PREFERENCE_FIELDS = map[string]bool{
 	"theme": true,
 }
 
+// HELIX_MANAGED_AGENT_FIELDS lists keys under "agent" that Helix owns and that
+// user-side overrides (i.e. whatever Zed wrote to settings.json) must never
+// clobber. When Zed boots and writes a different default_model — either because
+// the user picked one in the model picker or because Zed's built-in agent
+// profile fell back to its hardcoded Claude default — the daemon used to
+// faithfully sync that back to disk on the next poll, even though Helix had
+// the authoritative value.
+//
+// See deviqon/P1-5-zed-overrides-clobber-helix-default-model.md.
+var HELIX_MANAGED_AGENT_FIELDS = map[string]bool{
+	"default_model":          true,
+	"inline_assistant_model": true,
+	"commit_message_model":   true,
+	"thread_summary_model":   true,
+}
+
 // helixDefaults returns the static Helix-owned settings that must be present
 // in every settings.json. Both syncFromHelix() and checkHelixUpdates() use
 // this as the base, then layer on API response fields.
@@ -849,6 +865,21 @@ func helixDefaults() map[string]interface{} {
 		// Disable auto-formatting globally - it mangles JS/TS/TSX in our codebases.
 		// Go keeps format_on_save via per-language override (gofmt is expected).
 		"format_on_save": "off",
+		// Bump context-server initialize timeout from upstream's 60s default to 180s.
+		// Several MCPs in our spec-task containers (chrome-devtools, github via
+		// `npx <pkg>@latest`, helixos via http to a still-warming-up api:8080) all
+		// fire their JSON-RPC `initialize` at the same moment Zed boots on a cold
+		// container, racing for CPU against settings-sync-daemon and language
+		// servers. The first npm download routinely overruns 60s and Zed marks the
+		// servers as failed; tools never appear (most visibly
+		// `mcp__chrome-devtools__*` go missing).
+		// helixml/zed#47 tried to fix this by bumping DEFAULT_REQUEST_TIMEOUT in
+		// crates/context_server/src/client.rs, but that constant is dead code in
+		// our path: project_settings.rs defaults context_server_timeout to 60 and
+		// passes Some(60) all the way to client.rs:370, where the .or(DEFAULT)
+		// fallback never fires. Fixing it here in settings.json works regardless
+		// of upstream changes and survives Zed rebases.
+		"context_server_timeout": 180,
 		"languages": map[string]interface{}{
 			"Go": map[string]interface{}{
 				"format_on_save": "on",
@@ -913,9 +944,14 @@ func (d *SettingsDaemon) mergeSettings(helix, user map[string]interface{}) map[s
 	}
 
 	for k, v := range user {
-		if k != "context_servers" && k != "languages" {
-			merged[k] = v
+		if k == "context_servers" || k == "languages" {
+			continue
 		}
+		if k == "agent" {
+			merged["agent"] = mergeAgentBlock(merged["agent"], v)
+			continue
+		}
+		merged[k] = v
 	}
 
 	// Preserve security-protected and user-preference fields from on-disk config.
@@ -940,6 +976,37 @@ func (d *SettingsDaemon) mergeSettings(helix, user map[string]interface{}) map[s
 	agentServers := d.generateAgentServerConfig()
 	if agentServers != nil {
 		merged["agent_servers"] = agentServers
+	}
+
+	return merged
+}
+
+// mergeAgentBlock deep-merges Zed's user-side "agent" block onto the helix-managed
+// one, dropping any user-side values for keys in HELIX_MANAGED_AGENT_FIELDS so
+// helix's model selections always win.
+func mergeAgentBlock(helixAgent, userAgent interface{}) interface{} {
+	userMap, ok := userAgent.(map[string]interface{})
+	if !ok {
+		// User override is not an object — keep helix's agent verbatim.
+		if helixAgent != nil {
+			return helixAgent
+		}
+		return userAgent
+	}
+
+	merged := make(map[string]interface{})
+	if helixMap, ok := helixAgent.(map[string]interface{}); ok {
+		for k, v := range helixMap {
+			merged[k] = v
+		}
+	}
+
+	for k, v := range userMap {
+		if HELIX_MANAGED_AGENT_FIELDS[k] {
+			log.Printf("dropping user override for helix-managed agent field: %s", k)
+			continue
+		}
+		merged[k] = v
 	}
 
 	return merged
@@ -989,12 +1056,46 @@ func extractUserOverrides(current, helix map[string]interface{}) map[string]inte
 		if k == "context_servers" || k == "languages" || SECURITY_PROTECTED_FIELDS[k] || USER_PREFERENCE_FIELDS[k] {
 			continue
 		}
+		if k == "agent" {
+			// Diff the agent block per-field, dropping helix-managed model fields so
+			// they never get uploaded back to the API. Defense-in-depth alongside
+			// the merge guard above.
+			if agentDiff := diffAgentBlock(v, helix["agent"]); agentDiff != nil {
+				overrides["agent"] = agentDiff
+			}
+			continue
+		}
 		if helixVal, inHelix := helix[k]; !inHelix || !deepEqual(v, helixVal) {
 			overrides[k] = v
 		}
 	}
 
 	return overrides
+}
+
+// diffAgentBlock returns the user-side keys under "agent" that differ from the
+// helix-managed value, with helix-managed model fields excluded. Returns nil if
+// there is nothing to upload.
+func diffAgentBlock(current, helix interface{}) map[string]interface{} {
+	currentMap, ok := current.(map[string]interface{})
+	if !ok {
+		return nil
+	}
+	helixMap, _ := helix.(map[string]interface{})
+
+	diff := make(map[string]interface{})
+	for k, v := range currentMap {
+		if HELIX_MANAGED_AGENT_FIELDS[k] {
+			continue
+		}
+		if helixVal, inHelix := helixMap[k]; !inHelix || !deepEqual(v, helixVal) {
+			diff[k] = v
+		}
+	}
+	if len(diff) == 0 {
+		return nil
+	}
+	return diff
 }
 
 // startWatcher monitors settings.json for Zed UI changes and
