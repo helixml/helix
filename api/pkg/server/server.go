@@ -105,7 +105,9 @@ type HelixAPIServer struct {
 	contextMappingsMutex        sync.RWMutex        // Mutex for contextMappings (and related mappings below)
 	requestToSessionMapping     map[string]string // request_id -> Helix session_id mapping (for chat_message routing)
 	requestToInteractionMapping map[string]string // request_id -> interaction_id (for routing message_added/completed to correct interaction)
-	interactionToPromptMapping  map[string]string // interaction_id -> prompt_history_entry id (set on dispatch, cleared when Zed sends first message_added → marks prompt as 'sent')
+	// (interaction → prompt link is now persisted on Interaction.PromptID
+	// so it survives API restart; the in-memory map was deleted in the
+	// 2026-04-30 stuck-queue fix.)
 	externalAgentSessionMapping map[string]string   // External agent session_id -> Helix session_id mapping
 	externalAgentUserMapping    map[string]string   // External agent session_id -> user_id mapping
 	// Comment processing timeouts - uses database for queue state (QueuedAt/RequestID fields)
@@ -547,6 +549,25 @@ func NewServer(
 	} else if cleaned > 0 {
 		log.Info().Int64("cleaned", cleaned).Msg("Cleared stale 'starting' sessions from previous API crash")
 	}
+
+	// One-shot reconciliation: catch up prompt_history_entries stuck in
+	// 'sending' because the old in-memory interactionToPromptMapping was lost
+	// before MarkPromptAsSent could fire (typically across an API restart).
+	// See design/2026-04-30-queue-and-other-stuck-state-bugs.md. New rows
+	// shouldn't get stuck — Interaction.PromptID persists the link — but this
+	// also unsticks legacy rows from before that schema change. Run in a
+	// goroutine so it doesn't block server startup; the queries are cheap and
+	// idempotent.
+	go func() {
+		fixed, err := store.ReconcileStuckSendingPrompts(context.Background())
+		if err != nil {
+			log.Error().Err(err).Msg("Failed to reconcile stuck 'sending' prompts at startup")
+			return
+		}
+		if fixed > 0 {
+			log.Info().Int("count", fixed).Msg("✅ [QUEUE] Reconciled stuck 'sending' prompts at startup (legacy in-memory-mapping orphans)")
+		}
+	}()
 
 	// Assign admin alerter to server (initialized earlier for OIDC wiring)
 	if adminAlerter != nil {

@@ -344,7 +344,12 @@ const SortableQueueItem: FC<SortableQueueItemProps> = ({
           }}
           onClick={() => !isSending && handleStartEdit(entry)}
         >
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+          {/* minWidth: 0 lets the Typography ellipsise instead of forcing the
+              row to its intrinsic min-content width. On mobile the latter
+              pushed the actions box (delete button) past the queue container's
+              `overflow: hidden` clip so users couldn't dismiss stuck items.
+              See design/2026-04-30-queue-and-other-stuck-state-bugs.md. */}
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, minWidth: 0 }}>
             <Typography
               variant="body2"
               sx={{
@@ -353,6 +358,7 @@ const SortableQueueItem: FC<SortableQueueItemProps> = ({
                 whiteSpace: 'nowrap',
                 color: isFailed ? failColor : 'text.primary',
                 flex: 1,
+                minWidth: 0,
               }}
             >
               {truncateContent(entry.content, 50)}
@@ -451,9 +457,13 @@ const SortableQueueItem: FC<SortableQueueItemProps> = ({
         </Box>
       )}
 
-      {/* Actions - only show when not editing */}
+      {/* Actions - only show when not editing.
+          flexShrink: 0 keeps the delete button visible when the queue panel
+          is narrow (e.g. mobile). Without it the Typography content above
+          could squeeze the actions past the queue container's overflow:hidden
+          clip and leave queue items unrecoverable. */}
       {!isEditing && !isSending && (
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25, flexShrink: 0 }}>
           {/* Interrupt toggle */}
           <Tooltip title={entry.interrupt !== false ? "Interrupt mode - click to queue after current" : "Queue mode - click to interrupt"}>
             <IconButton

@@ -302,6 +302,9 @@ func (m *MemoryStore) MarkPromptAsCrashed(_ context.Context, _ string, _ string)
 func (m *MemoryStore) ResetCrashedPromptsForSession(_ context.Context, _ string) (int, error) {
 	return 0, nil
 }
+func (m *MemoryStore) ReconcileStuckSendingPrompts(_ context.Context) (int, error) {
+	return 0, nil
+}
 func (m *MemoryStore) RequeueBouncedPrompt(_ context.Context, _ string) error     { return nil }
 func (m *MemoryStore) DeletePromptHistoryEntry(_ context.Context, _ string) error { return nil }
 func (m *MemoryStore) ClaimPromptForSending(_ context.Context, _ string) (bool, error) {
