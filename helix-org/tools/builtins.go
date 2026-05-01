@@ -44,6 +44,19 @@ type EventDispatcher interface {
 	DispatchHire(ctx context.Context, workerID domain.WorkerID, envPath string)
 }
 
+// SpecsPublisher pushes a single file onto the helix-specs branch
+// of a Worker's per-Worker Helix project. update_role and
+// update_identity call it after persisting to the DB so the agent
+// inside the sandbox sees the new content on its next activation.
+// Nil is the no-op default — claudeSpawner deployments don't need it.
+//
+// The implementation looks up the Worker's HelixRepoID per call
+// (the Worker may not have been hired yet, or may have just been
+// fired — the implementation handles both as no-ops).
+type SpecsPublisher interface {
+	PublishFile(ctx context.Context, workerID domain.WorkerID, path, content, message string) error
+}
+
 // Deps bundles the stores, clocks, and configuration tools need.
 //
 // EnvsDir is the directory under which each Worker's Environment lives:
@@ -65,6 +78,10 @@ type Deps struct {
 	EnvsDir     string
 	Broadcaster *broadcast.Broadcaster
 	Dispatcher  EventDispatcher
+	// SpecsPublisher, when non-nil, is called by update_role and
+	// update_identity to mirror canonical content into the
+	// helix-specs branch. Nil under claudeSpawner.
+	SpecsPublisher SpecsPublisher
 }
 
 // DefaultDeps wires production defaults: real UUIDs and wall-clock time.

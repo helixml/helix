@@ -21,8 +21,9 @@ import (
 // nothing here and adds an obligation to track session IDs.
 func (s *Server) mcpHandler() http.Handler {
 	return mcp.NewStreamableHTTPHandler(s.buildMCPServer, &mcp.StreamableHTTPOptions{
-		Stateless: true,
-		Logger:    s.logger,
+		Stateless:                  true,
+		Logger:                     s.logger,
+		DisableLocalhostProtection: true, // helix-org is reverse-proxied through tunnels (cloudflared) when Helix's runner is on a different host; the SDK's DNS-rebinding guard rejects non-loopback Host headers, which kills the tunnel path.
 	})
 }
 

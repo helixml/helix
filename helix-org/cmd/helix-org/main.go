@@ -28,6 +28,8 @@ func run(args []string) error {
 		return runChat(args[1:])
 	case "config":
 		return runConfig(args[1:])
+	case "bootstrap":
+		return runBootstrap(args[1:])
 	case "help", "-h", "--help":
 		printUsage()
 		return nil
@@ -49,6 +51,10 @@ Subcommands:
               Worker's MCP endpoint (default: w-owner). Continues
               the most recent session in the current directory;
               pass --resume for the picker or --new for a fresh one.
+  bootstrap   Provision external dependencies. Run
+              'bootstrap helix-runtime [--project-id <id>]' to
+              validate a Helix project, run a smoke test, and
+              persist the project ID. See design/helix-integration.md.
   config      Read or write operational configuration (transport
               credentials, claude binary, model, public URL, etc.).
               CLI-only — never via MCP. See design/config.md.

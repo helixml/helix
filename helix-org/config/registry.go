@@ -222,6 +222,23 @@ func (r *Registry) GetString(ctx context.Context, key string) (string, error) {
 	return s, nil
 }
 
+// GetInt reads an int-typed config and returns its Go value.
+func (r *Registry) GetInt(ctx context.Context, key string) (int64, error) {
+	raw, err := r.GetRaw(ctx, key)
+	if err != nil {
+		return 0, err
+	}
+	spec, _ := r.Spec(key)
+	if spec.Type != TypeInt {
+		return 0, fmt.Errorf("config %q: spec type is %s, not int", key, spec.Type)
+	}
+	var n int64
+	if err := json.Unmarshal([]byte(raw), &n); err != nil {
+		return 0, fmt.Errorf("decode int for %q: %w", key, err)
+	}
+	return n, nil
+}
+
 // GetObject decodes the value into the given destination, which must
 // be a pointer. Errors if the spec isn't object-typed.
 func (r *Registry) GetObject(ctx context.Context, key string, dst any) error {

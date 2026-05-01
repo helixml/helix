@@ -82,6 +82,11 @@ type ChatPage struct {
 	shell
 	Greeting string
 	History  template.HTML
+	// BackendLabel is the short footer label shown next to the send
+	// button — e.g. "helix · minimax-m2.7" or "claude · sonnet 4.6".
+	// Populated from the active chat.Backend so the UI never lies
+	// about which LLM stack the chat is actually running on.
+	BackendLabel string
 }
 
 // TemplateText returns the chat page body.

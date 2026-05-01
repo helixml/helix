@@ -39,6 +39,17 @@ type Workers interface {
 	Get(ctx context.Context, id domain.WorkerID) (domain.Worker, error)
 	List(ctx context.Context) ([]domain.Worker, error)
 	Update(ctx context.Context, worker domain.Worker) error
+	// SetHelixSessionID stores the helix chat session ID a Worker is
+	// currently bound to. Called by helixSpawner — never via MCP.
+	SetHelixSessionID(ctx context.Context, id domain.WorkerID, sessionID string) error
+	// ClearHelixSessionID clears a stale pointer when SessionAlive
+	// reports the session is gone.
+	ClearHelixSessionID(ctx context.Context, id domain.WorkerID) error
+	// SetHelixProject persists the per-Worker Helix project IDs at
+	// hire time. ClearHelixProject clears them when the Worker is
+	// fired (project gets deleted Helix-side).
+	SetHelixProject(ctx context.Context, id domain.WorkerID, projectID, agentAppID, repoID string) error
+	ClearHelixProject(ctx context.Context, id domain.WorkerID) error
 }
 
 // Grants persists tool grants.

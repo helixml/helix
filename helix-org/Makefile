@@ -15,7 +15,7 @@ CGO_ENABLED ?= 0
 
 export CGO_ENABLED
 
-.PHONY: help tools build run test test-cover fmt fmt-check vet lint check ci clean
+.PHONY: help tools build run test test-cover test-e2e-helix fmt fmt-check vet lint check ci clean
 
 help: ## Show available targets
 	@awk 'BEGIN {FS = ":.*##"} /^[a-zA-Z_-]+:.*##/ {printf "  %-12s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -34,6 +34,9 @@ run: ## Run `helix-org serve` with opinionated defaults; pass extra flags via AR
 
 test: ## Run tests (use PKG=./path/... to scope)
 	CGO_ENABLED=1 $(GO) test $(GOFLAGS) -race -count=1 $(PKG)
+
+test-e2e-helix: ## Run the //go:build integration helix-end-to-end smoke (requires HELIX_URL+HELIX_API_KEY)
+	CGO_ENABLED=1 $(GO) test -tags=integration -count=1 ./tools/helixclient/... ./tools/...
 
 test-cover: ## Run tests and produce coverage.out + coverage.html
 	CGO_ENABLED=1 $(GO) test $(GOFLAGS) -race -count=1 -coverprofile=coverage.out -covermode=atomic $(PKG)

@@ -53,14 +53,39 @@ asking permission between them:
 1. Save the Role (`create_role`) if it's new.
 2. Create the Position under `p-root` (`create_position`) unless told
    otherwise.
-3. Hire the Worker (`hire_worker`) — kind `ai`, id
-   `w-<lowercase-firstname>` (e.g. `w-mark`, `w-priya`), grants
-   matching the Role's Tools section.
+3. Hire the Worker (`hire_worker`) **with `grants` populated** —
+   kind `ai`, id `w-<lowercase-firstname>` (e.g. `w-mark`,
+   `w-priya`), and `grants` set to **every MCP tool listed in the
+   Role's `## Tools (MCP)` section**. The Worker's MCP tool list is
+   computed at hire time and **frozen** for the lifetime of their
+   first desktop session — granting tools later means the Worker
+   can't see them until their session restarts. So grants must
+   accompany the hire, never follow it.
+
+   Example shape:
+   ```json
+   {
+     "positionId": "pos-engineer",
+     "kind": "ai",
+     "id": "w-mark",
+     "identityContent": "Mark — ...",
+     "grants": [
+       {"toolName": "subscribe"}, {"toolName": "unsubscribe"},
+       {"toolName": "read_events"}, {"toolName": "publish"},
+       {"toolName": "dm"}, {"toolName": "list_streams"},
+       {"toolName": "stream_members"}
+     ]
+   }
+   ```
+
 4. **Stand up their streams.** For each stream the Role lists:
    - call `list_streams` first — another Worker may already have
      created it
    - if it exists, `subscribe` the new Worker
    - if not, `create_stream` then `subscribe`
 
-A Worker hired without their streams subscribed is half-hired —
-they have nothing to listen to. Don't skip step 4.
+A Worker hired without their grants is mute — they can see no MCP
+tools at all and will fall back to writing files instead of
+publishing/DMing, which is wrong. A Worker hired without their
+streams subscribed is half-hired — they have nothing to listen to.
+Don't skip steps 3-grants or 4.

@@ -45,6 +45,12 @@ type Bridge struct {
 	// (which Claude Code's interactive TUI handles natively) are dead on
 	// arrival here unless we expand them server-side.
 	prompts *prompts.Registry
+	// label is the short footer string the chat UI renders next to the
+	// send button. claude doesn't expose its active model via the CLI
+	// in any reliable way, so the wiring layer passes a label string
+	// (e.g. "claude · sonnet") via WithLabel — falls back to "claude"
+	// if unset.
+	label string
 
 	mu             sync.Mutex // guards sess, forceNew, resumeSID, freshFromPath
 	sess           *session
@@ -65,6 +71,22 @@ type Bridge struct {
 // The UI uses it to read claude's per-cwd session jsonls for history
 // rendering and the Recents list.
 func (b *Bridge) CWD() string { return b.cwd }
+
+// Label satisfies chat.Backend. Returns the configured label or
+// "claude" if none was set.
+func (b *Bridge) Label() string {
+	if b.label == "" {
+		return "claude"
+	}
+	return b.label
+}
+
+// WithLabel sets the footer label rendered in the chat UI. Returns
+// the same Bridge so the call composes with New().WithPrompts().
+func (b *Bridge) WithLabel(s string) *Bridge {
+	b.label = s
+	return b
+}
 
 // New returns a Bridge configured to spawn `claude` from claudeBin in
 // the given cwd, wired to a single MCP server at mcpURL named "helix".

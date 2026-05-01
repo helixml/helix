@@ -57,5 +57,8 @@ func (t *UpdateIdentity) Invoke(ctx context.Context, inv domain.Invocation) (jso
 	if err := t.deps.Store.Workers.Update(ctx, existing.WithIdentityContent(args.Content)); err != nil {
 		return nil, fmt.Errorf("update worker: %w", err)
 	}
+	if t.deps.SpecsPublisher != nil {
+		_ = t.deps.SpecsPublisher.PublishFile(ctx, domain.WorkerID(args.WorkerID), "job/identity.md", args.Content, fmt.Sprintf("update_identity: %s", args.WorkerID))
+	}
 	return json.Marshal(map[string]string{"id": args.WorkerID})
 }

@@ -22,8 +22,11 @@ import (
 	"github.com/helixml/helix-org/server"
 	"github.com/helixml/helix-org/server/chat"
 	"github.com/helixml/helix-org/server/ui"
+	"github.com/helixml/helix-org/store"
 	"github.com/helixml/helix-org/store/sqlite"
 	"github.com/helixml/helix-org/tools"
+	"github.com/helixml/helix-org/tools/helixclient"
+	"github.com/helixml/helix-org/tools/helixspecs"
 	githubtransport "github.com/helixml/helix-org/transports/github"
 	"github.com/helixml/helix-org/transports/postmark"
 )
@@ -86,26 +89,20 @@ func runServe(args []string) error {
 	deps.Broadcaster = bc
 	deps.EnvsDir = absEnvsDir
 
-	spawner := tools.ClaudeSpawner(tools.ClaudeSpawnerConfig{
-		ClaudeBin:   *claudeBin,
-		PublicURL:   *publicURL,
-		Model:       *model,
-		Effort:      *effort,
-		Logger:      logger,
-		Store:       store,
-		Broadcaster: bc,
-		Now:         deps.Now,
-		NewID:       deps.NewID,
-	})
-	dispatcher := dispatch.New(store, spawner, logger)
-	deps.Dispatcher = dispatcher
-	logger.Info("dispatcher enabled", "claude-bin", *claudeBin, "public-url", *publicURL, "envs-dir", absEnvsDir, "model", *model, "effort", *effort)
-
 	// Operational config registry — Postmark + future provider creds
 	// live here, mutated only via the helix-org config CLI. See
 	// design/config.md.
 	configReg := config.New(store.Configs)
 	registerAllConfigSpecs(configReg)
+
+	spawner, publisher, err := buildSpawner(context.Background(), configReg, store, bc, deps, logger, *claudeBin, *publicURL, *model, *effort)
+	if err != nil {
+		return fmt.Errorf("build spawner: %w", err)
+	}
+	dispatcher := dispatch.New(store, spawner, logger)
+	deps.Dispatcher = dispatcher
+	deps.SpecsPublisher = publisher
+	logger.Info("dispatcher enabled", "public-url", *publicURL, "envs-dir", absEnvsDir)
 
 	// Email transport: shares the dispatcher (for inbound activations)
 	// and registers itself as the dispatcher's outbound email emitter.
@@ -134,20 +131,19 @@ func runServe(args []string) error {
 		return fmt.Errorf("register prompt builtins: %w", err)
 	}
 
-	// UI chat surface: long-lived `claude` subprocess in the server's
-	// cwd, bridged to the browser via SSE + form POST. The session
-	// resumes claude's per-cwd transcript so terminal `helix-org chat`
-	// from this directory continues the same conversation.
+	// UI chat surface. Backend is selected by chat.backend config:
+	//   - "claude": long-lived `claude` subprocess in the server cwd,
+	//              bridged to the browser via SSE. Dev only.
+	//   - "helix": Helix chat session; every owner message becomes a
+	//              StartChat / PostFollowup against Helix.
 	cwd, err := os.Getwd()
 	if err != nil {
 		return fmt.Errorf("getwd: %w", err)
 	}
-	chatBridge := chat.New(
-		*claudeBin,
-		cwd,
-		strings.TrimRight(*publicURL, "/")+"/workers/w-owner/mcp",
-		logger,
-	).WithPrompts(promptReg)
+	chatBridge, err := buildChatBackend(context.Background(), configReg, store, logger, *claudeBin, cwd, *publicURL, promptReg)
+	if err != nil {
+		return fmt.Errorf("build chat backend: %w", err)
+	}
 
 	// Snapshot config registry → ui.SettingsView so the UI doesn't
 	// need to import config. This is captured once at startup;
@@ -226,6 +222,218 @@ func runServe(args []string) error {
 		}
 	}
 	return nil
+}
+
+// buildSpawner reads spawner.kind from the config registry and
+// returns the corresponding tools.Spawner. The selection is
+// deployment-wide; per-Role overrides are intentionally out of
+// scope for now (see design/helix-integration.md "Out of Scope").
+// buildSpawner reads spawner.kind from the config registry and
+// returns the corresponding tools.Spawner plus an optional
+// SpecsPublisher (non-nil only on the helix path; nil under claude
+// where Workers see role/identity via on-disk env projection).
+func buildSpawner(
+	ctx context.Context,
+	cfg *config.Registry,
+	st *store.Store,
+	bc *broadcast.Broadcaster,
+	deps tools.Deps,
+	logger *slog.Logger,
+	claudeBin, publicURL, model, effort string,
+) (tools.Spawner, tools.SpecsPublisher, error) {
+	kind, err := cfg.GetString(ctx, "spawner.kind")
+	if err != nil {
+		return nil, nil, fmt.Errorf("read spawner.kind: %w", err)
+	}
+	switch kind {
+	case "claude":
+		logger.Info("spawner: claude", "claude-bin", claudeBin, "model", model, "effort", effort)
+		return tools.ClaudeSpawner(tools.ClaudeSpawnerConfig{
+			ClaudeBin:   claudeBin,
+			PublicURL:   publicURL,
+			Model:       model,
+			Effort:      effort,
+			Logger:      logger,
+			Store:       st,
+			Broadcaster: bc,
+			Now:         deps.Now,
+			NewID:       deps.NewID,
+		}), nil, nil
+	case "helix":
+		baseURL, err := cfg.GetString(ctx, "helix.url")
+		if err != nil {
+			return nil, nil, fmt.Errorf("read helix.url: %w", err)
+		}
+		apiKey, err := cfg.GetString(ctx, "helix.api_key")
+		if err != nil {
+			return nil, nil, fmt.Errorf("read helix.api_key: %w", err)
+		}
+		orgURL, err := cfg.GetString(ctx, "helix.org_url")
+		if err != nil {
+			return nil, nil, fmt.Errorf("read helix.org_url: %w", err)
+		}
+		timeoutStr, err := cfg.GetString(ctx, "helix.activation_timeout")
+		if err != nil {
+			return nil, nil, fmt.Errorf("read helix.activation_timeout: %w", err)
+		}
+		timeout, err := time.ParseDuration(timeoutStr)
+		if err != nil {
+			return nil, nil, fmt.Errorf("parse helix.activation_timeout %q: %w", timeoutStr, err)
+		}
+		maxInflight, err := cfg.GetInt(ctx, "helix.max_inflight")
+		if err != nil {
+			return nil, nil, fmt.Errorf("read helix.max_inflight: %w", err)
+		}
+		// Provider/Model drive every per-Worker project's Agent App
+		// config (set at apply time inside the spawner).
+		provider, _ := cfg.GetString(ctx, "chat.provider")
+		model, _ := cfg.GetString(ctx, "chat.model")
+		client, err := helixclient.New(helixclient.Config{BaseURL: baseURL, APIKey: apiKey})
+		if err != nil {
+			return nil, nil, fmt.Errorf("helix client: %w", err)
+		}
+		// SpecsPublisher is now per-Worker — see helixspecs/publisher.go.
+		publisher := helixspecs.NewPerWorker(client, st, "helix-specs", "helix-org", "helix-org@local")
+		logger.Info("spawner: helix",
+			"helix-url", baseURL,
+			"org-url", orgURL,
+			"provider", provider,
+			"model", model,
+			"timeout", timeout,
+			"max-inflight", maxInflight,
+		)
+		return tools.HelixSpawner(tools.HelixSpawnerConfig{
+			Client:            client,
+			HelixOrgURL:       orgURL,
+			Provider:          provider,
+			Model:             model,
+			Runtime:           "claude_code",
+			ActivationTimeout: timeout,
+			MaxInflight:       int(maxInflight),
+			Logger:            logger,
+			Store:             st,
+			Broadcaster:       bc,
+			Now:               deps.Now,
+			NewID:             deps.NewID,
+		}), publisher, nil
+	default:
+		return nil, nil, fmt.Errorf("unknown spawner.kind %q (valid: claude, helix)", kind)
+	}
+}
+
+// buildChatBackend selects the owner-chat backend based on
+// chat.backend. The claude path keeps full backwards compat; the
+// helix path constructs a fresh helixclient and delegates the chat
+// surface to a Helix session — closing the "all LLM calls go through
+// Helix" gap. Slash-command prompts are wired into both backends.
+func buildChatBackend(
+	ctx context.Context,
+	cfg *config.Registry,
+	st *store.Store,
+	logger *slog.Logger,
+	claudeBin, cwd, publicURL string,
+	promptReg *prompts.Registry,
+) (chat.Backend, error) {
+	kind, err := cfg.GetString(ctx, "chat.backend")
+	if err != nil {
+		return nil, fmt.Errorf("read chat.backend: %w", err)
+	}
+	switch kind {
+	case "claude":
+		logger.Info("chat backend: claude", "claude-bin", claudeBin)
+		// claude.model is the alias passed to claude as --model. Use
+		// it as the footer label too so the UI truthfully reports
+		// which model the chat is running on.
+		claudeModel, _ := cfg.GetString(ctx, "claude.model")
+		label := "claude"
+		if claudeModel != "" {
+			label = "claude · " + claudeModel
+		}
+		b := chat.New(claudeBin, cwd, strings.TrimRight(publicURL, "/")+"/workers/w-owner/mcp", logger).
+			WithPrompts(promptReg).
+			WithLabel(label)
+		return b, nil
+	case "helix":
+		baseURL, err := cfg.GetString(ctx, "helix.url")
+		if err != nil {
+			return nil, fmt.Errorf("read helix.url: %w", err)
+		}
+		apiKey, err := cfg.GetString(ctx, "helix.api_key")
+		if err != nil {
+			return nil, fmt.Errorf("read helix.api_key: %w", err)
+		}
+		orgURL, err := cfg.GetString(ctx, "helix.org_url")
+		if err != nil {
+			return nil, fmt.Errorf("read helix.org_url: %w", err)
+		}
+		sessionRole, err := cfg.GetString(ctx, "chat.session_role")
+		if err != nil {
+			return nil, fmt.Errorf("read chat.session_role: %w", err)
+		}
+		agentType, err := cfg.GetString(ctx, "chat.agent_type")
+		if err != nil {
+			return nil, fmt.Errorf("read chat.agent_type: %w", err)
+		}
+		provider, err := cfg.GetString(ctx, "chat.provider")
+		if err != nil {
+			return nil, fmt.Errorf("read chat.provider: %w", err)
+		}
+		model, err := cfg.GetString(ctx, "chat.model")
+		if err != nil {
+			return nil, fmt.Errorf("read chat.model: %w", err)
+		}
+		client, err := helixclient.New(helixclient.Config{BaseURL: baseURL, APIKey: apiKey})
+		if err != nil {
+			return nil, fmt.Errorf("helix client: %w", err)
+		}
+		// Chat backend uses the same per-Worker project flow as the
+		// AI Worker spawner. Each project's auto-provisioned Agent
+		// App is `zed_external`; helix-org attaches its MCP server
+		// (via `helix.org_url`, which must be a tunnel URL reachable
+		// from Helix's runner) to the App's first Assistant.
+		applier := &tools.HelixProjectApplier{
+			Client:      client,
+			Store:       st,
+			HelixOrgURL: orgURL,
+			Provider:    provider,
+			Model:       model,
+			// `zed_agent` is the runtime that routes inference back
+			// through Helix (so it works with whatever provider/model
+			// we configure here). `claude_code` is the alternative —
+			// it talks directly to Anthropic and needs an
+			// ANTHROPIC_API_KEY wired into the container's env, which
+			// we don't set up. Empirically: claude_code-runtime
+			// projects on app.helix.ml hang in `state=waiting` because
+			// the in-container agent can't reach Anthropic, while
+			// zed_agent-runtime projects respond normally.
+			Runtime: "zed_agent",
+			Logger:  logger,
+		}
+		hb, err := chat.NewHelix(chat.HelixConfig{
+			Client:      client,
+			Ensure:      applier,
+			OwnerID:     "w-owner",
+			SessionRole: sessionRole,
+			AgentType:   agentType,
+			Provider:    provider,
+			Model:       model,
+			CWD:         cwd,
+			Logger:      logger,
+		})
+		if err != nil {
+			return nil, err
+		}
+		logger.Info("chat backend: helix",
+			"helix-url", baseURL,
+			"session-role", sessionRole,
+			"agent-type", agentType,
+			"provider", provider,
+			"model", model,
+		)
+		return hb.WithPrompts(promptReg), nil
+	default:
+		return nil, fmt.Errorf("unknown chat.backend %q (valid: claude, helix)", kind)
+	}
 }
 
 // portFromAddr extracts the ":PORT" suffix from a TCP address such as

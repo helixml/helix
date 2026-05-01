@@ -31,7 +31,7 @@ import (
 type Deps struct {
 	Store       *store.Store
 	Configs     *config.Registry
-	Bridge      *chat.Bridge
+	Bridge      chat.Backend
 	ChatCWD     string
 	Settings    SettingsView
 	Broadcaster *broadcast.Broadcaster
@@ -115,9 +115,14 @@ func (u *uiHandler) ownerSidebar(active, activeSID string) Sidebar {
 
 func (u *uiHandler) handleChat(w http.ResponseWriter, r *http.Request) {
 	sid := strings.TrimSpace(r.URL.Query().Get("sid"))
+	label := ""
+	if u.deps.Bridge != nil {
+		label = u.deps.Bridge.Label()
+	}
 	page := &ChatPage{
-		shell:    shell{Head: Head{Title: "Chat"}, Sidebar: u.ownerSidebar("chat", sid)},
-		Greeting: "Owner",
+		shell:        shell{Head: Head{Title: "Chat"}, Sidebar: u.ownerSidebar("chat", sid)},
+		Greeting:     "Owner",
+		BackendLabel: label,
 	}
 	// When the user just clicked "New chat" and no new turn has been
 	// written yet, the latest jsonl is the *previous* conversation —

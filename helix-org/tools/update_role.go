@@ -67,5 +67,26 @@ func (t *UpdateRole) Invoke(ctx context.Context, inv domain.Invocation) (json.Ra
 	if err := t.deps.Store.Roles.Update(ctx, updated); err != nil {
 		return nil, fmt.Errorf("update role: %w", err)
 	}
+	if t.deps.SpecsPublisher != nil {
+		// Mirror role content into every Worker holding a Position
+		// with this Role. Each Worker has its own Helix project; the
+		// SpecsPublisher resolves the per-Worker repo from the store.
+		positions, _ := t.deps.Store.Positions.List(ctx)
+		workers, _ := t.deps.Store.Workers.List(ctx)
+		positionWorkers := map[domain.PositionID][]domain.WorkerID{}
+		for _, w := range workers {
+			for _, p := range w.Positions() {
+				positionWorkers[p] = append(positionWorkers[p], w.ID())
+			}
+		}
+		for _, p := range positions {
+			if p.RoleID != roleID {
+				continue
+			}
+			for _, wid := range positionWorkers[p.ID] {
+				_ = t.deps.SpecsPublisher.PublishFile(ctx, wid, "job/role.md", args.Content, fmt.Sprintf("update_role: %s", roleID))
+			}
+		}
+	}
 	return json.Marshal(map[string]string{"id": string(roleID)})
 }
