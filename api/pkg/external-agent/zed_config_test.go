@@ -25,19 +25,30 @@ func TestGenerateZedMCPConfig_AgentDefaultModel(t *testing.T) {
 	helixURL := "http://api:8080"
 	helixToken := "test-token"
 
+	// Synthetic globals (no ID) and DB-backed providers (with ID) used by
+	// the cases below. Renames are demonstrated by mutating the .Name of a
+	// DB-backed provider while keeping its .ID stable; the agent's stored
+	// reference (the .ID) survives the rename.
+	var (
+		globalOpenAI    = ProviderRef{ID: "", Name: "openai"}
+		globalAnthropic = ProviderRef{ID: "", Name: "anthropic"}
+		dbScalewayID    = "pe_scaleway_01"
+		dbScaleway      = ProviderRef{ID: dbScalewayID, Name: "scaleway"}
+		dbScalewayPrime = ProviderRef{ID: dbScalewayID, Name: "scaleway-prime"} // same ID, renamed
+	)
+
 	cases := []struct {
 		name             string
 		assistants       []types.AssistantConfig // empty slice → no-assistant default-app path
-		validProviders   []string
+		snapshot         []ProviderRef
 		wantDefaultModel *ModelConfig // nil = expect Agent.DefaultModel == nil
 		wantMisconfig    bool         // expect ZedMCPConfig.Misconfigured to be set so handlers can return 422
 		why              string
 	}{
 		{
-			name:           "both_fields_empty_no_longer_falls_back_to_claude",
-			assistants:     []types.AssistantConfig{{AgentType: types.AgentTypeZedExternal}},
-			validProviders: []string{"openai", "anthropic"},
-			// Sub-A fix: silent claude fallback removed. Empty fields => no default_model.
+			name:             "both_fields_empty_no_longer_falls_back_to_claude",
+			assistants:       []types.AssistantConfig{{AgentType: types.AgentTypeZedExternal}},
+			snapshot:         []ProviderRef{globalOpenAI, globalAnthropic},
 			wantDefaultModel: nil,
 			wantMisconfig:    true,
 			why:              "P1-1 Sub-A: empty fields must not silently substitute Claude",
@@ -46,37 +57,48 @@ func TestGenerateZedMCPConfig_AgentDefaultModel(t *testing.T) {
 			name: "model_empty_provider_set_no_default_model",
 			assistants: []types.AssistantConfig{{
 				AgentType:               types.AgentTypeZedExternal,
-				GenerationModelProvider: "scaleway",
+				GenerationModelProvider: dbScalewayID,
 			}},
-			validProviders:   []string{"scaleway", "openai"},
+			snapshot:         []ProviderRef{dbScaleway, globalOpenAI},
 			wantDefaultModel: nil,
 			wantMisconfig:    true,
 			why:              "P1-1 Sub-A: partial config (provider only) must not silently fill in claude-sonnet",
 		},
 		{
-			name: "stale_provider_no_default_model",
+			name: "deleted_provider_no_default_model",
 			assistants: []types.AssistantConfig{{
 				AgentType:               types.AgentTypeZedExternal,
-				GenerationModelProvider: "user-ollama",
+				GenerationModelProvider: "pe_user_ollama_01", // ID, but provider was deleted
 				GenerationModel:         "qwen3-coder",
 			}},
-			// Provider was renamed/deleted in admin → not in registry anymore
-			validProviders:   []string{"openai", "anthropic"},
+			snapshot:         []ProviderRef{globalOpenAI, globalAnthropic},
 			wantDefaultModel: nil,
 			wantMisconfig:    true,
-			why:              "P1-1 Sub-B: stale provider snapshot must not be encoded into the model string",
+			why:              "P1-3: deleted provider must not be encoded into the model string",
+		},
+		{
+			name: "rename_is_no_op_id_still_resolves",
+			assistants: []types.AssistantConfig{{
+				AgentType:               types.AgentTypeZedExternal,
+				GenerationModelProvider: dbScalewayID, // agent stored ID
+				GenerationModel:         "qwen3-coder-480b",
+			}},
+			snapshot:         []ProviderRef{dbScalewayPrime, globalOpenAI}, // admin renamed scaleway → scaleway-prime
+			wantDefaultModel: &ModelConfig{Provider: "openai", Model: "scaleway-prime/qwen3-coder-480b"},
+			wantMisconfig:    false,
+			why:              "P1-3 core: provider rename must be a no-op for the agent — ID resolves to current name",
 		},
 		{
 			name: "configured_qwen_on_scaleway_works",
 			assistants: []types.AssistantConfig{{
 				AgentType:               types.AgentTypeZedExternal,
-				GenerationModelProvider: "scaleway",
+				GenerationModelProvider: dbScalewayID,
 				GenerationModel:         "qwen3-coder-480b",
 			}},
-			validProviders:   []string{"scaleway", "openai"},
+			snapshot:         []ProviderRef{dbScaleway, globalOpenAI},
 			wantDefaultModel: &ModelConfig{Provider: "openai", Model: "scaleway/qwen3-coder-480b"},
 			wantMisconfig:    false,
-			why:              "control case: registered provider + non-empty model passes through unchanged",
+			why:              "control case: agent stored ID resolves to canonical scaleway name",
 		},
 		{
 			name: "configured_anthropic_passes_through",
@@ -85,42 +107,42 @@ func TestGenerateZedMCPConfig_AgentDefaultModel(t *testing.T) {
 				GenerationModelProvider: "anthropic",
 				GenerationModel:         "claude-sonnet-4-5",
 			}},
-			validProviders:   []string{"anthropic"},
+			snapshot:         []ProviderRef{globalAnthropic},
 			wantDefaultModel: &ModelConfig{Provider: "anthropic", Model: "claude-sonnet-4-5-latest"},
 			wantMisconfig:    false,
-			why:              "control case: anthropic agents normalize the model id via -latest",
+			why:              "control case: env-baked global (no ID) resolves by canonical name; -latest normalization applies",
 		},
 		{
-			name: "case_insensitive_provider_match",
+			name: "legacy_name_match_still_works_for_unsaved_agents",
 			assistants: []types.AssistantConfig{{
 				AgentType:               types.AgentTypeZedExternal,
-				GenerationModelProvider: "OpenAI", // capital O as on prime row
+				GenerationModelProvider: "OpenAI", // capital O — legacy agent stored a name
 				GenerationModel:         "gpt-5.4",
 			}},
-			validProviders:   []string{"openai"},
-			wantDefaultModel: &ModelConfig{Provider: "openai", Model: "OpenAI/gpt-5.4"},
+			snapshot:         []ProviderRef{globalOpenAI}, // global has Name=openai
+			wantDefaultModel: &ModelConfig{Provider: "openai", Model: "openai/gpt-5.4"},
 			wantMisconfig:    false,
-			why:              "provider validation is case-insensitive (OpenAI vs openai)",
+			why:              "legacy fallback: agents stored before ID-based references still resolve via case-insensitive name match",
 		},
 		{
 			name:             "no_assistant_keeps_legacy_default_for_default_app",
 			assistants:       []types.AssistantConfig{},
-			validProviders:   []string{"anthropic"},
+			snapshot:         []ProviderRef{globalAnthropic},
 			wantDefaultModel: &ModelConfig{Provider: "anthropic", Model: "claude-sonnet-4-5-latest"},
 			wantMisconfig:    false,
 			why:              "default-app path (no parent app) keeps the SaaS-friendly default",
 		},
 		{
-			name: "nil_validProviders_skips_validation",
+			name: "nil_snapshot_skips_resolution",
 			assistants: []types.AssistantConfig{{
 				AgentType:               types.AgentTypeZedExternal,
-				GenerationModelProvider: "scaleway",
+				GenerationModelProvider: "scaleway", // runner-side: name passed verbatim
 				GenerationModel:         "qwen3-coder-480b",
 			}},
-			validProviders:   nil, // runner-side path passes nil
+			snapshot:         nil, // runner-side path passes nil
 			wantDefaultModel: &ModelConfig{Provider: "openai", Model: "scaleway/qwen3-coder-480b"},
 			wantMisconfig:    false,
-			why:              "runner-side callers without a manager handle opt out of validation",
+			why:              "runner-side callers without a manager handle opt out of resolution and pass through verbatim",
 		},
 	}
 
@@ -145,7 +167,7 @@ func TestGenerateZedMCPConfig_AgentDefaultModel(t *testing.T) {
 				false,
 				nil,
 				nil,
-				tc.validProviders,
+				tc.snapshot,
 			)
 			assert.NoError(t, err)
 			if !assert.NotNil(t, cfg) || !assert.NotNil(t, cfg.Agent) {

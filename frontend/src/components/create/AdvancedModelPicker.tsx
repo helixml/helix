@@ -111,6 +111,26 @@ interface ModelWithProvider extends TypesOpenAIModel {
   provider_base_url: string;
 }
 
+// Returns the stable reference we persist on the agent record for a given
+// provider: env-baked globals have no DB ID, so we use their canonical name
+// (which is itself immutable). DB-backed providers use their ID, so admin
+// renames are a no-op for the agent.
+const providerRef = (provider: TypesProviderEndpoint | undefined): string => {
+  if (!provider) return '';
+  if (provider.endpoint_type === 'global') return provider.name || '';
+  return provider.id || provider.name || '';
+};
+
+// Matches a stored agent reference against a provider. Tries ID first
+// (current scheme) then falls back to a case-insensitive name match
+// (legacy agents stored before the switch to ID-based references).
+const matchesStoredRef = (provider: TypesProviderEndpoint | undefined, storedRef: string | undefined): boolean => {
+  if (!provider || !storedRef) return false;
+  if (provider.id && provider.id === storedRef) return true;
+  if (provider.name && provider.name.toLowerCase() === storedRef.toLowerCase()) return true;
+  return false;
+};
+
 function fuzzySearch(query: string, models: ModelWithProvider[], modelType: string) {
   return models.filter((model) => {    
     // If provider is togetherai or openai or helix, check model type
@@ -235,29 +255,28 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
           firstModel = allModels.find(model => model.enabled && model.type === effectiveType);
         }
         if (firstModel && firstModel.id) {
-          onSelectModel(firstModel.provider?.name || '', firstModel.id);
+          onSelectModel(providerRef(firstModel.provider), firstModel.id);
         }
-      } 
+      }
       // If a model is selected, check if its type matches current type
       else {
-        // console.log('selected model, finding it from our list', selectedProvider, selectedModelId)
         const currentModel = allModels.find(model => model.id === selectedModelId);
 
         // If current model doesn't match the expected type, select a new one
-        if (currentModel && currentModel.type && currentModel.type !== effectiveType) {          
+        if (currentModel && currentModel.type && currentModel.type !== effectiveType) {
           // Try to find a model of the right type from the same provider first
-          let newModel = allModels.find(model => 
-            model.type === effectiveType && 
-            model.provider?.name === selectedProvider
+          let newModel = allModels.find(model =>
+            model.type === effectiveType &&
+            matchesStoredRef(model.provider, selectedProvider)
           );
-          
+
           // If no model found from the same provider, fall back to any provider
           if (!newModel) {
             newModel = allModels.find(model => model.type === effectiveType);
           }
-          
+
           if (newModel && newModel.id) {
-            onSelectModel(newModel.provider?.name || '', newModel.id);
+            onSelectModel(providerRef(newModel.provider), newModel.id);
           }
         }
       }
@@ -274,16 +293,22 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
     return friendlyName || "Select Model";
   }, [selectedModelId, allModels]);
   
-  // Determine tooltip title based on disabled state - include provider name
+  // Determine tooltip title based on disabled state - include provider name.
+  // Resolve the stored ref (ID or legacy name) against the live providers
+  // list so the tooltip shows the current canonical name even after a rename.
   const tooltipTitle = useMemo(() => {
     if (disabled) return "Model selection is disabled";
     const selectedModel = allModels.find(model => model.id === selectedModelId);
-    const providerName = selectedModel?.provider?.name || selectedProvider;
+    let providerName = selectedModel?.provider?.name;
+    if (!providerName && selectedProvider) {
+      const matched = providers?.find((p: TypesProviderEndpoint) => matchesStoredRef(p, selectedProvider));
+      providerName = matched?.name || selectedProvider;
+    }
     if (providerName) {
       return `${displayModelName} (${providerName})`;
     }
     return displayModelName;
-  }, [disabled, displayModelName, allModels, selectedModelId, selectedProvider]);
+  }, [disabled, displayModelName, allModels, selectedModelId, selectedProvider, providers]);
 
   // Check if monthly token limit is reached
   const isMonthlyLimitReached = useMemo(() => {
@@ -518,7 +543,7 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
 
               const listItemContent = (
                 <ListItem
-                  onClick={() => !isModelDisabled && model.id && handleSelectModel(model.provider?.name || '', model.id)}
+                  onClick={() => !isModelDisabled && model.id && handleSelectModel(providerRef(model.provider), model.id)}
                   disabled={isModelDisabled}
                   sx={{
                     '&:hover': {

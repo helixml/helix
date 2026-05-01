@@ -12,7 +12,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"time"
 
@@ -69,8 +68,11 @@ func (s *HelixAPIServer) applyModelSubstitutions(ctx context.Context, user *type
 		owner = app.OrganizationID
 	}
 
-	// Get available providers for the user
-	availableProviders, err := s.providerManager.ListProviders(ctx, owner)
+	// Get available providers for the user. Use the endpoint-aware listing
+	// so we can match agent records that store the provider's immutable ID
+	// (DB-backed) as well as the canonical name (env-baked globals + legacy
+	// agents that haven't been re-saved yet).
+	availableEndpoints, err := s.providerManager.ListProviderEndpoints(ctx, owner)
 	if err != nil {
 		log.Error().
 			Err(err).
@@ -79,15 +81,24 @@ func (s *HelixAPIServer) applyModelSubstitutions(ctx context.Context, user *type
 		return substitutions, err
 	}
 
-	// Create a set of available providers for fast lookup
+	// Create a set of available providers for fast lookup, indexed by both
+	// ID and (lowercased) Name. Substitution catalogs are name-keyed so
+	// alt.Provider is always a name; the agent-stored value may be an ID,
+	// a canonical global name, or a legacy mixed-case name.
 	providerSet := make(map[types.Provider]bool)
-	for _, provider := range availableProviders {
-		providerSet[provider] = true
+	for _, ep := range availableEndpoints {
+		if ep.ID != "" {
+			providerSet[types.Provider(ep.ID)] = true
+		}
+		if ep.Name != "" {
+			providerSet[types.Provider(ep.Name)] = true
+			providerSet[types.Provider(strings.ToLower(ep.Name))] = true
+		}
 	}
 
 	log.Info().
 		Str("user_id", user.ID).
-		Interface("available_providers", availableProviders).
+		Int("available_endpoints", len(availableEndpoints)).
 		Msg("Available providers for model substitution")
 
 	// Apply substitutions to each assistant
@@ -582,7 +593,7 @@ func (s *HelixAPIServer) validateProvidersAndModels(ctx context.Context, user *t
 		owner = app.OrganizationID
 	}
 
-	providers, err := s.providerManager.ListProviders(ctx, owner)
+	endpoints, err := s.providerManager.ListProviderEndpoints(ctx, owner)
 	if err != nil {
 		log.Error().
 			Err(err).
@@ -593,19 +604,48 @@ func (s *HelixAPIServer) validateProvidersAndModels(ctx context.Context, user *t
 
 	// When creating org apps, also include the user's personal providers
 	if app.OrganizationID != "" {
-		userProviders, err := s.providerManager.ListProviders(ctx, user.ID)
+		userEndpoints, err := s.providerManager.ListProviderEndpoints(ctx, user.ID)
 		if err == nil {
-			for _, p := range userProviders {
-				if !slices.Contains(providers, p) {
-					providers = append(providers, p)
+			seen := make(map[string]struct{}, len(endpoints))
+			for _, ep := range endpoints {
+				key := ep.ID
+				if key == "" {
+					key = "name:" + ep.Name
+				}
+				seen[key] = struct{}{}
+			}
+			for _, ep := range userEndpoints {
+				key := ep.ID
+				if key == "" {
+					key = "name:" + ep.Name
+				}
+				if _, ok := seen[key]; !ok {
+					endpoints = append(endpoints, ep)
+					seen[key] = struct{}{}
 				}
 			}
 		}
 	}
 
+	// Provider references are IDs for DB-backed providers, canonical names
+	// for env-baked globals. Match incoming agent values against either —
+	// case-insensitive on names so a legacy agent that stored "OpenAI" still
+	// matches the canonical "openai" record.
+	providerKnown := func(ref string) bool {
+		for _, ep := range endpoints {
+			if ep.ID != "" && ep.ID == ref {
+				return true
+			}
+			if strings.EqualFold(ep.Name, ref) {
+				return true
+			}
+		}
+		return false
+	}
+
 	log.Info().
 		Str("user_id", user.ID).
-		Interface("available_providers", providers).
+		Int("available_endpoints", len(endpoints)).
 		Msg("Available providers during validation")
 
 	// Helper function to validate a provider/model pair
@@ -625,13 +665,13 @@ func (s *HelixAPIServer) validateProvidersAndModels(ctx context.Context, user *t
 
 		// If provider set, check if we have it
 		if provider != "" && !isAgentMode {
-			if !slices.Contains(providers, types.Provider(provider)) {
+			if !providerKnown(provider) {
 				log.Error().
 					Str("user_id", user.ID).
 					Str("assistant_name", assistantName).
 					Str("field_name", fieldName).
 					Str("provider", provider).
-					Interface("available_providers", providers).
+					Int("available_endpoints", len(endpoints)).
 					Msg("Validation failed: provider not available")
 				return fmt.Errorf("provider '%s' is not available for %s", provider, fieldName)
 			}

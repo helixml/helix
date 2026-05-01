@@ -87,10 +87,14 @@ type ContextServerConfig struct {
 // GenerateZedMCPConfig creates Zed MCP configuration from Helix app config.
 // projectSkills are optional project-level skills that overlay on top of agent skills.
 // oauthTokenGetter is optional - if provided, OAuth tokens will be injected into stdio MCPs.
-// validProviders is an optional list of provider names registered in the Helix provider
-// manager (env-var-baked + DB-backed). When non-nil, the agent's stored provider is
-// validated against it and a missing provider is treated as misconfiguration. Pass nil
-// to skip validation (e.g. on the runner-side path where the manager isn't reachable).
+// providerSnapshot is an optional list of provider records visible to the owner
+// (env-baked globals + DB-backed). When non-nil, the agent's stored provider
+// reference (ID for DB-backed, canonical name for globals) is resolved
+// against it; the resolved provider's current name is used in the model
+// prefix written to settings.json. A missing provider is treated as
+// misconfiguration and Agent.DefaultModel is left unset. Pass nil to skip
+// resolution (e.g. on the runner-side path where the manager isn't
+// reachable) — the stored token is then used verbatim.
 func GenerateZedMCPConfig(
 	ctx context.Context,
 	app *types.App,
@@ -101,7 +105,7 @@ func GenerateZedMCPConfig(
 	koditEnabled bool,
 	projectSkills *types.AssistantSkills,
 	oauthTokenGetter OAuthTokenGetter,
-	validProviders []string,
+	providerSnapshot []ProviderRef,
 ) (*ZedMCPConfig, error) {
 	config := &ZedMCPConfig{
 		ContextServers: make(map[string]ContextServerConfig),
@@ -149,43 +153,50 @@ func GenerateZedMCPConfig(
 	//      anthropic/claude-sonnet-4-5-latest, which made misconfigured
 	//      external agents look like working Claude agents in Zed (Deviqon
 	//      bug, 2026-04-28).
-	//   2. Stale provider name. If the provider was renamed or removed in
-	//      admin, the agent record still holds the old string. We previously
-	//      fed that to mapHelixToZedProvider which encoded it into the
-	//      model name (e.g. "user-ollama/qwen-..."), and Zed sent every
-	//      chat completion with that unroutable string until the proxy
-	//      404'd. The agent should be flagged as misconfigured instead.
+	//   2. Provider deleted. The agent record stores the provider's
+	//      immutable ID (DB-backed) or canonical name (env-baked globals).
+	//      If the DB-backed provider is deleted, ID resolution fails and
+	//      we report misconfig instead of feeding an unroutable string into
+	//      the model prefix. Renames are no-ops because the ID survives.
 	//
-	// In both cases we now leave Agent.DefaultModel unset and log loudly.
-	// Zed will fall back to its built-in default rather than us pretending
-	// to have configured one.
+	// Spec-task entry handlers run the same validator
+	// (ValidateAssistantModelConfig) before transitioning a task to a queued
+	// state, so misconfigured agents should not reach session start. This
+	// block is the defense-in-depth for any caller that bypasses those entry
+	// handlers (default-app session, legacy code paths). When misconfigured,
+	// we leave Agent.DefaultModel unset and log loudly; Zed falls back to
+	// its built-in default.
 	useAgentModel := true
-	switch {
-	case assistant == nil:
+	if assistant == nil {
 		// No assistant means this is the default-app path used for sessions
 		// without a parent app. Keep the legacy SaaS-friendly default so
 		// those sessions still come up.
 		provider = "anthropic"
 		model = "claude-sonnet-4-5-latest"
-	case provider == "" || model == "":
+	} else if reason := ValidateAssistantModelConfig(app, providerSnapshot); reason != "" {
 		log.Error().
 			Str("app_id", app.ID).
 			Str("provider", provider).
 			Str("model", model).
-			Msg("zed-config: assistant has empty provider or model — refusing to write agent.default_model. Reconfigure the agent with a valid provider/model selection.")
+			Msg("zed-config: " + reason + " — refusing to write agent.default_model")
 		useAgentModel = false
 		config.Misconfigured = true
-		config.MisconfigReason = fmt.Sprintf("agent %q is missing a provider or model selection — open the agent settings and pick a provider and model", app.ID)
-	case !providerExists(provider, validProviders):
-		log.Error().
-			Str("app_id", app.ID).
-			Str("provider", provider).
-			Str("model", model).
-			Strs("known_providers", validProviders).
-			Msg("zed-config: assistant references a provider that is not registered (renamed or deleted?) — refusing to write agent.default_model. Reconfigure the agent or restore the provider.")
-		useAgentModel = false
-		config.Misconfigured = true
-		config.MisconfigReason = fmt.Sprintf("agent %q references provider %q which is not registered (renamed or deleted?). Reconfigure the agent or restore the provider.", app.ID, provider)
+		config.MisconfigReason = reason
+	} else if providerSnapshot != nil {
+		// Resolve the stored token (ID or legacy name) to the provider's
+		// current canonical name. settings.json carries the current name;
+		// the agent record carries the immutable ID. Renames flow into
+		// running sessions on the next 30s daemon poll.
+		resolved, byLegacy, _ := ResolveProvider(provider, providerSnapshot)
+		if byLegacy {
+			log.Warn().
+				Str("app_id", app.ID).
+				Str("stored_provider", provider).
+				Str("resolved_name", resolved.Name).
+				Str("resolved_id", resolved.ID).
+				Msg("zed-config: agent stores provider by name (legacy); re-save the agent so it stores the immutable provider ID")
+		}
+		provider = resolved.Name
 	}
 
 	// Configure agent. AlwaysAllowToolActions / ShowOnboarding / AutoOpenPanel
@@ -573,23 +584,98 @@ func normalizeModelIDForZed(modelID string) string {
 	return modelID
 }
 
-// providerExists reports whether name appears in validProviders. Comparison is
-// case-insensitive because some agents store provider names with mixed case
-// (e.g. the "OpenAI" provider on prime is registered as "openai" in the
-// manager). When validProviders is nil/empty we skip the check and return
-// true — callers without a manager handle (e.g. the runner-side code path)
-// pass nil to opt out of validation.
-func providerExists(name string, validProviders []string) bool {
-	if len(validProviders) == 0 {
-		return true
+// ProviderRef is the minimal projection of a provider endpoint that the
+// agent-config code path needs: a stable ID (empty for env-baked globals,
+// which have no DB row) and the current canonical name. Callers build the
+// snapshot from the provider manager's live state (globals + DB-backed user
+// providers visible to the owner).
+//
+// We deliberately store both ID and Name so resolution can be ID-first with
+// a name fallback for legacy agent records that were saved before agents
+// stored IDs. After such a fallback the agent should be re-saved so it picks
+// up the immutable reference.
+type ProviderRef struct {
+	ID   string // empty for env-baked global providers (openai, anthropic, ...)
+	Name string // current canonical name; for DB-backed providers this is the admin-set label
+}
+
+// ResolveProvider matches a stored agent token (an ID for DB-backed providers,
+// the canonical name for globals) against the provider snapshot. ID match
+// wins; if no ID matches, falls back to a case-insensitive name match
+// (legacy agents). The bool return distinguishes a successful resolve
+// (ok=true, byLegacyName=false), a legacy resolve that should be flagged for
+// rewriting (ok=true, byLegacyName=true), and a failed resolve (ok=false).
+//
+// snapshot==nil means "no manager handle" — the runner-side path opts out of
+// resolution this way; callers should treat this as "skip validation, trust
+// the stored value as a name".
+func ResolveProvider(token string, snapshot []ProviderRef) (ref ProviderRef, byLegacyName bool, ok bool) {
+	if snapshot == nil {
+		return ProviderRef{Name: token}, false, true
 	}
-	want := strings.ToLower(name)
-	for _, p := range validProviders {
-		if strings.ToLower(p) == want {
-			return true
+	for _, p := range snapshot {
+		if p.ID != "" && p.ID == token {
+			return p, false, true
 		}
 	}
-	return false
+	want := strings.ToLower(token)
+	for _, p := range snapshot {
+		if strings.EqualFold(p.Name, want) || strings.ToLower(p.Name) == want {
+			byLegacy := p.ID != "" // global with no ID is a normal match, not legacy
+			return p, byLegacy, true
+		}
+	}
+	return ProviderRef{}, false, false
+}
+
+// ValidateAssistantModelConfig checks whether the app's zed_external assistant
+// has a usable provider/model combination given the currently registered
+// providers. Returns the empty string when the configuration is usable;
+// otherwise an operator-friendly message suitable for surfacing in the
+// spec-task UI / API 422 response.
+//
+// snapshot is the list of provider records visible to the owner (env-baked
+// globals + DB-backed). Pass nil to skip provider-existence validation
+// (used by the runner-side path that has no manager handle).
+//
+// Default-app sessions (no parent app, len(Assistants)==0) skip validation —
+// they fall through to the legacy SaaS-friendly default in GenerateZedMCPConfig.
+//
+// Renames: agent records store the provider's immutable ID, so renaming a
+// provider in admin is a no-op for resolution.
+// Deletes: ID lookup fails and we report misconfig.
+func ValidateAssistantModelConfig(app *types.App, snapshot []ProviderRef) string {
+	if app == nil || len(app.Config.Helix.Assistants) == 0 {
+		return ""
+	}
+	var assistant *types.AssistantConfig
+	for i := range app.Config.Helix.Assistants {
+		if app.Config.Helix.Assistants[i].AgentType == types.AgentTypeZedExternal {
+			assistant = &app.Config.Helix.Assistants[i]
+			break
+		}
+	}
+	if assistant == nil {
+		assistant = &app.Config.Helix.Assistants[0]
+	}
+	provider := assistant.GenerationModelProvider
+	if provider == "" {
+		provider = assistant.Provider
+	}
+	model := assistant.GenerationModel
+	if model == "" {
+		model = assistant.Model
+	}
+	if provider == "" || model == "" {
+		return fmt.Sprintf("agent %q is missing a provider or model selection — open the agent settings and pick a provider and model", app.ID)
+	}
+	if snapshot == nil {
+		return ""
+	}
+	if _, _, ok := ResolveProvider(provider, snapshot); !ok {
+		return fmt.Sprintf("agent %q references provider %q which is no longer registered (provider deleted?). Reconfigure the agent or restore the provider.", app.ID, provider)
+	}
+	return ""
 }
 
 // mapHelixToZedProvider maps a Helix provider name to a Zed provider type and formats the model name.

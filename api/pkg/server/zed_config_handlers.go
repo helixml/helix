@@ -135,11 +135,11 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 		// Use empty scopes - the token getter will use whatever scopes the user has
 		return apiServer.oauthManager.GetTokenForTool(ctx, userID, providerName, nil)
 	}
-	validProviders, err := apiServer.listValidProviderNames(ctx, session.Owner)
+	providerSnapshot, err := apiServer.getProviderSnapshot(ctx, session.Owner)
 	if err != nil {
-		log.Warn().Err(err).Str("session_id", sessionID).Msg("zed-config: failed to list providers; provider validation will be skipped")
+		log.Warn().Err(err).Str("session_id", sessionID).Msg("zed-config: failed to list providers; provider resolution will be skipped")
 	}
-	zedConfig, err := external_agent.GenerateZedMCPConfig(ctx, app, session.Owner, sessionID, sandboxAPIURL, helixToken, koditEnabled, projectSkills, oauthTokenGetter, validProviders)
+	zedConfig, err := external_agent.GenerateZedMCPConfig(ctx, app, session.Owner, sessionID, sandboxAPIURL, helixToken, koditEnabled, projectSkills, oauthTokenGetter, providerSnapshot)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to generate Zed config")
 		return nil, system.NewHTTPError500("failed to generate Zed config")
@@ -449,11 +449,11 @@ func (apiServer *HelixAPIServer) getMergedZedSettings(_ http.ResponseWriter, req
 		}
 		return apiServer.oauthManager.GetTokenForTool(ctx, userID, providerName, nil)
 	}
-	validProviders, err := apiServer.listValidProviderNames(ctx, session.Owner)
+	providerSnapshot, err := apiServer.getProviderSnapshot(ctx, session.Owner)
 	if err != nil {
-		log.Warn().Err(err).Str("session_id", sessionID).Msg("zed-config: failed to list providers; provider validation will be skipped")
+		log.Warn().Err(err).Str("session_id", sessionID).Msg("zed-config: failed to list providers; provider resolution will be skipped")
 	}
-	zedConfig, err := external_agent.GenerateZedMCPConfig(ctx, app, session.Owner, sessionID, helixAPIURL, helixToken, apiServer.Cfg.Kodit.Enabled, projectSkills, oauthTokenGetter, validProviders)
+	zedConfig, err := external_agent.GenerateZedMCPConfig(ctx, app, session.Owner, sessionID, helixAPIURL, helixToken, apiServer.Cfg.Kodit.Enabled, projectSkills, oauthTokenGetter, providerSnapshot)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to generate Zed config")
 		return nil, system.NewHTTPError500("failed to generate Zed config")
@@ -650,25 +650,62 @@ func (apiServer *HelixAPIServer) buildCodeAgentConfigFromAssistant(ctx context.C
 	}
 }
 
-// listValidProviderNames returns every provider name registered in the
-// provider manager — both env-var-baked globals and DB-backed user/org
-// providers visible to the given owner. Used to validate that an agent's
-// stored provider snapshot still matches a real provider before we feed it
-// to GenerateZedMCPConfig (Deviqon 2026-04-28: stale provider names were
-// silently encoded into the model string and surfaced as 404s in Zed).
-func (apiServer *HelixAPIServer) listValidProviderNames(ctx context.Context, owner string) ([]string, error) {
+// getProviderSnapshot returns a slice of ProviderRef summarising every
+// provider visible to the owner — env-baked globals (ID="", Name=canonical)
+// plus DB-backed user/org records (ID set, Name=current admin label). Used
+// by zed-config code paths to resolve an agent's stored provider reference
+// to its current canonical name. Returning nil from this helper (e.g. when
+// the manager isn't wired) tells GenerateZedMCPConfig to skip resolution.
+func (apiServer *HelixAPIServer) getProviderSnapshot(ctx context.Context, owner string) ([]external_agent.ProviderRef, error) {
 	if apiServer.providerManager == nil {
 		return nil, nil
 	}
-	providers, err := apiServer.providerManager.ListProviders(ctx, owner)
+	endpoints, err := apiServer.providerManager.ListProviderEndpoints(ctx, owner)
 	if err != nil {
 		return nil, err
 	}
-	names := make([]string, 0, len(providers))
-	for _, p := range providers {
-		names = append(names, string(p))
+	refs := make([]external_agent.ProviderRef, 0, len(endpoints))
+	for _, ep := range endpoints {
+		refs = append(refs, external_agent.ProviderRef{ID: ep.ID, Name: ep.Name})
 	}
-	return names, nil
+	return refs, nil
+}
+
+// validateSpecTaskAgentConfig pre-flights the agent's provider/model snapshot
+// against the registered providers visible to the actor. Returns a
+// human-readable reason (suitable for HTTP 422) when the agent is
+// misconfigured, or "" when usable. Used by spec-task entry handlers
+// (start-planning, approve-specs) to refuse to queue a task whose agent
+// would fail at session start. Without this, a stale agent record would
+// spawn a desktop that boots but can't reach a routable model — the user
+// has to dig through API logs to find the cause.
+//
+// Resolves the agent the same way the spec-driven task service does:
+// task.HelixAppID first, falling back to project.DefaultHelixAppID. If
+// neither is set, returns "" — the absent-agent failure is surfaced
+// downstream with its own dedicated message.
+func (apiServer *HelixAPIServer) validateSpecTaskAgentConfig(ctx context.Context, task *types.SpecTask, actorID string) (string, error) {
+	appID := task.HelixAppID
+	if appID == "" {
+		project, err := apiServer.Store.GetProject(ctx, task.ProjectID)
+		if err != nil {
+			return "", fmt.Errorf("failed to load project: %w", err)
+		}
+		appID = project.DefaultHelixAppID
+	}
+	if appID == "" {
+		return "", nil
+	}
+	app, err := apiServer.Store.GetApp(ctx, appID)
+	if err != nil {
+		return "", fmt.Errorf("failed to load agent app %s: %w", appID, err)
+	}
+	snapshot, err := apiServer.getProviderSnapshot(ctx, actorID)
+	if err != nil {
+		log.Warn().Err(err).Str("app_id", appID).Msg("spec-task: failed to list providers; skipping agent config validation")
+		return "", nil
+	}
+	return external_agent.ValidateAssistantModelConfig(app, snapshot), nil
 }
 
 // checkSpecTaskKoditIndexing checks if a SpecTask's project has any repositories with Kodit indexing enabled.
