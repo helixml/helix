@@ -40,7 +40,7 @@ import (
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/quota"
 	"github.com/helixml/helix/api/pkg/revdial"
-	"github.com/helixml/helix/api/pkg/scheduler"
+	"github.com/helixml/helix/api/pkg/inferencerouter"
 	"github.com/helixml/helix/api/pkg/server/spa"
 	"github.com/helixml/helix/api/pkg/services"
 	"github.com/helixml/helix/api/pkg/store"
@@ -117,7 +117,7 @@ type HelixAPIServer struct {
 	knowledgeManager          knowledge.Manager
 	skillManager              *api_skill.Manager
 	router                    *mux.Router
-	scheduler                 *scheduler.Scheduler
+	inferenceRouter           *inferencerouter.Router
 	pingService               *version.PingService
 	authenticator             auth.Authenticator
 	oidcClient                auth.OIDC
@@ -170,7 +170,6 @@ func NewServer(
 	appController *controller.Controller,
 	janitor *janitor.Janitor,
 	knowledgeManager knowledge.Manager,
-	scheduler *scheduler.Scheduler,
 	pingService *version.PingService,
 	oauthManager *oauth.Manager,
 	avatarsBucket *blob.Bucket,
@@ -339,8 +338,10 @@ func NewServer(
 		},
 		knowledgeManager:  knowledgeManager,
 		skillManager:      skillManager,
-		scheduler:         scheduler,
+		inferenceRouter:   inferencerouter.NewRouter(),
 		pingService:       pingService,
+		// Note: inferenceServer's router wired below post-construction
+		// (avoids order-of-init issues with the apiServer literal).
 		authenticator:     authenticator,
 		oidcClient:        oidcClient,
 		oauthManager:      oauthManager,
@@ -363,6 +364,14 @@ func NewServer(
 		sampleProjectCodeService: services.NewSampleProjectCodeService(),
 		connman:                  connectionManager,
 		auditLogService:          services.NewAuditLogService(store),
+	}
+
+	// Sandbox-absorbs-runner: wire the inference router into the
+	// internal helix server so it picks sandboxes by model name. Safe
+	// to call even when no sandboxes are connected — the router returns
+	// ErrNoRunner and enqueueRequest falls back to the scheduler path.
+	if apiServer.inferenceServer != nil {
+		apiServer.inferenceServer.SetInferenceRouter(apiServer.inferenceRouter)
 	}
 
 	contextMappings := &controller.ExternalAgentRequestContextMappings{
@@ -1020,7 +1029,8 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/organizations/{id}/teams/{team_id}/members", apiServer.addTeamMember).Methods(http.MethodPost)
 	authRouter.HandleFunc("/organizations/{id}/teams/{team_id}/members/{user_id}", apiServer.removeTeamMember).Methods(http.MethodDelete)
 
-	adminRouter.HandleFunc("/dashboard", system.DefaultWrapper(apiServer.dashboard)).Methods(http.MethodGet)
+	// Sandbox-absorbs-runner pivot: legacy /dashboard endpoint gone — UI
+	// reads SandboxInstance + RunnerProfile + /v1/models directly.
 	adminRouter.HandleFunc("/organization-domains", apiServer.listOrganizationDomains).Methods(http.MethodGet)
 	adminRouter.HandleFunc("/users", system.DefaultWrapper(apiServer.usersList)).Methods(http.MethodGet)
 	adminRouter.HandleFunc("/users", system.DefaultWrapper(apiServer.createUser)).Methods(http.MethodPost)
@@ -1031,19 +1041,45 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 
 	adminRouter.HandleFunc("/admin/orgs", apiServer.adminListOrganizations).Methods(http.MethodGet)
 
-	adminRouter.HandleFunc("/scheduler/heartbeats", system.DefaultWrapper(apiServer.getSchedulerHeartbeats)).Methods(http.MethodGet)
+	// Sandbox-absorbs-runner pivot: /scheduler/heartbeats and /slots
+	// endpoints removed — no scheduler, no slots.
 	adminRouter.HandleFunc("/llm_calls", system.Wrapper(apiServer.listLLMCalls)).Methods(http.MethodGet)
-	authRouter.HandleFunc("/slots/{slot_id}", system.DefaultWrapper(apiServer.deleteSlot)).Methods(http.MethodDelete)
 
-	// Logs endpoints - proxy to runner
-	adminRouter.HandleFunc("/logs", apiServer.getLogsSummary).Methods(http.MethodGet)
-	adminRouter.HandleFunc("/logs/{slot_id}", apiServer.getSlotLogs).Methods(http.MethodGet)
+	// Runner profiles (compose-based runner replacement). All routes are
+	// admin-only — operators define and assign profiles.
+	adminRouter.HandleFunc("/runner-profiles", apiServer.listRunnerProfiles).Methods(http.MethodGet)
+	adminRouter.HandleFunc("/runner-profiles", apiServer.createRunnerProfile).Methods(http.MethodPost)
+	adminRouter.HandleFunc("/runner-profiles/{id}", apiServer.getRunnerProfile).Methods(http.MethodGet)
+	adminRouter.HandleFunc("/runner-profiles/{id}", apiServer.updateRunnerProfile).Methods(http.MethodPut)
+	adminRouter.HandleFunc("/runner-profiles/{id}", apiServer.deleteRunnerProfile).Methods(http.MethodDelete)
+	adminRouter.HandleFunc("/runners/{runner_id}/compatible-profiles", apiServer.listCompatibleRunnerProfiles).Methods(http.MethodGet)
+	adminRouter.HandleFunc("/runners/{runner_id}/assignment", apiServer.getRunnerAssignment).Methods(http.MethodGet)
+	adminRouter.HandleFunc("/runners/{runner_id}/assign-profile", apiServer.assignRunnerProfile).Methods(http.MethodPost)
+	adminRouter.HandleFunc("/runners/{runner_id}/clear-profile", apiServer.clearRunnerProfile).Methods(http.MethodPost)
 
-	// Helix models
+	// Runner-token-authenticated read paths so the sandbox-side compose-
+	// manager can fetch its own assignment + profile content using the
+	// shared runner token. Distinct paths avoid colliding with the
+	// admin-only /runners/{id}/... namespace (gorilla/mux matches the
+	// admin subrouter first and rejects the runner token).
+	runnerRouter.HandleFunc("/runner/{runner_id}/assignment", apiServer.getRunnerAssignment).Methods(http.MethodGet)
+	runnerRouter.HandleFunc("/runner/profiles/{id}", apiServer.getRunnerProfile).Methods(http.MethodGet)
+
+	// OpenAI-compatible /v1/models — union of models across runners whose
+	// active profile is `running`. No auth on the read; matches OpenAI's
+	// public-list convention. The chat/embeddings/images endpoints (which
+	// stream actual inference) keep their existing auth.
+	authRouter.HandleFunc("/v1/models", apiServer.listInferenceModels).Methods(http.MethodGet)
+
+	// Sandbox-absorbs-runner pivot: /logs and per-slot logs endpoints gone
+	// (they used the runner's slot CRUD API). Per-service compose logs
+	// will be exposed via a future /api/v1/runner/{id}/services/{name}/logs
+	// route on the runnerRouter.
+
+	// Helix models — unified registry: list combines store metadata with
+	// available-from-router models (see profile-derived integration).
 	authRouter.HandleFunc("/helix-models", apiServer.listHelixModels).Methods(http.MethodGet)
-	// Memory estimation endpoints
-	authRouter.HandleFunc("/helix-models/memory-estimate", apiServer.estimateModelMemory).Methods(http.MethodGet)
-	authRouter.HandleFunc("/helix-models/memory-estimates", apiServer.listModelMemoryEstimates).Methods(http.MethodGet)
+	// Memory-estimate endpoints removed with the scheduler.
 	// only admins can create, update, or delete helix models
 	adminRouter.HandleFunc("/helix-models", apiServer.createHelixModel).Methods(http.MethodPost)
 	adminRouter.HandleFunc("/helix-models/{id:.*}", apiServer.updateHelixModel).Methods(http.MethodPut)

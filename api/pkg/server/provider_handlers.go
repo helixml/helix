@@ -159,6 +159,17 @@ func (s *HelixAPIServer) listProviderEndpoints(rw http.ResponseWriter, r *http.R
 			continue
 		}
 
+		// Sandbox-absorbs-runner equivalent of the old runnerController
+		// gate: skip the Helix provider when no sandbox is currently
+		// serving any model. Otherwise the picker offers an option that
+		// returns "no runner has model X" for every request, which is a
+		// worse UX than not advertising it at all.
+		if provider == types.ProviderHelix && s.inferenceRouter != nil {
+			if len(s.inferenceRouter.AvailableModels()) == 0 {
+				continue
+			}
+		}
+
 		var baseURL string
 		switch provider {
 		case types.ProviderOpenAI:

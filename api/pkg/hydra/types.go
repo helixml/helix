@@ -67,6 +67,19 @@ type CreateDevContainerRequest struct {
 	// GPU settings
 	GPUVendor string `json:"gpu_vendor"` // "nvidia", "amd", "intel", ""
 
+	// GPUIndex pins this dev container to a specific GPU on a multi-GPU
+	// host. Counted starting at 0. Pointer so omission means "no pin"
+	// (current behaviour: all GPUs visible) — preserves backwards
+	// compatibility for callers that don't yet pass a value. When set:
+	//   nvidia: NVIDIA_VISIBLE_DEVICES=<n> (instead of =all)
+	//   amd:    only /dev/dri/renderD<128+n> mounted (instead of all)
+	//   intel:  only /dev/dri/renderD<128+n> mounted
+	// HELIX_GPU_INDEX=<n> is also set in the container env so
+	// detect-render-node.sh picks the matching card device for Mutter
+	// + GStreamer encoder. See Decision 15 in the sandbox-absorbs-runner
+	// design doc.
+	GPUIndex *int `json:"gpu_index,omitempty"`
+
 	// Docker socket to use (from Hydra isolation or default sandbox dockerd)
 	// If empty, uses the sandbox's default Docker socket
 	DockerSocket string `json:"docker_socket,omitempty"`
