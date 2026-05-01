@@ -2491,6 +2491,21 @@ func (mr *MockStoreMockRecorder) GetInteractionsSummary(ctx, sessionID, generati
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetInteractionsSummary", reflect.TypeOf((*MockStore)(nil).GetInteractionsSummary), ctx, sessionID, generationID)
 }
 
+// GetLatestInteractionsForSessions mocks base method.
+func (m *MockStore) GetLatestInteractionsForSessions(ctx context.Context, sessionIDs []string) (map[string]*types.Interaction, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetLatestInteractionsForSessions", ctx, sessionIDs)
+	ret0, _ := ret[0].(map[string]*types.Interaction)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetLatestInteractionsForSessions indicates an expected call of GetLatestInteractionsForSessions.
+func (mr *MockStoreMockRecorder) GetLatestInteractionsForSessions(ctx, sessionIDs any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetLatestInteractionsForSessions", reflect.TypeOf((*MockStore)(nil).GetLatestInteractionsForSessions), ctx, sessionIDs)
+}
+
 // GetKnowledge mocks base method.
 func (m *MockStore) GetKnowledge(ctx context.Context, id string) (*types.Knowledge, error) {
 	m.ctrl.T.Helper()
@@ -4924,6 +4939,20 @@ func (mr *MockStoreMockRecorder) LookupKnowledge(ctx, q any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LookupKnowledge", reflect.TypeOf((*MockStore)(nil).LookupKnowledge), ctx, q)
 }
 
+// MarkPromptAsCrashed mocks base method.
+func (m *MockStore) MarkPromptAsCrashed(ctx context.Context, promptID, errorMsg string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "MarkPromptAsCrashed", ctx, promptID, errorMsg)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// MarkPromptAsCrashed indicates an expected call of MarkPromptAsCrashed.
+func (mr *MockStoreMockRecorder) MarkPromptAsCrashed(ctx, promptID, errorMsg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkPromptAsCrashed", reflect.TypeOf((*MockStore)(nil).MarkPromptAsCrashed), ctx, promptID, errorMsg)
+}
+
 // MarkPromptAsFailed mocks base method.
 func (m *MockStore) MarkPromptAsFailed(ctx context.Context, promptID, errorMsg string) error {
 	m.ctrl.T.Helper()
@@ -5021,6 +5050,21 @@ func (m *MockStore) RequeueBouncedPrompt(ctx context.Context, sessionID string) 
 func (mr *MockStoreMockRecorder) RequeueBouncedPrompt(ctx, sessionID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RequeueBouncedPrompt", reflect.TypeOf((*MockStore)(nil).RequeueBouncedPrompt), ctx, sessionID)
+}
+
+// ResetCrashedPromptsForSession mocks base method.
+func (m *MockStore) ResetCrashedPromptsForSession(ctx context.Context, sessionID string) (int, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ResetCrashedPromptsForSession", ctx, sessionID)
+	ret0, _ := ret[0].(int)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ResetCrashedPromptsForSession indicates an expected call of ResetCrashedPromptsForSession.
+func (mr *MockStoreMockRecorder) ResetCrashedPromptsForSession(ctx, sessionID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ResetCrashedPromptsForSession", reflect.TypeOf((*MockStore)(nil).ResetCrashedPromptsForSession), ctx, sessionID)
 }
 
 // ResetRunningExecutions mocks base method.

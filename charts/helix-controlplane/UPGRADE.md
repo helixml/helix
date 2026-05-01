@@ -1,5 +1,13 @@
 # Upgrade Guide
 
+## Upgrading to 2.11.0-rc2
+
+`helm upgrade` removes the orphaned Bitnami `postgresql` StatefulSet left behind by earlier releases. No data risk. To reclaim storage, manually delete the orphaned PVC after upgrade:
+
+```bash
+kubectl delete pvc data-<release>-postgresql-0 -n <namespace>
+```
+
 ## Upgrading to 2.9.0
 
 Chart version 2.9.0 replaces the Bitnami PostgreSQL subchart with the official `postgres:17-alpine` image. This is a **breaking change** for existing installations.

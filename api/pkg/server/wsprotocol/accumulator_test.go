@@ -394,3 +394,81 @@ func TestSanitizeForPostgres(t *testing.T) {
 	clean := "nothing to strip here"
 	assert.Equal(t, clean, sanitize.ForPostgres(clean))
 }
+
+// Reproduces the cross-interaction leak surfaced by the e2e RESPONSE ENTRIES
+// ISOLATION VALIDATION step in Drone build #1024 (tag 2.11.0).
+//
+// Scenario:
+//   - Session has interaction A with a single assistant entry (msg_id "1").
+//   - Interaction A completes; user submits a follow-up so interaction B
+//     starts with a fresh accumulator.
+//   - Zed's flush_streaming_throttle replays ALL entries in the ACP thread on
+//     every event, so B's accumulator receives msg_id "1" again before its
+//     own msg_id "3" arrives.
+//   - Without the prior-id filter, msg_id "1" lands in B's response_entries.
+func TestPriorMessageIDsFilterPreventsCrossInteractionLeak(t *testing.T) {
+	// Interaction B's accumulator is told that msg_id "1" belongs to A.
+	b := &MessageAccumulator{}
+	b.SetPriorMessageIDs([]string{"1"})
+
+	// Zed replays A's entry, then sends B's actual entry.
+	b.AddMessageWithType("1", "interaction A content (replayed)", "text")
+	b.AddMessageWithType("3", "interaction B real content", "text")
+
+	entries := b.Entries()
+	require.Len(t, entries, 1, "msg_id 1 must not leak into interaction B")
+	assert.Equal(t, "3", entries[0].MessageID)
+	assert.Equal(t, "interaction B real content", entries[0].Content)
+	assert.Equal(t, "3", b.LastMessageID, "LastMessageID must reflect B's own msg only")
+
+	// Rebuild() must not include the leaked content either.
+	b.Rebuild()
+	assert.Equal(t, "interaction B real content", b.Content)
+	assert.Equal(t, 0, b.Offset)
+}
+
+// Without SetPriorMessageIDs the leak occurs - this is the bug being fixed.
+// The test pins the legacy behaviour so removing the filter would fail loudly.
+func TestPriorMessageIDsLeakWhenFilterUnset(t *testing.T) {
+	b := &MessageAccumulator{}
+	b.AddMessageWithType("1", "leaked from A", "text")
+	b.AddMessageWithType("3", "B content", "text")
+
+	entries := b.Entries()
+	require.Len(t, entries, 2,
+		"without SetPriorMessageIDs the leak is unfiltered (documents the bug)")
+	assert.Equal(t, "1", entries[0].MessageID)
+	assert.Equal(t, "3", entries[1].MessageID)
+}
+
+// SetPriorMessageIDs is additive across calls and tolerates empty/duplicate ids.
+func TestSetPriorMessageIDsIdempotent(t *testing.T) {
+	a := &MessageAccumulator{}
+	a.SetPriorMessageIDs(nil)            // no-op
+	a.SetPriorMessageIDs([]string{""})   // empty id ignored
+	a.SetPriorMessageIDs([]string{"1"})
+	a.SetPriorMessageIDs([]string{"1", "2"}) // dedup
+	a.AddMessage("1", "drop")
+	a.AddMessage("2", "drop")
+	a.AddMessage("3", "keep")
+	entries := a.Entries()
+	require.Len(t, entries, 1)
+	assert.Equal(t, "3", entries[0].MessageID)
+}
+
+// The filter must hold against repeated streaming updates for a prior id
+// (Zed sends incremental content for the same msg_id many times during a turn).
+func TestPriorMessageIDsFilterStableUnderStreaming(t *testing.T) {
+	a := &MessageAccumulator{}
+	a.SetPriorMessageIDs([]string{"1"})
+
+	for _, chunk := range []string{"He", "Hel", "Hello", "Hello world"} {
+		a.AddMessageWithType("1", chunk, "text")
+	}
+	a.AddMessageWithType("3", "B's reply", "text")
+
+	entries := a.Entries()
+	require.Len(t, entries, 1)
+	assert.Equal(t, "3", entries[0].MessageID)
+	assert.Equal(t, "B's reply", entries[0].Content)
+}

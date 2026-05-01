@@ -7642,6 +7642,12 @@ definitions:
       billing_enabled:
         description: Charging for usage
         type: boolean
+      default_chat_system_prompt:
+        description: |-
+          DefaultChatSystemPrompt is the system prompt the platform applies to
+          direct model chats when the user has not customised one. Surfaced to
+          the frontend so the chat-settings page can prefill the textbox.
+        type: string
       deployment_id:
         type: string
       disable_llm_call_logging:
@@ -10098,6 +10104,28 @@ definitions:
         type: boolean
       is_admin:
         type: boolean
+    type: object
+  types.UserChatSettings:
+    properties:
+      frequency_penalty:
+        type: number
+      max_tokens:
+        type: integer
+      presence_penalty:
+        type: number
+      system_prompt:
+        type: string
+      system_prompt_enabled:
+        description: |-
+          SystemPromptEnabled toggles whether any system prompt at all is sent
+          to the model. Pointer so nil means "not set" and we fall back to the
+          default-on behaviour. When explicitly false, no system prompt is sent
+          regardless of SystemPrompt.
+        type: boolean
+      temperature:
+        type: number
+      top_p:
+        type: number
     type: object
   types.UserGuidelinesResponse:
     properties:
@@ -18921,6 +18949,53 @@ paths:
       summary: Get streaming connection info for a session
       tags:
       - sessions
+  /api/v1/sessions/{id}/restart-agent:
+    post:
+      description: |-
+        Clears the dead acp_thread_id on the session and resets crashed prompts
+        (those marked by MarkPromptAsCrashed when the Claude Agent process exited)
+        back to pending. The next dispatch sends with empty acp_thread_id, causing
+        Zed to create a fresh thread + Claude Agent process. Requires the session
+        to be an external Zed agent. Returns the count of prompts that were reset.
+      parameters:
+      - description: Session ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Restart Zed thread after a Claude Agent crash
+      tags:
+      - Sessions
   /api/v1/sessions/{id}/resume:
     post:
       description: Restarts the external agent container for a session that has been
@@ -20884,6 +20959,58 @@ paths:
       summary: Get user stats (admin only)
       tags:
       - users
+  /api/v1/users/me/chat-settings:
+    get:
+      description: Get the current user's default chat settings (applied when chatting
+        without an app)
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.UserChatSettings'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Get user chat settings
+      tags:
+      - Users
+    put:
+      consumes:
+      - application/json
+      description: Update the current user's default chat settings (system prompt
+        + LLM parameters used when chatting without an app)
+      parameters:
+      - description: Chat settings to persist
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.UserChatSettings'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.UserChatSettings'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Update user chat settings
+      tags:
+      - Users
   /api/v1/users/me/guidelines:
     get:
       description: Get the current user's personal workspace guidelines

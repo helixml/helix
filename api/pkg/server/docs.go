@@ -13350,6 +13350,71 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/sessions/{id}/restart-agent": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Clears the dead acp_thread_id on the session and resets crashed prompts\n(those marked by MarkPromptAsCrashed when the Claude Agent process exited)\nback to pending. The next dispatch sends with empty acp_thread_id, causing\nZed to create a fresh thread + Claude Agent process. Requires the session\nto be an external Zed agent. Returns the count of prompts that were reset.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sessions"
+                ],
+                "summary": "Restart Zed thread after a Claude Agent crash",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/sessions/{id}/resume": {
             "post": {
                 "security": [
@@ -16286,6 +16351,86 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/types.User"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/users/me/chat-settings": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get the current user's default chat settings (applied when chatting without an app)",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Users"
+                ],
+                "summary": "Get user chat settings",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.UserChatSettings"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Update the current user's default chat settings (system prompt + LLM parameters used when chatting without an app)",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Users"
+                ],
+                "summary": "Update user chat settings",
+                "parameters": [
+                    {
+                        "description": "Chat settings to persist",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.UserChatSettings"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.UserChatSettings"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
                         }
                     }
                 }
@@ -27911,6 +28056,10 @@ const docTemplate = `{
                     "description": "Charging for usage",
                     "type": "boolean"
                 },
+                "default_chat_system_prompt": {
+                    "description": "DefaultChatSystemPrompt is the system prompt the platform applies to\ndirect model chats when the user has not customised one. Surfaced to\nthe frontend so the chat-settings page can prefill the textbox.",
+                    "type": "string"
+                },
                 "deployment_id": {
                     "type": "string"
                 },
@@ -31333,6 +31482,33 @@ const docTemplate = `{
                 },
                 "is_admin": {
                     "type": "boolean"
+                }
+            }
+        },
+        "types.UserChatSettings": {
+            "type": "object",
+            "properties": {
+                "frequency_penalty": {
+                    "type": "number"
+                },
+                "max_tokens": {
+                    "type": "integer"
+                },
+                "presence_penalty": {
+                    "type": "number"
+                },
+                "system_prompt": {
+                    "type": "string"
+                },
+                "system_prompt_enabled": {
+                    "description": "SystemPromptEnabled toggles whether any system prompt at all is sent\nto the model. Pointer so nil means \"not set\" and we fall back to the\ndefault-on behaviour. When explicitly false, no system prompt is sent\nregardless of SystemPrompt.",
+                    "type": "boolean"
+                },
+                "temperature": {
+                    "type": "number"
+                },
+                "top_p": {
+                    "type": "number"
                 }
             }
         },

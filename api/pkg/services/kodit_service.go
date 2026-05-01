@@ -7,7 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"image/png"
+	"image/jpeg"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -947,7 +947,7 @@ func (s *KoditService) resolveFileResults(ctx context.Context, enrichments []enr
 	return results, nil
 }
 
-// RenderPageImage rasterizes a document page and returns the PNG bytes.
+// RenderPageImage rasterizes a document page and returns JPEG bytes.
 func (s *KoditService) RenderPageImage(ctx context.Context, koditRepoID int64, filePath string, page int) ([]byte, error) {
 	if !s.IsEnabled() {
 		return nil, fmt.Errorf("kodit service not enabled")
@@ -984,8 +984,8 @@ func (s *KoditService) RenderPageImage(ctx context.Context, koditRepoID int64, f
 	}
 
 	var buf bytes.Buffer
-	if err := png.Encode(&buf, img); err != nil {
-		return nil, fmt.Errorf("encode png: %w", err)
+	if err := jpeg.Encode(&buf, img, &jpeg.Options{Quality: 80}); err != nil {
+		return nil, fmt.Errorf("encode jpeg: %w", err)
 	}
 
 	return buf.Bytes(), nil
