@@ -102,6 +102,15 @@ type Interaction struct {
 	// auto-wake interaction itself records which retry attempt it is.
 	// See design/2026-04-25-zed-claude-async-event-flush-on-user-input.md.
 	AutoWakeCount int `json:"auto_wake_count" gorm:"default:0;not null"`
+
+	// PromptID links this interaction back to the prompt_history_entry that
+	// created it (when the interaction was dispatched by the queue, as opposed
+	// to being initiated by Zed when the user types in the IDE). Empty for
+	// Zed-initiated interactions. Used by handleMessageAdded /
+	// handleMessageCompleted to mark the originating prompt as 'sent' without
+	// relying on an in-memory map that doesn't survive API restarts. See
+	// design/2026-04-30-queue-and-other-stuck-state-bugs.md.
+	PromptID string `json:"prompt_id,omitempty" gorm:"index"`
 }
 
 type FeedbackRequest struct {

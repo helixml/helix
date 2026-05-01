@@ -752,6 +752,14 @@ type Store interface {
 	// next_retry_at=NULL, error_message=''. Returns the number of prompts reset.
 	// Called when the user clicks Restart after a Claude Agent crash.
 	ResetCrashedPromptsForSession(ctx context.Context, sessionID string) (int, error)
+	// ReconcileStuckSendingPrompts finds prompt_history_entries that are stuck in
+	// 'sending' state (the in-memory link from interaction → prompt was lost
+	// before MarkPromptAsSent fired — historically caused by API restart or any
+	// of the dispatch-failure paths that orphaned the mapping) and marks them
+	// 'sent' if their associated interaction has reached state='complete'. Called
+	// once at server startup as a one-shot janitor; idempotent and safe to re-run.
+	// Returns the number of prompts reconciled.
+	ReconcileStuckSendingPrompts(ctx context.Context) (int, error)
 	// RequeueBouncedPrompt finds the most recent "sent" prompt for a session and marks
 	// it as "failed" so the retry mechanism picks it up. Used when message_completed
 	// arrives with an empty response (bounce).
