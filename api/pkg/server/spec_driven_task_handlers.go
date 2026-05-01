@@ -438,6 +438,19 @@ func (s *HelixAPIServer) approveSpecs(w http.ResponseWriter, r *http.Request) {
 				log.Warn().Err(err).Str("task_id", taskID).Msg("Non-OAuthRequired error validating approver OAuth; proceeding with approval")
 			}
 		}
+
+		// Refuse to queue implementation if the agent's provider/model
+		// snapshot is stale or empty — same backstop as start-planning, so
+		// post-spec approval can't sneak past with a broken config.
+		if reason, vErr := s.validateSpecTaskAgentConfig(ctx, existingTask, user.ID); vErr != nil {
+			log.Warn().Err(vErr).Str("task_id", taskID).Msg("Failed to pre-validate agent config; proceeding with approval")
+		} else if reason != "" {
+			writeResponse(w, map[string]interface{}{
+				"error":   "agent_misconfigured",
+				"message": reason,
+			}, http.StatusUnprocessableEntity)
+			return
+		}
 	}
 
 	now := time.Now()
@@ -856,6 +869,20 @@ func (s *HelixAPIServer) startPlanning(w http.ResponseWriter, r *http.Request) {
 					Msg("Non-OAuthRequired error validating planner OAuth; proceeding with planning")
 			}
 		}
+	}
+
+	// Refuse to queue if the agent's provider/model snapshot is stale or
+	// empty — otherwise the orchestrator would spawn a desktop that boots
+	// fine but can't reach a routable model, and the user has to dig
+	// through API logs to find the cause.
+	if reason, vErr := s.validateSpecTaskAgentConfig(ctx, task, user.ID); vErr != nil {
+		log.Warn().Err(vErr).Str("task_id", taskID).Msg("Failed to pre-validate agent config; proceeding with planning")
+	} else if reason != "" {
+		writeResponse(w, map[string]interface{}{
+			"error":   "agent_misconfigured",
+			"message": reason,
+		}, http.StatusUnprocessableEntity)
+		return
 	}
 
 	task.PlanningOptions = opts

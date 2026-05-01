@@ -322,8 +322,8 @@ func TestApplyModelSubstitutions(t *testing.T) {
 	t.Run("substitutes model when provider unavailable", func(t *testing.T) {
 		// Mock provider manager to return only "helix" as available
 		mockProviderManager.EXPECT().
-			ListProviders(ctx, user.ID).
-			Return([]types.Provider{types.ProviderHelix}, nil)
+			ListProviderEndpoints(ctx, user.ID).
+			Return([]*types.ProviderEndpoint{{Name: "helix"}}, nil)
 
 		app := &types.App{
 			Config: types.AppConfig{
@@ -356,8 +356,8 @@ func TestApplyModelSubstitutions(t *testing.T) {
 	t.Run("preserves all other fields during substitution", func(t *testing.T) {
 		// Mock provider manager to return only "helix" as available
 		mockProviderManager.EXPECT().
-			ListProviders(ctx, user.ID).
-			Return([]types.Provider{types.ProviderHelix}, nil)
+			ListProviderEndpoints(ctx, user.ID).
+			Return([]*types.ProviderEndpoint{{Name: "helix"}}, nil)
 
 		// Create an assistant with all possible fields populated
 		originalAssistant := types.AssistantConfig{
@@ -430,8 +430,8 @@ func TestApplyModelSubstitutions(t *testing.T) {
 	t.Run("preserves original values when no substitution needed", func(t *testing.T) {
 		// Mock provider manager to return "together" as available
 		mockProviderManager.EXPECT().
-			ListProviders(ctx, user.ID).
-			Return([]types.Provider{"together"}, nil)
+			ListProviderEndpoints(ctx, user.ID).
+			Return([]*types.ProviderEndpoint{{Name: "together"}}, nil)
 
 		originalAssistant := types.AssistantConfig{
 			Name:                 "test-assistant",
@@ -465,8 +465,8 @@ func TestApplyModelSubstitutions(t *testing.T) {
 	t.Run("handles multiple assistants independently", func(t *testing.T) {
 		// Mock provider manager to return only "helix" as available
 		mockProviderManager.EXPECT().
-			ListProviders(ctx, user.ID).
-			Return([]types.Provider{types.ProviderHelix}, nil)
+			ListProviderEndpoints(ctx, user.ID).
+			Return([]*types.ProviderEndpoint{{Name: "helix"}}, nil)
 
 		app := &types.App{
 			Config: types.AppConfig{
@@ -535,8 +535,8 @@ func TestCreateAppWithModelSubstitutions(t *testing.T) {
 
 	// Mock provider manager to return only "helix" as available (forcing substitution)
 	mockProviderManager.EXPECT().
-		ListProviders(ctx, user.ID).
-		Return([]types.Provider{types.ProviderHelix}, nil)
+		ListProviderEndpoints(ctx, user.ID).
+		Return([]*types.ProviderEndpoint{{Name: "helix"}}, nil)
 
 	app := &types.App{
 		Config: types.AppConfig{
@@ -603,8 +603,8 @@ func TestApplyModelSubstitutions_AgentMode(t *testing.T) {
 
 	// Mock provider manager to return only "helix" as available
 	mockProviderManager.EXPECT().
-		ListProviders(ctx, user.ID).
-		Return([]types.Provider{types.ProviderHelix}, nil)
+		ListProviderEndpoints(ctx, user.ID).
+		Return([]*types.ProviderEndpoint{{Name: "helix"}}, nil)
 
 	app := &types.App{
 		Config: types.AppConfig{
@@ -698,8 +698,8 @@ func TestApplyModelSubstitutions_AgentModePartialSubstitution(t *testing.T) {
 
 	// Mock provider manager to return "helix" and "anthropic" as available
 	mockProviderManager.EXPECT().
-		ListProviders(ctx, user.ID).
-		Return([]types.Provider{types.ProviderHelix, types.ProviderAnthropic}, nil)
+		ListProviderEndpoints(ctx, user.ID).
+		Return([]*types.ProviderEndpoint{{Name: "helix"}, {Name: "anthropic"}}, nil)
 
 	app := &types.App{
 		Config: types.AppConfig{
@@ -802,8 +802,8 @@ func TestO3MiniSubstitution(t *testing.T) {
 
 	// Mock provider manager to return only "helix" and "anthropic" as available (no openai)
 	mockProviderManager.EXPECT().
-		ListProviders(ctx, user.ID).
-		Return([]types.Provider{types.ProviderHelix, types.ProviderAnthropic}, nil)
+		ListProviderEndpoints(ctx, user.ID).
+		Return([]*types.ProviderEndpoint{{Name: "helix"}, {Name: "anthropic"}}, nil)
 
 	app := &types.App{
 		Config: types.AppConfig{
