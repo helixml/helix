@@ -849,6 +849,21 @@ func helixDefaults() map[string]interface{} {
 		// Disable auto-formatting globally - it mangles JS/TS/TSX in our codebases.
 		// Go keeps format_on_save via per-language override (gofmt is expected).
 		"format_on_save": "off",
+		// Bump context-server initialize timeout from upstream's 60s default to 180s.
+		// Several MCPs in our spec-task containers (chrome-devtools, github via
+		// `npx <pkg>@latest`, helixos via http to a still-warming-up api:8080) all
+		// fire their JSON-RPC `initialize` at the same moment Zed boots on a cold
+		// container, racing for CPU against settings-sync-daemon and language
+		// servers. The first npm download routinely overruns 60s and Zed marks the
+		// servers as failed; tools never appear (most visibly
+		// `mcp__chrome-devtools__*` go missing).
+		// helixml/zed#47 tried to fix this by bumping DEFAULT_REQUEST_TIMEOUT in
+		// crates/context_server/src/client.rs, but that constant is dead code in
+		// our path: project_settings.rs defaults context_server_timeout to 60 and
+		// passes Some(60) all the way to client.rs:370, where the .or(DEFAULT)
+		// fallback never fires. Fixing it here in settings.json works regardless
+		// of upstream changes and survives Zed rebases.
+		"context_server_timeout": 180,
 		"languages": map[string]interface{}{
 			"Go": map[string]interface{}{
 				"format_on_save": "on",
