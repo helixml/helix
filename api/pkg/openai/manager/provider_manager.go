@@ -345,13 +345,10 @@ func (m *MultiClientManager) ListProviderEndpoints(ctx context.Context, owner st
 	m.globalClientsMu.RLock()
 	endpoints := make([]*types.ProviderEndpoint, 0, len(m.globalClients))
 	for provider := range m.globalClients {
-		// Skip the Helix provider if there are no runners — same gate as
-		// ListProviders so the snapshots agree on what's reachable.
-		if provider == types.ProviderHelix && m.runnerController != nil {
-			if len(m.runnerController.RunnerIDs()) == 0 {
-				continue
-			}
-		}
+		// Always list global providers including Helix — runner availability is
+		// checked by the inferencerouter at request-routing time post sandbox-
+		// absorbs-runner pivot, not at provider-listing time. Matches
+		// ListProviders and the SetRunnerController no-op contract.
 		endpoints = append(endpoints, &types.ProviderEndpoint{
 			Name:         string(provider),
 			EndpointType: types.ProviderEndpointTypeGlobal,
