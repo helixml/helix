@@ -25,6 +25,15 @@ type ZedMCPConfig struct {
 	ExternalSync   *ExternalSyncConfig            `json:"external_sync,omitempty"`
 	Agent          *AgentConfig                   `json:"agent,omitempty"`
 	Theme          string                         `json:"theme,omitempty"`
+
+	// Misconfigured is set by GenerateZedMCPConfig when the agent's stored
+	// provider/model is empty or references a provider that is not in the
+	// supplied validProviders list. The fields are not serialized to clients
+	// — handlers inspect them and return HTTP 422 so that session start fails
+	// fast with a clear error in the spec-task UI rather than silently
+	// spinning up a sandbox the user can't actually use.
+	Misconfigured   bool   `json:"-"`
+	MisconfigReason string `json:"-"`
 }
 
 type ExternalSyncConfig struct {
@@ -165,6 +174,8 @@ func GenerateZedMCPConfig(
 			Str("model", model).
 			Msg("zed-config: assistant has empty provider or model — refusing to write agent.default_model. Reconfigure the agent with a valid provider/model selection.")
 		useAgentModel = false
+		config.Misconfigured = true
+		config.MisconfigReason = fmt.Sprintf("agent %q is missing a provider or model selection — open the agent settings and pick a provider and model", app.ID)
 	case !providerExists(provider, validProviders):
 		log.Error().
 			Str("app_id", app.ID).
@@ -173,6 +184,8 @@ func GenerateZedMCPConfig(
 			Strs("known_providers", validProviders).
 			Msg("zed-config: assistant references a provider that is not registered (renamed or deleted?) — refusing to write agent.default_model. Reconfigure the agent or restore the provider.")
 		useAgentModel = false
+		config.Misconfigured = true
+		config.MisconfigReason = fmt.Sprintf("agent %q references provider %q which is not registered (renamed or deleted?). Reconfigure the agent or restore the provider.", app.ID, provider)
 	}
 
 	// Configure agent. AlwaysAllowToolActions / ShowOnboarding / AutoOpenPanel

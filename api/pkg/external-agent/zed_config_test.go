@@ -30,6 +30,7 @@ func TestGenerateZedMCPConfig_AgentDefaultModel(t *testing.T) {
 		assistants       []types.AssistantConfig // empty slice → no-assistant default-app path
 		validProviders   []string
 		wantDefaultModel *ModelConfig // nil = expect Agent.DefaultModel == nil
+		wantMisconfig    bool         // expect ZedMCPConfig.Misconfigured to be set so handlers can return 422
 		why              string
 	}{
 		{
@@ -38,6 +39,7 @@ func TestGenerateZedMCPConfig_AgentDefaultModel(t *testing.T) {
 			validProviders: []string{"openai", "anthropic"},
 			// Sub-A fix: silent claude fallback removed. Empty fields => no default_model.
 			wantDefaultModel: nil,
+			wantMisconfig:    true,
 			why:              "P1-1 Sub-A: empty fields must not silently substitute Claude",
 		},
 		{
@@ -48,6 +50,7 @@ func TestGenerateZedMCPConfig_AgentDefaultModel(t *testing.T) {
 			}},
 			validProviders:   []string{"scaleway", "openai"},
 			wantDefaultModel: nil,
+			wantMisconfig:    true,
 			why:              "P1-1 Sub-A: partial config (provider only) must not silently fill in claude-sonnet",
 		},
 		{
@@ -60,6 +63,7 @@ func TestGenerateZedMCPConfig_AgentDefaultModel(t *testing.T) {
 			// Provider was renamed/deleted in admin → not in registry anymore
 			validProviders:   []string{"openai", "anthropic"},
 			wantDefaultModel: nil,
+			wantMisconfig:    true,
 			why:              "P1-1 Sub-B: stale provider snapshot must not be encoded into the model string",
 		},
 		{
@@ -71,6 +75,7 @@ func TestGenerateZedMCPConfig_AgentDefaultModel(t *testing.T) {
 			}},
 			validProviders:   []string{"scaleway", "openai"},
 			wantDefaultModel: &ModelConfig{Provider: "openai", Model: "scaleway/qwen3-coder-480b"},
+			wantMisconfig:    false,
 			why:              "control case: registered provider + non-empty model passes through unchanged",
 		},
 		{
@@ -82,6 +87,7 @@ func TestGenerateZedMCPConfig_AgentDefaultModel(t *testing.T) {
 			}},
 			validProviders:   []string{"anthropic"},
 			wantDefaultModel: &ModelConfig{Provider: "anthropic", Model: "claude-sonnet-4-5-latest"},
+			wantMisconfig:    false,
 			why:              "control case: anthropic agents normalize the model id via -latest",
 		},
 		{
@@ -93,6 +99,7 @@ func TestGenerateZedMCPConfig_AgentDefaultModel(t *testing.T) {
 			}},
 			validProviders:   []string{"openai"},
 			wantDefaultModel: &ModelConfig{Provider: "openai", Model: "OpenAI/gpt-5.4"},
+			wantMisconfig:    false,
 			why:              "provider validation is case-insensitive (OpenAI vs openai)",
 		},
 		{
@@ -100,6 +107,7 @@ func TestGenerateZedMCPConfig_AgentDefaultModel(t *testing.T) {
 			assistants:       []types.AssistantConfig{},
 			validProviders:   []string{"anthropic"},
 			wantDefaultModel: &ModelConfig{Provider: "anthropic", Model: "claude-sonnet-4-5-latest"},
+			wantMisconfig:    false,
 			why:              "default-app path (no parent app) keeps the SaaS-friendly default",
 		},
 		{
@@ -111,6 +119,7 @@ func TestGenerateZedMCPConfig_AgentDefaultModel(t *testing.T) {
 			}},
 			validProviders:   nil, // runner-side path passes nil
 			wantDefaultModel: &ModelConfig{Provider: "openai", Model: "scaleway/qwen3-coder-480b"},
+			wantMisconfig:    false,
 			why:              "runner-side callers without a manager handle opt out of validation",
 		},
 	}
@@ -152,6 +161,12 @@ func TestGenerateZedMCPConfig_AgentDefaultModel(t *testing.T) {
 					assert.Equal(t, tc.wantDefaultModel.Provider, cfg.Agent.DefaultModel.Provider, tc.why)
 					assert.Equal(t, tc.wantDefaultModel.Model, cfg.Agent.DefaultModel.Model, tc.why)
 				}
+			}
+			assert.Equal(t, tc.wantMisconfig, cfg.Misconfigured, tc.why)
+			if tc.wantMisconfig {
+				assert.NotEmpty(t, cfg.MisconfigReason, "misconfigured config must include a human-readable reason for the 422 response")
+			} else {
+				assert.Empty(t, cfg.MisconfigReason, tc.why)
 			}
 		})
 	}

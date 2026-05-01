@@ -145,6 +145,16 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 		return nil, system.NewHTTPError500("failed to generate Zed config")
 	}
 
+	// Hard-fail when the agent's stored model config is empty or references
+	// an unknown provider. The settings-sync-daemon uses this endpoint as
+	// its source of truth on session start; failing fast here surfaces the
+	// real problem (broken agent config) in the spec-task UI rather than
+	// silently spinning up a sandbox where Zed would fall back to its
+	// built-in default model and confuse the user.
+	if zedConfig.Misconfigured {
+		return nil, system.NewHTTPError422(zedConfig.MisconfigReason)
+	}
+
 	// Convert to response format - include ALL fields from zedConfig
 	contextServers := make(map[string]interface{})
 	for name, server := range zedConfig.ContextServers {
@@ -447,6 +457,9 @@ func (apiServer *HelixAPIServer) getMergedZedSettings(_ http.ResponseWriter, req
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to generate Zed config")
 		return nil, system.NewHTTPError500("failed to generate Zed config")
+	}
+	if zedConfig.Misconfigured {
+		return nil, system.NewHTTPError422(zedConfig.MisconfigReason)
 	}
 
 	// Get user overrides
