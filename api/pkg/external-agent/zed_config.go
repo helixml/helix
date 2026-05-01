@@ -652,7 +652,27 @@ func GetZedConfigForSession(ctx context.Context, s store.Store, sessionID string
 	return config, nil
 }
 
-// MergeZedConfigWithUserOverrides merges Helix config with user overrides
+// helixManagedAgentFields lists the keys under "agent" that Helix owns and that
+// user-side overrides (uploaded by the settings-sync-daemon from Zed's settings.json)
+// must never clobber. If Zed boots and writes a different default_model — either
+// because the user picked one in the model picker, or because Zed's built-in agent
+// profile fell back to its hardcoded Claude default — the daemon faithfully uploads
+// that to /zed-config/user. Without this guard, the merged /zed-settings endpoint
+// then serves Zed's value back to the desktop, and Zed re-reads the wrong model.
+//
+// See deviqon/P1-5-zed-overrides-clobber-helix-default-model.md.
+var helixManagedAgentFields = map[string]struct{}{
+	"default_model":          {},
+	"inline_assistant_model": {},
+	"commit_message_model":   {},
+	"thread_summary_model":   {},
+}
+
+// MergeZedConfigWithUserOverrides merges Helix config with user overrides.
+//
+// Policy: helix-managed model fields under "agent" are authoritative. User
+// overrides for those specific keys are dropped. All other agent fields, and
+// all other top-level keys, remain user-overridable.
 func MergeZedConfigWithUserOverrides(helixConfig *ZedMCPConfig, userOverrides map[string]interface{}) map[string]interface{} {
 	result := make(map[string]interface{})
 
@@ -683,14 +703,70 @@ func MergeZedConfigWithUserOverrides(helixConfig *ZedMCPConfig, userOverrides ma
 		}
 	}
 
-	// Apply other user settings (non-MCP)
+	// Apply other user settings (non-MCP). The "agent" block needs a deep merge
+	// so user overrides cannot touch helix-managed model fields.
 	for k, v := range userOverrides {
-		if k != "context_servers" {
-			result[k] = v
+		if k == "context_servers" {
+			continue
 		}
+		if k == "agent" {
+			result["agent"] = mergeAgentBlock(helixConfig.Agent, v)
+			continue
+		}
+		result[k] = v
+	}
+
+	// If the user has no "agent" override at all, surface the helix-managed agent block.
+	if _, userHasAgent := userOverrides["agent"]; !userHasAgent && helixConfig.Agent != nil {
+		result["agent"] = helixConfig.Agent
 	}
 
 	return result
+}
+
+// mergeAgentBlock deep-merges Zed's user "agent" block with the helix-managed one,
+// dropping any user-side values for keys in helixManagedAgentFields.
+func mergeAgentBlock(helixAgent *AgentConfig, userAgent interface{}) interface{} {
+	userMap, ok := userAgent.(map[string]interface{})
+	if !ok {
+		// User override is not an object — ignore it and keep helix's agent verbatim.
+		if helixAgent != nil {
+			return helixAgent
+		}
+		return userAgent
+	}
+
+	merged := make(map[string]interface{})
+
+	// Seed with helix-managed values so they exist even if the user override didn't include them.
+	if helixAgent != nil {
+		if helixAgent.DefaultModel != nil {
+			merged["default_model"] = helixAgent.DefaultModel
+		}
+		if helixAgent.InlineAssistantModel != nil {
+			merged["inline_assistant_model"] = helixAgent.InlineAssistantModel
+		}
+		if helixAgent.CommitMessageModel != nil {
+			merged["commit_message_model"] = helixAgent.CommitMessageModel
+		}
+		if helixAgent.ThreadSummaryModel != nil {
+			merged["thread_summary_model"] = helixAgent.ThreadSummaryModel
+		}
+		merged["always_allow_tool_actions"] = helixAgent.AlwaysAllowToolActions
+		merged["show_onboarding"] = helixAgent.ShowOnboarding
+		merged["auto_open_panel"] = helixAgent.AutoOpenPanel
+	}
+
+	// Layer user values on top, but skip helix-managed model fields.
+	for k, v := range userMap {
+		if _, managed := helixManagedAgentFields[k]; managed {
+			log.Debug().Str("field", k).Msg("dropping user override for helix-managed agent field")
+			continue
+		}
+		merged[k] = v
+	}
+
+	return merged
 }
 
 // SaveUserZedOverrides saves user's Zed settings overrides
