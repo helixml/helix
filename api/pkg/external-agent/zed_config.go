@@ -75,9 +75,13 @@ type ContextServerConfig struct {
 	Headers map[string]string `json:"headers,omitempty"`
 }
 
-// GenerateZedMCPConfig creates Zed MCP configuration from Helix app config
-// projectSkills are optional project-level skills that overlay on top of agent skills
-// oauthTokenGetter is optional - if provided, OAuth tokens will be injected into stdio MCPs
+// GenerateZedMCPConfig creates Zed MCP configuration from Helix app config.
+// projectSkills are optional project-level skills that overlay on top of agent skills.
+// oauthTokenGetter is optional - if provided, OAuth tokens will be injected into stdio MCPs.
+// validProviders is an optional list of provider names registered in the Helix provider
+// manager (env-var-baked + DB-backed). When non-nil, the agent's stored provider is
+// validated against it and a missing provider is treated as misconfiguration. Pass nil
+// to skip validation (e.g. on the runner-side path where the manager isn't reachable).
 func GenerateZedMCPConfig(
 	ctx context.Context,
 	app *types.App,
@@ -88,6 +92,7 @@ func GenerateZedMCPConfig(
 	koditEnabled bool,
 	projectSkills *types.AssistantSkills,
 	oauthTokenGetter OAuthTokenGetter,
+	validProviders []string,
 ) (*ZedMCPConfig, error) {
 	config := &ZedMCPConfig{
 		ContextServers: make(map[string]ContextServerConfig),
@@ -128,43 +133,70 @@ func GenerateZedMCPConfig(
 		}
 	}
 
-	// Default to anthropic/claude-sonnet if nothing is configured
-	if provider == "" {
+	// Decide whether the agent's stored model fields are usable. There are
+	// two failure modes we MUST NOT paper over:
+	//
+	//   1. Empty fields. Previously the code silently substituted
+	//      anthropic/claude-sonnet-4-5-latest, which made misconfigured
+	//      external agents look like working Claude agents in Zed (Deviqon
+	//      bug, 2026-04-28).
+	//   2. Stale provider name. If the provider was renamed or removed in
+	//      admin, the agent record still holds the old string. We previously
+	//      fed that to mapHelixToZedProvider which encoded it into the
+	//      model name (e.g. "user-ollama/qwen-..."), and Zed sent every
+	//      chat completion with that unroutable string until the proxy
+	//      404'd. The agent should be flagged as misconfigured instead.
+	//
+	// In both cases we now leave Agent.DefaultModel unset and log loudly.
+	// Zed will fall back to its built-in default rather than us pretending
+	// to have configured one.
+	useAgentModel := true
+	switch {
+	case assistant == nil:
+		// No assistant means this is the default-app path used for sessions
+		// without a parent app. Keep the legacy SaaS-friendly default so
+		// those sessions still come up.
 		provider = "anthropic"
-	}
-	if model == "" {
 		model = "claude-sonnet-4-5-latest"
+	case provider == "" || model == "":
+		log.Error().
+			Str("app_id", app.ID).
+			Str("provider", provider).
+			Str("model", model).
+			Msg("zed-config: assistant has empty provider or model — refusing to write agent.default_model. Reconfigure the agent with a valid provider/model selection.")
+		useAgentModel = false
+	case !providerExists(provider, validProviders):
+		log.Error().
+			Str("app_id", app.ID).
+			Str("provider", provider).
+			Str("model", model).
+			Strs("known_providers", validProviders).
+			Msg("zed-config: assistant references a provider that is not registered (renamed or deleted?) — refusing to write agent.default_model. Reconfigure the agent or restore the provider.")
+		useAgentModel = false
 	}
 
-	// Map Helix provider to Zed's provider type and format model name
-	// Zed only knows: anthropic, openai, google, ollama, copilot, lmstudio, deepseek
-	// All other providers (nebius, together, openrouter, etc.) use OpenAI-compatible API
-	zedProvider, zedModel := mapHelixToZedProvider(provider, model)
-
-	// Configure agent with default model (CRITICAL: default_model goes in agent, not assistant!)
-	// Also set feature-specific models to prevent Zed from using its hardcoded gpt-4.1-mini
-	// default for "fast" operations (see zed-industries/zed#31420). If not set, these fall
-	// back to default_model, but we set them explicitly to ensure all LLM calls route through Helix.
+	// Configure agent. AlwaysAllowToolActions / ShowOnboarding / AutoOpenPanel
+	// are always set; default_model and the feature-specific model overrides
+	// are set only when we trust the agent's configuration.
 	config.Agent = &AgentConfig{
-		DefaultModel: &ModelConfig{
-			Provider: zedProvider,
-			Model:    zedModel,
-		},
-		InlineAssistantModel: &ModelConfig{
-			Provider: zedProvider,
-			Model:    zedModel,
-		},
-		CommitMessageModel: &ModelConfig{
-			Provider: zedProvider,
-			Model:    zedModel,
-		},
-		ThreadSummaryModel: &ModelConfig{
-			Provider: zedProvider,
-			Model:    zedModel,
-		},
 		AlwaysAllowToolActions: true,
 		ShowOnboarding:         false,
 		AutoOpenPanel:          true,
+	}
+	if useAgentModel {
+		// Map Helix provider to Zed's provider type and format model name
+		// Zed only knows: anthropic, openai, google, ollama, copilot, lmstudio, deepseek
+		// All other providers (nebius, together, openrouter, etc.) use OpenAI-compatible API
+		zedProvider, zedModel := mapHelixToZedProvider(provider, model)
+		// Set feature-specific models to prevent Zed from using its hardcoded
+		// gpt-4.1-mini default for "fast" operations (see
+		// zed-industries/zed#31420). If not set, these fall back to
+		// default_model, but we set them explicitly to ensure all LLM calls
+		// route through Helix.
+		config.Agent.DefaultModel = &ModelConfig{Provider: zedProvider, Model: zedModel}
+		config.Agent.InlineAssistantModel = &ModelConfig{Provider: zedProvider, Model: zedModel}
+		config.Agent.CommitMessageModel = &ModelConfig{Provider: zedProvider, Model: zedModel}
+		config.Agent.ThreadSummaryModel = &ModelConfig{Provider: zedProvider, Model: zedModel}
 	}
 	config.Theme = "Ayu Dark"
 
@@ -528,6 +560,25 @@ func normalizeModelIDForZed(modelID string) string {
 	return modelID
 }
 
+// providerExists reports whether name appears in validProviders. Comparison is
+// case-insensitive because some agents store provider names with mixed case
+// (e.g. the "OpenAI" provider on prime is registered as "openai" in the
+// manager). When validProviders is nil/empty we skip the check and return
+// true — callers without a manager handle (e.g. the runner-side code path)
+// pass nil to opt out of validation.
+func providerExists(name string, validProviders []string) bool {
+	if len(validProviders) == 0 {
+		return true
+	}
+	want := strings.ToLower(name)
+	for _, p := range validProviders {
+		if strings.ToLower(p) == want {
+			return true
+		}
+	}
+	return false
+}
+
 // mapHelixToZedProvider maps a Helix provider name to a Zed provider type and formats the model name.
 // Zed only recognizes a fixed set of providers: anthropic, openai, google, ollama, copilot, lmstudio, deepseek.
 // All other Helix providers (nebius, together, openrouter, etc.) are OpenAI-compatible and should use "openai".
@@ -644,7 +695,10 @@ func GetZedConfigForSession(ctx context.Context, s store.Store, sessionID string
 		return conn.AccessToken, nil
 	}
 
-	config, err := GenerateZedMCPConfig(ctx, app, session.Owner, sessionID, helixAPIURL, helixToken, koditEnabled, projectSkills, oauthTokenGetter)
+	// Runner-side path has no provider-manager handle, so we skip provider
+	// validation here. The handler-side callers (getZedConfig,
+	// getMergedZedSettings) do pass the live provider list.
+	config, err := GenerateZedMCPConfig(ctx, app, session.Owner, sessionID, helixAPIURL, helixToken, koditEnabled, projectSkills, oauthTokenGetter, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate Zed config: %w", err)
 	}

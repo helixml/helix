@@ -1,10 +1,161 @@
 package external_agent
 
 import (
+	"context"
 	"testing"
 
+	"github.com/helixml/helix/api/pkg/types"
 	"github.com/stretchr/testify/assert"
 )
+
+// TestGenerateZedMCPConfig_AgentDefaultModel covers P1-1 from the Deviqon
+// 2026-04-28 customer call. The original bug: when an agent had empty model
+// fields, the API silently substituted anthropic/claude-sonnet-4-5-latest;
+// when an agent referenced a renamed/deleted provider, the provider name
+// was still encoded into the model string and Zed sent unroutable requests.
+// Both paths caused customers to see "Claude Sonnet 4.5" in Zed when they
+// thought they had configured Qwen on Scaleway.
+//
+// After the fix, GenerateZedMCPConfig leaves Agent.DefaultModel == nil for
+// any misconfigured assistant. Zed falls back to its own built-in default
+// rather than us pretending we configured one. Operators get a loud error
+// log pointing at the broken agent.
+func TestGenerateZedMCPConfig_AgentDefaultModel(t *testing.T) {
+	ctx := context.Background()
+	helixURL := "http://api:8080"
+	helixToken := "test-token"
+
+	cases := []struct {
+		name             string
+		assistants       []types.AssistantConfig // empty slice → no-assistant default-app path
+		validProviders   []string
+		wantDefaultModel *ModelConfig // nil = expect Agent.DefaultModel == nil
+		why              string
+	}{
+		{
+			name:           "both_fields_empty_no_longer_falls_back_to_claude",
+			assistants:     []types.AssistantConfig{{AgentType: types.AgentTypeZedExternal}},
+			validProviders: []string{"openai", "anthropic"},
+			// Sub-A fix: silent claude fallback removed. Empty fields => no default_model.
+			wantDefaultModel: nil,
+			why:              "P1-1 Sub-A: empty fields must not silently substitute Claude",
+		},
+		{
+			name: "model_empty_provider_set_no_default_model",
+			assistants: []types.AssistantConfig{{
+				AgentType:               types.AgentTypeZedExternal,
+				GenerationModelProvider: "scaleway",
+			}},
+			validProviders:   []string{"scaleway", "openai"},
+			wantDefaultModel: nil,
+			why:              "P1-1 Sub-A: partial config (provider only) must not silently fill in claude-sonnet",
+		},
+		{
+			name: "stale_provider_no_default_model",
+			assistants: []types.AssistantConfig{{
+				AgentType:               types.AgentTypeZedExternal,
+				GenerationModelProvider: "user-ollama",
+				GenerationModel:         "qwen3-coder",
+			}},
+			// Provider was renamed/deleted in admin → not in registry anymore
+			validProviders:   []string{"openai", "anthropic"},
+			wantDefaultModel: nil,
+			why:              "P1-1 Sub-B: stale provider snapshot must not be encoded into the model string",
+		},
+		{
+			name: "configured_qwen_on_scaleway_works",
+			assistants: []types.AssistantConfig{{
+				AgentType:               types.AgentTypeZedExternal,
+				GenerationModelProvider: "scaleway",
+				GenerationModel:         "qwen3-coder-480b",
+			}},
+			validProviders:   []string{"scaleway", "openai"},
+			wantDefaultModel: &ModelConfig{Provider: "openai", Model: "scaleway/qwen3-coder-480b"},
+			why:              "control case: registered provider + non-empty model passes through unchanged",
+		},
+		{
+			name: "configured_anthropic_passes_through",
+			assistants: []types.AssistantConfig{{
+				AgentType:               types.AgentTypeZedExternal,
+				GenerationModelProvider: "anthropic",
+				GenerationModel:         "claude-sonnet-4-5",
+			}},
+			validProviders:   []string{"anthropic"},
+			wantDefaultModel: &ModelConfig{Provider: "anthropic", Model: "claude-sonnet-4-5-latest"},
+			why:              "control case: anthropic agents normalize the model id via -latest",
+		},
+		{
+			name: "case_insensitive_provider_match",
+			assistants: []types.AssistantConfig{{
+				AgentType:               types.AgentTypeZedExternal,
+				GenerationModelProvider: "OpenAI", // capital O as on prime row
+				GenerationModel:         "gpt-5.4",
+			}},
+			validProviders:   []string{"openai"},
+			wantDefaultModel: &ModelConfig{Provider: "openai", Model: "OpenAI/gpt-5.4"},
+			why:              "provider validation is case-insensitive (OpenAI vs openai)",
+		},
+		{
+			name:             "no_assistant_keeps_legacy_default_for_default_app",
+			assistants:       []types.AssistantConfig{},
+			validProviders:   []string{"anthropic"},
+			wantDefaultModel: &ModelConfig{Provider: "anthropic", Model: "claude-sonnet-4-5-latest"},
+			why:              "default-app path (no parent app) keeps the SaaS-friendly default",
+		},
+		{
+			name: "nil_validProviders_skips_validation",
+			assistants: []types.AssistantConfig{{
+				AgentType:               types.AgentTypeZedExternal,
+				GenerationModelProvider: "scaleway",
+				GenerationModel:         "qwen3-coder-480b",
+			}},
+			validProviders:   nil, // runner-side path passes nil
+			wantDefaultModel: &ModelConfig{Provider: "openai", Model: "scaleway/qwen3-coder-480b"},
+			why:              "runner-side callers without a manager handle opt out of validation",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			app := &types.App{
+				ID: "test-app",
+				Config: types.AppConfig{
+					Helix: types.AppHelixConfig{
+						Assistants: tc.assistants,
+					},
+				},
+			}
+
+			cfg, err := GenerateZedMCPConfig(
+				ctx,
+				app,
+				"user-1",
+				"session-1",
+				helixURL,
+				helixToken,
+				false,
+				nil,
+				nil,
+				tc.validProviders,
+			)
+			assert.NoError(t, err)
+			if !assert.NotNil(t, cfg) || !assert.NotNil(t, cfg.Agent) {
+				return
+			}
+			if tc.wantDefaultModel == nil {
+				assert.Nil(t, cfg.Agent.DefaultModel, tc.why)
+				assert.Nil(t, cfg.Agent.InlineAssistantModel, tc.why)
+				assert.Nil(t, cfg.Agent.CommitMessageModel, tc.why)
+				assert.Nil(t, cfg.Agent.ThreadSummaryModel, tc.why)
+			} else {
+				if assert.NotNil(t, cfg.Agent.DefaultModel, tc.why) {
+					assert.Equal(t, tc.wantDefaultModel.Provider, cfg.Agent.DefaultModel.Provider, tc.why)
+					assert.Equal(t, tc.wantDefaultModel.Model, cfg.Agent.DefaultModel.Model, tc.why)
+				}
+			}
+		})
+	}
+}
 
 func TestNormalizeModelIDForZed(t *testing.T) {
 	tests := []struct {

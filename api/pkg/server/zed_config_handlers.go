@@ -135,7 +135,11 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 		// Use empty scopes - the token getter will use whatever scopes the user has
 		return apiServer.oauthManager.GetTokenForTool(ctx, userID, providerName, nil)
 	}
-	zedConfig, err := external_agent.GenerateZedMCPConfig(ctx, app, session.Owner, sessionID, sandboxAPIURL, helixToken, koditEnabled, projectSkills, oauthTokenGetter)
+	validProviders, err := apiServer.listValidProviderNames(ctx, session.Owner)
+	if err != nil {
+		log.Warn().Err(err).Str("session_id", sessionID).Msg("zed-config: failed to list providers; provider validation will be skipped")
+	}
+	zedConfig, err := external_agent.GenerateZedMCPConfig(ctx, app, session.Owner, sessionID, sandboxAPIURL, helixToken, koditEnabled, projectSkills, oauthTokenGetter, validProviders)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to generate Zed config")
 		return nil, system.NewHTTPError500("failed to generate Zed config")
@@ -435,7 +439,11 @@ func (apiServer *HelixAPIServer) getMergedZedSettings(_ http.ResponseWriter, req
 		}
 		return apiServer.oauthManager.GetTokenForTool(ctx, userID, providerName, nil)
 	}
-	zedConfig, err := external_agent.GenerateZedMCPConfig(ctx, app, session.Owner, sessionID, helixAPIURL, helixToken, apiServer.Cfg.Kodit.Enabled, projectSkills, oauthTokenGetter)
+	validProviders, err := apiServer.listValidProviderNames(ctx, session.Owner)
+	if err != nil {
+		log.Warn().Err(err).Str("session_id", sessionID).Msg("zed-config: failed to list providers; provider validation will be skipped")
+	}
+	zedConfig, err := external_agent.GenerateZedMCPConfig(ctx, app, session.Owner, sessionID, helixAPIURL, helixToken, apiServer.Cfg.Kodit.Enabled, projectSkills, oauthTokenGetter, validProviders)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to generate Zed config")
 		return nil, system.NewHTTPError500("failed to generate Zed config")
@@ -627,6 +635,27 @@ func (apiServer *HelixAPIServer) buildCodeAgentConfigFromAssistant(ctx context.C
 		MaxTokens:       maxTokens,
 		MaxOutputTokens: maxOutputTokens,
 	}
+}
+
+// listValidProviderNames returns every provider name registered in the
+// provider manager — both env-var-baked globals and DB-backed user/org
+// providers visible to the given owner. Used to validate that an agent's
+// stored provider snapshot still matches a real provider before we feed it
+// to GenerateZedMCPConfig (Deviqon 2026-04-28: stale provider names were
+// silently encoded into the model string and surfaced as 404s in Zed).
+func (apiServer *HelixAPIServer) listValidProviderNames(ctx context.Context, owner string) ([]string, error) {
+	if apiServer.providerManager == nil {
+		return nil, nil
+	}
+	providers, err := apiServer.providerManager.ListProviders(ctx, owner)
+	if err != nil {
+		return nil, err
+	}
+	names := make([]string, 0, len(providers))
+	for _, p := range providers {
+		names = append(names, string(p))
+	}
+	return names, nil
 }
 
 // checkSpecTaskKoditIndexing checks if a SpecTask's project has any repositories with Kodit indexing enabled.
