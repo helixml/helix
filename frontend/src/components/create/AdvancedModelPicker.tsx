@@ -111,22 +111,36 @@ interface ModelWithProvider extends TypesOpenAIModel {
   provider_base_url: string;
 }
 
+// Returns true if the provider has a real DB-row ID. Env-baked globals
+// surface as the sentinel id "-" (or empty); DB-backed providers (whether
+// user-private, org-, team- or globally-shared) all have a "pe_..." id.
+// We deliberately do NOT key off endpoint_type because a user-created
+// provider that the owner has marked as "global" to share across the
+// instance still has a stable DB id and must be referenced by id, not by
+// its mutable name. The presence of a real id is the only reliable signal
+// for "this is a DB row that survives a rename."
+const hasRealID = (provider: TypesProviderEndpoint | undefined): boolean => {
+  if (!provider) return false;
+  const id = provider.id || '';
+  return id !== '' && id !== '-';
+};
+
 // Returns the stable reference we persist on the agent record for a given
-// provider: env-baked globals have no DB ID, so we use their canonical name
-// (which is itself immutable). DB-backed providers use their ID, so admin
+// provider: env-baked globals have no DB row, so we use their canonical
+// name (itself immutable). DB-backed providers use their ID, so admin
 // renames are a no-op for the agent.
 const providerRef = (provider: TypesProviderEndpoint | undefined): string => {
   if (!provider) return '';
-  if (provider.endpoint_type === 'global') return provider.name || '';
-  return provider.id || provider.name || '';
+  if (hasRealID(provider)) return provider.id || '';
+  return provider.name || '';
 };
 
 // Matches a stored agent reference against a provider. Tries ID first
 // (current scheme) then falls back to a case-insensitive name match
-// (legacy agents stored before the switch to ID-based references).
+// (globals + legacy agents stored before the switch to ID-based references).
 const matchesStoredRef = (provider: TypesProviderEndpoint | undefined, storedRef: string | undefined): boolean => {
   if (!provider || !storedRef) return false;
-  if (provider.id && provider.id === storedRef) return true;
+  if (hasRealID(provider) && provider.id === storedRef) return true;
   if (provider.name && provider.name.toLowerCase() === storedRef.toLowerCase()) return true;
   return false;
 };

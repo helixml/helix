@@ -673,7 +673,7 @@ func ValidateAssistantModelConfig(app *types.App, snapshot []ProviderRef) string
 		return ""
 	}
 	if _, _, ok := ResolveProvider(provider, snapshot); !ok {
-		return fmt.Sprintf("agent %q references provider %q which is no longer registered (provider deleted?). Reconfigure the agent or restore the provider.", app.ID, provider)
+		return fmt.Sprintf("agent %q references provider %q which does not match any current provider — the provider may have been renamed or deleted. Open the agent settings and re-pick a provider, or restore/rename the provider in admin.", app.ID, provider)
 	}
 	return ""
 }
