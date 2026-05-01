@@ -628,6 +628,47 @@ func ResolveProvider(token string, snapshot []ProviderRef) (ref ProviderRef, byL
 	return ProviderRef{}, false, false
 }
 
+// MigrateLegacyProviderRefs walks every provider-bearing field on every
+// assistant in app.Config and, where the stored value is a legacy name that
+// resolves (case-insensitively) to a current DB-backed provider, rewrites
+// the field in-place to that provider's immutable ID. Returns true if any
+// field changed — the caller is responsible for persisting via
+// Store.UpdateApp.
+//
+// Globals (ref.ID == "") are left alone: their canonical name is itself
+// immutable, so there's nothing to migrate. Misconfigured fields (resolver
+// miss) are also left alone — we have no ID to write.
+//
+// Called from session-start and spec-task pre-flight handlers so legacy
+// agents heal themselves on first use after the ID-based refactor lands,
+// without the operator having to re-save anything.
+func MigrateLegacyProviderRefs(app *types.App, snapshot []ProviderRef) bool {
+	if app == nil || snapshot == nil || len(app.Config.Helix.Assistants) == 0 {
+		return false
+	}
+	changed := false
+	rewrite := func(field *string) {
+		if field == nil || *field == "" {
+			return
+		}
+		ref, byLegacy, ok := ResolveProvider(*field, snapshot)
+		if !ok || !byLegacy || ref.ID == "" {
+			return
+		}
+		*field = ref.ID
+		changed = true
+	}
+	for i := range app.Config.Helix.Assistants {
+		a := &app.Config.Helix.Assistants[i]
+		rewrite(&a.Provider)
+		rewrite(&a.GenerationModelProvider)
+		rewrite(&a.SmallGenerationModelProvider)
+		rewrite(&a.ReasoningModelProvider)
+		rewrite(&a.SmallReasoningModelProvider)
+	}
+	return changed
+}
+
 // ValidateAssistantModelConfig checks whether the app's zed_external assistant
 // has a usable provider/model combination given the currently registered
 // providers. Returns the empty string when the configuration is usable;

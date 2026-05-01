@@ -243,3 +243,111 @@ func TestNormalizeModelIDForZed(t *testing.T) {
 		})
 	}
 }
+
+// TestMigrateLegacyProviderRefs covers the on-the-fly heal path that lets
+// agent records saved before the ID-based refactor silently rewrite their
+// stored provider name to the matching DB-backed provider's immutable ID.
+// Renames after the heal are no-ops; without the heal the first rename
+// would 422 the agent.
+func TestMigrateLegacyProviderRefs(t *testing.T) {
+	pe := ProviderRef{ID: "pe_user_provider_01", Name: "NVIDIA NIM"}
+	openai := ProviderRef{ID: "", Name: "openai"} // env-baked global
+
+	cases := []struct {
+		name           string
+		assistant      types.AssistantConfig
+		snapshot       []ProviderRef
+		wantChanged    bool
+		wantProvider   string
+		wantGenericGen string
+		why            string
+	}{
+		{
+			name: "legacy_name_to_id_rewrite",
+			assistant: types.AssistantConfig{
+				Provider: "NVIDIA NIM",
+				Model:    "openai/gpt-oss-120b",
+			},
+			snapshot:     []ProviderRef{pe, openai},
+			wantChanged:  true,
+			wantProvider: "pe_user_provider_01",
+			why:          "legacy stored name resolves to DB-backed ID and gets rewritten",
+		},
+		{
+			name: "id_already_present_no_op",
+			assistant: types.AssistantConfig{
+				Provider: "pe_user_provider_01",
+				Model:    "openai/gpt-oss-120b",
+			},
+			snapshot:     []ProviderRef{pe, openai},
+			wantChanged:  false,
+			wantProvider: "pe_user_provider_01",
+			why:          "ID already stored — resolver returns byLegacy=false, no rewrite",
+		},
+		{
+			name: "global_no_rewrite",
+			assistant: types.AssistantConfig{
+				Provider: "openai",
+				Model:    "gpt-4o",
+			},
+			snapshot:     []ProviderRef{pe, openai},
+			wantChanged:  false,
+			wantProvider: "openai",
+			why:          "env-baked global has no ID — leave the canonical name alone",
+		},
+		{
+			name: "deleted_provider_left_alone",
+			assistant: types.AssistantConfig{
+				Provider: "pe_deleted_01",
+				Model:    "qwen3-coder",
+			},
+			snapshot:     []ProviderRef{pe, openai},
+			wantChanged:  false,
+			wantProvider: "pe_deleted_01",
+			why:          "resolver miss — no ID to write, leave the field for the validator to flag",
+		},
+		{
+			name: "case_insensitive_legacy_match_rewrites",
+			assistant: types.AssistantConfig{
+				Provider: "nvidia nim", // lowercased legacy save
+				Model:    "openai/gpt-oss-120b",
+			},
+			snapshot:     []ProviderRef{pe, openai},
+			wantChanged:  true,
+			wantProvider: "pe_user_provider_01",
+			why:          "case-insensitive name match still triggers the rewrite to canonical ID",
+		},
+		{
+			name: "generation_field_also_rewrites",
+			assistant: types.AssistantConfig{
+				GenerationModelProvider: "NVIDIA NIM",
+				GenerationModel:         "openai/gpt-oss-120b",
+			},
+			snapshot:       []ProviderRef{pe, openai},
+			wantChanged:    true,
+			wantGenericGen: "pe_user_provider_01",
+			why:            "GenerationModelProvider migrates the same way as the legacy Provider field",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			app := &types.App{
+				ID: "test-app",
+				Config: types.AppConfig{
+					Helix: types.AppHelixConfig{
+						Assistants: []types.AssistantConfig{tc.assistant},
+					},
+				},
+			}
+			changed := MigrateLegacyProviderRefs(app, tc.snapshot)
+			assert.Equal(t, tc.wantChanged, changed, tc.why)
+			if tc.wantProvider != "" {
+				assert.Equal(t, tc.wantProvider, app.Config.Helix.Assistants[0].Provider, tc.why)
+			}
+			if tc.wantGenericGen != "" {
+				assert.Equal(t, tc.wantGenericGen, app.Config.Helix.Assistants[0].GenerationModelProvider, tc.why)
+			}
+		})
+	}
+}

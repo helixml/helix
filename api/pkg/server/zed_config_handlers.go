@@ -139,6 +139,7 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 	if err != nil {
 		log.Warn().Err(err).Str("session_id", sessionID).Msg("zed-config: failed to list providers; provider resolution will be skipped")
 	}
+	apiServer.healLegacyProviderRefs(ctx, app, providerSnapshot)
 	zedConfig, err := external_agent.GenerateZedMCPConfig(ctx, app, session.Owner, sessionID, sandboxAPIURL, helixToken, koditEnabled, projectSkills, oauthTokenGetter, providerSnapshot)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to generate Zed config")
@@ -453,6 +454,7 @@ func (apiServer *HelixAPIServer) getMergedZedSettings(_ http.ResponseWriter, req
 	if err != nil {
 		log.Warn().Err(err).Str("session_id", sessionID).Msg("zed-config: failed to list providers; provider resolution will be skipped")
 	}
+	apiServer.healLegacyProviderRefs(ctx, app, providerSnapshot)
 	zedConfig, err := external_agent.GenerateZedMCPConfig(ctx, app, session.Owner, sessionID, helixAPIURL, helixToken, apiServer.Cfg.Kodit.Enabled, projectSkills, oauthTokenGetter, providerSnapshot)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to generate Zed config")
@@ -705,7 +707,23 @@ func (apiServer *HelixAPIServer) validateSpecTaskAgentConfig(ctx context.Context
 		log.Warn().Err(err).Str("app_id", appID).Msg("spec-task: failed to list providers; skipping agent config validation")
 		return "", nil
 	}
+	apiServer.healLegacyProviderRefs(ctx, app, snapshot)
 	return external_agent.ValidateAssistantModelConfig(app, snapshot), nil
+}
+
+// healLegacyProviderRefs rewrites name-based provider references on the app
+// to the matching DB-backed provider's immutable ID, so future renames are
+// silent. Best-effort — a write failure just logs and lets the next read
+// retry. See external_agent.MigrateLegacyProviderRefs for the rules.
+func (apiServer *HelixAPIServer) healLegacyProviderRefs(ctx context.Context, app *types.App, snapshot []external_agent.ProviderRef) {
+	if !external_agent.MigrateLegacyProviderRefs(app, snapshot) {
+		return
+	}
+	if _, err := apiServer.Store.UpdateApp(ctx, app); err != nil {
+		log.Warn().Err(err).Str("app_id", app.ID).Msg("agent legacy-name → ID migration: persist failed; will retry on next read")
+		return
+	}
+	log.Info().Str("app_id", app.ID).Msg("agent legacy-name → ID migration: rewrote provider fields to immutable IDs")
 }
 
 // checkSpecTaskKoditIndexing checks if a SpecTask's project has any repositories with Kodit indexing enabled.
