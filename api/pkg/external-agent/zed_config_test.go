@@ -352,125 +352,44 @@ func TestMigrateLegacyProviderRefs(t *testing.T) {
 	}
 }
 
-// TestMergeZedConfigWithUserOverrides_AgentModelFieldsProtected verifies that
-// the four helix-managed model fields under "agent" cannot be clobbered by
-// user-side overrides (uploaded by the settings-sync-daemon when Zed writes
-// to its local settings.json).
-//
-// See deviqon/P1-5-zed-overrides-clobber-helix-default-model.md.
-func TestMergeZedConfigWithUserOverrides_AgentModelFieldsProtected(t *testing.T) {
-	helixAgent := &AgentConfig{
-		DefaultModel:           &ModelConfig{Provider: "openai", Model: "numpty/openai/gpt-oss-120b"},
-		InlineAssistantModel:   &ModelConfig{Provider: "openai", Model: "numpty/openai/gpt-oss-120b"},
-		CommitMessageModel:     &ModelConfig{Provider: "openai", Model: "numpty/openai/gpt-oss-120b"},
-		ThreadSummaryModel:     &ModelConfig{Provider: "openai", Model: "numpty/openai/gpt-oss-120b"},
-		AlwaysAllowToolActions: true,
-		ShowOnboarding:         false,
-		AutoOpenPanel:          true,
+func TestMergeContextServers(t *testing.T) {
+	helix := map[string]ContextServerConfig{
+		"helix-desktop": {URL: "http://api:8080/api/v1/mcp/desktop", Headers: map[string]string{"Authorization": "Bearer x"}},
+		"chrome":        {Command: "npx", Args: []string{"chrome-devtools-mcp@latest"}},
 	}
 
-	helixConfig := &ZedMCPConfig{
-		ContextServers: map[string]ContextServerConfig{},
-		Agent:          helixAgent,
-	}
-
-	t.Run("user override of default_model is dropped", func(t *testing.T) {
-		userOverrides := map[string]interface{}{
-			"agent": map[string]interface{}{
-				"default_model": map[string]interface{}{
-					"provider":        "anthropic",
-					"model":           "claude-sonnet-4-6-latest",
-					"effort":          "high",
-					"enable_thinking": true,
-				},
+	t.Run("user-only servers are added", func(t *testing.T) {
+		got := MergeContextServers(helix, map[string]interface{}{
+			"context_servers": map[string]interface{}{
+				"my-tool": map[string]interface{}{"command": "/usr/bin/mytool"},
 			},
-		}
-		merged := MergeZedConfigWithUserOverrides(helixConfig, userOverrides)
-
-		agent, ok := merged["agent"].(map[string]interface{})
-		assert.True(t, ok, "agent block should be a map")
-
-		dm, ok := agent["default_model"].(*ModelConfig)
-		assert.True(t, ok, "default_model should remain helix-managed *ModelConfig")
-		assert.Equal(t, "openai", dm.Provider)
-		assert.Equal(t, "numpty/openai/gpt-oss-120b", dm.Model)
+		})
+		assert.Contains(t, got, "helix-desktop")
+		assert.Contains(t, got, "chrome")
+		assert.Contains(t, got, "my-tool")
 	})
 
-	t.Run("all four model fields are protected", func(t *testing.T) {
-		userOverrides := map[string]interface{}{
-			"agent": map[string]interface{}{
-				"default_model":          map[string]interface{}{"provider": "anthropic", "model": "claude"},
-				"inline_assistant_model": map[string]interface{}{"provider": "anthropic", "model": "claude"},
-				"commit_message_model":   map[string]interface{}{"provider": "anthropic", "model": "claude"},
-				"thread_summary_model":   map[string]interface{}{"provider": "anthropic", "model": "claude"},
+	t.Run("user override of helix server replaces it", func(t *testing.T) {
+		got := MergeContextServers(helix, map[string]interface{}{
+			"context_servers": map[string]interface{}{
+				"chrome": map[string]interface{}{"command": "/custom/chrome"},
 			},
-		}
-		merged := MergeZedConfigWithUserOverrides(helixConfig, userOverrides)
-		agent := merged["agent"].(map[string]interface{})
-
-		for _, field := range []string{"default_model", "inline_assistant_model", "commit_message_model", "thread_summary_model"} {
-			dm, ok := agent[field].(*ModelConfig)
-			assert.True(t, ok, "%s should remain helix-managed", field)
-			assert.Equal(t, "openai", dm.Provider, "%s.provider", field)
-			assert.Equal(t, "numpty/openai/gpt-oss-120b", dm.Model, "%s.model", field)
-		}
+		})
+		assert.Equal(t, "/custom/chrome", got["chrome"].(map[string]interface{})["command"])
 	})
 
-	t.Run("non-model agent fields can still be user-overridden", func(t *testing.T) {
-		userOverrides := map[string]interface{}{
-			"agent": map[string]interface{}{
-				"default_model":  map[string]interface{}{"provider": "anthropic", "model": "claude"},
-				"play_sound_when_agent_done": true,
-				"button":                     false,
-			},
-		}
-		merged := MergeZedConfigWithUserOverrides(helixConfig, userOverrides)
-		agent := merged["agent"].(map[string]interface{})
-
-		// helix-managed model is protected
-		assert.Equal(t, "numpty/openai/gpt-oss-120b", agent["default_model"].(*ModelConfig).Model)
-		// arbitrary user-side keys land in the merged agent block
-		assert.Equal(t, true, agent["play_sound_when_agent_done"])
-		assert.Equal(t, false, agent["button"])
+	t.Run("no user overrides preserves helix servers", func(t *testing.T) {
+		got := MergeContextServers(helix, map[string]interface{}{})
+		assert.Contains(t, got, "helix-desktop")
+		assert.Contains(t, got, "chrome")
 	})
 
-	t.Run("top-level non-agent overrides still apply", func(t *testing.T) {
-		userOverrides := map[string]interface{}{
-			"theme":  "Dracula",
-			"keymap": "Vim",
-			"agent": map[string]interface{}{
-				"default_model": map[string]interface{}{"provider": "anthropic", "model": "claude"},
-			},
-		}
-		merged := MergeZedConfigWithUserOverrides(helixConfig, userOverrides)
-
-		assert.Equal(t, "Dracula", merged["theme"])
-		assert.Equal(t, "Vim", merged["keymap"])
-		// Helix model still wins
-		assert.Equal(t, "numpty/openai/gpt-oss-120b",
-			merged["agent"].(map[string]interface{})["default_model"].(*ModelConfig).Model)
-	})
-
-	t.Run("no agent override surfaces helix agent block verbatim", func(t *testing.T) {
-		userOverrides := map[string]interface{}{
-			"theme": "Light",
-		}
-		merged := MergeZedConfigWithUserOverrides(helixConfig, userOverrides)
-
-		// When the user has no agent override, the helix *AgentConfig is exposed directly.
-		agent, ok := merged["agent"].(*AgentConfig)
-		assert.True(t, ok, "agent should be the helix *AgentConfig when user has no override")
-		assert.Equal(t, "numpty/openai/gpt-oss-120b", agent.DefaultModel.Model)
-	})
-
-	t.Run("non-object agent override is ignored", func(t *testing.T) {
-		userOverrides := map[string]interface{}{
-			"agent": "not-an-object",
-		}
-		merged := MergeZedConfigWithUserOverrides(helixConfig, userOverrides)
-
-		agent, ok := merged["agent"].(*AgentConfig)
-		assert.True(t, ok, "agent should fall back to helix *AgentConfig when user override is not a map")
-		assert.Equal(t, "numpty/openai/gpt-oss-120b", agent.DefaultModel.Model)
+	t.Run("non-context_servers user keys are ignored", func(t *testing.T) {
+		got := MergeContextServers(helix, map[string]interface{}{
+			"agent":          map[string]interface{}{"default_model": "claude"},
+			"language_models": map[string]interface{}{},
+		})
+		assert.NotContains(t, got, "agent")
+		assert.NotContains(t, got, "language_models")
 	})
 }

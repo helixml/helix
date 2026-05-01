@@ -362,8 +362,12 @@ func (apiServer *HelixAPIServer) updateZedUserSettings(_ http.ResponseWriter, re
 	return map[string]string{"status": "ok"}, nil
 }
 
-// @Summary Get merged Zed settings
-// @Description Get merged Helix + user Zed settings for a session
+// @Summary Get merged Zed MCP context_servers for a session
+// @Description Returns the union of helix-managed and user-side MCP context_servers,
+// @Description for the session "MCP Tools" panel in the UI. Other Zed settings
+// @Description (agent.*, language_models, theme) are owned by the daemon — anything
+// @Description that needs the full Zed view goes through the settings-sync-daemon
+// @Description on /zed-config + a local merge.
 // @Tags Zed
 // @Accept json
 // @Produce json
@@ -379,41 +383,29 @@ func (apiServer *HelixAPIServer) getMergedZedSettings(_ http.ResponseWriter, req
 	vars := mux.Vars(req)
 	sessionID := vars["id"]
 
-	// Get session to verify access
 	session, err := apiServer.Store.GetSession(ctx, sessionID)
 	if err != nil {
 		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to get session")
 		return nil, system.NewHTTPError404("session not found")
 	}
 
-	// Verify user owns this session
 	user := getRequestUser(req)
 	if user == nil || session.Owner != user.ID {
 		return nil, system.NewHTTPError403("access denied")
 	}
 
-	// Get app config - fall back to default if not found or not set
 	var app *types.App
 	if session.ParentApp != "" {
-		var err error
 		app, err = apiServer.Store.GetApp(ctx, session.ParentApp)
 		if err != nil {
 			log.Warn().Err(err).Str("app_id", session.ParentApp).Str("session_id", sessionID).Msg("Parent app not found - using default config")
 			app = nil
 		}
 	}
-
-	// If no app found, use a default app with sensible defaults
 	if app == nil {
-		log.Debug().Str("session_id", sessionID).Msg("No parent app - using default Zed config with claude-sonnet")
-		app = &types.App{
-			ID:     "default-agent",
-			Config: types.AppConfig{},
-		}
+		app = &types.App{ID: "default-agent", Config: types.AppConfig{}}
 	}
 
-	// Use SANDBOX_API_URL for what Zed inside sandbox uses
-	// If not explicitly set, default to external-facing URL (SERVER_URL)
 	helixAPIURL := apiServer.Cfg.WebServer.SandboxAPIURL
 	if helixAPIURL == "" {
 		helixAPIURL = apiServer.Cfg.WebServer.URL
@@ -422,14 +414,12 @@ func (apiServer *HelixAPIServer) getMergedZedSettings(_ http.ResponseWriter, req
 		}
 	}
 
-	// Get API key for MCP and LLM authentication
 	helixToken, err := apiServer.getAPIKeyForSession(ctx, session)
 	if err != nil {
 		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to get API key for session")
 		return nil, system.NewHTTPError500("failed to get API key for session")
 	}
 
-	// Get project skills if session has a project
 	var projectSkills *types.AssistantSkills
 	if session.ProjectID != "" {
 		project, err := apiServer.Store.GetProject(ctx, session.ProjectID)
@@ -440,41 +430,30 @@ func (apiServer *HelixAPIServer) getMergedZedSettings(_ http.ResponseWriter, req
 		projectSkills = project.Skills
 	}
 
-	// Always generate config - GenerateZedMCPConfig has sensible defaults
-	// (anthropic/claude-sonnet-4-5-latest, theme, language_models routing, etc.)
-	//
-	// Create OAuth token getter for stdio MCPs that need OAuth tokens
 	oauthTokenGetter := func(ctx context.Context, userID, providerName string) (string, error) {
 		if apiServer.oauthManager == nil {
 			return "", nil
 		}
 		return apiServer.oauthManager.GetTokenForTool(ctx, userID, providerName, nil)
 	}
-	providerSnapshot, err := apiServer.getProviderSnapshot(ctx, session.Owner)
-	if err != nil {
-		log.Warn().Err(err).Str("session_id", sessionID).Msg("zed-config: failed to list providers; provider resolution will be skipped")
-	}
-	apiServer.healLegacyProviderRefs(ctx, app, providerSnapshot)
-	zedConfig, err := external_agent.GenerateZedMCPConfig(ctx, app, session.Owner, sessionID, helixAPIURL, helixToken, apiServer.Cfg.Kodit.Enabled, projectSkills, oauthTokenGetter, providerSnapshot)
+	// providerSnapshot=nil here: this endpoint only exposes context_servers,
+	// which don't depend on provider resolution or model validation. The
+	// daemon hits /zed-config separately and handles those concerns there.
+	zedConfig, err := external_agent.GenerateZedMCPConfig(ctx, app, session.Owner, sessionID, helixAPIURL, helixToken, apiServer.Cfg.Kodit.Enabled, projectSkills, oauthTokenGetter, nil)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to generate Zed config")
 		return nil, system.NewHTTPError500("failed to generate Zed config")
 	}
-	if zedConfig.Misconfigured {
-		return nil, system.NewHTTPError422(zedConfig.MisconfigReason)
-	}
 
-	// Get user overrides
 	userOverrides, err := external_agent.GetUserZedOverrides(ctx, apiServer.Store, sessionID)
 	if err != nil {
 		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to get user overrides")
 		return nil, system.NewHTTPError500("failed to get user overrides")
 	}
 
-	// Merge
-	merged := external_agent.MergeZedConfigWithUserOverrides(zedConfig, userOverrides)
-
-	return merged, nil
+	return map[string]interface{}{
+		"context_servers": external_agent.MergeContextServers(zedConfig.ContextServers, userOverrides),
+	}, nil
 }
 
 // getAgentNameForSession determines which code agent to use for a session.
