@@ -32,7 +32,7 @@ const EditProviderModelsDialog: FC<EditProviderModelsDialogProps> = ({ open, end
   const [error, setError] = useState<string | null>(null);
   const api = useApi();
   const apiClient = api.getApiClient();
-  const { mutate: updateProviderEndpoint } = useUpdateProviderEndpoint(endpoint?.id || '');
+  const { mutateAsync: updateProviderEndpoint } = useUpdateProviderEndpoint();
 
   useEffect(() => {
     if (endpoint?.models) {
@@ -45,16 +45,19 @@ const EditProviderModelsDialog: FC<EditProviderModelsDialogProps> = ({ open, end
   }, [endpoint]);
 
   const saveModels = useCallback(async (modelsToSave: string[]) => {
-    if (!endpoint) return;
+    if (!endpoint?.id) return;
 
     setIsLoading(true);
     setError(null);
 
     try {
       await updateProviderEndpoint({
-        base_url: endpoint.base_url,
-        endpoint_type: endpoint.endpoint_type as TypesProviderEndpointType,
-        models: modelsToSave,
+        id: endpoint.id,
+        body: {
+          base_url: endpoint.base_url,
+          endpoint_type: endpoint.endpoint_type as TypesProviderEndpointType,
+          models: modelsToSave,
+        },
       });
       refreshData();
     } catch (err: any) {
