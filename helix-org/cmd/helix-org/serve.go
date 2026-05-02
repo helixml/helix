@@ -308,6 +308,7 @@ func buildSpawner(
 			Provider:          provider,
 			Model:             model,
 			Runtime:           "claude_code",
+			AgentMD:           agentMDContent,
 			ActivationTimeout: timeout,
 			MaxInflight:       int(maxInflight),
 			Logger:            logger,
@@ -397,6 +398,7 @@ func buildChatBackend(
 			HelixOrgURL: orgURL,
 			Provider:    provider,
 			Model:       model,
+			AgentMD:     agentMDContent,
 			// `zed_agent` is the runtime that routes inference back
 			// through Helix (so it works with whatever provider/model
 			// we configure here). `claude_code` is the alternative —

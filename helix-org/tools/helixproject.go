@@ -28,7 +28,13 @@ type HelixProjectApplier struct {
 	Provider    string
 	Model       string
 	Runtime     string // "claude_code" by default
-	Logger      *slog.Logger
+	// AgentMD is the org-wide agent policy pushed verbatim to
+	// `.context/agent.md` on every Worker's helix-specs branch. It's
+	// the canonical entrypoint every activation reads first — see the
+	// spawner's helixSpecsMandate prompt. Empty string skips the
+	// push.
+	AgentMD string
+	Logger  *slog.Logger
 }
 
 // Ensure applies a Helix project for the given Worker if one
@@ -40,10 +46,11 @@ func (a *HelixProjectApplier) Ensure(ctx context.Context, workerID domain.Worker
 	if err != nil {
 		return "", "", "", fmt.Errorf("get worker: %w", err)
 	}
-	if worker.HelixProjectID() != "" {
-		return worker.HelixProjectID(), worker.HelixAgentAppID(), worker.HelixRepoID(), nil
-	}
 	// Resolve role content from the Worker's first position (if any).
+	// We need this both on first apply (to seed agent.md / role.md /
+	// identity.md) and on every subsequent Ensure (so role hot-edits
+	// propagate to the helix-specs branch — see the live-edit step in
+	// demos/getting-started).
 	var roleContent, roleName string
 	if positions := worker.Positions(); len(positions) > 0 {
 		if pos, err := a.Store.Positions.Get(ctx, positions[0]); err == nil {
@@ -52,6 +59,14 @@ func (a *HelixProjectApplier) Ensure(ctx context.Context, workerID domain.Worker
 				roleName = string(role.ID)
 			}
 		}
+	}
+	// Fast path: project already exists. Skip the expensive
+	// ApplyProject / CreateGitRepo / AttachRepo steps but DO re-push
+	// role + identity so update_role / update_identity changes
+	// propagate. CreateBranch + PutFile are idempotent and cheap.
+	if worker.HelixProjectID() != "" {
+		a.republishWorkerFiles(ctx, workerID, worker.HelixRepoID(), roleContent, worker.IdentityContent())
+		return worker.HelixProjectID(), worker.HelixAgentAppID(), worker.HelixRepoID(), nil
 	}
 	// Project-apply always produces a zed_external Agent App
 	// (Helix's `projectAgentRuntimeToTypes` hard-codes that — even
@@ -132,47 +147,7 @@ func (a *HelixProjectApplier) Ensure(ctx context.Context, workerID domain.Worker
 			}
 		}
 	}
-	if repoID != "" {
-		// Push role + identity to the `helix-specs` branch, at the
-		// paths the spawner's activation prompt tells the agent to
-		// read from (`workers/<workerID>/.context/role.md` etc.).
-		//
-		// Why helix-specs and not main:
-		//   - The desktop's helix-workspace-setup.sh creates a separate
-		//     worktree for the helix-specs branch at `~/work/helix-specs/`,
-		//     ONLY if the branch already exists on the remote. So the
-		//     branch needs to be pushed before the desktop boots — we
-		//     do it at applier time.
-		//   - Keeping role/identity on a dedicated orphan-style branch
-		//     keeps `main` free for whatever the Worker's actual code
-		//     workspace is, mirroring Helix's spec-task convention.
-		//
-		// PutFile to a non-existent branch fails with `Remote branch
-		// helix-specs not found in upstream origin`, so we create the
-		// branch from main first. CreateBranch is idempotent (returns
-		// 200 on existing branches).
-		if err := a.Client.CreateBranch(ctx, repoID, "helix-specs", "main"); err != nil {
-			if a.Logger != nil {
-				a.Logger.Warn("helix project bootstrap: create helix-specs branch", "worker", workerID, "err", err)
-			}
-		}
-		for path, content := range map[string]string{
-			"workers/" + string(workerID) + "/.context/role.md":     roleContent,
-			"workers/" + string(workerID) + "/.context/identity.md": worker.IdentityContent(),
-		} {
-			if content == "" {
-				continue
-			}
-			if err := a.Client.PutFile(ctx, repoID, helixclient.PutFileRequest{
-				Path:    path,
-				Branch:  "helix-specs",
-				Message: "bootstrap " + path,
-				Content: content,
-			}); err != nil && a.Logger != nil {
-				a.Logger.Warn("helix project bootstrap: put file", "worker", workerID, "path", path, "err", err)
-			}
-		}
-	}
+	a.republishWorkerFiles(ctx, workerID, repoID, roleContent, worker.IdentityContent())
 	// Attach helix-org's MCP server to the auto-provisioned Agent
 	// App. Helix's project-apply doesn't accept MCPs in
 	// ProjectAgentSpec (only the simple WebSearch/Browser/Calculator
@@ -203,4 +178,48 @@ func (a *HelixProjectApplier) Ensure(ctx context.Context, workerID domain.Worker
 		)
 	}
 	return resp.ProjectID, resp.AgentAppID, repoID, nil
+}
+
+// republishWorkerFiles writes (or rewrites) the agent.md / role.md /
+// identity.md files on the Worker's helix-specs branch. Called from
+// both the first-apply path (so the branch and files exist before the
+// desktop boots) and the fast path (so update_role / update_identity
+// edits propagate on every activation).
+//
+// All operations are idempotent and cheap: CreateBranch on an existing
+// branch is a 200, and PutFile overwrites any existing content. We log
+// errors but never fail Ensure on them — partial state is recoverable
+// on the next activation, but a hard fail would block the dispatch
+// chain entirely.
+//
+// The agent inside the desktop must `git pull origin helix-specs`
+// before reading these files, otherwise it'll see the worktree's
+// pre-existing copy. The spawner's activation prompt
+// (helixSpecsMandate) carries that pull instruction.
+func (a *HelixProjectApplier) republishWorkerFiles(ctx context.Context, workerID domain.WorkerID, repoID, roleContent, identityContent string) {
+	if repoID == "" {
+		return
+	}
+	if err := a.Client.CreateBranch(ctx, repoID, "helix-specs", "main"); err != nil {
+		if a.Logger != nil {
+			a.Logger.Warn("republish worker files: create helix-specs branch", "worker", workerID, "err", err)
+		}
+	}
+	for path, content := range map[string]string{
+		".context/agent.md": a.AgentMD,
+		"workers/" + string(workerID) + "/.context/role.md":     roleContent,
+		"workers/" + string(workerID) + "/.context/identity.md": identityContent,
+	} {
+		if content == "" {
+			continue
+		}
+		if err := a.Client.PutFile(ctx, repoID, helixclient.PutFileRequest{
+			Path:    path,
+			Branch:  "helix-specs",
+			Message: "republish " + path,
+			Content: content,
+		}); err != nil && a.Logger != nil {
+			a.Logger.Warn("republish worker files: put", "worker", workerID, "path", path, "err", err)
+		}
+	}
 }

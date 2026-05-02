@@ -31,6 +31,11 @@ type HelixSpawnerConfig struct {
 	Provider string
 	Model    string
 	Runtime  string // "claude_code" by default
+	// AgentMD is the org-wide agent.md policy text pushed to
+	// `.context/agent.md` on each per-Worker project's helix-specs
+	// branch. The spawner's activation prompt tells every Worker to
+	// read it first. Embedded by main.go from bootstrap_agent.md.
+	AgentMD string
 	// OrgID is the Helix organisation each per-Worker project lives
 	// under. Empty for personal accounts.
 	OrgID             string
@@ -145,21 +150,28 @@ func HelixSpawner(cfg HelixSpawnerConfig) Spawner {
 // boot — but the worktree is only created when the branch exists on
 // the remote at boot time, so if the worktree is missing the agent
 // must materialise it itself.
-const helixSpecsMandate = `Your role and identity files live on the **helix-specs** branch of your
-per-Worker repo. helix-org pushes them on hire and on every Role/identity
-update. Path inside the branch:
+const helixSpecsMandate = `Your org-wide policy, role, and identity files live on the
+**helix-specs** branch of your per-Worker repo. helix-org pushes them
+on hire and re-pushes them on every activation, so the remote always
+has the current owner-edited version. Path inside the branch:
+  .context/agent.md                                    (org-wide policy)
   workers/${HELIX_WORKER_ID}/.context/role.md
   workers/${HELIX_WORKER_ID}/.context/identity.md
 
-The desktop's startup script auto-creates a worktree for that branch at
-` + "`~/work/helix-specs/`" + `. If it's missing — empty or doesn't exist —
-materialise it yourself before reading anything else:
+ALWAYS pull before reading — your local worktree is stale from prior
+activations and won't reflect owner edits made since:
 
-  cd ~/work/$(ls ~/work | grep -v helix-specs | head -1)
-  git fetch origin helix-specs
-  git worktree add ../helix-specs helix-specs
+  if [ ! -d ~/work/helix-specs ]; then
+    cd ~/work/$(ls ~/work | grep -v helix-specs | head -1)
+    git fetch origin helix-specs
+    git worktree add ../helix-specs helix-specs
+  else
+    cd ~/work/helix-specs && git pull --ff-only origin helix-specs
+  fi
 
-Then read role + identity:
+Then read in this order — agent.md FIRST (it's the entrypoint that
+tells you how to be an agent at all), then role.md, then identity.md:
+  cat ~/work/helix-specs/.context/agent.md
   cat ~/work/helix-specs/workers/${HELIX_WORKER_ID}/.context/role.md
   cat ~/work/helix-specs/workers/${HELIX_WORKER_ID}/.context/identity.md
 
@@ -178,6 +190,7 @@ func (c HelixSpawnerConfig) ensureProject(ctx context.Context, workerID domain.W
 		Provider:    c.Provider,
 		Model:       c.Model,
 		Runtime:     c.Runtime,
+		AgentMD:     c.AgentMD,
 		Logger:      c.Logger,
 	}
 	_, _, _, err := a.Ensure(ctx, workerID)
