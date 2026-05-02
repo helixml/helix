@@ -49,3 +49,14 @@ This is a dependency bump. Kodit is consumed by Helix as a Go library imported u
 - The `.drone.yml` E2E pipeline auto-syncs kodit versions between helix and the Zed WS test server. Do not manually edit the E2E server's `go.mod`.
 - Kodit imports are under `github.com/helixml/kodit/{application,domain,infrastructure}/...` — 12 files in helix's `api/` use them.
 - Inner Helix dev creds: `test@helix.ml` / `helixtest` (per CLAUDE.md). Register first; first user becomes admin.
+- `go.mod` is at the **repo root**, not under `api/`. There is one Go module for the whole repo.
+- Full `go build ./...` requires extensive C deps (pkg-config, glib for go-gst). For a kodit upgrade verification, build only the kodit-importing packages: `CGO_ENABLED=1 go build ./api/pkg/services/... ./api/pkg/server/... ./api/pkg/controller/knowledge/... ./api/pkg/rag/...` — tree-sitter still needs gcc + libc6-dev installed.
+
+## Implementation Notes (discovered during execution)
+
+- **`KODIT_ENABLED=true` is required to actually exercise kodit.** The default `docker-compose.dev.yaml` has `KODIT_ENABLED=${KODIT_ENABLED:-false}`. Without it, the API loads the kodit Go library but skips the in-process service init — knowledge sources go straight to `error` with `"kodit service not enabled"`. Set it in `.env` then `docker compose -f docker-compose.dev.yaml up -d api` (a `restart` doesn't pick up new env vars).
+- **Web-URL Knowledge sources fail on arxiv.org PDFs** (the legacy scraping path errored before reaching kodit). The user requested testing via **file upload** instead, which is the supported route for PDFs. The Files knowledge type creates a "preparation mode" source where you upload via `Choose Files`, then click `Refresh knowledge and reindex data` to trigger kodit indexing.
+- **chrome-devtools `fill` does not trigger React state updates for the chat textbox.** Sending a message via `fill` produced an empty `parts: []` array and a 400 "invalid message". Use `click` then `type_text` (real keystrokes) instead.
+- **Onboarding-defaulted Optimus agent uses `claude-opus-4-6` for all 4 model slots.** No runner serves that model in dev → 500 "no runner has model". Switching all 4 slots (Main Reasoning, Generation, Small Reasoning, Small Generation) to `claude-haiku-4-5-20251001` made the agent work and successfully invoke the `KnowledgeQuery` tool against the kodit-indexed PDF. This is a dev-env config issue, not a kodit issue.
+- **Kodit v1.3.7 PDF indexing observed working end-to-end:** scan → extract_snippets → create_bm25_index → extract_page_images → create_code_embeddings (27 docs) → create_page_image_embeddings (13 docs). No PDF extraction warnings/errors from the new PDFium extractor.
+- **The Knowledge skill the agent calls is `Knowledge_arxiv_pdf`** (named after the source). Helix wires each knowledge source as a separate skill function on the agent.

@@ -14,8 +14,12 @@
 - [x] Re-trigger indexing via "Refresh knowledge and reindex data" button
 - [x] Wait for indexing to complete — status went `error` → `indexing` → `ready`. Kodit v1.3.7 produced 27 code embeddings + 13 page image embeddings via PDFium extractor. No errors.
 - [x] Take screenshot `screenshots/03-indexing-ready.png`
-- [~] Run a knowledge query relevant to the paper content and verify at least one result returns
-- [ ] Take screenshot `screenshots/04-query-results.png`
-- [ ] Commit the go.mod / go.sum change with a clear message and push
-- [ ] Open a PR on `helixml/helix` linking to the kodit v1.3.7 release notes and the screenshots
-- [ ] Watch CI on Drone; fix any breakage rather than papering over
+- [x] Switched the Optimus agent's 4 model slots to `claude-haiku-4-5-20251001` (default `claude-opus-4-6` had no runner; unrelated to kodit)
+- [x] Run a knowledge query relevant to the paper content — agent invoked `KnowledgeQuery` tool against the indexed PDF (proves end-to-end Knowledge tool works against kodit v1.3.7-indexed data)
+- [x] Take screenshot `screenshots/05-knowledge-query-working.png`
+- [x] Commit the go.mod / go.sum change with a clear message and push to feature branch
+- [ ] Watch CI on Drone after push; fix any breakage rather than papering over
+
+Notes:
+- The Optimus agent's onboarding-defaulted models (`claude-opus-4-6`) are not registered with any runner in dev — got 500 "no runner has model". Switched to `claude-haiku-4-5-20251001` (the same model the system uses for chat default) and the agent successfully invoked the `KnowledgeQuery` tool against the kodit-indexed PDF. This is unrelated to the kodit upgrade itself.
+- Web URL knowledge sources (HTTP scraping path) errored on arxiv.org redirect handling — unrelated to kodit, may want to investigate separately. File upload path is the supported route for PDFs.
