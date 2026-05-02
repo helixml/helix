@@ -1,6 +1,6 @@
 # Implementation Tasks
 
-- [ ] Edit `api/go.mod` line 45: change `github.com/helixml/kodit v1.3.6` to `v1.3.7`
+- [~] Edit `api/go.mod` line 45: change `github.com/helixml/kodit v1.3.6` to `v1.3.7`
 - [ ] Run `cd api && go mod tidy` to update `go.sum`
 - [ ] Verify the build: `cd api && CGO_ENABLED=1 go build ./...`
 - [ ] Restart the inner Helix API container: `docker compose -f docker-compose.dev.yaml restart api`
