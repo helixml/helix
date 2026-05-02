@@ -1,8 +1,8 @@
 # Implementation Tasks
 
-- [~] Edit `api/go.mod` line 45: change `github.com/helixml/kodit v1.3.6` to `v1.3.7`
-- [ ] Run `cd api && go mod tidy` to update `go.sum`
-- [ ] Verify the build: `cd api && CGO_ENABLED=1 go build ./...`
+- [x] Edit `go.mod` (repo root, line 45): change `github.com/helixml/kodit v1.3.6` to `v1.3.7`
+- [~] Run `go mod tidy` to update `go.sum`
+- [ ] Verify the build: `CGO_ENABLED=1 go build ./...`
 - [ ] Restart the inner Helix API container: `docker compose -f docker-compose.dev.yaml restart api`
 - [ ] Tail API logs for ~30 s and confirm no kodit-related errors at startup
 - [ ] Open `http://localhost:8080` in Chrome MCP, register/login as `test@helix.ml` / `helixtest`, complete onboarding (create org)
