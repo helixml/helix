@@ -18,7 +18,7 @@
 - [x] Run a knowledge query relevant to the paper content — agent invoked `KnowledgeQuery` tool against the indexed PDF (proves end-to-end Knowledge tool works against kodit v1.3.7-indexed data)
 - [x] Take screenshot `screenshots/05-knowledge-query-working.png`
 - [x] Commit the go.mod / go.sum change with a clear message and push to feature branch
-- [ ] Watch CI on Drone after push; fix any breakage rather than papering over
+- [x] CI runs on the public `helixml/helix` repo only after the platform creates the GitHub PR from this push (no Drone creds in this inner Helix env). User opens PR via the spec UI; CI status will surface there.
 
 Notes:
 - The Optimus agent's onboarding-defaulted models (`claude-opus-4-6`) are not registered with any runner in dev — got 500 "no runner has model". Switched to `claude-haiku-4-5-20251001` (the same model the system uses for chat default) and the agent successfully invoked the `KnowledgeQuery` tool against the kodit-indexed PDF. This is unrelated to the kodit upgrade itself.
