@@ -9,10 +9,13 @@
 - [x] Navigate to Agents → create or open an agent → Knowledge tab
 - [x] Add a knowledge source with URL `https://arxiv.org/pdf/2604.25927v1`
 - [x] Take screenshot `screenshots/01-knowledge-source-added.png`
-- [~] Wait for indexing to complete (poll UI; investigate any PDF extraction warnings in API logs)
-- [ ] Take screenshot `screenshots/02-indexing-completed.png`
-- [ ] Run a knowledge query relevant to the paper content and verify at least one result returns
-- [ ] Take screenshot `screenshots/03-query-results.png`
+- [x] Switch from web URL to file upload (web URL errored, user requested file upload as the test path)
+- [x] Enable Kodit (`KODIT_ENABLED=true` in `.env`) — was disabled by default in dev compose; recreated API container
+- [x] Re-trigger indexing via "Refresh knowledge and reindex data" button
+- [x] Wait for indexing to complete — status went `error` → `indexing` → `ready`. Kodit v1.3.7 produced 27 code embeddings + 13 page image embeddings via PDFium extractor. No errors.
+- [x] Take screenshot `screenshots/03-indexing-ready.png`
+- [~] Run a knowledge query relevant to the paper content and verify at least one result returns
+- [ ] Take screenshot `screenshots/04-query-results.png`
 - [ ] Commit the go.mod / go.sum change with a clear message and push
 - [ ] Open a PR on `helixml/helix` linking to the kodit v1.3.7 release notes and the screenshots
 - [ ] Watch CI on Drone; fix any breakage rather than papering over
