@@ -3,9 +3,9 @@
 - [x] Edit `go.mod` (repo root, line 45): change `github.com/helixml/kodit v1.3.6` to `v1.3.7`
 - [x] Run `go mod tidy` to update `go.sum`
 - [x] Verify the build: `CGO_ENABLED=1 go build` of kodit-importing packages (services, server, controller/knowledge, rag) — full `./...` requires pkg-config + glib for unrelated go-gst, skipped
-- [~] Restart the inner Helix API container: `docker compose -f docker-compose.dev.yaml restart api`
-- [ ] Tail API logs for ~30 s and confirm no kodit-related errors at startup
-- [ ] Open `http://localhost:8080` in Chrome MCP, register/login as `test@helix.ml` / `helixtest`, complete onboarding (create org)
+- [x] Restart the inner Helix API container: `docker compose -f docker-compose.dev.yaml restart api`
+- [x] Tail API logs for ~30 s and confirm no kodit-related errors at startup — saw "Using Kodit for RAG" + "Registered MCP backend kodit", no errors. KODIT_ENABLED=false in dev (in-process kodit disabled), but RAG/MCP path uses kodit fine
+- [~] Open `http://localhost:8080` in Chrome MCP, register/login as `test@helix.ml` / `helixtest`, complete onboarding (create org)
 - [ ] Navigate to Agents → create or open an agent → Knowledge tab
 - [ ] Add a knowledge source with URL `https://arxiv.org/pdf/2604.25927v1`
 - [ ] Take screenshot `screenshots/01-knowledge-source-added.png`
