@@ -106,7 +106,7 @@ const SandboxDetailLoaded: FC<LoadedProps> = ({ orgId, sandbox, onDelete, onBack
           </Tabs>
 
           {tab === 'desktop' && desktopAvailable && <SandboxDesktopTab sandbox={sandbox} />}
-          {tab === 'overview' && <SandboxOverviewTab sandbox={sandbox} />}
+          {tab === 'overview' && <SandboxOverviewTab orgId={orgId!} sandbox={sandbox} />}
           {tab === 'terminal' && <SandboxTerminal orgId={orgId!} sandboxId={sandbox.id!} running={running} />}
           {tab === 'commands' && <SandboxCommandsTab orgId={orgId!} sandboxId={sandbox.id!} running={running} />}
           {tab === 'files' && <SandboxFilesTab orgId={orgId!} sandboxId={sandbox.id!} running={running} persistent={sandbox.persistent} />}

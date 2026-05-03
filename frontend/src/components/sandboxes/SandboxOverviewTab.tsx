@@ -5,8 +5,10 @@ import Typography from '@mui/material/Typography'
 
 import SandboxStatusBadge from './SandboxStatusBadge'
 import { TypesSandbox } from '../../api/api'
+import { useSandboxBilling } from '../../services/sandboxesService'
 
 interface Props {
+  orgId: string
   sandbox: TypesSandbox
 }
 
@@ -24,7 +26,24 @@ const Row: FC<{ label: string; value: React.ReactNode }> = ({ label, value }) =>
   </Box>
 )
 
-const SandboxOverviewTab: FC<Props> = ({ sandbox }) => {
+const formatCredits = (n: number, decimals = 4): string => {
+  if (!Number.isFinite(n)) return '0'
+  return n.toFixed(decimals)
+}
+
+const SandboxOverviewTab: FC<Props> = ({ orgId, sandbox }) => {
+  // Billing endpoint returns enabled=false when global billing is off. Only
+  // poll while the sandbox is actually running — the charged total is frozen
+  // once it stops, so refetching every 10s is wasted work.
+  const { data: billing } = useSandboxBilling(orgId, sandbox.id, {
+    refetchInterval: sandbox.status === 'running' ? 10000 : false,
+  })
+
+  const billingEnabled = billing?.enabled === true
+  const perMinute = billingEnabled ? (billing!.price_credits_per_second || 0) * 60 : 0
+  const perHour = billingEnabled ? (billing!.price_credits_per_second || 0) * 3600 : 0
+  const charged = billingEnabled ? billing!.total_credits_charged || 0 : 0
+
   return (
     <Box sx={{ p: 2, borderRadius: 1, border: '1px solid', borderColor: 'divider' }}>
       <Stack spacing={1.5}>
@@ -42,6 +61,15 @@ const SandboxOverviewTab: FC<Props> = ({ sandbox }) => {
         <Row label="Created" value={sandbox.created_at ? new Date(sandbox.created_at).toLocaleString() : '-'} />
         <Row label="Started" value={sandbox.started_at ? new Date(sandbox.started_at).toLocaleString() : '-'} />
         <Row label="Expires" value={sandbox.expires_at ? new Date(sandbox.expires_at).toLocaleString() : 'Never'} />
+        {billingEnabled && (
+          <>
+            <Row
+              label="Price"
+              value={`${formatCredits(perMinute)} credits/min  (${formatCredits(perHour, 2)} credits/hr)`}
+            />
+            <Row label="Charged so far" value={`${formatCredits(charged)} credits`} />
+          </>
+        )}
       </Stack>
     </Box>
   )

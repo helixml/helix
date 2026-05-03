@@ -1079,6 +1079,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/organizations/{org_id}/sandboxes/{id}/files", apiServer.sandboxFile).Methods(http.MethodGet, http.MethodPut, http.MethodDelete)
 	authRouter.HandleFunc("/organizations/{org_id}/sandboxes/{id}/files/list", apiServer.listSandboxFiles).Methods(http.MethodGet)
 	authRouter.HandleFunc("/organizations/{org_id}/sandboxes/{id}/terminal", apiServer.sandboxTerminal).Methods(http.MethodGet)
+	authRouter.HandleFunc("/organizations/{org_id}/sandboxes/{id}/terminal/sessions", apiServer.sandboxTerminalSessions).Methods(http.MethodGet)
 	authRouter.HandleFunc("/organizations/{org_id}/sandboxes/{id}/screenshot", apiServer.sandboxScreenshot).Methods(http.MethodGet)
 	authRouter.HandleFunc("/organizations/{org_id}/sandboxes/{id}/billing", apiServer.sandboxBilling).Methods(http.MethodGet)
 

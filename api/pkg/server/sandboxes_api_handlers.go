@@ -13,6 +13,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
@@ -734,6 +735,100 @@ func (s *HelixAPIServer) sandboxBilling(rw http.ResponseWriter, r *http.Request)
 		log.Warn().Err(err).Str("sandbox_id", sb.ID).Msg("failed to sum sandbox charges; reporting 0")
 	}
 	writeJSON(rw, http.StatusOK, resp)
+}
+
+// SandboxTerminalSession represents one tmux session running inside the
+// sandbox container. The `name` value has the `helix-` prefix stripped — it
+// matches the `?session=<name>` query param the terminal websocket accepts.
+type SandboxTerminalSession struct {
+	Name     string `json:"name"`
+	Attached bool   `json:"attached"`
+	Windows  int    `json:"windows,omitempty"`
+	Created  int64  `json:"created,omitempty"`
+}
+
+// SandboxTerminalSessionsResponse is the list payload returned by
+// /sandboxes/{id}/terminal/sessions.
+type SandboxTerminalSessionsResponse struct {
+	Sessions []SandboxTerminalSession `json:"sessions"`
+}
+
+// sandboxTerminalSessions lists the tmux sessions currently running inside
+// the sandbox container. Used by the UI to render a session switcher.
+//
+// Returns an empty list (not an error) when tmux isn't installed or there's
+// no tmux server running yet — those are the normal pre-first-connect states,
+// not failures the UI should surface as an error.
+//
+// @Summary List sandbox tmux sessions
+// @Tags Sandboxes
+// @Produce json
+// @Param org_id path string true "Organization ID"
+// @Param id path string true "Sandbox ID"
+// @Success 200 {object} server.SandboxTerminalSessionsResponse
+// @Router /api/v1/organizations/{org_id}/sandboxes/{id}/terminal/sessions [get]
+// @Security ApiKeyAuth
+func (s *HelixAPIServer) sandboxTerminalSessions(rw http.ResponseWriter, r *http.Request) {
+	sb, _ := s.loadAuthorizedSandbox(rw, r)
+	if sb == nil {
+		return
+	}
+	client, err := s.sandboxController.HydraClient(sb)
+	if err != nil {
+		http.Error(rw, err.Error(), http.StatusServiceUnavailable)
+		return
+	}
+	out := SandboxTerminalSessionsResponse{Sessions: []SandboxTerminalSession{}}
+
+	// Pass tmux args explicitly (not as one shell string) so this works against
+	// hydra builds that don't auto-wrap multi-word commands in /bin/sh -c.
+	res, err := client.RunSandboxCommand(r.Context(), sb.ID, &hydra.ExecRequest{
+		SandboxID:      sb.ID,
+		Cmd:            "tmux",
+		Args:           []string{"list-sessions", "-F", "#{session_name}|#{session_attached}|#{session_windows}|#{session_created}"},
+		Detached:       false,
+		TimeoutSeconds: 5,
+	})
+	if err != nil || res == nil {
+		// "no server running" / "tmux: command not found" both surface as
+		// non-2xx from hydra. Treat as empty list — the UI will just show "no
+		// sessions yet" which is the right thing.
+		log.Debug().Err(err).Str("sandbox_id", sb.ID).Msg("tmux list-sessions returned no usable result")
+		writeJSON(rw, http.StatusOK, out)
+		return
+	}
+	for _, line := range strings.Split(strings.TrimSpace(res.Stdout), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		parts := strings.Split(line, "|")
+		name := parts[0]
+		// Only surface helix-managed sessions. Other tmux sessions inside the
+		// sandbox (e.g. from a manual `tmux new -s foo` in a shell) are still
+		// reachable via the underlying terminal but not picked as switch
+		// targets — our session ids must be `helix-<safe-id>` to be valid in
+		// the websocket query param guard.
+		if !strings.HasPrefix(name, "helix-") {
+			continue
+		}
+		row := SandboxTerminalSession{Name: strings.TrimPrefix(name, "helix-")}
+		if len(parts) >= 2 {
+			row.Attached = parts[1] == "1"
+		}
+		if len(parts) >= 3 {
+			if w, perr := strconv.Atoi(parts[2]); perr == nil {
+				row.Windows = w
+			}
+		}
+		if len(parts) >= 4 {
+			if c, perr := strconv.ParseInt(parts[3], 10, 64); perr == nil {
+				row.Created = c
+			}
+		}
+		out.Sessions = append(out.Sessions, row)
+	}
+	writeJSON(rw, http.StatusOK, out)
 }
 
 // loadAuthorizedSandbox fetches the sandbox by id, verifies the caller is a
