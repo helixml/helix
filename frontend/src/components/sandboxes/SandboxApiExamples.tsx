@@ -52,6 +52,35 @@ const SECTIONS = [
 
 type SectionId = (typeof SECTIONS)[number]['id']
 
+const maskApiKey = (apiKey?: string) => {
+  if (!apiKey) {
+    return '<PASTE_ORG_API_KEY>'
+  }
+
+  return `${apiKey.slice(0, 8)}...`
+}
+
+const buildEnvironmentSnippet = (lang: Lang, origin: string, apiKey: string) => {
+  if (lang === 'javascript') {
+    return `const HELIX_URL = process.env.HELIX_URL ?? '${origin}'
+const HELIX_API_KEY = process.env.HELIX_API_KEY // ${apiKey}
+
+if (!HELIX_API_KEY) {
+  throw new Error('HELIX_API_KEY is required')
+}`
+  }
+
+  if (lang === 'python') {
+    return `import os
+
+HELIX_URL = os.environ.get("HELIX_URL", "${origin}")
+HELIX_API_KEY = os.environ["HELIX_API_KEY"]  # ${apiKey}`
+  }
+
+  return `export HELIX_URL="${origin}"
+export HELIX_API_KEY="${apiKey}"`
+}
+
 interface Examples {
   curl: string
   javascript: string
@@ -283,9 +312,8 @@ const SandboxApiExamples: FC<SandboxApiExamplesProps> = (props) => {
 
   const origin = typeof window !== 'undefined' ? window.location.origin : ''
   const apiRefHref = `${origin}/api-reference#tag/Sandboxes`
-  const apiKeyValue = props.apiKey ?? '<PASTE_ORG_API_KEY>'
-  const exportSnippet = `export HELIX_URL="${origin}"
-export HELIX_API_KEY="${apiKeyValue}"`
+  const apiKeyValue = maskApiKey(props.apiKey)
+  const environmentSnippet = buildEnvironmentSnippet(lang, origin, apiKeyValue)
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', minWidth: 0 }}>
@@ -336,7 +364,7 @@ export HELIX_API_KEY="${apiKeyValue}"`
             >
               Environment
             </Typography>
-            <CodeBlock code={exportSnippet} lang="curl" />
+            <CodeBlock code={environmentSnippet} lang={lang} />
             {!props.apiKey && (
               <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
                 No org API key found — create one in organization settings, then paste it where shown.

@@ -250,6 +250,35 @@ func (c *HelixClient) ListSandboxFiles(ctx context.Context, orgID, sandboxID, pa
 	return &resp, nil
 }
 
+// GetSandboxScreenshot fetches a JPEG screenshot of the sandbox desktop. Only
+// meaningful for desktop runtimes; headless sandboxes will return a 503.
+// quality is the JPEG quality 1-100 (0 = server default ~60).
+func (c *HelixClient) GetSandboxScreenshot(ctx context.Context, orgID, sandboxID string, quality int) ([]byte, error) {
+	q := url.Values{}
+	if quality > 0 {
+		q.Set("quality", strconv.Itoa(quality))
+	}
+	full := fmt.Sprintf("/organizations/%s/sandboxes/%s/screenshot", orgID, sandboxID)
+	if encoded := q.Encode(); encoded != "" {
+		full += "?" + encoded
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url+full, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("status %d (%s)", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	return io.ReadAll(resp.Body)
+}
+
 // OpenSandboxTerminal dials the terminal websocket and returns a real
 // *websocket.Conn carrying the terminal protocol:
 //   - Binary frames: stdin (client → server), stdout/stderr merged (server → client).

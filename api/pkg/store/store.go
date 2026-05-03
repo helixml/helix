@@ -16,6 +16,7 @@ type ListProjectsQuery struct {
 	IncludeStats   bool
 }
 
+
 type GetProjectsCountQuery struct {
 	UserID         string
 	OrganizationID string
@@ -449,6 +450,7 @@ type Store interface {
 	GetAppUsersAggregatedUsageMetrics(ctx context.Context, appID string, from time.Time, to time.Time) ([]*types.UsersAggregatedUsageMetric, error)
 
 	GetAggregatedUsageMetrics(ctx context.Context, q *GetAggregatedUsageMetricsQuery) ([]*types.AggregatedUsageMetric, error)
+	GetSandboxUsageMetrics(ctx context.Context, q *GetAggregatedUsageMetricsQuery) ([]*types.AggregatedUsageMetric, error)
 
 	CreateSlackThread(ctx context.Context, thread *types.SlackThread) (*types.SlackThread, error)
 	GetSlackThread(ctx context.Context, appID, channel, threadKey string) (*types.SlackThread, error)
@@ -726,9 +728,14 @@ type Store interface {
 	ListSandboxes(ctx context.Context, q *ListSandboxesQuery) ([]*types.Sandbox, error)
 	UpdateSandbox(ctx context.Context, sandbox *types.Sandbox) (*types.Sandbox, error)
 	SetSandboxStatus(ctx context.Context, id string, status types.SandboxStatus, message string) error
+	SetSandboxBillingLastChargedAt(ctx context.Context, id string, chargedAt time.Time) error
+	SetRunningSandboxesBillingLastChargedAt(ctx context.Context, chargedAt time.Time) error
 	SetSandboxContainer(ctx context.Context, id string, hostDeviceID, containerID string) error
 	DeleteSandbox(ctx context.Context, id string) error
 	ListExpiredSandboxes(ctx context.Context, now time.Time) ([]*types.Sandbox, error)
+	// SumSandboxCharges totals the absolute credit amount of every wallet
+	// transaction tagged with this sandbox id. Returned in credits.
+	SumSandboxCharges(ctx context.Context, sandboxID string) (float64, error)
 
 	// Disk usage history methods
 	CreateDiskUsageHistory(ctx context.Context, history *types.DiskUsageHistory) error
@@ -798,4 +805,3 @@ type Store interface {
 	ListClaudeSubscriptions(ctx context.Context, ownerID string) ([]*types.ClaudeSubscription, error)
 	GetEffectiveClaudeSubscription(ctx context.Context, userID, orgID string) (*types.ClaudeSubscription, error)
 }
-

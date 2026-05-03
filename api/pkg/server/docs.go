@@ -8798,6 +8798,58 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/organizations/{org_id}/sandboxes/{id}/screenshot": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "produces": [
+                    "image/jpeg"
+                ],
+                "tags": [
+                    "Sandboxes"
+                ],
+                "summary": "Get a sandbox screenshot",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID",
+                        "name": "org_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Sandbox ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "JPEG quality (1-100, default 60)",
+                        "name": "quality",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "503": {
+                        "description": "Desktop bridge not connected",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/organizations/{org_id}/sandboxes/{id}/terminal": {
             "get": {
                 "security": [
@@ -12654,6 +12706,37 @@ const docTemplate = `{
                         "description": "Internal Server Error",
                         "schema": {
                             "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/sandbox-runtimes": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "List the sandbox runtimes available on this server",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sandboxes"
+                ],
+                "summary": "List sandbox runtimes",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "array",
+                                "items": {
+                                    "type": "string"
+                                }
+                            }
                         }
                     }
                 }
@@ -21506,6 +21589,9 @@ const docTemplate = `{
                 "response_size_bytes": {
                     "type": "integer"
                 },
+                "sandbox_cost": {
+                    "type": "number"
+                },
                 "total_cost": {
                     "description": "Prompt + completion + cache read + cache write",
                     "type": "number"
@@ -23342,15 +23428,31 @@ const docTemplate = `{
                         "type": "string"
                     }
                 },
+                "image": {
+                    "description": "Image is an optional explicit Docker image override. Only honoured\nwhen the operator has set HELIX_SANDBOX_ALLOW_CUSTOM_IMAGE=true.\nMutually exclusive with Runtime.",
+                    "type": "string"
+                },
+                "memory_mb": {
+                    "type": "integer"
+                },
                 "name": {
                     "type": "string"
+                },
+                "persistent": {
+                    "description": "Persistent makes the sandbox keep a workspace mount across container\nrestarts. Files written under /home/retro/work survive teardown until\nthe sandbox is explicitly deleted.",
+                    "type": "boolean"
                 },
                 "project_id": {
                     "description": "ProjectID optionally associates the sandbox with a project the caller\nbelongs to. Empty means org-scoped only.",
                     "type": "string"
                 },
                 "runtime": {
-                    "$ref": "#/definitions/types.SandboxRuntime"
+                    "description": "Runtime selects one of the operator-configured runtimes\n(e.g. \"headless-ubuntu\", \"node22\", \"ubuntu-desktop\"). Mutually\nexclusive with Image.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.SandboxRuntime"
+                        }
+                    ]
                 },
                 "tags": {
                     "type": "object",
@@ -23359,6 +23461,9 @@ const docTemplate = `{
                     }
                 },
                 "timeout_seconds": {
+                    "type": "integer"
+                },
+                "vcpus": {
                     "type": "integer"
                 }
             }
@@ -28084,6 +28189,9 @@ const docTemplate = `{
         "types.Sandbox": {
             "type": "object",
             "properties": {
+                "billing_last_charged_at": {
+                    "type": "string"
+                },
                 "container_id": {
                     "type": "string"
                 },
@@ -28134,6 +28242,10 @@ const docTemplate = `{
                 "owner": {
                     "type": "string"
                 },
+                "persistent": {
+                    "description": "Persistent indicates that the sandbox should mount a persistent\nworkspace volume (so files survive across reboots/restarts of the\nunderlying container). Non-persistent sandboxes use the container's\nephemeral filesystem only.",
+                    "type": "boolean"
+                },
                 "project_id": {
                     "description": "ProjectID is optional. When set, the sandbox is associated with a\nspecific project for organisational/UI grouping purposes; nothing in the\nlifecycle path branches on it. Empty means org-scoped only.",
                     "type": "string"
@@ -28167,7 +28279,6 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "vcpus": {
-                    "description": "VCPUs and Memory are pinned in v1 but stored on the row so we can vary later.",
                     "type": "integer"
                 }
             }
@@ -30829,7 +30940,13 @@ const docTemplate = `{
                     "description": "Kodit vision embedding model configuration",
                     "type": "string"
                 },
+                "max_concurrent_desktop_sandboxes": {
+                    "type": "integer"
+                },
                 "max_concurrent_desktops": {
+                    "type": "integer"
+                },
+                "max_concurrent_headless_sandboxes": {
                     "type": "integer"
                 },
                 "optimus_generation_model": {
@@ -30864,6 +30981,15 @@ const docTemplate = `{
                 },
                 "providers_management_enabled": {
                     "type": "boolean"
+                },
+                "sandbox_billing_enabled": {
+                    "type": "boolean"
+                },
+                "sandbox_desktop_price_credits_per_second": {
+                    "type": "number"
+                },
+                "sandbox_headless_price_credits_per_second": {
+                    "type": "number"
                 }
             }
         },
@@ -30918,8 +31044,14 @@ const docTemplate = `{
                     "description": "Kodit vision embedding model configuration",
                     "type": "string"
                 },
+                "max_concurrent_desktop_sandboxes": {
+                    "type": "integer"
+                },
                 "max_concurrent_desktops": {
                     "description": "Per user",
+                    "type": "integer"
+                },
+                "max_concurrent_headless_sandboxes": {
                     "type": "integer"
                 },
                 "optimus_generation_model": {
@@ -30955,6 +31087,15 @@ const docTemplate = `{
                 },
                 "providers_management_enabled": {
                     "type": "boolean"
+                },
+                "sandbox_billing_enabled": {
+                    "type": "boolean"
+                },
+                "sandbox_desktop_price_credits_per_second": {
+                    "type": "number"
+                },
+                "sandbox_headless_price_credits_per_second": {
+                    "type": "number"
                 },
                 "updated": {
                     "type": "string"

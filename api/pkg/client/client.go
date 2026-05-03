@@ -113,6 +113,7 @@ type Client interface {
 	WriteSandboxFile(ctx context.Context, orgID, sandboxID, path string, data []byte, mode int) error
 	DeleteSandboxFile(ctx context.Context, orgID, sandboxID, path string, recursive bool) error
 	ListSandboxFiles(ctx context.Context, orgID, sandboxID, path string) (*types.SandboxFileListResponse, error)
+	GetSandboxScreenshot(ctx context.Context, orgID, sandboxID string, quality int) ([]byte, error)
 
 	// Users
 	ListUsers(ctx context.Context, f *UserFilter) (*types.PaginatedUsersList, error)

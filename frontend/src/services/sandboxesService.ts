@@ -24,6 +24,18 @@ export const sandboxFilesQueryKey = (orgId: string, id: string, path?: string) =
   id,
   path ?? '/root',
 ]
+export const sandboxBillingQueryKey = (orgId: string, id: string) => [
+  'sandboxes',
+  'billing',
+  orgId,
+  id,
+]
+export const sandboxTerminalSessionsQueryKey = (orgId: string, id: string) => [
+  'sandboxes',
+  'terminal-sessions',
+  orgId,
+  id,
+]
 
 export function useListSandboxes(orgId: string | undefined, options?: { enabled?: boolean }) {
   const api = useApi()
@@ -208,6 +220,76 @@ export function useSandboxFiles(
       }
     },
     enabled: !!orgId && !!id && (options?.enabled ?? true),
+  })
+}
+
+// Billing summary for a single sandbox. Returned by /sandboxes/{id}/billing.
+// Backend computes price from the sandbox runtime + the configured per-second
+// rate, and `total_credits_charged` from the magnitude of all transactions
+// tagged with the sandbox id (so we count every interval the reaper has
+// debited so far).
+export interface SandboxBilling {
+  enabled: boolean
+  price_credits_per_second: number
+  total_credits_charged: number
+  runtime: string
+}
+
+export function useSandboxBilling(
+  orgId: string | undefined,
+  id: string | undefined,
+  options?: { enabled?: boolean; refetchInterval?: number },
+) {
+  const api = useApi()
+
+  return useQuery({
+    queryKey: sandboxBillingQueryKey(orgId ?? '', id ?? ''),
+    queryFn: async (): Promise<SandboxBilling | null> => {
+      if (!orgId || !id) return null
+      // The /billing endpoint isn't in the generated client yet — go through
+      // the raw axios helper. Suppress snackbar so we don't spam toasts when
+      // billing is disabled (handler still 200s in that case, but keep this
+      // defensive for transient errors).
+      return api.get<SandboxBilling>(
+        `/api/v1/organizations/${orgId}/sandboxes/${id}/billing`,
+        undefined,
+        { snackbar: false },
+      )
+    },
+    enabled: !!orgId && !!id && (options?.enabled ?? true),
+    refetchInterval: options?.refetchInterval ?? 10000,
+  })
+}
+
+// List of tmux sessions running in a sandbox, used by the terminal UI to
+// surface a session switcher. The backend shells out to `tmux list-sessions`
+// inside the sandbox container.
+export interface SandboxTerminalSession {
+  name: string
+  attached: boolean
+  windows?: number
+  created?: number
+}
+
+export function useSandboxTerminalSessions(
+  orgId: string | undefined,
+  id: string | undefined,
+  options?: { enabled?: boolean; refetchInterval?: number },
+) {
+  const api = useApi()
+
+  return useQuery({
+    queryKey: sandboxTerminalSessionsQueryKey(orgId ?? '', id ?? ''),
+    queryFn: async (): Promise<{ sessions: SandboxTerminalSession[] } | null> => {
+      if (!orgId || !id) return null
+      return api.get<{ sessions: SandboxTerminalSession[] }>(
+        `/api/v1/organizations/${orgId}/sandboxes/${id}/terminal/sessions`,
+        undefined,
+        { snackbar: false },
+      )
+    },
+    enabled: !!orgId && !!id && (options?.enabled ?? true),
+    refetchInterval: options?.refetchInterval ?? 5000,
   })
 }
 

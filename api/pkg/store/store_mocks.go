@@ -2115,6 +2115,21 @@ func (mr *MockStoreMockRecorder) GetAggregatedUsageMetrics(ctx, q any) *gomock.C
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAggregatedUsageMetrics", reflect.TypeOf((*MockStore)(nil).GetAggregatedUsageMetrics), ctx, q)
 }
 
+// GetSandboxUsageMetrics mocks base method.
+func (m *MockStore) GetSandboxUsageMetrics(ctx context.Context, q *GetAggregatedUsageMetricsQuery) ([]*types.AggregatedUsageMetric, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetSandboxUsageMetrics", ctx, q)
+	ret0, _ := ret[0].([]*types.AggregatedUsageMetric)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetSandboxUsageMetrics indicates an expected call of GetSandboxUsageMetrics.
+func (mr *MockStoreMockRecorder) GetSandboxUsageMetrics(ctx, q any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSandboxUsageMetrics", reflect.TypeOf((*MockStore)(nil).GetSandboxUsageMetrics), ctx, q)
+}
+
 // GetAnyPendingPrompt mocks base method.
 func (m *MockStore) GetAnyPendingPrompt(ctx context.Context, sessionID string) (*types.PromptHistoryEntry, error) {
 	m.ctrl.T.Helper()
@@ -5303,6 +5318,20 @@ func (mr *MockStoreMockRecorder) SetRunnerAssignment(ctx, a any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetRunnerAssignment", reflect.TypeOf((*MockStore)(nil).SetRunnerAssignment), ctx, a)
 }
 
+// SetRunningSandboxesBillingLastChargedAt mocks base method.
+func (m *MockStore) SetRunningSandboxesBillingLastChargedAt(ctx context.Context, chargedAt time.Time) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetRunningSandboxesBillingLastChargedAt", ctx, chargedAt)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetRunningSandboxesBillingLastChargedAt indicates an expected call of SetRunningSandboxesBillingLastChargedAt.
+func (mr *MockStoreMockRecorder) SetRunningSandboxesBillingLastChargedAt(ctx, chargedAt any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetRunningSandboxesBillingLastChargedAt", reflect.TypeOf((*MockStore)(nil).SetRunningSandboxesBillingLastChargedAt), ctx, chargedAt)
+}
+
 // SetSandboxContainer mocks base method.
 func (m *MockStore) SetSandboxContainer(ctx context.Context, id, hostDeviceID, containerID string) error {
 	m.ctrl.T.Helper()
@@ -5315,6 +5344,20 @@ func (m *MockStore) SetSandboxContainer(ctx context.Context, id, hostDeviceID, c
 func (mr *MockStoreMockRecorder) SetSandboxContainer(ctx, id, hostDeviceID, containerID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetSandboxContainer", reflect.TypeOf((*MockStore)(nil).SetSandboxContainer), ctx, id, hostDeviceID, containerID)
+}
+
+// SetSandboxBillingLastChargedAt mocks base method.
+func (m *MockStore) SetSandboxBillingLastChargedAt(ctx context.Context, id string, chargedAt time.Time) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetSandboxBillingLastChargedAt", ctx, id, chargedAt)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetSandboxBillingLastChargedAt indicates an expected call of SetSandboxBillingLastChargedAt.
+func (mr *MockStoreMockRecorder) SetSandboxBillingLastChargedAt(ctx, id, chargedAt any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetSandboxBillingLastChargedAt", reflect.TypeOf((*MockStore)(nil).SetSandboxBillingLastChargedAt), ctx, id, chargedAt)
 }
 
 // SetSandboxStatus mocks base method.

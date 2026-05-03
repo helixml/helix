@@ -376,7 +376,17 @@ func NewServer(
 	if err != nil {
 		return nil, fmt.Errorf("invalid sandbox runtime config: %w", err)
 	}
-	apiServer.sandboxController = sandbox.New(store, connectionManager, sandboxRuntimes)
+	// Use the sandbox-API URL (override if set) for the desktop-bridge dial-back,
+	// and the same `/data/workspaces` root that hydra uses for spec tasks so
+	// all per-sandbox dirs (workspace, pipewire, crash dumps) are visible to
+	// hydra inside the sandbox container.
+	apiServer.sandboxController = sandbox.New(
+		store,
+		connectionManager,
+		sandboxRuntimes,
+		sandboxAPIURL,
+		"/data/workspaces/sandboxes",
+	)
 
 	// Sandbox-absorbs-runner: wire the inference router into the
 	// internal helix server so it picks sandboxes by model name. Safe
@@ -1069,6 +1079,8 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/organizations/{org_id}/sandboxes/{id}/files", apiServer.sandboxFile).Methods(http.MethodGet, http.MethodPut, http.MethodDelete)
 	authRouter.HandleFunc("/organizations/{org_id}/sandboxes/{id}/files/list", apiServer.listSandboxFiles).Methods(http.MethodGet)
 	authRouter.HandleFunc("/organizations/{org_id}/sandboxes/{id}/terminal", apiServer.sandboxTerminal).Methods(http.MethodGet)
+	authRouter.HandleFunc("/organizations/{org_id}/sandboxes/{id}/screenshot", apiServer.sandboxScreenshot).Methods(http.MethodGet)
+	authRouter.HandleFunc("/organizations/{org_id}/sandboxes/{id}/billing", apiServer.sandboxBilling).Methods(http.MethodGet)
 
 	// Teams
 	authRouter.HandleFunc("/organizations/{id}/teams", apiServer.listTeams).Methods(http.MethodGet)
@@ -2271,9 +2283,26 @@ func (apiServer *HelixAPIServer) handleRevDial() http.Handler {
 				return
 			}
 
-			// Verify the session belongs to this user
+			// Verify the session belongs to this user. The same `desktop-`
+			// runnerID prefix is reused by the user-facing Sandboxes API
+			// (where the "session id" is actually a sandbox id), so fall
+			// through and check the sandboxes table when the sessions table
+			// has nothing.
 			session, err := apiServer.Store.GetSession(r.Context(), sessionID)
-			if err != nil || session.Owner != user.ID {
+			if err == nil && session.Owner == user.ID {
+				// session-owned, OK
+			} else if strings.HasPrefix(sessionID, "sbx_") {
+				sb, sbErr := apiServer.Store.GetSandbox(r.Context(), sessionID)
+				if sbErr != nil || sb.Owner != user.ID {
+					log.Error().
+						Err(sbErr).
+						Str("user_id", user.ID).
+						Str("sandbox_id", sessionID).
+						Msg("Unauthorized: sandbox not found or not owned by user")
+					http.Error(w, "unauthorized: session not owned by user", http.StatusForbidden)
+					return
+				}
+			} else {
 				log.Error().
 					Err(err).
 					Str("user_id", user.ID).

@@ -139,11 +139,36 @@ func (s *PostgresStore) SetSandboxStatus(ctx context.Context, id string, status 
 	case types.SandboxStatusRunning:
 		now := time.Now()
 		updates["started_at"] = &now
+		updates["billing_last_charged_at"] = &now
 	case types.SandboxStatusStopped, types.SandboxStatusFailed:
 		now := time.Now()
 		updates["stopped_at"] = &now
 	}
 	return s.gdb.WithContext(ctx).Model(&types.Sandbox{}).Where("id = ?", id).Updates(updates).Error
+}
+
+// SetSandboxBillingLastChargedAt records the end of the most recent billed
+// interval for a running sandbox.
+func (s *PostgresStore) SetSandboxBillingLastChargedAt(ctx context.Context, id string, chargedAt time.Time) error {
+	if id == "" {
+		return fmt.Errorf("id not specified")
+	}
+	return s.gdb.WithContext(ctx).Model(&types.Sandbox{}).Where("id = ?", id).Updates(map[string]interface{}{
+		"billing_last_charged_at": &chargedAt,
+		"updated_at":              time.Now(),
+	}).Error
+}
+
+// SetRunningSandboxesBillingLastChargedAt starts billing windows for every
+// currently running sandbox. Used when billing is enabled at runtime so old
+// free usage is not charged retroactively.
+func (s *PostgresStore) SetRunningSandboxesBillingLastChargedAt(ctx context.Context, chargedAt time.Time) error {
+	return s.gdb.WithContext(ctx).Model(&types.Sandbox{}).
+		Where("deleted_at IS NULL AND status = ?", types.SandboxStatusRunning).
+		Updates(map[string]interface{}{
+			"billing_last_charged_at": &chargedAt,
+			"updated_at":              time.Now(),
+		}).Error
 }
 
 // SetSandboxContainer records the host_device_id and container_id once the
@@ -168,6 +193,26 @@ func (s *PostgresStore) DeleteSandbox(ctx context.Context, id string) error {
 		"stopped_at": &now,
 		"updated_at": now,
 	}).Error
+}
+
+// SumSandboxCharges totals the magnitude of every transaction tagged with
+// this sandbox id, treating amounts as credits debited from the wallet (we
+// abs() because usage transactions are recorded as negative deltas).
+func (s *PostgresStore) SumSandboxCharges(ctx context.Context, sandboxID string) (float64, error) {
+	if sandboxID == "" {
+		return 0, fmt.Errorf("sandbox id not specified")
+	}
+	var sum float64
+	err := s.gdb.WithContext(ctx).
+		Model(&types.Transaction{}).
+		Where("sandbox_id = ?", sandboxID).
+		Select("COALESCE(SUM(ABS(amount)), 0)").
+		Row().
+		Scan(&sum)
+	if err != nil {
+		return 0, err
+	}
+	return sum, nil
 }
 
 // ListExpiredSandboxes returns sandboxes whose expires_at has passed and which

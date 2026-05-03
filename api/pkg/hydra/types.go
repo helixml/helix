@@ -102,11 +102,9 @@ type CreateDevContainerRequest struct {
 	GoldenBuild bool `json:"golden_build,omitempty"`
 
 	// VCPUs caps the number of CPUs the container can use. 0 = no cap.
-	// Pinned to 1 for Sandboxes API requests.
 	VCPUs int `json:"vcpus,omitempty"`
 
 	// MemoryMB caps the memory the container can use, in MB. 0 = no cap.
-	// Pinned to 2048 for Sandboxes API requests.
 	MemoryMB int `json:"memory_mb,omitempty"`
 
 	// Entrypoint and Cmd override the image defaults. Used by the Sandboxes

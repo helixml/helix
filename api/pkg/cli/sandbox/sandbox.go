@@ -41,6 +41,7 @@ func New() *cobra.Command {
 	cmd.AddCommand(newLogsCmd())
 	cmd.AddCommand(newKillCmd())
 	cmd.AddCommand(newTerminalCmd())
+	cmd.AddCommand(newScreenshotCmd())
 	cmd.AddCommand(newWaitCmd())
 	cmd.AddCommand(newReadCmd())
 	cmd.AddCommand(newWriteCmd())
@@ -174,8 +175,10 @@ func newCreateCmd() *cobra.Command {
 		name        string
 		runtime     string
 		image       string
+		size        string
 		ttl         int
 		wait        bool
+		persistent  bool
 	)
 	cmd := &cobra.Command{
 		Use:   "create",
@@ -199,12 +202,19 @@ Pass --project to associate the sandbox with a project (optional).`,
 			if err != nil {
 				return err
 			}
+			vcpus, memoryMB, err := parseSandboxSize(size)
+			if err != nil {
+				return err
+			}
 			sb, err := c.CreateSandbox(ctx, orgID, &types.CreateSandboxRequest{
 				Name:           name,
 				Runtime:        types.SandboxRuntime(runtime),
 				Image:          image,
 				TimeoutSeconds: ttl,
+				VCPUs:          vcpus,
+				MemoryMB:       memoryMB,
 				ProjectID:      projectFlag,
+				Persistent:     persistent,
 			})
 			if err != nil {
 				return err
@@ -221,9 +231,24 @@ Pass --project to associate the sandbox with a project (optional).`,
 	cmd.Flags().StringVar(&name, "name", "", "Display name")
 	cmd.Flags().StringVar(&runtime, "runtime", "", "Configured runtime name (e.g. headless-ubuntu, node22). Empty = server default.")
 	cmd.Flags().StringVar(&image, "image", "", "Custom Docker image (requires HELIX_SANDBOX_ALLOW_CUSTOM_IMAGE=true on the server)")
+	cmd.Flags().StringVar(&size, "size", "small", "Resource size: small=1CPU/2GB, medium=4CPU/8GB, large=8CPU/16GB")
 	cmd.Flags().IntVar(&ttl, "ttl", 600, "Lifetime in seconds")
 	cmd.Flags().BoolVar(&wait, "wait", true, "Wait for status=running")
+	cmd.Flags().BoolVar(&persistent, "persistent", false, "Mount a persistent workspace volume that survives container restarts")
 	return cmd
+}
+
+func parseSandboxSize(size string) (int, int, error) {
+	switch size {
+	case "", "small", "1cpu-2gb":
+		return 1, 2048, nil
+	case "medium", "4cpu-8gb":
+		return 4, 8192, nil
+	case "large", "8cpu-16gb":
+		return 8, 16384, nil
+	default:
+		return 0, 0, fmt.Errorf("invalid sandbox size %q: use small, medium, or large", size)
+	}
 }
 
 // ---------- get ----------
@@ -749,4 +774,50 @@ func mustMarshal(v any) []byte {
 		panic(err)
 	}
 	return b
+}
+
+// ---------- screenshot ----------
+
+func newScreenshotCmd() *cobra.Command {
+	var (
+		orgFlag string
+		output  string
+		quality int
+	)
+	cmd := &cobra.Command{
+		Use:   "screenshot <sandbox-id>",
+		Short: "Capture a JPEG screenshot of the sandbox desktop",
+		Long: `Capture a JPEG screenshot of the sandbox's desktop. Only works for
+runtimes that have a desktop session (e.g. ubuntu-desktop). Writes the JPEG
+bytes to --output, or to stdout if --output is omitted.`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := cmd.Context()
+			c, err := newClient()
+			if err != nil {
+				return err
+			}
+			orgID, err := resolveOrg(ctx, c, orgFlag)
+			if err != nil {
+				return err
+			}
+			data, err := c.GetSandboxScreenshot(ctx, orgID, args[0], quality)
+			if err != nil {
+				return err
+			}
+			if output == "" || output == "-" {
+				_, err := os.Stdout.Write(data)
+				return err
+			}
+			if err := os.WriteFile(output, data, 0o644); err != nil {
+				return fmt.Errorf("write %s: %w", output, err)
+			}
+			fmt.Fprintf(os.Stderr, "Wrote %d bytes to %s\n", len(data), output)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&orgFlag, "org", "", "Organization id or name")
+	cmd.Flags().StringVarP(&output, "output", "o", "", "Output file (default: stdout)")
+	cmd.Flags().IntVar(&quality, "quality", 75, "JPEG quality 1-100 (default 75)")
+	return cmd
 }

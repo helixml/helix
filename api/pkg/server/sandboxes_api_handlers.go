@@ -6,6 +6,7 @@ package server
 // sandbox by id.
 
 import (
+	"bufio"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -515,7 +516,49 @@ func (s *HelixAPIServer) sandboxTerminal(rw http.ResponseWriter, r *http.Request
 	}
 	defer wsConn.Close()
 
-	hydraConn, err := client.OpenSandboxTerminal(r.Context(), sb.ID, r.URL.Query().Get("shell"))
+	shell := r.URL.Query().Get("shell")
+	// `?session=<id>` lets the browser keep the same shell across reconnects:
+	// we wrap the shell in `tmux new-session -A -s helix-<id>` so disconnect
+	// + reconnect (e.g. on a page refresh) reattaches to the existing tmux
+	// session, preserving the working directory, scrollback, and any
+	// long-running processes. tmux is installed lazily on first connect; the
+	// install is idempotent so repeated connects are cheap.
+	//
+	// hydra's terminal handler `cmd = []string{shell}`s the shell value, so we
+	// can't pass a multi-word command directly. We instead upload a per-session
+	// wrapper script via the existing files API and exec the script path.
+	if session := r.URL.Query().Get("session"); session != "" && shell == "" {
+		if !isSafeSandboxSessionName(session) {
+			wsConn.WriteMessage(websocket.TextMessage, []byte(`{"type":"error","message":"invalid session id"}`))
+			return
+		}
+		scriptPath := "/tmp/helix-attach-" + session + ".sh"
+		// -A attaches if the session already exists, otherwise creates it.
+		// -D detaches every *other* client first, so each browser reconnect
+		// leaves exactly one tmux client alive — without -D, ps would show
+		// orphaned `tmux: client` processes piling up after every WS drop.
+		scriptBody := []byte(`#!/bin/sh
+# Helix per-session terminal attach. Auto-generated; safe to re-create.
+set -e
+if ! command -v tmux >/dev/null 2>&1; then
+  if command -v apt-get >/dev/null 2>&1; then
+    apt-get update -qq >/dev/null 2>&1 || true
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq tmux >/dev/null 2>&1 || true
+  fi
+fi
+if command -v tmux >/dev/null 2>&1; then
+  exec tmux new-session -A -D -s helix-` + session + `
+fi
+echo "tmux not available — falling back to bash (session will not persist)" >&2
+exec /bin/bash -l
+`)
+		if err := client.WriteSandboxFile(r.Context(), sb.ID, scriptPath, scriptBody, 0o755); err != nil {
+			wsConn.WriteMessage(websocket.TextMessage, []byte(`{"type":"error","message":"failed to install attach script: `+jsonEscapeString(err.Error())+`"}`))
+			return
+		}
+		shell = scriptPath
+	}
+	hydraConn, err := client.OpenSandboxTerminal(r.Context(), sb.ID, shell)
 	if err != nil {
 		wsConn.WriteMessage(websocket.TextMessage, []byte(`{"type":"error","message":"`+jsonEscapeString(err.Error())+`"}`))
 		return
@@ -557,6 +600,140 @@ func (s *HelixAPIServer) sandboxTerminal(rw http.ResponseWriter, r *http.Request
 	case <-browserDone:
 	case <-hydraDone:
 	}
+}
+
+// sandboxScreenshot proxies a JPEG screenshot from the desktop-bridge inside
+// the sandbox container. Only meaningful for desktop runtimes; headless
+// runtimes don't run desktop-bridge and will return 503.
+//
+// @Summary Get a sandbox screenshot
+// @Tags Sandboxes
+// @Produce jpeg
+// @Param org_id path string true "Organization ID"
+// @Param id path string true "Sandbox ID"
+// @Param quality query int false "JPEG quality (1-100, default 60)"
+// @Success 200 {string} binary
+// @Failure 503 {string} string "Desktop bridge not connected"
+// @Router /api/v1/organizations/{org_id}/sandboxes/{id}/screenshot [get]
+// @Security ApiKeyAuth
+func (s *HelixAPIServer) sandboxScreenshot(rw http.ResponseWriter, r *http.Request) {
+	sb, _ := s.loadAuthorizedSandbox(rw, r)
+	if sb == nil {
+		return
+	}
+	// The desktop container registers a RevDial endpoint as
+	// `desktop-{HELIX_SESSION_ID}` — for sandboxes, HELIX_SESSION_ID is the
+	// sandbox id, so we dial `desktop-{sbx_…}` and forward an HTTP GET to
+	// localhost:9876/screenshot (the in-container desktop-bridge port).
+	runnerID := fmt.Sprintf("desktop-%s", sb.ID)
+	conn, err := s.connman.Dial(r.Context(), runnerID)
+	if err != nil {
+		http.Error(rw, fmt.Sprintf("desktop bridge not connected: %v", err), http.StatusServiceUnavailable)
+		return
+	}
+	defer conn.Close()
+
+	q := r.URL.Query()
+	if q.Get("quality") == "" {
+		q.Set("quality", "60")
+	}
+	httpReq, err := http.NewRequest("GET", "http://localhost:9876/screenshot?"+q.Encode(), nil)
+	if err != nil {
+		http.Error(rw, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if err := httpReq.Write(conn); err != nil {
+		http.Error(rw, fmt.Sprintf("send screenshot request: %v", err), http.StatusBadGateway)
+		return
+	}
+	resp, err := http.ReadResponse(bufio.NewReader(conn), httpReq)
+	if err != nil {
+		http.Error(rw, fmt.Sprintf("read screenshot response: %v", err), http.StatusBadGateway)
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		http.Error(rw, fmt.Sprintf("desktop-bridge returned %d: %s", resp.StatusCode, body), resp.StatusCode)
+		return
+	}
+	rw.Header().Set("Content-Type", "image/jpeg")
+	rw.Header().Set("Cache-Control", "private, no-cache, must-revalidate")
+	_, _ = io.Copy(rw, resp.Body)
+}
+
+// isSafeSandboxSessionName guards the user-supplied session id we splice into
+// a shell command (the tmux session name). Restricted to a conservative
+// alphanumeric-plus-dash/underscore set so there's no path through to shell
+// metacharacters even though the value reaches the container as argv to tmux.
+func isSafeSandboxSessionName(s string) bool {
+	if s == "" || len(s) > 64 {
+		return false
+	}
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z':
+		case r >= 'A' && r <= 'Z':
+		case r >= '0' && r <= '9':
+		case r == '-', r == '_':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// SandboxBillingResponse summarises the billing state of a sandbox for the
+// detail page. Returned even when billing is disabled so the UI can render a
+// "billing not enabled" hint without a separate request.
+type SandboxBillingResponse struct {
+	Enabled               bool    `json:"enabled"`
+	PriceCreditsPerSecond float64 `json:"price_credits_per_second"`
+	TotalCreditsCharged   float64 `json:"total_credits_charged"`
+	Runtime               string  `json:"runtime"`
+}
+
+// sandboxBilling returns the live per-second price and the total credits
+// charged so far for a single sandbox.
+//
+// @Summary Sandbox billing summary
+// @Tags Sandboxes
+// @Produce json
+// @Param org_id path string true "Organization ID"
+// @Param id path string true "Sandbox ID"
+// @Success 200 {object} server.SandboxBillingResponse
+// @Router /api/v1/organizations/{org_id}/sandboxes/{id}/billing [get]
+// @Security ApiKeyAuth
+func (s *HelixAPIServer) sandboxBilling(rw http.ResponseWriter, r *http.Request) {
+	sb, _ := s.loadAuthorizedSandbox(rw, r)
+	if sb == nil {
+		return
+	}
+	settings, err := s.Store.GetSystemSettings(r.Context())
+	if err != nil {
+		http.Error(rw, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	resp := SandboxBillingResponse{
+		Enabled: settings != nil && settings.SandboxBillingEnabled,
+		Runtime: string(sb.Runtime),
+	}
+	if settings != nil {
+		switch sb.Runtime {
+		case types.SandboxRuntimeUbuntuDesktop:
+			resp.PriceCreditsPerSecond = settings.SandboxDesktopPriceCreditsPerSecond
+		default:
+			// Headless and any future non-desktop runtimes fall through to the
+			// headless rate, matching controller_billing.go.
+			resp.PriceCreditsPerSecond = settings.SandboxHeadlessPriceCreditsPerSecond
+		}
+	}
+	if total, err := s.Store.SumSandboxCharges(r.Context(), sb.ID); err == nil {
+		resp.TotalCreditsCharged = total
+	} else {
+		log.Warn().Err(err).Str("sandbox_id", sb.ID).Msg("failed to sum sandbox charges; reporting 0")
+	}
+	writeJSON(rw, http.StatusOK, resp)
 }
 
 // loadAuthorizedSandbox fetches the sandbox by id, verifies the caller is a

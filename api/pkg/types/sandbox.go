@@ -35,25 +35,29 @@ const (
 )
 
 // Sandbox is a user-created ephemeral container managed via the Sandboxes API.
-// Sandboxes are scoped to an organization, never persisted across deletion, and
-// pinned at 1 vCPU / 2GB RAM in v1.
+// Sandboxes are scoped to an organization and never persisted across deletion.
 type Sandbox struct {
-	ID             string         `json:"id" gorm:"primaryKey"`
-	Name           string         `json:"name" gorm:"size:128;index"`
-	OrganizationID string         `json:"organization_id" gorm:"size:64;index;not null"`
+	ID             string `json:"id" gorm:"primaryKey"`
+	Name           string `json:"name" gorm:"size:128;index"`
+	OrganizationID string `json:"organization_id" gorm:"size:64;index;not null"`
 	// ProjectID is optional. When set, the sandbox is associated with a
 	// specific project for organisational/UI grouping purposes; nothing in the
 	// lifecycle path branches on it. Empty means org-scoped only.
-	ProjectID string `json:"project_id,omitempty" gorm:"size:64;index"`
-	Owner     string `json:"owner" gorm:"size:64;index;not null"`
-	Runtime        SandboxRuntime `json:"runtime" gorm:"size:64;not null"`
-	Image          string         `json:"image" gorm:"size:255"`
-	Status         SandboxStatus  `json:"status" gorm:"size:32;index;not null"`
-	StatusMessage  string         `json:"status_message,omitempty" gorm:"size:1024"`
+	ProjectID     string         `json:"project_id,omitempty" gorm:"size:64;index"`
+	Owner         string         `json:"owner" gorm:"size:64;index;not null"`
+	Runtime       SandboxRuntime `json:"runtime" gorm:"size:64;not null"`
+	Image         string         `json:"image" gorm:"size:255"`
+	Status        SandboxStatus  `json:"status" gorm:"size:32;index;not null"`
+	StatusMessage string         `json:"status_message,omitempty" gorm:"size:1024"`
 
-	// VCPUs and Memory are pinned in v1 but stored on the row so we can vary later.
 	VCPUs    int `json:"vcpus" gorm:"not null;default:1"`
 	MemoryMB int `json:"memory_mb" gorm:"not null;default:2048"`
+
+	// Persistent indicates that the sandbox should mount a persistent
+	// workspace volume (so files survive across reboots/restarts of the
+	// underlying container). Non-persistent sandboxes use the container's
+	// ephemeral filesystem only.
+	Persistent bool `json:"persistent" gorm:"not null;default:false"`
 
 	// HostDeviceID is the RevDial device ID of the hydra host that runs the
 	// underlying container. Empty until the controller schedules it.
@@ -71,12 +75,13 @@ type Sandbox struct {
 	// TimeoutSeconds is the lifetime in seconds; ExpiresAt = CreatedAt + TimeoutSeconds.
 	TimeoutSeconds int `json:"timeout_seconds" gorm:"not null;default:3600"`
 
-	CreatedAt  time.Time  `json:"created_at" gorm:"index"`
-	UpdatedAt  time.Time  `json:"updated_at"`
-	StartedAt  *time.Time `json:"started_at,omitempty"`
-	StoppedAt  *time.Time `json:"stopped_at,omitempty"`
-	ExpiresAt  *time.Time `json:"expires_at,omitempty" gorm:"index"`
-	DeletedAt  *time.Time `json:"deleted_at,omitempty" gorm:"index"`
+	CreatedAt            time.Time  `json:"created_at" gorm:"index"`
+	UpdatedAt            time.Time  `json:"updated_at"`
+	StartedAt            *time.Time `json:"started_at,omitempty"`
+	StoppedAt            *time.Time `json:"stopped_at,omitempty"`
+	BillingLastChargedAt *time.Time `json:"billing_last_charged_at,omitempty" gorm:"index"`
+	ExpiresAt            *time.Time `json:"expires_at,omitempty" gorm:"index"`
+	DeletedAt            *time.Time `json:"deleted_at,omitempty" gorm:"index"`
 }
 
 // TableName tells GORM which table to use.
@@ -98,12 +103,18 @@ type CreateSandboxRequest struct {
 	Env            map[string]string `json:"env,omitempty"`
 	Tags           map[string]string `json:"tags,omitempty"`
 	TimeoutSeconds int               `json:"timeout_seconds,omitempty"`
+	VCPUs          int               `json:"vcpus,omitempty"`
+	MemoryMB       int               `json:"memory_mb,omitempty"`
 	DisplayWidth   int               `json:"display_width,omitempty"`
 	DisplayHeight  int               `json:"display_height,omitempty"`
 	DisplayFPS     int               `json:"display_fps,omitempty"`
 	// ProjectID optionally associates the sandbox with a project the caller
 	// belongs to. Empty means org-scoped only.
 	ProjectID string `json:"project_id,omitempty"`
+	// Persistent makes the sandbox keep a workspace mount across container
+	// restarts. Files written under /home/retro/work survive teardown until
+	// the sandbox is explicitly deleted.
+	Persistent bool `json:"persistent,omitempty"`
 }
 
 // UpdateSandboxRequest is the API payload for PATCH /sandboxes/{id}.

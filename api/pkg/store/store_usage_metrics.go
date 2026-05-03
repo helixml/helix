@@ -306,6 +306,64 @@ func (s *PostgresStore) GetAggregatedUsageMetrics(ctx context.Context, q *GetAgg
 	return completeMetrics, nil
 }
 
+func (s *PostgresStore) GetSandboxUsageMetrics(ctx context.Context, q *GetAggregatedUsageMetricsQuery) ([]*types.AggregatedUsageMetric, error) {
+	metrics := []*types.AggregatedUsageMetric{}
+	if q == nil {
+		return metrics, nil
+	}
+	if q.OrganizationID == "" {
+		return fillInMissingDates(metrics, q.From, q.To), nil
+	}
+
+	aggregationLevel := q.AggregationLevel
+	if aggregationLevel == "" {
+		aggregationLevel = AggregationLevelDaily
+	}
+
+	var dateExpr string
+	var groupBy string
+	switch aggregationLevel {
+	case AggregationLevel5Min:
+		dateExpr = "date_trunc('hour', transactions.created_at) + INTERVAL '5 min' * FLOOR(EXTRACT(MINUTE FROM transactions.created_at) / 5) as date"
+		groupBy = "date_trunc('hour', transactions.created_at) + INTERVAL '5 min' * FLOOR(EXTRACT(MINUTE FROM transactions.created_at) / 5)"
+	case AggregationLevelHourly:
+		dateExpr = "date_trunc('hour', transactions.created_at) as date"
+		groupBy = "date_trunc('hour', transactions.created_at)"
+	default:
+		dateExpr = "date_trunc('day', transactions.created_at) as date"
+		groupBy = "date_trunc('day', transactions.created_at)"
+	}
+
+	err := s.gdb.WithContext(ctx).
+		Model(&types.Transaction{}).
+		Joins("JOIN wallets ON wallets.id = transactions.wallet_id").
+		Select(`
+			`+dateExpr+`,
+			COALESCE(SUM(-transactions.amount), 0) as sandbox_cost,
+			COALESCE(SUM(-transactions.amount), 0) as total_cost,
+			COUNT(DISTINCT transactions.id) as total_requests
+		`).
+		Where("wallets.org_id = ?", q.OrganizationID).
+		Where("transactions.type = ?", types.TransactionTypeUsage).
+		Where("transactions.sandbox_id <> ''").
+		Where("transactions.created_at >= ? AND transactions.created_at <= ?", q.From, q.To).
+		Group(groupBy).
+		Order("date ASC").
+		Find(&metrics).Error
+	if err != nil {
+		return nil, err
+	}
+
+	switch aggregationLevel {
+	case AggregationLevel5Min:
+		return fillInMissing5Minutes(metrics, q.From, q.To), nil
+	case AggregationLevelHourly:
+		return fillInMissingHours(metrics, q.From, q.To), nil
+	default:
+		return fillInMissingDates(metrics, q.From, q.To), nil
+	}
+}
+
 func (s *PostgresStore) GetAppUsersAggregatedUsageMetrics(ctx context.Context, appID string, from time.Time, to time.Time) ([]*types.UsersAggregatedUsageMetric, error) {
 	metrics := []*types.UsersAggregatedUsageMetric{}
 

@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	dockertypes "github.com/docker/docker/api/types"
@@ -274,7 +275,15 @@ func (s *Server) handleSandboxTerminal(w http.ResponseWriter, r *http.Request) {
 
 	cmd := []string{"/bin/bash"}
 	if shell := r.URL.Query().Get("shell"); shell != "" {
-		cmd = []string{shell}
+		// A shell value containing whitespace is treated as a /bin/sh -c
+		// expression so callers can pass multi-arg commands like
+		// "tmux new-session -A -s foo". A bare value like "/bin/zsh" is
+		// still executed directly.
+		if strings.ContainsAny(shell, " \t") {
+			cmd = []string{"/bin/sh", "-c", shell}
+		} else {
+			cmd = []string{shell}
+		}
 	}
 
 	cfg := dockertypes.ExecConfig{

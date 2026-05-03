@@ -15,12 +15,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/connman"
 	"github.com/helixml/helix/api/pkg/hydra"
 	"github.com/helixml/helix/api/pkg/store"
+	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
@@ -32,17 +34,43 @@ const (
 	DefaultDisplayFPS    = 30
 )
 
+type resourcePreset struct {
+	VCPUs    int
+	MemoryMB int
+}
+
+var allowedResourcePresets = []resourcePreset{
+	{VCPUs: 1, MemoryMB: 2048},
+	{VCPUs: 4, MemoryMB: 8192},
+	{VCPUs: 8, MemoryMB: 16384},
+}
+
 // Controller orchestrates user-facing sandbox lifecycle on top of hydra.
 type Controller struct {
-	store    store.Store
-	connman  *connman.ConnectionManager
-	runtimes *RuntimeRegistry
+	store        store.Store
+	connman      *connman.ConnectionManager
+	runtimes     *RuntimeRegistry
+	helixAPIURL  string // base URL desktop-bridge / RevDial-from-container should dial back to
+	workspaceDir string // sandbox-host path under which per-sandbox dirs live (mounts, persistence)
 }
 
 // New builds a new controller. The runtime registry is required — callers
-// build it from the server config via NewRuntimeRegistry.
-func New(s store.Store, cm *connman.ConnectionManager, runtimes *RuntimeRegistry) *Controller {
-	return &Controller{store: s, connman: cm, runtimes: runtimes}
+// build it from the server config via NewRuntimeRegistry. helixAPIURL is the
+// base URL the in-container desktop-bridge will dial back to (used for the
+// `desktop-{sandboxID}` RevDial registration that powers screenshots/streams);
+// workspaceDir is the sandbox-host directory under which per-sandbox dirs are
+// created (typically `/data/sandboxes`).
+func New(s store.Store, cm *connman.ConnectionManager, runtimes *RuntimeRegistry, helixAPIURL, workspaceDir string) *Controller {
+	if workspaceDir == "" {
+		workspaceDir = "/data/sandboxes"
+	}
+	return &Controller{
+		store:        s,
+		connman:      cm,
+		runtimes:     runtimes,
+		helixAPIURL:  helixAPIURL,
+		workspaceDir: workspaceDir,
+	}
 }
 
 // Create persists a sandbox row and asynchronously schedules the container.
@@ -63,6 +91,20 @@ func (c *Controller) Create(ctx context.Context, orgID, owner string, req *types
 	// with a 400 instead of failing later in provision().
 	spec, err := c.runtimes.Resolve(req)
 	if err != nil {
+		return nil, err
+	}
+	vcpus, memoryMB, err := resolveSandboxResources(req)
+	if err != nil {
+		return nil, err
+	}
+	settings, err := c.store.GetSystemSettings(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("get system settings: %w", err)
+	}
+	if err := c.ensureSandboxLimits(ctx, orgID, spec, settings); err != nil {
+		return nil, err
+	}
+	if err := c.ensureSandboxCredits(ctx, orgID, spec, settings, vcpus); err != nil {
 		return nil, err
 	}
 	// Stamp the row with the resolved runtime name and image so the UI/CLI
@@ -104,8 +146,9 @@ func (c *Controller) Create(ctx context.Context, orgID, owner string, req *types
 		Runtime:        resolvedRuntime,
 		Image:          resolvedImage,
 		Status:         types.SandboxStatusPending,
-		VCPUs:          1,
-		MemoryMB:       2048,
+		VCPUs:          vcpus,
+		MemoryMB:       memoryMB,
+		Persistent:     req.Persistent,
 		TimeoutSeconds: timeout,
 		DisplayWidth:   width,
 		DisplayHeight:  height,
@@ -124,6 +167,20 @@ func (c *Controller) Create(ctx context.Context, orgID, owner string, req *types
 	go c.provision(context.Background(), created.ID)
 
 	return created, nil
+}
+
+func resolveSandboxResources(req *types.CreateSandboxRequest) (int, int, error) {
+	vcpus := req.VCPUs
+	memoryMB := req.MemoryMB
+	if vcpus == 0 && memoryMB == 0 {
+		return allowedResourcePresets[0].VCPUs, allowedResourcePresets[0].MemoryMB, nil
+	}
+	for _, preset := range allowedResourcePresets {
+		if vcpus == preset.VCPUs && memoryMB == preset.MemoryMB {
+			return vcpus, memoryMB, nil
+		}
+	}
+	return 0, 0, fmt.Errorf("invalid sandbox resources: choose one of 1 CPU / 2GB RAM, 4 CPU / 8GB RAM, or 8 CPU / 16GB RAM")
 }
 
 // provision picks a hydra host and asks it to launch the container.
@@ -202,6 +259,47 @@ func (c *Controller) provision(ctx context.Context, sandboxID string) {
 	envMap["HELIX_USER_ID"] = sandbox.Owner
 	envMap["HELIX_ORGANIZATION_ID"] = sandbox.OrganizationID
 
+	// Desktop runtimes need the same suite of env vars that spec-task
+	// desktops use so the GNOME/Sway boot sequence can find its inputs and
+	// reach the API for the desktop-bridge / RevDial registration. Without
+	// these the gnome-shell startup falls over and the container exits.
+	containerType := spec.ContainerType
+	if containerType == hydra.DevContainerTypeUbuntu || containerType == hydra.DevContainerTypeSway {
+		envMap["HELIX_DESKTOP_TYPE"] = string(containerType)
+		envMap["GAMESCOPE_WIDTH"] = fmt.Sprintf("%d", sandbox.DisplayWidth)
+		envMap["GAMESCOPE_HEIGHT"] = fmt.Sprintf("%d", sandbox.DisplayHeight)
+		envMap["GAMESCOPE_REFRESH"] = fmt.Sprintf("%d", sandbox.DisplayFPS)
+		envMap["GOW_REQUIRED_DEVICES"] = "/dev/dri/card*:/dev/dri/renderD*:/dev/uinput:/dev/input/event*:/dev/input/js*:/dev/input/mice"
+		envMap["XDG_RUNTIME_DIR"] = "/run/user/1000"
+		envMap["UMASK"] = "022"
+		envMap["HELIX_API_URL"] = c.helixAPIURL
+		envMap["HELIX_API_BASE_URL"] = c.helixAPIURL
+		envMap["SWAY_STOP_ON_APP_EXIT"] = "no"
+		// startup-app.sh hard-requires WORKSPACE_DIR to exist as a directory
+		// inside the container. We point it at /home/retro/work, which is
+		// where buildMounts() bind-mounts the per-sandbox workspace.
+		envMap["WORKSPACE_DIR"] = "/home/retro/work"
+		// NVIDIA passthrough — matches spec-task hydra executor so the GPU
+		// is actually visible to the inner compositor.
+		envMap["NVIDIA_VISIBLE_DEVICES"] = "all"
+		envMap["NVIDIA_DRIVER_CAPABILITIES"] = "compute,utility,video,graphics,display"
+
+		// Mint a sandbox-scoped ephemeral API key. The desktop-bridge needs
+		// it (as USER_API_TOKEN) to register a RevDial connection back to
+		// the API, which is how screenshots and the streaming pipeline reach
+		// the in-container HTTP server. Revoked on Delete.
+		token, tokenErr := c.ensureSandboxAPIToken(provisionCtx, sandbox)
+		if tokenErr != nil {
+			_ = c.store.SetSandboxStatus(provisionCtx, sandboxID, types.SandboxStatusFailed, fmt.Sprintf("mint sandbox api token: %s", tokenErr))
+			return
+		}
+		for _, kv := range types.DesktopAgentAPIEnvVars(token) {
+			if eq := strings.Index(kv, "="); eq > 0 {
+				envMap[kv[:eq]] = kv[eq+1:]
+			}
+		}
+	}
+
 	envSlice := make([]string, 0, len(envMap))
 	for k, v := range envMap {
 		envSlice = append(envSlice, fmt.Sprintf("%s=%s", k, v))
@@ -209,12 +307,15 @@ func (c *Controller) provision(ctx context.Context, sandboxID string) {
 
 	containerName := fmt.Sprintf("sbx-%s", strings.TrimPrefix(sandbox.ID, "sbx_"))
 
+	mounts := c.buildMounts(sandbox, spec)
+
 	createReq := &hydra.CreateDevContainerRequest{
 		SessionID:           sandbox.ID,
 		Image:               image,
 		ContainerName:       containerName,
 		Hostname:            containerName,
 		Env:                 envSlice,
+		Mounts:              mounts,
 		ContainerType:       spec.ContainerType,
 		DisplayWidth:        sandbox.DisplayWidth,
 		DisplayHeight:       sandbox.DisplayHeight,
@@ -247,6 +348,64 @@ func (c *Controller) provision(ctx context.Context, sandboxID string) {
 	_ = c.store.SetSandboxStatus(provisionCtx, sandboxID, status, "")
 }
 
+// buildMounts assembles the host-side bind/volume mounts for a sandbox.
+//
+// All sandboxes get a sandbox-host workspace dir bind-mounted at
+// `/home/retro/work` so user-installed binaries / scratch data have a single,
+// predictable home. When the sandbox row sets Persistent=true the workspace
+// dir lives under `<workspaceDir>/persist/<sandboxID>` and survives across
+// restarts and helix-side reaping (we don't rm it on container delete);
+// non-persistent sandboxes use `<workspaceDir>/ephem/<sandboxID>` which can
+// be cleaned up by GC.
+//
+// Desktop runtimes additionally get the named volume + per-session helper
+// dirs that the spec-task path uses, otherwise the GNOME shell init can't
+// find PipeWire/dbus/dockerd state and exits before the desktop comes up.
+// Headless runtimes don't need those — `tail -f /dev/null` is enough.
+func (c *Controller) buildMounts(sandbox *types.Sandbox, spec *RuntimeSpec) []hydra.MountConfig {
+	var mounts []hydra.MountConfig
+
+	// Workspace mount — see func comment. We mount at /home/retro/work
+	// (matches spec-task convention) so any tool that already knows that path
+	// "just works".
+	subdir := "ephem"
+	if sandbox.Persistent {
+		subdir = "persist"
+	}
+	workspaceHostDir := filepath.Join(c.workspaceDir, subdir, sandbox.ID)
+	mounts = append(mounts, hydra.MountConfig{
+		Source:      workspaceHostDir,
+		Destination: "/home/retro/work",
+		ReadOnly:    false,
+	})
+
+	// Desktop-only mounts — same as the spec-task hydra executor, minus the
+	// Zed-specific paths since HELIX_DISABLE_AGENT=1 keeps the agent stack
+	// off. Without /var/lib/docker as a volume the desktop init script
+	// errors out and the container exits.
+	if spec.ContainerType == hydra.DevContainerTypeUbuntu || spec.ContainerType == hydra.DevContainerTypeSway {
+		mounts = append(mounts,
+			hydra.MountConfig{
+				Source:      fmt.Sprintf("docker-data-%s", sandbox.ID),
+				Destination: "/var/lib/docker",
+				Type:        "volume",
+			},
+			hydra.MountConfig{
+				Source:      filepath.Join(c.workspaceDir, "runtime", sandbox.ID, "pipewire"),
+				Destination: "/run/user/1000",
+				ReadOnly:    false,
+			},
+			hydra.MountConfig{
+				Source:      filepath.Join(c.workspaceDir, "runtime", sandbox.ID, "crash-dumps"),
+				Destination: "/tmp/cores",
+				ReadOnly:    false,
+			},
+		)
+	}
+
+	return mounts
+}
+
 // specForSandbox returns the RuntimeSpec for an existing row. For runtimes
 // registered in the registry it returns the registered spec verbatim. For
 // rows that were created via a custom-image override (Runtime=="custom") it
@@ -276,6 +435,63 @@ func (c *Controller) specForSandbox(sandbox *types.Sandbox) (*RuntimeSpec, error
 // Runtimes returns the registered runtime registry. Used by the API layer to
 // expose a discovery endpoint and validate requests synchronously.
 func (c *Controller) Runtimes() *RuntimeRegistry { return c.runtimes }
+
+// ensureSandboxAPIToken returns an ephemeral API key scoped to the sandbox.
+// We re-use the api_keys table's SessionID column as the sandbox handle so the
+// existing GORM filters Just Work — sandbox IDs are globally unique and don't
+// collide with real session IDs. The token grants the desktop-bridge enough
+// auth to register a RevDial connection back to the API; it's revoked when
+// the sandbox is deleted.
+func (c *Controller) ensureSandboxAPIToken(ctx context.Context, sandbox *types.Sandbox) (string, error) {
+	existing, err := c.store.GetAPIKey(ctx, &types.ApiKey{
+		OrganizationID: sandbox.OrganizationID,
+		Owner:          sandbox.Owner,
+		OwnerType:      types.OwnerTypeUser,
+		SessionID:      sandbox.ID,
+	})
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		return "", err
+	}
+	if existing != nil {
+		return existing.Key, nil
+	}
+
+	newKey, err := system.GenerateAPIKey()
+	if err != nil {
+		return "", err
+	}
+	created, err := c.store.CreateAPIKey(ctx, &types.ApiKey{
+		OrganizationID: sandbox.OrganizationID,
+		Owner:          sandbox.Owner,
+		OwnerType:      types.OwnerTypeUser,
+		Key:            newKey,
+		Name:           fmt.Sprintf("Sandbox key - %s", sandbox.ID),
+		Type:           types.APIkeytypeAPI,
+		SessionID:      sandbox.ID,
+	})
+	if err != nil {
+		return "", err
+	}
+	return created.Key, nil
+}
+
+// revokeSandboxAPIToken deletes the ephemeral key minted in
+// ensureSandboxAPIToken. Best effort — a leaked key is bounded by the sandbox
+// row being gone, but we still try to remove it for hygiene.
+func (c *Controller) revokeSandboxAPIToken(ctx context.Context, sandbox *types.Sandbox) {
+	existing, err := c.store.GetAPIKey(ctx, &types.ApiKey{
+		OrganizationID: sandbox.OrganizationID,
+		Owner:          sandbox.Owner,
+		OwnerType:      types.OwnerTypeUser,
+		SessionID:      sandbox.ID,
+	})
+	if err != nil || existing == nil {
+		return
+	}
+	if err := c.store.DeleteAPIKey(ctx, existing.Key); err != nil {
+		log.Warn().Err(err).Str("sandbox_id", sandbox.ID).Msg("failed to revoke sandbox api token")
+	}
+}
 
 // resolveImage looks up the image tag from the host's desktop_versions blob.
 func resolveImage(host *types.SandboxInstance, imageName, versionKey string) (string, error) {
@@ -315,6 +531,10 @@ func (c *Controller) Delete(ctx context.Context, id string) error {
 		return err
 	}
 
+	if err := c.billSandboxFinal(ctx, sandbox, time.Now()); err != nil {
+		return err
+	}
+
 	_ = c.store.SetSandboxStatus(ctx, id, types.SandboxStatusStopping, "")
 
 	if sandbox.HostDeviceID != "" {
@@ -329,6 +549,7 @@ func (c *Controller) Delete(ctx context.Context, id string) error {
 		}
 	}
 
+	c.revokeSandboxAPIToken(ctx, sandbox)
 	return c.store.DeleteSandbox(ctx, id)
 }
 
@@ -398,6 +619,9 @@ func (c *Controller) StartReaper(ctx context.Context, interval time.Duration) {
 		case <-ticker.C:
 			if err := c.ReapExpired(ctx); err != nil {
 				log.Warn().Err(err).Msg("sandbox reaper iteration failed")
+			}
+			if err := c.ReapBilling(ctx); err != nil {
+				log.Warn().Err(err).Msg("sandbox billing iteration failed")
 			}
 		}
 	}
