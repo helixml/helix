@@ -69,7 +69,7 @@ const Sandboxes: FC = () => {
         </Button>
       )}
     >
-      <Container maxWidth="lg" sx={{ py: 3 }}>
+      <Container maxWidth="xl" sx={{ mb: 4, pt: 3 }}>
         <Stack spacing={2}>
           <Box>
             <Typography variant="h5" sx={{ mb: 1 }}>Sandboxes</Typography>

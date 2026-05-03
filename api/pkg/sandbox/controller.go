@@ -80,6 +80,7 @@ func (c *Controller) Create(ctx context.Context, orgID, owner string, req *types
 		return nil, fmt.Errorf("marshal tags: %w", err)
 	}
 
+	// timeout < 0 means "never expire". timeout == 0 falls back to the 1h default.
 	timeout := req.TimeoutSeconds
 	if timeout == 0 {
 		timeout = 3600

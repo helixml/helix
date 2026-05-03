@@ -50,7 +50,9 @@ func (s *PostgresStore) CreateSandbox(ctx context.Context, sandbox *types.Sandbo
 	now := time.Now()
 	sandbox.CreatedAt = now
 	sandbox.UpdatedAt = now
-	if sandbox.ExpiresAt == nil {
+	// TimeoutSeconds < 0 means "never expire" — leave ExpiresAt nil so the
+	// reaper (which queries WHERE expires_at < now) skips it.
+	if sandbox.ExpiresAt == nil && sandbox.TimeoutSeconds > 0 {
 		exp := now.Add(time.Duration(sandbox.TimeoutSeconds) * time.Second)
 		sandbox.ExpiresAt = &exp
 	}

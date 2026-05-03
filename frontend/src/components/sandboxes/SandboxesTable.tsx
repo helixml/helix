@@ -69,7 +69,7 @@ const SandboxesTable: FC<SandboxesTableProps> = ({ sandboxes, onOpen, onDelete }
     ),
     expires: (
       <Typography variant="body2" color="text.secondary">
-        {sb.expires_at ? new Date(sb.expires_at).toLocaleString() : '-'}
+        {sb.expires_at ? new Date(sb.expires_at).toLocaleString() : 'Never'}
       </Typography>
     ),
   })), [sandboxes, theme, onOpen])

@@ -421,3 +421,103 @@ The `zed-e2e-test` step in `.drone.yml` runs automatically on the sandbox-build 
 
 ## CLI Development
 Use the helix CLI for testing, not raw curl. If functionality is missing, add it to `api/pkg/cli/spectask/`.
+
+## Sandboxes API
+
+User-facing ephemeral containers for exec / files / terminal — different from spec-task sandboxes (those run the full Zed/agent stack). Source of truth: `design/2026-04-29-sandboxes-api.md`.
+
+### Architecture
+
+```
+helix CLI / UI ─REST/WS─▶ helix API (sandbox controller)
+                                  │ store.Sandbox row
+                                  ▼ Postgres
+                                  │
+                       picks hydra host (heartbeat-versioned for desktop, any online host for headless/custom)
+                                  │
+                                  ▼ RevDial
+                          hydra (in helix-sandbox-nvidia-1)
+                                  │ docker exec / cp / inspect
+                                  ▼
+                          /sbx-{id} container (configured runtime image)
+```
+
+- Org-scoped, optional `project_id`. Cross-org id-guessing is blocked by `loadAuthorizedSandbox`.
+- 1 vCPU / 2GB RAM, default TTL 1h, soft-delete on expiry by the reaper goroutine (`StartReaper`, polls 60s).
+- Headless containers use plain public images (`ubuntu:22.04`, `node:22-bookworm-slim`, …); `SkipImageValidation=true` triggers a proactive `docker pull` in hydra.
+- Desktop runtime is heartbeat-versioned (`helix-ubuntu:<sha>`) and runs the full GNOME shell. Currently broken in pure sandbox-API mode (gnome-shell exits) — prefer headless runtimes.
+
+### Runtime configuration
+
+Operators configure runtimes via env vars (parsed by `config.Sandboxes`):
+
+| Env | Default |
+|---|---|
+| `HELIX_SANDBOX_RUNTIMES` | `headless-ubuntu=ubuntu:22.04\|sleep infinity,node22=node:22-bookworm-slim\|tail -f /dev/null,python313=python:3.13-slim\|tail -f /dev/null,debian-slim=debian:bookworm-slim\|tail -f /dev/null` |
+| `HELIX_SANDBOX_DEFAULT_RUNTIME` | `headless-ubuntu` |
+| `HELIX_SANDBOX_ALLOW_CUSTOM_IMAGE` | `false` (set true to let API callers pass arbitrary `image`) |
+
+Format: `name=image[\|keep-alive-shell-cmd]`. Add new runtimes (go, rust, java, …) by extending the CSV — no code change.
+
+### CLI
+
+All commands honour `$HELIX_API_KEY` and `$HELIX_URL`. Org defaults to `$HELIX_ORG` or your first org.
+
+```bash
+helix sandbox runtimes                                    # discover what's available
+helix sandbox create --name x --runtime node22 --ttl 600  # create + wait for running
+helix sandbox create --image alpine:3.19                  # custom image (requires gate enabled)
+helix sandbox list [--project prj_…]                      # filter by project
+helix sandbox get <sbx_…>                                 # full row as JSON
+
+# exec
+helix sandbox exec <sbx_…> -- <cmd> [args...]             # synchronous, prints stdout/stderr
+helix sandbox exec <sbx_…> --detached -- <cmd>            # fire-and-forget, prints cmd id
+helix sandbox commands <sbx_…>                            # list commands tracked
+helix sandbox logs <sbx_…> <sbcmd_…> [--follow]           # SSE log stream
+helix sandbox kill <sbx_…> <sbcmd_…> [--signal TERM]
+
+# files
+helix sandbox ls <sbx_…> --path /tmp
+echo data | helix sandbox write <sbx_…> /tmp/x.txt --mode 644
+helix sandbox read <sbx_…> /tmp/x.txt
+
+# terminal
+helix sandbox terminal <sbx_…>                            # interactive PTY (xterm)
+
+# cleanup
+helix sandbox delete <sbx_…>                              # immediate teardown
+```
+
+### Workflow expectations
+
+- `create → wait` is fast (~1-2s for headless after the image is pulled). First create of a new image incurs a `docker pull`.
+- `exec` synchronous: 60s default per-command timeout. Use `--detached` for anything longer or interactive — then poll via `commands` / stream via `logs --follow`.
+- TTL is enforced server-side: row's `expires_at` is set on create, refreshed on `PATCH timeout_seconds`. Reaper deletes after expiry.
+- Container is ephemeral. Nothing survives `delete` — no snapshots in v1.
+
+### Where things live
+
+| File | Purpose |
+|---|---|
+| `api/pkg/types/sandbox.go` | `Sandbox`, `CreateSandboxRequest`, status enums |
+| `api/pkg/sandbox/runtimes.go` | `RuntimeRegistry` — config-driven runtime spec resolution |
+| `api/pkg/sandbox/controller.go` | Lifecycle: create, provision, delete, reaper |
+| `api/pkg/server/sandboxes_api_handlers.go` | REST handlers (auth, JSON, ws bridge for terminal) |
+| `api/pkg/hydra/sandbox_handlers.go` / `sandbox_ops.go` | hydra-side exec/file/terminal implementation |
+| `api/pkg/hydra/client_sandbox.go` | RevDial client used by API → hydra |
+| `api/pkg/client/sandbox.go` | Public Go client (used by CLI; available to external SDKs) |
+| `api/pkg/cli/sandbox/sandbox.go` | `helix sandbox …` cobra subcommands |
+| `frontend/src/pages/Sandboxes.tsx`, `SandboxDetail.tsx` | UI list + detail (Overview/Terminal/Commands/Files) |
+
+### Hot-rebuild loop
+
+- API code changes → Air rebuilds `helix-api-1` automatically.
+- **hydra code changes** (`api/pkg/hydra/`) require redeploying the binary into the sandbox container — Air does NOT rebuild it:
+  ```bash
+  cd api && CGO_ENABLED=0 GOOS=linux go build -o /tmp/hydra-linux ./cmd/hydra
+  docker cp /tmp/hydra-linux helix-sandbox-nvidia-1:/usr/local/bin/hydra
+  docker compose -f docker-compose.dev.yaml exec -T sandbox-nvidia pkill -TERM hydra
+  ```
+  hydra restarts automatically; tail `docker logs helix-sandbox-nvidia-1` and look for `RevDial control connection established` to confirm.
+- Frontend → Vite HMR (port 8081 mounted into `helix-frontend-1`).

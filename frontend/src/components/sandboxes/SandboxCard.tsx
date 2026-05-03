@@ -49,11 +49,19 @@ const formatTimestamp = (ts?: string): string => {
   return new Date(ts).toLocaleString()
 }
 
+const formatExpiry = (ts?: string): string => {
+  if (!ts) return 'Never'
+  return new Date(ts).toLocaleString()
+}
+
 const formatDisplay = (sandbox: TypesSandbox): string => {
   if (!sandbox.display_width || !sandbox.display_height) return '-'
   const fps = sandbox.display_fps ? `@${sandbox.display_fps}` : ''
   return `${sandbox.display_width}×${sandbox.display_height}${fps}`
 }
+
+const isHeadless = (sandbox: TypesSandbox): boolean =>
+  (sandbox.runtime || '').includes('headless')
 
 const formatResources = (sandbox: TypesSandbox): string => {
   const cpu = sandbox.vcpus ? `${sandbox.vcpus} vCPU` : '-'
@@ -147,9 +155,11 @@ const SandboxCard: FC<SandboxCardProps> = ({ sandbox, onOpen, onDelete }) => {
           gap: 1,
         }}>
           <StatRow label="Resources" value={formatResources(sandbox)} />
-          <StatRow label="Display" value={formatDisplay(sandbox)} />
+          {!isHeadless(sandbox) && (
+            <StatRow label="Display" value={formatDisplay(sandbox)} />
+          )}
           <StatRow label="Created" value={formatTimestamp(sandbox.created_at)} />
-          <StatRow label="Expires" value={formatTimestamp(sandbox.expires_at)} />
+          <StatRow label="Expires" value={formatExpiry(sandbox.expires_at)} />
         </Box>
       </CardContent>
 

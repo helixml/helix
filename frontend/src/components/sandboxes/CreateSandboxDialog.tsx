@@ -1,11 +1,14 @@
 import { FC, useState } from 'react'
+import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import Dialog from '@mui/material/Dialog'
 import DialogActions from '@mui/material/DialogActions'
 import DialogContent from '@mui/material/DialogContent'
 import DialogTitle from '@mui/material/DialogTitle'
+import FormControlLabel from '@mui/material/FormControlLabel'
 import MenuItem from '@mui/material/MenuItem'
 import Stack from '@mui/material/Stack'
+import Switch from '@mui/material/Switch'
 import TextField from '@mui/material/TextField'
 import Typography from '@mui/material/Typography'
 
@@ -45,6 +48,7 @@ const RUNTIMES: { value: string; label: string; description: string }[] = [
 const CreateSandboxDialog: FC<Props> = ({ open, orgId, defaultProjectId, onClose, onCreated }) => {
   const [name, setName] = useState('')
   const [runtime, setRuntime] = useState<string>(RUNTIMES[0].value)
+  const [autoExpire, setAutoExpire] = useState<boolean>(true)
   const [ttlSeconds, setTtlSeconds] = useState<number>(3600)
   const [envText, setEnvText] = useState('')
   const [projectId, setProjectId] = useState<string>(defaultProjectId ?? '')
@@ -69,10 +73,13 @@ const CreateSandboxDialog: FC<Props> = ({ open, orgId, defaultProjectId, onClose
       env[trimmed.slice(0, eq)] = trimmed.slice(eq + 1)
     }
 
+    // Backend convention: timeout_seconds < 0 means "never expire".
+    const timeoutSeconds = autoExpire ? (ttlSeconds || undefined) : -1
+
     const payload: TypesCreateSandboxRequest = {
       name: name || undefined,
       runtime: runtime as TypesSandboxRuntime,
-      timeout_seconds: ttlSeconds || undefined,
+      timeout_seconds: timeoutSeconds,
       env: Object.keys(env).length ? env : undefined,
       project_id: projectId || undefined,
     }
@@ -82,6 +89,7 @@ const CreateSandboxDialog: FC<Props> = ({ open, orgId, defaultProjectId, onClose
       // Reset for next open
       setName('')
       setEnvText('')
+      setAutoExpire(true)
       setTtlSeconds(3600)
       setProjectId(defaultProjectId ?? '')
     } catch (e: any) {
@@ -130,17 +138,34 @@ const CreateSandboxDialog: FC<Props> = ({ open, orgId, defaultProjectId, onClose
               </MenuItem>
             ))}
           </TextField>
-          <TextField
-            label="TTL (seconds)"
-            type="text"
-            value={ttlSeconds}
-            onChange={(e) => {
-              const n = parseInt(e.target.value, 10)
-              setTtlSeconds(Number.isFinite(n) ? n : 0)
-            }}
-            helperText="Sandbox is automatically deleted after this many seconds. Default 1h."
-            fullWidth
-          />
+          <Box>
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={autoExpire}
+                  onChange={(e) => setAutoExpire(e.target.checked)}
+                />
+              }
+              label="Auto-expire"
+            />
+            <TextField
+              label="TTL (seconds)"
+              type="text"
+              value={ttlSeconds}
+              onChange={(e) => {
+                const n = parseInt(e.target.value, 10)
+                setTtlSeconds(Number.isFinite(n) ? n : 0)
+              }}
+              disabled={!autoExpire}
+              helperText={
+                autoExpire
+                  ? 'Sandbox is automatically deleted after this many seconds. Default 1h.'
+                  : 'Auto-expire is off — this sandbox will run until you delete it manually.'
+              }
+              fullWidth
+              sx={{ mt: 1 }}
+            />
+          </Box>
           <TextField
             label="Environment variables"
             value={envText}
