@@ -1,6 +1,10 @@
-import { FC, useCallback, useEffect, useRef, useState } from 'react'
+import { FC, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
+import FormControl from '@mui/material/FormControl'
+import InputLabel from '@mui/material/InputLabel'
+import MenuItem from '@mui/material/MenuItem'
+import Select, { SelectChangeEvent } from '@mui/material/Select'
 import Stack from '@mui/material/Stack'
 import Tooltip from '@mui/material/Tooltip'
 import Typography from '@mui/material/Typography'
@@ -9,7 +13,10 @@ import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
 
-import { sandboxTerminalUrl } from '../../services/sandboxesService'
+import {
+  sandboxTerminalUrl,
+  useSandboxTerminalSessions,
+} from '../../services/sandboxesService'
 
 interface Props {
   orgId: string
@@ -18,7 +25,7 @@ interface Props {
   // height of the rendered terminal — defaults to a roomy value for the tab
   // view, callers (e.g. the card preview) can pass a smaller value.
   height?: number | string
-  // showControls renders a small toolbar with the active session name and a
+  // showControls renders a small toolbar with the session selector and a
   // "New session" button. Disabled for compact previews.
   showControls?: boolean
   // readOnly suppresses keyboard input — used for the read-only card preview
@@ -63,6 +70,10 @@ const writeStoredSession = (sandboxId: string, name: string) => {
 // helix-<sessionName>`, so reconnects (page refresh, ws drop) reattach to the
 // same tmux session — preserving working dir, scrollback, and any in-flight
 // processes. The session name is persisted in localStorage per-sandbox.
+//
+// When showControls is on, the toolbar lists every existing tmux session in
+// the container so the user can switch between them. A "New session" button
+// creates a fresh one.
 const SandboxTerminal: FC<Props> = ({
   orgId,
   sandboxId,
@@ -85,11 +96,42 @@ const SandboxTerminal: FC<Props> = ({
     return fresh
   })
 
+  // Poll the existing tmux sessions inside the sandbox so the switcher stays
+  // current as new sessions are created from elsewhere (e.g. a second browser
+  // tab). Only enabled while the sandbox is running and controls are shown.
+  const sessionsQuery = useSandboxTerminalSessions(
+    showControls && running ? orgId : undefined,
+    showControls && running ? sandboxId : undefined,
+  )
+
+  // Build the dropdown options: every helix-managed session reported by the
+  // backend, plus the locally selected one if it hasn't been observed yet
+  // (which is the normal case immediately after "New session" — tmux only
+  // materialises the session when the websocket connects).
+  const sessionOptions = useMemo<string[]>(() => {
+    const set = new Set<string>()
+    set.add(sessionName)
+    for (const s of sessionsQuery.data?.sessions ?? []) {
+      if (s?.name) set.add(s.name)
+    }
+    return Array.from(set)
+  }, [sessionName, sessionsQuery.data])
+
   const handleNewSession = useCallback(() => {
     const fresh = generateSessionName()
     writeStoredSession(sandboxId, fresh)
     setSessionName(fresh)
   }, [sandboxId])
+
+  const handleSelectSession = useCallback(
+    (e: SelectChangeEvent<string>) => {
+      const next = e.target.value
+      if (!next || next === sessionName) return
+      writeStoredSession(sandboxId, next)
+      setSessionName(next)
+    },
+    [sandboxId, sessionName],
+  )
 
   useEffect(() => {
     if (!running || !containerRef.current) return
@@ -201,19 +243,45 @@ const SandboxTerminal: FC<Props> = ({
       }}
     >
       {showControls && (
-        <Stack direction="row" alignItems="center" spacing={1} sx={{ minHeight: 28 }}>
-          <Typography variant="caption" color="text.secondary">
-            Session{' '}
-            <Box
-              component="span"
-              sx={{ fontFamily: 'monospace', color: 'text.primary' }}
+        <Stack direction="row" alignItems="center" spacing={1.5} sx={{ minHeight: 40 }}>
+          <FormControl size="small" sx={{ minWidth: 240 }}>
+            <InputLabel id={`sandbox-${sandboxId}-session-label`}>Session</InputLabel>
+            <Select
+              labelId={`sandbox-${sandboxId}-session-label`}
+              label="Session"
+              value={sessionName}
+              onChange={handleSelectSession}
+              renderValue={(v) => `helix-${v}`}
             >
-              helix-{sessionName}
-            </Box>
-            {' '}— reconnects reattach to this tmux session.
+              {sessionOptions.map((name) => {
+                const meta = sessionsQuery.data?.sessions?.find((s) => s.name === name)
+                return (
+                  <MenuItem key={name} value={name}>
+                    <Stack direction="row" alignItems="center" spacing={1}>
+                      <Box component="span" sx={{ fontFamily: 'monospace' }}>
+                        helix-{name}
+                      </Box>
+                      {meta?.attached && (
+                        <Typography variant="caption" color="text.secondary">
+                          (attached)
+                        </Typography>
+                      )}
+                      {!meta && (
+                        <Typography variant="caption" color="text.secondary">
+                          (new)
+                        </Typography>
+                      )}
+                    </Stack>
+                  </MenuItem>
+                )
+              })}
+            </Select>
+          </FormControl>
+          <Typography variant="caption" color="text.secondary">
+            Reconnects reattach to the selected tmux session.
           </Typography>
           <Box sx={{ flex: 1 }} />
-          <Tooltip title="Discard the current tmux session and start a fresh one">
+          <Tooltip title="Start a fresh tmux session in this sandbox">
             <Button
               size="small"
               variant="outlined"

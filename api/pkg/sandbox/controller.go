@@ -203,31 +203,25 @@ func (c *Controller) provision(ctx context.Context, sandboxID string) {
 		return
 	}
 
-	// Pick a hydra host. Desktop runtimes need a host with a matching
-	// versioned image advertised via the heartbeat blob. Headless runtimes
-	// just need any online host that can pull the image.
-	var host *types.SandboxInstance
-	if spec.VersionKey != "" {
-		host, err = c.store.FindAvailableSandboxInstance(provisionCtx, spec.VersionKey)
-		if err != nil {
-			_ = c.store.SetSandboxStatus(provisionCtx, sandboxID, types.SandboxStatusFailed, fmt.Sprintf("find available host: %s", err))
-			return
-		}
-	} else {
-		hosts, listErr := c.store.ListSandboxInstances(provisionCtx)
-		if listErr != nil {
-			_ = c.store.SetSandboxStatus(provisionCtx, sandboxID, types.SandboxStatusFailed, fmt.Sprintf("list hosts: %s", listErr))
-			return
-		}
-		for _, h := range hosts {
-			if h.Status == "online" {
-				host = h
-				break
-			}
-		}
-	}
-	if host == nil {
-		_ = c.store.SetSandboxStatus(provisionCtx, sandboxID, types.SandboxStatusFailed, "no available sandbox host with the requested runtime")
+	// Pick a hydra host. Three rules apply, in order:
+	//
+	//  1. If the sandbox already has a HostDeviceID stamped from a previous
+	//     provision, prefer that host. The persistent volume (and even
+	//     ephemeral docker-data for desktop runtimes) lives on its local
+	//     disk; scheduling onto a different host would silently lose all
+	//     of it. We do this for non-persistent sandboxes too — sticky
+	//     placement is cheap and reduces user surprise on restart.
+	//
+	//  2. If the previously-bound host is offline AND the sandbox is
+	//     persistent, fail loudly rather than silently moving — the user's
+	//     data is on that other machine. They'll need the host back, or
+	//     to delete-and-recreate accepting data loss.
+	//
+	//  3. Only when no prior host is set do we pick a fresh one
+	//     (heartbeat-matched for desktop, any-online for headless).
+	host, hostErr := c.pickHostForSandbox(provisionCtx, sandbox, spec)
+	if hostErr != nil {
+		_ = c.store.SetSandboxStatus(provisionCtx, sandboxID, types.SandboxStatusFailed, hostErr.Error())
 		return
 	}
 
@@ -435,6 +429,83 @@ func (c *Controller) specForSandbox(sandbox *types.Sandbox) (*RuntimeSpec, error
 // Runtimes returns the registered runtime registry. Used by the API layer to
 // expose a discovery endpoint and validate requests synchronously.
 func (c *Controller) Runtimes() *RuntimeRegistry { return c.runtimes }
+
+// instanceAdvertisesVersion mirrors the version-matching logic in
+// store.FindAvailableSandboxInstance — it returns true iff the host's
+// heartbeat blob lists a non-empty image tag for desktopType. Used when
+// re-binding a sandbox to its previously chosen host.
+func instanceAdvertisesVersion(instance *types.SandboxInstance, desktopType string) bool {
+	if len(instance.DesktopVersions) == 0 {
+		return false
+	}
+	var versions map[string]string
+	if err := json.Unmarshal(instance.DesktopVersions, &versions); err != nil {
+		return false
+	}
+	v, ok := versions[desktopType]
+	return ok && v != ""
+}
+
+// pickHostForSandbox is the host scheduler. See the call site in provision()
+// for the placement rules. Returns a non-nil host on success, or a typed
+// error describing why no host could be assigned.
+//
+// The single most important guarantee: when a sandbox already has a
+// HostDeviceID and is persistent, this function will NEVER return a different
+// host. Doing so would orphan the user's persisted workspace on the original
+// host's local disk.
+func (c *Controller) pickHostForSandbox(ctx context.Context, sandbox *types.Sandbox, spec *RuntimeSpec) (*types.SandboxInstance, error) {
+	// Re-bind to the previously chosen host when one is recorded.
+	if sandbox.HostDeviceID != "" {
+		prev, err := c.store.GetSandboxInstance(ctx, sandbox.HostDeviceID)
+		if err == nil && prev != nil && prev.Status == "online" {
+			// Desktop runtimes also need the heartbeat-versioned image;
+			// confirm the host still advertises the right version key.
+			if spec.VersionKey != "" {
+				if !instanceAdvertisesVersion(prev, spec.VersionKey) {
+					return nil, fmt.Errorf("sticky host %s no longer advertises image %q for runtime %s; cannot safely re-bind",
+						prev.ID, spec.VersionKey, spec.Name)
+				}
+			}
+			return prev, nil
+		}
+		// Previous host is gone or offline. For persistent sandboxes the
+		// data is on that host's disk, so silently moving would mean data
+		// loss. Refuse and tell the user.
+		if sandbox.Persistent {
+			return nil, fmt.Errorf("sandbox is bound to host %s which is offline; refusing to move a persistent sandbox to a different host (data is on the original host)", sandbox.HostDeviceID)
+		}
+		// Non-persistent: fall through and pick a fresh host. We log it
+		// because the user might still notice their /home/retro/work
+		// scratch is empty.
+		log.Warn().
+			Str("sandbox_id", sandbox.ID).
+			Str("previous_host", sandbox.HostDeviceID).
+			Msg("previously bound host is offline; rescheduling non-persistent sandbox to a new host")
+	}
+
+	// First-time placement (or non-persistent reschedule).
+	if spec.VersionKey != "" {
+		host, err := c.store.FindAvailableSandboxInstance(ctx, spec.VersionKey)
+		if err != nil {
+			return nil, fmt.Errorf("find available host: %w", err)
+		}
+		if host == nil {
+			return nil, fmt.Errorf("no online sandbox host advertises image for runtime %s", spec.Name)
+		}
+		return host, nil
+	}
+	hosts, err := c.store.ListSandboxInstances(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list hosts: %w", err)
+	}
+	for _, h := range hosts {
+		if h.Status == "online" {
+			return h, nil
+		}
+	}
+	return nil, errors.New("no available sandbox host with the requested runtime")
+}
 
 // ensureSandboxAPIToken returns an ephemeral API key scoped to the sandbox.
 // We re-use the api_keys table's SessionID column as the sandbox handle so the
