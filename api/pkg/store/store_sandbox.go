@@ -35,6 +35,35 @@ func (s *PostgresStore) UpdateSandboxHeartbeat(ctx context.Context, id string, r
 		updates["desktop_versions"] = req.DesktopVersions
 	}
 
+	// Sandbox-absorbs-runner: persist GPU inventory and inference subsystem
+	// state from the heartbeat. GPUs is a jsonb column carrying the rich
+	// per-GPU info (vendor, arch, VRAM) that the inference router uses
+	// for the profile-compatibility check.
+	if len(req.GPUs) > 0 {
+		gpusJSON, err := json.Marshal(req.GPUs)
+		if err == nil {
+			updates["gpus"] = gpusJSON
+		}
+	}
+	if req.ProfileStatus != "" {
+		updates["profile_status"] = req.ProfileStatus
+	}
+	if req.ProfileError != "" {
+		updates["profile_error"] = req.ProfileError
+	}
+	if len(req.ServiceHealth) > 0 {
+		shJSON, err := json.Marshal(req.ServiceHealth)
+		if err == nil {
+			updates["service_health"] = shJSON
+		}
+	}
+	// Always overwrite ProfileProgress (including with empty) so the
+	// progress bar disappears once a download completes — otherwise stale
+	// "downloading 95%" lingers forever in the admin UI.
+	if pgJSON, err := json.Marshal(req.ProfileProgress); err == nil {
+		updates["profile_progress"] = pgJSON
+	}
+
 	return s.gdb.WithContext(ctx).
 		Model(&types.SandboxInstance{}).
 		Where("id = ?", id).

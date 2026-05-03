@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"time"
@@ -27,6 +28,14 @@ type SandboxInstanceInfo struct {
 	SessionID   string `json:"session_id"`
 	Status      string `json:"status"`
 	ContainerID string `json:"container_id,omitempty"`
+
+	// Inference profile state — populated from the heartbeat. Empty for
+	// pure-agent sandboxes with no profile assigned.
+	ActiveProfileID string                                       `json:"active_profile_id,omitempty"`
+	ProfileStatus   string                                       `json:"profile_status,omitempty"`
+	ProfileError    string                                       `json:"profile_error,omitempty"`
+	ServiceHealth   map[string]string                            `json:"service_health,omitempty"`
+	ProfileProgress map[string]types.ServiceDownloadProgress     `json:"profile_progress,omitempty"`
 }
 
 // DevContainerWithClients extends DevContainerResponse with connected clients and video stats
@@ -107,10 +116,21 @@ func (apiServer *HelixAPIServer) getAgentSandboxesDebug(rw http.ResponseWriter, 
 	// Convert to response format
 	sandboxInfos := make([]SandboxInstanceInfo, len(sandboxes))
 	for i, sb := range sandboxes {
-		sandboxInfos[i] = SandboxInstanceInfo{
-			ID:     sb.ID,
-			Status: sb.Status,
+		info := SandboxInstanceInfo{
+			ID:              sb.ID,
+			Status:          sb.Status,
+			ActiveProfileID: sb.ActiveProfileID,
+			ProfileStatus:   sb.ProfileStatus,
+			ProfileError:    sb.ProfileError,
 		}
+		// jsonb columns deserialise as []byte; unmarshal best-effort.
+		if len(sb.ServiceHealth) > 0 {
+			_ = json.Unmarshal(sb.ServiceHealth, &info.ServiceHealth)
+		}
+		if len(sb.ProfileProgress) > 0 {
+			_ = json.Unmarshal(sb.ProfileProgress, &info.ProfileProgress)
+		}
+		sandboxInfos[i] = info
 	}
 
 	// Aggregate GPU info and dev containers from all sandboxes

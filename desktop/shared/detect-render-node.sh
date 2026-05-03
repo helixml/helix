@@ -55,10 +55,67 @@ detect_render_node() {
             ;;
     esac
 
+    # Decision 15: per-session GPU pinning by PCI BDF order.
+    #
+    # If HELIX_GPU_INDEX is set, walk the host's DRM devices via sysfs,
+    # filter to nodes owned by the target driver, sort by PCI BDF, and
+    # pick the Nth — same algorithm as enumerateDRMDevices() in Go.
+    #
+    # The naive "renderD<128+N> + card<N>" mapping is wrong on hosts
+    # where the device numbering doesn't line up — e.g. Azure spawns
+    # instances with virtio-gpu at card0/renderD128 and the real
+    # NVIDIA at card1/renderD129, so a naive `card${idx}` for index 0
+    # would pin to virtio. Walking PCI BDFs gives a stable order
+    # regardless of how udev numbered the devices at boot.
+    if [ -n "${HELIX_GPU_INDEX:-}" ] && [ -d "/sys/class/drm" ]; then
+        local idx="$HELIX_GPU_INDEX"
+        local matched_pcis=""
+        # Collect (pci_bdf, render_node) for nodes whose driver matches
+        for render_node in /dev/dri/renderD*; do
+            [ -e "$render_node" ] || continue
+            local node_name
+            node_name=$(basename "$render_node")
+            local driver_link="/sys/class/drm/$node_name/device/driver"
+            [ -L "$driver_link" ] || continue
+            local driver
+            driver=$(readlink "$driver_link" | grep -o '[^/]*$')
+            if [ "$driver" = "$target_driver" ]; then
+                local pci_bdf
+                pci_bdf=$(basename "$(readlink -f "/sys/class/drm/$node_name/device")")
+                matched_pcis="${matched_pcis}${pci_bdf}|${render_node}"$'\n'
+            fi
+        done
+        # Sort by PCI BDF, pick the Nth (zero-indexed)
+        local picked
+        picked=$(printf "%s" "$matched_pcis" | sort | sed -n "$((idx + 1))p")
+        if [ -n "$picked" ]; then
+            local picked_pci="${picked%%|*}"
+            local picked_render="${picked##*|}"
+            # Find the matching card device by walking card* with same PCI
+            local picked_card=""
+            for card in /dev/dri/card*; do
+                [ -e "$card" ] || continue
+                local card_name
+                card_name=$(basename "$card")
+                local card_pci
+                card_pci=$(basename "$(readlink -f "/sys/class/drm/$card_name/device")")
+                if [ "$card_pci" = "$picked_pci" ]; then
+                    picked_card="$card"
+                    break
+                fi
+            done
+            detected_node="$picked_render"
+            detected_card="$picked_card"
+            echo "[render-node] HELIX_GPU_INDEX=$idx -> $detected_node + ${detected_card:-(no card)} (PCI $picked_pci)"
+        else
+            echo "[render-node] HELIX_GPU_INDEX=$idx requested but no $target_driver GPU found at that index — falling back to auto-detect"
+        fi
+    fi
+
     # Find render node AND card device matching the target driver
     # renderD* = render-only node (for GPU compute/encoding)
     # card* = full DRM node (for display output, required by compositors)
-    if [ -d "/sys/class/drm" ]; then
+    if [ -z "$detected_node" ] && [ -d "/sys/class/drm" ]; then
         for render_node in /dev/dri/renderD*; do
             if [ -e "$render_node" ]; then
                 node_name=$(basename "$render_node")

@@ -49,6 +49,7 @@ const (
 	EvaluationRunPrefix        = "evr_"
 	SandboxPrefix              = "sbx_"
 	SandboxCommandPrefix       = "sbcmd_"
+	RunnerProfilePrefix        = "rprof_"
 )
 
 func GenerateUUID() string {
@@ -224,4 +225,8 @@ func GenerateSandboxID() string {
 
 func GenerateSandboxCommandID() string {
 	return fmt.Sprintf("%s%s", SandboxCommandPrefix, newID())
+}
+
+func GenerateRunnerProfileID() string {
+	return fmt.Sprintf("%s%s", RunnerProfilePrefix, newID())
 }

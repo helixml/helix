@@ -91,11 +91,24 @@ interface DevContainerWithClients {
   task_id?: string
 }
 
+interface ServiceDownloadProgress {
+  percent?: number
+  current?: number
+  total?: number
+  eta?: string
+  stage?: string
+}
+
 interface SandboxInstanceInfo {
   id: string
   session_id: string
   status: string
   container_id?: string
+  active_profile_id?: string
+  profile_status?: string
+  profile_error?: string
+  service_health?: Record<string, string>
+  profile_progress?: Record<string, ServiceDownloadProgress>
 }
 
 interface AgentSandboxesDebugResponse {
@@ -125,6 +138,91 @@ const getStatusColor = (status: string): 'success' | 'warning' | 'error' | 'defa
     default:
       return 'default'
   }
+}
+
+// Map of compose-manager profile lifecycle states to chip colors. Keep in
+// sync with composemgr.State.Status: assigning | pulling | starting |
+// running | failed.
+const getProfileStatusColor = (status: string): 'success' | 'warning' | 'error' | 'info' | 'default' => {
+  switch (status) {
+    case 'running':
+      return 'success'
+    case 'starting':
+    case 'pulling':
+    case 'assigning':
+      return 'info'
+    case 'failed':
+      return 'error'
+    default:
+      return 'default'
+  }
+}
+
+// SandboxProfileCard renders the inference-profile state for one sandbox:
+// status chip, error if any, per-service health, and a progress bar per
+// service that's actively downloading model weights from HF Hub. Hidden
+// entirely when the sandbox has no profile assigned.
+const SandboxProfileCard: FC<{ sandbox: SandboxInstanceInfo }> = ({ sandbox }) => {
+  const status = sandbox.profile_status || ''
+  const profileID = sandbox.active_profile_id || ''
+  if (!status && !profileID) return null
+  const services = Object.entries(sandbox.service_health || {})
+  const progressEntries = Object.entries(sandbox.profile_progress || {})
+  return (
+    <Paper sx={{ p: 2, backgroundColor: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.1)' }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+        <Typography variant="caption" color="text.secondary" sx={{ fontFamily: 'monospace' }}>
+          {sandbox.id}
+        </Typography>
+        <Chip label={status || 'idle'} size="small" color={getProfileStatusColor(status)} />
+      </Box>
+      {profileID && (
+        <Typography variant="body2" sx={{ mb: 0.5 }}>
+          Profile: <span style={{ fontFamily: 'monospace' }}>{profileID}</span>
+        </Typography>
+      )}
+      {sandbox.profile_error && (
+        <Alert severity="error" sx={{ my: 1, py: 0 }}>
+          {sandbox.profile_error}
+        </Alert>
+      )}
+      {progressEntries.length > 0 && (
+        <Box sx={{ mt: 1 }}>
+          {progressEntries.map(([svc, p]) => (
+            <Box key={svc} sx={{ mb: 1.5 }}>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
+                <Typography variant="caption" color="text.secondary">
+                  {svc} — {p.stage || 'downloading'}
+                  {p.current && p.total ? ` (${p.current}/${p.total})` : ''}
+                </Typography>
+                <Typography variant="caption" fontWeight="bold">
+                  {p.percent ?? 0}%{p.eta ? ` · ETA ${p.eta}` : ''}
+                </Typography>
+              </Box>
+              <LinearProgress
+                variant="determinate"
+                value={p.percent ?? 0}
+                sx={{ height: 6, borderRadius: 3 }}
+              />
+            </Box>
+          ))}
+        </Box>
+      )}
+      {services.length > 0 && (
+        <Box sx={{ mt: 1, display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+          {services.map(([svc, health]) => (
+            <Chip
+              key={svc}
+              label={`${svc}: ${health}`}
+              size="small"
+              variant="outlined"
+              color={health === 'healthy' ? 'success' : health === 'failed' ? 'error' : 'warning'}
+            />
+          ))}
+        </Box>
+      )}
+    </Paper>
+  )
 }
 
 const getContainerTypeLabel = (type: string): string => {
@@ -606,6 +704,30 @@ const AgentSandboxes: FC<AgentSandboxesProps> = ({ selectedSandboxId }) => {
         {gpus.length > 0 && (
           <Grid item xs={12}>
             <GPUStatsCard gpus={gpus} />
+          </Grid>
+        )}
+
+        {/* Inference Profile state per sandbox */}
+        {filteredSandboxes.some((s) => s.profile_status || s.active_profile_id) && (
+          <Grid item xs={12}>
+            <Card>
+              <CardHeader
+                avatar={<MemoryIcon />}
+                title="Inference Profiles"
+                subheader="Compose stack lifecycle and model-weights download progress per sandbox"
+              />
+              <CardContent>
+                <Grid container spacing={2}>
+                  {filteredSandboxes
+                    .filter((s) => s.profile_status || s.active_profile_id)
+                    .map((sb) => (
+                      <Grid item xs={12} md={6} lg={4} key={sb.id}>
+                        <SandboxProfileCard sandbox={sb} />
+                      </Grid>
+                    ))}
+                </Grid>
+              </CardContent>
+            </Card>
           </Grid>
         )}
 

@@ -553,3 +553,159 @@ func (s *ProviderHandlersSuite) TestUpdateProviderEndpoint_SwitchToOrgRejected()
 	s.Equal(http.StatusBadRequest, rr.Code)
 	s.Contains(rr.Body.String(), "Unsupported endpoint type switch")
 }
+
+// TestDeleteProviderEndpoint_InvalidatesModelCache verifies that deleting a
+// provider clears its cached model list so subsequent reads stop serving the
+// deleted provider's models. Without invalidation, stale entries linger for up
+// to ModelsCacheTTL and a deleted provider can still resolve in /v1/chat/completions
+// routing during that window. See deviqon/P1-3.
+func (s *ProviderHandlersSuite) TestDeleteProviderEndpoint_InvalidatesModelCache() {
+	s.server.Cfg.Providers.EnableCustomUserProviders = true
+	endpointID := "ep_to_delete"
+
+	existing := &types.ProviderEndpoint{
+		ID:           endpointID,
+		Name:         "user-ollama",
+		Owner:        "user_id",
+		OwnerType:    types.OwnerTypeUser,
+		EndpointType: types.ProviderEndpointTypeUser,
+	}
+
+	// Pre-populate the cache as if a prior /providers/models call had filled it.
+	cacheKey := modelCacheKey(existing.Name, existing.Owner)
+	s.server.cache.SetWithTTL(cacheKey, `[{"id":"qwen3-coder"}]`, 1, time.Minute)
+	s.server.cache.Wait()
+	if _, found := s.server.cache.Get(cacheKey); !found {
+		s.Fail("precondition: cache should be populated before delete")
+	}
+
+	s.store.EXPECT().GetSystemSettings(gomock.Any()).Return(&types.SystemSettings{
+		ProvidersManagementEnabled: true,
+	}, nil)
+	s.store.EXPECT().GetProviderEndpoint(gomock.Any(), &store.GetProviderEndpointsQuery{
+		ID: endpointID,
+	}).Return(existing, nil)
+	s.store.EXPECT().DeleteProviderEndpoint(gomock.Any(), endpointID).Return(nil)
+
+	req := httptest.NewRequest(http.MethodDelete, "/v1/provider-endpoints/"+endpointID, nil)
+	req = req.WithContext(s.authCtx)
+	req = mux.SetURLVars(req, map[string]string{"id": endpointID})
+
+	rr := httptest.NewRecorder()
+	s.server.deleteProviderEndpoint(rr, req)
+
+	s.Equal(http.StatusOK, rr.Code)
+
+	s.server.cache.Wait()
+	_, found := s.server.cache.Get(cacheKey)
+	s.False(found, "cache entry for deleted provider must be cleared")
+}
+
+// TestUpdateProviderEndpoint_RenameInvalidatesOldKey covers the rename path:
+// the cache key includes the provider name, so a rename leaves a stranded
+// entry under the old name that nothing will ever clean up. The update handler
+// must drop both the old and new keys.
+func (s *ProviderHandlersSuite) TestUpdateProviderEndpoint_RenameInvalidatesOldKey() {
+	s.server.Cfg.Providers.EnableCustomUserProviders = true
+	endpointID := "ep_rename"
+
+	existing := &types.ProviderEndpoint{
+		ID:           endpointID,
+		Name:         "old-name",
+		BaseURL:      "http://localhost:11434",
+		Owner:        "user_id",
+		OwnerType:    types.OwnerTypeUser,
+		EndpointType: types.ProviderEndpointTypeUser,
+	}
+
+	oldKey := modelCacheKey("old-name", "user_id")
+	newKey := modelCacheKey("new-name", "user_id")
+	s.server.cache.SetWithTTL(oldKey, `[{"id":"m1"}]`, 1, time.Minute)
+	s.server.cache.SetWithTTL(newKey, `[{"id":"m2-stale"}]`, 1, time.Minute)
+	s.server.cache.Wait()
+
+	s.store.EXPECT().GetSystemSettings(gomock.Any()).Return(&types.SystemSettings{
+		ProvidersManagementEnabled: true,
+	}, nil)
+	s.store.EXPECT().GetProviderEndpoint(gomock.Any(), &store.GetProviderEndpointsQuery{
+		ID: endpointID,
+	}).Return(existing, nil)
+	s.manager.EXPECT().ListProviders(gomock.Any(), "user_id").Return([]types.Provider{}, nil)
+	s.store.EXPECT().UpdateProviderEndpoint(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, ep *types.ProviderEndpoint) (*types.ProviderEndpoint, error) {
+			s.Equal("new-name", ep.Name)
+			return ep, nil
+		})
+
+	update := types.UpdateProviderEndpoint{
+		Name:    "new-name",
+		BaseURL: "http://localhost:11434",
+	}
+	body, _ := json.Marshal(update)
+	req := httptest.NewRequest(http.MethodPut, "/v1/provider-endpoints/"+endpointID, bytes.NewReader(body))
+	req = req.WithContext(s.authCtx)
+	req = mux.SetURLVars(req, map[string]string{"id": endpointID})
+
+	rr := httptest.NewRecorder()
+	s.server.updateProviderEndpoint(rr, req)
+
+	s.Equal(http.StatusOK, rr.Code)
+
+	s.server.cache.Wait()
+	_, foundOld := s.server.cache.Get(oldKey)
+	s.False(foundOld, "old-name cache entry must be cleared after rename")
+	_, foundNew := s.server.cache.Get(newKey)
+	s.False(foundNew, "new-name cache entry must be cleared so next read refetches with current upstream state")
+}
+
+// TestUpdateProviderEndpoint_NoRenameStillInvalidates covers the case where
+// only BaseURL/Models/APIKey changed — the cached models are now potentially
+// wrong because the upstream is different. Cache must be cleared even when
+// the name is unchanged.
+func (s *ProviderHandlersSuite) TestUpdateProviderEndpoint_NoRenameStillInvalidates() {
+	s.server.Cfg.Providers.EnableCustomUserProviders = true
+	endpointID := "ep_url_change"
+
+	existing := &types.ProviderEndpoint{
+		ID:           endpointID,
+		Name:         "stable-name",
+		BaseURL:      "http://old-host:11434",
+		Owner:        "user_id",
+		OwnerType:    types.OwnerTypeUser,
+		EndpointType: types.ProviderEndpointTypeUser,
+	}
+
+	key := modelCacheKey("stable-name", "user_id")
+	s.server.cache.SetWithTTL(key, `[{"id":"old-host-model"}]`, 1, time.Minute)
+	s.server.cache.Wait()
+
+	s.store.EXPECT().GetSystemSettings(gomock.Any()).Return(&types.SystemSettings{
+		ProvidersManagementEnabled: true,
+	}, nil)
+	s.store.EXPECT().GetProviderEndpoint(gomock.Any(), &store.GetProviderEndpointsQuery{
+		ID: endpointID,
+	}).Return(existing, nil)
+	s.store.EXPECT().UpdateProviderEndpoint(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, ep *types.ProviderEndpoint) (*types.ProviderEndpoint, error) {
+			s.Equal("http://new-host:11434", ep.BaseURL)
+			return ep, nil
+		})
+
+	update := types.UpdateProviderEndpoint{
+		Name:    "stable-name",
+		BaseURL: "http://new-host:11434",
+	}
+	body, _ := json.Marshal(update)
+	req := httptest.NewRequest(http.MethodPut, "/v1/provider-endpoints/"+endpointID, bytes.NewReader(body))
+	req = req.WithContext(s.authCtx)
+	req = mux.SetURLVars(req, map[string]string{"id": endpointID})
+
+	rr := httptest.NewRecorder()
+	s.server.updateProviderEndpoint(rr, req)
+
+	s.Equal(http.StatusOK, rr.Code)
+
+	s.server.cache.Wait()
+	_, found := s.server.cache.Get(key)
+	s.False(found, "cache must be cleared after BaseURL change so next read sees the new upstream")
+}

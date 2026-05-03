@@ -278,13 +278,19 @@ type Store interface {
 	// their stale in-memory copy) cannot race with the bump.
 	IncrementInteractionAutoWakeCount(ctx context.Context, interactionID string) (int, error)
 
-	// slots
-	CreateSlot(ctx context.Context, slot *types.RunnerSlot) (*types.RunnerSlot, error)
-	GetSlot(ctx context.Context, id string) (*types.RunnerSlot, error)
-	UpdateSlot(ctx context.Context, slot *types.RunnerSlot) (*types.RunnerSlot, error)
-	DeleteSlot(ctx context.Context, id string) error
-	ListSlots(ctx context.Context, runnerID string) ([]*types.RunnerSlot, error)
-	ListAllSlots(ctx context.Context) ([]*types.RunnerSlot, error)
+	// runner profiles (compose-based runner replacement)
+	CreateRunnerProfile(ctx context.Context, p *types.RunnerProfile) (*types.RunnerProfile, error)
+	GetRunnerProfile(ctx context.Context, id string) (*types.RunnerProfile, error)
+	GetRunnerProfileByName(ctx context.Context, name string) (*types.RunnerProfile, error)
+	UpdateRunnerProfile(ctx context.Context, p *types.RunnerProfile) (*types.RunnerProfile, error)
+	DeleteRunnerProfile(ctx context.Context, id string) error
+	ListRunnerProfiles(ctx context.Context) ([]*types.RunnerProfile, error)
+
+	// runner-to-profile assignments
+	GetRunnerAssignment(ctx context.Context, runnerID string) (*types.RunnerAssignment, error)
+	SetRunnerAssignment(ctx context.Context, a *types.RunnerAssignment) (*types.RunnerAssignment, error)
+	DeleteRunnerAssignment(ctx context.Context, runnerID string) error
+	ListRunnerAssignments(ctx context.Context) ([]*types.RunnerAssignment, error)
 
 	// step infos
 	CreateStepInfo(ctx context.Context, stepInfo *types.StepInfo) (*types.StepInfo, error)
@@ -756,6 +762,14 @@ type Store interface {
 	// next_retry_at=NULL, error_message=''. Returns the number of prompts reset.
 	// Called when the user clicks Restart after a Claude Agent crash.
 	ResetCrashedPromptsForSession(ctx context.Context, sessionID string) (int, error)
+	// ReconcileStuckSendingPrompts finds prompt_history_entries that are stuck in
+	// 'sending' state (the in-memory link from interaction → prompt was lost
+	// before MarkPromptAsSent fired — historically caused by API restart or any
+	// of the dispatch-failure paths that orphaned the mapping) and marks them
+	// 'sent' if their associated interaction has reached state='complete'. Called
+	// once at server startup as a one-shot janitor; idempotent and safe to re-run.
+	// Returns the number of prompts reconciled.
+	ReconcileStuckSendingPrompts(ctx context.Context) (int, error)
 	// RequeueBouncedPrompt finds the most recent "sent" prompt for a session and marks
 	// it as "failed" so the retry mechanism picks it up. Used when message_completed
 	// arrives with an empty response (bounce).

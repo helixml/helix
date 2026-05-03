@@ -19,23 +19,6 @@ export function useGetDashboardData() {
     });
 }
 
-export function useDeleteSlot() {
-    const api = useApi();
-    const apiClient = api.getApiClient();
-    const queryClient = useQueryClient();
-
-    return useMutation({
-        mutationFn: async (slotId: string) => {
-            const response = await apiClient.v1SlotsDelete(slotId);
-            return response.data;
-        },
-        onSuccess: () => {
-            // Invalidate dashboard data to refresh the UI
-            queryClient.invalidateQueries({ queryKey: dashboardQueryKey() });
-        },
-    });
-}
-
 /**
  * User list query parameters interface
  * Supports pagination and filtering options
