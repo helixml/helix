@@ -26,6 +26,10 @@ interface SandboxApiExamplesProps {
   memoryMb: number
   timeoutSeconds: number
   persistent: boolean
+  // apiKey is the first organization API key. When undefined, the env-var
+  // export snippet falls back to a placeholder and a "create one in settings"
+  // hint.
+  apiKey?: string
 }
 
 type Lang = 'curl' | 'javascript' | 'python'
@@ -277,7 +281,11 @@ const SandboxApiExamples: FC<SandboxApiExamplesProps> = (props) => {
   const [lang, setLang] = useState<Lang>('curl')
   const examples = useMemo(() => buildExamples(props), [props])
 
-  const apiRefHref = `${typeof window !== 'undefined' ? window.location.origin : ''}/api-reference#tag/Sandboxes`
+  const origin = typeof window !== 'undefined' ? window.location.origin : ''
+  const apiRefHref = `${origin}/api-reference#tag/Sandboxes`
+  const apiKeyValue = props.apiKey ?? '<PASTE_ORG_API_KEY>'
+  const exportSnippet = `export HELIX_URL="${origin}"
+export HELIX_API_KEY="${apiKeyValue}"`
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', minWidth: 0 }}>
@@ -314,10 +322,27 @@ const SandboxApiExamples: FC<SandboxApiExamplesProps> = (props) => {
 
       <Box sx={{ flex: 1, overflowY: 'auto', pr: 0.5 }}>
         <Stack spacing={1}>
-          <Typography variant="caption" color="text.secondary">
-            Set <code>HELIX_URL</code> to <code>{typeof window !== 'undefined' ? window.location.origin : ''}</code> and{' '}
-            <code>HELIX_API_KEY</code> to a personal API key from settings.
-          </Typography>
+          <Box>
+            <Typography
+              variant="caption"
+              sx={{
+                fontWeight: 600,
+                color: 'text.secondary',
+                textTransform: 'uppercase',
+                letterSpacing: '0.05em',
+                display: 'block',
+                mb: 0.5,
+              }}
+            >
+              Environment
+            </Typography>
+            <CodeBlock code={exportSnippet} lang="curl" />
+            {!props.apiKey && (
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                No org API key found — create one in organization settings, then paste it where shown.
+              </Typography>
+            )}
+          </Box>
 
           {SECTIONS.map((section) => (
             <Accordion

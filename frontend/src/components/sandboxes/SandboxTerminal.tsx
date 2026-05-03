@@ -24,6 +24,10 @@ interface Props {
   // readOnly suppresses keyboard input — used for the read-only card preview
   // so accidental clicks don't run shell commands.
   readOnly?: boolean
+  // fillContainer makes the component stretch to its parent's height instead
+  // of sizing to its `height` prop. Used when the parent already constrains
+  // height (e.g. an aspect-ratio box on a card).
+  fillContainer?: boolean
 }
 
 const sessionStorageKey = (sandboxId: string) => `helix.sandbox.${sandboxId}.terminalSession`
@@ -66,6 +70,7 @@ const SandboxTerminal: FC<Props> = ({
   height = 480,
   showControls = true,
   readOnly = false,
+  fillContainer = false,
 }) => {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const termRef = useRef<Terminal | undefined>()
@@ -188,7 +193,13 @@ const SandboxTerminal: FC<Props> = ({
   }
 
   return (
-    <Stack spacing={1} sx={{ width: '100%' }}>
+    <Stack
+      spacing={1}
+      sx={{
+        width: '100%',
+        ...(fillContainer ? { height: '100%' } : {}),
+      }}
+    >
       {showControls && (
         <Stack direction="row" alignItems="center" spacing={1} sx={{ minHeight: 28 }}>
           <Typography variant="caption" color="text.secondary">
@@ -218,10 +229,14 @@ const SandboxTerminal: FC<Props> = ({
         sx={{
           p: 1,
           bgcolor: '#000',
-          height,
-          border: '1px solid',
-          borderColor: 'divider',
-          borderRadius: 1,
+          ...(fillContainer
+            ? { flex: 1, minHeight: 0 }
+            : {
+                height,
+                border: '1px solid',
+                borderColor: 'divider',
+                borderRadius: 1,
+              }),
         }}
       >
         <Box ref={containerRef} sx={{ width: '100%', height: '100%' }} />

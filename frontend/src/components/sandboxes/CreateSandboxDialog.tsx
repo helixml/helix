@@ -18,6 +18,7 @@ import {
   TypesSandboxRuntime,
 } from '../../api/api'
 import { useCreateSandbox } from '../../services/sandboxesService'
+import { useListOrgApiKeys } from '../../services/orgApiKeyService'
 import SandboxApiExamples from './SandboxApiExamples'
 
 interface Props {
@@ -67,6 +68,11 @@ const CreateSandboxDialog: FC<Props> = ({ open, orgId, onClose, onCreated }) => 
   const [error, setError] = useState<string | undefined>()
 
   const createMutation = useCreateSandbox(orgId)
+  // Fetch org API keys lazily — only when the dialog is open. The first one is
+  // surfaced in the example snippets so the reader can copy & paste a working
+  // export without bouncing through settings.
+  const { data: orgApiKeys } = useListOrgApiKeys(orgId, open)
+  const orgApiKey = orgApiKeys && orgApiKeys.length > 0 ? orgApiKeys[0].key : undefined
 
   const handleSubmit = async () => {
     setError(undefined)
@@ -113,10 +119,20 @@ const CreateSandboxDialog: FC<Props> = ({ open, orgId, onClose, onCreated }) => 
   const resourceForExamples = RESOURCE_PRESETS.find((p) => p.value === resourcePreset) ?? RESOURCE_PRESETS[0]
 
   return (
-    <Dialog open={open} onClose={onClose} fullWidth maxWidth="lg">
+    <Dialog open={open} onClose={onClose} fullWidth maxWidth="xl">
       <DialogTitle>New Sandbox</DialogTitle>
-      <DialogContent dividers sx={{ display: 'flex', gap: 3, p: 0 }}>
-        <Stack spacing={2} sx={{ flex: '1 1 0', minWidth: 0, p: 3 }}>
+      <DialogContent
+        dividers
+        sx={{
+          display: 'flex',
+          gap: 0,
+          p: 0,
+          // Cap dialog body height so each column scrolls independently
+          // instead of the whole dialog growing past the viewport.
+          height: '75vh',
+        }}
+      >
+        <Stack spacing={2} sx={{ flex: '0 0 420px', minWidth: 0, p: 3, overflowY: 'auto' }}>
           <TextField
             label="Name (optional)"
             value={name}
@@ -227,9 +243,9 @@ const CreateSandboxDialog: FC<Props> = ({ open, orgId, onClose, onCreated }) => 
             p: 3,
             display: { xs: 'none', md: 'flex' },
             flexDirection: 'column',
-            // Cap height so the example list scrolls inside the dialog rather
-            // than blowing it out beyond the viewport.
-            maxHeight: '70vh',
+            // Match parent height; SandboxApiExamples handles its own scroll.
+            height: '100%',
+            overflow: 'hidden',
           }}
         >
           <SandboxApiExamples
@@ -240,6 +256,7 @@ const CreateSandboxDialog: FC<Props> = ({ open, orgId, onClose, onCreated }) => 
             memoryMb={resourceForExamples.memoryMB}
             timeoutSeconds={autoExpire ? ttlSeconds : -1}
             persistent={persistent}
+            apiKey={orgApiKey}
           />
         </Box>
       </DialogContent>

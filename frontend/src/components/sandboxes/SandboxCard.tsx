@@ -200,7 +200,8 @@ const SandboxCard: FC<SandboxCardProps> = ({ sandbox, onOpen, onDelete, orgId })
 
         {sandbox.id && isHeadless(sandbox) && sandbox.status === 'running' && (
           // Headless preview: an attached, read-only mini terminal showing the
-          // persistent tmux session. Click to open the full sandbox.
+          // persistent tmux session. Sized to match the desktop preview's 16:9
+          // box so the two card variants line up visually.
           <Box
             onClick={(e) => {
               e.stopPropagation()
@@ -208,19 +209,27 @@ const SandboxCard: FC<SandboxCardProps> = ({ sandbox, onOpen, onDelete, orgId })
             }}
             sx={{
               mb: 1.5,
-              cursor: 'pointer',
               borderRadius: 1.5,
+              overflow: 'hidden',
+              border: '1px solid',
+              borderColor: 'divider',
+              aspectRatio: '16 / 9',
+              cursor: 'pointer',
               transition: 'all 0.15s ease',
-              '&:hover': { boxShadow: '0 0 0 1px rgba(33, 150, 243, 0.3)' },
+              '&:hover': {
+                borderColor: 'primary.main',
+                boxShadow: '0 0 0 1px rgba(33, 150, 243, 0.3)',
+              },
             }}
           >
             <SandboxTerminal
               orgId={orgId}
               sandboxId={sandbox.id}
               running={true}
-              height={180}
+              height="100%"
               showControls={false}
               readOnly
+              fillContainer
             />
           </Box>
         )}
