@@ -114,6 +114,40 @@ export interface HydraGPUInfo {
   vendor?: string;
 }
 
+export interface HydraListSandboxCommandsResponse {
+  commands?: HydraSandboxCommandResponse[];
+}
+
+export interface HydraListSandboxFilesResponse {
+  entries?: HydraSandboxFileEntry[];
+  path?: string;
+}
+
+export interface HydraSandboxCommandResponse {
+  args?: string[];
+  cmd?: string;
+  cwd?: string;
+  detached?: boolean;
+  exit_code?: number;
+  finished_at?: string;
+  id?: string;
+  sandbox_id?: string;
+  started_at?: string;
+  status?: string;
+  stderr?: string;
+  stdout?: string;
+  sudo?: boolean;
+}
+
+export interface HydraSandboxFileEntry {
+  is_dir?: boolean;
+  mod_time?: string;
+  mode?: string;
+  name?: string;
+  path?: string;
+  size?: number;
+}
+
 export interface McpIcon {
   /** Optional MIME type (e.g., "image/png", "image/svg+xml") */
   mimeType?: string;
@@ -2365,6 +2399,17 @@ export interface TypesCreateSampleRepositoryRequest {
   sample_type?: string;
 }
 
+export interface TypesCreateSandboxRequest {
+  display_fps?: number;
+  display_height?: number;
+  display_width?: number;
+  env?: Record<string, string>;
+  name?: string;
+  runtime?: TypesSandboxRuntime;
+  tags?: Record<string, string>;
+  timeout_seconds?: number;
+}
+
 export interface TypesCreateSecretRequest {
   app_id?: string;
   name?: string;
@@ -4444,6 +4489,17 @@ export interface TypesRunAPIActionResponse {
   response?: string;
 }
 
+export interface TypesRunSandboxCommandRequest {
+  args?: string[];
+  cmd?: string;
+  cwd?: string;
+  detached?: boolean;
+  env?: Record<string, string>;
+  sudo?: boolean;
+  /** TimeoutSeconds is per-command timeout. Defaults to 60s if 0 and !detached. */
+  timeout_seconds?: number;
+}
+
 export interface TypesRunnerModelStatus {
   download_in_progress?: boolean;
   download_percent?: number;
@@ -4487,6 +4543,40 @@ export interface TypesRunnerStateView {
   runner_id?: string;
   total_slots?: number;
   warm_slots?: number;
+}
+
+export interface TypesSandbox {
+  container_id?: string;
+  created_at?: string;
+  deleted_at?: string;
+  display_fps?: number;
+  display_height?: number;
+  /** Display fields apply to desktop runtimes. */
+  display_width?: number;
+  env?: number[];
+  expires_at?: string;
+  /**
+   * HostDeviceID is the RevDial device ID of the hydra host that runs the
+   * underlying container. Empty until the controller schedules it.
+   */
+  host_device_id?: string;
+  id?: string;
+  image?: string;
+  memory_mb?: number;
+  name?: string;
+  organization_id?: string;
+  owner?: string;
+  runtime?: TypesSandboxRuntime;
+  started_at?: string;
+  status?: TypesSandboxStatus;
+  status_message?: string;
+  stopped_at?: string;
+  tags?: number[];
+  /** TimeoutSeconds is the lifetime in seconds; ExpiresAt = CreatedAt + TimeoutSeconds. */
+  timeout_seconds?: number;
+  updated_at?: string;
+  /** VCPUs and Memory are pinned in v1 but stored on the row so we can vary later. */
+  vcpus?: number;
 }
 
 export interface TypesSandboxCacheState {
@@ -4556,6 +4646,24 @@ export interface TypesSandboxInstance {
   /** "online", "offline", "degraded" */
   status?: string;
   updated?: string;
+}
+
+export interface TypesSandboxListResponse {
+  sandboxes?: TypesSandbox[];
+  total?: number;
+}
+
+export enum TypesSandboxRuntime {
+  SandboxRuntimeUbuntuDesktop = "ubuntu-desktop",
+  SandboxRuntimeHeadlessUbuntu = "headless-ubuntu",
+}
+
+export enum TypesSandboxStatus {
+  SandboxStatusPending = "pending",
+  SandboxStatusRunning = "running",
+  SandboxStatusStopping = "stopping",
+  SandboxStatusStopped = "stopped",
+  SandboxStatusFailed = "failed",
 }
 
 export interface TypesSchedulingDecision {
@@ -6030,6 +6138,12 @@ export interface TypesUpdateProviderEndpoint {
   /** Google Vertex AI fields */
   vertex_project_id?: string;
   vertex_region?: string;
+}
+
+export interface TypesUpdateSandboxRequest {
+  name?: string;
+  tags?: Record<string, string>;
+  timeout_seconds?: number;
 }
 
 export interface TypesUpdateTeamRequest {
@@ -10396,6 +10510,359 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         secure: true,
         type: ContentType.Json,
         format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description List sandboxes belonging to an organization
+     *
+     * @tags Sandboxes
+     * @name V1OrganizationsSandboxesDetail
+     * @summary List sandboxes
+     * @request GET:/api/v1/organizations/{org_id}/sandboxes
+     * @secure
+     */
+    v1OrganizationsSandboxesDetail: (orgId: string, params: RequestParams = {}) =>
+      this.request<TypesSandboxListResponse, SystemHTTPError>({
+        path: `/api/v1/organizations/${orgId}/sandboxes`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Create a new sandbox in an organization
+     *
+     * @tags Sandboxes
+     * @name V1OrganizationsSandboxesCreate
+     * @summary Create sandbox
+     * @request POST:/api/v1/organizations/{org_id}/sandboxes
+     * @secure
+     */
+    v1OrganizationsSandboxesCreate: (orgId: string, payload: TypesCreateSandboxRequest, params: RequestParams = {}) =>
+      this.request<TypesSandbox, SystemHTTPError>({
+        path: `/api/v1/organizations/${orgId}/sandboxes`,
+        method: "POST",
+        body: payload,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Sandboxes
+     * @name V1OrganizationsSandboxesDelete
+     * @summary Delete sandbox
+     * @request DELETE:/api/v1/organizations/{org_id}/sandboxes/{id}
+     * @secure
+     */
+    v1OrganizationsSandboxesDelete: (orgId: string, id: string, params: RequestParams = {}) =>
+      this.request<void, any>({
+        path: `/api/v1/organizations/${orgId}/sandboxes/${id}`,
+        method: "DELETE",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Sandboxes
+     * @name V1OrganizationsSandboxesDetail2
+     * @summary Get sandbox
+     * @request GET:/api/v1/organizations/{org_id}/sandboxes/{id}
+     * @originalName v1OrganizationsSandboxesDetail
+     * @duplicate
+     * @secure
+     */
+    v1OrganizationsSandboxesDetail2: (orgId: string, id: string, params: RequestParams = {}) =>
+      this.request<TypesSandbox, any>({
+        path: `/api/v1/organizations/${orgId}/sandboxes/${id}`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Sandboxes
+     * @name V1OrganizationsSandboxesPartialUpdate
+     * @summary Update sandbox
+     * @request PATCH:/api/v1/organizations/{org_id}/sandboxes/{id}
+     * @secure
+     */
+    v1OrganizationsSandboxesPartialUpdate: (
+      orgId: string,
+      id: string,
+      payload: TypesUpdateSandboxRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesSandbox, any>({
+        path: `/api/v1/organizations/${orgId}/sandboxes/${id}`,
+        method: "PATCH",
+        body: payload,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Sandboxes
+     * @name V1OrganizationsSandboxesCommandsDetail
+     * @summary List sandbox commands
+     * @request GET:/api/v1/organizations/{org_id}/sandboxes/{id}/commands
+     * @secure
+     */
+    v1OrganizationsSandboxesCommandsDetail: (orgId: string, id: string, params: RequestParams = {}) =>
+      this.request<HydraListSandboxCommandsResponse, any>({
+        path: `/api/v1/organizations/${orgId}/sandboxes/${id}/commands`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Sandboxes
+     * @name V1OrganizationsSandboxesCommandsCreate
+     * @summary Run a command in a sandbox
+     * @request POST:/api/v1/organizations/{org_id}/sandboxes/{id}/commands
+     * @secure
+     */
+    v1OrganizationsSandboxesCommandsCreate: (
+      orgId: string,
+      id: string,
+      payload: TypesRunSandboxCommandRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<HydraSandboxCommandResponse, any>({
+        path: `/api/v1/organizations/${orgId}/sandboxes/${id}/commands`,
+        method: "POST",
+        body: payload,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Sandboxes
+     * @name V1OrganizationsSandboxesCommandsDetail2
+     * @summary Get a sandbox command
+     * @request GET:/api/v1/organizations/{org_id}/sandboxes/{id}/commands/{cmd_id}
+     * @originalName v1OrganizationsSandboxesCommandsDetail
+     * @duplicate
+     * @secure
+     */
+    v1OrganizationsSandboxesCommandsDetail2: (orgId: string, id: string, cmdId: string, params: RequestParams = {}) =>
+      this.request<HydraSandboxCommandResponse, any>({
+        path: `/api/v1/organizations/${orgId}/sandboxes/${id}/commands/${cmdId}`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Sandboxes
+     * @name V1OrganizationsSandboxesCommandsKillCreate
+     * @summary Kill a sandbox command
+     * @request POST:/api/v1/organizations/{org_id}/sandboxes/{id}/commands/{cmd_id}/kill
+     * @secure
+     */
+    v1OrganizationsSandboxesCommandsKillCreate: (
+      orgId: string,
+      id: string,
+      cmdId: string,
+      query?: {
+        /** Signal name (default TERM) */
+        signal?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<void, any>({
+        path: `/api/v1/organizations/${orgId}/sandboxes/${id}/commands/${cmdId}/kill`,
+        method: "POST",
+        query: query,
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Sandboxes
+     * @name V1OrganizationsSandboxesCommandsLogsDetail
+     * @summary Stream sandbox command logs
+     * @request GET:/api/v1/organizations/{org_id}/sandboxes/{id}/commands/{cmd_id}/logs
+     * @secure
+     */
+    v1OrganizationsSandboxesCommandsLogsDetail: (
+      orgId: string,
+      id: string,
+      cmdId: string,
+      query?: {
+        /** stdout|stderr|both */
+        stream?: string;
+        /** 1 to follow */
+        follow?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<any, any>({
+        path: `/api/v1/organizations/${orgId}/sandboxes/${id}/commands/${cmdId}/logs`,
+        method: "GET",
+        query: query,
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Sandboxes
+     * @name V1OrganizationsSandboxesFilesDelete
+     * @summary Read/write/delete sandbox file
+     * @request DELETE:/api/v1/organizations/{org_id}/sandboxes/{id}/files
+     * @secure
+     */
+    v1OrganizationsSandboxesFilesDelete: (
+      orgId: string,
+      id: string,
+      query: {
+        /** Absolute path inside the sandbox */
+        path: string;
+        /** Octal permission for write */
+        mode?: string;
+        /** 1 to delete recursively */
+        recursive?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<any, any>({
+        path: `/api/v1/organizations/${orgId}/sandboxes/${id}/files`,
+        method: "DELETE",
+        query: query,
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Sandboxes
+     * @name V1OrganizationsSandboxesFilesDetail
+     * @summary Read/write/delete sandbox file
+     * @request GET:/api/v1/organizations/{org_id}/sandboxes/{id}/files
+     * @secure
+     */
+    v1OrganizationsSandboxesFilesDetail: (
+      orgId: string,
+      id: string,
+      query: {
+        /** Absolute path inside the sandbox */
+        path: string;
+        /** Octal permission for write */
+        mode?: string;
+        /** 1 to delete recursively */
+        recursive?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<any, any>({
+        path: `/api/v1/organizations/${orgId}/sandboxes/${id}/files`,
+        method: "GET",
+        query: query,
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Sandboxes
+     * @name V1OrganizationsSandboxesFilesUpdate
+     * @summary Read/write/delete sandbox file
+     * @request PUT:/api/v1/organizations/{org_id}/sandboxes/{id}/files
+     * @secure
+     */
+    v1OrganizationsSandboxesFilesUpdate: (
+      orgId: string,
+      id: string,
+      query: {
+        /** Absolute path inside the sandbox */
+        path: string;
+        /** Octal permission for write */
+        mode?: string;
+        /** 1 to delete recursively */
+        recursive?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<any, any>({
+        path: `/api/v1/organizations/${orgId}/sandboxes/${id}/files`,
+        method: "PUT",
+        query: query,
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Sandboxes
+     * @name V1OrganizationsSandboxesFilesListDetail
+     * @summary List directory in sandbox
+     * @request GET:/api/v1/organizations/{org_id}/sandboxes/{id}/files/list
+     * @secure
+     */
+    v1OrganizationsSandboxesFilesListDetail: (
+      orgId: string,
+      id: string,
+      query?: {
+        /** Directory path (default /root) */
+        path?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<HydraListSandboxFilesResponse, any>({
+        path: `/api/v1/organizations/${orgId}/sandboxes/${id}/files/list`,
+        method: "GET",
+        query: query,
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Sandboxes
+     * @name V1OrganizationsSandboxesTerminalDetail
+     * @summary Sandbox terminal websocket
+     * @request GET:/api/v1/organizations/{org_id}/sandboxes/{id}/terminal
+     * @secure
+     */
+    v1OrganizationsSandboxesTerminalDetail: (orgId: string, id: string, params: RequestParams = {}) =>
+      this.request<any, any>({
+        path: `/api/v1/organizations/${orgId}/sandboxes/${id}/terminal`,
+        method: "GET",
+        secure: true,
         ...params,
       }),
 

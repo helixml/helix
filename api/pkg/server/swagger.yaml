@@ -167,6 +167,68 @@ definitions:
         description: '"nvidia", "amd", "intel"'
         type: string
     type: object
+  hydra.ListSandboxCommandsResponse:
+    properties:
+      commands:
+        items:
+          $ref: '#/definitions/hydra.SandboxCommandResponse'
+        type: array
+    type: object
+  hydra.ListSandboxFilesResponse:
+    properties:
+      entries:
+        items:
+          $ref: '#/definitions/hydra.SandboxFileEntry'
+        type: array
+      path:
+        type: string
+    type: object
+  hydra.SandboxCommandResponse:
+    properties:
+      args:
+        items:
+          type: string
+        type: array
+      cmd:
+        type: string
+      cwd:
+        type: string
+      detached:
+        type: boolean
+      exit_code:
+        type: integer
+      finished_at:
+        type: string
+      id:
+        type: string
+      sandbox_id:
+        type: string
+      started_at:
+        type: string
+      status:
+        type: string
+      stderr:
+        type: string
+      stdout:
+        type: string
+      sudo:
+        type: boolean
+    type: object
+  hydra.SandboxFileEntry:
+    properties:
+      is_dir:
+        type: boolean
+      mod_time:
+        type: string
+      mode:
+        type: string
+      name:
+        type: string
+      path:
+        type: string
+      size:
+        type: integer
+    type: object
   mcp.Icon:
     properties:
       mimeType:
@@ -3858,6 +3920,29 @@ definitions:
       sample_type:
         type: string
     type: object
+  types.CreateSandboxRequest:
+    properties:
+      display_fps:
+        type: integer
+      display_height:
+        type: integer
+      display_width:
+        type: integer
+      env:
+        additionalProperties:
+          type: string
+        type: object
+      name:
+        type: string
+      runtime:
+        $ref: '#/definitions/types.SandboxRuntime'
+      tags:
+        additionalProperties:
+          type: string
+        type: object
+      timeout_seconds:
+        type: integer
+    type: object
   types.CreateSecretRequest:
     properties:
       app_id:
@@ -7318,6 +7403,29 @@ definitions:
         description: Raw response from the API
         type: string
     type: object
+  types.RunSandboxCommandRequest:
+    properties:
+      args:
+        items:
+          type: string
+        type: array
+      cmd:
+        type: string
+      cwd:
+        type: string
+      detached:
+        type: boolean
+      env:
+        additionalProperties:
+          type: string
+        type: object
+      sudo:
+        type: boolean
+      timeout_seconds:
+        description: TimeoutSeconds is per-command timeout. Defaults to 60s if 0 and
+          !detached.
+        type: integer
+    type: object
   types.RunnerModelStatus:
     properties:
       download_in_progress:
@@ -7403,6 +7511,69 @@ definitions:
       total_slots:
         type: integer
       warm_slots:
+        type: integer
+    type: object
+  types.Sandbox:
+    properties:
+      container_id:
+        type: string
+      created_at:
+        type: string
+      deleted_at:
+        type: string
+      display_fps:
+        type: integer
+      display_height:
+        type: integer
+      display_width:
+        description: Display fields apply to desktop runtimes.
+        type: integer
+      env:
+        items:
+          type: integer
+        type: array
+      expires_at:
+        type: string
+      host_device_id:
+        description: |-
+          HostDeviceID is the RevDial device ID of the hydra host that runs the
+          underlying container. Empty until the controller schedules it.
+        type: string
+      id:
+        type: string
+      image:
+        type: string
+      memory_mb:
+        type: integer
+      name:
+        type: string
+      organization_id:
+        type: string
+      owner:
+        type: string
+      runtime:
+        $ref: '#/definitions/types.SandboxRuntime'
+      started_at:
+        type: string
+      status:
+        $ref: '#/definitions/types.SandboxStatus'
+      status_message:
+        type: string
+      stopped_at:
+        type: string
+      tags:
+        items:
+          type: integer
+        type: array
+      timeout_seconds:
+        description: TimeoutSeconds is the lifetime in seconds; ExpiresAt = CreatedAt
+          + TimeoutSeconds.
+        type: integer
+      updated_at:
+        type: string
+      vcpus:
+        description: VCPUs and Memory are pinned in v1 but stored on the row so we
+          can vary later.
         type: integer
     type: object
   types.SandboxCacheState:
@@ -7512,6 +7683,37 @@ definitions:
       updated:
         type: string
     type: object
+  types.SandboxListResponse:
+    properties:
+      sandboxes:
+        items:
+          $ref: '#/definitions/types.Sandbox'
+        type: array
+      total:
+        type: integer
+    type: object
+  types.SandboxRuntime:
+    enum:
+    - ubuntu-desktop
+    - headless-ubuntu
+    type: string
+    x-enum-varnames:
+    - SandboxRuntimeUbuntuDesktop
+    - SandboxRuntimeHeadlessUbuntu
+  types.SandboxStatus:
+    enum:
+    - pending
+    - running
+    - stopping
+    - stopped
+    - failed
+    type: string
+    x-enum-varnames:
+    - SandboxStatusPending
+    - SandboxStatusRunning
+    - SandboxStatusStopping
+    - SandboxStatusStopped
+    - SandboxStatusFailed
   types.SchedulingDecision:
     properties:
       available_runners:
@@ -10004,6 +10206,17 @@ definitions:
         type: string
       vertex_region:
         type: string
+    type: object
+  types.UpdateSandboxRequest:
+    properties:
+      name:
+        type: string
+      tags:
+        additionalProperties:
+          type: string
+        type: object
+      timeout_seconds:
+        type: integer
     type: object
   types.UpdateTeamRequest:
     properties:
@@ -15757,6 +15970,445 @@ paths:
       summary: Add a new member to a team
       tags:
       - organizations
+  /api/v1/organizations/{org_id}/sandboxes:
+    get:
+      description: List sandboxes belonging to an organization
+      parameters:
+      - description: Organization ID
+        in: path
+        name: org_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.SandboxListResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - ApiKeyAuth: []
+      summary: List sandboxes
+      tags:
+      - Sandboxes
+    post:
+      consumes:
+      - application/json
+      description: Create a new sandbox in an organization
+      parameters:
+      - description: Organization ID
+        in: path
+        name: org_id
+        required: true
+        type: string
+      - description: Sandbox spec
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/types.CreateSandboxRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/types.Sandbox'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - ApiKeyAuth: []
+      summary: Create sandbox
+      tags:
+      - Sandboxes
+  /api/v1/organizations/{org_id}/sandboxes/{id}:
+    delete:
+      parameters:
+      - description: Organization ID
+        in: path
+        name: org_id
+        required: true
+        type: string
+      - description: Sandbox ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+      security:
+      - ApiKeyAuth: []
+      summary: Delete sandbox
+      tags:
+      - Sandboxes
+    get:
+      parameters:
+      - description: Organization ID
+        in: path
+        name: org_id
+        required: true
+        type: string
+      - description: Sandbox ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.Sandbox'
+      security:
+      - ApiKeyAuth: []
+      summary: Get sandbox
+      tags:
+      - Sandboxes
+    patch:
+      consumes:
+      - application/json
+      parameters:
+      - description: Organization ID
+        in: path
+        name: org_id
+        required: true
+        type: string
+      - description: Sandbox ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Patch
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/types.UpdateSandboxRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.Sandbox'
+      security:
+      - ApiKeyAuth: []
+      summary: Update sandbox
+      tags:
+      - Sandboxes
+  /api/v1/organizations/{org_id}/sandboxes/{id}/commands:
+    get:
+      parameters:
+      - description: Organization ID
+        in: path
+        name: org_id
+        required: true
+        type: string
+      - description: Sandbox ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/hydra.ListSandboxCommandsResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: List sandbox commands
+      tags:
+      - Sandboxes
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Organization ID
+        in: path
+        name: org_id
+        required: true
+        type: string
+      - description: Sandbox ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Command spec
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/types.RunSandboxCommandRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/hydra.SandboxCommandResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: Run a command in a sandbox
+      tags:
+      - Sandboxes
+  /api/v1/organizations/{org_id}/sandboxes/{id}/commands/{cmd_id}:
+    get:
+      parameters:
+      - description: Organization ID
+        in: path
+        name: org_id
+        required: true
+        type: string
+      - description: Sandbox ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Command ID
+        in: path
+        name: cmd_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/hydra.SandboxCommandResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: Get a sandbox command
+      tags:
+      - Sandboxes
+  /api/v1/organizations/{org_id}/sandboxes/{id}/commands/{cmd_id}/kill:
+    post:
+      parameters:
+      - description: Organization ID
+        in: path
+        name: org_id
+        required: true
+        type: string
+      - description: Sandbox ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Command ID
+        in: path
+        name: cmd_id
+        required: true
+        type: string
+      - description: Signal name (default TERM)
+        in: query
+        name: signal
+        type: string
+      responses:
+        "204":
+          description: No Content
+      security:
+      - ApiKeyAuth: []
+      summary: Kill a sandbox command
+      tags:
+      - Sandboxes
+  /api/v1/organizations/{org_id}/sandboxes/{id}/commands/{cmd_id}/logs:
+    get:
+      parameters:
+      - description: Organization ID
+        in: path
+        name: org_id
+        required: true
+        type: string
+      - description: Sandbox ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Command ID
+        in: path
+        name: cmd_id
+        required: true
+        type: string
+      - description: stdout|stderr|both
+        in: query
+        name: stream
+        type: string
+      - description: 1 to follow
+        in: query
+        name: follow
+        type: string
+      produces:
+      - text/event-stream
+      responses: {}
+      security:
+      - ApiKeyAuth: []
+      summary: Stream sandbox command logs
+      tags:
+      - Sandboxes
+  /api/v1/organizations/{org_id}/sandboxes/{id}/files:
+    delete:
+      parameters:
+      - description: Organization ID
+        in: path
+        name: org_id
+        required: true
+        type: string
+      - description: Sandbox ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Absolute path inside the sandbox
+        in: query
+        name: path
+        required: true
+        type: string
+      - description: Octal permission for write
+        in: query
+        name: mode
+        type: string
+      - description: 1 to delete recursively
+        in: query
+        name: recursive
+        type: string
+      responses: {}
+      security:
+      - ApiKeyAuth: []
+      summary: Read/write/delete sandbox file
+      tags:
+      - Sandboxes
+    get:
+      parameters:
+      - description: Organization ID
+        in: path
+        name: org_id
+        required: true
+        type: string
+      - description: Sandbox ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Absolute path inside the sandbox
+        in: query
+        name: path
+        required: true
+        type: string
+      - description: Octal permission for write
+        in: query
+        name: mode
+        type: string
+      - description: 1 to delete recursively
+        in: query
+        name: recursive
+        type: string
+      responses: {}
+      security:
+      - ApiKeyAuth: []
+      summary: Read/write/delete sandbox file
+      tags:
+      - Sandboxes
+    put:
+      parameters:
+      - description: Organization ID
+        in: path
+        name: org_id
+        required: true
+        type: string
+      - description: Sandbox ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Absolute path inside the sandbox
+        in: query
+        name: path
+        required: true
+        type: string
+      - description: Octal permission for write
+        in: query
+        name: mode
+        type: string
+      - description: 1 to delete recursively
+        in: query
+        name: recursive
+        type: string
+      responses: {}
+      security:
+      - ApiKeyAuth: []
+      summary: Read/write/delete sandbox file
+      tags:
+      - Sandboxes
+  /api/v1/organizations/{org_id}/sandboxes/{id}/files/list:
+    get:
+      parameters:
+      - description: Organization ID
+        in: path
+        name: org_id
+        required: true
+        type: string
+      - description: Sandbox ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Directory path (default /root)
+        in: query
+        name: path
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/hydra.ListSandboxFilesResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: List directory in sandbox
+      tags:
+      - Sandboxes
+  /api/v1/organizations/{org_id}/sandboxes/{id}/terminal:
+    get:
+      parameters:
+      - description: Organization ID
+        in: path
+        name: org_id
+        required: true
+        type: string
+      - description: Sandbox ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses: {}
+      security:
+      - ApiKeyAuth: []
+      summary: Sandbox terminal websocket
+      tags:
+      - Sandboxes
   /api/v1/projects:
     get:
       consumes:

@@ -213,6 +213,7 @@ func (s *PostgresStore) runMigrations() error {
 		&types.QuestionSet{},
 		&types.QuestionSetExecution{},
 		&types.SandboxInstance{},
+		&types.Sandbox{},
 		&types.DiskUsageHistory{},
 		&types.GuidelinesHistory{},
 		&types.PromptHistoryEntry{},

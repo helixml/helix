@@ -98,7 +98,7 @@ func (apiServer *HelixAPIServer) getAgentSandboxesDebug(rw http.ResponseWriter, 
 	ctx := req.Context()
 
 	// List all registered sandbox instances from the store
-	sandboxes, err := apiServer.Store.ListSandboxes(ctx)
+	sandboxes, err := apiServer.Store.ListSandboxInstances(ctx)
 	if err != nil {
 		http.Error(rw, fmt.Sprintf("Failed to list sandboxes: %v", err), http.StatusInternalServerError)
 		return

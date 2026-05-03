@@ -87,6 +87,25 @@ type CreateDevContainerRequest struct {
 	// Golden build sessions use a plain directory (not overlay) for Docker data,
 	// and the data is promoted to golden when the container exits with code 0.
 	GoldenBuild bool `json:"golden_build,omitempty"`
+
+	// VCPUs caps the number of CPUs the container can use. 0 = no cap.
+	// Pinned to 1 for Sandboxes API requests.
+	VCPUs int `json:"vcpus,omitempty"`
+
+	// MemoryMB caps the memory the container can use, in MB. 0 = no cap.
+	// Pinned to 2048 for Sandboxes API requests.
+	MemoryMB int `json:"memory_mb,omitempty"`
+
+	// Entrypoint and Cmd override the image defaults. Used by the Sandboxes
+	// API "headless" runtime to keep a plain ubuntu container alive with
+	// `sleep infinity` so users can exec into it.
+	Entrypoint []string `json:"entrypoint,omitempty"`
+	Cmd        []string `json:"cmd,omitempty"`
+
+	// SkipImageValidation lets the caller use a non-helix-prefixed image (e.g.
+	// `ubuntu:22.04`). The Sandboxes API headless runtime sets this so plain
+	// docker images can be used.
+	SkipImageValidation bool `json:"skip_image_validation,omitempty"`
 }
 
 // DevContainerResponse is the response after creating/querying a dev container

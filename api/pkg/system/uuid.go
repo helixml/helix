@@ -47,6 +47,8 @@ const (
 	AttentionEventPrefix       = "atev_"
 	EvaluationSuitePrefix      = "evs_"
 	EvaluationRunPrefix        = "evr_"
+	SandboxPrefix              = "sbx_"
+	SandboxCommandPrefix       = "sbcmd_"
 )
 
 func GenerateUUID() string {
@@ -214,4 +216,12 @@ func GenerateEvaluationSuiteID() string {
 
 func GenerateEvaluationRunID() string {
 	return fmt.Sprintf("%s%s", EvaluationRunPrefix, newID())
+}
+
+func GenerateSandboxID() string {
+	return fmt.Sprintf("%s%s", SandboxPrefix, newID())
+}
+
+func GenerateSandboxCommandID() string {
+	return fmt.Sprintf("%s%s", SandboxCommandPrefix, newID())
 }

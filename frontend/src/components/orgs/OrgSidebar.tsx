@@ -1,6 +1,6 @@
 import { FC } from 'react'
 
-import { User, Users, CreditCard, Settings, KeyRound } from 'lucide-react'
+import { User, Users, CreditCard, Settings, KeyRound, Box } from 'lucide-react'
 
 import useRouter from '../../hooks/useRouter'
 import useAccount from '../../hooks/useAccount'
@@ -50,6 +50,13 @@ const OrgSidebar: FC = () => {
           icon: <KeyRound size={20} />,
           isActive: currentRouteName === 'org_api_keys',
           onClick: () => handleNavigationClick('org_api_keys')
+        },
+        {
+          id: 'sandboxes',
+          label: 'Sandboxes',
+          icon: <Box size={20} />,
+          isActive: currentRouteName === 'org_sandboxes' || currentRouteName === 'org_sandbox_detail',
+          onClick: () => handleNavigationClick('org_sandboxes')
         },
         {
           id: 'settings',

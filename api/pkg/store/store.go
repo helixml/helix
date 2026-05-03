@@ -701,18 +701,28 @@ type Store interface {
 	ListEvaluationRuns(ctx context.Context, req *types.ListEvaluationRunsRequest) ([]*types.EvaluationRun, error)
 	DeleteEvaluationRun(ctx context.Context, id string) error
 
-	// Sandbox instance methods
-	RegisterSandbox(ctx context.Context, instance *types.SandboxInstance) error
+	// Sandbox host registry methods (hydra hosts running dev containers)
+	RegisterSandboxInstance(ctx context.Context, instance *types.SandboxInstance) error
 	UpdateSandboxHeartbeat(ctx context.Context, id string, req *types.SandboxHeartbeatRequest) error
-	GetSandbox(ctx context.Context, id string) (*types.SandboxInstance, error)
-	ListSandboxes(ctx context.Context) ([]*types.SandboxInstance, error)
-	DeregisterSandbox(ctx context.Context, id string) error
-	UpdateSandboxStatus(ctx context.Context, id string, status string) error
+	GetSandboxInstance(ctx context.Context, id string) (*types.SandboxInstance, error)
+	ListSandboxInstances(ctx context.Context) ([]*types.SandboxInstance, error)
+	DeregisterSandboxInstance(ctx context.Context, id string) error
+	UpdateSandboxInstanceStatus(ctx context.Context, id string, status string) error
 	IncrementSandboxContainerCount(ctx context.Context, id string) error
 	DecrementSandboxContainerCount(ctx context.Context, id string) error
 	ResetSandboxOnReconnect(ctx context.Context, id string) error
-	GetSandboxesOlderThanHeartbeat(ctx context.Context, olderThan time.Time) ([]*types.SandboxInstance, error)
-	FindAvailableSandbox(ctx context.Context, desktopType string) (*types.SandboxInstance, error)
+	GetSandboxInstancesOlderThanHeartbeat(ctx context.Context, olderThan time.Time) ([]*types.SandboxInstance, error)
+	FindAvailableSandboxInstance(ctx context.Context, desktopType string) (*types.SandboxInstance, error)
+
+	// User Sandbox methods (Sandboxes API — POST /organizations/{org}/sandboxes etc.)
+	CreateSandbox(ctx context.Context, sandbox *types.Sandbox) (*types.Sandbox, error)
+	GetSandbox(ctx context.Context, id string) (*types.Sandbox, error)
+	ListSandboxes(ctx context.Context, q *ListSandboxesQuery) ([]*types.Sandbox, error)
+	UpdateSandbox(ctx context.Context, sandbox *types.Sandbox) (*types.Sandbox, error)
+	SetSandboxStatus(ctx context.Context, id string, status types.SandboxStatus, message string) error
+	SetSandboxContainer(ctx context.Context, id string, hostDeviceID, containerID string) error
+	DeleteSandbox(ctx context.Context, id string) error
+	ListExpiredSandboxes(ctx context.Context, now time.Time) ([]*types.Sandbox, error)
 
 	// Disk usage history methods
 	CreateDiskUsageHistory(ctx context.Context, history *types.DiskUsageHistory) error

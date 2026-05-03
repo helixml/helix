@@ -40,6 +40,7 @@ import (
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/quota"
 	"github.com/helixml/helix/api/pkg/revdial"
+	"github.com/helixml/helix/api/pkg/sandbox"
 	"github.com/helixml/helix/api/pkg/scheduler"
 	"github.com/helixml/helix/api/pkg/server/spa"
 	"github.com/helixml/helix/api/pkg/services"
@@ -156,6 +157,8 @@ type HelixAPIServer struct {
 	// WebSocket proxy deduplication - cancels superseded proxies for same session+client
 	activeStreamProxies   map[string]*activeStreamProxy
 	activeStreamProxiesMu sync.Mutex
+	// Sandboxes API: ephemeral user-created containers
+	sandboxController *sandbox.Controller
 }
 
 func NewServer(
@@ -364,6 +367,9 @@ func NewServer(
 		connman:                  connectionManager,
 		auditLogService:          services.NewAuditLogService(store),
 	}
+
+	// Sandboxes API controller — orchestrates user-created sandboxes via hydra.
+	apiServer.sandboxController = sandbox.New(store, connectionManager)
 
 	contextMappings := &controller.ExternalAgentRequestContextMappings{
 		ContextMappingsMutex:          &apiServer.contextMappingsMutex,
@@ -593,6 +599,9 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, _ *system.C
 
 	// Automatically shut down desktops that have been idle for too long
 	go external_agent.RunDesktopIdleChecker(ctx, apiServer.externalAgentExecutor, apiServer.Store, apiServer.Cfg.DesktopIdleTimeout, apiServer.Cfg.DesktopIdleCheckInterval)
+
+	// Reap expired sandboxes (Sandboxes API).
+	go apiServer.sandboxController.StartReaper(ctx, time.Minute)
 
 	apiServer.startUserWebSocketServer(
 		ctx,
@@ -1010,6 +1019,21 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/organizations/{id}/api_keys", apiServer.listOrgAPIKeys).Methods(http.MethodGet)
 	authRouter.HandleFunc("/organizations/{id}/api_keys", apiServer.createOrgAPIKey).Methods(http.MethodPost)
 	authRouter.HandleFunc("/organizations/{id}/api_keys/{key}", apiServer.deleteOrgAPIKey).Methods(http.MethodDelete)
+
+	// Sandboxes API — ephemeral org-scoped containers (Vercel-style).
+	authRouter.HandleFunc("/organizations/{org_id}/sandboxes", apiServer.listOrgSandboxes).Methods(http.MethodGet)
+	authRouter.HandleFunc("/organizations/{org_id}/sandboxes", apiServer.createOrgSandbox).Methods(http.MethodPost)
+	authRouter.HandleFunc("/organizations/{org_id}/sandboxes/{id}", apiServer.getSandbox).Methods(http.MethodGet)
+	authRouter.HandleFunc("/organizations/{org_id}/sandboxes/{id}", apiServer.updateSandbox).Methods(http.MethodPatch)
+	authRouter.HandleFunc("/organizations/{org_id}/sandboxes/{id}", apiServer.deleteSandbox).Methods(http.MethodDelete)
+	authRouter.HandleFunc("/organizations/{org_id}/sandboxes/{id}/commands", apiServer.runSandboxCommand).Methods(http.MethodPost)
+	authRouter.HandleFunc("/organizations/{org_id}/sandboxes/{id}/commands", apiServer.listSandboxCommands).Methods(http.MethodGet)
+	authRouter.HandleFunc("/organizations/{org_id}/sandboxes/{id}/commands/{cmd_id}", apiServer.getSandboxCommand).Methods(http.MethodGet)
+	authRouter.HandleFunc("/organizations/{org_id}/sandboxes/{id}/commands/{cmd_id}/logs", apiServer.streamSandboxCommandLogs).Methods(http.MethodGet)
+	authRouter.HandleFunc("/organizations/{org_id}/sandboxes/{id}/commands/{cmd_id}/kill", apiServer.killSandboxCommand).Methods(http.MethodPost)
+	authRouter.HandleFunc("/organizations/{org_id}/sandboxes/{id}/files", apiServer.sandboxFile).Methods(http.MethodGet, http.MethodPut, http.MethodDelete)
+	authRouter.HandleFunc("/organizations/{org_id}/sandboxes/{id}/files/list", apiServer.listSandboxFiles).Methods(http.MethodGet)
+	authRouter.HandleFunc("/organizations/{org_id}/sandboxes/{id}/terminal", apiServer.sandboxTerminal).Methods(http.MethodGet)
 
 	// Teams
 	authRouter.HandleFunc("/organizations/{id}/teams", apiServer.listTeams).Methods(http.MethodGet)
@@ -2074,7 +2098,7 @@ func getWebSocketMessageTypeName(messageType int) string {
 // This allows sandbox containers to self-register on first connection
 func (apiServer *HelixAPIServer) ensureSandboxRegistered(ctx context.Context, sandboxID string, remoteAddr string) {
 	// Check if already registered
-	instances, err := apiServer.Store.ListSandboxes(ctx)
+	instances, err := apiServer.Store.ListSandboxInstances(ctx)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to check existing sandboxes for auto-registration")
 		return
@@ -2109,7 +2133,7 @@ func (apiServer *HelixAPIServer) ensureSandboxRegistered(ctx context.Context, sa
 		Status:       "online",
 	}
 
-	err = apiServer.Store.RegisterSandbox(ctx, instance)
+	err = apiServer.Store.RegisterSandboxInstance(ctx, instance)
 	if err != nil {
 		log.Error().
 			Err(err).

@@ -10134,6 +10134,801 @@
                 }
             }
         },
+        "/api/v1/organizations/{org_id}/sandboxes": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "List sandboxes belonging to an organization",
+                "tags": [
+                    "Sandboxes"
+                ],
+                "summary": "List sandboxes",
+                "parameters": [
+                    {
+                        "description": "Organization ID",
+                        "name": "org_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.SandboxListResponse"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Create a new sandbox in an organization",
+                "tags": [
+                    "Sandboxes"
+                ],
+                "summary": "Create sandbox",
+                "parameters": [
+                    {
+                        "description": "Organization ID",
+                        "name": "org_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/types.CreateSandboxRequest"
+                            }
+                        }
+                    },
+                    "description": "Sandbox spec",
+                    "required": true
+                },
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.Sandbox"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/organizations/{org_id}/sandboxes/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "Sandboxes"
+                ],
+                "summary": "Get sandbox",
+                "parameters": [
+                    {
+                        "description": "Organization ID",
+                        "name": "org_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Sandbox ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.Sandbox"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "Sandboxes"
+                ],
+                "summary": "Delete sandbox",
+                "parameters": [
+                    {
+                        "description": "Organization ID",
+                        "name": "org_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Sandbox ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    }
+                }
+            },
+            "patch": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "Sandboxes"
+                ],
+                "summary": "Update sandbox",
+                "parameters": [
+                    {
+                        "description": "Organization ID",
+                        "name": "org_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Sandbox ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/types.UpdateSandboxRequest"
+                            }
+                        }
+                    },
+                    "description": "Patch",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.Sandbox"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/organizations/{org_id}/sandboxes/{id}/commands": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "Sandboxes"
+                ],
+                "summary": "List sandbox commands",
+                "parameters": [
+                    {
+                        "description": "Organization ID",
+                        "name": "org_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Sandbox ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/hydra.ListSandboxCommandsResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "Sandboxes"
+                ],
+                "summary": "Run a command in a sandbox",
+                "parameters": [
+                    {
+                        "description": "Organization ID",
+                        "name": "org_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Sandbox ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/types.RunSandboxCommandRequest"
+                            }
+                        }
+                    },
+                    "description": "Command spec",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/hydra.SandboxCommandResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/organizations/{org_id}/sandboxes/{id}/commands/{cmd_id}": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "Sandboxes"
+                ],
+                "summary": "Get a sandbox command",
+                "parameters": [
+                    {
+                        "description": "Organization ID",
+                        "name": "org_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Sandbox ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Command ID",
+                        "name": "cmd_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/hydra.SandboxCommandResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/organizations/{org_id}/sandboxes/{id}/commands/{cmd_id}/kill": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "Sandboxes"
+                ],
+                "summary": "Kill a sandbox command",
+                "parameters": [
+                    {
+                        "description": "Organization ID",
+                        "name": "org_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Sandbox ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Command ID",
+                        "name": "cmd_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Signal name (default TERM)",
+                        "name": "signal",
+                        "in": "query",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    }
+                }
+            }
+        },
+        "/api/v1/organizations/{org_id}/sandboxes/{id}/commands/{cmd_id}/logs": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "Sandboxes"
+                ],
+                "summary": "Stream sandbox command logs",
+                "parameters": [
+                    {
+                        "description": "Organization ID",
+                        "name": "org_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Sandbox ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Command ID",
+                        "name": "cmd_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "stdout|stderr|both",
+                        "name": "stream",
+                        "in": "query",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "1 to follow",
+                        "name": "follow",
+                        "in": "query",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {}
+            }
+        },
+        "/api/v1/organizations/{org_id}/sandboxes/{id}/files": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "Sandboxes"
+                ],
+                "summary": "Read/write/delete sandbox file",
+                "parameters": [
+                    {
+                        "description": "Organization ID",
+                        "name": "org_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Sandbox ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Absolute path inside the sandbox",
+                        "name": "path",
+                        "in": "query",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Octal permission for write",
+                        "name": "mode",
+                        "in": "query",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "1 to delete recursively",
+                        "name": "recursive",
+                        "in": "query",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {}
+            },
+            "put": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "Sandboxes"
+                ],
+                "summary": "Read/write/delete sandbox file",
+                "parameters": [
+                    {
+                        "description": "Organization ID",
+                        "name": "org_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Sandbox ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Absolute path inside the sandbox",
+                        "name": "path",
+                        "in": "query",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Octal permission for write",
+                        "name": "mode",
+                        "in": "query",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "1 to delete recursively",
+                        "name": "recursive",
+                        "in": "query",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {}
+            },
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "Sandboxes"
+                ],
+                "summary": "Read/write/delete sandbox file",
+                "parameters": [
+                    {
+                        "description": "Organization ID",
+                        "name": "org_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Sandbox ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Absolute path inside the sandbox",
+                        "name": "path",
+                        "in": "query",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Octal permission for write",
+                        "name": "mode",
+                        "in": "query",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "1 to delete recursively",
+                        "name": "recursive",
+                        "in": "query",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {}
+            }
+        },
+        "/api/v1/organizations/{org_id}/sandboxes/{id}/files/list": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "Sandboxes"
+                ],
+                "summary": "List directory in sandbox",
+                "parameters": [
+                    {
+                        "description": "Organization ID",
+                        "name": "org_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Sandbox ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Directory path (default /root)",
+                        "name": "path",
+                        "in": "query",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/hydra.ListSandboxFilesResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/organizations/{org_id}/sandboxes/{id}/terminal": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "Sandboxes"
+                ],
+                "summary": "Sandbox terminal websocket",
+                "parameters": [
+                    {
+                        "description": "Organization ID",
+                        "name": "org_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Sandbox ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {}
+            }
+        },
         "/api/v1/projects": {
             "get": {
                 "security": [
@@ -21137,6 +21932,101 @@
                     }
                 }
             },
+            "hydra.ListSandboxCommandsResponse": {
+                "type": "object",
+                "properties": {
+                    "commands": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/hydra.SandboxCommandResponse"
+                        }
+                    }
+                }
+            },
+            "hydra.ListSandboxFilesResponse": {
+                "type": "object",
+                "properties": {
+                    "entries": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/hydra.SandboxFileEntry"
+                        }
+                    },
+                    "path": {
+                        "type": "string"
+                    }
+                }
+            },
+            "hydra.SandboxCommandResponse": {
+                "type": "object",
+                "properties": {
+                    "args": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "cmd": {
+                        "type": "string"
+                    },
+                    "cwd": {
+                        "type": "string"
+                    },
+                    "detached": {
+                        "type": "boolean"
+                    },
+                    "exit_code": {
+                        "type": "integer"
+                    },
+                    "finished_at": {
+                        "type": "string"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "sandbox_id": {
+                        "type": "string"
+                    },
+                    "started_at": {
+                        "type": "string"
+                    },
+                    "status": {
+                        "type": "string"
+                    },
+                    "stderr": {
+                        "type": "string"
+                    },
+                    "stdout": {
+                        "type": "string"
+                    },
+                    "sudo": {
+                        "type": "boolean"
+                    }
+                }
+            },
+            "hydra.SandboxFileEntry": {
+                "type": "object",
+                "properties": {
+                    "is_dir": {
+                        "type": "boolean"
+                    },
+                    "mod_time": {
+                        "type": "string"
+                    },
+                    "mode": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "path": {
+                        "type": "string"
+                    },
+                    "size": {
+                        "type": "integer"
+                    }
+                }
+            },
             "mcp.Icon": {
                 "type": "object",
                 "properties": {
@@ -26390,6 +27280,41 @@
                     }
                 }
             },
+            "types.CreateSandboxRequest": {
+                "type": "object",
+                "properties": {
+                    "display_fps": {
+                        "type": "integer"
+                    },
+                    "display_height": {
+                        "type": "integer"
+                    },
+                    "display_width": {
+                        "type": "integer"
+                    },
+                    "env": {
+                        "type": "object",
+                        "additionalProperties": {
+                            "type": "string"
+                        }
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "runtime": {
+                        "$ref": "#/components/schemas/types.SandboxRuntime"
+                    },
+                    "tags": {
+                        "type": "object",
+                        "additionalProperties": {
+                            "type": "string"
+                        }
+                    },
+                    "timeout_seconds": {
+                        "type": "integer"
+                    }
+                }
+            },
             "types.CreateSecretRequest": {
                 "type": "object",
                 "properties": {
@@ -31296,6 +32221,39 @@
                     }
                 }
             },
+            "types.RunSandboxCommandRequest": {
+                "type": "object",
+                "properties": {
+                    "args": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "cmd": {
+                        "type": "string"
+                    },
+                    "cwd": {
+                        "type": "string"
+                    },
+                    "detached": {
+                        "type": "boolean"
+                    },
+                    "env": {
+                        "type": "object",
+                        "additionalProperties": {
+                            "type": "string"
+                        }
+                    },
+                    "sudo": {
+                        "type": "boolean"
+                    },
+                    "timeout_seconds": {
+                        "description": "TimeoutSeconds is per-command timeout. Defaults to 60s if 0 and !detached.",
+                        "type": "integer"
+                    }
+                }
+            },
             "types.RunnerModelStatus": {
                 "type": "object",
                 "properties": {
@@ -31421,6 +32379,93 @@
                         "type": "integer"
                     },
                     "warm_slots": {
+                        "type": "integer"
+                    }
+                }
+            },
+            "types.Sandbox": {
+                "type": "object",
+                "properties": {
+                    "container_id": {
+                        "type": "string"
+                    },
+                    "created_at": {
+                        "type": "string"
+                    },
+                    "deleted_at": {
+                        "type": "string"
+                    },
+                    "display_fps": {
+                        "type": "integer"
+                    },
+                    "display_height": {
+                        "type": "integer"
+                    },
+                    "display_width": {
+                        "description": "Display fields apply to desktop runtimes.",
+                        "type": "integer"
+                    },
+                    "env": {
+                        "type": "array",
+                        "items": {
+                            "type": "integer"
+                        }
+                    },
+                    "expires_at": {
+                        "type": "string"
+                    },
+                    "host_device_id": {
+                        "description": "HostDeviceID is the RevDial device ID of the hydra host that runs the\nunderlying container. Empty until the controller schedules it.",
+                        "type": "string"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "image": {
+                        "type": "string"
+                    },
+                    "memory_mb": {
+                        "type": "integer"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "organization_id": {
+                        "type": "string"
+                    },
+                    "owner": {
+                        "type": "string"
+                    },
+                    "runtime": {
+                        "$ref": "#/components/schemas/types.SandboxRuntime"
+                    },
+                    "started_at": {
+                        "type": "string"
+                    },
+                    "status": {
+                        "$ref": "#/components/schemas/types.SandboxStatus"
+                    },
+                    "status_message": {
+                        "type": "string"
+                    },
+                    "stopped_at": {
+                        "type": "string"
+                    },
+                    "tags": {
+                        "type": "array",
+                        "items": {
+                            "type": "integer"
+                        }
+                    },
+                    "timeout_seconds": {
+                        "description": "TimeoutSeconds is the lifetime in seconds; ExpiresAt = CreatedAt + TimeoutSeconds.",
+                        "type": "integer"
+                    },
+                    "updated_at": {
+                        "type": "string"
+                    },
+                    "vcpus": {
+                        "description": "VCPUs and Memory are pinned in v1 but stored on the row so we can vary later.",
                         "type": "integer"
                     }
                 }
@@ -31566,6 +32611,48 @@
                         "type": "string"
                     }
                 }
+            },
+            "types.SandboxListResponse": {
+                "type": "object",
+                "properties": {
+                    "sandboxes": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/types.Sandbox"
+                        }
+                    },
+                    "total": {
+                        "type": "integer"
+                    }
+                }
+            },
+            "types.SandboxRuntime": {
+                "type": "string",
+                "enum": [
+                    "ubuntu-desktop",
+                    "headless-ubuntu"
+                ],
+                "x-enum-varnames": [
+                    "SandboxRuntimeUbuntuDesktop",
+                    "SandboxRuntimeHeadlessUbuntu"
+                ]
+            },
+            "types.SandboxStatus": {
+                "type": "string",
+                "enum": [
+                    "pending",
+                    "running",
+                    "stopping",
+                    "stopped",
+                    "failed"
+                ],
+                "x-enum-varnames": [
+                    "SandboxStatusPending",
+                    "SandboxStatusRunning",
+                    "SandboxStatusStopping",
+                    "SandboxStatusStopped",
+                    "SandboxStatusFailed"
+                ]
             },
             "types.SchedulingDecision": {
                 "type": "object",
@@ -35030,6 +36117,23 @@
                     },
                     "vertex_region": {
                         "type": "string"
+                    }
+                }
+            },
+            "types.UpdateSandboxRequest": {
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string"
+                    },
+                    "tags": {
+                        "type": "object",
+                        "additionalProperties": {
+                            "type": "string"
+                        }
+                    },
+                    "timeout_seconds": {
+                        "type": "integer"
                     }
                 }
             },

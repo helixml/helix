@@ -264,9 +264,13 @@ func (dm *DevContainerManager) tryRecoverImage(ctx context.Context, dockerClient
 
 // CreateDevContainer creates and starts a dev container
 func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *CreateDevContainerRequest) (*DevContainerResponse, error) {
-	// Validate that image has a specific version tag - never accept :latest
-	if err := validateImageVersion(req.Image); err != nil {
-		return nil, err
+	// Validate that image has a specific version tag - never accept :latest.
+	// SkipImageValidation lets callers (Sandboxes API headless runtime) use
+	// plain Docker images like "ubuntu:22.04".
+	if !req.SkipImageValidation {
+		if err := validateImageVersion(req.Image); err != nil {
+			return nil, err
+		}
 	}
 
 	// Resolve registry-based image ref if available
@@ -308,6 +312,12 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 		Image:    resolvedImage,
 		Hostname: req.Hostname,
 		Env:      dm.buildEnv(req),
+	}
+	if len(req.Entrypoint) > 0 {
+		containerConfig.Entrypoint = req.Entrypoint
+	}
+	if len(req.Cmd) > 0 {
+		containerConfig.Cmd = req.Cmd
 	}
 
 	// Build host configuration (includes ZFS clone/mount for Docker data dir)
@@ -734,17 +744,26 @@ func (dm *DevContainerManager) buildHostConfig(req *CreateDevContainerRequest) (
 		networkMode = "bridge"
 	}
 
+	resources := container.Resources{
+		DeviceCgroupRules: dm.getDeviceCgroupRules(),
+		Ulimits: []*units.Ulimit{
+			{Name: "nofile", Soft: 65536, Hard: 65536},
+		},
+	}
+	// Apply CPU and memory limits when requested. NanoCPUs uses 10^9 units per CPU.
+	if req.VCPUs > 0 {
+		resources.NanoCPUs = int64(req.VCPUs) * 1_000_000_000
+	}
+	if req.MemoryMB > 0 {
+		resources.Memory = int64(req.MemoryMB) * 1024 * 1024
+	}
+
 	hostConfig := &container.HostConfig{
 		NetworkMode: networkMode,
 		IpcMode:     "host",
 		Privileged:  req.Privileged,
 		SecurityOpt: []string{"seccomp=unconfined", "apparmor=unconfined"},
-		Resources: container.Resources{
-			DeviceCgroupRules: dm.getDeviceCgroupRules(),
-			Ulimits: []*units.Ulimit{
-				{Name: "nofile", Soft: 65536, Hard: 65536},
-			},
-		},
+		Resources:   resources,
 	}
 
 	// Only add explicit capabilities when not in privileged mode

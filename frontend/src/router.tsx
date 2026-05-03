@@ -29,6 +29,8 @@ import SpecTaskReviewPage from './pages/SpecTaskReviewPage'
 import TeamDesktopPage from './pages/TeamDesktopPage'
 import EmbedTaskPage from './pages/EmbedTaskPage'
 import Projects from './pages/Projects'
+import Sandboxes from './pages/Sandboxes'
+import SandboxDetail from './pages/SandboxDetail'
 import { FilestoreContextProvider } from './contexts/filestore'
 import Files from './pages/Files'
 import QuestionSets from './pages/QuestionSets'
@@ -107,6 +109,26 @@ const routes: IApplicationRoute[] = [
   },
   render: () => (
     <Jobs />
+  ),
+}, {
+  name: 'org_sandboxes',
+  path: '/orgs/:org_id/sandboxes',
+  meta: {
+    drawer: false,
+    title: 'Sandboxes',
+  },
+  render: () => (
+    <Sandboxes />
+  ),
+}, {
+  name: 'org_sandbox_detail',
+  path: '/orgs/:org_id/sandboxes/:sandbox_id',
+  meta: {
+    drawer: false,
+    title: 'Sandbox',
+  },
+  render: () => (
+    <SandboxDetail />
   ),
 }, {
   // Backward compat: redirect /apps to /agents
