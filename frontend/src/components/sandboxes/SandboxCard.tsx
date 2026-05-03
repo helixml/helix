@@ -10,13 +10,18 @@ import DeleteIcon from '@mui/icons-material/DeleteOutline'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
 import OpenInNewIcon from '@mui/icons-material/OpenInNew'
 
+import ExternalAgentDesktopViewer from '../external-agent/ExternalAgentDesktopViewer'
 import SandboxStatusBadge from './SandboxStatusBadge'
+import SandboxTerminal from './SandboxTerminal'
 import { TypesSandbox } from '../../api/api'
 
 interface SandboxCardProps {
   sandbox: TypesSandbox
   onOpen: (sandbox: TypesSandbox) => void
   onDelete: (sandbox: TypesSandbox) => void
+  // orgId is forwarded to the headless terminal preview so it can connect via
+  // the org-scoped sandbox terminal websocket.
+  orgId: string
 }
 
 const StatRow: FC<{ label: string; value: string | number }> = ({ label, value }) => (
@@ -63,13 +68,30 @@ const formatDisplay = (sandbox: TypesSandbox): string => {
 const isHeadless = (sandbox: TypesSandbox): boolean =>
   (sandbox.runtime || '').includes('headless')
 
+// Map sandbox.status to ExternalAgentDesktopViewer's expected state strings.
+const mapSandboxStatusToViewerState = (status?: string): string => {
+  switch (status) {
+    case 'running':
+      return 'running'
+    case 'pending':
+    case 'starting':
+      return 'starting'
+    case 'stopping':
+    case 'stopped':
+    case 'failed':
+      return 'absent'
+    default:
+      return 'loading'
+  }
+}
+
 const formatResources = (sandbox: TypesSandbox): string => {
   const cpu = sandbox.vcpus ? `${sandbox.vcpus} vCPU` : '-'
   const mem = sandbox.memory_mb ? `${(sandbox.memory_mb / 1024).toFixed(1)}GB` : '-'
   return `${cpu} / ${mem}`
 }
 
-const SandboxCard: FC<SandboxCardProps> = ({ sandbox, onOpen, onDelete }) => {
+const SandboxCard: FC<SandboxCardProps> = ({ sandbox, onOpen, onDelete, orgId }) => {
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null)
 
   const handleMenuOpen = (e: MouseEvent<HTMLElement>) => {
@@ -143,6 +165,65 @@ const SandboxCard: FC<SandboxCardProps> = ({ sandbox, onOpen, onDelete }) => {
             </IconButton>
           </Box>
         </Box>
+
+        {sandbox.id && !isHeadless(sandbox) && (
+          <Box
+            onClick={(e) => {
+              e.stopPropagation()
+              onOpen(sandbox)
+            }}
+            sx={{
+              mb: 1.5,
+              borderRadius: 1.5,
+              overflow: 'hidden',
+              border: '1px solid',
+              borderColor: 'divider',
+              aspectRatio: '16 / 9',
+              position: 'relative',
+              cursor: 'pointer',
+              transition: 'all 0.15s ease',
+              '&:hover': {
+                borderColor: 'primary.main',
+                boxShadow: '0 0 0 1px rgba(33, 150, 243, 0.3)',
+              },
+            }}
+          >
+            <ExternalAgentDesktopViewer
+              sessionId={sandbox.id}
+              sandboxId={sandbox.id}
+              mode="screenshot"
+              initialSandboxState={mapSandboxStatusToViewerState(sandbox.status)}
+              initialSandboxStatusMessage={sandbox.status_message}
+            />
+          </Box>
+        )}
+
+        {sandbox.id && isHeadless(sandbox) && sandbox.status === 'running' && (
+          // Headless preview: an attached, read-only mini terminal showing the
+          // persistent tmux session. Click to open the full sandbox.
+          <Box
+            onClick={(e) => {
+              e.stopPropagation()
+              onOpen(sandbox)
+            }}
+            sx={{
+              mb: 1.5,
+              cursor: 'pointer',
+              borderRadius: 1.5,
+              transition: 'all 0.15s ease',
+              '&:hover': { boxShadow: '0 0 0 1px rgba(33, 150, 243, 0.3)' },
+            }}
+          >
+            <SandboxTerminal
+              orgId={orgId}
+              sandboxId={sandbox.id}
+              running={true}
+              height={180}
+              showControls={false}
+              readOnly
+            />
+          </Box>
+        )}
 
         <Box sx={{
           background: 'linear-gradient(145deg, rgba(255,255,255,0.03) 0%, rgba(255,255,255,0.01) 100%)',

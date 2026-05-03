@@ -405,7 +405,7 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
         tooltip: "View sandboxes",
         isActive: isActive(['sandboxes', 'sandbox_detail']),
         onClick: () => orgNavigateTo('sandboxes'),
-        label: "Sandboxes",
+        label: "Sandbox",
       },
       // TODO: re-enable once we have the files editor working
       // {

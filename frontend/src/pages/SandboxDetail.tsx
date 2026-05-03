@@ -10,8 +10,9 @@ import ArrowBackIcon from '@mui/icons-material/ArrowBack'
 import DeleteIcon from '@mui/icons-material/DeleteOutline'
 
 import Page from '../components/system/Page'
-import LoadingSpinner from '../components/widgets/LoadingSpinner'
+import PageLoader from '../components/widgets/PageLoader'
 import DeleteConfirmWindow from '../components/widgets/DeleteConfirmWindow'
+import SandboxDesktopTab from '../components/sandboxes/SandboxDesktopTab'
 import SandboxOverviewTab from '../components/sandboxes/SandboxOverviewTab'
 import SandboxCommandsTab from '../components/sandboxes/SandboxCommandsTab'
 import SandboxFilesTab from '../components/sandboxes/SandboxFilesTab'
@@ -20,7 +21,100 @@ import SandboxStatusBadge from '../components/sandboxes/SandboxStatusBadge'
 
 import useRouter from '../hooks/useRouter'
 import useSnackbar from '../hooks/useSnackbar'
+import useUrlTab from '../hooks/useUrlTab'
 import { useSandbox, useDeleteSandbox } from '../services/sandboxesService'
+import { TypesSandbox } from '../api/api'
+
+// Tab ordering: terminal first for headless runtimes (it's the only useful
+// interactive view), desktop first for desktop runtimes. Both come before the
+// overview/commands/files supporting tabs.
+const ALL_SANDBOX_TABS = ['desktop', 'terminal', 'overview', 'commands', 'files'] as const
+type SandboxTab = (typeof ALL_SANDBOX_TABS)[number]
+
+const hasDesktop = (runtime?: string): boolean =>
+  !!runtime && !runtime.includes('headless')
+
+interface LoadedProps {
+  orgId: string | undefined
+  sandbox: TypesSandbox
+  onDelete: () => void
+  onBack: () => void
+}
+
+// SandboxDetailLoaded renders the page once the sandbox payload is available.
+// Splitting it out lets useUrlTab pick the right default tab (desktop vs
+// overview) on first render — initializers can't depend on data still loading.
+const SandboxDetailLoaded: FC<LoadedProps> = ({ orgId, sandbox, onDelete, onBack }) => {
+  const desktopAvailable = hasDesktop(sandbox.runtime)
+  const validTabs = (desktopAvailable ? ALL_SANDBOX_TABS : ALL_SANDBOX_TABS.filter((t) => t !== 'desktop')) as readonly SandboxTab[]
+  const [tab, setTab] = useUrlTab<SandboxTab>(
+    'tab',
+    validTabs,
+    desktopAvailable ? 'desktop' : 'terminal',
+  )
+
+  const running = sandbox.status === 'running'
+
+  const sandboxBreadcrumbs = [
+    {
+      title: 'Sandboxes',
+      routeName: 'org_sandboxes',
+      params: { org_id: orgId },
+    },
+  ]
+
+  return (
+    <Page
+      breadcrumbs={sandboxBreadcrumbs}
+      breadcrumbTitle={sandbox.name || sandbox.id}
+      orgBreadcrumbs={true}
+      topbarContent={(
+        <Stack direction="row" spacing={1}>
+          <Button
+            variant="outlined"
+            startIcon={<ArrowBackIcon />}
+            onClick={onBack}
+          >
+            Back
+          </Button>
+          <Button
+            variant="outlined"
+            color="error"
+            startIcon={<DeleteIcon />}
+            onClick={onDelete}
+          >
+            Delete
+          </Button>
+        </Stack>
+      )}
+    >
+      <Container maxWidth="lg" sx={{ py: 3 }}>
+        <Stack spacing={2}>
+          <Box display="flex" alignItems="center" gap={2}>
+            <Typography variant="h5" sx={{ fontFamily: 'monospace' }}>
+              {sandbox.name || sandbox.id}
+            </Typography>
+            <SandboxStatusBadge status={sandbox.status} message={sandbox.status_message} />
+          </Box>
+
+          <Tabs value={tab} onChange={(_, v) => setTab(v as SandboxTab)}>
+            {desktopAvailable && <Tab value="desktop" label="Desktop" />}
+            <Tab value="terminal" label="Terminal" />
+            <Tab value="overview" label="Overview" />
+            <Tab value="commands" label="Commands" />
+            <Tab value="files" label="Files" />
+          </Tabs>
+
+          {tab === 'desktop' && desktopAvailable && <SandboxDesktopTab sandbox={sandbox} />}
+          {tab === 'overview' && <SandboxOverviewTab sandbox={sandbox} />}
+          {tab === 'terminal' && <SandboxTerminal orgId={orgId!} sandboxId={sandbox.id!} running={running} />}
+          {tab === 'commands' && <SandboxCommandsTab orgId={orgId!} sandboxId={sandbox.id!} running={running} />}
+          {tab === 'files' && <SandboxFilesTab orgId={orgId!} sandboxId={sandbox.id!} running={running} persistent={sandbox.persistent} />}
+        </Stack>
+      </Container>
+    </Page>
+  )
+}
 
 const SandboxDetail: FC = () => {
   const router = useRouter()
@@ -28,7 +122,6 @@ const SandboxDetail: FC = () => {
   const orgId = router.params.org_id as string | undefined
   const sandboxId = router.params.sandbox_id as string | undefined
 
-  const [tab, setTab] = useState<'overview' | 'terminal' | 'commands' | 'files'>('overview')
   const [deleteOpen, setDeleteOpen] = useState(false)
 
   const { data: sandbox, isLoading } = useSandbox(orgId, sandboxId)
@@ -73,61 +166,19 @@ const SandboxDetail: FC = () => {
         breadcrumbTitle="Sandbox"
         orgBreadcrumbs={true}
       >
-        <LoadingSpinner />
+        <PageLoader message="Loading sandbox…" />
       </Page>
     )
   }
 
-  const running = sandbox.status === 'running'
-
   return (
-    <Page
-      breadcrumbs={sandboxBreadcrumbs}
-      breadcrumbTitle={sandbox.name || sandbox.id}
-      orgBreadcrumbs={true}
-      topbarContent={(
-        <Stack direction="row" spacing={1}>
-          <Button
-            variant="outlined"
-            startIcon={<ArrowBackIcon />}
-            onClick={() => router.navigate('org_sandboxes', { org_id: orgId })}
-          >
-            Back
-          </Button>
-          <Button
-            variant="outlined"
-            color="error"
-            startIcon={<DeleteIcon />}
-            onClick={() => setDeleteOpen(true)}
-          >
-            Delete
-          </Button>
-        </Stack>
-      )}
-    >
-      <Container maxWidth="lg" sx={{ py: 3 }}>
-        <Stack spacing={2}>
-          <Box display="flex" alignItems="center" gap={2}>
-            <Typography variant="h5" sx={{ fontFamily: 'monospace' }}>
-              {sandbox.name || sandbox.id}
-            </Typography>
-            <SandboxStatusBadge status={sandbox.status} message={sandbox.status_message} />
-          </Box>
-
-          <Tabs value={tab} onChange={(_, v) => setTab(v)}>
-            <Tab value="overview" label="Overview" />
-            <Tab value="terminal" label="Terminal" />
-            <Tab value="commands" label="Commands" />
-            <Tab value="files" label="Files" />
-          </Tabs>
-
-          {tab === 'overview' && <SandboxOverviewTab sandbox={sandbox} />}
-          {tab === 'terminal' && <SandboxTerminal orgId={orgId!} sandboxId={sandbox.id!} running={running} />}
-          {tab === 'commands' && <SandboxCommandsTab orgId={orgId!} sandboxId={sandbox.id!} running={running} />}
-          {tab === 'files' && <SandboxFilesTab orgId={orgId!} sandboxId={sandbox.id!} running={running} />}
-        </Stack>
-      </Container>
-
+    <>
+      <SandboxDetailLoaded
+        orgId={orgId}
+        sandbox={sandbox}
+        onDelete={() => setDeleteOpen(true)}
+        onBack={() => router.navigate('org_sandboxes', { org_id: orgId })}
+      />
       {deleteOpen && (
         <DeleteConfirmWindow
           title={`Delete sandbox ${sandbox.name || sandbox.id}?`}
@@ -135,7 +186,7 @@ const SandboxDetail: FC = () => {
           onSubmit={handleDelete}
         />
       )}
-    </Page>
+    </>
   )
 }
 

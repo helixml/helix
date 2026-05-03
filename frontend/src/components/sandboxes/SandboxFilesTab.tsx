@@ -26,7 +26,16 @@ interface Props {
   orgId: string
   sandboxId: string
   running: boolean
+  // When true, the files browser opens at /home/retro/work — the bind-mounted
+  // persistent workspace — instead of /root, since that's where any data the
+  // user actually wants to keep is going to live.
+  persistent?: boolean
 }
+
+// Path inside the container where the persistent volume is mounted (must
+// match controller.go buildMounts). Anything written outside this path is
+// ephemeral.
+const PERSISTENT_WORKSPACE_PATH = '/home/retro/work'
 
 interface FileEntry {
   name: string
@@ -45,10 +54,10 @@ function parentOf(path: string): string {
   return idx <= 0 ? '/' : trimmed.slice(0, idx)
 }
 
-const SandboxFilesTab: FC<Props> = ({ orgId, sandboxId, running }) => {
+const SandboxFilesTab: FC<Props> = ({ orgId, sandboxId, running, persistent }) => {
   const api = useApi()
   const snackbar = useSnackbar()
-  const [path, setPath] = useState('/root')
+  const [path, setPath] = useState(persistent ? PERSISTENT_WORKSPACE_PATH : '/root')
   const fileInput = useRef<HTMLInputElement | null>(null)
   const { data, isLoading, refetch } = useSandboxFiles(orgId, sandboxId, path, { enabled: running })
 

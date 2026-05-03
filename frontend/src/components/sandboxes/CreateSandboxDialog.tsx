@@ -18,12 +18,11 @@ import {
   TypesSandboxRuntime,
 } from '../../api/api'
 import { useCreateSandbox } from '../../services/sandboxesService'
-import { useListProjects } from '../../services/projectService'
+import SandboxApiExamples from './SandboxApiExamples'
 
 interface Props {
   open: boolean
   orgId: string
-  defaultProjectId?: string
   onClose: () => void
   onCreated: (sandbox: TypesSandbox) => void
 }
@@ -44,20 +43,30 @@ const RUNTIMES: { value: string; label: string; description: string }[] = [
   },
 ]
 
+// PERSISTENT_WORKSPACE_PATH is the in-container directory that the API
+// bind-mounts to a sandbox-host directory when persistent=true. Anything written
+// outside this path is in the container's ephemeral overlay and goes away when
+// the sandbox is deleted or the container is recreated.
+const PERSISTENT_WORKSPACE_PATH = '/home/retro/work'
+
+const RESOURCE_PRESETS = [
+  { value: 'small', label: '1 CPU / 2GB RAM', vcpus: 1, memoryMB: 2048 },
+  { value: 'medium', label: '4 CPU / 8GB RAM', vcpus: 4, memoryMB: 8192 },
+  { value: 'large', label: '8 CPU / 16GB RAM', vcpus: 8, memoryMB: 16384 },
+]
+
 // CreateSandboxDialog asks for a name, runtime, and optional TTL/env.
-const CreateSandboxDialog: FC<Props> = ({ open, orgId, defaultProjectId, onClose, onCreated }) => {
+const CreateSandboxDialog: FC<Props> = ({ open, orgId, onClose, onCreated }) => {
   const [name, setName] = useState('')
   const [runtime, setRuntime] = useState<string>(RUNTIMES[0].value)
+  const [resourcePreset, setResourcePreset] = useState<string>(RESOURCE_PRESETS[0].value)
   const [autoExpire, setAutoExpire] = useState<boolean>(true)
   const [ttlSeconds, setTtlSeconds] = useState<number>(3600)
   const [envText, setEnvText] = useState('')
-  const [projectId, setProjectId] = useState<string>(defaultProjectId ?? '')
+  const [persistent, setPersistent] = useState<boolean>(false)
   const [error, setError] = useState<string | undefined>()
 
   const createMutation = useCreateSandbox(orgId)
-  // Project list is optional — only used to populate the dropdown. We always
-  // allow "No project" so the sandbox can stay org-scoped.
-  const { data: projects } = useListProjects(orgId, { enabled: open })
 
   const handleSubmit = async () => {
     setError(undefined)
@@ -75,13 +84,16 @@ const CreateSandboxDialog: FC<Props> = ({ open, orgId, defaultProjectId, onClose
 
     // Backend convention: timeout_seconds < 0 means "never expire".
     const timeoutSeconds = autoExpire ? (ttlSeconds || undefined) : -1
+    const resources = RESOURCE_PRESETS.find((preset) => preset.value === resourcePreset) ?? RESOURCE_PRESETS[0]
 
     const payload: TypesCreateSandboxRequest = {
       name: name || undefined,
       runtime: runtime as TypesSandboxRuntime,
       timeout_seconds: timeoutSeconds,
+      vcpus: resources.vcpus,
+      memory_mb: resources.memoryMB,
       env: Object.keys(env).length ? env : undefined,
-      project_id: projectId || undefined,
+      persistent,
     }
     try {
       const sandbox = await createMutation.mutateAsync(payload)
@@ -89,19 +101,22 @@ const CreateSandboxDialog: FC<Props> = ({ open, orgId, defaultProjectId, onClose
       // Reset for next open
       setName('')
       setEnvText('')
+      setResourcePreset(RESOURCE_PRESETS[0].value)
       setAutoExpire(true)
       setTtlSeconds(3600)
-      setProjectId(defaultProjectId ?? '')
+      setPersistent(false)
     } catch (e: any) {
       setError(e?.message || 'Failed to create sandbox')
     }
   }
 
+  const resourceForExamples = RESOURCE_PRESETS.find((p) => p.value === resourcePreset) ?? RESOURCE_PRESETS[0]
+
   return (
-    <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm">
+    <Dialog open={open} onClose={onClose} fullWidth maxWidth="lg">
       <DialogTitle>New Sandbox</DialogTitle>
-      <DialogContent>
-        <Stack spacing={2} sx={{ mt: 1 }}>
+      <DialogContent dividers sx={{ display: 'flex', gap: 3, p: 0 }}>
+        <Stack spacing={2} sx={{ flex: '1 1 0', minWidth: 0, p: 3 }}>
           <TextField
             label="Name (optional)"
             value={name}
@@ -124,47 +139,73 @@ const CreateSandboxDialog: FC<Props> = ({ open, orgId, defaultProjectId, onClose
             ))}
           </TextField>
           <TextField
-            label="Project (optional)"
+            label="Resources"
             select
-            value={projectId}
-            onChange={(e) => setProjectId(e.target.value)}
+            value={resourcePreset}
+            onChange={(e) => setResourcePreset(e.target.value)}
             fullWidth
-            helperText="Associate this sandbox with a project, or leave as 'None' to keep it org-scoped."
+            helperText="Sandbox billing is charged per core-second, so larger sizes consume credits faster."
           >
-            <MenuItem value="">None — org-scoped</MenuItem>
-            {(projects ?? []).map((p) => (
-              <MenuItem key={p.id} value={p.id}>
-                {p.name || p.id}
+            {RESOURCE_PRESETS.map((preset) => (
+              <MenuItem key={preset.value} value={preset.value}>
+                {preset.label}
               </MenuItem>
             ))}
           </TextField>
           <Box>
+            <Stack direction="row" spacing={2} alignItems="center">
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={autoExpire}
+                    onChange={(e) => setAutoExpire(e.target.checked)}
+                  />
+                }
+                label="Auto-expire"
+                sx={{ whiteSpace: 'nowrap' }}
+              />
+              <TextField
+                label="TTL (seconds)"
+                type="text"
+                value={ttlSeconds}
+                onChange={(e) => {
+                  const n = parseInt(e.target.value, 10)
+                  setTtlSeconds(Number.isFinite(n) ? n : 0)
+                }}
+                disabled={!autoExpire}
+                fullWidth
+              />
+            </Stack>
+            <Typography variant="caption" color="text.secondary" component="div" sx={{ mt: 0.5 }}>
+              {autoExpire
+                ? 'Sandbox is automatically deleted after this many seconds. Default 1h.'
+                : 'Auto-expire is off — this sandbox will run until you delete it manually.'}
+            </Typography>
+          </Box>
+          <Box>
             <FormControlLabel
               control={
                 <Switch
-                  checked={autoExpire}
-                  onChange={(e) => setAutoExpire(e.target.checked)}
+                  checked={persistent}
+                  onChange={(e) => setPersistent(e.target.checked)}
                 />
               }
-              label="Auto-expire"
+              label="Persistent workspace"
             />
-            <TextField
-              label="TTL (seconds)"
-              type="text"
-              value={ttlSeconds}
-              onChange={(e) => {
-                const n = parseInt(e.target.value, 10)
-                setTtlSeconds(Number.isFinite(n) ? n : 0)
-              }}
-              disabled={!autoExpire}
-              helperText={
-                autoExpire
-                  ? 'Sandbox is automatically deleted after this many seconds. Default 1h.'
-                  : 'Auto-expire is off — this sandbox will run until you delete it manually.'
-              }
-              fullWidth
-              sx={{ mt: 1 }}
-            />
+            <Typography variant="caption" color="text.secondary" component="div" sx={{ mt: 0.5 }}>
+              {persistent ? (
+                <>
+                  Data written to <code>{PERSISTENT_WORKSPACE_PATH}</code> is bind-mounted to the host and
+                  survives container restarts and crashes. Everything else (system packages, /tmp, /root)
+                  is ephemeral and resets when the container is recreated.
+                </>
+              ) : (
+                <>
+                  No persistent storage. Anything you write — including to <code>{PERSISTENT_WORKSPACE_PATH}</code> —
+                  is lost when the sandbox is deleted or its container is recreated.
+                </>
+              )}
+            </Typography>
           </Box>
           <TextField
             label="Environment variables"
@@ -176,18 +217,38 @@ const CreateSandboxDialog: FC<Props> = ({ open, orgId, defaultProjectId, onClose
             helperText="One KEY=value per line."
           />
           {error && <Typography color="error">{error}</Typography>}
-          <Typography variant="caption" color="text.secondary">
-            Resources are pinned at 1 vCPU / 2GB RAM in v1. The sandbox is ephemeral —
-            nothing is persisted after deletion.
-          </Typography>
         </Stack>
+        <Box
+          sx={{
+            flex: '1 1 0',
+            minWidth: 0,
+            borderLeft: '1px solid',
+            borderColor: 'divider',
+            p: 3,
+            display: { xs: 'none', md: 'flex' },
+            flexDirection: 'column',
+            // Cap height so the example list scrolls inside the dialog rather
+            // than blowing it out beyond the viewport.
+            maxHeight: '70vh',
+          }}
+        >
+          <SandboxApiExamples
+            orgId={orgId}
+            name={name}
+            runtime={runtime}
+            vcpus={resourceForExamples.vcpus}
+            memoryMb={resourceForExamples.memoryMB}
+            timeoutSeconds={autoExpire ? ttlSeconds : -1}
+            persistent={persistent}
+          />
+        </Box>
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose} disabled={createMutation.isPending}>Cancel</Button>
         <Button
           onClick={handleSubmit}
           variant="contained"
-          color="primary"
+          color="secondary"
           disabled={createMutation.isPending}
         >
           {createMutation.isPending ? 'Creating…' : 'Create'}

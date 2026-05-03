@@ -106,6 +106,7 @@ const Sandboxes: FC = () => {
                 sandboxes={sandboxes}
                 onOpen={handleOpen}
                 onDelete={setDeleting}
+                orgId={orgId ?? ''}
               />
             </>
           )}

@@ -20,6 +20,7 @@ const SERIES: ShadcnSeries[] = [
   { key: 'cacheRead', label: 'Cache Read', color: '#22c55e' },
   { key: 'cacheWrite', label: 'Cache Write', color: '#f59e0b' },
   { key: 'output', label: 'Output', color: '#a855f7' },
+  { key: 'sandbox', label: 'Sandboxes', color: '#ef4444' },
 ];
 
 const TotalCost: FC<TotalCostProps> = ({ usageData, isLoading }) => {
@@ -27,21 +28,22 @@ const TotalCost: FC<TotalCostProps> = ({ usageData, isLoading }) => {
     if (!usageData || !Array.isArray(usageData) || usageData.length === 0) {
       return { data: [] as Array<{ date: string } & Record<string, number>>, totalValue: 0 };
     }
-    const byDate = new Map<string, { date: string; input: number; cacheRead: number; cacheWrite: number; output: number }>();
+    const byDate = new Map<string, { date: string; input: number; cacheRead: number; cacheWrite: number; output: number; sandbox: number }>();
     usageData.forEach((userData: TypesUsersAggregatedUsageMetric) => {
       userData.metrics?.forEach((m: TypesAggregatedUsageMetric) => {
         if (!m.date) return;
-        const entry = byDate.get(m.date) ?? { date: m.date, input: 0, cacheRead: 0, cacheWrite: 0, output: 0 };
+        const entry = byDate.get(m.date) ?? { date: m.date, input: 0, cacheRead: 0, cacheWrite: 0, output: 0, sandbox: 0 };
         entry.input += m.prompt_cost || 0;
         entry.cacheRead += m.cache_read_cost || 0;
         entry.cacheWrite += m.cache_write_cost || 0;
         entry.output += m.completion_cost || 0;
+        entry.sandbox += m.sandbox_cost || 0;
         byDate.set(m.date, entry);
       });
     });
     const rows = Array.from(byDate.values()).sort((a, b) => a.date.localeCompare(b.date));
     const total = rows.reduce(
-      (sum, r) => sum + r.input + r.cacheRead + r.cacheWrite + r.output,
+      (sum, r) => sum + r.input + r.cacheRead + r.cacheWrite + r.output + r.sandbox,
       0,
     );
     return { data: rows, totalValue: total };

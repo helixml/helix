@@ -212,10 +212,13 @@ export function useSandboxFiles(
 }
 
 // Build a websocket URL for the sandbox terminal. We always use the same
-// origin so cookies/API keys flow through.
-export function sandboxTerminalUrl(orgId: string, id: string): string {
+// origin so cookies/API keys flow through. When `sessionName` is provided
+// the backend wraps the shell in `tmux new-session -A -s helix-<name>` so
+// reconnects (e.g. on browser refresh) reattach to the same tmux session.
+export function sandboxTerminalUrl(orgId: string, id: string, sessionName?: string): string {
   const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-  return `${proto}//${window.location.host}/api/v1/organizations/${orgId}/sandboxes/${id}/terminal`
+  const base = `${proto}//${window.location.host}/api/v1/organizations/${orgId}/sandboxes/${id}/terminal`
+  return sessionName ? `${base}?session=${encodeURIComponent(sessionName)}` : base
 }
 
 // Build a fetch URL for reading a file. Caller can use fetch+blob.
