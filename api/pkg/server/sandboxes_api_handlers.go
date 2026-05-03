@@ -32,6 +32,22 @@ var sandboxTerminalUpgrader = websocket.Upgrader{
 	CheckOrigin:     func(r *http.Request) bool { return true },
 }
 
+// listSandboxRuntimes returns the runtimes the operator has configured on
+// this server. Used by the UI dropdown and the CLI to validate before posting.
+//
+// @Summary List sandbox runtimes
+// @Description List the sandbox runtimes available on this server
+// @Tags Sandboxes
+// @Produce json
+// @Success 200 {object} map[string][]string
+// @Security ApiKeyAuth
+// @Router /api/v1/sandbox-runtimes [get]
+func (s *HelixAPIServer) listSandboxRuntimes(rw http.ResponseWriter, _ *http.Request) {
+	writeJSON(rw, http.StatusOK, map[string]any{
+		"runtimes": s.sandboxController.Runtimes().Names(),
+	})
+}
+
 // listOrgSandboxes lists sandboxes for an organization the caller is a
 // member of.
 //
@@ -54,7 +70,8 @@ func (s *HelixAPIServer) listOrgSandboxes(rw http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	sandboxes, err := s.sandboxController.List(r.Context(), orgID)
+	projectID := r.URL.Query().Get("project_id")
+	sandboxes, err := s.sandboxController.List(r.Context(), orgID, projectID)
 	if err != nil {
 		http.Error(rw, err.Error(), http.StatusInternalServerError)
 		return
@@ -505,7 +522,9 @@ func (s *HelixAPIServer) sandboxTerminal(rw http.ResponseWriter, r *http.Request
 	}
 	defer hydraConn.Close()
 
-	// Bridge: ws → hydra (raw bytes).
+	// Bridge: forward each websocket message between browser and hydra using
+	// the same message type, so binary stays binary (stdin/stdout) and text
+	// stays text (control JSON like {"type":"resize"} or error reports).
 	browserDone := make(chan struct{})
 	go func() {
 		defer close(browserDone)
@@ -514,29 +533,21 @@ func (s *HelixAPIServer) sandboxTerminal(rw http.ResponseWriter, r *http.Request
 			if err != nil {
 				return
 			}
-			// Forward raw frames as-is. The hydra side speaks the same protocol
-			// over the upgraded connection, so we just write the raw frame body.
-			if mt == websocket.BinaryMessage || mt == websocket.TextMessage {
-				if _, werr := hydraConn.Write(data); werr != nil {
-					return
-				}
+			if werr := hydraConn.WriteMessage(mt, data); werr != nil {
+				return
 			}
 		}
 	}()
 
-	// Bridge: hydra → ws (raw bytes, sent as binary).
 	hydraDone := make(chan struct{})
 	go func() {
 		defer close(hydraDone)
-		buf := make([]byte, 4096)
 		for {
-			n, err := hydraConn.Read(buf)
-			if n > 0 {
-				if werr := wsConn.WriteMessage(websocket.BinaryMessage, buf[:n]); werr != nil {
-					return
-				}
-			}
+			mt, data, err := hydraConn.ReadMessage()
 			if err != nil {
+				return
+			}
+			if werr := wsConn.WriteMessage(mt, data); werr != nil {
 				return
 			}
 		}

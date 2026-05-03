@@ -34,27 +34,15 @@ const (
 
 // Controller orchestrates user-facing sandbox lifecycle on top of hydra.
 type Controller struct {
-	store   store.Store
-	connman *connman.ConnectionManager
+	store    store.Store
+	connman  *connman.ConnectionManager
+	runtimes *RuntimeRegistry
 }
 
-// New builds a new controller.
-func New(s store.Store, cm *connman.ConnectionManager) *Controller {
-	return &Controller{store: s, connman: cm}
-}
-
-// runtimeToContainerType maps the public runtime to the internal hydra
-// DevContainerType. Today only ubuntu-desktop is supported; later runtimes
-// will pick a different image.
-func runtimeToContainerType(rt types.SandboxRuntime) (hydra.DevContainerType, string, error) {
-	switch rt {
-	case types.SandboxRuntimeUbuntuDesktop, "":
-		return hydra.DevContainerTypeUbuntu, "ubuntu", nil
-	case types.SandboxRuntimeHeadlessUbuntu:
-		return hydra.DevContainerTypeHeadless, "headless", nil
-	default:
-		return "", "", fmt.Errorf("unsupported runtime: %s", rt)
-	}
+// New builds a new controller. The runtime registry is required — callers
+// build it from the server config via NewRuntimeRegistry.
+func New(s store.Store, cm *connman.ConnectionManager, runtimes *RuntimeRegistry) *Controller {
+	return &Controller{store: s, connman: cm, runtimes: runtimes}
 }
 
 // Create persists a sandbox row and asynchronously schedules the container.
@@ -70,12 +58,18 @@ func (c *Controller) Create(ctx context.Context, orgID, owner string, req *types
 	if req == nil {
 		req = &types.CreateSandboxRequest{}
 	}
-	if req.Runtime == "" {
-		req.Runtime = types.SandboxRuntimeUbuntuDesktop
-	}
-	if _, _, err := runtimeToContainerType(req.Runtime); err != nil {
+
+	// Resolve the runtime up front so we can reject bad requests synchronously
+	// with a 400 instead of failing later in provision().
+	spec, err := c.runtimes.Resolve(req)
+	if err != nil {
 		return nil, err
 	}
+	// Stamp the row with the resolved runtime name and image so the UI/CLI
+	// can show what's actually running, even when the caller used a custom
+	// image override.
+	resolvedRuntime := types.SandboxRuntime(spec.Name)
+	resolvedImage := spec.Image
 
 	envBytes, err := json.Marshal(req.Env)
 	if err != nil {
@@ -104,8 +98,10 @@ func (c *Controller) Create(ctx context.Context, orgID, owner string, req *types
 	sandbox := &types.Sandbox{
 		Name:           req.Name,
 		OrganizationID: orgID,
+		ProjectID:      req.ProjectID,
 		Owner:          owner,
-		Runtime:        req.Runtime,
+		Runtime:        resolvedRuntime,
+		Image:          resolvedImage,
 		Status:         types.SandboxStatusPending,
 		VCPUs:          1,
 		MemoryMB:       2048,
@@ -140,18 +136,26 @@ func (c *Controller) provision(ctx context.Context, sandboxID string) {
 		return
 	}
 
-	containerType, versionKey, err := runtimeToContainerType(sandbox.Runtime)
+	// Resolve the runtime spec for the row. For rows created with a custom
+	// image override the spec is reconstructed from the persisted Image field
+	// so re-provisions / restarts still work.
+	spec, err := c.specForSandbox(sandbox)
 	if err != nil {
 		_ = c.store.SetSandboxStatus(provisionCtx, sandboxID, types.SandboxStatusFailed, err.Error())
 		return
 	}
 
-	// Pick a hydra host to run on. Desktop runtimes need a host with a
-	// matching desktop image version (FindAvailableSandboxInstance walks
-	// heartbeat-reported versions). Headless runtimes don't need a desktop
-	// image so we just pick any online host.
+	// Pick a hydra host. Desktop runtimes need a host with a matching
+	// versioned image advertised via the heartbeat blob. Headless runtimes
+	// just need any online host that can pull the image.
 	var host *types.SandboxInstance
-	if sandbox.Runtime == types.SandboxRuntimeHeadlessUbuntu {
+	if spec.VersionKey != "" {
+		host, err = c.store.FindAvailableSandboxInstance(provisionCtx, spec.VersionKey)
+		if err != nil {
+			_ = c.store.SetSandboxStatus(provisionCtx, sandboxID, types.SandboxStatusFailed, fmt.Sprintf("find available host: %s", err))
+			return
+		}
+	} else {
 		hosts, listErr := c.store.ListSandboxInstances(provisionCtx)
 		if listErr != nil {
 			_ = c.store.SetSandboxStatus(provisionCtx, sandboxID, types.SandboxStatusFailed, fmt.Sprintf("list hosts: %s", listErr))
@@ -163,32 +167,20 @@ func (c *Controller) provision(ctx context.Context, sandboxID string) {
 				break
 			}
 		}
-	} else {
-		host, err = c.store.FindAvailableSandboxInstance(provisionCtx, versionKey)
-		if err != nil {
-			_ = c.store.SetSandboxStatus(provisionCtx, sandboxID, types.SandboxStatusFailed, fmt.Sprintf("find available host: %s", err))
-			return
-		}
 	}
 	if host == nil {
 		_ = c.store.SetSandboxStatus(provisionCtx, sandboxID, types.SandboxStatusFailed, "no available sandbox host with the requested runtime")
 		return
 	}
 
-	// Resolve image:
-	//  - desktop runtimes use helix-<runtime>:<version> from heartbeat;
-	//  - headless runtimes use a plain ubuntu image with `sleep infinity`.
-	var image string
-	skipValidation := false
-	var entrypoint, cmd []string
-	if sandbox.Runtime == types.SandboxRuntimeHeadlessUbuntu {
-		image = "ubuntu:22.04"
-		skipValidation = true
-		entrypoint = []string{"/bin/sh", "-c"}
-		cmd = []string{"sleep infinity"}
-	} else {
-		imageName := "helix-" + versionKey
-		image, err = resolveImage(host, imageName, versionKey)
+	// Final image: heartbeat-versioned for desktop, fixed for headless/custom.
+	skipValidation := spec.VersionKey == ""
+	image := spec.Image
+	entrypoint := spec.Entrypoint
+	cmd := spec.Cmd
+	if spec.VersionKey != "" {
+		imageName := "helix-" + spec.VersionKey
+		image, err = resolveImage(host, imageName, spec.VersionKey)
 		if err != nil {
 			_ = c.store.SetSandboxStatus(provisionCtx, sandboxID, types.SandboxStatusFailed, err.Error())
 			return
@@ -222,12 +214,12 @@ func (c *Controller) provision(ctx context.Context, sandboxID string) {
 		ContainerName:       containerName,
 		Hostname:            containerName,
 		Env:                 envSlice,
-		ContainerType:       containerType,
+		ContainerType:       spec.ContainerType,
 		DisplayWidth:        sandbox.DisplayWidth,
 		DisplayHeight:       sandbox.DisplayHeight,
 		DisplayFPS:          sandbox.DisplayFPS,
 		Network:             "bridge",
-		Privileged:          sandbox.Runtime != types.SandboxRuntimeHeadlessUbuntu,
+		Privileged:          spec.Privileged,
 		UserID:              sandbox.Owner,
 		VCPUs:               sandbox.VCPUs,
 		MemoryMB:            sandbox.MemoryMB,
@@ -254,6 +246,36 @@ func (c *Controller) provision(ctx context.Context, sandboxID string) {
 	_ = c.store.SetSandboxStatus(provisionCtx, sandboxID, status, "")
 }
 
+// specForSandbox returns the RuntimeSpec for an existing row. For runtimes
+// registered in the registry it returns the registered spec verbatim. For
+// rows that were created via a custom-image override (Runtime=="custom") it
+// reconstructs an ad-hoc spec from the persisted Image, since the request
+// itself is no longer available.
+func (c *Controller) specForSandbox(sandbox *types.Sandbox) (*RuntimeSpec, error) {
+	name := string(sandbox.Runtime)
+	if name == "custom" {
+		if sandbox.Image == "" {
+			return nil, errors.New("custom runtime row has no image recorded")
+		}
+		return &RuntimeSpec{
+			Name:          "custom",
+			Image:         sandbox.Image,
+			Entrypoint:    []string{"/bin/sh", "-c"},
+			Cmd:           []string{"tail -f /dev/null"},
+			ContainerType: hydra.DevContainerTypeHeadless,
+		}, nil
+	}
+	spec, err := c.runtimes.Resolve(&types.CreateSandboxRequest{Runtime: types.SandboxRuntime(name)})
+	if err != nil {
+		return nil, err
+	}
+	return spec, nil
+}
+
+// Runtimes returns the registered runtime registry. Used by the API layer to
+// expose a discovery endpoint and validate requests synchronously.
+func (c *Controller) Runtimes() *RuntimeRegistry { return c.runtimes }
+
 // resolveImage looks up the image tag from the host's desktop_versions blob.
 func resolveImage(host *types.SandboxInstance, imageName, versionKey string) (string, error) {
 	versions := map[string]string{}
@@ -274,9 +296,14 @@ func (c *Controller) Get(ctx context.Context, id string) (*types.Sandbox, error)
 	return c.store.GetSandbox(ctx, id)
 }
 
-// List returns the sandboxes for an organization.
-func (c *Controller) List(ctx context.Context, orgID string) ([]*types.Sandbox, error) {
-	return c.store.ListSandboxes(ctx, &store.ListSandboxesQuery{OrganizationID: orgID})
+// List returns the sandboxes for an organization, optionally narrowed to a
+// single project. Empty projectID matches all sandboxes (project-scoped or
+// not).
+func (c *Controller) List(ctx context.Context, orgID, projectID string) ([]*types.Sandbox, error) {
+	return c.store.ListSandboxes(ctx, &store.ListSandboxesQuery{
+		OrganizationID: orgID,
+		ProjectID:      projectID,
+	})
 }
 
 // Delete tears down the underlying container (best-effort) and soft-deletes

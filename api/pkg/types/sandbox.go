@@ -41,7 +41,11 @@ type Sandbox struct {
 	ID             string         `json:"id" gorm:"primaryKey"`
 	Name           string         `json:"name" gorm:"size:128;index"`
 	OrganizationID string         `json:"organization_id" gorm:"size:64;index;not null"`
-	Owner          string         `json:"owner" gorm:"size:64;index;not null"`
+	// ProjectID is optional. When set, the sandbox is associated with a
+	// specific project for organisational/UI grouping purposes; nothing in the
+	// lifecycle path branches on it. Empty means org-scoped only.
+	ProjectID string `json:"project_id,omitempty" gorm:"size:64;index"`
+	Owner     string `json:"owner" gorm:"size:64;index;not null"`
 	Runtime        SandboxRuntime `json:"runtime" gorm:"size:64;not null"`
 	Image          string         `json:"image" gorm:"size:255"`
 	Status         SandboxStatus  `json:"status" gorm:"size:32;index;not null"`
@@ -82,14 +86,24 @@ func (Sandbox) TableName() string {
 
 // CreateSandboxRequest is the API payload for POST /organizations/{org}/sandboxes.
 type CreateSandboxRequest struct {
-	Name           string            `json:"name,omitempty"`
-	Runtime        SandboxRuntime    `json:"runtime,omitempty"`
+	Name string `json:"name,omitempty"`
+	// Runtime selects one of the operator-configured runtimes
+	// (e.g. "headless-ubuntu", "node22", "ubuntu-desktop"). Mutually
+	// exclusive with Image.
+	Runtime SandboxRuntime `json:"runtime,omitempty"`
+	// Image is an optional explicit Docker image override. Only honoured
+	// when the operator has set HELIX_SANDBOX_ALLOW_CUSTOM_IMAGE=true.
+	// Mutually exclusive with Runtime.
+	Image          string            `json:"image,omitempty"`
 	Env            map[string]string `json:"env,omitempty"`
 	Tags           map[string]string `json:"tags,omitempty"`
 	TimeoutSeconds int               `json:"timeout_seconds,omitempty"`
 	DisplayWidth   int               `json:"display_width,omitempty"`
 	DisplayHeight  int               `json:"display_height,omitempty"`
 	DisplayFPS     int               `json:"display_fps,omitempty"`
+	// ProjectID optionally associates the sandbox with a project the caller
+	// belongs to. Empty means org-scoped only.
+	ProjectID string `json:"project_id,omitempty"`
 }
 
 // UpdateSandboxRequest is the API payload for PATCH /sandboxes/{id}.

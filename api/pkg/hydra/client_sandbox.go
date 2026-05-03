@@ -6,7 +6,6 @@ package hydra
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -15,6 +14,10 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
+	"time"
+
+	"github.com/gorilla/websocket"
 )
 
 // SandboxCommandResponse is the JSON shape returned by hydra exec endpoints.
@@ -194,11 +197,14 @@ func (c *RevDialClient) ForgetSandboxOps(ctx context.Context, sessionID string) 
 	return err
 }
 
-// OpenSandboxTerminal opens a websocket-style upgraded connection to the
-// sandbox terminal. The returned net.Conn carries raw frames per the protocol
-// documented on Server.handleSandboxTerminal. The caller is responsible for
-// closing the conn.
-func (c *RevDialClient) OpenSandboxTerminal(ctx context.Context, sessionID, shell string) (net.Conn, error) {
+// OpenSandboxTerminal opens a websocket connection to the sandbox terminal
+// over revdial and returns a real *websocket.Conn. The caller is responsible
+// for closing it.
+//
+// Implementation: configure a websocket.Dialer with a NetDialContext that
+// returns the revdial-tunneled net.Conn, then let gorilla perform the standard
+// upgrade handshake on top of it.
+func (c *RevDialClient) OpenSandboxTerminal(ctx context.Context, sessionID, shell string) (*websocket.Conn, error) {
 	q := url.Values{}
 	if shell != "" {
 		q.Set("shell", shell)
@@ -208,50 +214,22 @@ func (c *RevDialClient) OpenSandboxTerminal(ctx context.Context, sessionID, shel
 		path += "?" + encoded
 	}
 
-	conn, err := c.connman.Dial(ctx, c.deviceID)
+	dialer := &websocket.Dialer{
+		NetDialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+			return c.connman.Dial(ctx, c.deviceID)
+		},
+		HandshakeTimeout: 15 * time.Second,
+	}
+	wsConn, resp, err := dialer.DialContext(ctx, "ws://hydra"+path, http.Header{})
 	if err != nil {
-		return nil, fmt.Errorf("revdial dial: %w", err)
+		if resp != nil {
+			body, _ := io.ReadAll(resp.Body)
+			return nil, fmt.Errorf("ws upgrade failed (status %d): %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		}
+		return nil, fmt.Errorf("ws upgrade: %w", err)
 	}
-
-	// Send an HTTP/1.1 upgrade request manually so the response 101 leaves the
-	// connection hijacked.
-	req, err := http.NewRequestWithContext(ctx, "GET", "http://hydra"+path, nil)
-	if err != nil {
-		conn.Close()
-		return nil, err
-	}
-	req.Header.Set("Connection", "Upgrade")
-	req.Header.Set("Upgrade", "websocket")
-	req.Header.Set("Sec-WebSocket-Version", "13")
-	req.Header.Set("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ==")
-	if err := req.Write(conn); err != nil {
-		conn.Close()
-		return nil, fmt.Errorf("write upgrade: %w", err)
-	}
-
-	bufReader := bufio.NewReader(conn)
-	resp, err := http.ReadResponse(bufReader, req)
-	if err != nil {
-		conn.Close()
-		return nil, fmt.Errorf("read upgrade response: %w", err)
-	}
-	if resp.StatusCode != http.StatusSwitchingProtocols {
-		body, _ := io.ReadAll(resp.Body)
-		conn.Close()
-		return nil, fmt.Errorf("terminal upgrade failed (status %d): %s", resp.StatusCode, string(body))
-	}
-	// Wrap so any buffered bytes already read are returned first.
-	return &bufferedConn{Conn: conn, br: bufReader}, nil
+	return wsConn, nil
 }
-
-// bufferedConn is a net.Conn whose Read drains a bufio.Reader before falling
-// back to the underlying connection.
-type bufferedConn struct {
-	net.Conn
-	br *bufio.Reader
-}
-
-func (b *bufferedConn) Read(p []byte) (int, error) { return b.br.Read(p) }
 
 // openStream issues an HTTP request and returns the response body as a stream
 // (no buffering). Used for SSE log streaming.
@@ -297,5 +275,3 @@ func (s *streamCloser) Close() error {
 	return err
 }
 
-// Compile-time used so the bytes package is referenced.
-var _ = bytes.NewReader

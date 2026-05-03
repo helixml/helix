@@ -20,6 +20,7 @@ import (
 	"time"
 
 	dockertypes "github.com/docker/docker/api/types"
+	dockerclient "github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/stdcopy"
 	"github.com/rs/zerolog/log"
 )
@@ -614,31 +615,54 @@ func (o *SandboxOps) ListDirectory(ctx context.Context, sessionID, path string) 
 		path = "/root"
 	}
 
+	// Try GNU `ls --time-style=long-iso` first (predictable 8-column output).
+	// Alpine / BusyBox doesn't support that flag, so we fall back to plain
+	// `ls -la` whose date columns are variable but parseable.
+	stdout, stderr, exit, err := execLs(ctx, dockerClient, dc.ContainerID, path, true)
+	if err != nil {
+		return nil, err
+	}
+	if exit != 0 {
+		stdout, stderr, exit, err = execLs(ctx, dockerClient, dc.ContainerID, path, false)
+		if err != nil {
+			return nil, err
+		}
+		if exit != 0 {
+			return nil, fmt.Errorf("ls failed: %s", strings.TrimSpace(stderr))
+		}
+	}
+
+	return parseLsOutput(stdout, path), nil
+}
+
+// execLs runs `ls -la` inside the container, optionally with the GNU
+// --time-style flag, and returns the captured streams + exit code.
+func execLs(ctx context.Context, dockerClient *dockerclient.Client, containerID, path string, longIso bool) (stdout, stderr string, exitCode int, err error) {
+	flag := ""
+	if longIso {
+		flag = "--time-style=long-iso "
+	}
 	cfg := dockertypes.ExecConfig{
 		AttachStdout: true,
 		AttachStderr: true,
-		Cmd:          []string{"/bin/sh", "-c", fmt.Sprintf("ls -la --time-style=long-iso -- %q 2>&1", path)},
+		Cmd:          []string{"/bin/sh", "-c", fmt.Sprintf("ls -la %s-- %q", flag, path)},
 	}
-	cr, err := dockerClient.ContainerExecCreate(ctx, dc.ContainerID, cfg)
+	cr, err := dockerClient.ContainerExecCreate(ctx, containerID, cfg)
 	if err != nil {
-		return nil, err
+		return "", "", -1, err
 	}
 	att, err := dockerClient.ContainerExecAttach(ctx, cr.ID, dockertypes.ExecStartCheck{})
 	if err != nil {
-		return nil, err
+		return "", "", -1, err
 	}
 	defer att.Close()
-	var stdout, stderr bytes.Buffer
-	_, _ = stdcopy.StdCopy(&stdout, &stderr, att.Reader)
+	var out, errBuf bytes.Buffer
+	_, _ = stdcopy.StdCopy(&out, &errBuf, att.Reader)
 	insp, err := dockerClient.ContainerExecInspect(ctx, cr.ID)
 	if err != nil {
-		return nil, err
+		return "", "", -1, err
 	}
-	if insp.ExitCode != 0 {
-		return nil, fmt.Errorf("ls failed: %s", stderr.String())
-	}
-
-	return parseLsOutput(stdout.String(), path), nil
+	return out.String(), errBuf.String(), insp.ExitCode, nil
 }
 
 // parseLsOutput parses `ls -la --time-style=long-iso` rows.
@@ -649,15 +673,30 @@ func parseLsOutput(out, parent string) []ListDirectoryEntry {
 		if line == "" || strings.HasPrefix(line, "total ") {
 			continue
 		}
-		// long-iso: <perms> <links> <owner> <group> <size> <date> <time> <name>
+		// `ls -la` formats:
+		//   GNU long-iso: <perms> <links> <owner> <group> <size> <yyyy-mm-dd> <hh:mm> <name>  (8 cols min)
+		//   GNU default:  <perms> <links> <owner> <group> <size> <Mon> <DD> <HH:MM|YYYY> <name> (9 cols min)
+		//   BusyBox:      <perms> <links> <owner> <group> <size> <Mon> <DD> <HH:MM|YYYY> <name> (9 cols min)
+		// Detect by checking whether parts[5] looks like an ISO date.
 		parts := strings.Fields(line)
 		if len(parts) < 8 {
 			continue
 		}
 		mode := parts[0]
 		size, _ := parseInt64(parts[4])
-		modTime := parts[5] + " " + parts[6]
-		name := strings.Join(parts[7:], " ")
+		var modTime, name string
+		if len(parts[5]) >= 8 && parts[5][4] == '-' && parts[5][7] == '-' {
+			// long-iso layout
+			modTime = parts[5] + " " + parts[6]
+			name = strings.Join(parts[7:], " ")
+		} else {
+			// default/busybox layout: month + day + time-or-year
+			if len(parts) < 9 {
+				continue
+			}
+			modTime = parts[5] + " " + parts[6] + " " + parts[7]
+			name = strings.Join(parts[8:], " ")
+		}
 		// Strip symlink target after " -> ".
 		if idx := strings.Index(name, " -> "); idx >= 0 {
 			name = name[:idx]

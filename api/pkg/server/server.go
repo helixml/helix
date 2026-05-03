@@ -372,7 +372,11 @@ func NewServer(
 	}
 
 	// Sandboxes API controller — orchestrates user-created sandboxes via hydra.
-	apiServer.sandboxController = sandbox.New(store, connectionManager)
+	sandboxRuntimes, err := sandbox.NewRuntimeRegistry(cfg.Sandboxes)
+	if err != nil {
+		return nil, fmt.Errorf("invalid sandbox runtime config: %w", err)
+	}
+	apiServer.sandboxController = sandbox.New(store, connectionManager, sandboxRuntimes)
 
 	// Sandbox-absorbs-runner: wire the inference router into the
 	// internal helix server so it picks sandboxes by model name. Safe
@@ -1051,6 +1055,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/organizations/{id}/api_keys/{key}", apiServer.deleteOrgAPIKey).Methods(http.MethodDelete)
 
 	// Sandboxes API — ephemeral org-scoped containers (Vercel-style).
+	authRouter.HandleFunc("/sandbox-runtimes", apiServer.listSandboxRuntimes).Methods(http.MethodGet)
 	authRouter.HandleFunc("/organizations/{org_id}/sandboxes", apiServer.listOrgSandboxes).Methods(http.MethodGet)
 	authRouter.HandleFunc("/organizations/{org_id}/sandboxes", apiServer.createOrgSandbox).Methods(http.MethodPost)
 	authRouter.HandleFunc("/organizations/{org_id}/sandboxes/{id}", apiServer.getSandbox).Methods(http.MethodGet)

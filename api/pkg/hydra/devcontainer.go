@@ -478,6 +478,27 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 	}
 	// Container doesn't exist (or was removed above) - create new one
 
+	// For Sandboxes-API runtimes (SkipImageValidation==true), the image is
+	// usually a public image like ubuntu:22.04 or node:22-bookworm-slim that
+	// the sandbox host hasn't seen before. Pull it proactively from Docker
+	// Hub so ContainerCreate doesn't fail with "No such image". For desktop
+	// runtimes the image is preloaded by the install pipeline so we skip
+	// this path.
+	if req.SkipImageValidation {
+		if _, _, inspectErr := dockerClient.ImageInspectWithRaw(dockerCtx, resolvedImage); inspectErr != nil {
+			log.Info().Str("image", resolvedImage).Msg("Pulling sandbox runtime image")
+			pullOut, pullErr := dockerClient.ImagePull(dockerCtx, resolvedImage, dockertypes.ImagePullOptions{})
+			if pullErr != nil {
+				return nil, fmt.Errorf("pull image %s: %w", resolvedImage, pullErr)
+			}
+			if _, copyErr := io.Copy(io.Discard, pullOut); copyErr != nil {
+				pullOut.Close()
+				return nil, fmt.Errorf("drain image pull output for %s: %w", resolvedImage, copyErr)
+			}
+			pullOut.Close()
+		}
+	}
+
 	// Create container
 	resp, err := dockerClient.ContainerCreate(dockerCtx, containerConfig, hostConfig, networkConfig, nil, req.ContainerName)
 	if err != nil && strings.Contains(err.Error(), "No such image") {

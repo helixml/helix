@@ -14,6 +14,7 @@ import (
 // ListSandboxesQuery is the filter set for ListSandboxes.
 type ListSandboxesQuery struct {
 	OrganizationID string
+	ProjectID      string
 	Owner          string
 	Status         types.SandboxStatus
 	HostDeviceID   string
@@ -83,6 +84,9 @@ func (s *PostgresStore) ListSandboxes(ctx context.Context, q *ListSandboxesQuery
 	if q != nil {
 		if q.OrganizationID != "" {
 			query = query.Where("organization_id = ?", q.OrganizationID)
+		}
+		if q.ProjectID != "" {
+			query = query.Where("project_id = ?", q.ProjectID)
 		}
 		if q.Owner != "" {
 			query = query.Where("owner = ?", q.Owner)

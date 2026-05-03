@@ -47,14 +47,44 @@ const SandboxDetail: FC = () => {
     }
   }
 
-  if (!sandboxId) return <Page breadcrumbTitle="Sandbox"><Typography>Missing sandbox id</Typography></Page>
-  if (isLoading || !sandbox) return <Page breadcrumbTitle="Sandbox"><LoadingSpinner /></Page>
+  const sandboxBreadcrumbs = [
+    {
+      title: 'Sandboxes',
+      routeName: 'org_sandboxes',
+      params: { org_id: orgId },
+    },
+  ]
+
+  if (!sandboxId) {
+    return (
+      <Page
+        breadcrumbs={sandboxBreadcrumbs}
+        breadcrumbTitle="Sandbox"
+        orgBreadcrumbs={true}
+      >
+        <Typography>Missing sandbox id</Typography>
+      </Page>
+    )
+  }
+  if (isLoading || !sandbox) {
+    return (
+      <Page
+        breadcrumbs={sandboxBreadcrumbs}
+        breadcrumbTitle="Sandbox"
+        orgBreadcrumbs={true}
+      >
+        <LoadingSpinner />
+      </Page>
+    )
+  }
 
   const running = sandbox.status === 'running'
 
   return (
     <Page
+      breadcrumbs={sandboxBreadcrumbs}
       breadcrumbTitle={sandbox.name || sandbox.id}
+      orgBreadcrumbs={true}
       topbarContent={(
         <Stack direction="row" spacing={1}>
           <Button

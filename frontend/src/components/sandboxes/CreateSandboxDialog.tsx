@@ -15,15 +15,25 @@ import {
   TypesSandboxRuntime,
 } from '../../api/api'
 import { useCreateSandbox } from '../../services/sandboxesService'
+import { useListProjects } from '../../services/projectService'
 
 interface Props {
   open: boolean
   orgId: string
+  defaultProjectId?: string
   onClose: () => void
   onCreated: (sandbox: TypesSandbox) => void
 }
 
+// Headless is listed first so it's the default — it's small, fast, has no GUI
+// dependencies, and supports the full exec/files/terminal API. Pick the desktop
+// runtime only if you need the streaming display.
 const RUNTIMES: { value: string; label: string; description: string }[] = [
+  {
+    value: TypesSandboxRuntime.SandboxRuntimeHeadlessUbuntu ?? 'headless-ubuntu',
+    label: 'Headless Ubuntu',
+    description: 'Plain ubuntu:22.04 running sleep infinity. No GUI — just exec commands and read/write files.',
+  },
   {
     value: TypesSandboxRuntime.SandboxRuntimeUbuntuDesktop ?? 'ubuntu-desktop',
     label: 'Ubuntu Desktop',
@@ -32,14 +42,18 @@ const RUNTIMES: { value: string; label: string; description: string }[] = [
 ]
 
 // CreateSandboxDialog asks for a name, runtime, and optional TTL/env.
-const CreateSandboxDialog: FC<Props> = ({ open, orgId, onClose, onCreated }) => {
+const CreateSandboxDialog: FC<Props> = ({ open, orgId, defaultProjectId, onClose, onCreated }) => {
   const [name, setName] = useState('')
   const [runtime, setRuntime] = useState<string>(RUNTIMES[0].value)
   const [ttlSeconds, setTtlSeconds] = useState<number>(3600)
   const [envText, setEnvText] = useState('')
+  const [projectId, setProjectId] = useState<string>(defaultProjectId ?? '')
   const [error, setError] = useState<string | undefined>()
 
   const createMutation = useCreateSandbox(orgId)
+  // Project list is optional — only used to populate the dropdown. We always
+  // allow "No project" so the sandbox can stay org-scoped.
+  const { data: projects } = useListProjects(orgId, { enabled: open })
 
   const handleSubmit = async () => {
     setError(undefined)
@@ -60,6 +74,7 @@ const CreateSandboxDialog: FC<Props> = ({ open, orgId, onClose, onCreated }) => 
       runtime: runtime as TypesSandboxRuntime,
       timeout_seconds: ttlSeconds || undefined,
       env: Object.keys(env).length ? env : undefined,
+      project_id: projectId || undefined,
     }
     try {
       const sandbox = await createMutation.mutateAsync(payload)
@@ -68,6 +83,7 @@ const CreateSandboxDialog: FC<Props> = ({ open, orgId, onClose, onCreated }) => 
       setName('')
       setEnvText('')
       setTtlSeconds(3600)
+      setProjectId(defaultProjectId ?? '')
     } catch (e: any) {
       setError(e?.message || 'Failed to create sandbox')
     }
@@ -96,6 +112,21 @@ const CreateSandboxDialog: FC<Props> = ({ open, orgId, onClose, onCreated }) => 
             {RUNTIMES.map((r) => (
               <MenuItem key={r.value} value={r.value}>
                 {r.label}
+              </MenuItem>
+            ))}
+          </TextField>
+          <TextField
+            label="Project (optional)"
+            select
+            value={projectId}
+            onChange={(e) => setProjectId(e.target.value)}
+            fullWidth
+            helperText="Associate this sandbox with a project, or leave as 'None' to keep it org-scoped."
+          >
+            <MenuItem value="">None — org-scoped</MenuItem>
+            {(projects ?? []).map((p) => (
+              <MenuItem key={p.id} value={p.id}>
+                {p.name || p.id}
               </MenuItem>
             ))}
           </TextField>

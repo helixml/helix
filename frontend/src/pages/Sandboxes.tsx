@@ -2,29 +2,20 @@ import { FC, useState } from 'react'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import Container from '@mui/material/Container'
-import IconButton from '@mui/material/IconButton'
-import Paper from '@mui/material/Paper'
 import Stack from '@mui/material/Stack'
-import Table from '@mui/material/Table'
-import TableBody from '@mui/material/TableBody'
-import TableCell from '@mui/material/TableCell'
-import TableContainer from '@mui/material/TableContainer'
-import TableHead from '@mui/material/TableHead'
-import TableRow from '@mui/material/TableRow'
-import Tooltip from '@mui/material/Tooltip'
 import Typography from '@mui/material/Typography'
 import AddIcon from '@mui/icons-material/Add'
-import DeleteIcon from '@mui/icons-material/DeleteOutline'
-import OpenInNewIcon from '@mui/icons-material/OpenInNew'
 
 import Page from '../components/system/Page'
 import LoadingSpinner from '../components/widgets/LoadingSpinner'
 import DeleteConfirmWindow from '../components/widgets/DeleteConfirmWindow'
-import SandboxStatusBadge from '../components/sandboxes/SandboxStatusBadge'
+import ViewModeToggle from '../components/widgets/ViewModeToggle'
 import CreateSandboxDialog from '../components/sandboxes/CreateSandboxDialog'
+import SandboxesView from '../components/sandboxes/SandboxesView'
 
 import useRouter from '../hooks/useRouter'
 import useSnackbar from '../hooks/useSnackbar'
+import useViewMode from '../hooks/useViewMode'
 import {
   useListSandboxes,
   useDeleteSandbox,
@@ -39,11 +30,17 @@ const Sandboxes: FC = () => {
 
   const [createOpen, setCreateOpen] = useState(false)
   const [deleting, setDeleting] = useState<TypesSandbox | undefined>()
+  const [viewMode, setViewMode] = useViewMode('sandboxes-view-mode', 'table')
 
   const { data, isLoading } = useListSandboxes(orgId)
   const deleteMutation = useDeleteSandbox(orgId ?? '')
 
   const sandboxes = data?.sandboxes ?? []
+
+  const handleOpen = (sb: TypesSandbox) => {
+    if (!sb.id) return
+    router.navigate('org_sandbox_detail', { org_id: orgId, sandbox_id: sb.id })
+  }
 
   const handleDelete = async () => {
     if (!deleting?.id) return
@@ -60,10 +57,11 @@ const Sandboxes: FC = () => {
   return (
     <Page
       breadcrumbTitle="Sandboxes"
+      orgBreadcrumbs={true}
       topbarContent={(
         <Button
           variant="contained"
-          color="primary"
+          color="secondary"
           startIcon={<AddIcon />}
           onClick={() => setCreateOpen(true)}
         >
@@ -84,70 +82,32 @@ const Sandboxes: FC = () => {
           {isLoading ? (
             <LoadingSpinner />
           ) : sandboxes.length === 0 ? (
-            <Paper sx={{ p: 4, textAlign: 'center' }}>
+            <Box sx={{ textAlign: 'center', py: 8 }}>
               <Typography variant="body1" color="text.secondary" gutterBottom>
                 You don't have any sandboxes yet.
               </Typography>
               <Button
                 variant="contained"
-                color="primary"
+                color="secondary"
                 startIcon={<AddIcon />}
                 onClick={() => setCreateOpen(true)}
+                sx={{ mt: 1 }}
               >
                 Create your first sandbox
               </Button>
-            </Paper>
+            </Box>
           ) : (
-            <TableContainer component={Paper}>
-              <Table size="small">
-                <TableHead>
-                  <TableRow>
-                    <TableCell>Name</TableCell>
-                    <TableCell>Runtime</TableCell>
-                    <TableCell>Status</TableCell>
-                    <TableCell>Created</TableCell>
-                    <TableCell>Expires</TableCell>
-                    <TableCell align="right">Actions</TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {sandboxes.map((sb) => (
-                    <TableRow key={sb.id} hover>
-                      <TableCell>
-                        <Typography
-                          variant="body2"
-                          sx={{ cursor: 'pointer', fontFamily: 'monospace' }}
-                          onClick={() => router.navigate('org_sandbox_detail', { org_id: orgId, sandbox_id: sb.id! })}
-                        >
-                          {sb.name || sb.id}
-                        </Typography>
-                      </TableCell>
-                      <TableCell>{sb.runtime || 'ubuntu-desktop'}</TableCell>
-                      <TableCell>
-                        <SandboxStatusBadge status={sb.status} message={sb.status_message} />
-                      </TableCell>
-                      <TableCell>{sb.created_at ? new Date(sb.created_at).toLocaleString() : '-'}</TableCell>
-                      <TableCell>{sb.expires_at ? new Date(sb.expires_at).toLocaleString() : '-'}</TableCell>
-                      <TableCell align="right">
-                        <Tooltip title="Open">
-                          <IconButton
-                            size="small"
-                            onClick={() => router.navigate('org_sandbox_detail', { org_id: orgId, sandbox_id: sb.id! })}
-                          >
-                            <OpenInNewIcon fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                        <Tooltip title="Delete">
-                          <IconButton size="small" onClick={() => setDeleting(sb)}>
-                            <DeleteIcon fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </TableContainer>
+            <>
+              <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
+                <ViewModeToggle mode={viewMode} onChange={setViewMode} />
+              </Box>
+              <SandboxesView
+                mode={viewMode}
+                sandboxes={sandboxes}
+                onOpen={handleOpen}
+                onDelete={setDeleting}
+              />
+            </>
           )}
         </Stack>
       </Container>

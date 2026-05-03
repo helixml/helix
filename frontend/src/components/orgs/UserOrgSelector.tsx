@@ -11,6 +11,7 @@ import Button from '@mui/material/Button'
 import {
   Bot,
   Clock,
+  Container,
   Server,
   Settings,
   ChevronsUp,
@@ -21,7 +22,7 @@ import {
   LogOut,
   LogIn,
   FileText,
-  HelpCircle,  
+  HelpCircle,
   FileQuestionMark,
   MessageCircle,
   Kanban,
@@ -398,6 +399,13 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
         isActive: isActive('tasks'),
         onClick: () => orgNavigateTo('tasks'),
         label: "Tasks",
+      },
+      {
+        icon: <Container size={NAV_BUTTON_SIZE} />,
+        tooltip: "View sandboxes",
+        isActive: isActive(['sandboxes', 'sandbox_detail']),
+        onClick: () => orgNavigateTo('sandboxes'),
+        label: "Sandboxes",
       },
       // TODO: re-enable once we have the files editor working
       // {

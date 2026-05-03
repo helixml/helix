@@ -168,6 +168,31 @@ func (s *MySuite) SetupTest() { /* init ctrl, store, server */ }
 - Use ContextSidebar pattern (see `ProjectsSidebar.tsx`)
 - **Search/filter**: use `matchesAllTokens()` from `utils/searchUtils.ts` — splits on whitespace, requires all tokens to match (AND logic). NEVER use raw `.includes(query)` for search boxes — it fails on multi-word queries
 
+### UI Styles
+
+These rules keep our list pages visually consistent. When in doubt, mirror `Sandboxes.tsx` / `Tasks.tsx`.
+
+#### Tables
+- **ALWAYS use `SimpleTable`** from `frontend/src/components/widgets/SimpleTable.tsx`. Don't reach for raw MUI `<Table>` / `<TableContainer>`. References: `TasksTable.tsx`, `SandboxesTable.tsx`, `AppsTable.tsx`.
+- Build rows via a `tableData` `useMemo` that maps each entity to `{ id, _data: <entity>, <field>: <ReactNode>, ... }`. Always include `_data` so action handlers can recover the typed entity.
+- Cells are `<Typography>` nodes, not raw strings. Use `variant="body2" color="text.secondary"` for non-primary cells. Make the name cell a bold link via an inline `<a>` (see `TasksTable.tsx`); call `e.preventDefault()` + `e.stopPropagation()` in its `onClick`.
+- **Row actions go in a single vertical-dot menu**, never a row of icon buttons. Implement `getActions` as one `<IconButton><MoreVertIcon/></IconButton>` that opens a `<Menu>` with `<MenuItem>` entries (each item has a leading icon: `<Icon sx={{ mr: 1, fontSize: 20 }} />`). Track the active row via `currentX` state set on menu open; clear it on close.
+- `e.stopPropagation()` in every menu/icon click handler so row clicks don't fire.
+- Status chips: build a small dedicated component (e.g. `SandboxStatusBadge`) rather than inlining `<Chip>` styling.
+
+#### Cards (cards view)
+- Render via the shared `CardGrid` (`components/widgets/CardGrid.tsx`) — never roll a new MUI `Grid container` (its negative margins break flush alignment with the page title).
+- Card chrome: `<Card>` with `border: '1px solid rgba(0, 0, 0, 0.08)'`, `borderRadius: 1`, `boxShadow: 'none'`, hover bumps `borderColor` to `rgba(0,0,0,0.12)` and tints `backgroundColor: 'rgba(0,0,0,0.01)'`. `height: '100%'` + `display: 'flex'; flexDirection: 'column'` so the grid rows align.
+- Inside, `<CardContent>` uses `p: 2`, `'&:last-child': { pb: 2 }`, `cursor: 'pointer'`, and an `onClick` that opens the detail view.
+- **Top-right corner gets the vertical-dot menu** (`<IconButton><MoreVertIcon sx={{ fontSize: 16 }}/></IconButton>` → `<Menu>`). Same menu items as the table actions — keep the two surfaces in sync. Don't put separate Open/Delete icons at the bottom of the card.
+- Status indicator goes inline next to the dot menu (e.g. status badge), or as the leading icon by the title (see `CronTaskCard.tsx` — green clock vs paused-circle, with tooltip).
+- Dense stat strip uses the gradient panel: `background: 'linear-gradient(145deg, rgba(255,255,255,0.03) 0%, rgba(255,255,255,0.01) 100%)'`, `border: '1px solid rgba(255,255,255,0.06)'`, `borderRadius: 2`, `p: 1.5`. Stats are label (caption, `0.65rem`, `text.secondary`) + value (body2, `0.8rem`, `monospace`, `fontWeight: 600`).
+
+#### Table ↔ cards toggle
+- Use `ViewModeToggle` (`components/widgets/ViewModeToggle.tsx`) + the `useViewMode(storageKey, defaultMode)` hook. State persists via URL `?view=` param + localStorage automatically.
+- Toggle sits **directly above the table/grid, right-aligned**, in its own row inside the page `Stack`. Don't park it in `topbarContent` — the topbar is reserved for the primary action button (e.g. "New Sandbox").
+- Page header (`<Typography variant="h5">Title</Typography>` + secondary description) sits above the toggle in the same `Stack`.
+
 ## Architecture
 - **ACP**: `LLM ←(OpenAI API)→ Qwen Code Agent ←(ACP)→ Zed IDE`
 - **RBAC**: `authorizeUserToResource()` — unified AccessGrants

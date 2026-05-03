@@ -2405,6 +2405,8 @@ export interface TypesCreateSandboxRequest {
   display_width?: number;
   env?: Record<string, string>;
   name?: string;
+  /** Optional project id to associate the sandbox with. */
+  project_id?: string;
   runtime?: TypesSandboxRuntime;
   tags?: Record<string, string>;
   timeout_seconds?: number;
@@ -4566,6 +4568,11 @@ export interface TypesSandbox {
   name?: string;
   organization_id?: string;
   owner?: string;
+  /**
+   * ProjectID is optional. When set, the sandbox is associated with a
+   * specific project for organisational/UI grouping purposes.
+   */
+  project_id?: string;
   runtime?: TypesSandboxRuntime;
   started_at?: string;
   status?: TypesSandboxStatus;
