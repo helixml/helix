@@ -143,6 +143,7 @@ ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -p 41222 ubuntu@
 - GORM AutoMigrate only, gomock not testify/mock
 - **NO FALLBACKS** — one approach, fix properly, no dead code paths
 - **CLEAN UP DEAD CODE** immediately
+- **Org lookup in API handlers**: when a handler reads an `{org_id}` URL segment (or any `org_id` request field), ALWAYS resolve it via `s.lookupOrg(ctx, orgStr)` (in `wallet_handlers.go`) before using it as a key for store lookups, authorization, or persisting onto a row. `lookupOrg` accepts both an `org_…` id AND an org name/slug, so handlers transparently work whether the frontend sent the canonical id or the URL-facing slug. Never write the raw URL segment into a row's `OrganizationID` column — the slug doesn't match wallet/membership rows keyed by id (this caused sandbox delete to fail with `get org wallet: not found`).
 
 Test suite pattern:
 ```golang

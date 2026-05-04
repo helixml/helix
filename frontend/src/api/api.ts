@@ -1210,6 +1210,15 @@ export interface ServerSampleTypesResponse {
   sample_types?: ServerSampleType[];
 }
 
+export interface ServerSandboxBillingResponse {
+  enabled?: boolean;
+  pending_credits?: number;
+  price_credits_per_second?: number;
+  runtime?: string;
+  total_credits_charged?: number;
+  vcpus?: number;
+}
+
 export interface ServerSandboxInstanceInfo {
   /**
    * Inference profile state — populated from the heartbeat. Empty for
@@ -1224,6 +1233,17 @@ export interface ServerSandboxInstanceInfo {
   service_health?: Record<string, string>;
   session_id?: string;
   status?: string;
+}
+
+export interface ServerSandboxTerminalSession {
+  attached?: boolean;
+  created?: number;
+  name?: string;
+  windows?: number;
+}
+
+export interface ServerSandboxTerminalSessionsResponse {
+  sessions?: ServerSandboxTerminalSession[];
 }
 
 export interface ServerSessionClaudeCredentialsResponse {
@@ -4178,7 +4198,17 @@ export enum TypesQuestionSetExecutionStatus {
 
 export interface TypesQuotaResponse {
   active_concurrent_desktops?: number;
+  /**
+   * Sandbox API concurrency. Distinct from ActiveConcurrentDesktops above —
+   * that one counts external_agent sessions (the spec-task desktop stack),
+   * while these count rows in the sandboxes table by runtime category.
+   * "Active" = pending|running|stopping (matches ensureSandboxLimits).
+   */
+  active_desktop_sandboxes?: number;
+  active_headless_sandboxes?: number;
   max_concurrent_desktops?: number;
+  max_desktop_sandboxes?: number;
+  max_headless_sandboxes?: number;
   max_projects?: number;
   max_repositories?: number;
   max_spec_tasks?: number;
@@ -10393,6 +10423,24 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * No description
      *
      * @tags Sandboxes
+     * @name V1OrganizationsSandboxesBillingDetail
+     * @summary Sandbox billing summary
+     * @request GET:/api/v1/organizations/{org_id}/sandboxes/{id}/billing
+     * @secure
+     */
+    v1OrganizationsSandboxesBillingDetail: (orgId: string, id: string, params: RequestParams = {}) =>
+      this.request<ServerSandboxBillingResponse, any>({
+        path: `/api/v1/organizations/${orgId}/sandboxes/${id}/billing`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Sandboxes
      * @name V1OrganizationsSandboxesCommandsDetail
      * @summary List sandbox commands
      * @request GET:/api/v1/organizations/{org_id}/sandboxes/{id}/commands
@@ -10666,6 +10714,24 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/organizations/${orgId}/sandboxes/${id}/terminal`,
         method: "GET",
         secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Sandboxes
+     * @name V1OrganizationsSandboxesTerminalSessionsDetail
+     * @summary List sandbox tmux sessions
+     * @request GET:/api/v1/organizations/{org_id}/sandboxes/{id}/terminal/sessions
+     * @secure
+     */
+    v1OrganizationsSandboxesTerminalSessionsDetail: (orgId: string, id: string, params: RequestParams = {}) =>
+      this.request<ServerSandboxTerminalSessionsResponse, any>({
+        path: `/api/v1/organizations/${orgId}/sandboxes/${id}/terminal/sessions`,
+        method: "GET",
+        secure: true,
+        format: "json",
         ...params,
       }),
 

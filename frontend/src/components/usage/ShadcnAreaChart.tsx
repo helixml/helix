@@ -4,7 +4,6 @@ import {
   Area,
   AreaChart,
   CartesianGrid,
-  Legend,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -198,15 +197,10 @@ const ShadcnAreaChart: FC<ShadcnAreaChartProps> = ({
                 cursor={{ stroke: 'rgba(255,255,255,0.2)' }}
                 content={React.createElement(ShadcnTooltip(series, valueFormatter))}
               />
-              {!hideLegend && (
-                <Legend
-                  verticalAlign="bottom"
-                  height={24}
-                  iconType="square"
-                  iconSize={10}
-                  wrapperStyle={{ fontSize: '0.72rem', color: 'rgba(255,255,255,0.75)' }}
-                />
-              )}
+              {/* Recharts' default legend lays items at whatever order they
+                  enter the chart and wraps awkwardly when there are many
+                  series — items end up in two ragged rows. We render our own
+                  legend below the chart instead (see <ChartLegend/> below). */}
               {series.map(s => (
                 <Area
                   key={s.key}
@@ -237,6 +231,43 @@ const ShadcnAreaChart: FC<ShadcnAreaChartProps> = ({
           </Box>
         )}
       </Box>
+      {!hideLegend && hasData && (
+        <Box
+          sx={{
+            display: 'flex',
+            flexWrap: 'wrap',
+            justifyContent: 'center',
+            alignItems: 'center',
+            columnGap: 2,
+            rowGap: 0.5,
+            mt: 1,
+            px: 1,
+          }}
+        >
+          {series.map(s => (
+            <Box
+              key={s.key}
+              sx={{ display: 'flex', alignItems: 'center', gap: 0.75, minWidth: 'fit-content' }}
+            >
+              <Box
+                sx={{
+                  width: 10,
+                  height: 10,
+                  borderRadius: '2px',
+                  bgcolor: s.color,
+                  flexShrink: 0,
+                }}
+              />
+              <Typography
+                variant="caption"
+                sx={{ color: 'rgba(255,255,255,0.75)', fontSize: '0.72rem', whiteSpace: 'nowrap' }}
+              >
+                {s.label}
+              </Typography>
+            </Box>
+          ))}
+        </Box>
+      )}
     </Box>
   );
 };

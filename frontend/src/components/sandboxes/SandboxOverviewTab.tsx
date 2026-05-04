@@ -32,17 +32,18 @@ const formatCredits = (n: number, decimals = 4): string => {
 }
 
 const SandboxOverviewTab: FC<Props> = ({ orgId, sandbox }) => {
-  // Billing endpoint returns enabled=false when global billing is off. Only
-  // poll while the sandbox is actually running — the charged total is frozen
-  // once it stops, so refetching every 10s is wasted work.
+  // Billing endpoint returns enabled=false when global billing is off. Poll
+  // every 5s while running so the live accrual ticks visibly in the UI; once
+  // stopped the charged total is frozen so we can stop polling.
   const { data: billing } = useSandboxBilling(orgId, sandbox.id, {
-    refetchInterval: sandbox.status === 'running' ? 10000 : false,
+    refetchInterval: sandbox.status === 'running' ? 5000 : false,
   })
 
   const billingEnabled = billing?.enabled === true
   const perMinute = billingEnabled ? (billing!.price_credits_per_second || 0) * 60 : 0
   const perHour = billingEnabled ? (billing!.price_credits_per_second || 0) * 3600 : 0
   const charged = billingEnabled ? billing!.total_credits_charged || 0 : 0
+  const pending = billingEnabled ? billing!.pending_credits || 0 : 0
 
   return (
     <Box sx={{ p: 2, borderRadius: 1, border: '1px solid', borderColor: 'divider' }}>
@@ -67,7 +68,14 @@ const SandboxOverviewTab: FC<Props> = ({ orgId, sandbox }) => {
               label="Price"
               value={`${formatCredits(perMinute)} credits/min  (${formatCredits(perHour, 2)} credits/hr)`}
             />
-            <Row label="Charged so far" value={`${formatCredits(charged)} credits`} />
+            <Row
+              label="Charged so far"
+              value={
+                pending > 0
+                  ? `${formatCredits(charged)} credits  (+${formatCredits(pending)} accruing this minute)`
+                  : `${formatCredits(charged)} credits`
+              }
+            />
           </>
         )}
       </Stack>

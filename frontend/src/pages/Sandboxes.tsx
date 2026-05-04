@@ -13,6 +13,7 @@ import ViewModeToggle from '../components/widgets/ViewModeToggle'
 import CreateSandboxDialog from '../components/sandboxes/CreateSandboxDialog'
 import SandboxesView from '../components/sandboxes/SandboxesView'
 
+import useAccount from '../hooks/useAccount'
 import useRouter from '../hooks/useRouter'
 import useSnackbar from '../hooks/useSnackbar'
 import useViewMode from '../hooks/useViewMode'
@@ -26,7 +27,13 @@ import { TypesSandbox } from '../api/api'
 const Sandboxes: FC = () => {
   const router = useRouter()
   const snackbar = useSnackbar()
-  const orgId = router.params.org_id as string | undefined
+  const account = useAccount()
+  // The URL segment is the org slug ("/orgs/koala-bunny-corp/...") but the
+  // backend expects the actual organization id (org_xxx) for the {org_id}
+  // path param. Resolving via account context avoids writing the slug into
+  // sandbox.OrganizationID, which broke wallet lookups during billing/delete.
+  const orgSlug = router.params.org_id as string | undefined
+  const orgId = account.organizationTools.organization?.id
 
   const [createOpen, setCreateOpen] = useState(false)
   const [deleting, setDeleting] = useState<TypesSandbox | undefined>()
@@ -39,7 +46,7 @@ const Sandboxes: FC = () => {
 
   const handleOpen = (sb: TypesSandbox) => {
     if (!sb.id) return
-    router.navigate('org_sandbox_detail', { org_id: orgId, sandbox_id: sb.id })
+    router.navigate('org_sandbox_detail', { org_id: orgSlug, sandbox_id: sb.id })
   }
 
   const handleDelete = async () => {
@@ -120,7 +127,7 @@ const Sandboxes: FC = () => {
         onCreated={(sandbox) => {
           setCreateOpen(false)
           snackbar.success(`Sandbox ${sandbox.name || sandbox.id} provisioning…`)
-          router.navigate('org_sandbox_detail', { org_id: orgId, sandbox_id: sandbox.id! })
+          router.navigate('org_sandbox_detail', { org_id: orgSlug, sandbox_id: sandbox.id! })
         }}
       />
 

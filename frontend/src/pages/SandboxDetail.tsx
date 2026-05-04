@@ -19,6 +19,7 @@ import SandboxFilesTab from '../components/sandboxes/SandboxFilesTab'
 import SandboxTerminal from '../components/sandboxes/SandboxTerminal'
 import SandboxStatusBadge from '../components/sandboxes/SandboxStatusBadge'
 
+import useAccount from '../hooks/useAccount'
 import useRouter from '../hooks/useRouter'
 import useSnackbar from '../hooks/useSnackbar'
 import useUrlTab from '../hooks/useUrlTab'
@@ -36,6 +37,7 @@ const hasDesktop = (runtime?: string): boolean =>
 
 interface LoadedProps {
   orgId: string | undefined
+  orgSlug: string | undefined
   sandbox: TypesSandbox
   onDelete: () => void
   onBack: () => void
@@ -44,7 +46,9 @@ interface LoadedProps {
 // SandboxDetailLoaded renders the page once the sandbox payload is available.
 // Splitting it out lets useUrlTab pick the right default tab (desktop vs
 // overview) on first render — initializers can't depend on data still loading.
-const SandboxDetailLoaded: FC<LoadedProps> = ({ orgId, sandbox, onDelete, onBack }) => {
+// orgId is the actual org id (used for API calls); orgSlug is the URL-facing
+// slug (used for breadcrumbs/navigation back to the list page).
+const SandboxDetailLoaded: FC<LoadedProps> = ({ orgId, orgSlug, sandbox, onDelete, onBack }) => {
   const desktopAvailable = hasDesktop(sandbox.runtime)
   const validTabs = (desktopAvailable ? ALL_SANDBOX_TABS : ALL_SANDBOX_TABS.filter((t) => t !== 'desktop')) as readonly SandboxTab[]
   const [tab, setTab] = useUrlTab<SandboxTab>(
@@ -59,7 +63,7 @@ const SandboxDetailLoaded: FC<LoadedProps> = ({ orgId, sandbox, onDelete, onBack
     {
       title: 'Sandboxes',
       routeName: 'org_sandboxes',
-      params: { org_id: orgId },
+      params: { org_id: orgSlug },
     },
   ]
 
@@ -119,7 +123,15 @@ const SandboxDetailLoaded: FC<LoadedProps> = ({ orgId, sandbox, onDelete, onBack
 const SandboxDetail: FC = () => {
   const router = useRouter()
   const snackbar = useSnackbar()
-  const orgId = router.params.org_id as string | undefined
+  const account = useAccount()
+  // The URL carries the org slug; the API and the breadcrumb need different
+  // values. orgSlug is for navigation (URLs), orgId is the actual organization
+  // id used in API path params and stored on the sandbox row. Mixing these up
+  // caused sandbox.OrganizationID to be set to the slug, which broke wallet
+  // lookups (GetWalletByOrg("koala-bunny-corp") → not found) when billing or
+  // delete tried to charge a final partial minute.
+  const orgSlug = router.params.org_id as string | undefined
+  const orgId = account.organizationTools.organization?.id
   const sandboxId = router.params.sandbox_id as string | undefined
 
   const [deleteOpen, setDeleteOpen] = useState(false)
@@ -132,7 +144,7 @@ const SandboxDetail: FC = () => {
     try {
       await deleteMutation.mutateAsync(sandboxId)
       snackbar.success('Sandbox deleted')
-      router.navigate('org_sandboxes', { org_id: orgId })
+      router.navigate('org_sandboxes', { org_id: orgSlug })
     } catch {
       snackbar.error('Failed to delete sandbox')
     } finally {
@@ -144,7 +156,7 @@ const SandboxDetail: FC = () => {
     {
       title: 'Sandboxes',
       routeName: 'org_sandboxes',
-      params: { org_id: orgId },
+      params: { org_id: orgSlug },
     },
   ]
 
@@ -175,9 +187,10 @@ const SandboxDetail: FC = () => {
     <>
       <SandboxDetailLoaded
         orgId={orgId}
+        orgSlug={orgSlug}
         sandbox={sandbox}
         onDelete={() => setDeleteOpen(true)}
-        onBack={() => router.navigate('org_sandboxes', { org_id: orgId })}
+        onBack={() => router.navigate('org_sandboxes', { org_id: orgSlug })}
       />
       {deleteOpen && (
         <DeleteConfirmWindow

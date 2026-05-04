@@ -19,6 +19,8 @@ import {
 } from '../../api/api'
 import { useCreateSandbox } from '../../services/sandboxesService'
 import { useListOrgApiKeys } from '../../services/orgApiKeyService'
+import { useGetSystemSettings } from '../../services/systemSettingsService'
+import RuntimePicker, { runtimeMeta } from './RuntimePicker'
 import SandboxApiExamples from './SandboxApiExamples'
 
 interface Props {
@@ -28,21 +30,9 @@ interface Props {
   onCreated: (sandbox: TypesSandbox) => void
 }
 
-// Headless is listed first so it's the default — it's small, fast, has no GUI
-// dependencies, and supports the full exec/files/terminal API. Pick the desktop
-// runtime only if you need the streaming display.
-const RUNTIMES: { value: string; label: string; description: string }[] = [
-  {
-    value: TypesSandboxRuntime.SandboxRuntimeHeadlessUbuntu ?? 'headless-ubuntu',
-    label: 'Headless Ubuntu',
-    description: 'Plain ubuntu:22.04 running sleep infinity. No GUI — just exec commands and read/write files.',
-  },
-  {
-    value: TypesSandboxRuntime.SandboxRuntimeUbuntuDesktop ?? 'ubuntu-desktop',
-    label: 'Ubuntu Desktop',
-    description: 'Full Ubuntu desktop, no agent autoboot. Stream the display, exec commands, transfer files.',
-  },
-]
+// Default runtime when nothing is preselected. The picker fetches the full
+// list from the server so we don't hard-code anything else here.
+const DEFAULT_RUNTIME = (TypesSandboxRuntime.SandboxRuntimeHeadlessUbuntu ?? 'headless-ubuntu') as string
 
 // PERSISTENT_WORKSPACE_PATH is the in-container directory that the API
 // bind-mounts to a sandbox-host directory when persistent=true. Anything written
@@ -59,7 +49,7 @@ const RESOURCE_PRESETS = [
 // CreateSandboxDialog asks for a name, runtime, and optional TTL/env.
 const CreateSandboxDialog: FC<Props> = ({ open, orgId, onClose, onCreated }) => {
   const [name, setName] = useState('')
-  const [runtime, setRuntime] = useState<string>(RUNTIMES[0].value)
+  const [runtime, setRuntime] = useState<string>(DEFAULT_RUNTIME)
   const [resourcePreset, setResourcePreset] = useState<string>(RESOURCE_PRESETS[0].value)
   const [autoExpire, setAutoExpire] = useState<boolean>(true)
   const [ttlSeconds, setTtlSeconds] = useState<number>(3600)
@@ -73,6 +63,10 @@ const CreateSandboxDialog: FC<Props> = ({ open, orgId, onClose, onCreated }) => 
   // export without bouncing through settings.
   const { data: orgApiKeys } = useListOrgApiKeys(orgId, open)
   const orgApiKey = orgApiKeys && orgApiKeys.length > 0 ? orgApiKeys[0].key : undefined
+  // Pull the operator's per-second price for desktop vs headless so the
+  // runtime tiles can show the right rate. We multiply by the currently
+  // selected vCPU count to match what billSandbox actually deducts.
+  const { data: systemSettings } = useGetSystemSettings()
 
   const handleSubmit = async () => {
     setError(undefined)
@@ -140,20 +134,23 @@ const CreateSandboxDialog: FC<Props> = ({ open, orgId, onClose, onCreated }) => 
             placeholder="my-sandbox"
             fullWidth
           />
-          <TextField
-            label="Runtime"
-            select
+          <RuntimePicker
             value={runtime}
-            onChange={(e) => setRuntime(e.target.value)}
-            fullWidth
-            helperText={RUNTIMES.find((r) => r.value === runtime)?.description}
-          >
-            {RUNTIMES.map((r) => (
-              <MenuItem key={r.value} value={r.value}>
-                {r.label}
-              </MenuItem>
-            ))}
-          </TextField>
+            onChange={setRuntime}
+            billingEnabled={!!systemSettings?.sandbox_billing_enabled}
+            priceForRuntime={(rt) => {
+              if (!systemSettings) return undefined
+              const meta = runtimeMeta(rt)
+              const perCore = meta.pricingType === 'desktop'
+                ? (systemSettings.sandbox_desktop_price_credits_per_second ?? 0)
+                : (systemSettings.sandbox_headless_price_credits_per_second ?? 0)
+              const vcpus = (RESOURCE_PRESETS.find((p) => p.value === resourcePreset)?.vcpus) ?? 1
+              return perCore * vcpus
+            }}
+          />
+          <Typography variant="caption" color="text.secondary" component="div">
+            {runtimeMeta(runtime).description}
+          </Typography>
           <TextField
             label="Resources"
             select
@@ -168,6 +165,10 @@ const CreateSandboxDialog: FC<Props> = ({ open, orgId, onClose, onCreated }) => 
               </MenuItem>
             ))}
           </TextField>
+          {/* Auto-expire and Persistent workspace share the same row layout so
+              the switches line up vertically. FormControlLabel's default
+              `marginLeft: -11px` is reset to 0 so the switch hitbox starts at
+              the same x as the TextFields above (which sit flush at x=0). */}
           <Box>
             <Stack direction="row" spacing={2} alignItems="center">
               <FormControlLabel
@@ -178,7 +179,7 @@ const CreateSandboxDialog: FC<Props> = ({ open, orgId, onClose, onCreated }) => 
                   />
                 }
                 label="Auto-expire"
-                sx={{ whiteSpace: 'nowrap' }}
+                sx={{ whiteSpace: 'nowrap', ml: 0, minWidth: 180 }}
               />
               <TextField
                 label="TTL (seconds)"
@@ -207,6 +208,7 @@ const CreateSandboxDialog: FC<Props> = ({ open, orgId, onClose, onCreated }) => 
                 />
               }
               label="Persistent workspace"
+              sx={{ whiteSpace: 'nowrap', ml: 0, minWidth: 180 }}
             />
             <Typography variant="caption" color="text.secondary" component="div" sx={{ mt: 0.5 }}>
               {persistent ? (

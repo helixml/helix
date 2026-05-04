@@ -37,6 +37,24 @@ export const sandboxTerminalSessionsQueryKey = (orgId: string, id: string) => [
   id,
 ]
 
+// Lists the runtime names (e.g. "headless-ubuntu", "node22", "ubuntu-desktop")
+// the operator has registered on this server. The picker uses this to build
+// the runtime tile grid so adding a runtime via HELIX_SANDBOX_RUNTIMES is
+// reflected in the UI without a code change.
+export function useListSandboxRuntimes(options?: { enabled?: boolean }) {
+  const api = useApi()
+  const apiClient = api.getApiClient()
+  return useQuery({
+    queryKey: ['sandboxes', 'runtimes'],
+    queryFn: async () => {
+      const result = await apiClient.v1SandboxRuntimesList()
+      return (result.data as unknown as { runtimes?: string[] })?.runtimes ?? []
+    },
+    enabled: options?.enabled ?? true,
+    staleTime: 60_000,
+  })
+}
+
 export function useListSandboxes(orgId: string | undefined, options?: { enabled?: boolean }) {
   const api = useApi()
   const apiClient = api.getApiClient()
@@ -230,15 +248,23 @@ export function useSandboxFiles(
 // debited so far).
 export interface SandboxBilling {
   enabled: boolean
+  // Effective per-second rate for this sandbox (already multiplied by vCPUs
+  // server-side, so display directly).
   price_credits_per_second: number
+  // Sum of completed-minute charges already debited from the wallet.
   total_credits_charged: number
+  // Live partial-minute accrual since the last reaper tick — non-zero only
+  // while the sandbox is running and billing is enabled. Useful for showing
+  // immediate feedback before the next minute boundary.
+  pending_credits: number
   runtime: string
+  vcpus: number
 }
 
 export function useSandboxBilling(
   orgId: string | undefined,
   id: string | undefined,
-  options?: { enabled?: boolean; refetchInterval?: number },
+  options?: { enabled?: boolean; refetchInterval?: number | false },
 ) {
   const api = useApi()
 
