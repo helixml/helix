@@ -206,14 +206,23 @@ func (c *Controller) provision(ctx context.Context, sandboxID string) {
 	}
 
 	if err := c.store.SetSandboxContainer(provisionCtx, sandboxID, host.ID, resp.ContainerID); err != nil {
-		log.Error().Err(err).Str("sandbox_id", sandboxID).Msg("failed to persist host/container ids")
+		log.Warn().Err(err).Str("sandbox_id", sandboxID).Str("container_id", resp.ContainerID).Msg("failed to persist host/container ids; deleting provisioned container")
+		if _, deleteErr := hydraClient.DeleteDevContainer(context.Background(), sandbox.ID); deleteErr != nil {
+			log.Warn().Err(deleteErr).Str("sandbox_id", sandboxID).Str("container_id", resp.ContainerID).Msg("failed to clean up provisioned container after persist failure")
+		}
+		return
 	}
 
 	status := types.SandboxStatusRunning
 	if resp.Status != hydra.DevContainerStatusRunning {
 		status = types.SandboxStatusPending
 	}
-	_ = c.store.SetSandboxStatus(provisionCtx, sandboxID, status, "")
+	if err := c.store.SetSandboxStatus(provisionCtx, sandboxID, status, ""); err != nil {
+		log.Warn().Err(err).Str("sandbox_id", sandboxID).Str("container_id", resp.ContainerID).Msg("failed to persist sandbox status; deleting provisioned container")
+		if _, deleteErr := hydraClient.DeleteDevContainer(context.Background(), sandbox.ID); deleteErr != nil {
+			log.Warn().Err(deleteErr).Str("sandbox_id", sandboxID).Str("container_id", resp.ContainerID).Msg("failed to clean up provisioned container after status failure")
+		}
+	}
 }
 
 // buildMounts assembles the host-side bind/volume mounts for a sandbox.

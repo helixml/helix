@@ -70,14 +70,9 @@ const SandboxCommandsTab: FC<Props> = ({ orgId, sandboxId, running }) => {
   const handleRun = async () => {
     if (!cmd.trim()) return
     const trimmed = cmd.trim()
-    const tokens = trimmed.match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g) ?? [trimmed]
-    const argv = tokens.map((t) => t.replace(/^['"]|['"]$/g, ''))
-    const head = argv[0] ?? trimmed
-    const args = argv.slice(1)
     try {
       const resp = await runMutation.mutateAsync({
-        cmd: head,
-        args: args.length ? args : undefined,
+        cmd: trimmed,
         detached: true,
         timeout_seconds: 0,
       })

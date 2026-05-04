@@ -547,17 +547,23 @@ func (s *HelixAPIServer) sandboxTerminal(rw http.ResponseWriter, r *http.Request
 		// orphaned `tmux: client` processes piling up after every WS drop.
 		scriptBody := []byte(`#!/bin/sh
 # Helix per-session terminal attach. Auto-generated; safe to re-create.
+# Sandbox runtime images are normally pre-baked with tmux by the host's
+# overlay-build step (hydra.EnsureSandboxRuntimeImage), so the install path
+# below is just a fallback for hosts where prep was skipped or failed.
 set -e
 if ! command -v tmux >/dev/null 2>&1; then
+  echo "tmux not pre-installed; attempting in-container install (prep image likely unavailable)" >&2
   if command -v apt-get >/dev/null 2>&1; then
-    apt-get update -qq >/dev/null 2>&1 || true
-    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq tmux >/dev/null 2>&1 || true
+    apt-get update -qq || echo "apt-get update failed — likely no outbound network from this container" >&2
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq tmux || echo "apt-get install tmux failed" >&2
+  elif command -v apk >/dev/null 2>&1; then
+    apk add --no-cache tmux || echo "apk add tmux failed" >&2
   fi
 fi
 if command -v tmux >/dev/null 2>&1; then
   exec tmux new-session -A -D -s helix-` + session + `
 fi
-echo "tmux not available — falling back to bash (session will not persist)" >&2
+echo "tmux not available — falling back to bash (session will not persist across reconnects)" >&2
 exec /bin/bash -l
 `)
 		if err := client.WriteSandboxFile(r.Context(), sb.ID, scriptPath, scriptBody, 0o755); err != nil {
@@ -831,12 +837,20 @@ func (s *HelixAPIServer) sandboxTerminalSessions(rw http.ResponseWriter, r *http
 	}
 	out := SandboxTerminalSessionsResponse{Sessions: []SandboxTerminalSession{}}
 
-	// Pass tmux args explicitly (not as one shell string) so this works against
-	// hydra builds that don't auto-wrap multi-word commands in /bin/sh -c.
+	// Wrap in /bin/sh so we can short-circuit cleanly when tmux isn't installed
+	// yet — that's the normal state before the user opens the terminal tab,
+	// which is when the wrapper script installs tmux on first connect. Calling
+	// `tmux` directly produced an OCI exec failure on every 5s poll
+	// (`exec: "tmux": executable file not found in $PATH`) which spammed the
+	// dockerd log. The shell exits 0 with empty output in that case, and the
+	// loop below correctly produces an empty session list.
 	res, err := client.RunSandboxCommand(r.Context(), sb.ID, &hydra.ExecRequest{
-		SandboxID:      sb.ID,
-		Cmd:            "tmux",
-		Args:           []string{"list-sessions", "-F", "#{session_name}|#{session_attached}|#{session_windows}|#{session_created}"},
+		SandboxID: sb.ID,
+		Cmd:       "/bin/sh",
+		Args: []string{
+			"-c",
+			`command -v tmux >/dev/null 2>&1 && tmux list-sessions -F '#{session_name}|#{session_attached}|#{session_windows}|#{session_created}' 2>/dev/null || true`,
+		},
 		Detached:       false,
 		TimeoutSeconds: 5,
 	})

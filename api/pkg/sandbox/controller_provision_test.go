@@ -80,6 +80,12 @@ func (f *fakeHydra) lastCreate() *hydra.CreateDevContainerRequest {
 	return f.createCalls[len(f.createCalls)-1]
 }
 
+func (f *fakeHydra) deletes() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.deleteCalls...)
+}
+
 // envMapFromSlice flips KEY=value entries into a map for stable assertions
 // (envSlice is built from a map, so order is undefined).
 func envMapFromSlice(env []string) map[string]string {
@@ -243,6 +249,61 @@ func (s *ProvisionSuite) TestProvisionSendsExpectedHeadlessRequest() {
 	s.Require().Equal(filepath.Join("/sandbox-host", "ephem", sbID), req.Mounts[0].Source)
 	s.Require().False(req.Mounts[0].ReadOnly)
 	s.Require().Empty(req.Mounts[0].Type, "workspace mount is a bind, not a named volume")
+}
+
+func (s *ProvisionSuite) TestProvisionDeletesContainerWhenRowWasDeletedBeforeContainerPersist() {
+	sbID := "sbx_deleted_before_container_persist"
+	sb := &types.Sandbox{
+		ID:             sbID,
+		OrganizationID: "org_1",
+		Owner:          "user_1",
+		Runtime:        types.SandboxRuntimeHeadlessUbuntu,
+		Image:          "ubuntu:22.04",
+		Status:         types.SandboxStatusPending,
+		VCPUs:          1,
+		MemoryMB:       2048,
+		DisplayWidth:   DefaultDisplayWidth,
+		DisplayHeight:  DefaultDisplayHeight,
+		DisplayFPS:     DefaultDisplayFPS,
+	}
+	host := &types.SandboxInstance{ID: "host-a", Status: "online"}
+
+	s.store.EXPECT().GetSandbox(gomock.Any(), sbID).Return(sb, nil)
+	s.store.EXPECT().ListSandboxInstances(gomock.Any()).Return([]*types.SandboxInstance{host}, nil)
+	s.store.EXPECT().SetSandboxContainer(gomock.Any(), sbID, host.ID, gomock.Any()).Return(store.ErrNotFound)
+
+	s.controller.provision(s.ctx, sbID)
+
+	s.Require().NotNil(s.hydra.lastCreate())
+	s.Require().Equal([]string{sbID}, s.hydra.deletes(), "a container created after a concurrent delete must be torn down")
+}
+
+func (s *ProvisionSuite) TestProvisionDeletesContainerWhenRowWasDeletedBeforeStatusPersist() {
+	sbID := "sbx_deleted_before_status_persist"
+	sb := &types.Sandbox{
+		ID:             sbID,
+		OrganizationID: "org_1",
+		Owner:          "user_1",
+		Runtime:        types.SandboxRuntimeHeadlessUbuntu,
+		Image:          "ubuntu:22.04",
+		Status:         types.SandboxStatusPending,
+		VCPUs:          1,
+		MemoryMB:       2048,
+		DisplayWidth:   DefaultDisplayWidth,
+		DisplayHeight:  DefaultDisplayHeight,
+		DisplayFPS:     DefaultDisplayFPS,
+	}
+	host := &types.SandboxInstance{ID: "host-a", Status: "online"}
+
+	s.store.EXPECT().GetSandbox(gomock.Any(), sbID).Return(sb, nil)
+	s.store.EXPECT().ListSandboxInstances(gomock.Any()).Return([]*types.SandboxInstance{host}, nil)
+	s.store.EXPECT().SetSandboxContainer(gomock.Any(), sbID, host.ID, gomock.Any()).Return(nil)
+	s.store.EXPECT().SetSandboxStatus(gomock.Any(), sbID, types.SandboxStatusRunning, "").Return(store.ErrNotFound)
+
+	s.controller.provision(s.ctx, sbID)
+
+	s.Require().NotNil(s.hydra.lastCreate())
+	s.Require().Equal([]string{sbID}, s.hydra.deletes(), "a container whose status cannot be recorded must be torn down")
 }
 
 // TestProvisionPersistentUsesPersistSubdir checks that persistent sandboxes

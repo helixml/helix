@@ -144,7 +144,14 @@ func (s *PostgresStore) SetSandboxStatus(ctx context.Context, id string, status 
 		now := time.Now()
 		updates["stopped_at"] = &now
 	}
-	return s.gdb.WithContext(ctx).Model(&types.Sandbox{}).Where("id = ?", id).Updates(updates).Error
+	res := s.gdb.WithContext(ctx).Model(&types.Sandbox{}).Where("id = ? AND deleted_at IS NULL", id).Updates(updates)
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 // SetSandboxBillingLastChargedAt records the end of the most recent billed
@@ -174,11 +181,18 @@ func (s *PostgresStore) SetRunningSandboxesBillingLastChargedAt(ctx context.Cont
 // SetSandboxContainer records the host_device_id and container_id once the
 // scheduler has placed the sandbox on a hydra host.
 func (s *PostgresStore) SetSandboxContainer(ctx context.Context, id string, hostDeviceID, containerID string) error {
-	return s.gdb.WithContext(ctx).Model(&types.Sandbox{}).Where("id = ?", id).Updates(map[string]interface{}{
+	res := s.gdb.WithContext(ctx).Model(&types.Sandbox{}).Where("id = ? AND deleted_at IS NULL", id).Updates(map[string]interface{}{
 		"host_device_id": hostDeviceID,
 		"container_id":   containerID,
 		"updated_at":     time.Now(),
-	}).Error
+	})
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 // DeleteSandbox soft-deletes by setting deleted_at + status=stopped.

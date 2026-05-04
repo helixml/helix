@@ -497,6 +497,17 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 			}
 			pullOut.Close()
 		}
+		// Build (or reuse cached) overlay that adds tmux + ca-certificates so
+		// the user-facing terminal can persist sessions without an in-container
+		// apt-get install. The overlay runs in the sandbox host's network
+		// namespace, which has working outbound connectivity to apt mirrors —
+		// this is the key reason it succeeds where the in-container install
+		// has been failing for some users. Cached locally per base image so
+		// subsequent sandboxes start instantly. containerConfig.Image needs
+		// to track resolvedImage since it was built earlier from the original
+		// value.
+		resolvedImage = EnsureSandboxRuntimeImage(dockerCtx, dockerClient, resolvedImage)
+		containerConfig.Image = resolvedImage
 	}
 
 	// Create container

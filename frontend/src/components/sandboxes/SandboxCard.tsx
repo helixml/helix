@@ -211,6 +211,7 @@ const SandboxCard: FC<SandboxCardProps> = ({ sandbox, onOpen, onDelete, orgId })
               mode="screenshot"
               initialSandboxState={mapSandboxStatusToViewerState(sandbox.status)}
               initialSandboxStatusMessage={sandbox.status_message}
+              sandboxMode
             />
           </Box>
         )}

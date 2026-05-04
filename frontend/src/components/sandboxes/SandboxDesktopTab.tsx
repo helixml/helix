@@ -65,6 +65,7 @@ const SandboxDesktopTab: FC<SandboxDesktopTabProps> = ({ sandbox }) => {
         initialSandboxState={mapSandboxStatusToViewerState(sandbox.status)}
         initialSandboxStatusMessage={sandbox.status_message}
         startupErrorMessage={sandbox.status === 'failed' ? sandbox.status_message : undefined}
+        sandboxMode
       />
     </Box>
   )
