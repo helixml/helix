@@ -1,0 +1,35 @@
+# Implementation Tasks
+
+- [ ] Resolve multi-arch manifest digest for `golang:1.25-bookworm` via `docker buildx imagetools inspect golang:1.25-bookworm --format '{{.Manifest.Digest}}'`; verify amd64+arm64 in the manifest list
+- [ ] Resolve multi-arch manifest digest for `golang:1.25-alpine3.22`; verify amd64+arm64
+- [ ] Resolve multi-arch manifest digest for `golang:1.23-alpine3.21`; verify amd64+arm64
+- [ ] Resolve multi-arch manifest digest for `golangci/golangci-lint:v1.62-alpine`; verify amd64+arm64
+- [ ] Resolve multi-arch manifest digest for `node:23-alpine`; verify amd64+arm64
+- [ ] Resolve multi-arch manifest digest for `node:20-slim`; verify amd64+arm64
+- [ ] Resolve multi-arch manifest digest for `debian:bookworm-slim`; verify amd64+arm64
+- [ ] Resolve multi-arch manifest digest for `ubuntu:25.04`; verify amd64+arm64
+- [ ] Resolve multi-arch manifest digest for `ubuntu:25.10`; verify amd64+arm64
+- [ ] Resolve manifest digest for `gcr.io/distroless/static:nonroot`; verify amd64+arm64
+- [ ] Resolve manifest digest for `nvidia/cuda:12.6.3-runtime-ubuntu24.04` (amd64-only — known exception)
+- [ ] Update `Dockerfile`: pin `golang:1.25-bookworm` (line 6), `node:23-alpine` (line 88), `debian:bookworm-slim` (line 118)
+- [ ] Update `Dockerfile.demos` line 1: refresh `golang:1.25-alpine3.22` digest
+- [ ] Update `Dockerfile.lint`: refresh `golangci/golangci-lint:v1.62-alpine` (line 3) and `golang:1.23-alpine3.21` (line 5) digests
+- [ ] Update `Dockerfile.qwen-build` line 12: pin `node:20-slim`
+- [ ] Update `Dockerfile.qwen-code-build` line 12: pin `node:20-slim`
+- [ ] Update `Dockerfile.sandbox`: pin `golang:1.25-bookworm` (line 14), `ubuntu:25.04` (line 44)
+- [ ] Update `Dockerfile.sway-helix`: pin `ubuntu:25.10` on lines 19, 77, 140, 196, 269 (same digest); pin `golang:1.25-bookworm` (line 39); refresh header comment block (lines 9–12) and inline comment (line 37) — date `2026-03-30` → `2026-05-04` and digest values
+- [ ] Update `Dockerfile.ubuntu-helix`: pin `golang:1.25-bookworm` (line 27), `ubuntu:25.10` (lines 76, 185); pin ARG default `nvidia/cuda:12.6.3-runtime-ubuntu24.04` (line 19); refresh header comment block (lines 10–13) and inline comment (line 25) — date and digests
+- [ ] Update `Dockerfile.zed-build` line 15: pin `ubuntu:25.10` (use same digest as the other files)
+- [ ] Update `operator/Dockerfile`: refresh `golang:1.25-bookworm` (line 2) and `gcr.io/distroless/static:nonroot` (line 28) digests
+- [ ] Update `scripts/sse-mcp-server/Dockerfile` line 1: refresh `node:20-slim` digest
+- [ ] Update `.drone.yml` lines ~1890 and ~2182: refresh the `--build-arg CUDA_BASE_IMAGE=...@sha256:...` digests so the arm64 `ubuntu:25.10` digest matches the Dockerfiles and the amd64 `nvidia/cuda` digest matches the ARG default
+- [ ] Run `grep -nE '@sha256:[a-f0-9]{64}\b' Dockerfile* operator/Dockerfile scripts/sse-mcp-server/Dockerfile` — every active `FROM`/`ARG` line with a registry image is matched; counts match the resolved digest count
+- [ ] Run `grep -nE '@sha256:' Dockerfile* operator/Dockerfile scripts/sse-mcp-server/Dockerfile | grep -vE '@sha256:[a-f0-9]{64}\b'` — returns no malformed digests
+- [ ] For each multi-stage file (`Dockerfile.sway-helix`, `Dockerfile.ubuntu-helix`, `Dockerfile`), confirm same image uses one digest across stages
+- [ ] For each Dockerfile with a header comment digest list, confirm the listed digests match the digests in the active `FROM`/`ARG` lines
+- [ ] Smoke-build `Dockerfile.sway-helix` for `linux/amd64`
+- [ ] Smoke-build `Dockerfile.sway-helix` for `linux/arm64`
+- [ ] Smoke-build `Dockerfile.ubuntu-helix` for `linux/amd64` (with the existing CUDA build-arg)
+- [ ] Smoke-build `Dockerfile.ubuntu-helix` for `linux/arm64` (with `--build-arg CUDA_BASE_IMAGE=ubuntu:25.10@sha256:<new>`)
+- [ ] Smoke-build `operator/Dockerfile` for `linux/amd64,linux/arm64` via `docker buildx build`
+- [ ] Smoke-build remaining Dockerfiles per their drone build steps (single-arch is acceptable where the drone step is single-arch)
