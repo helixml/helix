@@ -12,7 +12,7 @@ import Sandboxes from './Sandboxes'
 // the id from the account context instead.
 
 const mockUseListSandboxes = vi.fn()
-const mockUseDeleteSandbox = vi.fn(() => ({ mutateAsync: vi.fn() }))
+const mockUseDeleteSandbox = vi.fn((_orgId: string) => ({ mutateAsync: vi.fn() }))
 
 vi.mock('../services/sandboxesService', () => ({
   useListSandboxes: (orgId: string | undefined) => mockUseListSandboxes(orgId),

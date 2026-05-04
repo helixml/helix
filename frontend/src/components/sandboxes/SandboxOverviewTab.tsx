@@ -6,7 +6,6 @@ import Typography from '@mui/material/Typography'
 import SandboxStatusBadge from './SandboxStatusBadge'
 import { TypesSandbox } from '../../api/api'
 import { useSandboxBilling } from '../../services/sandboxesService'
-import { isHeadless } from './runtimeClassifier'
 
 interface Props {
   orgId: string
@@ -52,9 +51,6 @@ const SandboxOverviewTab: FC<Props> = ({ orgId, sandbox }) => {
         <Row label="Runtime" value={sandbox.runtime || 'ubuntu-desktop'} />
         <Row label="Image" value={sandbox.image || '-'} />
         <Row label="vCPU / Memory" value={`${sandbox.vcpus ?? 1} CPU / ${sandbox.memory_mb ?? 2048} MB`} />
-        {!isHeadless(sandbox) && (
-          <Row label="Display" value={`${sandbox.display_width ?? 0}x${sandbox.display_height ?? 0} @ ${sandbox.display_fps ?? 0} fps`} />
-        )}
         <Row label="Container" value={sandbox.container_id || '-'} />
         <Row label="Host" value={sandbox.host_device_id || '-'} />
         <Row label="Created" value={sandbox.created_at ? new Date(sandbox.created_at).toLocaleString() : '-'} />

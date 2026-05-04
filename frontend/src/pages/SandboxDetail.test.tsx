@@ -10,7 +10,7 @@ import SandboxDetail from './SandboxDetail'
 // test on the list page.
 
 const mockUseSandbox = vi.fn()
-const mockUseDeleteSandbox = vi.fn(() => ({ mutateAsync: vi.fn() }))
+const mockUseDeleteSandbox = vi.fn((_orgId: string) => ({ mutateAsync: vi.fn() }))
 
 vi.mock('../services/sandboxesService', () => ({
   useSandbox: (orgId: string | undefined, sandboxId: string | undefined) =>

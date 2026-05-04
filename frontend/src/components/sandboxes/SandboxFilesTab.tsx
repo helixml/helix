@@ -19,6 +19,7 @@ import MoreVertIcon from '@mui/icons-material/MoreVert'
 
 import SimpleTable from '../widgets/SimpleTable'
 import { useSandboxFiles, sandboxFileUrl } from '../../services/sandboxesService'
+import { RequestParams } from '../../api/api'
 import useApi from '../../hooks/useApi'
 import useSnackbar from '../../hooks/useSnackbar'
 
@@ -89,13 +90,16 @@ const SandboxFilesTab: FC<Props> = ({ orgId, sandboxId, running, persistent }) =
     const target = `${path === '/' ? '' : path}/${file.name}`
     try {
       const buf = await file.arrayBuffer()
-      await apiClient.request<void>({
-        path: `/api/v1/organizations/${orgId}/sandboxes/${sandboxId}/files`,
-        method: 'PUT',
-        query: { path: target },
-        body: buf,
-        secure: true,
-      })
+      // The generated method takes no body argument (PUT body is the raw
+      // file). HttpClient.request() destructures `body` from its input, so
+      // sneak the buffer through the params slot — RequestParams omits
+      // `body` at the type level but it's honoured at runtime.
+      await apiClient.v1OrganizationsSandboxesFilesUpdate(
+        orgId,
+        sandboxId,
+        { path: target },
+        { body: buf } as unknown as RequestParams,
+      )
       snackbar.success(`Uploaded ${file.name}`)
       refetch()
     } catch (e: any) {

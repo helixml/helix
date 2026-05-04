@@ -15,6 +15,7 @@ import SandboxStatusBadge from './SandboxStatusBadge'
 import SandboxTerminal from './SandboxTerminal'
 import { TypesSandbox } from '../../api/api'
 import { isHeadless } from './runtimeClassifier'
+import { runtimeMeta } from './RuntimePicker'
 
 interface SandboxCardProps {
   sandbox: TypesSandbox
@@ -58,12 +59,6 @@ const formatTimestamp = (ts?: string): string => {
 const formatExpiry = (ts?: string): string => {
   if (!ts) return 'Never'
   return new Date(ts).toLocaleString()
-}
-
-const formatDisplay = (sandbox: TypesSandbox): string => {
-  if (!sandbox.display_width || !sandbox.display_height) return '-'
-  const fps = sandbox.display_fps ? `@${sandbox.display_fps}` : ''
-  return `${sandbox.display_width}×${sandbox.display_height}${fps}`
 }
 
 // Map sandbox.status to ExternalAgentDesktopViewer's expected state strings.
@@ -127,35 +122,59 @@ const SandboxCard: FC<SandboxCardProps> = ({ sandbox, onOpen, onDelete, orgId })
         onClick={() => onOpen(sandbox)}
       >
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1.5, gap: 1 }}>
-          <Box sx={{ flex: 1, minWidth: 0 }}>
-            <Typography
-              variant="body2"
-              sx={{
-                fontWeight: 600,
-                fontFamily: 'monospace',
-                lineHeight: 1.4,
-                color: 'text.primary',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
-              }}
-            >
-              {sandbox.name || sandbox.id}
-            </Typography>
-            <Typography
-              variant="caption"
-              sx={{
-                color: 'text.secondary',
-                fontSize: '0.7rem',
-                display: 'block',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
-              }}
-            >
-              {sandbox.runtime || 'ubuntu-desktop'}
-            </Typography>
-          </Box>
+          {(() => {
+            const meta = runtimeMeta(sandbox.runtime || 'ubuntu-desktop')
+            return (
+              <Box sx={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 1 }}>
+                {/* Brand icon makes the runtime instantly recognisable in the
+                    list without taking horizontal space from the name. Tinted
+                    background mirrors the runtime picker tile style. */}
+                <Box
+                  sx={{
+                    width: 28,
+                    height: 28,
+                    borderRadius: '50%',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexShrink: 0,
+                    bgcolor: `${meta.accent}1f`,
+                  }}
+                >
+                  <meta.Icon size={16} color={meta.accent} />
+                </Box>
+                <Box sx={{ minWidth: 0 }}>
+                  <Typography
+                    variant="body2"
+                    sx={{
+                      fontWeight: 600,
+                      fontFamily: 'monospace',
+                      lineHeight: 1.4,
+                      color: 'text.primary',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {sandbox.name || sandbox.id}
+                  </Typography>
+                  <Typography
+                    variant="caption"
+                    sx={{
+                      color: 'text.secondary',
+                      fontSize: '0.7rem',
+                      display: 'block',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {meta.label}
+                  </Typography>
+                </Box>
+              </Box>
+            )
+          })()}
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexShrink: 0 }}>
             <SandboxStatusBadge status={sandbox.status} message={sandbox.status_message} />
             <IconButton size="small" onClick={handleMenuOpen}>
@@ -243,9 +262,7 @@ const SandboxCard: FC<SandboxCardProps> = ({ sandbox, onOpen, onDelete, orgId })
           gap: 1,
         }}>
           <StatRow label="Resources" value={formatResources(sandbox)} />
-          {!isHeadless(sandbox) && (
-            <StatRow label="Display" value={formatDisplay(sandbox)} />
-          )}
+          <StatRow label="Runtime" value={runtimeMeta(sandbox.runtime || 'ubuntu-desktop').label} />
           <StatRow label="Created" value={formatTimestamp(sandbox.created_at)} />
           <StatRow label="Expires" value={formatExpiry(sandbox.expires_at)} />
         </Box>
