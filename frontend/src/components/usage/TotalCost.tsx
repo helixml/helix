@@ -14,13 +14,14 @@ const formatCurrency = (n: number): string => {
   return `$${n.toFixed(4)}`;
 };
 
-// Stacked: input + cache read + cache write + output.
+// Stacked: input + cache read + cache write + output + sandboxes. Labels are
+// kept short so all five fit the legend on one row without wrapping.
 const SERIES: ShadcnSeries[] = [
   { key: 'input', label: 'Input', color: '#3b82f6' },
-  { key: 'cacheRead', label: 'Cache Read', color: '#22c55e' },
-  { key: 'cacheWrite', label: 'Cache Write', color: '#f59e0b' },
+  { key: 'cacheRead', label: 'Cache R', color: '#22c55e' },
+  { key: 'cacheWrite', label: 'Cache W', color: '#f59e0b' },
   { key: 'output', label: 'Output', color: '#a855f7' },
-  { key: 'sandbox', label: 'Sandboxes', color: '#ef4444' },
+  { key: 'sandbox', label: 'Sandbox', color: '#ef4444' },
 ];
 
 const TotalCost: FC<TotalCostProps> = ({ usageData, isLoading }) => {

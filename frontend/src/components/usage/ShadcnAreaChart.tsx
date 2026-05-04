@@ -232,27 +232,33 @@ const ShadcnAreaChart: FC<ShadcnAreaChartProps> = ({
         )}
       </Box>
       {!hideLegend && hasData && (
+        // Tight, single-line legend. Recharts' default Legend wrapped 5-item
+        // legends to two rows with one orphaned item ("Sandboxes" alone on
+        // line 2), which looked broken. We render our own with small swatches
+        // and a compact font so 5 items fit on one row at typical card widths;
+        // when the parent really is too narrow, items wrap evenly rather than
+        // dropping a single trailing label below.
         <Box
           sx={{
             display: 'flex',
             flexWrap: 'wrap',
             justifyContent: 'center',
             alignItems: 'center',
-            columnGap: 2,
+            columnGap: 1.25,
             rowGap: 0.5,
             mt: 1,
-            px: 1,
+            px: 0.5,
           }}
         >
           {series.map(s => (
             <Box
               key={s.key}
-              sx={{ display: 'flex', alignItems: 'center', gap: 0.75, minWidth: 'fit-content' }}
+              sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flex: '0 0 auto' }}
             >
               <Box
                 sx={{
-                  width: 10,
-                  height: 10,
+                  width: 8,
+                  height: 8,
                   borderRadius: '2px',
                   bgcolor: s.color,
                   flexShrink: 0,
@@ -260,7 +266,7 @@ const ShadcnAreaChart: FC<ShadcnAreaChartProps> = ({
               />
               <Typography
                 variant="caption"
-                sx={{ color: 'rgba(255,255,255,0.75)', fontSize: '0.72rem', whiteSpace: 'nowrap' }}
+                sx={{ color: 'rgba(255,255,255,0.75)', fontSize: '0.66rem', whiteSpace: 'nowrap', lineHeight: 1.4 }}
               >
                 {s.label}
               </Typography>
