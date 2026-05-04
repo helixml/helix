@@ -26,12 +26,21 @@ they own.}
 ## Triggers
 
 **On {event}.** {What they do — concrete, imperative, no hedging.}
+Post output to `s-{channel}`.
 
 **On {another event}.** {…}
+
+**On anything else.** Stay quiet. Read events, update your own
+notes if useful, but don't post. The bar for posting is: a trigger
+above matches, and the output is something a human asked for or
+would recognise as their request.
 
 ## Constraints
 
 - Do not {forbidden thing}.
+- Before acting on a trigger, name it in one line
+  (e.g. `Trigger: researcher posted notes`) so the audit log shows
+  which branch fired.
 - Do not modify your own Role.
 
 ## Files
@@ -43,6 +52,11 @@ Where you don't have enough info, **make a reasonable guess** based
 on what the title implies. Mark each guess inline with
 `(ASSUMED: …)` so I can spot what to challenge. A good guess beats
 a question.
+
+Every `**On {event}.**` block must end with an explicit output
+channel (`Post to s-…`) or say "no post — internal note only".
+Every Role must include the `**On anything else.** Stay quiet`
+block verbatim — it's the default-quiet rule.
 
 Default tools: pick from what the org has — typically `subscribe`,
 `publish`, `read_events`, `dm`. Don't grant `hire_worker` or
