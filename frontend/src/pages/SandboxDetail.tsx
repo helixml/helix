@@ -25,15 +25,13 @@ import useSnackbar from '../hooks/useSnackbar'
 import useUrlTab from '../hooks/useUrlTab'
 import { useSandbox, useDeleteSandbox } from '../services/sandboxesService'
 import { TypesSandbox } from '../api/api'
+import { hasDesktop } from '../components/sandboxes/runtimeClassifier'
 
 // Tab ordering: terminal first for headless runtimes (it's the only useful
 // interactive view), desktop first for desktop runtimes. Both come before the
 // overview/commands/files supporting tabs.
 const ALL_SANDBOX_TABS = ['desktop', 'terminal', 'overview', 'commands', 'files'] as const
 type SandboxTab = (typeof ALL_SANDBOX_TABS)[number]
-
-const hasDesktop = (runtime?: string): boolean =>
-  !!runtime && !runtime.includes('headless')
 
 interface LoadedProps {
   orgId: string | undefined

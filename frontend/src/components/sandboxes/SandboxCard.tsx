@@ -14,6 +14,7 @@ import ExternalAgentDesktopViewer from '../external-agent/ExternalAgentDesktopVi
 import SandboxStatusBadge from './SandboxStatusBadge'
 import SandboxTerminal from './SandboxTerminal'
 import { TypesSandbox } from '../../api/api'
+import { isHeadless } from './runtimeClassifier'
 
 interface SandboxCardProps {
   sandbox: TypesSandbox
@@ -64,9 +65,6 @@ const formatDisplay = (sandbox: TypesSandbox): string => {
   const fps = sandbox.display_fps ? `@${sandbox.display_fps}` : ''
   return `${sandbox.display_width}×${sandbox.display_height}${fps}`
 }
-
-const isHeadless = (sandbox: TypesSandbox): boolean =>
-  (sandbox.runtime || '').includes('headless')
 
 // Map sandbox.status to ExternalAgentDesktopViewer's expected state strings.
 const mapSandboxStatusToViewerState = (status?: string): string => {

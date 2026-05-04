@@ -6,14 +6,12 @@ import Typography from '@mui/material/Typography'
 import SandboxStatusBadge from './SandboxStatusBadge'
 import { TypesSandbox } from '../../api/api'
 import { useSandboxBilling } from '../../services/sandboxesService'
+import { isHeadless } from './runtimeClassifier'
 
 interface Props {
   orgId: string
   sandbox: TypesSandbox
 }
-
-const isHeadless = (sandbox: TypesSandbox): boolean =>
-  (sandbox.runtime || '').includes('headless')
 
 const Row: FC<{ label: string; value: React.ReactNode }> = ({ label, value }) => (
   <Box display="flex" gap={2} alignItems="baseline">
