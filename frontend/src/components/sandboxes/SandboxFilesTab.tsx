@@ -56,6 +56,7 @@ function parentOf(path: string): string {
 
 const SandboxFilesTab: FC<Props> = ({ orgId, sandboxId, running, persistent }) => {
   const api = useApi()
+  const apiClient = api.getApiClient()
   const snackbar = useSnackbar()
   const [path, setPath] = useState(persistent ? PERSISTENT_WORKSPACE_PATH : '/root')
   const fileInput = useRef<HTMLInputElement | null>(null)
@@ -88,14 +89,13 @@ const SandboxFilesTab: FC<Props> = ({ orgId, sandboxId, running, persistent }) =
     const target = `${path === '/' ? '' : path}/${file.name}`
     try {
       const buf = await file.arrayBuffer()
-      const res = await fetch(`/api/v1/organizations/${orgId}/sandboxes/${sandboxId}/files?path=${encodeURIComponent(target)}`, {
+      await apiClient.request<void>({
+        path: `/api/v1/organizations/${orgId}/sandboxes/${sandboxId}/files`,
         method: 'PUT',
+        query: { path: target },
         body: buf,
+        secure: true,
       })
-      if (!res.ok) {
-        snackbar.error(`Upload failed: ${res.statusText}`)
-        return
-      }
       snackbar.success(`Uploaded ${file.name}`)
       refetch()
     } catch (e: any) {
@@ -104,12 +104,12 @@ const SandboxFilesTab: FC<Props> = ({ orgId, sandboxId, running, persistent }) =
   }
 
   const handleDelete = async (filePath: string, isDir: boolean) => {
-    const url = `/organizations/${orgId}/sandboxes/${sandboxId}/files?path=${encodeURIComponent(filePath)}${isDir ? '&recursive=1' : ''}`
-    const res = await api.delete(url)
-    if (res !== null) {
-      snackbar.success('Deleted')
-      refetch()
-    }
+    await apiClient.v1OrganizationsSandboxesFilesDelete(orgId, sandboxId, {
+      path: filePath,
+      recursive: isDir ? '1' : undefined,
+    })
+    snackbar.success('Deleted')
+    refetch()
   }
 
   const entries: FileEntry[] = data?.entries ?? []

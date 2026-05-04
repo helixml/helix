@@ -1,13 +1,13 @@
 import { FC, useMemo } from 'react'
 import Box from '@mui/material/Box'
 import Skeleton from '@mui/material/Skeleton'
+import Tooltip from '@mui/material/Tooltip'
 import Typography from '@mui/material/Typography'
 import TerminalIcon from '@mui/icons-material/TerminalOutlined'
 import {
   SiUbuntu,
   SiNodedotjs,
   SiPython,
-  SiDebian,
   SiAlpinelinux,
   SiGo,
   SiRust,
@@ -19,19 +19,16 @@ import { useListSandboxRuntimes } from '../../services/sandboxesService'
 interface Props {
   value: string
   onChange: (next: string) => void
-  // Per-second price for the selected vCPU count, in credits, used for the
-  // "X credits/sec" footer. Caller multiplies by vCPUs already.
-  priceForRuntime: (runtimeName: string) => number | undefined
-  // When billing is disabled we hide the price footer entirely so the tile
-  // doesn't read "0 credits/sec".
-  billingEnabled: boolean
 }
 
 interface RuntimeMeta {
   // Displayed label (Title Case). Defaults to a humanised version of the name.
   label: string
-  // One-line description. Falls back to "Custom runtime" for unknowns.
+  // Short user-facing description shown on the tile (no docker image name).
   description: string
+  // Underlying docker image, surfaced via tooltip on hover so the user can
+  // verify what they're getting without us cluttering the tile.
+  image: string
   // Pricing bucket — `desktop` runtimes use the desktop per-second rate,
   // everything else uses the headless rate.
   pricingType: 'desktop' | 'headless'
@@ -45,7 +42,8 @@ interface RuntimeMeta {
 const KNOWN: Record<string, RuntimeMeta> = {
   'headless-ubuntu': {
     label: 'Headless Ubuntu',
-    description: 'Plain ubuntu:22.04. No GUI — exec, files, terminal.',
+    description: 'No GUI — exec, files, terminal.',
+    image: 'ubuntu:22.04',
     pricingType: 'headless',
     accent: '#E95420',
     Icon: SiUbuntu,
@@ -53,55 +51,55 @@ const KNOWN: Record<string, RuntimeMeta> = {
   'ubuntu-desktop': {
     label: 'Ubuntu Desktop',
     description: 'Full Ubuntu desktop with streaming display.',
+    image: 'helix-ubuntu (heartbeat-versioned)',
     pricingType: 'desktop',
     accent: '#E95420',
     Icon: SiUbuntu,
   },
   node22: {
     label: 'Node.js 22',
-    description: 'node:22-bookworm-slim. NPM ready.',
+    description: 'NPM ready.',
+    image: 'node:22-bookworm-slim',
     pricingType: 'headless',
     accent: '#5FA04E',
     Icon: SiNodedotjs,
   },
   python313: {
     label: 'Python 3.13',
-    description: 'python:3.13-slim. pip ready.',
+    description: 'pip ready.',
+    image: 'python:3.13-slim',
     pricingType: 'headless',
     accent: '#3776AB',
     Icon: SiPython,
   },
-  'debian-slim': {
-    label: 'Debian Slim',
-    description: 'debian:bookworm-slim. Minimal base.',
-    pricingType: 'headless',
-    accent: '#A81D33',
-    Icon: SiDebian,
-  },
   'alpine-3': {
     label: 'Alpine 3',
-    description: 'alpine:3 — tiny musl-based base.',
+    description: 'Tiny musl-based base.',
+    image: 'alpine:3',
     pricingType: 'headless',
     accent: '#0D597F',
     Icon: SiAlpinelinux,
   },
   go122: {
     label: 'Go 1.22',
-    description: 'golang:1.22 toolchain.',
+    description: 'Go toolchain.',
+    image: 'golang:1.22',
     pricingType: 'headless',
     accent: '#00ADD8',
     Icon: SiGo,
   },
   'rust-stable': {
     label: 'Rust',
-    description: 'rust:slim with cargo + rustc.',
+    description: 'cargo + rustc.',
+    image: 'rust:slim',
     pricingType: 'headless',
     accent: '#DEA584',
     Icon: SiRust,
   },
   'java-21': {
     label: 'Java 21',
-    description: 'eclipse-temurin:21-jre-jammy.',
+    description: 'OpenJDK runtime.',
+    image: 'eclipse-temurin:21-jre-jammy',
     pricingType: 'headless',
     accent: '#ED8B00',
     Icon: SiOpenjdk,
@@ -116,6 +114,7 @@ const metaFor = (name: string): RuntimeMeta => {
   return {
     label: titleCase(name),
     description: 'Custom runtime',
+    image: name,
     pricingType: name.includes('desktop') ? 'desktop' : 'headless',
     accent: '#888',
     Icon: ({ size = 28, color }) => (
@@ -124,14 +123,7 @@ const metaFor = (name: string): RuntimeMeta => {
   }
 }
 
-const formatPrice = (n: number): string => {
-  if (n === 0) return '0'
-  if (n >= 0.01) return n.toFixed(4)
-  // Very small per-second rates need more digits to be meaningful.
-  return n.toFixed(6).replace(/0+$/, '').replace(/\.$/, '')
-}
-
-const RuntimePicker: FC<Props> = ({ value, onChange, priceForRuntime, billingEnabled }) => {
+const RuntimePicker: FC<Props> = ({ value, onChange }) => {
   const { data: runtimes, isLoading } = useListSandboxRuntimes()
 
   const ordered = useMemo(() => {
@@ -189,99 +181,94 @@ const RuntimePicker: FC<Props> = ({ value, onChange, priceForRuntime, billingEna
         {ordered.map((name) => {
           const meta = metaFor(name)
           const selected = value === name
-          const price = priceForRuntime(name)
           return (
-            <Box
+            <Tooltip
               key={name}
-              role="button"
-              tabIndex={0}
-              onClick={() => onChange(name)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault()
-                  onChange(name)
-                }
-              }}
-              sx={{
-                position: 'relative',
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                p: 1.5,
-                borderRadius: 1.5,
-                cursor: 'pointer',
-                userSelect: 'none',
-                border: '1px solid',
-                borderColor: selected ? 'primary.main' : 'rgba(255,255,255,0.08)',
-                bgcolor: selected ? 'rgba(33, 150, 243, 0.08)' : 'rgba(255,255,255,0.02)',
-                transition: 'border-color 120ms, background-color 120ms, transform 120ms',
-                '&:hover': {
-                  borderColor: selected ? 'primary.main' : 'rgba(255,255,255,0.18)',
-                  bgcolor: selected ? 'rgba(33, 150, 243, 0.1)' : 'rgba(255,255,255,0.04)',
-                },
-                '&:focus-visible': {
-                  outline: '2px solid',
-                  outlineColor: 'primary.main',
-                  outlineOffset: 2,
-                },
-              }}
+              title={
+                <Box sx={{ fontSize: '0.78rem' }}>
+                  <Box sx={{ fontWeight: 600 }}>{meta.label}</Box>
+                  <Box sx={{ fontFamily: 'monospace', mt: 0.25 }}>{meta.image}</Box>
+                </Box>
+              }
+              arrow
+              placement="top"
             >
               <Box
+                role="button"
+                tabIndex={0}
+                onClick={() => onChange(name)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault()
+                    onChange(name)
+                  }
+                }}
                 sx={{
-                  width: 44,
-                  height: 44,
-                  borderRadius: '50%',
+                  position: 'relative',
                   display: 'flex',
+                  flexDirection: 'column',
                   alignItems: 'center',
-                  justifyContent: 'center',
-                  bgcolor: selected ? `${meta.accent}33` : `${meta.accent}1f`,
-                  mb: 1,
+                  p: 1.5,
+                  borderRadius: 1.5,
+                  cursor: 'pointer',
+                  userSelect: 'none',
+                  border: '1px solid',
+                  borderColor: selected ? 'primary.main' : 'rgba(255,255,255,0.08)',
+                  bgcolor: selected ? 'rgba(33, 150, 243, 0.08)' : 'rgba(255,255,255,0.02)',
+                  transition: 'border-color 120ms, background-color 120ms, transform 120ms',
+                  '&:hover': {
+                    borderColor: selected ? 'primary.main' : 'rgba(255,255,255,0.18)',
+                    bgcolor: selected ? 'rgba(33, 150, 243, 0.1)' : 'rgba(255,255,255,0.04)',
+                  },
+                  '&:focus-visible': {
+                    outline: '2px solid',
+                    outlineColor: 'primary.main',
+                    outlineOffset: 2,
+                  },
                 }}
               >
-                <meta.Icon size={26} color={meta.accent} />
-              </Box>
-              <Typography
-                variant="body2"
-                sx={{
-                  fontWeight: 600,
-                  textAlign: 'center',
-                  lineHeight: 1.2,
-                  mb: 0.25,
-                  color: selected ? 'text.primary' : 'text.primary',
-                }}
-              >
-                {meta.label}
-              </Typography>
-              <Typography
-                variant="caption"
-                color="text.secondary"
-                sx={{
-                  textAlign: 'center',
-                  fontSize: '0.68rem',
-                  lineHeight: 1.25,
-                  display: '-webkit-box',
-                  WebkitLineClamp: 2,
-                  WebkitBoxOrient: 'vertical',
-                  overflow: 'hidden',
-                }}
-              >
-                {meta.description}
-              </Typography>
-              {billingEnabled && price !== undefined && (
-                <Typography
-                  variant="caption"
+                <Box
                   sx={{
-                    mt: 0.75,
-                    fontStyle: 'italic',
-                    fontFamily: '"Georgia", "Times New Roman", serif',
-                    color: 'rgba(255,255,255,0.55)',
-                    fontSize: '0.7rem',
+                    width: 44,
+                    height: 44,
+                    borderRadius: '50%',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    bgcolor: selected ? `${meta.accent}33` : `${meta.accent}1f`,
+                    mb: 1,
                   }}
                 >
-                  {formatPrice(price)} credits/sec
+                  <meta.Icon size={26} color={meta.accent} />
+                </Box>
+                <Typography
+                  variant="body2"
+                  sx={{
+                    fontWeight: 600,
+                    textAlign: 'center',
+                    lineHeight: 1.2,
+                    mb: 0.25,
+                  }}
+                >
+                  {meta.label}
                 </Typography>
-              )}
-            </Box>
+                <Typography
+                  variant="caption"
+                  color="text.secondary"
+                  sx={{
+                    textAlign: 'center',
+                    fontSize: '0.68rem',
+                    lineHeight: 1.25,
+                    display: '-webkit-box',
+                    WebkitLineClamp: 2,
+                    WebkitBoxOrient: 'vertical',
+                    overflow: 'hidden',
+                  }}
+                >
+                  {meta.description}
+                </Typography>
+              </Box>
+            </Tooltip>
           )
         })}
       </Box>

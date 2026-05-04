@@ -267,20 +267,23 @@ export function useSandboxBilling(
   options?: { enabled?: boolean; refetchInterval?: number | false },
 ) {
   const api = useApi()
+  const apiClient = api.getApiClient()
 
   return useQuery({
     queryKey: sandboxBillingQueryKey(orgId ?? '', id ?? ''),
     queryFn: async (): Promise<SandboxBilling | null> => {
       if (!orgId || !id) return null
-      // The /billing endpoint isn't in the generated client yet — go through
-      // the raw axios helper. Suppress snackbar so we don't spam toasts when
-      // billing is disabled (handler still 200s in that case, but keep this
-      // defensive for transient errors).
-      return api.get<SandboxBilling>(
-        `/api/v1/organizations/${orgId}/sandboxes/${id}/billing`,
-        undefined,
-        { snackbar: false },
-      )
+      const result = await apiClient.v1OrganizationsSandboxesBillingDetail(orgId, id, {
+        snackbar: false,
+      } as any)
+      return {
+        enabled: result.data.enabled ?? false,
+        price_credits_per_second: result.data.price_credits_per_second ?? 0,
+        total_credits_charged: result.data.total_credits_charged ?? 0,
+        pending_credits: result.data.pending_credits ?? 0,
+        runtime: result.data.runtime ?? '',
+        vcpus: result.data.vcpus ?? 0,
+      }
     },
     enabled: !!orgId && !!id && (options?.enabled ?? true),
     refetchInterval: options?.refetchInterval ?? 10000,
@@ -303,16 +306,23 @@ export function useSandboxTerminalSessions(
   options?: { enabled?: boolean; refetchInterval?: number },
 ) {
   const api = useApi()
+  const apiClient = api.getApiClient()
 
   return useQuery({
     queryKey: sandboxTerminalSessionsQueryKey(orgId ?? '', id ?? ''),
     queryFn: async (): Promise<{ sessions: SandboxTerminalSession[] } | null> => {
       if (!orgId || !id) return null
-      return api.get<{ sessions: SandboxTerminalSession[] }>(
-        `/api/v1/organizations/${orgId}/sandboxes/${id}/terminal/sessions`,
-        undefined,
-        { snackbar: false },
-      )
+      const result = await apiClient.v1OrganizationsSandboxesTerminalSessionsDetail(orgId, id, {
+        snackbar: false,
+      } as any)
+      return {
+        sessions: (result.data.sessions ?? []).map((session) => ({
+          name: session.name ?? '',
+          attached: session.attached ?? false,
+          windows: session.windows,
+          created: session.created,
+        })),
+      }
     },
     enabled: !!orgId && !!id && (options?.enabled ?? true),
     refetchInterval: options?.refetchInterval ?? 5000,

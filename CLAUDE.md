@@ -454,7 +454,7 @@ Operators configure runtimes via env vars (parsed by `config.Sandboxes`):
 
 | Env | Default |
 |---|---|
-| `HELIX_SANDBOX_RUNTIMES` | `headless-ubuntu=ubuntu:22.04\|sleep infinity,node22=node:22-bookworm-slim\|tail -f /dev/null,python313=python:3.13-slim\|tail -f /dev/null,debian-slim=debian:bookworm-slim\|tail -f /dev/null` |
+| `HELIX_SANDBOX_RUNTIMES` | `headless-ubuntu=ubuntu:22.04\|sleep infinity,node22=node:22-bookworm-slim\|tail -f /dev/null,python313=python:3.13-slim\|tail -f /dev/null` |
 | `HELIX_SANDBOX_DEFAULT_RUNTIME` | `headless-ubuntu` |
 | `HELIX_SANDBOX_ALLOW_CUSTOM_IMAGE` | `false` (set true to let API callers pass arbitrary `image`) |
 

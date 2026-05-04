@@ -78,10 +78,16 @@ func (s *Server) handleSandboxExecList(w http.ResponseWriter, r *http.Request) {
 
 // handleSandboxExecGet returns a single command record.
 func (s *Server) handleSandboxExecGet(w http.ResponseWriter, r *http.Request) {
-	cmdID := mux.Vars(r)["cmd_id"]
+	vars := mux.Vars(r)
+	sessionID := vars["session_id"]
+	cmdID := vars["cmd_id"]
 	rec, err := s.sandboxOps.GetCommand(cmdID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	if rec.SandboxID != sessionID {
+		http.Error(w, ErrSandboxCommandNotFound.Error(), http.StatusNotFound)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -91,10 +97,16 @@ func (s *Server) handleSandboxExecGet(w http.ResponseWriter, r *http.Request) {
 // handleSandboxExecLogs streams logs over Server-Sent Events.
 // Query: ?stream=stdout|stderr|both (default both), ?follow=1 to keep open.
 func (s *Server) handleSandboxExecLogs(w http.ResponseWriter, r *http.Request) {
-	cmdID := mux.Vars(r)["cmd_id"]
+	vars := mux.Vars(r)
+	sessionID := vars["session_id"]
+	cmdID := vars["cmd_id"]
 	rec, err := s.sandboxOps.GetCommand(cmdID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	if rec.SandboxID != sessionID {
+		http.Error(w, ErrSandboxCommandNotFound.Error(), http.StatusNotFound)
 		return
 	}
 	wantStream := r.URL.Query().Get("stream")

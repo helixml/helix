@@ -134,23 +134,7 @@ const CreateSandboxDialog: FC<Props> = ({ open, orgId, onClose, onCreated }) => 
             placeholder="my-sandbox"
             fullWidth
           />
-          <RuntimePicker
-            value={runtime}
-            onChange={setRuntime}
-            billingEnabled={!!systemSettings?.sandbox_billing_enabled}
-            priceForRuntime={(rt) => {
-              if (!systemSettings) return undefined
-              const meta = runtimeMeta(rt)
-              const perCore = meta.pricingType === 'desktop'
-                ? (systemSettings.sandbox_desktop_price_credits_per_second ?? 0)
-                : (systemSettings.sandbox_headless_price_credits_per_second ?? 0)
-              const vcpus = (RESOURCE_PRESETS.find((p) => p.value === resourcePreset)?.vcpus) ?? 1
-              return perCore * vcpus
-            }}
-          />
-          <Typography variant="caption" color="text.secondary" component="div">
-            {runtimeMeta(runtime).description}
-          </Typography>
+          <RuntimePicker value={runtime} onChange={setRuntime} />
           <TextField
             label="Resources"
             select
@@ -262,7 +246,36 @@ const CreateSandboxDialog: FC<Props> = ({ open, orgId, onClose, onCreated }) => 
           />
         </Box>
       </DialogContent>
-      <DialogActions>
+      <DialogActions sx={{ px: 3, py: 1.5 }}>
+        {/* Price hint: only when billing is enabled AND a runtime is picked.
+            Mirrors what billSandbox actually deducts (rate × vCPUs). Kept on
+            the same row as Cancel/Create so users see the cost before
+            confirming, without cluttering the runtime tiles themselves. */}
+        {!!systemSettings?.sandbox_billing_enabled && !!runtime && (() => {
+          const meta = runtimeMeta(runtime)
+          const perCore = meta.pricingType === 'desktop'
+            ? (systemSettings.sandbox_desktop_price_credits_per_second ?? 0)
+            : (systemSettings.sandbox_headless_price_credits_per_second ?? 0)
+          const vcpus = (RESOURCE_PRESETS.find((p) => p.value === resourcePreset)?.vcpus) ?? 1
+          const perSecond = perCore * vcpus
+          const perMinute = perSecond * 60
+          const perHour = perSecond * 3600
+          if (perSecond <= 0) return null
+          const fmt = (n: number, d = 4) => n.toFixed(d)
+          return (
+            <Typography
+              sx={{
+                mr: 'auto',
+                fontStyle: 'italic',
+                fontFamily: '"Georgia", "Times New Roman", serif',
+                color: 'text.secondary',
+                fontSize: '0.85rem',
+              }}
+            >
+              {fmt(perSecond, 4)} credits/sec · {fmt(perMinute, 3)} /min · {fmt(perHour, 2)} /hr
+            </Typography>
+          )
+        })()}
         <Button onClick={onClose} disabled={createMutation.isPending}>Cancel</Button>
         <Button
           onClick={handleSubmit}

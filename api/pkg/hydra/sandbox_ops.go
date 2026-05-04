@@ -350,8 +350,7 @@ func (o *SandboxOps) RunCommand(ctx context.Context, sessionID string, req *Exec
 			rec.mu.Lock()
 			rec.canceled = true
 			rec.mu.Unlock()
-			// Best effort: kill the inner process.
-			_ = killExec(context.Background(), dockerClient, created.ID)
+			_ = killExec(context.Background(), dockerClient, dc.ContainerID, created.ID, "KILL")
 			copyErr = streamCtx.Err()
 		}
 
@@ -398,13 +397,30 @@ func (o *SandboxOps) RunCommand(ctx context.Context, sessionID string, req *Exec
 
 func killExec(ctx context.Context, dockerClient interface {
 	ContainerExecInspect(ctx context.Context, execID string) (dockertypes.ContainerExecInspect, error)
-}, execID string) error {
-	// Docker doesn't expose ContainerExecKill — closing the attach + inspecting
-	// is the closest we can do; the inner process receives SIGPIPE on stdin
-	// close. Caller wrapping the docker client signature here keeps the import
-	// graph minimal.
-	_, _ = dockerClient.ContainerExecInspect(ctx, execID)
-	return nil
+	ContainerExecCreate(ctx context.Context, container string, config dockertypes.ExecConfig) (dockertypes.IDResponse, error)
+	ContainerExecStart(ctx context.Context, execID string, config dockertypes.ExecStartCheck) error
+}, containerID, execID, signal string) error {
+	if signal == "" {
+		signal = "TERM"
+	}
+	if !isSafeSignalName(signal) {
+		return fmt.Errorf("invalid signal %q", signal)
+	}
+	insp, err := dockerClient.ContainerExecInspect(ctx, execID)
+	if err != nil {
+		return err
+	}
+	if insp.Pid == 0 {
+		return nil
+	}
+	killCfg := dockertypes.ExecConfig{
+		Cmd: []string{"/bin/sh", "-c", fmt.Sprintf("kill -%s -%d 2>/dev/null || kill -%s %d 2>/dev/null || true", signal, insp.Pid, signal, insp.Pid)},
+	}
+	created, err := dockerClient.ContainerExecCreate(ctx, containerID, killCfg)
+	if err != nil {
+		return err
+	}
+	return dockerClient.ContainerExecStart(ctx, created.ID, dockertypes.ExecStartCheck{})
 }
 
 // KillCommand terminates a running exec by closing its hijacked connection.
@@ -413,6 +429,9 @@ func (o *SandboxOps) KillCommand(ctx context.Context, sessionID, cmdID, signal s
 	rec, err := o.GetCommand(cmdID)
 	if err != nil {
 		return err
+	}
+	if rec.SandboxID != sessionID {
+		return ErrSandboxCommandNotFound
 	}
 	if rec.Status != CmdStatusRunning {
 		return nil
@@ -432,22 +451,22 @@ func (o *SandboxOps) KillCommand(ctx context.Context, sessionID, cmdID, signal s
 	}
 	defer dockerClient.Close()
 
-	insp, err := dockerClient.ContainerExecInspect(ctx, rec.execID)
-	if err != nil {
-		return err
+	return killExec(ctx, dockerClient, dc.ContainerID, rec.execID, signal)
+}
+
+func isSafeSignalName(signal string) bool {
+	if signal == "" || len(signal) > 16 {
+		return false
 	}
-	if insp.Pid == 0 {
-		return nil
+	for _, r := range signal {
+		switch {
+		case r >= 'A' && r <= 'Z':
+		case r >= '0' && r <= '9':
+		default:
+			return false
+		}
 	}
-	// Run `kill -SIGNAL PID` inside the container using a fresh exec.
-	killCfg := dockertypes.ExecConfig{
-		Cmd: []string{"/bin/sh", "-c", fmt.Sprintf("kill -%s %d || true", signal, insp.Pid)},
-	}
-	created, err := dockerClient.ContainerExecCreate(ctx, dc.ContainerID, killCfg)
-	if err != nil {
-		return err
-	}
-	return dockerClient.ContainerExecStart(ctx, created.ID, dockertypes.ExecStartCheck{})
+	return true
 }
 
 // cmdRecordWriter pipes Docker stdcopy demuxed bytes into a SandboxCmdRecord.

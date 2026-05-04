@@ -76,7 +76,7 @@ type Sandboxes struct {
 	//   python313=python:3.13-slim|tail -f /dev/null
 	// If the trailing `|...` is omitted the default keep-alive command
 	// (`tail -f /dev/null`) is used.
-	Runtimes string `envconfig:"HELIX_SANDBOX_RUNTIMES" default:"headless-ubuntu=ubuntu:22.04|sleep infinity,node22=node:22-bookworm-slim|tail -f /dev/null,python313=python:3.13-slim|tail -f /dev/null,debian-slim=debian:bookworm-slim|tail -f /dev/null"`
+	Runtimes string `envconfig:"HELIX_SANDBOX_RUNTIMES" default:"headless-ubuntu=ubuntu:22.04|sleep infinity,node22=node:22-bookworm-slim|tail -f /dev/null,python313=python:3.13-slim|tail -f /dev/null"`
 
 	// AllowCustomImage lets API callers pass an arbitrary image name in the
 	// create request. False blocks anything outside the configured runtimes.
