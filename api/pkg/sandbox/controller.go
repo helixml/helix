@@ -694,6 +694,9 @@ func (c *Controller) StartReaper(ctx context.Context, interval time.Duration) {
 			if err := c.ReapBilling(ctx); err != nil {
 				log.Warn().Err(err).Msg("sandbox billing iteration failed")
 			}
+			if err := c.CleanupStoppedNonPersistent(ctx); err != nil {
+				log.Warn().Err(err).Msg("sandbox stopped cleanup iteration failed")
+			}
 		}
 	}
 }

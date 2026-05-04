@@ -1954,6 +1954,21 @@ definitions:
           $ref: '#/definitions/server.SampleType'
         type: array
     type: object
+  server.SandboxBillingResponse:
+    properties:
+      enabled:
+        type: boolean
+      pending_credits:
+        type: number
+      price_credits_per_second:
+        type: number
+      runtime:
+        type: string
+      total_credits_charged:
+        type: number
+      vcpus:
+        type: integer
+    type: object
   server.SandboxInstanceInfo:
     properties:
       active_profile_id:
@@ -1981,6 +1996,24 @@ definitions:
         type: string
       status:
         type: string
+    type: object
+  server.SandboxTerminalSession:
+    properties:
+      attached:
+        type: boolean
+      created:
+        type: integer
+      name:
+        type: string
+      windows:
+        type: integer
+    type: object
+  server.SandboxTerminalSessionsResponse:
+    properties:
+      sessions:
+        items:
+          $ref: '#/definitions/server.SandboxTerminalSession'
+        type: array
     type: object
   server.SessionClaudeCredentialsResponse:
     properties:
@@ -6824,7 +6857,20 @@ definitions:
     properties:
       active_concurrent_desktops:
         type: integer
+      active_desktop_sandboxes:
+        description: |-
+          Sandbox API concurrency. Distinct from ActiveConcurrentDesktops above —
+          that one counts external_agent sessions (the spec-task desktop stack),
+          while these count rows in the sandboxes table by runtime category.
+          "Active" = pending|running|stopping (matches ensureSandboxLimits).
+        type: integer
+      active_headless_sandboxes:
+        type: integer
       max_concurrent_desktops:
+        type: integer
+      max_desktop_sandboxes:
+        type: integer
+      max_headless_sandboxes:
         type: integer
       max_projects:
         type: integer
@@ -15647,6 +15693,31 @@ paths:
       summary: Update sandbox
       tags:
       - Sandboxes
+  /api/v1/organizations/{org_id}/sandboxes/{id}/billing:
+    get:
+      parameters:
+      - description: Organization ID
+        in: path
+        name: org_id
+        required: true
+        type: string
+      - description: Sandbox ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.SandboxBillingResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: Sandbox billing summary
+      tags:
+      - Sandboxes
   /api/v1/organizations/{org_id}/sandboxes/{id}/commands:
     get:
       parameters:
@@ -15971,6 +16042,31 @@ paths:
       security:
       - ApiKeyAuth: []
       summary: Sandbox terminal websocket
+      tags:
+      - Sandboxes
+  /api/v1/organizations/{org_id}/sandboxes/{id}/terminal/sessions:
+    get:
+      parameters:
+      - description: Organization ID
+        in: path
+        name: org_id
+        required: true
+        type: string
+      - description: Sandbox ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.SandboxTerminalSessionsResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: List sandbox tmux sessions
       tags:
       - Sandboxes
   /api/v1/projects:

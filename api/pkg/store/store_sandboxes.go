@@ -227,3 +227,16 @@ func (s *PostgresStore) ListExpiredSandboxes(ctx context.Context, now time.Time)
 	}
 	return sandboxes, nil
 }
+
+// ListStoppedNonPersistentSandboxes returns stopped ephemeral sandboxes that
+// have been stopped since before the cutoff and have not been deleted yet.
+func (s *PostgresStore) ListStoppedNonPersistentSandboxes(ctx context.Context, before time.Time) ([]*types.Sandbox, error) {
+	var sandboxes []*types.Sandbox
+	err := s.gdb.WithContext(ctx).
+		Where("deleted_at IS NULL AND status = ? AND persistent = ? AND stopped_at IS NOT NULL AND stopped_at < ?", types.SandboxStatusStopped, false, before).
+		Find(&sandboxes).Error
+	if err != nil {
+		return nil, err
+	}
+	return sandboxes, nil
+}

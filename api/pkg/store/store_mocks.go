@@ -4833,6 +4833,21 @@ func (mr *MockStoreMockRecorder) ListStepInfos(ctx, query any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListStepInfos", reflect.TypeOf((*MockStore)(nil).ListStepInfos), ctx, query)
 }
 
+// ListStoppedNonPersistentSandboxes mocks base method.
+func (m *MockStore) ListStoppedNonPersistentSandboxes(ctx context.Context, before time.Time) ([]*types.Sandbox, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListStoppedNonPersistentSandboxes", ctx, before)
+	ret0, _ := ret[0].([]*types.Sandbox)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListStoppedNonPersistentSandboxes indicates an expected call of ListStoppedNonPersistentSandboxes.
+func (mr *MockStoreMockRecorder) ListStoppedNonPersistentSandboxes(ctx, before any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListStoppedNonPersistentSandboxes", reflect.TypeOf((*MockStore)(nil).ListStoppedNonPersistentSandboxes), ctx, before)
+}
+
 // ListStuckWaitingInteractions mocks base method.
 func (m *MockStore) ListStuckWaitingInteractions(ctx context.Context, olderThan time.Time, limit int) ([]*types.Interaction, error) {
 	m.ctrl.T.Helper()

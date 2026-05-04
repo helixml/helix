@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
@@ -65,7 +66,10 @@ func (s *HelixAPIServer) listSandboxRuntimes(rw http.ResponseWriter, _ *http.Req
 // @Router /api/v1/organizations/{org_id}/sandboxes [get]
 func (s *HelixAPIServer) listOrgSandboxes(rw http.ResponseWriter, r *http.Request) {
 	user := getRequestUser(r)
-	orgID := mux.Vars(r)["org_id"]
+	orgID := s.resolveURLOrgID(rw, r)
+	if orgID == "" {
+		return
+	}
 
 	if _, err := s.authorizeOrgMember(r.Context(), user, orgID); err != nil {
 		http.Error(rw, err.Error(), http.StatusForbidden)
@@ -101,7 +105,10 @@ func (s *HelixAPIServer) listOrgSandboxes(rw http.ResponseWriter, r *http.Reques
 // @Router /api/v1/organizations/{org_id}/sandboxes [post]
 func (s *HelixAPIServer) createOrgSandbox(rw http.ResponseWriter, r *http.Request) {
 	user := getRequestUser(r)
-	orgID := mux.Vars(r)["org_id"]
+	orgID := s.resolveURLOrgID(rw, r)
+	if orgID == "" {
+		return
+	}
 
 	if _, err := s.authorizeOrgMember(r.Context(), user, orgID); err != nil {
 		http.Error(rw, err.Error(), http.StatusForbidden)
@@ -687,11 +694,25 @@ func isSafeSandboxSessionName(s string) bool {
 // SandboxBillingResponse summarises the billing state of a sandbox for the
 // detail page. Returned even when billing is disabled so the UI can render a
 // "billing not enabled" hint without a separate request.
+//
+// Fields:
+//   - PriceCreditsPerSecond is the *effective* rate for THIS sandbox: the
+//     runtime's per-second rate multiplied by its vCPU count, matching what
+//     `billSandbox` actually deducts. Display this directly without further
+//     scaling.
+//   - TotalCreditsCharged is the sum of all wallet debits tagged with this
+//     sandbox id — i.e. completed-minute charges already applied.
+//   - PendingCredits is the unbilled accrual since the last charge boundary
+//     (zero if billing isn't enabled or the sandbox isn't running). Lets the
+//     UI show live feedback before the next minute tick lands in
+//     TotalCreditsCharged.
 type SandboxBillingResponse struct {
 	Enabled               bool    `json:"enabled"`
 	PriceCreditsPerSecond float64 `json:"price_credits_per_second"`
 	TotalCreditsCharged   float64 `json:"total_credits_charged"`
+	PendingCredits        float64 `json:"pending_credits"`
 	Runtime               string  `json:"runtime"`
+	VCPUs                 int     `json:"vcpus"`
 }
 
 // sandboxBilling returns the live per-second price and the total credits
@@ -715,24 +736,54 @@ func (s *HelixAPIServer) sandboxBilling(rw http.ResponseWriter, r *http.Request)
 		http.Error(rw, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	vcpus := sb.VCPUs
+	if vcpus < 1 {
+		vcpus = 1
+	}
 	resp := SandboxBillingResponse{
 		Enabled: settings != nil && settings.SandboxBillingEnabled,
 		Runtime: string(sb.Runtime),
+		VCPUs:   vcpus,
 	}
 	if settings != nil {
+		var perSecondPerCore float64
 		switch sb.Runtime {
 		case types.SandboxRuntimeUbuntuDesktop:
-			resp.PriceCreditsPerSecond = settings.SandboxDesktopPriceCreditsPerSecond
+			perSecondPerCore = settings.SandboxDesktopPriceCreditsPerSecond
 		default:
 			// Headless and any future non-desktop runtimes fall through to the
-			// headless rate, matching controller_billing.go.
-			resp.PriceCreditsPerSecond = settings.SandboxHeadlessPriceCreditsPerSecond
+			// headless rate, matching controller_billing.go's sandboxPrice().
+			perSecondPerCore = settings.SandboxHeadlessPriceCreditsPerSecond
 		}
+		// `billSandbox` multiplies by sandboxBillableCores(sb), so the visible
+		// rate must too — otherwise a 4-vCPU sandbox shows 1/4 of what it
+		// actually costs.
+		resp.PriceCreditsPerSecond = perSecondPerCore * float64(vcpus)
 	}
 	if total, err := s.Store.SumSandboxCharges(r.Context(), sb.ID); err == nil {
 		resp.TotalCreditsCharged = total
 	} else {
 		log.Warn().Err(err).Str("sandbox_id", sb.ID).Msg("failed to sum sandbox charges; reporting 0")
+	}
+	// Live "ticking" estimate: the reaper only debits in 60s blocks, so without
+	// this the UI would read 0 credits for the first minute after enabling
+	// billing or starting the sandbox, which looks broken. Compute the partial-
+	// minute accrual since the last charge boundary so the dashboard updates
+	// every poll cycle.
+	if resp.Enabled && resp.PriceCreditsPerSecond > 0 && sb.Status == types.SandboxStatusRunning {
+		var from *time.Time
+		switch {
+		case sb.BillingLastChargedAt != nil:
+			from = sb.BillingLastChargedAt
+		case sb.StartedAt != nil:
+			from = sb.StartedAt
+		}
+		if from != nil {
+			elapsed := time.Since(*from).Seconds()
+			if elapsed > 0 {
+				resp.PendingCredits = resp.PriceCreditsPerSecond * elapsed
+			}
+		}
 	}
 	writeJSON(rw, http.StatusOK, resp)
 }
@@ -831,6 +882,26 @@ func (s *HelixAPIServer) sandboxTerminalSessions(rw http.ResponseWriter, r *http
 	writeJSON(rw, http.StatusOK, out)
 }
 
+// resolveURLOrgID reads the {org_id} URL segment and returns the actual
+// organization id, accepting either an `org_…` id or an org name/slug. Writes
+// an HTTP error and returns "" if the org doesn't exist. Use this in every
+// sandbox handler that takes {org_id} so the same URL works whether the
+// caller built it from `account.organization.id` or the URL slug — sandboxes
+// are stored by id, so we must never persist the slug.
+func (s *HelixAPIServer) resolveURLOrgID(rw http.ResponseWriter, r *http.Request) string {
+	raw := mux.Vars(r)["org_id"]
+	if raw == "" {
+		http.Error(rw, "missing org_id", http.StatusBadRequest)
+		return ""
+	}
+	org, err := s.lookupOrg(r.Context(), raw)
+	if err != nil {
+		http.Error(rw, "organization not found", http.StatusNotFound)
+		return ""
+	}
+	return org.ID
+}
+
 // loadAuthorizedSandbox fetches the sandbox by id, verifies the caller is a
 // member of its organization, and confirms the URL's org_id matches the
 // sandbox's org so cross-org id-guessing is blocked. Writes an HTTP error and
@@ -839,7 +910,13 @@ func (s *HelixAPIServer) loadAuthorizedSandbox(rw http.ResponseWriter, r *http.R
 	user := getRequestUser(r)
 	vars := mux.Vars(r)
 	id := vars["id"]
-	urlOrgID := vars["org_id"]
+	// Resolve the URL's {org_id} (which may be either an org id OR a slug)
+	// to the canonical id stored on the sandbox row, so the equality check
+	// below works regardless of which form the caller used.
+	urlOrgID := s.resolveURLOrgID(rw, r)
+	if urlOrgID == "" {
+		return nil, errors.New("org not found")
+	}
 	sb, err := s.sandboxController.Get(r.Context(), id)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
@@ -849,7 +926,7 @@ func (s *HelixAPIServer) loadAuthorizedSandbox(rw http.ResponseWriter, r *http.R
 		}
 		return nil, err
 	}
-	if urlOrgID != "" && urlOrgID != sb.OrganizationID {
+	if urlOrgID != sb.OrganizationID {
 		http.Error(rw, "sandbox not found", http.StatusNotFound)
 		return nil, errors.New("org mismatch")
 	}

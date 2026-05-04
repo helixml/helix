@@ -8373,6 +8373,46 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/organizations/{org_id}/sandboxes/{id}/billing": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sandboxes"
+                ],
+                "summary": "Sandbox billing summary",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID",
+                        "name": "org_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Sandbox ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.SandboxBillingResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/organizations/{org_id}/sandboxes/{id}/commands": {
             "get": {
                 "security": [
@@ -8878,6 +8918,46 @@ const docTemplate = `{
                     }
                 ],
                 "responses": {}
+            }
+        },
+        "/api/v1/organizations/{org_id}/sandboxes/{id}/terminal/sessions": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sandboxes"
+                ],
+                "summary": "List sandbox tmux sessions",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID",
+                        "name": "org_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Sandbox ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.SandboxTerminalSessionsResponse"
+                        }
+                    }
+                }
             }
         },
         "/api/v1/projects": {
@@ -20861,6 +20941,29 @@ const docTemplate = `{
                 }
             }
         },
+        "server.SandboxBillingResponse": {
+            "type": "object",
+            "properties": {
+                "enabled": {
+                    "type": "boolean"
+                },
+                "pending_credits": {
+                    "type": "number"
+                },
+                "price_credits_per_second": {
+                    "type": "number"
+                },
+                "runtime": {
+                    "type": "string"
+                },
+                "total_credits_charged": {
+                    "type": "number"
+                },
+                "vcpus": {
+                    "type": "integer"
+                }
+            }
+        },
         "server.SandboxInstanceInfo": {
             "type": "object",
             "properties": {
@@ -20897,6 +21000,34 @@ const docTemplate = `{
                 },
                 "status": {
                     "type": "string"
+                }
+            }
+        },
+        "server.SandboxTerminalSession": {
+            "type": "object",
+            "properties": {
+                "attached": {
+                    "type": "boolean"
+                },
+                "created": {
+                    "type": "integer"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "windows": {
+                    "type": "integer"
+                }
+            }
+        },
+        "server.SandboxTerminalSessionsResponse": {
+            "type": "object",
+            "properties": {
+                "sessions": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/server.SandboxTerminalSession"
+                    }
                 }
             }
         },
@@ -27715,7 +27846,20 @@ const docTemplate = `{
                 "active_concurrent_desktops": {
                     "type": "integer"
                 },
+                "active_desktop_sandboxes": {
+                    "description": "Sandbox API concurrency. Distinct from ActiveConcurrentDesktops above —\nthat one counts external_agent sessions (the spec-task desktop stack),\nwhile these count rows in the sandboxes table by runtime category.\n\"Active\" = pending|running|stopping (matches ensureSandboxLimits).",
+                    "type": "integer"
+                },
+                "active_headless_sandboxes": {
+                    "type": "integer"
+                },
                 "max_concurrent_desktops": {
+                    "type": "integer"
+                },
+                "max_desktop_sandboxes": {
+                    "type": "integer"
+                },
+                "max_headless_sandboxes": {
                     "type": "integer"
                 },
                 "max_projects": {

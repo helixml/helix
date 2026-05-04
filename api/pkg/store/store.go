@@ -733,6 +733,7 @@ type Store interface {
 	SetSandboxContainer(ctx context.Context, id string, hostDeviceID, containerID string) error
 	DeleteSandbox(ctx context.Context, id string) error
 	ListExpiredSandboxes(ctx context.Context, now time.Time) ([]*types.Sandbox, error)
+	ListStoppedNonPersistentSandboxes(ctx context.Context, before time.Time) ([]*types.Sandbox, error)
 	// SumSandboxCharges totals the absolute credit amount of every wallet
 	// transaction tagged with this sandbox id. Returned in credits.
 	SumSandboxCharges(ctx context.Context, sandboxID string) (float64, error)
