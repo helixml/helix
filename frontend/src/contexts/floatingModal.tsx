@@ -1,9 +1,9 @@
 import React, { createContext, useContext, useState, ReactNode } from 'react'
-import { TypesDashboardRunner } from '../api/api'
+import { DashboardRunner } from '../types/dashboard'
 
 interface FloatingModalConfig {
   type: 'logs' | 'rdp'
-  runner?: TypesDashboardRunner
+  runner?: DashboardRunner
   sessionId?: string
 }
 

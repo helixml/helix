@@ -262,7 +262,11 @@ if [ -n "\$HELIX_SCALE_FACTOR" ]; then
 fi
 
 # Launch Zed after GNOME Shell is ready - it needs wayland-0
-if [ -x /zed-build/zed ]; then
+# Skip when this container is running as a Sandboxes API sandbox — those start
+# the desktop without booting the agent stack so users can exec their own commands.
+if [ "${HELIX_DISABLE_AGENT}" = "1" ]; then
+  gow_log "[start] HELIX_DISABLE_AGENT=1 — skipping Zed/agent boot (sandboxes API mode)"
+elif [ -x /zed-build/zed ]; then
   (
     gow_log "[start] Waiting for GNOME Shell to be ready before launching Zed..."
     # Wait for wayland-0 socket AND verify GNOME Shell is accepting D-Bus calls.
