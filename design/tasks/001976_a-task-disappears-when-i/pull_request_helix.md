@@ -21,13 +21,20 @@ The create-task form now offers an optional assignee field (defaulting to the cu
 
 - [x] `go test -v -run TestSpecTaskAssigneeSuite ./api/pkg/server/` — passes locally (4/4)
 - [x] `cd frontend && yarn build` — passes
-- [ ] **Not tested in this environment** (no running inner Helix to drive a browser against): manual smoke test in the inner Helix —
-  - register/log in, open the New Task panel
-  - confirm the assignee field defaults to the current user
-  - change to another org member, submit, confirm the new card shows that assignee
-  - open the form again, change the assignee to "Unassigned", submit, confirm the new card is unassigned
-  - set the kanban filter to "current user only", create a task with the default, confirm it lands in the visible columns immediately (the original bug repro)
-  - try to assign to a non-member via the API directly, confirm HTTP 400 with `assignee must be an organization member`
+- [x] Manual smoke test in the inner Helix — verified end-to-end:
+  - assignee field defaults to the current user (`screenshots/01-new-task-form-default-current-user.png`)
+  - popover lists "Unassigned" + members, current user sorted to top (`02-assignee-selector-popover.png`)
+  - submitting with the default creates a card with the current user's avatar (`03-task-created-assigned-to-current-user.png`)
+  - choosing "Unassigned" before submit creates an unassigned card (`04-task-created-unassigned.png`)
+  - **Original bug repro fixed**: with the kanban filter set to "Test User", a freshly-created task (defaulted to current user) appears immediately on the board — no longer disappears (`05-filter-set-to-test-user.png`, `06-bug-fixed-new-task-visible-with-filter.png`)
+
+## Screenshots
+
+![New task form — assignee defaults to current user](https://github.com/helixml/helix/raw/helix-specs/design/tasks/001976_a-task-disappears-when-i/screenshots/01-new-task-form-default-current-user.png)
+![Assignee popover with Unassigned + members](https://github.com/helixml/helix/raw/helix-specs/design/tasks/001976_a-task-disappears-when-i/screenshots/02-assignee-selector-popover.png)
+![Task created with default assignee](https://github.com/helixml/helix/raw/helix-specs/design/tasks/001976_a-task-disappears-when-i/screenshots/03-task-created-assigned-to-current-user.png)
+![Task created with Unassigned](https://github.com/helixml/helix/raw/helix-specs/design/tasks/001976_a-task-disappears-when-i/screenshots/04-task-created-unassigned.png)
+![Bug repro: new task visible with active "Test User" filter](https://github.com/helixml/helix/raw/helix-specs/design/tasks/001976_a-task-disappears-when-i/screenshots/06-bug-fixed-new-task-visible-with-filter.png)
 
 ## Notes
 
