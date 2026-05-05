@@ -135,11 +135,15 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 		// Use empty scopes - the token getter will use whatever scopes the user has
 		return apiServer.oauthManager.GetTokenForTool(ctx, userID, providerName, nil)
 	}
-	providerSnapshot, err := apiServer.getProviderSnapshot(ctx, session.Owner)
+	providerSnapshot, err := apiServer.getProviderSnapshot(ctx, session.Owner, app)
 	if err != nil {
 		log.Warn().Err(err).Str("session_id", sessionID).Msg("zed-config: failed to list providers; provider resolution will be skipped")
 	}
-	apiServer.healLegacyProviderRefs(ctx, app, providerSnapshot)
+	// Heal-on-read rewrites legacy name refs to immutable IDs. Skip the
+	// persisted write for runner-token requests so two concurrent runner
+	// pulls don't race UpdateApp and runner traffic doesn't bump
+	// app.UpdatedAt — the in-memory rewrite still feeds Generate below.
+	apiServer.healLegacyProviderRefs(ctx, app, providerSnapshot, user.TokenType != types.TokenTypeRunner)
 	zedConfig, err := external_agent.GenerateZedMCPConfig(ctx, app, session.Owner, sessionID, sandboxAPIURL, helixToken, koditEnabled, projectSkills, oauthTokenGetter, providerSnapshot)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to generate Zed config")
@@ -521,8 +525,10 @@ func (apiServer *HelixAPIServer) buildCodeAgentConfig(ctx context.Context, app *
 			// current name) — Zed's model picker fails the lookup and falls
 			// back to its built-in Claude default.
 			//
-			// See deviqon/P1-5-zed-overrides-clobber-helix-default-model.md.
-			snapshot, err := apiServer.getProviderSnapshot(ctx, app.Owner)
+			// app.Owner drives the actor identity here — buildCodeAgentConfig
+			// has no session/request context. Org providers are still
+			// resolved via the org bucket inside getProviderSnapshot.
+			snapshot, err := apiServer.getProviderSnapshot(ctx, app.Owner, app)
 			if err != nil {
 				log.Warn().Err(err).Str("app_id", app.ID).Msg("buildCodeAgentConfig: provider snapshot unavailable; model prefix may not match agent.default_model")
 			}
@@ -654,17 +660,26 @@ func (apiServer *HelixAPIServer) buildCodeAgentConfigFromAssistant(ctx context.C
 	}
 }
 
-// getProviderSnapshot returns a slice of ProviderRef summarising every
-// provider visible to the owner — env-baked globals (ID="", Name=canonical)
-// plus DB-backed user/org records (ID set, Name=current admin label). Used
-// by zed-config code paths to resolve an agent's stored provider reference
-// to its current canonical name. Returning nil from this helper (e.g. when
-// the manager isn't wired) tells GenerateZedMCPConfig to skip resolution.
-func (apiServer *HelixAPIServer) getProviderSnapshot(ctx context.Context, owner string) ([]external_agent.ProviderRef, error) {
+// getProviderSnapshot returns a ProviderRef snapshot of every provider
+// visible to the actor for the given app — env-baked globals (ID="",
+// Name=canonical) plus DB-backed user/org records (ID set, Name=current
+// admin label). Used by zed-config code paths to resolve an agent's stored
+// provider reference to its current canonical name.
+//
+// The app argument is what makes this org-aware: when app.OrganizationID
+// is set, org-owned providers are listed first and the user's personal
+// providers are merged in (so a user running an org agent that references
+// their own personal provider still resolves). actorID may be "" when
+// there's no user context (rare; e.g. system-driven paths) — in that case
+// only the app-owner bucket is returned.
+//
+// Returning nil from this helper (e.g. when the manager isn't wired) tells
+// GenerateZedMCPConfig to skip resolution.
+func (apiServer *HelixAPIServer) getProviderSnapshot(ctx context.Context, actorID string, app *types.App) ([]external_agent.ProviderRef, error) {
 	if apiServer.providerManager == nil {
 		return nil, nil
 	}
-	endpoints, err := apiServer.providerManager.ListProviderEndpoints(ctx, owner)
+	endpoints, err := apiServer.listEndpointsForApp(ctx, actorID, app)
 	if err != nil {
 		return nil, err
 	}
@@ -673,6 +688,63 @@ func (apiServer *HelixAPIServer) getProviderSnapshot(ctx context.Context, owner 
 		refs = append(refs, external_agent.ProviderRef{ID: ep.ID, Name: ep.Name})
 	}
 	return refs, nil
+}
+
+// listEndpointsForApp returns ProviderEndpoint records visible to the actor
+// for the given app, with the org-first + user-merge pattern that
+// validateProvidersAndModels established. Centralising it here means every
+// caller (substitution, validation, zed-config, spec-task pre-flight) sees
+// the same view of "what providers can this agent legitimately reference".
+//
+// Without the merge, an org-owned agent that references the org member's
+// personal provider would 422 at session start; with it, both buckets
+// participate in resolution.
+func (apiServer *HelixAPIServer) listEndpointsForApp(ctx context.Context, actorID string, app *types.App) ([]*types.ProviderEndpoint, error) {
+	if apiServer.providerManager == nil {
+		return nil, nil
+	}
+	owner := actorID
+	if app != nil && app.OrganizationID != "" {
+		owner = app.OrganizationID
+	}
+	endpoints, err := apiServer.providerManager.ListProviderEndpoints(ctx, owner)
+	if err != nil {
+		return nil, err
+	}
+	if app == nil || app.OrganizationID == "" || actorID == "" || actorID == app.OrganizationID {
+		return endpoints, nil
+	}
+	userEndpoints, uerr := apiServer.providerManager.ListProviderEndpoints(ctx, actorID)
+	if uerr != nil {
+		// Best-effort merge: a personal-provider lookup failure shouldn't
+		// hide the org bucket we already have. Log and return what we got.
+		log.Warn().Err(uerr).Str("app_id", app.ID).Str("actor_id", actorID).Msg("listEndpointsForApp: failed to list personal providers; using org bucket only")
+		return endpoints, nil
+	}
+	seen := make(map[string]struct{}, len(endpoints))
+	for _, ep := range endpoints {
+		seen[endpointKey(ep)] = struct{}{}
+	}
+	for _, ep := range userEndpoints {
+		k := endpointKey(ep)
+		if _, ok := seen[k]; ok {
+			continue
+		}
+		seen[k] = struct{}{}
+		endpoints = append(endpoints, ep)
+	}
+	return endpoints, nil
+}
+
+// endpointKey produces a stable de-dup key for a provider endpoint. ID wins
+// when present; for env-baked globals (ID=="") the name namespace is used
+// to keep "openai" from colliding with a DB-backed provider also named
+// "openai".
+func endpointKey(ep *types.ProviderEndpoint) string {
+	if ep.ID != "" {
+		return "id:" + ep.ID
+	}
+	return "name:" + ep.Name
 }
 
 // validateSpecTaskAgentConfig pre-flights the agent's provider/model snapshot
@@ -704,12 +776,15 @@ func (apiServer *HelixAPIServer) validateSpecTaskAgentConfig(ctx context.Context
 	if err != nil {
 		return "", fmt.Errorf("failed to load agent app %s: %w", appID, err)
 	}
-	snapshot, err := apiServer.getProviderSnapshot(ctx, actorID)
+	snapshot, err := apiServer.getProviderSnapshot(ctx, actorID, app)
 	if err != nil {
 		log.Warn().Err(err).Str("app_id", appID).Msg("spec-task: failed to list providers; skipping agent config validation")
 		return "", nil
 	}
-	apiServer.healLegacyProviderRefs(ctx, app, snapshot)
+	// Spec-task entry handlers always run with a real user token, so persist
+	// the heal-on-read rewrite — runner-token entry into this code path is
+	// not a thing for these handlers.
+	apiServer.healLegacyProviderRefs(ctx, app, snapshot, true)
 	return external_agent.ValidateAssistantModelConfig(app, snapshot), nil
 }
 
@@ -717,8 +792,17 @@ func (apiServer *HelixAPIServer) validateSpecTaskAgentConfig(ctx context.Context
 // to the matching DB-backed provider's immutable ID, so future renames are
 // silent. Best-effort — a write failure just logs and lets the next read
 // retry. See external_agent.MigrateLegacyProviderRefs for the rules.
-func (apiServer *HelixAPIServer) healLegacyProviderRefs(ctx context.Context, app *types.App, snapshot []external_agent.ProviderRef) {
+//
+// persist=false skips the UpdateApp write (used on runner-token reads of
+// /zed-config so two concurrent runner pulls don't race UpdateApp and
+// runner traffic doesn't bump app.UpdatedAt). The in-memory rewrite still
+// happens — that's what feeds the immediate Generate / Validate call.
+func (apiServer *HelixAPIServer) healLegacyProviderRefs(ctx context.Context, app *types.App, snapshot []external_agent.ProviderRef, persist bool) {
 	if !external_agent.MigrateLegacyProviderRefs(app, snapshot) {
+		return
+	}
+	if !persist {
+		log.Debug().Str("app_id", app.ID).Msg("agent legacy-name → ID migration: in-memory only (runner-token read)")
 		return
 	}
 	if _, err := apiServer.Store.UpdateApp(ctx, app); err != nil {
