@@ -4,14 +4,14 @@
 
 - [x] Read `/home/retro/work/zed/portingguide.md` in full — canonical reference, more detailed than this spec
 - [x] Read prior plans for context: `001947_merge-latest-zed/` and `001946_merge-latest-zed/` (planned but never executed; same fork state, useful precedent), and `001909_merge-latest-zed/` (the last merge that actually shipped)
-- [~] Verify upstream remote: `cd /home/retro/work/zed && git remote -v`. The `upstream` remote is currently **missing** — add it: `git remote add upstream https://github.com/zed-industries/zed.git`
-- [ ] `git fetch upstream`
-- [ ] Record divergence: `git log --oneline upstream/main ^main | wc -l` (commits to merge) and `git log --oneline main ^upstream/main | wc -l` (fork commits ahead) — write the count and current upstream HEAD into `portingguide.md`
-- [ ] Create feature branch: `git checkout -b feature/001980-merge-latest-zed` from fork main (`f5fab97857` or newer if anyone pushed since)
+- [x] Verify upstream remote: `cd /home/retro/work/zed && git remote -v`. The `upstream` remote is currently **missing** — add it: `git remote add upstream https://github.com/zed-industries/zed.git`
+- [x] `git fetch upstream`
+- [x] Record divergence: 172 commits to merge, fork ahead 203, upstream HEAD `1da60a8518` — written into `portingguide.md`
+- [x] Create feature branch: `feature/001980-merge-latest-zed` from `f5fab97857`
 
 ## Merge Execution
 
-- [ ] `git merge upstream/main`
+- [~] `git merge upstream/main`
 - [ ] List conflicted files; for each, classify into Category 1 (accept upstream) or Category 2 (manual three-way merge) using the resolution principles in `design.md`
 - [ ] `.github/workflows/*` → `git checkout --theirs` (always)
 - [ ] `Cargo.lock` → `git checkout --theirs` (always)
