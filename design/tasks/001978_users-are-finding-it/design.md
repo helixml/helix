@@ -81,6 +81,15 @@ Then:
 - **Tooltip on the kebab**: even if we don't go further, a tooltip on `MoreHorizontal` is free and removes mystery-meat.
 - **Don't touch `Projects.tsx`**: the right-click menu on cards is a separate UX and works fine.
 
+## Implementation Notes (after the fact)
+
+- **Used the lucide `Settings` icon, not MUI's**, because lucide `Settings` was already imported in `SpecTasksPage.tsx` (line 32) and was the icon previously used in the kebab menu item — keeps the visual identical.
+- Header `Box` was `display: { xs: "none", md: "block" }` with a single child; with two children we changed it to `display: flex` + `alignItems: "center"` + `gap: 0.5` for clean spacing.
+- Wrapped the new gear in `{projectId && (...)}` because `openDialog('project-settings', { projectId })` requires a non-null `projectId` — same guard the original menu item had.
+- `cd frontend && yarn build` succeeded (~36s); no type errors.
+- **Couldn't take a runtime screenshot**: the inner Helix at `localhost:8080` wasn't running. The startup script (`/home/retro/work/helix-specs/.helix/startup.sh`) failed during `docker build` of the API image with a pre-existing compile error in `pkg/openai/manager/provider_manager.go` (lines 350–351: `m.runnerController undefined`). Unrelated to this change.
+- Single-file change: `frontend/src/pages/SpecTasksPage.tsx` (+27/-18).
+
 ## Codebase Notes (for implementer)
 
 - UI library: **MUI v5** (`@mui/material`, `@mui/icons-material`). Mixed with `lucide-react` for some icons.
