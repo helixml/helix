@@ -2,6 +2,7 @@ package inferencerouter
 
 import (
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -163,12 +164,36 @@ func TestRouter_RouteableModels_NilProfileNoneSkipped(t *testing.T) {
 
 func TestRouter_NoRunnerError_AvailableModelsEmptyMessage(t *testing.T) {
 	r := NewRouter()
-	_, err := r.PickRunner("anything")
+	_, err := r.PickRunner("gpt-5.4")
 	var nre *NoRunnerError
 	if !errors.As(err, &nre) {
 		t.Fatal("expected NoRunnerError")
 	}
-	if nre.Error() == "" {
-		t.Error("error message should be non-empty")
+	got := nre.Error()
+	// User-facing wording: must not leak Helix-internal "runner" terminology
+	// (this string surfaces as an OpenAI 503 to end users) and must name
+	// the requested model so they can see what was rejected.
+	if strings.Contains(got, "runner") {
+		t.Errorf("error message should not mention %q (user-facing): %q", "runner", got)
+	}
+	if !strings.Contains(got, `"gpt-5.4"`) {
+		t.Errorf("error message should quote the requested model name: %q", got)
+	}
+	if !strings.Contains(got, "not available") {
+		t.Errorf("error message should say model is not available: %q", got)
+	}
+}
+
+func TestRouter_NoRunnerError_AvailableModelsListMessage(t *testing.T) {
+	nre := &NoRunnerError{
+		RequestedModel:  "gpt-5.4",
+		AvailableModels: []string{"qwen3-coder", "llama-3.3"},
+	}
+	got := nre.Error()
+	if strings.Contains(got, "runner") {
+		t.Errorf("error message should not mention %q (user-facing): %q", "runner", got)
+	}
+	if !strings.Contains(got, "qwen3-coder") || !strings.Contains(got, "llama-3.3") {
+		t.Errorf("error message should list available models: %q", got)
 	}
 }
