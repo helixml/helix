@@ -11,24 +11,27 @@
 
 ## Merge Execution
 
-- [~] `git merge upstream/main`
-- [ ] List conflicted files; for each, classify into Category 1 (accept upstream) or Category 2 (manual three-way merge) using the resolution principles in `design.md`
-- [ ] `.github/workflows/*` → `git checkout --theirs` (always)
-- [ ] `Cargo.lock` → `git checkout --theirs` (always)
-- [ ] For each Category 2 file: resolve manually, **then immediately append a porting-guide entry** with upstream change / resolution / why
-- [ ] After resolving: re-grep for renamed identifiers (`ActiveView`, `set_active_view`, `selected_agent_type`, `draft_threads`, `background_threads`, etc.) in cfg-gated regions — fix any silent drift now
-- [ ] `git add` resolved files and `git commit` the merge
+- [x] `git merge upstream/main` — 4 conflicts: `deploy_cloudflare.yml`, `Cargo.lock`, `agent_settings.rs`, `wgpu_renderer.rs`
+- [x] Conflict triage done — see `portingguide.md` §"Merge 001980" for per-file resolutions
+- [x] `.github/workflows/deploy_cloudflare.yml` — accept upstream deletion (`git rm`)
+- [x] `Cargo.lock` — `git checkout --theirs`
+- [x] Manual three-way merges:
+  - `crates/agent_settings/src/agent_settings.rs` — kept Helix `show_onboarding`/`auto_open_panel`, dropped `new_thread_location` (upstream removed in #55575)
+  - `crates/gpui_wgpu/src/wgpu_renderer.rs` — accept upstream comment addition (no Helix concern)
+- [x] Porting guide updated live with all 4 resolutions
+- [x] No conflict markers remain (`grep -rn "<<<<<<<\|>>>>>>>"` clean)
+- [x] Merge committed: `c3e312b056`
 
 ## Sweep for Silent Drift (auto-merged files)
 
-- [ ] `grep -rn "ActiveView" crates/agent_ui/src/` — must be clean (renamed to `BaseView` in 001864)
-- [ ] `grep -rn "set_active_view" crates/agent_ui/src/` — must be clean
-- [ ] `grep -rn "draft_threads\|background_threads" crates/agent_ui/src/` — must be clean (now `retained_threads`)
-- [ ] `grep -n "selected_agent_type" crates/agent_ui/src/` — must be clean (now `selected_agent`)
-- [ ] `grep -n "wait_for_tools_ready" crates/agent/src/agent.rs` — Helix addition still present
-- [ ] `grep -n "smol::Timer" crates/agent/src/agent.rs` — must be 0 (use `cx.background_executor().timer()`)
-- [ ] `grep -n "allow_multiple_instances" crates/zed/src/main.rs` — Helix CLI flag still present
-- [ ] `grep -n "debug-embed" Cargo.toml` — `rust-embed` workspace feature still set
+- [x] `grep -rn "ActiveView" crates/agent_ui/src/` — clean
+- [x] `grep -rn "set_active_view" crates/agent_ui/src/` — clean
+- [x] `grep -rn "draft_threads\|background_threads" crates/agent_ui/src/` — clean
+- [x] `grep -n "selected_agent_type" crates/agent_ui/src/` — clean
+- [x] `grep -n "wait_for_tools_ready" crates/agent/src/agent.rs` — present at line 1722
+- [x] `grep -n "smol::Timer" crates/agent/src/agent.rs` — clean
+- [x] `grep -n "allow_multiple_instances" crates/zed/src/main.rs` — present at lines 350, 1778
+- [x] `grep -n "debug-embed" Cargo.toml` — present at line 704
 
 ## Verify Critical Fixes (the 9 in `portingguide.md` §"Critical Fixes")
 
