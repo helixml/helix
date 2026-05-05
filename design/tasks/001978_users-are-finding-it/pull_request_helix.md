@@ -12,6 +12,12 @@ Project settings on the project management page (`SpecTasksPage`) were hidden be
   - Removed the now-redundant `Settings` `MenuItem` from the kebab menu. Files / Sharing / Show Archived / Show Metrics / Show Merged remain.
   - Header `Box` switched to `display: flex` + `gap: 0.5` to space the two icon buttons cleanly. Mobile/xs behaviour is unchanged.
 
+## Mockup
+
+Before/after layout (mockup — the inner Helix dev stack wasn't running locally so this is a hand-rendered approximation rather than a real screenshot):
+
+![Before / After project header](https://github.com/helixml/helix/raw/helix-specs/design/tasks/001978_users-are-finding-it/screenshots/01-before-after-header.png)
+
 ## Notes
 
 - The settings dialog itself is unchanged — only its entry point.
