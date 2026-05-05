@@ -23620,6 +23620,10 @@
                     "description": "Optional: Helix agent to use for spec generation",
                     "type": "string"
                 },
+                "assignee_id": {
+                    "description": "Optional: team member assigned to the task",
+                    "type": "string"
+                },
                 "base_branch": {
                     "description": "For new mode: branch to create from (defaults to repo default)",
                     "type": "string"
