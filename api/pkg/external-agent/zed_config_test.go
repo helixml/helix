@@ -393,3 +393,79 @@ func TestMergeContextServers(t *testing.T) {
 		assert.NotContains(t, got, "language_models")
 	})
 }
+
+func TestBuildLanguageModels(t *testing.T) {
+	const helixURL = "http://api:8080"
+
+	cases := []struct {
+		name     string
+		snapshot []ProviderRef
+		want     map[string]LanguageModelConfig
+	}{
+		{
+			name:     "nil snapshot preserves legacy both-providers behaviour",
+			snapshot: nil,
+			want: map[string]LanguageModelConfig{
+				"anthropic": {APIURL: helixURL},
+				"openai":    {APIURL: helixURL + "/v1"},
+			},
+		},
+		{
+			name:     "empty snapshot injects nothing",
+			snapshot: []ProviderRef{},
+			want:     map[string]LanguageModelConfig{},
+		},
+		{
+			name:     "openai-only does not inject anthropic",
+			snapshot: []ProviderRef{{Name: "openai"}},
+			want: map[string]LanguageModelConfig{
+				"openai": {APIURL: helixURL + "/v1"},
+			},
+		},
+		{
+			name:     "anthropic-only does not inject openai",
+			snapshot: []ProviderRef{{Name: "anthropic"}},
+			want: map[string]LanguageModelConfig{
+				"anthropic": {APIURL: helixURL},
+			},
+		},
+		{
+			name: "both global providers inject both entries",
+			snapshot: []ProviderRef{
+				{Name: "openai"},
+				{Name: "anthropic"},
+			},
+			want: map[string]LanguageModelConfig{
+				"anthropic": {APIURL: helixURL},
+				"openai":    {APIURL: helixURL + "/v1"},
+			},
+		},
+		{
+			name: "non-anthropic custom provider unlocks openai entry only",
+			snapshot: []ProviderRef{
+				{ID: "p_nebius", Name: "Nebius EU"},
+			},
+			want: map[string]LanguageModelConfig{
+				"openai": {APIURL: helixURL + "/v1"},
+			},
+		},
+		{
+			name: "case insensitive anthropic match",
+			snapshot: []ProviderRef{
+				{Name: "Anthropic"},
+				{Name: "OpenAI"},
+			},
+			want: map[string]LanguageModelConfig{
+				"anthropic": {APIURL: helixURL},
+				"openai":    {APIURL: helixURL + "/v1"},
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := buildLanguageModels(tc.snapshot, helixURL)
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
