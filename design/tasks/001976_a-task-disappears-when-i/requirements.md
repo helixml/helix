@@ -8,14 +8,14 @@ A user creates a new task while an assignee filter is active on the Kanban board
 
 ### Story 1: Set assignee at creation time
 **As a** project member creating a new task,
-**I want to** choose who the task is assigned to as part of the create-task form,
+**I want to** optionally choose who the task is assigned to as part of the create-task form,
 **so that** I don't have to do a second click to assign it after creation.
 
 **Acceptance criteria:**
-- The "New Task" form (`NewSpecTaskForm`) includes an assignee field that lists organization members.
-- The field defaults to the current user (the most common case: "I'm taking this on").
-- The user can change the default to any other org member, or explicitly choose "Unassigned".
-- The selected assignee is sent to the backend and stored on the new task.
+- The "New Task" form (`NewSpecTaskForm`) includes an **optional** assignee field that lists organization members and an explicit "Unassigned" option.
+- The field is **not required** — submitting the form without an assignee selected is valid and creates an unassigned task. This preserves the existing workflow for users who triage assignment later (e.g. PMs filing tickets for someone else to pick up, or backlog grooming).
+- For convenience, the field defaults to the current user. This default reflects the most common workflow ("I'm filing this and taking it on") and resolves the disappearing-task symptom for users whose active filter is "show me my tasks". The user can clear the default to "Unassigned" with a single interaction before submitting.
+- The selected value (a member, or "Unassigned") is sent to the backend and stored on the new task.
 
 ### Story 2: New task is visible after creation when a filter is set
 **As a** project member with an assignee filter active,
@@ -24,7 +24,7 @@ A user creates a new task while an assignee filter is active on the Kanban board
 
 **Acceptance criteria:**
 - When the form defaults the assignee to the current user, and the current user is in the active assignee filter, the new task appears immediately on the board.
-- If the user explicitly chooses an assignee that is *not* in the active filter, no special handling is required — the task is created correctly; the filter behaviour is the user's choice. (Out of scope: warning the user that their new task won't match the current filter.)
+- If the user explicitly chooses an assignee (or "Unassigned") that is *not* in the active filter, no special handling is required — the task is created correctly; the filter behaviour is the user's choice. (Out of scope: warning the user that their new task won't match the current filter.)
 
 ### Story 3: Backend accepts and validates assignee on create
 **As a** developer of the API,

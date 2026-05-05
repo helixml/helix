@@ -12,7 +12,7 @@ So new tasks always have `assignee_id = ""`. The kanban board filter (`SpecTaskK
 
 ## Approach
 
-Add `assignee_id` end-to-end on the create path, mirroring the existing update path. Default the form to the current user since that matches the most common workflow ("I am creating this task and taking it on"), and it neatly resolves the disappearing-task complaint when the active filter is "show me my tasks".
+Add `assignee_id` end-to-end on the create path, mirroring the existing update path. The field is **optional** — both backend and frontend treat empty / "Unassigned" as a valid, first-class state (some users intentionally file tickets with no assignee for later triage). For convenience, the form pre-fills the current user, but clearing it to "Unassigned" is one interaction and submitting unassigned is a normal, supported flow. The default neatly resolves the disappearing-task complaint when the active filter is "show me my tasks", without forcing the field on users who don't want it.
 
 ## Backend changes
 
@@ -49,13 +49,14 @@ Add an assignee field to the form. Place it near the priority selector (around l
 ### 6. `frontend/src/components/tasks/AssigneeSelector.tsx`
 No changes expected — its props (`assigneeId`, `members`, `currentUserId`, `onAssigneeChange`, `anchorEl`, `onClose`) already cover this use case. If it is currently coupled to a `TaskCard`-specific layout (e.g. positioning), leave the component alone and add a small wrapper button in `NewSpecTaskForm` to anchor the popover.
 
-## Why default to "current user"?
+## Why default to "current user" (and why the field stays optional)
 
-Two reasons:
-- Matches the common case — most tasks are created by the person who plans to do them.
-- Directly fixes the reported symptom: if the user filters to "my tasks", their newly created task lands in the visible set without surprise.
+The field is optional — submitting unassigned is a supported, valid outcome. We pre-fill the current user as a convenience default, for two reasons:
 
-Users who want to delegate can change the field before submitting; users who want it unassigned can pick "Unassigned" explicitly.
+- It matches the common case — most tasks are created by the person who plans to do them.
+- It directly fixes the reported symptom: if the user filters to "my tasks", their newly created task lands in the visible set without surprise.
+
+Users who want to delegate can change the field before submitting. Users who intentionally want the task unassigned (e.g. PMs filing tickets for later triage, backlog grooming) pick "Unassigned" explicitly — the option is a peer of the member entries, not an afterthought.
 
 ## Validation parity
 
@@ -63,8 +64,8 @@ The rule today (in update): assignee must be an organization member. We apply th
 
 ## Test strategy
 
-- **Go unit test**: extend the existing `spec_driven_task_handlers` test suite (or add a focused test) that POSTs to `/api/v1/spec-tasks/from-prompt` with (a) no `assignee_id` → unassigned task, (b) valid org-member `assignee_id` → assigned task, (c) non-member `assignee_id` → HTTP 400.
-- **Frontend**: manual browser test in the inner Helix per `CLAUDE.md` — register/log in, create a task, confirm assignee defaults to current user, change to another member, change to Unassigned, submit and confirm the resulting task shows the correct assignee on its card.
+- **Go unit test**: extend the existing `spec_driven_task_handlers` test suite (or add a focused test) that POSTs to `/api/v1/spec-tasks/from-prompt` with (a) `assignee_id` omitted → unassigned task, (b) `assignee_id` empty string → unassigned task (parity with omit), (c) valid org-member `assignee_id` → assigned task, (d) non-member `assignee_id` → HTTP 400.
+- **Frontend**: manual browser test in the inner Helix per `CLAUDE.md` — register/log in, create a task, confirm assignee defaults to current user, change to another member, change to Unassigned and submit (verify the task is created unassigned), submit again with default (verify the task is created assigned to current user).
 - **Bug reproduction**: with assignee filter set to "current user only", create a new task and confirm it appears immediately on the board (no longer disappears).
 
 ## Notes for future agents
