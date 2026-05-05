@@ -317,7 +317,7 @@ func (s *AgentTestSuite) Test_Agent_NoSkills_PlainTextKnowledge() {
 	s.generationalOpenaiClient.EXPECT().CreateChatCompletionStream(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, req openai.ChatCompletionRequest) (*openai.ChatCompletionStream, error) {
 			// We should have the knowledge block in the messages
-			s.Require().Equal(openai.ChatMessageRoleDeveloper, req.Messages[0].Role)
+			s.Require().Equal(openai.ChatMessageRoleSystem, req.Messages[0].Role)
 			s.Require().Contains(req.Messages[0].Content, "Test knowledge")
 			s.Require().Contains(req.Messages[0].Content, "Test description")
 			s.Require().Contains(req.Messages[0].Content, "Test contents")
@@ -430,7 +430,7 @@ func (s *AgentTestSuite) Test_Agent_DirectSkill() {
 
 			// Check request
 			s.Require().Equal(s.llm.GenerationModel.Model, req.Model)
-			s.Require().Equal(openai.ChatMessageRoleDeveloper, req.Messages[0].Role)
+			s.Require().Equal(openai.ChatMessageRoleSystem, req.Messages[0].Role)
 			s.Require().Contains(req.Messages[0].Content, "You can use skill functions to help answer the user's question effectively")
 
 			// Second message should be the user question
@@ -602,7 +602,7 @@ func (s *AgentTestSuite) Test_Agent_DirectSkill_MultipleSkillsUsed() {
 
 			// Check request
 			s.Require().Equal(s.llm.GenerationModel.Model, req.Model)
-			s.Require().Equal(openai.ChatMessageRoleDeveloper, req.Messages[0].Role)
+			s.Require().Equal(openai.ChatMessageRoleSystem, req.Messages[0].Role)
 			// Should have our skill selection prompt
 			s.Require().Contains(req.Messages[0].Content, "You can use skill functions to help answer the user's question effectively")
 

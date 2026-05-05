@@ -102,6 +102,15 @@ type Interaction struct {
 	// auto-wake interaction itself records which retry attempt it is.
 	// See design/2026-04-25-zed-claude-async-event-flush-on-user-input.md.
 	AutoWakeCount int `json:"auto_wake_count" gorm:"default:0;not null"`
+
+	// PromptID links this interaction back to the prompt_history_entry that
+	// created it (when the interaction was dispatched by the queue, as opposed
+	// to being initiated by Zed when the user types in the IDE). Empty for
+	// Zed-initiated interactions. Used by handleMessageAdded /
+	// handleMessageCompleted to mark the originating prompt as 'sent' without
+	// relying on an in-memory map that doesn't survive API restarts. See
+	// design/2026-04-30-queue-and-other-stuck-state-bugs.md.
+	PromptID string `json:"prompt_id,omitempty" gorm:"index"`
 }
 
 type FeedbackRequest struct {
@@ -399,7 +408,7 @@ type SessionMetadata struct {
 	ExternalAgentConfig     *ExternalAgentConfig `json:"external_agent_config,omitempty"`     // Configuration for external agents
 	ExternalAgentID         string               `json:"external_agent_id,omitempty"`         // NEW: External agent ID for this session
 	ExternalAgentStatus     string               `json:"external_agent_status,omitempty"`     // NEW: External agent status (running, stopped, terminated_idle)
-Phase                   string               `json:"phase,omitempty"`                     // NEW: SpecTask phase (planning, implementation)
+	Phase                   string               `json:"phase,omitempty"`                     // NEW: SpecTask phase (planning, implementation)
 	DevContainerID          string               `json:"dev_container_id,omitempty"`          // Dev container ID for streaming
 	SwayVersion             string               `json:"sway_version,omitempty"`              // helix-sway image version (commit hash) running in this session
 	GPUVendor               string               `json:"gpu_vendor,omitempty"`                // GPU vendor of sandbox running this session (nvidia, amd, intel, none)
@@ -440,8 +449,8 @@ Phase                   string               `json:"phase,omitempty"`           
 
 	// which assistant are we talking to?
 	AssistantID    string            `json:"assistant_id"`
-	AppQueryParams map[string]string `json:"app_query_params"`                  // Passing through user defined app params
-	CallbackURL    string            `json:"callback_url,omitempty"`            // Webhook URL to POST on session completion
+	AppQueryParams map[string]string `json:"app_query_params"`       // Passing through user defined app params
+	CallbackURL    string            `json:"callback_url,omitempty"` // Webhook URL to POST on session completion
 }
 
 // the packet we put a list of sessions into so pagination is supported and we know the total amount
@@ -464,16 +473,16 @@ type PaginatedSessionsList struct {
 // the user wants to do inference against a model
 // we turn this into a InternalSessionRequest
 type SessionChatRequest struct {
-	AppID               string               `json:"app_id"`          // Assign the session settings from the specified app
-	ProjectID           string               `json:"project_id"`      // The project this session belongs to, if any
-	OrganizationID      string               `json:"organization_id"` // The organization this session belongs to, if any
-	AssistantID         string               `json:"assistant_id"`    // Which assistant are we speaking to?
-	SessionID           string               `json:"session_id"`      // If empty, we will start a new session
-	InteractionID       string               `json:"interaction_id"`  // If empty, we will start a new interaction
-	Stream              bool                 `json:"stream"`          // If true, we will stream the response
+	AppID               string               `json:"app_id"`                 // Assign the session settings from the specified app
+	ProjectID           string               `json:"project_id"`             // The project this session belongs to, if any
+	OrganizationID      string               `json:"organization_id"`        // The organization this session belongs to, if any
+	AssistantID         string               `json:"assistant_id"`           // Which assistant are we speaking to?
+	SessionID           string               `json:"session_id"`             // If empty, we will start a new session
+	InteractionID       string               `json:"interaction_id"`         // If empty, we will start a new interaction
+	Stream              bool                 `json:"stream"`                 // If true, we will stream the response
 	SessionRole         string               `json:"session_role,omitempty"` // e.g. "job" — categorizes sessions for filtering
 	CallbackURL         string               `json:"callback_url,omitempty"` // Webhook URL to POST on session completion
-	Type                SessionType          `json:"type"`            // e.g. text, image
+	Type                SessionType          `json:"type"`                   // e.g. text, image
 	LoraDir             string               `json:"lora_dir"`
 	SystemPrompt        string               `json:"system"`                          // System message, only applicable when starting a new session
 	Messages            []*Message           `json:"messages"`                        // Initial messages
@@ -1686,8 +1695,8 @@ type CronTrigger struct {
 	Enabled     bool     `json:"enabled,omitempty" yaml:"enabled,omitempty"`
 	Schedule    string   `json:"schedule,omitempty" yaml:"schedule,omitempty"`
 	Input       string   `json:"input,omitempty" yaml:"input,omitempty"`
-	InputFile   string   `json:"input_file,omitempty" yaml:"input_file,omitempty"`     // File path in helix-specs worktree to use as prompt (overrides Input)
-	AgentType   string   `json:"agent_type,omitempty" yaml:"agent_type,omitempty"`     // "helix" (default) or "zed_external"
+	InputFile   string   `json:"input_file,omitempty" yaml:"input_file,omitempty"` // File path in helix-specs worktree to use as prompt (overrides Input)
+	AgentType   string   `json:"agent_type,omitempty" yaml:"agent_type,omitempty"` // "helix" (default) or "zed_external"
 	Emails      []string `json:"emails,omitempty" yaml:"emails,omitempty"`
 	CallbackURL string   `json:"callback_url,omitempty" yaml:"callback_url,omitempty"` // Webhook URL to POST on completion
 	Action      string   `json:"action,omitempty" yaml:"action,omitempty"`             // "session" (default) or "spec_task"
@@ -2499,6 +2508,7 @@ type AggregatedUsageMetric struct {
 	CompletionCost    float64 `json:"completion_cost"`
 	CacheReadCost     float64 `json:"cache_read_cost"`
 	CacheWriteCost    float64 `json:"cache_write_cost"`
+	SandboxCost       float64 `json:"sandbox_cost"`
 	TotalCost         float64 `json:"total_cost"` // Prompt + completion + cache read + cache write
 	LatencyMs         float64 `json:"latency_ms"`
 	RequestSizeBytes  int     `json:"request_size_bytes"`
@@ -2786,8 +2796,8 @@ type Notification struct {
 // SessionOutputResponse is returned by GET /sessions/{id}/output
 type SessionOutputResponse struct {
 	SessionID  string `json:"session_id"`
-	Status     string `json:"status"`     // "waiting", "complete", "error"
-	Output     string `json:"output"`     // Last interaction's response text
+	Status     string `json:"status"` // "waiting", "complete", "error"
+	Output     string `json:"output"` // Last interaction's response text
 	DurationMs int64  `json:"duration_ms"`
 }
 

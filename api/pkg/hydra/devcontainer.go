@@ -265,9 +265,13 @@ func (dm *DevContainerManager) tryRecoverImage(ctx context.Context, dockerClient
 
 // CreateDevContainer creates and starts a dev container
 func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *CreateDevContainerRequest) (*DevContainerResponse, error) {
-	// Validate that image has a specific version tag - never accept :latest
-	if err := validateImageVersion(req.Image); err != nil {
-		return nil, err
+	// Validate that image has a specific version tag - never accept :latest.
+	// SkipImageValidation lets callers (Sandboxes API headless runtime) use
+	// plain Docker images like "ubuntu:22.04".
+	if !req.SkipImageValidation {
+		if err := validateImageVersion(req.Image); err != nil {
+			return nil, err
+		}
 	}
 
 	// Resolve registry-based image ref if available
@@ -309,6 +313,12 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 		Image:    resolvedImage,
 		Hostname: req.Hostname,
 		Env:      dm.buildEnv(req),
+	}
+	if len(req.Entrypoint) > 0 {
+		containerConfig.Entrypoint = req.Entrypoint
+	}
+	if len(req.Cmd) > 0 {
+		containerConfig.Cmd = req.Cmd
 	}
 
 	// Build host configuration (includes ZFS clone/mount for Docker data dir)
@@ -467,6 +477,38 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 		}
 	}
 	// Container doesn't exist (or was removed above) - create new one
+
+	// For Sandboxes-API runtimes (SkipImageValidation==true), the image is
+	// usually a public image like ubuntu:22.04 or node:22-bookworm-slim that
+	// the sandbox host hasn't seen before. Pull it proactively from Docker
+	// Hub so ContainerCreate doesn't fail with "No such image". For desktop
+	// runtimes the image is preloaded by the install pipeline so we skip
+	// this path.
+	if req.SkipImageValidation {
+		if _, _, inspectErr := dockerClient.ImageInspectWithRaw(dockerCtx, resolvedImage); inspectErr != nil {
+			log.Info().Str("image", resolvedImage).Msg("Pulling sandbox runtime image")
+			pullOut, pullErr := dockerClient.ImagePull(dockerCtx, resolvedImage, dockertypes.ImagePullOptions{})
+			if pullErr != nil {
+				return nil, fmt.Errorf("pull image %s: %w", resolvedImage, pullErr)
+			}
+			if _, copyErr := io.Copy(io.Discard, pullOut); copyErr != nil {
+				pullOut.Close()
+				return nil, fmt.Errorf("drain image pull output for %s: %w", resolvedImage, copyErr)
+			}
+			pullOut.Close()
+		}
+		// Build (or reuse cached) overlay that adds tmux + ca-certificates so
+		// the user-facing terminal can persist sessions without an in-container
+		// apt-get install. The overlay runs in the sandbox host's network
+		// namespace, which has working outbound connectivity to apt mirrors —
+		// this is the key reason it succeeds where the in-container install
+		// has been failing for some users. Cached locally per base image so
+		// subsequent sandboxes start instantly. containerConfig.Image needs
+		// to track resolvedImage since it was built earlier from the original
+		// value.
+		resolvedImage = EnsureSandboxRuntimeImage(dockerCtx, dockerClient, resolvedImage)
+		containerConfig.Image = resolvedImage
+	}
 
 	// Create container
 	resp, err := dockerClient.ContainerCreate(dockerCtx, containerConfig, hostConfig, networkConfig, nil, req.ContainerName)
@@ -772,17 +814,26 @@ func (dm *DevContainerManager) buildHostConfig(req *CreateDevContainerRequest) (
 		networkMode = "bridge"
 	}
 
+	resources := container.Resources{
+		DeviceCgroupRules: dm.getDeviceCgroupRules(),
+		Ulimits: []*units.Ulimit{
+			{Name: "nofile", Soft: 65536, Hard: 65536},
+		},
+	}
+	// Apply CPU and memory limits when requested. NanoCPUs uses 10^9 units per CPU.
+	if req.VCPUs > 0 {
+		resources.NanoCPUs = int64(req.VCPUs) * 1_000_000_000
+	}
+	if req.MemoryMB > 0 {
+		resources.Memory = int64(req.MemoryMB) * 1024 * 1024
+	}
+
 	hostConfig := &container.HostConfig{
 		NetworkMode: networkMode,
 		IpcMode:     "host",
 		Privileged:  req.Privileged,
 		SecurityOpt: []string{"seccomp=unconfined", "apparmor=unconfined"},
-		Resources: container.Resources{
-			DeviceCgroupRules: dm.getDeviceCgroupRules(),
-			Ulimits: []*units.Ulimit{
-				{Name: "nofile", Soft: 65536, Hard: 65536},
-			},
-		},
+		Resources:   resources,
 	}
 
 	// Only add explicit capabilities when not in privileged mode

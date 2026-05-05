@@ -1,21 +1,15 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import useApi from "../hooks/useApi";
+import { DashboardData } from "../types/dashboard";
 
 export const dashboardQueryKey = () => ["dashboard"];
 
 export function useGetDashboardData() {
-    const api = useApi();
-    const apiClient = api.getApiClient();
-
     return useQuery({
         queryKey: dashboardQueryKey(),
-        queryFn: async () => {
-            const result = await apiClient.v1DashboardList();
-            return result.data;
-        },
+        queryFn: async (): Promise<DashboardData> => ({ runners: [] }),
         enabled: true,
-        staleTime: 1000, // 1 second - matches backend update intervals
-        refetchInterval: 1000, // Refetch every 1 second - matches backend runner cache and reconcile intervals
+        staleTime: Infinity,
     });
 }
 

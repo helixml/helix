@@ -119,19 +119,7 @@ func GenerateZedMCPConfig(
 			ExternalURL: fmt.Sprintf("%s/api/v1/external-agents/sync?session_id=%s", helixAPIURL, sessionID),
 		},
 	}
-	// Find the zed_external assistant configuration
-	var assistant *types.AssistantConfig
-	for i := range app.Config.Helix.Assistants {
-		if app.Config.Helix.Assistants[i].AgentType == types.AgentTypeZedExternal {
-			assistant = &app.Config.Helix.Assistants[i]
-			break
-		}
-	}
-
-	// Fallback to first assistant if no zed_external found
-	if assistant == nil && len(app.Config.Helix.Assistants) > 0 {
-		assistant = &app.Config.Helix.Assistants[0]
-	}
+	assistant := FindZedExternalAssistant(app)
 
 	// For zed_external agents, prefer GenerationModel fields (where UI stores the selection)
 	var provider, model string
@@ -599,6 +587,27 @@ type ProviderRef struct {
 	Name string // current canonical name; for DB-backed providers this is the admin-set label
 }
 
+// FindZedExternalAssistant returns the assistant config that owns the
+// zed_external agent for the given app, falling back to the first
+// assistant when no zed_external entry is present (legacy/migration path).
+// Returns nil when the app has no assistants at all.
+//
+// Centralised here so GenerateZedMCPConfig, ValidateAssistantModelConfig,
+// and buildCodeAgentConfig agree on which assistant they're talking about
+// — a previous version had three independent walks, which would silently
+// diverge if anyone changed the matching rule.
+func FindZedExternalAssistant(app *types.App) *types.AssistantConfig {
+	if app == nil || len(app.Config.Helix.Assistants) == 0 {
+		return nil
+	}
+	for i := range app.Config.Helix.Assistants {
+		if app.Config.Helix.Assistants[i].AgentType == types.AgentTypeZedExternal {
+			return &app.Config.Helix.Assistants[i]
+		}
+	}
+	return &app.Config.Helix.Assistants[0]
+}
+
 // ResolveProvider matches a stored agent token (an ID for DB-backed providers,
 // the canonical name for globals) against the provider snapshot. ID match
 // wins; if no ID matches, falls back to a case-insensitive name match
@@ -618,9 +627,8 @@ func ResolveProvider(token string, snapshot []ProviderRef) (ref ProviderRef, byL
 			return p, false, true
 		}
 	}
-	want := strings.ToLower(token)
 	for _, p := range snapshot {
-		if strings.EqualFold(p.Name, want) || strings.ToLower(p.Name) == want {
+		if strings.EqualFold(p.Name, token) {
 			byLegacy := p.ID != "" // global with no ID is a normal match, not legacy
 			return p, byLegacy, true
 		}
@@ -686,18 +694,9 @@ func MigrateLegacyProviderRefs(app *types.App, snapshot []ProviderRef) bool {
 // provider in admin is a no-op for resolution.
 // Deletes: ID lookup fails and we report misconfig.
 func ValidateAssistantModelConfig(app *types.App, snapshot []ProviderRef) string {
-	if app == nil || len(app.Config.Helix.Assistants) == 0 {
-		return ""
-	}
-	var assistant *types.AssistantConfig
-	for i := range app.Config.Helix.Assistants {
-		if app.Config.Helix.Assistants[i].AgentType == types.AgentTypeZedExternal {
-			assistant = &app.Config.Helix.Assistants[i]
-			break
-		}
-	}
+	assistant := FindZedExternalAssistant(app)
 	if assistant == nil {
-		assistant = &app.Config.Helix.Assistants[0]
+		return ""
 	}
 	provider := assistant.GenerationModelProvider
 	if provider == "" {

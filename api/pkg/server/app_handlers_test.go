@@ -174,6 +174,16 @@ func handleDuplicateAppNames(app *types.App, existingApps []*types.App) {
 func TestFindModelSubstitution(t *testing.T) {
 	server := &HelixAPIServer{}
 
+	// findModelSubstitution now takes a predicate (case-insensitive on
+	// names) instead of a map. Each test still expresses availability as
+	// a map of canonical names; the helper adapts that to the predicate
+	// without leaking the case-handling details into every assertion.
+	mapToPredicate := func(set map[types.Provider]bool) func(string) bool {
+		return func(ref string) bool {
+			return set[types.Provider(ref)]
+		}
+	}
+
 	// Create test model classes similar to substitutions.yaml
 	modelClasses := []ModelClass{
 		{
@@ -211,7 +221,7 @@ func TestFindModelSubstitution(t *testing.T) {
 			"together":  false,
 		}
 
-		result := server.findModelSubstitution("together", "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo", modelClasses, availableProviders)
+		result := server.findModelSubstitution("together", "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo", modelClasses, mapToPredicate(availableProviders))
 
 		require.NotNil(t, result)
 		require.Equal(t, "helix", result.Provider)
@@ -226,7 +236,7 @@ func TestFindModelSubstitution(t *testing.T) {
 			"together":  false,
 		}
 
-		result := server.findModelSubstitution("together", "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo", modelClasses, availableProviders)
+		result := server.findModelSubstitution("together", "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo", modelClasses, mapToPredicate(availableProviders))
 
 		require.NotNil(t, result)
 		require.Equal(t, "anthropic", result.Provider)
@@ -241,7 +251,7 @@ func TestFindModelSubstitution(t *testing.T) {
 			"together":  false,
 		}
 
-		result := server.findModelSubstitution("together", "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo", modelClasses, availableProviders)
+		result := server.findModelSubstitution("together", "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo", modelClasses, mapToPredicate(availableProviders))
 
 		require.Nil(t, result)
 	})
@@ -255,7 +265,7 @@ func TestFindModelSubstitution(t *testing.T) {
 		}
 
 		// Use a model that doesn't exist in any class - should NOT fall back
-		result := server.findModelSubstitution("unknown", "unknown-model", modelClasses, availableProviders)
+		result := server.findModelSubstitution("unknown", "unknown-model", modelClasses, mapToPredicate(availableProviders))
 
 		require.Nil(t, result)
 	})
@@ -263,7 +273,7 @@ func TestFindModelSubstitution(t *testing.T) {
 	t.Run("returns nil when no alternatives available at all", func(t *testing.T) {
 		availableProviders := map[types.Provider]bool{}
 
-		result := server.findModelSubstitution("together", "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo", modelClasses, availableProviders)
+		result := server.findModelSubstitution("together", "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo", modelClasses, mapToPredicate(availableProviders))
 
 		require.Nil(t, result)
 	})
@@ -273,7 +283,7 @@ func TestFindModelSubstitution(t *testing.T) {
 			"helix": true,
 		}
 
-		result := server.findModelSubstitution("together", "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo", []ModelClass{}, availableProviders)
+		result := server.findModelSubstitution("together", "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo", []ModelClass{}, mapToPredicate(availableProviders))
 
 		require.Nil(t, result)
 	})
@@ -288,7 +298,7 @@ func TestFindModelSubstitution(t *testing.T) {
 
 		// Test model that appears in multiple classes - gpt-4o appears in both large-reasoning and vision-model
 		// Since lightweight class is checked first and helix is available in large-reasoning, it should return helix alternative
-		result := server.findModelSubstitution("openai", "gpt-4o", modelClasses, availableProviders)
+		result := server.findModelSubstitution("openai", "gpt-4o", modelClasses, mapToPredicate(availableProviders))
 
 		require.NotNil(t, result) // Should find helix alternative from large-reasoning class (processed first)
 		require.Equal(t, "helix", result.Provider)
@@ -884,4 +894,73 @@ func TestO3MiniSubstitution(t *testing.T) {
 		assert.Equal(t, "anthropic", sub.NewProvider)
 		assert.Equal(t, "claude-3-5-sonnet-20241022", sub.NewModel)
 	}
+}
+
+// TestListEndpointsForApp covers the org-aware behaviour added in the
+// snapshot-helper refactor: org-owned apps must see both the org bucket
+// and the actor's personal providers, with sensible de-dup.
+func TestListEndpointsForApp(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockProviderManager := manager.NewMockProviderManager(ctrl)
+	server := &HelixAPIServer{providerManager: mockProviderManager}
+	ctx := context.Background()
+
+	t.Run("personal app uses user owner only", func(t *testing.T) {
+		mockProviderManager.EXPECT().
+			ListProviderEndpoints(ctx, "user1").
+			Return([]*types.ProviderEndpoint{{ID: "pe_user_01", Name: "user-prov"}}, nil)
+		app := &types.App{ID: "app1"}
+		eps, err := server.listEndpointsForApp(ctx, "user1", app)
+		require.NoError(t, err)
+		require.Len(t, eps, 1)
+		require.Equal(t, "pe_user_01", eps[0].ID)
+	})
+
+	t.Run("org app merges org and user buckets and de-dups", func(t *testing.T) {
+		// Both buckets see the same env-baked global ("openai", no ID); the
+		// merge must not double-count it. The user also has a personal
+		// provider that the org bucket doesn't see — that should land.
+		mockProviderManager.EXPECT().
+			ListProviderEndpoints(ctx, "org1").
+			Return([]*types.ProviderEndpoint{
+				{ID: "pe_org_01", Name: "org-prov"},
+				{Name: "openai"},
+			}, nil)
+		mockProviderManager.EXPECT().
+			ListProviderEndpoints(ctx, "user1").
+			Return([]*types.ProviderEndpoint{
+				{ID: "pe_user_01", Name: "user-prov"},
+				{Name: "openai"},
+			}, nil)
+
+		app := &types.App{ID: "app1", OrganizationID: "org1"}
+		eps, err := server.listEndpointsForApp(ctx, "user1", app)
+		require.NoError(t, err)
+
+		got := map[string]bool{}
+		for _, ep := range eps {
+			got[endpointKey(ep)] = true
+		}
+		require.True(t, got["id:pe_org_01"], "org-bucket DB provider should be present")
+		require.True(t, got["id:pe_user_01"], "user-bucket DB provider should be merged in for org apps")
+		require.True(t, got["name:openai"], "global should be present exactly once")
+		require.Len(t, eps, 3, "duplicate global must not be appended twice")
+	})
+
+	t.Run("personal-bucket failure still returns org bucket", func(t *testing.T) {
+		mockProviderManager.EXPECT().
+			ListProviderEndpoints(ctx, "org1").
+			Return([]*types.ProviderEndpoint{{ID: "pe_org_01", Name: "org-prov"}}, nil)
+		mockProviderManager.EXPECT().
+			ListProviderEndpoints(ctx, "user1").
+			Return(nil, fmt.Errorf("transient store error"))
+
+		app := &types.App{ID: "app1", OrganizationID: "org1"}
+		eps, err := server.listEndpointsForApp(ctx, "user1", app)
+		require.NoError(t, err, "personal-bucket failure should not propagate; org bucket is still useful")
+		require.Len(t, eps, 1)
+		require.Equal(t, "pe_org_01", eps[0].ID)
+	})
 }
