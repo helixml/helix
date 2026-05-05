@@ -14,7 +14,6 @@ import (
 	"os"
 	"os/signal"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -712,9 +711,9 @@ func runTerminal(conn *websocket.Conn) error {
 		return fmt.Errorf("send resize: %w", err)
 	}
 
-	if isTTY {
+	if isTTY && sigWinch != nil {
 		ch := make(chan os.Signal, 1)
-		signal.Notify(ch, syscall.SIGWINCH)
+		signal.Notify(ch, sigWinch)
 		go func() {
 			for range ch {
 				if w, h, err := term.GetSize(stdinFd); err == nil {
