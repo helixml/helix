@@ -198,10 +198,10 @@ CGO_ENABLED=1 go test -v -run TestSuiteName ./pkg/server/ -count=1
 ```
 
 ### Never Give Up on Testing
-- Always test changes end-to-end in the inner Helix browser (MCP Chrome DevTools available)
+- **PREFER end-to-end testing in the inner Helix over every other form of verification.** Setup is fast, not "substantial work" — register (`test@helix.ml` / `helixtest`), complete onboarding (testorg → testproj → claude-opus-4-6 auto-selects), create a spectask, navigate to its detail page. Do this *every time* a UI change is testable in the inner Helix. The inner Helix exists for exactly this — there is no point having it and not using it. Isolated DOM harnesses, JS-only algorithm replays, and unit tests are NOT substitutes; they verify the algorithm, not the wired-up production component.
+- Always test changes end-to-end in the inner Helix browser using the `mcp__chrome-devtools__*` MCP tools (they're under that prefix — easy to miss in the tool listing).
 - Check DB state: `docker exec helix-postgres-1 psql -U postgres -d postgres -c "SQL"`
 - Investigate logs yourself — don't tell user to check logs (exception: ask user to verify UI)
-- **Don't skip end-to-end testing because setup feels like work.** Registering, completing onboarding, creating an org/project, and starting a spectask is the standard path and is fast — go through it. The inner Helix exists to be tested in. "Setting up a session takes substantial time" is not a valid excuse to skip testing; isolated unit tests / DOM harnesses are NOT a substitute for verifying the change in the real UI.
 
 ## Verification
 
