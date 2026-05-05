@@ -201,6 +201,7 @@ CGO_ENABLED=1 go test -v -run TestSuiteName ./pkg/server/ -count=1
 - Always test changes end-to-end in the inner Helix browser (MCP Chrome DevTools available)
 - Check DB state: `docker exec helix-postgres-1 psql -U postgres -d postgres -c "SQL"`
 - Investigate logs yourself — don't tell user to check logs (exception: ask user to verify UI)
+- **Don't skip end-to-end testing because setup feels like work.** Registering, completing onboarding, creating an org/project, and starting a spectask is the standard path and is fast — go through it. The inner Helix exists to be tested in. "Setting up a session takes substantial time" is not a valid excuse to skip testing; isolated unit tests / DOM harnesses are NOT a substitute for verifying the change in the real UI.
 
 ## Verification
 
