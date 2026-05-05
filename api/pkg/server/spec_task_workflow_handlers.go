@@ -820,6 +820,12 @@ func (s *HelixAPIServer) shouldOpenPullRequest(repo *types.GitRepository) bool {
 
 		// Github PRs implemented
 		return true
+	case repo.ExternalType == types.ExternalRepositoryTypeGitLab:
+		// GitLab MRs implemented (createGitLabMergeRequest in
+		// git_repository_service_pull_requests.go); auth resolution
+		// (OAuth -> repo.GitLab.PersonalAccessToken -> repo.Password)
+		// happens inside getGitLabClient, matching the GitHub branch.
+		return true
 	case repo.AzureDevOps != nil:
 		// ADO PRs implemented
 		return true
