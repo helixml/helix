@@ -870,6 +870,9 @@ kind: pipeline
 type: docker
 name: build-controlplane-amd64
 
+depends_on:
+  - default
+
 platform:
   os: linux
   arch: amd64
@@ -917,6 +920,9 @@ steps:
 kind: pipeline
 type: docker
 name: build-controlplane-arm64
+
+depends_on:
+  - default
 
 platform:
   os: linux
@@ -1012,6 +1018,9 @@ kind: pipeline
 type: docker
 name: build-runner
 
+depends_on:
+  - default
+
 trigger:
   ref:
     include:
@@ -1058,6 +1067,9 @@ steps:
 kind: pipeline
 type: docker
 name: build-runner-small
+
+depends_on:
+  - default
 
 trigger:
   ref:
@@ -1126,6 +1138,9 @@ kind: pipeline
 type: docker
 name: build-runner-large
 
+depends_on:
+  - default
+
 trigger:
   ref:
     include:
@@ -1192,6 +1207,9 @@ steps:
 kind: pipeline
 type: docker
 name: build-demos
+
+depends_on:
+  - default
 
 trigger:
   ref:
@@ -1596,6 +1614,9 @@ kind: pipeline
 type: docker
 name: build-sandbox-amd64
 
+depends_on:
+  - default
+
 platform:
   os: linux
   arch: amd64
@@ -1989,6 +2010,9 @@ steps:
 kind: pipeline
 type: docker
 name: build-sandbox-arm64
+
+depends_on:
+  - default
 
 platform:
   os: linux
