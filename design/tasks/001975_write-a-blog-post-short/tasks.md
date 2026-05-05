@@ -6,4 +6,4 @@
 - [x] Draft the blog post in `/home/retro/work/helix/design/2026-05-01-blog-garage-door-up.md` following the structure in `design.md`
 - [x] Trim to ~500–800 words; cut any sentence that doesn't earn its place
 - [x] Confirm the post links to Andy Matuschak's source note and to the helix-specs GitHub tree
-- [~] Commit and push to the helix repo with a message like `Draft: blog post on working with the garage door up`
+- [x] Commit and push to the helix repo with a message like `Draft: blog post on working with the garage door up`
