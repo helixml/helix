@@ -79,9 +79,15 @@
 - [-] `cargo check -p zed` (no features): no local Rust toolchain — covered by CI gate
 - [-] `cargo test -p external_websocket_sync`: no local Rust toolchain — defer to CI / E2E gate
 - [x] `cargo test -p acp_thread test_second_send`: source test pattern repaired (`Stopped(_)`); execution deferred to CI
-- [~] Copy fresh binary + run E2E zed-agent
-- [ ] E2E `claude`
+- [x] Copy fresh binary + run E2E `zed-agent` — **ALL 12 PHASES PASSED** (incl. Phase 1, 2, 3, 4, 8, 9 named in requirements.md). Build duration ~2.5 min.
+- [~] E2E `claude` (running)
 - [ ] If any phase fails: diagnose, fix, re-run
+
+### E2E side notes (zed-agent run)
+
+- Pre-flight required `go mod tidy` in `e2e-test/helix-ws-test-server/` (helix Go deps had drifted: `kodit v1.3.6 → v1.3.7`, dropped `go-tika`). The runner script doesn't tidy itself. Committed the tidied go.mod/go.sum in same branch.
+- Phase 12 logs a benign `WebSocket protocol error: Connection reset without closing handshake` from the deliberate Zed restart; it reconnects cleanly and Phase 12 PASSED.
+- Phase 1 took 15.1s for `wait_for_tools_ready` (`slow-mcp-test` MCP server) — confirms the `cx.background_executor().timer()` fix from 001909 still works end-to-end.
 
 ## Update `portingguide.md` (incremental, not at the end)
 
