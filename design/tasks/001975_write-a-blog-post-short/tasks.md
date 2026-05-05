@@ -1,6 +1,6 @@
 # Implementation Tasks
 
-- [ ] Read 1–2 recent posts on https://helix.ml/blog to calibrate tone and structure
+- [~] Read 1–2 recent posts on https://helix.ml/blog to calibrate tone and structure
 - [ ] Skim the first paragraph of each referenced spec task (001959, 001972, 001956, 001962) and confirm the one-line descriptions in `design.md` still match
 - [ ] Verify the GitHub URL pattern for each referenced spec task resolves (`https://github.com/helixml/helix/tree/helix-specs/design/tasks/<id>_<slug>`)
 - [ ] Draft the blog post in `/home/retro/work/helix/design/2026-05-01-blog-garage-door-up.md` following the structure in `design.md`
