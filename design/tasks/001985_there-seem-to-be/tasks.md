@@ -2,7 +2,7 @@
 
 ## Reproduce first
 
-- [ ] Reproduce the bug against `app_01kqx5wk13n0ej2av2xrz3rsad` in the inner Helix at `http://localhost:8080/orgs/mola/agent/<id>?tab=settings` (register `test@helix.ml` / `helixtest` if needed) — capture which fields fail to persist and the PUT request bodies in the network panel
+- [~] Reproduce the bug against `app_01kqx5wk13n0ej2av2xrz3rsad` in the inner Helix at `http://localhost:8080/orgs/mola/agent/<id>?tab=settings` (register `test@helix.ml` / `helixtest` if needed) — capture which fields fail to persist and the PUT request bodies in the network panel
 - [ ] Note in the PR description the exact reproduction steps and observed behavior, so the fix can be verified against them
 
 ## Fix A — frontend debouncer misuse (root cause)
