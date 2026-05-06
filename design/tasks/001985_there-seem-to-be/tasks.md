@@ -30,4 +30,4 @@ Skipped — fix is verified end-to-end against the live inner Helix (see "Verifi
 - [x] `cd api && go build ./pkg/server/ ./pkg/store/ ./pkg/types/` — passes
 - [x] Manually verified all acceptance criteria in `requirements.md` against the inner Helix at `localhost:8080`. System Instructions edit on Claude Code agent now preserves generation_model. max_iterations edit on Optimus agent persists 25, reasoning_model preserved.
 - [x] Push branch (`feature/001985-there-seem-to-be`)
-- [ ] Monitor Drone CI for the push
+- [ ] Monitor Drone CI (no Drone credentials available in this env — the platform creates the GitHub PR on push, which will run CI)
