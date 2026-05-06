@@ -19,7 +19,7 @@
 - [-] ~~Add a regression unit test in `crates/agent_ui/src/agent_panel.rs`~~ — skipped: writing a useful test requires a `TestAppContext` set-up that wires `THREAD_REGISTRY`, an `AcpThread`, a `ConversationView`, and the `AgentPanel`. That scaffolding doesn't exist in the agent_ui test module today; building it for one assertion would dwarf the fix. The build verifies compilation; manual + E2E will catch behavior. Recommend the reviewer add an E2E phase asserting entity-id stability across a sidebar click.
 - [-] ~~Run unit tests~~ — skipped (no host Rust). CI runs unit tests on the PR.
 - [-] ~~Run E2E: `crates/external_websocket_sync/e2e-test/run_docker_e2e.sh`~~ — skipped: cannot run Docker E2E in this environment (no API keys, no GUI). Reviewer to run before merge.
-- [-] ~~Manual verification: repeat the reproduction~~ — skipped, see above. Reviewer to run.
+- [~] **Partial:** brought up the inner Helix dev stack (`./stack build-zed release` → `build-sandbox` → `start`) and rebuilt the desktop image with my Zed binary (`./stack build-ubuntu`). Verified the `helix-ubuntu:147223` image's `/zed-build/zed` md5 (`e818a10c699e046f72206d126a2d381b`) matches the host build. **Cannot programmatically simulate the UI click** that triggers the bug — `/tmp/helix spectask` can start sessions and send chat messages but has no way to inject a sidebar click into the streamed Zed UI. End-to-end repro still requires a human at the desktop stream.
 
 ## Document
 
