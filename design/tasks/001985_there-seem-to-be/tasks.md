@@ -7,10 +7,10 @@
 
 ## Fix A — frontend debouncer misuse (root cause)
 
-- [ ] Add `frontend/src/hooks/useDebouncedCallback.ts` — proper callback debouncer that uses a ref to keep the latest callback fresh and `setTimeout` for actual deferral
+- [~] Add `frontend/src/hooks/useDebouncedCallback.ts` — proper callback debouncer that uses a ref to keep the latest callback fresh and `setTimeout` for actual deferral
 - [ ] In `frontend/src/components/app/AppSettings.tsx:387`, replace the `useDebounce(fn, 300)` misuse with `useDebouncedCallback`
-- [ ] Refactor `handleAdvancedChangeWithDebounce` to call `saveFlatApp({ [field]: value })` with **only the changed field**, instead of rebuilding the whole `IAppFlatState` from local state — `mergeFlatStateIntoApp` already handles partial updates safely
-- [ ] Audit the other `onUpdate(updatedApp)` call sites in `AppSettings.tsx` (lines 452, 482, 505, 686, 738, 740, 796, 817, 857, 897, 931, 990, 1289) — convert to partial `saveFlatApp({...})` calls where they're currently spreading whole stale state
+- [ ] Refactor `handleAdvancedChangeWithDebounce` to call `onUpdate({ [field]: value, ...minimal })` with **only the changed field**, instead of rebuilding the whole `IAppFlatState` from local state — `mergeFlatStateIntoApp` already handles partial updates safely
+- [ ] Audit the other `onUpdate(updatedApp)` call sites in `AppSettings.tsx` (lines 452, 482, 505, 686, 738, 740, 796, 817, 857, 897, 931, 990, 1289) — convert to partial `onUpdate({...})` calls where they're currently spreading whole stale state
 
 ## Fix B — backend variable mismatch
 
