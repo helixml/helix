@@ -300,6 +300,9 @@ func (apiServer *HelixAPIServer) updateSession(_ http.ResponseWriter, req *http.
 	}
 
 	session.Name = update.Name
+	if err := apiServer.validateSessionProviderRef(ctx, update.Provider, session.OrganizationID, session.Owner); err != nil {
+		return nil, system.NewHTTPError400(err.Error())
+	}
 	session.Provider = update.Provider
 	session.ModelName = update.ModelName
 
@@ -557,7 +560,12 @@ If the user asks for information about Helix or installing Helix, refer them to 
 		if startReq.Provider == "" {
 			startReq.Provider = types.Provider(session.Provider)
 		} else {
-			// Update provider for the session
+			// Update provider for the session — validate that a pe_… reference
+			// is visible in this session's scope before persisting.
+			if err := s.validateSessionProviderRef(ctx, string(startReq.Provider), session.OrganizationID, session.Owner); err != nil {
+				http.Error(rw, err.Error(), http.StatusBadRequest)
+				return
+			}
 			session.Provider = string(startReq.Provider)
 		}
 
@@ -571,6 +579,11 @@ If the user asks for information about Helix or installing Helix, refer them to 
 		// Set default agent type if not specified
 		if startReq.AgentType == "" {
 			startReq.AgentType = "helix"
+		}
+
+		if err := s.validateSessionProviderRef(ctx, string(startReq.Provider), startReq.OrganizationID, user.ID); err != nil {
+			http.Error(rw, err.Error(), http.StatusBadRequest)
+			return
 		}
 
 		session = &types.Session{
@@ -2301,6 +2314,10 @@ func (s *HelixAPIServer) StartExternalAgentSession(ctx context.Context, req *typ
 		req.OrganizationID = user.OrganizationID
 	}
 
+	if err := s.validateSessionProviderRef(ctx, string(req.Provider), req.OrganizationID, userID); err != nil {
+		return nil, err
+	}
+
 	session := &types.Session{
 		ID:             system.GenerateSessionID(),
 		Name:           s.getTemporarySessionName(message),
@@ -2420,6 +2437,47 @@ func (s *HelixAPIServer) getSessionOutput(_ http.ResponseWriter, r *http.Request
 	}
 
 	return resp, nil
+}
+
+// validateSessionProviderRef rejects a session being persisted with a provider
+// reference (a pe_… DB ID) that isn't visible to the session's owner. Without
+// this fence, the frontend can leak a previously-selected pe_… across an org
+// switch — the row is written, then inference fails downstream with a cryptic
+// "no client found for provider: pe_… , available providers: [...]" because
+// MultiClientManager.GetClient correctly only sees the new org's providers.
+//
+// Empty refs and non-pe_ refs (env-baked global names like "openai") are
+// accepted: those are resolved at request time. Only ID-shaped refs need this
+// pre-flight check.
+//
+// A provider is visible if:
+//   - it is a global endpoint (ProviderEndpointTypeGlobal), or
+//   - its owner is the session's organization, or
+//   - its owner is the session's user (personal providers).
+//
+// Anything else returns an explicit "not visible" error so the UI can surface
+// the mismatch instead of inference 500-ing.
+func (s *HelixAPIServer) validateSessionProviderRef(ctx context.Context, providerRef, organizationID, userID string) error {
+	if providerRef == "" || !strings.HasPrefix(providerRef, system.ProviderEndpointPrefix) {
+		return nil
+	}
+	endpoint, err := s.Store.GetProviderEndpoint(ctx, &store.GetProviderEndpointsQuery{ID: providerRef})
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return fmt.Errorf("provider %q not found", providerRef)
+		}
+		return fmt.Errorf("looking up provider %q: %w", providerRef, err)
+	}
+	if endpoint.EndpointType == types.ProviderEndpointTypeGlobal {
+		return nil
+	}
+	if organizationID != "" && endpoint.Owner == organizationID {
+		return nil
+	}
+	if userID != "" && endpoint.Owner == userID {
+		return nil
+	}
+	return fmt.Errorf("provider %q is not visible to this session", providerRef)
 }
 
 // triggerSummaryGeneration triggers async summary generation for an interaction
