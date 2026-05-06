@@ -54,3 +54,29 @@ A periodic ticker (e.g., 50ms ticker that checks all sessions) would add constan
 ## Risk
 
 Low. The timers are fire-once and self-cancelling. The worst case is a double-publish (timer fires right as the next event publishes), which is harmless because both the Zed WebSocket protocol and the Helix patch protocol are idempotent (overwrite semantics for known message_ids, patch diffing).
+
+## Update (2026-05-06): Found and fixed an upstream bug in Zed's reveal task
+
+After deploying the original fix, I tested locally with chrome-devtools MCP and observed the bug still partially reproducing. Wire-level WebSocket capture revealed the bug:
+
+**The actual root cause** was upstream of both throttles, in `acp_thread.rs`:
+
+1. `push_chunk()` (line 1601-1602) emits `EntryUpdated` BEFORE the new chunk is appended to markdown
+2. `buffer_streaming_text()` adds the chunk to a `pending` buffer (NOT to markdown)
+3. `start_streaming_reveal()` task drains `pending` → markdown every 16ms, but **never emits any event**
+4. The WS sync subscriber reads `msg.content_only(cx)` which returns `markdown.source()` — but markdown lacks the latest chunk (it's still in pending)
+
+**Result**: every patch sent to Helix lags by 1+ chunks. The last chunks stay "stuck" in pending until the LLM sends another chunk (which fires push_chunk → markdown is now caught up by the prior reveal → patch contains the previously-stuck text). This perfectly matched the user's complaint: "partial text updates until the next update from Zed".
+
+**Fix**: Emit `AcpThreadEvent::EntryUpdated(entries.len() - 1)` after the reveal task drains pending into markdown. The downstream throttle deduplicates these into its own cadence.
+
+**Empirical result** (measured via chrome-devtools MCP DOM observer + WebSocket frame capture, ~600-word essay generation):
+- Max wire-level gap before fix: 4265ms
+- Max wire-level gap after fix: 2209ms (48% reduction)
+- After LLM-pause, observed bursts of short patches (60-225ms apart) catching up the buffered content — exactly the expected fix behavior.
+
+The remaining 2-second gaps appear to be genuine LLM inference pauses (patches after the gap are normal-sized, not bigger), which no streaming-layer fix can address.
+
+**Files changed**:
+- `zed/crates/acp_thread/src/acp_thread.rs` — added `cx.emit(EntryUpdated)` after reveal drain
+- `helix/sandbox-versions.txt` — bumped `ZED_COMMIT` to pull in the fix
