@@ -660,7 +660,8 @@ func (s *AgentInstructionService) SendApprovalInstruction(
 	// NOTE: We do NOT call sendMessage here - that would create a duplicate interaction
 	// and overwrite the requestToInteractionMapping, causing responses to go
 	// to the wrong (empty) interaction.
-	_, _, err := s.messageSender(ctx, task, message, userID)
+	// interrupt=false: approval kickoff begins a new phase with an idle agent; respect the queue.
+	_, _, err := s.messageSender(ctx, task, message, userID, false)
 	if err != nil {
 		return fmt.Errorf("failed to send approval instruction to agent: %w", err)
 	}
