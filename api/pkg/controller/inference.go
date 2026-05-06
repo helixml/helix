@@ -92,7 +92,7 @@ func (c *Controller) ChatCompletion(ctx context.Context, user *types.User, req o
 		return nil, nil, err
 	}
 
-	client, err := c.getClient(ctx, opts.OrganizationID, user.ID, opts.Provider)
+	client, err := c.getClient(ctx, opts.OrganizationID, user.ID, opts.Provider, req.Model)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get client: %v", err)
 	}
@@ -279,7 +279,7 @@ func (c *Controller) ChatCompletionStream(ctx context.Context, user *types.User,
 		return nil, nil, err
 	}
 
-	client, err := c.getClient(ctx, opts.OrganizationID, user.ID, opts.Provider)
+	client, err := c.getClient(ctx, opts.OrganizationID, user.ID, opts.Provider, req.Model)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get client: %v", err)
 	}
@@ -404,16 +404,34 @@ func (c *Controller) ChatCompletionStream(ctx context.Context, user *types.User,
 	return stream, &req, nil
 }
 
-func (c *Controller) getClient(ctx context.Context, organizationID, userID, provider string) (oai.Client, error) {
+// getClient returns the OpenAI-compatible client for an inference request.
+//
+// When `provider` is empty (no caller — handler resolution, assistant config,
+// model prefix — could identify a target) we historically defaulted to
+// `INFERENCE_PROVIDER` (typically "helix"). That silent default is fine when
+// the request is genuinely targeting Helix-served runner models, but it
+// becomes a misrouting hazard when an OpenAI-shaped request for a model the
+// helix inferencerouter doesn't serve (e.g. `gpt-5.4`) lands here: the request
+// then 500s with the misleading "no runner has model X". To avoid masking the
+// routing failure as a runner-availability failure, when we fall back to the
+// default provider we now check that the provider actually serves `model` —
+// if not, we return an explicit error pointing the caller at the right fix
+// (prefix the model name, or set an app context).
+//
+// Pass model="" to skip the validation (used by paths where the model isn't
+// known yet, e.g. embeddings flexibility checks).
+func (c *Controller) getClient(ctx context.Context, organizationID, userID, provider, model string) (oai.Client, error) {
+	defaultedProvider := false
 	if provider == "" {
-		// If not set, use the default provider
 		provider = c.Options.Config.Inference.Provider
+		defaultedProvider = true
 	}
 
 	log.Trace().
 		Str("provider", provider).
 		Str("user_id", userID).
 		Str("organization_id", organizationID).
+		Bool("defaulted_provider", defaultedProvider).
 		Msg("getting OpenAI API client")
 
 	owner := userID
@@ -429,8 +447,41 @@ func (c *Controller) getClient(ctx context.Context, organizationID, userID, prov
 		return nil, fmt.Errorf("failed to get client: %v", err)
 	}
 
-	return client, nil
+	if defaultedProvider && model != "" {
+		if err := assertProviderServesModel(ctx, client, provider, model); err != nil {
+			return nil, err
+		}
+	}
 
+	return client, nil
+}
+
+// assertProviderServesModel returns an explicit error when `provider`'s model
+// list doesn't contain `model`. Used to fence the silent-default-to-helix
+// path in getClient: if the caller didn't tell us where to route and the
+// configured default doesn't actually own the model, fail loudly so the
+// resulting error names the routing problem instead of bubbling up as a
+// runner-availability failure 5 layers down.
+//
+// Errors from ListModels are tolerated (logged, not returned) — we don't want
+// a flaky upstream to block legitimate inference; the actual call will fail
+// with a more specific error if the model really is missing.
+func assertProviderServesModel(ctx context.Context, client oai.Client, provider, model string) error {
+	models, err := client.ListModels(ctx)
+	if err != nil {
+		log.Warn().
+			Err(err).
+			Str("provider", provider).
+			Str("model", model).
+			Msg("could not validate model availability against default provider; proceeding")
+		return nil
+	}
+	for _, m := range models {
+		if m.ID == model {
+			return nil
+		}
+	}
+	return fmt.Errorf("model %q is not configured in the default provider %q; prefix the model with the target provider (e.g. \"openai/%s\") or supply an app_id", model, provider, model)
 }
 
 func (c *Controller) evaluateToolUsage(ctx context.Context, user *types.User, req openai.ChatCompletionRequest, opts *ChatCompletionOptions) (*openai.ChatCompletionResponse, bool, error) {
@@ -460,7 +511,7 @@ func (c *Controller) evaluateToolUsage(ctx context.Context, user *types.User, re
 
 	var options []tools.Option
 
-	apieClient, err := c.getClient(ctx, opts.OrganizationID, user.ID, opts.Provider)
+	apieClient, err := c.getClient(ctx, opts.OrganizationID, user.ID, opts.Provider, req.Model)
 	if err != nil {
 		return nil, false, fmt.Errorf("failed to get client: %w", err)
 	}
@@ -534,7 +585,7 @@ func (c *Controller) evaluateToolUsageStream(ctx context.Context, user *types.Us
 
 	var options []tools.Option
 
-	apieClient, err := c.getClient(ctx, opts.OrganizationID, user.ID, opts.Provider)
+	apieClient, err := c.getClient(ctx, opts.OrganizationID, user.ID, opts.Provider, req.Model)
 	if err != nil {
 		return nil, false, fmt.Errorf("failed to get client: %w", err)
 	}
@@ -631,7 +682,7 @@ func (c *Controller) selectAndConfigureTool(ctx context.Context, user *types.Use
 		Str("provider", opts.Provider).
 		Msg("Getting API client for tool execution")
 
-	apieClient, err := c.getClient(ctx, opts.OrganizationID, user.ID, opts.Provider)
+	apieClient, err := c.getClient(ctx, opts.OrganizationID, user.ID, opts.Provider, req.Model)
 	if err != nil {
 		log.Warn().
 			Err(err).
