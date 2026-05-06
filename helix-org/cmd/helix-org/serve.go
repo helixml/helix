@@ -14,10 +14,14 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/helixml/helix-org/agent"
+	agentclaude "github.com/helixml/helix-org/agent/claude"
+	agenthelix "github.com/helixml/helix-org/agent/helix"
 	"github.com/helixml/helix-org/bootstrap"
 	"github.com/helixml/helix-org/broadcast"
 	"github.com/helixml/helix-org/config"
 	"github.com/helixml/helix-org/dispatch"
+	"github.com/helixml/helix-org/helix/helixclient"
 	"github.com/helixml/helix-org/prompts"
 	"github.com/helixml/helix-org/server"
 	"github.com/helixml/helix-org/server/chat"
@@ -25,8 +29,6 @@ import (
 	"github.com/helixml/helix-org/store"
 	"github.com/helixml/helix-org/store/sqlite"
 	"github.com/helixml/helix-org/tools"
-	"github.com/helixml/helix-org/tools/helixclient"
-	"github.com/helixml/helix-org/tools/helixspecs"
 	githubtransport "github.com/helixml/helix-org/transports/github"
 	"github.com/helixml/helix-org/transports/postmark"
 )
@@ -95,13 +97,13 @@ func runServe(args []string) error {
 	configReg := config.New(store.Configs)
 	registerAllConfigSpecs(configReg)
 
-	spawner, publisher, err := buildSpawner(context.Background(), configReg, store, bc, deps, logger, *claudeBin, *publicURL, *model, *effort)
+	spawner, workspace, err := buildSpawner(context.Background(), configReg, store, bc, deps, logger, *claudeBin, *publicURL, *model, *effort)
 	if err != nil {
 		return fmt.Errorf("build spawner: %w", err)
 	}
 	dispatcher := dispatch.New(store, spawner, logger)
 	deps.Dispatcher = dispatcher
-	deps.SpecsPublisher = publisher
+	deps.Workspace = workspace
 	logger.Info("dispatcher enabled", "public-url", *publicURL, "envs-dir", absEnvsDir)
 
 	// Email transport: shares the dispatcher (for inbound activations)
@@ -225,13 +227,10 @@ func runServe(args []string) error {
 }
 
 // buildSpawner reads spawner.kind from the config registry and
-// returns the corresponding tools.Spawner. The selection is
-// deployment-wide; per-Role overrides are intentionally out of
-// scope for now (see design/helix-integration.md "Out of Scope").
-// buildSpawner reads spawner.kind from the config registry and
-// returns the corresponding tools.Spawner plus an optional
-// SpecsPublisher (non-nil only on the helix path; nil under claude
-// where Workers see role/identity via on-disk env projection).
+// returns the corresponding agent.Spawner plus the matching
+// WorkspaceSync. The two are paired: each runtime backend supplies
+// both the activation runner and the role/identity-sync surface that
+// keeps the agent's view fresh between activations.
 func buildSpawner(
 	ctx context.Context,
 	cfg *config.Registry,
@@ -240,7 +239,7 @@ func buildSpawner(
 	deps tools.Deps,
 	logger *slog.Logger,
 	claudeBin, publicURL, model, effort string,
-) (tools.Spawner, tools.SpecsPublisher, error) {
+) (agent.Spawner, agent.WorkspaceSync, error) {
 	kind, err := cfg.GetString(ctx, "spawner.kind")
 	if err != nil {
 		return nil, nil, fmt.Errorf("read spawner.kind: %w", err)
@@ -248,7 +247,7 @@ func buildSpawner(
 	switch kind {
 	case "claude":
 		logger.Info("spawner: claude", "claude-bin", claudeBin, "model", model, "effort", effort)
-		return tools.ClaudeSpawner(tools.ClaudeSpawnerConfig{
+		spawner := agentclaude.Spawner(agentclaude.SpawnerConfig{
 			ClaudeBin:   claudeBin,
 			PublicURL:   publicURL,
 			Model:       model,
@@ -258,7 +257,8 @@ func buildSpawner(
 			Broadcaster: bc,
 			Now:         deps.Now,
 			NewID:       deps.NewID,
-		}), nil, nil
+		})
+		return spawner, agentclaude.NewWorkspace(deps.EnvsDir), nil
 	case "helix":
 		baseURL, err := cfg.GetString(ctx, "helix.url")
 		if err != nil {
@@ -292,8 +292,7 @@ func buildSpawner(
 		if err != nil {
 			return nil, nil, fmt.Errorf("helix client: %w", err)
 		}
-		// SpecsPublisher is now per-Worker — see helixspecs/publisher.go.
-		publisher := helixspecs.NewPerWorker(client, st, "helix-specs", "helix-org", "helix-org@local")
+		workspace := agenthelix.NewWorkspace(client, st, "helix-specs", "helix-org", "helix-org@local")
 		logger.Info("spawner: helix",
 			"helix-url", baseURL,
 			"org-url", orgURL,
@@ -302,13 +301,12 @@ func buildSpawner(
 			"timeout", timeout,
 			"max-inflight", maxInflight,
 		)
-		return tools.HelixSpawner(tools.HelixSpawnerConfig{
+		spawner := agenthelix.Spawner(agenthelix.SpawnerConfig{
 			Client:            client,
 			HelixOrgURL:       orgURL,
 			Provider:          provider,
 			Model:             model,
-			Runtime:           "claude_code",
-			AgentMD:           agentMDContent,
+			AgentMD:           agent.Policy,
 			ActivationTimeout: timeout,
 			MaxInflight:       int(maxInflight),
 			Logger:            logger,
@@ -316,7 +314,8 @@ func buildSpawner(
 			Broadcaster:       bc,
 			Now:               deps.Now,
 			NewID:             deps.NewID,
-		}), publisher, nil
+		})
+		return spawner, workspace, nil
 	default:
 		return nil, nil, fmt.Errorf("unknown spawner.kind %q (valid: claude, helix)", kind)
 	}
@@ -371,10 +370,6 @@ func buildChatBackend(
 		if err != nil {
 			return nil, fmt.Errorf("read chat.session_role: %w", err)
 		}
-		agentType, err := cfg.GetString(ctx, "chat.agent_type")
-		if err != nil {
-			return nil, fmt.Errorf("read chat.agent_type: %w", err)
-		}
 		provider, err := cfg.GetString(ctx, "chat.provider")
 		if err != nil {
 			return nil, fmt.Errorf("read chat.provider: %w", err)
@@ -387,36 +382,27 @@ func buildChatBackend(
 		if err != nil {
 			return nil, fmt.Errorf("helix client: %w", err)
 		}
-		// Chat backend uses the same per-Worker project flow as the
-		// AI Worker spawner. Each project's auto-provisioned Agent
-		// App is `zed_external`; helix-org attaches its MCP server
-		// (via `helix.org_url`, which must be a tunnel URL reachable
-		// from Helix's runner) to the App's first Assistant.
-		applier := &tools.HelixProjectApplier{
+		// Chat backend uses the same per-Worker project flow and the
+		// same fixed runtime / agent_type as the AI Worker spawner —
+		// see helix.Runtime / helix.AgentType. The auto-provisioned
+		// Agent App carries our MCP wiring (attached via UpdateApp
+		// after project apply); helix.org_url must be a tunnel URL
+		// reachable from Helix's runner so the in-sandbox agent can
+		// reach /workers/{id}/mcp.
+		applier := &agenthelix.ProjectApplier{
 			Client:      client,
 			Store:       st,
 			HelixOrgURL: orgURL,
 			Provider:    provider,
 			Model:       model,
-			AgentMD:     agentMDContent,
-			// `zed_agent` is the runtime that routes inference back
-			// through Helix (so it works with whatever provider/model
-			// we configure here). `claude_code` is the alternative —
-			// it talks directly to Anthropic and needs an
-			// ANTHROPIC_API_KEY wired into the container's env, which
-			// we don't set up. Empirically: claude_code-runtime
-			// projects on app.helix.ml hang in `state=waiting` because
-			// the in-container agent can't reach Anthropic, while
-			// zed_agent-runtime projects respond normally.
-			Runtime: "zed_agent",
-			Logger:  logger,
+			AgentMD:     agent.Policy,
+			Logger:      logger,
 		}
 		hb, err := chat.NewHelix(chat.HelixConfig{
 			Client:      client,
 			Ensure:      applier,
 			OwnerID:     "w-owner",
 			SessionRole: sessionRole,
-			AgentType:   agentType,
 			Provider:    provider,
 			Model:       model,
 			CWD:         cwd,
@@ -428,7 +414,8 @@ func buildChatBackend(
 		logger.Info("chat backend: helix",
 			"helix-url", baseURL,
 			"session-role", sessionRole,
-			"agent-type", agentType,
+			"runtime", agenthelix.Runtime,
+			"agent-type", agenthelix.AgentType,
 			"provider", provider,
 			"model", model,
 		)

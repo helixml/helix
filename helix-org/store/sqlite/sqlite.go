@@ -40,6 +40,7 @@ func Open(dsn string) (*store.Store, error) {
 		&roleRow{},
 		&positionRow{},
 		&workerRow{},
+		&workerRuntimeStateRow{},
 		&grantRow{},
 		&streamRow{},
 		&subscriptionRow{},
@@ -50,14 +51,15 @@ func Open(dsn string) (*store.Store, error) {
 		return nil, fmt.Errorf("auto-migrate: %w", err)
 	}
 	return &store.Store{
-		Roles:         &rolesRepo{db: db},
-		Positions:     &positionsRepo{db: db},
-		Workers:       &workersRepo{db: db},
-		Grants:        &grantsRepo{db: db},
-		Streams:       &streamsRepo{db: db},
-		Subscriptions: &subscriptionsRepo{db: db},
-		Events:        &eventsRepo{db: db},
-		Environments:  &environmentsRepo{db: db},
-		Configs:       &configsRepo{db: db},
+		Roles:              &rolesRepo{db: db},
+		Positions:          &positionsRepo{db: db},
+		Workers:            &workersRepo{db: db},
+		WorkerRuntimeState: &workerRuntimeStateRepo{db: db},
+		Grants:             &grantsRepo{db: db},
+		Streams:            &streamsRepo{db: db},
+		Subscriptions:      &subscriptionsRepo{db: db},
+		Events:             &eventsRepo{db: db},
+		Environments:       &environmentsRepo{db: db},
+		Configs:            &configsRepo{db: db},
 	}, nil
 }

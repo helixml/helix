@@ -39,17 +39,28 @@ type Workers interface {
 	Get(ctx context.Context, id domain.WorkerID) (domain.Worker, error)
 	List(ctx context.Context) ([]domain.Worker, error)
 	Update(ctx context.Context, worker domain.Worker) error
-	// SetHelixSessionID stores the helix chat session ID a Worker is
-	// currently bound to. Called by helixSpawner — never via MCP.
-	SetHelixSessionID(ctx context.Context, id domain.WorkerID, sessionID string) error
-	// ClearHelixSessionID clears a stale pointer when SessionAlive
-	// reports the session is gone.
-	ClearHelixSessionID(ctx context.Context, id domain.WorkerID) error
-	// SetHelixProject persists the per-Worker Helix project IDs at
-	// hire time. ClearHelixProject clears them when the Worker is
-	// fired (project gets deleted Helix-side).
-	SetHelixProject(ctx context.Context, id domain.WorkerID, projectID, agentAppID, repoID string) error
-	ClearHelixProject(ctx context.Context, id domain.WorkerID) error
+}
+
+// WorkerRuntimeState is a sidecar key/value store keyed by
+// (workerID, backend). Runtime backends (the Helix integration today,
+// future local containers, etc.) write whatever per-Worker pointers
+// they need — Helix uses keys like "session_id", "project_id",
+// "agent_app_id", "repo_id" — without forcing the domain to grow a
+// field every time.
+//
+// The "backend" component is a free-form string the runtime owns
+// (e.g. "helix"); helix-org core never reads or writes it.
+//
+// Get returns an empty map if the (workerID, backend) pair has no
+// entries. Set upserts a single key, leaving other keys for that
+// (workerID, backend) untouched. SetMany upserts a batch in the
+// same way. Clear removes every entry for the pair (used when a
+// Worker is fired and the runtime tears down its per-Worker state).
+type WorkerRuntimeState interface {
+	Get(ctx context.Context, workerID domain.WorkerID, backend string) (map[string]string, error)
+	Set(ctx context.Context, workerID domain.WorkerID, backend, key, value string) error
+	SetMany(ctx context.Context, workerID domain.WorkerID, backend string, kv map[string]string) error
+	Clear(ctx context.Context, workerID domain.WorkerID, backend string) error
 }
 
 // Grants persists tool grants.
@@ -126,13 +137,14 @@ type Configs interface {
 // Handlers and tools depend on the narrower interfaces above; Store is the
 // wiring point.
 type Store struct {
-	Roles         Roles
-	Positions     Positions
-	Workers       Workers
-	Grants        Grants
-	Streams       Streams
-	Subscriptions Subscriptions
-	Events        Events
-	Environments  Environments
-	Configs       Configs
+	Roles              Roles
+	Positions          Positions
+	Workers            Workers
+	WorkerRuntimeState WorkerRuntimeState
+	Grants             Grants
+	Streams            Streams
+	Subscriptions      Subscriptions
+	Events             Events
+	Environments       Environments
+	Configs            Configs
 }

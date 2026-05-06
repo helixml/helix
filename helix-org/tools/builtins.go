@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/helixml/helix-org/agent"
 	"github.com/helixml/helix-org/broadcast"
 	"github.com/helixml/helix-org/domain"
 	"github.com/helixml/helix-org/store"
@@ -18,22 +19,6 @@ type Clock func() time.Time
 // IDGen generates new unique string IDs. Tests override it.
 type IDGen func() string
 
-// Spawner runs an AI Worker's agent process for a single activation
-// and BLOCKS until the process exits. The Triggers slice tells the
-// Spawner (and through it, the agent) why this activation is happening
-// — first hire, or one or more events on subscribed Streams that
-// arrived while a previous activation was running. The Dispatcher
-// coalesces bursts so the slice is usually length 1, but the agent
-// must handle longer slices when traffic queues up.
-//
-// Spawners are typically called from inside a Dispatcher that
-// serialises calls per-Worker; callers must not invoke a Spawner for
-// the same Worker concurrently.
-//
-// The zero value — nil — means "no process will be spawned", which is
-// correct for tests and for HumanWorker activations.
-type Spawner func(ctx context.Context, workerID domain.WorkerID, envPath string, triggers []Trigger) error
-
 // EventDispatcher fans a freshly-published Event out to every
 // subscribed AI Worker as a separate Spawner activation. Tools call it
 // after persisting an Event. The interface keeps tools.Deps free of a
@@ -42,19 +27,6 @@ type Spawner func(ctx context.Context, workerID domain.WorkerID, envPath string,
 type EventDispatcher interface {
 	Dispatch(ctx context.Context, event domain.Event)
 	DispatchHire(ctx context.Context, workerID domain.WorkerID, envPath string)
-}
-
-// SpecsPublisher pushes a single file onto the helix-specs branch
-// of a Worker's per-Worker Helix project. update_role and
-// update_identity call it after persisting to the DB so the agent
-// inside the sandbox sees the new content on its next activation.
-// Nil is the no-op default — claudeSpawner deployments don't need it.
-//
-// The implementation looks up the Worker's HelixRepoID per call
-// (the Worker may not have been hired yet, or may have just been
-// fired — the implementation handles both as no-ops).
-type SpecsPublisher interface {
-	PublishFile(ctx context.Context, workerID domain.WorkerID, path, content, message string) error
 }
 
 // Deps bundles the stores, clocks, and configuration tools need.
@@ -71,6 +43,11 @@ type SpecsPublisher interface {
 // Dispatch method so subscribed AI Workers get re-activated. Tests
 // that don't exercise the runtime can leave it nil. The dispatcher
 // itself owns the Spawner.
+//
+// Workspace is required (use agent.NoopWorkspaceSync{} for tests).
+// update_role and update_identity call PublishFile on it after
+// persisting to the DB so the per-runtime view of role/identity stays
+// in sync with the canonical domain copy.
 type Deps struct {
 	Store       *store.Store
 	Now         Clock
@@ -78,20 +55,19 @@ type Deps struct {
 	EnvsDir     string
 	Broadcaster *broadcast.Broadcaster
 	Dispatcher  EventDispatcher
-	// SpecsPublisher, when non-nil, is called by update_role and
-	// update_identity to mirror canonical content into the
-	// helix-specs branch. Nil under claudeSpawner.
-	SpecsPublisher SpecsPublisher
+	Workspace   agent.WorkspaceSync
 }
 
-// DefaultDeps wires production defaults: real UUIDs and wall-clock time.
-// EnvsDir, Broadcaster, and Dispatcher are left zero — production
-// callers wire them in cmd/helix-org/serve.go.
+// DefaultDeps wires production defaults: real UUIDs and wall-clock time,
+// and a no-op WorkspaceSync that callers replace with the runtime-
+// specific implementation. EnvsDir, Broadcaster, and Dispatcher are
+// left zero — production callers wire them in cmd/helix-org/serve.go.
 func DefaultDeps(s *store.Store) Deps {
 	return Deps{
-		Store: s,
-		Now:   func() time.Time { return time.Now().UTC() },
-		NewID: uuid.NewString,
+		Store:     s,
+		Now:       func() time.Time { return time.Now().UTC() },
+		NewID:     uuid.NewString,
+		Workspace: agent.NoopWorkspaceSync{},
 	}
 }
 
@@ -99,6 +75,9 @@ func DefaultDeps(s *store.Store) Deps {
 // mutations on the org graph plus the matching read tools. Test tools
 // (like Ping) are not included.
 func RegisterBuiltins(reg *Registry, deps Deps) error {
+	if deps.Workspace == nil {
+		return fmt.Errorf("tools.RegisterBuiltins: deps.Workspace is required (use agent.NoopWorkspaceSync{} for tests)")
+	}
 	builtins := []domain.Tool{
 		// Mutations.
 		&CreateRole{deps: deps},

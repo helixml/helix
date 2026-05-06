@@ -14,11 +14,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/helixml/helix-org/agent"
 	"github.com/helixml/helix-org/dispatch"
 	"github.com/helixml/helix-org/domain"
 	"github.com/helixml/helix-org/store"
 	"github.com/helixml/helix-org/store/sqlite"
-	"github.com/helixml/helix-org/tools"
 )
 
 // caught is one POST observed by the test catcher.
@@ -98,7 +98,7 @@ func newDispatcher(t *testing.T) (*dispatch.Dispatcher, *store.Store) {
 // recordedActivation captures one Spawner invocation for assertions.
 type recordedActivation struct {
 	WorkerID domain.WorkerID
-	Triggers []tools.Trigger
+	Triggers []agent.Trigger
 }
 
 // newDispatcherWithSpawner returns a Dispatcher whose Spawner records
@@ -111,7 +111,7 @@ func newDispatcherWithSpawner(t *testing.T) (*dispatch.Dispatcher, *store.Store,
 		t.Fatalf("open store: %v", err)
 	}
 	rec := make(chan recordedActivation, 16)
-	spawner := tools.Spawner(func(_ context.Context, workerID domain.WorkerID, _ string, triggers []tools.Trigger) error {
+	spawner := agent.Spawner(func(_ context.Context, workerID domain.WorkerID, _ string, triggers []agent.Trigger) error {
 		rec <- recordedActivation{WorkerID: workerID, Triggers: triggers}
 		return nil
 	})
@@ -606,7 +606,7 @@ func TestDispatchCoalescesEvents(t *testing.T) {
 	started := make(chan struct{})
 	release := make(chan struct{})
 	var calls atomic.Int32
-	spawner := tools.Spawner(func(_ context.Context, workerID domain.WorkerID, _ string, triggers []tools.Trigger) error {
+	spawner := agent.Spawner(func(_ context.Context, workerID domain.WorkerID, _ string, triggers []agent.Trigger) error {
 		n := calls.Add(1)
 		if n == 1 {
 			close(started)
@@ -614,7 +614,7 @@ func TestDispatchCoalescesEvents(t *testing.T) {
 		}
 		// Copy the slice so a later mutation in the dispatcher (it doesn't
 		// today, but defensive) can't race with the assertion read.
-		copied := make([]tools.Trigger, len(triggers))
+		copied := make([]agent.Trigger, len(triggers))
 		copy(copied, triggers)
 		rec <- recordedActivation{WorkerID: workerID, Triggers: copied}
 		return nil
@@ -702,7 +702,7 @@ func waitForActivation(t *testing.T, rec <-chan recordedActivation, timeout time
 	}
 }
 
-func eventIDs(ts []tools.Trigger) []domain.EventID {
+func eventIDs(ts []agent.Trigger) []domain.EventID {
 	out := make([]domain.EventID, len(ts))
 	for i, t := range ts {
 		out[i] = t.EventID

@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/jsonschema-go/jsonschema"
 
+	"github.com/helixml/helix-org/agent"
 	"github.com/helixml/helix-org/domain"
 )
 
@@ -178,7 +179,7 @@ func (t *HireWorker) Invoke(ctx context.Context, inv domain.Invocation) (json.Ra
 // (s-activations-<workerID>) so the Spawner can find it without an
 // extra lookup.
 func createActivationStream(ctx context.Context, deps Deps, workerID, hiringWorkerID domain.WorkerID) error {
-	streamID := activationStreamID(workerID)
+	streamID := agent.ActivationStreamID(workerID)
 	stream, err := domain.NewStream(
 		streamID,
 		"Activations: "+string(workerID),

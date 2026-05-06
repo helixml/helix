@@ -18,10 +18,6 @@ type workerRow struct {
 	Kind            string `gorm:"not null"` // "human" or "ai"
 	Positions       string // JSON array of position ids
 	IdentityContent string // markdown body — domain-owned persona/profile, projected by the spawner
-	HelixSessionID  string // live Helix chat session ID; runtime cache, never exported via MCP
-	HelixProjectID  string // per-Worker Helix project (one project per AI Worker)
-	HelixAgentAppID string // project's auto-provisioned Agent App (carries MCP wiring)
-	HelixRepoID     string // project's primary git repo (helix-specs branch holds job/*.md)
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
 }
@@ -97,53 +93,6 @@ func (r *workersRepo) Update(ctx context.Context, worker domain.Worker) error {
 	return nil
 }
 
-// SetHelixSessionID sets the live helix chat session pointer.
-func (r *workersRepo) SetHelixSessionID(ctx context.Context, id domain.WorkerID, sessionID string) error {
-	res := r.db.WithContext(ctx).
-		Model(&workerRow{}).
-		Where("id = ?", string(id)).
-		Update("helix_session_id", sessionID)
-	if res.Error != nil {
-		return fmt.Errorf("set helix session for %q: %w", id, res.Error)
-	}
-	if res.RowsAffected == 0 {
-		return fmt.Errorf("worker %q: %w", id, store.ErrNotFound)
-	}
-	return nil
-}
-
-// ClearHelixSessionID clears the helix chat session pointer.
-func (r *workersRepo) ClearHelixSessionID(ctx context.Context, id domain.WorkerID) error {
-	return r.SetHelixSessionID(ctx, id, "")
-}
-
-// SetHelixProject persists the per-Worker project IDs at hire time.
-// All three are written together — they're a unit, populated by the
-// spawner's ApplyProject step.
-func (r *workersRepo) SetHelixProject(ctx context.Context, id domain.WorkerID, projectID, agentAppID, repoID string) error {
-	res := r.db.WithContext(ctx).
-		Model(&workerRow{}).
-		Where("id = ?", string(id)).
-		Updates(map[string]any{
-			"helix_project_id":   projectID,
-			"helix_agent_app_id": agentAppID,
-			"helix_repo_id":      repoID,
-		})
-	if res.Error != nil {
-		return fmt.Errorf("set helix project for %q: %w", id, res.Error)
-	}
-	if res.RowsAffected == 0 {
-		return fmt.Errorf("worker %q: %w", id, store.ErrNotFound)
-	}
-	return nil
-}
-
-// ClearHelixProject clears the per-Worker project pointer when the
-// Worker is fired and the project gets deleted Helix-side.
-func (r *workersRepo) ClearHelixProject(ctx context.Context, id domain.WorkerID) error {
-	return r.SetHelixProject(ctx, id, "", "", "")
-}
-
 func workerToRow(worker domain.Worker) (workerRow, error) {
 	positions := worker.Positions()
 	encoded, err := json.Marshal(positions)
@@ -155,10 +104,6 @@ func workerToRow(worker domain.Worker) (workerRow, error) {
 		Kind:            string(worker.Kind()),
 		Positions:       string(encoded),
 		IdentityContent: worker.IdentityContent(),
-		HelixSessionID:  worker.HelixSessionID(),
-		HelixProjectID:  worker.HelixProjectID(),
-		HelixAgentAppID: worker.HelixAgentAppID(),
-		HelixRepoID:     worker.HelixRepoID(),
 	}, nil
 }
 
@@ -171,19 +116,9 @@ func rowToWorker(row workerRow) (domain.Worker, error) {
 	}
 	switch domain.WorkerKind(row.Kind) {
 	case domain.WorkerKindHuman:
-		w, err := domain.NewHumanWorker(domain.WorkerID(row.ID), positions, row.IdentityContent)
-		if err != nil {
-			return nil, err
-		}
-		return w.WithHelixSessionID(row.HelixSessionID).
-			WithHelixProject(row.HelixProjectID, row.HelixAgentAppID, row.HelixRepoID), nil
+		return domain.NewHumanWorker(domain.WorkerID(row.ID), positions, row.IdentityContent)
 	case domain.WorkerKindAI:
-		w, err := domain.NewAIWorker(domain.WorkerID(row.ID), positions, row.IdentityContent)
-		if err != nil {
-			return nil, err
-		}
-		return w.WithHelixSessionID(row.HelixSessionID).
-			WithHelixProject(row.HelixProjectID, row.HelixAgentAppID, row.HelixRepoID), nil
+		return domain.NewAIWorker(domain.WorkerID(row.ID), positions, row.IdentityContent)
 	default:
 		return nil, fmt.Errorf("unknown worker kind %q", row.Kind)
 	}

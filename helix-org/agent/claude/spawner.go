@@ -1,9 +1,17 @@
-package tools
+// Package claude is the local-development Spawner runtime: it embodies
+// each AI Worker activation by exec'ing the `claude` CLI in the
+// Worker's Environment directory and streaming its stream-json output
+// onto the Worker's activation Stream.
+//
+// This runtime is the dev-mode counterpart to agent/helix. The Helix
+// runtime is the production target; claude is what you reach for when
+// you want to drive the org graph end-to-end without standing up a
+// Helix server.
+package claude
 
 import (
 	"bufio"
 	"context"
-	_ "embed"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,50 +24,14 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/helixml/helix-org/agent"
 	"github.com/helixml/helix-org/broadcast"
 	"github.com/helixml/helix-org/domain"
 	"github.com/helixml/helix-org/store"
 )
 
-// TriggerKind discriminates why a Spawner is being invoked.
-type TriggerKind string
-
-const (
-	// TriggerHire fires once when a Worker is first created.
-	TriggerHire TriggerKind = "hire"
-	// TriggerEvent fires whenever a Worker receives an event on a Stream
-	// they subscribe to.
-	TriggerEvent TriggerKind = "event"
-)
-
-// Trigger is the per-activation context the Spawner gives to the agent.
-// The mandate (entry-point file contents) is the static role; Trigger is
-// what just happened that woke this Worker up.
-type Trigger struct {
-	Kind TriggerKind
-
-	// Event fields, set when Kind == TriggerEvent.
-	EventID  domain.EventID
-	StreamID domain.StreamID
-	Source   domain.WorkerID
-	// SourceKind is the WorkerKind ("human" / "ai") of Source — looked
-	// up by the dispatcher at fan-out time and rendered into the
-	// activation prompt so the recipient can apply the org-wide policy
-	// (agent.md) of de-prioritising AI-origin events. Empty when the
-	// event has no internal Source (system-emitted, or inbound from an
-	// external transport with no resolved Worker).
-	SourceKind domain.WorkerKind
-	// Message is the canonical envelope parsed from the event body.
-	// Every populated field (From, Subject, ThreadID, MessageID,
-	// Extra, …) is rendered into the activation prompt so the
-	// Worker can branch on transport-shaped metadata directly,
-	// without a separate read_events round-trip.
-	Message   domain.Message
-	CreatedAt time.Time
-}
-
-// ClaudeSpawnerConfig configures the claude-backed Spawner.
-type ClaudeSpawnerConfig struct {
+// SpawnerConfig configures the claude-backed Spawner.
+type SpawnerConfig struct {
 	// ClaudeBin is the path to the claude CLI (e.g. "claude").
 	ClaudeBin string
 	// PublicURL is the base URL the spawned agent uses to reach the
@@ -70,11 +42,7 @@ type ClaudeSpawnerConfig struct {
 	// "sonnet" or "opus" resolve to the latest model in that family.
 	Model string
 	// Effort, if non-empty, is passed to claude as --effort. Valid
-	// values are low|medium|high|xhigh|max. Defaults to "low" upstream
-	// because every Worker activation runs claude headlessly and a
-	// run-away effort budget is what blew up the first multi-agent
-	// demo — keeping the floor low contains cost without preventing
-	// operators from cranking it up per deployment.
+	// values are low|medium|high|xhigh|max.
 	Effort string
 	// Logger receives spawn bookkeeping. Must be non-nil.
 	Logger *slog.Logger
@@ -85,8 +53,8 @@ type ClaudeSpawnerConfig struct {
 	// Broadcaster is optional (long-poll observers won't wake without it).
 	Store       *store.Store
 	Broadcaster *broadcast.Broadcaster
-	Now         Clock
-	NewID       IDGen
+	Now         func() time.Time
+	NewID       func() string
 }
 
 // mcpServerName is the key under which the helix MCP server is registered
@@ -94,27 +62,7 @@ type ClaudeSpawnerConfig struct {
 // mcp__<mcpServerName>__<toolName>.
 const mcpServerName = "helix"
 
-// activationStreamID returns the deterministic Stream ID where a Worker's
-// activation transcript is published — assistant text, tool calls, tool
-// results, lifecycle markers. One Stream per Worker; created at hire
-// time by hire_worker, written to by the Spawner, read by anyone with a
-// subscription (typically the hiring Worker).
-func activationStreamID(workerID domain.WorkerID) domain.StreamID {
-	return domain.StreamID("s-activations-" + string(workerID))
-}
-
-// agentMDContent is the fixed entry-point text projected into every
-// Worker's Environment at activation time. The Spawner writes it to
-// `agent.md`; Claude reads it. Same for every Worker — not per-hire
-// state, not editable by Roles. It's the org-wide policy on how to
-// be an agent: speaking discipline, log.md hygiene, AI-origin vs
-// human-origin handling. Lives in a template file so it can be
-// edited like prose without touching code.
-//
-//go:embed templates/agent.md
-var agentMDContent string
-
-// ClaudeSpawner returns a Spawner that runs `claude -p` in the new
+// Spawner returns an agent.Spawner that runs `claude -p` in the new
 // Worker's Environment directory and BLOCKS until claude exits. The
 // dispatcher is responsible for serialising calls per Worker.
 //
@@ -123,17 +71,13 @@ var agentMDContent string
 // markdown files:
 //
 //   - role.md     — the canonical Role.Content read from the store.
-//     `update_role` rewrites the DB row; the next activation picks it
-//     up here.
 //   - identity.md — the Worker's IdentityContent read from the store.
-//     `update_identity` rewrites the DB row; same lazy projection.
-//   - agent.md    — agentMDContent (templates/agent.md), the fixed
-//     org-wide policy on speaking discipline, log.md hygiene, and
-//     AI-origin vs human-origin handling. Same for every Worker.
+//   - agent.md    — agent.Policy, the fixed org-wide policy on speaking
+//     discipline, log.md hygiene, and AI-origin vs human-origin handling.
 //
 // This is the single seam that knows "how to make role/identity visible
-// to a worker." Local envs write files (today). When envs eventually
-// go remote (SSH targets, container exec, prompt-only), only this
+// to a worker." Local envs write files (today). When envs eventually go
+// remote (SSH targets, container exec, prompt-only), only this
 // projection step swaps strategy — tools and bootstrap don't change.
 //
 // Tools are exposed to the agent over MCP. Per activation the Spawner
@@ -144,12 +88,10 @@ var agentMDContent string
 // Claude is run with --output-format stream-json so every assistant
 // message, tool call, and tool result flows through a parser in this
 // process that publishes one Event per atomic message segment to the
-// Worker's activation Stream (s-activations-<workerID>). Observers
-// (typically the hiring Worker, auto-subscribed at hire) watch via
-// read_events on that Stream — the same primitive every other read
-// flows through. There is no on-disk transcript.
-func ClaudeSpawner(cfg ClaudeSpawnerConfig) Spawner {
-	return func(ctx context.Context, workerID domain.WorkerID, envPath string, triggers []Trigger) error {
+// Worker's activation Stream. Observers (typically the hiring Worker,
+// auto-subscribed at hire) watch via read_events on that Stream.
+func Spawner(cfg SpawnerConfig) agent.Spawner {
+	return func(ctx context.Context, workerID domain.WorkerID, envPath string, triggers []agent.Trigger) error {
 		if len(triggers) == 0 {
 			return fmt.Errorf("spawner invoked with no triggers")
 		}
@@ -162,7 +104,7 @@ func ClaudeSpawner(cfg ClaudeSpawnerConfig) Spawner {
 			return fmt.Errorf("write mcp config: %w", err)
 		}
 
-		prompt := buildPrompt(workerID, agentMDContent, triggers)
+		prompt := agent.BuildPrompt(workerID, agent.Policy, triggers)
 
 		args := []string{
 			"-p", prompt,
@@ -185,7 +127,7 @@ func ClaudeSpawner(cfg ClaudeSpawnerConfig) Spawner {
 			"HELIX_WORKER_ID="+string(workerID),
 		)
 
-		streamID := activationStreamID(workerID)
+		streamID := agent.ActivationStreamID(workerID)
 		publish := func(body string) {
 			publishActivationEvent(ctx, cfg, workerID, streamID, body)
 		}
@@ -194,7 +136,7 @@ func ClaudeSpawner(cfg ClaudeSpawnerConfig) Spawner {
 		// activations are easy to tell apart for an observer reading
 		// events. The trigger description matches what callers see when
 		// inspecting their hires.
-		publish(fmt.Sprintf("=== activation: %s ===", describeTriggers(triggers)))
+		publish(fmt.Sprintf("=== activation: %s ===", agent.DescribeTriggers(triggers)))
 
 		stdout, err := cmd.StdoutPipe()
 		if err != nil {
@@ -228,7 +170,7 @@ func ClaudeSpawner(cfg ClaudeSpawnerConfig) Spawner {
 			defer close(stderrDone)
 			scanner := bufio.NewScanner(stderrR)
 			for scanner.Scan() {
-				publish("stderr: " + oneLine(scanner.Text(), 500))
+				publish("stderr: " + agent.OneLine(scanner.Text(), 500))
 			}
 		}()
 
@@ -252,11 +194,6 @@ func ClaudeSpawner(cfg ClaudeSpawnerConfig) Spawner {
 // once per activation, just before claude is exec'd. Reads from the
 // domain (DB); writes to disk (env). The DB is the source of truth;
 // disk is a per-activation projection.
-//
-// A Worker may hold multiple positions; we project the role of the
-// first listed. In practice today every Worker has exactly one
-// position (hire_worker only ever assigns one). If multi-position
-// Workers become real, this is the seam to revisit.
 func projectEnv(ctx context.Context, s *store.Store, workerID domain.WorkerID, envPath string) error {
 	if s == nil {
 		return fmt.Errorf("spawner has no store")
@@ -283,7 +220,7 @@ func projectEnv(ctx context.Context, s *store.Store, workerID domain.WorkerID, e
 	if err := writeEnvFile(envPath, "identity.md", worker.IdentityContent()); err != nil {
 		return err
 	}
-	if err := writeEnvFile(envPath, "agent.md", agentMDContent); err != nil {
+	if err := writeEnvFile(envPath, "agent.md", agent.Policy); err != nil {
 		return err
 	}
 	return nil
@@ -309,7 +246,7 @@ func writeEnvFile(envPath, name, content string) error {
 //
 // All errors are logged and swallowed; a transient SQLite hiccup must
 // not abort the activation.
-func publishActivationEvent(ctx context.Context, cfg ClaudeSpawnerConfig, workerID domain.WorkerID, streamID domain.StreamID, body string) {
+func publishActivationEvent(ctx context.Context, cfg SpawnerConfig, workerID domain.WorkerID, streamID domain.StreamID, body string) {
 	if cfg.Store == nil || cfg.NewID == nil || cfg.Now == nil || body == "" {
 		return
 	}
@@ -377,151 +314,6 @@ func okOr(s string) string {
 	return s
 }
 
-// buildPrompt assembles the per-activation prompt: identity hint +
-// agent.md contents + the triggers that woke the Worker up. The
-// dispatcher coalesces bursts, so a single activation may carry
-// multiple triggers — the prompt frames them as a numbered list when
-// that happens, so the agent can read all of them before deciding
-// what to do (often the most recent supersedes the earlier ones).
-// Tools are exposed natively via MCP under the "helix" server (tool
-// names appear as mcp__helix__<name>); Claude figures the rest out
-// from tools/list.
-func buildPrompt(workerID domain.WorkerID, mandate string, triggers []Trigger) string {
-	var ctx strings.Builder
-
-	if len(triggers) > 1 {
-		fmt.Fprintf(&ctx, "%d triggers have queued for you since your last activation. They are listed below in arrival order. Read all of them before deciding what to do — often the latest supersedes earlier ones, and most cascades resolve to a single response or to silence.\n\n", len(triggers))
-	}
-
-	for i, t := range triggers {
-		if len(triggers) > 1 {
-			fmt.Fprintf(&ctx, "[%d/%d]\n", i+1, len(triggers))
-		}
-		switch t.Kind {
-		case TriggerHire:
-			ctx.WriteString("You have just been hired. This is your first activation. Complete any one-time setup your role describes, then exit. The runtime will re-activate you when an event arrives on a Stream you subscribe to.\n")
-		case TriggerEvent:
-			ctx.WriteString(renderTrigger(t))
-		default:
-			fmt.Fprintf(&ctx, "Activation kind: %q.\n", t.Kind)
-		}
-		if len(triggers) > 1 && i < len(triggers)-1 {
-			ctx.WriteByte('\n')
-		}
-	}
-
-	return fmt.Sprintf(`You are Worker %s, running inside helix-org. Your environment is
-the current working directory. Each activation is a single turn — do
-the work and exit.
-
-%s
-
-=== Trigger ===
-%s=== end trigger ===
-
-Act now. No preamble.
-`, workerID, mandate, ctx.String())
-}
-
-// renderTrigger formats an event-kind Trigger for the activation
-// prompt. Every populated field of the canonical Message envelope is
-// rendered so the Worker can branch on Subject, From, ThreadID, Extra,
-// etc. directly — no separate read_events round-trip needed for the
-// trigger event itself. Empty fields are omitted to keep the prompt
-// tight.
-//
-// Header keys are aligned for legibility but the parser the Worker is
-// going to apply (Claude reading the prompt) is robust to spacing, so
-// "neat" is for humans tailing the prompt.
-func renderTrigger(t Trigger) string {
-	var b strings.Builder
-	b.WriteString("A new event arrived on a Stream you subscribe to.\n\n")
-	fmt.Fprintf(&b, "  stream:      %s\n", t.StreamID)
-	fmt.Fprintf(&b, "  event:       %s\n", t.EventID)
-	fmt.Fprintf(&b, "  time:        %s\n", t.CreatedAt.Format(time.RFC3339))
-	if t.Source != "" {
-		fmt.Fprintf(&b, "  source:      %s\n", t.Source)
-	}
-	// source_kind drives the agent.md priority rule: AI-origin events
-	// are low-priority by default. Always emit when known (even when
-	// Source itself is empty — a future inbound transport that can
-	// classify origin without resolving a Worker still needs to flag
-	// AI vs human here).
-	if t.SourceKind != "" {
-		fmt.Fprintf(&b, "  source_kind: %s\n", t.SourceKind)
-	}
-	m := t.Message
-	if m.From != "" {
-		fmt.Fprintf(&b, "  from:        %s\n", m.From)
-	}
-	if len(m.To) > 0 {
-		fmt.Fprintf(&b, "  to:          %s\n", strings.Join(m.To, ", "))
-	}
-	if m.Subject != "" {
-		fmt.Fprintf(&b, "  subject:     %s\n", m.Subject)
-	}
-	if m.ThreadID != "" {
-		fmt.Fprintf(&b, "  thread_id:   %s\n", m.ThreadID)
-	}
-	if m.InReplyTo != "" {
-		fmt.Fprintf(&b, "  in_reply_to: %s\n", m.InReplyTo)
-	}
-	if m.MessageID != "" {
-		fmt.Fprintf(&b, "  message_id:  %s\n", m.MessageID)
-	}
-	if m.Body != "" {
-		b.WriteString("  body:\n")
-		b.WriteString(indentBlock(m.Body, "    "))
-		b.WriteByte('\n')
-	}
-	if len(m.Extra) > 0 {
-		b.WriteString("  extra:\n")
-		b.WriteString(indentBlock(string(m.Extra), "    "))
-		b.WriteByte('\n')
-	}
-	return b.String()
-}
-
-// indentBlock prefixes every line of s with prefix. Used so multi-line
-// event bodies render readably inside the prompt.
-func indentBlock(s, prefix string) string {
-	if s == "" {
-		return ""
-	}
-	lines := strings.Split(s, "\n")
-	for i, line := range lines {
-		lines[i] = prefix + line
-	}
-	return strings.Join(lines, "\n")
-}
-
-func describeTrigger(t Trigger) string {
-	switch t.Kind {
-	case TriggerHire:
-		return "hire"
-	case TriggerEvent:
-		return fmt.Sprintf("event %s on %s from %s", t.EventID, t.StreamID, t.Source)
-	default:
-		return string(t.Kind)
-	}
-}
-
-// describeTriggers labels the activation marker that gets published to
-// the worker's activation stream. A single trigger reuses
-// describeTrigger verbatim so observers see no change for the common
-// case; a coalesced batch summarises as "batch of N" with each
-// trigger's individual description joined by "; ".
-func describeTriggers(triggers []Trigger) string {
-	if len(triggers) == 1 {
-		return describeTrigger(triggers[0])
-	}
-	parts := make([]string, len(triggers))
-	for i, t := range triggers {
-		parts[i] = describeTrigger(t)
-	}
-	return fmt.Sprintf("batch of %d: %s", len(triggers), strings.Join(parts, "; "))
-}
-
 // streamTranscript reads newline-delimited JSON from r (claude's stdout)
 // and calls publish once per atomic message segment — assistant text,
 // tool call, tool result, system init, run result. Lines that don't
@@ -533,7 +325,7 @@ func streamTranscript(r io.Reader, publish func(body string)) {
 		line := scanner.Bytes()
 		var ev streamEvent
 		if err := json.Unmarshal(line, &ev); err != nil {
-			publish(oneLine(string(line), 500))
+			publish(agent.OneLine(string(line), 500))
 			continue
 		}
 		for _, body := range renderEvent(ev) {
@@ -584,7 +376,7 @@ func renderEvent(ev streamEvent) []string {
 		if ev.IsError {
 			tag = "result-error"
 		}
-		return []string{fmt.Sprintf("%s: %s", tag, oneLine(ev.Result, 500))}
+		return []string{fmt.Sprintf("%s: %s", tag, agent.OneLine(ev.Result, 500))}
 	case "assistant":
 		var msg messagePayload
 		if err := json.Unmarshal(ev.Message, &msg); err != nil {
@@ -595,10 +387,10 @@ func renderEvent(ev streamEvent) []string {
 			switch seg.Type {
 			case "text":
 				if seg.Text != "" {
-					out = append(out, fmt.Sprintf("assistant: %s", oneLine(seg.Text, 500)))
+					out = append(out, fmt.Sprintf("assistant: %s", agent.OneLine(seg.Text, 500)))
 				}
 			case "tool_use":
-				out = append(out, fmt.Sprintf("tool_use %s: %s", seg.Name, oneLine(string(seg.Input), 500)))
+				out = append(out, fmt.Sprintf("tool_use %s: %s", seg.Name, agent.OneLine(string(seg.Input), 500)))
 			}
 		}
 		return out
@@ -616,18 +408,9 @@ func renderEvent(ev streamEvent) []string {
 			if seg.IsError {
 				tag = "tool_result-error"
 			}
-			out = append(out, fmt.Sprintf("%s: %s", tag, oneLine(string(seg.Content), 500)))
+			out = append(out, fmt.Sprintf("%s: %s", tag, agent.OneLine(string(seg.Content), 500)))
 		}
 		return out
 	}
 	return nil
-}
-
-// oneLine collapses whitespace and clips to max runes for readability.
-func oneLine(s string, max int) string {
-	s = strings.Join(strings.Fields(s), " ")
-	if max > 0 && len(s) > max {
-		return s[:max] + "…"
-	}
-	return s
 }

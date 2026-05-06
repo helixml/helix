@@ -98,12 +98,6 @@ func registerAllConfigSpecs(r *config.Registry) {
 		Description: "Model the chat surface uses on Helix (helix backend only). Bare model name (the suffix after the provider slash). Must exist on the configured provider.",
 	})
 	r.Register(config.Spec{
-		Key:         "chat.agent_type",
-		Type:        config.TypeString,
-		Default:     `"zed_external"`,
-		Description: "Helix agent_type for the chat surface. 'zed_external' is a Zed desktop container running the configured code agent (claude_code by default) with helix-org's MCP server attached. Helix's helix_basic doesn't actually route MCP tool calls in inference (only zed_external does), so the chat can't invoke org-graph tools without zed_external.",
-	})
-	r.Register(config.Spec{
 		Key:         "transport.postmark",
 		Type:        config.TypeObject,
 		Secrets:     []string{"token"},

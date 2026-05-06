@@ -11,7 +11,7 @@ import (
 	"testing"
 
 	"github.com/helixml/helix-org/domain"
-	"github.com/helixml/helix-org/tools/helixclient"
+	"github.com/helixml/helix-org/helix/helixclient"
 )
 
 // fakeEnsurer is a fixed ProjectEnsurer that returns canned IDs so
@@ -79,7 +79,6 @@ func newTestHelixBridge(t *testing.T, fc *fakeChatClient) *HelixBridge {
 		Ensure:      &fakeEnsurer{projectID: "prj_x", agentAppID: "app_x"},
 		OwnerID:     "w-owner",
 		SessionRole: "owner-chat",
-		AgentType:   "helix_basic",
 		CWD:         t.TempDir(),
 		Logger:      slog.New(slog.NewTextHandler(io.Discard, nil)),
 	})

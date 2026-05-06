@@ -12,9 +12,10 @@ import (
 
 	"log/slog"
 
+	agenthelix "github.com/helixml/helix-org/agent/helix"
 	"github.com/helixml/helix-org/domain"
+	"github.com/helixml/helix-org/helix/helixclient"
 	"github.com/helixml/helix-org/prompts"
-	"github.com/helixml/helix-org/tools/helixclient"
 )
 
 // HelixBridge drives the owner chat surface against a Helix chat
@@ -40,7 +41,6 @@ type HelixBridge struct {
 	ensure      ProjectEnsurer // resolves the owner Worker's per-Worker project
 	ownerID     domain.WorkerID
 	sessionRole string
-	agentType   string
 	provider    string
 	model       string
 	cwd         string
@@ -76,12 +76,14 @@ type ProjectEnsurer interface {
 // HelixConfig wires a HelixBridge. The bridge holds no global
 // project ID — each chat session opens against the owner Worker's
 // per-Worker project, looked up via Ensure on every send.
+//
+// agent_type is fixed at agenthelix.AgentType ("zed_external") — see
+// the constant for why. There is no `chat.agent_type` knob.
 type HelixConfig struct {
 	Client      helixclient.Client
 	Ensure      ProjectEnsurer
 	OwnerID     domain.WorkerID // typically "w-owner"
 	SessionRole string          // chat.session_role, e.g. "owner-chat"
-	AgentType   string          // chat.agent_type, e.g. "helix_basic"
 	Provider    string          // chat.provider
 	Model       string          // chat.model
 	CWD         string          // server cwd, only used as a stable label
@@ -102,9 +104,6 @@ func NewHelix(cfg HelixConfig) (*HelixBridge, error) {
 	if cfg.SessionRole == "" {
 		return nil, fmt.Errorf("chat helix bridge: SessionRole is required (set chat.session_role)")
 	}
-	if cfg.AgentType == "" {
-		return nil, fmt.Errorf("chat helix bridge: AgentType is required (set chat.agent_type)")
-	}
 	logger := cfg.Logger
 	if logger == nil {
 		logger = slog.Default()
@@ -114,7 +113,6 @@ func NewHelix(cfg HelixConfig) (*HelixBridge, error) {
 		ensure:         cfg.Ensure,
 		ownerID:        cfg.OwnerID,
 		sessionRole:    cfg.SessionRole,
-		agentType:      cfg.AgentType,
 		provider:       cfg.Provider,
 		model:          cfg.Model,
 		cwd:            cfg.CWD,
@@ -297,11 +295,11 @@ func (b *HelixBridge) send(ctx context.Context, msg string) error {
 		OrganizationID:      orgID,
 		AppID:               agentAppID,
 		SessionRole:         b.sessionRole,
-		AgentType:           b.agentType,
+		AgentType:           agenthelix.AgentType,
 		Type:                "text",
 		Provider:            b.provider,
 		Model:               b.model,
-		ExternalAgentConfig: agentConfigFor(b.agentType),
+		ExternalAgentConfig: &helixclient.ExternalAgentConfig{},
 		Messages:            []helixclient.SessionChatMessage{helixclient.NewTextMessage("user", msg)},
 	}
 	if sid != "" {
@@ -371,11 +369,11 @@ func (b *HelixBridge) warmupAndRetry(sessionID, projectID, orgID, agentAppID, ms
 			AppID:               agentAppID,
 			SessionID:           sessionID,
 			SessionRole:         b.sessionRole,
-			AgentType:           b.agentType,
+			AgentType:           agenthelix.AgentType,
 			Type:                "text",
 			Provider:            b.provider,
 			Model:               b.model,
-			ExternalAgentConfig: agentConfigFor(b.agentType),
+			ExternalAgentConfig: &helixclient.ExternalAgentConfig{},
 			Messages:            []helixclient.SessionChatMessage{helixclient.NewTextMessage("user", msg)},
 		}
 		_, hadWSError, err := b.client.StartChatWithStatus(ctx, req)
@@ -658,16 +656,6 @@ func (b *HelixBridge) resolveProjectOrg(ctx context.Context, projectID string) (
 	b.orgIDByProject[projectID] = proj.OrganizationID
 	b.mu.Unlock()
 	return proj.OrganizationID, nil
-}
-
-// agentConfigFor returns the ExternalAgentConfig to send for an
-// agent_type. helix_basic doesn't need one; zed_external needs the
-// empty default object so Helix wires up a runner.
-func agentConfigFor(agentType string) *helixclient.ExternalAgentConfig {
-	if agentType == "zed_external" {
-		return &helixclient.ExternalAgentConfig{}
-	}
-	return nil
 }
 
 // jsonField is a tiny helper used by render translation when peeking

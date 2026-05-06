@@ -42,39 +42,25 @@ func (k WorkerKind) Validate() error {
 // any change in env layout (local files today, remote workspaces
 // tomorrow). Spawners project it into whatever the env channel needs at
 // activation time.
+//
+// Domain.Worker carries no runtime-backend state (Helix project IDs,
+// session pointers, etc.). That state lives in the WorkerRuntimeState
+// sidecar store, keyed by (workerID, backend) — added without touching
+// the domain when a new runtime backend appears.
 type Worker interface {
 	ID() WorkerID
 	Kind() WorkerKind
 	Positions() []PositionID
 	IdentityContent() string
 	WithIdentityContent(content string) Worker
-	// HelixSessionID is the ID of the live Helix chat session this Worker
-	// is currently bound to, or "" if no session is live. Set by the
-	// helixSpawner; never exported through MCP. Empty for human Workers.
-	HelixSessionID() string
-	WithHelixSessionID(id string) Worker
-	// HelixProjectID is the per-Worker Helix project. Created by the
-	// spawner on hire; activations open chat sessions against it.
-	HelixProjectID() string
-	// HelixAgentAppID is the project's auto-provisioned Agent App.
-	// Carries `assistants[0].mcps[]` for tool wiring.
-	HelixAgentAppID() string
-	// HelixRepoID is the project's primary git repo. helix-specs
-	// branch + job/* path holds the Worker's role/identity/agent.md.
-	HelixRepoID() string
-	WithHelixProject(projectID, agentAppID, repoID string) Worker
 	isWorker()
 }
 
 // HumanWorker represents a real person inside the organisation.
 type HumanWorker struct {
-	id              WorkerID
-	positions       []PositionID
-	identity        string
-	helixSessionID  string
-	helixProjectID  string
-	helixAgentAppID string
-	helixRepoID     string
+	id        WorkerID
+	positions []PositionID
+	identity  string
 }
 
 // NewHumanWorker validates and constructs a HumanWorker.
@@ -93,30 +79,16 @@ func (h *HumanWorker) ID() WorkerID            { return h.id }
 func (h *HumanWorker) Kind() WorkerKind        { return WorkerKindHuman }
 func (h *HumanWorker) Positions() []PositionID { return copyPositions(h.positions) }
 func (h *HumanWorker) IdentityContent() string { return h.identity }
-func (h *HumanWorker) HelixSessionID() string  { return h.helixSessionID }
-func (h *HumanWorker) HelixProjectID() string  { return h.helixProjectID }
-func (h *HumanWorker) HelixAgentAppID() string { return h.helixAgentAppID }
-func (h *HumanWorker) HelixRepoID() string     { return h.helixRepoID }
 func (h *HumanWorker) WithIdentityContent(content string) Worker {
-	return &HumanWorker{id: h.id, positions: copyPositions(h.positions), identity: content, helixSessionID: h.helixSessionID, helixProjectID: h.helixProjectID, helixAgentAppID: h.helixAgentAppID, helixRepoID: h.helixRepoID}
-}
-func (h *HumanWorker) WithHelixSessionID(id string) Worker {
-	return &HumanWorker{id: h.id, positions: copyPositions(h.positions), identity: h.identity, helixSessionID: id, helixProjectID: h.helixProjectID, helixAgentAppID: h.helixAgentAppID, helixRepoID: h.helixRepoID}
-}
-func (h *HumanWorker) WithHelixProject(projectID, agentAppID, repoID string) Worker {
-	return &HumanWorker{id: h.id, positions: copyPositions(h.positions), identity: h.identity, helixSessionID: h.helixSessionID, helixProjectID: projectID, helixAgentAppID: agentAppID, helixRepoID: repoID}
+	return &HumanWorker{id: h.id, positions: copyPositions(h.positions), identity: content}
 }
 func (h *HumanWorker) isWorker() {}
 
 // AIWorker represents a software agent inside the organisation.
 type AIWorker struct {
-	id              WorkerID
-	positions       []PositionID
-	identity        string
-	helixSessionID  string
-	helixProjectID  string
-	helixAgentAppID string
-	helixRepoID     string
+	id        WorkerID
+	positions []PositionID
+	identity  string
 }
 
 // NewAIWorker validates and constructs an AIWorker.
@@ -135,18 +107,8 @@ func (a *AIWorker) ID() WorkerID            { return a.id }
 func (a *AIWorker) Kind() WorkerKind        { return WorkerKindAI }
 func (a *AIWorker) Positions() []PositionID { return copyPositions(a.positions) }
 func (a *AIWorker) IdentityContent() string { return a.identity }
-func (a *AIWorker) HelixSessionID() string  { return a.helixSessionID }
-func (a *AIWorker) HelixProjectID() string  { return a.helixProjectID }
-func (a *AIWorker) HelixAgentAppID() string { return a.helixAgentAppID }
-func (a *AIWorker) HelixRepoID() string     { return a.helixRepoID }
 func (a *AIWorker) WithIdentityContent(content string) Worker {
-	return &AIWorker{id: a.id, positions: copyPositions(a.positions), identity: content, helixSessionID: a.helixSessionID, helixProjectID: a.helixProjectID, helixAgentAppID: a.helixAgentAppID, helixRepoID: a.helixRepoID}
-}
-func (a *AIWorker) WithHelixSessionID(id string) Worker {
-	return &AIWorker{id: a.id, positions: copyPositions(a.positions), identity: a.identity, helixSessionID: id, helixProjectID: a.helixProjectID, helixAgentAppID: a.helixAgentAppID, helixRepoID: a.helixRepoID}
-}
-func (a *AIWorker) WithHelixProject(projectID, agentAppID, repoID string) Worker {
-	return &AIWorker{id: a.id, positions: copyPositions(a.positions), identity: a.identity, helixSessionID: a.helixSessionID, helixProjectID: projectID, helixAgentAppID: agentAppID, helixRepoID: repoID}
+	return &AIWorker{id: a.id, positions: copyPositions(a.positions), identity: content}
 }
 func (a *AIWorker) isWorker() {}
 

@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	_ "embed"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -10,7 +9,7 @@ import (
 	"os"
 
 	"github.com/helixml/helix-org/config"
-	"github.com/helixml/helix-org/tools/helixclient"
+	"github.com/helixml/helix-org/helix/helixclient"
 )
 
 // runBootstrap dispatches `helix-org bootstrap <target>`.
@@ -94,13 +93,6 @@ func logf(format string, args ...any) {
 	_, _ = fmt.Fprintf(os.Stdout, format+"\n", args...)
 }
 
-// agentMDContent is the helix-org-wide agent policy. Pushed verbatim
-// to the helix-specs branch of each per-Worker project's primary
-// repo. Kept here so the bootstrap binary is self-contained.
-//
-//go:embed bootstrap_agent.md
-var agentMDContent string
-
 // sandboxStartupSh is reserved for future use under the per-Worker
 // model — when the spawner's TriggerHire step writes
 // `.helix/startup.sh` per project, this is the canonical content.
@@ -124,10 +116,8 @@ cat > ~/.config/claude/mcp.json <<EOF
 EOF
 `
 
-// agentMDContent and sandboxStartupSh are kept exported (lower-case
-// but used by the package's runBootstrap path's future per-Worker
-// project apply step) so the next refactor wave can drop them onto
-// each new Helix project's helix-specs branch.
-var _ = agentMDContent
+// sandboxStartupSh is reserved for the future per-Worker project
+// apply step that drops it onto each new Helix project's helix-specs
+// branch.
 var _ = sandboxStartupSh
 var _ = persistString

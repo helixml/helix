@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/jsonschema-go/jsonschema"
 
+	"github.com/helixml/helix-org/agent"
 	"github.com/helixml/helix-org/domain"
 	"github.com/helixml/helix-org/store"
 )
@@ -68,7 +69,7 @@ func (t *WorkerLog) Invoke(ctx context.Context, inv domain.Invocation) (json.Raw
 			target, worker.Kind())
 	}
 
-	streamID := activationStreamID(target)
+	streamID := agent.ActivationStreamID(target)
 	if _, err := t.deps.Store.Streams.Get(ctx, streamID); err != nil {
 		return nil, fmt.Errorf("activation stream for %q: %w", target, err)
 	}
