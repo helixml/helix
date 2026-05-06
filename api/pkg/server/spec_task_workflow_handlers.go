@@ -198,7 +198,7 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 		go func() {
 			defer s.wg.Done()
 
-			message, err := prompts.ImplementationApprovedPushInstruction(specTask.BranchName, repo.Name, nonPrimaryRepoNames)
+			message, err := prompts.ImplementationApprovedPushInstruction(specTask.BranchName, repo.Name, repo.DefaultBranch, nonPrimaryRepoNames)
 			if err != nil {
 				log.Error().
 					Err(err).
