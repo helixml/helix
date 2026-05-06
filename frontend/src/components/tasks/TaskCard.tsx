@@ -162,6 +162,15 @@ export interface KanbanColumn {
   tasks: SpecTaskWithExtras[];
 }
 
+// Format an ISO timestamp for the title tooltip. Returns null when the input
+// is missing or unparseable so callers can omit the date line cleanly.
+function formatCreatedAt(value: unknown): string | null {
+  if (typeof value !== "string" || !value) return null;
+  const d = new Date(value);
+  if (isNaN(d.getTime())) return null;
+  return d.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+}
+
 interface TaskCardProps {
   task: SpecTaskWithExtras;
   index: number;
@@ -766,7 +775,11 @@ function TaskCardInner({
           <Tooltip
             title={
               <span style={{ whiteSpace: "pre-wrap" }}>
-                {task.description || task.name}
+                {(() => {
+                  const created = formatCreatedAt(task.created_at);
+                  const body = task.description || task.name;
+                  return created ? `Created ${created}\n\n${body}` : body;
+                })()}
               </span>
             }
             placement="top"
