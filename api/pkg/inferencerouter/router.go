@@ -50,9 +50,12 @@ func (r *RunnerState) RouteableModels() []string {
 	return out
 }
 
-// ErrNoRunner is returned when no connected runner can serve the requested
-// model. Callers translate to HTTP 503 with the available-models list.
-var ErrNoRunner = errors.New("no runner available for requested model")
+// ErrNoRunner is the package-internal sentinel returned when no Helix-hosted
+// model serves the request. Symbol name is preserved for backwards
+// compatibility; the user-facing string deliberately avoids "runner"
+// terminology so it doesn't leak the Helix-sandbox internals to end users
+// who see this error surfaced via OpenAI-compatible 503 responses.
+var ErrNoRunner = errors.New("requested model is not available")
 
 // NoRunnerError is the rich version of ErrNoRunner — includes the requested
 // model and a list of currently-available models so callers can return a
@@ -64,9 +67,9 @@ type NoRunnerError struct {
 
 func (e *NoRunnerError) Error() string {
 	if len(e.AvailableModels) == 0 {
-		return fmt.Sprintf("no runner has model %q (no models are currently available)", e.RequestedModel)
+		return fmt.Sprintf("model %q is not available (no models are currently configured)", e.RequestedModel)
 	}
-	return fmt.Sprintf("no runner has model %q (currently available: %s)",
+	return fmt.Sprintf("model %q is not available (currently configured: %s)",
 		e.RequestedModel, strings.Join(e.AvailableModels, ", "))
 }
 

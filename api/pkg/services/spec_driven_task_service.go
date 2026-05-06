@@ -176,6 +176,7 @@ func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *t
 		ProjectID:      req.ProjectID,
 		UserID:         req.UserID,
 		OrganizationID: organizationID,
+		AssigneeID:     req.AssigneeID, // Optional: handler validates org membership before this is reached
 		Name:           GenerateTaskNameFromPrompt(req.Prompt),
 		Description:    req.Prompt,
 		Type:           req.Type,
@@ -1407,7 +1408,9 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, task *types.Sp
 		if s.SendMessageToAgent != nil && !s.testMode {
 			go func(t *types.SpecTask, comments string) {
 				message := BuildRevisionInstructionPrompt(t, comments)
-				_, _, err := s.SendMessageToAgent(context.Background(), t, message, "")
+				// interrupt=true: revision instruction is reviewer-driven feedback delivered via the
+				// task-state machine — same semantic as a comment, should preempt in-flight work.
+				_, _, err := s.SendMessageToAgent(context.Background(), t, message, "", true)
 				if err != nil {
 					log.Error().
 						Err(err).

@@ -162,8 +162,8 @@ func (s *HelixAPIServer) listProviderEndpoints(rw http.ResponseWriter, r *http.R
 		// Sandbox-absorbs-runner equivalent of the old runnerController
 		// gate: skip the Helix provider when no sandbox is currently
 		// serving any model. Otherwise the picker offers an option that
-		// returns "no runner has model X" for every request, which is a
-		// worse UX than not advertising it at all.
+		// returns "model X is not available" for every request, which
+		// is a worse UX than not advertising it at all.
 		if provider == types.ProviderHelix && s.inferenceRouter != nil {
 			if len(s.inferenceRouter.AvailableModels()) == 0 {
 				continue
@@ -1013,11 +1013,16 @@ func (s *HelixAPIServer) refreshAllProviderModels(ctx context.Context) {
 		}
 	}
 
-	// Then refresh database-stored providers (both user and global from DB)
-	// We need to refresh for "system" owner to cover dynamic providers from env vars
+	// Then refresh ALL database-stored providers (system, per-user, and
+	// per-org). The previous filter (Owner=system + WithGlobal) skipped
+	// org-scoped user providers entirely, so their model-list cache was only
+	// populated when a UI call hit /api/v1/providers/.../models — meaning
+	// /v1/chat/completions routing for those providers silently failed
+	// (findProviderWithModel cache miss → default-provider fence) until
+	// someone visited the dashboard. Use All=true so the cache is warm for
+	// every configured provider regardless of scope.
 	dbProviders, err := s.Store.ListProviderEndpoints(ctx, &store.ListProviderEndpointsQuery{
-		Owner:      string(types.OwnerTypeSystem),
-		WithGlobal: true,
+		All: true,
 	})
 	if err != nil {
 		log.Warn().Err(err).Msg("failed to list database providers for cache refresh")
