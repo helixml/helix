@@ -14,7 +14,7 @@
 
 ## Fix B — backend variable mismatch
 
-- [ ] In `api/pkg/server/app_handlers.go:1053`, change `&update.Config.Helix.Assistants[idx]` to `&updatedWithTools.Config.Helix.Assistants[idx]`
+- [x] In `api/pkg/server/app_handlers.go:1053`, change `&update.Config.Helix.Assistants[idx]` to `&updatedWithTools.Config.Helix.Assistants[idx]`. `go build ./pkg/server/` passes.
 
 ## Fix C — initialization defaults
 
