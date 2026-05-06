@@ -1408,7 +1408,9 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, task *types.Sp
 		if s.SendMessageToAgent != nil && !s.testMode {
 			go func(t *types.SpecTask, comments string) {
 				message := BuildRevisionInstructionPrompt(t, comments)
-				_, _, err := s.SendMessageToAgent(context.Background(), t, message, "")
+				// interrupt=true: revision instruction is reviewer-driven feedback delivered via the
+				// task-state machine — same semantic as a comment, should preempt in-flight work.
+				_, _, err := s.SendMessageToAgent(context.Background(), t, message, "", true)
 				if err != nil {
 					log.Error().
 						Err(err).

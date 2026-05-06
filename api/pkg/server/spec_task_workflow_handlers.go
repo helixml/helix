@@ -198,7 +198,7 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 		go func() {
 			defer s.wg.Done()
 
-			message, err := prompts.ImplementationApprovedPushInstruction(specTask.BranchName, repo.Name, nonPrimaryRepoNames)
+			message, err := prompts.ImplementationApprovedPushInstruction(specTask.BranchName, repo.Name, repo.DefaultBranch, nonPrimaryRepoNames)
 			if err != nil {
 				log.Error().
 					Err(err).
@@ -208,7 +208,9 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 				return
 			}
 
-			_, _, err = s.sendMessageToSpecTaskAgent(context.Background(), specTask, message, "")
+			// interrupt=false: post-merge push instruction is a system-driven follow-up, not
+			// reactive feedback — let it queue behind any in-flight agent turn.
+			_, _, err = s.sendMessageToSpecTaskAgent(context.Background(), specTask, message, "", false)
 			if err != nil {
 				log.Error().
 					Err(err).
@@ -291,7 +293,8 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 				return
 			}
 
-			_, _, err = s.sendMessageToSpecTaskAgent(context.Background(), specTask, message, "")
+			// interrupt=false: post-merge-failure rebase instruction is system-driven follow-up.
+			_, _, err = s.sendMessageToSpecTaskAgent(context.Background(), specTask, message, "", false)
 			if err != nil {
 				log.Error().
 					Err(err).
