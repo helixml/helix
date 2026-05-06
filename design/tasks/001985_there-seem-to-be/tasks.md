@@ -18,8 +18,7 @@
 
 ## Fix C — initialization defaults
 
-- [ ] In `frontend/src/components/app/AppSettings.tsx`, align defaults at lines 365-371 with the `useState` defaults at lines 289-295 — use `DEFAULT_VALUES` as the single source of truth for both
-- [ ] Consider replacing the `isInitialized.current` ref + `useEffect` re-init pattern with a simple `if (!app) return null` guard so `useState(app.foo)` runs once with a real `app`
+- [x] In `frontend/src/components/app/AppSettings.tsx`, aligned defaults in the useEffect re-init with the `useState` defaults — both now reference `DEFAULT_VALUES` as the single source of truth.
 
 ## Tests
 
