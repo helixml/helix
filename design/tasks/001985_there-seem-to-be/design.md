@@ -73,6 +73,27 @@ In `AppSettings.tsx`, the initial `useState` calls and the post-mount `useEffect
 
 For an app where these fields are unset/zero, the form briefly shows `2000` then resets to `0`. This isn't itself a "doesn't persist" bug, but it can manifest as one: a user opens settings, sees `0`, types `4000`, the in-flight stale-closure save (Bug A) clobbers it back to `0`, and reloading shows `0`.
 
+## Reproduction details (confirmed 2026-05-06)
+
+Reproduced against a `zed_external` + `claude_code` agent in the inner Helix.
+
+**Setup:** Optimus app + Claude Code app created via onboarding. Claude Code agent had `generation_model_provider: "anthropic"`, `generation_model: "claude-opus-4-5-20251101"` in the DB after onboarding.
+
+**Repro steps:**
+1. Navigate to `/orgs/mola/agent/<claude-code-app-id>?tab=settings`
+2. Click into the System Instructions textarea, append text, wait for the autosave
+3. Inspect the PUT request body in the network tab
+
+**Observed:** The PUT body has the correct `system_prompt` BUT `generation_model: ""` and `generation_model_provider: ""`. The DB row gets clobbered to empty.
+
+**Comparison:** A separate save triggered by changing the **resolution dropdown** (which calls `onUpdate({ ...app, external_agent_config: ... })` directly at line 855-857) sends the FULL correct body, including `generation_model: "claude-opus-4-5-20251101"`. So the bug is path-specific: the `handleAdvancedChangeWithDebounce` → `debouncedUpdate` path corrupts; the `onUpdate({ ...app, ... })` path does not.
+
+**Why:** `debouncedUpdate` at `AppSettings.tsx:387-418` builds an `IAppFlatState` that **spreads `...app` first, then overrides with all local-state fields** (`generation_model`, `reasoning_model`, `model`, etc.). For a `zed_external` agent these multi-turn-config fields are not visible in the UI, but their local state still exists. Whatever value the local state happens to hold at debounce-fire time gets sent.
+
+In our repro, the local state for `generation_model` evidently held `""` rather than the expected `"claude-opus-4-5-20251101"`. The stale-closure mechanism described under "Bug A" below explains how that can happen — the captured function predates the useEffect re-init that would have set the local state from `app.generation_model`. (We did not exhaustively narrow which render the function was captured in; the bug is that the path is fragile, not that one specific render is to blame.)
+
+**The fix is the same regardless of the exact stale-render mechanism:** stop spreading entire local state into the save payload from a path triggered by a single field edit. Send only the changed field.
+
 ## Likely Root Cause
 
 **Bug A is the prime suspect.** The misused `useDebounce` causes every keystroke to fire a save with stale local-state values, so any field the user wasn't *just* typing into gets reverted to a previous value. This matches "invariably don't persist": each save reverts the previous field's edit.

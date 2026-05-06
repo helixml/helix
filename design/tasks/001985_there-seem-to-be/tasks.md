@@ -2,8 +2,8 @@
 
 ## Reproduce first
 
-- [~] Reproduce the bug against `app_01kqx5wk13n0ej2av2xrz3rsad` in the inner Helix at `http://localhost:8080/orgs/mola/agent/<id>?tab=settings` (register `test@helix.ml` / `helixtest` if needed) — capture which fields fail to persist and the PUT request bodies in the network panel
-- [ ] Note in the PR description the exact reproduction steps and observed behavior, so the fix can be verified against them
+- [x] Reproduce the bug — confirmed: typing into System Instructions on a `zed_external + claude_code` agent sends `generation_model: ""` and `generation_model_provider: ""` in the PUT body, clobbering the previously-saved values. Resolution / model picker changes (which use minimal `{...app, field: value}` calls) are NOT affected. The buggy path is the `debouncedUpdate` in `AppSettings.tsx:387-418` that spreads ALL local-state fields. See `design.md` "Reproduction details".
+- [x] Note exact repro in the design doc
 
 ## Fix A — frontend debouncer misuse (root cause)
 
