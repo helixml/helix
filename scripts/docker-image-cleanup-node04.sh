@@ -12,7 +12,7 @@
 # NEVER removes:
 #   - Runner images (base layers can't be rebuilt - R2 5GB layer limit)
 #   - Images in use by containers
-#   - CI tool images (golang, node, alpine, drone, rod, tika, etc.)
+#   - CI tool images (golang, node, alpine, drone, rod, etc.)
 #
 # Usage:
 #   ./docker-image-cleanup.sh              # actually delete

@@ -189,6 +189,7 @@ git add -A && git commit -m "Progress update" && git push origin helix-specs
    ` + "`cd /home/retro/work/{{.PrimaryRepoName}} && git fetch origin {{.BaseBranch}} && git merge origin/{{.BaseBranch}}`" + `
    Resolve any conflicts and commit before pushing.
 5. When all tasks done, push code: ` + "`git push origin {{.BranchName}}`" + `
+6. **Do NOT create pull requests yourself** (no ` + "`gh pr create`" + `, no GitHub MCP tools). Pushing to the branch is sufficient — the Helix platform creates the GitHub PR automatically when the user clicks "Open PR" in the UI.
 
 {{if .KoditSection}}
 {{.KoditSection}}

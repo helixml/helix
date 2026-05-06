@@ -301,9 +301,3 @@ const (
 	ScriptRunStateError    ScriptRunState = "error"
 )
 
-type Extractor string
-
-const (
-	ExtractorTika         Extractor = "tika"
-	ExtractorUnstructured Extractor = "unstructured"
-)

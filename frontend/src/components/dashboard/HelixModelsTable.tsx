@@ -24,6 +24,7 @@ import {
     useListHelixModels,
     useUpdateHelixModel,
 } from "../../services/helixModelsService";
+import { useListInferenceModels } from "../../services/runnerProfilesService";
 import { useListModelInfos } from "../../services/modelInfoService";
 import AddIcon from "@mui/icons-material/Add";
 import Button from "@mui/material/Button";
@@ -31,7 +32,6 @@ import Button from "@mui/material/Button";
 import { OllamaIcon, VllmIcon, HuggingFaceIcon } from "../icons/ProviderIcons";
 import EditHelixModel from "./EditHelixModel";
 import DeleteHelixModelDialog from "./DeleteHelixModelDialog";
-import MemoryEstimateCell from "./MemoryEstimateCell";
 import ModelPricingDialog from "./ModelPricingDialog";
 
 // Helper function to format date for tooltip
@@ -135,6 +135,18 @@ const HelixModelsTable: FC = () => {
 
     // TODO: Add filtering by runtime if needed, e.g., pass "gpu" or "cpu"
     const { data: helixModels = [], isLoading, refetch } = useListHelixModels();
+
+    // Sandbox-absorbs-runner pivot: overlay the inference router's
+    // currently-available models so the registry tab shows what's actually
+    // being served by some connected sandbox. Lowercased for the lookup.
+    const { data: inferenceModels } = useListInferenceModels();
+    const availableNow = React.useMemo(() => {
+        const s = new Set<string>();
+        if (inferenceModels?.data) {
+            for (const m of inferenceModels.data) s.add(m.id.toLowerCase());
+        }
+        return s;
+    }, [inferenceModels]);
 
     // Fetch model infos for helix provider to get pricing information
     const { data: modelInfos = [], refetch: refetchModelInfos } =
@@ -539,7 +551,6 @@ const HelixModelsTable: FC = () => {
                             <TableCell>Name</TableCell>
                             <TableCell>Context Length</TableCell>
                             <TableCell>Type</TableCell>
-                            <TableCell>Memory</TableCell>
                             <TableCell align="center">Pricing</TableCell>
                             <TableCell>Enabled</TableCell>
                             <TableCell>Auto pull</TableCell>
@@ -552,19 +563,38 @@ const HelixModelsTable: FC = () => {
                         {filteredModels.map((model: TypesModel) => (
                             <TableRow key={model.id}>
                                 <TableCell>
-                                    <Tooltip title={model.id || "N/A"}>
-                                        <Typography
-                                            variant="body2"
-                                            sx={{
-                                                maxWidth: 150,
-                                                overflow: "hidden",
-                                                textOverflow: "ellipsis",
-                                                whiteSpace: "nowrap",
-                                            }}
-                                        >
-                                            {model.id || "N/A"}
-                                        </Typography>
-                                    </Tooltip>
+                                    <Box sx={{ display: "flex", flexDirection: "column", gap: 0.25 }}>
+                                        <Tooltip title={model.id || "N/A"}>
+                                            <Typography
+                                                variant="body2"
+                                                sx={{
+                                                    maxWidth: 150,
+                                                    overflow: "hidden",
+                                                    textOverflow: "ellipsis",
+                                                    whiteSpace: "nowrap",
+                                                }}
+                                            >
+                                                {model.id || "N/A"}
+                                            </Typography>
+                                        </Tooltip>
+                                        {availableNow.has((model.id || "").toLowerCase()) ? (
+                                            <Tooltip title="Currently served by a connected sandbox's active profile">
+                                                <Box>
+                                                    <Typography variant="caption" sx={{ color: "success.main" }}>
+                                                        ● Available now
+                                                    </Typography>
+                                                </Box>
+                                            </Tooltip>
+                                        ) : (
+                                            <Tooltip title="Registered metadata only — no profile is currently exposing this model">
+                                                <Box>
+                                                    <Typography variant="caption" color="text.secondary">
+                                                        ○ Metadata only
+                                                    </Typography>
+                                                </Box>
+                                            </Tooltip>
+                                        )}
+                                    </Box>
                                 </TableCell>
                                 <TableCell>
                                     <Box
@@ -593,7 +623,6 @@ const HelixModelsTable: FC = () => {
                                     {model.context_length || "N/A"}
                                 </TableCell>
                                 <TableCell>{model.type || "N/A"}</TableCell>
-                                <MemoryEstimateCell model={model} />
                                 <TableCell align="center">
                                     <Tooltip title={"Price per 1M tokens"}>
                                         <Box sx={{ width: 100 }}>

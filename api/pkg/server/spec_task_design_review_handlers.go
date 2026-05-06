@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"hash/fnv"
 	"net/http"
@@ -294,6 +295,30 @@ func (s *HelixAPIServer) submitDesignReview(w http.ResponseWriter, r *http.Reque
 
 		switch specTask.Status {
 		case types.TaskStatusSpecReview, types.TaskStatusSpecRevision, types.TaskStatusSpecGeneration:
+			// Before advancing to implementation, validate the approver has
+			// GitHub OAuth so their credentials can be used for commits and
+			// push. Mirrors the check in approveSpecs/approveImplementation —
+			// the UI goes through this endpoint, so omitting the check here
+			// lets an approver without OAuth silently drive the task to
+			// implementation and commits would then fall back to the creator.
+			if project, projErr := s.Store.GetProject(ctx, specTask.ProjectID); projErr == nil && project.DefaultRepoID != "" {
+				if repo, repoErr := s.Store.GetGitRepository(ctx, project.DefaultRepoID); repoErr == nil {
+					if err := s.gitRepositoryService.ValidateUserGitHubOAuth(ctx, repo, user.ID); err != nil {
+						var oauthErr *services.OAuthRequiredError
+						if errors.As(err, &oauthErr) {
+							writeResponse(w, map[string]interface{}{
+								"error":         "oauth_required",
+								"message":       oauthErr.Error(),
+								"provider_type": oauthErr.ProviderType,
+							}, http.StatusUnprocessableEntity)
+							return
+						}
+						log.Warn().Err(err).Str("task_id", specTask.ID).
+							Msg("Non-OAuthRequired error validating approver OAuth at design-review submit; proceeding with approval")
+					}
+				}
+			}
+
 			specTask.Status = types.TaskStatusSpecApproved
 			specTask.SpecApprovedBy = user.ID
 			specTask.SpecApprovedAt = &now

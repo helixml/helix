@@ -80,6 +80,7 @@ type CreateTaskRequest struct {
 	AppID        string           `json:"app_id"`               // Optional: Helix agent to use for spec generation
 	JustDoItMode bool             `json:"just_do_it_mode"`      // Optional: Skip spec planning, go straight to implementation
 	DependsOn    []string         `json:"depends_on"`           // Optional: IDs of tasks this task depends on
+	AssigneeID   string           `json:"assignee_id,omitempty"` // Optional: team member assigned to the task
 
 	// Branch configuration
 	BranchMode    BranchMode `json:"branch_mode,omitempty"`    // "new" or "existing" - defaults to "new"
@@ -179,6 +180,7 @@ type SpecTask struct {
 
 	// Simple tracking
 	EstimatedHours    int        `json:"estimated_hours,omitempty"`
+	PlanningStartedBy string     `json:"planning_started_by,omitempty"` // User who kicked off planning (may differ from CreatedBy)
 	PlanningStartedAt *time.Time `json:"planning_started_at,omitempty"`
 	StartedAt         *time.Time `json:"started_at,omitempty"`
 	CompletedAt       *time.Time `json:"completed_at,omitempty"`

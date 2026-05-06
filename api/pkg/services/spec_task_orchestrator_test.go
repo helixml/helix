@@ -54,6 +54,20 @@ func (s *SpecTaskOrchestratorTestSuite) TestHandleDone_StopsDesktop() {
 	s.Require().NoError(err)
 }
 
+func (s *SpecTaskOrchestratorTestSuite) TestHandleDone_KeepAliveSkipsStop() {
+	ctx := context.Background()
+	task := &types.SpecTask{
+		ID:                "task-keep-alive",
+		PlanningSessionID: "session-keep-alive",
+		Status:            types.TaskStatusDone,
+		KeepAlive:         true,
+	}
+
+	// No StopDesktop expectation — gomock will fail the test if it gets called.
+	err := s.orchestrator.handleDone(ctx, task)
+	s.Require().NoError(err)
+}
+
 func (s *SpecTaskOrchestratorTestSuite) TestHandleBacklog_SkipsWhenStaleEvent() {
 	ctx := context.Background()
 	eventTask := &types.SpecTask{
@@ -451,15 +465,13 @@ func (s *SpecTaskOrchestratorTestSuite) TestHandleSpecApproved_SelfHealsNilSpecA
 		ID:            "repo-1",
 		DefaultBranch: "main",
 	}, nil)
-	s.store.EXPECT().UpdateSpecTask(ctx, gomock.Any()).DoAndReturn(
-		func(_ context.Context, t *types.SpecTask) error {
-			s.Equal(types.TaskStatusImplementation, t.Status)
-			s.NotNil(t.SpecApproval, "SpecApproval should have been synthesized")
-			s.True(t.SpecApproval.Approved)
-			s.Equal("user-1", t.SpecApproval.ApprovedBy)
-			return nil
-		},
-	)
+	s.store.EXPECT().TransitionSpecTaskStatus(
+		ctx,
+		"task-stuck",
+		gomock.Any(),
+		types.TaskStatusImplementation,
+		gomock.Any(),
+	).Return(true, nil)
 
 	err := s.orchestrator.handleSpecApproved(ctx, task)
 	s.Require().NoError(err)

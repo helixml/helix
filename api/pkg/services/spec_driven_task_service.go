@@ -2,6 +2,8 @@ package services
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -29,6 +31,9 @@ type RequestMappingRegistrar func(requestID, sessionID string)
 // ProjectSecretsGetter is a function that retrieves project secrets as environment variables
 type ProjectSecretsGetter func(ctx context.Context, projectID string) ([]string, error)
 
+// DesktopExecFunc executes a command inside a running desktop container via RevDial.
+type DesktopExecFunc func(ctx context.Context, sessionID string, command []string) error
+
 // SpecDrivenTaskService manages the spec-driven development workflow:
 // Specification: Helix agent generates specs from simple descriptions
 // Implementation: Zed agent implements code from approved specs
@@ -49,6 +54,7 @@ type SpecDrivenTaskService struct {
 	auditLogService          *AuditLogService          // Service for audit logging
 	koditService             KoditServicer             // Kodit code intelligence (for MCP documentation in prompts)
 	GetProjectSecrets        ProjectSecretsGetter      // Callback to get project secrets as env vars
+	ExecInDesktop            DesktopExecFunc           // Callback to exec commands in running desktop containers
 	wg                       sync.WaitGroup
 }
 
@@ -170,6 +176,7 @@ func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *t
 		ProjectID:      req.ProjectID,
 		UserID:         req.UserID,
 		OrganizationID: organizationID,
+		AssigneeID:     req.AssigneeID, // Optional: handler validates org membership before this is reached
 		Name:           GenerateTaskNameFromPrompt(req.Prompt),
 		Description:    req.Prompt,
 		Type:           req.Type,
@@ -408,6 +415,16 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		return
 	}
 	log.Debug().Str("task_id", task.ID).Msg("DEBUG: Task updated with session ID")
+
+	// Kick off git-identity sync in the background. The desktop container
+	// isn't up yet; the async helper polls until it can reach the container,
+	// then sets user.email/user.name to the planner so spec-phase commits
+	// are attributed correctly. Falls back to CreatedBy for legacy tasks.
+	plannerID := task.PlanningStartedBy
+	if plannerID == "" {
+		plannerID = task.CreatedBy
+	}
+	s.syncGitIdentityAsync(task, plannerID, "planner", 3*time.Minute)
 
 	// Generate request_id for initial message and register the mapping
 	// This allows the WebSocket handler to find and send the initial message to Zed
@@ -803,6 +820,16 @@ func (s *SpecDrivenTaskService) StartJustDoItMode(ctx context.Context, task *typ
 		return
 	}
 
+	// Just-Do-It skips the spec phase but still pushes commits to a feature
+	// branch, so the git identity must match the user who started the task.
+	// Mirror the planning-phase flow: async sync so we don't block on the
+	// container being reachable.
+	jdiActorID := task.PlanningStartedBy
+	if jdiActorID == "" {
+		jdiActorID = task.CreatedBy
+	}
+	s.syncGitIdentityAsync(task, jdiActorID, "just-do-it", 3*time.Minute)
+
 	// Generate request_id for initial message and register the mapping
 	requestID := system.GenerateRequestID()
 	if s.RegisterRequestMapping != nil {
@@ -869,6 +896,17 @@ Follow these guidelines when making changes:
 	// Build repository section listing local + Kodit repos for the agent
 	repoSection := s.buildRepositorySectionForTask(ctx, task, project)
 
+	// qwen-code's Shell tool requires `is_background` on every call (see
+	// qwen-code/packages/core/src/tools/shell.test.ts). Other runtimes use a
+	// different parameter name (Claude Code: `run_in_background`, Codex: none),
+	// and forcing `is_background` on those tools triggers
+	// `InputValidationError: An unexpected parameter "is_background" was provided`
+	// on the agent's first Bash call, burning a tool slot before any real work.
+	shellCommandsGuidance := ""
+	if codeAgentRuntimeJDI == types.CodeAgentRuntimeQwenCode {
+		shellCommandsGuidance = "**Shell commands:** Specify is_background (true or false) on all shell commands - it's required. Use true for long-running operations (builds, servers, installs).\n\n"
+	}
+
 	promptWithBranch := fmt.Sprintf(`%s
 %s
 ---
@@ -877,12 +915,10 @@ Follow these guidelines when making changes:
 
 **Primary Project Directory:** /home/retro/work/%s/
 %s
-**Shell commands:** Specify is_background (true or false) on all shell commands - it's required. Use true for long-running operations (builds, servers, installs).
-
-%s
+%s%s
 
 **For persistent installs:** Add commands to /home/retro/work/helix-specs/.helix/startup.sh (runs at sandbox startup, must be idempotent). Push directly to helix-specs branch.
-`, userPrompt, guidelinesSection, primaryRepoName, repoSection, gitInstructions)
+`, userPrompt, guidelinesSection, primaryRepoName, repoSection, shellCommandsGuidance, gitInstructions)
 
 	interaction := &types.Interaction{
 		ID:            system.GenerateInteractionID(),
@@ -1121,18 +1157,17 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, task *types.Sp
 		return fmt.Errorf("failed to get task: %w", err)
 	}
 
-	// Idempotency guard: the HTTP handler fires a goroutine calling
-	// ApproveSpecs immediately, but the orchestrator polling loop can
-	// also pick up tasks in spec_approved status and call it again.
-	// Without this check the implementation instruction is sent twice,
-	// creating two interactions with different request_ids.
+	// Early-exit if the task is already past the spec phase. This is a fast-path
+	// for the common case; the authoritative race guard is the atomic
+	// TransitionSpecTaskStatus call below, which is the only thing that prevents
+	// two concurrent callers from both sending the implementation instruction.
 	if task.Status == types.TaskStatusImplementation ||
 		task.Status == types.TaskStatusImplementationQueued ||
 		task.Status == types.TaskStatusQueuedImplementation {
 		log.Info().
 			Str("task_id", task.ID).
 			Str("status", string(task.Status)).
-			Msg("[ApproveSpecs] Task already past approval — skipping (idempotency guard)")
+			Msg("[ApproveSpecs] Task already past approval — skipping")
 		return nil
 	}
 
@@ -1230,25 +1265,75 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, task *types.Sp
 			}
 		}
 
-		// Set status to implementation BEFORE sending the instruction.
-		// This closes the race window between the HTTP handler's goroutine
-		// and the orchestrator polling loop: both re-read the task from DB,
-		// and if the status is still spec_approved when the second caller
-		// reads it, the idempotency guard (above) won't catch it.
+		// Atomically transition the status from a spec-phase state to
+		// implementation. Only one caller's UPDATE can match the WHERE clause,
+		// so only one caller proceeds to send the implementation instruction.
+		// This is the authoritative race guard — the read-then-check pattern at
+		// the top of this function is just a fast path for the common case.
 		now := time.Now()
+		extraFields := map[string]any{
+			"branch_name": branchName,
+			"started_at":  now,
+			"base_branch": task.BaseBranch,
+		}
+		if task.HelixAppID != "" {
+			extraFields["helix_app_id"] = task.HelixAppID
+		}
+		// Persist the synthesized SpecApproval struct (only set when the
+		// caller arrived with task.SpecApproval == nil). The pre-PR2260
+		// implementation persisted this implicitly via UpdateSpecTask saving
+		// the whole struct; the atomic-update path only writes columns we
+		// list here.
+		if task.SpecApproval != nil {
+			specApprovalJSON, marshalErr := json.Marshal(task.SpecApproval)
+			if marshalErr != nil {
+				return fmt.Errorf("failed to marshal SpecApproval: %w", marshalErr)
+			}
+			extraFields["spec_approval"] = string(specApprovalJSON)
+		}
+		transitioned, err := s.store.TransitionSpecTaskStatus(
+			ctx,
+			task.ID,
+			[]types.SpecTaskStatus{
+				types.TaskStatusSpecApproved,
+				types.TaskStatusSpecReview,
+				types.TaskStatusSpecRevision,
+				types.TaskStatusSpecGeneration,
+			},
+			types.TaskStatusImplementation,
+			extraFields,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to transition task to implementation: %w", err)
+		}
+		if !transitioned {
+			log.Info().
+				Str("task_id", task.ID).
+				Msg("[ApproveSpecs] Another caller won the race — skipping")
+			return nil
+		}
+
+		// Reflect the transition in the in-memory task so downstream code
+		// (logging, the message sender) sees the new state.
 		task.Status = types.TaskStatusImplementation
 		task.StatusUpdatedAt = &now
 		task.BranchName = branchName
 		task.StartedAt = &now
 
-		err = s.store.UpdateSpecTask(ctx, task)
-		if err != nil {
-			return fmt.Errorf("failed to update task approval: %w", err)
+		// Update git identity in the running container to match the approver,
+		// so implementation commits are attributed to the user who approved specs.
+		sessionID := task.PlanningSessionID
+
+		if err := s.syncGitIdentityToUser(ctx, task, task.SpecApprovedBy, "approver"); err != nil {
+			// Don't fail the whole approval — push-time credentials already
+			// fall back to SpecApprovedBy (see git_http_server.go), so commit
+			// attribution in the container is the only thing that reverts to
+			// the creator. Log loudly so operators notice.
+			log.Error().Err(err).Str("task_id", task.ID).Str("session_id", sessionID).
+				Msg("Failed to update container git identity at approval; commits may be attributed to previous actor")
 		}
 
 		// Send instruction to existing agent session (reuse planning session)
-		sessionID := task.PlanningSessionID
-
 		if sessionID != "" && !s.testMode {
 			// Create agent instruction service
 			agentInstructionService := NewAgentInstructionService(s.store, s.SendMessageToAgent, s.koditService)
@@ -1351,6 +1436,171 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, task *types.Sp
 	}
 
 	return nil
+}
+
+// syncGitIdentityToUser updates the container's global git user.name and
+// user.email to match the given userID, so commits authored after this call
+// are attributed correctly. phaseLabel ("planner", "approver", …) is purely
+// for logs so we can tell which transition triggered the sync.
+//
+// Behaviour:
+//   - Returns nil (no-op) when there is no session, no exec callback, we are
+//     in test mode, or userID is empty.
+//   - Returns an error when we can identify who the actor should be but
+//     can't set their identity (DB lookup fails, email missing, or exec
+//     fails — e.g. the container isn't up yet).
+//   - Sets user.email first because email is what Git uses for authorship
+//     attribution. If setting name fails after email succeeded, we log the
+//     partial state but return success, since the attribution-critical field
+//     is correct.
+func (s *SpecDrivenTaskService) syncGitIdentityToUser(ctx context.Context, task *types.SpecTask, userID, phaseLabel string) error {
+	if s.testMode || s.ExecInDesktop == nil {
+		return nil
+	}
+	if task.PlanningSessionID == "" {
+		return nil
+	}
+	if userID == "" {
+		// No actor recorded for this phase — nothing to sync against.
+		// Expected for legacy tasks predating the PlanningStartedBy field,
+		// or for auto-approval paths that don't carry an identity.
+		return nil
+	}
+
+	actor, err := s.store.GetUser(ctx, &store.GetUserQuery{ID: userID})
+	if err != nil {
+		return fmt.Errorf("failed to look up %s %s: %w", phaseLabel, userID, err)
+	}
+	if actor == nil {
+		return fmt.Errorf("%w: %s %s", errIdentityUserNotFound, phaseLabel, userID)
+	}
+
+	actorEmail := actor.Email
+	if actorEmail == "" {
+		return fmt.Errorf("%w: %s %s", errIdentityNoEmail, phaseLabel, actor.ID)
+	}
+
+	actorName := actor.FullName
+	if actorName == "" {
+		actorName = actor.Username
+	}
+	if actorName == "" {
+		// Last-resort fallback: local-part of the email. Git config accepts
+		// an empty user.name but the resulting commits would be unreadable,
+		// so we synthesise something meaningful instead.
+		if at := strings.IndexByte(actorEmail, '@'); at > 0 {
+			actorName = actorEmail[:at]
+		} else {
+			actorName = actorEmail
+		}
+	}
+
+	sessionID := task.PlanningSessionID
+
+	// Email first — this is the attribution-critical field. If it fails we
+	// don't touch user.name at all, so we don't leave a mixed identity.
+	if err := s.ExecInDesktop(ctx, sessionID, []string{"git", "config", "--global", "user.email", actorEmail}); err != nil {
+		return fmt.Errorf("failed to set git user.email: %w", err)
+	}
+	if err := s.ExecInDesktop(ctx, sessionID, []string{"git", "config", "--global", "user.name", actorName}); err != nil {
+		// user.email succeeded so commits will attribute correctly by
+		// email; the display name may carry over from whoever was set
+		// previously.
+		log.Warn().Err(err).
+			Str("task_id", task.ID).Str("session_id", sessionID).Str("phase", phaseLabel).
+			Msg("Set user.email but failed to set user.name; commit attribution correct but display name may lag")
+		return nil
+	}
+
+	log.Info().
+		Str("task_id", task.ID).Str("session_id", sessionID).Str("phase", phaseLabel).
+		Str("actor_name", actorName).Str("actor_email", actorEmail).
+		Msg("Updated git identity in container")
+	return nil
+}
+
+// syncGitIdentityAsync runs syncGitIdentityToUser in the background, retrying
+// until it succeeds or maxWait elapses. Used at planning-boot time where the
+// desktop container is still coming up — we can't block the caller on the
+// container being reachable, and we can't count on a "ready" signal.
+//
+// Errors that won't be fixed by retrying (missing email, user not found) are
+// detected early and returned via the first attempt without further retries.
+func (s *SpecDrivenTaskService) syncGitIdentityAsync(task *types.SpecTask, userID, phaseLabel string, maxWait time.Duration) {
+	if s.testMode || s.ExecInDesktop == nil || task.PlanningSessionID == "" || userID == "" {
+		return
+	}
+
+	s.wg.Add(1)
+	go func(taskID, sessionID string) {
+		defer s.wg.Done()
+
+		// Defensive panic recovery — this runs detached from the request.
+		defer func() {
+			if r := recover(); r != nil {
+				log.Error().Interface("panic", r).Str("task_id", taskID).
+					Msg("PANIC in syncGitIdentityAsync")
+			}
+		}()
+
+		ctx, cancel := context.WithTimeout(context.Background(), maxWait)
+		defer cancel()
+
+		backoff := 2 * time.Second
+		attempts := 0
+		for {
+			attempts++
+			err := s.syncGitIdentityToUser(ctx, task, userID, phaseLabel)
+			if err == nil {
+				if attempts > 1 {
+					log.Info().Str("task_id", taskID).Int("attempts", attempts).Str("phase", phaseLabel).
+						Msg("Git identity synced after container-ready retries")
+				}
+				return
+			}
+
+			// Non-retryable errors: user missing / email missing / lookup
+			// failed — retrying won't fix them. Give up immediately so we
+			// don't spam the logs for the full maxWait window.
+			if isNonRetryableIdentityError(err) {
+				log.Error().Err(err).Str("task_id", taskID).Str("phase", phaseLabel).
+					Msg("Git identity sync failed with non-retryable error")
+				return
+			}
+
+			select {
+			case <-ctx.Done():
+				log.Warn().Err(err).Str("task_id", taskID).Int("attempts", attempts).Str("phase", phaseLabel).
+					Msg("Gave up syncing git identity after timeout; commits may not be attributed correctly")
+				return
+			case <-time.After(backoff):
+			}
+
+			// Gentle backoff, capped so we keep trying throughout the window.
+			if backoff < 10*time.Second {
+				backoff += 2 * time.Second
+			}
+		}
+	}(task.ID, task.PlanningSessionID)
+}
+
+// Sentinel errors returned by syncGitIdentityToUser for conditions that won't
+// change on retry. Classified via errors.Is so wrapping layers don't break the
+// distinction.
+var (
+	errIdentityUserNotFound = errors.New("identity actor not found")
+	errIdentityNoEmail      = errors.New("identity actor has no email")
+)
+
+// isNonRetryableIdentityError returns true for errors from syncGitIdentityToUser
+// that won't change on retry: lookup-not-found and missing-email conditions.
+// Container-not-ready (exec) errors return false so the async wrapper keeps
+// retrying until the container comes up.
+func isNonRetryableIdentityError(err error) bool {
+	if err == nil {
+		return false
+	}
+	return errors.Is(err, errIdentityUserNotFound) || errors.Is(err, errIdentityNoEmail)
 }
 
 // buildRepositorySectionForTask fetches project and org repos, then builds the repository section

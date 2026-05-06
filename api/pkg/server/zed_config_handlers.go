@@ -135,10 +135,29 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 		// Use empty scopes - the token getter will use whatever scopes the user has
 		return apiServer.oauthManager.GetTokenForTool(ctx, userID, providerName, nil)
 	}
-	zedConfig, err := external_agent.GenerateZedMCPConfig(ctx, app, session.Owner, sessionID, sandboxAPIURL, helixToken, koditEnabled, projectSkills, oauthTokenGetter)
+	providerSnapshot, err := apiServer.getProviderSnapshot(ctx, session.Owner, app)
+	if err != nil {
+		log.Warn().Err(err).Str("session_id", sessionID).Msg("zed-config: failed to list providers; provider resolution will be skipped")
+	}
+	// Heal-on-read rewrites legacy name refs to immutable IDs. Skip the
+	// persisted write for runner-token requests so two concurrent runner
+	// pulls don't race UpdateApp and runner traffic doesn't bump
+	// app.UpdatedAt — the in-memory rewrite still feeds Generate below.
+	apiServer.healLegacyProviderRefs(ctx, app, providerSnapshot, user.TokenType != types.TokenTypeRunner)
+	zedConfig, err := external_agent.GenerateZedMCPConfig(ctx, app, session.Owner, sessionID, sandboxAPIURL, helixToken, koditEnabled, projectSkills, oauthTokenGetter, providerSnapshot)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to generate Zed config")
 		return nil, system.NewHTTPError500("failed to generate Zed config")
+	}
+
+	// Hard-fail when the agent's stored model config is empty or references
+	// an unknown provider. The settings-sync-daemon uses this endpoint as
+	// its source of truth on session start; failing fast here surfaces the
+	// real problem (broken agent config) in the spec-task UI rather than
+	// silently spinning up a sandbox where Zed would fall back to its
+	// built-in default model and confuse the user.
+	if zedConfig.Misconfigured {
+		return nil, system.NewHTTPError422(zedConfig.MisconfigReason)
 	}
 
 	// Convert to response format - include ALL fields from zedConfig
@@ -347,8 +366,12 @@ func (apiServer *HelixAPIServer) updateZedUserSettings(_ http.ResponseWriter, re
 	return map[string]string{"status": "ok"}, nil
 }
 
-// @Summary Get merged Zed settings
-// @Description Get merged Helix + user Zed settings for a session
+// @Summary Get merged Zed MCP context_servers for a session
+// @Description Returns the union of helix-managed and user-side MCP context_servers,
+// @Description for the session "MCP Tools" panel in the UI. Other Zed settings
+// @Description (agent.*, language_models, theme) are owned by the daemon — anything
+// @Description that needs the full Zed view goes through the settings-sync-daemon
+// @Description on /zed-config + a local merge.
 // @Tags Zed
 // @Accept json
 // @Produce json
@@ -364,41 +387,29 @@ func (apiServer *HelixAPIServer) getMergedZedSettings(_ http.ResponseWriter, req
 	vars := mux.Vars(req)
 	sessionID := vars["id"]
 
-	// Get session to verify access
 	session, err := apiServer.Store.GetSession(ctx, sessionID)
 	if err != nil {
 		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to get session")
 		return nil, system.NewHTTPError404("session not found")
 	}
 
-	// Verify user owns this session
 	user := getRequestUser(req)
 	if user == nil || session.Owner != user.ID {
 		return nil, system.NewHTTPError403("access denied")
 	}
 
-	// Get app config - fall back to default if not found or not set
 	var app *types.App
 	if session.ParentApp != "" {
-		var err error
 		app, err = apiServer.Store.GetApp(ctx, session.ParentApp)
 		if err != nil {
 			log.Warn().Err(err).Str("app_id", session.ParentApp).Str("session_id", sessionID).Msg("Parent app not found - using default config")
 			app = nil
 		}
 	}
-
-	// If no app found, use a default app with sensible defaults
 	if app == nil {
-		log.Debug().Str("session_id", sessionID).Msg("No parent app - using default Zed config with claude-sonnet")
-		app = &types.App{
-			ID:     "default-agent",
-			Config: types.AppConfig{},
-		}
+		app = &types.App{ID: "default-agent", Config: types.AppConfig{}}
 	}
 
-	// Use SANDBOX_API_URL for what Zed inside sandbox uses
-	// If not explicitly set, default to external-facing URL (SERVER_URL)
 	helixAPIURL := apiServer.Cfg.WebServer.SandboxAPIURL
 	if helixAPIURL == "" {
 		helixAPIURL = apiServer.Cfg.WebServer.URL
@@ -407,14 +418,12 @@ func (apiServer *HelixAPIServer) getMergedZedSettings(_ http.ResponseWriter, req
 		}
 	}
 
-	// Get API key for MCP and LLM authentication
 	helixToken, err := apiServer.getAPIKeyForSession(ctx, session)
 	if err != nil {
 		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to get API key for session")
 		return nil, system.NewHTTPError500("failed to get API key for session")
 	}
 
-	// Get project skills if session has a project
 	var projectSkills *types.AssistantSkills
 	if session.ProjectID != "" {
 		project, err := apiServer.Store.GetProject(ctx, session.ProjectID)
@@ -425,33 +434,30 @@ func (apiServer *HelixAPIServer) getMergedZedSettings(_ http.ResponseWriter, req
 		projectSkills = project.Skills
 	}
 
-	// Always generate config - GenerateZedMCPConfig has sensible defaults
-	// (anthropic/claude-sonnet-4-5-latest, theme, language_models routing, etc.)
-	//
-	// Create OAuth token getter for stdio MCPs that need OAuth tokens
 	oauthTokenGetter := func(ctx context.Context, userID, providerName string) (string, error) {
 		if apiServer.oauthManager == nil {
 			return "", nil
 		}
 		return apiServer.oauthManager.GetTokenForTool(ctx, userID, providerName, nil)
 	}
-	zedConfig, err := external_agent.GenerateZedMCPConfig(ctx, app, session.Owner, sessionID, helixAPIURL, helixToken, apiServer.Cfg.Kodit.Enabled, projectSkills, oauthTokenGetter)
+	// providerSnapshot=nil here: this endpoint only exposes context_servers,
+	// which don't depend on provider resolution or model validation. The
+	// daemon hits /zed-config separately and handles those concerns there.
+	zedConfig, err := external_agent.GenerateZedMCPConfig(ctx, app, session.Owner, sessionID, helixAPIURL, helixToken, apiServer.Cfg.Kodit.Enabled, projectSkills, oauthTokenGetter, nil)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to generate Zed config")
 		return nil, system.NewHTTPError500("failed to generate Zed config")
 	}
 
-	// Get user overrides
 	userOverrides, err := external_agent.GetUserZedOverrides(ctx, apiServer.Store, sessionID)
 	if err != nil {
 		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to get user overrides")
 		return nil, system.NewHTTPError500("failed to get user overrides")
 	}
 
-	// Merge
-	merged := external_agent.MergeZedConfigWithUserOverrides(zedConfig, userOverrides)
-
-	return merged, nil
+	return map[string]interface{}{
+		"context_servers": external_agent.MergeContextServers(zedConfig.ContextServers, userOverrides),
+	}, nil
 }
 
 // getAgentNameForSession determines which code agent to use for a session.
@@ -511,7 +517,22 @@ func (apiServer *HelixAPIServer) buildCodeAgentConfig(ctx context.Context, app *
 	// Find the assistant with AgentType = zed_external
 	for _, assistant := range app.Config.Helix.Assistants {
 		if assistant.AgentType == types.AgentTypeZedExternal {
-			return apiServer.buildCodeAgentConfigFromAssistant(ctx, &assistant, helixURL)
+			// Resolve the agent's stored provider token (ID or legacy name) to
+			// the provider's current canonical name so the model identifier
+			// matches what GenerateZedMCPConfig writes into agent.default_model.
+			// Without this resolution available_models would carry "pe_xxx/..."
+			// while default_model carries "numpty/..." (the renamed provider's
+			// current name) — Zed's model picker fails the lookup and falls
+			// back to its built-in Claude default.
+			//
+			// app.Owner drives the actor identity here — buildCodeAgentConfig
+			// has no session/request context. Org providers are still
+			// resolved via the org bucket inside getProviderSnapshot.
+			snapshot, err := apiServer.getProviderSnapshot(ctx, app.Owner, app)
+			if err != nil {
+				log.Warn().Err(err).Str("app_id", app.ID).Msg("buildCodeAgentConfig: provider snapshot unavailable; model prefix may not match agent.default_model")
+			}
+			return apiServer.buildCodeAgentConfigFromAssistant(ctx, &assistant, helixURL, snapshot)
 		}
 	}
 	return nil
@@ -521,7 +542,7 @@ func (apiServer *HelixAPIServer) buildCodeAgentConfig(ctx context.Context, app *
 // For zed_external agents, use GenerationModelProvider/GenerationModel - that's where the UI
 // stores the user's model selection for external agents.
 // The CodeAgentRuntime determines how the LLM is configured in Zed (built-in agent vs qwen).
-func (apiServer *HelixAPIServer) buildCodeAgentConfigFromAssistant(ctx context.Context, assistant *types.AssistantConfig, helixURL string) *types.CodeAgentConfig {
+func (apiServer *HelixAPIServer) buildCodeAgentConfigFromAssistant(ctx context.Context, assistant *types.AssistantConfig, helixURL string, providerSnapshot []external_agent.ProviderRef) *types.CodeAgentConfig {
 	// Get the code agent runtime, default to zed_agent
 	runtime := assistant.CodeAgentRuntime
 	if runtime == "" {
@@ -540,6 +561,16 @@ func (apiServer *HelixAPIServer) buildCodeAgentConfigFromAssistant(ctx context.C
 	modelName := assistant.GenerationModel
 	if modelName == "" {
 		modelName = assistant.Model
+	}
+
+	// Resolve the agent's stored provider token (ID or legacy name) to the
+	// provider's current canonical name. Required so the model prefix here
+	// matches what GenerateZedMCPConfig produces for agent.default_model —
+	// see comment in buildCodeAgentConfig.
+	if providerSnapshot != nil && providerName != "" {
+		if resolved, _, ok := external_agent.ResolveProvider(providerName, providerSnapshot); ok {
+			providerName = resolved.Name
+		}
 	}
 
 	// Subscription agents don't need provider/model (they use OAuth credentials).
@@ -627,6 +658,158 @@ func (apiServer *HelixAPIServer) buildCodeAgentConfigFromAssistant(ctx context.C
 		MaxTokens:       maxTokens,
 		MaxOutputTokens: maxOutputTokens,
 	}
+}
+
+// getProviderSnapshot returns a ProviderRef snapshot of every provider
+// visible to the actor for the given app — env-baked globals (ID="",
+// Name=canonical) plus DB-backed user/org records (ID set, Name=current
+// admin label). Used by zed-config code paths to resolve an agent's stored
+// provider reference to its current canonical name.
+//
+// The app argument is what makes this org-aware: when app.OrganizationID
+// is set, org-owned providers are listed first and the user's personal
+// providers are merged in (so a user running an org agent that references
+// their own personal provider still resolves). actorID may be "" when
+// there's no user context (rare; e.g. system-driven paths) — in that case
+// only the app-owner bucket is returned.
+//
+// Returning nil from this helper (e.g. when the manager isn't wired) tells
+// GenerateZedMCPConfig to skip resolution.
+func (apiServer *HelixAPIServer) getProviderSnapshot(ctx context.Context, actorID string, app *types.App) ([]external_agent.ProviderRef, error) {
+	if apiServer.providerManager == nil {
+		return nil, nil
+	}
+	endpoints, err := apiServer.listEndpointsForApp(ctx, actorID, app)
+	if err != nil {
+		return nil, err
+	}
+	refs := make([]external_agent.ProviderRef, 0, len(endpoints))
+	for _, ep := range endpoints {
+		refs = append(refs, external_agent.ProviderRef{ID: ep.ID, Name: ep.Name})
+	}
+	return refs, nil
+}
+
+// listEndpointsForApp returns ProviderEndpoint records visible to the actor
+// for the given app, with the org-first + user-merge pattern that
+// validateProvidersAndModels established. Centralising it here means every
+// caller (substitution, validation, zed-config, spec-task pre-flight) sees
+// the same view of "what providers can this agent legitimately reference".
+//
+// Without the merge, an org-owned agent that references the org member's
+// personal provider would 422 at session start; with it, both buckets
+// participate in resolution.
+func (apiServer *HelixAPIServer) listEndpointsForApp(ctx context.Context, actorID string, app *types.App) ([]*types.ProviderEndpoint, error) {
+	if apiServer.providerManager == nil {
+		return nil, nil
+	}
+	owner := actorID
+	if app != nil && app.OrganizationID != "" {
+		owner = app.OrganizationID
+	}
+	endpoints, err := apiServer.providerManager.ListProviderEndpoints(ctx, owner)
+	if err != nil {
+		return nil, err
+	}
+	if app == nil || app.OrganizationID == "" || actorID == "" || actorID == app.OrganizationID {
+		return endpoints, nil
+	}
+	userEndpoints, uerr := apiServer.providerManager.ListProviderEndpoints(ctx, actorID)
+	if uerr != nil {
+		// Best-effort merge: a personal-provider lookup failure shouldn't
+		// hide the org bucket we already have. Log and return what we got.
+		log.Warn().Err(uerr).Str("app_id", app.ID).Str("actor_id", actorID).Msg("listEndpointsForApp: failed to list personal providers; using org bucket only")
+		return endpoints, nil
+	}
+	seen := make(map[string]struct{}, len(endpoints))
+	for _, ep := range endpoints {
+		seen[endpointKey(ep)] = struct{}{}
+	}
+	for _, ep := range userEndpoints {
+		k := endpointKey(ep)
+		if _, ok := seen[k]; ok {
+			continue
+		}
+		seen[k] = struct{}{}
+		endpoints = append(endpoints, ep)
+	}
+	return endpoints, nil
+}
+
+// endpointKey produces a stable de-dup key for a provider endpoint. ID wins
+// when present; for env-baked globals (ID=="") the name namespace is used
+// to keep "openai" from colliding with a DB-backed provider also named
+// "openai".
+func endpointKey(ep *types.ProviderEndpoint) string {
+	if ep.ID != "" {
+		return "id:" + ep.ID
+	}
+	return "name:" + ep.Name
+}
+
+// validateSpecTaskAgentConfig pre-flights the agent's provider/model snapshot
+// against the registered providers visible to the actor. Returns a
+// human-readable reason (suitable for HTTP 422) when the agent is
+// misconfigured, or "" when usable. Used by spec-task entry handlers
+// (start-planning, approve-specs) to refuse to queue a task whose agent
+// would fail at session start. Without this, a stale agent record would
+// spawn a desktop that boots but can't reach a routable model — the user
+// has to dig through API logs to find the cause.
+//
+// Resolves the agent the same way the spec-driven task service does:
+// task.HelixAppID first, falling back to project.DefaultHelixAppID. If
+// neither is set, returns "" — the absent-agent failure is surfaced
+// downstream with its own dedicated message.
+func (apiServer *HelixAPIServer) validateSpecTaskAgentConfig(ctx context.Context, task *types.SpecTask, actorID string) (string, error) {
+	appID := task.HelixAppID
+	if appID == "" {
+		project, err := apiServer.Store.GetProject(ctx, task.ProjectID)
+		if err != nil {
+			return "", fmt.Errorf("failed to load project: %w", err)
+		}
+		appID = project.DefaultHelixAppID
+	}
+	if appID == "" {
+		return "", nil
+	}
+	app, err := apiServer.Store.GetApp(ctx, appID)
+	if err != nil {
+		return "", fmt.Errorf("failed to load agent app %s: %w", appID, err)
+	}
+	snapshot, err := apiServer.getProviderSnapshot(ctx, actorID, app)
+	if err != nil {
+		log.Warn().Err(err).Str("app_id", appID).Msg("spec-task: failed to list providers; skipping agent config validation")
+		return "", nil
+	}
+	// Spec-task entry handlers always run with a real user token, so persist
+	// the heal-on-read rewrite — runner-token entry into this code path is
+	// not a thing for these handlers.
+	apiServer.healLegacyProviderRefs(ctx, app, snapshot, true)
+	return external_agent.ValidateAssistantModelConfig(app, snapshot), nil
+}
+
+// healLegacyProviderRefs rewrites name-based provider references on the app
+// to the matching DB-backed provider's immutable ID, so future renames are
+// silent. Best-effort — a write failure just logs and lets the next read
+// retry. See external_agent.MigrateLegacyProviderRefs for the rules.
+//
+// persist=false skips the UpdateApp write (used on runner-token reads of
+// /zed-config so two concurrent runner pulls don't race UpdateApp and
+// runner traffic doesn't bump app.UpdatedAt). The in-memory rewrite still
+// happens — that's what feeds the immediate Generate / Validate call.
+func (apiServer *HelixAPIServer) healLegacyProviderRefs(ctx context.Context, app *types.App, snapshot []external_agent.ProviderRef, persist bool) {
+	if !external_agent.MigrateLegacyProviderRefs(app, snapshot) {
+		return
+	}
+	if !persist {
+		log.Debug().Str("app_id", app.ID).Msg("agent legacy-name → ID migration: in-memory only (runner-token read)")
+		return
+	}
+	if _, err := apiServer.Store.UpdateApp(ctx, app); err != nil {
+		log.Warn().Err(err).Str("app_id", app.ID).Msg("agent legacy-name → ID migration: persist failed; will retry on next read")
+		return
+	}
+	log.Info().Str("app_id", app.ID).Msg("agent legacy-name → ID migration: rewrote provider fields to immutable IDs")
 }
 
 // checkSpecTaskKoditIndexing checks if a SpecTask's project has any repositories with Kodit indexing enabled.

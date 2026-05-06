@@ -1,15 +1,4 @@
 definitions:
-  controller.MemoryEstimationResponse:
-    properties:
-      cached:
-        type: boolean
-      error:
-        type: string
-      estimate:
-        $ref: '#/definitions/memory.MemoryEstimate'
-      model_id:
-        type: string
-    type: object
   filestore.Config:
     properties:
       folders:
@@ -167,6 +156,68 @@ definitions:
         description: '"nvidia", "amd", "intel"'
         type: string
     type: object
+  hydra.ListSandboxCommandsResponse:
+    properties:
+      commands:
+        items:
+          $ref: '#/definitions/hydra.SandboxCommandResponse'
+        type: array
+    type: object
+  hydra.ListSandboxFilesResponse:
+    properties:
+      entries:
+        items:
+          $ref: '#/definitions/hydra.SandboxFileEntry'
+        type: array
+      path:
+        type: string
+    type: object
+  hydra.SandboxCommandResponse:
+    properties:
+      args:
+        items:
+          type: string
+        type: array
+      cmd:
+        type: string
+      cwd:
+        type: string
+      detached:
+        type: boolean
+      exit_code:
+        type: integer
+      finished_at:
+        type: string
+      id:
+        type: string
+      sandbox_id:
+        type: string
+      started_at:
+        type: string
+      status:
+        type: string
+      stderr:
+        type: string
+      stdout:
+        type: string
+      sudo:
+        type: boolean
+    type: object
+  hydra.SandboxFileEntry:
+    properties:
+      is_dir:
+        type: boolean
+      mod_time:
+        type: string
+      mode:
+        type: string
+      name:
+        type: string
+      path:
+        type: string
+      size:
+        type: integer
+    type: object
   mcp.Icon:
     properties:
       mimeType:
@@ -304,136 +355,6 @@ definitions:
         type: array
       type:
         type: string
-    type: object
-  memory.EstimateOptions:
-    properties:
-      flash_attention:
-        description: Advanced options
-        type: boolean
-      kv_cache_type:
-        description: '"f16", "q8_0", "q4_0"'
-        type: string
-      num_batch:
-        description: Batch size
-        type: integer
-      num_ctx:
-        description: Context size
-        type: integer
-      num_gpu:
-        description: |-
-          ⚠️  CRITICAL CONFUSION WARNING ⚠️
-          NumGPU is NOT the number of GPUs in your hardware configuration!
-          NumGPU is the number of MODEL LAYERS to offload to GPU (-1 for auto-detect all that fit)
-
-          Examples:
-          - NumGPU = -1: Auto-detect max layers that fit (RECOMMENDED - gives full model memory)
-          - NumGPU = 1:  Only offload 1 layer to GPU (gives tiny memory estimate)
-          - NumGPU = 0:  CPU only (no GPU layers)
-
-          To estimate for different GPU hardware configs (1 GPU vs 4 GPUs),
-          you pass different GPU configuration arrays to the estimation function,
-          NOT different NumGPU values!
-        type: integer
-      num_parallel:
-        description: Number of parallel sequences
-        type: integer
-    type: object
-  memory.GPUInfo:
-    properties:
-      compute:
-        type: string
-      dependency_path:
-        items:
-          type: string
-        type: array
-      driver_major:
-        type: integer
-      driver_minor:
-        type: integer
-      env_workarounds:
-        items:
-          items:
-            type: string
-          type: array
-        type: array
-      free_memory:
-        type: integer
-      id:
-        type: string
-      index:
-        type: integer
-      library:
-        description: '"cuda", "rocm", "metal", "cpu"'
-        type: string
-      minimum_memory:
-        type: integer
-      name:
-        type: string
-      total_memory:
-        type: integer
-      unreliable_free_memory:
-        type: boolean
-      variant:
-        description: Additional fields for compatibility with Ollama's estimation
-        type: string
-    type: object
-  memory.MemoryEstimate:
-    properties:
-      architecture:
-        description: Metadata
-        type: string
-      estimated_at:
-        type: string
-      fully_loaded:
-        description: Whether all layers fit on GPU
-        type: boolean
-      gpu_sizes:
-        description: Memory allocation per GPU
-        items:
-          type: integer
-        type: array
-      gpus:
-        items:
-          $ref: '#/definitions/memory.GPUInfo'
-        type: array
-      graph:
-        description: Graph memory requirement
-        type: integer
-      graph_mem:
-        description: Graph computation memory
-        type: integer
-      kv_cache:
-        description: Breakdown for analysis
-        type: integer
-      layers:
-        description: Core results
-        type: integer
-      model_path:
-        type: string
-      options:
-        allOf:
-        - $ref: '#/definitions/memory.EstimateOptions'
-        description: Configuration used for estimation
-      projectors:
-        description: Projector weights (for multimodal)
-        type: integer
-      requires_fallback:
-        description: Whether CPU fallback is needed
-        type: boolean
-      tensor_split:
-        description: Layers per GPU for tensor parallel
-        items:
-          type: integer
-        type: array
-      total_size:
-        description: Total memory requirement
-        type: integer
-      vram_size:
-        description: Total VRAM usage
-        type: integer
-      weights:
-        description: Model weights memory
-        type: integer
     type: object
   openai.ChatCompletionChoice:
     properties:
@@ -1082,24 +1003,6 @@ definitions:
       amount:
         type: number
       org_id:
-        type: string
-    type: object
-  server.DesignDocsResponse:
-    properties:
-      documents:
-        items:
-          $ref: '#/definitions/server.DesignDocument'
-        type: array
-      task_id:
-        type: string
-    type: object
-  server.DesignDocument:
-    properties:
-      content:
-        type: string
-      filename:
-        type: string
-      path:
         type: string
     type: object
   server.DevContainerWithClients:
@@ -1854,23 +1757,6 @@ definitions:
       session_id:
         type: string
     type: object
-  server.LogsSummary:
-    properties:
-      active_instances:
-        type: integer
-      error_retention_hours:
-        type: integer
-      instances_with_errors:
-        type: integer
-      max_lines_per_buffer:
-        type: integer
-      recent_errors:
-        type: integer
-      slots:
-        items:
-          $ref: '#/definitions/server.SlotLogSummary'
-        type: array
-    type: object
   server.ModelSubstitution:
     properties:
       assistant_name:
@@ -2068,16 +1954,66 @@ definitions:
           $ref: '#/definitions/server.SampleType'
         type: array
     type: object
+  server.SandboxBillingResponse:
+    properties:
+      enabled:
+        type: boolean
+      pending_credits:
+        type: number
+      price_credits_per_second:
+        type: number
+      runtime:
+        type: string
+      total_credits_charged:
+        type: number
+      vcpus:
+        type: integer
+    type: object
   server.SandboxInstanceInfo:
     properties:
+      active_profile_id:
+        description: |-
+          Inference profile state — populated from the heartbeat. Empty for
+          pure-agent sandboxes with no profile assigned.
+        type: string
       container_id:
         type: string
       id:
         type: string
+      profile_error:
+        type: string
+      profile_progress:
+        additionalProperties:
+          $ref: '#/definitions/types.ServiceDownloadProgress'
+        type: object
+      profile_status:
+        type: string
+      service_health:
+        additionalProperties:
+          type: string
+        type: object
       session_id:
         type: string
       status:
         type: string
+    type: object
+  server.SandboxTerminalSession:
+    properties:
+      attached:
+        type: boolean
+      created:
+        type: integer
+      name:
+        type: string
+      windows:
+        type: integer
+    type: object
+  server.SandboxTerminalSessionsResponse:
+    properties:
+      sessions:
+        items:
+          $ref: '#/definitions/server.SandboxTerminalSession'
+        type: array
     type: object
   server.SessionClaudeCredentialsResponse:
     properties:
@@ -2218,17 +2154,6 @@ definitions:
           type: string
         type: array
     type: object
-  server.SlotLogSummary:
-    properties:
-      has_logs:
-        type: boolean
-      id:
-        type: string
-      model:
-        type: string
-      runner_id:
-        type: string
-    type: object
   server.TaskProgressResponse:
     properties:
       checklist:
@@ -2286,6 +2211,50 @@ definitions:
     properties:
       label:
         type: string
+    type: object
+  server.openaiModelEntry:
+    properties:
+      created:
+        type: integer
+      id:
+        type: string
+      object:
+        type: string
+      owned_by:
+        type: string
+    type: object
+  server.openaiModelsResponse:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/server.openaiModelEntry'
+        type: array
+      object:
+        type: string
+    type: object
+  server.runnerProfileAssignRequest:
+    properties:
+      profile_id:
+        type: string
+    type: object
+  server.runnerProfileSaveRequest:
+    properties:
+      architectures:
+        items:
+          type: string
+        type: array
+      compose_yaml:
+        type: string
+      description:
+        type: string
+      min_vram_bytes:
+        type: integer
+      model_match:
+        type: string
+      name:
+        type: string
+      vendor:
+        $ref: '#/definitions/types.GPUVendor'
     type: object
   services.SampleProjectCode:
     properties:
@@ -2503,6 +2472,14 @@ definitions:
     - AgentWorkStateDone
   types.AggregatedUsageMetric:
     properties:
+      cache_read_cost:
+        type: number
+      cache_read_tokens:
+        type: integer
+      cache_write_cost:
+        type: number
+      cache_write_tokens:
+        type: integer
       completion_cost:
         type: number
       completion_tokens:
@@ -2520,59 +2497,15 @@ definitions:
         type: integer
       response_size_bytes:
         type: integer
+      sandbox_cost:
+        type: number
       total_cost:
-        description: Total cost of the call (prompt and completion tokens)
+        description: Prompt + completion + cache read + cache write
         type: number
       total_requests:
         type: integer
       total_tokens:
         type: integer
-    type: object
-  types.AllocationPlanView:
-    properties:
-      cost:
-        type: integer
-      evictions_needed:
-        description: Slot IDs
-        items:
-          type: string
-        type: array
-      gpu_count:
-        type: integer
-      gpus:
-        items:
-          type: integer
-        type: array
-      id:
-        type: string
-      is_multi_gpu:
-        type: boolean
-      is_valid:
-        type: boolean
-      memory_per_gpu:
-        type: integer
-      requires_eviction:
-        type: boolean
-      runner_capacity:
-        additionalProperties:
-          type: integer
-        description: GPU index -> total memory
-        type: object
-      runner_id:
-        type: string
-      runner_memory_state:
-        additionalProperties:
-          type: integer
-        description: GPU index -> allocated memory
-        type: object
-      runtime:
-        $ref: '#/definitions/github_com_helixml_helix_api_pkg_types.Runtime'
-      tensor_parallel_size:
-        type: integer
-      total_memory_required:
-        type: integer
-      validation_error:
-        type: string
     type: object
   types.ApiKey:
     properties:
@@ -3868,6 +3801,55 @@ definitions:
       sample_type:
         type: string
     type: object
+  types.CreateSandboxRequest:
+    properties:
+      display_fps:
+        type: integer
+      display_height:
+        type: integer
+      display_width:
+        type: integer
+      env:
+        additionalProperties:
+          type: string
+        type: object
+      image:
+        description: |-
+          Image is an optional explicit Docker image override. Only honoured
+          when the operator has set HELIX_SANDBOX_ALLOW_CUSTOM_IMAGE=true.
+          Mutually exclusive with Runtime.
+        type: string
+      memory_mb:
+        type: integer
+      name:
+        type: string
+      persistent:
+        description: |-
+          Persistent makes the sandbox keep a workspace mount across container
+          restarts. Files written under /home/retro/work survive teardown until
+          the sandbox is explicitly deleted.
+        type: boolean
+      project_id:
+        description: |-
+          ProjectID optionally associates the sandbox with a project the caller
+          belongs to. Empty means org-scoped only.
+        type: string
+      runtime:
+        allOf:
+        - $ref: '#/definitions/types.SandboxRuntime'
+        description: |-
+          Runtime selects one of the operator-configured runtimes
+          (e.g. "headless-ubuntu", "node22", "ubuntu-desktop"). Mutually
+          exclusive with Image.
+      tags:
+        additionalProperties:
+          type: string
+        type: object
+      timeout_seconds:
+        type: integer
+      vcpus:
+        type: integer
+    type: object
   types.CreateSecretRequest:
     properties:
       app_id:
@@ -3885,6 +3867,9 @@ definitions:
     properties:
       app_id:
         description: 'Optional: Helix agent to use for spec generation'
+        type: string
+      assignee_id:
+        description: 'Optional: team member assigned to the task'
         type: string
       base_branch:
         description: 'For new mode: branch to create from (defaults to repo default)'
@@ -3962,6 +3947,12 @@ definitions:
       action:
         description: '"session" (default) or "spec_task"'
         type: string
+      agent_type:
+        description: '"helix" (default) or "zed_external"'
+        type: string
+      callback_url:
+        description: Webhook URL to POST on completion
+        type: string
       emails:
         items:
           type: string
@@ -3970,76 +3961,14 @@ definitions:
         type: boolean
       input:
         type: string
+      input_file:
+        description: File path in helix-specs worktree to use as prompt (overrides
+          Input)
+        type: string
       project_id:
         description: Target project for spec_task action
         type: string
       schedule:
-        type: string
-    type: object
-  types.DashboardData:
-    properties:
-      global_allocation_decisions:
-        items:
-          $ref: '#/definitions/types.GlobalAllocationDecision'
-        type: array
-      queue:
-        items:
-          $ref: '#/definitions/types.WorkloadSummary'
-        type: array
-      runners:
-        items:
-          $ref: '#/definitions/types.DashboardRunner'
-        type: array
-      scheduling_decisions:
-        items:
-          $ref: '#/definitions/types.SchedulingDecision'
-        type: array
-    type: object
-  types.DashboardRunner:
-    properties:
-      allocated_memory:
-        type: integer
-      created:
-        type: string
-      free_memory:
-        type: integer
-      gpu_count:
-        description: Number of GPUs detected
-        type: integer
-      gpu_memory_stats:
-        allOf:
-        - $ref: '#/definitions/types.GPUMemoryStats'
-        description: GPU memory stabilization statistics
-      gpus:
-        description: Per-GPU memory status
-        items:
-          $ref: '#/definitions/types.GPUStatus'
-        type: array
-      id:
-        type: string
-      labels:
-        additionalProperties:
-          type: string
-        type: object
-      memory_string:
-        type: string
-      models:
-        items:
-          $ref: '#/definitions/types.RunnerModelStatus'
-        type: array
-      process_stats:
-        description: Process tracking and cleanup statistics
-      slots:
-        items:
-          $ref: '#/definitions/types.RunnerSlot'
-        type: array
-      total_memory:
-        type: integer
-      updated:
-        type: string
-      used_memory:
-        type: integer
-      version:
         type: string
     type: object
   types.DiscordTrigger:
@@ -4516,125 +4445,14 @@ definitions:
       valid_until:
         type: string
     type: object
-  types.GPUMemoryDataPoint:
-    properties:
-      actual_free_mb:
-        description: Actual free memory (from nvidia-smi)
-        type: integer
-      actual_total_mb:
-        description: Total GPU memory
-        type: integer
-      actual_used_mb:
-        description: Actual memory used (from nvidia-smi)
-        type: integer
-      allocated_mb:
-        description: Memory allocated by Helix scheduler
-        type: integer
-      gpu_index:
-        type: integer
-      timestamp:
-        type: string
-    type: object
-  types.GPUMemoryReading:
-    properties:
-      delta_mb:
-        type: integer
-      is_stable:
-        type: boolean
-      memory_mb:
-        type: integer
-      poll_number:
-        type: integer
-      stable_count:
-        type: integer
-    type: object
-  types.GPUMemoryStabilizationEvent:
-    properties:
-      context:
-        description: '"startup" or "deletion"'
-        type: string
-      error_message:
-        type: string
-      memory_delta_threshold_mb:
-        type: integer
-      memory_readings:
-        items:
-          $ref: '#/definitions/types.GPUMemoryReading'
-        type: array
-      poll_interval_ms:
-        type: integer
-      polls_taken:
-        type: integer
-      required_stable_polls:
-        type: integer
-      runtime:
-        type: string
-      slot_id:
-        type: string
-      stabilized_memory_mb:
-        type: integer
-      success:
-        type: boolean
-      timeout_seconds:
-        type: integer
-      timestamp:
-        type: string
-      total_wait_seconds:
-        type: integer
-    type: object
-  types.GPUMemoryStats:
-    properties:
-      average_wait_time_seconds:
-        type: number
-      failed_stabilizations:
-        type: integer
-      last_stabilization:
-        type: string
-      max_wait_time_seconds:
-        type: integer
-      memory_time_series:
-        description: Last 10 minutes of memory data
-        items:
-          $ref: '#/definitions/types.GPUMemoryDataPoint'
-        type: array
-      min_wait_time_seconds:
-        type: integer
-      recent_events:
-        description: Last 20 events
-        items:
-          $ref: '#/definitions/types.GPUMemoryStabilizationEvent'
-        type: array
-      scheduling_events:
-        description: Last 10 minutes of scheduling events
-        items:
-          $ref: '#/definitions/types.SchedulingEvent'
-        type: array
-      successful_stabilizations:
-        type: integer
-      total_stabilizations:
-        type: integer
-    type: object
-  types.GPUState:
-    properties:
-      active_slots:
-        description: Slot IDs using this GPU
-        items:
-          type: string
-        type: array
-      allocated_memory:
-        type: integer
-      free_memory:
-        type: integer
-      index:
-        type: integer
-      total_memory:
-        type: integer
-      utilization:
-        description: 0.0 - 1.0
-        type: number
-    type: object
   types.GPUStatus:
     properties:
+      architecture:
+        description: canonical arch from gpuarch (e.g. "hopper")
+        type: string
+      compute_capability:
+        description: NVIDIA only — raw "9.0" / "8.6" etc.
+        type: string
       driver_version:
         description: GPU driver version (NVIDIA or AMD)
         type: string
@@ -4657,7 +4475,22 @@ definitions:
       used_memory:
         description: Used memory in bytes
         type: integer
+      vendor:
+        allOf:
+        - $ref: '#/definitions/types.GPUVendor'
+        description: |-
+          Sandbox-absorbs-runner pivot fields (AC2 in requirements.md).
+          Populated by the worker on its periodic status report; consumed by
+          the API server's profile-compatibility check.
     type: object
+  types.GPUVendor:
+    enum:
+    - nvidia
+    - amd
+    type: string
+    x-enum-varnames:
+    - GPUVendorNVIDIA
+    - GPUVendorAMD
   types.GitHub:
     properties:
       app_id:
@@ -4967,59 +4800,6 @@ definitions:
       username:
         type: string
     type: object
-  types.GlobalAllocationDecision:
-    properties:
-      after_state:
-        additionalProperties:
-          $ref: '#/definitions/types.RunnerStateView'
-        type: object
-      before_state:
-        additionalProperties:
-          $ref: '#/definitions/types.RunnerStateView'
-        description: Global state snapshots
-        type: object
-      considered_plans:
-        description: All plans considered
-        items:
-          $ref: '#/definitions/types.AllocationPlanView'
-        type: array
-      created:
-        type: string
-      error_message:
-        type: string
-      execution_time_ms:
-        type: integer
-      id:
-        type: string
-      model_name:
-        type: string
-      optimization_score:
-        description: How optimal the final decision was
-        type: number
-      planning_time_ms:
-        description: Timing information
-        type: integer
-      reason:
-        type: string
-      runtime:
-        $ref: '#/definitions/github_com_helixml_helix_api_pkg_types.Runtime'
-      selected_plan:
-        $ref: '#/definitions/types.AllocationPlanView'
-      session_id:
-        type: string
-      success:
-        description: Decision outcome
-        type: boolean
-      total_plans_generated:
-        type: integer
-      total_runners_evaluated:
-        description: Decision metadata
-        type: integer
-      total_time_ms:
-        type: integer
-      workload_id:
-        type: string
-    type: object
   types.GuidelinesHistory:
     properties:
       change_note:
@@ -5066,6 +4846,14 @@ definitions:
     properties:
       app_id:
         type: string
+      auto_wake_count:
+        description: |-
+          AutoWakeCount tracks how many times the auto-wake worker has sent a
+          follow-up "continue" prompt to unstick this interaction. Zero means
+          this is a normal user-initiated interaction; non-zero on an
+          auto-wake interaction itself records which retry attempt it is.
+          See design/2026-04-25-zed-claude-async-event-flush-on-user-input.md.
+        type: integer
       completed:
         type: string
       created:
@@ -5104,6 +4892,16 @@ definitions:
         type: integer
       mode:
         $ref: '#/definitions/types.SessionMode'
+      prompt_id:
+        description: |-
+          PromptID links this interaction back to the prompt_history_entry that
+          created it (when the interaction was dispatched by the queue, as opposed
+          to being initiated by Zed when the user types in the IDE). Empty for
+          Zed-initiated interactions. Used by handleMessageAdded /
+          handleMessageCompleted to mark the originating prompt as 'sent' without
+          relying on an in-memory map that doesn't survive API restarts. See
+          design/2026-04-30-queue-and-other-stuck-state-bugs.md.
+        type: string
       prompt_message:
         description: User prompt (text)
         type: string
@@ -5449,6 +5247,17 @@ definitions:
     properties:
       app_id:
         type: string
+      cache_read_cost:
+        type: number
+      cache_read_tokens:
+        description: prompt tokens served from provider cache (subset of PromptTokens)
+        type: integer
+      cache_write_cost:
+        type: number
+      cache_write_tokens:
+        description: prompt tokens written to provider cache (Anthropic only; subset
+          of PromptTokens)
+        type: integer
       completion_cost:
         type: number
       completion_tokens:
@@ -5496,7 +5305,7 @@ definitions:
       stream:
         type: boolean
       total_cost:
-        description: Total cost of the call (prompt and completion tokens)
+        description: Prompt + completion + cache read + cache write
         type: number
       total_tokens:
         type: integer
@@ -6229,6 +6038,12 @@ definitions:
         type: string
       image:
         type: string
+      input_cache_read:
+        description: price per cached input token read (hit)
+        type: string
+      input_cache_write:
+        description: price per cached input token written (cache creation)
+        type: string
       internal_reasoning:
         type: string
       prompt:
@@ -6236,6 +6051,39 @@ definitions:
       request:
         type: string
       web_search:
+        type: string
+    type: object
+  types.ProfileGPURequirement:
+    properties:
+      architectures:
+        description: optional whitelist (canonical strings from gpuarch)
+        items:
+          type: string
+        type: array
+      count:
+        description: 'derived from compose: union of device_ids'
+        type: integer
+      min_vram_bytes:
+        description: optional, per-GPU minimum
+        type: integer
+      model_match:
+        description: optional regex against GPU marketing name
+        type: string
+      vendor:
+        allOf:
+        - $ref: '#/definitions/types.GPUVendor'
+        description: optional
+    type: object
+  types.ProfileModel:
+    properties:
+      container_name:
+        description: service.container_name (or service key if absent)
+        type: string
+      internal_port:
+        description: first published or exposed port
+        type: integer
+      name:
+        description: --served-model-name (preferred) or --model basename
         type: string
     type: object
   types.Project:
@@ -6631,6 +6479,10 @@ definitions:
       deleted_at:
         description: 'Soft-delete: non-nil means user removed from queue'
         type: string
+      error_message:
+        description: Last failure reason (server-side error string), shown in UI under
+          "Failed - retrying"
+        type: string
       id:
         description: 'Composite primary key: ID is globally unique, but we also index
           by user+spec_task'
@@ -7008,7 +6860,20 @@ definitions:
     properties:
       active_concurrent_desktops:
         type: integer
+      active_desktop_sandboxes:
+        description: |-
+          Sandbox API concurrency. Distinct from ActiveConcurrentDesktops above —
+          that one counts external_agent sessions (the spec-task desktop stack),
+          while these count rows in the sandboxes table by runtime category.
+          "Active" = pending|running|stopping (matches ensureSandboxLimits).
+        type: integer
+      active_headless_sandboxes:
+        type: integer
       max_concurrent_desktops:
+        type: integer
+      max_desktop_sandboxes:
+        type: integer
+      max_headless_sandboxes:
         type: integer
       max_projects:
         type: integer
@@ -7289,91 +7154,136 @@ definitions:
         description: Raw response from the API
         type: string
     type: object
-  types.RunnerModelStatus:
+  types.RunSandboxCommandRequest:
     properties:
-      download_in_progress:
+      args:
+        items:
+          type: string
+        type: array
+      cmd:
+        type: string
+      cwd:
+        type: string
+      detached:
         type: boolean
-      download_percent:
-        type: integer
-      error:
-        type: string
-      memory:
-        description: Memory requirement in bytes
-        type: integer
-      model_id:
-        type: string
-      runtime:
-        $ref: '#/definitions/github_com_helixml_helix_api_pkg_types.Runtime'
-    type: object
-  types.RunnerSlot:
-    properties:
-      active:
-        type: boolean
-      active_requests:
-        type: integer
-      command_line:
-        type: string
-      context_length:
-        type: integer
-      created:
-        type: string
-      gpu_allocation_data:
-        additionalProperties: {}
+      env:
+        additionalProperties:
+          type: string
         type: object
-      gpu_index:
+      sudo:
+        type: boolean
+      timeout_seconds:
+        description: TimeoutSeconds is per-command timeout. Defaults to 60s if 0 and
+          !detached.
         type: integer
-      gpu_indices:
+    type: object
+  types.RunnerAssignment:
+    properties:
+      assigned_at:
+        type: string
+      assigned_by:
+        description: user ID for audit
+        type: string
+      profile_id:
+        type: string
+      runner_id:
+        type: string
+    type: object
+  types.RunnerProfile:
+    properties:
+      compose_yaml:
+        type: string
+      created_at:
+        type: string
+      description:
+        type: string
+      gpu_requirement:
+        $ref: '#/definitions/types.ProfileGPURequirement'
+      id:
+        type: string
+      models:
+        items:
+          $ref: '#/definitions/types.ProfileModel'
+        type: array
+      name:
+        type: string
+      updated_at:
+        type: string
+    type: object
+  types.Sandbox:
+    properties:
+      billing_last_charged_at:
+        type: string
+      container_id:
+        type: string
+      created_at:
+        type: string
+      deleted_at:
+        type: string
+      display_fps:
+        type: integer
+      display_height:
+        type: integer
+      display_width:
+        description: Display fields apply to desktop runtimes.
+        type: integer
+      env:
         items:
           type: integer
         type: array
+      expires_at:
+        type: string
+      host_device_id:
+        description: |-
+          HostDeviceID is the RevDial device ID of the hydra host that runs the
+          underlying container. Empty until the controller schedules it.
+        type: string
       id:
         type: string
-      max_concurrency:
-        type: integer
-      memory_estimation_meta:
-        additionalProperties: {}
-        type: object
-      model:
+      image:
         type: string
-      model_memory_requirement:
+      memory_mb:
         type: integer
-      ready:
+      name:
+        type: string
+      organization_id:
+        type: string
+      owner:
+        type: string
+      persistent:
+        description: |-
+          Persistent indicates that the sandbox should mount a persistent
+          workspace volume (so files survive across reboots/restarts of the
+          underlying container). Non-persistent sandboxes use the container's
+          ephemeral filesystem only.
         type: boolean
-      runner_id:
+      project_id:
+        description: |-
+          ProjectID is optional. When set, the sandbox is associated with a
+          specific project for organisational/UI grouping purposes; nothing in the
+          lifecycle path branches on it. Empty means org-scoped only.
         type: string
       runtime:
-        $ref: '#/definitions/github_com_helixml_helix_api_pkg_types.Runtime'
-      runtime_args:
-        additionalProperties: {}
-        type: object
+        $ref: '#/definitions/types.SandboxRuntime'
+      started_at:
+        type: string
       status:
+        $ref: '#/definitions/types.SandboxStatus'
+      status_message:
         type: string
-      tensor_parallel_size:
+      stopped_at:
+        type: string
+      tags:
+        items:
+          type: integer
+        type: array
+      timeout_seconds:
+        description: TimeoutSeconds is the lifetime in seconds; ExpiresAt = CreatedAt
+          + TimeoutSeconds.
         type: integer
-      updated:
+      updated_at:
         type: string
-      version:
-        type: string
-      workload_data:
-        additionalProperties: {}
-        type: object
-    type: object
-  types.RunnerStateView:
-    properties:
-      active_slots:
-        type: integer
-      gpu_states:
-        additionalProperties:
-          $ref: '#/definitions/types.GPUState'
-        description: GPU index -> state
-        type: object
-      is_connected:
-        type: boolean
-      runner_id:
-        type: string
-      total_slots:
-        type: integer
-      warm_slots:
+      vcpus:
         type: integer
     type: object
   types.SandboxCacheState:
@@ -7426,6 +7336,13 @@ definitions:
       gpu_vendor:
         description: GPU configuration
         type: string
+      gpus:
+        description: |-
+          GPUs is the per-GPU inventory used by the API server's profile
+          compatibility check. Empty for sandboxes that don't host inference.
+        items:
+          $ref: '#/definitions/types.GPUStatus'
+        type: array
       helix_version:
         description: Helix version running on this sandbox (git commit hash or release
           version)
@@ -7433,12 +7350,42 @@ definitions:
       privileged_mode_enabled:
         description: Privileged mode (host Docker access for development)
         type: boolean
+      profile_error:
+        description: ProfileError carries the failure detail when ProfileStatus="failed".
+        type: string
+      profile_progress:
+        additionalProperties:
+          $ref: '#/definitions/types.ServiceDownloadProgress'
+        description: |-
+          ProfileProgress is per-service model-weights download progress,
+          surfaced when ProfileStatus="starting". Empty once all services
+          finish downloading.
+        type: object
+      profile_status:
+        description: |-
+          ProfileStatus reports the compose stack lifecycle. Empty when no
+          profile is assigned. Allowed values: "assigning" | "pulling" |
+          "starting" | "running" | "failed".
+        type: string
       render_node:
         description: /dev/dri/renderD128 or SOFTWARE
         type: string
+      service_health:
+        additionalProperties:
+          type: string
+        description: |-
+          ServiceHealth maps compose service name -> health string.
+          "healthy" | "starting" | "failed" | "unknown".
+        type: object
     type: object
   types.SandboxInstance:
     properties:
+      active_profile_id:
+        description: |-
+          ActiveProfileID is the ID of the runner profile this sandbox is
+          currently running (or attempting to run). Empty for pure-agent
+          sandboxes with no profile assigned.
+        type: string
       active_sandboxes:
         description: Sandbox capacity
         type: integer
@@ -7454,6 +7401,16 @@ definitions:
       gpu_vendor:
         description: GPU configuration
         type: string
+      gpus:
+        description: |-
+          GPUs is the per-GPU inventory the sandbox reports for inference
+          scheduling. Vendor / Architecture / ComputeCapability on each
+          entry are the load-bearing fields for profile compatibility.
+          Explicit column tag because GORM's default snake_case derivation
+          turns `GPUs` into `gp_us`.
+        items:
+          type: object
+        type: array
       helix_version:
         description: Helix version running on this sandbox (git commit hash or release
           version)
@@ -7474,107 +7431,72 @@ definitions:
         type: integer
       privileged_mode:
         type: boolean
+      profile_error:
+        description: ProfileError carries the failure detail when ProfileStatus="failed".
+        type: string
+      profile_progress:
+        additionalProperties:
+          type: object
+        description: |-
+          ProfileProgress is per-service download progress for model weights,
+          surfaced when ProfileStatus="starting" and a vLLM container is
+          pulling weights from Hugging Face Hub. Empty once all services are
+          healthy. Map key is compose service name.
+        type: object
+      profile_status:
+        description: |-
+          ProfileStatus tracks the compose stack lifecycle:
+          "" | "assigning" | "pulling" | "starting" | "running" | "failed".
+        type: string
       render_node:
         description: /dev/dri/renderD128 or SOFTWARE
         type: string
+      service_health:
+        additionalProperties:
+          type: string
+        description: |-
+          ServiceHealth maps compose service name -> health string
+          ("healthy" | "starting" | "failed" | "unknown"). Reported by
+          compose-manager polling each container's /v1/models endpoint
+          (or vendor-specific health endpoint).
+        type: object
       status:
         description: '"online", "offline", "degraded"'
         type: string
       updated:
         type: string
     type: object
-  types.SchedulingDecision:
+  types.SandboxListResponse:
     properties:
-      available_runners:
+      sandboxes:
         items:
-          type: string
+          $ref: '#/definitions/types.Sandbox'
         type: array
-      created:
-        type: string
-      decision_type:
-        $ref: '#/definitions/types.SchedulingDecisionType'
-      id:
-        type: string
-      memory_available:
+      total:
         type: integer
-      memory_required:
-        type: integer
-      mode:
-        $ref: '#/definitions/types.SessionMode'
-      model_name:
-        type: string
-      processing_time_ms:
-        type: integer
-      queue_position:
-        type: integer
-      reason:
-        type: string
-      repeat_count:
-        type: integer
-      runner_id:
-        type: string
-      session_id:
-        type: string
-      slot_id:
-        type: string
-      success:
-        type: boolean
-      total_slot_count:
-        type: integer
-      warm_slot_count:
-        type: integer
-      workload_id:
-        type: string
     type: object
-  types.SchedulingDecisionType:
+  types.SandboxRuntime:
     enum:
-    - queued
-    - reuse_warm_slot
-    - create_new_slot
-    - evict_stale_slot
-    - rejected
-    - error
-    - unschedulable
+    - ubuntu-desktop
+    - headless-ubuntu
     type: string
-    x-enum-comments:
-      SchedulingDecisionTypeCreateNewSlot: Started new model instance
-      SchedulingDecisionTypeError: Error during scheduling
-      SchedulingDecisionTypeEvictStaleSlot: Evicted stale slot to free memory
-      SchedulingDecisionTypeQueued: Added to queue
-      SchedulingDecisionTypeRejected: Rejected (insufficient resources, etc.)
-      SchedulingDecisionTypeReuseWarmSlot: Reused existing warm model instance
-      SchedulingDecisionTypeUnschedulable: Cannot be scheduled (no warm slots available)
     x-enum-varnames:
-    - SchedulingDecisionTypeQueued
-    - SchedulingDecisionTypeReuseWarmSlot
-    - SchedulingDecisionTypeCreateNewSlot
-    - SchedulingDecisionTypeEvictStaleSlot
-    - SchedulingDecisionTypeRejected
-    - SchedulingDecisionTypeError
-    - SchedulingDecisionTypeUnschedulable
-  types.SchedulingEvent:
-    properties:
-      description:
-        type: string
-      event_type:
-        description: '"slot_created", "slot_deleted", "eviction", "stabilization_start",
-          "stabilization_end"'
-        type: string
-      gpu_indices:
-        items:
-          type: integer
-        type: array
-      memory_mb:
-        type: integer
-      model_name:
-        type: string
-      runtime:
-        type: string
-      slot_id:
-        type: string
-      timestamp:
-        type: string
-    type: object
+    - SandboxRuntimeUbuntuDesktop
+    - SandboxRuntimeHeadlessUbuntu
+  types.SandboxStatus:
+    enum:
+    - pending
+    - running
+    - stopping
+    - stopped
+    - failed
+    type: string
+    x-enum-varnames:
+    - SandboxStatusPending
+    - SandboxStatusRunning
+    - SandboxStatusStopping
+    - SandboxStatusStopped
+    - SandboxStatusFailed
   types.Secret:
     properties:
       app_id:
@@ -7613,6 +7535,12 @@ definitions:
       billing_enabled:
         description: Charging for usage
         type: boolean
+      default_chat_system_prompt:
+        description: |-
+          DefaultChatSystemPrompt is the system prompt the platform applies to
+          direct model chats when the user has not customised one. Surfaced to
+          the frontend so the chat-settings page can prefill the textbox.
+        type: string
       deployment_id:
         type: string
       disable_llm_call_logging:
@@ -7768,6 +7696,29 @@ definitions:
       name:
         type: string
     type: object
+  types.ServiceDownloadProgress:
+    properties:
+      current:
+        description: |-
+          Current and Total are the raw N/M from the progress line (e.g.
+          shards 12 of 47). Useful when Percent is computed.
+        type: integer
+      eta:
+        description: |-
+          ETA is the rendered remaining-time string from the source line
+          (e.g. "27:18"). Verbatim — not parsed into a duration.
+        type: string
+      percent:
+        description: Percent is 0-100. Zero means "no progress line parsed yet".
+        type: integer
+      stage:
+        description: |-
+          Stage is a short tag for what's downloading: "shards", "files",
+          "weights" or "" if unknown. Drives UI labelling.
+        type: string
+      total:
+        type: integer
+    type: object
   types.Session:
     properties:
       config:
@@ -7863,6 +7814,9 @@ definitions:
       assistant_id:
         description: Which assistant are we speaking to?
         type: string
+      callback_url:
+        description: Webhook URL to POST on session completion
+        type: string
       external_agent_config:
         allOf:
         - $ref: '#/definitions/types.ExternalAgentConfig'
@@ -7895,6 +7849,9 @@ definitions:
         type: boolean
       session_id:
         description: If empty, we will start a new session
+        type: string
+      session_role:
+        description: e.g. "job" — categorizes sessions for filtering
         type: string
       stream:
         description: If true, we will stream the response
@@ -7952,6 +7909,9 @@ definitions:
         description: which assistant are we talking to?
         type: string
       avatar:
+        type: string
+      callback_url:
+        description: Webhook URL to POST on session completion
         type: string
       code_agent_runtime:
         allOf:
@@ -8112,6 +8072,19 @@ definitions:
     - SessionModeInference
     - SessionModeFinetune
     - SessionModeAction
+  types.SessionOutputResponse:
+    properties:
+      duration_ms:
+        type: integer
+      output:
+        description: Last interaction's response text
+        type: string
+      session_id:
+        type: string
+      status:
+        description: '"waiting", "complete", "error"'
+        type: string
+    type: object
   types.SessionRAGResult:
     properties:
       content:
@@ -8442,6 +8415,9 @@ definitions:
           The same external agent/session is reused throughout the entire SpecTask lifecycle
         type: string
       planning_started_at:
+        type: string
+      planning_started_by:
+        description: User who kicked off planning (may differ from CreatedBy)
         type: string
       priority:
         allOf:
@@ -8982,6 +8958,9 @@ definitions:
         type: string
       planning_started_at:
         type: string
+      planning_started_by:
+        description: User who kicked off planning (may differ from CreatedBy)
+        type: string
       priority:
         allOf:
         - $ref: '#/definitions/types.SpecTaskPriority'
@@ -9277,7 +9256,11 @@ definitions:
       kodit_vision_embedding_provider:
         description: Kodit vision embedding model configuration
         type: string
+      max_concurrent_desktop_sandboxes:
+        type: integer
       max_concurrent_desktops:
+        type: integer
+      max_concurrent_headless_sandboxes:
         type: integer
       optimus_generation_model:
         type: string
@@ -9301,6 +9284,12 @@ definitions:
         type: string
       providers_management_enabled:
         type: boolean
+      sandbox_billing_enabled:
+        type: boolean
+      sandbox_desktop_price_credits_per_second:
+        type: number
+      sandbox_headless_price_credits_per_second:
+        type: number
     type: object
   types.SystemSettingsResponse:
     properties:
@@ -9339,8 +9328,12 @@ definitions:
       kodit_vision_embedding_provider:
         description: Kodit vision embedding model configuration
         type: string
+      max_concurrent_desktop_sandboxes:
+        type: integer
       max_concurrent_desktops:
         description: Per user
+        type: integer
+      max_concurrent_headless_sandboxes:
         type: integer
       optimus_generation_model:
         type: string
@@ -9365,6 +9358,12 @@ definitions:
         type: string
       providers_management_enabled:
         type: boolean
+      sandbox_billing_enabled:
+        type: boolean
+      sandbox_desktop_price_credits_per_second:
+        type: number
+      sandbox_headless_price_credits_per_second:
+        type: number
       updated:
         type: string
     type: object
@@ -9942,6 +9941,17 @@ definitions:
       vertex_region:
         type: string
     type: object
+  types.UpdateSandboxRequest:
+    properties:
+      name:
+        type: string
+      tags:
+        additionalProperties:
+          type: string
+        type: object
+      timeout_seconds:
+        type: integer
+    type: object
   types.UpdateTeamRequest:
     properties:
       name:
@@ -9985,6 +9995,11 @@ definitions:
       full_name:
         type: string
       id:
+        type: string
+      last_seen_at:
+        description: |-
+          LastSeenAt is the most recent time the user authenticated against the API.
+          Updated (throttled) from auth middleware so the column isn't hammered on every request.
         type: string
       must_change_password:
         description: if the user must change their password
@@ -10037,6 +10052,28 @@ definitions:
       is_admin:
         type: boolean
     type: object
+  types.UserChatSettings:
+    properties:
+      frequency_penalty:
+        type: number
+      max_tokens:
+        type: integer
+      presence_penalty:
+        type: number
+      system_prompt:
+        type: string
+      system_prompt_enabled:
+        description: |-
+          SystemPromptEnabled toggles whether any system prompt at all is sent
+          to the model. Pointer so nil means "not set" and we fall back to the
+          default-on behaviour. When explicitly false, no system prompt is sent
+          regardless of SystemPrompt.
+        type: boolean
+      temperature:
+        type: number
+      top_p:
+        type: number
+    type: object
   types.UserGuidelinesResponse:
     properties:
       guidelines:
@@ -10046,6 +10083,31 @@ definitions:
       guidelines_updated_by:
         type: string
       guidelines_version:
+        type: integer
+    type: object
+  types.UserModelUsage:
+    properties:
+      cache_read_tokens:
+        type: integer
+      cache_write_tokens:
+        type: integer
+      completion_tokens:
+        type: integer
+      first_used:
+        type: string
+      last_used:
+        type: string
+      model:
+        type: string
+      prompt_tokens:
+        type: integer
+      provider:
+        type: string
+      total_cost:
+        type: number
+      total_requests:
+        type: integer
+      total_tokens:
         type: integer
     type: object
   types.UserResponse:
@@ -10077,6 +10139,21 @@ definitions:
         items:
           $ref: '#/definitions/types.User'
         type: array
+    type: object
+  types.UserStatsResponse:
+    properties:
+      last_active_at:
+        type: string
+      models:
+        items:
+          $ref: '#/definitions/types.UserModelUsage'
+        type: array
+      projects_count:
+        type: integer
+      spec_tasks_count:
+        type: integer
+      user:
+        $ref: '#/definitions/types.User'
     type: object
   types.UserTokenUsageResponse:
     properties:
@@ -10154,25 +10231,6 @@ definitions:
         description: Apply readability middleware to the HTML content
         type: boolean
       user_agent:
-        type: string
-    type: object
-  types.WorkloadSummary:
-    properties:
-      created:
-        type: string
-      id:
-        type: string
-      lora_dir:
-        type: string
-      mode:
-        type: string
-      model_name:
-        type: string
-      runtime:
-        type: string
-      summary:
-        type: string
-      updated:
         type: string
     type: object
   types.ZFSTree:
@@ -12377,15 +12435,6 @@ paths:
       summary: contextMenuHandler
       tags:
       - ui
-  /api/v1/dashboard:
-    get:
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/types.DashboardData'
-      security:
-      - BearerAuth: []
   /api/v1/external-agents/{sessionID}/clipboard:
     get:
       description: Fetch current clipboard content from remote desktop
@@ -14615,85 +14664,6 @@ paths:
       summary: Update an existing Helix model
       tags:
       - models
-  /api/v1/helix-models/memory-estimate:
-    get:
-      description: Estimate memory requirements for a model on different GPU configurations
-      parameters:
-      - description: Model ID
-        in: query
-        name: model_id
-        required: true
-        type: string
-      - description: 'Number of GPUs (default: auto-detect)'
-        in: query
-        name: gpu_count
-        type: integer
-      - description: 'Context length (default: model default)'
-        in: query
-        name: context_length
-        type: integer
-      - description: 'Batch size (default: 512)'
-        in: query
-        name: batch_size
-        type: integer
-      - description: 'Number of parallel sequences/concurrent requests (default: 2)'
-        in: query
-        name: num_parallel
-        type: integer
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/controller.MemoryEstimationResponse'
-        "400":
-          description: Invalid request parameters
-          schema:
-            type: string
-        "404":
-          description: Model not found
-          schema:
-            type: string
-        "500":
-          description: Internal server error
-          schema:
-            type: string
-      security:
-      - BearerAuth: []
-      summary: Estimate model memory requirements
-      tags:
-      - models
-  /api/v1/helix-models/memory-estimates:
-    get:
-      description: Get memory estimates for multiple models with different GPU configurations
-      parameters:
-      - description: Comma-separated list of model IDs
-        in: query
-        name: model_ids
-        type: string
-      - description: 'Number of GPUs (default: auto-detect)'
-        in: query
-        name: gpu_count
-        type: integer
-      responses:
-        "200":
-          description: OK
-          schema:
-            items:
-              $ref: '#/definitions/controller.MemoryEstimationResponse'
-            type: array
-        "400":
-          description: Invalid request parameters
-          schema:
-            type: string
-        "500":
-          description: Internal server error
-          schema:
-            type: string
-      security:
-      - BearerAuth: []
-      summary: List memory estimates for multiple models
-      tags:
-      - models
   /api/v1/knowledge:
     get:
       responses:
@@ -14875,53 +14845,6 @@ paths:
       summary: List LLM calls
       tags:
       - llm_calls
-  /api/v1/logs/{slot_id}:
-    get:
-      description: Retrieve logs for a specific slot by proxying the request to the
-        runner
-      parameters:
-      - description: Slot ID
-        in: path
-        name: slot_id
-        required: true
-        type: string
-      - description: 'Maximum number of lines to return (default: 500)'
-        in: query
-        name: lines
-        type: integer
-      - description: Return logs since this timestamp (RFC3339 format)
-        in: query
-        name: since
-        type: string
-      - description: Filter by log level (ERROR, WARN, INFO, DEBUG)
-        in: query
-        name: level
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            additionalProperties: true
-            type: object
-        "400":
-          description: Bad Request
-          schema:
-            type: string
-        "404":
-          description: Not Found
-          schema:
-            type: string
-        "500":
-          description: Internal Server Error
-          schema:
-            type: string
-      security:
-      - BearerAuth: []
-      summary: Get logs for a specific slot
-      tags:
-      - logs
   /api/v1/model-info:
     get:
       description: List all dynamic model infos. Requires admin privileges.
@@ -15627,6 +15550,528 @@ paths:
       summary: Add a new member to a team
       tags:
       - organizations
+  /api/v1/organizations/{org_id}/sandboxes:
+    get:
+      description: List sandboxes belonging to an organization
+      parameters:
+      - description: Organization ID
+        in: path
+        name: org_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.SandboxListResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - ApiKeyAuth: []
+      summary: List sandboxes
+      tags:
+      - Sandboxes
+    post:
+      consumes:
+      - application/json
+      description: Create a new sandbox in an organization
+      parameters:
+      - description: Organization ID
+        in: path
+        name: org_id
+        required: true
+        type: string
+      - description: Sandbox spec
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/types.CreateSandboxRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/types.Sandbox'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - ApiKeyAuth: []
+      summary: Create sandbox
+      tags:
+      - Sandboxes
+  /api/v1/organizations/{org_id}/sandboxes/{id}:
+    delete:
+      parameters:
+      - description: Organization ID
+        in: path
+        name: org_id
+        required: true
+        type: string
+      - description: Sandbox ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+      security:
+      - ApiKeyAuth: []
+      summary: Delete sandbox
+      tags:
+      - Sandboxes
+    get:
+      parameters:
+      - description: Organization ID
+        in: path
+        name: org_id
+        required: true
+        type: string
+      - description: Sandbox ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.Sandbox'
+      security:
+      - ApiKeyAuth: []
+      summary: Get sandbox
+      tags:
+      - Sandboxes
+    patch:
+      consumes:
+      - application/json
+      parameters:
+      - description: Organization ID
+        in: path
+        name: org_id
+        required: true
+        type: string
+      - description: Sandbox ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Patch
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/types.UpdateSandboxRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.Sandbox'
+      security:
+      - ApiKeyAuth: []
+      summary: Update sandbox
+      tags:
+      - Sandboxes
+  /api/v1/organizations/{org_id}/sandboxes/{id}/billing:
+    get:
+      parameters:
+      - description: Organization ID
+        in: path
+        name: org_id
+        required: true
+        type: string
+      - description: Sandbox ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.SandboxBillingResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: Sandbox billing summary
+      tags:
+      - Sandboxes
+  /api/v1/organizations/{org_id}/sandboxes/{id}/commands:
+    get:
+      parameters:
+      - description: Organization ID
+        in: path
+        name: org_id
+        required: true
+        type: string
+      - description: Sandbox ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/hydra.ListSandboxCommandsResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: List sandbox commands
+      tags:
+      - Sandboxes
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Organization ID
+        in: path
+        name: org_id
+        required: true
+        type: string
+      - description: Sandbox ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Command spec
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/types.RunSandboxCommandRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/hydra.SandboxCommandResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: Run a command in a sandbox
+      tags:
+      - Sandboxes
+  /api/v1/organizations/{org_id}/sandboxes/{id}/commands/{cmd_id}:
+    get:
+      parameters:
+      - description: Organization ID
+        in: path
+        name: org_id
+        required: true
+        type: string
+      - description: Sandbox ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Command ID
+        in: path
+        name: cmd_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/hydra.SandboxCommandResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: Get a sandbox command
+      tags:
+      - Sandboxes
+  /api/v1/organizations/{org_id}/sandboxes/{id}/commands/{cmd_id}/kill:
+    post:
+      parameters:
+      - description: Organization ID
+        in: path
+        name: org_id
+        required: true
+        type: string
+      - description: Sandbox ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Command ID
+        in: path
+        name: cmd_id
+        required: true
+        type: string
+      - description: Signal name (default TERM)
+        in: query
+        name: signal
+        type: string
+      responses:
+        "204":
+          description: No Content
+      security:
+      - ApiKeyAuth: []
+      summary: Kill a sandbox command
+      tags:
+      - Sandboxes
+  /api/v1/organizations/{org_id}/sandboxes/{id}/commands/{cmd_id}/logs:
+    get:
+      parameters:
+      - description: Organization ID
+        in: path
+        name: org_id
+        required: true
+        type: string
+      - description: Sandbox ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Command ID
+        in: path
+        name: cmd_id
+        required: true
+        type: string
+      - description: stdout|stderr|both
+        in: query
+        name: stream
+        type: string
+      - description: 1 to follow
+        in: query
+        name: follow
+        type: string
+      produces:
+      - text/event-stream
+      responses: {}
+      security:
+      - ApiKeyAuth: []
+      summary: Stream sandbox command logs
+      tags:
+      - Sandboxes
+  /api/v1/organizations/{org_id}/sandboxes/{id}/files:
+    delete:
+      parameters:
+      - description: Organization ID
+        in: path
+        name: org_id
+        required: true
+        type: string
+      - description: Sandbox ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Absolute path inside the sandbox
+        in: query
+        name: path
+        required: true
+        type: string
+      - description: Octal permission for write
+        in: query
+        name: mode
+        type: string
+      - description: 1 to delete recursively
+        in: query
+        name: recursive
+        type: string
+      responses: {}
+      security:
+      - ApiKeyAuth: []
+      summary: Read/write/delete sandbox file
+      tags:
+      - Sandboxes
+    get:
+      parameters:
+      - description: Organization ID
+        in: path
+        name: org_id
+        required: true
+        type: string
+      - description: Sandbox ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Absolute path inside the sandbox
+        in: query
+        name: path
+        required: true
+        type: string
+      - description: Octal permission for write
+        in: query
+        name: mode
+        type: string
+      - description: 1 to delete recursively
+        in: query
+        name: recursive
+        type: string
+      responses: {}
+      security:
+      - ApiKeyAuth: []
+      summary: Read/write/delete sandbox file
+      tags:
+      - Sandboxes
+    put:
+      parameters:
+      - description: Organization ID
+        in: path
+        name: org_id
+        required: true
+        type: string
+      - description: Sandbox ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Absolute path inside the sandbox
+        in: query
+        name: path
+        required: true
+        type: string
+      - description: Octal permission for write
+        in: query
+        name: mode
+        type: string
+      - description: 1 to delete recursively
+        in: query
+        name: recursive
+        type: string
+      responses: {}
+      security:
+      - ApiKeyAuth: []
+      summary: Read/write/delete sandbox file
+      tags:
+      - Sandboxes
+  /api/v1/organizations/{org_id}/sandboxes/{id}/files/list:
+    get:
+      parameters:
+      - description: Organization ID
+        in: path
+        name: org_id
+        required: true
+        type: string
+      - description: Sandbox ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Directory path (default /root)
+        in: query
+        name: path
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/hydra.ListSandboxFilesResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: List directory in sandbox
+      tags:
+      - Sandboxes
+  /api/v1/organizations/{org_id}/sandboxes/{id}/screenshot:
+    get:
+      parameters:
+      - description: Organization ID
+        in: path
+        name: org_id
+        required: true
+        type: string
+      - description: Sandbox ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: JPEG quality (1-100, default 60)
+        in: query
+        name: quality
+        type: integer
+      produces:
+      - image/jpeg
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: string
+        "503":
+          description: Desktop bridge not connected
+          schema:
+            type: string
+      security:
+      - ApiKeyAuth: []
+      summary: Get a sandbox screenshot
+      tags:
+      - Sandboxes
+  /api/v1/organizations/{org_id}/sandboxes/{id}/terminal:
+    get:
+      parameters:
+      - description: Organization ID
+        in: path
+        name: org_id
+        required: true
+        type: string
+      - description: Sandbox ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses: {}
+      security:
+      - ApiKeyAuth: []
+      summary: Sandbox terminal websocket
+      tags:
+      - Sandboxes
+  /api/v1/organizations/{org_id}/sandboxes/{id}/terminal/sessions:
+    get:
+      parameters:
+      - description: Organization ID
+        in: path
+        name: org_id
+        required: true
+        type: string
+      - description: Sandbox ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.SandboxTerminalSessionsResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: List sandbox tmux sessions
+      tags:
+      - Sandboxes
   /api/v1/projects:
     get:
       consumes:
@@ -17587,6 +18032,210 @@ paths:
       summary: Search across resources
       tags:
       - search
+  /api/v1/runner-profiles:
+    get:
+      description: Return all compose-based runner profiles, ordered by name.
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.RunnerProfile'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: List runner profiles
+      tags:
+      - runner_profiles
+    post:
+      parameters:
+      - description: Profile fields
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/server.runnerProfileSaveRequest'
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/types.RunnerProfile'
+        "400":
+          description: invalid request
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Create a runner profile
+      tags:
+      - runner_profiles
+  /api/v1/runner-profiles/{id}:
+    delete:
+      parameters:
+      - description: Profile ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: no content
+          schema:
+            type: string
+        "404":
+          description: not found
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Delete a runner profile
+      tags:
+      - runner_profiles
+    get:
+      parameters:
+      - description: Profile ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.RunnerProfile'
+        "404":
+          description: not found
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Get a runner profile by ID
+      tags:
+      - runner_profiles
+    put:
+      parameters:
+      - description: Profile ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Profile fields
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/server.runnerProfileSaveRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.RunnerProfile'
+        "404":
+          description: not found
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Update a runner profile (full replace)
+      tags:
+      - runner_profiles
+  /api/v1/runners/{runner_id}/assign-profile:
+    post:
+      description: |-
+        Validates GPU compatibility, persists the assignment, and notifies
+        the runner over NATS to apply the profile.
+      parameters:
+      - description: Runner ID
+        in: path
+        name: runner_id
+        required: true
+        type: string
+      - description: Profile ID
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/server.runnerProfileAssignRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.RunnerAssignment'
+        "422":
+          description: 'incompatible: <constraint> — <detail>'
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Assign a profile to a runner
+      tags:
+      - runner_profiles
+  /api/v1/runners/{runner_id}/assignment:
+    get:
+      parameters:
+      - description: Runner ID
+        in: path
+        name: runner_id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.RunnerAssignment'
+        "404":
+          description: no assignment
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Get a runner's current profile assignment
+      tags:
+      - runner_profiles
+  /api/v1/runners/{runner_id}/clear-profile:
+    post:
+      description: |-
+        Deletes the runner-to-profile assignment and tells the runner
+        to tear down any active compose stack. Idempotent.
+      parameters:
+      - description: Runner ID
+        in: path
+        name: runner_id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: no content
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Clear a runner's profile assignment
+      tags:
+      - runner_profiles
+  /api/v1/runners/{runner_id}/compatible-profiles:
+    get:
+      description: |-
+        Returns the subset of profiles whose GPU compatibility specification
+        is satisfied by the runner's reported hardware inventory.
+      parameters:
+      - description: Runner ID
+        in: path
+        name: runner_id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.RunnerProfile'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: List runner profiles compatible with the given runner
+      tags:
+      - runner_profiles
   /api/v1/sample-projects:
     get:
       description: Get a list of all available sample projects that users can fork
@@ -17876,6 +18525,25 @@ paths:
       summary: Create sample repository
       tags:
       - samples
+  /api/v1/sandbox-runtimes:
+    get:
+      description: List the sandbox runtimes available on this server
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              items:
+                type: string
+              type: array
+            type: object
+      security:
+      - ApiKeyAuth: []
+      summary: List sandbox runtimes
+      tags:
+      - Sandboxes
   /api/v1/sandboxes:
     get:
       description: Get all registered sandboxes
@@ -18011,20 +18679,6 @@ paths:
       summary: Register a sandbox instance
       tags:
       - sandbox
-  /api/v1/scheduler/heartbeats:
-    get:
-      description: Get the health status of all scheduler goroutines
-      responses:
-        "200":
-          description: OK
-          schema:
-            additionalProperties: true
-            type: object
-      security:
-      - BearerAuth: []
-      summary: Get scheduler goroutine heartbeat status
-      tags:
-      - dashboard
   /api/v1/search:
     get:
       consumes:
@@ -18412,6 +19066,10 @@ paths:
         in: query
         name: project_id
         type: string
+      - description: Filter by session role (e.g. job)
+        in: query
+        name: session_role
+        type: string
       responses:
         "200":
           description: OK
@@ -18766,6 +19424,35 @@ paths:
       summary: Provide feedback for an interaction
       tags:
       - interactions
+  /api/v1/sessions/{id}/output:
+    get:
+      description: Returns the last interaction's response for a session
+      parameters:
+      - description: Session ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.SessionOutputResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Get session output
+      tags:
+      - Sessions
   /api/v1/sessions/{id}/rdp-connection:
     get:
       description: Get streaming connection details for accessing a session
@@ -18786,6 +19473,53 @@ paths:
       summary: Get streaming connection info for a session
       tags:
       - sessions
+  /api/v1/sessions/{id}/restart-agent:
+    post:
+      description: |-
+        Clears the dead acp_thread_id on the session and resets crashed prompts
+        (those marked by MarkPromptAsCrashed when the Claude Agent process exited)
+        back to pending. The next dispatch sends with empty acp_thread_id, causing
+        Zed to create a fresh thread + Claude Agent process. Requires the session
+        to be an external Zed agent. Returns the count of prompts that were reset.
+      parameters:
+      - description: Session ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Restart Zed thread after a Claude Agent crash
+      tags:
+      - Sessions
   /api/v1/sessions/{id}/resume:
     post:
       description: Restarts the external agent container for a session that has been
@@ -19108,7 +19842,12 @@ paths:
     get:
       consumes:
       - application/json
-      description: Get merged Helix + user Zed settings for a session
+      description: |-
+        Returns the union of helix-managed and user-side MCP context_servers,
+        for the session "MCP Tools" panel in the UI. Other Zed settings
+        (agent.*, language_models, theme) are owned by the daemon — anything
+        that needs the full Zed view goes through the settings-sync-daemon
+        on /zed-config + a local merge.
       parameters:
       - description: Session ID
         in: path
@@ -19137,7 +19876,7 @@ paths:
             $ref: '#/definitions/system.HTTPError'
       security:
       - ApiKeyAuth: []
-      summary: Get merged Zed settings
+      summary: Get merged Zed MCP context_servers for a session
       tags:
       - Zed
   /api/v1/sessions/chat:
@@ -19232,27 +19971,6 @@ paths:
       summary: Validate MCP skill configuration
       tags:
       - skills
-  /api/v1/slots/{slot_id}:
-    delete:
-      description: Delete a slot from the scheduler's desired state, allowing reconciliation
-        to clean it up from the runner
-      parameters:
-      - description: Slot ID
-        in: path
-        name: slot_id
-        required: true
-        type: string
-      responses:
-        "200":
-          description: OK
-          schema:
-            additionalProperties: true
-            type: object
-      security:
-      - BearerAuth: []
-      summary: Delete a slot from scheduler state
-      tags:
-      - dashboard
   /api/v1/spec-tasks:
     get:
       description: List spec-driven tasks with optional filtering by project, status,
@@ -19311,35 +20029,6 @@ paths:
       summary: List spec-driven tasks
       tags:
       - spec-driven-tasks
-  /api/v1/spec-tasks/{id}/design-docs:
-    get:
-      description: Get the design documents from helix-specs worktree
-      parameters:
-      - description: SpecTask ID
-        in: path
-        name: id
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/server.DesignDocsResponse'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-      security:
-      - ApiKeyAuth: []
-      summary: Get design docs for SpecTask
-      tags:
-      - SpecTasks
   /api/v1/spec-tasks/{spec_task_id}/approve-implementation:
     post:
       description: Approve the implementation and instruct agent to merge to main
@@ -20664,6 +21353,7 @@ paths:
       description: List users with pagination support and optional filtering by email
         domain or username. Supports ILIKE matching for email domains (e.g., "hotmail.com"
         will find all users with @hotmail.com emails) and partial username matching.
+        Pass `query` to match across email, username, and full_name in one go.
       parameters:
       - description: 'Page number (default: 1)'
         in: query
@@ -20673,6 +21363,10 @@ paths:
         in: query
         name: per_page
         type: integer
+      - description: Free-text search across email, username, and full_name (ILIKE)
+        in: query
+        name: query
+        type: string
       - description: Filter by email domain (e.g., 'hotmail.com') or exact email
         in: query
         name: email
@@ -20748,6 +21442,83 @@ paths:
       summary: Get user details
       tags:
       - users
+  /api/v1/users/{id}/stats:
+    get:
+      consumes:
+      - application/json
+      description: 'Returns an overview of a user''s activity: projects owned, spec
+        tasks created, per-model inference usage, and an effective last-active timestamp
+        combining tracked auth activity with usage-metric data.'
+      parameters:
+      - description: User ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.UserStatsResponse'
+      security:
+      - BearerAuth: []
+      summary: Get user stats (admin only)
+      tags:
+      - users
+  /api/v1/users/me/chat-settings:
+    get:
+      description: Get the current user's default chat settings (applied when chatting
+        without an app)
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.UserChatSettings'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Get user chat settings
+      tags:
+      - Users
+    put:
+      consumes:
+      - application/json
+      description: Update the current user's default chat settings (system prompt
+        + LLM parameters used when chatting without an app)
+      parameters:
+      - description: Chat settings to persist
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.UserChatSettings'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.UserChatSettings'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Update user chat settings
+      tags:
+      - Users
   /api/v1/users/me/guidelines:
     get:
       description: Get the current user's personal workspace guidelines

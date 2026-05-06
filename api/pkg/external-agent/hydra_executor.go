@@ -172,7 +172,7 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 	sandboxID := agent.SandboxID
 	if sandboxID == "" {
 		// Find an available sandbox with the required desktop image
-		sandbox, err := h.store.FindAvailableSandbox(ctx, containerType)
+		sandbox, err := h.store.FindAvailableSandboxInstance(ctx, containerType)
 		if err != nil {
 			return nil, fmt.Errorf("failed to find available sandbox: %w", err)
 		}
@@ -915,7 +915,7 @@ func (h *HydraExecutor) getContainerImage(ctx context.Context, containerType str
 
 	// Look up desktop_versions from sandbox's database record
 	// The sandbox heartbeat daemon updates this with versions from /opt/images/*.version
-	sandbox, err := h.store.GetSandbox(ctx, sandboxID)
+	sandbox, err := h.store.GetSandboxInstance(ctx, sandboxID)
 	if err != nil {
 		return "", fmt.Errorf("failed to get sandbox %q from database: %w (is the sandbox heartbeat running?)", sandboxID, err)
 	}
