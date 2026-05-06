@@ -69,6 +69,22 @@ Helper lives inline at the top of `TaskCard.tsx` (one small function, no new fil
 - **Other surfaces with their own search** — out of scope. `AgentKanbanBoard` has its own search input but the user request is specifically about spec tasks.
 - **Tooltip content layout** — using `\n\n` inside `whiteSpace: "pre-wrap"` gives a visible blank line between date and prompt, matching the request "show the creation date *before* the prompt".
 
+## Implementation notes (recorded during build)
+
+- **router5 `queryParamsMode: 'loose'`** (`router.tsx:501`) means undeclared query params like `?search=` are accepted and round-tripped without changing the route definition. No router config change was needed.
+- **`mergeParams` already uses `replace: true`** (`contexts/router.tsx:71-76`), so debounced URL writes per keystroke don't pollute the back-stack. The 250ms debounce is purely for cleanliness, not correctness.
+- **Removing a param cleanly**: `mergeParams({ search: '' })` would leave `?search=` in the URL. The clean approach is `replaceParams(rest)` — it preserves all other params (org_id, id, highlight, tab, etc.) and uses replace mode. Confirmed working: clearing `search` preserved `?highlight=spt_…` in the URL.
+- **`router.params` includes path params too** (`org_id`, `id`). Stripping just `search` and passing the rest to `replaceParams` keeps the route stable.
+- **Removed dead prop**: `searchFilter?: string` on `SpecTaskKanbanBoardProps` had no callers. Deleted both the interface field and the destructured `searchFilterProp` default.
+- **Frontend dev mode**: no `FRONTEND_URL=/www` in `.env` so Vite HMR (port 8081, proxied) is live. Edits to `frontend/src/` apply immediately — no rebuild needed for browser testing. `yarn build` was still run in the `helix-frontend-1` container as a TS-check.
+- **Verified end-to-end** in the inner Helix at `http://localhost:8080`:
+  - Typing `search` in the kanban filter → URL becomes `…/specs?highlight=spt_…&search=search`
+  - Page reload → input is pre-filled with `search`, columns show "No matching tasks"
+  - Click task → navigate to detail → Browser Back → URL restored with `&search=search`, input pre-filled
+  - Click X clear-adornment → URL becomes `…/specs?highlight=spt_…` (search param dropped, highlight preserved)
+  - Hover task title → tooltip text is `Created May 6, 2026, 10:02 PM\n\n<body>` (verified via accessibility tree)
+- See `screenshots/01-tooltip-with-date.png` and `screenshots/02-search-in-url.png` for visual proof.
+
 ## Patterns / learnings worth recording
 - **Router5 `mergeParams` is the project's blessed way to write URL state.** Never `window.history.replaceState` — there's a documented bug at `useUrlTab.ts:14` about it corrupting the back-stack.
 - **No date-fns** in this codebase — use native `Date.toLocaleString` (`SpecTaskKanbanBoard.tsx:68`, `AgentKanbanBoard.tsx:73`).
