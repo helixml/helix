@@ -8,8 +8,9 @@
 ## Fix A — frontend debouncer misuse (root cause)
 
 - [x] Add `frontend/src/hooks/useDebouncedCallback.ts` — proper callback debouncer that uses a ref to keep the latest callback fresh and `setTimeout` for actual deferral
-- [~] In `frontend/src/components/app/AppSettings.tsx:387`, replace the `useDebounce(fn, 300)` misuse with `useDebouncedCallback` and refactor `handleAdvancedChangeWithDebounce` to send ONLY the changed field
-- [ ] Audit the other `onUpdate(updatedApp)` call sites in `AppSettings.tsx` — convert to partial `onUpdate({...})` calls where they're currently spreading whole stale state
+- [x] In `frontend/src/components/app/AppSettings.tsx`, removed the inline `useDebounce` and replaced `debouncedUpdate` to send ONLY the changed field via `onUpdate({ [flatField]: value })`
+- [x] Audit the other `onUpdate(updatedApp)` and `onUpdate({ ...app, ... })` call sites — converted all of them to minimal partial `onUpdate({...field: value})` calls. `mergeFlatStateIntoApp` ignores undefined fields, so partial updates are safe.
+- [x] **Verified fix end-to-end**: typing into System Instructions on the Claude Code agent now sends ONLY system_prompt-related fields, and `generation_model: "claude-opus-4-5-20251101"` + `generation_model_provider: "anthropic"` are preserved (not clobbered to ""). Pre-fix request body is shown in design.md.
 
 ## Fix B — backend variable mismatch
 
