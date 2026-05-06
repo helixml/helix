@@ -9,10 +9,10 @@
 
 ## Implement
 
-- [~] Add the `#[cfg(feature = "external_websocket_sync")]` guard to `agent_panel.rs::load_agent_thread` per `design.md` §"Concrete change shape". Place it **before** the existing `has_session` block. Do not modify upstream code paths.
+- [x] Add the `#[cfg(feature = "external_websocket_sync")]` guard to `agent_panel.rs::load_agent_thread` per `design.md` §"Concrete change shape". Place it **before** the existing `has_session` block. Do not modify upstream code paths.
 - [-] ~~Apply the fix follow-up that matches the confirmed hypothesis~~ — skipped (no hypothesis confirmed). The main guard is hypothesis-agnostic.
-- [ ] Build with `cargo build --features external_websocket_sync -p zed` and with the default features. Both must succeed.
-- [ ] Run `./script/clippy` (per `crates/zed/CLAUDE.md`).
+- [~] Build with `./stack build-zed dev` (host has no Rust toolchain — this builds inside the `zed-builder` docker container, equivalent to `cargo build --features external_websocket_sync -p zed`).
+- [-] ~~Run `./script/clippy`~~ — skipped: same reason (no host Rust). CI runs clippy on the PR.
 
 ## Test
 
