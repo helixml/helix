@@ -282,20 +282,38 @@ func (s *HelixAPIServer) getProviderEndpoint(ctx context.Context, user *types.Us
 
 	// Fall back to built-in Anthropic provider from environment variables
 	// This allows ANTHROPIC_API_KEY to work without database configuration
-	return s.getBuiltInProviderEndpoint(provider)
+	return s.getBuiltInProviderEndpoint(ctx, provider)
 }
 
-// getBuiltInProviderEndpoint returns a ProviderEndpoint for the built-in Anthropic provider
-// configured via environment variables.
+// getBuiltInProviderEndpoint returns a ProviderEndpoint for built-in (env-baked)
+// providers.
 //
-// When ANTHROPIC_VERTEX_PROJECT_ID is set, Vertex AI wins unconditionally — all inference
-// traffic routes through Vertex. ANTHROPIC_API_KEY is only used for model listing in that case.
-// When Vertex is not configured, ANTHROPIC_API_KEY or ANTHROPIC_API_KEY_FILE is required.
+// Anthropic gets the rich path because /v1/messages actually proxies through here:
+// when ANTHROPIC_VERTEX_PROJECT_ID is set, Vertex AI wins unconditionally and
+// ANTHROPIC_API_KEY is only used for model listing; otherwise ANTHROPIC_API_KEY
+// (or ANTHROPIC_API_KEY_FILE) is required. Set PROVIDERS_BILLING_ENABLED=true to
+// track usage on this built-in (separate from STRIPE_BILLING_ENABLED).
 //
-// To enable usage tracking/billing for this built-in provider, set PROVIDERS_BILLING_ENABLED=true.
-// This is separate from STRIPE_BILLING_ENABLED which controls the platform-level Stripe integration.
-func (s *HelixAPIServer) getBuiltInProviderEndpoint(provider string) (*types.ProviderEndpoint, error) {
+// Other env-baked globals (openai, togetherai, helix, ...) are returned as
+// Name-only synthetics from MultiClientManager.globalClients. We don't need
+// their full BaseURL/APIKey here because /v1/messages will reject them via
+// isAnthropicCompatible with the actionable "use /v1/chat/completions" message
+// — and the synthetic carries enough (Name, EndpointType=Global) to drive that
+// branch instead of the cryptic "provider %q not found" error.
+func (s *HelixAPIServer) getBuiltInProviderEndpoint(ctx context.Context, provider string) (*types.ProviderEndpoint, error) {
 	if provider != string(types.ProviderAnthropic) {
+		// Resolve env-baked globals (openai etc.) from the provider manager so
+		// callers get a real endpoint they can interrogate, not a "not found".
+		if s.providerManager != nil {
+			globals, err := s.providerManager.ListProviderEndpoints(ctx, "")
+			if err == nil {
+				for _, ep := range globals {
+					if strings.EqualFold(ep.Name, provider) {
+						return ep, nil
+					}
+				}
+			}
+		}
 		return nil, fmt.Errorf("provider %q not found", provider)
 	}
 
