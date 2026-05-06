@@ -212,7 +212,7 @@ func GenerateZedMCPConfig(
 	}
 	config.Theme = "Ayu Dark"
 
-	// Configure language_models to route API calls through Helix proxy
+	// Configure language_models to route API calls through Helix proxy.
 	// CRITICAL: Zed reads api_url from settings.json, NOT from environment variables!
 	// We must explicitly set api_url in language_models for each provider.
 	//
@@ -221,14 +221,14 @@ func GenerateZedMCPConfig(
 	// - OpenAI: base URL + /v1 (Zed appends /chat/completions)
 	// api_key is NOT set here — Zed reads ANTHROPIC_API_KEY / OPENAI_API_KEY from
 	// container env vars (set by DesktopAgentAPIEnvVars). Only api_url routing is needed.
-	config.LanguageModels = map[string]LanguageModelConfig{
-		"anthropic": {
-			APIURL: helixAPIURL, // Zed appends /v1/messages
-		},
-		"openai": {
-			APIURL: helixAPIURL + "/v1", // Zed appends /chat/completions
-		},
-	}
+	//
+	// We only inject the entries the user actually has Helix providers for.
+	// If we unconditionally inject "anthropic", Zed's bottom-left model picker
+	// shows Claude Sonnet as a default option even when the user has no
+	// Anthropic provider configured — picking it then fails with
+	// "provider \"openai\" not found" from /v1/messages because Zed sends
+	// the wrong provider on the Anthropic-only endpoint.
+	config.LanguageModels = buildLanguageModels(providerSnapshot, helixAPIURL)
 
 	// 1. Add Helix native tools via HTTP MCP gateway (APIs, Knowledge, Zapier)
 	// Uses the unified MCP gateway at /api/v1/mcp/helix instead of helix-cli
@@ -716,6 +716,45 @@ func ValidateAssistantModelConfig(app *types.App, snapshot []ProviderRef) string
 		return fmt.Sprintf("agent %q references provider %q which does not match any current provider — the provider may have been renamed or deleted. Open the agent settings and re-pick a provider, or restore/rename the provider in admin.", app.ID, provider)
 	}
 	return ""
+}
+
+// buildLanguageModels returns the language_models block for Zed's settings.json,
+// containing only the provider entries the user actually has Helix providers
+// for. The mapping mirrors mapHelixToZedProvider:
+//
+//   - A Helix "anthropic" provider unlocks Zed's "anthropic" entry (routes to
+//     Helix's /v1/messages).
+//   - Any other Helix provider (openai, nebius, together, openrouter, ...)
+//     unlocks Zed's "openai" entry (routes to Helix's /v1/chat/completions).
+//
+// snapshot==nil is the runner-side opt-out path; we preserve historical
+// behaviour there by injecting both entries.
+func buildLanguageModels(snapshot []ProviderRef, helixAPIURL string) map[string]LanguageModelConfig {
+	if snapshot == nil {
+		return map[string]LanguageModelConfig{
+			"anthropic": {APIURL: helixAPIURL},
+			"openai":    {APIURL: helixAPIURL + "/v1"},
+		}
+	}
+
+	hasAnthropic := false
+	hasOpenAICompat := false
+	for _, p := range snapshot {
+		if strings.EqualFold(p.Name, "anthropic") {
+			hasAnthropic = true
+		} else {
+			hasOpenAICompat = true
+		}
+	}
+
+	out := map[string]LanguageModelConfig{}
+	if hasAnthropic {
+		out["anthropic"] = LanguageModelConfig{APIURL: helixAPIURL}
+	}
+	if hasOpenAICompat {
+		out["openai"] = LanguageModelConfig{APIURL: helixAPIURL + "/v1"}
+	}
+	return out
 }
 
 // mapHelixToZedProvider maps a Helix provider name to a Zed provider type and formats the model name.
