@@ -24,7 +24,6 @@ import (
 type MockStore struct {
 	ctrl     *gomock.Controller
 	recorder *MockStoreMockRecorder
-	isgomock struct{}
 }
 
 // MockStoreMockRecorder is the mock recorder for MockStore.
@@ -745,6 +744,21 @@ func (mr *MockStoreMockRecorder) CreateRole(ctx, role any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateRole", reflect.TypeOf((*MockStore)(nil).CreateRole), ctx, role)
 }
 
+// CreateRunnerProfile mocks base method.
+func (m *MockStore) CreateRunnerProfile(ctx context.Context, p *types.RunnerProfile) (*types.RunnerProfile, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateRunnerProfile", ctx, p)
+	ret0, _ := ret[0].(*types.RunnerProfile)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CreateRunnerProfile indicates an expected call of CreateRunnerProfile.
+func (mr *MockStoreMockRecorder) CreateRunnerProfile(ctx, p any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateRunnerProfile", reflect.TypeOf((*MockStore)(nil).CreateRunnerProfile), ctx, p)
+}
+
 // CreateSampleProject mocks base method.
 func (m *MockStore) CreateSampleProject(ctx context.Context, sample *types.SampleProject) (*types.SampleProject, error) {
 	m.ctrl.T.Helper()
@@ -758,6 +772,21 @@ func (m *MockStore) CreateSampleProject(ctx context.Context, sample *types.Sampl
 func (mr *MockStoreMockRecorder) CreateSampleProject(ctx, sample any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateSampleProject", reflect.TypeOf((*MockStore)(nil).CreateSampleProject), ctx, sample)
+}
+
+// CreateSandbox mocks base method.
+func (m *MockStore) CreateSandbox(ctx context.Context, sandbox *types.Sandbox) (*types.Sandbox, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateSandbox", ctx, sandbox)
+	ret0, _ := ret[0].(*types.Sandbox)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CreateSandbox indicates an expected call of CreateSandbox.
+func (mr *MockStoreMockRecorder) CreateSandbox(ctx, sandbox any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateSandbox", reflect.TypeOf((*MockStore)(nil).CreateSandbox), ctx, sandbox)
 }
 
 // CreateSecret mocks base method.
@@ -817,21 +846,6 @@ func (m *MockStore) CreateSlackThread(ctx context.Context, thread *types.SlackTh
 func (mr *MockStoreMockRecorder) CreateSlackThread(ctx, thread any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateSlackThread", reflect.TypeOf((*MockStore)(nil).CreateSlackThread), ctx, thread)
-}
-
-// CreateSlot mocks base method.
-func (m *MockStore) CreateSlot(ctx context.Context, slot *types.RunnerSlot) (*types.RunnerSlot, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CreateSlot", ctx, slot)
-	ret0, _ := ret[0].(*types.RunnerSlot)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// CreateSlot indicates an expected call of CreateSlot.
-func (mr *MockStoreMockRecorder) CreateSlot(ctx, slot any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateSlot", reflect.TypeOf((*MockStore)(nil).CreateSlot), ctx, slot)
 }
 
 // CreateSpecTask mocks base method.
@@ -1616,6 +1630,34 @@ func (mr *MockStoreMockRecorder) DeleteRole(ctx, id any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteRole", reflect.TypeOf((*MockStore)(nil).DeleteRole), ctx, id)
 }
 
+// DeleteRunnerAssignment mocks base method.
+func (m *MockStore) DeleteRunnerAssignment(ctx context.Context, runnerID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteRunnerAssignment", ctx, runnerID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteRunnerAssignment indicates an expected call of DeleteRunnerAssignment.
+func (mr *MockStoreMockRecorder) DeleteRunnerAssignment(ctx, runnerID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteRunnerAssignment", reflect.TypeOf((*MockStore)(nil).DeleteRunnerAssignment), ctx, runnerID)
+}
+
+// DeleteRunnerProfile mocks base method.
+func (m *MockStore) DeleteRunnerProfile(ctx context.Context, id string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteRunnerProfile", ctx, id)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteRunnerProfile indicates an expected call of DeleteRunnerProfile.
+func (mr *MockStoreMockRecorder) DeleteRunnerProfile(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteRunnerProfile", reflect.TypeOf((*MockStore)(nil).DeleteRunnerProfile), ctx, id)
+}
+
 // DeleteSampleProject mocks base method.
 func (m *MockStore) DeleteSampleProject(ctx context.Context, id string) error {
 	m.ctrl.T.Helper()
@@ -1628,6 +1670,20 @@ func (m *MockStore) DeleteSampleProject(ctx context.Context, id string) error {
 func (mr *MockStoreMockRecorder) DeleteSampleProject(ctx, id any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteSampleProject", reflect.TypeOf((*MockStore)(nil).DeleteSampleProject), ctx, id)
+}
+
+// DeleteSandbox mocks base method.
+func (m *MockStore) DeleteSandbox(ctx context.Context, id string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteSandbox", ctx, id)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteSandbox indicates an expected call of DeleteSandbox.
+func (mr *MockStoreMockRecorder) DeleteSandbox(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteSandbox", reflect.TypeOf((*MockStore)(nil).DeleteSandbox), ctx, id)
 }
 
 // DeleteSecret mocks base method.
@@ -1685,20 +1741,6 @@ func (m *MockStore) DeleteSlackThread(ctx context.Context, olderThan time.Time) 
 func (mr *MockStoreMockRecorder) DeleteSlackThread(ctx, olderThan any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteSlackThread", reflect.TypeOf((*MockStore)(nil).DeleteSlackThread), ctx, olderThan)
-}
-
-// DeleteSlot mocks base method.
-func (m *MockStore) DeleteSlot(ctx context.Context, id string) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "DeleteSlot", ctx, id)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// DeleteSlot indicates an expected call of DeleteSlot.
-func (mr *MockStoreMockRecorder) DeleteSlot(ctx, id any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteSlot", reflect.TypeOf((*MockStore)(nil).DeleteSlot), ctx, id)
 }
 
 // DeleteSpecTask mocks base method.
@@ -1953,18 +1995,18 @@ func (mr *MockStoreMockRecorder) DeleteZedSettingsOverride(ctx, sessionID any) *
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteZedSettingsOverride", reflect.TypeOf((*MockStore)(nil).DeleteZedSettingsOverride), ctx, sessionID)
 }
 
-// DeregisterSandbox mocks base method.
-func (m *MockStore) DeregisterSandbox(ctx context.Context, id string) error {
+// DeregisterSandboxInstance mocks base method.
+func (m *MockStore) DeregisterSandboxInstance(ctx context.Context, id string) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "DeregisterSandbox", ctx, id)
+	ret := m.ctrl.Call(m, "DeregisterSandboxInstance", ctx, id)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
-// DeregisterSandbox indicates an expected call of DeregisterSandbox.
-func (mr *MockStoreMockRecorder) DeregisterSandbox(ctx, id any) *gomock.Call {
+// DeregisterSandboxInstance indicates an expected call of DeregisterSandboxInstance.
+func (mr *MockStoreMockRecorder) DeregisterSandboxInstance(ctx, id any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeregisterSandbox", reflect.TypeOf((*MockStore)(nil).DeregisterSandbox), ctx, id)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeregisterSandboxInstance", reflect.TypeOf((*MockStore)(nil).DeregisterSandboxInstance), ctx, id)
 }
 
 // DetachRepositoryFromProject mocks base method.
@@ -1996,19 +2038,19 @@ func (mr *MockStoreMockRecorder) EnsureUserMeta(ctx, UserMeta any) *gomock.Call 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "EnsureUserMeta", reflect.TypeOf((*MockStore)(nil).EnsureUserMeta), ctx, UserMeta)
 }
 
-// FindAvailableSandbox mocks base method.
-func (m *MockStore) FindAvailableSandbox(ctx context.Context, desktopType string) (*types.SandboxInstance, error) {
+// FindAvailableSandboxInstance mocks base method.
+func (m *MockStore) FindAvailableSandboxInstance(ctx context.Context, desktopType string) (*types.SandboxInstance, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "FindAvailableSandbox", ctx, desktopType)
+	ret := m.ctrl.Call(m, "FindAvailableSandboxInstance", ctx, desktopType)
 	ret0, _ := ret[0].(*types.SandboxInstance)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
-// FindAvailableSandbox indicates an expected call of FindAvailableSandbox.
-func (mr *MockStoreMockRecorder) FindAvailableSandbox(ctx, desktopType any) *gomock.Call {
+// FindAvailableSandboxInstance indicates an expected call of FindAvailableSandboxInstance.
+func (mr *MockStoreMockRecorder) FindAvailableSandboxInstance(ctx, desktopType any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindAvailableSandbox", reflect.TypeOf((*MockStore)(nil).FindAvailableSandbox), ctx, desktopType)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindAvailableSandboxInstance", reflect.TypeOf((*MockStore)(nil).FindAvailableSandboxInstance), ctx, desktopType)
 }
 
 // GenerateRandomState mocks base method.
@@ -2972,6 +3014,51 @@ func (mr *MockStoreMockRecorder) GetRole(ctx, id any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetRole", reflect.TypeOf((*MockStore)(nil).GetRole), ctx, id)
 }
 
+// GetRunnerAssignment mocks base method.
+func (m *MockStore) GetRunnerAssignment(ctx context.Context, runnerID string) (*types.RunnerAssignment, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetRunnerAssignment", ctx, runnerID)
+	ret0, _ := ret[0].(*types.RunnerAssignment)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetRunnerAssignment indicates an expected call of GetRunnerAssignment.
+func (mr *MockStoreMockRecorder) GetRunnerAssignment(ctx, runnerID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetRunnerAssignment", reflect.TypeOf((*MockStore)(nil).GetRunnerAssignment), ctx, runnerID)
+}
+
+// GetRunnerProfile mocks base method.
+func (m *MockStore) GetRunnerProfile(ctx context.Context, id string) (*types.RunnerProfile, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetRunnerProfile", ctx, id)
+	ret0, _ := ret[0].(*types.RunnerProfile)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetRunnerProfile indicates an expected call of GetRunnerProfile.
+func (mr *MockStoreMockRecorder) GetRunnerProfile(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetRunnerProfile", reflect.TypeOf((*MockStore)(nil).GetRunnerProfile), ctx, id)
+}
+
+// GetRunnerProfileByName mocks base method.
+func (m *MockStore) GetRunnerProfileByName(ctx context.Context, name string) (*types.RunnerProfile, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetRunnerProfileByName", ctx, name)
+	ret0, _ := ret[0].(*types.RunnerProfile)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetRunnerProfileByName indicates an expected call of GetRunnerProfileByName.
+func (mr *MockStoreMockRecorder) GetRunnerProfileByName(ctx, name any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetRunnerProfileByName", reflect.TypeOf((*MockStore)(nil).GetRunnerProfileByName), ctx, name)
+}
+
 // GetSampleProject mocks base method.
 func (m *MockStore) GetSampleProject(ctx context.Context, id string) (*types.SampleProject, error) {
 	m.ctrl.T.Helper()
@@ -2988,10 +3075,10 @@ func (mr *MockStoreMockRecorder) GetSampleProject(ctx, id any) *gomock.Call {
 }
 
 // GetSandbox mocks base method.
-func (m *MockStore) GetSandbox(ctx context.Context, id string) (*types.SandboxInstance, error) {
+func (m *MockStore) GetSandbox(ctx context.Context, id string) (*types.Sandbox, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetSandbox", ctx, id)
-	ret0, _ := ret[0].(*types.SandboxInstance)
+	ret0, _ := ret[0].(*types.Sandbox)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -3002,19 +3089,49 @@ func (mr *MockStoreMockRecorder) GetSandbox(ctx, id any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSandbox", reflect.TypeOf((*MockStore)(nil).GetSandbox), ctx, id)
 }
 
-// GetSandboxesOlderThanHeartbeat mocks base method.
-func (m *MockStore) GetSandboxesOlderThanHeartbeat(ctx context.Context, olderThan time.Time) ([]*types.SandboxInstance, error) {
+// GetSandboxInstance mocks base method.
+func (m *MockStore) GetSandboxInstance(ctx context.Context, id string) (*types.SandboxInstance, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetSandboxesOlderThanHeartbeat", ctx, olderThan)
+	ret := m.ctrl.Call(m, "GetSandboxInstance", ctx, id)
+	ret0, _ := ret[0].(*types.SandboxInstance)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetSandboxInstance indicates an expected call of GetSandboxInstance.
+func (mr *MockStoreMockRecorder) GetSandboxInstance(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSandboxInstance", reflect.TypeOf((*MockStore)(nil).GetSandboxInstance), ctx, id)
+}
+
+// GetSandboxInstancesOlderThanHeartbeat mocks base method.
+func (m *MockStore) GetSandboxInstancesOlderThanHeartbeat(ctx context.Context, olderThan time.Time) ([]*types.SandboxInstance, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetSandboxInstancesOlderThanHeartbeat", ctx, olderThan)
 	ret0, _ := ret[0].([]*types.SandboxInstance)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
-// GetSandboxesOlderThanHeartbeat indicates an expected call of GetSandboxesOlderThanHeartbeat.
-func (mr *MockStoreMockRecorder) GetSandboxesOlderThanHeartbeat(ctx, olderThan any) *gomock.Call {
+// GetSandboxInstancesOlderThanHeartbeat indicates an expected call of GetSandboxInstancesOlderThanHeartbeat.
+func (mr *MockStoreMockRecorder) GetSandboxInstancesOlderThanHeartbeat(ctx, olderThan any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSandboxesOlderThanHeartbeat", reflect.TypeOf((*MockStore)(nil).GetSandboxesOlderThanHeartbeat), ctx, olderThan)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSandboxInstancesOlderThanHeartbeat", reflect.TypeOf((*MockStore)(nil).GetSandboxInstancesOlderThanHeartbeat), ctx, olderThan)
+}
+
+// GetSandboxUsageMetrics mocks base method.
+func (m *MockStore) GetSandboxUsageMetrics(ctx context.Context, q *GetAggregatedUsageMetricsQuery) ([]*types.AggregatedUsageMetric, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetSandboxUsageMetrics", ctx, q)
+	ret0, _ := ret[0].([]*types.AggregatedUsageMetric)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetSandboxUsageMetrics indicates an expected call of GetSandboxUsageMetrics.
+func (mr *MockStoreMockRecorder) GetSandboxUsageMetrics(ctx, q any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSandboxUsageMetrics", reflect.TypeOf((*MockStore)(nil).GetSandboxUsageMetrics), ctx, q)
 }
 
 // GetSecret mocks base method.
@@ -3135,21 +3252,6 @@ func (m *MockStore) GetSlackThreadBySpecTaskID(ctx context.Context, appID, specT
 func (mr *MockStoreMockRecorder) GetSlackThreadBySpecTaskID(ctx, appID, specTaskID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSlackThreadBySpecTaskID", reflect.TypeOf((*MockStore)(nil).GetSlackThreadBySpecTaskID), ctx, appID, specTaskID)
-}
-
-// GetSlot mocks base method.
-func (m *MockStore) GetSlot(ctx context.Context, id string) (*types.RunnerSlot, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetSlot", ctx, id)
-	ret0, _ := ret[0].(*types.RunnerSlot)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// GetSlot indicates an expected call of GetSlot.
-func (mr *MockStoreMockRecorder) GetSlot(ctx, id any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSlot", reflect.TypeOf((*MockStore)(nil).GetSlot), ctx, id)
 }
 
 // GetSpecTask mocks base method.
@@ -3856,21 +3958,6 @@ func (mr *MockStoreMockRecorder) ListAgentRunners(ctx, query any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListAgentRunners", reflect.TypeOf((*MockStore)(nil).ListAgentRunners), ctx, query)
 }
 
-// ListAllSlots mocks base method.
-func (m *MockStore) ListAllSlots(ctx context.Context) ([]*types.RunnerSlot, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListAllSlots", ctx)
-	ret0, _ := ret[0].([]*types.RunnerSlot)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// ListAllSlots indicates an expected call of ListAllSlots.
-func (mr *MockStoreMockRecorder) ListAllSlots(ctx any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListAllSlots", reflect.TypeOf((*MockStore)(nil).ListAllSlots), ctx)
-}
-
 // ListApps mocks base method.
 func (m *MockStore) ListApps(ctx context.Context, q *ListAppsQuery) ([]*types.App, error) {
 	m.ctrl.T.Helper()
@@ -4019,6 +4106,21 @@ func (m *MockStore) ListEvaluationSuites(ctx context.Context, req *types.ListEva
 func (mr *MockStoreMockRecorder) ListEvaluationSuites(ctx, req any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListEvaluationSuites", reflect.TypeOf((*MockStore)(nil).ListEvaluationSuites), ctx, req)
+}
+
+// ListExpiredSandboxes mocks base method.
+func (m *MockStore) ListExpiredSandboxes(ctx context.Context, now time.Time) ([]*types.Sandbox, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListExpiredSandboxes", ctx, now)
+	ret0, _ := ret[0].([]*types.Sandbox)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListExpiredSandboxes indicates an expected call of ListExpiredSandboxes.
+func (mr *MockStoreMockRecorder) ListExpiredSandboxes(ctx, now any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListExpiredSandboxes", reflect.TypeOf((*MockStore)(nil).ListExpiredSandboxes), ctx, now)
 }
 
 // ListGitProviderConnections mocks base method.
@@ -4443,6 +4545,36 @@ func (mr *MockStoreMockRecorder) ListRoles(ctx, organizationID any) *gomock.Call
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListRoles", reflect.TypeOf((*MockStore)(nil).ListRoles), ctx, organizationID)
 }
 
+// ListRunnerAssignments mocks base method.
+func (m *MockStore) ListRunnerAssignments(ctx context.Context) ([]*types.RunnerAssignment, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListRunnerAssignments", ctx)
+	ret0, _ := ret[0].([]*types.RunnerAssignment)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListRunnerAssignments indicates an expected call of ListRunnerAssignments.
+func (mr *MockStoreMockRecorder) ListRunnerAssignments(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListRunnerAssignments", reflect.TypeOf((*MockStore)(nil).ListRunnerAssignments), ctx)
+}
+
+// ListRunnerProfiles mocks base method.
+func (m *MockStore) ListRunnerProfiles(ctx context.Context) ([]*types.RunnerProfile, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListRunnerProfiles", ctx)
+	ret0, _ := ret[0].([]*types.RunnerProfile)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListRunnerProfiles indicates an expected call of ListRunnerProfiles.
+func (mr *MockStoreMockRecorder) ListRunnerProfiles(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListRunnerProfiles", reflect.TypeOf((*MockStore)(nil).ListRunnerProfiles), ctx)
+}
+
 // ListSampleProjects mocks base method.
 func (m *MockStore) ListSampleProjects(ctx context.Context) ([]*types.SampleProject, error) {
 	m.ctrl.T.Helper()
@@ -4458,19 +4590,34 @@ func (mr *MockStoreMockRecorder) ListSampleProjects(ctx any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListSampleProjects", reflect.TypeOf((*MockStore)(nil).ListSampleProjects), ctx)
 }
 
-// ListSandboxes mocks base method.
-func (m *MockStore) ListSandboxes(ctx context.Context) ([]*types.SandboxInstance, error) {
+// ListSandboxInstances mocks base method.
+func (m *MockStore) ListSandboxInstances(ctx context.Context) ([]*types.SandboxInstance, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListSandboxes", ctx)
+	ret := m.ctrl.Call(m, "ListSandboxInstances", ctx)
 	ret0, _ := ret[0].([]*types.SandboxInstance)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
-// ListSandboxes indicates an expected call of ListSandboxes.
-func (mr *MockStoreMockRecorder) ListSandboxes(ctx any) *gomock.Call {
+// ListSandboxInstances indicates an expected call of ListSandboxInstances.
+func (mr *MockStoreMockRecorder) ListSandboxInstances(ctx any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListSandboxes", reflect.TypeOf((*MockStore)(nil).ListSandboxes), ctx)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListSandboxInstances", reflect.TypeOf((*MockStore)(nil).ListSandboxInstances), ctx)
+}
+
+// ListSandboxes mocks base method.
+func (m *MockStore) ListSandboxes(ctx context.Context, q *ListSandboxesQuery) ([]*types.Sandbox, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListSandboxes", ctx, q)
+	ret0, _ := ret[0].([]*types.Sandbox)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListSandboxes indicates an expected call of ListSandboxes.
+func (mr *MockStoreMockRecorder) ListSandboxes(ctx, q any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListSandboxes", reflect.TypeOf((*MockStore)(nil).ListSandboxes), ctx, q)
 }
 
 // ListSecrets mocks base method.
@@ -4562,21 +4709,6 @@ func (m *MockStore) ListSessionsBySandbox(ctx context.Context, sandboxID string)
 func (mr *MockStoreMockRecorder) ListSessionsBySandbox(ctx, sandboxID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListSessionsBySandbox", reflect.TypeOf((*MockStore)(nil).ListSessionsBySandbox), ctx, sandboxID)
-}
-
-// ListSlots mocks base method.
-func (m *MockStore) ListSlots(ctx context.Context, runnerID string) ([]*types.RunnerSlot, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListSlots", ctx, runnerID)
-	ret0, _ := ret[0].([]*types.RunnerSlot)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// ListSlots indicates an expected call of ListSlots.
-func (mr *MockStoreMockRecorder) ListSlots(ctx, runnerID any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListSlots", reflect.TypeOf((*MockStore)(nil).ListSlots), ctx, runnerID)
 }
 
 // ListSpecTaskDesignReviewCommentReplies mocks base method.
@@ -4742,6 +4874,21 @@ func (m *MockStore) ListStepInfos(ctx context.Context, query *ListStepInfosQuery
 func (mr *MockStoreMockRecorder) ListStepInfos(ctx, query any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListStepInfos", reflect.TypeOf((*MockStore)(nil).ListStepInfos), ctx, query)
+}
+
+// ListStoppedNonPersistentSandboxes mocks base method.
+func (m *MockStore) ListStoppedNonPersistentSandboxes(ctx context.Context, before time.Time) ([]*types.Sandbox, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListStoppedNonPersistentSandboxes", ctx, before)
+	ret0, _ := ret[0].([]*types.Sandbox)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListStoppedNonPersistentSandboxes indicates an expected call of ListStoppedNonPersistentSandboxes.
+func (mr *MockStoreMockRecorder) ListStoppedNonPersistentSandboxes(ctx, before any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListStoppedNonPersistentSandboxes", reflect.TypeOf((*MockStore)(nil).ListStoppedNonPersistentSandboxes), ctx, before)
 }
 
 // ListStuckWaitingInteractions mocks base method.
@@ -5011,18 +5158,33 @@ func (mr *MockStoreMockRecorder) ParseAndCreateImplementationTasks(ctx, specTask
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ParseAndCreateImplementationTasks", reflect.TypeOf((*MockStore)(nil).ParseAndCreateImplementationTasks), ctx, specTaskID, implementationPlan)
 }
 
-// RegisterSandbox mocks base method.
-func (m *MockStore) RegisterSandbox(ctx context.Context, instance *types.SandboxInstance) error {
+// ReconcileStuckSendingPrompts mocks base method.
+func (m *MockStore) ReconcileStuckSendingPrompts(ctx context.Context) (int, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "RegisterSandbox", ctx, instance)
+	ret := m.ctrl.Call(m, "ReconcileStuckSendingPrompts", ctx)
+	ret0, _ := ret[0].(int)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ReconcileStuckSendingPrompts indicates an expected call of ReconcileStuckSendingPrompts.
+func (mr *MockStoreMockRecorder) ReconcileStuckSendingPrompts(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReconcileStuckSendingPrompts", reflect.TypeOf((*MockStore)(nil).ReconcileStuckSendingPrompts), ctx)
+}
+
+// RegisterSandboxInstance mocks base method.
+func (m *MockStore) RegisterSandboxInstance(ctx context.Context, instance *types.SandboxInstance) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RegisterSandboxInstance", ctx, instance)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
-// RegisterSandbox indicates an expected call of RegisterSandbox.
-func (mr *MockStoreMockRecorder) RegisterSandbox(ctx, instance any) *gomock.Call {
+// RegisterSandboxInstance indicates an expected call of RegisterSandboxInstance.
+func (mr *MockStoreMockRecorder) RegisterSandboxInstance(ctx, instance any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RegisterSandbox", reflect.TypeOf((*MockStore)(nil).RegisterSandbox), ctx, instance)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RegisterSandboxInstance", reflect.TypeOf((*MockStore)(nil).RegisterSandboxInstance), ctx, instance)
 }
 
 // RemoveSpecTaskLabel mocks base method.
@@ -5199,6 +5361,77 @@ func (mr *MockStoreMockRecorder) SetProjectPrimaryRepository(ctx, projectID, rep
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetProjectPrimaryRepository", reflect.TypeOf((*MockStore)(nil).SetProjectPrimaryRepository), ctx, projectID, repoID)
 }
 
+// SetRunnerAssignment mocks base method.
+func (m *MockStore) SetRunnerAssignment(ctx context.Context, a *types.RunnerAssignment) (*types.RunnerAssignment, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetRunnerAssignment", ctx, a)
+	ret0, _ := ret[0].(*types.RunnerAssignment)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SetRunnerAssignment indicates an expected call of SetRunnerAssignment.
+func (mr *MockStoreMockRecorder) SetRunnerAssignment(ctx, a any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetRunnerAssignment", reflect.TypeOf((*MockStore)(nil).SetRunnerAssignment), ctx, a)
+}
+
+// SetRunningSandboxesBillingLastChargedAt mocks base method.
+func (m *MockStore) SetRunningSandboxesBillingLastChargedAt(ctx context.Context, chargedAt time.Time) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetRunningSandboxesBillingLastChargedAt", ctx, chargedAt)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetRunningSandboxesBillingLastChargedAt indicates an expected call of SetRunningSandboxesBillingLastChargedAt.
+func (mr *MockStoreMockRecorder) SetRunningSandboxesBillingLastChargedAt(ctx, chargedAt any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetRunningSandboxesBillingLastChargedAt", reflect.TypeOf((*MockStore)(nil).SetRunningSandboxesBillingLastChargedAt), ctx, chargedAt)
+}
+
+// SetSandboxBillingLastChargedAt mocks base method.
+func (m *MockStore) SetSandboxBillingLastChargedAt(ctx context.Context, id string, chargedAt time.Time) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetSandboxBillingLastChargedAt", ctx, id, chargedAt)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetSandboxBillingLastChargedAt indicates an expected call of SetSandboxBillingLastChargedAt.
+func (mr *MockStoreMockRecorder) SetSandboxBillingLastChargedAt(ctx, id, chargedAt any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetSandboxBillingLastChargedAt", reflect.TypeOf((*MockStore)(nil).SetSandboxBillingLastChargedAt), ctx, id, chargedAt)
+}
+
+// SetSandboxContainer mocks base method.
+func (m *MockStore) SetSandboxContainer(ctx context.Context, id, hostDeviceID, containerID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetSandboxContainer", ctx, id, hostDeviceID, containerID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetSandboxContainer indicates an expected call of SetSandboxContainer.
+func (mr *MockStoreMockRecorder) SetSandboxContainer(ctx, id, hostDeviceID, containerID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetSandboxContainer", reflect.TypeOf((*MockStore)(nil).SetSandboxContainer), ctx, id, hostDeviceID, containerID)
+}
+
+// SetSandboxStatus mocks base method.
+func (m *MockStore) SetSandboxStatus(ctx context.Context, id string, status types.SandboxStatus, message string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetSandboxStatus", ctx, id, status, message)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetSandboxStatus indicates an expected call of SetSandboxStatus.
+func (mr *MockStoreMockRecorder) SetSandboxStatus(ctx, id, status, message any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetSandboxStatus", reflect.TypeOf((*MockStore)(nil).SetSandboxStatus), ctx, id, status, message)
+}
+
 // SpawnWorkSession mocks base method.
 func (m *MockStore) SpawnWorkSession(ctx context.Context, parentSessionID string, config *types.SpecTaskWorkSessionSpawnRequest) (*types.SpecTaskWorkSession, error) {
 	m.ctrl.T.Helper()
@@ -5227,6 +5460,21 @@ func (m *MockStore) SubscribeForTasks(ctx context.Context, filter *SpecTaskSubsc
 func (mr *MockStoreMockRecorder) SubscribeForTasks(ctx, filter, handler any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SubscribeForTasks", reflect.TypeOf((*MockStore)(nil).SubscribeForTasks), ctx, filter, handler)
+}
+
+// SumSandboxCharges mocks base method.
+func (m *MockStore) SumSandboxCharges(ctx context.Context, sandboxID string) (float64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SumSandboxCharges", ctx, sandboxID)
+	ret0, _ := ret[0].(float64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SumSandboxCharges indicates an expected call of SumSandboxCharges.
+func (mr *MockStoreMockRecorder) SumSandboxCharges(ctx, sandboxID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SumSandboxCharges", reflect.TypeOf((*MockStore)(nil).SumSandboxCharges), ctx, sandboxID)
 }
 
 // SyncPromptHistory mocks base method.
@@ -5754,6 +6002,36 @@ func (mr *MockStoreMockRecorder) UpdateRole(ctx, role any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateRole", reflect.TypeOf((*MockStore)(nil).UpdateRole), ctx, role)
 }
 
+// UpdateRunnerProfile mocks base method.
+func (m *MockStore) UpdateRunnerProfile(ctx context.Context, p *types.RunnerProfile) (*types.RunnerProfile, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateRunnerProfile", ctx, p)
+	ret0, _ := ret[0].(*types.RunnerProfile)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UpdateRunnerProfile indicates an expected call of UpdateRunnerProfile.
+func (mr *MockStoreMockRecorder) UpdateRunnerProfile(ctx, p any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateRunnerProfile", reflect.TypeOf((*MockStore)(nil).UpdateRunnerProfile), ctx, p)
+}
+
+// UpdateSandbox mocks base method.
+func (m *MockStore) UpdateSandbox(ctx context.Context, sandbox *types.Sandbox) (*types.Sandbox, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateSandbox", ctx, sandbox)
+	ret0, _ := ret[0].(*types.Sandbox)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UpdateSandbox indicates an expected call of UpdateSandbox.
+func (mr *MockStoreMockRecorder) UpdateSandbox(ctx, sandbox any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateSandbox", reflect.TypeOf((*MockStore)(nil).UpdateSandbox), ctx, sandbox)
+}
+
 // UpdateSandboxHeartbeat mocks base method.
 func (m *MockStore) UpdateSandboxHeartbeat(ctx context.Context, id string, req *types.SandboxHeartbeatRequest) error {
 	m.ctrl.T.Helper()
@@ -5768,18 +6046,18 @@ func (mr *MockStoreMockRecorder) UpdateSandboxHeartbeat(ctx, id, req any) *gomoc
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateSandboxHeartbeat", reflect.TypeOf((*MockStore)(nil).UpdateSandboxHeartbeat), ctx, id, req)
 }
 
-// UpdateSandboxStatus mocks base method.
-func (m *MockStore) UpdateSandboxStatus(ctx context.Context, id, status string) error {
+// UpdateSandboxInstanceStatus mocks base method.
+func (m *MockStore) UpdateSandboxInstanceStatus(ctx context.Context, id, status string) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UpdateSandboxStatus", ctx, id, status)
+	ret := m.ctrl.Call(m, "UpdateSandboxInstanceStatus", ctx, id, status)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
-// UpdateSandboxStatus indicates an expected call of UpdateSandboxStatus.
-func (mr *MockStoreMockRecorder) UpdateSandboxStatus(ctx, id, status any) *gomock.Call {
+// UpdateSandboxInstanceStatus indicates an expected call of UpdateSandboxInstanceStatus.
+func (mr *MockStoreMockRecorder) UpdateSandboxInstanceStatus(ctx, id, status any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateSandboxStatus", reflect.TypeOf((*MockStore)(nil).UpdateSandboxStatus), ctx, id, status)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateSandboxInstanceStatus", reflect.TypeOf((*MockStore)(nil).UpdateSandboxInstanceStatus), ctx, id, status)
 }
 
 // UpdateSecret mocks base method.
@@ -5867,21 +6145,6 @@ func (m *MockStore) UpdateSessionName(ctx context.Context, sessionID, name strin
 func (mr *MockStoreMockRecorder) UpdateSessionName(ctx, sessionID, name any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateSessionName", reflect.TypeOf((*MockStore)(nil).UpdateSessionName), ctx, sessionID, name)
-}
-
-// UpdateSlot mocks base method.
-func (m *MockStore) UpdateSlot(ctx context.Context, slot *types.RunnerSlot) (*types.RunnerSlot, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UpdateSlot", ctx, slot)
-	ret0, _ := ret[0].(*types.RunnerSlot)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// UpdateSlot indicates an expected call of UpdateSlot.
-func (mr *MockStoreMockRecorder) UpdateSlot(ctx, slot any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateSlot", reflect.TypeOf((*MockStore)(nil).UpdateSlot), ctx, slot)
 }
 
 // UpdateSpecTask mocks base method.

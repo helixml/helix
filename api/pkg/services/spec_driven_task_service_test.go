@@ -394,7 +394,7 @@ func TestSpecDrivenTaskService_ApproveSpecs_LosesAtomicTransitionRace(t *testing
 	// messageSender is wired up so we can prove it is NOT called when the
 	// transition loses the race.
 	sendCalls := 0
-	sender := func(_ context.Context, _ *types.SpecTask, _, _ string) (string, string, error) {
+	sender := func(_ context.Context, _ *types.SpecTask, _, _ string, _ bool) (string, string, error) {
 		sendCalls++
 		return "", "", nil
 	}

@@ -48,6 +48,9 @@ const (
 	EvaluationSuitePrefix      = "evs_"
 	EvaluationRunPrefix        = "evr_"
 	SpecTaskProposalPrefix     = "stp_"
+	SandboxPrefix              = "sbx_"
+	SandboxCommandPrefix       = "sbcmd_"
+	RunnerProfilePrefix        = "rprof_"
 )
 
 func GenerateUUID() string {
@@ -219,4 +222,16 @@ func GenerateEvaluationSuiteID() string {
 
 func GenerateEvaluationRunID() string {
 	return fmt.Sprintf("%s%s", EvaluationRunPrefix, newID())
+}
+
+func GenerateSandboxID() string {
+	return fmt.Sprintf("%s%s", SandboxPrefix, newID())
+}
+
+func GenerateSandboxCommandID() string {
+	return fmt.Sprintf("%s%s", SandboxCommandPrefix, newID())
+}
+
+func GenerateRunnerProfileID() string {
+	return fmt.Sprintf("%s%s", RunnerProfilePrefix, newID())
 }

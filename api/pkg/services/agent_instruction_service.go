@@ -179,18 +179,21 @@ git add -A && git commit -m "Progress update" && git push origin helix-specs
 1. Read design docs: /home/retro/work/helix-specs/design/tasks/{{.TaskDirName}}/
 2. Verify branch: ` + "`cd /home/retro/work/{{.PrimaryRepoName}} && git branch --show-current`" + ` (should be {{.BranchName}})
 3. For each task in tasks.md: mark [~], push helix-specs, do the work, mark [x], push again
-4. When all tasks done, push code: ` + "`git push origin {{.BranchName}}`" + `
-5. **Opening pull requests (zero, one, or many)**
+4. Before pushing code, merge the latest default branch into your feature branch in every repo that has changes:
+   ` + "`cd /home/retro/work/{{.PrimaryRepoName}} && git fetch origin {{.BaseBranch}} && git merge origin/{{.BaseBranch}}`" + `
+   Resolve any conflicts and commit before pushing.
+5. When all tasks done, push code: ` + "`git push origin {{.BranchName}}`" + `
+6. **Opening pull requests (zero, one, or many)**
 
    If your task produces code changes, open one or more PRs via the ` + "`propose_pull_request`" + ` MCP tool. Each call creates a pending proposal for the user to approve in the Helix UI. You may call it multiple times per task to ship work as a series of reviewable slices, and you may request a non-default branch name; the user can override it during approval.
 
    The simple "click Open PR in the UI" path still works for single-PR tasks — you don't *have* to use ` + "`propose_pull_request`" + ` if there's only one PR and it goes on the default branch.
 
-   **Opening zero PRs is a valid outcome.** Some tasks (research, analysis, knowledge work, doc-only updates that live in the spec branch) finish without any code changes. That's fine — call ` + "`mark_task_complete`" + ` when you're done (see step 7).
+   **Opening zero PRs is a valid outcome.** Some tasks (research, analysis, knowledge work, doc-only updates that live in the spec branch) finish without any code changes. That's fine — call ` + "`mark_task_complete`" + ` when you're done (see step 8).
 
    Do NOT use ` + "`gh pr create`" + `, the GitHub MCP tools, or any other direct route to open PRs — ` + "`propose_pull_request`" + ` is the only sanctioned mechanism.
 
-6. **Capture knowledge as you go**
+7. **Capture knowledge as you go**
 
    Two channels for writing down what you learned. Use both as appropriate:
 
@@ -200,7 +203,7 @@ git add -A && git commit -m "Progress update" && git push origin helix-specs
 
    When in doubt, prefer the spec branch — it's friction-free and the knowledge is guaranteed to be captured.
 
-7. **Declaring the task done — REQUIRED**
+8. **Declaring the task done — REQUIRED**
 
    ` + "`mark_task_complete`" + ` is the **only** way the task moves to ` + "`done`" + `. There is no automatic completion based on PRs merging. You must call it explicitly when the work is finished, regardless of how many PRs you opened or what state they're in.
 
@@ -655,7 +658,8 @@ func (s *AgentInstructionService) SendApprovalInstruction(
 	// NOTE: We do NOT call sendMessage here - that would create a duplicate interaction
 	// and overwrite the requestToInteractionMapping, causing responses to go
 	// to the wrong (empty) interaction.
-	_, _, err := s.messageSender(ctx, task, message, userID)
+	// interrupt=false: approval kickoff begins a new phase with an idle agent; respect the queue.
+	_, _, err := s.messageSender(ctx, task, message, userID, false)
 	if err != nil {
 		return fmt.Errorf("failed to send approval instruction to agent: %w", err)
 	}

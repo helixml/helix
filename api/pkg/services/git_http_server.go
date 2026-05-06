@@ -31,7 +31,11 @@ type AuthorizationToRepositoryFunc func(ctx context.Context, user *types.User, r
 
 // SpecTaskMessageSender is a function type for sending messages to spec task agents.
 // Returns (requestID, interactionID, error).
-type SpecTaskMessageSender func(ctx context.Context, task *types.SpecTask, message string, docPath string) (string, string, error)
+//
+// The fourth string is a notifyUserID (empty = no extra notification). interrupt=true
+// tells the agent to cancel its current turn before processing — use it for reactive
+// feedback like design-review comments; use false for system-driven instructions.
+type SpecTaskMessageSender func(ctx context.Context, task *types.SpecTask, message string, notifyUserID string, interrupt bool) (string, string, error)
 
 // BranchRestriction holds the result of checking branch permissions for an API key
 type BranchRestriction struct {

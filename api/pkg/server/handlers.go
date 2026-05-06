@@ -693,22 +693,9 @@ func (apiServer *HelixAPIServer) isAdmin(req *http.Request) bool {
 	return apiServer.authMiddleware.isAdminWithContext(req.Context(), user.ID)
 }
 
-// dashboard godoc
-// @Summary Get dashboard data
-// @Description Get dashboard data
-// @Tags    dashboard
-
-// @Success 200 {object} types.DashboardData
-// @Router /api/v1/dashboard [get]
-// @Security BearerAuth
-func (apiServer *HelixAPIServer) dashboard(_ http.ResponseWriter, req *http.Request) (*types.DashboardData, error) {
-	data, err := apiServer.Controller.GetDashboardData(req.Context())
-	if err != nil {
-		return nil, err
-	}
-
-	return data, nil
-}
+// Sandbox-absorbs-runner pivot: the legacy /api/v1/dashboard endpoint is
+// gone. The admin UI now reads SandboxInstance + RunnerProfile + the
+// inference router's available-models list directly via their own routes.
 
 // usersList godoc
 // @Summary List users with pagination and filtering
@@ -1068,49 +1055,8 @@ func (apiServer *HelixAPIServer) adminApproveUser(_ http.ResponseWriter, req *ht
 	return updatedUser, nil
 }
 
-// getSchedulerHeartbeats godoc
-// @Summary Get scheduler goroutine heartbeat status
-// @Description Get the health status of all scheduler goroutines
-// @Tags    dashboard
-// @Success 200 {object} map[string]interface{}
-// @Router /api/v1/scheduler/heartbeats [get]
-// @Security BearerAuth
-func (apiServer *HelixAPIServer) getSchedulerHeartbeats(_ http.ResponseWriter, req *http.Request) (interface{}, error) {
-	return apiServer.Controller.GetSchedulerHeartbeats(req.Context())
-}
-
-// deleteSlot godoc
-// @Summary Delete a slot from scheduler state
-// @Description Delete a slot from the scheduler's desired state, allowing reconciliation to clean it up from the runner
-// @Tags    dashboard
-// @Param   slot_id path string true "Slot ID"
-// @Success 200 {object} map[string]interface{}
-// @Router /api/v1/slots/{slot_id} [delete]
-// @Security BearerAuth
-func (apiServer *HelixAPIServer) deleteSlot(_ http.ResponseWriter, req *http.Request) (interface{}, error) {
-	vars := mux.Vars(req)
-	slotID := vars["slot_id"]
-
-	if slotID == "" {
-		return nil, fmt.Errorf("slot_id is required")
-	}
-
-	// Parse slot ID as UUID
-	slotUUID, err := uuid.Parse(slotID)
-	if err != nil {
-		return nil, fmt.Errorf("invalid slot_id format: %w", err)
-	}
-	// Delete the slot from scheduler's desired state
-	err = apiServer.Controller.DeleteSlotFromScheduler(req.Context(), slotUUID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to delete slot: %w", err)
-	}
-
-	return map[string]interface{}{
-		"success": true,
-		"message": fmt.Sprintf("Slot %s deleted from scheduler state", slotID),
-	}, nil
-}
+// Sandbox-absorbs-runner pivot: getSchedulerHeartbeats and deleteSlot
+// removed — there's no scheduler and no slots any more.
 
 // createAPIKey godoc
 // @Summary Create a new API key
