@@ -23,11 +23,13 @@
 
 ## Document
 
-- [ ] Update `/home/retro/work/zed/portingguide.md` rebase checklist with a one-line note about the new `load_agent_thread` guard (per `design.md` §"Documentation").
-- [ ] Add a short post-mortem note to `helix/design/2026-04-24-acp-thread-entity-routing-after-restart.md` (or a sibling file) describing the interactive variant and the fix. Cross-link this task ID.
+- [x] Update `/home/retro/work/zed/portingguide.md` rebase checklist with the new `load_agent_thread` guard (Critical Fix #11).
+- [x] Add a short post-mortem note `helix/design/2026-05-06-acp-thread-entity-routing-on-sidebar-click.md` describing the interactive variant and the fix. Cross-links the restart variant note and this task ID.
 
 ## Ship
 
-- [ ] Push `feature/001913-after-merging-latest-2` on the `zed` repo. PR will be created from the Helix UI.
-- [ ] Write `pull_request_zed.md` with title `Fix thread detachment when re-opening live session via new sidebar` and a `Release Notes:` section.
-- [-] ~~After merge, bump `ZED_COMMIT=` in `helix/sandbox-versions.txt`~~ — post-merge step, deferred.
+- [x] Write `pull_request_zed.md` with title `Fix thread detachment when re-opening live session via new sidebar` and a `Release Notes:` section.
+- [x] Write `pull_request_helix.md` for the helix-side design doc.
+- [ ] Wait for `./stack build-zed dev` to finish; if green, commit the zed code change and push `feature/001913-after-merging-latest-2`.
+- [ ] Commit and push the helix design doc on its `feature/001913-after-merging-latest-2` branch.
+- [-] ~~After merge, bump `ZED_COMMIT=` in `helix/sandbox-versions.txt`~~ — post-merge step, deferred (per helix `CLAUDE.md`, this is its own follow-up PR).
