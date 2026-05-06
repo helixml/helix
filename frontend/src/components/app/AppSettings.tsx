@@ -1,4 +1,4 @@
-import React, { useState, useEffect, FC, useRef, useCallback, useMemo } from 'react'
+import React, { useState, useEffect, FC, useRef, useMemo } from 'react'
 import Box from '@mui/material/Box'
 import Checkbox from '@mui/material/Checkbox'
 import FormControlLabel from '@mui/material/FormControlLabel'
@@ -35,6 +35,7 @@ import * as api from '../../api/api'
 
 
 import useApi from '../../hooks/useApi'
+import useDebouncedCallback from '../../hooks/useDebouncedCallback'
 import { AdvancedModelPicker } from '../create/AdvancedModelPicker'
 import { AgentTypeSelector } from '../agent'
 import Divider from '@mui/material/Divider'
@@ -99,21 +100,6 @@ interface AppSettingsProps {
   readOnly?: boolean,
   showErrors?: boolean,
   isAdmin?: boolean,
-}
-
-// Add this custom hook after the imports and before the AppSettings component
-const useDebounce = (callback: Function, delay: number) => {
-  const timeoutRef = useRef<NodeJS.Timeout>()
-
-  return useCallback((...args: any[]) => {
-    if (timeoutRef.current) {
-      clearTimeout(timeoutRef.current)
-    }
-
-    timeoutRef.current = setTimeout(() => {
-      callback(...args)
-    }, delay)
-  }, [callback, delay])
 }
 
 const DEFAULT_SYSTEM_PROMPT = `You are a helpful AI assistant called Helix. Today is {{ .LocalDate }}, local time is {{ .LocalTime }}.`
@@ -285,14 +271,15 @@ const AppSettings: FC<AppSettingsProps> = ({
   const hasClaudeSubscription = (claudeSubscriptions?.length ?? 0) > 0
   const hasAnthropicProvider = providerEndpoints.some(ep => ep.name === 'anthropic')
 
-  // Advanced settings state
-  const [contextLimit, setContextLimit] = useState(app.context_limit || 0)
-  const [frequencyPenalty, setFrequencyPenalty] = useState(app.frequency_penalty || 0)
-  const [maxTokens, setMaxTokens] = useState(app.max_tokens || 2000)
-  const [presencePenalty, setPresencePenalty] = useState(app.presence_penalty || 0)
-  const [reasoningEffort, setReasoningEffort] = useState(app.reasoning_effort || 'none')
+  // Advanced settings state. Defaults must match the useEffect re-init below
+  // and DEFAULT_VALUES (which mirrors api/pkg/store/store_apps.go).
+  const [contextLimit, setContextLimit] = useState(app.context_limit || DEFAULT_VALUES.context_limit)
+  const [frequencyPenalty, setFrequencyPenalty] = useState(app.frequency_penalty || DEFAULT_VALUES.frequency_penalty)
+  const [maxTokens, setMaxTokens] = useState(app.max_tokens || DEFAULT_VALUES.max_tokens)
+  const [presencePenalty, setPresencePenalty] = useState(app.presence_penalty || DEFAULT_VALUES.presence_penalty)
+  const [reasoningEffort, setReasoningEffort] = useState(app.reasoning_effort || DEFAULT_VALUES.reasoning_effort)
   const [temperature, setTemperature] = useState(app.temperature || DEFAULT_VALUES.temperature)
-  const [topP, setTopP] = useState(app.top_p || 1)
+  const [topP, setTopP] = useState(app.top_p || DEFAULT_VALUES.top_p)
 
   // Track if component has been initialized
   const isInitialized = useRef(false)
@@ -362,13 +349,13 @@ const AppSettings: FC<AppSettingsProps> = ({
       setSmallGenerationModelProvider(app.small_generation_model_provider || '')
 
       setProvider(app.provider || '')
-      setContextLimit(app.context_limit || 0)
-      setFrequencyPenalty(app.frequency_penalty || 0)
-      setMaxTokens(app.max_tokens || 0)
-      setPresencePenalty(app.presence_penalty || 0)
+      setContextLimit(app.context_limit || DEFAULT_VALUES.context_limit)
+      setFrequencyPenalty(app.frequency_penalty || DEFAULT_VALUES.frequency_penalty)
+      setMaxTokens(app.max_tokens || DEFAULT_VALUES.max_tokens)
+      setPresencePenalty(app.presence_penalty || DEFAULT_VALUES.presence_penalty)
       setReasoningEffort(app.reasoning_effort || DEFAULT_VALUES.reasoning_effort)
-      setTemperature(app.temperature || 0)
-      setTopP(app.top_p || 0)
+      setTemperature(app.temperature || DEFAULT_VALUES.temperature)
+      setTopP(app.top_p || DEFAULT_VALUES.top_p)
       setMaxIterations(app.max_iterations ?? DEFAULT_VALUES.max_iterations)
 
       // Mark as initialized
@@ -379,130 +366,66 @@ const AppSettings: FC<AppSettingsProps> = ({
   // Auto-migrate helix_basic agents to helix_agent on first load
   useEffect(() => {
     if (app.default_agent_type === 'helix_basic') {
-      onUpdate({ ...app, default_agent_type: AGENT_TYPE_HELIX_AGENT })
+      onUpdate({ default_agent_type: AGENT_TYPE_HELIX_AGENT } as Partial<IAppFlatState> as IAppFlatState)
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Create debounced version of the update function
-  const debouncedUpdate = useDebounce((field: 'contextLimit' | 'frequencyPenalty' | 'maxTokens' | 'presencePenalty' | 'reasoningEffort' | 'temperature' | 'topP' | 'system_prompt' | 'maxIterations', value: number | string) => {
-    const updatedApp: IAppFlatState = {
-      ...app,
-      global,
-      model,
-      agent_mode,
-      default_agent_type,
-      external_agent_config,
-      reasoning_model,
-      reasoning_model_provider,
-      reasoning_model_effort,
-      generation_model,
-      generation_model_provider,
-      small_reasoning_model,
-      small_reasoning_model_provider,
-      small_reasoning_model_effort,
-      small_generation_model,
-      small_generation_model_provider,
-      provider,
-      context_limit: field === 'contextLimit' ? value as number : contextLimit,
-      frequency_penalty: field === 'frequencyPenalty' ? value as number : frequencyPenalty,
-      max_tokens: field === 'maxTokens' ? value as number : maxTokens,
-      presence_penalty: field === 'presencePenalty' ? value as number : presencePenalty,
-      reasoning_effort: field === 'reasoningEffort' ? value as string : reasoningEffort,
-      temperature: field === 'temperature' ? value as number : temperature,
-      top_p: field === 'topP' ? value as number : topP,
-      system_prompt: field === 'system_prompt' ? value as string : system_prompt,
-      max_iterations: field === 'maxIterations' ? value as number : max_iterations
-    }
+  // Map UI field names to IAppFlatState keys. Keep this small — only the
+  // fields actually edited via the debounced text/number inputs.
+  const ADVANCED_FIELD_MAP = {
+    contextLimit: 'context_limit',
+    frequencyPenalty: 'frequency_penalty',
+    maxTokens: 'max_tokens',
+    presencePenalty: 'presence_penalty',
+    reasoningEffort: 'reasoning_effort',
+    temperature: 'temperature',
+    topP: 'top_p',
+    system_prompt: 'system_prompt',
+    maxIterations: 'max_iterations',
+  } as const satisfies Record<string, keyof IAppFlatState>
 
-    onUpdate(updatedApp)
+  type AdvancedField = keyof typeof ADVANCED_FIELD_MAP
+
+  // Debounced save: send ONLY the field that changed. mergeFlatStateIntoApp in
+  // useApp ignores fields that are undefined, so partial updates are safe and
+  // can't clobber unrelated values with stale local state.
+  const debouncedUpdate = useDebouncedCallback((field: AdvancedField, value: number | string) => {
+    const flatField = ADVANCED_FIELD_MAP[field]
+    onUpdate({ [flatField]: value } as Partial<IAppFlatState> as IAppFlatState)
   }, 300)
 
-  // Combine immediate state update with debounced API call
-  const handleAdvancedChangeWithDebounce = (field: 'contextLimit' | 'frequencyPenalty' | 'maxTokens' | 'presencePenalty' | 'reasoningEffort' | 'temperature' | 'topP' | 'system_prompt' | 'maxIterations', value: number | string) => {
+  const handleAdvancedChangeWithDebounce = (field: AdvancedField, value: number | string) => {
     debouncedUpdate(field, value)
   }
 
-  // Handle checkbox changes - these update immediately since they're not typing events
+  // Handle checkbox changes - these update immediately since they're not typing events.
+  // Send only the changed field; mergeFlatStateIntoApp leaves everything else alone.
   const handleCheckboxChange = (field: 'global' | 'agent_mode', value: boolean) => {
     if (field === 'global') {
       setGlobal(value)
     } else if (field === 'agent_mode') {
       setAgentMode(value)
     }
-
-    // Create updated state and call onUpdate immediately for checkboxes
-    const updatedApp: IAppFlatState = {
-      ...app,
-      global: field === 'global' ? value : global,
-      agent_mode: field === 'agent_mode' ? value : agent_mode,
-      default_agent_type,
-      external_agent_config,
-      model,
-      provider,
-      context_limit: contextLimit,
-      frequency_penalty: frequencyPenalty,
-      max_tokens: maxTokens,
-      presence_penalty: presencePenalty,
-      reasoning_effort: reasoningEffort,
-      temperature: temperature,
-      top_p: topP,
-      max_iterations: max_iterations
-    }
-
-    onUpdate(updatedApp)
+    onUpdate({ [field]: value } as Partial<IAppFlatState> as IAppFlatState)
   }
 
   // Handle agent type changes
   const handleAgentTypeChange = (agentType: IAgentType, config?: IExternalAgentConfig) => {
     setDefaultAgentType(agentType)
-
     if (config !== undefined) {
       setExternalAgentConfig(config)
     }
-
-    const updatedApp: IAppFlatState = {
-      ...app,
-      global,
-      agent_mode,
-      default_agent_type: agentType,
-      external_agent_config: config !== undefined ? config : external_agent_config,
-      model,
-      provider,
-      context_limit: contextLimit,
-      frequency_penalty: frequencyPenalty,
-      max_tokens: maxTokens,
-      presence_penalty: presencePenalty,
-      reasoning_effort: reasoningEffort,
-      temperature,
-      top_p: topP,
-      system_prompt: system_prompt,
-      max_iterations: max_iterations
+    const updates: Partial<IAppFlatState> = { default_agent_type: agentType }
+    if (config !== undefined) {
+      updates.external_agent_config = config
     }
-
-    onUpdate(updatedApp)
+    onUpdate(updates as IAppFlatState)
   }
 
   const handleModelChange = (provider: string, model: string) => {
     setModel(model)
     setProvider(provider)
-
-    // Create updated state and call onUpdate immediately for pickers
-    const updatedApp: IAppFlatState = {
-      ...app,
-      global,
-      model,
-      provider,
-      context_limit: contextLimit,
-      frequency_penalty: frequencyPenalty,
-      max_tokens: maxTokens,
-      presence_penalty: presencePenalty,
-      reasoning_effort: reasoningEffort,
-      temperature,
-      top_p: topP,
-      max_iterations: max_iterations
-    }
-
-    onUpdate(updatedApp)
+    onUpdate({ model, provider } as Partial<IAppFlatState> as IAppFlatState)
   }
 
   // Helper function to check if a value matches its default
@@ -592,19 +515,11 @@ const AppSettings: FC<AppSettingsProps> = ({
   const handleEffortSelect = (effort: string, isMain: boolean) => {
     if (isMain) {
       setReasoningModelEffort(effort);
-      const updatedApp: IAppFlatState = {
-        ...app,
-        reasoning_model_effort: effort,
-      };
-      onUpdate(updatedApp);
+      onUpdate({ reasoning_model_effort: effort } as Partial<IAppFlatState> as IAppFlatState);
       handleMainEffortClose();
     } else {
       setSmallReasoningModelEffort(effort);
-      const updatedApp: IAppFlatState = {
-        ...app,
-        small_reasoning_model_effort: effort,
-      };
-      onUpdate(updatedApp);
+      onUpdate({ small_reasoning_model_effort: effort } as Partial<IAppFlatState> as IAppFlatState);
       handleSmallEffortClose();
     }
   };
@@ -683,7 +598,7 @@ const AppSettings: FC<AppSettingsProps> = ({
                   onChange={(e) => {
                     const newRuntime = e.target.value as 'zed_agent' | 'qwen_code' | 'claude_code';
                     setCodeAgentRuntime(newRuntime);
-                    onUpdate({ ...app, code_agent_runtime: newRuntime });
+                    onUpdate({ code_agent_runtime: newRuntime } as Partial<IAppFlatState> as IAppFlatState);
                   }}
                   disabled={readOnly}
                   renderValue={(value) => {
@@ -735,9 +650,13 @@ const AppSettings: FC<AppSettingsProps> = ({
                         if (mode === 'subscription') {
                           setGenerationModel('')
                           setGenerationModelProvider('')
-                          onUpdate({ ...app, code_agent_credential_type: 'subscription', generation_model: '', generation_model_provider: '' })
+                          onUpdate({
+                            code_agent_credential_type: 'subscription',
+                            generation_model: '',
+                            generation_model_provider: '',
+                          } as Partial<IAppFlatState> as IAppFlatState)
                         } else {
-                          onUpdate({ ...app, code_agent_credential_type: 'api_key' })
+                          onUpdate({ code_agent_credential_type: 'api_key' } as Partial<IAppFlatState> as IAppFlatState)
                         }
                       }}
                     >
@@ -793,7 +712,10 @@ const AppSettings: FC<AppSettingsProps> = ({
                       onSelectModel={(provider, modelId) => {
                         setGenerationModel(modelId);
                         setGenerationModelProvider(provider);
-                        onUpdate({ ...app, generation_model: modelId, generation_model_provider: provider });
+                        onUpdate({
+                          generation_model: modelId,
+                          generation_model_provider: provider,
+                        } as Partial<IAppFlatState> as IAppFlatState);
                       }}
                       currentType="text"
                       displayMode="short"
@@ -814,7 +736,7 @@ const AppSettings: FC<AppSettingsProps> = ({
                   onSelectModel={(provider, modelId) => {
                     setModel(modelId);
                     setProvider(provider);
-                    onUpdate({ ...app, model: modelId, provider });
+                    onUpdate({ model: modelId, provider } as Partial<IAppFlatState> as IAppFlatState);
                   }}
                   currentType="text"
                   displayMode="short"
@@ -854,7 +776,7 @@ const AppSettings: FC<AppSettingsProps> = ({
                   setZoomLevel(newZoom);
                   const updatedConfig = { ...external_agent_config, resolution: newResolution, zoom_level: newZoom };
                   setExternalAgentConfig(updatedConfig);
-                  onUpdate({ ...app, external_agent_config: updatedConfig });
+                  onUpdate({ external_agent_config: updatedConfig } as Partial<IAppFlatState> as IAppFlatState);
                 }}
                 disabled={readOnly}
                 renderValue={(value) => value === '1080p' ? '1080p' : value === '4k' ? '4K' : '5K'}
@@ -894,7 +816,7 @@ const AppSettings: FC<AppSettingsProps> = ({
                     setDesktopType(newDesktopType);
                     const updatedConfig = { ...external_agent_config, desktop_type: newDesktopType };
                     setExternalAgentConfig(updatedConfig);
-                    onUpdate({ ...app, external_agent_config: updatedConfig });
+                    onUpdate({ external_agent_config: updatedConfig } as Partial<IAppFlatState> as IAppFlatState);
                   }}
                   disabled={readOnly}
                   renderValue={(value) => value === 'ubuntu' ? 'Ubuntu Desktop' : 'Sway'}
@@ -928,7 +850,7 @@ const AppSettings: FC<AppSettingsProps> = ({
                   setRefreshRate(newRefreshRate);
                   const updatedConfig = { ...external_agent_config, display_refresh_rate: newRefreshRate };
                   setExternalAgentConfig(updatedConfig);
-                  onUpdate({ ...app, external_agent_config: updatedConfig });
+                  onUpdate({ external_agent_config: updatedConfig } as Partial<IAppFlatState> as IAppFlatState);
                 }}
                 disabled={readOnly}
                 renderValue={(value) => `${value} fps`}
@@ -987,7 +909,7 @@ const AppSettings: FC<AppSettingsProps> = ({
                   setZoomLevel(newZoom);
                   const updatedConfig = { ...external_agent_config, zoom_level: newZoom };
                   setExternalAgentConfig(updatedConfig);
-                  onUpdate({ ...app, external_agent_config: updatedConfig });
+                  onUpdate({ external_agent_config: updatedConfig } as Partial<IAppFlatState> as IAppFlatState);
                 }}
                 disabled={readOnly}
                 sx={{
@@ -1026,12 +948,10 @@ const AppSettings: FC<AppSettingsProps> = ({
                   onSelectModel={(provider, model) => {
                     setReasoningModel(model);
                     setReasoningModelProvider(provider);
-                    const updatedApp: IAppFlatState = {
-                      ...app,
+                    onUpdate({
                       reasoning_model: model,
                       reasoning_model_provider: provider,
-                    };
-                    onUpdate(updatedApp);
+                    } as Partial<IAppFlatState> as IAppFlatState);
                   }}
                   currentType="text"
                   displayMode="short"
@@ -1140,12 +1060,10 @@ const AppSettings: FC<AppSettingsProps> = ({
                 onSelectModel={(provider, model) => {
                   setGenerationModel(model);
                   setGenerationModelProvider(provider);
-                  const updatedApp: IAppFlatState = {
-                    ...app,
+                  onUpdate({
                     generation_model: model,
                     generation_model_provider: provider,
-                  };
-                  onUpdate(updatedApp);
+                  } as Partial<IAppFlatState> as IAppFlatState);
                 }}
                 currentType="text"
                 displayMode="short"
@@ -1167,12 +1085,10 @@ const AppSettings: FC<AppSettingsProps> = ({
                   onSelectModel={(provider, model) => {
                     setSmallReasoningModel(model);
                     setSmallReasoningModelProvider(provider);
-                    const updatedApp: IAppFlatState = {
-                      ...app,
+                    onUpdate({
                       small_reasoning_model: model,
                       small_reasoning_model_provider: provider,
-                    };
-                    onUpdate(updatedApp);
+                    } as Partial<IAppFlatState> as IAppFlatState);
                   }}
                   currentType="text"
                   displayMode="short"
@@ -1281,12 +1197,10 @@ const AppSettings: FC<AppSettingsProps> = ({
                 onSelectModel={(provider, model) => {
                   setSmallGenerationModel(model);
                   setSmallGenerationModelProvider(provider);
-                  const updatedApp: IAppFlatState = {
-                    ...app,
+                  onUpdate({
                     small_generation_model: model,
                     small_generation_model_provider: provider,
-                  };
-                  onUpdate(updatedApp);
+                  } as Partial<IAppFlatState> as IAppFlatState);
                 }}
                 currentType="text"
                 displayMode="short"

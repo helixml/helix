@@ -1050,7 +1050,7 @@ func (s *HelixAPIServer) updateApp(_ http.ResponseWriter, r *http.Request) (*typ
 
 	// Validate and default tools
 	for idx := range updatedWithTools.Config.Helix.Assistants {
-		assistant := &update.Config.Helix.Assistants[idx]
+		assistant := &updatedWithTools.Config.Helix.Assistants[idx]
 
 		// Ensure we don't have tools with duplicate names
 		toolNames := make(map[string]bool)
