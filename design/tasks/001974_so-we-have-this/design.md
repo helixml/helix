@@ -169,6 +169,14 @@ hasNextDocument={!allTabsViewed}
 - **Why does `unresolvedCount > 0` block "Next Document"?** Unresolved comments mean the user can't approve regardless of read state. Switching to "Next Document" while the user can't actually approve at the end would be misleading. The unresolved-comments alert (rendered just to the left) already explains the block — a disabled "Approve Design" with that alert is clearer than offering a button that leads nowhere.
 - **Why not change the disabled-tooltip text instead?** It's still a disabled button with a hover-only hint. The whole point is people don't notice tooltips on disabled buttons — the fix has to be in the button itself.
 
+## Implementation Notes
+
+- Final code change: ~30 net lines across two files. No new types, no new imports, no behavioural changes to other code paths.
+- `unviewedTabNames` (prop on `ReviewActionFooter` + computation in `DesignReviewContent`) was removed entirely — the only remaining tooltip path was the unreachable `!allTabsViewed` branch, and the `unresolvedCount > 0` case has its own visible warning Alert beside the button so no tooltip is needed there. Per CLAUDE.md "CLEAN UP DEAD CODE immediately."
+- The `Tooltip` wrapper around the Approve button was dropped along with the dead text path — the Approve branch is now a plain `<Button>`. The `Tooltip` import remains used by the Start Implementation block.
+- Type-check (`yarn tsc`) and full Vite build (`yarn build`) both pass cleanly. 21068 modules transformed.
+- **Manual browser testing was blocked at implementation time** — the inner Helix dev stack was still building images (`./stack build` mid-run) when this PR was prepared. The static guarantees (TS + build) cover the wiring; logic correctness for the two changes is small enough to review by reading the diff. Tagged the manual-test bullets as pending in tasks.md.
+
 ## Risks & Notes
 
 - **Race between `interaction_patch` streaming and active-tab guard**: if the user is on Requirements and the agent streams partial updates to Technical Design, Technical Design correctly gets a red dot — that's the desired behaviour. The guard only protects the *active* tab.
