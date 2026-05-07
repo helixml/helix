@@ -322,6 +322,12 @@ const Home: FC = () => {
           display: 'flex',
           flexDirection: 'column',
           minHeight: '100%',
+          // The chat landing page uses hundreds of inline rgba(255,255,255,…)
+          // text/border colors that are illegible on a white page. Rather than
+          // rewrite each, we keep the area on a dark surface in both modes —
+          // a "dark island" pattern, common in landing/hero sections.
+          backgroundColor: lightTheme.isLight ? '#0d0d1a' : 'transparent',
+          color: '#fff',
         }}
       >
         {/* Main content */}
