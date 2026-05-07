@@ -1102,6 +1102,16 @@ func (h *HydraExecutor) buildEnvVars(agent *types.DesktopAgent, containerType, w
 		env = append(env, fmt.Sprintf("HELIX_ENCODER=%s", encoderOverride))
 	}
 
+	// Pass through HELIX_VIDEO_MODE so the in-container desktop-bridge can pick
+	// a non-default capture path. Needed on managed-GPU clusters (e.g. GKE T4)
+	// where the default zerocopy DmaBuf -> CUDA pipeline fails to reach
+	// PLAYING; "shm" forces shared-memory capture while keeping NVENC encode.
+	// Supported values: shm, native, zerocopy (default).
+	// Skip the macOS scanout case - that's set explicitly in devcontainer.go.
+	if videoMode := os.Getenv("HELIX_VIDEO_MODE"); videoMode != "" && videoMode != "scanout" {
+		env = append(env, fmt.Sprintf("HELIX_VIDEO_MODE=%s", videoMode))
+	}
+
 	// These come LAST so they can override defaults (e.g., use user's token instead of runner token)
 	hasUserAPIToken := false
 	for _, e := range agent.Env {
