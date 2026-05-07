@@ -180,30 +180,18 @@ returning.
 > Read `./demos/manufacturing/roles/quality-bot.md` and create role
 > `r-quality-bot` from its body verbatim.
 >
-> Create four streams with the `create_stream` tool — one call per
-> stream, with `transport.kind: "webhook"` on every one and `id` and
-> `name` equal to the stream name so the role's references resolve.
-> (`create_stream`'s schema lists `local | webhook | email | github`
-> as the valid transport kinds; do not invent variants like
-> `incoming-webhook`.) Use these exact arguments:
+> Create four streams, all using the webhook transport, with their
+> id and name set to the names below:
 >
-> ```json
-> {"id":"s-ncr-raised","name":"s-ncr-raised","transport":{"kind":"webhook"}}
-> ```
-> ```json
-> {"id":"s-supervisor","name":"s-supervisor","transport":{"kind":"webhook","config":{"outbound_url":"http://localhost:7765/in/slack-general"}}}
-> ```
-> ```json
-> {"id":"s-customers","name":"s-customers","transport":{"kind":"webhook","config":{"outbound_url":"http://localhost:7765/in/sms-main"}}}
-> ```
-> ```json
-> {"id":"s-supplier","name":"s-supplier","transport":{"kind":"webhook","config":{"outbound_url":"http://localhost:7765/in/email-main"}}}
-> ```
->
-> `s-ncr-raised` is inbound-only — no `outbound_url` config. The
-> other three are bidirectional: helix-org POSTs out to the
-> `outbound_url`, and mock-channels POSTs replies back to
-> `/webhooks/<streamID>`.
+> - `s-ncr-raised` — inbound only (no outbound URL). This is what
+>   the operator's tablet POSTs NCRs to.
+> - `s-supervisor` — bidirectional, outbound URL
+>   `http://localhost:7765/in/slack-general`. Helix-org POSTs out to
+>   the supervisor's Slack; the supervisor's reply comes back here.
+> - `s-customers` — outbound only, URL
+>   `http://localhost:7765/in/sms-main`.
+> - `s-supplier` — outbound only, URL
+>   `http://localhost:7765/in/email-main`.
 >
 > Create position `p-quality` under `p-root` with role
 > `r-quality-bot`. Hire AI worker `w-quality-bot` into it; identity
