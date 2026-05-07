@@ -16,11 +16,11 @@ So the answer to "does Zed already support headless?" is **partially**: the GPUI
 
 ## High-level architecture
 
-We add a `--headless` CLI flag (and continue to honor `ZED_HEADLESS=1`). When either is set, `main()` takes a different fork *after* all global initialization (settings, telemetry, language registry, agent registry, etc.) but *before* `restore_or_create_workspace`:
+We reuse the existing `ZED_HEADLESS` env var. When set, `main()` takes a different fork *after* all global initialization (settings, telemetry, language registry, agent registry, etc.) but *before* `restore_or_create_workspace`:
 
 ```
 main()
-  ├── parse Args; resolve `headless = args.headless || env_var("ZED_HEADLESS").is_some()`
+  ├── let headless = std::env::var_os("ZED_HEADLESS").is_some();
   ├── Application::with_platform(gpui_platform::current_platform(headless))
   ├── …all current global init… (settings, client, language registry, agents, etc.)
   └── if headless:
@@ -93,15 +93,15 @@ After `on_finish_launching` returns, the `HeadlessClient::run()` calloop loop (`
 
 ## Key decisions
 
-### D-1 — Add a `--headless` CLI flag *and* keep honoring `ZED_HEADLESS`
+### D-1 — Reuse the existing `ZED_HEADLESS` env var
 
-The env var already exists in GPUI and we should keep it (it gates platform selection regardless of binary changes). Adding a CLI flag makes the intent explicit at process-launch time and lets us also short-circuit single-instance checks, single-window restoration, telemetry "App Opened" events, etc., without forcing operators to set both. Resolution rule:
+GPUI already gates platform selection on `ZED_HEADLESS` (`crates/gpui/src/platform.rs:88`). Adding a parallel `--headless` CLI flag would require operators to remember which one to use; reusing the env var keeps a single switch end-to-end. Resolution:
 
 ```rust
-let headless = args.headless || std::env::var_os("ZED_HEADLESS").is_some();
+let headless = std::env::var_os("ZED_HEADLESS").is_some();
 ```
 
-`--headless` is added next to the other top-level flags in `Args` (`crates/zed/src/main.rs:1636-1751`). `hide = false` so it shows in `--help`.
+This is read once near the top of `main()` and then used to (1) pick the platform via `current_platform(headless)`, (2) skip the single-instance check, (3) branch into `run_headless` instead of `restore_or_create_workspace`, and (4) skip window/menu setup. Operators discover it via the headless mode docs added under `crates/external_websocket_sync/README.md`.
 
 ### D-2 — `Project::local` over `HeadlessProject`
 
@@ -148,11 +148,11 @@ Telemetry events (`"App Opened"`) should still fire so we can count headless wor
 
 ### D-6 — Single-instance check stays off in headless
 
-`failed_single_instance_check` already short-circuits when `args.allow_multiple_instances` is set. Headless implies multi-instance allowed (operators want to scale workers); set the same effect: when `headless`, treat as `allow_multiple_instances = true`. Document this in the flag's `--help`.
+`failed_single_instance_check` already short-circuits when `args.allow_multiple_instances` is set. Headless implies multi-instance allowed (operators want to scale workers); set the same effect: when `headless`, treat as `allow_multiple_instances = true`. Document this in the headless mode README.
 
 ### D-7 — Feature gating
 
-`run_headless` lives behind `#[cfg(feature = "external_websocket_sync")]` because without the Helix sync the binary has nothing useful to do headlessly. If the feature is off, `--headless` exits with a clear error: *"the `--headless` flag requires the `external_websocket_sync` feature; rebuild with `cargo build --features external_websocket_sync -p zed`"*.
+`run_headless` lives behind `#[cfg(feature = "external_websocket_sync")]` because without the Helix sync the binary has nothing useful to do headlessly. If the feature is off and `ZED_HEADLESS` is set, the binary exits with a clear error: *"`ZED_HEADLESS` requires the `external_websocket_sync` feature; rebuild with `cargo build --features external_websocket_sync -p zed`"*.
 
 ### D-8 — File location
 
@@ -164,7 +164,7 @@ Put the new code in `crates/zed/src/headless.rs` (module declared in `main.rs`),
 
 ## Risks / things that will probably bite
 
-- **`Project::local` may try to spawn LSP servers** for files in `$PWD`. If `$PWD` is `/` or contains a giant repo, this is a startup-time problem. Mitigation: support `--headless-cwd <path>` to override; default to `$PWD`. Out of an abundance of caution, log the chosen cwd at startup.
+- **`Project::local` may try to spawn LSP servers** for files in `$PWD`. If `$PWD` is `/` or contains a giant repo, this is a startup-time problem. Mitigation: read an optional `ZED_HEADLESS_CWD` env var to override; default to `$PWD`. Log the chosen cwd at startup.
 - **Tokio runtime startup race with WebSocket auto-start** — already documented in `external_websocket_sync.rs:480-487`. The headless path constructs the runtime via `init_websocket_service` exactly the same way the windowed path does, so this is no worse.
 - **Callback channels assume an `App`** for `cx.spawn`. `setup_thread_handler` already runs from `cx.spawn`, so it works as long as we call it from inside `app.run`'s `on_finish_launching` closure.
 - **`crashes::init`** on Linux uses ashpd / desktop-notification proxies for the failure path. In headless containers the desktop portal isn't reachable. Reliability init should not regress headless boot — verify and, if necessary, gate the desktop-notification fallback behind `if !headless`.
@@ -174,11 +174,12 @@ Put the new code in `crates/zed/src/headless.rs` (module declared in `main.rs`),
 
 - Headless on macOS / Windows. The `MacPlatform::new(true)` and `WindowsPlatform::new(true)` paths exist but we're not validating them in this iteration.
 - Off-screen rendering (`current_headless_renderer` in `gpui_platform`). Different feature, different goal.
-- A dedicated `zed-headless` binary. Single binary, flag-gated.
+- A dedicated `zed-headless` binary. Single binary, env-var-gated.
+- A `--headless` CLI flag. The env var is sufficient.
 - Migrating `setup_thread_handler` to a workspace-less location *upstream*. We keep its existing call site in `agent_panel`; in headless mode we additionally call it from `run_headless`. If both ever fire (they shouldn't, because there is no panel in headless mode), `init_*_callback` overwrites the previous registration — verify this is safe before shipping.
 
 ## How we test
 
-- **Manual smoke test:** in a Linux container with no display, `unset DISPLAY WAYLAND_DISPLAY && zed --headless` runs and waits.
-- **WebSocket E2E:** add a `--headless` variant of the Docker E2E test (`crates/external_websocket_sync/e2e-test`). Re-run all 10 phases against the headless binary. The E2E test currently launches Zed under Xvfb in `Dockerfile.runtime`; for the headless variant we drop Xvfb entirely and pass `--headless` to the Zed launch command.
+- **Manual smoke test:** in a Linux container with no display, `unset DISPLAY WAYLAND_DISPLAY && ZED_HEADLESS=1 zed` runs and waits.
+- **WebSocket E2E:** add a headless variant of the Docker E2E test (`crates/external_websocket_sync/e2e-test`). Re-run all 10 phases against the headless binary. The E2E test currently launches Zed under Xvfb in `Dockerfile.runtime`; for the headless variant we drop Xvfb entirely and launch Zed with `ZED_HEADLESS=1` in the environment.
 - **Unit:** a small test in `external_websocket_sync` that calls `setup_thread_handler` against a `Project::test`-style entity, sends a `chat_message` through the mock Helix server, and asserts the response shape — exercises the wiring without booting the binary.

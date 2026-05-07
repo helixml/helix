@@ -2,12 +2,14 @@
 
 ## Goal
 
-Add a `--headless` flag (or equivalent) to Zed so it can run without any X11 / Wayland display while still serving:
+Make Zed run without any X11 / Wayland display when `ZED_HEADLESS=1` is set, while still serving:
 
 1. The **external WebSocket sync** (`external_websocket_sync` crate) that Helix uses to drive Zed's agent threads.
 2. **MCP context servers** and **agent servers** (Claude Code, Qwen, Gemini, NativeAgent).
 
 The process must not call `cx.open_window(...)` for any user-facing window, must not require `DISPLAY` or `WAYLAND_DISPLAY`, and must not draw frames anywhere.
+
+We reuse the existing `ZED_HEADLESS` env var rather than introducing a new CLI flag — the GPUI platform layer already gates on it (`crates/gpui/src/platform.rs:88`), so a single switch keeps the behavior consistent end-to-end.
 
 ## Background — what Zed already supports
 
@@ -24,10 +26,10 @@ The investigation phase of this task established the following:
 
 ### US-1 — Operator runs Zed in a container with no display
 
-> As an operator, I want to launch `zed --headless` (or `ZED_HEADLESS=1 zed`) on a Linux box that has no Wayland compositor and no X server, so Zed can serve as a long-lived agent worker for Helix without me having to install Xvfb or anything similar.
+> As an operator, I want to launch `ZED_HEADLESS=1 zed` on a Linux box that has no Wayland compositor and no X server, so Zed can serve as a long-lived agent worker for Helix without me having to install Xvfb or anything similar.
 
 **Acceptance:**
-- Running `zed --headless` on a host where `unset DISPLAY WAYLAND_DISPLAY` exits cleanly only after explicit termination (Ctrl-C or SIGTERM); it does not crash, does not print "neither DISPLAY nor WAYLAND_DISPLAY is set", and does not attempt to open a window.
+- Running `ZED_HEADLESS=1 zed` on a host where `unset DISPLAY WAYLAND_DISPLAY` exits cleanly only after explicit termination (Ctrl-C or SIGTERM); it does not crash, does not print "neither DISPLAY nor WAYLAND_DISPLAY is set", and does not attempt to open a window.
 - `pgrep -af zed` shows a single Zed process; it does not require Xvfb / Xwayland.
 - No GPU device is opened (`/dev/dri/*` is not touched).
 
@@ -36,7 +38,7 @@ The investigation phase of this task established the following:
 > As Helix, I want my existing WebSocket protocol with Zed to keep working byte-for-byte when Zed runs headlessly, so I do not have to fork the protocol or run a different client.
 
 **Acceptance:**
-- With `external_websocket_sync.enabled = true` and a reachable Helix endpoint, `zed --headless` connects to the WebSocket, replies to `chat_message`, emits `MessageAdded` / `MessageCompleted` / `Stopped`, and supports interrupts and follow-up messages (the same surface exercised by phases 1–10 of `crates/external_websocket_sync/e2e-test`).
+- With `external_websocket_sync.enabled = true` and a reachable Helix endpoint, `ZED_HEADLESS=1 zed` connects to the WebSocket, replies to `chat_message`, emits `MessageAdded` / `MessageCompleted` / `Stopped`, and supports interrupts and follow-up messages (the same surface exercised by phases 1–10 of `crates/external_websocket_sync/e2e-test`).
 - The E2E test passes against the headless binary in addition to the windowed binary.
 
 ### US-3 — MCP and agent servers continue to work headlessly
@@ -55,7 +57,8 @@ The investigation phase of this task established the following:
 
 ## Non-goals
 
-- Building a separate `zed-headless` binary. We add a flag to the existing `zed` binary; sharing the binary is required so that the Helix fork's diff against upstream stays small.
+- Building a separate `zed-headless` binary. We branch inside the existing `zed` binary based on `ZED_HEADLESS`; sharing the binary keeps the Helix fork's diff against upstream small.
+- Adding a `--headless` CLI flag. The env var is sufficient and avoids two parallel switches.
 - Headless support on macOS or Windows in this iteration (Linux + FreeBSD only — that's where the Helix containers run).
 - Removing or weakening any of the rebase-fragile fixes in `portingguide.md`. The headless mode must reuse the *same* `thread_service.rs` + `websocket_sync.rs` paths, not a parallel implementation.
 - Headless rendering / off-screen screenshotting (the `current_headless_renderer` story in `gpui_platform`). Out of scope.
@@ -63,7 +66,6 @@ The investigation phase of this task established the following:
 
 ## Open questions for design
 
-1. **Flag vs env var vs both?** `ZED_HEADLESS=1` already forces the headless platform; do we also want a `--headless` CLI flag for ergonomics, and should it behave identically?
-2. **Workspace-less wiring of the agent.** `setup_thread_handler` requires `Entity<Project>`, `Entity<ThreadStore>`, and `Arc<dyn Fs>`. In windowed mode all three come out of the workspace. In headless mode we need to construct them without ever creating a `Workspace`. Where should that live — in `crates/zed/src/main.rs`, in a new `crates/zed/src/headless.rs` module, or in `external_websocket_sync` itself?
-3. **Whether to bind a bare `Project`** (`Project::local(...)` with the cwd) or a `HeadlessProject` (the SSH-server flavour). The latter is meant for RPC, the former is what every workspace already uses.
-4. **`query_ui_state` semantics in headless mode.** Return `null` for `active_view` / `thread_id`, an empty `mcp_servers` map, etc.? Or always report the most-recently-active thread, since headless mode has no notion of "active view"? Decided in design.
+1. **Workspace-less wiring of the agent.** `setup_thread_handler` requires `Entity<Project>`, `Entity<ThreadStore>`, and `Arc<dyn Fs>`. In windowed mode all three come out of the workspace. In headless mode we need to construct them without ever creating a `Workspace`. Where should that live — in `crates/zed/src/main.rs`, in a new `crates/zed/src/headless.rs` module, or in `external_websocket_sync` itself?
+2. **Whether to bind a bare `Project`** (`Project::local(...)` with the cwd) or a `HeadlessProject` (the SSH-server flavour). The latter is meant for RPC, the former is what every workspace already uses.
+3. **`query_ui_state` semantics in headless mode.** Return `null` for `active_view` / `thread_id`, an empty `mcp_servers` map, etc.? Or always report the most-recently-active thread, since headless mode has no notion of "active view"? Decided in design.
