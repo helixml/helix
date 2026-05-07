@@ -96,6 +96,7 @@ import AgentDropdown from "../agent/AgentDropdown";
 import CloneGroupProgressFull from "../specTask/CloneGroupProgress";
 import ArchiveConfirmDialog from "./ArchiveConfirmDialog";
 import RobustPromptInput from "../common/RobustPromptInput";
+import { optimisticallyMarkSessionStarting } from "../../utils/optimisticSessionStarting";
 import EmbeddedSessionView, {
   EmbeddedSessionViewHandle,
 } from "../session/EmbeddedSessionView";
@@ -550,6 +551,15 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
       streaming.setCurrentSessionId(null);
     }
   }, [activeSessionId, isChatVisible]);
+
+  // Optimistic UI hook fired the moment the user hits Send: flips the cached
+  // session config to external_agent_status="starting" so a paused desktop
+  // shows the spinner immediately instead of waiting up to 3s for the next
+  // session poll. Polling reconciles to the authoritative backend value.
+  const handleWillSend = useCallback(() => {
+    if (!activeSessionId) return;
+    optimisticallyMarkSessionStarting(queryClient, activeSessionId);
+  }, [queryClient, activeSessionId]);
 
   // Default to appropriate view based on session state and screen size
   useEffect(() => {
@@ -1948,6 +1958,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                         interrupt: interrupt ?? true,
                       });
                     }}
+                    onWillSend={handleWillSend}
                     onHeightChange={() =>
                       sessionViewRef.current?.scrollToBottom()
                     }
@@ -2746,6 +2757,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                           interrupt: interrupt ?? true,
                         });
                       }}
+                      onWillSend={handleWillSend}
                       onHeightChange={() =>
                         sessionViewRef.current?.scrollToBottom()
                       }
