@@ -40,7 +40,7 @@ spec:
       {{- if ne (.Values.controlplane.waitForPostgres | toString) "false" }}
       initContainers:
         - name: wait-for-postgres
-          image: "{{ .Values.postgresql.image.registry }}/{{ .Values.postgresql.image.repository }}:{{ .Values.postgresql.image.tag }}"
+          image: {{ include "helix-controlplane.postgres-image" . | quote }}
           imagePullPolicy: {{ .Values.postgresql.image.pullPolicy | default "IfNotPresent" }}
           command: ['sh', '-c', 'timeout {{ .Values.controlplane.waitForPostgresTimeout | default 300 }} sh -c ''until PGPASSWORD=$POSTGRES_PASSWORD psql -h $POSTGRES_HOST -p $POSTGRES_PORT -U $POSTGRES_USER -d $POSTGRES_DATABASE -c "SELECT 1" > /dev/null 2>&1; do echo "Waiting for PostgreSQL ($POSTGRES_HOST:$POSTGRES_PORT/$POSTGRES_DATABASE)..."; sleep 2; done''']
           env:
@@ -152,12 +152,6 @@ spec:
               value: {{ .Values.controlplane.providersManagementEnabled | quote }}
             - name: FILESTORE_LOCALFS_PATH
               value: {{- with .Values.controlplane }} {{ .filestorePath | default "/filestore" }} {{- else }} "/filestore" {{- end }}
-            - name: TEXT_EXTRACTION_URL
-              value: http://{{ include "helix-controlplane.fullname" . }}-llamaindex:5000/api/v1/extract
-            - name: RAG_INDEX_URL
-              value: http://{{ include "helix-controlplane.fullname" . }}-llamaindex:5000/api/v1/rag/chunk
-            - name: RAG_QUERY_URL
-              value: http://{{ include "helix-controlplane.fullname" . }}-llamaindex:5000/api/v1/rag/query
             - name: RAG_CRAWLER_LAUNCHER_URL
               value: http://{{ include "helix-controlplane.fullname" . }}-chrome:7317
             # Postgres configuration

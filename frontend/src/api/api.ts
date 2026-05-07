@@ -9,13 +9,6 @@
  * ---------------------------------------------------------------
  */
 
-export interface ControllerMemoryEstimationResponse {
-  cached?: boolean;
-  error?: string;
-  estimate?: MemoryMemoryEstimate;
-  model_id?: string;
-}
-
 export interface FilestoreConfig {
   folders?: FilestoreFolder[];
   /**
@@ -114,6 +107,40 @@ export interface HydraGPUInfo {
   vendor?: string;
 }
 
+export interface HydraListSandboxCommandsResponse {
+  commands?: HydraSandboxCommandResponse[];
+}
+
+export interface HydraListSandboxFilesResponse {
+  entries?: HydraSandboxFileEntry[];
+  path?: string;
+}
+
+export interface HydraSandboxCommandResponse {
+  args?: string[];
+  cmd?: string;
+  cwd?: string;
+  detached?: boolean;
+  exit_code?: number;
+  finished_at?: string;
+  id?: string;
+  sandbox_id?: string;
+  started_at?: string;
+  status?: string;
+  stderr?: string;
+  stdout?: string;
+  sudo?: boolean;
+}
+
+export interface HydraSandboxFileEntry {
+  is_dir?: boolean;
+  mod_time?: string;
+  mode?: string;
+  name?: string;
+  path?: string;
+  size?: number;
+}
+
 export interface McpIcon {
   /** Optional MIME type (e.g., "image/png", "image/svg+xml") */
   mimeType?: string;
@@ -199,87 +226,6 @@ export interface McpToolOutputSchema {
   properties?: Record<string, any>;
   required?: string[];
   type?: string;
-}
-
-export interface MemoryEstimateOptions {
-  /** Advanced options */
-  flash_attention?: boolean;
-  /** "f16", "q8_0", "q4_0" */
-  kv_cache_type?: string;
-  /** Batch size */
-  num_batch?: number;
-  /** Context size */
-  num_ctx?: number;
-  /**
-   * ⚠️  CRITICAL CONFUSION WARNING ⚠️
-   * NumGPU is NOT the number of GPUs in your hardware configuration!
-   * NumGPU is the number of MODEL LAYERS to offload to GPU (-1 for auto-detect all that fit)
-   *
-   * Examples:
-   * - NumGPU = -1: Auto-detect max layers that fit (RECOMMENDED - gives full model memory)
-   * - NumGPU = 1:  Only offload 1 layer to GPU (gives tiny memory estimate)
-   * - NumGPU = 0:  CPU only (no GPU layers)
-   *
-   * To estimate for different GPU hardware configs (1 GPU vs 4 GPUs),
-   * you pass different GPU configuration arrays to the estimation function,
-   * NOT different NumGPU values!
-   */
-  num_gpu?: number;
-  /** Number of parallel sequences */
-  num_parallel?: number;
-}
-
-export interface MemoryGPUInfo {
-  compute?: string;
-  dependency_path?: string[];
-  driver_major?: number;
-  driver_minor?: number;
-  env_workarounds?: string[][];
-  free_memory?: number;
-  id?: string;
-  index?: number;
-  /** "cuda", "rocm", "metal", "cpu" */
-  library?: string;
-  minimum_memory?: number;
-  name?: string;
-  total_memory?: number;
-  unreliable_free_memory?: boolean;
-  /** Additional fields for compatibility with Ollama's estimation */
-  variant?: string;
-}
-
-export interface MemoryMemoryEstimate {
-  /** Metadata */
-  architecture?: string;
-  estimated_at?: string;
-  /** Whether all layers fit on GPU */
-  fully_loaded?: boolean;
-  /** Memory allocation per GPU */
-  gpu_sizes?: number[];
-  gpus?: MemoryGPUInfo[];
-  /** Graph memory requirement */
-  graph?: number;
-  /** Graph computation memory */
-  graph_mem?: number;
-  /** Breakdown for analysis */
-  kv_cache?: number;
-  /** Core results */
-  layers?: number;
-  model_path?: string;
-  /** Configuration used for estimation */
-  options?: MemoryEstimateOptions;
-  /** Projector weights (for multimodal) */
-  projectors?: number;
-  /** Whether CPU fallback is needed */
-  requires_fallback?: boolean;
-  /** Layers per GPU for tensor parallel */
-  tensor_split?: number[];
-  /** Total memory requirement */
-  total_size?: number;
-  /** Total VRAM usage */
-  vram_size?: number;
-  /** Model weights memory */
-  weights?: number;
 }
 
 export interface OpenaiChatCompletionChoice {
@@ -710,17 +656,6 @@ export interface ServerConfigurePendingSessionRequest {
 export interface ServerCreateTopUpRequest {
   amount?: number;
   org_id?: string;
-}
-
-export interface ServerDesignDocsResponse {
-  documents?: ServerDesignDocument[];
-  task_id?: string;
-}
-
-export interface ServerDesignDocument {
-  content?: string;
-  filename?: string;
-  path?: string;
 }
 
 export interface ServerDevContainerWithClients {
@@ -1157,15 +1092,6 @@ export interface ServerListExposedPortsResponse {
   session_id?: string;
 }
 
-export interface ServerLogsSummary {
-  active_instances?: number;
-  error_retention_hours?: number;
-  instances_with_errors?: number;
-  max_lines_per_buffer?: number;
-  recent_errors?: number;
-  slots?: ServerSlotLogSummary[];
-}
-
 export interface ServerModelSubstitution {
   assistant_name?: string;
   new_model?: string;
@@ -1284,11 +1210,40 @@ export interface ServerSampleTypesResponse {
   sample_types?: ServerSampleType[];
 }
 
+export interface ServerSandboxBillingResponse {
+  enabled?: boolean;
+  pending_credits?: number;
+  price_credits_per_second?: number;
+  runtime?: string;
+  total_credits_charged?: number;
+  vcpus?: number;
+}
+
 export interface ServerSandboxInstanceInfo {
+  /**
+   * Inference profile state — populated from the heartbeat. Empty for
+   * pure-agent sandboxes with no profile assigned.
+   */
+  active_profile_id?: string;
   container_id?: string;
   id?: string;
+  profile_error?: string;
+  profile_progress?: Record<string, TypesServiceDownloadProgress>;
+  profile_status?: string;
+  service_health?: Record<string, string>;
   session_id?: string;
   status?: string;
+}
+
+export interface ServerSandboxTerminalSession {
+  attached?: boolean;
+  created?: number;
+  name?: string;
+  windows?: number;
+}
+
+export interface ServerSandboxTerminalSessionsResponse {
+  sessions?: ServerSandboxTerminalSession[];
 }
 
 export interface ServerSessionClaudeCredentialsResponse {
@@ -1383,13 +1338,6 @@ export interface ServerSimpleSampleProject {
   technologies?: string[];
 }
 
-export interface ServerSlotLogSummary {
-  has_logs?: boolean;
-  id?: string;
-  model?: string;
-  runner_id?: string;
-}
-
 export interface ServerTaskProgressResponse {
   /** Progress from tasks.md */
   checklist?: TypesChecklistProgress;
@@ -1422,6 +1370,32 @@ export interface ServerVideoStreamingStats {
 
 export interface ServerAddLabelRequest {
   label?: string;
+}
+
+export interface ServerOpenaiModelEntry {
+  created?: number;
+  id?: string;
+  object?: string;
+  owned_by?: string;
+}
+
+export interface ServerOpenaiModelsResponse {
+  data?: ServerOpenaiModelEntry[];
+  object?: string;
+}
+
+export interface ServerRunnerProfileAssignRequest {
+  profile_id?: string;
+}
+
+export interface ServerRunnerProfileSaveRequest {
+  architectures?: string[];
+  compose_yaml?: string;
+  description?: string;
+  min_vram_bytes?: number;
+  model_match?: string;
+  name?: string;
+  vendor?: TypesGPUVendor;
 }
 
 export interface ServicesSampleProjectCode {
@@ -1565,32 +1539,11 @@ export interface TypesAggregatedUsageMetric {
   prompt_tokens?: number;
   request_size_bytes?: number;
   response_size_bytes?: number;
+  sandbox_cost?: number;
   /** Prompt + completion + cache read + cache write */
   total_cost?: number;
   total_requests?: number;
   total_tokens?: number;
-}
-
-export interface TypesAllocationPlanView {
-  cost?: number;
-  /** Slot IDs */
-  evictions_needed?: string[];
-  gpu_count?: number;
-  gpus?: number[];
-  id?: string;
-  is_multi_gpu?: boolean;
-  is_valid?: boolean;
-  memory_per_gpu?: number;
-  requires_eviction?: boolean;
-  /** GPU index -> total memory */
-  runner_capacity?: Record<string, number>;
-  runner_id?: string;
-  /** GPU index -> allocated memory */
-  runner_memory_state?: Record<string, number>;
-  runtime?: GithubComHelixmlHelixApiPkgTypesRuntime;
-  tensor_parallel_size?: number;
-  total_memory_required?: number;
-  validation_error?: string;
 }
 
 export interface TypesApiKey {
@@ -2376,6 +2329,41 @@ export interface TypesCreateSampleRepositoryRequest {
   sample_type?: string;
 }
 
+export interface TypesCreateSandboxRequest {
+  display_fps?: number;
+  display_height?: number;
+  display_width?: number;
+  env?: Record<string, string>;
+  /**
+   * Image is an optional explicit Docker image override. Only honoured
+   * when the operator has set HELIX_SANDBOX_ALLOW_CUSTOM_IMAGE=true.
+   * Mutually exclusive with Runtime.
+   */
+  image?: string;
+  memory_mb?: number;
+  name?: string;
+  /**
+   * Persistent makes the sandbox keep a workspace mount across container
+   * restarts. Files written under /home/retro/work survive teardown until
+   * the sandbox is explicitly deleted.
+   */
+  persistent?: boolean;
+  /**
+   * ProjectID optionally associates the sandbox with a project the caller
+   * belongs to. Empty means org-scoped only.
+   */
+  project_id?: string;
+  /**
+   * Runtime selects one of the operator-configured runtimes
+   * (e.g. "headless-ubuntu", "node22", "ubuntu-desktop"). Mutually
+   * exclusive with Image.
+   */
+  runtime?: TypesSandboxRuntime;
+  tags?: Record<string, string>;
+  timeout_seconds?: number;
+  vcpus?: number;
+}
+
 export interface TypesCreateSecretRequest {
   app_id?: string;
   name?: string;
@@ -2387,6 +2375,8 @@ export interface TypesCreateSecretRequest {
 export interface TypesCreateTaskRequest {
   /** Optional: Helix agent to use for spec generation */
   app_id?: string;
+  /** Optional: team member assigned to the task */
+  assignee_id?: string;
   /** Optional: Skip backlog and start immediately, regardless of project auto-start setting */
   auto_start?: boolean;
   /** For new mode: branch to create from (defaults to repo default) */
@@ -2449,36 +2439,6 @@ export interface TypesCronTrigger {
   /** Target project for spec_task action */
   project_id?: string;
   schedule?: string;
-}
-
-export interface TypesDashboardData {
-  global_allocation_decisions?: TypesGlobalAllocationDecision[];
-  queue?: TypesWorkloadSummary[];
-  runners?: TypesDashboardRunner[];
-  scheduling_decisions?: TypesSchedulingDecision[];
-}
-
-export interface TypesDashboardRunner {
-  allocated_memory?: number;
-  created?: string;
-  free_memory?: number;
-  /** Number of GPUs detected */
-  gpu_count?: number;
-  /** GPU memory stabilization statistics */
-  gpu_memory_stats?: TypesGPUMemoryStats;
-  /** Per-GPU memory status */
-  gpus?: TypesGPUStatus[];
-  id?: string;
-  labels?: Record<string, string>;
-  memory_string?: string;
-  models?: TypesRunnerModelStatus[];
-  /** Process tracking and cleanup statistics */
-  process_stats?: any;
-  slots?: TypesRunnerSlot[];
-  total_memory?: number;
-  updated?: string;
-  used_memory?: number;
-  version?: string;
 }
 
 export interface TypesDiscordTrigger {
@@ -2768,73 +2728,11 @@ export interface TypesFrontendLicenseInfo {
   valid_until?: string;
 }
 
-export interface TypesGPUMemoryDataPoint {
-  /** Actual free memory (from nvidia-smi) */
-  actual_free_mb?: number;
-  /** Total GPU memory */
-  actual_total_mb?: number;
-  /** Actual memory used (from nvidia-smi) */
-  actual_used_mb?: number;
-  /** Memory allocated by Helix scheduler */
-  allocated_mb?: number;
-  gpu_index?: number;
-  timestamp?: string;
-}
-
-export interface TypesGPUMemoryReading {
-  delta_mb?: number;
-  is_stable?: boolean;
-  memory_mb?: number;
-  poll_number?: number;
-  stable_count?: number;
-}
-
-export interface TypesGPUMemoryStabilizationEvent {
-  /** "startup" or "deletion" */
-  context?: string;
-  error_message?: string;
-  memory_delta_threshold_mb?: number;
-  memory_readings?: TypesGPUMemoryReading[];
-  poll_interval_ms?: number;
-  polls_taken?: number;
-  required_stable_polls?: number;
-  runtime?: string;
-  slot_id?: string;
-  stabilized_memory_mb?: number;
-  success?: boolean;
-  timeout_seconds?: number;
-  timestamp?: string;
-  total_wait_seconds?: number;
-}
-
-export interface TypesGPUMemoryStats {
-  average_wait_time_seconds?: number;
-  failed_stabilizations?: number;
-  last_stabilization?: string;
-  max_wait_time_seconds?: number;
-  /** Last 10 minutes of memory data */
-  memory_time_series?: TypesGPUMemoryDataPoint[];
-  min_wait_time_seconds?: number;
-  /** Last 20 events */
-  recent_events?: TypesGPUMemoryStabilizationEvent[];
-  /** Last 10 minutes of scheduling events */
-  scheduling_events?: TypesSchedulingEvent[];
-  successful_stabilizations?: number;
-  total_stabilizations?: number;
-}
-
-export interface TypesGPUState {
-  /** Slot IDs using this GPU */
-  active_slots?: string[];
-  allocated_memory?: number;
-  free_memory?: number;
-  index?: number;
-  total_memory?: number;
-  /** 0.0 - 1.0 */
-  utilization?: number;
-}
-
 export interface TypesGPUStatus {
+  /** canonical arch from gpuarch (e.g. "hopper") */
+  architecture?: string;
+  /** NVIDIA only — raw "9.0" / "8.6" etc. */
+  compute_capability?: string;
   /** GPU driver version (NVIDIA or AMD) */
   driver_version?: string;
   /** Free memory in bytes */
@@ -2849,6 +2747,17 @@ export interface TypesGPUStatus {
   total_memory?: number;
   /** Used memory in bytes */
   used_memory?: number;
+  /**
+   * Sandbox-absorbs-runner pivot fields (AC2 in requirements.md).
+   * Populated by the worker on its periodic status report; consumed by
+   * the API server's profile-compatibility check.
+   */
+  vendor?: TypesGPUVendor;
+}
+
+export enum TypesGPUVendor {
+  GPUVendorNVIDIA = "nvidia",
+  GPUVendorAMD = "amd",
 }
 
 export interface TypesGitHub {
@@ -3035,34 +2944,6 @@ export interface TypesGitRepositoryUpdateRequest {
   username?: string;
 }
 
-export interface TypesGlobalAllocationDecision {
-  after_state?: Record<string, TypesRunnerStateView>;
-  /** Global state snapshots */
-  before_state?: Record<string, TypesRunnerStateView>;
-  /** All plans considered */
-  considered_plans?: TypesAllocationPlanView[];
-  created?: string;
-  error_message?: string;
-  execution_time_ms?: number;
-  id?: string;
-  model_name?: string;
-  /** How optimal the final decision was */
-  optimization_score?: number;
-  /** Timing information */
-  planning_time_ms?: number;
-  reason?: string;
-  runtime?: GithubComHelixmlHelixApiPkgTypesRuntime;
-  selected_plan?: TypesAllocationPlanView;
-  session_id?: string;
-  /** Decision outcome */
-  success?: boolean;
-  total_plans_generated?: number;
-  /** Decision metadata */
-  total_runners_evaluated?: number;
-  total_time_ms?: number;
-  workload_id?: string;
-}
-
 export interface TypesGuidelinesHistory {
   /** Optional description of what changed */
   change_note?: string;
@@ -3128,6 +3009,16 @@ export interface TypesInteraction {
    */
   last_zed_message_offset?: number;
   mode?: TypesSessionMode;
+  /**
+   * PromptID links this interaction back to the prompt_history_entry that
+   * created it (when the interaction was dispatched by the queue, as opposed
+   * to being initiated by Zed when the user types in the IDE). Empty for
+   * Zed-initiated interactions. Used by handleMessageAdded /
+   * handleMessageCompleted to mark the originating prompt as 'sent' without
+   * relying on an in-memory map that doesn't survive API restarts. See
+   * design/2026-04-30-queue-and-other-stuck-state-bugs.md.
+   */
+  prompt_id?: string;
   /** User prompt (text) */
   prompt_message?: string;
   /** User prompt (multi-part) */
@@ -3807,6 +3698,28 @@ export interface TypesPricing {
   web_search?: string;
 }
 
+export interface TypesProfileGPURequirement {
+  /** optional whitelist (canonical strings from gpuarch) */
+  architectures?: string[];
+  /** derived from compose: union of device_ids */
+  count?: number;
+  /** optional, per-GPU minimum */
+  min_vram_bytes?: number;
+  /** optional regex against GPU marketing name */
+  model_match?: string;
+  /** optional */
+  vendor?: TypesGPUVendor;
+}
+
+export interface TypesProfileModel {
+  /** service.container_name (or service key if absent) */
+  container_name?: string;
+  /** first published or exposed port */
+  internal_port?: number;
+  /** --served-model-name (preferred) or --model basename */
+  name?: string;
+}
+
 export interface TypesProject {
   /** Automation settings */
   auto_start_backlog_tasks?: boolean;
@@ -4058,6 +3971,8 @@ export interface TypesPromptHistoryEntry {
   created_at?: string;
   /** Soft-delete: non-nil means user removed from queue */
   deleted_at?: string;
+  /** Last failure reason (server-side error string), shown in UI under "Failed - retrying" */
+  error_message?: string;
   /** Composite primary key: ID is globally unique, but we also index by user+spec_task */
   id?: string;
   /**
@@ -4287,7 +4202,17 @@ export enum TypesQuestionSetExecutionStatus {
 
 export interface TypesQuotaResponse {
   active_concurrent_desktops?: number;
+  /**
+   * Sandbox API concurrency. Distinct from ActiveConcurrentDesktops above —
+   * that one counts external_agent sessions (the spec-task desktop stack),
+   * while these count rows in the sandboxes table by runtime category.
+   * "Active" = pending|running|stopping (matches ensureSandboxLimits).
+   */
+  active_desktop_sandboxes?: number;
+  active_headless_sandboxes?: number;
   max_concurrent_desktops?: number;
+  max_desktop_sandboxes?: number;
+  max_headless_sandboxes?: number;
   max_projects?: number;
   max_repositories?: number;
   max_spec_tasks?: number;
@@ -4455,49 +4380,81 @@ export interface TypesRunAPIActionResponse {
   response?: string;
 }
 
-export interface TypesRunnerModelStatus {
-  download_in_progress?: boolean;
-  download_percent?: number;
-  error?: string;
-  /** Memory requirement in bytes */
-  memory?: number;
-  model_id?: string;
-  runtime?: GithubComHelixmlHelixApiPkgTypesRuntime;
+export interface TypesRunSandboxCommandRequest {
+  args?: string[];
+  cmd?: string;
+  cwd?: string;
+  detached?: boolean;
+  env?: Record<string, string>;
+  sudo?: boolean;
+  /** TimeoutSeconds is per-command timeout. Defaults to 60s if 0 and !detached. */
+  timeout_seconds?: number;
 }
 
-export interface TypesRunnerSlot {
-  active?: boolean;
-  active_requests?: number;
-  command_line?: string;
-  context_length?: number;
-  created?: string;
-  gpu_allocation_data?: Record<string, any>;
-  gpu_index?: number;
-  gpu_indices?: number[];
+export interface TypesRunnerAssignment {
+  assigned_at?: string;
+  /** user ID for audit */
+  assigned_by?: string;
+  profile_id?: string;
+  runner_id?: string;
+}
+
+export interface TypesRunnerProfile {
+  compose_yaml?: string;
+  created_at?: string;
+  description?: string;
+  gpu_requirement?: TypesProfileGPURequirement;
   id?: string;
-  max_concurrency?: number;
-  memory_estimation_meta?: Record<string, any>;
-  model?: string;
-  model_memory_requirement?: number;
-  ready?: boolean;
-  runner_id?: string;
-  runtime?: GithubComHelixmlHelixApiPkgTypesRuntime;
-  runtime_args?: Record<string, any>;
-  status?: string;
-  tensor_parallel_size?: number;
-  updated?: string;
-  version?: string;
-  workload_data?: Record<string, any>;
+  models?: TypesProfileModel[];
+  name?: string;
+  updated_at?: string;
 }
 
-export interface TypesRunnerStateView {
-  active_slots?: number;
-  /** GPU index -> state */
-  gpu_states?: Record<string, TypesGPUState>;
-  is_connected?: boolean;
-  runner_id?: string;
-  total_slots?: number;
-  warm_slots?: number;
+export interface TypesSandbox {
+  billing_last_charged_at?: string;
+  container_id?: string;
+  created_at?: string;
+  deleted_at?: string;
+  display_fps?: number;
+  display_height?: number;
+  /** Display fields apply to desktop runtimes. */
+  display_width?: number;
+  env?: number[];
+  expires_at?: string;
+  /**
+   * HostDeviceID is the RevDial device ID of the hydra host that runs the
+   * underlying container. Empty until the controller schedules it.
+   */
+  host_device_id?: string;
+  id?: string;
+  image?: string;
+  memory_mb?: number;
+  name?: string;
+  organization_id?: string;
+  owner?: string;
+  /**
+   * Persistent indicates that the sandbox should mount a persistent
+   * workspace volume (so files survive across reboots/restarts of the
+   * underlying container). Non-persistent sandboxes use the container's
+   * ephemeral filesystem only.
+   */
+  persistent?: boolean;
+  /**
+   * ProjectID is optional. When set, the sandbox is associated with a
+   * specific project for organisational/UI grouping purposes; nothing in the
+   * lifecycle path branches on it. Empty means org-scoped only.
+   */
+  project_id?: string;
+  runtime?: TypesSandboxRuntime;
+  started_at?: string;
+  status?: TypesSandboxStatus;
+  status_message?: string;
+  stopped_at?: string;
+  tags?: number[];
+  /** TimeoutSeconds is the lifetime in seconds; ExpiresAt = CreatedAt + TimeoutSeconds. */
+  timeout_seconds?: number;
+  updated_at?: string;
+  vcpus?: number;
 }
 
 export interface TypesSandboxCacheState {
@@ -4531,15 +4488,45 @@ export interface TypesSandboxHeartbeatRequest {
   disk_usage?: TypesDiskUsageMetric[];
   /** GPU configuration */
   gpu_vendor?: string;
+  /**
+   * GPUs is the per-GPU inventory used by the API server's profile
+   * compatibility check. Empty for sandboxes that don't host inference.
+   */
+  gpus?: TypesGPUStatus[];
   /** Helix version running on this sandbox (git commit hash or release version) */
   helix_version?: string;
   /** Privileged mode (host Docker access for development) */
   privileged_mode_enabled?: boolean;
+  /** ProfileError carries the failure detail when ProfileStatus="failed". */
+  profile_error?: string;
+  /**
+   * ProfileProgress is per-service model-weights download progress,
+   * surfaced when ProfileStatus="starting". Empty once all services
+   * finish downloading.
+   */
+  profile_progress?: Record<string, TypesServiceDownloadProgress>;
+  /**
+   * ProfileStatus reports the compose stack lifecycle. Empty when no
+   * profile is assigned. Allowed values: "assigning" | "pulling" |
+   * "starting" | "running" | "failed".
+   */
+  profile_status?: string;
   /** /dev/dri/renderD128 or SOFTWARE */
   render_node?: string;
+  /**
+   * ServiceHealth maps compose service name -> health string.
+   * "healthy" | "starting" | "failed" | "unknown".
+   */
+  service_health?: Record<string, string>;
 }
 
 export interface TypesSandboxInstance {
+  /**
+   * ActiveProfileID is the ID of the runner profile this sandbox is
+   * currently running (or attempting to run). Empty for pure-agent
+   * sandboxes with no profile assigned.
+   */
+  active_profile_id?: string;
   /** Sandbox capacity */
   active_sandboxes?: number;
   created?: string;
@@ -4550,6 +4537,14 @@ export interface TypesSandboxInstance {
   desktop_versions?: Record<string, string>;
   /** GPU configuration */
   gpu_vendor?: string;
+  /**
+   * GPUs is the per-GPU inventory the sandbox reports for inference
+   * scheduling. Vendor / Architecture / ComputeCapability on each
+   * entry are the load-bearing fields for profile compatibility.
+   * Explicit column tag because GORM's default snake_case derivation
+   * turns `GPUs` into `gp_us`.
+   */
+  gpus?: object[];
   /** Helix version running on this sandbox (git commit hash or release version) */
   helix_version?: string;
   /** Hostname for DNS resolution */
@@ -4562,55 +4557,50 @@ export interface TypesSandboxInstance {
   /** Maximum allowed containers */
   max_sandboxes?: number;
   privileged_mode?: boolean;
+  /** ProfileError carries the failure detail when ProfileStatus="failed". */
+  profile_error?: string;
+  /**
+   * ProfileProgress is per-service download progress for model weights,
+   * surfaced when ProfileStatus="starting" and a vLLM container is
+   * pulling weights from Hugging Face Hub. Empty once all services are
+   * healthy. Map key is compose service name.
+   */
+  profile_progress?: Record<string, object>;
+  /**
+   * ProfileStatus tracks the compose stack lifecycle:
+   * "" | "assigning" | "pulling" | "starting" | "running" | "failed".
+   */
+  profile_status?: string;
   /** /dev/dri/renderD128 or SOFTWARE */
   render_node?: string;
+  /**
+   * ServiceHealth maps compose service name -> health string
+   * ("healthy" | "starting" | "failed" | "unknown"). Reported by
+   * compose-manager polling each container's /v1/models endpoint
+   * (or vendor-specific health endpoint).
+   */
+  service_health?: Record<string, string>;
   /** "online", "offline", "degraded" */
   status?: string;
   updated?: string;
 }
 
-export interface TypesSchedulingDecision {
-  available_runners?: string[];
-  created?: string;
-  decision_type?: TypesSchedulingDecisionType;
-  id?: string;
-  memory_available?: number;
-  memory_required?: number;
-  mode?: TypesSessionMode;
-  model_name?: string;
-  processing_time_ms?: number;
-  queue_position?: number;
-  reason?: string;
-  repeat_count?: number;
-  runner_id?: string;
-  session_id?: string;
-  slot_id?: string;
-  success?: boolean;
-  total_slot_count?: number;
-  warm_slot_count?: number;
-  workload_id?: string;
+export interface TypesSandboxListResponse {
+  sandboxes?: TypesSandbox[];
+  total?: number;
 }
 
-export enum TypesSchedulingDecisionType {
-  SchedulingDecisionTypeQueued = "queued",
-  SchedulingDecisionTypeReuseWarmSlot = "reuse_warm_slot",
-  SchedulingDecisionTypeCreateNewSlot = "create_new_slot",
-  SchedulingDecisionTypeEvictStaleSlot = "evict_stale_slot",
-  SchedulingDecisionTypeRejected = "rejected",
-  SchedulingDecisionTypeError = "error",
-  SchedulingDecisionTypeUnschedulable = "unschedulable",
+export enum TypesSandboxRuntime {
+  SandboxRuntimeUbuntuDesktop = "ubuntu-desktop",
+  SandboxRuntimeHeadlessUbuntu = "headless-ubuntu",
 }
 
-export interface TypesSchedulingEvent {
-  description?: string;
-  /** "slot_created", "slot_deleted", "eviction", "stabilization_start", "stabilization_end" */
-  event_type?: string;
-  gpu_indices?: number[];
-  memory_mb?: number;
-  model_name?: string;
-  runtime?: string;
-  slot_id?: string;
-  timestamp?: string;
+export enum TypesSandboxStatus {
+  SandboxStatusPending = "pending",
+  SandboxStatusRunning = "running",
+  SandboxStatusStopping = "stopping",
+  SandboxStatusStopped = "stopped",
+  SandboxStatusFailed = "failed",
 }
 
 export interface TypesSecret {
@@ -4633,6 +4623,12 @@ export interface TypesServerConfigForFrontend {
   auth_provider?: TypesAuthProvider;
   /** Charging for usage */
   billing_enabled?: boolean;
+  /**
+   * DefaultChatSystemPrompt is the system prompt the platform applies to
+   * direct model chats when the user has not customised one. Surfaced to
+   * the frontend so the chat-settings page can prefill the textbox.
+   */
+  default_chat_system_prompt?: string;
   deployment_id?: string;
   disable_llm_call_logging?: boolean;
   /** "mac-desktop", "server", "cloud", etc. */
@@ -4726,6 +4722,27 @@ export interface TypesServiceConnectionUpdateRequest {
   github_installation_id?: number;
   github_private_key?: string;
   name?: string;
+}
+
+export interface TypesServiceDownloadProgress {
+  /**
+   * Current and Total are the raw N/M from the progress line (e.g.
+   * shards 12 of 47). Useful when Percent is computed.
+   */
+  current?: number;
+  /**
+   * ETA is the rendered remaining-time string from the source line
+   * (e.g. "27:18"). Verbatim — not parsed into a duration.
+   */
+  eta?: string;
+  /** Percent is 0-100. Zero means "no progress line parsed yet". */
+  percent?: number;
+  /**
+   * Stage is a short tag for what's downloading: "shards", "files",
+   * "weights" or "" if unknown. Drives UI labelling.
+   */
+  stage?: string;
+  total?: number;
 }
 
 export interface TypesSession {
@@ -5636,7 +5653,9 @@ export interface TypesSystemSettingsRequest {
   kodit_vision_embedding_model?: string;
   /** Kodit vision embedding model configuration */
   kodit_vision_embedding_provider?: string;
+  max_concurrent_desktop_sandboxes?: number;
   max_concurrent_desktops?: number;
+  max_concurrent_headless_sandboxes?: number;
   optimus_generation_model?: string;
   optimus_generation_model_provider?: string;
   optimus_reasoning_model?: string;
@@ -5648,6 +5667,9 @@ export interface TypesSystemSettingsRequest {
   optimus_small_reasoning_model_effort?: string;
   optimus_small_reasoning_model_provider?: string;
   providers_management_enabled?: boolean;
+  sandbox_billing_enabled?: boolean;
+  sandbox_desktop_price_credits_per_second?: number;
+  sandbox_headless_price_credits_per_second?: number;
 }
 
 export interface TypesSystemSettingsResponse {
@@ -5671,8 +5693,10 @@ export interface TypesSystemSettingsResponse {
   kodit_vision_embedding_model_set?: boolean;
   /** Kodit vision embedding model configuration */
   kodit_vision_embedding_provider?: string;
+  max_concurrent_desktop_sandboxes?: number;
   /** Per user */
   max_concurrent_desktops?: number;
+  max_concurrent_headless_sandboxes?: number;
   optimus_generation_model?: string;
   optimus_generation_model_provider?: string;
   optimus_reasoning_model?: string;
@@ -5685,6 +5709,9 @@ export interface TypesSystemSettingsResponse {
   optimus_small_reasoning_model_effort?: string;
   optimus_small_reasoning_model_provider?: string;
   providers_management_enabled?: boolean;
+  sandbox_billing_enabled?: boolean;
+  sandbox_desktop_price_credits_per_second?: number;
+  sandbox_headless_price_credits_per_second?: number;
   updated?: string;
 }
 
@@ -6037,6 +6064,12 @@ export interface TypesUpdateProviderEndpoint {
   vertex_region?: string;
 }
 
+export interface TypesUpdateSandboxRequest {
+  name?: string;
+  tags?: Record<string, string>;
+  timeout_seconds?: number;
+}
+
 export interface TypesUpdateTeamRequest {
   name?: string;
 }
@@ -6102,6 +6135,22 @@ export interface TypesUserAppAccessResponse {
   can_read?: boolean;
   can_write?: boolean;
   is_admin?: boolean;
+}
+
+export interface TypesUserChatSettings {
+  frequency_penalty?: number;
+  max_tokens?: number;
+  presence_penalty?: number;
+  system_prompt?: string;
+  /**
+   * SystemPromptEnabled toggles whether any system prompt at all is sent
+   * to the model. Pointer so nil means "not set" and we fall back to the
+   * default-on behaviour. When explicitly false, no system prompt is sent
+   * regardless of SystemPrompt.
+   */
+  system_prompt_enabled?: boolean;
+  temperature?: number;
+  top_p?: number;
 }
 
 export interface TypesUserGuidelinesResponse {
@@ -6195,17 +6244,6 @@ export interface TypesWebsiteCrawler {
   /** Apply readability middleware to the HTML content */
   readability?: boolean;
   user_agent?: string;
-}
-
-export interface TypesWorkloadSummary {
-  created?: string;
-  id?: string;
-  lora_dir?: string;
-  mode?: string;
-  model_name?: string;
-  runtime?: string;
-  summary?: string;
-  updated?: string;
 }
 
 export interface TypesZFSTree {
@@ -7976,21 +8014,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * No description
-     *
-     * @name V1DashboardList
-     * @request GET:/api/v1/dashboard
-     * @secure
-     */
-    v1DashboardList: (params: RequestParams = {}) =>
-      this.request<TypesDashboardData, any>({
-        path: `/api/v1/dashboard`,
-        method: "GET",
-        secure: true,
-        ...params,
-      }),
-
-    /**
      * @description Fetch current clipboard content from remote desktop
      *
      * @tags ExternalAgents
@@ -9465,64 +9488,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Estimate memory requirements for a model on different GPU configurations
-     *
-     * @tags models
-     * @name V1HelixModelsMemoryEstimateList
-     * @summary Estimate model memory requirements
-     * @request GET:/api/v1/helix-models/memory-estimate
-     * @secure
-     */
-    v1HelixModelsMemoryEstimateList: (
-      query: {
-        /** Model ID */
-        model_id: string;
-        /** Number of GPUs (default: auto-detect) */
-        gpu_count?: number;
-        /** Context length (default: model default) */
-        context_length?: number;
-        /** Batch size (default: 512) */
-        batch_size?: number;
-        /** Number of parallel sequences/concurrent requests (default: 2) */
-        num_parallel?: number;
-      },
-      params: RequestParams = {},
-    ) =>
-      this.request<ControllerMemoryEstimationResponse, string>({
-        path: `/api/v1/helix-models/memory-estimate`,
-        method: "GET",
-        query: query,
-        secure: true,
-        ...params,
-      }),
-
-    /**
-     * @description Get memory estimates for multiple models with different GPU configurations
-     *
-     * @tags models
-     * @name V1HelixModelsMemoryEstimatesList
-     * @summary List memory estimates for multiple models
-     * @request GET:/api/v1/helix-models/memory-estimates
-     * @secure
-     */
-    v1HelixModelsMemoryEstimatesList: (
-      query?: {
-        /** Comma-separated list of model IDs */
-        model_ids?: string;
-        /** Number of GPUs (default: auto-detect) */
-        gpu_count?: number;
-      },
-      params: RequestParams = {},
-    ) =>
-      this.request<ControllerMemoryEstimationResponse[], string>({
-        path: `/api/v1/helix-models/memory-estimates`,
-        method: "GET",
-        query: query,
-        secure: true,
-        ...params,
-      }),
-
-    /**
      * No description
      *
      * @name V1KnowledgeList
@@ -9723,36 +9688,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
     ) =>
       this.request<TypesPaginatedLLMCalls, any>({
         path: `/api/v1/llm_calls`,
-        method: "GET",
-        query: query,
-        secure: true,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Retrieve logs for a specific slot by proxying the request to the runner
-     *
-     * @tags logs
-     * @name V1LogsDetail
-     * @summary Get logs for a specific slot
-     * @request GET:/api/v1/logs/{slot_id}
-     * @secure
-     */
-    v1LogsDetail: (
-      slotId: string,
-      query?: {
-        /** Maximum number of lines to return (default: 500) */
-        lines?: number;
-        /** Return logs since this timestamp (RFC3339 format) */
-        since?: string;
-        /** Filter by log level (ERROR, WARN, INFO, DEBUG) */
-        level?: string;
-      },
-      params: RequestParams = {},
-    ) =>
-      this.request<Record<string, any>, string>({
-        path: `/api/v1/logs/${slotId}`,
         method: "GET",
         query: query,
         secure: true,
@@ -10384,6 +10319,422 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         body: request,
         secure: true,
         type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description List sandboxes belonging to an organization
+     *
+     * @tags Sandboxes
+     * @name V1OrganizationsSandboxesDetail
+     * @summary List sandboxes
+     * @request GET:/api/v1/organizations/{org_id}/sandboxes
+     * @secure
+     */
+    v1OrganizationsSandboxesDetail: (orgId: string, params: RequestParams = {}) =>
+      this.request<TypesSandboxListResponse, SystemHTTPError>({
+        path: `/api/v1/organizations/${orgId}/sandboxes`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Create a new sandbox in an organization
+     *
+     * @tags Sandboxes
+     * @name V1OrganizationsSandboxesCreate
+     * @summary Create sandbox
+     * @request POST:/api/v1/organizations/{org_id}/sandboxes
+     * @secure
+     */
+    v1OrganizationsSandboxesCreate: (orgId: string, payload: TypesCreateSandboxRequest, params: RequestParams = {}) =>
+      this.request<TypesSandbox, SystemHTTPError>({
+        path: `/api/v1/organizations/${orgId}/sandboxes`,
+        method: "POST",
+        body: payload,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Sandboxes
+     * @name V1OrganizationsSandboxesDelete
+     * @summary Delete sandbox
+     * @request DELETE:/api/v1/organizations/{org_id}/sandboxes/{id}
+     * @secure
+     */
+    v1OrganizationsSandboxesDelete: (orgId: string, id: string, params: RequestParams = {}) =>
+      this.request<void, any>({
+        path: `/api/v1/organizations/${orgId}/sandboxes/${id}`,
+        method: "DELETE",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Sandboxes
+     * @name V1OrganizationsSandboxesDetail2
+     * @summary Get sandbox
+     * @request GET:/api/v1/organizations/{org_id}/sandboxes/{id}
+     * @originalName v1OrganizationsSandboxesDetail
+     * @duplicate
+     * @secure
+     */
+    v1OrganizationsSandboxesDetail2: (orgId: string, id: string, params: RequestParams = {}) =>
+      this.request<TypesSandbox, any>({
+        path: `/api/v1/organizations/${orgId}/sandboxes/${id}`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Sandboxes
+     * @name V1OrganizationsSandboxesPartialUpdate
+     * @summary Update sandbox
+     * @request PATCH:/api/v1/organizations/{org_id}/sandboxes/{id}
+     * @secure
+     */
+    v1OrganizationsSandboxesPartialUpdate: (
+      orgId: string,
+      id: string,
+      payload: TypesUpdateSandboxRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesSandbox, any>({
+        path: `/api/v1/organizations/${orgId}/sandboxes/${id}`,
+        method: "PATCH",
+        body: payload,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Sandboxes
+     * @name V1OrganizationsSandboxesBillingDetail
+     * @summary Sandbox billing summary
+     * @request GET:/api/v1/organizations/{org_id}/sandboxes/{id}/billing
+     * @secure
+     */
+    v1OrganizationsSandboxesBillingDetail: (orgId: string, id: string, params: RequestParams = {}) =>
+      this.request<ServerSandboxBillingResponse, any>({
+        path: `/api/v1/organizations/${orgId}/sandboxes/${id}/billing`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Sandboxes
+     * @name V1OrganizationsSandboxesCommandsDetail
+     * @summary List sandbox commands
+     * @request GET:/api/v1/organizations/{org_id}/sandboxes/{id}/commands
+     * @secure
+     */
+    v1OrganizationsSandboxesCommandsDetail: (orgId: string, id: string, params: RequestParams = {}) =>
+      this.request<HydraListSandboxCommandsResponse, any>({
+        path: `/api/v1/organizations/${orgId}/sandboxes/${id}/commands`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Sandboxes
+     * @name V1OrganizationsSandboxesCommandsCreate
+     * @summary Run a command in a sandbox
+     * @request POST:/api/v1/organizations/{org_id}/sandboxes/{id}/commands
+     * @secure
+     */
+    v1OrganizationsSandboxesCommandsCreate: (
+      orgId: string,
+      id: string,
+      payload: TypesRunSandboxCommandRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<HydraSandboxCommandResponse, any>({
+        path: `/api/v1/organizations/${orgId}/sandboxes/${id}/commands`,
+        method: "POST",
+        body: payload,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Sandboxes
+     * @name V1OrganizationsSandboxesCommandsDetail2
+     * @summary Get a sandbox command
+     * @request GET:/api/v1/organizations/{org_id}/sandboxes/{id}/commands/{cmd_id}
+     * @originalName v1OrganizationsSandboxesCommandsDetail
+     * @duplicate
+     * @secure
+     */
+    v1OrganizationsSandboxesCommandsDetail2: (orgId: string, id: string, cmdId: string, params: RequestParams = {}) =>
+      this.request<HydraSandboxCommandResponse, any>({
+        path: `/api/v1/organizations/${orgId}/sandboxes/${id}/commands/${cmdId}`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Sandboxes
+     * @name V1OrganizationsSandboxesCommandsKillCreate
+     * @summary Kill a sandbox command
+     * @request POST:/api/v1/organizations/{org_id}/sandboxes/{id}/commands/{cmd_id}/kill
+     * @secure
+     */
+    v1OrganizationsSandboxesCommandsKillCreate: (
+      orgId: string,
+      id: string,
+      cmdId: string,
+      query?: {
+        /** Signal name (default TERM) */
+        signal?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<void, any>({
+        path: `/api/v1/organizations/${orgId}/sandboxes/${id}/commands/${cmdId}/kill`,
+        method: "POST",
+        query: query,
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Sandboxes
+     * @name V1OrganizationsSandboxesCommandsLogsDetail
+     * @summary Stream sandbox command logs
+     * @request GET:/api/v1/organizations/{org_id}/sandboxes/{id}/commands/{cmd_id}/logs
+     * @secure
+     */
+    v1OrganizationsSandboxesCommandsLogsDetail: (
+      orgId: string,
+      id: string,
+      cmdId: string,
+      query?: {
+        /** stdout|stderr|both */
+        stream?: string;
+        /** 1 to follow */
+        follow?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<any, any>({
+        path: `/api/v1/organizations/${orgId}/sandboxes/${id}/commands/${cmdId}/logs`,
+        method: "GET",
+        query: query,
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Sandboxes
+     * @name V1OrganizationsSandboxesFilesDelete
+     * @summary Read/write/delete sandbox file
+     * @request DELETE:/api/v1/organizations/{org_id}/sandboxes/{id}/files
+     * @secure
+     */
+    v1OrganizationsSandboxesFilesDelete: (
+      orgId: string,
+      id: string,
+      query: {
+        /** Absolute path inside the sandbox */
+        path: string;
+        /** Octal permission for write */
+        mode?: string;
+        /** 1 to delete recursively */
+        recursive?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<any, any>({
+        path: `/api/v1/organizations/${orgId}/sandboxes/${id}/files`,
+        method: "DELETE",
+        query: query,
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Sandboxes
+     * @name V1OrganizationsSandboxesFilesDetail
+     * @summary Read/write/delete sandbox file
+     * @request GET:/api/v1/organizations/{org_id}/sandboxes/{id}/files
+     * @secure
+     */
+    v1OrganizationsSandboxesFilesDetail: (
+      orgId: string,
+      id: string,
+      query: {
+        /** Absolute path inside the sandbox */
+        path: string;
+        /** Octal permission for write */
+        mode?: string;
+        /** 1 to delete recursively */
+        recursive?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<any, any>({
+        path: `/api/v1/organizations/${orgId}/sandboxes/${id}/files`,
+        method: "GET",
+        query: query,
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Sandboxes
+     * @name V1OrganizationsSandboxesFilesUpdate
+     * @summary Read/write/delete sandbox file
+     * @request PUT:/api/v1/organizations/{org_id}/sandboxes/{id}/files
+     * @secure
+     */
+    v1OrganizationsSandboxesFilesUpdate: (
+      orgId: string,
+      id: string,
+      query: {
+        /** Absolute path inside the sandbox */
+        path: string;
+        /** Octal permission for write */
+        mode?: string;
+        /** 1 to delete recursively */
+        recursive?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<any, any>({
+        path: `/api/v1/organizations/${orgId}/sandboxes/${id}/files`,
+        method: "PUT",
+        query: query,
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Sandboxes
+     * @name V1OrganizationsSandboxesFilesListDetail
+     * @summary List directory in sandbox
+     * @request GET:/api/v1/organizations/{org_id}/sandboxes/{id}/files/list
+     * @secure
+     */
+    v1OrganizationsSandboxesFilesListDetail: (
+      orgId: string,
+      id: string,
+      query?: {
+        /** Directory path (default /root) */
+        path?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<HydraListSandboxFilesResponse, any>({
+        path: `/api/v1/organizations/${orgId}/sandboxes/${id}/files/list`,
+        method: "GET",
+        query: query,
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Sandboxes
+     * @name V1OrganizationsSandboxesScreenshotDetail
+     * @summary Get a sandbox screenshot
+     * @request GET:/api/v1/organizations/{org_id}/sandboxes/{id}/screenshot
+     * @secure
+     */
+    v1OrganizationsSandboxesScreenshotDetail: (
+      orgId: string,
+      id: string,
+      query?: {
+        /** JPEG quality (1-100, default 60) */
+        quality?: number;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<string, string>({
+        path: `/api/v1/organizations/${orgId}/sandboxes/${id}/screenshot`,
+        method: "GET",
+        query: query,
+        secure: true,
+        format: "blob",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Sandboxes
+     * @name V1OrganizationsSandboxesTerminalDetail
+     * @summary Sandbox terminal websocket
+     * @request GET:/api/v1/organizations/{org_id}/sandboxes/{id}/terminal
+     * @secure
+     */
+    v1OrganizationsSandboxesTerminalDetail: (orgId: string, id: string, params: RequestParams = {}) =>
+      this.request<any, any>({
+        path: `/api/v1/organizations/${orgId}/sandboxes/${id}/terminal`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Sandboxes
+     * @name V1OrganizationsSandboxesTerminalSessionsDetail
+     * @summary List sandbox tmux sessions
+     * @request GET:/api/v1/organizations/{org_id}/sandboxes/{id}/terminal/sessions
+     * @secure
+     */
+    v1OrganizationsSandboxesTerminalSessionsDetail: (orgId: string, id: string, params: RequestParams = {}) =>
+      this.request<ServerSandboxTerminalSessionsResponse, any>({
+        path: `/api/v1/organizations/${orgId}/sandboxes/${id}/terminal/sessions`,
+        method: "GET",
+        secure: true,
         format: "json",
         ...params,
       }),
@@ -11632,6 +11983,167 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Return all compose-based runner profiles, ordered by name.
+     *
+     * @tags runner_profiles
+     * @name V1RunnerProfilesList
+     * @summary List runner profiles
+     * @request GET:/api/v1/runner-profiles
+     * @secure
+     */
+    v1RunnerProfilesList: (params: RequestParams = {}) =>
+      this.request<TypesRunnerProfile[], any>({
+        path: `/api/v1/runner-profiles`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags runner_profiles
+     * @name V1RunnerProfilesCreate
+     * @summary Create a runner profile
+     * @request POST:/api/v1/runner-profiles
+     * @secure
+     */
+    v1RunnerProfilesCreate: (body: ServerRunnerProfileSaveRequest, params: RequestParams = {}) =>
+      this.request<TypesRunnerProfile, string>({
+        path: `/api/v1/runner-profiles`,
+        method: "POST",
+        body: body,
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags runner_profiles
+     * @name V1RunnerProfilesDelete
+     * @summary Delete a runner profile
+     * @request DELETE:/api/v1/runner-profiles/{id}
+     * @secure
+     */
+    v1RunnerProfilesDelete: (id: string, params: RequestParams = {}) =>
+      this.request<string, string>({
+        path: `/api/v1/runner-profiles/${id}`,
+        method: "DELETE",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags runner_profiles
+     * @name V1RunnerProfilesDetail
+     * @summary Get a runner profile by ID
+     * @request GET:/api/v1/runner-profiles/{id}
+     * @secure
+     */
+    v1RunnerProfilesDetail: (id: string, params: RequestParams = {}) =>
+      this.request<TypesRunnerProfile, string>({
+        path: `/api/v1/runner-profiles/${id}`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags runner_profiles
+     * @name V1RunnerProfilesUpdate
+     * @summary Update a runner profile (full replace)
+     * @request PUT:/api/v1/runner-profiles/{id}
+     * @secure
+     */
+    v1RunnerProfilesUpdate: (id: string, body: ServerRunnerProfileSaveRequest, params: RequestParams = {}) =>
+      this.request<TypesRunnerProfile, string>({
+        path: `/api/v1/runner-profiles/${id}`,
+        method: "PUT",
+        body: body,
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Validates GPU compatibility, persists the assignment, and notifies the runner over NATS to apply the profile.
+     *
+     * @tags runner_profiles
+     * @name V1RunnersAssignProfileCreate
+     * @summary Assign a profile to a runner
+     * @request POST:/api/v1/runners/{runner_id}/assign-profile
+     * @secure
+     */
+    v1RunnersAssignProfileCreate: (
+      runnerId: string,
+      body: ServerRunnerProfileAssignRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesRunnerAssignment, string>({
+        path: `/api/v1/runners/${runnerId}/assign-profile`,
+        method: "POST",
+        body: body,
+        secure: true,
+        type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags runner_profiles
+     * @name V1RunnersAssignmentDetail
+     * @summary Get a runner's current profile assignment
+     * @request GET:/api/v1/runners/{runner_id}/assignment
+     * @secure
+     */
+    v1RunnersAssignmentDetail: (runnerId: string, params: RequestParams = {}) =>
+      this.request<TypesRunnerAssignment, string>({
+        path: `/api/v1/runners/${runnerId}/assignment`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Deletes the runner-to-profile assignment and tells the runner to tear down any active compose stack. Idempotent.
+     *
+     * @tags runner_profiles
+     * @name V1RunnersClearProfileCreate
+     * @summary Clear a runner's profile assignment
+     * @request POST:/api/v1/runners/{runner_id}/clear-profile
+     * @secure
+     */
+    v1RunnersClearProfileCreate: (runnerId: string, params: RequestParams = {}) =>
+      this.request<string, any>({
+        path: `/api/v1/runners/${runnerId}/clear-profile`,
+        method: "POST",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Returns the subset of profiles whose GPU compatibility specification is satisfied by the runner's reported hardware inventory.
+     *
+     * @tags runner_profiles
+     * @name V1RunnersCompatibleProfilesDetail
+     * @summary List runner profiles compatible with the given runner
+     * @request GET:/api/v1/runners/{runner_id}/compatible-profiles
+     * @secure
+     */
+    v1RunnersCompatibleProfilesDetail: (runnerId: string, params: RequestParams = {}) =>
+      this.request<TypesRunnerProfile[], any>({
+        path: `/api/v1/runners/${runnerId}/compatible-profiles`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
      * @description Get a list of all available sample projects that users can fork and use
      *
      * @tags sample-projects
@@ -11836,6 +12348,24 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description List the sandbox runtimes available on this server
+     *
+     * @tags Sandboxes
+     * @name V1SandboxRuntimesList
+     * @summary List sandbox runtimes
+     * @request GET:/api/v1/sandbox-runtimes
+     * @secure
+     */
+    v1SandboxRuntimesList: (params: RequestParams = {}) =>
+      this.request<Record<string, string[]>, any>({
+        path: `/api/v1/sandbox-runtimes`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Get all registered sandboxes
      *
      * @tags sandbox
@@ -11939,23 +12469,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         body: sandbox,
         type: ContentType.Json,
         format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Get the health status of all scheduler goroutines
-     *
-     * @tags dashboard
-     * @name V1SchedulerHeartbeatsList
-     * @summary Get scheduler goroutine heartbeat status
-     * @request GET:/api/v1/scheduler/heartbeats
-     * @secure
-     */
-    v1SchedulerHeartbeatsList: (params: RequestParams = {}) =>
-      this.request<Record<string, any>, any>({
-        path: `/api/v1/scheduler/heartbeats`,
-        method: "GET",
-        secure: true,
         ...params,
       }),
 
@@ -12484,6 +12997,24 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Clears the dead acp_thread_id on the session and resets crashed prompts (those marked by MarkPromptAsCrashed when the Claude Agent process exited) back to pending. The next dispatch sends with empty acp_thread_id, causing Zed to create a fresh thread + Claude Agent process. Requires the session to be an external Zed agent. Returns the count of prompts that were reset.
+     *
+     * @tags Sessions
+     * @name V1SessionsRestartAgentCreate
+     * @summary Restart Zed thread after a Claude Agent crash
+     * @request POST:/api/v1/sessions/{id}/restart-agent
+     * @secure
+     */
+    v1SessionsRestartAgentCreate: (id: string, params: RequestParams = {}) =>
+      this.request<Record<string, any>, SystemHTTPError>({
+        path: `/api/v1/sessions/${id}/restart-agent`,
+        method: "POST",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Restarts the external agent container for a session that has been stopped
      *
      * @tags sessions
@@ -12659,11 +13190,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Get merged Helix + user Zed settings for a session
+     * @description Returns the union of helix-managed and user-side MCP context_servers, for the session "MCP Tools" panel in the UI. Other Zed settings (agent.*, language_models, theme) are owned by the daemon — anything that needs the full Zed view goes through the settings-sync-daemon on /zed-config + a local merge.
      *
      * @tags Zed
      * @name V1SessionsZedSettingsDetail
-     * @summary Get merged Zed settings
+     * @summary Get merged Zed MCP context_servers for a session
      * @request GET:/api/v1/sessions/{id}/zed-settings
      * @secure
      */
@@ -12774,23 +13305,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Delete a slot from the scheduler's desired state, allowing reconciliation to clean it up from the runner
-     *
-     * @tags dashboard
-     * @name V1SlotsDelete
-     * @summary Delete a slot from scheduler state
-     * @request DELETE:/api/v1/slots/{slot_id}
-     * @secure
-     */
-    v1SlotsDelete: (slotId: string, params: RequestParams = {}) =>
-      this.request<Record<string, any>, any>({
-        path: `/api/v1/slots/${slotId}`,
-        method: "DELETE",
-        secure: true,
-        ...params,
-      }),
-
-    /**
      * @description List spec-driven tasks with optional filtering by project, status, or user
      *
      * @tags spec-driven-tasks
@@ -12835,24 +13349,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/spec-tasks`,
         method: "GET",
         query: query,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Get the design documents from helix-specs worktree
-     *
-     * @tags SpecTasks
-     * @name V1SpecTasksDesignDocsDetail
-     * @summary Get design docs for SpecTask
-     * @request GET:/api/v1/spec-tasks/{id}/design-docs
-     * @secure
-     */
-    v1SpecTasksDesignDocsDetail: (id: string, params: RequestParams = {}) =>
-      this.request<ServerDesignDocsResponse, SystemHTTPError>({
-        path: `/api/v1/spec-tasks/${id}/design-docs`,
-        method: "GET",
-        secure: true,
         format: "json",
         ...params,
       }),
@@ -13807,6 +14303,44 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       this.request<TypesUserStatsResponse, any>({
         path: `/api/v1/users/${id}/stats`,
         method: "GET",
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Get the current user's default chat settings (applied when chatting without an app)
+     *
+     * @tags Users
+     * @name V1UsersMeChatSettingsList
+     * @summary Get user chat settings
+     * @request GET:/api/v1/users/me/chat-settings
+     * @secure
+     */
+    v1UsersMeChatSettingsList: (params: RequestParams = {}) =>
+      this.request<TypesUserChatSettings, SystemHTTPError>({
+        path: `/api/v1/users/me/chat-settings`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Update the current user's default chat settings (system prompt + LLM parameters used when chatting without an app)
+     *
+     * @tags Users
+     * @name V1UsersMeChatSettingsUpdate
+     * @summary Update user chat settings
+     * @request PUT:/api/v1/users/me/chat-settings
+     * @secure
+     */
+    v1UsersMeChatSettingsUpdate: (request: TypesUserChatSettings, params: RequestParams = {}) =>
+      this.request<TypesUserChatSettings, SystemHTTPError>({
+        path: `/api/v1/users/me/chat-settings`,
+        method: "PUT",
+        body: request,
         secure: true,
         type: ContentType.Json,
         format: "json",

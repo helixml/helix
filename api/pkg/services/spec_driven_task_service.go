@@ -188,6 +188,7 @@ func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *t
 		ProjectID:      req.ProjectID,
 		UserID:         req.UserID,
 		OrganizationID: organizationID,
+		AssigneeID:     req.AssigneeID, // Optional: handler validates org membership before this is reached
 		Name:           GenerateTaskNameFromPrompt(req.Prompt),
 		Description:    req.Prompt,
 		Type:           req.Type,
@@ -907,6 +908,17 @@ Follow these guidelines when making changes:
 	// Build repository section listing local + Kodit repos for the agent
 	repoSection := s.buildRepositorySectionForTask(ctx, task, project)
 
+	// qwen-code's Shell tool requires `is_background` on every call (see
+	// qwen-code/packages/core/src/tools/shell.test.ts). Other runtimes use a
+	// different parameter name (Claude Code: `run_in_background`, Codex: none),
+	// and forcing `is_background` on those tools triggers
+	// `InputValidationError: An unexpected parameter "is_background" was provided`
+	// on the agent's first Bash call, burning a tool slot before any real work.
+	shellCommandsGuidance := ""
+	if codeAgentRuntimeJDI == types.CodeAgentRuntimeQwenCode {
+		shellCommandsGuidance = "**Shell commands:** Specify is_background (true or false) on all shell commands - it's required. Use true for long-running operations (builds, servers, installs).\n\n"
+	}
+
 	promptWithBranch := fmt.Sprintf(`%s
 %s
 ---
@@ -915,12 +927,10 @@ Follow these guidelines when making changes:
 
 **Primary Project Directory:** /home/retro/work/%s/
 %s
-**Shell commands:** Specify is_background (true or false) on all shell commands - it's required. Use true for long-running operations (builds, servers, installs).
-
-%s
+%s%s
 
 **For persistent installs:** Add commands to /home/retro/work/helix-specs/.helix/startup.sh (runs at sandbox startup, must be idempotent). Push directly to helix-specs branch.
-`, userPrompt, guidelinesSection, primaryRepoName, repoSection, gitInstructions)
+`, userPrompt, guidelinesSection, primaryRepoName, repoSection, shellCommandsGuidance, gitInstructions)
 
 	interaction := &types.Interaction{
 		ID:            system.GenerateInteractionID(),
@@ -1410,7 +1420,9 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, task *types.Sp
 		if s.SendMessageToAgent != nil && !s.testMode {
 			go func(t *types.SpecTask, comments string) {
 				message := BuildRevisionInstructionPrompt(t, comments)
-				_, _, err := s.SendMessageToAgent(context.Background(), t, message, "")
+				// interrupt=true: revision instruction is reviewer-driven feedback delivered via the
+				// task-state machine — same semantic as a comment, should preempt in-flight work.
+				_, _, err := s.SendMessageToAgent(context.Background(), t, message, "", true)
 				if err != nil {
 					log.Error().
 						Err(err).

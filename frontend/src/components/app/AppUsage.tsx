@@ -98,7 +98,7 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
   const [feedback, setFeedback] = useState<string>('');
 
   // Load interactions at the top level
-  const { data: interactionsData, isLoading: interactionsLoading, refetch: refetchInteractions } = useListAppInteractions(appId, '', '', feedback, page + 1, rowsPerPage);
+  const { data: interactionsData, isLoading: interactionsLoading, refetch: refetchInteractions } = useListAppInteractions(appId, '', '', feedback, page, rowsPerPage);
 
   // Auto-reload logic for waiting interactions
   useEffect(() => {

@@ -16,6 +16,7 @@ type ListProjectsQuery struct {
 	IncludeStats   bool
 }
 
+
 type GetProjectsCountQuery struct {
 	UserID         string
 	OrganizationID string
@@ -250,6 +251,7 @@ type Store interface {
 	// interactions
 	GetInteractionsSummary(ctx context.Context, sessionID string, generationID int) (count int64, maxUpdated time.Time, err error)
 	ListInteractions(ctx context.Context, query *types.ListInteractionsQuery) ([]*types.Interaction, int64, error)
+	GetLatestInteractionsForSessions(ctx context.Context, sessionIDs []string) (map[string]*types.Interaction, error) // Batch fetch newest interaction per session for activity detection
 	CreateInteraction(ctx context.Context, interaction *types.Interaction) (*types.Interaction, error)
 	CreateInteractions(ctx context.Context, interactions ...*types.Interaction) error
 	GetInteraction(ctx context.Context, id string) (*types.Interaction, error)
@@ -277,13 +279,19 @@ type Store interface {
 	// their stale in-memory copy) cannot race with the bump.
 	IncrementInteractionAutoWakeCount(ctx context.Context, interactionID string) (int, error)
 
-	// slots
-	CreateSlot(ctx context.Context, slot *types.RunnerSlot) (*types.RunnerSlot, error)
-	GetSlot(ctx context.Context, id string) (*types.RunnerSlot, error)
-	UpdateSlot(ctx context.Context, slot *types.RunnerSlot) (*types.RunnerSlot, error)
-	DeleteSlot(ctx context.Context, id string) error
-	ListSlots(ctx context.Context, runnerID string) ([]*types.RunnerSlot, error)
-	ListAllSlots(ctx context.Context) ([]*types.RunnerSlot, error)
+	// runner profiles (compose-based runner replacement)
+	CreateRunnerProfile(ctx context.Context, p *types.RunnerProfile) (*types.RunnerProfile, error)
+	GetRunnerProfile(ctx context.Context, id string) (*types.RunnerProfile, error)
+	GetRunnerProfileByName(ctx context.Context, name string) (*types.RunnerProfile, error)
+	UpdateRunnerProfile(ctx context.Context, p *types.RunnerProfile) (*types.RunnerProfile, error)
+	DeleteRunnerProfile(ctx context.Context, id string) error
+	ListRunnerProfiles(ctx context.Context) ([]*types.RunnerProfile, error)
+
+	// runner-to-profile assignments
+	GetRunnerAssignment(ctx context.Context, runnerID string) (*types.RunnerAssignment, error)
+	SetRunnerAssignment(ctx context.Context, a *types.RunnerAssignment) (*types.RunnerAssignment, error)
+	DeleteRunnerAssignment(ctx context.Context, runnerID string) error
+	ListRunnerAssignments(ctx context.Context) ([]*types.RunnerAssignment, error)
 
 	// step infos
 	CreateStepInfo(ctx context.Context, stepInfo *types.StepInfo) (*types.StepInfo, error)
@@ -442,6 +450,7 @@ type Store interface {
 	GetAppUsersAggregatedUsageMetrics(ctx context.Context, appID string, from time.Time, to time.Time) ([]*types.UsersAggregatedUsageMetric, error)
 
 	GetAggregatedUsageMetrics(ctx context.Context, q *GetAggregatedUsageMetricsQuery) ([]*types.AggregatedUsageMetric, error)
+	GetSandboxUsageMetrics(ctx context.Context, q *GetAggregatedUsageMetricsQuery) ([]*types.AggregatedUsageMetric, error)
 
 	CreateSlackThread(ctx context.Context, thread *types.SlackThread) (*types.SlackThread, error)
 	GetSlackThread(ctx context.Context, appID, channel, threadKey string) (*types.SlackThread, error)
@@ -700,18 +709,34 @@ type Store interface {
 	ListEvaluationRuns(ctx context.Context, req *types.ListEvaluationRunsRequest) ([]*types.EvaluationRun, error)
 	DeleteEvaluationRun(ctx context.Context, id string) error
 
-	// Sandbox instance methods
-	RegisterSandbox(ctx context.Context, instance *types.SandboxInstance) error
+	// Sandbox host registry methods (hydra hosts running dev containers)
+	RegisterSandboxInstance(ctx context.Context, instance *types.SandboxInstance) error
 	UpdateSandboxHeartbeat(ctx context.Context, id string, req *types.SandboxHeartbeatRequest) error
-	GetSandbox(ctx context.Context, id string) (*types.SandboxInstance, error)
-	ListSandboxes(ctx context.Context) ([]*types.SandboxInstance, error)
-	DeregisterSandbox(ctx context.Context, id string) error
-	UpdateSandboxStatus(ctx context.Context, id string, status string) error
+	GetSandboxInstance(ctx context.Context, id string) (*types.SandboxInstance, error)
+	ListSandboxInstances(ctx context.Context) ([]*types.SandboxInstance, error)
+	DeregisterSandboxInstance(ctx context.Context, id string) error
+	UpdateSandboxInstanceStatus(ctx context.Context, id string, status string) error
 	IncrementSandboxContainerCount(ctx context.Context, id string) error
 	DecrementSandboxContainerCount(ctx context.Context, id string) error
 	ResetSandboxOnReconnect(ctx context.Context, id string) error
-	GetSandboxesOlderThanHeartbeat(ctx context.Context, olderThan time.Time) ([]*types.SandboxInstance, error)
-	FindAvailableSandbox(ctx context.Context, desktopType string) (*types.SandboxInstance, error)
+	GetSandboxInstancesOlderThanHeartbeat(ctx context.Context, olderThan time.Time) ([]*types.SandboxInstance, error)
+	FindAvailableSandboxInstance(ctx context.Context, desktopType string) (*types.SandboxInstance, error)
+
+	// User Sandbox methods (Sandboxes API — POST /organizations/{org}/sandboxes etc.)
+	CreateSandbox(ctx context.Context, sandbox *types.Sandbox) (*types.Sandbox, error)
+	GetSandbox(ctx context.Context, id string) (*types.Sandbox, error)
+	ListSandboxes(ctx context.Context, q *ListSandboxesQuery) ([]*types.Sandbox, error)
+	UpdateSandbox(ctx context.Context, sandbox *types.Sandbox) (*types.Sandbox, error)
+	SetSandboxStatus(ctx context.Context, id string, status types.SandboxStatus, message string) error
+	SetSandboxBillingLastChargedAt(ctx context.Context, id string, chargedAt time.Time) error
+	SetRunningSandboxesBillingLastChargedAt(ctx context.Context, chargedAt time.Time) error
+	SetSandboxContainer(ctx context.Context, id string, hostDeviceID, containerID string) error
+	DeleteSandbox(ctx context.Context, id string) error
+	ListExpiredSandboxes(ctx context.Context, now time.Time) ([]*types.Sandbox, error)
+	ListStoppedNonPersistentSandboxes(ctx context.Context, before time.Time) ([]*types.Sandbox, error)
+	// SumSandboxCharges totals the absolute credit amount of every wallet
+	// transaction tagged with this sandbox id. Returned in credits.
+	SumSandboxCharges(ctx context.Context, sandboxID string) (float64, error)
 
 	// Disk usage history methods
 	CreateDiskUsageHistory(ctx context.Context, history *types.DiskUsageHistory) error
@@ -728,7 +753,31 @@ type Store interface {
 	ListPromptHistoryBySpecTask(ctx context.Context, specTaskID string) ([]*types.PromptHistoryEntry, error)
 	MarkPromptAsPending(ctx context.Context, promptID string) error
 	MarkPromptAsSent(ctx context.Context, promptID string) error
-	MarkPromptAsFailed(ctx context.Context, promptID string) error
+	// MarkPromptAsFailed records the failure reason and bumps retry_count + next_retry_at
+	// for exponential backoff. errorMsg is shown to the user in the UI; pass err.Error()
+	// from whatever produced the failure. Truncated to 500 chars by the implementation.
+	MarkPromptAsFailed(ctx context.Context, promptID string, errorMsg string) error
+	// MarkPromptAsCrashed records the failure reason but pins next_retry_at far in the
+	// future so the auto-retry loop never picks the prompt back up. Used for terminal
+	// errors that no number of retries can recover from (e.g. the Claude Agent process
+	// inside Zed exited and Helix has no way to respawn it without the user creating a
+	// fresh thread). The frontend recognises this state and offers a manual Restart
+	// action which calls ResetCrashedPromptsForSession to undo it.
+	MarkPromptAsCrashed(ctx context.Context, promptID string, errorMsg string) error
+	// ResetCrashedPromptsForSession finds every prompt for sessionID whose status is
+	// 'failed' and whose next_retry_at is the far-future sentinel set by
+	// MarkPromptAsCrashed, and resets them to status='pending' with retry_count=0,
+	// next_retry_at=NULL, error_message=''. Returns the number of prompts reset.
+	// Called when the user clicks Restart after a Claude Agent crash.
+	ResetCrashedPromptsForSession(ctx context.Context, sessionID string) (int, error)
+	// ReconcileStuckSendingPrompts finds prompt_history_entries that are stuck in
+	// 'sending' state (the in-memory link from interaction → prompt was lost
+	// before MarkPromptAsSent fired — historically caused by API restart or any
+	// of the dispatch-failure paths that orphaned the mapping) and marks them
+	// 'sent' if their associated interaction has reached state='complete'. Called
+	// once at server startup as a one-shot janitor; idempotent and safe to re-run.
+	// Returns the number of prompts reconciled.
+	ReconcileStuckSendingPrompts(ctx context.Context) (int, error)
 	// RequeueBouncedPrompt finds the most recent "sent" prompt for a session and marks
 	// it as "failed" so the retry mechanism picks it up. Used when message_completed
 	// arrives with an empty response (bounce).
@@ -757,4 +806,3 @@ type Store interface {
 	ListClaudeSubscriptions(ctx context.Context, ownerID string) ([]*types.ClaudeSubscription, error)
 	GetEffectiveClaudeSubscription(ctx context.Context, userID, orgID string) (*types.ClaudeSubscription, error)
 }
-

@@ -313,7 +313,6 @@ paths:
 		Extractor:       mockExtractor,
 		Janitor:         testJanitor,
 		PubSub:          helixPubSub,
-		Scheduler:       nil, // No scheduler needed for direct API calls
 	})
 	require.NoError(t, err, "Failed to create controller")
 	defer func() {

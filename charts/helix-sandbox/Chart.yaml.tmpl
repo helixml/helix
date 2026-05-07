@@ -1,0 +1,32 @@
+apiVersion: v2
+name: helix-sandbox
+description: |
+  Helix Sandbox - Docker-in-Docker container host for GPU-accelerated cloud desktops.
+  Features direct WebSocket video streaming, Hydra multi-tenant isolation, and RevDial
+  connectivity to the Helix control plane. Supports NVIDIA, AMD, Intel GPUs and software rendering.
+
+type: application
+icon: https://helix.ml/logo.png
+
+# version and appVersion are stamped from the release tag at CI build time by
+# scripts/render-charts.sh. This template is the only file in git; Chart.yaml
+# is generated and gitignored. Do NOT install this chart from source — use the
+# published helm repo at https://charts.helixml.tech.
+version: __VERSION__
+appVersion: "__VERSION__"
+
+keywords:
+  - helix
+  - sandbox
+  - streaming
+  - gpu
+  - docker-in-docker
+  - cloud-desktop
+
+home: https://github.com/helixml/helix
+sources:
+  - https://github.com/helixml/helix
+
+maintainers:
+  - name: Helix Team
+    url: https://github.com/helixml

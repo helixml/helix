@@ -300,6 +300,9 @@ func (apiServer *HelixAPIServer) updateSession(_ http.ResponseWriter, req *http.
 	}
 
 	session.Name = update.Name
+	if err := apiServer.validateSessionProviderRef(ctx, update.Provider, session.OrganizationID, session.Owner); err != nil {
+		return nil, system.NewHTTPError400(err.Error())
+	}
 	session.Provider = update.Provider
 	session.ModelName = update.ModelName
 
@@ -488,14 +491,19 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 		startReq.Type = types.SessionTypeText
 	}
 
-	// If there's no app and no system prompt, set the default system prompt
+	// If there's no app and no system prompt, prefer the user's stored chat default,
+	// then fall back to the platform default.
 	if startReq.AppID == "" && startReq.SystemPrompt == "" {
-		startReq.SystemPrompt = `You are a helpful assistant called Helix, built on a platform called HelixML enabling private deployment of GenAI models enabling privacy, security and compliance. If the user's query includes sections in square brackets [like this], indicating that some values are missing, you should ask for the missing values, but DO NOT include the square brackets in your response - instead make the response seem natural and extremely concise - only asking the required questions asking for the values to be filled in. To reiterate, do NOT include square brackets in the response.
+		if meta, err := s.Store.GetUserMeta(ctx, user.ID); err == nil && meta.ChatSettings.SystemPrompt != "" {
+			startReq.SystemPrompt = meta.ChatSettings.SystemPrompt
+		} else {
+			startReq.SystemPrompt = `You are a helpful assistant called Helix, built on a platform called HelixML enabling private deployment of GenAI models enabling privacy, security and compliance. If the user's query includes sections in square brackets [like this], indicating that some values are missing, you should ask for the missing values, but DO NOT include the square brackets in your response - instead make the response seem natural and extremely concise - only asking the required questions asking for the values to be filled in. To reiterate, do NOT include square brackets in the response.
 
 EXAMPLE:
 If the query includes "prepare a pitch for [a specific topic]", ask "What topic would you like to prepare a pitch for?" instead of "please specify the [specific topic]"
 
 If the user asks for information about Helix or installing Helix, refer them to the Helix website at https://helix.ml or the docs at https://helix.ml/docs using markdown links. Only offer the links if the user asks for information about Helix or installing Helix.`
+		}
 	}
 
 	message, ok := startReq.Message()
@@ -552,7 +560,12 @@ If the user asks for information about Helix or installing Helix, refer them to 
 		if startReq.Provider == "" {
 			startReq.Provider = types.Provider(session.Provider)
 		} else {
-			// Update provider for the session
+			// Update provider for the session — validate that a pe_… reference
+			// is visible in this session's scope before persisting.
+			if err := s.validateSessionProviderRef(ctx, string(startReq.Provider), session.OrganizationID, session.Owner); err != nil {
+				http.Error(rw, err.Error(), http.StatusBadRequest)
+				return
+			}
 			session.Provider = string(startReq.Provider)
 		}
 
@@ -566,6 +579,11 @@ If the user asks for information about Helix or installing Helix, refer them to 
 		// Set default agent type if not specified
 		if startReq.AgentType == "" {
 			startReq.AgentType = "helix"
+		}
+
+		if err := s.validateSessionProviderRef(ctx, string(startReq.Provider), startReq.OrganizationID, user.ID); err != nil {
+			http.Error(rw, err.Error(), http.StatusBadRequest)
+			return
 		}
 
 		session = &types.Session{
@@ -2188,6 +2206,83 @@ func (s *HelixAPIServer) stopExternalAgentSession(_ http.ResponseWriter, r *http
 	}, nil
 }
 
+// restartCrashedAgentThread godoc
+// @Summary Restart Zed thread after a Claude Agent crash
+// @Description Clears the dead acp_thread_id on the session and resets crashed prompts
+// @Description (those marked by MarkPromptAsCrashed when the Claude Agent process exited)
+// @Description back to pending. The next dispatch sends with empty acp_thread_id, causing
+// @Description Zed to create a fresh thread + Claude Agent process. Requires the session
+// @Description to be an external Zed agent. Returns the count of prompts that were reset.
+// @Tags Sessions
+// @Produce json
+// @Param id path string true "Session ID"
+// @Success 200 {object} map[string]any
+// @Failure 400 {object} system.HTTPError
+// @Failure 401 {object} system.HTTPError
+// @Failure 403 {object} system.HTTPError
+// @Failure 404 {object} system.HTTPError
+// @Failure 500 {object} system.HTTPError
+// @Security BearerAuth
+// @Router /api/v1/sessions/{id}/restart-agent [post]
+func (s *HelixAPIServer) restartCrashedAgentThread(_ http.ResponseWriter, r *http.Request) (map[string]any, *system.HTTPError) {
+	ctx := r.Context()
+	user := getRequestUser(r)
+	if user == nil {
+		return nil, system.NewHTTPError401("user not found")
+	}
+	sessionID := mux.Vars(r)["id"]
+
+	session, err := s.Store.GetSession(ctx, sessionID)
+	if err != nil {
+		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to get session for restart")
+		return nil, system.NewHTTPError404("session not found")
+	}
+	if err := s.authorizeUserToSession(ctx, user, session, types.ActionUpdate); err != nil {
+		return nil, system.NewHTTPError403(err.Error())
+	}
+	if session.Metadata.AgentType != "zed_external" {
+		return nil, system.NewHTTPError400("session does not have an external Zed agent")
+	}
+
+	// Drop the dead acp_thread_id so the next dispatched chat_message goes out with
+	// an empty thread id; Zed treats that as "create a new thread" and spins up a
+	// fresh Claude Agent ACP wrapper. The dead thread is left in Zed's UI as a
+	// zombie until the desktop container restarts; cleaning it up actively would
+	// require a delete-thread RPC we don't have today and is out of scope for the
+	// crash-recovery path. Losing the dead thread's chat history is unavoidable —
+	// the wrapper process took it with it.
+	previousThreadID := session.Metadata.ZedThreadID
+	session.Metadata.ZedThreadID = ""
+	if _, err := s.Store.UpdateSession(ctx, *session); err != nil {
+		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to clear ZedThreadID for restart")
+		return nil, system.NewHTTPError500(fmt.Sprintf("failed to update session: %s", err.Error()))
+	}
+
+	resetCount, err := s.Store.ResetCrashedPromptsForSession(ctx, sessionID)
+	if err != nil {
+		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to reset crashed prompts for restart")
+		return nil, system.NewHTTPError500(fmt.Sprintf("failed to reset crashed prompts: %s", err.Error()))
+	}
+
+	log.Info().
+		Str("session_id", sessionID).
+		Str("user_id", user.ID).
+		Str("previous_zed_thread_id", previousThreadID).
+		Int("prompts_reset", resetCount).
+		Msg("🔄 [HELIX] User-triggered Restart after Claude Agent crash — cleared ZedThreadID and reset crashed prompts")
+
+	// Kick the queue so the reset prompts get dispatched promptly. If the agent is
+	// asleep, sendCommandToExternalAgent will trigger autoStartDevContainerForSession
+	// (the no-WS path from PR #2311 keeps the prompt in 'sending' for delivery via
+	// pickupWaitingInteraction once the container reconnects).
+	go s.processAnyPendingPrompt(context.Background(), sessionID)
+
+	return map[string]any{
+		"session_id":    sessionID,
+		"prompts_reset": resetCount,
+	}, nil
+}
+
 // getSessionOutput godoc
 // StartExternalAgentSession creates a new external agent session programmatically.
 // This implements cron.ExternalAgentStarter for use by the cron trigger system.
@@ -2217,6 +2312,10 @@ func (s *HelixAPIServer) StartExternalAgentSession(ctx context.Context, req *typ
 
 	if req.OrganizationID == "" && user.OrganizationID != "" {
 		req.OrganizationID = user.OrganizationID
+	}
+
+	if err := s.validateSessionProviderRef(ctx, string(req.Provider), req.OrganizationID, userID); err != nil {
+		return nil, err
 	}
 
 	session := &types.Session{
@@ -2338,6 +2437,47 @@ func (s *HelixAPIServer) getSessionOutput(_ http.ResponseWriter, r *http.Request
 	}
 
 	return resp, nil
+}
+
+// validateSessionProviderRef rejects a session being persisted with a provider
+// reference (a pe_… DB ID) that isn't visible to the session's owner. Without
+// this fence, the frontend can leak a previously-selected pe_… across an org
+// switch — the row is written, then inference fails downstream with a cryptic
+// "no client found for provider: pe_… , available providers: [...]" because
+// MultiClientManager.GetClient correctly only sees the new org's providers.
+//
+// Empty refs and non-pe_ refs (env-baked global names like "openai") are
+// accepted: those are resolved at request time. Only ID-shaped refs need this
+// pre-flight check.
+//
+// A provider is visible if:
+//   - it is a global endpoint (ProviderEndpointTypeGlobal), or
+//   - its owner is the session's organization, or
+//   - its owner is the session's user (personal providers).
+//
+// Anything else returns an explicit "not visible" error so the UI can surface
+// the mismatch instead of inference 500-ing.
+func (s *HelixAPIServer) validateSessionProviderRef(ctx context.Context, providerRef, organizationID, userID string) error {
+	if providerRef == "" || !strings.HasPrefix(providerRef, system.ProviderEndpointPrefix) {
+		return nil
+	}
+	endpoint, err := s.Store.GetProviderEndpoint(ctx, &store.GetProviderEndpointsQuery{ID: providerRef})
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return fmt.Errorf("provider %q not found", providerRef)
+		}
+		return fmt.Errorf("looking up provider %q: %w", providerRef, err)
+	}
+	if endpoint.EndpointType == types.ProviderEndpointTypeGlobal {
+		return nil
+	}
+	if organizationID != "" && endpoint.Owner == organizationID {
+		return nil
+	}
+	if userID != "" && endpoint.Owner == userID {
+		return nil
+	}
+	return fmt.Errorf("provider %q is not visible to this session", providerRef)
 }
 
 // triggerSummaryGeneration triggers async summary generation for an interaction

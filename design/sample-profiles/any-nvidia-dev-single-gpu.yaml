@@ -1,0 +1,43 @@
+# Helix runner profile: any-nvidia-dev-single-gpu
+#
+# GPU compatibility (operator-declared, stored alongside this YAML):
+#   vendor:        nvidia
+#   architectures: []                  # any NVIDIA arch
+#   model_match:   ""
+#   min_vram:      25769803776         # 24 GiB
+#
+# Demonstrates the permissive case: any NVIDIA GPU with at least 24 GiB.
+# Useful for dev workstations (RTX 4090, A5000, L4, etc.). Single model that
+# fits comfortably on a 24 GiB card with room to spare for experimentation.
+
+services:
+  qwen-7b:
+    image: vllm/vllm-openai:latest
+    container_name: vllm-qwen-7b
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - /models:/root/.cache/huggingface
+    environment:
+      - HUGGING_FACE_HUB_TOKEN
+      - HF_HUB_OFFLINE=1
+    shm_size: 1g
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["0"]
+              capabilities: [gpu]
+    command:
+      - --model
+      - Qwen/Qwen2.5-7B-Instruct
+      - --served-model-name
+      - qwen2.5-7b
+      - --max-model-len
+      - "16384"
+      - --gpu-memory-utilization
+      - "0.85"
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - hermes

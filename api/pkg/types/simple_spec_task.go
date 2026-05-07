@@ -81,6 +81,7 @@ type CreateTaskRequest struct {
 	JustDoItMode bool             `json:"just_do_it_mode"`      // Optional: Skip spec planning, go straight to implementation
 	AutoStart    bool             `json:"auto_start"`           // Optional: Skip backlog and start immediately, regardless of project auto-start setting
 	DependsOn    []string         `json:"depends_on"`           // Optional: IDs of tasks this task depends on
+	AssigneeID   string           `json:"assignee_id,omitempty"` // Optional: team member assigned to the task
 
 	// Branch configuration
 	BranchMode    BranchMode `json:"branch_mode,omitempty"`    // "new" or "existing" - defaults to "new"

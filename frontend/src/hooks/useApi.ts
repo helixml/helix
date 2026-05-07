@@ -84,6 +84,77 @@ if (embedToken) {
   // win and we'd authenticate as that user, not as the API key owner.
   axios.defaults.withCredentials = false
   apiClientSingleton.instance.defaults.withCredentials = false
+
+  // Some components (e.g. handleStartPlanning in SpecTaskDetailContent)
+  // call window.fetch directly instead of going through axios. Patch fetch
+  // for same-origin requests so they pick up the embed Bearer token too.
+  // Set credentials: 'omit' so any stray cookie doesn't preempt Bearer auth
+  // on the server. CSRF middleware skips Bearer-auth requests, so this is
+  // safe for state-changing endpoints.
+  if (typeof window !== 'undefined' && typeof window.fetch === 'function') {
+    const origFetch = window.fetch.bind(window)
+    window.fetch = (input: RequestInfo | URL, init: RequestInit = {}) => {
+      let isSameOrigin = false
+      try {
+        const urlStr =
+          typeof input === 'string'
+            ? input
+            : input instanceof URL
+              ? input.toString()
+              : input.url
+        const u = new URL(urlStr, window.location.origin)
+        isSameOrigin = u.origin === window.location.origin
+      } catch {
+        // ignore — pass through unmodified
+      }
+      if (!isSameOrigin) return origFetch(input, init)
+
+      const baseHeaders =
+        input instanceof Request ? input.headers : init.headers
+      const headers = new Headers(baseHeaders || {})
+      if (!headers.has('Authorization')) {
+        headers.set('Authorization', authValue)
+      }
+      return origFetch(input, { ...init, headers, credentials: 'omit' })
+    }
+  }
+
+  // Browsers don't allow custom headers on WebSocket. Helix's WS handler
+  // accepts ?access_token=<key> as a fallback (see auth_utils.go
+  // getRequestToken), so for embed contexts we patch the constructor to
+  // append it to same-origin URLs that don't already carry an auth param.
+  if (typeof window !== 'undefined' && typeof window.WebSocket === 'function') {
+    const OrigWebSocket = window.WebSocket
+    const PatchedWebSocket = function (
+      this: WebSocket,
+      url: string | URL,
+      protocols?: string | string[],
+    ) {
+      let finalUrl: string | URL = url
+      try {
+        const urlStr = typeof url === 'string' ? url : url.toString()
+        const u = new URL(urlStr, window.location.origin)
+        const sameHost = u.host === window.location.host
+        if (sameHost && !u.searchParams.has('access_token')) {
+          u.searchParams.set('access_token', embedToken)
+          finalUrl = u.toString()
+        }
+      } catch {
+        // ignore — pass through unmodified
+      }
+      return new OrigWebSocket(finalUrl, protocols)
+    } as unknown as typeof WebSocket
+    PatchedWebSocket.prototype = OrigWebSocket.prototype
+    // Mirror the readyState constants so consumers using
+    // `WebSocket.OPEN` etc. continue to work after replacement.
+    Object.defineProperties(PatchedWebSocket, {
+      CONNECTING: { value: OrigWebSocket.CONNECTING },
+      OPEN: { value: OrigWebSocket.OPEN },
+      CLOSING: { value: OrigWebSocket.CLOSING },
+      CLOSED: { value: OrigWebSocket.CLOSED },
+    })
+    window.WebSocket = PatchedWebSocket
+  }
 }
 
 // Add interceptors to the Api client's axios instance

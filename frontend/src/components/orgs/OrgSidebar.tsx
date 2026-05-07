@@ -1,6 +1,6 @@
 import { FC } from 'react'
 
-import { User, Users, CreditCard, Settings, KeyRound } from 'lucide-react'
+import { User, Users, CreditCard, Settings, KeyRound, Plug } from 'lucide-react'
 
 import useRouter from '../../hooks/useRouter'
 import useAccount from '../../hooks/useAccount'
@@ -50,6 +50,13 @@ const OrgSidebar: FC = () => {
           icon: <KeyRound size={20} />,
           isActive: currentRouteName === 'org_api_keys',
           onClick: () => handleNavigationClick('org_api_keys')
+        },
+        {
+          id: 'providers',
+          label: 'Providers',
+          icon: <Plug size={20} />,
+          isActive: currentRouteName === 'org_providers',
+          onClick: () => handleNavigationClick('org_providers')
         },
         {
           id: 'settings',

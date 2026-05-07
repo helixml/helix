@@ -84,6 +84,13 @@ func NewHTTPError404(message string) *HTTPError {
 	}
 }
 
+func NewHTTPError422(message string) *HTTPError {
+	return &HTTPError{
+		StatusCode: http.StatusUnprocessableEntity,
+		Message:    message,
+	}
+}
+
 func NewHTTPError500(message string) *HTTPError {
 	return &HTTPError{
 		StatusCode: http.StatusInternalServerError,

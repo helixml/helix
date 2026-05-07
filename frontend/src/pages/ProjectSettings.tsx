@@ -168,6 +168,7 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
   const [autoWarmDockerCache, setAutoWarmDockerCache] = useState(false);
   const [showGoldenBuildViewer, setShowGoldenBuildViewer] = useState(false);
   const [selectedGoldenSandboxId, setSelectedGoldenSandboxId] = useState("");
+  const [waitingForBuildStart, setWaitingForBuildStart] = useState(false);
   const [showTestSession, setShowTestSession] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deleteConfirmName, setDeleteConfirmName] = useState("");
@@ -230,6 +231,26 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
     return () => clearInterval(interval);
   }, [showGoldenBuildViewer, anyBuilding, projectId]);
 
+  // After Prime Cache is clicked, the dev container takes several seconds to
+  // provision before the sandbox flips to "building". Poll fast for up to 60s
+  // so the UI doesn't appear inert and so we can open the build viewer the
+  // moment the build actually starts.
+  useEffect(() => {
+    if (!waitingForBuildStart) return;
+    const startedAt = Date.now();
+    const TIMEOUT_MS = 60_000;
+    const interval = setInterval(() => {
+      if (Date.now() - startedAt > TIMEOUT_MS) {
+        clearInterval(interval);
+        setWaitingForBuildStart(false);
+        snackbar.error("Build did not start within 60s — check sandbox status");
+        return;
+      }
+      queryClient.invalidateQueries({ queryKey: ["project", projectId] });
+    }, 2000);
+    return () => clearInterval(interval);
+  }, [waitingForBuildStart, projectId, queryClient, snackbar]);
+
   // Auto-close golden build viewer when selected sandbox's build finishes
   const selectedSandboxStatus = selectedGoldenSandboxId
     ? sandboxCacheMap[selectedGoldenSandboxId]?.status
@@ -245,6 +266,16 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
   const buildingSandbox = sandboxEntries.find(([, s]) => s.status === "building");
   const buildingSandboxId = buildingSandbox?.[0];
   const buildingSessionId = buildingSandbox?.[1]?.build_session_id;
+
+  // Hand off from "waiting for build to start" to the build viewer the moment
+  // a sandbox flips to "building".
+  useEffect(() => {
+    if (!waitingForBuildStart || !buildingSandboxId) return;
+    setSelectedGoldenSandboxId(buildingSandboxId);
+    setShowGoldenBuildViewer(true);
+    setWaitingForBuildStart(false);
+  }, [waitingForBuildStart, buildingSandboxId]);
+
   const blkioSamplesRef = useRef<{ time: number; writeBytes: number }[]>([]);
   const lastBuildSessionRef = useRef<string | undefined>();
 
@@ -360,21 +391,12 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
         .getApiClient()
         .v1ProjectsDockerCacheBuildCreate(projectId);
     },
-    onSuccess: async () => {
+    onSuccess: () => {
       snackbar.success("Golden build triggered on all sandboxes");
-      await new Promise((r) => setTimeout(r, 3000));
-      const freshProject = await queryClient.fetchQuery({
-        queryKey: ["project", projectId],
-        staleTime: 0,
-      });
-      const sandboxes = (freshProject as TypesProject)?.metadata?.docker_cache_status?.sandboxes;
-      if (sandboxes) {
-        const buildingSb = Object.entries(sandboxes).find(([, s]) => s.status === "building");
-        if (buildingSb) {
-          setSelectedGoldenSandboxId(buildingSb[0]);
-          setShowGoldenBuildViewer(true);
-        }
-      }
+      // The dev container takes several seconds to provision before the
+      // sandbox flips to "building". The polling effect handles the wait
+      // and opens the build viewer when the build actually starts.
+      setWaitingForBuildStart(true);
     },
     onError: (error: any) => {
       const data = error?.response?.data;
@@ -1164,10 +1186,19 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
                 <Button
                   size="small"
                   variant="outlined"
-                  disabled={primeCacheMutation.isPending || anyBuilding}
+                  disabled={primeCacheMutation.isPending || waitingForBuildStart || anyBuilding}
                   onClick={() => primeCacheMutation.mutate()}
+                  startIcon={
+                    primeCacheMutation.isPending || waitingForBuildStart ? (
+                      <CircularProgress size={14} />
+                    ) : undefined
+                  }
                 >
-                  {primeCacheMutation.isPending ? "Triggering..." : "Prime Cache"}
+                  {primeCacheMutation.isPending
+                    ? "Triggering..."
+                    : waitingForBuildStart
+                      ? "Waiting for build to start..."
+                      : "Prime Cache"}
                 </Button>
                 {anyBuilding && (
                   <Button
@@ -1249,9 +1280,11 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
       </Box>
 
       {/* ZFS Snapshot/Clone Tree — below the Docker Cache flex row */}
-      {zfsTree?.available && zfsTree?.golden && zfsTree.golden.children?.some(
-        (snap: TypesZFSTreeNode) => snap.children && snap.children.length > 0
-      ) && (
+      {/* Render whenever a golden exists, even with no snapshots or clones —
+          a freshly-built golden with zero clones is still useful information
+          (otherwise the panel silently disappears post-build until the first
+          session clones from it). */}
+      {zfsTree?.available && zfsTree?.golden && (
         <Box sx={{ mt: 1, mb: 4, p: 2, bgcolor: "background.paper", borderRadius: 1, border: "1px solid", borderColor: "divider" }}>
           <Typography variant="subtitle2" sx={{ mb: 1, display: "flex", alignItems: "center", gap: 0.5 }}>
             <HubIcon fontSize="small" sx={{ color: "primary.main" }} />

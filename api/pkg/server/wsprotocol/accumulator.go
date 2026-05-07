@@ -102,6 +102,25 @@ type MessageAccumulator struct {
 	// Map from message_id to tool metadata (name, status) for tool_call entries
 	messageToolName   map[string]string
 	messageToolStatus map[string]string
+
+	// priorMessageContent holds (message_id → content) snapshots of entries
+	// from earlier completed interactions in the same session. Zed's
+	// flush_streaming_throttle replays ALL ACP thread entries on every event,
+	// so on a follow-up turn the new accumulator keeps receiving message_added
+	// events for the previous turn's entries. Without filtering those entries
+	// leak into the new interaction's response_entries — the failure mode
+	// caught by the e2e RESPONSE ENTRIES ISOLATION VALIDATION step.
+	//
+	// Filtering by message_id ALONE was too aggressive: when the wrapper
+	// restarts inside Zed, message_ids reset and are reused for legitimately
+	// new content; dropping them produces an empty interaction that bounces
+	// with "Agent returned empty response" (incident on
+	// ses_01kq8cnnkmww35bacpscbrehn0 / int_01kqjsrhndcpwb9zv068dn7mv9 on
+	// 2026-05-01 — see design/2026-04-30-queue-and-other-stuck-state-bugs.md).
+	// We now also compare content: a replay of a prior entry has identical
+	// content; a renumbered new entry has different content. Drop only on
+	// exact content match.
+	priorMessageContent map[string]string
 }
 
 // AddMessage processes a new content update from Zed.
@@ -120,8 +139,60 @@ func (a *MessageAccumulator) AddMessageWithType(messageID, content, entryType st
 	a.AddMessageWithToolInfo(messageID, content, entryType, "", "")
 }
 
+// SetPriorEntries records (message_id → content) snapshots from earlier
+// interactions in the same session. AddMessage* calls whose (id, content)
+// pair exactly matches a prior entry are dropped as wrapper replays.
+// Idempotent and additive: calling it multiple times unions the maps; later
+// calls for the same id win (last-writer).
+func (a *MessageAccumulator) SetPriorEntries(entries []ResponseEntry) {
+	if len(entries) == 0 {
+		return
+	}
+	if a.priorMessageContent == nil {
+		a.priorMessageContent = make(map[string]string, len(entries))
+	}
+	for _, e := range entries {
+		if e.MessageID == "" {
+			continue
+		}
+		a.priorMessageContent[e.MessageID] = e.Content
+	}
+}
+
+// SetPriorMessageIDs is kept for backwards compat with callers that only had
+// id-level information. New callers should use SetPriorEntries which can also
+// distinguish wrapper replays (same id+content) from wrapper-restart-renumbered
+// new content (same id, different content). When called via this id-only path,
+// we conservatively store an empty string for content — matching only when
+// Zed's replay also happens to be empty content (unusual). Most callers should
+// migrate to SetPriorEntries.
+func (a *MessageAccumulator) SetPriorMessageIDs(ids []string) {
+	if len(ids) == 0 {
+		return
+	}
+	if a.priorMessageContent == nil {
+		a.priorMessageContent = make(map[string]string, len(ids))
+	}
+	for _, id := range ids {
+		if id == "" {
+			continue
+		}
+		if _, exists := a.priorMessageContent[id]; !exists {
+			a.priorMessageContent[id] = ""
+		}
+	}
+}
+
 // AddMessageWithToolInfo processes a new content update with full tool metadata.
 func (a *MessageAccumulator) AddMessageWithToolInfo(messageID, content, entryType, toolName, toolStatus string) {
+	if priorContent, isPrior := a.priorMessageContent[messageID]; isPrior && priorContent == content {
+		// Same (id, content) as an earlier interaction's entry — Zed's
+		// flush_streaming_throttle replayed it. Drop silently. Different
+		// content under the same id means the wrapper restarted and renumbered;
+		// accept it as new content for this interaction.
+		return
+	}
+
 	// Sanitize content to prevent PostgreSQL errors from null bytes in
 	// terminal output or binary data that Zed captures from tool calls.
 	content = sanitize.ForPostgres(content)

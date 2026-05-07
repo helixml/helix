@@ -7,6 +7,7 @@ import React, {
 } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  Avatar,
   Box,
   Button,
   Typography,
@@ -25,7 +26,8 @@ import {
   IconButton,
 } from "@mui/material";
 import { Add as AddIcon, Close as CloseIcon } from "@mui/icons-material";
-import { X } from "lucide-react";
+import { ChevronDown, UserCircle2, X } from "lucide-react";
+import AssigneeSelector from "./AssigneeSelector";
 import { RECOMMENDED_CODING_MODELS } from "../../constants/models";
 
 import { CodeAgentRuntime, generateAgentName } from "../../contexts/apps";
@@ -35,6 +37,7 @@ import {
   TypesBranchMode,
   TypesSpecTask,
   TypesSpecTaskStatus,
+  TypesUser,
 } from "../../api/api";
 import AgentDropdown from "../agent/AgentDropdown";
 import CodingAgentForm, {
@@ -117,6 +120,44 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
   const [justDoItMode, setJustDoItMode] = useState(false);
   const [autoStart, setAutoStart] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
+
+  // Empty string = "Unassigned". Pre-filled with the current user below.
+  const [assigneeId, setAssigneeId] = useState<string>("");
+  const [assigneeTouched, setAssigneeTouched] = useState(false);
+  const [assigneeAnchorEl, setAssigneeAnchorEl] =
+    useState<HTMLElement | null>(null);
+
+  const orgMembers =
+    account.organizationTools.organization?.memberships || [];
+  const currentUserId = account.user?.id;
+
+  // Pre-fill with current user once known. Don't overwrite a user choice
+  // (including an explicit "Unassigned"), tracked via assigneeTouched.
+  useEffect(() => {
+    if (!assigneeTouched && currentUserId) {
+      setAssigneeId(currentUserId);
+    }
+  }, [currentUserId, assigneeTouched]);
+
+  const assignedUser = useMemo(() => {
+    if (!assigneeId) return undefined;
+    const member = orgMembers.find((m) => m.user_id === assigneeId);
+    return member?.user as TypesUser | undefined;
+  }, [assigneeId, orgMembers]);
+
+  const getAssigneeDisplayName = (user: TypesUser | undefined): string => {
+    if (!user) return "Unknown user";
+    return user.full_name || user.username || user.email || "Unknown user";
+  };
+  const getAssigneeInitials = (user: TypesUser | undefined): string => {
+    if (!user) return "?";
+    const name = user.full_name || user.username || user.email || "";
+    const parts = name.split(" ");
+    if (parts.length >= 2) {
+      return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+    }
+    return name.slice(0, 2).toUpperCase();
+  };
 
   // Branch configuration state
   const [branchMode, setBranchMode] = useState<TypesBranchMode>(
@@ -296,7 +337,9 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
     setSelectedModel("");
     setNewAgentName("-");
     setUserModifiedName(false);
-  }, [defaultBranchName]);
+    setAssigneeId(currentUserId || "");
+    setAssigneeTouched(false);
+  }, [defaultBranchName, currentUserId]);
 
   // Handle task creation
   const handleCreateTask = async () => {
@@ -331,6 +374,7 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
         priority: taskPriority as TypesSpecTaskPriority,
         project_id: projectId,
         app_id: agentId || undefined,
+        assignee_id: assigneeId || undefined,
         just_do_it_mode: justDoItMode,
         auto_start: autoStart,
         depends_on: selectedDependencyTasks
@@ -461,6 +505,49 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
               <MenuItem value="critical">Critical</MenuItem>
             </Select>
           </FormControl>
+
+          {/* Assignee Selector */}
+          <Button
+            variant="outlined"
+            fullWidth
+            onClick={(e) => setAssigneeAnchorEl(e.currentTarget)}
+            endIcon={<ChevronDown size={16} />}
+            sx={{
+              justifyContent: "space-between",
+              textTransform: "none",
+              color: "text.primary",
+              borderColor: "rgba(255,255,255,0.23)",
+              px: 1.5,
+              py: 1,
+              "&:hover": { borderColor: "text.primary" },
+            }}
+          >
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1, minWidth: 0 }}>
+              {assignedUser ? (
+                <Avatar sx={{ width: 24, height: 24, fontSize: "0.7rem" }}>
+                  {getAssigneeInitials(assignedUser)}
+                </Avatar>
+              ) : (
+                <UserCircle2 size={20} style={{ opacity: 0.5 }} />
+              )}
+              <Typography variant="body2" sx={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {assignedUser
+                  ? `Assignee: ${getAssigneeDisplayName(assignedUser)}`
+                  : "Assignee: Unassigned"}
+              </Typography>
+            </Box>
+          </Button>
+          <AssigneeSelector
+            assigneeId={assigneeId || undefined}
+            members={orgMembers}
+            currentUserId={currentUserId}
+            onAssigneeChange={(userId) => {
+              setAssigneeId(userId || "");
+              setAssigneeTouched(true);
+            }}
+            anchorEl={assigneeAnchorEl}
+            onClose={() => setAssigneeAnchorEl(null)}
+          />
 
           {/* Labels */}
           <Autocomplete

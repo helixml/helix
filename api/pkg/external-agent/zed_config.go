@@ -25,6 +25,15 @@ type ZedMCPConfig struct {
 	ExternalSync   *ExternalSyncConfig            `json:"external_sync,omitempty"`
 	Agent          *AgentConfig                   `json:"agent,omitempty"`
 	Theme          string                         `json:"theme,omitempty"`
+
+	// Misconfigured is set by GenerateZedMCPConfig when the agent's stored
+	// provider/model is empty or references a provider that is not in the
+	// supplied validProviders list. The fields are not serialized to clients
+	// — handlers inspect them and return HTTP 422 so that session start fails
+	// fast with a clear error in the spec-task UI rather than silently
+	// spinning up a sandbox the user can't actually use.
+	Misconfigured   bool   `json:"-"`
+	MisconfigReason string `json:"-"`
 }
 
 type ExternalSyncConfig struct {
@@ -75,9 +84,17 @@ type ContextServerConfig struct {
 	Headers map[string]string `json:"headers,omitempty"`
 }
 
-// GenerateZedMCPConfig creates Zed MCP configuration from Helix app config
-// projectSkills are optional project-level skills that overlay on top of agent skills
-// oauthTokenGetter is optional - if provided, OAuth tokens will be injected into stdio MCPs
+// GenerateZedMCPConfig creates Zed MCP configuration from Helix app config.
+// projectSkills are optional project-level skills that overlay on top of agent skills.
+// oauthTokenGetter is optional - if provided, OAuth tokens will be injected into stdio MCPs.
+// providerSnapshot is an optional list of provider records visible to the owner
+// (env-baked globals + DB-backed). When non-nil, the agent's stored provider
+// reference (ID for DB-backed, canonical name for globals) is resolved
+// against it; the resolved provider's current name is used in the model
+// prefix written to settings.json. A missing provider is treated as
+// misconfiguration and Agent.DefaultModel is left unset. Pass nil to skip
+// resolution (e.g. on the runner-side path where the manager isn't
+// reachable) — the stored token is then used verbatim.
 func GenerateZedMCPConfig(
 	ctx context.Context,
 	app *types.App,
@@ -88,6 +105,7 @@ func GenerateZedMCPConfig(
 	koditEnabled bool,
 	projectSkills *types.AssistantSkills,
 	oauthTokenGetter OAuthTokenGetter,
+	providerSnapshot []ProviderRef,
 ) (*ZedMCPConfig, error) {
 	config := &ZedMCPConfig{
 		ContextServers: make(map[string]ContextServerConfig),
@@ -101,19 +119,7 @@ func GenerateZedMCPConfig(
 			ExternalURL: fmt.Sprintf("%s/api/v1/external-agents/sync?session_id=%s", helixAPIURL, sessionID),
 		},
 	}
-	// Find the zed_external assistant configuration
-	var assistant *types.AssistantConfig
-	for i := range app.Config.Helix.Assistants {
-		if app.Config.Helix.Assistants[i].AgentType == types.AgentTypeZedExternal {
-			assistant = &app.Config.Helix.Assistants[i]
-			break
-		}
-	}
-
-	// Fallback to first assistant if no zed_external found
-	if assistant == nil && len(app.Config.Helix.Assistants) > 0 {
-		assistant = &app.Config.Helix.Assistants[0]
-	}
+	assistant := FindZedExternalAssistant(app)
 
 	// For zed_external agents, prefer GenerationModel fields (where UI stores the selection)
 	var provider, model string
@@ -128,47 +134,85 @@ func GenerateZedMCPConfig(
 		}
 	}
 
-	// Default to anthropic/claude-sonnet if nothing is configured
-	if provider == "" {
+	// Decide whether the agent's stored model fields are usable. There are
+	// two failure modes we MUST NOT paper over:
+	//
+	//   1. Empty fields. Previously the code silently substituted
+	//      anthropic/claude-sonnet-4-5-latest, which made misconfigured
+	//      external agents look like working Claude agents in Zed (Deviqon
+	//      bug, 2026-04-28).
+	//   2. Provider deleted. The agent record stores the provider's
+	//      immutable ID (DB-backed) or canonical name (env-baked globals).
+	//      If the DB-backed provider is deleted, ID resolution fails and
+	//      we report misconfig instead of feeding an unroutable string into
+	//      the model prefix. Renames are no-ops because the ID survives.
+	//
+	// Spec-task entry handlers run the same validator
+	// (ValidateAssistantModelConfig) before transitioning a task to a queued
+	// state, so misconfigured agents should not reach session start. This
+	// block is the defense-in-depth for any caller that bypasses those entry
+	// handlers (default-app session, legacy code paths). When misconfigured,
+	// we leave Agent.DefaultModel unset and log loudly; Zed falls back to
+	// its built-in default.
+	useAgentModel := true
+	if assistant == nil {
+		// No assistant means this is the default-app path used for sessions
+		// without a parent app. Keep the legacy SaaS-friendly default so
+		// those sessions still come up.
 		provider = "anthropic"
-	}
-	if model == "" {
 		model = "claude-sonnet-4-5-latest"
+	} else if reason := ValidateAssistantModelConfig(app, providerSnapshot); reason != "" {
+		log.Error().
+			Str("app_id", app.ID).
+			Str("provider", provider).
+			Str("model", model).
+			Msg("zed-config: " + reason + " — refusing to write agent.default_model")
+		useAgentModel = false
+		config.Misconfigured = true
+		config.MisconfigReason = reason
+	} else if providerSnapshot != nil {
+		// Resolve the stored token (ID or legacy name) to the provider's
+		// current canonical name. settings.json carries the current name;
+		// the agent record carries the immutable ID. Renames flow into
+		// running sessions on the next 30s daemon poll.
+		resolved, byLegacy, _ := ResolveProvider(provider, providerSnapshot)
+		if byLegacy {
+			log.Warn().
+				Str("app_id", app.ID).
+				Str("stored_provider", provider).
+				Str("resolved_name", resolved.Name).
+				Str("resolved_id", resolved.ID).
+				Msg("zed-config: agent stores provider by name (legacy); re-save the agent so it stores the immutable provider ID")
+		}
+		provider = resolved.Name
 	}
 
-	// Map Helix provider to Zed's provider type and format model name
-	// Zed only knows: anthropic, openai, google, ollama, copilot, lmstudio, deepseek
-	// All other providers (nebius, together, openrouter, etc.) use OpenAI-compatible API
-	zedProvider, zedModel := mapHelixToZedProvider(provider, model)
-
-	// Configure agent with default model (CRITICAL: default_model goes in agent, not assistant!)
-	// Also set feature-specific models to prevent Zed from using its hardcoded gpt-4.1-mini
-	// default for "fast" operations (see zed-industries/zed#31420). If not set, these fall
-	// back to default_model, but we set them explicitly to ensure all LLM calls route through Helix.
+	// Configure agent. AlwaysAllowToolActions / ShowOnboarding / AutoOpenPanel
+	// are always set; default_model and the feature-specific model overrides
+	// are set only when we trust the agent's configuration.
 	config.Agent = &AgentConfig{
-		DefaultModel: &ModelConfig{
-			Provider: zedProvider,
-			Model:    zedModel,
-		},
-		InlineAssistantModel: &ModelConfig{
-			Provider: zedProvider,
-			Model:    zedModel,
-		},
-		CommitMessageModel: &ModelConfig{
-			Provider: zedProvider,
-			Model:    zedModel,
-		},
-		ThreadSummaryModel: &ModelConfig{
-			Provider: zedProvider,
-			Model:    zedModel,
-		},
 		AlwaysAllowToolActions: true,
 		ShowOnboarding:         false,
 		AutoOpenPanel:          true,
 	}
+	if useAgentModel {
+		// Map Helix provider to Zed's provider type and format model name
+		// Zed only knows: anthropic, openai, google, ollama, copilot, lmstudio, deepseek
+		// All other providers (nebius, together, openrouter, etc.) use OpenAI-compatible API
+		zedProvider, zedModel := mapHelixToZedProvider(provider, model)
+		// Set feature-specific models to prevent Zed from using its hardcoded
+		// gpt-4.1-mini default for "fast" operations (see
+		// zed-industries/zed#31420). If not set, these fall back to
+		// default_model, but we set them explicitly to ensure all LLM calls
+		// route through Helix.
+		config.Agent.DefaultModel = &ModelConfig{Provider: zedProvider, Model: zedModel}
+		config.Agent.InlineAssistantModel = &ModelConfig{Provider: zedProvider, Model: zedModel}
+		config.Agent.CommitMessageModel = &ModelConfig{Provider: zedProvider, Model: zedModel}
+		config.Agent.ThreadSummaryModel = &ModelConfig{Provider: zedProvider, Model: zedModel}
+	}
 	config.Theme = "Ayu Dark"
 
-	// Configure language_models to route API calls through Helix proxy
+	// Configure language_models to route API calls through Helix proxy.
 	// CRITICAL: Zed reads api_url from settings.json, NOT from environment variables!
 	// We must explicitly set api_url in language_models for each provider.
 	//
@@ -177,14 +221,14 @@ func GenerateZedMCPConfig(
 	// - OpenAI: base URL + /v1 (Zed appends /chat/completions)
 	// api_key is NOT set here — Zed reads ANTHROPIC_API_KEY / OPENAI_API_KEY from
 	// container env vars (set by DesktopAgentAPIEnvVars). Only api_url routing is needed.
-	config.LanguageModels = map[string]LanguageModelConfig{
-		"anthropic": {
-			APIURL: helixAPIURL, // Zed appends /v1/messages
-		},
-		"openai": {
-			APIURL: helixAPIURL + "/v1", // Zed appends /chat/completions
-		},
-	}
+	//
+	// We only inject the entries the user actually has Helix providers for.
+	// If we unconditionally inject "anthropic", Zed's bottom-left model picker
+	// shows Claude Sonnet as a default option even when the user has no
+	// Anthropic provider configured — picking it then fails with
+	// "provider \"openai\" not found" from /v1/messages because Zed sends
+	// the wrong provider on the Anthropic-only endpoint.
+	config.LanguageModels = buildLanguageModels(providerSnapshot, helixAPIURL)
 
 	// 1. Add Helix native tools via HTTP MCP gateway (APIs, Knowledge, Zapier)
 	// Uses the unified MCP gateway at /api/v1/mcp/helix instead of helix-cli
@@ -245,12 +289,17 @@ func GenerateZedMCPConfig(
 	// See: https://developer.chrome.com/blog/chrome-devtools-mcp
 	config.ContextServers["chrome-devtools"] = ContextServerConfig{
 		Command: "npx",
+		// --viewport sets the rendered page size (Chrome window ends up viewport + ~80px
+		// of decorations). 1280x800 sits at the canonical desktop-vs-mobile breakpoint
+		// so sites still render in desktop mode, and the resulting Chrome window leaves
+		// a wide margin on a 1920x1080 monitor — staying below Mutter's auto-maximize
+		// threshold (the previous 1600x1080 value tripped it).
 		// Stealth flags: make Chrome less detectable as automation.
 		// Disables navigator.webdriver, suppresses "Chrome is being controlled" infobar,
 		// and prevents extension probing (e.g. LinkedIn bot detection).
 		Args: []string{
 			"chrome-devtools-mcp@latest",
-			"--viewport", "1600x1080",
+			"--viewport", "1280x800",
 			"--chrome-arg=--disable-blink-features=AutomationControlled",
 			"--chrome-arg=--no-first-run",
 			"--chrome-arg=--disable-infobars",
@@ -523,6 +572,191 @@ func normalizeModelIDForZed(modelID string) string {
 	return modelID
 }
 
+// ProviderRef is the minimal projection of a provider endpoint that the
+// agent-config code path needs: a stable ID (empty for env-baked globals,
+// which have no DB row) and the current canonical name. Callers build the
+// snapshot from the provider manager's live state (globals + DB-backed user
+// providers visible to the owner).
+//
+// We deliberately store both ID and Name so resolution can be ID-first with
+// a name fallback for legacy agent records that were saved before agents
+// stored IDs. After such a fallback the agent should be re-saved so it picks
+// up the immutable reference.
+type ProviderRef struct {
+	ID   string // empty for env-baked global providers (openai, anthropic, ...)
+	Name string // current canonical name; for DB-backed providers this is the admin-set label
+}
+
+// FindZedExternalAssistant returns the assistant config that owns the
+// zed_external agent for the given app, falling back to the first
+// assistant when no zed_external entry is present (legacy/migration path).
+// Returns nil when the app has no assistants at all.
+//
+// Centralised here so GenerateZedMCPConfig, ValidateAssistantModelConfig,
+// and buildCodeAgentConfig agree on which assistant they're talking about
+// — a previous version had three independent walks, which would silently
+// diverge if anyone changed the matching rule.
+func FindZedExternalAssistant(app *types.App) *types.AssistantConfig {
+	if app == nil || len(app.Config.Helix.Assistants) == 0 {
+		return nil
+	}
+	for i := range app.Config.Helix.Assistants {
+		if app.Config.Helix.Assistants[i].AgentType == types.AgentTypeZedExternal {
+			return &app.Config.Helix.Assistants[i]
+		}
+	}
+	return &app.Config.Helix.Assistants[0]
+}
+
+// ResolveProvider matches a stored agent token (an ID for DB-backed providers,
+// the canonical name for globals) against the provider snapshot. ID match
+// wins; if no ID matches, falls back to a case-insensitive name match
+// (legacy agents). The bool return distinguishes a successful resolve
+// (ok=true, byLegacyName=false), a legacy resolve that should be flagged for
+// rewriting (ok=true, byLegacyName=true), and a failed resolve (ok=false).
+//
+// snapshot==nil means "no manager handle" — the runner-side path opts out of
+// resolution this way; callers should treat this as "skip validation, trust
+// the stored value as a name".
+func ResolveProvider(token string, snapshot []ProviderRef) (ref ProviderRef, byLegacyName bool, ok bool) {
+	if snapshot == nil {
+		return ProviderRef{Name: token}, false, true
+	}
+	for _, p := range snapshot {
+		if p.ID != "" && p.ID == token {
+			return p, false, true
+		}
+	}
+	for _, p := range snapshot {
+		if strings.EqualFold(p.Name, token) {
+			byLegacy := p.ID != "" // global with no ID is a normal match, not legacy
+			return p, byLegacy, true
+		}
+	}
+	return ProviderRef{}, false, false
+}
+
+// MigrateLegacyProviderRefs walks every provider-bearing field on every
+// assistant in app.Config and, where the stored value is a legacy name that
+// resolves (case-insensitively) to a current DB-backed provider, rewrites
+// the field in-place to that provider's immutable ID. Returns true if any
+// field changed — the caller is responsible for persisting via
+// Store.UpdateApp.
+//
+// Globals (ref.ID == "") are left alone: their canonical name is itself
+// immutable, so there's nothing to migrate. Misconfigured fields (resolver
+// miss) are also left alone — we have no ID to write.
+//
+// Called from session-start and spec-task pre-flight handlers so legacy
+// agents heal themselves on first use after the ID-based refactor lands,
+// without the operator having to re-save anything.
+func MigrateLegacyProviderRefs(app *types.App, snapshot []ProviderRef) bool {
+	if app == nil || snapshot == nil || len(app.Config.Helix.Assistants) == 0 {
+		return false
+	}
+	changed := false
+	rewrite := func(field *string) {
+		if field == nil || *field == "" {
+			return
+		}
+		ref, byLegacy, ok := ResolveProvider(*field, snapshot)
+		if !ok || !byLegacy || ref.ID == "" {
+			return
+		}
+		*field = ref.ID
+		changed = true
+	}
+	for i := range app.Config.Helix.Assistants {
+		a := &app.Config.Helix.Assistants[i]
+		rewrite(&a.Provider)
+		rewrite(&a.GenerationModelProvider)
+		rewrite(&a.SmallGenerationModelProvider)
+		rewrite(&a.ReasoningModelProvider)
+		rewrite(&a.SmallReasoningModelProvider)
+	}
+	return changed
+}
+
+// ValidateAssistantModelConfig checks whether the app's zed_external assistant
+// has a usable provider/model combination given the currently registered
+// providers. Returns the empty string when the configuration is usable;
+// otherwise an operator-friendly message suitable for surfacing in the
+// spec-task UI / API 422 response.
+//
+// snapshot is the list of provider records visible to the owner (env-baked
+// globals + DB-backed). Pass nil to skip provider-existence validation
+// (used by the runner-side path that has no manager handle).
+//
+// Default-app sessions (no parent app, len(Assistants)==0) skip validation —
+// they fall through to the legacy SaaS-friendly default in GenerateZedMCPConfig.
+//
+// Renames: agent records store the provider's immutable ID, so renaming a
+// provider in admin is a no-op for resolution.
+// Deletes: ID lookup fails and we report misconfig.
+func ValidateAssistantModelConfig(app *types.App, snapshot []ProviderRef) string {
+	assistant := FindZedExternalAssistant(app)
+	if assistant == nil {
+		return ""
+	}
+	provider := assistant.GenerationModelProvider
+	if provider == "" {
+		provider = assistant.Provider
+	}
+	model := assistant.GenerationModel
+	if model == "" {
+		model = assistant.Model
+	}
+	if provider == "" || model == "" {
+		return fmt.Sprintf("agent %q is missing a provider or model selection — open the agent settings and pick a provider and model", app.ID)
+	}
+	if snapshot == nil {
+		return ""
+	}
+	if _, _, ok := ResolveProvider(provider, snapshot); !ok {
+		return fmt.Sprintf("agent %q references provider %q which does not match any current provider — the provider may have been renamed or deleted. Open the agent settings and re-pick a provider, or restore/rename the provider in admin.", app.ID, provider)
+	}
+	return ""
+}
+
+// buildLanguageModels returns the language_models block for Zed's settings.json,
+// containing only the provider entries the user actually has Helix providers
+// for. The mapping mirrors mapHelixToZedProvider:
+//
+//   - A Helix "anthropic" provider unlocks Zed's "anthropic" entry (routes to
+//     Helix's /v1/messages).
+//   - Any other Helix provider (openai, nebius, together, openrouter, ...)
+//     unlocks Zed's "openai" entry (routes to Helix's /v1/chat/completions).
+//
+// snapshot==nil is the runner-side opt-out path; we preserve historical
+// behaviour there by injecting both entries.
+func buildLanguageModels(snapshot []ProviderRef, helixAPIURL string) map[string]LanguageModelConfig {
+	if snapshot == nil {
+		return map[string]LanguageModelConfig{
+			"anthropic": {APIURL: helixAPIURL},
+			"openai":    {APIURL: helixAPIURL + "/v1"},
+		}
+	}
+
+	hasAnthropic := false
+	hasOpenAICompat := false
+	for _, p := range snapshot {
+		if strings.EqualFold(p.Name, "anthropic") {
+			hasAnthropic = true
+		} else {
+			hasOpenAICompat = true
+		}
+	}
+
+	out := map[string]LanguageModelConfig{}
+	if hasAnthropic {
+		out["anthropic"] = LanguageModelConfig{APIURL: helixAPIURL}
+	}
+	if hasOpenAICompat {
+		out["openai"] = LanguageModelConfig{APIURL: helixAPIURL + "/v1"}
+	}
+	return out
+}
+
 // mapHelixToZedProvider maps a Helix provider name to a Zed provider type and formats the model name.
 // Zed only recognizes a fixed set of providers: anthropic, openai, google, ollama, copilot, lmstudio, deepseek.
 // All other Helix providers (nebius, together, openrouter, etc.) are OpenAI-compatible and should use "openai".
@@ -639,7 +873,10 @@ func GetZedConfigForSession(ctx context.Context, s store.Store, sessionID string
 		return conn.AccessToken, nil
 	}
 
-	config, err := GenerateZedMCPConfig(ctx, app, session.Owner, sessionID, helixAPIURL, helixToken, koditEnabled, projectSkills, oauthTokenGetter)
+	// Runner-side path has no provider-manager handle, so we skip provider
+	// validation here. The handler-side callers (getZedConfig,
+	// getMergedZedSettings) do pass the live provider list.
+	config, err := GenerateZedMCPConfig(ctx, app, session.Owner, sessionID, helixAPIURL, helixToken, koditEnabled, projectSkills, oauthTokenGetter, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate Zed config: %w", err)
 	}
@@ -647,45 +884,35 @@ func GetZedConfigForSession(ctx context.Context, s store.Store, sessionID string
 	return config, nil
 }
 
-// MergeZedConfigWithUserOverrides merges Helix config with user overrides
-func MergeZedConfigWithUserOverrides(helixConfig *ZedMCPConfig, userOverrides map[string]interface{}) map[string]interface{} {
-	result := make(map[string]interface{})
+// MergeContextServers returns the union of helix-managed MCP context servers
+// and the user-side ones uploaded via /zed-config/user. Used by the
+// /zed-settings endpoint to render the per-session "MCP Tools" UI panel.
+//
+// Note: this is the only piece of the old MergeZedConfigWithUserOverrides
+// that had any live consumer. The agent / language_models / theme merge
+// previously here was dead code — the desktop hot path runs through the
+// settings-sync-daemon, which polls /zed-config and merges client-side.
+// Keeping the duplication invited drift (see P1-5).
+func MergeContextServers(helixServers map[string]ContextServerConfig, userOverrides map[string]interface{}) map[string]interface{} {
+	merged := make(map[string]interface{}, len(helixServers))
+	for name, server := range helixServers {
+		entry := map[string]interface{}{
+			"command": server.Command,
+			"args":    server.Args,
+		}
+		if len(server.Env) > 0 {
+			entry["env"] = server.Env
+		}
+		merged[name] = entry
+	}
 
-	// Start with Helix context servers
-	result["context_servers"] = helixConfig.ContextServers
-
-	// Apply user overrides
 	if userServers, ok := userOverrides["context_servers"].(map[string]interface{}); ok {
-		// Deep merge: user additions and modifications
-		if helixServers, ok := result["context_servers"].(map[string]ContextServerConfig); ok {
-			merged := make(map[string]interface{})
-			// Convert Helix servers to map[string]interface{}
-			for name, server := range helixServers {
-				serverMap := map[string]interface{}{
-					"command": server.Command,
-					"args":    server.Args,
-				}
-				if len(server.Env) > 0 {
-					serverMap["env"] = server.Env
-				}
-				merged[name] = serverMap
-			}
-			// Apply user overrides
-			for name, server := range userServers {
-				merged[name] = server
-			}
-			result["context_servers"] = merged
+		for name, server := range userServers {
+			merged[name] = server
 		}
 	}
 
-	// Apply other user settings (non-MCP)
-	for k, v := range userOverrides {
-		if k != "context_servers" {
-			result[k] = v
-		}
-	}
-
-	return result
+	return merged
 }
 
 // SaveUserZedOverrides saves user's Zed settings overrides

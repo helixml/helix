@@ -78,10 +78,11 @@ const AddProviderDialog: React.FC<AddProviderDialogProps> = ({
   const [baseUrl, setBaseUrl] = useState('');
   const [customName, setCustomName] = useState('');
   const [customNameError, setCustomNameError] = useState<string | null>(null);
+  const [modelName, setModelName] = useState('');
   const [showApiKey, setShowApiKey] = useState(false);
   const [isFieldFocused, setIsFieldFocused] = useState(false);
   const { mutateAsync: createProviderEndpoint, isPending: isCreating } = useCreateProviderEndpoint();
-  const { mutateAsync: updateProviderEndpoint, isPending: isUpdating } = useUpdateProviderEndpoint(existingProvider?.id || '');
+  const { mutateAsync: updateProviderEndpoint, isPending: isUpdating } = useUpdateProviderEndpoint();
   const { mutateAsync: deleteProviderEndpoint, isPending: isDeleting } = useDeleteProviderEndpoint();
 
   const { success: snackbarSuccess } = useSnackbar();
@@ -93,6 +94,7 @@ const AddProviderDialog: React.FC<AddProviderDialogProps> = ({
     setBaseUrl(existingProvider?.base_url ?? provider.base_url)
     setCustomName(existingProvider?.name ?? '')
     setCustomNameError(null)
+    setModelName(existingProvider?.models?.[0] ?? '')
   }, [provider, existingProvider])
 
   // Generate masked API key for display
@@ -116,6 +118,7 @@ const AddProviderDialog: React.FC<AddProviderDialogProps> = ({
     setCustomName('');
     setCustomNameError(null);
     setBaseUrlError(null);
+    setModelName('');
     setError(null);
     setIsFieldFocused(false);
     onClose();
@@ -171,13 +174,22 @@ const AddProviderDialog: React.FC<AddProviderDialogProps> = ({
         }
       }
 
-      if (isEditing && existingProvider) {
+      // Custom providers can pin a single preset model. When set, this is the
+      // only model the endpoint exposes (no /v1/models lookup needed upstream).
+      const trimmedModel = modelName.trim();
+      const presetModels = provider.is_custom && trimmedModel ? [trimmedModel] : undefined;
+
+      if (isEditing && existingProvider?.id) {
         // Update existing provider
         await updateProviderEndpoint({
-          base_url: baseUrl,
-          api_key: apiKeyToUse,
-          endpoint_type: TypesProviderEndpointType.ProviderEndpointTypeUser,
-          description: provider.description,
+          id: existingProvider.id,
+          body: {
+            base_url: baseUrl,
+            api_key: apiKeyToUse,
+            endpoint_type: TypesProviderEndpointType.ProviderEndpointTypeUser,
+            description: provider.description,
+            ...(provider.is_custom ? { models: presetModels ?? [] } : {}),
+          },
         });
         snackbarSuccess('Provider updated successfully');
       } else {
@@ -191,6 +203,7 @@ const AddProviderDialog: React.FC<AddProviderDialogProps> = ({
           // If we are in an org context, set the owner to the org
           owner: orgId || '',
           owner_type: orgId ? TypesOwnerType.OwnerTypeOrg : TypesOwnerType.OwnerTypeUser,
+          ...(presetModels ? { models: presetModels } : {}),
         });
         snackbarSuccess('Provider connected successfully');
       }
@@ -226,6 +239,7 @@ const AddProviderDialog: React.FC<AddProviderDialogProps> = ({
           setCustomName('');
           setCustomNameError(null);
           setBaseUrlError(null);
+          setModelName('');
           setError(null);
           setIsFieldFocused(false);
           onClosed?.();
@@ -278,6 +292,23 @@ const AddProviderDialog: React.FC<AddProviderDialogProps> = ({
               />
             </Box>
             </>) : (<></>)}
+            { provider.is_custom ? (
+            <Box sx={{ display: 'flex', alignItems: 'flex-start', mb: 2 }}>
+              <Typography variant="body2" sx={{ minWidth: 80, mr: 2, mt: 1, color: 'text.primary', fontWeight: 500 }}>
+                Model
+              </Typography>
+              <TextField
+                fullWidth
+                value={modelName}
+                onChange={(e) => setModelName(e.target.value)}
+                placeholder="hermes-agent"
+                type="text"
+                autoComplete="off"
+                helperText="Optional. If your endpoint doesn't list models at /v1/models, set the model name here so it shows up in the picker and can be called via the API."
+                sx={{ flex: 1 }}
+              />
+            </Box>
+            ) : null}
             <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
               <Typography variant="body2" sx={{ minWidth: 80, mr: 2, color: 'text.primary', fontWeight: 500 }}>
                 API Key
