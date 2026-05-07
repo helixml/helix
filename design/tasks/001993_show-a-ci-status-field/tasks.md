@@ -2,8 +2,8 @@
 
 ## Backend — data model & client methods
 
-- [~] Extend `RepoPR` in `api/pkg/types/simple_spec_task.go` with `CIStatus`, `CIURL`, `CIUpdatedAt`, `CIHeadSHA` fields (all `omitempty`).
-- [ ] Create `api/pkg/services/ci_status.go` with `normalizeCIStatus(provider, raw string) string` returning one of `"running"`, `"passed"`, `"failed"`, `"none"`.
+- [x] Extend `RepoPR` in `api/pkg/types/simple_spec_task.go` with `CIStatus`, `CIURL`, `CIUpdatedAt`, `CIHeadSHA` fields (all `omitempty`).
+- [~] Create `api/pkg/services/ci_status.go` with `normalizeCIStatus(provider, raw string) string` returning one of `"running"`, `"passed"`, `"failed"`, `"none"`.
 - [ ] Add `GetCIStatus(ctx, owner, repo, sha)` to `api/pkg/agent/skill/github/client.go` — combines `Repositories.GetCombinedStatus` and `Checks.ListCheckRunsForRef`, takes the worst conclusion.
 - [ ] Add `GetCIStatus(ctx, projectID, sha)` to `api/pkg/agent/skill/gitlab/client.go` — uses `Pipelines.ListProjectPipelines` filtered by SHA.
 - [ ] Add `GetCIStatus(ctx, project, repoID, commitID)` to `api/pkg/agent/skill/azure_devops/client.go` — uses Build API filtered by `sourceVersion`.
