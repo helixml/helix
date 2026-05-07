@@ -41,10 +41,8 @@
 
 - [ ] `cd api && go build ./pkg/services/ ./pkg/types/ ./pkg/agent/skill/...` passes locally.
 - [ ] `cd frontend && yarn build` passes (catches type errors).
-- [ ] Inner-Helix E2E: register `test@helix.ml` / `helixtest`, complete onboarding, create a spec task wired to a real GitHub repo with Actions, push a branch, open a PR with a workflow that fails, watch the icon turn red within ~30s, confirm agent receives the chat message ("CI failed for PR…"), confirm the human sees the attention event red dot.
-- [ ] Re-run with a passing workflow: icon turns green, agent receives "CI passed" message.
-- [ ] Push a new commit to the same PR while CI is queued: confirm the icon resets and re-evaluates from `running`.
-- [ ] Take before/after screenshots of the Kanban card to confirm the card is **not taller** than before.
+- [x] Inner-Helix visual verification: inserted three test tasks (running / passed / failed) directly into the spec_tasks table with hand-crafted RepoPR JSON, navigated to the Kanban board, screenshot confirms all three icons render inline in the existing status row with the correct colours and animation. Card height unchanged. Screenshot at `screenshots/01-kanban-with-ci-icons.png`.
+- [ ] (Deferred) Live end-to-end test against a real GitHub repo with Actions — needs a connected provider in the inner Helix; not blocking PR review since the unit tests cover the transition logic and the UI verification is in the screenshot above.
 
 ## Follow-ups (separate tasks)
 
