@@ -121,6 +121,15 @@ No backend changes; the existing auto-start path is correct and the API still re
 - **Risk:** flipping `external_agent_status` in the cache races with an in-flight poll that returns the old `"absent"` value. **Mitigation:** `staleTime: 2000` on `useGetSession` (`sessionService.ts:65`) means a fresh fetch is unlikely to immediately refetch; even if it does, the next 3 s tick will reconcile correctly.
 - **Risk:** `setQueryData` for the `'skip'` variant could accidentally overwrite a poll response that was about to land. **Mitigation:** the helper uses the function form `(old) => ...` which atomically composes on top of whatever's there; we only mutate `config.external_agent_status` and `config.status_message`, leaving everything else (including a freshly polled `interactions`) untouched.
 
+## Implementation Notes (from doing it)
+
+- **Helper extracted to its own file** rather than inlined into both call sites. The helper does the same thing in both — the design left this open ("define `optimisticallyMarkStarting` near `handleSendMessage`") but extraction is cleaner. New file: `frontend/src/utils/optimisticSessionStarting.ts` (54 lines).
+- **The 'skip' variant write strips `interactions`** before storing, because that variant is fetched without interactions; seeding it with a partial WS payload would override what `useListInteractions` is the source of truth for. This wasn't called out in the original design but became obvious while writing the streaming.tsx fix.
+- **Guard against `onWillSend` throws** in RobustPromptInput's handleSend with a try/catch + console.warn. The send must never be blocked by an optimistic-UI bug. Cheap insurance.
+- **Inner-Helix manual reproduction was blocked** — the startup script failed during `./stack build-ubuntu` with `/zed-build/app-icon.png: not found`. The reproduction step in tasks.md is left unchecked; reviewer needs to verify on a working stack.
+- **Frontend build (`yarn build`) is clean.** No TS errors, no new warnings beyond the pre-existing chunk-size noise.
+- **Worktree gotcha discovered**: `helix-specs` is a git worktree of the helix repo, so they share the git database. Running `git reset --hard origin/helix-specs` from inside the helix worktree's CWD destroyed uncommitted edits in the helix tree. Recovered by re-applying the edits manually. Future agents working in this layout: always `cd /home/retro/work/helix-specs` before running git on that branch — never assume the CWD is right.
+
 ## Validation Plan
 
 1. Helix‑in‑Helix at `http://localhost:8080`. Register `test@helix.ml` / `helixtest` if no user exists, complete onboarding.

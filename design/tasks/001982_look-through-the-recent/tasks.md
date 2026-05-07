@@ -7,7 +7,7 @@
 - [x] In `ExternalAgentDesktopViewer.tsx`, define `handleWillSend` and pass `onWillSend={handleWillSend}` on the prompt input
 - [x] In `frontend/src/contexts/streaming.tsx`, fix the `session_update` handler so `getQueryData` and `setQueryData` use the correct keys (`["session", id, "full"]` and `["session", id, "skip"]`) instead of the bare `["session", id]` key — write to both variants, prefer `'full'` when reading
 - [x] Helper has lifecycle comment explaining no-op when status already `running`/`starting` and that polling will reconcile within ~3 s
-- [ ] Manual end-to-end: pause desktop → send chat → spinner ≤ 500 ms → backend boot completes → stream live
-- [ ] Manual end-to-end: live desktop → send chat → no flicker, no false spinner
-- [~] `cd frontend && yarn build` clean
-- [ ] Open a Helix PR; include before/after screen recordings in the PR description
+- [ ] Manual end-to-end: pause desktop → send chat → spinner ≤ 500 ms → backend boot completes → stream live — **BLOCKED**: inner-Helix stack failed to build (`/zed-build/app-icon.png: not found` in startup log), so no running stack to test against. Reviewer must verify on a working Helix instance before merge
+- [ ] Manual end-to-end: live desktop → send chat → no flicker, no false spinner — **BLOCKED**: same as above
+- [x] `cd frontend && yarn build` clean (verified after re-applying changes — build succeeded in 1m 7s with no errors)
+- [x] Push feature branch (Helix UI auto-creates the PR on click of "Open PR")
