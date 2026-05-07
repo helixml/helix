@@ -181,7 +181,7 @@ const ShadcnAreaChart: FC<ShadcnAreaChartProps> = ({
                 axisLine={false}
                 tickMargin={8}
                 minTickGap={32}
-                tick={{ fill: 'rgba(255,255,255,0.55)', fontSize: 12 }}
+                tick={{ fill: lightTheme.isLight ? '#475569' : '#94A3B8', fontSize: 12 }}
                 tickFormatter={(v: string) =>
                   new Date(v).toLocaleDateString(undefined, {
                     month: 'short',
@@ -194,7 +194,7 @@ const ShadcnAreaChart: FC<ShadcnAreaChartProps> = ({
                 axisLine={false}
                 tickMargin={8}
                 width={48}
-                tick={{ fill: 'rgba(255,255,255,0.55)', fontSize: 12 }}
+                tick={{ fill: lightTheme.isLight ? '#475569' : '#94A3B8', fontSize: 12 }}
                 tickFormatter={valueFormatter}
               />
               <Tooltip
@@ -270,7 +270,7 @@ const ShadcnAreaChart: FC<ShadcnAreaChartProps> = ({
               />
               <Typography
                 variant="caption"
-                sx={{ color: 'rgba(255,255,255,0.75)', fontSize: '0.66rem', whiteSpace: 'nowrap', lineHeight: 1.4 }}
+                sx={{ color: lightTheme.isLight ? '#334155' : '#cbd5e1', fontSize: '0.66rem', whiteSpace: 'nowrap', lineHeight: 1.4 }}
               >
                 {s.label}
               </Typography>

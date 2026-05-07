@@ -376,9 +376,9 @@ const Home: FC = () => {
                   <Box
                     sx={{
                       width: '100%',
-                      border: `1px solid ${lightTheme.isLight ? 'rgba(0, 0, 0, 0.15)' : 'rgba(255, 255, 255, 0.2)'}`,
+                      border: `1px solid ${lightTheme.isLight ? 'rgba(0, 0, 0, 0.28)' : 'rgba(255, 255, 255, 0.2)'}`,
                       borderRadius: '12px',
-                      backgroundColor: lightTheme.isLight ? 'rgba(0, 0, 0, 0.04)' : 'rgba(255, 255, 255, 0.05)',
+                      backgroundColor: lightTheme.isLight ? '#fff' : 'rgba(255, 255, 255, 0.05)',
                       p: 2,
                       mb: 2,
                     }}

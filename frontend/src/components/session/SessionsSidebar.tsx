@@ -304,7 +304,7 @@ export const SessionsSidebar: FC<{
               overflow: 'hidden',
               textOverflow: 'ellipsis',
               whiteSpace: 'nowrap',
-              color: isActive ? activeText : lightTheme.textColorFaded,
+              color: isActive ? activeText : lightTheme.textColor,
             }}
             primary={session.name}
             id={sessionId}
@@ -376,7 +376,7 @@ export const SessionsSidebar: FC<{
               overflow: 'hidden',
               textOverflow: 'ellipsis',
               whiteSpace: 'nowrap',
-              color: isActive ? activeText : lightTheme.textColorFaded,
+              color: isActive ? activeText : lightTheme.textColor,
             }}
             primary={groupName}
             id={`header-${executionId}`}
