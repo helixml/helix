@@ -255,6 +255,11 @@ steps:
       SMALL_REASONING_MODEL_EFFORT: none
       SMALL_GENERATION_MODEL_PROVIDER: openai
       SMALL_GENERATION_MODEL: gpt-4o-mini
+      # Tools/intent-classification model — must be a fully-qualified
+      # provider/model string, otherwise it routes to the default "helix"
+      # provider which doesn't have it (causes 500 with "is not configured
+      # in the default provider").
+      TOOLS_MODEL: openai/gpt-4o-mini
 
     commands:
       - apt-get update && apt-get install -y --no-install-recommends build-essential git && rm -rf /var/lib/apt/lists/*
