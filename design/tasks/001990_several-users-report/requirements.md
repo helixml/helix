@@ -1,97 +1,118 @@
-# Requirements: Auto-resolve "Branch has diverged" on Approve
+# Requirements: Server-side reconcile so "Branch has diverged" stops happening
 
-## Problem
+## What users see
 
-When a user clicks **Accept** on a finished implementation, they often see:
+Approving a finished implementation often pops:
 
 > Branch has diverged - agent is rebasing. Click Accept again after rebase completes.
 
-They then have to:
+They have to wait, watch for the agent, then click **Accept** again. If they click too soon
+they get the same toast. If they don't notice the agent finished, the task sits in
+`implementation_review` indefinitely. Reported on **internal Helix-hosted git** *and*
+**external GitLab**.
 
-1. Wait an unknown amount of time for the agent to finish.
-2. Notice the agent has finished (no signal in the UI).
-3. Click **Accept** a second time.
+A second, related complaint surfaces when the user **approves a spec** while the project's
+`main` has moved upstream. That path doesn't show the same toast — it shows the
+`FormatDivergenceErrorForUser` block ("Cannot sync base branch… use Force Sync to
+overwrite local with upstream"). The user reports both as "branch has diverged" because
+that's the phrase they see; both must be addressed.
 
-If they click too early they see the same message again. If they don't notice the agent has finished, the task sits forever in `implementation_review` even though the user already told the system "merge this".
+## Root cause
 
-This happens for **internal Helix-hosted git** *and* **external GitLab** (and presumably GitHub/ADO/Bitbucket — the merge path is shared).
+Two distinct fast-forward-only assumptions:
 
-The exact toast lives in `frontend/src/services/specTaskWorkflowService.ts:25`, triggered by the
-implementation-approval handler in `api/pkg/server/spec_task_workflow_handlers.go:262-315` when
-`MergeBranchFastForward` fails because `main` advanced after the feature branch was created.
+- **Implementation approve** (`api/pkg/server/spec_task_workflow_handlers.go:262-315`):
+  `MergeBranchFastForward` is fast-forward-only. The moment `main` advances after the
+  feature branch was created (another task lands, an external dev pushes, an operator
+  hot-fixes), fast-forward is impossible. The handler asks the agent to rebase via chat
+  prompt and tells the user to click again.
+- **Spec approve** (`api/pkg/services/spec_driven_task_service.go:1233-1241`):
+  `SyncBaseBranch` performs only a fast-forward of the *local mirror* of `main` from
+  upstream. The moment Helix's local copy diverges from upstream `main` (e.g. Helix
+  pushed a previous merge directly while upstream was reorganised), the sync errors out
+  and the user is told to "Force Sync" or fix it externally.
 
-## Why It Happens
+Both paths refuse to do the obvious thing: a real merge.
 
-`approveImplementation` only does a *fast-forward* merge. If `main` has new commits the feature
-branch doesn't contain (another task's PR landed, an external developer pushed, the operator
-hot-fixed `main`), fast-forward is impossible. The handler:
-
-- Reverts task status to `implementation_review`.
-- Posts `agent_rebase_required.tmpl` to the agent over the chat channel.
-- Returns `200` so the frontend renders the warning toast.
-- Does **not** record the approval (`ImplementationApprovedBy`/`At` stay empty).
-
-When the agent later pushes the rebased branch, `handleFeatureBranchPush`
-(`api/pkg/services/git_http_server.go:955`) records `LastPushAt` but does nothing else — the
-approval intent has been lost, so the user must re-click.
+The project's own merge policy (CLAUDE.md) is **always merge commits, never squash**.
+That policy is incompatible with fast-forward-only. The current code is enforcing a
+linear-history rule the rest of the project doesn't follow.
 
 ## User Stories
 
-### 1. Approve survives a divergence without a second click
+### 1. Implementation approve survives a divergence with one click
 
 **As** a reviewer clicking **Accept** on a completed task,
-**I want** the merge to complete on its own once the branch is reconciled,
-**So that** I don't have to babysit the agent and click again.
+**I want** the merge to complete on its own,
+**So that** I don't have to watch the agent or click again.
 
 **Acceptance Criteria:**
-- Clicking **Accept** records that the user approved (`ImplementationApprovedBy`,
-  `ImplementationApprovedAt` are set on the first click).
-- If fast-forward fails, the UI toast is informational, not a call-to-action — e.g.
-  *"Reconciling with `main` — task will merge automatically when the agent finishes."*
-- When the agent finishes the rebase and pushes, the server retries the merge **without
-  another click** and transitions the task to `done` (internal repo) or `pull_request`
-  (external repo) as appropriate.
-- A second human **Accept** click during the wait is a no-op (idempotent), not an error.
-- The retry happens for both internal-merge and external-merge paths.
+- Single click on **Accept** results in either the task transitioning to `done`
+  (internal repo) / `pull_request` (external repo), or a clear, actionable error.
+- No "Click Accept again" wording exists anywhere in the success or recoverable-error
+  paths.
+- When `main` has advanced and the feature branch is no longer fast-forwardable, the
+  server performs a real merge of `main` into the feature branch (or the equivalent
+  rebase) **server-side** in the bare repo, then completes the merge. The agent is **not**
+  involved unless there is a true textual conflict.
+- For external repos, the merged result is pushed upstream as part of the same
+  request. If the push fails, the local merge is rolled back (existing behavior preserved).
 
-### 2. Cancel/abandon path
+### 2. Spec approve survives a local-mirror divergence
 
-**As** a reviewer who changed their mind during the agent's rebase,
-**I want** to be able to cancel or move the task back to `implementation_review`,
-**So that** I'm not locked into a merge I no longer want.
-
-**Acceptance Criteria:**
-- A "Cancel approval" affordance appears while the task is in the
-  rebase-and-merge waiting state. Clicking it clears the recorded approval
-  intent and leaves the task in `implementation_review`.
-- The agent rebase message is *not* recalled (the rebased branch is harmless to keep), but
-  no automatic merge happens once the agent pushes.
-
-### 3. Real merge conflict still surfaces clearly
-
-**As** a reviewer whose branch genuinely conflicts with `main`,
-**I want** a clear, actionable error rather than a silent retry loop,
-**So that** I know to intervene.
+**As** a user approving a spec on a project whose external `main` has moved,
+**I want** Helix to reconcile its local mirror with upstream and proceed,
+**So that** approval is not blocked by a "Force Sync" instruction every time the
+external repo gets a normal push.
 
 **Acceptance Criteria:**
-- If the post-push retry merge still fails (e.g. the agent's "rebase" didn't actually
-  reconcile, or there are textual conflicts), the task is moved back to
-  `implementation_review` with a visible error explaining what failed.
-- The recorded approval intent is cleared so the next user click is fresh.
-- Repeated retry/failure does not produce a loop of identical error toasts.
+- When `SyncBaseBranch` detects local `main` is behind upstream and not diverged
+  (upstream is strictly ahead), it fast-forwards local `main` to upstream and proceeds —
+  no error.
+- When local `main` and upstream `main` have *both* moved (true divergence), Helix
+  treats upstream as authoritative for the base branch (it's the project's source of
+  truth) and updates the local mirror to upstream's commit, logging a warning. The
+  spec-approval flow proceeds.
+- "Force Sync" remains available as the manual escape hatch for cases where the
+  operator explicitly does not want this behavior, but it's no longer the *only* way
+  through.
 
-### 4. Spec-approval divergence (out of scope but tracked)
+### 3. Real conflicts still surface clearly
 
-The same words ("branch has diverged") also appear when **approving a spec** against an
-external repo whose `main` has moved — that path goes through `SyncBaseBranch` and
-returns `BranchDivergenceError` formatted by `FormatDivergenceErrorForUser`, not the
-toast in this task. **Not included** in this fix; tracked separately so we know the user
-is conflating two distinct flows.
+**As** a reviewer whose feature branch genuinely conflicts with `main`,
+**I want** a clear, actionable error,
+**So that** I know the agent (or I) need to resolve files by hand.
+
+**Acceptance Criteria:**
+- When the server-side merge has actual textual conflicts, the task is held in
+  `implementation_review`, the conflicted files are surfaced in the error response, and
+  the agent is sent a prompt that names the conflicting files.
+- The agent's rebase prompt is updated: it no longer instructs the user to click
+  Accept again; it instructs the agent to resolve and push, and the server's next push
+  handler completes the merge automatically. (See story 1 — push-driven retry is the
+  fallback path, not the primary one.)
+- If a retry on push still fails, the task is left in `implementation_review` with the
+  error preserved; subsequent user clicks are accepted (idempotent) and re-attempt the
+  merge.
+
+### 4. Two reviewers / double-clicks are safe
+
+**As** an operator,
+**I want** approval to be idempotent,
+**So that** simultaneous clicks or accidental double-submits don't corrupt state.
+
+**Acceptance Criteria:**
+- Concurrent calls to `approveImplementation` for the same task do not double-merge
+  or open duplicate PRs. The atomic status transition pattern already used by
+  `ApproveSpecs` (`TransitionSpecTaskStatus`) is the model.
+- A click on a task already in `done` is a no-op returning the current task.
 
 ## Out of Scope
 
-- Resolving real textual merge conflicts automatically.
-- Changing the merge strategy from fast-forward to merge-commit/squash (history-shape
-  decisions belong in their own task).
-- Spec-approval divergence (see story 4).
-- The "Force Sync" tooling for desynced local mirrors of external `main`.
+- Changing the *user-visible* merge result (merge commit vs. fast-forward vs. squash) —
+  story 1 deliberately allows whichever git operation reconciles cleanly. We do *not*
+  introduce a UI for choosing strategy.
+- Conflict resolution UI (file-level pickers etc.).
+- Replacing the agent rebase prompt entirely — it stays for the conflict path.
+- Auto-merging arbitrary upstream pushes back into in-flight feature branches before
+  approval (story 1 only triggers reconcile *at approve time*).
