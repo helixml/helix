@@ -104,8 +104,16 @@
 
 ## Finalise
 
-- [x] Pushed `feature/001980-merge-latest-zed` to Zed remote (commit `42b8107379`)
+- [x] Pushed `feature/001980-merge-latest-zed` to Zed remote (commit `42b8107379`, then `5b6da7aac1` after merging origin/main)
 - [x] Wrote `pull_request_zed.md` and `pull_request_helix.md` in this task directory
-- [x] Bumped `sandbox-versions.txt` `ZED_COMMIT=42b81073797…` and pushed `feature/001980-merge-latest-zed` to Helix remote
+- [x] Bumped `sandbox-versions.txt` `ZED_COMMIT=5b6da7aac1…` and pushed `feature/001980-merge-latest-zed` to Helix remote
 - [x] PRs not opened by agent (per task instructions — Helix UI handles PR creation)
 - [x] Did not force-push `main`
+
+## Post-Approval Re-Merge (2026-05-05)
+
+- [x] Helix `origin/main` advanced (14 PRs landed) — merged cleanly into `feature/001980-merge-latest-zed` (helix), pushed
+- [x] Zed `origin/main` advanced (PR #51 merged 4 new commits adding `--headless` mode + e2e infra) — merged cleanly into `feature/001980-merge-latest-zed` (zed), no conflicts
+- [x] Re-built `./stack build-zed dev` post-merge — clean (1m 31s warm cache, only warnings)
+- [x] `--allow-multiple-instances` and `--headless` flags both present and coexist correctly in `crates/zed/src/main.rs:350-351`
+- [x] Re-bumped `ZED_COMMIT` to `5b6da7aac1` and pushed Helix branch
