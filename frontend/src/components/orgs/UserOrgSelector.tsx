@@ -35,7 +35,6 @@ import useRouter from '../../hooks/useRouter'
 import useLightTheme from '../../hooks/useLightTheme'
 import useThemeConfig from '../../hooks/useThemeConfig'
 import useIsBigScreen from '../../hooks/useIsBigScreen'
-import useUserMenuHeight from '../../hooks/useUserMenuHeight'
 import TokenUsageDisplay from '../system/TokenUsageDisplay'
 import LowCreditsDisplay from '../system/LowCreditsDisplay'
 import SubscriptionStatusBanner from '../subscription/SubscriptionStatusBanner'
@@ -168,7 +167,6 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
   const lightTheme = useLightTheme()
   const themeConfig = useThemeConfig()
   const isBigScreen = useIsBigScreen()
-  const userMenuHeight = useUserMenuHeight()
   const settingsDialog = useSettingsDialog()
   const [dialogOpen, setDialogOpen] = useState(false)
   const [loginDialogOpen, setLoginDialogOpen] = useState(false)
@@ -1097,9 +1095,6 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
             gap: 1.5,
             py: 2,
             mt: 0.5,
-            // Reserve space for the floating user menu so the bottom icons
-            // (Sandbox, Settings) aren't hidden behind it.
-            pb: userMenuHeight ? `${userMenuHeight}px` : 2,
           }}
         >
           <Tooltip title="Switch organization" placement="right">

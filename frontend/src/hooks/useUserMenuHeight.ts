@@ -9,31 +9,34 @@ export const useUserMenuHeight = () => {
   const [userMenuHeight, setUserMenuHeight] = useState(0)
 
   const updateHeight = useCallback(() => {
-    // The floating user menu (Admin Panel / Account Settings / Connected Services
-    // + user profile) is rendered by UserOrgSelector. In the mounted-in-sidebar
-    // case it's position: absolute, in the Portal/compact case it's position:
-    // fixed — both pin to bottom: 0; left: 0. Match either.
+    // Find the floating menu - look for the fixed positioned container that contains user menu
+    // This is more specific to the UserOrgSelector implementation
     const floatingMenus = document.querySelectorAll('[data-compact-user-menu]')
     let totalHeight = 0
-
+    
+    // Find the parent container that's position: fixed
     for (const menu of floatingMenus) {
-      if (!(menu instanceof HTMLElement)) continue
-      let parent: HTMLElement | null = menu.parentElement
-      while (parent) {
-        const cs = window.getComputedStyle(parent)
-        if ((cs.position === 'absolute' || cs.position === 'fixed') &&
-            cs.bottom === '0px' &&
-            cs.left === '0px') {
-          // Visible = opacity 1 AND interactive. Hidden states have opacity 0 + pointerEvents none.
-          if (cs.opacity === '1' && cs.pointerEvents === 'auto') {
-            totalHeight = Math.max(totalHeight, parent.offsetHeight)
+      if (menu instanceof HTMLElement) {
+        let parent = menu.parentElement
+        while (parent) {
+          const computedStyle = window.getComputedStyle(parent)
+          if (computedStyle.position === 'fixed' && 
+              computedStyle.bottom === '0px' && 
+              computedStyle.left === '0px') {
+            // Check if this floating menu is visible
+            const menuComputedStyle = window.getComputedStyle(parent)
+            const isVisible = menuComputedStyle.opacity === '1' && menuComputedStyle.pointerEvents === 'auto'
+            
+                         if (isVisible) {
+               totalHeight = Math.max(totalHeight, parent.offsetHeight)
+             }
+            break
           }
-          break
+          parent = parent.parentElement
         }
-        parent = parent.parentElement
       }
     }
-
+    
     setUserMenuHeight(totalHeight)
   }, [])
 

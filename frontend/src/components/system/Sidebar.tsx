@@ -366,21 +366,12 @@ const SidebarContentInner: React.FC<{
         </Box>
         <Box
           sx={{
-            // flex-grow: 0 + max-height = sized to content, scrolls if content
-            // exceeds the cap. This avoids the dead empty space inside the box
-            // that flex-grow:1 produced when the nav had only a few items.
-            flexGrow: 0,
-            flexShrink: 1,
+            flexGrow: 1,
             width: '100%',
-            minHeight: 0,
-            // Reserve space for the floating user menu (Admin Panel etc., which
-            // is rendered position: absolute over the bottom of the sidebar).
-            // Use flexBasis 0 + maxHeight calc so the box can scroll when long
-            // and shrinks when short.
-            maxHeight: userMenuHeight ? `calc(100% - ${userMenuHeight}px)` : '100%',
-            overflow: 'auto',
-            boxShadow: 'none',
-            borderRight: 'none',
+            height: '100%', // Fixed height to fill available space
+            overflow: 'auto', // Enable scrollbar when content exceeds height
+            boxShadow: 'none', // Remove shadow for a more flat/minimalist design
+            borderRight: 'none', // Remove the border if present
             mr: 3,
             mt: 1,
             ...lightTheme.scrollbar,
