@@ -530,13 +530,13 @@ const Layout: FC<{
                 : 64,
               boxSizing: "border-box",
               overflowX: "hidden", // Prevent horizontal scrolling
-              // Mobile gets full height, desktop respects user menu
-              // Use dvh (dynamic viewport height) for iOS Safari compatibility
-              height: isBigScreen
-                ? userMenuHeight > 0
-                  ? `calc(100dvh - ${userMenuHeight}px)`
-                  : "100%"
-                : "100dvh",
+              // Drawer takes full viewport height. The floating user menu is
+              // rendered position: absolute INSIDE the Drawer (in the LEFT
+              // rail), so shrinking the Drawer here would just leave a
+              // visible gap below it. The shrink-by-userMenuHeight happens in
+              // Sidebar.tsx for the secondary nav's content column only.
+              // Use dvh (dynamic viewport height) for iOS Safari compatibility.
+              height: isBigScreen ? "100%" : "100dvh",
               overflowY: "auto", // Both columns scroll together
               display: "flex",
               flexDirection: "row",
@@ -570,8 +570,16 @@ const Layout: FC<{
                 py: 0,
                 ...(shouldShowSidebar
                   ? {
-                      // Only show border when sidebar is visible
+                      // Activity-bar pattern: in light mode the rail is a
+                      // slightly darker panel color (vs the white secondary
+                      // nav). Without this, the empty space below the icons
+                      // (caused by the inner column's justifyContent:
+                      // space-between in UserOrgSelector — icons pinned top,
+                      // user trigger pinned bottom) reads as a 250px hole of
+                      // pure white. Dark mode is unaffected (panelColor maps
+                      // to darkPanel which already blends with the drawer).
                       borderRight: lightTheme.border,
+                      bgcolor: lightTheme.panelColor,
                     }
                   : {
                       // When sidebar is hidden, no border and background

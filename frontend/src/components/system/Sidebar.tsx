@@ -235,7 +235,13 @@ const SidebarContentInner: React.FC<{
     <SlideMenuContainer menuType={menuType}>
       <Box
         sx={{
-          height: '100%',
+          // Floating user menu (Admin Panel etc.) is rendered position: absolute
+          // inside the LEFT rail with right: -312px and an opaque white bg, so
+          // it overlays the bottom 190px of the full Drawer width. Shrinking
+          // THIS Box (the secondary nav's content column) by the menu's measured
+          // height makes the children scroll area end exactly where the menu
+          // starts — items can't scroll into the obscured zone.
+          height: userMenuHeight ? `calc(100% - ${userMenuHeight}px)` : '100%',
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
