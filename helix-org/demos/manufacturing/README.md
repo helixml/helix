@@ -163,6 +163,13 @@ cd /home/phil/helix/helix-org
 ./bin/helix-org chat --new
 ```
 
+> **Always pass `--new`** when you've rebuilt the binary or upgraded
+> helix-org. The chat-driving claude caches MCP tool schemas at the
+> start of a session — without `--new` it'll keep using stale
+> definitions (missing enum constraints, outdated descriptions) even
+> though the server has fresh ones. `--new` forces a clean session
+> and a fresh `tools/list`.
+
 Paste this single block into the chat. It is one prompt — the
 chat-driving claude will create four streams, one role, one
 position, one worker, and wait for them all to come online before
@@ -173,15 +180,12 @@ returning.
 > Read `./demos/manufacturing/roles/quality-bot.md` and create role
 > `r-quality-bot` from its body verbatim.
 >
-> Create four streams. **Every** stream below must be created with
-> `transport.kind: "webhook"` — including `s-ncr-raised`. Do **not**
-> omit the transport field; the default is `local` (in-process
-> pub/sub) and a `local` stream cannot receive `POST /webhooks/...`
-> traffic. Always pass `id` and `name` equal to the stream name so
-> the role's references resolve.
->
-> Use the `create_stream` tool with these exact arguments, one call
-> per stream:
+> Create four streams with the `create_stream` tool — one call per
+> stream, with `transport.kind: "webhook"` on every one and `id` and
+> `name` equal to the stream name so the role's references resolve.
+> (`create_stream`'s schema lists `local | webhook | email | github`
+> as the valid transport kinds; do not invent variants like
+> `incoming-webhook`.) Use these exact arguments:
 >
 > ```json
 > {"id":"s-ncr-raised","name":"s-ncr-raised","transport":{"kind":"webhook"}}
@@ -205,12 +209,6 @@ returning.
 > `r-quality-bot`. Hire AI worker `w-quality-bot` into it; identity
 > is `You are Quality Bot, the on-call NCR coordinator at Lincoln
 > Plant.` Grant `subscribe` and `publish`.
->
-> After hiring, call `get_stream` on each of `s-ncr-raised`,
-> `s-supervisor`, `s-customers`, `s-supplier` and confirm the
-> response shows `transport.kind == "webhook"` for **all four**. If
-> any one is `local`, recreate that stream with the correct
-> transport before continuing.
 >
 > Then `worker_log` on `w-quality-bot` with `wait=180` and tell me
 > when the hire activation finishes — the first activation against
@@ -330,7 +328,7 @@ Stop here. Do not start a Q&A live demo.
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `curl` returns `404 stream "s-ncr-raised" is not a webhook stream` | Stream was created with the default `local` transport. | In chat: `create_stream` with `{"id":"s-ncr-raised","name":"s-ncr-raised","transport":{"kind":"webhook"}}` — re-creating overwrites. Then re-run the smoke test. |
+| `curl` returns `404 stream "s-ncr-raised" is not a webhook stream` | Stream was created with the default `local` transport. (Should be impossible on a recent binary — the `create_stream` schema now enums the valid kinds. If you see this, you're on a stale chat session with cached schemas — restart `chat --new`.) | In chat: `create_stream` with `{"id":"s-ncr-raised","name":"s-ncr-raised","transport":{"kind":"webhook"}}` — re-creating overwrites. Then re-run the smoke test. |
 | `curl` returns `404 stream not found` | Stream `id` wasn't set on create (got an auto-UUID instead). | In chat: `list_streams`. If `s-ncr-raised` is missing or shows a UUID id, recreate it with `id="s-ncr-raised"` AND `name="s-ncr-raised"`. |
 | Slack pane empty after curl | mock-channels not reachable from helix-org. | `docker ps` for `mfg-mock`; confirm port 7765 is free; container started with `--network host`. |
 | Hire takes > 3 minutes | Helix sandbox cold-start. | Wait it out. The second activation reuses the warm session and is much faster. |
