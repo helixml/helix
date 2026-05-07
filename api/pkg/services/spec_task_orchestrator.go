@@ -37,6 +37,7 @@ type SpecTaskOrchestrator struct {
 	containerExecutor     ContainerExecutor // Executor for external agent containers
 	goldenBuildService    *GoldenBuildService
 	attentionService      *AttentionService
+	ciNotifier            CINotifier    // Delivers ci_passed / ci_failed messages to running agents
 	ensurePRs             EnsurePRsFunc // Callback to create missing PRs (set by server)
 	stopChan              chan struct{}
 	wg                    sync.WaitGroup
@@ -91,6 +92,13 @@ func (o *SpecTaskOrchestrator) SetGoldenBuildService(svc *GoldenBuildService) {
 // SetAttentionService sets the attention service for emitting human-needed events.
 func (o *SpecTaskOrchestrator) SetAttentionService(svc *AttentionService) {
 	o.attentionService = svc
+}
+
+// SetCINotifier sets the notifier used to deliver CI result messages to a
+// running agent. When nil, the orchestrator still tracks CI status on the
+// task but skips agent-side messaging (human attention events still fire).
+func (o *SpecTaskOrchestrator) SetCINotifier(n CINotifier) {
+	o.ciNotifier = n
 }
 
 // Start begins the orchestration loop
@@ -747,6 +755,12 @@ func (o *SpecTaskOrchestrator) processExternalPullRequestStatus(ctx context.Cont
 		newState := string(pr.State)
 		if task.RepoPullRequests[i].PRState != newState {
 			task.RepoPullRequests[i].PRState = newState
+			updated = true
+		}
+
+		// CI status: poll the provider for the PR's head SHA, fire
+		// transition notifications, persist if anything changed.
+		if o.pollCIStatusForPR(ctx, task, &task.RepoPullRequests[i], pr) {
 			updated = true
 		}
 
