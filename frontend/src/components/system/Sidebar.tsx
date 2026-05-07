@@ -366,15 +366,18 @@ const SidebarContentInner: React.FC<{
         </Box>
         <Box
           sx={{
-            flexGrow: 1,
+            // flex-grow: 0 + max-height = sized to content, scrolls if content
+            // exceeds the cap. This avoids the dead empty space inside the box
+            // that flex-grow:1 produced when the nav had only a few items.
+            flexGrow: 0,
+            flexShrink: 1,
             width: '100%',
-            // Don't set height: 100% — that overrides flex sizing and lets the
-            // children Box stretch beyond the available space, so bottom entries
-            // hide behind the floating user menu (Admin Panel / etc.) which is
-            // rendered position: absolute and overlays the bottom of the sidebar.
-            // minHeight: 0 lets flex shrink correctly. The sibling spacer below
-            // reserves the menu's height so flexGrow stops short of overlapping it.
             minHeight: 0,
+            // Reserve space for the floating user menu (Admin Panel etc., which
+            // is rendered position: absolute over the bottom of the sidebar).
+            // Use flexBasis 0 + maxHeight calc so the box can scroll when long
+            // and shrinks when short.
+            maxHeight: userMenuHeight ? `calc(100% - ${userMenuHeight}px)` : '100%',
             overflow: 'auto',
             boxShadow: 'none',
             borderRight: 'none',
@@ -385,12 +388,6 @@ const SidebarContentInner: React.FC<{
         >
           { children }
         </Box>
-        {/* Spacer: reserves vertical space equal to the floating user menu so
-            the children Box flex-grows to (available - menu) instead of stretching
-            behind it. */}
-        {userMenuHeight > 0 && (
-          <Box sx={{ width: '100%', height: `${userMenuHeight}px`, flexShrink: 0 }} />
-        )}
         {/* User section moved to UserOrgSelector component */}
       </Box>
 
