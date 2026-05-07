@@ -905,23 +905,30 @@ func (d *SettingsDaemon) runConfigEventLoop() error {
 // string is treated as dark for now (matches the default Yaru Dark loaded by
 // startup-app.sh).
 //
-// We have to set BOTH:
+// We have to set:
 //   - color-scheme (the modern preference signal libadwaita / GNOME 42+ apps
 //     respect)
 //   - gtk-theme (the actual rendered theme — without this, GTK3 apps + the
 //     shell stay on whatever was loaded at startup, so the desktop looks
 //     unchanged even when color-scheme says prefer-light)
+//   - desktop wallpaper (helix-logo is dark; swap to a Yaru light wallpaper
+//     in light mode so the desktop reads as actually light, not just
+//     "dark wallpaper with light app chrome")
 func (d *SettingsDaemon) applyGNOMEColorScheme(scheme string) {
 	colorScheme := "prefer-dark"
 	gtkTheme := "Yaru-dark"
+	wallpaper := "file:///usr/share/backgrounds/helix-logo.png"
 	if scheme == "light" {
 		colorScheme = "prefer-light"
 		gtkTheme = "Yaru"
+		wallpaper = "file:///usr/share/backgrounds/Questing_Quokka_Full_Light_3840x2160.png"
 	}
 
 	cmds := [][]string{
 		{"gsettings", "set", "org.gnome.desktop.interface", "color-scheme", colorScheme},
 		{"gsettings", "set", "org.gnome.desktop.interface", "gtk-theme", gtkTheme},
+		{"gsettings", "set", "org.gnome.desktop.background", "picture-uri", wallpaper},
+		{"gsettings", "set", "org.gnome.desktop.background", "picture-uri-dark", wallpaper},
 	}
 	for _, c := range cmds {
 		out, err := exec.Command(c[0], c[1:]...).CombinedOutput()
@@ -929,7 +936,7 @@ func (d *SettingsDaemon) applyGNOMEColorScheme(scheme string) {
 			log.Printf("gsettings %v failed: %v (%s)", c[1:], err, strings.TrimSpace(string(out)))
 		}
 	}
-	log.Printf("applied GNOME color-scheme=%s gtk-theme=%s", colorScheme, gtkTheme)
+	log.Printf("applied GNOME color-scheme=%s gtk-theme=%s wallpaper=%s", colorScheme, gtkTheme, wallpaper)
 }
 
 // SECURITY_PROTECTED_FIELDS must not be synced to the Helix API
