@@ -21,7 +21,24 @@ type CreateStream struct {
 
 const CreateStreamName domain.ToolName = "create_stream"
 
-var createStreamSchema = mustSchema[createStreamArgs]()
+var createStreamSchema = func() *jsonschema.Schema {
+	s := mustSchema[createStreamArgs]()
+	// transport accepts either the object form or a bare TransportKind
+	// string shorthand. Replace the auto-derived object schema with a
+	// oneOf so strict-schema MCP clients accept both shapes.
+	if t, ok := s.Properties["transport"]; ok {
+		object := *t // copy: object shape minus the union wrapper
+		object.Type = "object"
+		s.Properties["transport"] = &jsonschema.Schema{
+			Description: "Transport for the new Stream. Either a bare string naming the kind (\"local\" / \"webhook\" / \"email\" / \"github\") or an object with kind and optional config.",
+			OneOf: []*jsonschema.Schema{
+				enumSchema(domain.TransportKindValues(), "Transport kind shorthand."),
+				&object,
+			},
+		}
+	}
+	return s
+}()
 
 func (t *CreateStream) Name() domain.ToolName { return CreateStreamName }
 func (t *CreateStream) Description() string {
@@ -47,6 +64,32 @@ type createStreamArgs struct {
 type createStreamTransport struct {
 	Kind   domain.TransportKind `json:"kind"`
 	Config json.RawMessage      `json:"config,omitempty"`
+}
+
+// UnmarshalJSON accepts either the canonical object form
+// (`{"kind":"webhook","config":{...}}`) or a bare string shorthand
+// (`"webhook"`) that means `{"kind":"webhook"}`. Smaller chat
+// models reliably collapse the object to its discriminator string
+// once they've seen the `kind` enum on the schema; refusing the
+// shorthand just makes them retry. Both shapes are unambiguous and
+// mean the same thing.
+func (t *createStreamTransport) UnmarshalJSON(data []byte) error {
+	if len(data) > 0 && data[0] == '"' {
+		var kind domain.TransportKind
+		if err := json.Unmarshal(data, &kind); err != nil {
+			return err
+		}
+		t.Kind = kind
+		t.Config = nil
+		return nil
+	}
+	type raw createStreamTransport
+	var r raw
+	if err := json.Unmarshal(data, &r); err != nil {
+		return err
+	}
+	*t = createStreamTransport(r)
+	return nil
 }
 
 func (t *CreateStream) Invoke(ctx context.Context, inv domain.Invocation) (json.RawMessage, error) {
