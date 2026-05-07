@@ -73,6 +73,15 @@ sandbox:
   # 120-240 recommended for remote connections
   gopSize: 120
 
+  # Extra environment variables appended to the sandbox container's env block.
+  # Use this to set hydra-side knobs that don't have a structured value
+  # (e.g. HELIX_SANDBOX_APT_MIRROR for air-gapped APT mirrors).
+  # Example:
+  #   extraEnv:
+  #     - name: HELIX_SANDBOX_APT_MIRROR
+  #       value: "http://apt.internal/ubuntu"
+  extraEnv: []
+
 # Hydra configuration (multi-tenant container isolation)
 hydra:
   # Enable Hydra for per-session Docker daemon isolation

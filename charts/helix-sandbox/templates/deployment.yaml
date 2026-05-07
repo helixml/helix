@@ -173,6 +173,12 @@ spec:
             - name: GST_DEBUG
               value: {{ .Values.debug.gstDebug | quote }}
 
+            # Operator-supplied env (e.g. HELIX_SANDBOX_APT_MIRROR).
+            # Listed last so values here override anything above.
+            {{- with .Values.sandbox.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+
           volumeMounts:
             - name: docker-storage
               mountPath: /var/lib/docker
