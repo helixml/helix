@@ -10,6 +10,10 @@ export interface ITheme {
   url: string,
   primary: string,
   secondary: string,
+  // Brand cyan is lovely on dark, but #00d5ff on a white background fails
+  // basic contrast. Use this darker teal for light-mode MUI secondary so
+  // buttons / accents stay readable in sunlight.
+  lightSecondary: string,
   darkIcon: string,
   darkIconHover: string,
   darkHighlight: string,
@@ -93,6 +97,7 @@ export const THEMES: Record<string, ITheme> = {
     // secondary: '#00d5ff',
     primary: '#8989a5',
     secondary: '#00d5ff',
+    lightSecondary: '#0e7490', // cyan-700 — passes WCAG AA on white
     darkIcon: '#7fd8ff',
     darkIconHover: '#4fc3f7',
     darkHighlight: '#4fc3f7',
@@ -109,8 +114,8 @@ export const THEMES: Record<string, ITheme> = {
     lightScrollbarThumb: '#c0c0c0',
     lightScrollbarHover: '#a0a0a0',
     lightIcon: '#5d5d7b',
-    lightIconHover: '#00d5ff',
-    lightHighlight: '#00d5ff',
+    lightIconHover: '#0e7490', // cyan-700 — passes WCAG AA on white
+    lightHighlight: '#0e7490',
     lightBackgroundColor: "#ffffff",
     lightBackgroundImage: "url('/img/nebula-light.png')",
     lightBorder: "1px solid #aeaeae",

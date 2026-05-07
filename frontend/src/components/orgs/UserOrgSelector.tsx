@@ -105,13 +105,15 @@ const NavButton: FC<NavButtonProps> = ({ icon, tooltip, isActive, onClick, label
   const lightTheme = useLightTheme()
   const isLight = lightTheme.isLight
   const activeText = isLight ? '#0F172A' : '#E2E8F0'
-  const inactiveText = isLight ? '#475569' : '#A0AEC0'
-  const activeBg = isLight ? 'rgba(15, 23, 42, 0.08)' : 'rgba(226, 232, 240, 0.15)'
-  const activeBorder = isLight ? 'rgba(15, 23, 42, 0.18)' : 'rgba(226, 232, 240, 0.3)'
+  // Light-mode inactive nav items were "way too gray on white" (slate-500/600).
+  // Bump to slate-800/900 family so icons + labels read clearly in sunlight.
+  const inactiveText = isLight ? '#1E293B' : '#A0AEC0'
+  const activeBg = isLight ? 'rgba(15, 23, 42, 0.10)' : 'rgba(226, 232, 240, 0.15)'
+  const activeBorder = isLight ? 'rgba(15, 23, 42, 0.22)' : 'rgba(226, 232, 240, 0.3)'
   const hoverBg = isLight
-    ? (isActive ? 'rgba(15, 23, 42, 0.12)' : 'rgba(15, 23, 42, 0.05)')
+    ? (isActive ? 'rgba(15, 23, 42, 0.14)' : 'rgba(15, 23, 42, 0.06)')
     : (isActive ? 'rgba(226, 232, 240, 0.2)' : 'rgba(226, 232, 240, 0.1)')
-  const labelInactive = isLight ? '#64748B' : '#6B7280'
+  const labelInactive = isLight ? '#334155' : '#6B7280'
   return (
     <Tooltip title={tooltip} placement="right">
       <Box

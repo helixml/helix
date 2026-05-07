@@ -95,7 +95,7 @@ const ContextSidebar: FC<ContextSidebarProps> = ({
               <ListItemIcon
                 sx={{
                   minWidth: isCompact ? 34 : 40,
-                  color: item.isActive ? '#00E5FF' : lightTheme.textColorFaded,
+                  color: item.isActive ? (lightTheme.isLight ? '#0e7490' : '#00E5FF') : lightTheme.textColorFaded,
                   transition: 'color 0.2s ease-in-out',
                   '& svg': {
                     fontSize: isCompact ? 18 : 22,

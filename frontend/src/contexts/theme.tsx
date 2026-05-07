@@ -84,7 +84,9 @@ export const ThemeProviderWrapper = ({ children }: { children: ReactNode }) => {
           main: themeConfig.primary,
         },
         secondary: {
-          main: themeConfig.secondary,
+          // Brand cyan #00d5ff is illegible on white, so light mode uses a
+          // darker teal that still reads as the same brand family.
+          main: isLight ? themeConfig.lightSecondary : themeConfig.secondary,
         },
         mode: mode,
         background: {
