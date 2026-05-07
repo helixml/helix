@@ -11,8 +11,9 @@
 | `external_websocket_sync` wiring | ❌ Tightly coupled to the agent panel. `setup_thread_handler` and `init_websocket_service` are called from `initialize_agent_panel` (`crates/zed/src/zed.rs:826-855`), which only runs once a workspace window exists. |
 | `Project` / `ThreadStore` / `Fs` available without a workspace | ⚠️ Need to construct manually. All of these are independently constructible (`Project::local`, `ThreadStore::new`, `RealFs::new`); none of them require a window. |
 | MCP `ContextServerStore` and `AgentServerStore` | ✅ Already work in `HeadlessProject` (`crates/remote_server/src/headless_project.rs:233-252`). They start whenever a `Project` exists; UI is irrelevant. |
+| `remote_server` binary (the SSH-host daemon) | ⚠️ Real and headless, but **wrong shape** for our use case — it's an RPC server that exposes project state to a Zed client elsewhere; it never initializes language models, providers, or the agent. See decision D-2. |
 
-So the answer to "does Zed already support headless?" is **partially**: the GPUI/platform plumbing is there, but the *Helix-specific* sync wiring is hard-bound to the agent-panel UI and there is no top-level switch in `main()` to skip workspace creation.
+So the answer to "does Zed already support headless?" is **partially**: the GPUI/platform plumbing is there, the SSH-host daemon proves the headless platform works in production, but the *Helix-specific* sync wiring is hard-bound to the agent-panel UI and there is no top-level switch in `main()` to skip workspace creation.
 
 ## High-level architecture
 
@@ -103,9 +104,27 @@ let headless = std::env::var_os("ZED_HEADLESS").is_some();
 
 This is read once near the top of `main()` and then used to (1) pick the platform via `current_platform(headless)`, (2) skip the single-instance check, (3) branch into `run_headless` instead of `restore_or_create_workspace`, and (4) skip window/menu setup. Operators discover it via the headless mode docs added under `crates/external_websocket_sync/README.md`.
 
-### D-2 — `Project::local` over `HeadlessProject`
+### D-2 — `Project::local` over `HeadlessProject`, and why we cannot reuse the `remote_server` binary
 
-`HeadlessProject` (`crates/remote_server/src/headless_project.rs`) is the SSH-server flavour: it expects an `AnyProtoClient` and proxies file/buffer ops over RPC. The Helix WebSocket sync isn't an RPC client of that kind — it's a thread driver. A regular `Project::local` rooted at `$PWD` gives us:
+There are two separate questions hiding here: (a) which *Project* shape we use, and (b) whether we ship a separate binary derived from `remote_server`. The investigation below shows that we want `Project::local` for (a) and we should **not** reuse the `remote_server` binary for (b).
+
+**What `remote_server` actually is.** `crates/remote_server/` produces a separate binary called `remote-server` (`crates/remote_server/Cargo.toml` `[[bin]]` section). It runs on the SSH host and serves project state — worktrees, buffers, LSP, MCP — over Zed's RPC protocol to a Zed client running on the user's laptop. It already uses the headless GPUI platform (`crates/remote_server/src/server.rs:462` calls `gpui_platform::headless()`), so there is genuinely overlap with what we want.
+
+**Where the agent runs in SSH-remote mode: the client.** This was the surprise. `language_model::init` and `language_models::init` are called from the main `zed` binary (`crates/zed/src/main.rs:657, 663`), and they require `UserStore` + `Client` entities. `remote_server` calls **neither**: it has no `LanguageModelRegistry`, no provider registrations (Anthropic / OpenAI / Google), no Zed-Cloud auth, no `RefreshLlmTokenListener`. The `AgentServerStore` and `ContextServerStore` it constructs in `headless_project.rs:233-252` are *registries of locally-runnable processes*, not active drivers — the actual NativeAgent + LLM API calls happen on the client's `agent_panel`. So a Zed client connected over SSH still does the LLM round-trips itself; the SSH host just exposes files and starts MCP processes on demand.
+
+**Why this kills the "extend `remote_server`" idea.** To make `remote_server` drive the Helix WebSocket sync, we would have to graft on:
+
+- `language_model::init` + `language_models::init`
+- All language-model providers and their settings
+- A `UserStore` + `Client` (today `remote_server` is RPC-server-side and has neither)
+- `RefreshLlmTokenListener` for credential refresh
+- `agent_ui::init` (or a parallel headless equivalent of every callback the panel registers)
+
+That is essentially "rebuild the agent half of the main `zed` binary inside `remote_server`." Two binaries, two init paths, two Cargo dependency graphs. Every upstream change to language-model init becomes a double-write. The Helix fork already has `portingguide.md` warning about rebase fragility — adding a parallel init path would multiply that surface.
+
+**What we *do* steal from `remote_server`.** The proof that it works. `HeadlessProject` shows that `ContextServerStore::local` + `AgentServerStore::local` happily run without UI when given a `Project`. That's exactly the part of the architecture we are reusing — but via `Project::local` inside the main `zed` binary, not via the `remote_server` binary.
+
+**Project::local vs HeadlessProject.** `HeadlessProject` is RPC-server-shaped: it takes an `AnyProtoClient` (`headless_project.rs:51-73`) and shares its stores back to a remote client via `.shared(REMOTE_SERVER_PROJECT_ID, session.clone(), cx)`. The Helix sync is not that kind of RPC client — it doesn't speak Zed's collab protocol. A regular `Project::local` rooted at `$PWD` gives us everything we need:
 
 - A `ContextServerStore` automatically (`Project` constructs one in `Project::local`).
 - An `AgentServerStore` automatically.
