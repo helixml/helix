@@ -9,7 +9,7 @@
 - [x] Add `GetCIStatus(ctx, project, repoID, commitID)` to `api/pkg/agent/skill/azure_devops/client.go` — uses Build API filtered by repository, matches by SourceVersion.
 - [x] Bitbucket: add stub `GetCIStatus()` returning `(nil, nil)` (treated as "none" by caller) with a TODO comment.
 - [x] In the ADO `GetCIStatus` implementation, treat 401/403 from the Build API as `ErrCIScopeMissing`. The dispatcher in `git_repository_service_ci_status.go` catches it and degrades to `"none"` with a one-time warn log.
-- [ ] Update the ADO connection UI hint (`frontend/src/components/...` for git provider connection) to mention `vso.build` is required for CI status — locate the existing scope hint and amend.
+- [x] Update the ADO connection UI hint (`frontend/src/components/git/SettingsTab.tsx`) to mention Build (Read) is required for CI status. The PAT helperText now lists "Code (Read & Write) and Build (Read)".
 
 ## Backend — unified dispatcher
 
