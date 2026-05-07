@@ -26,8 +26,19 @@ Two related changes to the design review screen (`DesignReviewContent.tsx` + `Re
 
 ## Test Plan
 
-- [ ] Open a spec task with a pending design review — "Next Document" button visible, red dots on unviewed tabs.
-- [ ] Click "Next Document" repeatedly — active tab advances, red dot clears, button flips to "Approve Design" (enabled) once all tabs viewed.
-- [ ] Trigger a content change while viewing a tab — that tab does NOT get a red dot.
-- [ ] Trigger a content change to a non-active tab — it DOES get a red dot.
-- [ ] Add an unresolved comment — button reverts to disabled "Approve Design" with the existing unresolved-comments alert (not "Next Document").
+All five scenarios verified manually in the inner Helix browser (screenshots in `helix-specs` task directory):
+
+- [x] Pending design review with two unviewed tabs → "NEXT DOCUMENT" button visible.
+- [x] Click "NEXT DOCUMENT" twice → active tab advances Requirements → Technical Design → Implementation Plan; after the third tab is viewed, button flips to "APPROVE DESIGN" (enabled).
+- [x] Updated active tab's content via DB → content refreshes in UI, button stays "APPROVE DESIGN" (active tab NOT marked unread). **Bug fix verified.**
+- [x] Updated a non-active tab's content via DB → button flips back to "NEXT DOCUMENT" (non-active tab IS marked unread).
+- [x] Inserted unresolved comment via DB → tab badge shows "1", button is disabled "APPROVE DESIGN" with "1 unresolved comment" warning Alert (NOT "Next Document").
+
+## Screenshots
+
+![Initial: Next Document button with two unviewed tabs](https://github.com/helixml/helix/raw/helix-specs/design/tasks/001974_so-we-have-this/screenshots/01-next-document-on-requirements.png)
+![After first Next click: Technical Design active](https://github.com/helixml/helix/raw/helix-specs/design/tasks/001974_so-we-have-this/screenshots/02-after-first-next-on-technical-design.png)
+![After second Next click: Approve Design enabled](https://github.com/helixml/helix/raw/helix-specs/design/tasks/001974_so-we-have-this/screenshots/03-approve-design-after-all-tabs-viewed.png)
+![Bug fix: active tab content changed, button stays Approve](https://github.com/helixml/helix/raw/helix-specs/design/tasks/001974_so-we-have-this/screenshots/04-active-tab-content-changed-still-approve.png)
+![Non-active tab content changed: button flips back to Next](https://github.com/helixml/helix/raw/helix-specs/design/tasks/001974_so-we-have-this/screenshots/05-non-active-tab-changed-button-flips-to-next.png)
+![Unresolved comment: disabled Approve, NOT Next Document](https://github.com/helixml/helix/raw/helix-specs/design/tasks/001974_so-we-have-this/screenshots/06-unresolved-comment-disables-approve-not-next.png)
