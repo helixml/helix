@@ -7,22 +7,27 @@
 - [x] Add `GetCIStatus(ctx, owner, repo, sha)` to `api/pkg/agent/skill/github/client.go` — combines `Repositories.GetCombinedStatus` and `Checks.ListCheckRunsForRef`, takes the worst conclusion.
 - [x] Add `GetCIStatus(ctx, projectID, sha)` to `api/pkg/agent/skill/gitlab/client.go` — uses `Pipelines.ListProjectPipelines` filtered by SHA.
 - [x] Add `GetCIStatus(ctx, project, repoID, commitID)` to `api/pkg/agent/skill/azure_devops/client.go` — uses Build API filtered by repository, matches by SourceVersion.
-- [~] Bitbucket: add stub `GetCIStatus()` returning `("none", "", nil)` with a TODO comment.
-- [x] In the ADO `GetCIStatus` implementation, treat 401/403 from the Build API as `ErrCIScopeMissing` (so existing PATs without `vso.build` don't break the UI). The orchestrator will treat this error as `"none"` and emit a one-time log warning.
+- [x] Bitbucket: add stub `GetCIStatus()` returning `(nil, nil)` (treated as "none" by caller) with a TODO comment.
+- [x] In the ADO `GetCIStatus` implementation, treat 401/403 from the Build API as `ErrCIScopeMissing`. The dispatcher in `git_repository_service_ci_status.go` catches it and degrades to `"none"` with a one-time warn log.
 - [ ] Update the ADO connection UI hint (`frontend/src/components/...` for git provider connection) to mention `vso.build` is required for CI status — locate the existing scope hint and amend.
-- [ ] Unit tests for `normalizeCIStatus` covering each provider's known verdicts.
+
+## Backend — unified dispatcher
+
+- [x] Add `HeadSHA string` to `types.PullRequest`; populate in GitHub (`Head.SHA`), GitLab (`SHA`), ADO (`LastMergeSourceCommit.CommitId`).
+- [x] Add `types.CIStatus { State, URL, HeadSHA }` and `GitRepositoryService.GetCIStatus(ctx, repoID, prID, headSHA)` dispatcher in new file `pkg/services/git_repository_service_ci_status.go`.
+- [x] Unit tests for `NormalizeCIStatus` covering each provider's known verdicts.
 
 ## Backend — notification & orchestrator
 
-- [ ] Create `api/pkg/services/spec_task_ci_notifier.go` with `CINotifier` interface, mirroring the structure of `SpecTaskReviewNotifier`.
-- [ ] Implement the production `CINotifier` that calls `sendChatMessageToExternalAgent()` with `interrupt: false` and persists a waiting interaction if the agent is offline.
+- [x] Create `api/pkg/services/spec_task_ci_notifier.go` with `CINotifier` interface.
+- [~] Implement the production `CINotifier` that calls `sendChatMessageToExternalAgent()` with `interrupt: false` and persists a waiting interaction if the agent is offline.
 - [ ] Generate a `gomock` mock for `CINotifier` (run `mockgen` consistent with existing patterns).
-- [ ] Add `ci_passed` and `ci_failed` event-type constants in `api/pkg/services/attention_service.go`.
-- [ ] In `pollPullRequests` (`api/pkg/services/spec_task_orchestrator.go`): for each tracked PR, after PR state update, call `client.GetCIStatus()` for the PR's head SHA.
-- [ ] Reset cached `CIStatus = ""` if `RepoPR.CIHeadSHA` differs from the new head SHA (handles force-push / new commits).
-- [ ] Detect `running → passed` transition: call `CINotifier.NotifyCIResult(...)` and `attention.EmitEvent("ci_passed")`.
-- [ ] Detect `running → failed` transition: same with `"ci_failed"`.
-- [ ] Persist updated `RepoPR` (with new `CIStatus`, `CIURL`, `CIUpdatedAt`, `CIHeadSHA`) back to the task row.
+- [x] Add `AttentionEventCIPassed` / `AttentionEventCIFailed` constants in `pkg/types/attention_event.go`; update `attention_service.go` `buildTitle` / `buildDescription` / `eventEmoji`.
+- [x] Add `pollCIStatusForPR` to the orchestrator and call it from `processExternalPullRequestStatus` for each tracked PR.
+- [x] Reset cached `CIStatus = ""` if `RepoPR.CIHeadSHA` differs from the new head SHA (handles force-push / new commits).
+- [x] Detect `running → passed` transition: call `CINotifier.NotifyCIResult(...)` + `attention.EmitEvent(AttentionEventCIPassed)`.
+- [x] Detect `running → failed` transition: same with `AttentionEventCIFailed`.
+- [x] Persist updated `RepoPR` (with new `CIStatus`, `CIURL`, `CIUpdatedAt`, `CIHeadSHA`) back to the task row (via existing `updated` flag in `processExternalPullRequestStatus`).
 - [ ] Orchestrator tests for transition detection: no notify on first observation, notify on first transition, no double-notify on restart with same cached status, reset on new SHA.
 
 ## Frontend
