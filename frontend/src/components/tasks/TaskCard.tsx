@@ -145,6 +145,7 @@ export interface SpecTaskWithExtras {
   // Assignee tracking
   assignee_id?: string;
   labels?: string[];
+  created_at?: string;
   updated_at?: string;
   last_push_at?: string;
 }
