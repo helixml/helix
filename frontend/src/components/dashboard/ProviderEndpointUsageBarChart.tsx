@@ -1,5 +1,6 @@
 import React from 'react';
 import { Box, Tooltip, Typography } from '@mui/material';
+import useLightTheme from '../../hooks/useLightTheme';
 import { TypesAggregatedUsageMetric } from '../../api/api';
 
 interface ProviderEndpointUsageBarChartProps {
@@ -162,6 +163,7 @@ const ProviderEndpointUsageBarChart: React.FC<ProviderEndpointUsageBarChartProps
   data,
   onClick,
 }) => {
+  const lightTheme = useLightTheme();
   const points = React.useMemo(() => {
     if (!data || data.length === 0) return [];
     const sorted = [...data].sort(
@@ -179,7 +181,7 @@ const ProviderEndpointUsageBarChart: React.FC<ProviderEndpointUsageBarChartProps
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          color: '#6B7280',
+          color: lightTheme.isLight ? '#475569' : '#6B7280',
           fontSize: 12,
         }}
       >
@@ -236,7 +238,7 @@ const ProviderEndpointUsageBarChart: React.FC<ProviderEndpointUsageBarChartProps
                 y={CHART_BOTTOM - 2}
                 width={BAR_WIDTH}
                 height={2}
-                fill="#374151"
+                fill={lightTheme.isLight ? '#cbd5e1' : '#374151'}
                 opacity={0.4}
                 rx={1}
               />,

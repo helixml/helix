@@ -13,6 +13,7 @@ import TotalRequests from '../usage/TotalRequests'
 
 import useAccount from '../../hooks/useAccount'
 import useSnackbar from '../../hooks/useSnackbar'
+import useLightTheme from '../../hooks/useLightTheme'
 import useThemeConfig from '../../hooks/useThemeConfig'
 import { useGetQuota } from '../../services/quotaService'
 import {
@@ -30,6 +31,8 @@ const GeneralSettings: FC<GeneralSettingsProps> = ({ onOpenPasswordDialog }) => 
   const account = useAccount()
   const snackbar = useSnackbar()
   const themeConfig = useThemeConfig()
+  const lightTheme = useLightTheme()
+  const panelBg = lightTheme.isLight ? lightTheme.panelColor : themeConfig.darkPanel
 
   const { data: usage } = useGetUserUsage()
   const { data: serverConfig } = useGetConfig()
@@ -58,7 +61,7 @@ const GeneralSettings: FC<GeneralSettingsProps> = ({ onOpenPasswordDialog }) => 
 
   return (
     <>
-      <Grid container spacing={2} sx={{ mb: 2, backgroundColor: themeConfig.darkPanel, p: 2, borderRadius: 2 }}>
+      <Grid container spacing={2} sx={{ mb: 2, backgroundColor: panelBg, p: 2, borderRadius: 2 }}>
         <Grid item xs={12} md={4}>
           <TokenUsage usageData={usage ? [{ metrics: usage }] : []} isLoading={false} />
         </Grid>
@@ -72,7 +75,7 @@ const GeneralSettings: FC<GeneralSettingsProps> = ({ onOpenPasswordDialog }) => 
 
       <ClaudeSubscription />
 
-      <Grid container spacing={2} sx={{ mt: 2, backgroundColor: themeConfig.darkPanel, p: 2, borderRadius: 2 }}>
+      <Grid container spacing={2} sx={{ mt: 2, backgroundColor: panelBg, p: 2, borderRadius: 2 }}>
         <Grid item xs={12}>
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <Typography variant="h6" gutterBottom>Full Name</Typography>
@@ -93,7 +96,7 @@ const GeneralSettings: FC<GeneralSettingsProps> = ({ onOpenPasswordDialog }) => 
       </Grid>
 
       {serverConfig?.auth_provider === TypesAuthProvider.AuthProviderRegular && (
-        <Grid container spacing={2} sx={{ mt: 2, backgroundColor: themeConfig.darkPanel, p: 2, borderRadius: 2 }}>
+        <Grid container spacing={2} sx={{ mt: 2, backgroundColor: panelBg, p: 2, borderRadius: 2 }}>
           <Grid item xs={12}>
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <Typography variant="h6" gutterBottom>Update Password</Typography>
@@ -110,7 +113,7 @@ const GeneralSettings: FC<GeneralSettingsProps> = ({ onOpenPasswordDialog }) => 
       )}
 
       {quotas && (
-        <Grid container spacing={2} sx={{ mt: 2, backgroundColor: themeConfig.darkPanel, p: 2, borderRadius: 2 }}>
+        <Grid container spacing={2} sx={{ mt: 2, backgroundColor: panelBg, p: 2, borderRadius: 2 }}>
           <Grid item xs={12}>
             <Typography variant="h6" sx={{ mb: 2 }} gutterBottom>Quotas</Typography>
             <QuotaListView />

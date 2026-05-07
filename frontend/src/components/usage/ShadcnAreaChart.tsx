@@ -11,6 +11,8 @@ import {
 } from 'recharts';
 import type { TooltipContentProps } from 'recharts';
 
+import useLightTheme from '../../hooks/useLightTheme';
+
 export interface ShadcnSeries {
   key: string;
   label: string;
@@ -40,6 +42,7 @@ const uid = () => Math.random().toString(36).slice(2, 9);
 
 const ShadcnTooltip = (seriesConfig: ShadcnSeries[], valueFormatter: (v: number) => string) => {
   const TooltipComponent: FC<TooltipContentProps<number, string>> = ({ active, payload, label }) => {
+    const lightTheme = useLightTheme();
     if (!active || !payload || !payload.length) return null;
     const date = label ? new Date(label as string) : null;
     const dateLabel = date
@@ -49,19 +52,19 @@ const ShadcnTooltip = (seriesConfig: ShadcnSeries[], valueFormatter: (v: number)
     return (
       <Box
         sx={{
-          bgcolor: 'rgba(10, 10, 15, 0.95)',
-          border: '1px solid rgba(255, 255, 255, 0.12)',
+          bgcolor: lightTheme.isLight ? 'rgba(255, 255, 255, 0.98)' : 'rgba(10, 10, 15, 0.95)',
+          border: lightTheme.isLight ? '1px solid rgba(0, 0, 0, 0.12)' : '1px solid rgba(255, 255, 255, 0.12)',
           borderRadius: 2,
           px: 1.5,
           py: 1,
           fontSize: '0.8rem',
-          boxShadow: '0 4px 12px rgba(0,0,0,0.4)',
+          boxShadow: lightTheme.isLight ? '0 4px 12px rgba(0,0,0,0.12)' : '0 4px 12px rgba(0,0,0,0.4)',
           minWidth: 140,
         }}
       >
         <Typography
           variant="caption"
-          sx={{ color: 'rgba(255,255,255,0.6)', display: 'block', mb: 0.5 }}
+          sx={{ color: lightTheme.isLight ? 'rgba(0,0,0,0.6)' : 'rgba(255,255,255,0.6)', display: 'block', mb: 0.5 }}
         >
           {dateLabel}
         </Typography>
@@ -75,13 +78,13 @@ const ShadcnTooltip = (seriesConfig: ShadcnSeries[], valueFormatter: (v: number)
               sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.25 }}
             >
               <Box sx={{ width: 8, height: 8, borderRadius: '2px', bgcolor: s.color }} />
-              <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.85)', flex: 1 }}>
+              <Typography variant="caption" sx={{ color: lightTheme.isLight ? 'rgba(0,0,0,0.85)' : 'rgba(255,255,255,0.85)', flex: 1 }}>
                 {s.label}
               </Typography>
               <Typography
                 variant="caption"
                 sx={{
-                  color: '#fff',
+                  color: lightTheme.textColor,
                   fontVariantNumeric: 'tabular-nums',
                   fontWeight: 500,
                 }}
@@ -107,6 +110,7 @@ const ShadcnAreaChart: FC<ShadcnAreaChartProps> = ({
   hideLegend = false,
   chartHeight = 220,
 }) => {
+  const lightTheme = useLightTheme();
   // Unique gradient ids so multiple charts on the same page don't collide.
   const gradientPrefix = React.useMemo(() => `shadcn-${uid()}`, []);
 
@@ -116,7 +120,7 @@ const ShadcnAreaChart: FC<ShadcnAreaChartProps> = ({
     <Box
       sx={{
         height: 300,
-        bgcolor: 'rgba(0, 0, 0, 0.2)',
+        bgcolor: lightTheme.isLight ? 'rgba(0, 0, 0, 0.03)' : 'rgba(0, 0, 0, 0.2)',
         borderRadius: 2,
         p: 2,
         position: 'relative',

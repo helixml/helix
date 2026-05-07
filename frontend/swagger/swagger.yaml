@@ -9957,6 +9957,12 @@ definitions:
       name:
         type: string
     type: object
+  types.UpdateUserColorSchemeRequest:
+    properties:
+      color_scheme:
+        description: '"light", "dark", or "" (follow OS)'
+        type: string
+    type: object
   types.UpdateUserGuidelinesRequest:
     properties:
       guidelines:
@@ -10281,6 +10287,10 @@ definitions:
         allOf:
         - $ref: '#/definitions/types.CodeAgentConfig'
         description: Code agent configuration for Zed agentic coding
+      color_scheme:
+        description: 'Session owner''s UI color scheme: "light", "dark", or "" (follow
+          OS). Daemon applies via gsettings to GNOME.'
+        type: string
       context_servers:
         additionalProperties: true
         type: object
@@ -21517,6 +21527,39 @@ paths:
       security:
       - BearerAuth: []
       summary: Update user chat settings
+      tags:
+      - Users
+  /api/v1/users/me/color-scheme:
+    put:
+      consumes:
+      - application/json
+      description: Set the user's UI color scheme. Propagates instantly to GNOME and
+        Zed in any spec-task sessions owned by this user.
+      parameters:
+      - description: Color scheme update request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.UpdateUserColorSchemeRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.UpdateUserColorSchemeRequest'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Update user color scheme preference
       tags:
       - Users
   /api/v1/users/me/guidelines:
