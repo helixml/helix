@@ -901,20 +901,35 @@ func (d *SettingsDaemon) runConfigEventLoop() error {
 	}
 }
 
-// applyGNOMEColorScheme runs gsettings to switch GNOME's color-scheme between
-// prefer-light and prefer-dark. Empty string is treated as dark for now (matches
-// the default Yaru Dark loaded by startup-app.sh).
+// applyGNOMEColorScheme runs gsettings to switch GNOME's color scheme. Empty
+// string is treated as dark for now (matches the default Yaru Dark loaded by
+// startup-app.sh).
+//
+// We have to set BOTH:
+//   - color-scheme (the modern preference signal libadwaita / GNOME 42+ apps
+//     respect)
+//   - gtk-theme (the actual rendered theme — without this, GTK3 apps + the
+//     shell stay on whatever was loaded at startup, so the desktop looks
+//     unchanged even when color-scheme says prefer-light)
 func (d *SettingsDaemon) applyGNOMEColorScheme(scheme string) {
 	colorScheme := "prefer-dark"
+	gtkTheme := "Yaru-dark"
 	if scheme == "light" {
 		colorScheme = "prefer-light"
+		gtkTheme = "Yaru"
 	}
-	out, err := exec.Command("gsettings", "set", "org.gnome.desktop.interface", "color-scheme", colorScheme).CombinedOutput()
-	if err != nil {
-		log.Printf("gsettings color-scheme=%s failed: %v (%s)", colorScheme, err, strings.TrimSpace(string(out)))
-		return
+
+	cmds := [][]string{
+		{"gsettings", "set", "org.gnome.desktop.interface", "color-scheme", colorScheme},
+		{"gsettings", "set", "org.gnome.desktop.interface", "gtk-theme", gtkTheme},
 	}
-	log.Printf("applied GNOME color-scheme=%s", colorScheme)
+	for _, c := range cmds {
+		out, err := exec.Command(c[0], c[1:]...).CombinedOutput()
+		if err != nil {
+			log.Printf("gsettings %v failed: %v (%s)", c[1:], err, strings.TrimSpace(string(out)))
+		}
+	}
+	log.Printf("applied GNOME color-scheme=%s gtk-theme=%s", colorScheme, gtkTheme)
 }
 
 // SECURITY_PROTECTED_FIELDS must not be synced to the Helix API
