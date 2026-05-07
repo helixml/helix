@@ -26,13 +26,14 @@ No backend changes.
 
 ## Test plan
 
+- [x] `cd frontend && yarn build` clean.
+- [x] Vitest unit tests for the helper (10 cases, all pass): paused→starting, no-op when already running/starting, empty-slot guard, status_message default vs preserve-existing, field preservation, invalidate-queries call.
 - [ ] **Manual** — reviewer runs a Helix stack with this branch deployed:
   - [ ] Pause a spec-task desktop. Send a chat message. Spinner appears in ≤ 500 ms.
   - [ ] Send a chat to a *running* desktop. No flicker, no false spinner, message appears as usual.
   - [ ] Repeat with the chat panel collapsed (icon-only mode) — no React errors.
-- [x] `cd frontend && yarn build` clean.
 
-⚠️ **Not yet manually tested in this branch's CI** — inner-Helix sandbox failed to build (`/zed-build/app-icon.png: not found`) so no live stack was available. The change is small (5 files, ~75 lines net) and falls back to existing polling behaviour on any error path.
+⚠️ **Manual e2e not run in this branch** — inner-Helix sandbox failed to build (`/zed-build/app-icon.png: not found`) so no live stack was available. The unit tests cover the helper's logic; reviewer to confirm the wired-up component behaves the same in a real browser.
 
 ## Related
 

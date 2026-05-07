@@ -10,4 +10,5 @@
 - [ ] Manual end-to-end: pause desktop → send chat → spinner ≤ 500 ms → backend boot completes → stream live — **BLOCKED**: inner-Helix stack failed to build (`/zed-build/app-icon.png: not found` in startup log), so no running stack to test against. Reviewer must verify on a working Helix instance before merge
 - [ ] Manual end-to-end: live desktop → send chat → no flicker, no false spinner — **BLOCKED**: same as above
 - [x] `cd frontend && yarn build` clean (verified after re-applying changes — build succeeded in 1m 7s with no errors)
+- [x] Vitest unit tests for the helper — 10 cases covering paused→starting, no-op when running/starting, empty-slot guard, status_message default vs preserve, field preservation, and invalidate-queries call. All pass.
 - [x] Push feature branch (Helix UI auto-creates the PR on click of "Open PR")
