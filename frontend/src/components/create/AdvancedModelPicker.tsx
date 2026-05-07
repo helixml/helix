@@ -412,7 +412,7 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
               endIcon={<ArrowDropDownIcon />}
               sx={{
                 borderRadius: '8px',
-                color: '#F1F1F1',
+                color: lightTheme.textColor,
                 textTransform: 'none',
                 fontSize: '0.875rem',
                 padding: '4px 8px',
@@ -421,9 +421,11 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
                 maxWidth: '200px',
                 display: 'flex',
                 alignItems: 'center',
-                border: buttonVariant === 'outlined' ? '1px solid #353945' : 'none',
+                border: buttonVariant === 'outlined'
+                  ? `1px solid ${lightTheme.isLight ? 'rgba(0,0,0,0.2)' : '#353945'}`
+                  : 'none',
                 '&:hover': {
-                  backgroundColor: '#23262F',
+                  backgroundColor: lightTheme.isLight ? 'rgba(0,0,0,0.04)' : '#23262F',
                   borderColor: '#6366F1',
                 },
                 // More explicit styling for disabled state if needed
