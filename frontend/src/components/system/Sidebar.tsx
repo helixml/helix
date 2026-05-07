@@ -257,8 +257,8 @@ const SidebarContentInner: React.FC<{
         >
           {
             showTopLinks && (router.name === 'org_chat' || router.name === 'org_session' || router.name === 'org_qa-results' || router.name === 'org_agent' || router.name === 'org_new') && (
-              <List disablePadding>    
-                
+              <List disablePadding>
+
                 {/* New resource creation button */}
                 <ListItem
                   disablePadding
@@ -271,7 +271,7 @@ const SidebarContentInner: React.FC<{
                       height: '64px',
                       display: 'flex',
                       '&:hover': {
-                        '.MuiListItemText-root .MuiTypography-root': { color: '#FFFFFF' },
+                        '.MuiListItemText-root .MuiTypography-root': { color: lightTheme.textColor },
                       },
                     }}
                   >
@@ -283,36 +283,36 @@ const SidebarContentInner: React.FC<{
                       primary={`New Chat`}
                       primaryTypographyProps={{
                         fontWeight: 'bold',
-                        color: '#FFFFFF',
+                        color: lightTheme.textColor,
                         fontSize: '16px',
                       }}
                     />
-                    <Box 
+                    <Box
                       sx={{
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
                         backgroundColor: 'transparent',
-                        border: '2px solid #00E5FF',
+                        border: `2px solid ${lightTheme.isLight ? '#0e7490' : '#00E5FF'}`,
                         borderRadius: '50%',
                         width: 32,
                         height: 32,
                         mr: 2,
                       }}
                     >
-                      <Plus size={20} color="#00E5FF" />
+                      <Plus size={20} color={lightTheme.isLight ? '#0e7490' : '#00E5FF'} />
                     </Box>
                   </ListItemButton>
                 </ListItem>
-                
+
                 <Divider />
               </List>
             )
           }
           {
             showTopLinks && router.name === 'files' && (
-              <List disablePadding>    
-                
+              <List disablePadding>
+
                 {/* New file creation button */}
                 <ListItem
                   disablePadding
@@ -325,7 +325,7 @@ const SidebarContentInner: React.FC<{
                       height: '64px',
                       display: 'flex',
                       '&:hover': {
-                        '.MuiListItemText-root .MuiTypography-root': { color: '#FFFFFF' },
+                        '.MuiListItemText-root .MuiTypography-root': { color: lightTheme.textColor },
                       },
                     }}
                   >
@@ -337,28 +337,28 @@ const SidebarContentInner: React.FC<{
                       primary={`New`}
                       primaryTypographyProps={{
                         fontWeight: 'bold',
-                        color: '#FFFFFF',
+                        color: lightTheme.textColor,
                         fontSize: '16px',
                       }}
                     />
-                    <Box 
+                    <Box
                       sx={{
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
                         backgroundColor: 'transparent',
-                        border: '2px solid #00E5FF',
+                        border: `2px solid ${lightTheme.isLight ? '#0e7490' : '#00E5FF'}`,
                         borderRadius: '50%',
                         width: 32,
                         height: 32,
                         mr: 2,
                       }}
                     >
-                      <Plus size={20} color="#00E5FF" />
+                      <Plus size={20} color={lightTheme.isLight ? '#0e7490' : '#00E5FF'} />
                     </Box>
                   </ListItemButton>
                 </ListItem>
-                
+
                 <Divider />
               </List>
             )

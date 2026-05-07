@@ -322,12 +322,6 @@ const Home: FC = () => {
           display: 'flex',
           flexDirection: 'column',
           minHeight: '100%',
-          // The chat landing page uses hundreds of inline rgba(255,255,255,…)
-          // text/border colors that are illegible on a white page. Rather than
-          // rewrite each, we keep the area on a dark surface in both modes —
-          // a "dark island" pattern, common in landing/hero sections.
-          backgroundColor: lightTheme.isLight ? '#0d0d1a' : 'transparent',
-          color: '#fff',
         }}
       >
         {/* Main content */}
@@ -369,7 +363,7 @@ const Home: FC = () => {
                 >
                   <Typography
                     sx={{
-                      color: '#fff',
+                      color: lightTheme.textColor,
                       fontSize: '1.5rem',
                       fontWeight: 'bold',
                       textAlign: 'center',
@@ -383,9 +377,9 @@ const Home: FC = () => {
                   <Box
                     sx={{
                       width: '100%',
-                      border: '1px solid rgba(255, 255, 255, 0.2)',
+                      border: `1px solid ${lightTheme.isLight ? 'rgba(0, 0, 0, 0.15)' : 'rgba(255, 255, 255, 0.2)'}`,
                       borderRadius: '12px',
-                      backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                      backgroundColor: lightTheme.isLight ? 'rgba(0, 0, 0, 0.04)' : 'rgba(255, 255, 255, 0.05)',
                       p: 2,
                       mb: 2,
                     }}
@@ -409,7 +403,7 @@ const Home: FC = () => {
                           width: '100%',
                           backgroundColor: 'transparent',
                           border: 'none',
-                          color: '#fff',
+                          color: lightTheme.textColor,
                           opacity: 0.7,
                           resize: 'none',
                           outline: 'none',
@@ -471,18 +465,18 @@ const Home: FC = () => {
                                   alignItems: 'center',
                                   justifyContent: 'center',
                                   cursor: 'pointer',
-                                  border: '2px solid rgba(255, 255, 255, 0.7)',
+                                  border: `2px solid ${lightTheme.isLight ? 'rgba(0, 0, 0, 0.5)' : 'rgba(255, 255, 255, 0.7)'}`,
                                   borderRadius: '50%',
                                   '&:hover': {
-                                    borderColor: 'rgba(255, 255, 255, 0.9)',
+                                    borderColor: lightTheme.isLight ? 'rgba(0, 0, 0, 0.7)' : 'rgba(255, 255, 255, 0.9)',
                                     '& svg': {
-                                      color: 'rgba(255, 255, 255, 0.9)'
+                                      color: lightTheme.isLight ? 'rgba(0, 0, 0, 0.7)' : 'rgba(255, 255, 255, 0.9)'
                                     }
                                   }
                                 }}
                                 onClick={handleAttachmentMenuOpen}
                               >
-                                <AttachFileIcon sx={{ color: 'rgba(255, 255, 255, 0.7)', fontSize: '20px' }} />
+                                <AttachFileIcon sx={{ color: lightTheme.textColorFaded, fontSize: '20px' }} />
                               </Box>
                             </Tooltip>
                             <Tooltip title={showExamples ? "Hide examples" : "Show examples"} placement="top">
@@ -494,28 +488,28 @@ const Home: FC = () => {
                                   alignItems: 'center',
                                   justifyContent: 'center',
                                   cursor: 'pointer',
-                                  border: '2px solid rgba(255, 255, 255, 0.7)',
+                                  border: `2px solid ${lightTheme.isLight ? 'rgba(0, 0, 0, 0.5)' : 'rgba(255, 255, 255, 0.7)'}`,
                                   borderRadius: '50%',
                                   backgroundColor: 'transparent',
                                   '&:hover': {
-                                    borderColor: 'rgba(255, 255, 255, 0.9)',
+                                    borderColor: lightTheme.isLight ? 'rgba(0, 0, 0, 0.7)' : 'rgba(255, 255, 255, 0.9)',
                                     backgroundColor: 'transparent',
                                     '& svg': {
-                                      color: 'rgba(255, 255, 255, 0.9)'
+                                      color: lightTheme.isLight ? 'rgba(0, 0, 0, 0.7)' : 'rgba(255, 255, 255, 0.9)'
                                     }
                                   }
                                 }}
                                 onClick={() => setShowExamples(!showExamples)}
                               >
                                 {showExamples ? (
-                                  <LightbulbIcon sx={{ 
-                                    color: 'rgba(255, 255, 255, 0.7)', 
-                                    fontSize: '20px' 
+                                  <LightbulbIcon sx={{
+                                    color: lightTheme.textColorFaded,
+                                    fontSize: '20px'
                                   }} />
                                 ) : (
-                                  <LightbulbOutlinedIcon sx={{ 
-                                    color: 'rgba(255, 255, 255, 0.7)', 
-                                    fontSize: '20px' 
+                                  <LightbulbOutlinedIcon sx={{
+                                    color: lightTheme.textColorFaded,
+                                    fontSize: '20px'
                                   }} />
                                 )}
                               </Box>
@@ -540,11 +534,11 @@ const Home: FC = () => {
                                       height: 36,
                                       objectFit: 'cover',
                                       borderRadius: '6px',
-                                      border: '1px solid rgba(255, 255, 255, 0.2)',
+                                      border: `1px solid ${lightTheme.isLight ? 'rgba(0, 0, 0, 0.15)' : 'rgba(255, 255, 255, 0.2)'}`,
                                     }}
                                   />
                                 </Tooltip>
-                                <Typography sx={{ color: 'rgba(255, 255, 255, 0.7)', fontSize: '0.8rem', maxWidth: '120px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                <Typography sx={{ color: lightTheme.textColorFaded, fontSize: '0.8rem', maxWidth: '120px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                   {selectedImageName}
                                 </Typography>
                                 <Box
@@ -564,11 +558,11 @@ const Home: FC = () => {
                                     justifyContent: 'center',
                                     cursor: 'pointer',
                                     fontSize: '12px',
-                                    color: 'rgba(255, 255, 255, 0.7)',
-                                    border: '1px solid rgba(255, 255, 255, 0.3)',
+                                    color: lightTheme.textColorFaded,
+                                    border: `1px solid ${lightTheme.isLight ? 'rgba(0, 0, 0, 0.2)' : 'rgba(255, 255, 255, 0.3)'}`,
                                     '&:hover': {
-                                      color: 'rgba(255, 255, 255, 1)',
-                                      borderColor: 'rgba(255, 255, 255, 0.6)',
+                                      color: lightTheme.textColor,
+                                      borderColor: lightTheme.isLight ? 'rgba(0, 0, 0, 0.5)' : 'rgba(255, 255, 255, 0.6)',
                                     },
                                   }}
                                 >
@@ -582,15 +576,15 @@ const Home: FC = () => {
                               onClose={handleAttachmentMenuClose}
                               PaperProps={{
                                 style: {
-                                  backgroundColor: 'rgba(40, 40, 40, 0.9)',
-                                  color: 'white',
+                                  backgroundColor: lightTheme.isLight ? 'rgba(220, 220, 220, 0.9)' : 'rgba(40, 40, 40, 0.9)',
+                                  color: lightTheme.textColor,
                                   borderRadius: '8px',
                                 },
                               }}
                             >
                               <MenuItem onClick={handleImageUploadClick}>
                                 <ListItemIcon>
-                                  <ImageIcon fontSize="small" sx={{ color: 'rgba(255, 255, 255, 0.7)' }} />
+                                  <ImageIcon fontSize="small" sx={{ color: lightTheme.textColorFaded }} />
                                 </ListItemIcon>
                                 <ListItemText primary="Upload image" />
                               </MenuItem>
@@ -609,22 +603,22 @@ const Home: FC = () => {
                       {/* Right section - Up arrow icon */}
                       <Box>
                         <Tooltip title="Send Prompt" placement="top">
-                          <Box 
+                          <Box
                             onClick={submitPrompt}
-                            sx={{ 
-                              width: 32, 
+                            sx={{
+                              width: 32,
                               height: 32,
                               display: 'flex',
                               alignItems: 'center',
                               justifyContent: 'center',
                               cursor: loading ? 'default' : 'pointer',
-                              border: '1px solid rgba(255, 255, 255, 0.7)',
+                              border: `1px solid ${lightTheme.isLight ? 'rgba(0, 0, 0, 0.5)' : 'rgba(255, 255, 255, 0.7)'}`,
                               borderRadius: '8px',
                               opacity: loading ? 0.5 : 1,
                               '&:hover': loading ? {} : {
-                                borderColor: 'rgba(255, 255, 255, 0.9)',
+                                borderColor: lightTheme.isLight ? 'rgba(0, 0, 0, 0.7)' : 'rgba(255, 255, 255, 0.9)',
                                 '& svg': {
-                                  color: 'rgba(255, 255, 255, 0.9)'
+                                  color: lightTheme.isLight ? 'rgba(0, 0, 0, 0.7)' : 'rgba(255, 255, 255, 0.9)'
                                 }
                               }
                             }}
@@ -632,7 +626,7 @@ const Home: FC = () => {
                             {loading ? (
                               <LoadingSpinner />
                             ) : (
-                              <ArrowUpwardIcon sx={{ color: 'rgba(255, 255, 255, 0.7)', fontSize: '20px' }} />
+                              <ArrowUpwardIcon sx={{ color: lightTheme.textColorFaded, fontSize: '20px' }} />
                             )}
                           </Box>
                         </Tooltip>
@@ -658,7 +652,7 @@ const Home: FC = () => {
                       >
                         <Typography
                           sx={{
-                            color: 'rgba(255, 255, 255, 0.8)',
+                            color: lightTheme.textColor,
                             fontSize: '0.9rem',
                             fontWeight: 'bold',
                           }}
@@ -695,7 +689,7 @@ const Home: FC = () => {
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                     <Typography
                       sx={{
-                        color: '#fff',
+                        color: lightTheme.textColor,
                         fontSize: '1.1rem',
                         fontWeight: 'bold',
                         cursor: 'pointer',
@@ -714,11 +708,11 @@ const Home: FC = () => {
                     >
                       <InfoOutlinedIcon
                         sx={{
-                          color: 'rgba(255, 255, 255, 0.4)',
+                          color: lightTheme.textColorFaded,
                           fontSize: '1rem',
                           cursor: 'help',
                           '&:hover': {
-                            color: 'rgba(255, 255, 255, 0.7)',
+                            color: lightTheme.textColor,
                           },
                         }}
                       />
@@ -744,12 +738,12 @@ const Home: FC = () => {
                             <Box
                               sx={{
                                 borderRadius: '12px',
-                                border: '1px solid rgba(255, 255, 255, 0.2)',
+                                border: `1px solid ${lightTheme.isLight ? 'rgba(0, 0, 0, 0.15)' : 'rgba(255, 255, 255, 0.2)'}`,
                                 p: 1.5,
                                 pb: 0.5,
                                 cursor: 'pointer',
                                 '&:hover': {
-                                  backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                                  backgroundColor: lightTheme.isLight ? 'rgba(0, 0, 0, 0.04)' : 'rgba(255, 255, 255, 0.05)',
                                 },
                                 display: 'flex',
                                 flexDirection: 'column',
@@ -764,8 +758,8 @@ const Home: FC = () => {
                                 sx={{
                                   width: 28,
                                   height: 28,
-                                  backgroundColor: 'rgba(255, 255, 255, 0.1)',
-                                  color: '#fff',
+                                  backgroundColor: lightTheme.isLight ? 'rgba(0, 0, 0, 0.08)' : 'rgba(255, 255, 255, 0.1)',
+                                  color: lightTheme.textColor,
                                   fontWeight: 'bold',
                                 }}
                               >
@@ -775,7 +769,7 @@ const Home: FC = () => {
                               </Avatar>
                               <Box sx={{ textAlign: 'left', width: '100%', minWidth: 0 }}>
                                 <Typography sx={{
-                                  color: '#fff',
+                                  color: lightTheme.textColor,
                                   fontSize: '0.95rem',
                                   lineHeight: 1.2,
                                   fontWeight: 'bold',
@@ -787,7 +781,7 @@ const Home: FC = () => {
                                   {project.name}
                                 </Typography>
                                 <Typography variant="caption" sx={{
-                                  color: 'rgba(255, 255, 255, 0.5)',
+                                  color: lightTheme.textColorFaded,
                                   fontSize: '0.8rem',
                                   lineHeight: 1.2,
                                 }}>
@@ -802,12 +796,12 @@ const Home: FC = () => {
                       <Box
                         sx={{
                           borderRadius: '12px',
-                          border: '1px dashed rgba(255, 255, 255, 0.2)',
+                          border: `1px dashed ${lightTheme.isLight ? 'rgba(0, 0, 0, 0.15)' : 'rgba(255, 255, 255, 0.2)'}`,
                           p: 1.5,
                           pb: 0.5,
                           cursor: 'pointer',
                           '&:hover': {
-                            backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                            backgroundColor: lightTheme.isLight ? 'rgba(0, 0, 0, 0.04)' : 'rgba(255, 255, 255, 0.05)',
                           },
                           display: 'flex',
                           flexDirection: 'column',
@@ -831,7 +825,7 @@ const Home: FC = () => {
                         </Box>
                         <Box sx={{ textAlign: 'left' }}>
                           <Typography sx={{
-                            color: '#fff',
+                            color: lightTheme.textColor,
                             fontSize: '0.95rem',
                             lineHeight: 1.2,
                             fontWeight: 'bold',
@@ -839,7 +833,7 @@ const Home: FC = () => {
                             New project
                           </Typography>
                           <Typography variant="caption" sx={{
-                            color: 'rgba(255, 255, 255, 0.5)',
+                            color: lightTheme.textColorFaded,
                             fontSize: '0.8rem',
                             lineHeight: 1.2,
                           }}>
@@ -865,7 +859,7 @@ const Home: FC = () => {
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                     <Typography
                       sx={{
-                        color: '#fff',
+                        color: lightTheme.textColor,
                         fontSize: '1.1rem',
                         fontWeight: 'bold',
                         cursor: 'pointer',
@@ -884,11 +878,11 @@ const Home: FC = () => {
                     >
                       <InfoOutlinedIcon
                         sx={{
-                          color: 'rgba(255, 255, 255, 0.4)',
+                          color: lightTheme.textColorFaded,
                           fontSize: '1rem',
                           cursor: 'help',
                           '&:hover': {
-                            color: 'rgba(255, 255, 255, 0.7)',
+                            color: lightTheme.textColor,
                           },
                         }}
                       />
@@ -917,12 +911,12 @@ const Home: FC = () => {
                               <Box
                                 sx={{
                                   borderRadius: '12px',
-                                  border: '1px solid rgba(255, 255, 255, 0.2)',
+                                  border: `1px solid ${lightTheme.isLight ? 'rgba(0, 0, 0, 0.15)' : 'rgba(255, 255, 255, 0.2)'}`,
                                   p: 1.5,
                                   pb: 0.5,
                                   cursor: 'pointer',
                                   '&:hover': {
-                                    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                                    backgroundColor: lightTheme.isLight ? 'rgba(0, 0, 0, 0.04)' : 'rgba(255, 255, 255, 0.05)',
                                   },
                                   display: 'flex',
                                   flexDirection: 'column',
@@ -937,10 +931,10 @@ const Home: FC = () => {
                                   sx={{
                                     width: 28,
                                     height: 28,
-                                    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-                                    color: '#fff',
+                                    backgroundColor: lightTheme.isLight ? 'rgba(0, 0, 0, 0.08)' : 'rgba(255, 255, 255, 0.1)',
+                                    color: lightTheme.textColor,
                                     fontWeight: 'bold',
-                                    border: (theme) => app?.config.helix.avatar ? '2px solid rgba(255, 255, 255, 0.8)' : 'none',
+                                    border: (theme) => app?.config.helix.avatar ? `2px solid ${lightTheme.isLight ? 'rgba(0, 0, 0, 0.6)' : 'rgba(255, 255, 255, 0.8)'}` : 'none',
                                   }}
                                   src={app?.config.helix.avatar ? (
                                     app.config.helix.avatar.startsWith('http://') || app.config.helix.avatar.startsWith('https://')
@@ -948,13 +942,13 @@ const Home: FC = () => {
                                       : `/api/v1/apps/${trigger.app_id}/avatar`
                                   ) : undefined}
                                 >
-                                  {app?.config.helix.name && app.config.helix.name.length > 0 
-                                    ? app.config.helix.name[0].toUpperCase() 
+                                  {app?.config.helix.name && app.config.helix.name.length > 0
+                                    ? app.config.helix.name[0].toUpperCase()
                                     : '?'}
                                 </Avatar>
                                 <Box sx={{ textAlign: 'left', width: '100%', minWidth: 0 }}>
-                                  <Typography sx={{ 
-                                    color: '#fff',
+                                  <Typography sx={{
+                                    color: lightTheme.textColor,
                                     fontSize: '0.95rem',
                                     lineHeight: 1.2,
                                     fontWeight: 'bold',
@@ -965,8 +959,8 @@ const Home: FC = () => {
                                   }}>
                                     { trigger.name }
                                   </Typography>
-                                  <Typography variant="caption" sx={{ 
-                                    color: 'rgba(255, 255, 255, 0.5)',
+                                  <Typography variant="caption" sx={{
+                                    color: lightTheme.textColorFaded,
                                     fontSize: '0.8rem',
                                     lineHeight: 1.2,
                                   }}>
@@ -982,12 +976,12 @@ const Home: FC = () => {
                       <Box
                         sx={{
                           borderRadius: '12px',
-                          border: '1px dashed rgba(255, 255, 255, 0.2)',
+                          border: `1px dashed ${lightTheme.isLight ? 'rgba(0, 0, 0, 0.15)' : 'rgba(255, 255, 255, 0.2)'}`,
                           p: 1.5,
                           pb: 0.5,
                           cursor: 'pointer',
                           '&:hover': {
-                            backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                            backgroundColor: lightTheme.isLight ? 'rgba(0, 0, 0, 0.04)' : 'rgba(255, 255, 255, 0.05)',
                           },
                           display: 'flex',
                           flexDirection: 'column',
@@ -1010,16 +1004,16 @@ const Home: FC = () => {
                           <AddIcon sx={{ color: '#fff', fontSize: '20px' }} />
                         </Box>
                         <Box sx={{ textAlign: 'left' }}>
-                          <Typography sx={{ 
-                            color: '#fff',
+                          <Typography sx={{
+                            color: lightTheme.textColor,
                             fontSize: '0.95rem',
                             lineHeight: 1.2,
                             fontWeight: 'bold',
                           }}>
                             New task
                           </Typography>
-                          <Typography variant="caption" sx={{ 
-                            color: 'rgba(255, 255, 255, 0.5)',
+                          <Typography variant="caption" sx={{
+                            color: lightTheme.textColorFaded,
                             fontSize: '0.8rem',
                             lineHeight: 1.2,
                           }}>
@@ -1045,7 +1039,7 @@ const Home: FC = () => {
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                     <Typography
                       sx={{
-                        color: '#fff',
+                        color: lightTheme.textColor,
                         fontSize: '1.1rem',
                         fontWeight: 'bold',
                         cursor: 'pointer',
@@ -1064,11 +1058,11 @@ const Home: FC = () => {
                     >
                       <InfoOutlinedIcon
                         sx={{
-                          color: 'rgba(255, 255, 255, 0.4)',
+                          color: lightTheme.textColorFaded,
                           fontSize: '1rem',
                           cursor: 'help',
                           '&:hover': {
-                            color: 'rgba(255, 255, 255, 0.7)',
+                            color: lightTheme.textColor,
                           },
                         }}
                       />
@@ -1094,12 +1088,12 @@ const Home: FC = () => {
                             <Box
                               sx={{
                                 borderRadius: '12px',
-                                border: '1px solid rgba(255, 255, 255, 0.2)',
+                                border: `1px solid ${lightTheme.isLight ? 'rgba(0, 0, 0, 0.15)' : 'rgba(255, 255, 255, 0.2)'}`,
                                 p: 1.5,
                                 pb: 0.5,
                                 cursor: 'pointer',
                                 '&:hover': {
-                                  backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                                  backgroundColor: lightTheme.isLight ? 'rgba(0, 0, 0, 0.04)' : 'rgba(255, 255, 255, 0.05)',
                                 },
                                 display: 'flex',
                                 flexDirection: 'column',
@@ -1114,10 +1108,10 @@ const Home: FC = () => {
                                 sx={{
                                   width: 28,
                                   height: 28,
-                                  backgroundColor: 'rgba(255, 255, 255, 0.1)',
-                                  color: '#fff',
+                                  backgroundColor: lightTheme.isLight ? 'rgba(0, 0, 0, 0.08)' : 'rgba(255, 255, 255, 0.1)',
+                                  color: lightTheme.textColor,
                                   fontWeight: 'bold',
-                                  border: (theme) => app.config.helix.avatar ? '2px solid rgba(255, 255, 255, 0.8)' : 'none',
+                                  border: (theme) => app.config.helix.avatar ? `2px solid ${lightTheme.isLight ? 'rgba(0, 0, 0, 0.6)' : 'rgba(255, 255, 255, 0.8)'}` : 'none',
                                 }}
                                 src={app.config.helix.avatar ? (
                                   app.config.helix.avatar.startsWith('http://') || app.config.helix.avatar.startsWith('https://')
@@ -1125,13 +1119,13 @@ const Home: FC = () => {
                                     : `/api/v1/apps/${app.id}/avatar`
                                 ) : undefined}
                               >
-                                {app.config.helix.name && app.config.helix.name.length > 0 
-                                  ? app.config.helix.name[0].toUpperCase() 
+                                {app.config.helix.name && app.config.helix.name.length > 0
+                                  ? app.config.helix.name[0].toUpperCase()
                                   : '?'}
                               </Avatar>
                               <Box sx={{ textAlign: 'left', width: '100%', minWidth: 0 }}>
-                                <Typography sx={{ 
-                                  color: '#fff',
+                                <Typography sx={{
+                                  color: lightTheme.textColor,
                                   fontSize: '0.95rem',
                                   lineHeight: 1.2,
                                   fontWeight: 'bold',
@@ -1142,8 +1136,8 @@ const Home: FC = () => {
                                 }}>
                                   { app.config.helix.name }
                                 </Typography>
-                                <Typography variant="caption" sx={{ 
-                                  color: 'rgba(255, 255, 255, 0.5)',
+                                <Typography variant="caption" sx={{
+                                  color: lightTheme.textColorFaded,
                                   fontSize: '0.8rem',
                                   lineHeight: 1.2,
                                 }}>
@@ -1158,12 +1152,12 @@ const Home: FC = () => {
                       <Box
                         sx={{
                           borderRadius: '12px',
-                          border: '1px dashed rgba(255, 255, 255, 0.2)',
+                          border: `1px dashed ${lightTheme.isLight ? 'rgba(0, 0, 0, 0.15)' : 'rgba(255, 255, 255, 0.2)'}`,
                           p: 1.5,
                           pb: 0.5,
                           cursor: 'pointer',
                           '&:hover': {
-                            backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                            backgroundColor: lightTheme.isLight ? 'rgba(0, 0, 0, 0.04)' : 'rgba(255, 255, 255, 0.05)',
                           },
                           display: 'flex',
                           flexDirection: 'column',
@@ -1186,16 +1180,16 @@ const Home: FC = () => {
                           <AddIcon sx={{ color: '#fff', fontSize: '20px' }} />
                         </Box>
                         <Box sx={{ textAlign: 'left' }}>
-                          <Typography sx={{ 
-                            color: '#fff',
+                          <Typography sx={{
+                            color: lightTheme.textColor,
                             fontSize: '0.95rem',
                             lineHeight: 1.2,
                             fontWeight: 'bold',
                           }}>
                             New agent
                           </Typography>
-                          <Typography variant="caption" sx={{ 
-                            color: 'rgba(255, 255, 255, 0.5)',
+                          <Typography variant="caption" sx={{
+                            color: lightTheme.textColorFaded,
                             fontSize: '0.8rem',
                             lineHeight: 1.2,
                           }}>
