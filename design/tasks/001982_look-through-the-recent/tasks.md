@@ -1,6 +1,6 @@
 # Implementation Tasks
 
-- [ ] Reproduce the regression on Helix-in-Helix: pause a spec-task desktop, send a chat message, observe how long until the **Starting Desktop...** spinner appears (capture timing in design notes for before/after comparison)
+- [~] Reproduce the regression on Helix-in-Helix: pause a spec-task desktop, send a chat message, observe how long until the **Starting Desktop...** spinner appears (capture timing in design notes for before/after comparison)
 - [ ] Add an optional `onWillSend` callback prop to `RobustPromptInput` and invoke it inside `handleSend` immediately after `saveToHistory`, before `syncEntryImmediately`
 - [ ] In `SpecTaskDetailContent.tsx`, define an `optimisticallyMarkStarting` helper that writes `external_agent_status: "starting"` to both `["session", id, "full"]` and `["session", id, "skip"]` query slots only when the cached status isn't already `"running"` or `"starting"`
 - [ ] Pass `onWillSend={optimisticallyMarkStarting}` to both `RobustPromptInput` mounts in `SpecTaskDetailContent.tsx` (around lines 1938 and 2742)
