@@ -805,6 +805,9 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
 
   // Handle key events
   // Enter = queue mode (non-interrupt), Ctrl+Enter = interrupt mode
+  // Empty Enter (no draft, no attachments) = promote the most recent queued
+  // entry to interrupt mode, which dispatches it immediately via the existing
+  // sync loop. Equivalent to clicking the lightning icon on that queue item.
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
@@ -812,8 +815,22 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
       const useInterrupt = e.ctrlKey || e.metaKey // metaKey for Mac Cmd key
       const content = draft.trim()
 
-      // Allow sending if there's content OR attachments
-      if ((!content && attachments.length === 0) || disabled) return
+      // Empty field: promote most-recent queued entry to interrupt instead of sending nothing.
+      if (!content && attachments.length === 0) {
+        if (disabled) return
+        const candidates = pendingPrompts.filter(p =>
+          p.interrupt === false &&
+          !p.deleted &&
+          p.id !== sendingId &&
+          p.id !== editingId
+        )
+        if (candidates.length === 0) return
+        const target = candidates.reduce((a, b) => (b.timestamp > a.timestamp ? b : a))
+        updateInterrupt(target.id, true)
+        return
+      }
+
+      if (disabled) return
 
       // Check if any attachments are still uploading
       const uploadingAttachments = attachments.filter(a => a.uploadStatus === 'uploading' || a.uploadStatus === 'pending')
@@ -861,7 +878,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
         e.preventDefault()
       }
     }
-  }, [draft, disabled, attachments, saveToHistory, clearDraft, navigateUp, navigateDown])
+  }, [draft, disabled, attachments, saveToHistory, clearDraft, navigateUp, navigateDown, pendingPrompts, updateInterrupt, sendingId, editingId])
 
   // Add a file as an attachment (queues for upload, uploads if online)
   const addFileAsAttachment = useCallback((file: File): string => {
