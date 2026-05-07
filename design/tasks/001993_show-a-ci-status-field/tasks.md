@@ -20,19 +20,19 @@
 ## Backend — notification & orchestrator
 
 - [x] Create `api/pkg/services/spec_task_ci_notifier.go` with `CINotifier` interface.
-- [~] Implement the production `CINotifier` that calls `sendChatMessageToExternalAgent()` with `interrupt: false` and persists a waiting interaction if the agent is offline.
-- [ ] Generate a `gomock` mock for `CINotifier` (run `mockgen` consistent with existing patterns).
+- [x] Implement the production `CINotifier` (`MessageSenderCINotifier`) that wraps the existing `SpecTaskMessageSender` callback (which already handles offline → waiting-interaction queue). Wired in `pkg/server/server.go` after orchestrator construction.
+- [x] Skip generating a separate mock — wrote a small in-test `recordingCINotifier` instead (interface is one method; mockgen would be over-engineering).
 - [x] Add `AttentionEventCIPassed` / `AttentionEventCIFailed` constants in `pkg/types/attention_event.go`; update `attention_service.go` `buildTitle` / `buildDescription` / `eventEmoji`.
 - [x] Add `pollCIStatusForPR` to the orchestrator and call it from `processExternalPullRequestStatus` for each tracked PR.
 - [x] Reset cached `CIStatus = ""` if `RepoPR.CIHeadSHA` differs from the new head SHA (handles force-push / new commits).
 - [x] Detect `running → passed` transition: call `CINotifier.NotifyCIResult(...)` + `attention.EmitEvent(AttentionEventCIPassed)`.
 - [x] Detect `running → failed` transition: same with `AttentionEventCIFailed`.
 - [x] Persist updated `RepoPR` (with new `CIStatus`, `CIURL`, `CIUpdatedAt`, `CIHeadSHA`) back to the task row (via existing `updated` flag in `processExternalPullRequestStatus`).
-- [ ] Orchestrator tests for transition detection: no notify on first observation, notify on first transition, no double-notify on restart with same cached status, reset on new SHA.
+- [x] Orchestrator tests for transition detection: first-observation silent, running→passed notifies once, running→failed notifies once with logs link, no notification on no-op transitions, nil-notifier doesn't panic.
 
 ## Frontend
 
-- [ ] Run `./stack update_openapi` after Go struct changes to regenerate `frontend/src/api/api.ts` so `RepoPR` includes the new CI fields.
+- [~] Run `./stack update_openapi` after Go struct changes to regenerate `frontend/src/api/api.ts` so `RepoPR` includes the new CI fields.
 - [ ] Create `frontend/src/components/tasks/CIStatusIcon.tsx`: takes `prs` prop, computes worst status, renders one ~16px MUI icon (Sync animated for running / CheckCircle for passed / Cancel for failed / nothing for none), wrapped in a `<Tooltip>` listing each PR with its CI status + clickable link.
 - [ ] Slot `<CIStatusIcon prs={task.repo_pull_requests} />` into the existing status row in `TaskCard.tsx` (around line 964) — between the phase label and the assignee avatar's `ml: 'auto'`. Verify card height is unchanged with measurement screenshots.
 - [ ] Add `prevProps.task.repo_pull_requests === nextProps.task.repo_pull_requests` (or a shallow comparison) to the `TaskCard` memo comparator so PR/CI changes trigger re-renders.
