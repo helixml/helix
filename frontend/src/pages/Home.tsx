@@ -23,7 +23,6 @@ import ListItemText from '@mui/material/ListItemText'
 import { Brain } from 'lucide-react'
 
 import Page from '../components/system/Page'
-import LaunchpadCTAButton from '../components/widgets/LaunchpadCTAButton'
 import Row from '../components/widgets/Row'
 import SessionTypeButton from '../components/create/SessionTypeButton'
 import AdvancedModelPicker from '../components/create/AdvancedModelPicker'
@@ -1201,24 +1200,6 @@ const Home: FC = () => {
                   </Grid>
                 </Row>
                 
-                {/* Find Agents CTA Section */}
-                <Row
-                  sx={{
-                    display: 'flex',
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    mb: 3,
-                    mt: 3,
-                  }}
-                >
-                  <Box
-                    sx={{
-                      textAlign: 'left',
-                    }}
-                  >
-                    <LaunchpadCTAButton />
-                  </Box>
-                </Row>
               </Grid>
             </Grid>
           </Container>
