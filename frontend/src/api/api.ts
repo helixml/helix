@@ -1872,6 +1872,8 @@ export enum TypesAttentionEventType {
   AttentionEventSpecFailed = "spec_failed",
   AttentionEventImplementationFailed = "implementation_failed",
   AttentionEventPRReady = "pr_ready",
+  AttentionEventCIPassed = "ci_passed",
+  AttentionEventCIFailed = "ci_failed",
 }
 
 export interface TypesAttentionEventUpdateRequest {
@@ -4115,6 +4117,13 @@ export interface TypesPullRequest {
   author?: string;
   created_at?: string;
   description?: string;
+  /**
+   * HeadSHA is the commit SHA at the tip of the PR's source branch.
+   * Used by the CI status poller to detect new pushes and to query the
+   * provider's CI/build APIs for the right commit. Empty if the
+   * provider response did not include it.
+   */
+  head_sha?: string;
   id?: string;
   number?: number;
   source_branch?: string;
@@ -4261,6 +4270,18 @@ export interface TypesRegisterRequest {
 }
 
 export interface TypesRepoPR {
+  ci_head_sha?: string;
+  /**
+   * CI status, populated by the spec task orchestrator's PR poll loop.
+   * CIStatus is one of: "" (not yet evaluated), "running", "passed",
+   * "failed", "none" (CI not configured for the PR's head SHA).
+   * CIHeadSHA is the head commit we last evaluated; it lets the poller
+   * detect a new push and reset CIStatus so a stale "passed" doesn't
+   * suppress a fresh notification when the next commit fails.
+   */
+  ci_status?: string;
+  ci_updated_at?: string;
+  ci_url?: string;
   pr_id?: string;
   pr_number?: number;
   /** "open", "closed", "merged" */
