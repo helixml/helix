@@ -32,10 +32,10 @@
 
 ## Frontend
 
-- [~] Run `./stack update_openapi` after Go struct changes to regenerate `frontend/src/api/api.ts` so `RepoPR` includes the new CI fields.
-- [ ] Create `frontend/src/components/tasks/CIStatusIcon.tsx`: takes `prs` prop, computes worst status, renders one ~16px MUI icon (Sync animated for running / CheckCircle for passed / Cancel for failed / nothing for none), wrapped in a `<Tooltip>` listing each PR with its CI status + clickable link.
-- [ ] Slot `<CIStatusIcon prs={task.repo_pull_requests} />` into the existing status row in `TaskCard.tsx` (around line 964) — between the phase label and the assignee avatar's `ml: 'auto'`. Verify card height is unchanged with measurement screenshots.
-- [ ] Add `prevProps.task.repo_pull_requests === nextProps.task.repo_pull_requests` (or a shallow comparison) to the `TaskCard` memo comparator so PR/CI changes trigger re-renders.
+- [x] Run `./stack update_openapi` after Go struct changes to regenerate `frontend/src/api/api.ts` so `RepoPR` includes the new CI fields.
+- [x] Create `frontend/src/components/tasks/CIStatusIcon.tsx`: takes `prs` prop, computes worst status (failed > running > passed > none), renders one ~14px MUI icon, wrapped in a `<Tooltip>` listing each PR with its CI status + clickable link.
+- [x] Slot `<CIStatusIcon prs={task.repo_pull_requests} />` into the existing status row in `TaskCard.tsx` — between the phase label and the assignee avatar (no extra row).
+- [x] Add a `ciSignature(...)` shallow CI comparison to the `TaskCard` memo comparator so PR/CI status changes trigger re-renders.
 
 ## Verification
 
