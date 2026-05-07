@@ -39,8 +39,10 @@
 
 ## Verification
 
-- [ ] `cd api && go build ./pkg/services/ ./pkg/types/ ./pkg/agent/skill/...` passes locally.
-- [ ] `cd frontend && yarn build` passes (catches type errors).
+- [x] `cd api && go build ./...` passes locally (after merging origin/main).
+- [x] `cd frontend && npx tsc --noEmit` passes (no type errors). `yarn build` blocked by `frontend/dist` permission (root-owned bind mount); type-check is the canonical gate.
+- [x] Unit tests pass: `go test -run "TestNormalizeCIStatus|TestCITransition_" ./pkg/services/`.
+- [x] Drop in-progress branch tasks (UI hint about ADO scope) — not blocking; can be picked up later. Note added in design.md OAuth/PAT scopes section.
 - [x] Inner-Helix visual verification: inserted three test tasks (running / passed / failed) directly into the spec_tasks table with hand-crafted RepoPR JSON, navigated to the Kanban board, screenshot confirms all three icons render inline in the existing status row with the correct colours and animation. Card height unchanged. Screenshot at `screenshots/01-kanban-with-ci-icons.png`.
 - [ ] (Deferred) Live end-to-end test against a real GitHub repo with Actions — needs a connected provider in the inner Helix; not blocking PR review since the unit tests cover the transition logic and the UI verification is in the screenshot above.
 
