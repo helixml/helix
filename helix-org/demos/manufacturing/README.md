@@ -173,30 +173,70 @@ returning.
 > Read `./demos/manufacturing/roles/quality-bot.md` and create role
 > `r-quality-bot` from its body verbatim.
 >
-> Create four streams. Pass `id` and `name` equal to the stream name
-> in every case so the role's references resolve.
+> Create four streams. **Every** stream below must be created with
+> `transport.kind: "webhook"` — including `s-ncr-raised`. Do **not**
+> omit the transport field; the default is `local` (in-process
+> pub/sub) and a `local` stream cannot receive `POST /webhooks/...`
+> traffic. Always pass `id` and `name` equal to the stream name so
+> the role's references resolve.
 >
-> - `s-ncr-raised` — `transport.kind: webhook`, no config
->   (inbound only, this is what the operator's tablet POSTs to).
-> - `s-supervisor` — `transport.kind: webhook`, config
->   `{"outbound_url":"http://localhost:7765/in/slack-general"}`
->   (bidirectional — the supervisor's reply rides the same stream).
-> - `s-customers` — `transport.kind: webhook`, config
->   `{"outbound_url":"http://localhost:7765/in/sms-main"}`.
-> - `s-supplier` — `transport.kind: webhook`, config
->   `{"outbound_url":"http://localhost:7765/in/email-main"}`.
+> Use the `create_stream` tool with these exact arguments, one call
+> per stream:
+>
+> ```json
+> {"id":"s-ncr-raised","name":"s-ncr-raised","transport":{"kind":"webhook"}}
+> ```
+> ```json
+> {"id":"s-supervisor","name":"s-supervisor","transport":{"kind":"webhook","config":{"outbound_url":"http://localhost:7765/in/slack-general"}}}
+> ```
+> ```json
+> {"id":"s-customers","name":"s-customers","transport":{"kind":"webhook","config":{"outbound_url":"http://localhost:7765/in/sms-main"}}}
+> ```
+> ```json
+> {"id":"s-supplier","name":"s-supplier","transport":{"kind":"webhook","config":{"outbound_url":"http://localhost:7765/in/email-main"}}}
+> ```
+>
+> `s-ncr-raised` is inbound-only — no `outbound_url` config. The
+> other three are bidirectional: helix-org POSTs out to the
+> `outbound_url`, and mock-channels POSTs replies back to
+> `/webhooks/<streamID>`.
 >
 > Create position `p-quality` under `p-root` with role
 > `r-quality-bot`. Hire AI worker `w-quality-bot` into it; identity
 > is `You are Quality Bot, the on-call NCR coordinator at Lincoln
 > Plant.` Grant `subscribe` and `publish`.
 >
+> After hiring, call `get_stream` on each of `s-ncr-raised`,
+> `s-supervisor`, `s-customers`, `s-supplier` and confirm the
+> response shows `transport.kind == "webhook"` for **all four**. If
+> any one is `local`, recreate that stream with the correct
+> transport before continuing.
+>
 > Then `worker_log` on `w-quality-bot` with `wait=180` and tell me
 > when the hire activation finishes — the first activation against
 > Helix can take 60–120 s as the sandbox cold-starts.
 
 When the chat says the hire is done, `http://localhost:8080/webhooks/s-ncr-raised`
-is live. **You are now ready to demo.**
+is live. **Smoke-test it before going on stage:**
+
+```bash
+curl -sS -o /dev/null -w '%{http_code}\n' -X POST \
+  http://localhost:8080/webhooks/s-ncr-raised \
+  -H 'Content-Type: application/json' -d '{"body":"smoke"}'
+```
+
+You must see `200`. If you see `404` with body
+`stream "s-ncr-raised" is not a webhook stream`, the chat agent
+created `s-ncr-raised` with the default `local` transport instead of
+`webhook` — go back to the chat and recreate it with
+`{"id":"s-ncr-raised","name":"s-ncr-raised","transport":{"kind":"webhook"}}`.
+
+(The smoke event lands in `s-ncr-raised` and triggers a real bot
+activation. That's fine — discard it before showtime by restarting
+helix-org's `serve` process; in-flight activations are interruptible
+and the next NCR starts a clean cascade.)
+
+**Now you are ready to demo.**
 
 ## On stage
 
@@ -290,7 +330,8 @@ Stop here. Do not start a Q&A live demo.
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `curl` returns `404 stream not found` | Bot didn't finish hiring, or stream `id` wasn't set on create. | In chat: `list_streams`. If `s-ncr-raised` shows a UUID id instead of the human name, recreate it with `id="s-ncr-raised"`. |
+| `curl` returns `404 stream "s-ncr-raised" is not a webhook stream` | Stream was created with the default `local` transport. | In chat: `create_stream` with `{"id":"s-ncr-raised","name":"s-ncr-raised","transport":{"kind":"webhook"}}` — re-creating overwrites. Then re-run the smoke test. |
+| `curl` returns `404 stream not found` | Stream `id` wasn't set on create (got an auto-UUID instead). | In chat: `list_streams`. If `s-ncr-raised` is missing or shows a UUID id, recreate it with `id="s-ncr-raised"` AND `name="s-ncr-raised"`. |
 | Slack pane empty after curl | mock-channels not reachable from helix-org. | `docker ps` for `mfg-mock`; confirm port 7765 is free; container started with `--network host`. |
 | Hire takes > 3 minutes | Helix sandbox cold-start. | Wait it out. The second activation reuses the warm session and is much faster. |
 | Cascade hits `tool_error: stream "s-X": record not found` | Role file mentions a stream you didn't create. | The role only references `s-ncr-raised`, `s-supervisor`, `s-customers`, `s-supplier`. If the agent invented one, that's a model hallucination — re-issue the hire prompt verbatim. |
