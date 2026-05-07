@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -208,18 +209,25 @@ func (s *PostgresStore) ListUsers(ctx context.Context, query *ListUsersQuery) ([
 		if query.Type != "" {
 			db = db.Where("type = ?", query.Type)
 		}
-		if query.Email != "" {
-			if strings.Contains(query.Email, "@") {
-				// Full email address - exact match (case-insensitive)
-				db = db.Where("LOWER(email) = LOWER(?)", query.Email)
-			} else {
-				// Domain only - filter by email domain
-				db = db.Where("email ILIKE ?", "%@"+query.Email)
+		if query.Query != "" {
+			// Unified free-text search across email, username, and full_name.
+			// Overrides the separate Email/Username filters.
+			like := "%" + query.Query + "%"
+			db = db.Where("email ILIKE ? OR username ILIKE ? OR full_name ILIKE ?", like, like, like)
+		} else {
+			if query.Email != "" {
+				if strings.Contains(query.Email, "@") {
+					// Full email address - exact match (case-insensitive)
+					db = db.Where("LOWER(email) = LOWER(?)", query.Email)
+				} else {
+					// Domain only - filter by email domain
+					db = db.Where("email ILIKE ?", "%@"+query.Email)
+				}
 			}
-		}
-		if query.Username != "" {
-			// Support ILIKE matching for username
-			db = db.Where("username ILIKE ?", "%"+query.Username+"%")
+			if query.Username != "" {
+				// Support ILIKE matching for username
+				db = db.Where("username ILIKE ?", "%"+query.Username+"%")
+			}
 		}
 	}
 
@@ -311,6 +319,20 @@ func (s *PostgresStore) CountUsers(ctx context.Context) (int64, error) {
 		return 0, err
 	}
 	return count, nil
+}
+
+// TouchUserLastSeen writes the last_seen_at column for a user without touching
+// the rest of the record. Callers are responsible for throttling; the store
+// just does the write.
+func (s *PostgresStore) TouchUserLastSeen(ctx context.Context, userID string, at time.Time) error {
+	if userID == "" {
+		return fmt.Errorf("userID cannot be empty")
+	}
+	return s.gdb.WithContext(ctx).
+		Model(&types.User{}).
+		Where("id = ?", userID).
+		Update("last_seen_at", at).
+		Error
 }
 
 // generateUserSlug creates a URL-friendly slug from a user's name, email, or ID

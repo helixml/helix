@@ -47,6 +47,16 @@ func (s *PostgresStore) ListSessions(ctx context.Context, query ListSessionsQuer
 		q = q.Where("project_id = ?", query.ProjectID)
 	}
 
+	if query.SessionRole != "" {
+		q = q.Where("config->>'session_role' = ?", query.SessionRole)
+	}
+
+	if len(query.ExcludeRoles) > 0 {
+		for _, role := range query.ExcludeRoles {
+			q = q.Where("(config->>'session_role' IS NULL OR config->>'session_role' != ?)", role)
+		}
+	}
+
 	if !query.IncludeExternalAgents {
 		q = q.Where("model_name != 'external_agent'")
 	}

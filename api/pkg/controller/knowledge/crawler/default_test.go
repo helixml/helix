@@ -24,7 +24,7 @@ func TestDefault_Crawl(t *testing.T) {
 	k := &types.Knowledge{
 		Source: types.KnowledgeSource{
 			Web: &types.KnowledgeSourceWeb{
-				URLs: []string{"https://helix.ml/docs"},
+				URLs: []string{"https://helix.ml/docs/projects"},
 				Crawler: &types.WebsiteCrawler{
 					Enabled:  true,
 					MaxDepth: 200,
@@ -50,33 +50,35 @@ func TestDefault_Crawl(t *testing.T) {
 	docs, err := d.Crawl(context.Background())
 	require.NoError(t, err)
 
-	// Use stable structural content (section headings, CLI commands) rather than
-	// FAQ or body text that frequently changes when docs are updated.
-	// These strings are core to the page's purpose and unlikely to change.
+	// Use stable structural content (navigation labels for docs sub-sections)
+	// rather than FAQ or body text that frequently changes when docs are
+	// updated. These strings are nav links to top-level docs sections, and
+	// appear on every page in the crawl — so they verify the crawler is
+	// reading rendered HTML, not that any single sub-page exists.
 	const (
-		appsText              = `helix apply`        // CLI command - core to the agents workflow
-		privateDeploymentText = `Private Deployment` // Section link that appears in navigation
+		agentsNavText          = `Agents`           // top-level docs section
+		sovereignServerNavText = `Sovereign Server` // top-level docs section
 	)
 
 	var (
-		appsTextFound              bool
-		privateDeploymentTextFound bool
+		agentsNavFound          bool
+		sovereignServerNavFound bool
 	)
 
 	for _, doc := range docs {
 		// Uncomment to save the chunks to a file for debugging
 		// os.WriteFile(fmt.Sprintf("doc-%s.html", doc.Title), []byte(doc.Content), 0644)
 
-		if strings.Contains(doc.Content, appsText) {
-			appsTextFound = true
+		if strings.Contains(doc.Content, agentsNavText) {
+			agentsNavFound = true
 		}
-		if strings.Contains(doc.Content, privateDeploymentText) {
-			privateDeploymentTextFound = true
+		if strings.Contains(doc.Content, sovereignServerNavText) {
+			sovereignServerNavFound = true
 		}
 	}
 
-	require.True(t, appsTextFound, "apps text not found: expected to find '%s' in crawled docs", appsText)
-	require.True(t, privateDeploymentTextFound, "private deployment text not found: expected to find '%s' in crawled docs", privateDeploymentText)
+	require.True(t, agentsNavFound, "agents nav text not found: expected to find '%s' in crawled docs", agentsNavText)
+	require.True(t, sovereignServerNavFound, "sovereign server nav text not found: expected to find '%s' in crawled docs", sovereignServerNavText)
 
 	t.Logf("docs: %d", len(docs))
 }

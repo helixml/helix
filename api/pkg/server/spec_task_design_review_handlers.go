@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"hash/fnv"
 	"net/http"
@@ -294,6 +295,30 @@ func (s *HelixAPIServer) submitDesignReview(w http.ResponseWriter, r *http.Reque
 
 		switch specTask.Status {
 		case types.TaskStatusSpecReview, types.TaskStatusSpecRevision, types.TaskStatusSpecGeneration:
+			// Before advancing to implementation, validate the approver has
+			// GitHub OAuth so their credentials can be used for commits and
+			// push. Mirrors the check in approveSpecs/approveImplementation —
+			// the UI goes through this endpoint, so omitting the check here
+			// lets an approver without OAuth silently drive the task to
+			// implementation and commits would then fall back to the creator.
+			if project, projErr := s.Store.GetProject(ctx, specTask.ProjectID); projErr == nil && project.DefaultRepoID != "" {
+				if repo, repoErr := s.Store.GetGitRepository(ctx, project.DefaultRepoID); repoErr == nil {
+					if err := s.gitRepositoryService.ValidateUserGitHubOAuth(ctx, repo, user.ID); err != nil {
+						var oauthErr *services.OAuthRequiredError
+						if errors.As(err, &oauthErr) {
+							writeResponse(w, map[string]interface{}{
+								"error":         "oauth_required",
+								"message":       oauthErr.Error(),
+								"provider_type": oauthErr.ProviderType,
+							}, http.StatusUnprocessableEntity)
+							return
+						}
+						log.Warn().Err(err).Str("task_id", specTask.ID).
+							Msg("Non-OAuthRequired error validating approver OAuth at design-review submit; proceeding with approval")
+					}
+				}
+			}
+
 			specTask.Status = types.TaskStatusSpecApproved
 			specTask.SpecApprovedBy = user.ID
 			specTask.SpecApprovedAt = &now
@@ -348,9 +373,11 @@ func (s *HelixAPIServer) submitDesignReview(w http.ResponseWriter, r *http.Reque
 			return
 		}
 
-		// Notify agent of requested changes via WebSocket
+		// Notify agent of requested changes via WebSocket.
+		// interrupt=true: reviewer-driven feedback should preempt any in-flight agent turn,
+		// matching the comment-queue semantic.
 		message := services.BuildRevisionInstructionPrompt(specTask, req.OverallComment)
-		_, _, err = s.sendMessageToSpecTaskAgent(ctx, specTask, message, user.ID)
+		_, _, err = s.sendMessageToSpecTaskAgent(ctx, specTask, message, user.ID, true)
 		if err != nil {
 			log.Error().
 				Err(err).
@@ -993,7 +1020,9 @@ func (s *HelixAPIServer) sendCommentToAgentNow(
 	// interactionID is returned directly — avoids the fragile session-based queue
 	// lookup that breaks when the connected session differs from PlanningSessionID
 	// (e.g. after Zed thread compaction creates a new work session).
-	requestID, interactionID, err := s.sendMessageToSpecTaskAgent(ctx, specTask, promptText, comment.CommentedBy)
+	// interrupt=true: a design-review comment is reactive feedback that should preempt
+	// any in-flight agent turn so the latest input takes priority over stale work.
+	requestID, interactionID, err := s.sendMessageToSpecTaskAgent(ctx, specTask, promptText, comment.CommentedBy, true)
 	if err != nil {
 		log.Error().
 			Err(err).
@@ -1442,11 +1471,16 @@ func sanitizeBranchName(name string) string {
 // It handles: finding connected session, generating request ID, setting up response routing, and sending
 // If no session is connected, it auto-starts the dev container and waits up to 90s for the agent to connect.
 // Returns (requestID, interactionID, error). Both IDs are needed by callers that track comment responses.
+//
+// interrupt=true tells the agent to cancel its current turn before processing this message. Use it for
+// reactive feedback (design-review comments, request-changes flows). Use false for system-driven
+// instructions (approval kickoff, post-merge push/rebase) that should respect the agent's queue.
 func (s *HelixAPIServer) sendMessageToSpecTaskAgent(
 	ctx context.Context,
 	specTask *types.SpecTask,
 	message string,
 	notifyUserID string, // Optional: user to notify of responses (e.g., commenter). Empty = no extra notification
+	interrupt bool,
 ) (string, string, error) {
 	// Find a connected session for this spec task, falling back to PlanningSessionID.
 	// If no session is connected, sendChatMessageToExternalAgent will still create
@@ -1483,7 +1517,7 @@ func (s *HelixAPIServer) sendMessageToSpecTaskAgent(
 
 	// Send the message via the canonical path which creates an interaction,
 	// enqueues it, and sends the WebSocket command.
-	interactionID, err := s.sendChatMessageToExternalAgent(sessionID, message, requestID)
+	interactionID, err := s.sendChatMessageToExternalAgent(sessionID, message, requestID, interrupt)
 	if err != nil {
 		if notifyUserID != "" {
 			s.contextMappingsMutex.Lock()
@@ -1544,7 +1578,8 @@ func (s *HelixAPIServer) sendApprovalInstructionToAgent(
 	// Build the prompt using the shared function from services package
 	message := services.BuildApprovalInstructionPrompt(specTask, branchName, baseBranch, guidelines, primaryRepoName, koditDoc, repoSection, nonPrimaryRepoNames, screenshotBaseURL)
 
-	_, _, err := s.sendMessageToSpecTaskAgent(ctx, specTask, message, "")
+	// interrupt=false: approval kickoff begins a new phase with an idle agent; respect the queue.
+	_, _, err := s.sendMessageToSpecTaskAgent(ctx, specTask, message, "", false)
 	if err != nil {
 		return err
 	}

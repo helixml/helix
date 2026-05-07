@@ -63,24 +63,33 @@ steps:
   - name: helm-lint
     image: alpine/helm:3.16.4
     commands:
-      # Fetch subchart dependencies (postgresql, common) before lint/template
-      - helm dependency build charts/helix-controlplane
-      # Lint all three charts with default values
+      # Render Chart.yaml from Chart.yaml.tmpl. No DRONE_TAG on push events, so
+      # the script stamps a sentinel version — fine for lint/template since the
+      # rendered output is never published from this pipeline.
+      - sh scripts/render-charts.sh
+      # Lint both charts with default values. (helix-runner was deleted in
+      # 6d660a6d1 — the sandbox absorbed the runner role. Bitnami
+      # subcharts were dropped in 32133ee6d, so no `helm dependency
+      # build` step is needed any more.)
       - helm lint charts/helix-controlplane
-      - helm lint charts/helix-runner
       - helm lint charts/helix-sandbox
       # Lint controlplane with production-like example values
       - helm lint charts/helix-controlplane -f charts/helix-controlplane/values-example.yaml
-      - helm lint charts/helix-runner -f charts/helix-runner/values-example.yaml
       # Template render to catch runtime errors (missing helpers, bad references)
       - helm template test-release charts/helix-controlplane -f charts/helix-controlplane/values-example.yaml > /dev/null
-      - helm template test-release charts/helix-runner -f charts/helix-runner/values-example.yaml > /dev/null
       - helm template test-release charts/helix-sandbox > /dev/null
       # Template with each sandbox values variant
       - helm template test-release charts/helix-sandbox -f charts/helix-sandbox/values-bare-metal.yaml > /dev/null
       - helm template test-release charts/helix-sandbox -f charts/helix-sandbox/values-eks.yaml > /dev/null
       - helm template test-release charts/helix-sandbox -f charts/helix-sandbox/values-gke.yaml > /dev/null
       - helm template test-release charts/helix-sandbox -f charts/helix-sandbox/values-aks.yaml > /dev/null
+      # Re-render with a synthetic real-looking tag and re-lint to catch
+      # template breakage that only surfaces with a non-sentinel version
+      # (the tag-build pipeline runs render-charts.sh with DRONE_TAG and we
+      # want to fail in PR rather than mid-release if substitution breaks).
+      - DRONE_TAG=v9.9.9-rendertest sh scripts/render-charts.sh
+      - helm lint charts/helix-controlplane
+      - helm lint charts/helix-sandbox
     when:
       event:
         - push
@@ -177,7 +186,6 @@ steps:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DATABASE: postgres
-      TEXT_EXTRACTION_TIKA_URL: http://tika:9998
       RAG_CRAWLER_LAUNCHER_URL: http://chrome:7317
 
     commands:
@@ -233,7 +241,6 @@ steps:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DATABASE: postgres
-      TEXT_EXTRACTION_TIKA_URL: http://tika:9998
       RAG_CRAWLER_LAUNCHER_URL: http://chrome:7317
       ORGANIZATIONS_CREATE_ENABLED_FOR_NON_ADMINS: "true"
       START_HELIX_TEST_SERVER: "true"
@@ -296,7 +303,7 @@ steps:
   #     POSTGRES_USER: postgres
   #     POSTGRES_PASSWORD: postgres
   #     POSTGRES_DATABASE: postgres
-  #     TEXT_EXTRACTION_TIKA_URL: http://tika:9998
+
   #     RAG_CRAWLER_LAUNCHER_URL: http://chrome:7317
   #     ORGANIZATIONS_CREATE_ENABLED_FOR_NON_ADMINS: "true"
   #     # CI-specific configuration for OAuth test
@@ -371,7 +378,7 @@ steps:
   #     POSTGRES_USER: postgres
   #     POSTGRES_PASSWORD: postgres
   #     POSTGRES_DATABASE: postgres
-  #     TEXT_EXTRACTION_TIKA_URL: http://tika:9998
+
   #     RAG_CRAWLER_LAUNCHER_URL: http://chrome:7317
   #     ORGANIZATIONS_CREATE_ENABLED_FOR_NON_ADMINS: "true"
   #     # CI-specific configuration for OAuth test
@@ -447,7 +454,7 @@ steps:
   #     POSTGRES_USER: postgres
   #     POSTGRES_PASSWORD: postgres
   #     POSTGRES_DATABASE: postgres
-  #     TEXT_EXTRACTION_TIKA_URL: http://tika:9998
+
   #     RAG_CRAWLER_LAUNCHER_URL: http://chrome:7317
   #     ORGANIZATIONS_CREATE_ENABLED_FOR_NON_ADMINS: "true"
   #     WEB_SERVER_HOST: "localhost"
@@ -524,7 +531,7 @@ steps:
   #     POSTGRES_USER: postgres
   #     POSTGRES_PASSWORD: postgres
   #     POSTGRES_DATABASE: postgres
-  #     TEXT_EXTRACTION_TIKA_URL: http://tika:9998
+
   #     RAG_CRAWLER_LAUNCHER_URL: http://chrome:7317
   #     ORGANIZATIONS_CREATE_ENABLED_FOR_NON_ADMINS: "true"
   #     # CI-specific configuration for OAuth test
@@ -604,7 +611,7 @@ steps:
   #     POSTGRES_USER: postgres
   #     POSTGRES_PASSWORD: postgres
   #     POSTGRES_DATABASE: postgres
-  #     TEXT_EXTRACTION_TIKA_URL: http://tika:9998
+
   #     RAG_CRAWLER_LAUNCHER_URL: http://chrome:7317
   #     ORGANIZATIONS_CREATE_ENABLED_FOR_NON_ADMINS: "true"
   #     # CI-specific configuration for OAuth test
@@ -690,7 +697,7 @@ steps:
   #     POSTGRES_USER: postgres
   #     POSTGRES_PASSWORD: postgres
   #     POSTGRES_DATABASE: postgres
-  #     TEXT_EXTRACTION_TIKA_URL: http://tika:9998
+
   #     RAG_CRAWLER_LAUNCHER_URL: http://chrome:7317
   #     ORGANIZATIONS_CREATE_ENABLED_FOR_NON_ADMINS: "true"
   #     # CI-specific configuration for OAuth test
@@ -830,8 +837,6 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: postgres
-  - name: tika
-    image: apache/tika:2.9.2.1
   - name: chrome
     image: ghcr.io/go-rod/rod:v0.115.0
 
@@ -864,6 +869,9 @@ volumes:
 kind: pipeline
 type: docker
 name: build-controlplane-amd64
+
+depends_on:
+  - default
 
 platform:
   os: linux
@@ -912,6 +920,9 @@ steps:
 kind: pipeline
 type: docker
 name: build-controlplane-arm64
+
+depends_on:
+  - default
 
 platform:
   os: linux
@@ -1007,6 +1018,9 @@ kind: pipeline
 type: docker
 name: build-runner
 
+depends_on:
+  - default
+
 trigger:
   ref:
     include:
@@ -1053,6 +1067,9 @@ steps:
 kind: pipeline
 type: docker
 name: build-runner-small
+
+depends_on:
+  - default
 
 trigger:
   ref:
@@ -1121,6 +1138,9 @@ kind: pipeline
 type: docker
 name: build-runner-large
 
+depends_on:
+  - default
+
 trigger:
   ref:
     include:
@@ -1187,6 +1207,9 @@ steps:
 kind: pipeline
 type: docker
 name: build-demos
+
+depends_on:
+  - default
 
 trigger:
   ref:
@@ -1371,6 +1394,94 @@ volumes:
     host:
       path: /var/run/docker.sock
 
+---
+# GPU-cloud integration test (multi-provider, real hardware).
+#
+# Drives integration-test/gpucloud/cmd/gpucloud-it against the matrix
+# in integration-test/gpucloud/matrix.yaml. Today's enabled set is
+# 1× A100 80GB on Verda + 1× MI300X on Hot Aisle, ~30 min/entry,
+# ~$1.65/run.
+#
+# Requires the cron entry "gpucloud-nightly" to be registered in the
+# Drone UI/API — the trigger here references it; without registering
+# the cron, this pipeline never fires. Suggested schedule: nightly at
+# 04:30 UTC (off-peak for both providers).
+#
+# Required Drone secrets (managed via the Drone UI under repo
+# settings → Secrets):
+#   - hotaisle_api_key       Hot Aisle REST API key
+#   - hotaisle_team          Hot Aisle team slug
+#   - verda_client_id        Verda OAuth2 client ID
+#   - verda_client_secret    Verda OAuth2 client secret
+#   - verda_ssh_key_id       Verda SSH key ID for VM SSH access
+#   - gpucloud_helix_api_url Publicly-reachable Helix API the test
+#                            sandboxes will register against (e.g.
+#                            staging URL or a long-lived Cloudflare
+#                            tunnel from the CI host). The harness
+#                            provisions cloud VMs that need to dial
+#                            this back over WSS for heartbeats.
+#   - gpucloud_runner_token  Shared runner token the provisioned
+#                            sandboxes use to authenticate to the
+#                            Helix API above.
+#   - JANITOR_SLACK_WEBHOOK_URL   Reused from smoke-test/helm-upgrade.
+#
+# Failure goes to #helix-janitor, same channel as the existing smoke
+# alerts. Cost cap: --max-daily-usd 25 keeps a runaway loop from
+# burning more than $25 in any 24h window even if Drone retries.
+kind: pipeline
+type: docker
+name: gpucloud-it
+
+workspace:
+  base: /go
+  path: src/github.com/helix-ml/helix
+
+trigger:
+  event:
+    - cron
+  cron:
+    - gpucloud-nightly
+    - developer
+
+steps:
+  - name: gpucloud-it
+    image: golang:1.25-alpine
+    environment:
+      HOTAISLE_API_KEY:
+        from_secret: hotaisle_api_key
+      HOTAISLE_TEAM:
+        from_secret: hotaisle_team
+      VERDA_CLIENT_ID:
+        from_secret: verda_client_id
+      VERDA_CLIENT_SECRET:
+        from_secret: verda_client_secret
+      VERDA_SSH_KEY_ID:
+        from_secret: verda_ssh_key_id
+      HELIX_API_URL:
+        from_secret: gpucloud_helix_api_url
+      RUNNER_TOKEN:
+        from_secret: gpucloud_runner_token
+    commands:
+      - apk add --no-cache git ca-certificates openssh-client
+      - go build -o /tmp/gpucloud-it ./integration-test/gpucloud/cmd/gpucloud-it
+      - /tmp/gpucloud-it
+        --matrix integration-test/gpucloud/matrix.yaml
+        --max-daily-usd 25
+        --junit-out gpucloud-it.xml
+        --md-out gpucloud-it.md
+    depends_on: []
+
+  - name: slack-notification
+    image: plugins/slack
+    settings:
+      webhook:
+        from_secret: JANITOR_SLACK_WEBHOOK_URL
+      channel: helix-janitor
+      message: "❌ GPU-cloud nightly failed (real-hardware tests against Verda + Hot Aisle). (<https://drone.lukemarsden.net/helixml/helix/${DRONE_BUILD_NUMBER}|Build>)"
+    when:
+      status:
+        - failure
+
 # ---
 # Spectask/Sandbox Integration Tests
 # These tests can run with software rendering (no GPU required).
@@ -1502,6 +1613,9 @@ volumes:
 kind: pipeline
 type: docker
 name: build-sandbox-amd64
+
+depends_on:
+  - default
 
 platform:
   os: linux
@@ -1896,6 +2010,9 @@ steps:
 kind: pipeline
 type: docker
 name: build-sandbox-arm64
+
+depends_on:
+  - default
 
 platform:
   os: linux

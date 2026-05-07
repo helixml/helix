@@ -710,3 +710,100 @@ func TestCreateFlexibleEmbeddings_PreservesExplicitEncodingFormat(t *testing.T) 
 	})
 	require.NoError(t, err)
 }
+
+// TestInterceptor_NonJSON401BodyPassesThrough verifies that when an upstream
+// inference provider (e.g. NVIDIA) returns a 401 with a non-JSON body like
+// "Unauthorized", the interceptor does NOT wrap the body in
+// reasoningFieldMapper. Wrapping caused a JSON parse error
+// ("invalid character 'U' looking for beginning of value") that hid the real
+// upstream message from the user.
+func TestInterceptor_NonJSON401BodyPassesThrough(t *testing.T) {
+	const upstreamBody = "Unauthorized: Invalid API Key"
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(upstreamBody))
+	}))
+	defer ts.Close()
+
+	interceptor := &openAIClientInterceptor{
+		Client:  *http.DefaultClient,
+		baseURL: ts.URL,
+	}
+
+	req, err := http.NewRequest(http.MethodGet, ts.URL+"/v1/models", nil)
+	require.NoError(t, err)
+
+	resp, err := interceptor.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	require.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+
+	// The body must be the raw upstream bytes — not wrapped, not mutated, no
+	// extra newline appended by the line-buffered scanner.
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	assert.Equal(t, upstreamBody, string(body),
+		"non-JSON 4xx body must pass through unmodified; got %q", string(body))
+
+	// Confirm the body was NOT replaced with the reasoning mapper wrapper.
+	_, wrapped := resp.Body.(*reasoningFieldMapper)
+	assert.False(t, wrapped, "non-2xx response body should not be wrapped in reasoningFieldMapper")
+}
+
+// TestListModels_NonJSON401_IncludesUpstreamBody verifies that when a
+// provider's /models endpoint returns a non-200 with a non-JSON body (e.g.
+// NVIDIA returning "Unauthorized" plain text on a bad API key), the resulting
+// error message includes the upstream body text. Without this, users see only
+// "401 Unauthorized" with no clue that their API key was rejected.
+func TestListModels_NonJSON401_IncludesUpstreamBody(t *testing.T) {
+	const upstreamBody = "Unauthorized: Invalid API Key"
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(upstreamBody))
+	}))
+	defer ts.Close()
+
+	client := New("bad-key", ts.URL, false)
+	_, err := client.ListModels(context.Background())
+	require.Error(t, err)
+
+	errMsg := err.Error()
+	assert.Contains(t, errMsg, "401",
+		"error must include the HTTP status code")
+	assert.Contains(t, errMsg, upstreamBody,
+		"error must include upstream body so the user can self-diagnose; got: %s", errMsg)
+	assert.NotContains(t, errMsg, "invalid character 'U'",
+		"the JSON-parse-on-non-JSON crash must not appear; got: %s", errMsg)
+}
+
+// TestInterceptor_2xxBodyIsWrapped verifies the wrapper is still applied to
+// successful responses so reasoning-field renaming continues to work for
+// providers like Together AI.
+func TestInterceptor_2xxBodyIsWrapped(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"choices":[{"index":0,"delta":{"reasoning":"hi"}}]}` + "\n"))
+	}))
+	defer ts.Close()
+
+	interceptor := &openAIClientInterceptor{
+		Client:  *http.DefaultClient,
+		baseURL: ts.URL,
+	}
+
+	req, err := http.NewRequest(http.MethodGet, ts.URL+"/v1/chat/completions", nil)
+	require.NoError(t, err)
+
+	resp, err := interceptor.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	_, wrapped := resp.Body.(*reasoningFieldMapper)
+	assert.True(t, wrapped, "2xx response body should be wrapped in reasoningFieldMapper")
+}

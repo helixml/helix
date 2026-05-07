@@ -40,3 +40,10 @@ wolf/key.pem:private-key:1
 docker-compose.keycloak.yaml:generic-api-key:25
 keycloak/docker-compose.dev.yaml:generic-api-key:25
 keycloak/docker-compose.prod.yaml:generic-api-key:26
+
+# Jobs page - example curl commands with placeholder API key
+frontend/src/pages/Jobs.tsx:curl-auth-header:492
+frontend/src/pages/Jobs.tsx:curl-auth-header:516
+frontend/src/pages/Jobs.tsx:curl-auth-header:527
+frontend/src/pages/Jobs.tsx:curl-auth-header:530
+frontend/src/pages/Jobs.tsx:curl-auth-header:533

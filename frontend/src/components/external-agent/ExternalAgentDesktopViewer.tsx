@@ -103,6 +103,10 @@ interface ExternalAgentDesktopViewerProps {
   // Pre-computed sandbox state from the task list (avoids per-card session polling on Kanban)
   initialSandboxState?: string;
   initialSandboxStatusMessage?: string;
+  // Sandboxes reuse the desktop stream transport, but they are not Helix
+  // sessions. Hide session lifecycle/upload actions that would call
+  // /sessions endpoints with a sandbox id.
+  sandboxMode?: boolean;
 }
 
 const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
@@ -122,6 +126,7 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
   startupErrorMessage,
   initialSandboxState,
   initialSandboxStatusMessage,
+  sandboxMode = false,
 }) => {
   const api = useApi();
   const snackbar = useSnackbar();
@@ -176,6 +181,7 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
 
   const handleStopFromStarting = async (e?: React.MouseEvent) => {
     e?.stopPropagation();
+    if (sandboxMode) return;
     setIsStopping(true);
     try {
       await api.getApiClient().v1SessionsStopExternalAgentDelete(sessionId);
@@ -233,6 +239,7 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
 
   const handleResume = async (e?: React.MouseEvent) => {
     e?.stopPropagation(); // Prevent click from bubbling to parent (e.g., Kanban card navigation)
+    if (sandboxMode) return;
     setIsResuming(true);
     try {
       await api.getApiClient().v1SessionsResumeCreate(sessionId);
@@ -331,15 +338,17 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
               <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.7)', fontWeight: 500 }}>
                 {startingTooLong ? "Desktop may have failed to start" : (statusMessage || "Starting Desktop...")}
               </Typography>
-              <Button
-                variant="outlined"
-                size="small"
-                onClick={handleStopFromStarting}
-                disabled={isStopping}
-                sx={{ color: 'rgba(255,255,255,0.6)', borderColor: 'rgba(255,255,255,0.3)', mt: 1 }}
-              >
-                {isStopping ? "Stopping..." : "Stop"}
-              </Button>
+              {!sandboxMode && (
+                <Button
+                  variant="outlined"
+                  size="small"
+                  onClick={handleStopFromStarting}
+                  disabled={isStopping}
+                  sx={{ color: 'rgba(255,255,255,0.6)', borderColor: 'rgba(255,255,255,0.3)', mt: 1 }}
+                >
+                  {isStopping ? "Stopping..." : "Stop"}
+                </Button>
+              )}
             </>
           )}
         </Box>
@@ -399,20 +408,22 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
               variant="body1"
               sx={{ color: "rgba(255,255,255,0.9)", fontWeight: 500 }}
             >
-              Desktop Paused
+              {sandboxMode ? "Desktop Unavailable" : "Desktop Paused"}
             </Typography>
-            <Button
-              variant="contained"
-              color="primary"
-              size="large"
-              startIcon={
-                isResuming ? <CircularProgress size={20} /> : <PlayArrow />
-              }
-              onClick={handleResume}
-              disabled={isResuming}
-            >
-              {isResuming ? "Starting..." : "Start Desktop"}
-            </Button>
+            {!sandboxMode && (
+              <Button
+                variant="contained"
+                color="primary"
+                size="large"
+                startIcon={
+                  isResuming ? <CircularProgress size={20} /> : <PlayArrow />
+                }
+                onClick={handleResume}
+                disabled={isResuming}
+              >
+                {isResuming ? "Starting..." : "Start Desktop"}
+              </Button>
+            )}
           </Box>
         </Box>
       );
@@ -474,15 +485,17 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
             <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.7)', fontWeight: 500 }}>
               {startingTooLong ? "Desktop may have failed to start — click Stop to retry" : (statusMessage || "Starting Desktop...")}
             </Typography>
-            <Button
-              variant="outlined"
-              size="small"
-              onClick={handleStopFromStarting}
-              disabled={isStopping}
-              sx={{ color: 'rgba(255,255,255,0.6)', borderColor: 'rgba(255,255,255,0.3)', mt: 1 }}
-            >
-              {isStopping ? "Stopping..." : "Stop"}
-            </Button>
+            {!sandboxMode && (
+              <Button
+                variant="outlined"
+                size="small"
+                onClick={handleStopFromStarting}
+                disabled={isStopping}
+                sx={{ color: 'rgba(255,255,255,0.6)', borderColor: 'rgba(255,255,255,0.3)', mt: 1 }}
+              >
+                {isStopping ? "Stopping..." : "Stop"}
+              </Button>
+            )}
           </>
         )}
       </Box>
@@ -540,20 +553,22 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
             variant="body1"
             sx={{ color: "rgba(255,255,255,0.9)", fontWeight: 500 }}
           >
-            Desktop Paused
+            {sandboxMode ? "Desktop Unavailable" : "Desktop Paused"}
           </Typography>
-          <Button
-            variant="contained"
-            color="primary"
-            size="large"
-            startIcon={
-              isResuming ? <CircularProgress size={20} /> : <PlayArrow />
-            }
-            onClick={handleResume}
-            disabled={isResuming}
-          >
-            {isResuming ? "Starting..." : "Start Desktop"}
-          </Button>
+          {!sandboxMode && (
+            <Button
+              variant="contained"
+              color="primary"
+              size="large"
+              startIcon={
+                isResuming ? <CircularProgress size={20} /> : <PlayArrow />
+              }
+              onClick={handleResume}
+              disabled={isResuming}
+            >
+              {isResuming ? "Starting..." : "Start Desktop"}
+            </Button>
+          )}
         </Box>
       </Box>
     );
@@ -577,7 +592,7 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
       {/* Main desktop viewer */}
       <SandboxDropZone
         sessionId={sessionId}
-        disabled={!isRunning}
+        disabled={!isRunning || sandboxMode}
         onFileUploaded={handleFileUploaded}
       >
         <Box
@@ -627,9 +642,9 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
                 variant="body1"
                 sx={{ color: "rgba(255,255,255,0.9)", fontWeight: 500 }}
               >
-                {isPaused ? "Desktop Paused" : "Reconnecting..."}
+                {isPaused ? (sandboxMode ? "Desktop Unavailable" : "Desktop Paused") : "Reconnecting..."}
               </Typography>
-              {isPaused && (
+              {isPaused && !sandboxMode && (
                 <Button
                   variant="contained"
                   color="primary"

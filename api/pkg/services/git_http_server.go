@@ -31,7 +31,11 @@ type AuthorizationToRepositoryFunc func(ctx context.Context, user *types.User, r
 
 // SpecTaskMessageSender is a function type for sending messages to spec task agents.
 // Returns (requestID, interactionID, error).
-type SpecTaskMessageSender func(ctx context.Context, task *types.SpecTask, message string, docPath string) (string, string, error)
+//
+// The fourth string is a notifyUserID (empty = no extra notification). interrupt=true
+// tells the agent to cancel its current turn before processing — use it for reactive
+// feedback like design-review comments; use false for system-driven instructions.
+type SpecTaskMessageSender func(ctx context.Context, task *types.SpecTask, message string, notifyUserID string, interrupt bool) (string, string, error)
 
 // BranchRestriction holds the result of checking branch permissions for an API key
 type BranchRestriction struct {
@@ -612,14 +616,28 @@ func (s *GitHTTPServer) handleReceivePack(w http.ResponseWriter, r *http.Request
 	if len(pushedBranchesMap) > 0 && repo != nil && repo.ExternalURL != "" {
 		log.Debug().Str("repo_id", repoID).Int("branch_count", len(pushedBranchesMap)).Msg("Starting external push with detached context")
 
-		// Resolve the acting user for push credentials: use the approver's
-		// OAuth token so the push is attributed to the user who clicked "Open PR".
+		// Resolve the acting user for push credentials: use the actor's OAuth
+		// token so the push is attributed correctly on GitHub.
+		//
+		// Walk the phase chain from most to least recent:
+		//   ImplementationApprovedBy — user clicked "Open PR"
+		//   SpecApprovedBy           — user approved specs and moved task to implementation
+		//   PlanningStartedBy        — user kicked off planning (first phase that can push to helix-specs)
+		//
+		// Using the latest actor available means agent-initiated pushes at
+		// any phase carry a real user identity rather than anonymous creds.
 		var pushUserID string
 		if restriction != nil && restriction.IsAgentKey {
 			rawKey := s.extractRawAPIKey(apiKey)
 			if keyRecord, err := s.store.GetAPIKey(context.Background(), &types.ApiKey{Key: rawKey}); err == nil && keyRecord.SpecTaskID != "" {
 				if pushTask, err := s.store.GetSpecTask(context.Background(), keyRecord.SpecTaskID); err == nil {
 					pushUserID = pushTask.ImplementationApprovedBy
+					if pushUserID == "" {
+						pushUserID = pushTask.SpecApprovedBy
+					}
+					if pushUserID == "" {
+						pushUserID = pushTask.PlanningStartedBy
+					}
 				}
 			}
 		}

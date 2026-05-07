@@ -92,6 +92,18 @@ func (m *DefaultQuotaManager) getOrgQuotas(ctx context.Context, orgID string) (*
 	quotas.UserID = wallet.UserID
 	quotas.OrganizationID = wallet.OrgID
 
+	// Sandbox concurrency limits come from system settings, not from the
+	// per-tier subscription quotas — they're a global operator setting.
+	desktopMax := systemSettings.EffectiveMaxConcurrentDesktopSandboxes()
+	headlessMax := systemSettings.EffectiveMaxConcurrentHeadlessSandboxes()
+	if !systemSettings.EnforceQuotas {
+		desktopMax = -1
+		headlessMax = -1
+	}
+	quotas.MaxDesktopSandboxes = desktopMax
+	quotas.MaxHeadlessSandboxes = headlessMax
+	quotas.ActiveDesktopSandboxes, quotas.ActiveHeadlessSandboxes = m.getActiveSandboxesByOrg(ctx, wallet.OrgID)
+
 	return quotas, nil
 }
 
@@ -182,6 +194,35 @@ func (m *DefaultQuotaManager) getActiveConcurrentDesktopsByUser(ctx context.Cont
 		}
 	}
 	return count
+}
+
+// getActiveSandboxesByOrg returns (desktopCount, headlessCount) of currently
+// active sandboxes (pending|running|stopping) in the org. Mirrors the active
+// status set used by ensureSandboxLimits so the displayed usage matches what
+// the limit check enforces. Counted by sandbox runtime: ubuntu-desktop is the
+// "desktop" bucket, everything else is headless.
+func (m *DefaultQuotaManager) getActiveSandboxesByOrg(ctx context.Context, orgID string) (int, int) {
+	sandboxes, err := m.store.ListSandboxes(ctx, &store.ListSandboxesQuery{OrganizationID: orgID})
+	if err != nil {
+		return 0, 0
+	}
+	desktop, headless := 0, 0
+	for _, sb := range sandboxes {
+		if sb == nil {
+			continue
+		}
+		switch sb.Status {
+		case types.SandboxStatusPending, types.SandboxStatusRunning, types.SandboxStatusStopping:
+		default:
+			continue
+		}
+		if sb.Runtime == types.SandboxRuntimeUbuntuDesktop {
+			desktop++
+		} else {
+			headless++
+		}
+	}
+	return desktop, headless
 }
 
 func (m *DefaultQuotaManager) getActiveConcurrentDesktopsByOrg(ctx context.Context, orgID string) int {

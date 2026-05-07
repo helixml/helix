@@ -120,7 +120,7 @@ func (apiServer *HelixAPIServer) listModelsAnthropic(rw http.ResponseWriter, r *
 		return
 	}
 
-	endpoint, err := apiServer.getBuiltInProviderEndpoint(string(types.ProviderAnthropic))
+	endpoint, err := apiServer.getBuiltInProviderEndpoint(r.Context(), string(types.ProviderAnthropic))
 	if err != nil {
 		log.Err(err).Msg("failed to get Anthropic provider endpoint")
 		http.Error(rw, "Anthropic provider not configured: "+err.Error(), http.StatusInternalServerError)

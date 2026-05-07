@@ -56,15 +56,23 @@ export function useCreateProviderEndpoint() {
   });
 }
 
-export function useUpdateProviderEndpoint(id: string) {
+export interface UpdateProviderEndpointArgs {
+  id: string;
+  body: Partial<TypesUpdateProviderEndpoint>;
+}
+
+export function useUpdateProviderEndpoint() {
   const api = useApi()
   const apiClient = api.getApiClient()
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (providerEndpoint: Partial<TypesUpdateProviderEndpoint>) => {
+    mutationFn: async ({ id, body }: UpdateProviderEndpointArgs) => {
+      if (!id) {
+        throw new Error('Cannot update provider endpoint: missing id')
+      }
       const result = await apiClient.v1ProviderEndpointsUpdate(id, {
-        body: providerEndpoint,
+        body,
         type: ContentType.Json
       } as RequestParams)
       return result.data

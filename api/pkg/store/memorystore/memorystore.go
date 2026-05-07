@@ -152,6 +152,24 @@ func (m *MemoryStore) ListSessionsByOwner(_ context.Context, ownerID string) ([]
 
 // --- Interaction methods ---
 
+func (m *MemoryStore) ListStuckWaitingInteractions(_ context.Context, _ time.Time, _ int) ([]*types.Interaction, error) {
+	return nil, nil
+}
+
+func (m *MemoryStore) CountAutoWakeAttemptsSince(_ context.Context, _ string, _ time.Time) (int64, error) {
+	return 0, nil
+}
+
+func (m *MemoryStore) IncrementInteractionAutoWakeCount(_ context.Context, id string) (int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if i, ok := m.interactions[id]; ok {
+		i.AutoWakeCount++
+		return i.AutoWakeCount, nil
+	}
+	return 0, store.ErrNotFound
+}
+
 func (m *MemoryStore) GetInteraction(_ context.Context, id string) (*types.Interaction, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -288,7 +306,18 @@ func (m *MemoryStore) GetNextInterruptPrompt(_ context.Context, _ string) (*type
 
 func (m *MemoryStore) MarkPromptAsPending(_ context.Context, _ string) error    { return nil }
 func (m *MemoryStore) MarkPromptAsSent(_ context.Context, _ string) error       { return nil }
-func (m *MemoryStore) MarkPromptAsFailed(_ context.Context, _ string) error       { return nil }
+func (m *MemoryStore) MarkPromptAsFailed(_ context.Context, _ string, _ string) error {
+	return nil
+}
+func (m *MemoryStore) MarkPromptAsCrashed(_ context.Context, _ string, _ string) error {
+	return nil
+}
+func (m *MemoryStore) ResetCrashedPromptsForSession(_ context.Context, _ string) (int, error) {
+	return 0, nil
+}
+func (m *MemoryStore) ReconcileStuckSendingPrompts(_ context.Context) (int, error) {
+	return 0, nil
+}
 func (m *MemoryStore) RequeueBouncedPrompt(_ context.Context, _ string) error     { return nil }
 func (m *MemoryStore) DeletePromptHistoryEntry(_ context.Context, _ string) error { return nil }
 func (m *MemoryStore) ClaimPromptForSending(_ context.Context, _ string) (bool, error) {

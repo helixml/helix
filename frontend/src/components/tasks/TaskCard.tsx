@@ -230,6 +230,20 @@ const formatDuration = (startedAt: string): string => {
   return `${minutes}m${seconds}s`;
 };
 
+// Status label for tasks in the "implementation" phase. We honour the agent's
+// real activity (working / idle) so the card doesn't keep claiming the agent
+// is busy while it's actually sitting waiting for review. If the sandbox is
+// down or starting, surface that instead.
+const getImplementationLabel = (task: SpecTaskWithExtras): string => {
+  if (task.sandbox_state === "absent") return "Sandbox stopped";
+  if (task.sandbox_state === "starting") {
+    return task.sandbox_status_message || "Starting…";
+  }
+  if (task.agent_work_state === "idle") return "Idle";
+  // "working", missing field, or any unexpected value → keep today's label.
+  return "In Progress";
+};
+
 const useRunningDuration = (
   startedAt: string | undefined,
   enabled: boolean,
@@ -604,7 +618,7 @@ function TaskCardInner({
 
   const runningDuration = useRunningDuration(
     task.started_at,
-    task.status === "implementation",
+    task.agent_work_state === "working",
   );
   const taskError = task.metadata?.error?.trim();
 
@@ -984,7 +998,7 @@ function TaskCardInner({
                   : task.phase === "review"
                     ? "Review"
                     : task.phase === "implementation"
-                      ? "In Progress"
+                      ? getImplementationLabel(task)
                       : task.phase === "pull_request"
                         ? "Pull Request"
                         : "Merged"}

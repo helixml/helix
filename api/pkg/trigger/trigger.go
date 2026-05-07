@@ -23,14 +23,15 @@ import (
 )
 
 type Manager struct {
-	cfg             *config.ServerConfig
-	store           store.Store
-	controller      *controller.Controller
-	notifier        notification.Notifier
-	specTaskCreator cron.SpecTaskCreator
-	azureDevOps     *azure.AzureDevOps
-	teams           *teams.Teams
-	helixCodeReview *project.HelixCodeReviewTrigger
+	cfg                  *config.ServerConfig
+	store                store.Store
+	controller           *controller.Controller
+	notifier             notification.Notifier
+	specTaskCreator      cron.SpecTaskCreator
+	externalAgentStarter cron.ExternalAgentStarter
+	azureDevOps          *azure.AzureDevOps
+	teams                *teams.Teams
+	helixCodeReview      *project.HelixCodeReviewTrigger
 
 	wg sync.WaitGroup
 }
@@ -51,6 +52,10 @@ func NewTriggerManager(cfg *config.ServerConfig, store store.Store, notifier not
 // This is set after construction because the SpecDrivenTaskService is created later in the init sequence.
 func (t *Manager) SetSpecTaskCreator(specTaskCreator cron.SpecTaskCreator) {
 	t.specTaskCreator = specTaskCreator
+}
+
+func (t *Manager) SetExternalAgentStarter(starter cron.ExternalAgentStarter) {
+	t.externalAgentStarter = starter
 }
 
 func (t *Manager) Start(ctx context.Context) {
@@ -130,7 +135,7 @@ func (t *Manager) runDiscord(ctx context.Context) {
 }
 
 func (t *Manager) runCron(ctx context.Context) {
-	cronTrigger, err := cron.New(t.cfg, t.store, t.notifier, t.controller, t.specTaskCreator)
+	cronTrigger, err := cron.New(t.cfg, t.store, t.notifier, t.controller, t.specTaskCreator, t.externalAgentStarter)
 	if err != nil {
 		log.Err(err).Msg("failed to create cron trigger")
 		return

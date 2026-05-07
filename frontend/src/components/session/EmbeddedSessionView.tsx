@@ -21,7 +21,13 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
   useAutoScrollPreference,
   AUTO_SCROLL_NEAR_BOTTOM_PX,
+  USER_SCROLL_UNLOCK_PX,
 } from "../../hooks/useAutoScrollPreference";
+
+// Timeout (ms) after which a fresh wheel event is treated as a new gesture
+// and the upward-scroll accumulator resets. Stops "scroll up 60px, read,
+// then scroll up another 60px" from cumulatively crossing the threshold.
+const USER_SCROLL_GESTURE_TIMEOUT_MS = 500;
 
 // Number of interactions to render initially (and per "load more" click).
 // Keep this low — long-running agent sessions can have interactions with
@@ -62,12 +68,20 @@ export interface EmbeddedSessionViewHandle {
  *
  *   - A single global preference (`helix.autoScroll`, default ON) controls
  *     whether new content auto-scrolls the chat to the bottom.
- *   - When ON: every render where scrollHeight grew is followed by a scroll
- *     to bottom. No "is the user at the bottom?" detection. No guards. No
- *     wheel/touch listeners. The user opts out with the toggle button.
+ *   - When ON: every content-height *growth* (driven by ResizeObserver on
+ *     contentRef) is followed by a scroll to bottom. Renders that don't
+ *     grow content (3s polls, WS keepalives, identical re-renders) do
+ *     no scroll work — `scrollToBottom()` is a no-op when
+ *     `container.scrollHeight === lastScrolledHeightRef.current`.
  *   - When OFF: no auto-scroll. If new content lands below the viewport,
  *     a "Jump to latest" pill appears; clicking it scrolls to bottom and
  *     re-enables the preference.
+ *   - Auto-scroll flips OFF in two ways: (a) the toggle button (bottom
+ *     right), and (b) explicit user scroll-up — if the user wheels or
+ *     finger-drags upward by a cumulative ≥ USER_SCROLL_UNLOCK_PX (100px)
+ *     within a single gesture. We listen to `wheel` and `touchmove`
+ *     directly (not `scrollTop` deltas) so programmatic scrolls and
+ *     content reflow above the viewport cannot trip the unlock.
  */
 const EmbeddedSessionView = forwardRef<
   EmbeddedSessionViewHandle,
@@ -78,7 +92,7 @@ const EmbeddedSessionView = forwardRef<
   const lightTheme = useLightTheme();
   const containerRef = useRef<HTMLDivElement>(null);
   const queryClient = useQueryClient();
-  const { NewInference, wsConnected } = useStreaming();
+  const { NewInference } = useStreaming();
 
   // Global on/off preference for auto-scroll. Default ON.
   const [autoScroll, setAutoScroll] = useAutoScrollPreference();
@@ -90,6 +104,23 @@ const EmbeddedSessionView = forwardRef<
   // True when auto-scroll is OFF and new content has landed below the viewport.
   // Drives the "Jump to latest" pill.
   const [hasNewBelow, setHasNewBelow] = useState(false);
+
+  // Last scrollHeight we wrote scrollTop to. Used to short-circuit
+  // scrollToBottom() when nothing has actually grown since the last write —
+  // otherwise InteractionLiveStream's onMessageUpdate (which fires on every
+  // message/responseEntries reference change, throttled but ungated) would
+  // trigger a redundant scroll write per polling interval and per WS update.
+  const lastScrolledHeightRef = useRef(0);
+
+  // Cumulative upward user-scroll distance (px) within the current gesture.
+  // Flipped to autoScroll=OFF when this crosses USER_SCROLL_UNLOCK_PX.
+  const upwardAccumRef = useRef(0);
+  // Timestamp of the last wheel event, used to detect a fresh gesture and
+  // reset the accumulator after a quiet gap.
+  const lastWheelTsRef = useRef(0);
+  // Touch state for tracking finger-drag direction.
+  const touchStartYRef = useRef<number | null>(null);
+  const lastTouchYRef = useRef<number | null>(null);
 
   // Pagination state: track which page we've loaded up to (page 0 = newest)
   const [oldestPageLoaded, setOldestPageLoaded] = useState(0);
@@ -117,13 +148,16 @@ const EmbeddedSessionView = forwardRef<
 
   // Scroll to bottom. Respects the auto-scroll preference unless `force` is set
   // (force is only used for initial mount, session change, and the
-  // jump-to-latest pill click).
+  // jump-to-latest pill click). Non-force calls also short-circuit when
+  // scrollHeight hasn't changed since the last write — see lastScrolledHeightRef.
   const scrollToBottom = useCallback(
     (force = false) => {
       const container = containerRef.current;
       if (!container) return;
       if (!force && !autoScrollRef.current) return;
+      if (!force && container.scrollHeight === lastScrolledHeightRef.current) return;
       container.scrollTop = container.scrollHeight;
+      lastScrolledHeightRef.current = container.scrollHeight;
       setHasNewBelow(false);
       onScrollToBottom?.();
     },
@@ -147,15 +181,27 @@ const EmbeddedSessionView = forwardRef<
   );
 
   // Fetch session data with auto-refresh.
-  // When the WebSocket is connected it is the authoritative real-time source,
-  // so we suppress the poll to prevent stale HTTP responses from racing with
-  // and overwriting fresh WebSocket-delivered data. Polling resumes automatically
-  // whenever the WebSocket drops (network hiccup, server restart, etc.).
+  // Always poll session metadata at 3s, regardless of WS state.
+  //
+  // Earlier this was gated on `!wsConnected` to avoid HTTP polls racing
+  // with WS-delivered data — but the WS only delivers interaction-related
+  // events. The session's own metadata (in particular
+  // `config.external_agent_status`) is never broadcast over the WS, so
+  // suppressing polling left that field stale, breaking the
+  // `useSandboxState` hook used by `ExternalAgentDesktopViewer` to render
+  // the "Starting Desktop..." spinner during boot. See incident
+  // 2026-04-25 with ses_01kq0ba2708rawbsfqv2hyyxp2.
+  //
+  // We've also confirmed the original race concern is mitigated by
+  // `streaming.tsx:296-308`, which explicitly preserves the existing
+  // `config` when applying WS-delivered session updates. So polling can't
+  // overwrite a fresher WS value because the WS never updates `config` in
+  // the first place.
   const { data: sessionResponse, refetch: refetchSession } = useGetSession(
     sessionId,
     {
       enabled: !!sessionId,
-      refetchInterval: wsConnected ? false : 3000,
+      refetchInterval: 3000,
       skipInteractions: true,
     },
   );
@@ -196,6 +242,11 @@ const EmbeddedSessionView = forwardRef<
 
       hasInitiallyScrolled.current = false;
       lastContentHeightRef.current = 0;
+      lastScrolledHeightRef.current = 0;
+      upwardAccumRef.current = 0;
+      lastWheelTsRef.current = 0;
+      touchStartYRef.current = null;
+      lastTouchYRef.current = null;
       setHasNewBelow(false);
       setOldestPageLoaded(0);
       setOlderInteractions([]);
@@ -251,6 +302,7 @@ const EmbeddedSessionView = forwardRef<
 
       if (autoScrollRef.current) {
         container.scrollTop = container.scrollHeight;
+        lastScrolledHeightRef.current = container.scrollHeight;
         setHasNewBelow(false);
       } else if (!isNearBottom()) {
         setHasNewBelow(true);
@@ -260,6 +312,92 @@ const EmbeddedSessionView = forwardRef<
     observer.observe(content);
     return () => observer.disconnect();
   }, [isNearBottom]);
+
+  // Detect explicit user scroll-up and flip auto-scroll OFF when the user
+  // accumulates >= USER_SCROLL_UNLOCK_PX upward within a single gesture.
+  //
+  // We listen to wheel and touch input events directly — NOT to scrollTop
+  // deltas — because:
+  //   * wheel/touchmove only fire from real user input; programmatic
+  //     scrollTop writes don't synthesize them.
+  //   * content reflow above the viewport (image loads, syntax highlight)
+  //     shifts scrollTop without any input event.
+  // This sidesteps the three race surfaces that killed the previous
+  // sticky-scroll attempt (see commit 42c3a5112 for the autopsy).
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const triggerUnlock = () => {
+      setAutoScroll(false);
+      autoScrollRef.current = false;
+      upwardAccumRef.current = 0;
+    };
+
+    const onWheel = (e: WheelEvent) => {
+      if (!autoScrollRef.current) return;
+      const now = performance.now();
+      // New gesture if the previous wheel event was long enough ago.
+      if (now - lastWheelTsRef.current > USER_SCROLL_GESTURE_TIMEOUT_MS) {
+        upwardAccumRef.current = 0;
+      }
+      lastWheelTsRef.current = now;
+      if (e.deltaY < 0) {
+        upwardAccumRef.current += -e.deltaY;
+        if (upwardAccumRef.current >= USER_SCROLL_UNLOCK_PX) triggerUnlock();
+      } else if (e.deltaY > 0) {
+        // Direction change resets the accumulator — scrolling down clearly
+        // signals the user does NOT want to disengage auto-scroll.
+        upwardAccumRef.current = 0;
+      }
+    };
+
+    const onTouchStart = (e: TouchEvent) => {
+      if (!autoScrollRef.current) return;
+      const t = e.touches[0];
+      if (!t) return;
+      touchStartYRef.current = t.clientY;
+      lastTouchYRef.current = t.clientY;
+      upwardAccumRef.current = 0;
+    };
+
+    const onTouchMove = (e: TouchEvent) => {
+      if (!autoScrollRef.current) return;
+      const t = e.touches[0];
+      if (!t || lastTouchYRef.current === null) return;
+      // Finger moving DOWN the screen (clientY increases) scrolls the
+      // content UP — that's the gesture we treat as "user wants to read
+      // history."
+      const dy = t.clientY - lastTouchYRef.current;
+      lastTouchYRef.current = t.clientY;
+      if (dy > 0) {
+        upwardAccumRef.current += dy;
+        if (upwardAccumRef.current >= USER_SCROLL_UNLOCK_PX) triggerUnlock();
+      } else if (dy < 0) {
+        upwardAccumRef.current = 0;
+      }
+    };
+
+    const onTouchEnd = () => {
+      touchStartYRef.current = null;
+      lastTouchYRef.current = null;
+      upwardAccumRef.current = 0;
+    };
+
+    container.addEventListener("wheel", onWheel, { passive: true });
+    container.addEventListener("touchstart", onTouchStart, { passive: true });
+    container.addEventListener("touchmove", onTouchMove, { passive: true });
+    container.addEventListener("touchend", onTouchEnd, { passive: true });
+    container.addEventListener("touchcancel", onTouchEnd, { passive: true });
+
+    return () => {
+      container.removeEventListener("wheel", onWheel);
+      container.removeEventListener("touchstart", onTouchStart);
+      container.removeEventListener("touchmove", onTouchMove);
+      container.removeEventListener("touchend", onTouchEnd);
+      container.removeEventListener("touchcancel", onTouchEnd);
+    };
+  }, [setAutoScroll]);
 
   // Reload session handler
   const handleReloadSession = useCallback(async () => {
