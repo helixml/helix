@@ -368,12 +368,20 @@ const SidebarContentInner: React.FC<{
           sx={{
             flexGrow: 1,
             width: '100%',
-            height: '100%', // Fixed height to fill available space
-            overflow: 'auto', // Enable scrollbar when content exceeds height
-            boxShadow: 'none', // Remove shadow for a more flat/minimalist design
-            borderRight: 'none', // Remove the border if present
+            // Don't set height: 100% — that overrides flex sizing and lets the
+            // children Box stretch beyond the available space, so the bottom
+            // entries hide behind the floating user menu (Admin Panel / etc.)
+            // which is portal-rendered as position: fixed.
+            // Instead: minHeight: 0 lets flex shrink correctly, and we reserve
+            // bottom padding equal to the floating menu's measured height so
+            // the scroll region ends exactly where the menu starts.
+            minHeight: 0,
+            overflow: 'auto',
+            boxShadow: 'none',
+            borderRight: 'none',
             mr: 3,
             mt: 1,
+            pb: userMenuHeight ? `${userMenuHeight}px` : 0,
             ...lightTheme.scrollbar,
           }}
         >
