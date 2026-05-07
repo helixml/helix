@@ -104,16 +104,16 @@ interface NavButtonProps {
 const NavButton: FC<NavButtonProps> = ({ icon, tooltip, isActive, onClick, label }) => {
   const lightTheme = useLightTheme()
   const isLight = lightTheme.isLight
-  const activeText = isLight ? '#0F172A' : '#E2E8F0'
-  // Light-mode inactive nav items were "way too gray on white" (slate-500/600).
-  // Bump to slate-800/900 family so icons + labels read clearly in sunlight.
-  const inactiveText = isLight ? '#1E293B' : '#A0AEC0'
-  const activeBg = isLight ? 'rgba(15, 23, 42, 0.10)' : 'rgba(226, 232, 240, 0.15)'
-  const activeBorder = isLight ? 'rgba(15, 23, 42, 0.22)' : 'rgba(226, 232, 240, 0.3)'
+  const activeText = isLight ? '#000' : '#E2E8F0'
+  // Light mode = "looking at a cheap iPad in direct sunlight" — go max
+  // contrast. Inactive icons + labels are near-black so they survive glare.
+  const inactiveText = isLight ? '#000' : '#A0AEC0'
+  const activeBg = isLight ? 'rgba(0, 0, 0, 0.12)' : 'rgba(226, 232, 240, 0.15)'
+  const activeBorder = isLight ? 'rgba(0, 0, 0, 0.30)' : 'rgba(226, 232, 240, 0.3)'
   const hoverBg = isLight
-    ? (isActive ? 'rgba(15, 23, 42, 0.14)' : 'rgba(15, 23, 42, 0.06)')
+    ? (isActive ? 'rgba(0, 0, 0, 0.16)' : 'rgba(0, 0, 0, 0.08)')
     : (isActive ? 'rgba(226, 232, 240, 0.2)' : 'rgba(226, 232, 240, 0.1)')
-  const labelInactive = isLight ? '#334155' : '#6B7280'
+  const labelInactive = isLight ? '#000' : '#6B7280'
   return (
     <Tooltip title={tooltip} placement="right">
       <Box

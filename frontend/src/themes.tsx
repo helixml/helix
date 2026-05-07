@@ -119,8 +119,10 @@ export const THEMES: Record<string, ITheme> = {
     lightBackgroundColor: "#ffffff",
     lightBackgroundImage: "url('/img/nebula-light.png')",
     lightBorder: "1px solid #aeaeae",
-    lightText: "#333",
-    lightTextFaded: "#aeaeae",
+    lightText: "#000",
+    // "Faded" in light mode = sunlit-iPad readable, not actually faded.
+    // 7.7:1 contrast vs white (#aeaeae was 3.3:1 — failed AA for body text).
+    lightTextFaded: "#4a4a4a",
     lightPanel: "#f4f4f4",
     // colors
     neutral900: '#000000',
