@@ -252,6 +252,9 @@ export const SessionsSidebar: FC<{
   const renderSession = (session: TypesSessionSummary, showIcon: boolean = true) => {
     const sessionId = session.session_id
     const isActive = sessionId === params["session_id"]
+    const activeBg = lightTheme.isLight ? 'rgba(0,0,0,0.06)' : '#1a1a2f'
+    const activeText = lightTheme.isLight ? lightTheme.textColor : '#fff'
+    const hoverText = lightTheme.isLight ? lightTheme.textColor : '#fff'
     return (
       <ListItem
         sx={{
@@ -270,13 +273,19 @@ export const SessionsSidebar: FC<{
           selected={isActive}
           sx={{
             borderRadius: '4px',
-            backgroundColor: isActive ? '#1a1a2f' : 'transparent',
+            backgroundColor: isActive ? activeBg : 'transparent',
             cursor: 'pointer',
             width: '100%',
             mr: -2,
+            '&.Mui-selected': {
+              backgroundColor: activeBg,
+            },
+            '&.Mui-selected:hover': {
+              backgroundColor: activeBg,
+            },
             '&:hover': {
-              '.MuiListItemText-root .MuiTypography-root': { color: '#fff' },
-              '.MuiListItemIcon-root': { color: '#fff' },
+              '.MuiListItemText-root .MuiTypography-root': { color: hoverText },
+              '.MuiListItemIcon-root': { color: hoverText },
             },
           }}
         >
@@ -287,7 +296,7 @@ export const SessionsSidebar: FC<{
               {getSessionIcon(session)}
             </ListItemIcon>
           )}
-          
+
           <ListItemText
             sx={{marginLeft: showIcon ? "-15px" : "5px"}}
             primaryTypographyProps={{
@@ -295,7 +304,7 @@ export const SessionsSidebar: FC<{
               overflow: 'hidden',
               textOverflow: 'ellipsis',
               whiteSpace: 'nowrap',
-              color: isActive ? '#fff' : lightTheme.textColorFaded,
+              color: isActive ? activeText : lightTheme.textColorFaded,
             }}
             primary={session.name}
             id={sessionId}
@@ -315,6 +324,9 @@ export const SessionsSidebar: FC<{
     const sessionId = sessions[0]?.session_id
     const isActive = params["execution_id"] === executionId
     const groupName = sessions[0]?.name || `Question Set (${sessions.length} session${sessions.length !== 1 ? 's' : ''})`
+    const activeBg = lightTheme.isLight ? 'rgba(0,0,0,0.06)' : '#1a1a2f'
+    const activeText = lightTheme.isLight ? lightTheme.textColor : '#fff'
+    const hoverText = lightTheme.isLight ? lightTheme.textColor : '#fff'
 
     return (
       <ListItem
@@ -334,13 +346,19 @@ export const SessionsSidebar: FC<{
           selected={isActive}
           sx={{
             borderRadius: '4px',
-            backgroundColor: isActive ? '#1a1a2f' : 'transparent',
+            backgroundColor: isActive ? activeBg : 'transparent',
             cursor: 'pointer',
             width: '100%',
             mr: -2,
+            '&.Mui-selected': {
+              backgroundColor: activeBg,
+            },
+            '&.Mui-selected:hover': {
+              backgroundColor: activeBg,
+            },
             '&:hover': {
-              '.MuiListItemText-root .MuiTypography-root': { color: '#fff' },
-              '.MuiListItemIcon-root': { color: '#fff' },
+              '.MuiListItemText-root .MuiTypography-root': { color: hoverText },
+              '.MuiListItemIcon-root': { color: hoverText },
             },
           }}
         >
@@ -358,7 +376,7 @@ export const SessionsSidebar: FC<{
               overflow: 'hidden',
               textOverflow: 'ellipsis',
               whiteSpace: 'nowrap',
-              color: isActive ? '#fff' : lightTheme.textColorFaded,
+              color: isActive ? activeText : lightTheme.textColorFaded,
             }}
             primary={groupName}
             id={`header-${executionId}`}
@@ -392,7 +410,7 @@ export const SessionsSidebar: FC<{
           <Box
             sx={{
               borderLeft: '1px solid',
-              borderColor: 'rgba(255, 255, 255, 0.1)',
+              borderColor: lightTheme.isLight ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.1)',
               marginLeft: '24px',
               paddingLeft: '8px',
             }}
