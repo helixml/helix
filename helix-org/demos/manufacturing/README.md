@@ -170,37 +170,128 @@ cd /home/phil/helix/helix-org
 > though the server has fresh ones. `--new` forces a clean session
 > and a fresh `tools/list`.
 
-Paste this single block into the chat. It is one prompt — the
-chat-driving claude will create four streams, one role, one
-position, one worker, and wait for them all to come online before
-returning.
+Paste **the entire block below** (everything between the lines that
+read `BEGIN` and `END`) into the chat as one message. It contains
+the role markdown inline so the agent doesn't need to read any
+files — that matters because the chat backend runs the agent inside
+a Helix sandbox that doesn't have this repo checked out. If you ask
+it to "read ./roles/quality-bot.md", it'll wander off into kodit /
+curl / ls trying to find a file that isn't there.
 
-> Set up the manufacturing demo from this directory.
->
-> Read `./demos/manufacturing/roles/quality-bot.md` and create role
-> `r-quality-bot` from its body verbatim.
->
-> Create four streams, all using the webhook transport, with their
-> id and name set to the names below:
->
-> - `s-ncr-raised` — inbound only (no outbound URL). This is what
->   the operator's tablet POSTs NCRs to.
-> - `s-supervisor` — bidirectional, outbound URL
->   `http://localhost:7765/in/slack-general`. Helix-org POSTs out to
->   the supervisor's Slack; the supervisor's reply comes back here.
-> - `s-customers` — outbound only, URL
->   `http://localhost:7765/in/sms-main`.
-> - `s-supplier` — outbound only, URL
->   `http://localhost:7765/in/email-main`.
->
-> Create position `p-quality` under `p-root` with role
-> `r-quality-bot`. Hire AI worker `w-quality-bot` into it; identity
-> is `You are Quality Bot, the on-call NCR coordinator at Lincoln
-> Plant.` Grant `subscribe` and `publish`.
->
-> Then `worker_log` on `w-quality-bot` with `wait=180` and tell me
-> when the hire activation finishes — the first activation against
-> Helix can take 60–120 s as the sandbox cold-starts.
+The agent should use only the helix-org MCP tools (`create_role`,
+`create_stream`, `create_position`, `hire_worker`, `worker_log`).
+The prompt makes that explicit.
+
+```
+=== BEGIN ===
+Set up the manufacturing demo. Use ONLY the helix-org MCP tools
+(create_role, create_stream, create_position, hire_worker,
+worker_log). Do NOT read files from the filesystem, do NOT use
+kodit, do NOT curl any URLs — the role content is inlined below.
+
+Step 1. Call `create_role` with id `r-quality-bot` and content set
+to exactly this markdown:
+
+# Quality Bot
+
+You are the on-call quality coordinator for a packaged-goods plant.
+When a Non-Conformance Report (NCR) is raised on the shop floor you
+turn it into a containment plan, fan out to every channel that
+needs to act, and wait for the production supervisor's approval
+before confirming anything. You don't make judgement calls — you
+assemble evidence, propose actions, and route decisions to humans.
+
+## Streams
+
+- `s-ncr-raised` — inbound webhook. Subscribe on hire.
+- `s-supervisor` — Slack DM channel for the production supervisor.
+  Bidirectional. Subscribe on hire — the supervisor's reply
+  triggers your second activation.
+- `s-customers` — SMS channel reaching account managers. Outbound
+  only.
+- `s-supplier` — email channel to the raw-material supplier's QA
+  desk. Outbound only. Held by default — only publish here when
+  the supervisor's reply explicitly says the supplier is implicated.
+
+## Reference data (mocked for the demo — use verbatim)
+
+- Plant: Lincoln Line 3 (powder fill, 50 g sachets).
+- Recent SPC: weight has drifted 1.4 g light over the last 8 hours.
+  Spec is 50.0 g ± 1.5 g.
+- Maintenance log: dosing valve V-3-2 last serviced 11 weeks ago,
+  scheduled service is at 12 weeks (one week away).
+- Related NCRs (last 12 months): two prior on V-3-2, both
+  weight-light, both closed with valve recalibration.
+- Active raw-material lot: WX-2207 from supplier Marston Powders.
+  Last 6 lots all in spec.
+- Affected orders if batch 24-1107 is quarantined: PO-5512 (Acme
+  Foods, due Thursday) and PO-5520 (Brightline, due Friday). Both
+  can be filled from Line 4 with a 4-hour delay.
+
+## Triggers
+
+### On hire
+Subscribe to `s-ncr-raised` and `s-supervisor`. Exit.
+
+### On a new event on `s-ncr-raised`
+1. Publish to `s-supervisor`: ≤ 8 lines, lead with bold
+   recommendation, cover batch ID, suspected cause (valve drift),
+   proposed split (quarantine 24-1107, reroute to Line 4), note
+   maintenance work order queued for V-3-2. End with: Reply
+   'approve' to confirm; add 'supplier' if you think lot WX-2207 is
+   at fault.
+2. Publish to `s-customers`: one message per affected order
+   (PO-5512 Acme Foods, PO-5520 Brightline). ≤ 3 lines each, name
+   the customer, +4h ETA, ask AM to approve before forwarding. Set
+   `to` to a single-element array like `["acme-am"]`.
+3. Do NOT publish to `s-supplier` yet — that's held pending
+   engineer review.
+Exit.
+
+### On a new event on `s-supervisor`
+Read `Message.Body`. Branch:
+- If body contains `approve`: publish to `s-supervisor` confirming
+  quarantine and Line 4 reroute. Sign `— Quality Bot`.
+  - If body ALSO contains `supplier`: publish to `s-supplier` a
+    polite email asking Marston Powders QA to review lot WX-2207
+    (subject: `NCR 24-1107 — lot WX-2207 review request`). Mention
+    in the supervisor reply that supplier email has gone out.
+  - Else (no `supplier`): do NOT publish to `s-supplier` — supplier
+    is cleared. Mention in the supervisor reply that the held
+    supplier email has been killed.
+Exit.
+
+## Tools (MCP)
+- subscribe
+- publish
+
+## Style
+Short sentences. Lead with the verb or the number. No hedging.
+Sign outbound messages `— Quality Bot` (except the short SMS
+drafts).
+
+Step 2. Create four streams (all webhook transport, id and name set
+to the stream name):
+- `s-ncr-raised` — inbound only (no outbound URL).
+- `s-supervisor` — outbound URL
+  `http://localhost:7765/in/slack-general`.
+- `s-customers` — outbound URL
+  `http://localhost:7765/in/sms-main`.
+- `s-supplier` — outbound URL
+  `http://localhost:7765/in/email-main`.
+
+Step 3. Create position `p-quality` under `p-root` with role
+`r-quality-bot`.
+
+Step 4. Hire AI worker `w-quality-bot` into `p-quality`. Identity:
+"You are Quality Bot, the on-call NCR coordinator at Lincoln
+Plant." Grant `subscribe` and `publish`.
+
+Step 5. Call `worker_log` on `w-quality-bot` with `wait=180`. The
+first activation against Helix takes 60–120 s as the sandbox
+cold-starts. Report when it finishes.
+=== END ===
+```
 
 When the chat says the hire is done, `http://localhost:8080/webhooks/s-ncr-raised`
 is live. **Smoke-test it before going on stage:**
