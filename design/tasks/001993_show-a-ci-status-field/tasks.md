@@ -6,9 +6,9 @@
 - [x] Create `api/pkg/services/ci_status.go` with `NormalizeCIStatus(provider, raw string) string` returning one of `"running"`, `"passed"`, `"failed"`, `"none"`. Tests cover all provider verdicts including unknown→failed.
 - [x] Add `GetCIStatus(ctx, owner, repo, sha)` to `api/pkg/agent/skill/github/client.go` — combines `Repositories.GetCombinedStatus` and `Checks.ListCheckRunsForRef`, takes the worst conclusion.
 - [x] Add `GetCIStatus(ctx, projectID, sha)` to `api/pkg/agent/skill/gitlab/client.go` — uses `Pipelines.ListProjectPipelines` filtered by SHA.
-- [~] Add `GetCIStatus(ctx, project, repoID, commitID)` to `api/pkg/agent/skill/azure_devops/client.go` — uses Build API filtered by `sourceVersion`.
-- [ ] Bitbucket: add stub `GetCIStatus()` returning `("none", "", nil)` with a TODO comment.
-- [ ] In the ADO `GetCIStatus` implementation, treat 401/403 from the Build API as `"none"` (so existing PATs without `vso.build` don't break the UI) and log a one-time warning suggesting the user re-issue the PAT with `vso.build`.
+- [x] Add `GetCIStatus(ctx, project, repoID, commitID)` to `api/pkg/agent/skill/azure_devops/client.go` — uses Build API filtered by repository, matches by SourceVersion.
+- [~] Bitbucket: add stub `GetCIStatus()` returning `("none", "", nil)` with a TODO comment.
+- [x] In the ADO `GetCIStatus` implementation, treat 401/403 from the Build API as `ErrCIScopeMissing` (so existing PATs without `vso.build` don't break the UI). The orchestrator will treat this error as `"none"` and emit a one-time log warning.
 - [ ] Update the ADO connection UI hint (`frontend/src/components/...` for git provider connection) to mention `vso.build` is required for CI status — locate the existing scope hint and amend.
 - [ ] Unit tests for `normalizeCIStatus` covering each provider's known verdicts.
 
