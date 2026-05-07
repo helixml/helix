@@ -1,12 +1,12 @@
 # Implementation Tasks
 
-- [ ] In `frontend/src/components/spec-tasks/DesignReviewContent.tsx`, modify the content-invalidation `useEffect` (currently lines 311-330) to skip the active tab and refresh its snapshot in place instead of removing it from `viewedTabs`.
-- [ ] Add `activeTab` to the dependency array of that effect.
-- [ ] In the same file, add a `handleNextDocument` callback that finds the next unread tab in `ALL_TABS` order (starting after `activeTab`, wrapping) and calls `handleTabChange(candidate)`.
-- [ ] In `frontend/src/components/spec-tasks/ReviewActionFooter.tsx`, add `onNextDocument?: () => void` and `hasNextDocument?: boolean` props.
-- [ ] In `ReviewActionFooter`, render a "Next Document" `<Button>` (variant=`contained`, color=`primary`, enabled) when `hasNextDocument && unresolvedCount === 0`; otherwise render the existing "Approve Design" tooltip+button block.
-- [ ] Simplify the tooltip in the "Approve Design" branch — drop the `!allTabsViewed` text path (now unreachable when `unresolvedCount === 0`); keep the empty-string fallback. The unresolved-comments case retains the alert beside the button (no tooltip change needed there).
-- [ ] In `DesignReviewContent.tsx`, pass `onNextDocument={handleNextDocument}` and `hasNextDocument={!allTabsViewed}` to `<ReviewActionFooter>`.
+- [~] In `frontend/src/components/spec-tasks/DesignReviewContent.tsx`, modify the content-invalidation `useEffect` (currently lines 311-330) to skip the active tab and refresh its snapshot in place instead of removing it from `viewedTabs`.
+- [~] Add `activeTab` to the dependency array of that effect.
+- [~] In the same file, add a `handleNextDocument` callback that finds the next unread tab in `ALL_TABS` order (starting after `activeTab`, wrapping) and calls `handleTabChange(candidate)`.
+- [~] In `frontend/src/components/spec-tasks/ReviewActionFooter.tsx`, add `onNextDocument?: () => void` and `hasNextDocument?: boolean` props.
+- [~] In `ReviewActionFooter`, render a "Next Document" `<Button>` (variant=`contained`, color=`primary`, enabled) when `hasNextDocument && unresolvedCount === 0`; otherwise render the existing "Approve Design" tooltip+button block.
+- [~] Simplify the tooltip in the "Approve Design" branch — drop the `!allTabsViewed` text path (now unreachable when `unresolvedCount === 0`); keep the empty-string fallback. The unresolved-comments case retains the alert beside the button (no tooltip change needed there).
+- [~] In `DesignReviewContent.tsx`, pass `onNextDocument={handleNextDocument}` and `hasNextDocument={!allTabsViewed}` to `<ReviewActionFooter>`.
 - [ ] Run `cd frontend && yarn build` to verify TypeScript compiles cleanly.
 - [ ] Manually test in inner Helix at `http://localhost:8080`:
   - [ ] Open a spec task with a pending design review; verify "Next Document" appears with red dots on the two unviewed tabs.
