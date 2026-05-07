@@ -23628,6 +23628,10 @@ const docTemplate = `{
                     "description": "Optional: team member assigned to the task",
                     "type": "string"
                 },
+                "auto_start": {
+                    "description": "Optional: Skip backlog and start immediately, regardless of project auto-start setting",
+                    "type": "boolean"
+                },
                 "base_branch": {
                     "description": "For new mode: branch to create from (defaults to repo default)",
                     "type": "string"

@@ -2377,6 +2377,8 @@ export interface TypesCreateTaskRequest {
   app_id?: string;
   /** Optional: team member assigned to the task */
   assignee_id?: string;
+  /** Optional: Skip backlog and start immediately, regardless of project auto-start setting */
+  auto_start?: boolean;
   /** For new mode: branch to create from (defaults to repo default) */
   base_branch?: string;
   /** Branch configuration */
