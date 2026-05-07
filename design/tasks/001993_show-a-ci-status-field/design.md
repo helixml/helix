@@ -151,6 +151,13 @@ New component `frontend/src/components/tasks/CIStatusIcon.tsx`:
 | `frontend/src/components/tasks/TaskCard.tsx` | Slot icon into status row, fix memo comparator |
 | `frontend/src/api/api.ts` | Regenerated via `./stack update_openapi` |
 
+## OAuth / PAT scopes (reviewer question)
+
+- **GitHub**: Combined Status API (`/repos/{o}/{r}/commits/{sha}/status`) and Check Runs API (`/repos/{o}/{r}/commits/{sha}/check-runs`) are covered by the `repo` scope already required for PR management on private repos, and need no scope on public repos. **No new scope.**
+- **GitLab**: Pipelines API is covered by the `api` (or `read_api`) scope already required for MR management. **No new scope.**
+- **Azure DevOps**: Build Status / Builds API requires `vso.build` (Build Read). The existing code/PR PATs typically have `vso.code` and may NOT include `vso.build`. **One new scope needed for ADO.** Document in the connection-creation UI hint and in the README; gracefully degrade (treat as `"none"`) if the API returns 401/403 so existing connections don't break.
+- **Bitbucket**: Out of scope for v1 — stub returns `"none"`. When implemented later, will need `pullrequest` + `repository` scopes (already required for PR work) — pipelines are covered.
+
 ## Notes for the implementer
 
 - The repo has `gomock` (not `testify/mock`) — generate a mock for `CINotifier` with `mockgen` and use it in orchestrator tests. See existing `SpecTaskReviewNotifier` mocks.
