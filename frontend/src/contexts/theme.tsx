@@ -25,15 +25,21 @@ export const ThemeProviderWrapper = ({ children }: { children: ReactNode }) => {
 
   // Live OS preference sync: follow the OS only while the user has not explicitly
   // toggled (no entry in localStorage). Once they toggle, their explicit choice wins.
+  // We also push the change to the API so the user's spec-task GNOME desktops and
+  // Zed editors flip with them — otherwise the OS-driven flip would only update
+  // the browser app, not the inner desktop.
   useEffect(() => {
     const mql = window.matchMedia('(prefers-color-scheme: light)')
     const handler = (e: MediaQueryListEvent) => {
       if (localStorage.getItem(THEME_MODE_KEY)) return
-      setMode(e.matches ? 'light' : 'dark')
+      const next: PaletteMode = e.matches ? 'light' : 'dark'
+      setMode(next)
+      api.getApiClient().v1UsersMeColorSchemeUpdate({ color_scheme: next })
+        .catch(() => { /* non-fatal: anonymous users / transient errors */ })
     }
     mql.addEventListener('change', handler)
     return () => mql.removeEventListener('change', handler)
-  }, [])
+  }, [api])
 
   const isLight = mode === 'light'
 
