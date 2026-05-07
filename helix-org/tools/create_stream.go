@@ -29,6 +29,7 @@ var createStreamSchema = func() *jsonschema.Schema {
 	if t, ok := s.Properties["transport"]; ok {
 		object := *t // copy: object shape minus the union wrapper
 		object.Type = "object"
+		object.Types = nil // pointer field arrived as Types:["object","null"]; Type+Types together is a marshal error
 		s.Properties["transport"] = &jsonschema.Schema{
 			Description: "Transport for the new Stream. Either a bare string naming the kind (\"local\" / \"webhook\" / \"email\" / \"github\") or an object with kind and optional config.",
 			OneOf: []*jsonschema.Schema{
