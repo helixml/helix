@@ -27,7 +27,13 @@ func (t *CreateStream) Name() domain.ToolName { return CreateStreamName }
 func (t *CreateStream) Description() string {
 	return "Create a new named Stream. The caller becomes the creator. Stream names are unique. " +
 		"Optional `transport` describes how events on the Stream move to/from the outside world; " +
-		"omit it to use the default `local` transport (in-process pub/sub only)."
+		"omit it to use the default `local` transport (in-process pub/sub only). " +
+		"Valid transport.kind values: \"local\", \"webhook\", \"email\", \"github\". " +
+		"Example for an inbound HTTP webhook: " +
+		`{"transport":{"kind":"webhook"}}` +
+		". Example for a bidirectional webhook with an outbound URL: " +
+		`{"transport":{"kind":"webhook","config":{"outbound_url":"https://example.com/in"}}}` +
+		"."
 }
 func (t *CreateStream) InputSchema() *jsonschema.Schema { return createStreamSchema }
 
@@ -39,8 +45,8 @@ type createStreamArgs struct {
 }
 
 type createStreamTransport struct {
-	Kind   string          `json:"kind"`
-	Config json.RawMessage `json:"config,omitempty"`
+	Kind   domain.TransportKind `json:"kind"`
+	Config json.RawMessage      `json:"config,omitempty"`
 }
 
 func (t *CreateStream) Invoke(ctx context.Context, inv domain.Invocation) (json.RawMessage, error) {
@@ -55,7 +61,7 @@ func (t *CreateStream) Invoke(ctx context.Context, inv domain.Invocation) (json.
 	transport := domain.Transport{}
 	if args.Transport != nil {
 		transport = domain.Transport{
-			Kind:   domain.TransportKind(args.Transport.Kind),
+			Kind:   args.Transport.Kind,
 			Config: args.Transport.Config,
 		}
 	}
