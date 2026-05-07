@@ -20,7 +20,6 @@ import (
 	"github.com/helixml/helix/api/pkg/openai/manager"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/rag"
-	"github.com/helixml/helix/api/pkg/scheduler"
 	"github.com/helixml/helix/api/pkg/searxng"
 	"github.com/helixml/helix/api/pkg/services"
 	"github.com/helixml/helix/api/pkg/store"
@@ -40,9 +39,6 @@ type Options struct {
 	Janitor               *janitor.Janitor
 	Notifier              notification.Notifier
 	ProviderManager       manager.ProviderManager // OpenAI client provider
-	// DataprepOpenAIClient openai.Client
-	Scheduler        *scheduler.Scheduler
-	RunnerController *scheduler.RunnerController
 	OAuthManager     *oauth.Manager
 	Browser          *browser.Browser
 	SearchProvider   searxng.SearchProvider
@@ -64,11 +60,6 @@ type Controller struct {
 	// the models package looks after instantiating this for us
 	models map[string]model.Model
 
-	// the current buffer of scheduling decisions
-	schedulingDecisions []*types.GlobalSchedulingDecision
-
-	scheduler *scheduler.Scheduler
-
 	stepInfoEmitter agent.StepInfoEmitter
 
 	// Keeping a map of trigger statuses for each app/trigger type,
@@ -77,7 +68,6 @@ type Controller struct {
 	triggerStatusesMu *sync.RWMutex
 
 	// Memory estimation service for calculating model memory requirements
-	memoryEstimationService *MemoryEstimationService
 
 	browserCache *ristretto.Cache[string, string]
 
@@ -140,16 +130,17 @@ func NewController(
 		newRagClient: func(settings *types.RAGSettings) rag.RAG {
 			return rag.NewLlamaindex(settings)
 		},
-		schedulingDecisions: []*types.GlobalSchedulingDecision{},
-		scheduler:           options.Scheduler,
-		stepInfoEmitter:     agent.NewPubSubStepInfoEmitter(options.PubSub, options.Store),
+		stepInfoEmitter: agent.NewPubSubStepInfoEmitter(options.PubSub, options.Store),
 		triggerStatuses:     make(map[TriggerStatusKey]types.TriggerStatus),
 		triggerStatusesMu:   &sync.RWMutex{},
 		browserCache:        browserCache,
 	}
 
-	// Default provider
-	toolsOpenAIClient, err := controller.getClient(ctx, "", "", options.Config.Inference.Provider)
+	// Default provider — boot-time client used by the tools planner for
+	// actionable detection. We pass model="" so we don't spuriously validate
+	// against a model that hasn't been chosen yet; that path is the real
+	// inference call, not this bootstrap.
+	toolsOpenAIClient, err := controller.getClient(ctx, "", "", options.Config.Inference.Provider, "")
 	if err != nil {
 		return nil, fmt.Errorf("failed to get tools client: %v", err)
 	}
@@ -164,18 +155,10 @@ func NewController(
 	// Initialize OAuth manager and stores for the ChainStrategy planner
 	tools.InitChainStrategyOAuth(planner, options.OAuthManager, options.Store, options.Store)
 
-	// Initialize memory estimation service
-	if options.RunnerController != nil {
-		modelProvider := NewStoreModelProvider(options.Store)
-		controller.memoryEstimationService = NewMemoryEstimationService(
-			options.RunnerController, // Implements RunnerSender interface
-			modelProvider,            // Wrapped store implementing ModelProvider interface
-		)
-
-		// Start background cache refresh
-		// controller.memoryEstimationService.StartBackgroundCacheRefresh(ctx) // DISABLED FOR DEBUGGING
-		// controller.memoryEstimationService.StartCacheCleanup(ctx) // DISABLED FOR DEBUGGING
-	}
+	// Sandbox-absorbs-runner pivot: memory estimation service was used by
+	// the scheduler to bin-pack models onto GPUs. Operators now express
+	// memory budgets directly via vLLM's --gpu-memory-utilization in the
+	// compose YAML; no estimation needed.
 
 	return controller, nil
 }
@@ -186,11 +169,6 @@ func (c *Controller) Initialize() error {
 
 // Close cleans up all resources used by the controller
 func (c *Controller) Close() error {
-	// Stop memory estimation service
-	if c.memoryEstimationService != nil {
-		c.memoryEstimationService.StopBackgroundCacheRefresh()
-	}
-
 	// Close browser if present
 	if c.Options.Browser != nil {
 		c.Options.Browser.Close()
@@ -213,11 +191,6 @@ func (c *Controller) Close() error {
 	}
 
 	return nil
-}
-
-// GetMemoryEstimationService returns the memory estimation service
-func (c *Controller) GetMemoryEstimationService() *MemoryEstimationService {
-	return c.memoryEstimationService
 }
 
 func (c *Controller) SetTriggerStatus(appID string, triggerType types.TriggerType, status types.TriggerStatus) {

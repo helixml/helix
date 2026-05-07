@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/mark3labs/mcp-go/mcp"
 
 	openai "github.com/sashabaranov/go-openai"
@@ -103,6 +102,15 @@ type Interaction struct {
 	// auto-wake interaction itself records which retry attempt it is.
 	// See design/2026-04-25-zed-claude-async-event-flush-on-user-input.md.
 	AutoWakeCount int `json:"auto_wake_count" gorm:"default:0;not null"`
+
+	// PromptID links this interaction back to the prompt_history_entry that
+	// created it (when the interaction was dispatched by the queue, as opposed
+	// to being initiated by Zed when the user types in the IDE). Empty for
+	// Zed-initiated interactions. Used by handleMessageAdded /
+	// handleMessageCompleted to mark the originating prompt as 'sent' without
+	// relying on an in-memory map that doesn't survive API restarts. See
+	// design/2026-04-30-queue-and-other-stuck-state-bugs.md.
+	PromptID string `json:"prompt_id,omitempty" gorm:"index"`
 }
 
 type FeedbackRequest struct {
@@ -400,7 +408,7 @@ type SessionMetadata struct {
 	ExternalAgentConfig     *ExternalAgentConfig `json:"external_agent_config,omitempty"`     // Configuration for external agents
 	ExternalAgentID         string               `json:"external_agent_id,omitempty"`         // NEW: External agent ID for this session
 	ExternalAgentStatus     string               `json:"external_agent_status,omitempty"`     // NEW: External agent status (running, stopped, terminated_idle)
-Phase                   string               `json:"phase,omitempty"`                     // NEW: SpecTask phase (planning, implementation)
+	Phase                   string               `json:"phase,omitempty"`                     // NEW: SpecTask phase (planning, implementation)
 	DevContainerID          string               `json:"dev_container_id,omitempty"`          // Dev container ID for streaming
 	SwayVersion             string               `json:"sway_version,omitempty"`              // helix-sway image version (commit hash) running in this session
 	GPUVendor               string               `json:"gpu_vendor,omitempty"`                // GPU vendor of sandbox running this session (nvidia, amd, intel, none)
@@ -441,8 +449,8 @@ Phase                   string               `json:"phase,omitempty"`           
 
 	// which assistant are we talking to?
 	AssistantID    string            `json:"assistant_id"`
-	AppQueryParams map[string]string `json:"app_query_params"`                  // Passing through user defined app params
-	CallbackURL    string            `json:"callback_url,omitempty"`            // Webhook URL to POST on session completion
+	AppQueryParams map[string]string `json:"app_query_params"`       // Passing through user defined app params
+	CallbackURL    string            `json:"callback_url,omitempty"` // Webhook URL to POST on session completion
 }
 
 // the packet we put a list of sessions into so pagination is supported and we know the total amount
@@ -465,16 +473,16 @@ type PaginatedSessionsList struct {
 // the user wants to do inference against a model
 // we turn this into a InternalSessionRequest
 type SessionChatRequest struct {
-	AppID               string               `json:"app_id"`          // Assign the session settings from the specified app
-	ProjectID           string               `json:"project_id"`      // The project this session belongs to, if any
-	OrganizationID      string               `json:"organization_id"` // The organization this session belongs to, if any
-	AssistantID         string               `json:"assistant_id"`    // Which assistant are we speaking to?
-	SessionID           string               `json:"session_id"`      // If empty, we will start a new session
-	InteractionID       string               `json:"interaction_id"`  // If empty, we will start a new interaction
-	Stream              bool                 `json:"stream"`          // If true, we will stream the response
+	AppID               string               `json:"app_id"`                 // Assign the session settings from the specified app
+	ProjectID           string               `json:"project_id"`             // The project this session belongs to, if any
+	OrganizationID      string               `json:"organization_id"`        // The organization this session belongs to, if any
+	AssistantID         string               `json:"assistant_id"`           // Which assistant are we speaking to?
+	SessionID           string               `json:"session_id"`             // If empty, we will start a new session
+	InteractionID       string               `json:"interaction_id"`         // If empty, we will start a new interaction
+	Stream              bool                 `json:"stream"`                 // If true, we will stream the response
 	SessionRole         string               `json:"session_role,omitempty"` // e.g. "job" — categorizes sessions for filtering
 	CallbackURL         string               `json:"callback_url,omitempty"` // Webhook URL to POST on session completion
-	Type                SessionType          `json:"type"`            // e.g. text, image
+	Type                SessionType          `json:"type"`                   // e.g. text, image
 	LoraDir             string               `json:"lora_dir"`
 	SystemPrompt        string               `json:"system"`                          // System message, only applicable when starting a new session
 	Messages            []*Message           `json:"messages"`                        // Initial messages
@@ -1088,188 +1096,20 @@ type SessionSummary struct {
 	Metadata SessionMetadata `json:"metadata,omitempty"`
 }
 
-type WorkloadSummary struct {
-	ID        string    `json:"id"`
-	CreatedAt time.Time `json:"created"`
-	UpdatedAt time.Time `json:"updated"`
-	ModelName string    `json:"model_name"`
-	Mode      string    `json:"mode"`
-	Runtime   string    `json:"runtime"`
-	LoraDir   string    `json:"lora_dir"`
-	Summary   string    `json:"summary"`
-}
+// Sandbox-absorbs-runner pivot: WorkloadSummary + DashboardData gone.
+// Dashboard view is now built from SandboxInstance + RunnerProfile, not a
+// separate "DashboardData" wrapper around scheduler state.
 
-type DashboardData struct {
-	Runners                   []*DashboardRunner          `json:"runners"`
-	Queue                     []*WorkloadSummary          `json:"queue"`
-	SchedulingDecisions       []*SchedulingDecision       `json:"scheduling_decisions"`
-	GlobalAllocationDecisions []*GlobalAllocationDecision `json:"global_allocation_decisions"`
-}
+// Sandbox-absorbs-runner pivot: GPUMemoryDataPoint, SchedulingEvent,
+// GPUMemoryReading, GPUMemoryStabilizationEvent — all gone (scheduler-era
+// memory-stabilisation telemetry).
 
-// GPUMemoryDataPoint represents a single point in time for GPU memory tracking
-type GPUMemoryDataPoint struct {
-	Timestamp     time.Time `json:"timestamp"`
-	GPUIndex      int       `json:"gpu_index"`
-	AllocatedMB   uint64    `json:"allocated_mb"`    // Memory allocated by Helix scheduler
-	ActualUsedMB  uint64    `json:"actual_used_mb"`  // Actual memory used (from nvidia-smi)
-	ActualFreeMB  uint64    `json:"actual_free_mb"`  // Actual free memory (from nvidia-smi)
-	ActualTotalMB uint64    `json:"actual_total_mb"` // Total GPU memory
-}
-
-// SchedulingEvent represents a scheduling event for correlation with memory usage
-type SchedulingEvent struct {
-	Timestamp   time.Time `json:"timestamp"`
-	EventType   string    `json:"event_type"` // "slot_created", "slot_deleted", "eviction", "stabilization_start", "stabilization_end"
-	SlotID      string    `json:"slot_id,omitempty"`
-	ModelName   string    `json:"model_name,omitempty"`
-	Runtime     string    `json:"runtime,omitempty"`
-	GPUIndices  []int     `json:"gpu_indices,omitempty"`
-	MemoryMB    uint64    `json:"memory_mb,omitempty"`
-	Description string    `json:"description,omitempty"`
-}
-
-// GPUMemoryReading represents a single memory reading during stabilization
-type GPUMemoryReading struct {
-	PollNumber  int    `json:"poll_number"`
-	MemoryMB    uint64 `json:"memory_mb"`
-	DeltaMB     int64  `json:"delta_mb"`
-	StableCount int    `json:"stable_count"`
-	IsStable    bool   `json:"is_stable"`
-}
-
-// GPUMemoryStabilizationEvent represents a single GPU memory stabilization event
-type GPUMemoryStabilizationEvent struct {
-	Timestamp              time.Time          `json:"timestamp"`
-	Context                string             `json:"context"` // "startup" or "deletion"
-	SlotID                 string             `json:"slot_id,omitempty"`
-	Runtime                string             `json:"runtime,omitempty"`
-	TimeoutSeconds         int                `json:"timeout_seconds"`
-	PollIntervalMs         int                `json:"poll_interval_ms"`
-	RequiredStablePolls    int                `json:"required_stable_polls"`
-	MemoryDeltaThresholdMB uint64             `json:"memory_delta_threshold_mb"`
-	Success                bool               `json:"success"`
-	PollsTaken             int                `json:"polls_taken"`
-	TotalWaitSeconds       int                `json:"total_wait_seconds"`
-	StabilizedMemoryMB     uint64             `json:"stabilized_memory_mb,omitempty"`
-	ErrorMessage           string             `json:"error_message,omitempty"`
-	MemoryReadings         []GPUMemoryReading `json:"memory_readings,omitempty"`
-}
-
-// GPUMemoryStats tracks GPU memory stabilization statistics
-type GPUMemoryStats struct {
-	TotalStabilizations      int                           `json:"total_stabilizations"`
-	SuccessfulStabilizations int                           `json:"successful_stabilizations"`
-	FailedStabilizations     int                           `json:"failed_stabilizations"`
-	LastStabilization        *time.Time                    `json:"last_stabilization,omitempty"`
-	RecentEvents             []GPUMemoryStabilizationEvent `json:"recent_events"` // Last 20 events
-	AverageWaitTimeSeconds   float64                       `json:"average_wait_time_seconds"`
-	MaxWaitTimeSeconds       int                           `json:"max_wait_time_seconds"`
-	MinWaitTimeSeconds       int                           `json:"min_wait_time_seconds"`
-	MemoryTimeSeries         []GPUMemoryDataPoint          `json:"memory_time_series"` // Last 10 minutes of memory data
-	SchedulingEvents         []SchedulingEvent             `json:"scheduling_events"`  // Last 10 minutes of scheduling events
-}
-
-type DashboardRunner struct {
-	ID              string               `json:"id"`
-	Created         time.Time            `json:"created"`
-	Updated         time.Time            `json:"updated"`
-	Version         string               `json:"version"`
-	TotalMemory     uint64               `json:"total_memory"`
-	FreeMemory      uint64               `json:"free_memory"`
-	UsedMemory      uint64               `json:"used_memory"`
-	AllocatedMemory uint64               `json:"allocated_memory"`
-	GPUCount        int                  `json:"gpu_count"` // Number of GPUs detected
-	GPUs            []*GPUStatus         `json:"gpus"`      // Per-GPU memory status
-	Labels          map[string]string    `json:"labels"`
-	Slots           []*RunnerSlot        `json:"slots"`
-	MemoryString    string               `json:"memory_string"`
-	Models          []*RunnerModelStatus `json:"models"`
-	ProcessStats    interface{}          `json:"process_stats,omitempty"`    // Process tracking and cleanup statistics
-	GPUMemoryStats  *GPUMemoryStats      `json:"gpu_memory_stats,omitempty"` // GPU memory stabilization statistics
-}
-
-type GlobalSchedulingDecision struct {
-	Created       time.Time     `json:"created"`
-	RunnerID      string        `json:"runner_id"`
-	SessionID     string        `json:"session_id"`
-	InteractionID string        `json:"interaction_id"`
-	ModelName     string        `json:"model_name"`
-	Mode          SessionMode   `json:"mode"`
-	Filter        SessionFilter `json:"filter"`
-}
-
-// AllocationPlanView represents a plan option for visualization
-type AllocationPlanView struct {
-	ID                  string         `json:"id"`
-	RunnerID            string         `json:"runner_id"`
-	GPUs                []int          `json:"gpus"`
-	GPUCount            int            `json:"gpu_count"`
-	IsMultiGPU          bool           `json:"is_multi_gpu"`
-	TotalMemoryRequired uint64         `json:"total_memory_required"`
-	MemoryPerGPU        uint64         `json:"memory_per_gpu"`
-	Cost                int            `json:"cost"`
-	RequiresEviction    bool           `json:"requires_eviction"`
-	EvictionsNeeded     []string       `json:"evictions_needed"` // Slot IDs
-	TensorParallelSize  int            `json:"tensor_parallel_size"`
-	Runtime             Runtime        `json:"runtime"`
-	IsValid             bool           `json:"is_valid"`
-	ValidationError     string         `json:"validation_error,omitempty"`
-	RunnerMemoryState   map[int]uint64 `json:"runner_memory_state"` // GPU index -> allocated memory
-	RunnerCapacity      map[int]uint64 `json:"runner_capacity"`     // GPU index -> total memory
-}
-
-// GlobalAllocationDecision represents a complete global allocation decision for visualization
-type GlobalAllocationDecision struct {
-	ID         string    `json:"id"`
-	Created    time.Time `json:"created"`
-	WorkloadID string    `json:"workload_id"`
-	SessionID  string    `json:"session_id"`
-	ModelName  string    `json:"model_name"`
-	Runtime    Runtime   `json:"runtime"`
-
-	// All plans considered
-	ConsideredPlans []*AllocationPlanView `json:"considered_plans"`
-	SelectedPlan    *AllocationPlanView   `json:"selected_plan"`
-
-	// Timing information
-	PlanningTimeMs  int64 `json:"planning_time_ms"`
-	ExecutionTimeMs int64 `json:"execution_time_ms"`
-	TotalTimeMs     int64 `json:"total_time_ms"`
-
-	// Decision outcome
-	Success      bool   `json:"success"`
-	Reason       string `json:"reason"`
-	ErrorMessage string `json:"error_message,omitempty"`
-
-	// Global state snapshots
-	BeforeState map[string]*RunnerStateView `json:"before_state"`
-	AfterState  map[string]*RunnerStateView `json:"after_state"`
-
-	// Decision metadata
-	TotalRunnersEvaluated int     `json:"total_runners_evaluated"`
-	TotalPlansGenerated   int     `json:"total_plans_generated"`
-	OptimizationScore     float64 `json:"optimization_score"` // How optimal the final decision was
-}
-
-// RunnerStateView represents a runner's state for visualization
-type RunnerStateView struct {
-	RunnerID    string            `json:"runner_id"`
-	GPUStates   map[int]*GPUState `json:"gpu_states"` // GPU index -> state
-	TotalSlots  int               `json:"total_slots"`
-	ActiveSlots int               `json:"active_slots"`
-	WarmSlots   int               `json:"warm_slots"`
-	IsConnected bool              `json:"is_connected"`
-}
-
-// GPUState represents a single GPU's state
-type GPUState struct {
-	Index           int      `json:"index"`
-	TotalMemory     uint64   `json:"total_memory"`
-	AllocatedMemory uint64   `json:"allocated_memory"`
-	FreeMemory      uint64   `json:"free_memory"`
-	ActiveSlots     []string `json:"active_slots"` // Slot IDs using this GPU
-	Utilization     float64  `json:"utilization"`  // 0.0 - 1.0
-}
+// Sandbox-absorbs-runner pivot: GPUMemoryStats, DashboardRunner,
+// GlobalSchedulingDecision, AllocationPlanView, GlobalAllocationDecision,
+// RunnerStateView, GPUState — all gone. They visualised the deleted
+// scheduler's bin-packing decisions; the new world has no equivalent
+// (operators express layout in compose YAML; admin dashboard shows
+// per-runner profile + service health, no allocation planning).
 
 // keep track of the state of the data prep
 // no error means "success"
@@ -1855,8 +1695,8 @@ type CronTrigger struct {
 	Enabled     bool     `json:"enabled,omitempty" yaml:"enabled,omitempty"`
 	Schedule    string   `json:"schedule,omitempty" yaml:"schedule,omitempty"`
 	Input       string   `json:"input,omitempty" yaml:"input,omitempty"`
-	InputFile   string   `json:"input_file,omitempty" yaml:"input_file,omitempty"`     // File path in helix-specs worktree to use as prompt (overrides Input)
-	AgentType   string   `json:"agent_type,omitempty" yaml:"agent_type,omitempty"`     // "helix" (default) or "zed_external"
+	InputFile   string   `json:"input_file,omitempty" yaml:"input_file,omitempty"` // File path in helix-specs worktree to use as prompt (overrides Input)
+	AgentType   string   `json:"agent_type,omitempty" yaml:"agent_type,omitempty"` // "helix" (default) or "zed_external"
 	Emails      []string `json:"emails,omitempty" yaml:"emails,omitempty"`
 	CallbackURL string   `json:"callback_url,omitempty" yaml:"callback_url,omitempty"` // Webhook URL to POST on completion
 	Action      string   `json:"action,omitempty" yaml:"action,omitempty"`             // "session" (default) or "spec_task"
@@ -2489,48 +2329,10 @@ type LicenseKey struct {
 	UpdatedAt  time.Time `json:"updated_at"`
 }
 
-type GetDesiredRunnerSlotsResponse struct {
-	Data []DesiredRunnerSlot `json:"data"`
-}
-
-type DesiredSlots struct {
-	ID   string              `json:"id"`
-	Data []DesiredRunnerSlot `json:"data"`
-}
-
-type DesiredRunnerSlot struct {
-	ID         uuid.UUID                   `json:"id"`
-	Attributes DesiredRunnerSlotAttributes `json:"attributes"`
-}
-
-type WorkloadType string
-
-const (
-	WorkloadTypeLLMInferenceRequest WorkloadType = "llm"
-	WorkloadTypeSession             WorkloadType = "session"
-)
-
-type DesiredRunnerSlotAttributes struct {
-	Workload *RunnerWorkload `json:"workload,omitempty"`
-	Model    string          `json:"model"`
-	Mode     string          `json:"mode"`
-}
-
-type RunnerWorkload struct {
-	LLMInferenceRequest *RunnerLLMInferenceRequest
-	Session             *Session
-}
-
-type RunnerActualSlot struct {
-	ID         uuid.UUID                  `json:"id"`
-	Attributes RunnerActualSlotAttributes `json:"attributes"`
-}
-
-type RunnerActualSlotAttributes struct {
-	OriginalWorkload *RunnerWorkload `json:"original_workload,omitempty"`
-	CurrentWorkload  *RunnerWorkload `json:"current_workload,omitempty"`
-	RunnerSlot       *RunnerSlot     `json:"runner_slot,omitempty"`
-}
+// Sandbox-absorbs-runner pivot: GetDesiredRunnerSlotsResponse, DesiredSlots,
+// DesiredRunnerSlot, WorkloadType, DesiredRunnerSlotAttributes,
+// RunnerWorkload, RunnerActualSlot, RunnerActualSlotAttributes — all gone.
+// The "desired vs actual slot" reconciliation lived in the scheduler.
 
 type RunAPIActionRequest struct {
 	Action     string                 `json:"action"`
@@ -2546,21 +2348,10 @@ type RunAPIActionResponse struct {
 	Error    string `json:"error"`
 }
 
-type RunnerAttributes struct {
-	TotalMemory uint64       `json:"total_memory"`
-	FreeMemory  uint64       `json:"free_memory"`
-	Version     string       `json:"version"`
-	Slots       []RunnerSlot `json:"slots"`
-}
-
-type Runner struct {
-	ID         string           `json:"id"`
-	Attributes RunnerAttributes `json:"attributes"`
-}
-
-type GetRunnersResponse struct {
-	Runners []Runner `json:"runners"`
-}
+// Sandbox-absorbs-runner pivot: RunnerAttributes / Runner / GetRunnersResponse
+// (the API representation of a connected runner) is replaced by
+// SandboxInstance which already serves the same role — no separate "Runner"
+// type needed.
 
 // Add this struct to represent the license info we want to send to the frontend
 type FrontendLicenseInfo struct {
@@ -2717,6 +2508,7 @@ type AggregatedUsageMetric struct {
 	CompletionCost    float64 `json:"completion_cost"`
 	CacheReadCost     float64 `json:"cache_read_cost"`
 	CacheWriteCost    float64 `json:"cache_write_cost"`
+	SandboxCost       float64 `json:"sandbox_cost"`
 	TotalCost         float64 `json:"total_cost"` // Prompt + completion + cache read + cache write
 	LatencyMs         float64 `json:"latency_ms"`
 	RequestSizeBytes  int     `json:"request_size_bytes"`
@@ -2774,40 +2566,8 @@ type FlexibleEmbeddingResponse struct {
 	} `json:"usage"`
 }
 
-type SchedulingDecisionType string
-
-const (
-	SchedulingDecisionTypeQueued         SchedulingDecisionType = "queued"           // Added to queue
-	SchedulingDecisionTypeReuseWarmSlot  SchedulingDecisionType = "reuse_warm_slot"  // Reused existing warm model instance
-	SchedulingDecisionTypeCreateNewSlot  SchedulingDecisionType = "create_new_slot"  // Started new model instance
-	SchedulingDecisionTypeEvictStaleSlot SchedulingDecisionType = "evict_stale_slot" // Evicted stale slot to free memory
-	SchedulingDecisionTypeRejected       SchedulingDecisionType = "rejected"         // Rejected (insufficient resources, etc.)
-	SchedulingDecisionTypeError          SchedulingDecisionType = "error"            // Error during scheduling
-	SchedulingDecisionTypeUnschedulable  SchedulingDecisionType = "unschedulable"    // Cannot be scheduled (no warm slots available)
-)
-
-// SchedulingDecision represents a decision made by the central scheduler
-type SchedulingDecision struct {
-	ID               string                 `json:"id"`
-	Created          time.Time              `json:"created"`
-	WorkloadID       string                 `json:"workload_id"`
-	SessionID        string                 `json:"session_id"`
-	ModelName        string                 `json:"model_name"`
-	Mode             SessionMode            `json:"mode"`
-	DecisionType     SchedulingDecisionType `json:"decision_type"`
-	RunnerID         string                 `json:"runner_id,omitempty"`
-	SlotID           string                 `json:"slot_id,omitempty"`
-	Reason           string                 `json:"reason"`
-	Success          bool                   `json:"success"`
-	ProcessingTimeMs int64                  `json:"processing_time_ms"`
-	QueuePosition    int                    `json:"queue_position,omitempty"`
-	AvailableRunners []string               `json:"available_runners,omitempty"`
-	MemoryRequired   uint64                 `json:"memory_required,omitempty"`
-	MemoryAvailable  uint64                 `json:"memory_available,omitempty"`
-	WarmSlotCount    int                    `json:"warm_slot_count,omitempty"`
-	TotalSlotCount   int                    `json:"total_slot_count,omitempty"`
-	RepeatCount      int                    `json:"repeat_count,omitempty"`
-}
+// Sandbox-absorbs-runner pivot: SchedulingDecisionType + SchedulingDecision
+// gone with the scheduler.
 
 // SlackThread used to track the state of slack threads where Helix agent is invoked
 type SlackThread struct {
@@ -3036,8 +2796,8 @@ type Notification struct {
 // SessionOutputResponse is returned by GET /sessions/{id}/output
 type SessionOutputResponse struct {
 	SessionID  string `json:"session_id"`
-	Status     string `json:"status"`     // "waiting", "complete", "error"
-	Output     string `json:"output"`     // Last interaction's response text
+	Status     string `json:"status"` // "waiting", "complete", "error"
+	Output     string `json:"output"` // Last interaction's response text
 	DurationMs int64  `json:"duration_ms"`
 }
 
@@ -3193,6 +2953,42 @@ type SandboxInstance struct {
 
 	// Helix version running on this sandbox (git commit hash or release version)
 	HelixVersion string `json:"helix_version,omitempty" gorm:"type:varchar(255)"`
+
+	// --- Sandbox-absorbs-runner pivot fields (Decision 13 in design.md) ---
+	// Populated by the sandbox's compose-manager process (where present).
+	// Drive the API server's inference router and the admin UI's
+	// per-sandbox profile / service display.
+
+	// GPUs is the per-GPU inventory the sandbox reports for inference
+	// scheduling. Vendor / Architecture / ComputeCapability on each
+	// entry are the load-bearing fields for profile compatibility.
+	// Explicit column tag because GORM's default snake_case derivation
+	// turns `GPUs` into `gp_us`.
+	GPUs datatypes.JSON `json:"gpus,omitempty" gorm:"column:gpus;type:jsonb" swaggertype:"array,object"`
+
+	// ActiveProfileID is the ID of the runner profile this sandbox is
+	// currently running (or attempting to run). Empty for pure-agent
+	// sandboxes with no profile assigned.
+	ActiveProfileID string `json:"active_profile_id,omitempty" gorm:"type:varchar(255);index"`
+
+	// ProfileStatus tracks the compose stack lifecycle:
+	// "" | "assigning" | "pulling" | "starting" | "running" | "failed".
+	ProfileStatus string `json:"profile_status,omitempty" gorm:"type:varchar(50)"`
+
+	// ProfileError carries the failure detail when ProfileStatus="failed".
+	ProfileError string `json:"profile_error,omitempty" gorm:"type:text"`
+
+	// ServiceHealth maps compose service name -> health string
+	// ("healthy" | "starting" | "failed" | "unknown"). Reported by
+	// compose-manager polling each container's /v1/models endpoint
+	// (or vendor-specific health endpoint).
+	ServiceHealth datatypes.JSON `json:"service_health,omitempty" gorm:"type:jsonb" swaggertype:"object,string"`
+
+	// ProfileProgress is per-service download progress for model weights,
+	// surfaced when ProfileStatus="starting" and a vLLM container is
+	// pulling weights from Hugging Face Hub. Empty once all services are
+	// healthy. Map key is compose service name.
+	ProfileProgress datatypes.JSON `json:"profile_progress,omitempty" gorm:"type:jsonb" swaggertype:"object,object"`
 }
 
 // TableName returns the table name for GORM
@@ -3222,6 +3018,50 @@ type SandboxHeartbeatRequest struct {
 
 	// Helix version running on this sandbox (git commit hash or release version)
 	HelixVersion string `json:"helix_version,omitempty"`
+
+	// --- Sandbox-absorbs-runner pivot fields ---
+	// Reported by the compose-manager process inside the sandbox.
+
+	// GPUs is the per-GPU inventory used by the API server's profile
+	// compatibility check. Empty for sandboxes that don't host inference.
+	GPUs []GPUStatus `json:"gpus,omitempty"`
+
+	// ProfileStatus reports the compose stack lifecycle. Empty when no
+	// profile is assigned. Allowed values: "assigning" | "pulling" |
+	// "starting" | "running" | "failed".
+	ProfileStatus string `json:"profile_status,omitempty"`
+
+	// ProfileError carries the failure detail when ProfileStatus="failed".
+	ProfileError string `json:"profile_error,omitempty"`
+
+	// ServiceHealth maps compose service name -> health string.
+	// "healthy" | "starting" | "failed" | "unknown".
+	ServiceHealth map[string]string `json:"service_health,omitempty"`
+
+	// ProfileProgress is per-service model-weights download progress,
+	// surfaced when ProfileStatus="starting". Empty once all services
+	// finish downloading.
+	ProfileProgress map[string]ServiceDownloadProgress `json:"profile_progress,omitempty"`
+}
+
+// ServiceDownloadProgress is what compose-manager extracts from a vLLM
+// container's stdout while it pulls model weights from Hugging Face Hub.
+// Populated on a best-effort basis — we parse tqdm-style progress lines
+// (e.g. "Downloading shards: 12/47 [09:22<27:18]"). When the regex
+// doesn't match anything for a given container the entry is omitted.
+type ServiceDownloadProgress struct {
+	// Percent is 0-100. Zero means "no progress line parsed yet".
+	Percent int `json:"percent,omitempty"`
+	// Current and Total are the raw N/M from the progress line (e.g.
+	// shards 12 of 47). Useful when Percent is computed.
+	Current int `json:"current,omitempty"`
+	Total   int `json:"total,omitempty"`
+	// ETA is the rendered remaining-time string from the source line
+	// (e.g. "27:18"). Verbatim — not parsed into a duration.
+	ETA string `json:"eta,omitempty"`
+	// Stage is a short tag for what's downloading: "shards", "files",
+	// "weights" or "" if unknown. Drives UI labelling.
+	Stage string `json:"stage,omitempty"`
 }
 
 // DiskUsageMetric represents disk usage for a single mount point

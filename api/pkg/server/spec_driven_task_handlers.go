@@ -19,6 +19,21 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+// validateAssigneeIsOrgMember returns nil if assigneeID is empty (unassigned is valid)
+// or if the assignee is a member of the given organization. Returns the underlying
+// store error otherwise — callers are responsible for logging context (task_id /
+// project_id) and translating to an HTTP response.
+func (s *HelixAPIServer) validateAssigneeIsOrgMember(ctx context.Context, orgID, assigneeID string) error {
+	if assigneeID == "" {
+		return nil
+	}
+	_, err := s.Store.GetOrganizationMembership(ctx, &store.GetOrganizationMembershipQuery{
+		OrganizationID: orgID,
+		UserID:         assigneeID,
+	})
+	return err
+}
+
 // createTaskFromPrompt godoc
 // @Summary Create spec-driven task from simple prompt
 // @Description Create a new task from a simple description and start spec generation
@@ -57,6 +72,26 @@ func (s *HelixAPIServer) createTaskFromPrompt(w http.ResponseWriter, r *http.Req
 	if err := s.authorizeUserToProjectByID(ctx, user, req.ProjectID, types.ActionCreate); err != nil {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
+	}
+
+	// Validate assignee (if provided) is a member of the project's organization
+	if req.AssigneeID != "" {
+		project, err := s.Store.GetProject(ctx, req.ProjectID)
+		if err != nil {
+			log.Error().Err(err).Str("project_id", req.ProjectID).Msg("Failed to load project for assignee validation")
+			http.Error(w, "failed to load project", http.StatusInternalServerError)
+			return
+		}
+		if err := s.validateAssigneeIsOrgMember(ctx, project.OrganizationID, req.AssigneeID); err != nil {
+			log.Warn().
+				Str("project_id", req.ProjectID).
+				Str("assignee_id", req.AssigneeID).
+				Str("org_id", project.OrganizationID).
+				Err(err).
+				Msg("Assignee is not an organization member")
+			http.Error(w, "assignee must be an organization member", http.StatusBadRequest)
+			return
+		}
 	}
 
 	// Set user ID and email from context
@@ -437,6 +472,19 @@ func (s *HelixAPIServer) approveSpecs(w http.ResponseWriter, r *http.Request) {
 				// will surface any real auth failure to the user.
 				log.Warn().Err(err).Str("task_id", taskID).Msg("Non-OAuthRequired error validating approver OAuth; proceeding with approval")
 			}
+		}
+
+		// Refuse to queue implementation if the agent's provider/model
+		// snapshot is stale or empty — same backstop as start-planning, so
+		// post-spec approval can't sneak past with a broken config.
+		if reason, vErr := s.validateSpecTaskAgentConfig(ctx, existingTask, user.ID); vErr != nil {
+			log.Warn().Err(vErr).Str("task_id", taskID).Msg("Failed to pre-validate agent config; proceeding with approval")
+		} else if reason != "" {
+			writeResponse(w, map[string]interface{}{
+				"error":   "agent_misconfigured",
+				"message": reason,
+			}, http.StatusUnprocessableEntity)
+			return
 		}
 	}
 
@@ -858,6 +906,20 @@ func (s *HelixAPIServer) startPlanning(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Refuse to queue if the agent's provider/model snapshot is stale or
+	// empty — otherwise the orchestrator would spawn a desktop that boots
+	// fine but can't reach a routable model, and the user has to dig
+	// through API logs to find the cause.
+	if reason, vErr := s.validateSpecTaskAgentConfig(ctx, task, user.ID); vErr != nil {
+		log.Warn().Err(vErr).Str("task_id", taskID).Msg("Failed to pre-validate agent config; proceeding with planning")
+	} else if reason != "" {
+		writeResponse(w, map[string]interface{}{
+			"error":   "agent_misconfigured",
+			"message": reason,
+		}, http.StatusUnprocessableEntity)
+		return
+	}
+
 	task.PlanningOptions = opts
 	task.UpdatedAt = time.Now()
 
@@ -1026,23 +1088,15 @@ func (s *HelixAPIServer) updateSpecTask(w http.ResponseWriter, r *http.Request) 
 	// Update assignee (pointer allows clearing with empty string to unassign)
 	if updateReq.AssigneeID != nil {
 		newAssigneeID := *updateReq.AssigneeID
-		// Only validate if assigning (not when clearing)
-		if newAssigneeID != "" {
-			// Validate that assignee is an organization member
-			_, err := s.Store.GetOrganizationMembership(ctx, &store.GetOrganizationMembershipQuery{
-				OrganizationID: task.OrganizationID,
-				UserID:         newAssigneeID,
-			})
-			if err != nil {
-				log.Warn().
-					Str("task_id", taskID).
-					Str("assignee_id", newAssigneeID).
-					Str("org_id", task.OrganizationID).
-					Err(err).
-					Msg("Assignee is not an organization member")
-				http.Error(w, "assignee must be an organization member", http.StatusBadRequest)
-				return
-			}
+		if err := s.validateAssigneeIsOrgMember(ctx, task.OrganizationID, newAssigneeID); err != nil {
+			log.Warn().
+				Str("task_id", taskID).
+				Str("assignee_id", newAssigneeID).
+				Str("org_id", task.OrganizationID).
+				Err(err).
+				Msg("Assignee is not an organization member")
+			http.Error(w, "assignee must be an organization member", http.StatusBadRequest)
+			return
 		}
 		task.AssigneeID = newAssigneeID
 	}

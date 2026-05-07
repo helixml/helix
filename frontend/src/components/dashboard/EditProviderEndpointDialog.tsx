@@ -78,8 +78,7 @@ const EditProviderEndpointDialog: React.FC<EditProviderEndpointDialogProps> = ({
     headers: [] as Array<{ key: string; value: string }>,
   });
 
-  // Only initialize the mutation hook if we have a valid endpoint ID
-  const { mutate: updateProviderEndpoint } = useUpdateProviderEndpoint(endpoint?.id || '');
+  const { mutateAsync: updateProviderEndpoint } = useUpdateProviderEndpoint();
 
   // Reset form data when endpoint changes
   React.useEffect(() => {
@@ -215,7 +214,7 @@ const EditProviderEndpointDialog: React.FC<EditProviderEndpointDialogProps> = ({
         endpoint_type: (formData.endpoint_type as TypesProviderEndpointType),
         headers: Object.keys(headersObj).length > 0 ? headersObj : undefined,
       }
-      await updateProviderEndpoint(body);
+      await updateProviderEndpoint({ id: endpoint.id, body });
       refreshData();
       onClose();
     } catch (err) {

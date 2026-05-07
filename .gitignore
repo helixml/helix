@@ -19,6 +19,14 @@ integration-test/frontend/screenshots
 instructions.txt
 build-errors.log
 .DS_Store
+
+# Built Go binaries that may land in repo root from local builds
+/compose-manager
+/inference-proxy
+/helix-runner
+/hydra
+/sandbox-heartbeat
+
 vendor
 */**/out.md
 charts/helix-controlplane/charts/*.tgz

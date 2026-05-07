@@ -97,6 +97,24 @@ type Client interface {
 	GetSystemSettings(ctx context.Context) (*types.SystemSettingsResponse, error)
 	UpdateSystemSettings(ctx context.Context, settings *types.SystemSettingsRequest) (*types.SystemSettingsResponse, error)
 
+	// Sandboxes
+	ListSandboxRuntimes(ctx context.Context) ([]string, error)
+	ListSandboxes(ctx context.Context, orgID string, filter *SandboxListFilter) (*types.SandboxListResponse, error)
+	CreateSandbox(ctx context.Context, orgID string, req *types.CreateSandboxRequest) (*types.Sandbox, error)
+	GetSandbox(ctx context.Context, orgID, sandboxID string) (*types.Sandbox, error)
+	UpdateSandbox(ctx context.Context, orgID, sandboxID string, req *types.UpdateSandboxRequest) (*types.Sandbox, error)
+	DeleteSandbox(ctx context.Context, orgID, sandboxID string) error
+	RunSandboxCommand(ctx context.Context, orgID, sandboxID string, req *types.RunSandboxCommandRequest) (*types.SandboxCommand, error)
+	ListSandboxCommands(ctx context.Context, orgID, sandboxID string) ([]*types.SandboxCommand, error)
+	GetSandboxCommand(ctx context.Context, orgID, sandboxID, cmdID string) (*types.SandboxCommand, error)
+	KillSandboxCommand(ctx context.Context, orgID, sandboxID, cmdID, signal string) error
+	StreamSandboxCommandLogs(ctx context.Context, orgID, sandboxID, cmdID, stream string, follow bool) (io.ReadCloser, error)
+	ReadSandboxFile(ctx context.Context, orgID, sandboxID, path string) ([]byte, error)
+	WriteSandboxFile(ctx context.Context, orgID, sandboxID, path string, data []byte, mode int) error
+	DeleteSandboxFile(ctx context.Context, orgID, sandboxID, path string, recursive bool) error
+	ListSandboxFiles(ctx context.Context, orgID, sandboxID, path string) (*types.SandboxFileListResponse, error)
+	GetSandboxScreenshot(ctx context.Context, orgID, sandboxID string, quality int) ([]byte, error)
+
 	// Users
 	ListUsers(ctx context.Context, f *UserFilter) (*types.PaginatedUsersList, error)
 	GetCurrentUser(ctx context.Context) (*types.User, error)

@@ -27,6 +27,19 @@ const QuotaListView: FC<QuotaListViewProps> = ({ orgId }) => {
         used: quotas.active_concurrent_desktops ?? 0,
         max: quotas.max_concurrent_desktops ?? 0,
       },
+      // Sandbox API concurrency — separate from spec-task desktops above.
+      // Operators set per-org caps via system settings; backend reports -1
+      // when quotas are disabled, which renders as "∞".
+      {
+        label: 'Sandboxes — Desktop',
+        used: quotas.active_desktop_sandboxes ?? 0,
+        max: quotas.max_desktop_sandboxes ?? 0,
+      },
+      {
+        label: 'Sandboxes — Headless',
+        used: quotas.active_headless_sandboxes ?? 0,
+        max: quotas.max_headless_sandboxes ?? 0,
+      },
       {
         label: 'Projects',
         used: quotas.projects ?? 0,
