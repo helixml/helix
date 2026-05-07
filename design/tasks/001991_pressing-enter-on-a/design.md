@@ -52,19 +52,31 @@ If a future requirement extends this to failed entries, the change is one line.
 
 ## Testing
 
-This is a UI behavior change. Per `CLAUDE.md`, test end-to-end in the inner Helix browser:
+### What was actually tested
 
-1. Register `test@helix.ml` / `helixtest`, complete onboarding.
-2. Create a spectask, open its detail page.
-3. Queue 2-3 messages with plain Enter (queue mode — they appear with `ListStart` icons).
-4. Press Enter on the empty field → confirm the most-recently-typed queued message gets the lightning icon and is dispatched (queue panel shrinks; message becomes `sent`).
-5. Press Enter again on the empty field → next-most-recent gets promoted. Repeat until queue is empty.
-6. With queue empty, press Enter on the empty field → nothing happens (no error, no dispatch).
-7. Type "hello", press Enter → standard new-queue behavior, message appears in queue.
-8. Type "hello", press Ctrl+Enter → standard interrupt-mode send.
-9. Press Shift+Enter on empty field → newline inserted.
+End-to-end in the inner Helix was **blocked**: the inner instance has no agentic-coding-capable models registered (`dynamic_model_infos` table empty, no Claude/Sonnet/Opus rows in `models`). The "Create project" flow in onboarding requires picking a model, and all three runtimes (Zed Agent, Qwen Code, Claude Code) showed "No chat models available" in the model picker. Without a project we cannot create a spec task, so the spec-task chat input could not be reached.
 
-No new unit tests required for a 10-line UI tweak. The existing manual flow above is the verification.
+Fallback was a focused **vitest** test suite: `frontend/src/components/common/RobustPromptInput.test.tsx`. Mounts the real `RobustPromptInput` with a mocked `usePromptHistory` hook seeded with queue entries, fires the Enter `keydown` event, and asserts `updateInterrupt(targetId, true)` was called with the highest-`timestamp` pending non-interrupt entry. Five passing cases:
+
+1. Picks the highest-timestamp candidate among multiple eligible entries.
+2. Skips entries already in interrupt mode.
+3. Skips deleted (tombstoned) entries.
+4. No-op when only interrupt-mode entries exist.
+5. No-op when the queue is empty.
+
+The full vitest suite (`yarn test`) runs 162 passing tests with no regressions.
+
+### Manual verification still recommended
+
+The user should manually verify the e2e flow once they have a working spec-task agent:
+
+1. Open a spec task detail page with a chat input.
+2. Queue 2-3 messages with plain Enter (queue mode — `ListStart` icons).
+3. Press Enter on the empty field → most-recently-typed queued message should get the lightning icon and dispatch.
+4. Repeat until queue is empty.
+5. With queue empty, press Enter on the empty field → nothing happens.
+6. Type text and press Enter → standard new-queue behavior (regression check).
+7. Shift+Enter on empty field → newline inserted (regression check).
 
 ## Out of scope
 

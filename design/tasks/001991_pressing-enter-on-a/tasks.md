@@ -5,5 +5,6 @@
 - [x] Update the `useCallback` dependency array of `handleKeyDown` to include `pendingPrompts`, `updateInterrupt`, `sendingId`, and `editingId`.
 - [x] Verify the existing send behavior is unchanged when the field has text or attachments (Enter, Ctrl+Enter, Cmd+Enter, Shift+Enter all behave as today). (Visual diff: the new empty-field branch returns before the existing send path; the send path is byte-for-byte identical apart from the redundant `disabled` check moved outside.)
 - [x] Run `cd frontend && yarn build` to confirm TypeScript and the build pass.
-- [~] End-to-end test in the inner Helix at `http://localhost:8080`: register/login, open a spectask, queue 2-3 plain-Enter messages, then press Enter on the empty field and confirm the most-recently-typed queued message switches to interrupt mode and is dispatched. Repeat until queue is empty; confirm subsequent empty-Enter is a no-op.
-- [ ] Open a PR against `helixml/helix` referencing this task; include a short note in the PR body that points at the design doc path.
+- [x] End-to-end test in the inner Helix — **blocked** by no agentic-coding-capable models registered (model picker empty for all 3 runtimes). Replaced with focused vitest suite at `frontend/src/components/common/RobustPromptInput.test.tsx` (5 passing tests covering the new branch). Full suite `yarn test` = 162/162 green. Manual e2e verification noted in design.md as a follow-up for the user.
+- [x] Add vitest unit tests for the new empty-Enter branch (covers: highest-timestamp pick, skip already-interrupt, skip deleted, no-op when no candidates, no-op when queue empty).
+- [x] Push the feature branch to `helixml/helix` (the Helix platform creates the GitHub PR automatically when the user clicks "Open PR").
