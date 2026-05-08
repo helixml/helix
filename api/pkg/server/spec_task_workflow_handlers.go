@@ -653,6 +653,26 @@ func (s *HelixAPIServer) ensurePullRequestForRepo(ctx context.Context, repo *typ
 	// Create new PR
 	prID, err := s.gitRepositoryService.CreatePullRequest(ctx, repo.ID, title, description, branch, repo.DefaultBranch, userID)
 	if err != nil {
+		// If a PR already exists for this branch (race condition), find and return it rather than failing.
+		if strings.Contains(err.Error(), "already exists") {
+			log.Info().Str("branch", branch).Str("repo_name", repo.Name).Msg("PR already exists (race), looking it up")
+			freshPRs, listErr := s.gitRepositoryService.ListPullRequests(ctx, repo.ID)
+			if listErr == nil {
+				for _, pr := range freshPRs {
+					branchMatches := pr.SourceBranch == sourceBranchRef || pr.SourceBranch == branch
+					if branchMatches && pr.State == types.PullRequestStateOpen {
+						return &types.RepoPR{
+							RepositoryID:   repo.ID,
+							RepositoryName: repo.Name,
+							PRID:           pr.ID,
+							PRNumber:       pr.Number,
+							PRURL:          pr.URL,
+							PRState:        string(pr.State),
+						}, nil
+					}
+				}
+			}
+		}
 		return nil, fmt.Errorf("failed to create PR: %w", err)
 	}
 
