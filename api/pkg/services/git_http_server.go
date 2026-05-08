@@ -1125,6 +1125,7 @@ func (s *GitHTTPServer) tryAutoMergeAfterRebase(ctx context.Context, taskID stri
 		log.Error().Err(err).Str("task_id", task.ID).Msg("auto-merge: failed to mark task done after successful auto-merge")
 		return
 	}
+	DismissTaskAttentionEvents(ctx, s.store, task.ID)
 
 	log.Info().
 		Str("task_id", task.ID).
@@ -1173,7 +1174,9 @@ func (s *GitHTTPServer) handleMainBranchPush(ctx context.Context, repo *types.Gi
 			task.UpdatedAt = now
 			if err := s.store.UpdateSpecTask(ctx, task); err != nil {
 				log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to update task")
+				continue
 			}
+			DismissTaskAttentionEvents(ctx, s.store, task.ID)
 		}
 	}
 }

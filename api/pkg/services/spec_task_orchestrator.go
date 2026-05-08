@@ -810,7 +810,11 @@ func (o *SpecTaskOrchestrator) processExternalPullRequestStatus(ctx context.Cont
 			}
 		}
 
-		return o.store.UpdateSpecTask(ctx, task)
+		if err := o.store.UpdateSpecTask(ctx, task); err != nil {
+			return err
+		}
+		DismissTaskAttentionEvents(ctx, o.store, task.ID)
+		return nil
 	}
 
 	if allClosed && !anyOpen && len(task.RepoPullRequests) > 0 {
@@ -867,7 +871,11 @@ func (o *SpecTaskOrchestrator) processExternalPullRequestStatus(ctx context.Cont
 			task.MergedAt = &now
 			task.CompletedAt = &now
 			task.UpdatedAt = now
-			return o.store.UpdateSpecTask(ctx, task)
+			if err := o.store.UpdateSpecTask(ctx, task); err != nil {
+				return err
+			}
+			DismissTaskAttentionEvents(ctx, o.store, task.ID)
+			return nil
 		}
 	}
 
@@ -1096,7 +1104,11 @@ func (o *SpecTaskOrchestrator) checkTaskForExternalPRActivity(ctx context.Contex
 				task.MergedAt = &now
 				task.CompletedAt = &now
 				task.UpdatedAt = now
-				return o.store.UpdateSpecTask(ctx, task)
+				if err := o.store.UpdateSpecTask(ctx, task); err != nil {
+					return err
+				}
+				DismissTaskAttentionEvents(ctx, o.store, task.ID)
+				return nil
 			}
 		}
 	}
@@ -1139,7 +1151,11 @@ func (o *SpecTaskOrchestrator) checkTaskForExternalPRActivity(ctx context.Contex
 		task.MergedAt = &now
 		task.CompletedAt = &now
 		task.UpdatedAt = now
-		return o.store.UpdateSpecTask(ctx, task)
+		if err := o.store.UpdateSpecTask(ctx, task); err != nil {
+			return err
+		}
+		DismissTaskAttentionEvents(ctx, o.store, task.ID)
+		return nil
 	}
 
 	return nil
