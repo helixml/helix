@@ -238,6 +238,10 @@ func buildTitle(eventType types.AttentionEventType, task *types.SpecTask) string
 		return "Implementation failed"
 	case types.AttentionEventPRReady:
 		return "Pull request ready"
+	case types.AttentionEventCIPassed:
+		return "CI passed"
+	case types.AttentionEventCIFailed:
+		return "CI failed"
 	default:
 		return "Attention needed"
 	}
@@ -263,6 +267,10 @@ func buildDescription(eventType types.AttentionEventType, task *types.SpecTask) 
 		return fmt.Sprintf("Implementation failed for \"%s\" — needs triage", name)
 	case types.AttentionEventPRReady:
 		return fmt.Sprintf("Pull request opened for \"%s\" — awaiting merge", name)
+	case types.AttentionEventCIPassed:
+		return fmt.Sprintf("CI passed for \"%s\"", name)
+	case types.AttentionEventCIFailed:
+		return fmt.Sprintf("CI failed for \"%s\" — needs investigation", name)
 	default:
 		return fmt.Sprintf("Task \"%s\" needs your attention", name)
 	}
@@ -274,10 +282,12 @@ func eventEmoji(eventType types.AttentionEventType) string {
 		return "📋"
 	case types.AttentionEventAgentInteractionCompleted:
 		return "🛑"
-	case types.AttentionEventSpecFailed, types.AttentionEventImplementationFailed:
+	case types.AttentionEventSpecFailed, types.AttentionEventImplementationFailed, types.AttentionEventCIFailed:
 		return "❌"
 	case types.AttentionEventPRReady:
 		return "🔀"
+	case types.AttentionEventCIPassed:
+		return "✅"
 	default:
 		return "🔔"
 	}

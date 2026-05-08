@@ -138,6 +138,36 @@ func (c *Client) ListMergeRequests(ctx context.Context, projectID int) ([]*gitla
 	return allMRs, nil
 }
 
+// CIStatusResult is the normalized verdict for a head SHA. Status is the
+// raw GitLab pipeline status (e.g. "success", "running", "failed"); the
+// caller normalises via services.NormalizeCIStatus("gitlab", ...).
+type CIStatusResult struct {
+	Status string
+	URL    string // Pipeline web URL — directly clickable.
+}
+
+// GetCIStatus fetches the most recent pipeline for the given SHA on the
+// project and returns its raw status + web URL. Returns nil result with a
+// nil error if no pipeline exists for the SHA — callers should treat that
+// as "none".
+func (c *Client) GetCIStatus(ctx context.Context, projectID int, sha string) (*CIStatusResult, error) {
+	opt := &gitlab.ListProjectPipelinesOptions{
+		SHA:         gitlab.Ptr(sha),
+		OrderBy:     gitlab.Ptr("id"),
+		Sort:        gitlab.Ptr("desc"),
+		ListOptions: gitlab.ListOptions{PerPage: 1, Page: 1},
+	}
+	pipelines, _, err := c.client.Pipelines.ListProjectPipelines(projectID, opt, gitlab.WithContext(ctx))
+	if err != nil {
+		return nil, fmt.Errorf("failed to list project pipelines: %w", err)
+	}
+	if len(pipelines) == 0 {
+		return nil, nil
+	}
+	p := pipelines[0]
+	return &CIStatusResult{Status: p.Status, URL: p.WebURL}, nil
+}
+
 // GetProject gets a project by ID
 func (c *Client) GetProject(ctx context.Context, projectID int) (*gitlab.Project, error) {
 	project, _, err := c.client.Projects.GetProject(projectID, nil, gitlab.WithContext(ctx))
