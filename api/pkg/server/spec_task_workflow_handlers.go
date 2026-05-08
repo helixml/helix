@@ -415,15 +415,6 @@ func isRebasePending(task *types.SpecTask) bool {
 	return !task.LastPushAt.After(*task.RebaseRequestedAt)
 }
 
-// branchHasCommitsAhead checks if a feature branch has commits ahead of the default branch
-func (s *HelixAPIServer) branchHasCommitsAhead(ctx context.Context, repoPath, featureBranch, defaultBranch string) (bool, error) {
-	ahead, _, err := services.GetDivergence(ctx, repoPath, featureBranch, defaultBranch)
-	if err != nil {
-		return false, err
-	}
-	return ahead > 0, nil
-}
-
 // getPullRequestContentForTask reads pull_request.md from helix-specs branch for a task.
 // For multi-repo projects, tries pull_request_<repo-name>.md first, then falls back to pull_request.md.
 // Returns (title, description, found). If not found or error, returns empty strings and false.
@@ -808,38 +799,6 @@ func (s *HelixAPIServer) ensurePullRequestsForAllRepos(ctx context.Context, task
 	}
 
 	log.Info().Str("task_id", task.ID).Int("pr_count", len(repoPRs)).Msg("Updated task with pull requests")
-	return nil
-}
-
-// ensurePullRequestForTask creates a PR for a spec task if one doesn't exist (backward compat wrapper)
-// DEPRECATED: Use ensurePullRequestsForAllRepos for multi-repo support
-func (s *HelixAPIServer) ensurePullRequestForTask(ctx context.Context, repo *types.GitRepository, task *types.SpecTask) error {
-	repoPR, err := s.ensurePullRequestForRepo(ctx, repo, task, repo.LocalPath, "")
-	if err != nil {
-		return err
-	}
-
-	if repoPR != nil {
-		task.UpdatedAt = time.Now()
-
-		// Update RepoPullRequests if not already present
-		found := false
-		for i, pr := range task.RepoPullRequests {
-			if pr.RepositoryID == repo.ID {
-				task.RepoPullRequests[i] = *repoPR
-				found = true
-				break
-			}
-		}
-		if !found {
-			task.RepoPullRequests = append(task.RepoPullRequests, *repoPR)
-		}
-
-		if err := s.Store.UpdateSpecTask(ctx, task); err != nil {
-			log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to update task with PR")
-		}
-	}
-
 	return nil
 }
 
