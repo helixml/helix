@@ -50,6 +50,14 @@ const SystemSettingsTable: FC = () => {
   const [showToken, setShowToken] = useState(false)
   const [editingMaxDesktops, setEditingMaxDesktops] = useState(false)
   const [maxDesktopsValue, setMaxDesktopsValue] = useState('')
+  const [editingSandboxHeadlessPrice, setEditingSandboxHeadlessPrice] = useState(false)
+  const [sandboxHeadlessPriceValue, setSandboxHeadlessPriceValue] = useState('')
+  const [editingSandboxDesktopPrice, setEditingSandboxDesktopPrice] = useState(false)
+  const [sandboxDesktopPriceValue, setSandboxDesktopPriceValue] = useState('')
+  const [editingSandboxHeadlessLimit, setEditingSandboxHeadlessLimit] = useState(false)
+  const [sandboxHeadlessLimitValue, setSandboxHeadlessLimitValue] = useState('')
+  const [editingSandboxDesktopLimit, setEditingSandboxDesktopLimit] = useState(false)
+  const [sandboxDesktopLimitValue, setSandboxDesktopLimitValue] = useState('')
 
   const saving = updateSettings.isPending
 
@@ -153,6 +161,79 @@ const SystemSettingsTable: FC = () => {
     }
   }
 
+  const handleToggleSandboxBilling = async (enabled: boolean) => {
+    try {
+      await updateSettings.mutateAsync({
+        sandbox_billing_enabled: enabled,
+      })
+      snackbar.success(`Sandbox billing ${enabled ? 'enabled' : 'disabled'}`)
+    } catch (err: any) {
+      if (err.response?.status === 403) {
+        snackbar.error('Access denied: Admin privileges required')
+      } else {
+        snackbar.error(`Failed to update settings: ${err.message}`)
+      }
+    }
+  }
+
+  const handleSaveSandboxPrice = async (kind: 'headless' | 'desktop') => {
+    const rawValue = kind === 'headless' ? sandboxHeadlessPriceValue : sandboxDesktopPriceValue
+    const value = parseFloat(rawValue)
+    if (Number.isNaN(value) || value < 0) {
+      snackbar.error('Please enter a valid non-negative price')
+      return
+    }
+
+    try {
+      await updateSettings.mutateAsync(
+        kind === 'headless'
+          ? { sandbox_headless_price_credits_per_second: value }
+          : { sandbox_desktop_price_credits_per_second: value },
+      )
+      if (kind === 'headless') {
+        setEditingSandboxHeadlessPrice(false)
+      } else {
+        setEditingSandboxDesktopPrice(false)
+      }
+      snackbar.success(`${kind === 'headless' ? 'Headless' : 'Desktop'} sandbox price updated`)
+    } catch (err: any) {
+      if (err.response?.status === 403) {
+        snackbar.error('Access denied: Admin privileges required')
+      } else {
+        snackbar.error(`Failed to update settings: ${err.message}`)
+      }
+    }
+  }
+
+  const handleSaveSandboxLimit = async (kind: 'headless' | 'desktop') => {
+    const rawValue = kind === 'headless' ? sandboxHeadlessLimitValue : sandboxDesktopLimitValue
+    const value = parseInt(rawValue, 10)
+    if (Number.isNaN(value) || value <= 0) {
+      snackbar.error('Please enter a valid positive limit')
+      return
+    }
+
+    try {
+      await updateSettings.mutateAsync(
+        kind === 'headless'
+          ? { max_concurrent_headless_sandboxes: value }
+          : { max_concurrent_desktop_sandboxes: value },
+      )
+      if (kind === 'headless') {
+        setEditingSandboxHeadlessLimit(false)
+      } else {
+        setEditingSandboxDesktopLimit(false)
+      }
+      snackbar.success(`${kind === 'headless' ? 'Headless' : 'Desktop'} sandbox limit updated`)
+    } catch (err: any) {
+      if (err.response?.status === 403) {
+        snackbar.error('Access denied: Admin privileges required')
+      } else {
+        snackbar.error(`Failed to update settings: ${err.message}`)
+      }
+    }
+  }
+
   const handleClearKoditSettings = async () => {
     try {
       await updateSettings.mutateAsync({
@@ -165,13 +246,13 @@ const SystemSettingsTable: FC = () => {
     }
   }
 
-  const handleSelectRAGEmbeddingsModel = async (provider: string, model: string) => {
+  const handleSelectKoditTextEmbeddingModel = async (provider: string, model: string) => {
     try {
       await updateSettings.mutateAsync({
-        rag_embeddings_provider: provider,
-        rag_embeddings_model: model,
+        kodit_text_embedding_provider: provider,
+        kodit_text_embedding_model: model,
       })
-      snackbar.success(`RAG Embedding model set to ${provider}/${model}`)
+      snackbar.success(`Code Intelligence Text Embedding model set to ${provider}/${model}. Kodit is re-initialising; repositories will be re-indexed automatically in the background.`)
     } catch (err: any) {
       if (err.response?.status === 403) {
         snackbar.error('Access denied: Admin privileges required')
@@ -181,13 +262,41 @@ const SystemSettingsTable: FC = () => {
     }
   }
 
-  const handleClearRAGEmbeddingsSettings = async () => {
+  const handleClearKoditTextEmbeddingSettings = async () => {
     try {
       await updateSettings.mutateAsync({
-        rag_embeddings_provider: '',
-        rag_embeddings_model: '',
+        kodit_text_embedding_provider: '',
+        kodit_text_embedding_model: '',
       })
-      snackbar.success('RAG Embedding model configuration cleared')
+      snackbar.success('Code Intelligence Text Embedding configuration cleared. Kodit is re-initialising on the built-in local model; repositories will be re-indexed automatically in the background.')
+    } catch (err: any) {
+      snackbar.error(`Failed to clear settings: ${err.message}`)
+    }
+  }
+
+  const handleSelectKoditVisionEmbeddingModel = async (provider: string, model: string) => {
+    try {
+      await updateSettings.mutateAsync({
+        kodit_vision_embedding_provider: provider,
+        kodit_vision_embedding_model: model,
+      })
+      snackbar.success(`Code Intelligence Vision Embedding model set to ${provider}/${model}. Kodit is re-initialising; repositories will be re-indexed automatically in the background.`)
+    } catch (err: any) {
+      if (err.response?.status === 403) {
+        snackbar.error('Access denied: Admin privileges required')
+      } else {
+        snackbar.error(`Failed to update settings: ${err.message}`)
+      }
+    }
+  }
+
+  const handleClearKoditVisionEmbeddingSettings = async () => {
+    try {
+      await updateSettings.mutateAsync({
+        kodit_vision_embedding_provider: '',
+        kodit_vision_embedding_model: '',
+      })
+      snackbar.success('Code Intelligence Vision Embedding configuration cleared. Kodit is re-initialising on the built-in local model; repositories will be re-indexed automatically in the background.')
     } catch (err: any) {
       snackbar.error(`Failed to clear settings: ${err.message}`)
     }
@@ -489,55 +598,121 @@ const SystemSettingsTable: FC = () => {
                   </TableCell>
                 </TableRow>
 
-                {/* RAG Embedding Model Row */}
+                {/* Code Intelligence Text Embedding Model Row */}
                 <TableRow>
                   <TableCell>
                     <Typography variant="body2" fontWeight="medium">
-                      RAG Embedding Model
+                      Code Intelligence Text Embedding
                     </Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      Embedding model used by Haystack for knowledge source indexing and retrieval
+                    <Typography variant="caption" color="text.secondary" display="block">
+                      Embedding model used by Kodit for indexing code and text snippets.
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary" display="block" mt={0.5}>
+                      Leave unset to use the built-in local ONNX model — it works out of the box but configuring a dedicated embedding model is recommended for better quality. Changing this reinitialises Kodit and triggers a full re-index in the background.
                     </Typography>
                   </TableCell>
                   <TableCell>
                     <Chip
-                      label={settings?.rag_embeddings_model_set ? 'Configured' : 'Not Set'}
-                      color={settings?.rag_embeddings_model_set ? 'success' : 'default'}
+                      label={settings?.kodit_text_embedding_model_set ? 'Configured' : 'Not Set'}
+                      color={settings?.kodit_text_embedding_model_set ? 'success' : 'default'}
                       size="small"
                     />
                   </TableCell>
                   <TableCell>
-                    {settings?.rag_embeddings_model_set ? (
+                    {settings?.kodit_text_embedding_model_set ? (
                       <>
                         <Typography variant="body2" fontFamily="monospace">
-                          {settings.rag_embeddings_provider}/{settings.rag_embeddings_model}
+                          {settings.kodit_text_embedding_provider}/{settings.kodit_text_embedding_model}
                         </Typography>
                         <Typography variant="caption" display="block" color="text.secondary" mt={0.5}>
-                          Provider: {settings.rag_embeddings_provider}
+                          Provider: {settings.kodit_text_embedding_provider}
                         </Typography>
                       </>
                     ) : (
                       <Typography variant="caption" color="text.secondary">
-                        Not configured - knowledge source indexing will fail
+                        Not configured - falls back to local ONNX model
                       </Typography>
                     )}
                   </TableCell>
                   <TableCell>
                     <Box display="flex" gap={1} alignItems="center">
                       <AdvancedModelPicker
-                        selectedProvider={settings?.rag_embeddings_provider}
-                        selectedModelId={settings?.rag_embeddings_model}
-                        onSelectModel={handleSelectRAGEmbeddingsModel}
+                        selectedProvider={settings?.kodit_text_embedding_provider}
+                        selectedModelId={settings?.kodit_text_embedding_model}
+                        onSelectModel={handleSelectKoditTextEmbeddingModel}
                         currentType="embed"
                         buttonVariant="outlined"
                         disabled={saving}
-                        hint="Select the embedding model that Haystack will use for indexing and querying knowledge sources."
+                        hint="Select the text embedding model Kodit will use for code and text snippet indexing."
                         autoSelectFirst={false}
                       />
-                      {settings?.rag_embeddings_model_set && (
+                      {settings?.kodit_text_embedding_model_set && (
                         <Button
                           startIcon={<ClearIcon />}
-                          onClick={handleClearRAGEmbeddingsSettings}
+                          onClick={handleClearKoditTextEmbeddingSettings}
+                          size="small"
+                          color="warning"
+                          disabled={saving}
+                        >
+                          Clear
+                        </Button>
+                      )}
+                    </Box>
+                  </TableCell>
+                </TableRow>
+
+                {/* Code Intelligence Vision Embedding Model Row */}
+                <TableRow>
+                  <TableCell>
+                    <Typography variant="body2" fontWeight="medium">
+                      Code Intelligence Vision Embedding
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary" display="block">
+                      Vision embedding model used by Kodit for indexing document pages and images.
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary" display="block" mt={0.5}>
+                      Leave unset to use the built-in local SigLIP2 model — it works out of the box but configuring a dedicated vision embedding model is recommended for better quality. Changing this reinitialises Kodit and triggers a full re-index in the background.
+                    </Typography>
+                  </TableCell>
+                  <TableCell>
+                    <Chip
+                      label={settings?.kodit_vision_embedding_model_set ? 'Configured' : 'Not Set'}
+                      color={settings?.kodit_vision_embedding_model_set ? 'success' : 'default'}
+                      size="small"
+                    />
+                  </TableCell>
+                  <TableCell>
+                    {settings?.kodit_vision_embedding_model_set ? (
+                      <>
+                        <Typography variant="body2" fontFamily="monospace">
+                          {settings.kodit_vision_embedding_provider}/{settings.kodit_vision_embedding_model}
+                        </Typography>
+                        <Typography variant="caption" display="block" color="text.secondary" mt={0.5}>
+                          Provider: {settings.kodit_vision_embedding_provider}
+                        </Typography>
+                      </>
+                    ) : (
+                      <Typography variant="caption" color="text.secondary">
+                        Not configured - falls back to local SigLIP2 model
+                      </Typography>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    <Box display="flex" gap={1} alignItems="center">
+                      <AdvancedModelPicker
+                        selectedProvider={settings?.kodit_vision_embedding_provider}
+                        selectedModelId={settings?.kodit_vision_embedding_model}
+                        onSelectModel={handleSelectKoditVisionEmbeddingModel}
+                        currentType="embed"
+                        buttonVariant="outlined"
+                        disabled={saving}
+                        hint="Select the vision embedding model Kodit will use for document pages and image indexing (e.g. Qwen3-VL-Embedding)."
+                        autoSelectFirst={false}
+                      />
+                      {settings?.kodit_vision_embedding_model_set && (
+                        <Button
+                          startIcon={<ClearIcon />}
+                          onClick={handleClearKoditVisionEmbeddingSettings}
                           size="small"
                           color="warning"
                           disabled={saving}
@@ -675,6 +850,292 @@ const SystemSettingsTable: FC = () => {
                       onChange={(e) => handleToggleEnforceQuotas(e.target.checked)}
                       disabled={saving}
                     />
+                  </TableCell>
+                </TableRow>
+
+                <TableRow>
+                  <TableCell>
+                    <Typography variant="body2" fontWeight="medium">
+                      Sandbox Billing
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Charge org credits for running Sandboxes API containers
+                    </Typography>
+                  </TableCell>
+                  <TableCell>
+                    <Chip
+                      label={settings?.sandbox_billing_enabled ? 'Enabled' : 'Disabled'}
+                      color={settings?.sandbox_billing_enabled ? 'success' : 'default'}
+                      size="small"
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <Typography variant="body2">
+                      {settings?.sandbox_billing_enabled ? 'Enabled' : 'Disabled'}
+                    </Typography>
+                  </TableCell>
+                  <TableCell>
+                    <Switch
+                      checked={settings?.sandbox_billing_enabled ?? false}
+                      onChange={(e) => handleToggleSandboxBilling(e.target.checked)}
+                      disabled={saving}
+                    />
+                  </TableCell>
+                </TableRow>
+
+                <TableRow>
+                  <TableCell>
+                    <Typography variant="body2" fontWeight="medium">
+                      Headless Sandbox Price
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Credits charged per core-second for headless and custom-image sandboxes
+                    </Typography>
+                  </TableCell>
+                  <TableCell>
+                    <Chip
+                      label={`${settings?.sandbox_headless_price_credits_per_second ?? 0} credits/core-sec`}
+                      color={(settings?.sandbox_headless_price_credits_per_second ?? 0) > 0 ? 'primary' : 'default'}
+                      size="small"
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <Typography variant="body2" fontFamily="monospace">
+                      {settings?.sandbox_headless_price_credits_per_second ?? 0}
+                    </Typography>
+                  </TableCell>
+                  <TableCell>
+                    <Box display="flex" gap={1} alignItems="center">
+                      {editingSandboxHeadlessPrice ? (
+                        <>
+                          <TextField
+                            size="small"
+                            value={sandboxHeadlessPriceValue}
+                            onChange={(e) => setSandboxHeadlessPriceValue(e.target.value)}
+                            sx={{ width: 130 }}
+                          />
+                          <Button
+                            startIcon={saving ? <CircularProgress size={16} /> : <SaveIcon />}
+                            onClick={() => handleSaveSandboxPrice('headless')}
+                            size="small"
+                            variant="contained"
+                            disabled={saving}
+                          >
+                            Save
+                          </Button>
+                          <Button
+                            onClick={() => setEditingSandboxHeadlessPrice(false)}
+                            size="small"
+                            disabled={saving}
+                          >
+                            Cancel
+                          </Button>
+                        </>
+                      ) : (
+                        <Button
+                          startIcon={<EditIcon />}
+                          onClick={() => {
+                            setSandboxHeadlessPriceValue(String(settings?.sandbox_headless_price_credits_per_second ?? 0))
+                            setEditingSandboxHeadlessPrice(true)
+                          }}
+                          size="small"
+                        >
+                          Edit
+                        </Button>
+                      )}
+                    </Box>
+                  </TableCell>
+                </TableRow>
+
+                <TableRow>
+                  <TableCell>
+                    <Typography variant="body2" fontWeight="medium">
+                      Desktop Sandbox Price
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Credits charged per core-second for ubuntu-desktop sandboxes
+                    </Typography>
+                  </TableCell>
+                  <TableCell>
+                    <Chip
+                      label={`${settings?.sandbox_desktop_price_credits_per_second ?? 0} credits/core-sec`}
+                      color={(settings?.sandbox_desktop_price_credits_per_second ?? 0) > 0 ? 'primary' : 'default'}
+                      size="small"
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <Typography variant="body2" fontFamily="monospace">
+                      {settings?.sandbox_desktop_price_credits_per_second ?? 0}
+                    </Typography>
+                  </TableCell>
+                  <TableCell>
+                    <Box display="flex" gap={1} alignItems="center">
+                      {editingSandboxDesktopPrice ? (
+                        <>
+                          <TextField
+                            size="small"
+                            value={sandboxDesktopPriceValue}
+                            onChange={(e) => setSandboxDesktopPriceValue(e.target.value)}
+                            sx={{ width: 130 }}
+                          />
+                          <Button
+                            startIcon={saving ? <CircularProgress size={16} /> : <SaveIcon />}
+                            onClick={() => handleSaveSandboxPrice('desktop')}
+                            size="small"
+                            variant="contained"
+                            disabled={saving}
+                          >
+                            Save
+                          </Button>
+                          <Button
+                            onClick={() => setEditingSandboxDesktopPrice(false)}
+                            size="small"
+                            disabled={saving}
+                          >
+                            Cancel
+                          </Button>
+                        </>
+                      ) : (
+                        <Button
+                          startIcon={<EditIcon />}
+                          onClick={() => {
+                            setSandboxDesktopPriceValue(String(settings?.sandbox_desktop_price_credits_per_second ?? 0))
+                            setEditingSandboxDesktopPrice(true)
+                          }}
+                          size="small"
+                        >
+                          Edit
+                        </Button>
+                      )}
+                    </Box>
+                  </TableCell>
+                </TableRow>
+
+                <TableRow>
+                  <TableCell>
+                    <Typography variant="body2" fontWeight="medium">
+                      Headless Sandbox Limit
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Maximum concurrent headless and custom-image sandboxes per organization
+                    </Typography>
+                  </TableCell>
+                  <TableCell>
+                    <Chip
+                      label={`${settings?.max_concurrent_headless_sandboxes ?? 10} concurrent`}
+                      color="primary"
+                      size="small"
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <Typography variant="body2" fontFamily="monospace">
+                      {settings?.max_concurrent_headless_sandboxes ?? 10}
+                    </Typography>
+                  </TableCell>
+                  <TableCell>
+                    <Box display="flex" gap={1} alignItems="center">
+                      {editingSandboxHeadlessLimit ? (
+                        <>
+                          <TextField
+                            size="small"
+                            value={sandboxHeadlessLimitValue}
+                            onChange={(e) => setSandboxHeadlessLimitValue(e.target.value)}
+                            sx={{ width: 130 }}
+                          />
+                          <Button
+                            startIcon={saving ? <CircularProgress size={16} /> : <SaveIcon />}
+                            onClick={() => handleSaveSandboxLimit('headless')}
+                            size="small"
+                            variant="contained"
+                            disabled={saving}
+                          >
+                            Save
+                          </Button>
+                          <Button
+                            onClick={() => setEditingSandboxHeadlessLimit(false)}
+                            size="small"
+                            disabled={saving}
+                          >
+                            Cancel
+                          </Button>
+                        </>
+                      ) : (
+                        <Button
+                          startIcon={<EditIcon />}
+                          onClick={() => {
+                            setSandboxHeadlessLimitValue(String(settings?.max_concurrent_headless_sandboxes ?? 10))
+                            setEditingSandboxHeadlessLimit(true)
+                          }}
+                          size="small"
+                        >
+                          Edit
+                        </Button>
+                      )}
+                    </Box>
+                  </TableCell>
+                </TableRow>
+
+                <TableRow>
+                  <TableCell>
+                    <Typography variant="body2" fontWeight="medium">
+                      Desktop Sandbox Limit
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Maximum concurrent ubuntu-desktop sandboxes per organization
+                    </Typography>
+                  </TableCell>
+                  <TableCell>
+                    <Chip
+                      label={`${settings?.max_concurrent_desktop_sandboxes ?? 10} concurrent`}
+                      color="primary"
+                      size="small"
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <Typography variant="body2" fontFamily="monospace">
+                      {settings?.max_concurrent_desktop_sandboxes ?? 10}
+                    </Typography>
+                  </TableCell>
+                  <TableCell>
+                    <Box display="flex" gap={1} alignItems="center">
+                      {editingSandboxDesktopLimit ? (
+                        <>
+                          <TextField
+                            size="small"
+                            value={sandboxDesktopLimitValue}
+                            onChange={(e) => setSandboxDesktopLimitValue(e.target.value)}
+                            sx={{ width: 130 }}
+                          />
+                          <Button
+                            startIcon={saving ? <CircularProgress size={16} /> : <SaveIcon />}
+                            onClick={() => handleSaveSandboxLimit('desktop')}
+                            size="small"
+                            variant="contained"
+                            disabled={saving}
+                          >
+                            Save
+                          </Button>
+                          <Button
+                            onClick={() => setEditingSandboxDesktopLimit(false)}
+                            size="small"
+                            disabled={saving}
+                          >
+                            Cancel
+                          </Button>
+                        </>
+                      ) : (
+                        <Button
+                          startIcon={<EditIcon />}
+                          onClick={() => {
+                            setSandboxDesktopLimitValue(String(settings?.max_concurrent_desktop_sandboxes ?? 10))
+                            setEditingSandboxDesktopLimit(true)
+                          }}
+                          size="small"
+                        >
+                          Edit
+                        </Button>
+                      )}
+                    </Box>
                   </TableCell>
                 </TableRow>
               </TableBody>

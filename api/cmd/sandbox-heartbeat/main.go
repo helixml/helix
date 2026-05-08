@@ -16,6 +16,8 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/data"
+	"github.com/helixml/helix/api/pkg/gpudetect"
+	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
@@ -63,6 +65,46 @@ type HeartbeatRequest struct {
 	PrivilegedModeEnabled bool                 `json:"privileged_mode_enabled,omitempty"`
 	GPUVendor             string               `json:"gpu_vendor,omitempty"`    // nvidia, amd, intel, none
 	HelixVersion          string               `json:"helix_version,omitempty"` // git commit hash or release version
+
+	// Sandbox-absorbs-runner pivot: rich GPU inventory used by the inference
+	// router's profile-compatibility check. Detected via nvidia-smi /
+	// rocm-smi by the gpudetect package. Empty on hosts without GPUs.
+	GPUs []types.GPUStatus `json:"gpus,omitempty"`
+
+	// Inference subsystem state, read from the status.json file the
+	// compose-manager writes after each Apply.
+	ProfileStatus   string                                       `json:"profile_status,omitempty"`
+	ProfileError    string                                       `json:"profile_error,omitempty"`
+	ServiceHealth   map[string]string                            `json:"service_health,omitempty"`
+	ProfileProgress map[string]types.ServiceDownloadProgress     `json:"profile_progress,omitempty"`
+}
+
+// composeManagerStatusFile is where compose-manager persists its current
+// view (profile id, status, service health) for sandbox-heartbeat to pick
+// up and forward to the API server. The path is intentionally a constant
+// here — the compose-manager defaults to the same /etc/helix/status.json.
+const composeManagerStatusFile = "/etc/helix/status.json"
+
+// readComposeManagerStatus parses the compose-manager status.json. Returns
+// zero values on any error (file missing is the common case before any
+// profile is applied).
+func readComposeManagerStatus() (status, errMsg string, health map[string]string, progress map[string]types.ServiceDownloadProgress) {
+	data, err := os.ReadFile(composeManagerStatusFile)
+	if err != nil {
+		return "", "", nil, nil
+	}
+	var s struct {
+		ProfileID     string                                   `json:"ProfileID"`
+		ProfileName   string                                   `json:"ProfileName"`
+		Status        string                                   `json:"Status"`
+		Error         string                                   `json:"Error"`
+		ServiceHealth map[string]string                        `json:"ServiceHealth"`
+		Progress      map[string]types.ServiceDownloadProgress `json:"Progress"`
+	}
+	if err := json.Unmarshal(data, &s); err != nil {
+		return "", "", nil, nil
+	}
+	return s.Status, s.Error, s.ServiceHealth, s.Progress
 }
 
 func main() {
@@ -130,6 +172,20 @@ func sendHeartbeat(apiURL, runnerToken, sandboxInstanceID string, privilegedMode
 	// Read GPU vendor from environment (set by install.sh on the sandbox)
 	gpuVendor := os.Getenv("GPU_VENDOR") // nvidia, amd, intel, none
 
+	// Sandbox-absorbs-runner pivot: probe nvidia-smi / rocm-smi for the
+	// rich inventory the inference router's compatibility check needs.
+	// 5s timeout — if probes hang we ship the heartbeat without GPU data
+	// rather than block the loop.
+	probeCtx, probeCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	gpus := gpudetect.Detect(probeCtx)
+	probeCancel()
+
+	// Read compose-manager status from the file it writes after each Apply.
+	// Best-effort — if the file is missing or malformed, we ship the
+	// heartbeat without inference subsystem state (the API server then
+	// treats the sandbox as not-running-anything).
+	profileStatus, profileError, serviceHealth, profileProgress := readComposeManagerStatus()
+
 	// Build request
 	req := HeartbeatRequest{
 		DesktopVersions:       desktopVersions,
@@ -138,6 +194,11 @@ func sendHeartbeat(apiURL, runnerToken, sandboxInstanceID string, privilegedMode
 		PrivilegedModeEnabled: privilegedModeEnabled,
 		GPUVendor:             gpuVendor,
 		HelixVersion:          data.GetHelixVersion(),
+		GPUs:                  gpus,
+		ProfileStatus:         profileStatus,
+		ProfileError:          profileError,
+		ServiceHealth:         serviceHealth,
+		ProfileProgress:       profileProgress,
 	}
 
 	// Log disk status

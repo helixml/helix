@@ -64,15 +64,6 @@ services:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=${POSTGRES_ADMIN_PASSWORD-postgres}
       - POSTGRES_DATABASES=keycloak
-  typesense:
-    build:
-      context: .
-      dockerfile: Dockerfile.typesense
-    command: ["--data-dir", "/data", "--api-key", "typesense"]
-    ports:
-      - 8108:8108
-    volumes:
-      - ${TYPESENSE_DATA:-helix-typesense-db}:/data
   chrome:
     image: ghcr.io/go-rod/rod:v0.115.0
     restart: always
@@ -204,9 +195,7 @@ services:
 volumes:
   helix-keycloak-db:
   helix-postgres-db:
-  helix-pgvector-db:
   helix-filestore:
-  helix-typesense-db:
 
 networks:
   default:

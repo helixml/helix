@@ -64,6 +64,34 @@ func (s *HelixAPIServer) listInteractions(_ http.ResponseWriter, req *http.Reque
 		return nil, system.NewHTTPError500(fmt.Sprintf("failed to get interactions for session %s, error: %s", id, err))
 	}
 
+	// Cap response_entries to avoid sending multi-MB payloads.
+	// - Strip redundant response_message when entries exist
+	// - Keep only the last 50 entries
+	// - Truncate individual entry content to 100 KB (a single 2.5 MB text
+	//   entry will kill the browser's markdown renderer)
+	const maxEntries = 50
+	const maxEntryContentLen = 100_000
+	for _, interaction := range interactions {
+		if interaction.ResponseEntries != nil {
+			interaction.ResponseMessage = ""
+
+			var entries []map[string]interface{}
+			if err := json.Unmarshal(interaction.ResponseEntries, &entries); err == nil {
+				if len(entries) > maxEntries {
+					entries = entries[len(entries)-maxEntries:]
+				}
+				for i, entry := range entries {
+					if content, ok := entry["content"].(string); ok && len(content) > maxEntryContentLen {
+						entries[i]["content"] = content[:maxEntryContentLen] + "\n\n[content truncated]"
+					}
+				}
+				if truncatedJSON, err := json.Marshal(entries); err == nil {
+					interaction.ResponseEntries = truncatedJSON
+				}
+			}
+		}
+	}
+
 	totalPages := int(totalCount) / perPage
 	if int(totalCount)%perPage > 0 {
 		totalPages++

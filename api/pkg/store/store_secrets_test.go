@@ -88,6 +88,77 @@ func (suite *PostgresStoreTestSuite) TestSecretUpdate() {
 	})
 }
 
+func (suite *PostgresStoreTestSuite) TestSecretScopedUniqueness() {
+	owner := "test-owner-" + system.GenerateUUID()
+	projectA := "proj-a-" + system.GenerateUUID()
+	projectB := "proj-b-" + system.GenerateUUID()
+
+	// Same name across two different projects must succeed.
+	secretA, err := suite.db.CreateSecret(suite.ctx, &types.Secret{
+		Name:      "shared-name",
+		Owner:     owner,
+		Value:     []byte("value-a"),
+		ProjectID: projectA,
+	})
+	require.NoError(suite.T(), err)
+
+	secretB, err := suite.db.CreateSecret(suite.ctx, &types.Secret{
+		Name:      "shared-name",
+		Owner:     owner,
+		Value:     []byte("value-b"),
+		ProjectID: projectB,
+	})
+	require.NoError(suite.T(), err)
+	assert.NotEqual(suite.T(), secretA.ID, secretB.ID)
+
+	// Duplicate within the same project must fail.
+	_, err = suite.db.CreateSecret(suite.ctx, &types.Secret{
+		Name:      "shared-name",
+		Owner:     owner,
+		Value:     []byte("value-dup"),
+		ProjectID: projectA,
+	})
+	require.Error(suite.T(), err)
+	assert.Contains(suite.T(), err.Error(), "already exists for this project")
+
+	// User-level secret with the same name (no project) lives in its own scope.
+	userSecret, err := suite.db.CreateSecret(suite.ctx, &types.Secret{
+		Name:  "shared-name",
+		Owner: owner,
+		Value: []byte("value-user"),
+	})
+	require.NoError(suite.T(), err)
+
+	// Duplicate user-level secret must still fail.
+	_, err = suite.db.CreateSecret(suite.ctx, &types.Secret{
+		Name:  "shared-name",
+		Owner: owner,
+		Value: []byte("value-user-dup"),
+	})
+	require.Error(suite.T(), err)
+	assert.Contains(suite.T(), err.Error(), "already exists for this owner")
+
+	// UserLevelOnly must return only the user-scoped secret, not project ones.
+	userLevel, err := suite.db.ListSecrets(suite.ctx, &ListSecretsQuery{
+		Owner:         owner,
+		UserLevelOnly: true,
+	})
+	require.NoError(suite.T(), err)
+	assert.Len(suite.T(), userLevel, 1)
+	assert.Equal(suite.T(), userSecret.ID, userLevel[0].ID)
+
+	// Without the flag, all three secrets come back.
+	all, err := suite.db.ListSecrets(suite.ctx, &ListSecretsQuery{Owner: owner})
+	require.NoError(suite.T(), err)
+	assert.Len(suite.T(), all, 3)
+
+	suite.T().Cleanup(func() {
+		for _, id := range []string{secretA.ID, secretB.ID, userSecret.ID} {
+			_ = suite.db.DeleteSecret(suite.ctx, id)
+		}
+	})
+}
+
 func (suite *PostgresStoreTestSuite) TestSecretDelete() {
 	secret := &types.Secret{
 		Name:  "delete-test-secret",

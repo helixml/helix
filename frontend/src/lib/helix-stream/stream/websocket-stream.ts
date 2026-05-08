@@ -10,6 +10,7 @@ import { StreamSettings } from "../component/settings_menu"
 import { defaultStreamInputConfig, StreamInput } from "./input"
 import { createSupportedVideoFormatsBits, VideoCodecSupport } from "./video"
 import { WsVideoCodec, WsVideoCodecType, codecToWebCodecsString, codecToDisplayName } from "./codecs"
+import { isMobileOrTablet } from "../../../utils/isMobileOrTablet"
 import {
   WsMessageType,
   CursorImageData,
@@ -951,9 +952,22 @@ export class WebSocketStream {
     }
 
     // Resize canvas if needed
-    if (this.canvas.width !== frame.displayWidth || this.canvas.height !== frame.displayHeight) {
-      this.canvas.width = frame.displayWidth
-      this.canvas.height = frame.displayHeight
+    // On mobile/tablet, cap canvas to the device's screen resolution to avoid
+    // allocating a full 4K GPU texture (width × height × 4 bytes RGBA ≈ 33MB)
+    // when the screen can't display those extra pixels anyway.
+    let targetWidth = frame.displayWidth
+    let targetHeight = frame.displayHeight
+    if (isMobileOrTablet()) {
+      const maxDim = Math.max(screen.width, screen.height) * (window.devicePixelRatio || 1)
+      if (targetWidth > maxDim || targetHeight > maxDim) {
+        const scale = maxDim / Math.max(targetWidth, targetHeight)
+        targetWidth = Math.round(targetWidth * scale)
+        targetHeight = Math.round(targetHeight * scale)
+      }
+    }
+    if (this.canvas.width !== targetWidth || this.canvas.height !== targetHeight) {
+      this.canvas.width = targetWidth
+      this.canvas.height = targetHeight
     }
 
     // Draw frame to canvas
