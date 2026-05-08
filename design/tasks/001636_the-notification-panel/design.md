@@ -64,6 +64,24 @@ The existing grouped handler (lines 579–581) already acknowledges both events:
 
 No change needed.
 
+## Implementation Notes
+
+- Added `isGroupUnread(group)` helper at module scope (above `deduplicateGroupsByTask`) so it
+  can be reused if needed — pure function, no closure dependencies.
+- Computed `deduplicatedTotalCount`, `deduplicatedUnreadCount`, `deduplicatedHasNew` directly
+  after the existing `groups` array is built — no extra passes through the data.
+- Extended scope beyond just the badge: the header pill (lines 579–594), the "Dismiss all" button
+  visibility (line 635), and the "All clear" empty-state check (line 690) all previously used
+  the raw `totalCount` from the hook. Updated all of them to use `deduplicatedTotalCount` for
+  consistency with what the user sees.
+- Removed `totalCount`, `unreadCount`, `hasNew` from the `useAttentionEvents` destructuring
+  since no consumer in `GlobalNotifications.tsx` uses them anymore. The hook still exposes them
+  for any other callers.
+- Verified `yarn build` succeeds with no type errors.
+- Acknowledge behavior for grouped notifications was already correct (no change needed):
+  `onNavigate={(ev) => { acknowledge(group.secondary.id); handleNavigate(ev) }}` —
+  `handleNavigate` then calls `acknowledge(ev.id)` where `ev` is `group.primary`.
+
 ## Patterns Found in Codebase
 
 - `groupEvents` and `deduplicateGroupsByTask` are pure functions defined at the top of
