@@ -3,8 +3,8 @@
 ## Backend: New `pr_opened` notification type
 
 - [x] Add `AttentionEventPROpened = "pr_opened"` constant to `api/pkg/types/attention_event.go`
-- [~] Add title ("Pull request opened") and description to the switch in `api/pkg/services/attention_service.go`
-- [ ] Emit `AttentionEventPROpened` in `api/pkg/server/spec_task_workflow_handlers.go` after a PR is successfully created (pass `prID` as qualifier and `pr_url`/`pr_id` in metadata)
+- [x] Add title ("Pull request opened") and description to the switch in `api/pkg/services/attention_service.go`
+- [x] Emit `AttentionEventPROpened` in `api/pkg/server/spec_task_workflow_handlers.go` after a PR is successfully created (pass `prID` as qualifier and `pr_url`/`pr_id` in metadata)
 
 ## Frontend: Render and navigate `pr_opened` notifications
 
