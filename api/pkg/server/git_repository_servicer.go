@@ -13,7 +13,8 @@ import (
 type gitRepositoryServicer interface {
 	Initialize(ctx context.Context) error
 	SetKoditService(koditService services.KoditServicer)
-	CloneRepositoryAsync(gitRepo *types.GitRepository)
+	CloneRepositoryAsync(gitRepo *types.GitRepository, postClone ...func(localPath string))
+	ValidateUserGitHubOAuth(ctx context.Context, repo *types.GitRepository, userID string) error
 	CreateRepository(ctx context.Context, request *types.GitRepositoryCreateRequest) (*types.GitRepository, error)
 	GetRepository(ctx context.Context, repoID string) (*types.GitRepository, error)
 	UpdateRepository(ctx context.Context, repoID string, request *types.GitRepositoryUpdateRequest, koditAPIKey string) (*types.GitRepository, error)

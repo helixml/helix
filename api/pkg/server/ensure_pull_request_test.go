@@ -73,8 +73,11 @@ func (f *fakeGitRepoService) Initialize(_ context.Context) error { panic("Initia
 func (f *fakeGitRepoService) SetKoditService(_ services.KoditServicer) {
 	panic("SetKoditService unexpected")
 }
-func (f *fakeGitRepoService) CloneRepositoryAsync(_ *types.GitRepository) {
+func (f *fakeGitRepoService) CloneRepositoryAsync(_ *types.GitRepository, _ ...func(string)) {
 	panic("CloneRepositoryAsync unexpected")
+}
+func (f *fakeGitRepoService) ValidateUserGitHubOAuth(_ context.Context, _ *types.GitRepository, _ string) error {
+	panic("ValidateUserGitHubOAuth unexpected")
 }
 func (f *fakeGitRepoService) CreateRepository(_ context.Context, _ *types.GitRepositoryCreateRequest) (*types.GitRepository, error) {
 	panic("CreateRepository unexpected")
