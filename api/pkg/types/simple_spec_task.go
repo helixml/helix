@@ -181,6 +181,7 @@ type SpecTask struct {
 	// Implementation tracking
 	ImplementationApprovedBy string     `json:"implementation_approved_by,omitempty"` // User who approved implementation
 	ImplementationApprovedAt *time.Time `json:"implementation_approved_at,omitempty"`
+	RebaseRequestedAt        *time.Time `json:"rebase_requested_at,omitempty"` // Set when approveImplementation hits a divergent branch and asks the agent to rebase. Used to make the approve handler idempotent (no duplicate prompts) and to gate the Accept button until the agent's next push.
 
 	// Git tracking
 	LastPushCommitHash string     `json:"last_push_commit_hash,omitempty"`     // Last commit hash pushed to feature branch

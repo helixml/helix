@@ -5198,6 +5198,8 @@ export interface TypesSpecTask {
   project_path?: string;
   /** Public sharing */
   public_design_docs?: boolean;
+  /** Set when approveImplementation hits a divergent branch and asks the agent to rebase. Used to make the approve handler idempotent (no duplicate prompts) and to gate the Accept button until the agent's next push. */
+  rebase_requested_at?: string;
   /** Multi-repo PR tracking: list of PRs across all project repositories */
   repo_pull_requests?: TypesRepoPR[];
   /** User stories + EARS acceptance criteria (markdown) */
@@ -5503,6 +5505,8 @@ export interface TypesSpecTaskWithProject {
   project_path?: string;
   /** Public sharing */
   public_design_docs?: boolean;
+  /** Set when approveImplementation hits a divergent branch and asks the agent to rebase. Used to make the approve handler idempotent (no duplicate prompts) and to gate the Accept button until the agent's next push. */
+  rebase_requested_at?: string;
   /** Multi-repo PR tracking: list of PRs across all project repositories */
   repo_pull_requests?: TypesRepoPR[];
   /** User stories + EARS acceptance criteria (markdown) */
