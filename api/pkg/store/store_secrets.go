@@ -24,10 +24,21 @@ func (s *PostgresStore) CreateSecret(ctx context.Context, secret *types.Secret) 
 	secret.Updated = secret.Created
 
 	err := s.gdb.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		// Check if a secret with the same name already exists for this owner
+		// Uniqueness is scoped per (owner, project_id, app_id, name) so the same
+		// name can be reused across different projects or apps for the same owner.
 		var existingSecret types.Secret
-		if err := tx.Where("owner = ? AND name = ?", secret.Owner, secret.Name).First(&existingSecret).Error; err == nil {
-			return fmt.Errorf("a secret with the name '%s' already exists for this owner", secret.Name)
+		if err := tx.Where(
+			"owner = ? AND name = ? AND project_id = ? AND app_id = ?",
+			secret.Owner, secret.Name, secret.ProjectID, secret.AppID,
+		).First(&existingSecret).Error; err == nil {
+			scope := "this owner"
+			switch {
+			case secret.ProjectID != "":
+				scope = "this project"
+			case secret.AppID != "":
+				scope = "this app"
+			}
+			return fmt.Errorf("a secret with the name '%s' already exists for %s", secret.Name, scope)
 		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
 			return err
 		}
@@ -91,6 +102,9 @@ func (s *PostgresStore) ListSecrets(ctx context.Context, q *ListSecretsQuery) ([
 	}
 	if q.ProjectID != "" {
 		query = query.Where("project_id = ?", q.ProjectID)
+	}
+	if q.UserLevelOnly {
+		query = query.Where("project_id = ? AND app_id = ?", "", "")
 	}
 
 	err := query.Find(&secrets).Error

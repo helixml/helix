@@ -251,7 +251,7 @@ const Files: FC = () => {
       >
         <Box sx={{ width: '100%', pl: 2, pr: 2, mt: 2 }}>
           <Box sx={{
-            backgroundColor: themeConfig.darkPanel,
+            backgroundColor: lightTheme.panelColor,
             p: 0,              
             borderRadius: 2,
             boxShadow: '0 4px 24px 0 rgba(0,0,0,0.12)',

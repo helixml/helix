@@ -3,7 +3,6 @@ package query
 import (
 	"context"
 	"fmt"
-	"os"
 	"testing"
 
 	"github.com/helixml/helix/api/pkg/config"
@@ -34,27 +33,12 @@ func (suite *QuerySuite) SetupTest() {
 	suite.ctx = context.Background()
 	ctrl := gomock.NewController(suite.T())
 
-	ragCfg := &types.RAGSettings{}
-	ragCfg.Typesense.URL = "http://localhost:8108"
-	ragCfg.Typesense.APIKey = "typesense"
-	ragCfg.Typesense.Collection = "helix-documents"
-
-	if os.Getenv("TYPESENSE_URL") != "" {
-		ragCfg.Typesense.URL = os.Getenv("TYPESENSE_URL")
-	}
-	if os.Getenv("TYPESENSE_API_KEY") != "" {
-		ragCfg.Typesense.APIKey = os.Getenv("TYPESENSE_API_KEY")
-	}
-
-	ts, err := rag.NewTypesense(context.Background(), ragCfg)
-	suite.Require().NoError(err)
-
-	suite.rag = ts
+	suite.rag = rag.NewMockRAG(ctrl)
 
 	suite.store = store.NewMockStore(ctrl)
 
 	var cfg config.ServerConfig
-	err = envconfig.Process("", &cfg)
+	err := envconfig.Process("", &cfg)
 	suite.NoError(err)
 
 	var apiClient openai.Client

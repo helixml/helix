@@ -67,6 +67,12 @@ func (s *QuotaManagerSuite) expectOrgQuotaDefaults(orgID string, wallet *types.W
 	s.store.EXPECT().GetProjectsCount(gomock.Any(), gomock.Any()).Return(int64(0), nil)
 	s.store.EXPECT().GetRepositoriesCount(gomock.Any(), gomock.Any()).Return(int64(0), nil)
 	s.store.EXPECT().GetSpecTasksCount(gomock.Any(), gomock.Any()).Return(int64(0), nil)
+	s.store.EXPECT().ListSandboxes(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, q *store.ListSandboxesQuery) ([]*types.Sandbox, error) {
+			s.Require().Equal(wallet.OrgID, q.OrganizationID)
+			return nil, nil
+		},
+	)
 }
 
 func freeWallet(userID string) *types.Wallet {
@@ -243,6 +249,12 @@ func (s *QuotaManagerSuite) TestGetQuotas_OrgWithActiveSessions() {
 	s.store.EXPECT().GetProjectsCount(gomock.Any(), gomock.Any()).Return(int64(5), nil)
 	s.store.EXPECT().GetRepositoriesCount(gomock.Any(), gomock.Any()).Return(int64(3), nil)
 	s.store.EXPECT().GetSpecTasksCount(gomock.Any(), gomock.Any()).Return(int64(100), nil)
+	s.store.EXPECT().ListSandboxes(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, q *store.ListSandboxesQuery) ([]*types.Sandbox, error) {
+			s.Require().Equal("org1", q.OrganizationID)
+			return nil, nil
+		},
+	)
 
 	resp, err := s.manager.GetQuotas(context.Background(), &types.QuotaRequest{
 		UserID:         "user1",
@@ -538,6 +550,12 @@ func (s *QuotaManagerSuite) TestLimitReached_OrgDesktopReached() {
 	s.store.EXPECT().GetProjectsCount(gomock.Any(), gomock.Any()).Return(int64(0), nil)
 	s.store.EXPECT().GetRepositoriesCount(gomock.Any(), gomock.Any()).Return(int64(0), nil)
 	s.store.EXPECT().GetSpecTasksCount(gomock.Any(), gomock.Any()).Return(int64(0), nil)
+	s.store.EXPECT().ListSandboxes(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, q *store.ListSandboxesQuery) ([]*types.Sandbox, error) {
+			s.Require().Equal("org1", q.OrganizationID)
+			return nil, nil
+		},
+	)
 
 	resp, err := s.manager.LimitReached(context.Background(), &types.QuotaLimitReachedRequest{
 		UserID:         "user1",
@@ -645,6 +663,12 @@ func (s *QuotaManagerSuite) TestGetQuotas_RoutesToOrgWhenOrgIDSet() {
 	s.store.EXPECT().GetProjectsCount(gomock.Any(), gomock.Any()).Return(int64(0), nil)
 	s.store.EXPECT().GetRepositoriesCount(gomock.Any(), gomock.Any()).Return(int64(0), nil)
 	s.store.EXPECT().GetSpecTasksCount(gomock.Any(), gomock.Any()).Return(int64(0), nil)
+	s.store.EXPECT().ListSandboxes(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, q *store.ListSandboxesQuery) ([]*types.Sandbox, error) {
+			s.Require().Equal("org1", q.OrganizationID)
+			return nil, nil
+		},
+	)
 
 	_, err := s.manager.GetQuotas(context.Background(), &types.QuotaRequest{
 		UserID:         "user1",

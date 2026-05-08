@@ -52,7 +52,7 @@ func (h *sessionHandler) isExpired(ttl time.Duration) bool {
 
 // NewKoditMCPBackend creates a new Kodit MCP backend with session-aware scoping.
 func NewKoditMCPBackend(koditClient *kodit.Client, enabled bool, store store.Store) *KoditMCPBackend {
-	if !enabled || koditClient == nil {
+	if !enabled {
 		return &KoditMCPBackend{enabled: false}
 	}
 
@@ -60,13 +60,33 @@ func NewKoditMCPBackend(koditClient *kodit.Client, enabled bool, store store.Sto
 	b := &KoditMCPBackend{
 		koditClient:   koditClient,
 		store:         store,
-		enabled:       true,
+		enabled:       koditClient != nil,
 		handlers:      make(map[string]*sessionHandler),
 		cleanupCtx:    ctx,
 		cleanupCancel: cancel,
 	}
 	go b.cleanupLoop()
 	return b
+}
+
+// setClient installs a kodit client after construction. Used because kodit.New
+// runs asynchronously (its embedding-dimension probe may require the Helix
+// listener to be up first).
+func (b *KoditMCPBackend) setClient(koditClient *kodit.Client) {
+	if koditClient == nil {
+		return
+	}
+	b.koditClient = koditClient
+	b.enabled = true
+	if b.handlers == nil {
+		b.handlers = make(map[string]*sessionHandler)
+	}
+	if b.cleanupCtx == nil {
+		ctx, cancel := context.WithCancel(context.Background())
+		b.cleanupCtx = ctx
+		b.cleanupCancel = cancel
+		go b.cleanupLoop()
+	}
 }
 
 // Stop stops the background cleanup.

@@ -1,6 +1,5 @@
 import React from 'react'
 import { Box, Typography, Paper, Chip, IconButton } from '@mui/material'
-import CloseIcon from '@mui/icons-material/Close'
 import CheckCircleIcon from '@mui/icons-material/CheckCircle'
 import { MessageWithToolCalls, ResponseEntry } from '../session/InteractionInference'
 import { DesignReviewComment } from '../../services/designReviewService'
@@ -12,6 +11,7 @@ interface StreamingResponse {
   commentId: string
   content: string
   entries: ResponseEntry[]
+  isComplete?: boolean
 }
 
 interface CommentLogSidebarProps {
@@ -61,7 +61,8 @@ export default function CommentLogSidebar({
             const displayEntries = isActiveStream
               ? streamingResponse!.entries
               : comment.agent_response_entries
-            const isStreaming = isActiveStream && !comment.agent_response
+            // isComplete: stream done, keep content visible but hide spinner
+            const isStreaming = isActiveStream && !comment.agent_response && !streamingResponse?.isComplete
 
             return (
               <Paper key={comment.id} sx={{ mb: 2, p: 2, opacity: comment.resolved ? 0.6 : 1 }}>
@@ -72,8 +73,8 @@ export default function CommentLogSidebar({
                     color={comment.quoted_text ? "primary" : "default"}
                   />
                   {!comment.resolved && (
-                    <IconButton size="small" onClick={() => onResolveComment(comment.id!)}>
-                      <CloseIcon fontSize="small" />
+                    <IconButton size="small" onClick={() => onResolveComment(comment.id!)} sx={{ color: 'success.main' }}>
+                      <CheckCircleIcon fontSize="small" />
                     </IconButton>
                   )}
                 </Box>

@@ -28,7 +28,6 @@ import (
 	"github.com/helixml/helix/api/pkg/openai/manager"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/rag"
-	"github.com/helixml/helix/api/pkg/scheduler"
 	"github.com/helixml/helix/api/pkg/server"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
@@ -234,25 +233,8 @@ func (suite *BaseOAuthTestSuite) setupServerDependencies(cfg config.ServerConfig
 	// Configure tools
 	cfg.Tools.Enabled = true
 
-	// Create scheduler
-	runnerController, err := scheduler.NewRunnerController(suite.ctx, &scheduler.RunnerControllerConfig{
-		PubSub: ps,
-		FS:     filestoreMock,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to create runner controller: %w", err)
-	}
-
-	schedulerParams := &scheduler.Params{
-		RunnerController: runnerController,
-		Store:            suite.store,
-	}
-	sched, err := scheduler.NewScheduler(suite.ctx, &cfg, schedulerParams)
-	if err != nil {
-		return fmt.Errorf("failed to create scheduler: %w", err)
-	}
-
-	// Create controller
+	// Sandbox-absorbs-runner pivot: scheduler + runnerController are gone.
+	// Create controller without them.
 	controller, err := controller.NewController(suite.ctx, controller.Options{
 		Config:          &cfg,
 		Store:           suite.store,
@@ -261,7 +243,6 @@ func (suite *BaseOAuthTestSuite) setupServerDependencies(cfg config.ServerConfig
 		Filestore:       filestoreMock,
 		Extractor:       extractorMock,
 		RAG:             ragMock,
-		Scheduler:       sched,
 		PubSub:          ps,
 		OAuthManager:    suite.oauth,
 	})
@@ -295,13 +276,13 @@ func (suite *BaseOAuthTestSuite) setupServerDependencies(cfg config.ServerConfig
 		controller,
 		janitor.NewJanitor(config.Janitor{}),
 		nil,
-		sched,
-		nil,
+		nil, // pingService
 		suite.oauth,
 		avatarsBucket,
 		triggerManager,
 		anthropicProxy,
-		nil,
+		nil, // gitRepositoryService
+		nil, // preInitKodit
 	)
 	if err != nil {
 		return fmt.Errorf("failed to create Helix API server: %w", err)
