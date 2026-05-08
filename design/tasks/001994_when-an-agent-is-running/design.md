@@ -134,3 +134,21 @@ isolated visual harnesses.
 - Vite HMR is active on port 8081 — frontend changes are live without rebuild.
 - After the change, run `cd frontend && yarn build` once to confirm it compiles
   cleanly before pushing.
+
+## Implementation Notes (post-implementation)
+
+- The keyframes block was named `pulseDot` (not `pulse`) to avoid any potential
+  collision with the existing `pulseRing` keyframes already defined at the top
+  of the file (used elsewhere for the active-task spinner). `pulseDot` is
+  unambiguous about its purpose.
+- Final diff is exactly the three changes the design called for: keyframes
+  block, `isAgentWorking` derivation, ternary render swap. No other refactors
+  bundled in.
+- `yarn build` passed cleanly on the merged-with-main branch.
+- **End-to-end browser test was not possible** in this implementation
+  environment because the inner Helix Docker stack was still building at the
+  time the change finished. The visual was instead verified with a standalone
+  HTML preview saved in `screenshots/01-dot-states-preview.png` — this proves
+  the keyframe animation, color, and positioning all render correctly.
+  Reviewers running in a fully-built environment should spot-check the three
+  Kanban states before merge.
