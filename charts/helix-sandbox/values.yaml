@@ -2,6 +2,20 @@
 # This is a YAML-formatted file.
 # Declare variables to be passed into your templates.
 
+global:
+  # Extra environment variables applied chart-wide (currently the sandbox
+  # container; future sub-deployments would consume the same value).
+  # Useful for proxy configuration in environments where all outbound traffic
+  # must go through a proxy. Per-component values (e.g. sandbox.extraEnv)
+  # render after these and therefore override on conflict.
+  # Example:
+  #   extraEnv:
+  #     - name: HTTPS_PROXY
+  #       value: "http://proxy:8080"
+  #     - name: NO_PROXY
+  #       value: "localhost,127.0.0.1,.svc,.cluster.local"
+  extraEnv: []
+
 replicaCount: 1
 
 # Deployment configuration

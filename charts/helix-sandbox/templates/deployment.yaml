@@ -173,8 +173,11 @@ spec:
             - name: GST_DEBUG
               value: {{ .Values.debug.gstDebug | quote }}
 
-            # Operator-supplied env (e.g. HELIX_SANDBOX_APT_MIRROR).
-            # Listed last so values here override anything above.
+            # Operator-supplied env. Chart-wide first, per-component last,
+            # so sandbox.extraEnv overrides global.extraEnv on conflict.
+            {{- with .Values.global.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
             {{- with .Values.sandbox.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
