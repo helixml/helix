@@ -6,4 +6,4 @@
 - [x] Add the bulk-archive confirmation `Dialog` (inline MUI Dialog) to `SpecTaskKanbanBoard`'s render output, showing count of tasks to be archived
 - [x] Wire `TaDaAnimation` into `SpecTaskKanbanBoard` — show on confirm, auto-hide after 2.5s
 - [x] Pass `onArchiveAllMerged` callback down to the `KanbanColumn` rendered for the `completed` column
-- [~] Run `cd frontend && yarn build` to verify no TypeScript errors
+- [x] Run `cd frontend && yarn build` to verify no TypeScript errors

@@ -72,3 +72,18 @@ Controlled via a `show: boolean` prop (or just mount/unmount the component).
 - API calls use `api.getApiClient()` (NEVER raw fetch).
 - After mutations, refresh via re-fetching tasks (see `performArchive` at line 1081).
 - Column-specific header buttons follow the backlog auto-start pattern (line 462).
+
+## Implementation Notes
+
+- **Files modified**: created `frontend/src/components/tasks/TaDaAnimation.tsx`; modified `frontend/src/components/tasks/SpecTaskKanbanBoard.tsx` (added `CelebrationIcon` import + `TaDaAnimation` import, new `onArchiveAllMerged` prop on `KanbanColumn`/`DroppableColumn`, header button render block, three pieces of state, `mergedTasks` memo, two handlers, and a confirmation `Dialog`).
+- **Icon choice**: `CelebrationIcon` (party popper) in amber `#f59e0b` — matches the celebratory tone the user requested without being too loud.
+- **Animation approach**: 60 confetti pieces (mix of circles, squares, rectangles) with random horizontal start positions, random horizontal drift via CSS variable `--drift`, rotation, and falling motion over ~1.6–3.0s (jittered start delay + duration). A `🎉` emoji flashes in the center via `tadaFlash` keyframes (scale + rotate). The whole overlay unmounts after 2.5s (`durationMs` prop).
+- **Dialog UX**: separate from existing `ArchiveConfirmDialog` because that one is single-task focused (shows task name, locks button while archiving). The bulk dialog shows the count, has a `CelebrationIcon` on the confirm button, and uses `color="warning"` to match the amber theme.
+- **Animation triggers immediately on confirm** — does NOT wait for the API calls to finish. Archive happens in parallel via `Promise.all`. This makes the celebration feel responsive even if archiving 50 tasks takes a moment.
+- **Snackbar feedback**: success snackbar fires after the API calls complete with task count.
+- **Both render paths covered**: passed `onArchiveAllMerged` to both the mobile (`columns[mobileColumnIndex]`) and desktop (`columns.map`) `DroppableColumn` instances.
+
+## Testing
+
+- TypeScript build passes (`cd frontend && yarn build`, ~40s, zero errors).
+- End-to-end browser testing was NOT possible in this environment: the local frontend at `:8081` redirects to Google SSO (`accounts.google.com`) for auth and there's no `:8080` inner instance available, so I could not log in to exercise the button. The build's type-checking is the only verification — manual UI verification is recommended after merge.
