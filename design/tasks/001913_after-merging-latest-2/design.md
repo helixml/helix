@@ -175,3 +175,15 @@ These are observations future agents working on similar tasks should know:
 - **`AgentConnectionCache`** (added in `ba7e97aea6`, partially reverted in `350de991de`) shares ACP connections per `(Project, AgentId)` between `thread_service` and the UI. So calling `connection.load_session()` from both paths uses the same underlying agent process — but each call may still produce a distinct `Entity<AcpThread>` wrapper, which is the entity that subscriptions attach to.
 - **`from_existing_thread` exists in two places**: `crates/agent_ui/src/conversation_view.rs:771` (the live one used by Helix bring-up) and `crates/agent_ui/src/acp/thread_view.rs:555` (declared but not wired in — see 001909 design notes "`HeadlessConnection` is dead code"). Don't get confused by the second one.
 - **`retained_threads` is the upstream mechanism that makes the bug invisible-but-not-fatal**: the old CV (with the live subscription) survives in the map, so Helix events keep flowing. Without `retained_threads`, the old CV would be dropped, `on_release` would fire `unregister_thread_if_matches`, and we'd see a different (worse) failure mode. Don't "clean up" `retained_threads` as part of this fix.
+
+## Update 2026-05-08: Re-checked after merge of upstream PR #49 (`001980-merge-latest-zed`)
+
+The latest Zed merge brought 184 commits but **did not** touch the bug's premise:
+
+- `agent_panel.rs::load_agent_thread` — unchanged. My patch merged cleanly.
+- `conversation_view.rs` — 308 lines changed (NewThreadLocation removal, error stderr, queued-message paste). Zero changes to `from_existing_thread`, `on_release`, `root_session_id`, or `register_thread`/`unregister_thread`.
+- `sidebar.rs` — adds an early-return when clicking the already-active *workspace* (same shape as my fix, but workspace-level not thread-level; doesn't dedup the thread bring-up).
+
+Build green against new main (`./stack build-zed dev`). Patch and `portingguide.md` Critical Fix #11 still in place. Pushed merged zed branch as `684d46cbf8`.
+
+The bug should still reproduce against current main without my patch. The fix is still warranted.
