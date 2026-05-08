@@ -20,7 +20,7 @@ import { useGetOrgUsage } from '../../services/orgService'
 import TokenUsage from '../usage/TokenUsage'
 import TotalCost from '../usage/TotalCost'
 import TotalRequests from '../usage/TotalRequests'
-import useThemeConfig from '../../hooks/useThemeConfig'
+import useLightTheme from '../../hooks/useLightTheme'
 import { useGetConfig } from '../../services/userService'
 import QuotaListView from '../quota/QuotaListView'
 
@@ -47,7 +47,7 @@ const OrgBilling: FC = () => {
   const client = api.getApiClient()
   const router = useRouter()
   const snackbar = useSnackbar()
-  const themeConfig = useThemeConfig()
+  const lightTheme = useLightTheme()
   
   const orgId = router.params.org_id
   const organization = account.organizationTools.organization
@@ -157,7 +157,7 @@ const OrgBilling: FC = () => {
 
             {/* Usage Charts Row */}
             {usage && (
-              <Grid container spacing={2} sx={{ mb: 2, backgroundColor: themeConfig.darkPanel, p: 2, borderRadius: 2 }}>
+              <Grid container spacing={2} sx={{ mb: 2, backgroundColor: lightTheme.panelColor, p: 2, borderRadius: 2 }}>
                 <Grid item xs={12} md={4}>
                   <TokenUsage usageData={usage ? [{ metrics: usage }] : []} isLoading={false} />
                 </Grid>
@@ -172,7 +172,7 @@ const OrgBilling: FC = () => {
           
             {/* Billing Section */}
             {paymentsActive && (
-              <Grid container spacing={2} sx={{ mt: 2, backgroundColor: themeConfig.darkPanel, p: 2, borderRadius: 2 }}>
+              <Grid container spacing={2} sx={{ mt: 2, backgroundColor: lightTheme.panelColor, p: 2, borderRadius: 2 }}>
                 <Grid item xs={12} md={colSize}>
                   <Box sx={{ p: 2, height: 250, display: 'flex', flexDirection: 'column', backgroundColor: 'transparent', borderRadius: 1, border: '1px solid', borderColor: 'divider' }}>
                     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -308,7 +308,7 @@ const OrgBilling: FC = () => {
             )}
 
             {!paymentsActive && (
-              <Box sx={{ mt: 2, p: 3, backgroundColor: themeConfig.darkPanel, borderRadius: 2, textAlign: 'center' }}>
+              <Box sx={{ mt: 2, p: 3, backgroundColor: lightTheme.panelColor, borderRadius: 2, textAlign: 'center' }}>
                 <Typography variant="h6" gutterBottom>
                   Billing Not Available
                 </Typography>
@@ -319,7 +319,7 @@ const OrgBilling: FC = () => {
             )}
 
             {/* Quotas Section */}
-            <Box sx={{ mt: 2, backgroundColor: themeConfig.darkPanel, py: 2, pr: 2, pl: 3, borderRadius: 2 }}>
+            <Box sx={{ mt: 2, backgroundColor: lightTheme.panelColor, py: 2, pr: 2, pl: 3, borderRadius: 2 }}>
               <Typography variant="h6" sx={{ mb: 2 }}>Quotas</Typography>
               <QuotaListView orgId={orgId} />
             </Box>

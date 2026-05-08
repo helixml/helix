@@ -19,14 +19,11 @@ func (c *ServerConfig) InternalServiceURLs() []string {
 		c.RAG.Crawler.ChromeURL,
 		c.RAG.Crawler.LauncherURL,
 		// RAG backends
-		c.RAG.Typesense.URL,
 		c.RAG.Llamaindex.RAGIndexingURL,
 		c.RAG.Llamaindex.RAGQueryURL,
 		c.RAG.Llamaindex.RAGDeleteURL,
-		c.RAG.Haystack.URL,
 		// Text extraction
-		c.TextExtractor.Unstructured.URL,
-		c.TextExtractor.Tika.URL,
+		c.TextExtractor.URL,
 		// Search
 		c.Search.SearXNGBaseURL,
 		// Frontend

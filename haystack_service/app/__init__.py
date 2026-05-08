@@ -1,1 +1,0 @@
-# Haystack service app package 

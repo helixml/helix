@@ -427,6 +427,10 @@ func (s *GitRepositoryService) getAzureDevOpsPullRequest(ctx context.Context, re
 		pr.URL = fmt.Sprintf("%s/pullrequest/%d", repo.ExternalURL, *adoPR.PullRequestId)
 	}
 
+	if adoPR.LastMergeSourceCommit != nil && adoPR.LastMergeSourceCommit.CommitId != nil {
+		pr.HeadSHA = *adoPR.LastMergeSourceCommit.CommitId
+	}
+
 	return pr, nil
 }
 
@@ -669,6 +673,7 @@ func (s *GitRepositoryService) getGitHubPullRequest(ctx context.Context, repo *t
 		SourceBranch: ghPR.GetHead().GetRef(),
 		TargetBranch: ghPR.GetBase().GetRef(),
 		URL:          ghPR.GetHTMLURL(),
+		HeadSHA:      ghPR.GetHead().GetSHA(),
 	}
 
 	if ghPR.GetUser() != nil {
@@ -863,6 +868,7 @@ func (s *GitRepositoryService) getGitLabMergeRequest(ctx context.Context, repo *
 		SourceBranch: glMR.SourceBranch,
 		TargetBranch: glMR.TargetBranch,
 		URL:          glMR.WebURL,
+		HeadSHA:      glMR.SHA,
 	}
 
 	if glMR.Author != nil {

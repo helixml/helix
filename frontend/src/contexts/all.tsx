@@ -33,10 +33,8 @@ import {
   StreamingContextProvider,
 } from './streaming'
 
-// Import the FloatingRunnerStateProvider
-import {
-  FloatingRunnerStateProvider,
-} from './floatingRunnerState'
+// Sandbox-absorbs-runner pivot: FloatingRunnerStateProvider deleted with
+// the legacy slot-based runner UI.
 
 // Import the FloatingModalProvider
 import {
@@ -57,13 +55,11 @@ const AllContextProvider = ({ children }: { children: ReactNode }) => {
             <AccountContextProvider>
                 <AppsContextProvider>
                   <StreamingContextProvider>
-                    <FloatingRunnerStateProvider>
-                      <FloatingModalProvider>
-                        <VideoStreamProvider>
-                          {children}
-                        </VideoStreamProvider>
-                      </FloatingModalProvider>
-                    </FloatingRunnerStateProvider>
+                    <FloatingModalProvider>
+                      <VideoStreamProvider>
+                        {children}
+                      </VideoStreamProvider>
+                    </FloatingModalProvider>
                   </StreamingContextProvider>
                 </AppsContextProvider>
             </AccountContextProvider>

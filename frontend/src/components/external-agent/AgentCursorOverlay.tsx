@@ -5,6 +5,7 @@
 import React from 'react';
 import { Box, Typography } from '@mui/material';
 import { AgentCursorInfo } from '../../lib/helix-stream/stream/websocket-stream';
+import { isMobileOrTablet } from '../../utils/isMobileOrTablet';
 
 export interface AgentCursorOverlayProps {
   agentCursor: AgentCursorInfo | null;
@@ -57,7 +58,8 @@ const AgentCursorOverlay: React.FC<AgentCursorOverlayProps> = ({
         height="24"
         style={{
           color: '#00D4FF',
-          filter: 'drop-shadow(0 0 6px #00D4FF) drop-shadow(0 0 12px #00D4FF80)',
+          // Drop-shadow filters force GPU compositing layers — simplify on mobile
+          filter: isMobileOrTablet() ? 'none' : 'drop-shadow(0 0 6px #00D4FF) drop-shadow(0 0 12px #00D4FF80)',
           animation: agentCursor.action !== 'idle' ? 'pulse 0.5s infinite' : 'none',
         }}
       >

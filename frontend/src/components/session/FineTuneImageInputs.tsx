@@ -3,8 +3,7 @@ import Typography from '@mui/material/Typography'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import Grid from '@mui/material/Grid'
-import useTheme from '@mui/material/styles/useTheme'
-import useThemeConfig from '../../hooks/useThemeConfig'
+import useLightTheme from '../../hooks/useLightTheme'
 
 import CloudUploadIcon from '@mui/icons-material/CloudUpload'
 import ArrowCircleRightIcon from '@mui/icons-material/ArrowCircleRight'
@@ -33,8 +32,7 @@ const FineTuneImageInputs: FC<FineTuneImageInputsProps> = ({
 }) => {
   const [files, setFiles] = useState<File[]>(initialFiles);
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const theme = useTheme();
-  const themeConfig = useThemeConfig();
+  const lightTheme = useLightTheme();
 
   const handleDownloadFile = (file: File) => {
     // Implement file download logic here
@@ -123,7 +121,7 @@ const FineTuneImageInputs: FC<FineTuneImageInputsProps> = ({
             height: '250px',
             minHeight: '100px',
             cursor: 'pointer',
-            backgroundColor: `${theme.palette.mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkBackgroundColor}80`,
+            backgroundColor: `${lightTheme.backgroundColor}80`,
             width: '100%',
             display: 'flex', 
             flexDirection: 'column', 

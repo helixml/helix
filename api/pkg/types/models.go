@@ -219,6 +219,8 @@ type Pricing struct {
 	Request           string `json:"request"`
 	WebSearch         string `json:"web_search"`
 	InternalReasoning string `json:"internal_reasoning"`
+	InputCacheRead    string `json:"input_cache_read"`  // price per cached input token read (hit)
+	InputCacheWrite   string `json:"input_cache_write"` // price per cached input token written (cache creation)
 }
 
 type ListDynamicModelInfosQuery struct {

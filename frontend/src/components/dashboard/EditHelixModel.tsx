@@ -29,7 +29,6 @@ import {
     TypesModel,
     TypesModelType,
     GithubComHelixmlHelixApiPkgTypesRuntime as TypesRuntime,
-    TypesRunnerModelStatus,
 } from "../../api/api";
 import {
     useCreateHelixModel,
@@ -37,6 +36,7 @@ import {
 } from "../../services/helixModelsService";
 import { useGetDashboardData } from "../../services/dashboardService";
 import MemoryEstimationWidget from "./MemoryEstimationWidget";
+import { RunnerModelStatus } from "../../types/dashboard";
 
 interface EditHelixModelDialogProps {
     open: boolean;
@@ -330,7 +330,7 @@ const EditHelixModelDialog: React.FC<EditHelixModelDialogProps> = ({
     const getModelDownloadStatus = useCallback(() => {
         if (!formData.id || !dashboardData?.runners) return null;
 
-        const modelStatuses: TypesRunnerModelStatus[] = [];
+        const modelStatuses: RunnerModelStatus[] = [];
         dashboardData.runners.forEach((runner) => {
             if (runner.models) {
                 const modelStatus = runner.models.find(

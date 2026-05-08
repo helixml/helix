@@ -31,6 +31,7 @@ const (
 type Server struct {
 	manager             *Manager
 	devContainerManager *DevContainerManager // Dev container management (desktop container lifecycle)
+	sandboxOps          *SandboxOps          // Sandboxes API: exec/files/terminal helpers
 	socketPath          string
 	listener            net.Listener
 	server              *http.Server
@@ -49,6 +50,7 @@ func NewServer(manager *Manager, socketPath string) *Server {
 	return &Server{
 		manager:             manager,
 		devContainerManager: devContainerManager,
+		sandboxOps:          NewSandboxOps(devContainerManager),
 		socketPath:          socketPath,
 	}
 }
@@ -173,6 +175,18 @@ func (s *Server) registerRoutes(router *mux.Router) {
 	api.HandleFunc("/golden-cache/{project_id}/build-result", s.handleGetGoldenBuildResult).Methods("GET")
 	api.HandleFunc("/golden-cache/{project_id}/copy-progress", s.handleGetGoldenCopyProgress).Methods("GET")
 	api.HandleFunc("/golden-cache/{project_id}/zfs-tree", s.handleGetZFSTree).Methods("GET")
+
+	// Sandboxes API operations (exec, files, terminal) — keyed by session_id
+	// (which doubles as the sandbox container key inside hydra).
+	api.HandleFunc("/dev-containers/{session_id}/exec", s.handleSandboxExec).Methods("POST")
+	api.HandleFunc("/dev-containers/{session_id}/exec/{cmd_id}", s.handleSandboxExecGet).Methods("GET")
+	api.HandleFunc("/dev-containers/{session_id}/exec/{cmd_id}/logs", s.handleSandboxExecLogs).Methods("GET")
+	api.HandleFunc("/dev-containers/{session_id}/exec/{cmd_id}/kill", s.handleSandboxExecKill).Methods("POST")
+	api.HandleFunc("/dev-containers/{session_id}/exec", s.handleSandboxExecList).Methods("GET")
+	api.HandleFunc("/dev-containers/{session_id}/files", s.handleSandboxFile).Methods("GET", "PUT", "DELETE")
+	api.HandleFunc("/dev-containers/{session_id}/files/list", s.handleSandboxFileList).Methods("GET")
+	api.HandleFunc("/dev-containers/{session_id}/terminal", s.handleSandboxTerminal).Methods("GET")
+	api.HandleFunc("/dev-containers/{session_id}/forget", s.handleSandboxForget).Methods("POST")
 
 	// System stats (GPU info, active sessions)
 	api.HandleFunc("/system/stats", s.handleSystemStats).Methods("GET")

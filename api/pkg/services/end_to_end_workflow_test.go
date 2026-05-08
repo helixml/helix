@@ -745,37 +745,6 @@ func createTestZedThreads(workSessions []*types.SpecTaskWorkSession, instanceID 
 	return threads
 }
 
-func createExpectedWorkSessions(specTaskID string, implementationTasks []types.SpecTaskImplementationTask) []*types.SpecTaskWorkSession {
-	sessions := make([]*types.SpecTaskWorkSession, len(implementationTasks))
-	for i, task := range implementationTasks {
-		sessions[i] = &types.SpecTaskWorkSession{
-			ID:                      generateTestWorkSessionID(),
-			SpecTaskID:              specTaskID,
-			HelixSessionID:          generateTestHelixSessionID(),
-			Name:                    task.Title,
-			Phase:                   types.SpecTaskPhaseImplementation,
-			Status:                  types.SpecTaskWorkSessionStatusPending,
-			ImplementationTaskTitle: task.Title,
-			ImplementationTaskIndex: task.Index,
-		}
-	}
-	return sessions
-}
-
-func createExpectedZedThreads(workSessions []*types.SpecTaskWorkSession, instanceID string) []*types.SpecTaskZedThread {
-	threads := make([]*types.SpecTaskZedThread, len(workSessions))
-	for i, ws := range workSessions {
-		threads[i] = &types.SpecTaskZedThread{
-			ID:            generateTestZedThreadID(),
-			WorkSessionID: ws.ID,
-			SpecTaskID:    ws.SpecTaskID,
-			ZedThreadID:   fmt.Sprintf("thread_%s", ws.ID),
-			Status:        types.SpecTaskZedStatusPending,
-		}
-	}
-	return threads
-}
-
 func generateComprehensiveRequirementsSpec() string {
 	return `# User Authentication System Requirements
 

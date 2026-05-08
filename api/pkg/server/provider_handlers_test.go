@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/dgraph-io/ristretto/v2"
+	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/openai"
@@ -44,7 +45,7 @@ func (s *ProviderHandlersSuite) SetupTest() {
 	ctrl := gomock.NewController(s.T())
 
 	cfg := &config.ServerConfig{}
-	cfg.RAG.PGVector.Provider = string(types.ProviderOpenAI)
+	cfg.RAG.EmbeddingsProvider = string(types.ProviderOpenAI)
 
 	s.store = store.NewMockStore(ctrl)
 	s.openAiClient = openai.NewMockClient(ctrl)
@@ -350,4 +351,361 @@ func (s *ProviderHandlersSuite) TestCreateProviderEndpoint_WarmsCacheAndMasksAPI
 	case <-time.After(5 * time.Second):
 		s.Fail("cache warm goroutine did not complete in time")
 	}
+}
+
+// When a custom endpoint has a static Models list and upstream /v1/models
+// errors (e.g. the upstream doesn't implement that route), getProviderModels
+// must synthesize entries from Models so the picker is non-empty and chat
+// completions routing can find the model.
+func (s *ProviderHandlersSuite) TestGetProviderModels_SynthesizesFromStaticListOnError() {
+	endpoint := &types.ProviderEndpoint{
+		Name:    "hermes",
+		Owner:   "user_id",
+		BaseURL: "http://hermes.local",
+		Models:  []string{"hermes-agent"},
+	}
+
+	s.manager.EXPECT().GetClient(gomock.Any(), &manager.GetClientRequest{
+		Provider: "hermes",
+		Owner:    "user_id",
+	}).Return(s.openAiClient, nil)
+
+	s.openAiClient.EXPECT().ListModels(gomock.Any()).Return(nil, errors.New("404 not found"))
+	s.modelInfoProvider.EXPECT().GetModelInfo(gomock.Any(), gomock.Any()).Return(nil, errors.New("not found"))
+
+	models, err := s.server.getProviderModels(context.Background(), endpoint)
+	s.Require().NoError(err)
+	s.Require().Len(models, 1)
+	s.Equal("hermes-agent", models[0].ID)
+	s.Equal("chat", models[0].Type)
+	s.True(models[0].Enabled)
+	s.Equal("hermes", models[0].OwnedBy)
+}
+
+// Upstream returning an empty list with a static Models list configured should
+// also fall back to the synthesized list (some endpoints answer /v1/models with
+// `{"data":[]}`).
+func (s *ProviderHandlersSuite) TestGetProviderModels_SynthesizesFromStaticListOnEmptyUpstream() {
+	endpoint := &types.ProviderEndpoint{
+		Name:    "hermes",
+		Owner:   "user_id_2",
+		BaseURL: "http://hermes-empty.local",
+		Models:  []string{"hermes-agent", "hermes-mini"},
+	}
+
+	s.manager.EXPECT().GetClient(gomock.Any(), gomock.Any()).Return(s.openAiClient, nil)
+	s.openAiClient.EXPECT().ListModels(gomock.Any()).Return([]types.OpenAIModel{}, nil)
+	s.modelInfoProvider.EXPECT().GetModelInfo(gomock.Any(), gomock.Any()).Return(nil, errors.New("not found")).Times(2)
+
+	models, err := s.server.getProviderModels(context.Background(), endpoint)
+	s.Require().NoError(err)
+	s.Require().Len(models, 2)
+	s.Equal("hermes-agent", models[0].ID)
+	s.Equal("hermes-mini", models[1].ID)
+	for _, m := range models {
+		s.Equal("chat", m.Type)
+		s.True(m.Enabled)
+	}
+}
+
+// When upstream errors AND no static Models list is set, the call still errors
+// (no behaviour change for non-static endpoints).
+func (s *ProviderHandlersSuite) TestGetProviderModels_ErrorsWhenNoStaticListAndUpstreamFails() {
+	endpoint := &types.ProviderEndpoint{
+		Name:    "broken",
+		Owner:   "user_id_3",
+		BaseURL: "http://broken.local",
+	}
+
+	s.manager.EXPECT().GetClient(gomock.Any(), gomock.Any()).Return(s.openAiClient, nil)
+	s.openAiClient.EXPECT().ListModels(gomock.Any()).Return(nil, errors.New("connection refused"))
+
+	_, err := s.server.getProviderModels(context.Background(), endpoint)
+	s.Require().Error(err)
+}
+
+func (s *ProviderHandlersSuite) TestUpdateProviderEndpoint_SwitchUserToGlobal() {
+	s.server.Cfg.Providers.EnableCustomUserProviders = true
+	endpointID := "ep_123"
+
+	adminCtx := setRequestUser(context.Background(), types.User{
+		ID:    "admin_id",
+		Admin: true,
+	})
+
+	existing := &types.ProviderEndpoint{
+		ID:           endpointID,
+		Name:         "my-endpoint",
+		BaseURL:      "http://localhost:11434",
+		Owner:        "admin_id",
+		OwnerType:    types.OwnerTypeUser,
+		EndpointType: types.ProviderEndpointTypeUser,
+	}
+
+	s.store.EXPECT().GetSystemSettings(gomock.Any()).Return(&types.SystemSettings{
+		ProvidersManagementEnabled: true,
+	}, nil)
+	s.store.EXPECT().GetProviderEndpoint(gomock.Any(), &store.GetProviderEndpointsQuery{
+		ID: endpointID,
+	}).Return(existing, nil)
+	s.store.EXPECT().UpdateProviderEndpoint(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, ep *types.ProviderEndpoint) (*types.ProviderEndpoint, error) {
+			s.Equal(types.ProviderEndpointTypeGlobal, ep.EndpointType)
+			s.Equal(string(types.OwnerTypeSystem), ep.Owner)
+			s.Equal(types.OwnerTypeSystem, ep.OwnerType)
+			return ep, nil
+		})
+
+	update := types.UpdateProviderEndpoint{
+		Name:         "my-endpoint",
+		EndpointType: types.ProviderEndpointTypeGlobal,
+		BaseURL:      "http://localhost:11434",
+	}
+	body, _ := json.Marshal(update)
+
+	req := httptest.NewRequest(http.MethodPut, "/v1/provider-endpoints/"+endpointID, bytes.NewReader(body))
+	req = req.WithContext(adminCtx)
+	req = mux.SetURLVars(req, map[string]string{"id": endpointID})
+
+	rr := httptest.NewRecorder()
+	s.server.updateProviderEndpoint(rr, req)
+
+	s.Equal(http.StatusOK, rr.Code)
+}
+
+func (s *ProviderHandlersSuite) TestUpdateProviderEndpoint_NonAdminCannotSwitchToGlobal() {
+	s.server.Cfg.Providers.EnableCustomUserProviders = true
+	endpointID := "ep_123"
+
+	existing := &types.ProviderEndpoint{
+		ID:           endpointID,
+		Name:         "my-endpoint",
+		BaseURL:      "http://localhost:11434",
+		Owner:        "user_id",
+		OwnerType:    types.OwnerTypeUser,
+		EndpointType: types.ProviderEndpointTypeUser,
+	}
+
+	s.store.EXPECT().GetSystemSettings(gomock.Any()).Return(&types.SystemSettings{
+		ProvidersManagementEnabled: true,
+	}, nil)
+	s.store.EXPECT().GetProviderEndpoint(gomock.Any(), &store.GetProviderEndpointsQuery{
+		ID: endpointID,
+	}).Return(existing, nil)
+
+	update := types.UpdateProviderEndpoint{
+		Name:         "my-endpoint",
+		EndpointType: types.ProviderEndpointTypeGlobal,
+		BaseURL:      "http://localhost:11434",
+	}
+	body, _ := json.Marshal(update)
+
+	req := httptest.NewRequest(http.MethodPut, "/v1/provider-endpoints/"+endpointID, bytes.NewReader(body))
+	req = req.WithContext(s.authCtx)
+	req = mux.SetURLVars(req, map[string]string{"id": endpointID})
+
+	rr := httptest.NewRecorder()
+	s.server.updateProviderEndpoint(rr, req)
+
+	s.Equal(http.StatusForbidden, rr.Code)
+	s.Contains(rr.Body.String(), "Only admins can update global endpoints")
+}
+
+func (s *ProviderHandlersSuite) TestUpdateProviderEndpoint_SwitchToOrgRejected() {
+	s.server.Cfg.Providers.EnableCustomUserProviders = true
+	endpointID := "ep_123"
+
+	adminCtx := setRequestUser(context.Background(), types.User{
+		ID:    "admin_id",
+		Admin: true,
+	})
+
+	existing := &types.ProviderEndpoint{
+		ID:           endpointID,
+		Name:         "my-endpoint",
+		BaseURL:      "http://localhost:11434",
+		Owner:        "admin_id",
+		OwnerType:    types.OwnerTypeUser,
+		EndpointType: types.ProviderEndpointTypeUser,
+	}
+
+	s.store.EXPECT().GetSystemSettings(gomock.Any()).Return(&types.SystemSettings{
+		ProvidersManagementEnabled: true,
+	}, nil)
+	s.store.EXPECT().GetProviderEndpoint(gomock.Any(), &store.GetProviderEndpointsQuery{
+		ID: endpointID,
+	}).Return(existing, nil)
+
+	update := types.UpdateProviderEndpoint{
+		Name:         "my-endpoint",
+		EndpointType: types.ProviderEndpointTypeOrg,
+		BaseURL:      "http://localhost:11434",
+	}
+	body, _ := json.Marshal(update)
+
+	req := httptest.NewRequest(http.MethodPut, "/v1/provider-endpoints/"+endpointID, bytes.NewReader(body))
+	req = req.WithContext(adminCtx)
+	req = mux.SetURLVars(req, map[string]string{"id": endpointID})
+
+	rr := httptest.NewRecorder()
+	s.server.updateProviderEndpoint(rr, req)
+
+	s.Equal(http.StatusBadRequest, rr.Code)
+	s.Contains(rr.Body.String(), "Unsupported endpoint type switch")
+}
+
+// TestDeleteProviderEndpoint_InvalidatesModelCache verifies that deleting a
+// provider clears its cached model list so subsequent reads stop serving the
+// deleted provider's models. Without invalidation, stale entries linger for up
+// to ModelsCacheTTL and a deleted provider can still resolve in /v1/chat/completions
+// routing during that window. See deviqon/P1-3.
+func (s *ProviderHandlersSuite) TestDeleteProviderEndpoint_InvalidatesModelCache() {
+	s.server.Cfg.Providers.EnableCustomUserProviders = true
+	endpointID := "ep_to_delete"
+
+	existing := &types.ProviderEndpoint{
+		ID:           endpointID,
+		Name:         "user-ollama",
+		Owner:        "user_id",
+		OwnerType:    types.OwnerTypeUser,
+		EndpointType: types.ProviderEndpointTypeUser,
+	}
+
+	// Pre-populate the cache as if a prior /providers/models call had filled it.
+	cacheKey := modelCacheKey(existing.Name, existing.Owner)
+	s.server.cache.SetWithTTL(cacheKey, `[{"id":"qwen3-coder"}]`, 1, time.Minute)
+	s.server.cache.Wait()
+	if _, found := s.server.cache.Get(cacheKey); !found {
+		s.Fail("precondition: cache should be populated before delete")
+	}
+
+	s.store.EXPECT().GetSystemSettings(gomock.Any()).Return(&types.SystemSettings{
+		ProvidersManagementEnabled: true,
+	}, nil)
+	s.store.EXPECT().GetProviderEndpoint(gomock.Any(), &store.GetProviderEndpointsQuery{
+		ID: endpointID,
+	}).Return(existing, nil)
+	s.store.EXPECT().DeleteProviderEndpoint(gomock.Any(), endpointID).Return(nil)
+
+	req := httptest.NewRequest(http.MethodDelete, "/v1/provider-endpoints/"+endpointID, nil)
+	req = req.WithContext(s.authCtx)
+	req = mux.SetURLVars(req, map[string]string{"id": endpointID})
+
+	rr := httptest.NewRecorder()
+	s.server.deleteProviderEndpoint(rr, req)
+
+	s.Equal(http.StatusOK, rr.Code)
+
+	s.server.cache.Wait()
+	_, found := s.server.cache.Get(cacheKey)
+	s.False(found, "cache entry for deleted provider must be cleared")
+}
+
+// TestUpdateProviderEndpoint_RenameInvalidatesOldKey covers the rename path:
+// the cache key includes the provider name, so a rename leaves a stranded
+// entry under the old name that nothing will ever clean up. The update handler
+// must drop both the old and new keys.
+func (s *ProviderHandlersSuite) TestUpdateProviderEndpoint_RenameInvalidatesOldKey() {
+	s.server.Cfg.Providers.EnableCustomUserProviders = true
+	endpointID := "ep_rename"
+
+	existing := &types.ProviderEndpoint{
+		ID:           endpointID,
+		Name:         "old-name",
+		BaseURL:      "http://localhost:11434",
+		Owner:        "user_id",
+		OwnerType:    types.OwnerTypeUser,
+		EndpointType: types.ProviderEndpointTypeUser,
+	}
+
+	oldKey := modelCacheKey("old-name", "user_id")
+	newKey := modelCacheKey("new-name", "user_id")
+	s.server.cache.SetWithTTL(oldKey, `[{"id":"m1"}]`, 1, time.Minute)
+	s.server.cache.SetWithTTL(newKey, `[{"id":"m2-stale"}]`, 1, time.Minute)
+	s.server.cache.Wait()
+
+	s.store.EXPECT().GetSystemSettings(gomock.Any()).Return(&types.SystemSettings{
+		ProvidersManagementEnabled: true,
+	}, nil)
+	s.store.EXPECT().GetProviderEndpoint(gomock.Any(), &store.GetProviderEndpointsQuery{
+		ID: endpointID,
+	}).Return(existing, nil)
+	s.manager.EXPECT().ListProviders(gomock.Any(), "user_id").Return([]types.Provider{}, nil)
+	s.store.EXPECT().UpdateProviderEndpoint(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, ep *types.ProviderEndpoint) (*types.ProviderEndpoint, error) {
+			s.Equal("new-name", ep.Name)
+			return ep, nil
+		})
+
+	update := types.UpdateProviderEndpoint{
+		Name:    "new-name",
+		BaseURL: "http://localhost:11434",
+	}
+	body, _ := json.Marshal(update)
+	req := httptest.NewRequest(http.MethodPut, "/v1/provider-endpoints/"+endpointID, bytes.NewReader(body))
+	req = req.WithContext(s.authCtx)
+	req = mux.SetURLVars(req, map[string]string{"id": endpointID})
+
+	rr := httptest.NewRecorder()
+	s.server.updateProviderEndpoint(rr, req)
+
+	s.Equal(http.StatusOK, rr.Code)
+
+	s.server.cache.Wait()
+	_, foundOld := s.server.cache.Get(oldKey)
+	s.False(foundOld, "old-name cache entry must be cleared after rename")
+	_, foundNew := s.server.cache.Get(newKey)
+	s.False(foundNew, "new-name cache entry must be cleared so next read refetches with current upstream state")
+}
+
+// TestUpdateProviderEndpoint_NoRenameStillInvalidates covers the case where
+// only BaseURL/Models/APIKey changed — the cached models are now potentially
+// wrong because the upstream is different. Cache must be cleared even when
+// the name is unchanged.
+func (s *ProviderHandlersSuite) TestUpdateProviderEndpoint_NoRenameStillInvalidates() {
+	s.server.Cfg.Providers.EnableCustomUserProviders = true
+	endpointID := "ep_url_change"
+
+	existing := &types.ProviderEndpoint{
+		ID:           endpointID,
+		Name:         "stable-name",
+		BaseURL:      "http://old-host:11434",
+		Owner:        "user_id",
+		OwnerType:    types.OwnerTypeUser,
+		EndpointType: types.ProviderEndpointTypeUser,
+	}
+
+	key := modelCacheKey("stable-name", "user_id")
+	s.server.cache.SetWithTTL(key, `[{"id":"old-host-model"}]`, 1, time.Minute)
+	s.server.cache.Wait()
+
+	s.store.EXPECT().GetSystemSettings(gomock.Any()).Return(&types.SystemSettings{
+		ProvidersManagementEnabled: true,
+	}, nil)
+	s.store.EXPECT().GetProviderEndpoint(gomock.Any(), &store.GetProviderEndpointsQuery{
+		ID: endpointID,
+	}).Return(existing, nil)
+	s.store.EXPECT().UpdateProviderEndpoint(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, ep *types.ProviderEndpoint) (*types.ProviderEndpoint, error) {
+			s.Equal("http://new-host:11434", ep.BaseURL)
+			return ep, nil
+		})
+
+	update := types.UpdateProviderEndpoint{
+		Name:    "stable-name",
+		BaseURL: "http://new-host:11434",
+	}
+	body, _ := json.Marshal(update)
+	req := httptest.NewRequest(http.MethodPut, "/v1/provider-endpoints/"+endpointID, bytes.NewReader(body))
+	req = req.WithContext(s.authCtx)
+	req = mux.SetURLVars(req, map[string]string{"id": endpointID})
+
+	rr := httptest.NewRecorder()
+	s.server.updateProviderEndpoint(rr, req)
+
+	s.Equal(http.StatusOK, rr.Code)
+
+	s.server.cache.Wait()
+	_, found := s.server.cache.Get(key)
+	s.False(found, "cache must be cleared after BaseURL change so next read sees the new upstream")
 }

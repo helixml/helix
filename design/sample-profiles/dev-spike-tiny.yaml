@@ -1,0 +1,40 @@
+# Helix runner profile: dev-spike-tiny
+#
+# GPU compatibility (operator-declared, stored alongside this YAML):
+#   vendor:        nvidia
+#   architectures: []                 # any NVIDIA arch
+#   model_match:   ""
+#   min_vram:      4294967296         # 4 GiB
+#
+# Smallest plausible profile. Sized to coexist with desktop workloads on a
+# shared 16 GiB dev GPU. Used by the GPU-passthrough-into-DinD spike (see
+# tasks.md "Spike" section). If you can get this to produce one valid
+# completion through the runner, the design is derisked.
+
+services:
+  vllm-tiny:
+    image: vllm/vllm-openai:latest
+    container_name: vllm-tiny
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - /models:/root/.cache/huggingface
+    environment:
+      - HUGGING_FACE_HUB_TOKEN
+    shm_size: 1g
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["0"]
+              capabilities: [gpu]
+    command:
+      - --model
+      - Qwen/Qwen2.5-0.5B-Instruct
+      - --served-model-name
+      - qwen2.5-0.5b
+      - --max-model-len
+      - "4096"
+      - --gpu-memory-utilization
+      - "0.20"

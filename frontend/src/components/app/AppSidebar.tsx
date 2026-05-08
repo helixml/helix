@@ -7,6 +7,7 @@ import {
   LibraryBig,
   Lightbulb,
   Bug,
+  FlaskConical,
   Key,
   Code,
   ChartArea,
@@ -82,6 +83,13 @@ const AppSidebar: FC = () => {
           icon: <Bug size={20} />,
           isActive: currentTab === 'tests',
           onClick: () => handleNavigationClick('tests')
+        },
+        {
+          id: 'evaluation',
+          label: 'Evaluation',
+          icon: <FlaskConical size={20} />,
+          isActive: currentTab === 'evaluation',
+          onClick: () => handleNavigationClick('evaluation')
         }
       ]
     },

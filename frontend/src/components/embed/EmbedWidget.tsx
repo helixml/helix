@@ -10,6 +10,7 @@ import IconButton from '@mui/material/IconButton'
 import SearchIcon from '@mui/icons-material/Search'
 import CloseIcon from '@mui/icons-material/Close'
 import useThemeConfig from '../../hooks/useThemeConfig'
+import useLightTheme from '../../hooks/useLightTheme'
 
 type AnswerType = {
   id: string
@@ -47,6 +48,7 @@ interface AskQuestionModalProps {
 
 export default ({ verifiedSources, onSubmitQuestion, open, handleClose, answer }: AskQuestionModalProps) => {
   const themeConfig = useThemeConfig()
+  const lightTheme = useLightTheme()
   const [question, setQuestion] = useState('')
   const [showAnswer, setShowAnswer] = useState(false)
 
@@ -199,7 +201,7 @@ export default ({ verifiedSources, onSubmitQuestion, open, handleClose, answer }
                   component="a"
                   href={source.url}
                   sx={{
-                    color: themeConfig.darkText,
+                    color: lightTheme.textColor,
                     textDecoration: 'none',
                     width: '100%',
                     textAlign: 'center',

@@ -5,7 +5,7 @@ import ReactDataGrid from '@inovua/reactdatagrid-community'
 import Box from '@mui/material/Box'
 import { SxProps } from '@mui/system'
 import Loading from '../system/Loading'
-import useThemeConfig from '../../hooks/useThemeConfig'
+import useLightTheme from '../../hooks/useLightTheme'
 
 export interface IDataGrid2_Column_Render_Params<DataType = any> {
   value: any,
@@ -60,16 +60,16 @@ const DataGrid: FC<React.PropsWithChildren<DataGridProps>> = ({
   onSelect,
 }) => {
   const theme = useTheme()
-  const themeConfig = useThemeConfig()
+  const lightTheme = useLightTheme()
   const onCellClick = useCallback((ev: any, cellProps: any) => {
     if(!onSelect) return
     onSelect(cellProps.rowIndex, cellProps.columnIndex)
   }, [onSelect])
 
-  const borderStyle = `1px solid ${theme.palette.mode === 'light' ? themeConfig.lightBorder : themeConfig.darkBorder}`
+  const borderStyle = `1px solid ${lightTheme.border}`
 
   const gridStyle = {
-    backgroundColor: theme.palette.mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkBackgroundColor,
+    backgroundColor: lightTheme.backgroundColor,
     minHeight: minHeight,
     boxShadow: '0px 4px 10px 0px rgba(0,0,0,0.1)',
     width: '100%',
@@ -110,17 +110,17 @@ const DataGrid: FC<React.PropsWithChildren<DataGridProps>> = ({
         '& .InovuaReactDataGrid__header': {
           color: theme.palette.mode === 'dark' ? theme.palette.grey[300] : theme.palette.grey[900],
           fontWeight: 'lighter',
-          backgroundColor: theme.palette.mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkBackgroundColor,
+          backgroundColor: lightTheme.backgroundColor,
           borderTop: borderStyle,
           borderBottom: borderStyle,
         },
         '& .InovuaReactDataGrid__row': {
-          backgroundColor: theme.palette.mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkBackgroundColor,
+          backgroundColor: lightTheme.backgroundColor,
           color: theme.palette.mode === 'dark' ? theme.palette.grey[300] : theme.palette.grey[900],
           borderTop: borderStyle,
           borderBottom: borderStyle,
           '&:hover': {
-            backgroundColor: theme.palette.mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkBackgroundColor,
+            backgroundColor: lightTheme.backgroundColor,
           },
         },
         ...sx,

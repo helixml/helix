@@ -2,6 +2,20 @@
 # This is a YAML-formatted file.
 # Declare variables to be passed into your templates.
 
+global:
+  # Extra environment variables applied chart-wide (currently the sandbox
+  # container; future sub-deployments would consume the same value).
+  # Useful for proxy configuration in environments where all outbound traffic
+  # must go through a proxy. Per-component values (e.g. sandbox.extraEnv)
+  # render after these and therefore override on conflict.
+  # Example:
+  #   extraEnv:
+  #     - name: HTTPS_PROXY
+  #       value: "http://proxy:8080"
+  #     - name: NO_PROXY
+  #       value: "localhost,127.0.0.1,.svc,.cluster.local"
+  extraEnv: []
+
 replicaCount: 1
 
 # Deployment configuration
@@ -73,6 +87,15 @@ sandbox:
   # 120-240 recommended for remote connections
   gopSize: 120
 
+  # Extra environment variables appended to the sandbox container's env block.
+  # Use this to set hydra-side knobs that don't have a structured value
+  # (e.g. HELIX_SANDBOX_APT_MIRROR for air-gapped APT mirrors).
+  # Example:
+  #   extraEnv:
+  #     - name: HELIX_SANDBOX_APT_MIRROR
+  #       value: "http://apt.internal/ubuntu"
+  extraEnv: []
+
 # Hydra configuration (multi-tenant container isolation)
 hydra:
   # Enable Hydra for per-session Docker daemon isolation
@@ -120,6 +143,10 @@ gpu:
     # Runtime class name for OpenShift/Kubernetes
     # OpenShift typically uses "nvidia" or custom runtime class
     runtimeClassName: ""
+    # GPU resource name for Kubernetes device plugin.
+    # Override if you use a non-standard NVIDIA device plugin that advertises
+    # a different resource key.
+    resourceName: "nvidia.com/gpu"
     # GKE-specific setup for nested GPU containers
     # Enables library path configuration and cgroup fixes for Docker-in-Docker
     # Set to true when running on Google Kubernetes Engine

@@ -63,24 +63,33 @@ steps:
   - name: helm-lint
     image: alpine/helm:3.16.4
     commands:
-      # Fetch subchart dependencies (postgresql, common) before lint/template
-      - helm dependency build charts/helix-controlplane
-      # Lint all three charts with default values
+      # Render Chart.yaml from Chart.yaml.tmpl. No DRONE_TAG on push events, so
+      # the script stamps a sentinel version — fine for lint/template since the
+      # rendered output is never published from this pipeline.
+      - sh scripts/render-charts.sh
+      # Lint both charts with default values. (helix-runner was deleted in
+      # 6d660a6d1 — the sandbox absorbed the runner role. Bitnami
+      # subcharts were dropped in 32133ee6d, so no `helm dependency
+      # build` step is needed any more.)
       - helm lint charts/helix-controlplane
-      - helm lint charts/helix-runner
       - helm lint charts/helix-sandbox
       # Lint controlplane with production-like example values
       - helm lint charts/helix-controlplane -f charts/helix-controlplane/values-example.yaml
-      - helm lint charts/helix-runner -f charts/helix-runner/values-example.yaml
       # Template render to catch runtime errors (missing helpers, bad references)
       - helm template test-release charts/helix-controlplane -f charts/helix-controlplane/values-example.yaml > /dev/null
-      - helm template test-release charts/helix-runner -f charts/helix-runner/values-example.yaml > /dev/null
       - helm template test-release charts/helix-sandbox > /dev/null
       # Template with each sandbox values variant
       - helm template test-release charts/helix-sandbox -f charts/helix-sandbox/values-bare-metal.yaml > /dev/null
       - helm template test-release charts/helix-sandbox -f charts/helix-sandbox/values-eks.yaml > /dev/null
       - helm template test-release charts/helix-sandbox -f charts/helix-sandbox/values-gke.yaml > /dev/null
       - helm template test-release charts/helix-sandbox -f charts/helix-sandbox/values-aks.yaml > /dev/null
+      # Re-render with a synthetic real-looking tag and re-lint to catch
+      # template breakage that only surfaces with a non-sentinel version
+      # (the tag-build pipeline runs render-charts.sh with DRONE_TAG and we
+      # want to fail in PR rather than mid-release if substitution breaks).
+      - DRONE_TAG=v9.9.9-rendertest sh scripts/render-charts.sh
+      - helm lint charts/helix-controlplane
+      - helm lint charts/helix-sandbox
     when:
       event:
         - push
@@ -111,15 +120,16 @@ steps:
   # Build API binary once for migrations and integration tests.
   # This avoids recompiling in each step that needs the binary.
   - name: build-api-binary
-    image: golang:1.25-alpine
+    image: golang:1.25-bookworm
     volumes:
       - name: go-build-cache
         path: /root/.cache/go-build
       - name: go-mod-cache
         path: /go/pkg/mod
     commands:
-      - apk add --no-cache gcc g++ musl-dev
-      - CGO_ENABLED=1 go build -ldflags "-s -w" -o ./helix-bin ./api
+      - apt-get update && apt-get install -y --no-install-recommends build-essential && rm -rf /var/lib/apt/lists/*
+      - ORT_LIB_DIR=/usr/lib go run github.com/helixml/kodit/tools/download-ort
+      - CGO_ENABLED=1 go build -tags ORT -ldflags "-s -w" -o ./helix-bin ./api
     when:
       event:
         - push
@@ -129,7 +139,7 @@ steps:
   # This prevents race conditions where multiple test steps try to create
   # ENUM types simultaneously, causing "duplicate key" constraint errors.
   - name: run-migrations
-    image: golang:1.25-alpine
+    image: golang:1.25-bookworm
     environment:
       POSTGRES_HOST: postgres
       POSTGRES_PORT: "5432"
@@ -144,7 +154,7 @@ steps:
     depends_on: [build-api-binary]
 
   - name: unit-test
-    image: golang:1.25-alpine
+    image: golang:1.25-bookworm
     volumes:
       - name: go-build-cache
         path: /root/.cache/go-build
@@ -176,18 +186,16 @@ steps:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DATABASE: postgres
-      TYPESENSE_URL: http://typesense:8108
-      TYPESENSE_API_KEY: typesense
-      TEXT_EXTRACTION_TIKA_URL: http://tika:9998
       RAG_CRAWLER_LAUNCHER_URL: http://chrome:7317
 
     commands:
-      - apk add --no-cache gcc g++ musl-dev git
+      - apt-get update && apt-get install -y --no-install-recommends build-essential git && rm -rf /var/lib/apt/lists/*
+      - ORT_LIB_DIR=/usr/lib go run github.com/helixml/kodit/tools/download-ort
       - git config --global user.email "ci@helix.ml"
       - git config --global user.name "CI"
       - chmod +x ./scripts/run-tests-with-timeout.sh
       # Run tests excluding GStreamer-dependent packages (tested separately with CGO disabled)
-      - go list ./api/... | grep -v '/desktop' | grep -v '/desktop-bridge' | xargs ./scripts/run-tests-with-timeout.sh -timeout 8m -v
+      - go list ./api/... | grep -v '/desktop' | grep -v '/desktop-bridge' | xargs ./scripts/run-tests-with-timeout.sh -tags ORT -timeout 8m -v
     when:
       event:
         - push
@@ -210,7 +218,7 @@ steps:
     depends_on: []
 
   - name: api-integration-test
-    image: golang:1.25-alpine
+    image: golang:1.25-bookworm
     volumes:
       - name: go-build-cache
         path: /root/.cache/go-build
@@ -233,9 +241,6 @@ steps:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DATABASE: postgres
-      TYPESENSE_URL: http://typesense:8108
-      TYPESENSE_API_KEY: typesense
-      TEXT_EXTRACTION_TIKA_URL: http://tika:9998
       RAG_CRAWLER_LAUNCHER_URL: http://chrome:7317
       ORGANIZATIONS_CREATE_ENABLED_FOR_NON_ADMINS: "true"
       START_HELIX_TEST_SERVER: "true"
@@ -252,7 +257,8 @@ steps:
       SMALL_GENERATION_MODEL: gpt-4o-mini
 
     commands:
-      - apk add --no-cache gcc g++ musl-dev git
+      - apt-get update && apt-get install -y --no-install-recommends build-essential git && rm -rf /var/lib/apt/lists/*
+      - ORT_LIB_DIR=/usr/lib go run github.com/helixml/kodit/tools/download-ort
       - git config --global user.email "ci@helix.ml"
       - git config --global user.name "CI"
       - chmod +x ./scripts/run-tests-with-timeout.sh
@@ -262,7 +268,7 @@ steps:
       - which helix && helix version
       - timeout 5 helix serve 2>&1 || echo "Server exited (expected - checking for startup errors)"
       # Run tests
-      - pwd && ./scripts/run-tests-with-timeout.sh -timeout 8m -v ./integration-test/api/...
+      - pwd && ./scripts/run-tests-with-timeout.sh -tags ORT -timeout 8m -v ./integration-test/api/...
     when:
       event:
         - push
@@ -297,9 +303,7 @@ steps:
   #     POSTGRES_USER: postgres
   #     POSTGRES_PASSWORD: postgres
   #     POSTGRES_DATABASE: postgres
-  #     TYPESENSE_URL: http://typesense:8108
-  #     TYPESENSE_API_KEY: typesense
-  #     TEXT_EXTRACTION_TIKA_URL: http://tika:9998
+
   #     RAG_CRAWLER_LAUNCHER_URL: http://chrome:7317
   #     ORGANIZATIONS_CREATE_ENABLED_FOR_NON_ADMINS: "true"
   #     # CI-specific configuration for OAuth test
@@ -374,9 +378,7 @@ steps:
   #     POSTGRES_USER: postgres
   #     POSTGRES_PASSWORD: postgres
   #     POSTGRES_DATABASE: postgres
-  #     TYPESENSE_URL: http://typesense:8108
-  #     TYPESENSE_API_KEY: typesense
-  #     TEXT_EXTRACTION_TIKA_URL: http://tika:9998
+
   #     RAG_CRAWLER_LAUNCHER_URL: http://chrome:7317
   #     ORGANIZATIONS_CREATE_ENABLED_FOR_NON_ADMINS: "true"
   #     # CI-specific configuration for OAuth test
@@ -452,9 +454,7 @@ steps:
   #     POSTGRES_USER: postgres
   #     POSTGRES_PASSWORD: postgres
   #     POSTGRES_DATABASE: postgres
-  #     TYPESENSE_URL: http://typesense:8108
-  #     TYPESENSE_API_KEY: typesense
-  #     TEXT_EXTRACTION_TIKA_URL: http://tika:9998
+
   #     RAG_CRAWLER_LAUNCHER_URL: http://chrome:7317
   #     ORGANIZATIONS_CREATE_ENABLED_FOR_NON_ADMINS: "true"
   #     WEB_SERVER_HOST: "localhost"
@@ -531,9 +531,7 @@ steps:
   #     POSTGRES_USER: postgres
   #     POSTGRES_PASSWORD: postgres
   #     POSTGRES_DATABASE: postgres
-  #     TYPESENSE_URL: http://typesense:8108
-  #     TYPESENSE_API_KEY: typesense
-  #     TEXT_EXTRACTION_TIKA_URL: http://tika:9998
+
   #     RAG_CRAWLER_LAUNCHER_URL: http://chrome:7317
   #     ORGANIZATIONS_CREATE_ENABLED_FOR_NON_ADMINS: "true"
   #     # CI-specific configuration for OAuth test
@@ -613,9 +611,7 @@ steps:
   #     POSTGRES_USER: postgres
   #     POSTGRES_PASSWORD: postgres
   #     POSTGRES_DATABASE: postgres
-  #     TYPESENSE_URL: http://typesense:8108
-  #     TYPESENSE_API_KEY: typesense
-  #     TEXT_EXTRACTION_TIKA_URL: http://tika:9998
+
   #     RAG_CRAWLER_LAUNCHER_URL: http://chrome:7317
   #     ORGANIZATIONS_CREATE_ENABLED_FOR_NON_ADMINS: "true"
   #     # CI-specific configuration for OAuth test
@@ -701,9 +697,7 @@ steps:
   #     POSTGRES_USER: postgres
   #     POSTGRES_PASSWORD: postgres
   #     POSTGRES_DATABASE: postgres
-  #     TYPESENSE_URL: http://typesense:8108
-  #     TYPESENSE_API_KEY: typesense
-  #     TEXT_EXTRACTION_TIKA_URL: http://tika:9998
+
   #     RAG_CRAWLER_LAUNCHER_URL: http://chrome:7317
   #     ORGANIZATIONS_CREATE_ENABLED_FOR_NON_ADMINS: "true"
   #     # CI-specific configuration for OAuth test
@@ -843,19 +837,8 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: postgres
-  - name: typesense
-    image: typesense/typesense:27.0
-    command: ["--data-dir", "/tmp", "--api-key", "typesense"]
-  - name: tika
-    image: apache/tika:2.9.2.1
   - name: chrome
     image: ghcr.io/go-rod/rod:v0.115.0
-  - name: pgvector
-    image: pgvector/pgvector:pg17
-    environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: postgres
 
 volumes:
   - name: oauth-github-test-results
@@ -886,6 +869,9 @@ volumes:
 kind: pipeline
 type: docker
 name: build-controlplane-amd64
+
+depends_on:
+  - default
 
 platform:
   os: linux
@@ -934,6 +920,9 @@ steps:
 kind: pipeline
 type: docker
 name: build-controlplane-arm64
+
+depends_on:
+  - default
 
 platform:
   os: linux
@@ -1023,536 +1012,6 @@ steps:
     volumes:
       - name: dockersocket
         path: /var/run/docker.sock
-
----
-kind: pipeline
-type: docker
-name: build-haystack-amd64
-
-platform:
-  os: linux
-  arch: amd64
-
-trigger:
-  ref:
-    include:
-      - refs/heads/main
-      - refs/tags/*
-
-volumes:
-  - name: dockersocket
-    host:
-      path: /var/run/docker.sock
-
-steps:
-  - name: publish-image
-    image: docker:cli
-    commands:
-      - |
-        if [ -n "${DRONE_TAG}" ]; then
-          VERSION="${DRONE_TAG}"
-        else
-          VERSION=$$(echo ${DRONE_COMMIT_SHA} | head -c 7)
-        fi
-        echo "Building haystack:$${VERSION}-linux-amd64"
-        docker build --pull --provenance=false \
-          -f haystack_service/Dockerfile \
-          --build-arg APP_VERSION=${DRONE_TAG:-${DRONE_COMMIT_SHA:-latest}} \
-          -t registry.helixml.tech/helix/haystack:$${VERSION}-linux-amd64 \
-          haystack_service
-        echo "$${REGISTRY_PASSWORD}" | docker login registry.helixml.tech -u admin --password-stdin
-        docker push registry.helixml.tech/helix/haystack:$${VERSION}-linux-amd64
-        scripts/ghcr-push.sh registry.helixml.tech/helix/haystack:$${VERSION}-linux-amd64
-    environment:
-      REGISTRY_PASSWORD:
-        from_secret: helix_registry_password
-      GITHUB_TOKEN:
-        from_secret: github_token
-    volumes:
-      - name: dockersocket
-        path: /var/run/docker.sock
-
----
-kind: pipeline
-type: docker
-name: build-haystack-arm64
-
-platform:
-  os: linux
-  arch: arm64
-
-trigger:
-  ref:
-    include:
-      - refs/heads/main
-      - refs/tags/*
-
-volumes:
-  - name: dockersocket
-    host:
-      path: /var/run/docker.sock
-
-steps:
-  - name: publish-image
-    image: docker:cli
-    environment:
-      REGISTRY_PASSWORD:
-        from_secret: helix_registry_password
-      GITHUB_TOKEN:
-        from_secret: github_token
-    commands:
-      - echo "$${REGISTRY_PASSWORD}" | docker login registry.helixml.tech -u admin --password-stdin
-      - |
-        if [ -n "${DRONE_TAG}" ]; then
-          VERSION="${DRONE_TAG}"
-        else
-          VERSION=$$(echo ${DRONE_COMMIT_SHA} | head -c 7)
-        fi
-        docker build --pull --provenance=false \
-          -f haystack_service/Dockerfile \
-          --build-arg APP_VERSION=${DRONE_TAG:-${DRONE_COMMIT_SHA:-latest}} \
-          -t registry.helixml.tech/helix/haystack:$${VERSION}-linux-arm64 \
-          haystack_service
-        docker push registry.helixml.tech/helix/haystack:$${VERSION}-linux-arm64
-        scripts/ghcr-push.sh registry.helixml.tech/helix/haystack:$${VERSION}-linux-arm64
-    volumes:
-      - name: dockersocket
-        path: /var/run/docker.sock
-
----
-kind: pipeline
-type: docker
-name: manifest-haystack
-
-depends_on:
-  - build-haystack-amd64
-  - build-haystack-arm64
-
-trigger:
-  ref:
-    include:
-      - refs/heads/main
-      - refs/tags/*
-
-volumes:
-  - name: dockersocket
-    host:
-      path: /var/run/docker.sock
-
-steps:
-  - name: manifest
-    image: docker:cli
-    environment:
-      REGISTRY_PASSWORD:
-        from_secret: helix_registry_password
-      GITHUB_TOKEN:
-        from_secret: github_token
-    commands:
-      - echo "$${REGISTRY_PASSWORD}" | docker login registry.helixml.tech -u admin --password-stdin
-      - |
-        if [ -n "${DRONE_TAG}" ]; then
-          VERSION="${DRONE_TAG}"
-        else
-          VERSION=$$(echo ${DRONE_COMMIT_SHA} | head -c 7)
-        fi
-        REPO="registry.helixml.tech/helix/haystack"
-        docker manifest create --amend $${REPO}:$${VERSION} \
-          $${REPO}:$${VERSION}-linux-amd64 \
-          $${REPO}:$${VERSION}-linux-arm64
-        docker manifest push $${REPO}:$${VERSION}
-        echo "Multi-arch manifest pushed: $${REPO}:$${VERSION}"
-        scripts/ghcr-manifest.sh $${REPO} $${VERSION}
-    volumes:
-      - name: dockersocket
-        path: /var/run/docker.sock
-
----
-kind: pipeline
-type: docker
-name: build-runner
-
-trigger:
-  ref:
-    include:
-      - refs/heads/main
-      - refs/tags/*
-
-volumes:
-  - name: dockersocket
-    host:
-      path: /var/run/docker.sock
-
-steps:
-  # Retag 2.7.12 runner images instead of rebuilding.
-  # All runner tags after 2.7.12 are identical to 2.7.12.
-  - name: retag-runner
-    image: docker
-    volumes:
-      - name: dockersocket
-        path: /var/run/docker.sock
-    environment:
-      REGISTRY_PASSWORD:
-        from_secret: helix_registry_password
-      GITHUB_TOKEN:
-        from_secret: github_token
-    commands:
-      - docker login registry.helixml.tech -u admin -p "$REGISTRY_PASSWORD"
-      - docker pull registry.helixml.tech/helix/runner:2.7.12
-      - |
-        if [ -n "$DRONE_TAG" ]; then
-          docker tag registry.helixml.tech/helix/runner:2.7.12 registry.helixml.tech/helix/runner:$DRONE_TAG
-          docker push registry.helixml.tech/helix/runner:$DRONE_TAG
-          scripts/ghcr-push.sh registry.helixml.tech/helix/runner:$DRONE_TAG
-        fi
-      - docker tag registry.helixml.tech/helix/runner:2.7.12 registry.helixml.tech/helix/runner:latest
-      - docker push registry.helixml.tech/helix/runner:latest
-      - scripts/ghcr-push.sh registry.helixml.tech/helix/runner:latest
-    when:
-      ref:
-        include:
-          - refs/heads/main
-          - refs/tags/*
-
----
-kind: pipeline
-type: docker
-name: build-runner-small
-
-trigger:
-  ref:
-    include:
-      - refs/heads/main
-      - refs/tags/*
-
-volumes:
-  - name: dockersocket
-    host:
-      path: /var/run/docker.sock
-
-steps:
-  # Retag 2.7.12-small runner images instead of rebuilding.
-  - name: retag-runner
-    image: docker
-    volumes:
-      - name: dockersocket
-        path: /var/run/docker.sock
-    environment:
-      REGISTRY_PASSWORD:
-        from_secret: helix_registry_password
-      GITHUB_TOKEN:
-        from_secret: github_token
-    commands:
-      - docker login registry.helixml.tech -u admin -p "$REGISTRY_PASSWORD"
-      - docker pull registry.helixml.tech/helix/runner:2.7.12-small
-      - |
-        if [ -n "$DRONE_TAG" ]; then
-          docker tag registry.helixml.tech/helix/runner:2.7.12-small registry.helixml.tech/helix/runner:${DRONE_TAG}-small
-          docker push registry.helixml.tech/helix/runner:${DRONE_TAG}-small
-          scripts/ghcr-push.sh registry.helixml.tech/helix/runner:${DRONE_TAG}-small
-        fi
-      - docker tag registry.helixml.tech/helix/runner:2.7.12-small registry.helixml.tech/helix/runner:latest-small
-      - docker push registry.helixml.tech/helix/runner:latest-small
-      - scripts/ghcr-push.sh registry.helixml.tech/helix/runner:latest-small
-    when:
-      ref:
-        include:
-          - refs/heads/main
-          - refs/tags/*
-
-  - name: retag-runner-branch
-    image: docker
-    volumes:
-      - name: dockersocket
-        path: /var/run/docker.sock
-    environment:
-      REGISTRY_PASSWORD:
-        from_secret: helix_registry_password
-      GITHUB_TOKEN:
-        from_secret: github_token
-    commands:
-      - docker login registry.helixml.tech -u admin -p "$REGISTRY_PASSWORD"
-      - docker pull registry.helixml.tech/helix/runner:2.7.12-small
-      - docker tag registry.helixml.tech/helix/runner:2.7.12-small registry.helixml.tech/helix/runner:${DRONE_COMMIT_SHA}-small
-      - docker push registry.helixml.tech/helix/runner:${DRONE_COMMIT_SHA}-small
-      - scripts/ghcr-push.sh registry.helixml.tech/helix/runner:${DRONE_COMMIT_SHA}-small
-    when:
-      branch:
-        exclude:
-          - main
-
----
-kind: pipeline
-type: docker
-name: build-runner-large
-
-trigger:
-  ref:
-    include:
-      - refs/heads/main
-      - refs/tags/*
-
-volumes:
-  - name: dockersocket
-    host:
-      path: /var/run/docker.sock
-
-steps:
-  # Retag 2.7.12-large runner images instead of rebuilding.
-  - name: retag-runner
-    image: docker
-    volumes:
-      - name: dockersocket
-        path: /var/run/docker.sock
-    environment:
-      REGISTRY_PASSWORD:
-        from_secret: helix_registry_password
-      GITHUB_TOKEN:
-        from_secret: github_token
-    commands:
-      - docker login registry.helixml.tech -u admin -p "$REGISTRY_PASSWORD"
-      - docker pull registry.helixml.tech/helix/runner:2.7.12-large
-      - |
-        if [ -n "$DRONE_TAG" ]; then
-          docker tag registry.helixml.tech/helix/runner:2.7.12-large registry.helixml.tech/helix/runner:${DRONE_TAG}-large
-          docker push registry.helixml.tech/helix/runner:${DRONE_TAG}-large
-          scripts/ghcr-push.sh registry.helixml.tech/helix/runner:${DRONE_TAG}-large
-        fi
-      - docker tag registry.helixml.tech/helix/runner:2.7.12-large registry.helixml.tech/helix/runner:latest-large
-      - docker push registry.helixml.tech/helix/runner:latest-large
-      - scripts/ghcr-push.sh registry.helixml.tech/helix/runner:latest-large
-    when:
-      ref:
-        include:
-          - refs/heads/main
-          - refs/tags/*
-
-  - name: retag-runner-branch
-    image: docker
-    volumes:
-      - name: dockersocket
-        path: /var/run/docker.sock
-    environment:
-      REGISTRY_PASSWORD:
-        from_secret: helix_registry_password
-      GITHUB_TOKEN:
-        from_secret: github_token
-    commands:
-      - docker login registry.helixml.tech -u admin -p "$REGISTRY_PASSWORD"
-      - docker pull registry.helixml.tech/helix/runner:2.7.12-large
-      - docker tag registry.helixml.tech/helix/runner:2.7.12-large registry.helixml.tech/helix/runner:${DRONE_COMMIT_SHA}-large
-      - docker push registry.helixml.tech/helix/runner:${DRONE_COMMIT_SHA}-large
-      - scripts/ghcr-push.sh registry.helixml.tech/helix/runner:${DRONE_COMMIT_SHA}-large
-    when:
-      branch:
-        exclude:
-          - main
-
----
-kind: pipeline
-type: docker
-name: build-typesense-amd64
-
-platform:
-  os: linux
-  arch: amd64
-
-trigger:
-  ref:
-    include:
-      - refs/heads/main
-      - refs/tags/*
-
-volumes:
-  - name: dockersocket
-    host:
-      path: /var/run/docker.sock
-
-steps:
-  - name: publish-typesense
-    image: docker:cli
-    commands:
-      - |
-        if [ -n "${DRONE_TAG}" ]; then
-          VERSION="${DRONE_TAG}"
-        else
-          VERSION=$$(echo ${DRONE_COMMIT_SHA} | head -c 7)
-        fi
-        echo "Building typesense:$${VERSION}-linux-amd64"
-        docker build --pull --provenance=false \
-          -f Dockerfile.typesense \
-          -t registry.helixml.tech/helix/typesense:$${VERSION}-linux-amd64 \
-          .
-        echo "$${REGISTRY_PASSWORD}" | docker login registry.helixml.tech -u admin --password-stdin
-        docker push registry.helixml.tech/helix/typesense:$${VERSION}-linux-amd64
-        scripts/ghcr-push.sh registry.helixml.tech/helix/typesense:$${VERSION}-linux-amd64
-    environment:
-      REGISTRY_PASSWORD:
-        from_secret: helix_registry_password
-      GITHUB_TOKEN:
-        from_secret: github_token
-    volumes:
-      - name: dockersocket
-        path: /var/run/docker.sock
-
----
-kind: pipeline
-type: docker
-name: build-typesense-arm64
-
-platform:
-  os: linux
-  arch: arm64
-
-trigger:
-  ref:
-    include:
-      - refs/heads/main
-      - refs/tags/*
-
-volumes:
-  - name: dockersocket
-    host:
-      path: /var/run/docker.sock
-
-steps:
-  - name: publish-typesense
-    image: docker:cli
-    environment:
-      REGISTRY_PASSWORD:
-        from_secret: helix_registry_password
-      GITHUB_TOKEN:
-        from_secret: github_token
-    commands:
-      - echo "$${REGISTRY_PASSWORD}" | docker login registry.helixml.tech -u admin --password-stdin
-      - |
-        if [ -n "${DRONE_TAG}" ]; then
-          VERSION="${DRONE_TAG}"
-        else
-          VERSION=$$(echo ${DRONE_COMMIT_SHA} | head -c 7)
-        fi
-        docker build --pull --provenance=false \
-          -f Dockerfile.typesense \
-          -t registry.helixml.tech/helix/typesense:$${VERSION}-linux-arm64 \
-          .
-        docker push registry.helixml.tech/helix/typesense:$${VERSION}-linux-arm64
-        scripts/ghcr-push.sh registry.helixml.tech/helix/typesense:$${VERSION}-linux-arm64
-    volumes:
-      - name: dockersocket
-        path: /var/run/docker.sock
-
----
-kind: pipeline
-type: docker
-name: manifest-typesense
-
-depends_on:
-  - build-typesense-amd64
-  - build-typesense-arm64
-
-trigger:
-  ref:
-    include:
-      - refs/heads/main
-      - refs/tags/*
-
-volumes:
-  - name: dockersocket
-    host:
-      path: /var/run/docker.sock
-
-steps:
-  - name: manifest
-    image: docker:cli
-    environment:
-      REGISTRY_PASSWORD:
-        from_secret: helix_registry_password
-      GITHUB_TOKEN:
-        from_secret: github_token
-    commands:
-      - echo "$${REGISTRY_PASSWORD}" | docker login registry.helixml.tech -u admin --password-stdin
-      - |
-        if [ -n "${DRONE_TAG}" ]; then
-          VERSION="${DRONE_TAG}"
-        else
-          VERSION=$$(echo ${DRONE_COMMIT_SHA} | head -c 7)
-        fi
-        REPO="registry.helixml.tech/helix/typesense"
-        docker manifest create --amend $${REPO}:$${VERSION} \
-          $${REPO}:$${VERSION}-linux-amd64 \
-          $${REPO}:$${VERSION}-linux-arm64
-        docker manifest push $${REPO}:$${VERSION}
-        echo "Multi-arch manifest pushed: $${REPO}:$${VERSION}"
-        scripts/ghcr-manifest.sh $${REPO} $${VERSION}
-    volumes:
-      - name: dockersocket
-        path: /var/run/docker.sock
-
----
-kind: pipeline
-type: docker
-name: build-demos
-
-trigger:
-  ref:
-    include:
-      - refs/heads/main
-      - refs/tags/*
-
-volumes:
-  - name: dockersocket
-    host:
-      path: /var/run/docker.sock
-
-steps:
-  - name: publish-demos
-    image: plugins/docker
-    pull: always
-    settings:
-      dockerfile: Dockerfile.demos
-      auto_tag: true
-      daemon_off: true
-      pull_image: true
-      registry: registry.helixml.tech
-      repo: registry.helixml.tech/helix/demos
-      username: admin
-      password:
-        from_secret: helix_registry_password
-    volumes:
-      - name: dockersocket
-        path: /var/run/docker.sock
-    when:
-      ref:
-        include:
-          - refs/heads/main
-          - refs/tags/*
-
-  - name: mirror-demos-to-ghcr
-    image: docker:cli
-    environment:
-      GITHUB_TOKEN:
-        from_secret: github_token
-      REGISTRY_PASSWORD:
-        from_secret: helix_registry_password
-    commands:
-      - echo "$${REGISTRY_PASSWORD}" | docker login registry.helixml.tech -u admin --password-stdin
-      - |
-        # auto_tag produces "latest" on main, semver tags on git tags
-        if [ -n "${DRONE_TAG}" ]; then
-          VERSION="${DRONE_TAG}"
-        else
-          VERSION="latest"
-        fi
-        docker pull registry.helixml.tech/helix/demos:$${VERSION}
-        scripts/ghcr-push.sh registry.helixml.tech/helix/demos:$${VERSION}
-    volumes:
-      - name: dockersocket
-        path: /var/run/docker.sock
-    when:
-      ref:
-        include:
-          - refs/heads/main
-          - refs/tags/*
-    depends_on: [publish-demos]
 
 ---
 # See integration-test/smoke/README.md
@@ -1674,6 +1133,94 @@ volumes:
   - name: dockersocket
     host:
       path: /var/run/docker.sock
+
+---
+# GPU-cloud integration test (multi-provider, real hardware).
+#
+# Drives integration-test/gpucloud/cmd/gpucloud-it against the matrix
+# in integration-test/gpucloud/matrix.yaml. Today's enabled set is
+# 1× A100 80GB on Verda + 1× MI300X on Hot Aisle, ~30 min/entry,
+# ~$1.65/run.
+#
+# Requires the cron entry "gpucloud-nightly" to be registered in the
+# Drone UI/API — the trigger here references it; without registering
+# the cron, this pipeline never fires. Suggested schedule: nightly at
+# 04:30 UTC (off-peak for both providers).
+#
+# Required Drone secrets (managed via the Drone UI under repo
+# settings → Secrets):
+#   - hotaisle_api_key       Hot Aisle REST API key
+#   - hotaisle_team          Hot Aisle team slug
+#   - verda_client_id        Verda OAuth2 client ID
+#   - verda_client_secret    Verda OAuth2 client secret
+#   - verda_ssh_key_id       Verda SSH key ID for VM SSH access
+#   - gpucloud_helix_api_url Publicly-reachable Helix API the test
+#                            sandboxes will register against (e.g.
+#                            staging URL or a long-lived Cloudflare
+#                            tunnel from the CI host). The harness
+#                            provisions cloud VMs that need to dial
+#                            this back over WSS for heartbeats.
+#   - gpucloud_runner_token  Shared runner token the provisioned
+#                            sandboxes use to authenticate to the
+#                            Helix API above.
+#   - JANITOR_SLACK_WEBHOOK_URL   Reused from smoke-test/helm-upgrade.
+#
+# Failure goes to #helix-janitor, same channel as the existing smoke
+# alerts. Cost cap: --max-daily-usd 25 keeps a runaway loop from
+# burning more than $25 in any 24h window even if Drone retries.
+kind: pipeline
+type: docker
+name: gpucloud-it
+
+workspace:
+  base: /go
+  path: src/github.com/helix-ml/helix
+
+trigger:
+  event:
+    - cron
+  cron:
+    - gpucloud-nightly
+    - developer
+
+steps:
+  - name: gpucloud-it
+    image: golang:1.25-alpine
+    environment:
+      HOTAISLE_API_KEY:
+        from_secret: hotaisle_api_key
+      HOTAISLE_TEAM:
+        from_secret: hotaisle_team
+      VERDA_CLIENT_ID:
+        from_secret: verda_client_id
+      VERDA_CLIENT_SECRET:
+        from_secret: verda_client_secret
+      VERDA_SSH_KEY_ID:
+        from_secret: verda_ssh_key_id
+      HELIX_API_URL:
+        from_secret: gpucloud_helix_api_url
+      RUNNER_TOKEN:
+        from_secret: gpucloud_runner_token
+    commands:
+      - apk add --no-cache git ca-certificates openssh-client
+      - go build -o /tmp/gpucloud-it ./integration-test/gpucloud/cmd/gpucloud-it
+      - /tmp/gpucloud-it
+        --matrix integration-test/gpucloud/matrix.yaml
+        --max-daily-usd 25
+        --junit-out gpucloud-it.xml
+        --md-out gpucloud-it.md
+    depends_on: []
+
+  - name: slack-notification
+    image: plugins/slack
+    settings:
+      webhook:
+        from_secret: JANITOR_SLACK_WEBHOOK_URL
+      channel: helix-janitor
+      message: "❌ GPU-cloud nightly failed (real-hardware tests against Verda + Hot Aisle). (<https://drone.lukemarsden.net/helixml/helix/${DRONE_BUILD_NUMBER}|Build>)"
+    when:
+      status:
+        - failure
 
 # ---
 # Spectask/Sandbox Integration Tests
@@ -1806,6 +1353,9 @@ volumes:
 kind: pipeline
 type: docker
 name: build-sandbox-amd64
+
+depends_on:
+  - default
 
 platform:
   os: linux
@@ -2200,6 +1750,9 @@ steps:
 kind: pipeline
 type: docker
 name: build-sandbox-arm64
+
+depends_on:
+  - default
 
 platform:
   os: linux
@@ -2597,8 +2150,6 @@ platform:
 depends_on:
   - default
   - build-controlplane-arm64
-  - build-haystack-arm64
-  - build-typesense-arm64
   - build-sandbox-arm64
 
 trigger:
@@ -2739,16 +2290,6 @@ depends_on:
   - build-controlplane-amd64
   - build-controlplane-arm64
   - manifest-controlplane
-  - build-haystack-amd64
-  - build-haystack-arm64
-  - manifest-haystack
-  - build-runner
-  - build-runner-small
-  - build-runner-large
-  - build-typesense-amd64
-  - build-typesense-arm64
-  - manifest-typesense
-  - build-demos
   - build-sandbox-amd64
   - build-sandbox-arm64
   - manifest-sandbox
@@ -2763,7 +2304,7 @@ trigger:
 
 steps:
   - name: rollback-release
-    image: google/cloud-sdk:slim
+    image: golang:1.25-bookworm
     environment:
       GITHUB_TOKEN:
         from_secret: github_token
@@ -2776,14 +2317,16 @@ steps:
       SLACK_WEBHOOK_URL:
         from_secret: JANITOR_SLACK_WEBHOOK_URL
     commands:
-      - apt-get update -qq && apt-get install -y -qq curl jq > /dev/null
-      # Install gh CLI
+      # Add gh CLI apt repo
       - curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg 2>/dev/null
-      - echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null
-      - apt-get update -qq && apt-get install -y -qq gh > /dev/null
-      # Install helm
-      - curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash > /dev/null 2>&1
-      # Install awscli
-      - pip3 install -q awscli 2>/dev/null
+      - echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/github-cli.list
+      # Add Google Cloud SDK apt repo (for gsutil used by the helm rollback path)
+      - curl -fsSL https://packages.cloud.google.com/apt/doc/apt-key.gpg | gpg --dearmor -o /usr/share/keyrings/cloud.google.gpg
+      - echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt cloud-sdk main" > /etc/apt/sources.list.d/google-cloud-sdk.list
+      # Install tooling (awscli and jq from Debian, gh + gcloud from added repos)
+      - apt-get update -qq
+      - apt-get install -y -qq jq awscli gh google-cloud-cli > /dev/null
+      # Install helm (not packaged in Debian)
+      - curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash > /dev/null
       # Run rollback
       - scripts/release-rollback.sh "$DRONE_TAG"

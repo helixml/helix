@@ -1,8 +1,7 @@
 import React, { FC } from 'react'
 import makeStyles from '@mui/styles/makeStyles'
 import Box from '@mui/material/Box'
-import useTheme from '@mui/material/styles/useTheme'
-import useThemeConfig from '../../hooks/useThemeConfig'
+import useLightTheme from '../../hooks/useLightTheme'
 
 interface StyleProps {
   scrolling: boolean
@@ -32,29 +31,14 @@ const TextView: FC<React.PropsWithChildren<TextViewProps>> = ({
 }) => {
 
   const classes = useStyles({scrolling})
-  const theme = useTheme()
-  const themeConfig = useThemeConfig()
+  const lightTheme = useLightTheme()
 
   return (
     <Box
       className={classes.root}
       sx={{
-        backgroundColor: theme.palette.mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkPanel,
-        '&::-webkit-scrollbar': {
-          width: '4px',
-          borderRadius: '8px',
-          my: 2,
-        },
-        '&::-webkit-scrollbar-track': {
-          background: theme.palette.mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkScrollbar,
-        },
-        '&::-webkit-scrollbar-thumb': {
-          background: theme.palette.mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkScrollbarThumb,
-          borderRadius: '8px',
-        },
-        '&::-webkit-scrollbar-thumb:hover': {
-          background: theme.palette.mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkScrollbarHover,
-        },
+        backgroundColor: lightTheme.panelColor,
+        ...lightTheme.scrollbar,
       }}
     >
       <Box
