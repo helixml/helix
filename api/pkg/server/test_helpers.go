@@ -44,6 +44,7 @@ func NewTestServer(s store.Store, ps pubsub.PubSub) *HelixAPIServer {
 		contextMappings:             make(map[string]string),
 		requestToSessionMapping:     make(map[string]string),
 		requestToInteractionMapping: make(map[string]string),
+		pendingCancelChannels:       make(map[string]chan string),
 		externalAgentSessionMapping: make(map[string]string),
 		externalAgentUserMapping:    make(map[string]string),
 		sessionCommentTimeout:       make(map[string]*time.Timer),
@@ -142,6 +143,12 @@ func (s *HelixAPIServer) ProcessSyncEvent(sessionID string, syncMsg *types.SyncM
 // to the given spectask.
 func (s *HelixAPIServer) FindConnectedSessionForSpecTask(ctx context.Context, specTask *types.SpecTask) (string, error) {
 	return s.findConnectedSessionForSpecTask(ctx, specTask)
+}
+
+// SendCancelToExternalAgent sends a cancel_current_turn command and waits
+// for the turn_cancelled response. Exposed for E2E tests.
+func (s *HelixAPIServer) SendCancelToExternalAgent(sessionID, requestID string, timeout time.Duration) (string, error) {
+	return s.sendCancelToExternalAgent(sessionID, requestID, timeout)
 }
 
 // SyncEventHook is a callback invoked after each sync event is processed.

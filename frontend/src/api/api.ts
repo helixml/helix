@@ -3027,6 +3027,7 @@ export enum TypesInteractionState {
   InteractionStateEditing = "editing",
   InteractionStateComplete = "complete",
   InteractionStateError = "error",
+  InteractionStateInterrupted = "interrupted",
 }
 
 export interface TypesItem {

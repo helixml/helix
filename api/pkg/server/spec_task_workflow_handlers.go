@@ -381,6 +381,7 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 		http.Error(w, fmt.Sprintf("Failed to update spec task: %s", err.Error()), http.StatusInternalServerError)
 		return
 	}
+	services.DismissTaskAttentionEvents(ctx, s.Store, specTask.ID)
 
 	log.Info().
 		Str("task_id", specTask.ID).
