@@ -39,6 +39,7 @@ const (
 	AttentionEventSpecFailed                AttentionEventType = "spec_failed"
 	AttentionEventImplementationFailed      AttentionEventType = "implementation_failed"
 	AttentionEventPRReady                   AttentionEventType = "pr_ready"
+	AttentionEventPROpened                  AttentionEventType = "pr_opened"
 	AttentionEventCIPassed                  AttentionEventType = "ci_passed"
 	AttentionEventCIFailed                  AttentionEventType = "ci_failed"
 )

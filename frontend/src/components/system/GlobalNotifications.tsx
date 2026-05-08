@@ -6,7 +6,7 @@ import Badge from '@mui/material/Badge'
 import Typography from '@mui/material/Typography'
 import Button from '@mui/material/Button'
 import Tooltip from '@mui/material/Tooltip'
-import { Bell, X, BellOff, BellRing, Sparkles, Hand, AlertCircle, GitMerge } from 'lucide-react'
+import { Bell, X, BellOff, BellRing, Sparkles, Hand, AlertCircle, GitMerge, GitPullRequest } from 'lucide-react'
 
 import useAccount from '../../hooks/useAccount'
 import useApi from '../../hooks/useApi'
@@ -29,6 +29,7 @@ function eventIcon(eventType: AttentionEventType, color: string): React.ReactEle
     case 'spec_failed':
     case 'implementation_failed': return <AlertCircle {...props} />
     case 'pr_ready': return <GitMerge {...props} />
+    case 'pr_opened': return <GitPullRequest {...props} />
     default: return <Bell {...props} />
   }
 }
@@ -44,8 +45,16 @@ function eventAccentColor(eventType: AttentionEventType): string {
     case 'agent_interaction_completed': return '#f59e0b'
     case 'specs_pushed': return '#3b82f6'
     case 'pr_ready': return '#8b5cf6'
+    case 'pr_opened': return '#6366f1'
     default: return '#6b7280'
   }
+}
+
+// extractExternalPRURL returns the PR URL from event metadata if present.
+// Used by pr_opened (always) and pr_ready (when metadata carries pr_url).
+function extractExternalPRURL(event: AttentionEvent): string {
+  const url = event.metadata?.pr_url
+  return typeof url === 'string' ? url : ''
 }
 
 function timeAgo(dateStr: string): string {
@@ -367,12 +376,14 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
       .sort((a, b) => groupTimestamp(b) - groupTimestamp(a))
     for (const group of groups) {
       if (group.kind === 'grouped') {
-        const { primary } = group
+        const { primary, secondary } = group
         fireNotification(
           primary.id,
           'Helix: Spec ready & agent finished',
           `${primary.spec_task_name || ''} · ${primary.project_name || ''}`,
           () => {
+            acknowledge(primary.id)
+            acknowledge(secondary.id)
             account.orgNavigate('project-task-detail', {
               id: primary.project_id,
               taskId: primary.spec_task_id,
@@ -386,6 +397,16 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
           `Helix: ${event.title}`,
           `${event.spec_task_name || ''} · ${event.project_name || ''}`,
           () => {
+            acknowledge(event.id)
+            // PR events with an external URL open in a new tab instead of
+            // navigating within Helix.
+            if (event.event_type === 'pr_opened' || event.event_type === 'pr_ready') {
+              const prURL = extractExternalPRURL(event)
+              if (prURL) {
+                window.open(prURL, '_blank', 'noopener,noreferrer')
+                return
+              }
+            }
             account.orgNavigate('project-task-detail', {
               id: event.project_id,
               taskId: event.spec_task_id,
@@ -394,7 +415,7 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
         )
       }
     }
-  }, [newEvents, browserNotifEnabled, fireNotification, account])
+  }, [newEvents, browserNotifEnabled, fireNotification, account, acknowledge])
 
   const handleDrawerOpen = useCallback(() => {
     setDrawerOpen(true)
@@ -410,6 +431,16 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
   const handleNavigate = useCallback(async (event: AttentionEvent) => {
     // Mark as read on explicit click
     acknowledge(event.id)
+
+    // PR-opened (and pr_ready when carrying a URL) should jump straight to the
+    // external provider rather than navigating within Helix.
+    if (event.event_type === 'pr_opened' || event.event_type === 'pr_ready') {
+      const prURL = extractExternalPRURL(event)
+      if (prURL) {
+        window.open(prURL, '_blank', 'noopener,noreferrer')
+        return
+      }
+    }
 
     // Don't close the panel — user wants to keep it open while working
     if (event.event_type === 'specs_pushed') {

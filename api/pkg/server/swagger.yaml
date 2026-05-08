@@ -3040,6 +3040,7 @@ definitions:
     - spec_failed
     - implementation_failed
     - pr_ready
+    - pr_opened
     - ci_passed
     - ci_failed
     type: string
@@ -3049,6 +3050,7 @@ definitions:
     - AttentionEventSpecFailed
     - AttentionEventImplementationFailed
     - AttentionEventPRReady
+    - AttentionEventPROpened
     - AttentionEventCIPassed
     - AttentionEventCIFailed
   types.AttentionEventUpdateRequest:

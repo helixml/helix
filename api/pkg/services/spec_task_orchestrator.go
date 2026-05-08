@@ -565,7 +565,33 @@ func (o *SpecTaskOrchestrator) handleSpecGeneration(ctx context.Context, task *t
 			task.DesignDocsPushedAt = &now
 		}
 
-		return o.store.UpdateSpecTask(ctx, task)
+		if err := o.store.UpdateSpecTask(ctx, task); err != nil {
+			return err
+		}
+
+		// The git-push path (git_http_server) emits specs_pushed via commit hash;
+		// this orchestrator path also needs to notify. Use task ID as the
+		// idempotency qualifier so repeated polls don't duplicate, and so a
+		// race with the git-push path (which uses commit hash) still produces
+		// at most one notification per situation.
+		if o.attentionService != nil {
+			go func(t *types.SpecTask) {
+				_, err := o.attentionService.EmitEvent(
+					context.Background(),
+					types.AttentionEventSpecsPushed,
+					t,
+					t.ID,
+					nil,
+				)
+				if err != nil {
+					log.Warn().Err(err).
+						Str("spec_task_id", t.ID).
+						Msg("Failed to emit specs_pushed attention event from orchestrator")
+				}
+			}(task)
+		}
+
+		return nil
 	}
 
 	return nil
