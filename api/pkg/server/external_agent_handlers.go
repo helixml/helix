@@ -24,6 +24,46 @@ import (
 )
 
 
+// authorizeDesktopID resolves an id to either a Helix session or a sandbox
+// and verifies the caller has access. The desktop-bridge inside the
+// containers used by both flows registers its RevDial channel as
+// `desktop-{id}` (see sandbox.Controller.provision setting
+// HELIX_SESSION_ID == sandbox.ID), so the streaming/screenshot endpoints can
+// be reused for sandboxes once authz succeeds.
+//
+// On failure it writes the HTTP error response and returns false. Returns true
+// if the id is a session OR a sandbox the caller is allowed to view.
+func (apiServer *HelixAPIServer) authorizeDesktopID(res http.ResponseWriter, req *http.Request, id string) bool {
+	user := getRequestUser(req)
+	if user == nil {
+		http.Error(res, "unauthorized", http.StatusUnauthorized)
+		return false
+	}
+	// Sessions are the original/default case — try them first so existing
+	// external-agent flows hit the well-trodden path.
+	if session, err := apiServer.Store.GetSession(req.Context(), id); err == nil {
+		if err := apiServer.authorizeUserToSession(req.Context(), user, session, types.ActionGet); err != nil {
+			http.Error(res, err.Error(), http.StatusForbidden)
+			return false
+		}
+		return true
+	}
+	// Fall back to sandbox lookup. Membership in the sandbox's org is enough
+	// — sandboxes don't have per-resource access grants today, mirroring
+	// loadAuthorizedSandbox.
+	if apiServer.sandboxController != nil {
+		if sb, err := apiServer.sandboxController.Get(req.Context(), id); err == nil {
+			if _, err := apiServer.authorizeOrgMember(req.Context(), user, sb.OrganizationID); err != nil {
+				http.Error(res, "forbidden", http.StatusForbidden)
+				return false
+			}
+			return true
+		}
+	}
+	http.Error(res, "session or sandbox not found", http.StatusNotFound)
+	return false
+}
+
 // addUserAPITokenToAgent adds a session-scoped ephemeral API token to agent environment.
 // The token is minted when the desktop starts and revoked when it shuts down.
 // This ensures RBAC is enforced - agent can only access repos the user can access.
@@ -122,44 +162,31 @@ func (apiServer *HelixAPIServer) sendCommandToExternalAgentHandler(res http.Resp
 
 // getExternalAgentScreenshot handles GET /api/v1/external-agents/{sessionID}/screenshot
 func (apiServer *HelixAPIServer) getExternalAgentScreenshot(res http.ResponseWriter, req *http.Request) {
-	user := getRequestUser(req)
-	if user == nil {
-		http.Error(res, "unauthorized", http.StatusUnauthorized)
-		return
-	}
-
 	vars := mux.Vars(req)
 	sessionID := vars["sessionID"]
 
-	// Get the Helix session to verify ownership
-	session, err := apiServer.Store.GetSession(req.Context(), sessionID)
-	if err != nil {
-		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to get session")
-		http.Error(res, "Session not found", http.StatusNotFound)
+	// Accept either a Helix session id or a sandbox id.
+	if !apiServer.authorizeDesktopID(res, req, sessionID) {
 		return
 	}
 
-	err = apiServer.authorizeUserToSession(req.Context(), user, session, types.ActionGet)
-	if err != nil {
-		http.Error(res, err.Error(), http.StatusForbidden)
-		return
-	}
-
-	// Check if agent is paused and has saved screenshot
-	if session.Metadata.PausedScreenshotPath != "" {
-		// Agent is paused - serve saved screenshot from filestore
-		screenshotFile, err := os.Open(session.Metadata.PausedScreenshotPath)
-		if err == nil {
-			defer screenshotFile.Close()
-			res.Header().Set("Content-Type", "image/png")
-			res.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
-			res.Header().Set("X-Paused-Screenshot", "true") // Indicate this is a paused screenshot
-			res.WriteHeader(http.StatusOK)
-			io.Copy(res, screenshotFile)
-			return
+	// Sessions can have a paused-screenshot fallback persisted on disk; sandboxes
+	// don't, so we only consult that branch when the id resolves to a session.
+	if session, err := apiServer.Store.GetSession(req.Context(), sessionID); err == nil {
+		if session.Metadata.PausedScreenshotPath != "" {
+			screenshotFile, err := os.Open(session.Metadata.PausedScreenshotPath)
+			if err == nil {
+				defer screenshotFile.Close()
+				res.Header().Set("Content-Type", "image/jpeg")
+				res.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+				res.Header().Set("X-Paused-Screenshot", "true") // Indicate this is a paused screenshot
+				res.WriteHeader(http.StatusOK)
+				io.Copy(res, screenshotFile)
+				return
+			}
+			// If file not found, fall through to try live screenshot
+			log.Warn().Err(err).Str("screenshot_path", session.Metadata.PausedScreenshotPath).Msg("Paused screenshot file not found, trying live screenshot")
 		}
-		// If file not found, fall through to try live screenshot
-		log.Warn().Err(err).Str("screenshot_path", session.Metadata.PausedScreenshotPath).Msg("Paused screenshot file not found, trying live screenshot")
 	}
 
 	// Try RevDial connection to desktop container (registered as "desktop-{session_id}")
@@ -384,59 +411,109 @@ func (apiServer *HelixAPIServer) execInSandbox(res http.ResponseWriter, req *htt
 	}
 	log.Info().Int("body_len", len(bodyBytes)).Msg("🔧 execInSandbox: body read successfully")
 
-	// Connect to desktop container via RevDial
-	runnerID := fmt.Sprintf("desktop-%s", sessionID)
-
-	log.Info().Str("runner_id", runnerID).Msg("🔧 execInSandbox: connecting via RevDial")
-
-	revDialConn, err := apiServer.connman.Dial(req.Context(), runnerID)
+	// Connect to desktop container via RevDial and forward the request.
+	log.Info().Str("session_id", sessionID).Msg("🔧 execInSandbox: dialing desktop via RevDial")
+	execResp, cleanup, err := apiServer.dialDesktopExec(req.Context(), sessionID, bodyBytes)
 	if err != nil {
-		log.Error().
-			Err(err).
-			Str("runner_id", runnerID).
-			Str("session_id", sessionID).
-			Msg("🔧 execInSandbox: Failed to connect to desktop container via RevDial for exec")
+		log.Error().Err(err).Str("session_id", sessionID).Msg("🔧 execInSandbox: RevDial exec failed")
 		http.Error(res, fmt.Sprintf("Sandbox not connected: %v", err), http.StatusServiceUnavailable)
 		return
 	}
-	defer revDialConn.Close()
+	defer cleanup()
+	defer execResp.Body.Close()
 
-	log.Info().Msg("🔧 execInSandbox: RevDial connected")
+	log.Info().Int("status_code", execResp.StatusCode).Msg("🔧 execInSandbox: forwarding response to client")
+	res.Header().Set("Content-Type", "application/json")
+	res.WriteHeader(execResp.StatusCode)
+	io.Copy(res, execResp.Body)
+}
 
-	// Send POST request to /exec over RevDial tunnel
-	log.Info().Msg("🔧 execInSandbox: creating HTTP request")
-	httpReq, err := http.NewRequest("POST", "http://localhost:9876/exec", bytes.NewReader(bodyBytes))
+// dialDesktopExec opens a RevDial connection to the desktop container's /exec
+// endpoint for sessionID, writes the provided request body (expected to be a
+// marshalled ExecRequest), and returns the HTTP response. The caller MUST
+// invoke the returned cleanup to release the RevDial connection, in addition
+// to resp.Body.Close().
+func (apiServer *HelixAPIServer) dialDesktopExec(ctx context.Context, sessionID string, body []byte) (*http.Response, func(), error) {
+	runnerID := fmt.Sprintf("desktop-%s", sessionID)
+
+	revDialConn, err := apiServer.connman.Dial(ctx, runnerID)
 	if err != nil {
-		log.Error().Err(err).Msg("🔧 execInSandbox: Failed to create exec request")
-		http.Error(res, "Failed to create exec request", http.StatusInternalServerError)
-		return
+		return nil, nil, fmt.Errorf("failed to connect to desktop %s via RevDial: %w", sessionID, err)
+	}
+
+	httpReq, err := http.NewRequest(http.MethodPost, "http://localhost:9876/exec", bytes.NewReader(body))
+	if err != nil {
+		revDialConn.Close()
+		return nil, nil, fmt.Errorf("failed to create exec request: %w", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 
-	// Write request to RevDial connection
-	log.Info().Msg("🔧 execInSandbox: writing request to RevDial")
 	if err := httpReq.Write(revDialConn); err != nil {
-		log.Error().Err(err).Msg("🔧 execInSandbox: Failed to write exec request to RevDial connection")
-		http.Error(res, "Failed to send exec request", http.StatusInternalServerError)
-		return
+		revDialConn.Close()
+		return nil, nil, fmt.Errorf("failed to write exec request: %w", err)
 	}
-	log.Info().Msg("🔧 execInSandbox: request written, reading response")
 
-	// Read response from RevDial connection
-	execResp, err := http.ReadResponse(bufio.NewReader(revDialConn), httpReq)
+	resp, err := http.ReadResponse(bufio.NewReader(revDialConn), httpReq)
 	if err != nil {
-		log.Error().Err(err).Msg("🔧 execInSandbox: Failed to read exec response from RevDial")
-		http.Error(res, "Failed to read exec response", http.StatusInternalServerError)
-		return
+		revDialConn.Close()
+		return nil, nil, fmt.Errorf("failed to read exec response: %w", err)
 	}
-	defer execResp.Body.Close()
-	log.Info().Int("status_code", execResp.StatusCode).Msg("🔧 execInSandbox: got response from sandbox")
 
-	// Forward response to client
-	res.Header().Set("Content-Type", "application/json")
-	res.WriteHeader(execResp.StatusCode)
-	log.Info().Int("status_code", execResp.StatusCode).Msg("🔧 execInSandbox: forwarding response to client")
-	io.Copy(res, execResp.Body)
+	return resp, func() { revDialConn.Close() }, nil
+}
+
+// execCommandInDesktop runs a command inside a running desktop container via
+// RevDial. Used by service-layer code that needs to exec without going through
+// the HTTP API.
+//
+// The remote-side timeout is derived from ctx: if ctx has a deadline we send
+// its remaining budget, otherwise we fall back to 30 seconds (matching the
+// default applied by the desktop side when no timeout is provided).
+func (apiServer *HelixAPIServer) execCommandInDesktop(ctx context.Context, sessionID string, command []string) error {
+	timeoutSecs := 30
+	if deadline, ok := ctx.Deadline(); ok {
+		if remaining := int(time.Until(deadline).Seconds()); remaining > 0 {
+			timeoutSecs = remaining
+		}
+	}
+
+	reqBody, err := json.Marshal(struct {
+		Command []string `json:"command"`
+		Timeout int      `json:"timeout"`
+	}{
+		Command: command,
+		Timeout: timeoutSecs,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to marshal exec request: %w", err)
+	}
+
+	execResp, cleanup, err := apiServer.dialDesktopExec(ctx, sessionID, reqBody)
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+	defer execResp.Body.Close()
+
+	if execResp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(execResp.Body)
+		return fmt.Errorf("exec failed with status %d: %s", execResp.StatusCode, string(body))
+	}
+
+	var resp struct {
+		Success  bool   `json:"success"`
+		Error    string `json:"error,omitempty"`
+		ExitCode int    `json:"exit_code"`
+	}
+	if err := json.NewDecoder(execResp.Body).Decode(&resp); err != nil {
+		return fmt.Errorf("failed to decode exec response: %w", err)
+	}
+
+	if !resp.Success {
+		return fmt.Errorf("exec command failed: %s (exit code %d)", resp.Error, resp.ExitCode)
+	}
+
+	return nil
 }
 
 // @Summary Bandwidth probe for adaptive bitrate
@@ -1028,42 +1105,27 @@ func (apiServer *HelixAPIServer) configurePendingSession(res http.ResponseWriter
 // @Router /api/v1/external-agents/{sessionID}/ws/input [get]
 // @Security BearerAuth
 func (apiServer *HelixAPIServer) proxyInputWebSocket(res http.ResponseWriter, req *http.Request) {
-	user := getRequestUser(req)
-	if user == nil {
-		http.Error(res, "unauthorized", http.StatusUnauthorized)
-		return
-	}
-
 	vars := mux.Vars(req)
 	sessionID := vars["sessionID"]
 
-	// Get the Helix session to verify ownership
-	session, err := apiServer.Store.GetSession(req.Context(), sessionID)
-	if err != nil {
-		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to get session for input WebSocket")
-		http.Error(res, "Session not found", http.StatusNotFound)
+	// Accept either a Helix session id or a sandbox id.
+	if !apiServer.authorizeDesktopID(res, req, sessionID) {
 		return
 	}
 
-	// Verify ownership
-	err = apiServer.authorizeUserToSession(req.Context(), user, session, types.ActionGet)
-	if err != nil {
-		http.Error(res, err.Error(), http.StatusForbidden)
-		return
-	}
-
-	// Check if this is a PipeWire/GNOME session (Ubuntu desktop)
-	// For Sway sessions, return an error - Sway has different input handling
-	var desktopType string
-	if session.Metadata.ExternalAgentConfig != nil {
-		desktopType = session.Metadata.ExternalAgentConfig.GetEffectiveDesktopType()
-	} else {
-		desktopType = "ubuntu" // Default to ubuntu if no config
-	}
-	if desktopType != "ubuntu" {
-		log.Warn().Str("session_id", sessionID).Str("desktop_type", desktopType).Msg("Direct input WebSocket not supported for non-Ubuntu sessions")
-		http.Error(res, "Direct input WebSocket only supported for Ubuntu/GNOME sessions", http.StatusNotImplemented)
-		return
+	// Sessions can be Sway or Ubuntu — Sway doesn't speak the input WS protocol.
+	// Sandboxes are always ubuntu-desktop (the only non-headless runtime), so we
+	// only need to check the desktop type when the id resolves to a session.
+	if session, err := apiServer.Store.GetSession(req.Context(), sessionID); err == nil {
+		desktopType := "ubuntu"
+		if session.Metadata.ExternalAgentConfig != nil {
+			desktopType = session.Metadata.ExternalAgentConfig.GetEffectiveDesktopType()
+		}
+		if desktopType != "ubuntu" {
+			log.Warn().Str("session_id", sessionID).Str("desktop_type", desktopType).Msg("Direct input WebSocket not supported for non-Ubuntu sessions")
+			http.Error(res, "Direct input WebSocket only supported for Ubuntu/GNOME sessions", http.StatusNotImplemented)
+			return
+		}
 	}
 
 	// Get RevDial connection to desktop container (registered as "desktop-{session_id}")
@@ -1218,27 +1280,13 @@ func generateProxySessionID() string {
 // @Router /api/v1/external-agents/{sessionID}/ws/stream [get]
 // @Security BearerAuth
 func (apiServer *HelixAPIServer) proxyStreamWebSocket(res http.ResponseWriter, req *http.Request) {
-	user := getRequestUser(req)
-	if user == nil {
-		http.Error(res, "unauthorized", http.StatusUnauthorized)
-		return
-	}
-
 	vars := mux.Vars(req)
 	sessionID := vars["sessionID"]
 
-	// Get the Helix session to verify ownership
-	session, err := apiServer.Store.GetSession(req.Context(), sessionID)
-	if err != nil {
-		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to get session for stream WebSocket")
-		http.Error(res, "Session not found", http.StatusNotFound)
-		return
-	}
-
-	// Verify ownership (or streaming access grant)
-	err = apiServer.authorizeUserToSession(req.Context(), user, session, types.ActionGet)
-	if err != nil {
-		http.Error(res, err.Error(), http.StatusForbidden)
+	// Accept either a Helix session id or a sandbox id — both register their
+	// desktop-bridge under `desktop-{id}` via RevDial, so once authz passes the
+	// proxy logic below is uniform.
+	if !apiServer.authorizeDesktopID(res, req, sessionID) {
 		return
 	}
 

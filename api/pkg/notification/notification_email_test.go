@@ -21,8 +21,9 @@ func Test_getEmailMessage_CronTriggerComplete(t *testing.T) {
 	title, message, err := notifier.getEmailMessage(&Notification{
 		Event: types.EventCronTriggerComplete,
 		Session: &types.Session{
-			ID:   "123",
-			Name: "Test Session",
+			ID:             "123",
+			Name:           "Test Session",
+			OrganizationID: "org_abc",
 		},
 		Message: "Test Message",
 	})
@@ -34,8 +35,9 @@ func Test_getEmailMessage_CronTriggerComplete(t *testing.T) {
 	// Check that message contains expected content
 	require.NotEmpty(t, message)
 
-	// Check that message contains the session URL
-	expectedURL := "https://app.helix.ai/session/123"
+	// Check that message contains the org-scoped session URL (frontend has no
+	// root /session/:id route — only /orgs/:org_id/session/:session_id).
+	expectedURL := "https://app.helix.ai/orgs/org_abc/session/123"
 	require.Contains(t, message, expectedURL, "expected message to contain URL '%s', but it doesn't", expectedURL)
 
 	// Check that message contains the session name
@@ -117,8 +119,9 @@ func Test_getEmailMessage_CronTriggerFailed(t *testing.T) {
 	title, message, err := notifier.getEmailMessage(&Notification{
 		Event: types.EventCronTriggerFailed,
 		Session: &types.Session{
-			ID:   "456",
-			Name: "Failed Session",
+			ID:             "456",
+			Name:           "Failed Session",
+			OrganizationID: "org_xyz",
 		},
 		Message: "Task failed due to error",
 	})
@@ -131,8 +134,8 @@ func Test_getEmailMessage_CronTriggerFailed(t *testing.T) {
 	// Check that message contains expected content
 	require.NotEmpty(t, message)
 
-	// Check that message contains the session URL
-	expectedURL := "https://app.helix.ai/session/456"
+	// Check that message contains the org-scoped session URL.
+	expectedURL := "https://app.helix.ai/orgs/org_xyz/session/456"
 	require.Contains(t, message, expectedURL, "expected message to contain URL '%s', but it doesn't", expectedURL)
 
 	// Check that message contains the test message

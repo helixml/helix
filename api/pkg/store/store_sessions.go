@@ -47,6 +47,16 @@ func (s *PostgresStore) ListSessions(ctx context.Context, query ListSessionsQuer
 		q = q.Where("project_id = ?", query.ProjectID)
 	}
 
+	if query.SessionRole != "" {
+		q = q.Where("config->>'session_role' = ?", query.SessionRole)
+	}
+
+	if len(query.ExcludeRoles) > 0 {
+		for _, role := range query.ExcludeRoles {
+			q = q.Where("(config->>'session_role' IS NULL OR config->>'session_role' != ?)", role)
+		}
+	}
+
 	if !query.IncludeExternalAgents {
 		q = q.Where("model_name != 'external_agent'")
 	}
@@ -170,6 +180,13 @@ func (s *PostgresStore) UpdateSession(ctx context.Context, session types.Session
 	if len([]rune(session.Name)) > 255 {
 		session.Name = string([]rune(session.Name)[:255])
 	}
+
+	// Always bump the updated timestamp. The field is named "Updated" (not
+	// "UpdatedAt") so GORM doesn't auto-update it. Without this, callers
+	// that read-modify-write a session (e.g. StartDesktop) silently
+	// preserve the old timestamp, which causes the idle checker to
+	// immediately kill just-restarted sessions.
+	session.Updated = time.Now()
 
 	// Log session metadata before update
 	ragResultsCount := 0
@@ -339,6 +356,62 @@ func (s *PostgresStore) ListSessionsBySandbox(ctx context.Context, sandboxID str
 		return nil, err
 	}
 
+	return sessions, nil
+}
+
+// ListSessionsByOwner returns every live session owned by this user, regardless
+// of org membership, owner_type, or model_name. Used by user-scoped fan-out
+// (e.g. the color-scheme push), where ListSessions's default filters would
+// silently exclude spec-task sessions (model_name=external_agent,
+// organization_id set).
+func (s *PostgresStore) ListSessionsByOwner(ctx context.Context, ownerID string) ([]*types.Session, error) {
+	var sessions []*types.Session
+	err := s.gdb.WithContext(ctx).
+		Where("owner = ?", ownerID).
+		Find(&sessions).Error
+	if err != nil {
+		return nil, err
+	}
+	return sessions, nil
+}
+
+// ListIdleDesktops returns one representative session per desktop (identified by
+// external_agent_id) where no interaction has been created or updated since
+// idleSince. For desktops with no interactions at all, the session's own
+// updated timestamp is used as the activity marker.
+func (s *PostgresStore) ListIdleDesktops(ctx context.Context, idleSince time.Time) ([]*types.Session, error) {
+	// CTE computes the last activity time per desktop, then the outer query
+	// selects one session per desktop that is past the idle threshold.
+	query := `
+WITH desktop_last_activity AS (
+    SELECT
+        s.config->>'dev_container_id' AS container_id,
+        GREATEST(COALESCE(MAX(i.updated), '1970-01-01'::timestamptz), MAX(s.updated)) AS last_activity
+    FROM sessions s
+    LEFT JOIN interactions i ON i.session_id = s.id
+    WHERE s.deleted_at IS NULL
+      AND s.config->>'external_agent_status' = 'running'
+      AND s.config->>'dev_container_id' IS NOT NULL
+      AND s.config->>'dev_container_id' != ''
+      AND NOT EXISTS (
+          SELECT 1 FROM spec_tasks st
+          WHERE st.planning_session_id = s.id
+            AND st.keep_alive = true
+      )
+    GROUP BY s.config->>'dev_container_id'
+)
+SELECT DISTINCT ON (s.config->>'dev_container_id') s.*
+FROM sessions s
+JOIN desktop_last_activity da ON da.container_id = s.config->>'dev_container_id'
+WHERE s.deleted_at IS NULL
+  AND da.last_activity < ?
+ORDER BY s.config->>'dev_container_id', s.created ASC`
+
+	var sessions []*types.Session
+	err := s.gdb.WithContext(ctx).Raw(query, idleSince).Scan(&sessions).Error
+	if err != nil {
+		return nil, err
+	}
 	return sessions, nil
 }
 

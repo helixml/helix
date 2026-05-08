@@ -8,6 +8,8 @@ import Fade from '@mui/material/Fade'
 import CircularProgress from '@mui/material/CircularProgress'
 import type { SxProps, Theme } from '@mui/material'
 
+import { useTheme } from '@mui/material/styles'
+
 import useAccount from '../hooks/useAccount'
 import useApi from '../hooks/useApi'
 import useSnackbar from '../hooks/useSnackbar'
@@ -16,22 +18,23 @@ import { useGetConfig } from '../services/userService'
 import { TypesAuthProvider, TypesLoginRequest, TypesRegisterRequest } from '../api/api'
 
 const LOGIN_REDIRECT_KEY = 'login_redirect_url'
-const BG = '#0d0d1a'
 const ACCENT = '#00E5FF'
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
-const textFieldSx: SxProps<Theme> = {
-  '& .MuiOutlinedInput-root': {
-    '& fieldset': { borderColor: 'rgba(255,255,255,0.15)' },
-    '&:hover fieldset': { borderColor: ACCENT },
-    '&.Mui-focused fieldset': { borderColor: ACCENT },
-    backgroundColor: 'rgba(255,255,255,0.04)',
-    borderRadius: '10px',
-  },
-  '& .MuiInputLabel-root': { color: 'rgba(255,255,255,0.4)' },
-  '& .MuiInputLabel-root.Mui-focused': { color: ACCENT },
-  '& .MuiOutlinedInput-input': { color: '#F1F1F1' },
+function getTextFieldSx(isLight: boolean): SxProps<Theme> {
+  return {
+    '& .MuiOutlinedInput-root': {
+      '& fieldset': { borderColor: isLight ? 'rgba(0,0,0,0.2)' : 'rgba(255,255,255,0.15)' },
+      '&:hover fieldset': { borderColor: ACCENT },
+      '&.Mui-focused fieldset': { borderColor: ACCENT },
+      backgroundColor: isLight ? 'rgba(0,0,0,0.03)' : 'rgba(255,255,255,0.04)',
+      borderRadius: '10px',
+    },
+    '& .MuiInputLabel-root': { color: isLight ? 'rgba(0,0,0,0.5)' : 'rgba(255,255,255,0.4)' },
+    '& .MuiInputLabel-root.Mui-focused': { color: ACCENT },
+    '& .MuiOutlinedInput-input': { color: isLight ? '#1A202C' : '#F1F1F1' },
+  }
 }
 
 function extractErrorMessage(err: unknown, fallback: string): string {
@@ -66,6 +69,14 @@ export default function Login() {
   const api = useApi()
   const snackbar = useSnackbar()
   const router = useRouter()
+  const theme = useTheme()
+  const isLight = theme.palette.mode === 'light'
+  const BG = isLight ? '#f5f5f5' : '#0d0d1a'
+  const subtleText = isLight ? 'rgba(0,0,0,0.5)' : 'rgba(255,255,255,0.45)'
+  const mutedText = isLight ? 'rgba(0,0,0,0.4)' : 'rgba(255,255,255,0.35)'
+  const cardBg = isLight ? 'rgba(255,255,255,0.85)' : 'rgba(255,255,255,0.03)'
+  const cardBorder = isLight ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.08)'
+  const textFieldSx = getTextFieldSx(isLight)
   const { data: config, isLoading: isLoadingConfig } = useGetConfig()
 
   const [mode, setMode] = useState<'login' | 'register'>('login')
@@ -228,12 +239,12 @@ export default function Login() {
               sx={{
                 height: 48,
                 mb: 2,
-                filter: `drop-shadow(0 0 20px ${ACCENT}30)`,
+                filter: isLight ? 'none' : `drop-shadow(0 0 20px ${ACCENT}30)`,
               }}
             />
             <Typography
               sx={{
-                color: 'rgba(255,255,255,0.45)',
+                color: subtleText,
                 fontSize: '0.95rem',
                 letterSpacing: '0.02em',
               }}
@@ -245,8 +256,8 @@ export default function Login() {
           {/* Card */}
           <Box
             sx={{
-              bgcolor: 'rgba(255,255,255,0.03)',
-              border: '1px solid rgba(255,255,255,0.08)',
+              bgcolor: cardBg,
+              border: `1px solid ${cardBorder}`,
               borderRadius: '16px',
               p: { xs: 3, md: 4 },
             }}
@@ -320,7 +331,7 @@ export default function Login() {
                       size="small"
                       onClick={() => router.navigate('password-reset')}
                       sx={{
-                        color: 'rgba(255,255,255,0.35)',
+                        color: mutedText,
                         textTransform: 'none',
                         fontSize: '0.82rem',
                         minWidth: 'auto',
@@ -383,7 +394,7 @@ export default function Login() {
                 </Button>
 
                 <Box sx={{ textAlign: 'center', mt: 2.5 }}>
-                  <Typography component="span" sx={{ color: 'rgba(255,255,255,0.35)', fontSize: '0.875rem' }}>
+                  <Typography component="span" sx={{ color: mutedText, fontSize: '0.875rem' }}>
                     {mode === 'login' ? "Don't have an account? " : 'Already have an account? '}
                     <Button
                       variant="text"
@@ -418,7 +429,7 @@ export default function Login() {
               <Box sx={{ textAlign: 'center', py: 2 }}>
                 <Typography
                   sx={{
-                    color: 'rgba(255,255,255,0.5)',
+                    color: subtleText,
                     fontSize: '0.95rem',
                     mb: 3,
                     lineHeight: 1.6,

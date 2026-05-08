@@ -2609,13 +2609,13 @@ func (s *GitRepositoryService) CreateBranch(ctx context.Context, repoID, branchN
 
 // buildAuthenticatedCloneURLForRepo returns the external URL with embedded credentials for native git clone
 // This is used by gitea/git module which expects credentials in the URL
-func (s *GitRepositoryService) buildAuthenticatedCloneURLForRepo(ctx context.Context, gitRepo *types.GitRepository) string {
+func (s *GitRepositoryService) buildAuthenticatedCloneURLForRepo(ctx context.Context, gitRepo *types.GitRepository, userID ...string) string {
 	if gitRepo.ExternalURL == "" {
 		return ""
 	}
 
 	// Get credentials based on repository type and OAuth connection
-	username, password := s.getCredentialsForRepo(ctx, gitRepo)
+	username, password := s.getCredentialsForRepo(ctx, gitRepo, userID...)
 	if password == "" {
 		return gitRepo.ExternalURL
 	}
@@ -2631,8 +2631,26 @@ func (s *GitRepositoryService) buildAuthenticatedCloneURLForRepo(ctx context.Con
 }
 
 // getCredentialsForRepo returns username and password/token for a repository
-func (s *GitRepositoryService) getCredentialsForRepo(ctx context.Context, gitRepo *types.GitRepository) (username, password string) {
-	// First, check for OAuth connection
+func (s *GitRepositoryService) getCredentialsForRepo(ctx context.Context, gitRepo *types.GitRepository, userID ...string) (username, password string) {
+	// If an acting user is specified (user-initiated), use their OAuth token
+	actingUserID := ""
+	if len(userID) > 0 {
+		actingUserID = userID[0]
+	}
+	if actingUserID != "" && gitRepo.ExternalType == types.ExternalRepositoryTypeGitHub {
+		connections, err := s.store.ListOAuthConnections(ctx, &store.ListOAuthConnectionsQuery{
+			UserID: actingUserID,
+		})
+		if err == nil {
+			for _, conn := range connections {
+				if conn.Provider.Type == types.OAuthProviderTypeGitHub && conn.AccessToken != "" {
+					return "x-access-token", conn.AccessToken
+				}
+			}
+		}
+	}
+
+	// Repo-level credentials: check for OAuth connection
 	if gitRepo.OAuthConnectionID != "" {
 		conn, err := s.store.GetOAuthConnection(ctx, gitRepo.OAuthConnectionID)
 		if err == nil && conn.AccessToken != "" {

@@ -27,7 +27,6 @@ import { GitBranch, Plus, Brain, Link, FolderSearch } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 
 import Page from "../components/system/Page";
-import LaunchpadCTAButton from "../components/widgets/LaunchpadCTAButton";
 import CreateRepositoryDialog from "../components/project/CreateRepositoryDialog";
 import BrowseProvidersDialog from "../components/project/BrowseProvidersDialog";
 
@@ -311,7 +310,6 @@ const GitRepos: FC = () => {
               >
                 Please log in to view and manage your git repositories.
               </Typography>
-              <LaunchpadCTAButton />
             </CardContent>
           </Card>
         </Container>

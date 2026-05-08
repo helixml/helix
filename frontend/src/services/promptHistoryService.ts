@@ -12,7 +12,7 @@ import {
 export interface LocalPromptHistoryEntry {
   id: string
   content: string
-  status: 'sent' | 'pending' | 'failed'
+  status: 'sent' | 'sending' | 'pending' | 'failed'
   timestamp: number
   sessionId?: string
   interrupt?: boolean       // If true, interrupts current conversation
@@ -20,6 +20,7 @@ export interface LocalPromptHistoryEntry {
   // Retry tracking
   retryCount?: number       // Number of retry attempts
   nextRetryAt?: number      // Timestamp when retry will happen
+  errorMessage?: string     // Last failure reason (server error string), shown under "Failed - retrying"
   // Library features
   pinned?: boolean          // User pinned this prompt for quick access
   usageCount?: number       // How many times this prompt was reused
@@ -92,6 +93,7 @@ export function backendToLocal(entry: TypesPromptHistoryEntry): LocalPromptHisto
     // Retry tracking
     retryCount: entry.retry_count ?? 0,
     nextRetryAt: entry.next_retry_at ? new Date(entry.next_retry_at).getTime() : undefined,
+    errorMessage: entry.error_message,
     // Library features
     pinned: entry.pinned ?? false,
     usageCount: entry.usage_count ?? 0,

@@ -228,6 +228,40 @@ export const Interaction: FC<InteractionProps> = ({
               }
             />
           )}
+          {/*
+            "Retried Nx" badge for prompts the auto-wake worker has had
+            to re-send to unstick the session. Auto-wakes don't create
+            separate interactions any more — they re-send the original
+            prompt's content over the wire and bump auto_wake_count on
+            this row, so the badge counts the retries on the original
+            user message. See
+            design/2026-04-25-zed-claude-async-event-flush-on-user-input.md
+            and the file header of api/pkg/server/auto_wake_stuck_interactions.go
+          */}
+          {((interaction as any)?.auto_wake_count ?? 0) > 0 && (
+            <Tooltip
+              title="Helix re-sent this prompt because the agent didn't respond — likely upstream ACP buffering (claude-agent-acp #551 / agent-client-protocol #554). See the helix-side design doc 2026-04-25 for the full story."
+            >
+              <Box
+                sx={(theme) => ({
+                  fontSize: "11px",
+                  color: theme.palette.mode === "light" ? "#888" : "#999",
+                  mb: 0.5,
+                  px: 1,
+                  py: 0.25,
+                  borderRadius: "4px",
+                  backgroundColor:
+                    theme.palette.mode === "light"
+                      ? "rgba(0,0,0,0.04)"
+                      : "rgba(255,255,255,0.06)",
+                  cursor: "help",
+                  userSelect: "none",
+                })}
+              >
+                {"↻ Retried " + ((interaction as any).auto_wake_count) + "× · upstream ACP buffering"}
+              </Box>
+            </Tooltip>
+          )}
           <InteractionContainer
             buttons={headerButtons}
             background={true}
@@ -293,7 +327,7 @@ export const Interaction: FC<InteractionProps> = ({
       )}
 
       {/* Assistant Response Container */}
-      {(assistantMessage || isLive) && (
+      {(assistantMessage || (interaction as any)?.response_entries?.length > 0 || isLive) && (
         <Box
           sx={{
             display: "flex",

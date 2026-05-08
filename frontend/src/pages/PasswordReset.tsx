@@ -12,6 +12,7 @@ import useApi from '../hooks/useApi';
 import useSnackbar from '../hooks/useSnackbar';
 import { TypesPasswordResetRequest } from '../api/api';
 import useThemeConfig from '../hooks/useThemeConfig';
+import useLightTheme from '../hooks/useLightTheme';
 
 const PasswordReset: React.FC = () => {
   const [email, setEmail] = useState('');
@@ -23,6 +24,7 @@ const PasswordReset: React.FC = () => {
   const snackbar = useSnackbar();
   const apiClient = api.getApiClient();
   const themeConfig = useThemeConfig();
+  const lightTheme = useLightTheme();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -59,7 +61,7 @@ const PasswordReset: React.FC = () => {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        background: themeConfig.darkBackgroundImage || `linear-gradient(135deg, ${themeConfig.darkBackgroundColor} 0%, ${themeConfig.neutral800} 100%)`,
+        background: (lightTheme.isLight ? themeConfig.lightBackgroundImage : themeConfig.darkBackgroundImage) || `linear-gradient(135deg, ${lightTheme.backgroundColor} 0%, ${themeConfig.neutral800} 100%)`,
         p: 3,
       }}
     >
@@ -69,8 +71,8 @@ const PasswordReset: React.FC = () => {
           sx={{
             p: 4,
             borderRadius: 2,
-            backgroundColor: themeConfig.darkPanel,
-            border: `1px solid ${themeConfig.darkBorder}`,
+            backgroundColor: lightTheme.panelColor,
+            border: `1px solid ${lightTheme.border}`,
           }}
         >
           <Typography
@@ -145,7 +147,7 @@ const PasswordReset: React.FC = () => {
                 variant="body2"
                 sx={{
                   mb: 3,
-                  color: themeConfig.darkTextFaded,
+                  color: lightTheme.textColorFaded,
                   textAlign: 'center',
                 }}
               >
@@ -164,7 +166,7 @@ const PasswordReset: React.FC = () => {
                   mb: 3,
                   '& .MuiOutlinedInput-root': {
                     '& fieldset': {
-                      borderColor: themeConfig.darkBorder,
+                      borderColor: lightTheme.border,
                     },
                     '&:hover fieldset': {
                       borderColor: themeConfig.tealRoot,
@@ -174,13 +176,13 @@ const PasswordReset: React.FC = () => {
                     },
                   },
                   '& .MuiInputLabel-root': {
-                    color: themeConfig.darkTextFaded,
+                    color: lightTheme.textColorFaded,
                   },
                   '& .MuiInputLabel-root.Mui-focused': {
                     color: themeConfig.tealRoot,
                   },
                   '& .MuiOutlinedInput-input': {
-                    color: themeConfig.darkText,
+                    color: lightTheme.textColor,
                   },
                 }}
               />

@@ -58,6 +58,14 @@ if [ -n "$HELIX_VIDEO_MODE" ]; then
     log "Video mode: ${HELIX_VIDEO_MODE}"
 fi
 
-# Start desktop-bridge with log prefix
+# Start desktop-bridge with restart loop.
+# The desktop-bridge can crash (e.g. segfault during WebSocket reconnection when the
+# API restarts). Without a restart loop, the video stream and screenshots are lost
+# for the rest of the session.
 log "Starting (WAYLAND_DISPLAY=${WAYLAND_DISPLAY}, DBUS=${DBUS_SESSION_BUS_ADDRESS:+set}, VIDEO_MODE=${HELIX_VIDEO_MODE:-default})"
-exec /usr/local/bin/desktop-bridge 2>&1 | sed -u "s/^/[${SERVICE_NAME}] /"
+while true; do
+    /usr/local/bin/desktop-bridge 2>&1 | sed -u "s/^/[${SERVICE_NAME}] /"
+    EXIT_CODE=$?
+    log "Process exited with code ${EXIT_CODE}, restarting in 2s..."
+    sleep 2
+done

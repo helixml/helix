@@ -12,6 +12,7 @@ import {
   Typography,
   CircularProgress,
   Alert,
+  Link,
   List,
   ListItem,
   ListItemButton,
@@ -24,6 +25,9 @@ import {
   InputAdornment,
   FormControlLabel,
   Switch,
+  Select,
+  MenuItem,
+  FormControl,
 } from "@mui/material";
 import GitHubIcon from "@mui/icons-material/GitHub";
 import {
@@ -68,7 +72,7 @@ import {
 } from "../../utils/oauthProviders";
 
 // Scopes required for GitHub repo browsing (including workflow file support)
-const GITHUB_REQUIRED_SCOPES = ["repo", "workflow"];
+const GITHUB_REQUIRED_SCOPES = ["repo", "workflow", "read:org"];
 
 interface BrowseProvidersDialogProps {
   open: boolean;
@@ -155,6 +159,7 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
     string | null
   >(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [orgFilter, setOrgFilter] = useState("all");
   const [koditIndexing, setKoditIndexing] = useState(true);
   const [selectedRepo, setSelectedRepo] = useState<TypesRepositoryInfo | null>(
     null,
@@ -216,6 +221,7 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
       setSelectedConnectionId(null);
       setSelectedPatConnectionId(null);
       setSearchQuery("");
+      setOrgFilter("all");
       setSelectedRepo(null);
       setKoditIndexing(true);
       setPat("");
@@ -566,6 +572,7 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
       setSelectedConnectionId(null);
       setSelectedPatConnectionId(null);
       setSearchQuery("");
+      setOrgFilter("all");
       setSelectedRepo(null);
       setPatRepos([]);
       setPatReposError(null);
@@ -589,6 +596,7 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
       setSelectedConnectionId(null);
       setSelectedPatConnectionId(null);
       setSearchQuery("");
+      setOrgFilter("all");
       setSelectedRepo(null);
       setPat("");
       setOrgUrl("");
@@ -616,8 +624,26 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
           ? "Failed to load repositories"
           : null;
 
-  // Filter repositories by search query
+  // Extract unique owners/orgs from repo full_name for the filter dropdown
+  const availableOrgs = React.useMemo(() => {
+    const owners = new Set<string>();
+    currentRepos.forEach((repo) => {
+      if (repo.full_name) {
+        const owner = repo.full_name.split("/")[0];
+        if (owner) owners.add(owner);
+      }
+    });
+    return Array.from(owners).sort();
+  }, [currentRepos]);
+
+  // Filter repositories by org and search query, then sort alphabetically
   const filteredRepos = currentRepos.filter((repo) => {
+    // Apply org filter
+    if (orgFilter !== "all") {
+      const owner = repo.full_name?.split("/")[0];
+      if (owner !== orgFilter) return false;
+    }
+    // Apply search filter
     if (!searchQuery) return true;
     const query = searchQuery.toLowerCase();
     return (
@@ -625,7 +651,7 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
       repo.full_name?.toLowerCase().includes(query) ||
       repo.description?.toLowerCase().includes(query)
     );
-  });
+  }).sort((a, b) => (a.full_name || a.name || "").localeCompare(b.full_name || b.name || ""));
 
   const currentProvider = PROVIDERS.find((p) => p.id === selectedProvider);
 
@@ -762,7 +788,7 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
 
           {needsScopeUpgrade && (
             <Alert severity="warning" sx={{ mb: 2 }}>
-              Your GitHub connection needs the <strong>workflow</strong> scope to push changes to <code>.github/workflows/</code>. Click &ldquo;Connect via OAuth&rdquo; below to reconnect with the required permissions.
+              Your GitHub connection is missing required permissions. Click &ldquo;Connect via OAuth&rdquo; below to reconnect with the required scopes (<code>repo</code>, <code>workflow</code>, <code>read:org</code>).
             </Alert>
           )}
 
@@ -1037,7 +1063,7 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
               }}
               helperText={
                 selectedProvider === "github"
-                  ? "Create a token at GitHub → Settings → Developer settings → Personal access tokens"
+                  ? "Create a classic token with 'repo' and 'read:org' scopes at GitHub → Settings → Developer settings → Personal access tokens"
                   : selectedProvider === "gitlab"
                     ? "Create a token at GitLab → Preferences → Access Tokens"
                     : selectedProvider === "bitbucket"
@@ -1099,6 +1125,20 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
       </DialogTitle>
       <DialogContent>
         <Box sx={{ mb: 2, display: 'flex', gap: 1, alignItems: 'center' }}>
+          {availableOrgs.length > 1 && (
+            <FormControl size="small" sx={{ minWidth: 140 }}>
+              <Select
+                value={orgFilter}
+                onChange={(e) => setOrgFilter(e.target.value)}
+                displayEmpty
+              >
+                <MenuItem value="all">All orgs</MenuItem>
+                {availableOrgs.map((org) => (
+                  <MenuItem key={org} value={org}>{org}</MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          )}
           <TextField
             fullWidth
             size="small"
@@ -1125,6 +1165,30 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
           </Tooltip>
         </Box>
 
+        {viewMode === "browse-repos" && selectedProvider === "github" && (() => {
+          const ghProvider = providers?.find((p) => matchesProviderType(p.type, p.name, "github"));
+          const settingsUrl = ghProvider?.client_id
+            ? `https://github.com/settings/connections/applications/${ghProvider.client_id}`
+            : "https://github.com/settings/applications";
+          return (
+            <Alert severity="info" sx={{ mb: 2 }}>
+              Not seeing repos from all your organizations? Organizations can restrict OAuth app access.
+              Check your{" "}
+              <Link
+                href={settingsUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                color="inherit"
+                underline="always"
+                sx={{ fontWeight: 600 }}
+              >
+                GitHub application settings
+              </Link>{" "}
+              and grant access for each organization.
+            </Alert>
+          );
+        })()}
+
         {currentError && (
           <Alert severity="error" sx={{ mb: 2 }}>
             {currentError}
@@ -1138,8 +1202,8 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
         ) : filteredRepos.length === 0 ? (
           <Box sx={{ textAlign: "center", py: 4 }}>
             <Typography color="text.secondary">
-              {searchQuery
-                ? "No repositories match your search"
+              {searchQuery || orgFilter !== "all"
+                ? "No repositories match your filters"
                 : "No repositories found"}
             </Typography>
           </Box>
@@ -1167,6 +1231,17 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
                       secondary={repo.description || "No description"}
                       secondaryTypographyProps={{ noWrap: true }}
                     />
+                    {repo.can_write === false && (
+                      <Tooltip title="You only have read access. Helix can't push branches or open PRs against this repo. Fork it to your account to contribute.">
+                        <Chip
+                          label="Read-only"
+                          size="small"
+                          color="warning"
+                          variant="outlined"
+                          sx={{ ml: 1 }}
+                        />
+                      </Tooltip>
+                    )}
                     {repo.private && (
                       <Chip
                         label="Private"
@@ -1205,6 +1280,13 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
                 </Box>
               }
             />
+            {selectedRepo.can_write === false && (
+              <Alert severity="warning" sx={{ mt: 2 }}>
+                You only have read access to this repo. Helix needs push access to commit changes
+                and open pull requests, so it can&apos;t be linked to a project. To contribute,
+                fork it to your own account or organization first.
+              </Alert>
+            )}
             {organizationName && (
               <Alert severity="info" sx={{ mt: 2 }}>
                 This repository will be accessible to all members of{" "}
@@ -1217,14 +1299,28 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
       <DialogActions>
         <Button onClick={handleBack}>Back</Button>
         <Button onClick={onClose}>Cancel</Button>
-        <Button
-          variant="contained"
-          color="secondary"
-          onClick={handleSelectRepo}
-          disabled={!selectedRepo || isLinking}
+        <Tooltip
+          title={
+            selectedRepo?.can_write === false
+              ? "Read-only repos can't be linked — fork it first"
+              : ""
+          }
         >
-          {isLinking ? <CircularProgress size={20} /> : "Link Repository"}
-        </Button>
+          <span>
+            <Button
+              variant="contained"
+              color="secondary"
+              onClick={handleSelectRepo}
+              disabled={
+                !selectedRepo ||
+                isLinking ||
+                selectedRepo.can_write === false
+              }
+            >
+              {isLinking ? <CircularProgress size={20} /> : "Link Repository"}
+            </Button>
+          </span>
+        </Tooltip>
       </DialogActions>
     </Dialog>
   );
