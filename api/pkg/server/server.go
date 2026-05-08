@@ -111,6 +111,7 @@ type HelixAPIServer struct {
 	// 2026-04-30 stuck-queue fix.)
 	externalAgentSessionMapping map[string]string   // External agent session_id -> Helix session_id mapping
 	externalAgentUserMapping    map[string]string   // External agent session_id -> user_id mapping
+	pendingCancelChannels       map[string]chan string // request_id -> channel that receives turn_cancelled status
 	// Comment processing timeouts - uses database for queue state (QueuedAt/RequestID fields)
 	sessionCommentTimeout     map[string]*time.Timer // planning_session_id -> timeout timer for current comment
 	sessionCommentMutex       sync.RWMutex           // Mutex for timeout operations
@@ -132,7 +133,7 @@ type HelixAPIServer struct {
 	trigger                   *trigger.Manager
 	specDrivenTaskService     *services.SpecDrivenTaskService
 	sampleProjectCodeService  *services.SampleProjectCodeService
-	gitRepositoryService      *services.GitRepositoryService
+	gitRepositoryService      gitRepositoryServicer
 	koditService              services.KoditServicer
 	kodit                     *KoditResult
 	mcpGateway                *MCPGateway
@@ -326,6 +327,7 @@ func NewServer(
 		contextMappings:             make(map[string]string),
 
 		requestToSessionMapping:     make(map[string]string),
+		pendingCancelChannels:       make(map[string]chan string),
 		externalAgentSessionMapping: make(map[string]string),
 		externalAgentUserMapping:    make(map[string]string),
 		sessionCommentTimeout:     make(map[string]*time.Timer),
@@ -447,7 +449,7 @@ func NewServer(
 		}
 	} else {
 		var initErr error
-		kr, initErr = InitKodit(cfg, apiServer.gitRepositoryService, apiServer.Store)
+		kr, initErr = InitKodit(cfg, gitRepositoryService, apiServer.Store)
 		if initErr != nil {
 			return nil, initErr
 		}
@@ -495,7 +497,7 @@ func NewServer(
 
 	apiServer.gitHTTPServer = services.NewGitHTTPServer(
 		store,
-		apiServer.gitRepositoryService,
+		gitRepositoryService,
 		*gitHTTPConfig, // Dereference the pointer
 		apiServer.authorizeUserToRepository,
 		apiServer.trigger,
@@ -530,7 +532,7 @@ func NewServer(
 	// Initialize SpecTask Orchestrator components
 	apiServer.specTaskOrchestrator = services.NewSpecTaskOrchestrator(
 		store,
-		apiServer.gitRepositoryService,
+		gitRepositoryService,
 		apiServer.specDrivenTaskService,
 		apiServer.externalAgentExecutor, // Hydra executor for external agent management
 	)
@@ -861,6 +863,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/sessions/{id}/resume", apiServer.resumeSession).Methods(http.MethodPost)
 	authRouter.HandleFunc("/sessions/{id}/messages", system.Wrapper(apiServer.sendSessionMessage)).Methods(http.MethodPost)
 	authRouter.HandleFunc("/sessions/{id}/stop-external-agent", system.Wrapper(apiServer.stopExternalAgentSession)).Methods(http.MethodDelete)
+	authRouter.HandleFunc("/sessions/{id}/cancel", system.Wrapper(apiServer.cancelSessionTurn)).Methods(http.MethodPost)
 	authRouter.HandleFunc("/sessions/{id}/restart-agent", system.Wrapper(apiServer.restartCrashedAgentThread)).Methods(http.MethodPost)
 	authRouter.HandleFunc("/sessions/{id}/output", system.Wrapper(apiServer.getSessionOutput)).Methods(http.MethodGet)
 

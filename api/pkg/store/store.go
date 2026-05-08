@@ -611,6 +611,7 @@ type Store interface {
 	GetAttentionEvent(ctx context.Context, id string) (*types.AttentionEvent, error)
 	UpdateAttentionEvent(ctx context.Context, id string, update *types.AttentionEventUpdateRequest) error
 	BulkDismissAttentionEvents(ctx context.Context, userID, organizationID string) (int64, error)
+	DismissAttentionEventsForTask(ctx context.Context, specTaskID string) (int64, error)
 	CleanupExpiredAttentionEvents(ctx context.Context, olderThan time.Duration) (int64, error)
 
 	// Clone Group methods

@@ -118,17 +118,7 @@ import {
   Copy,
 } from "lucide-react";
 
-// Module-level set: tracks which task IDs have already had their spec auto-opened
-// in this SPA session. Persists across component unmount/remount so that navigating
-// back from the spec review page does not immediately redirect the user again.
-const AUTO_OPENED_KEY = "helix_auto_opened_spec_tasks";
-const getAutoOpenedSpecTasks = (): Set<string> =>
-  new Set(JSON.parse(sessionStorage.getItem(AUTO_OPENED_KEY) || "[]"));
-const addAutoOpenedSpecTask = (id: string) => {
-  const set = getAutoOpenedSpecTasks();
-  set.add(id);
-  sessionStorage.setItem(AUTO_OPENED_KEY, JSON.stringify([...set]));
-};
+import { getAutoOpenedSpecTasks, addAutoOpenedSpecTask } from "../../lib/specTaskAutoOpen";
 
 interface SpecTaskDetailContentProps {
   taskId: string;
@@ -224,6 +214,14 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     priority: "",
     dependsOnTaskIds: [] as string[],
   });
+
+  // Prompt/description is editable before spec review (backlog, queued_spec_generation, spec_generation)
+  // After spec review, the spec title becomes the name and prompt becomes read-only
+  const isPromptEditable = [
+    TypesSpecTaskStatus.TaskStatusBacklog,
+    TypesSpecTaskStatus.TaskStatusQueuedSpecGeneration,
+    TypesSpecTaskStatus.TaskStatusSpecGeneration,
+  ].includes(task?.status as TypesSpecTaskStatus);
 
   // Agent selection state
   const [selectedAgent, setSelectedAgent] = useState("");
@@ -930,10 +928,13 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   // and design docs are available - triggers once per SPA session per task ID.
   // handleReviewSpec itself writes to sessionStorage before the async call, so returning
   // to chat (which remounts this component) never re-triggers the auto-open.
+  // The spec_approved_at guard prevents bouncing the user back to the review page in the
+  // brief window between approval and the cached task.status transitioning away from spec_review.
   useEffect(() => {
     if (
       task?.id &&
       !getAutoOpenedSpecTasks().has(task.id) &&
+      !task?.spec_approved_at &&
       task?.design_docs_pushed_at &&
       account.organizationTools.organization?.name &&
       (task?.status === TypesSpecTaskStatus.TaskStatusSpecReview ||
@@ -941,7 +942,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     ) {
       handleReviewSpec();
     }
-  }, [task?.id, task?.status, task?.design_docs_pushed_at, handleReviewSpec, account.organizationTools.organization?.name]);
+  }, [task?.id, task?.status, task?.spec_approved_at, task?.design_docs_pushed_at, handleReviewSpec, account.organizationTools.organization?.name]);
 
   // Handle file upload to sandbox
   const handleUploadClick = useCallback(() => {
@@ -1113,27 +1114,19 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
           />
         ) : (
           <Box
-            onClick={
-              task?.status === TypesSpecTaskStatus.TaskStatusBacklog
-                ? handleEditToggle
-                : undefined
-            }
+            onClick={isPromptEditable ? handleEditToggle : undefined}
             sx={{
-              cursor:
-                task?.status === TypesSpecTaskStatus.TaskStatusBacklog
-                  ? "pointer"
-                  : "default",
+              cursor: isPromptEditable ? "pointer" : "default",
               borderRadius: 1,
               mx: -1,
               px: 1,
               py: 0.5,
               transition: "background-color 0.15s ease",
-              "&:hover":
-                task?.status === TypesSpecTaskStatus.TaskStatusBacklog
-                  ? {
-                      backgroundColor: "action.hover",
-                    }
-                  : {},
+              "&:hover": isPromptEditable
+                ? {
+                    backgroundColor: "action.hover",
+                  }
+                : {},
             }}
           >
             <Typography
