@@ -212,7 +212,7 @@ const WebSearchSkill: React.FC<WebSearchSkillProps> = ({
           </SectionCard>
         </Box>
       </DialogContent>
-      <DialogActions sx={{ background: '#181A20', borderTop: '1px solid #23262F', flexDirection: 'column', alignItems: 'stretch' }}>
+      <DialogActions sx={{ background: lightTheme.panelColor, borderTop: lightTheme.border, flexDirection: 'column', alignItems: 'stretch' }}>
         {error && (
           <Box sx={{ width: '100%', pl: 2, pr: 2, mb: 3 }}>
             <Alert variant="outlined" severity="error" sx={{ width: '100%' }}>

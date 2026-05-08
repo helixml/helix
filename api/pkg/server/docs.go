@@ -17240,6 +17240,57 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/users/me/color-scheme": {
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Set the user's UI color scheme. Propagates instantly to GNOME and Zed in any spec-task sessions owned by this user.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Users"
+                ],
+                "summary": "Update user color scheme preference",
+                "parameters": [
+                    {
+                        "description": "Color scheme update request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.UpdateUserColorSchemeRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.UpdateUserColorSchemeRequest"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/users/me/guidelines": {
             "get": {
                 "security": [
@@ -31887,6 +31938,15 @@ const docTemplate = `{
                 }
             }
         },
+        "types.UpdateUserColorSchemeRequest": {
+            "type": "object",
+            "properties": {
+                "color_scheme": {
+                    "description": "\"light\", \"dark\", or \"\" (follow OS)",
+                    "type": "string"
+                }
+            }
+        },
         "types.UpdateUserGuidelinesRequest": {
             "type": "object",
             "properties": {
@@ -32363,6 +32423,10 @@ const docTemplate = `{
                             "$ref": "#/definitions/types.CodeAgentConfig"
                         }
                     ]
+                },
+                "color_scheme": {
+                    "description": "Session owner's UI color scheme: \"light\", \"dark\", or \"\" (follow OS). Daemon applies via gsettings to GNOME.",
+                    "type": "string"
                 },
                 "context_servers": {
                     "type": "object",

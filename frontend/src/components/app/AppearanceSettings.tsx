@@ -15,7 +15,7 @@ import { getFlatStateAvatarUrl } from '../../utils/app'
 import CloudUploadIcon from '@mui/icons-material/CloudUpload'
 import DeleteForeverIcon from '@mui/icons-material/DeleteForever'
 import useApps from '../../hooks/useApps'
-import useThemeConfig from '../../hooks/useThemeConfig'
+import useLightTheme from '../../hooks/useLightTheme'
 
 interface AppearanceSettingsProps {
   app: IAppFlatState
@@ -43,7 +43,7 @@ const AppearanceSettings: FC<AppearanceSettingsProps> = ({
   const deleteAvatarMutation = useDeleteAppAvatar(id)
 
   const apps = useApps()
-  const themeConfig = useThemeConfig()
+  const lightTheme = useLightTheme()
 
   const handleBlur = (field: 'name' | 'description') => {
     const currentValue = {
@@ -160,7 +160,7 @@ const AppearanceSettings: FC<AppearanceSettingsProps> = ({
   return (
     <Box sx={{ mt: 2, mr: 2 }}>
       {/* Basic Information Card */}
-      {/* <Card sx={{ mb: 3, backgroundColor: themeConfig.darkPanel }}>
+      {/* <Card sx={{ mb: 3, backgroundColor: lightTheme.panelColor }}>
         <CardContent> */}
           <Grid container spacing={3}>
             {/* Left column - Name and Description */}
@@ -282,7 +282,7 @@ const AppearanceSettings: FC<AppearanceSettingsProps> = ({
       </Card> */}
 
       {/* Conversation Starters Card */}
-      {/* <Card sx={{ backgroundColor: themeConfig.darkPanel, boxShadow: 'none' }}>
+      {/* <Card sx={{ backgroundColor: lightTheme.panelColor, boxShadow: 'none' }}>
         <CardContent> */}
           <Typography variant="h6" sx={{ mb: 2 }} gutterBottom>
             Conversation Starters

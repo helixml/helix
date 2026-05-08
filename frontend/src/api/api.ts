@@ -6050,6 +6050,11 @@ export interface TypesUpdateTeamRequest {
   name?: string;
 }
 
+export interface TypesUpdateUserColorSchemeRequest {
+  /** "light", "dark", or "" (follow OS) */
+  color_scheme?: string;
+}
+
 export interface TypesUpdateUserGuidelinesRequest {
   guidelines?: string;
 }
@@ -6246,6 +6251,8 @@ export interface TypesZedConfigResponse {
   claude_subscription_available?: boolean;
   /** Code agent configuration for Zed agentic coding */
   code_agent_config?: TypesCodeAgentConfig;
+  /** Session owner's UI color scheme: "light", "dark", or "" (follow OS). Daemon applies via gsettings to GNOME. */
+  color_scheme?: string;
   context_servers?: Record<string, any>;
   external_sync?: Record<string, any>;
   language_models?: Record<string, any>;
@@ -14250,6 +14257,26 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
     v1UsersMeChatSettingsUpdate: (request: TypesUserChatSettings, params: RequestParams = {}) =>
       this.request<TypesUserChatSettings, SystemHTTPError>({
         path: `/api/v1/users/me/chat-settings`,
+        method: "PUT",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Set the user's UI color scheme. Propagates instantly to GNOME and Zed in any spec-task sessions owned by this user.
+     *
+     * @tags Users
+     * @name V1UsersMeColorSchemeUpdate
+     * @summary Update user color scheme preference
+     * @request PUT:/api/v1/users/me/color-scheme
+     * @secure
+     */
+    v1UsersMeColorSchemeUpdate: (request: TypesUpdateUserColorSchemeRequest, params: RequestParams = {}) =>
+      this.request<TypesUpdateUserColorSchemeRequest, SystemHTTPError>({
+        path: `/api/v1/users/me/color-scheme`,
         method: "PUT",
         body: request,
         secure: true,

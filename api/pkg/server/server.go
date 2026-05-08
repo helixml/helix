@@ -790,6 +790,9 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/users/me/guidelines", apiServer.updateUserGuidelines).Methods(http.MethodPut)
 	authRouter.HandleFunc("/users/me/guidelines-history", apiServer.getUserGuidelinesHistory).Methods(http.MethodGet)
 
+	// User color scheme preference (light/dark) - propagated to GNOME and Zed
+	authRouter.HandleFunc("/users/me/color-scheme", apiServer.updateUserColorScheme).Methods(http.MethodPut)
+
 	// User chat settings (defaults applied when chatting without an app)
 	authRouter.HandleFunc("/users/me/chat-settings", apiServer.getUserChatSettings).Methods(http.MethodGet)
 	authRouter.HandleFunc("/users/me/chat-settings", apiServer.updateUserChatSettings).Methods(http.MethodPut)

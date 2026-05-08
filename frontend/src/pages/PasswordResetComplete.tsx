@@ -17,6 +17,7 @@ import useSnackbar from '../hooks/useSnackbar';
 import useRouter from '../hooks/useRouter';
 import { TypesPasswordResetCompleteRequest } from '../api/api';
 import useThemeConfig from '../hooks/useThemeConfig';
+import useLightTheme from '../hooks/useLightTheme';
 
 const PasswordResetComplete: React.FC = () => {
   const [password, setPassword] = useState('');
@@ -32,6 +33,7 @@ const PasswordResetComplete: React.FC = () => {
   const router = useRouter();
   const apiClient = api.getApiClient();
   const themeConfig = useThemeConfig();
+  const lightTheme = useLightTheme();
 
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
@@ -100,7 +102,7 @@ const PasswordResetComplete: React.FC = () => {
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          background: themeConfig.darkBackgroundImage || `linear-gradient(135deg, ${themeConfig.darkBackgroundColor} 0%, ${themeConfig.neutral800} 100%)`,
+          background: (lightTheme.isLight ? themeConfig.lightBackgroundImage : themeConfig.darkBackgroundImage) || `linear-gradient(135deg, ${lightTheme.backgroundColor} 0%, ${themeConfig.neutral800} 100%)`,
           p: 3,
         }}
       >
@@ -110,8 +112,8 @@ const PasswordResetComplete: React.FC = () => {
             sx={{
               p: 4,
               borderRadius: 2,
-              backgroundColor: themeConfig.darkPanel,
-              border: `1px solid ${themeConfig.darkBorder}`,
+              backgroundColor: lightTheme.panelColor,
+              border: `1px solid ${lightTheme.border}`,
             }}
           >
             <Alert
@@ -137,7 +139,7 @@ const PasswordResetComplete: React.FC = () => {
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          background: themeConfig.darkBackgroundImage || `linear-gradient(135deg, ${themeConfig.darkBackgroundColor} 0%, ${themeConfig.neutral800} 100%)`,
+          background: (lightTheme.isLight ? themeConfig.lightBackgroundImage : themeConfig.darkBackgroundImage) || `linear-gradient(135deg, ${lightTheme.backgroundColor} 0%, ${themeConfig.neutral800} 100%)`,
           p: 3,
         }}
       >
@@ -147,8 +149,8 @@ const PasswordResetComplete: React.FC = () => {
             sx={{
               p: 4,
               borderRadius: 2,
-              backgroundColor: themeConfig.darkPanel,
-              border: `1px solid ${themeConfig.darkBorder}`,
+              backgroundColor: lightTheme.panelColor,
+              border: `1px solid ${lightTheme.border}`,
             }}
           >
           <Typography
@@ -185,7 +187,7 @@ const PasswordResetComplete: React.FC = () => {
               variant="body2"
               sx={{
                 mb: 3,
-                color: themeConfig.darkTextFaded,
+                color: lightTheme.textColorFaded,
                 textAlign: 'center',
               }}
             >
@@ -204,7 +206,7 @@ const PasswordResetComplete: React.FC = () => {
                 mb: 2,
                 '& .MuiOutlinedInput-root': {
                   '& fieldset': {
-                    borderColor: themeConfig.darkBorder,
+                    borderColor: lightTheme.border,
                   },
                   '&:hover fieldset': {
                     borderColor: themeConfig.tealRoot,
@@ -214,13 +216,13 @@ const PasswordResetComplete: React.FC = () => {
                   },
                 },
                 '& .MuiInputLabel-root': {
-                  color: themeConfig.darkTextFaded,
+                  color: lightTheme.textColorFaded,
                 },
                 '& .MuiInputLabel-root.Mui-focused': {
                   color: themeConfig.tealRoot,
                 },
                 '& .MuiOutlinedInput-input': {
-                  color: themeConfig.darkText,
+                  color: lightTheme.textColor,
                 },
               }}
               InputProps={{
@@ -229,7 +231,7 @@ const PasswordResetComplete: React.FC = () => {
                     <IconButton
                       onClick={() => setShowPassword(!showPassword)}
                       edge="end"
-                      sx={{ color: themeConfig.darkTextFaded }}
+                      sx={{ color: lightTheme.textColorFaded }}
                     >
                       {showPassword ? <VisibilityOffIcon /> : <VisibilityIcon />}
                     </IconButton>
@@ -249,7 +251,7 @@ const PasswordResetComplete: React.FC = () => {
                 mb: 3,
                 '& .MuiOutlinedInput-root': {
                   '& fieldset': {
-                    borderColor: themeConfig.darkBorder,
+                    borderColor: lightTheme.border,
                   },
                   '&:hover fieldset': {
                     borderColor: themeConfig.tealRoot,
@@ -259,13 +261,13 @@ const PasswordResetComplete: React.FC = () => {
                   },
                 },
                 '& .MuiInputLabel-root': {
-                  color: themeConfig.darkTextFaded,
+                  color: lightTheme.textColorFaded,
                 },
                 '& .MuiInputLabel-root.Mui-focused': {
                   color: themeConfig.tealRoot,
                 },
                 '& .MuiOutlinedInput-input': {
-                  color: themeConfig.darkText,
+                  color: lightTheme.textColor,
                 },
               }}
               InputProps={{
@@ -274,7 +276,7 @@ const PasswordResetComplete: React.FC = () => {
                     <IconButton
                       onClick={() => setShowPasswordConfirm(!showPasswordConfirm)}
                       edge="end"
-                      sx={{ color: themeConfig.darkTextFaded }}
+                      sx={{ color: lightTheme.textColorFaded }}
                     >
                       {showPasswordConfirm ? <VisibilityOffIcon /> : <VisibilityIcon />}
                     </IconButton>
