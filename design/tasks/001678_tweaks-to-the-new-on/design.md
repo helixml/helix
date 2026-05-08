@@ -50,17 +50,16 @@ This only triggers when `hoverButtonPosition` is set (button is visible) and cur
 
 ## 3. Fix pseudo-highlight truncation spanning code blocks
 
-**Root cause:** `applyHighlight` uses `range.extractContents()` + `range.insertNode(mark)`, which physically moves DOM nodes into a single wrapping `<mark>`. When the range spans a SyntaxHighlighter code block, this disrupts the nested `<span>` structure that SyntaxHighlighter created, causing truncation or breakage.
+**Update during implementation:** Discovery showed `helix` already migrated `applyHighlight` to use the **CSS Custom Highlight API** (`CSS.highlights` + `new Highlight(range)`) — see `DesignReviewContent.tsx:879-899` and the GlobalStyles rule at line 1116. This is non-destructive (no DOM mutation), so the original `extractContents` problem from `helix-4` doesn't apply here.
 
-**Fix:** Replace the single-mark approach with a text-node-walking approach. Walk all text nodes intersecting the range and wrap each selected portion in its own `<mark>`. This leaves the surrounding element structure (including SyntaxHighlighter's spans) intact.
+**Likely root cause now:** The `::highlight(comment-highlight)` rule sets `background-color: #b3d7ff` and `color: #000`, but inside code blocks `react-syntax-highlighter` (Prism, `oneLight` theme) emits `<span>` tokens with **inline `color` styles** (e.g. `color: rgb(...)` for keywords/strings). Inline styles win over the `::highlight()` `color` value in some browser implementations, so the visual contrast disappears inside code — making the highlight look "missing" or "truncated" at the code block boundary even though it is being painted.
 
-- Change `highlightMarkRef` from `useRef<HTMLElement | null>` to `useRef<HTMLElement[]>` (array of marks)
-- New `applyHighlight`: use `document.createTreeWalker(range.commonAncestorContainer, NodeFilter.SHOW_TEXT)`, iterate text nodes, check `range.intersectsNode`, create a clamped sub-range for each, and call `surroundContents(mark)` (works reliably on pure-text ranges)
-- New `removeHighlight`: iterate `highlightMarksRef.current`, call `mark.replaceWith(...mark.childNodes)` on each, then reset the array
+**Fix:** Strengthen the `::highlight(comment-highlight)` rule so it visibly applies inside code blocks. Two practical adjustments:
 
-**CSS consideration:** SyntaxHighlighter tokens use `color` on `<span>` elements. The `.comment-highlight` mark only sets `background-color`, so syntax colors are preserved. If needed, the highlight CSS can use higher specificity to ensure visibility.
+1. Drop the `color` override — keep syntax-token colours intact and rely on `background-color` alone for the highlight effect.
+2. If background also fails to render inside `<pre>` tokens (need to verify in-browser), add a more specific `::highlight()` rule scoped to `pre` / `code` descendants, or move the rule to one with no competing inline `background` from the syntax theme.
 
-**Pattern note:** This codebase uses React MUI with all styling inline via `sx` props and `GlobalStyles`. The `.comment-highlight` class is defined via `GlobalStyles` at line ~1028.
+Verification step in the browser is required before declaring this fixed — open the spec review page, select text spanning a code block, open the comment form, and confirm highlight is visible across all selected text including inside the code.
 
 ## 4. No hover button when cursor is over a comment panel
 
