@@ -3,7 +3,6 @@ package types
 import (
 	"time"
 
-	"github.com/google/uuid"
 	openai "github.com/sashabaranov/go-openai"
 )
 
@@ -28,21 +27,21 @@ type StreamingResponse struct {
 	Done bool   `json:"done"`
 }
 
+// RunnerStatus reports the live state of a connected runner. Sandbox-
+// absorbs-runner pivot trimmed it: AllocatedMemory / Models / GPUMemoryStats
+// fields all served the deleted scheduler. The remaining fields are what
+// the admin UI needs to show liveness + per-GPU inventory.
 type RunnerStatus struct {
-	ID              string               `json:"id"`
-	Created         time.Time            `json:"created"`
-	Updated         time.Time            `json:"updated"`
-	Version         string               `json:"version"`
-	TotalMemory     uint64               `json:"total_memory"`
-	FreeMemory      uint64               `json:"free_memory"`
-	UsedMemory      uint64               `json:"used_memory"`
-	AllocatedMemory uint64               `json:"allocated_memory"` // Memory allocated to slots/workloads
-	GPUCount        int                  `json:"gpu_count"`        // Number of GPUs detected
-	GPUs            []*GPUStatus         `json:"gpus"`             // Per-GPU memory status
-	Labels          map[string]string    `json:"labels"`
-	Models          []*RunnerModelStatus `json:"models"`
-	ProcessStats    interface{}          `json:"process_stats,omitempty"`    // Process tracking and cleanup statistics
-	GPUMemoryStats  *GPUMemoryStats      `json:"gpu_memory_stats,omitempty"` // GPU memory stabilization statistics
+	ID          string            `json:"id"`
+	Created     time.Time         `json:"created"`
+	Updated     time.Time         `json:"updated"`
+	Version     string            `json:"version"`
+	TotalMemory uint64            `json:"total_memory"`
+	FreeMemory  uint64            `json:"free_memory"`
+	UsedMemory  uint64            `json:"used_memory"`
+	GPUCount    int               `json:"gpu_count"`
+	GPUs        []*GPUStatus      `json:"gpus"`
+	Labels      map[string]string `json:"labels"`
 }
 
 // GPUStatus represents the status of an individual GPU
@@ -54,6 +53,13 @@ type GPUStatus struct {
 	ModelName     string `json:"model_name"`     // GPU model name (e.g., "NVIDIA H100 PCIe", "AMD Radeon RX 7900 XTX")
 	DriverVersion string `json:"driver_version"` // GPU driver version (NVIDIA or AMD)
 	SDKVersion    string `json:"sdk_version"`    // GPU SDK version (CUDA for NVIDIA, ROCm for AMD)
+
+	// Sandbox-absorbs-runner pivot fields (AC2 in requirements.md).
+	// Populated by the worker on its periodic status report; consumed by
+	// the API server's profile-compatibility check.
+	Vendor            GPUVendor `json:"vendor,omitempty"`             // "nvidia" | "amd"
+	Architecture      string    `json:"architecture,omitempty"`       // canonical arch from gpuarch (e.g. "hopper")
+	ComputeCapability string    `json:"compute_capability,omitempty"` // NVIDIA only — raw "9.0" / "8.6" etc.
 }
 
 // GPUInfoForEstimation represents GPU information sent from controlplane for memory estimation
@@ -67,15 +73,12 @@ type GPUInfoForEstimation struct {
 	Name          string `json:"name,omitempty"` // GPU model name
 }
 
-type RunnerModelStatus struct {
-	ModelID            string  `json:"model_id"`
-	Runtime            Runtime `json:"runtime"`
-	DownloadInProgress bool    `json:"download_in_progress"`
-	DownloadPercent    int     `json:"download_percent"`
-	Error              string  `json:"error"`
-	Memory             uint64  `json:"memory"` // Memory requirement in bytes
-}
-
+// Sandbox-absorbs-runner pivot: RunnerModelStatus + slot types are gone
+// (the scheduler used them; compose-derived RunnerProfile.Models is the
+// source of truth now). Runtime survives as a string-typed field on
+// Model for DB column compatibility — the operator's compose YAML
+// declares the actual container image, so Runtime's role is downgraded
+// to "annotation" rather than "scheduler input."
 type Runtime string
 
 const (
@@ -85,57 +88,7 @@ const (
 	RuntimeVLLM      Runtime = "vllm"
 )
 
-func (t Runtime) String() string {
-	return string(t)
-}
-
-type CreateRunnerSlotAttributes struct {
-	Runtime                Runtime        `json:"runtime"`
-	Model                  string         `json:"model"`
-	ModelMemoryRequirement uint64         `json:"model_memory_requirement,omitempty"` // Optional: Memory requirement of the model
-	ContextLength          int64          `json:"context_length,omitempty"`           // Optional: Context length to use for the model
-	RuntimeArgs            map[string]any `json:"runtime_args,omitempty"`             // Optional: Runtime-specific arguments
-
-	// GPU allocation from scheduler - authoritative allocation decision
-	GPUIndex             *int           `json:"gpu_index,omitempty"`              // Primary GPU for single-GPU models
-	GPUIndices           []int          `json:"gpu_indices,omitempty"`            // All GPUs used for multi-GPU models
-	TensorParallelSize   int            `json:"tensor_parallel_size,omitempty"`   // Number of GPUs for tensor parallelism (1 = single GPU)
-	MemoryEstimationMeta map[string]any `json:"memory_estimation_meta,omitempty"` // Metadata about memory estimation for tooltips
-}
-
-type CreateRunnerSlotRequest struct {
-	ID         uuid.UUID                  `json:"id"`
-	Attributes CreateRunnerSlotAttributes `json:"attributes"`
-}
-
-type RunnerSlot struct {
-	ID                     uuid.UUID      `json:"id" gorm:"primaryKey;type:uuid"`
-	Created                time.Time      `json:"created" gorm:"autoCreateTime"`
-	Updated                time.Time      `json:"updated" gorm:"autoUpdateTime"`
-	RunnerID               string         `json:"runner_id" gorm:"index;not null"`
-	Runtime                Runtime        `json:"runtime" gorm:"not null"`
-	Model                  string         `json:"model" gorm:"not null"`
-	ModelMemoryRequirement uint64         `json:"model_memory_requirement,omitempty" gorm:"default:0"`
-	ContextLength          int64          `json:"context_length,omitempty"`
-	RuntimeArgs            map[string]any `json:"runtime_args,omitempty" gorm:"type:jsonb;serializer:json"`
-	Version                string         `json:"version"`
-	Active                 bool           `json:"active" gorm:"default:false"`
-	Ready                  bool           `json:"ready" gorm:"default:false"`
-	Status                 string         `json:"status"`
-	ActiveRequests         int64          `json:"active_requests" gorm:"default:0"`
-	MaxConcurrency         int64          `json:"max_concurrency" gorm:"default:1"`
-	GPUIndex               *int           `json:"gpu_index,omitempty"`
-	GPUIndices             []int          `json:"gpu_indices,omitempty" gorm:"type:jsonb;serializer:json"`
-	TensorParallelSize     int            `json:"tensor_parallel_size,omitempty" gorm:"default:0"`
-	CommandLine            string         `json:"command_line,omitempty"`
-	WorkloadData           map[string]any `json:"workload_data,omitempty" gorm:"type:jsonb;serializer:json"`
-	GPUAllocationData      map[string]any `json:"gpu_allocation_data,omitempty" gorm:"type:jsonb;serializer:json"`
-	MemoryEstimationMeta   map[string]any `json:"memory_estimation_meta,omitempty" gorm:"type:jsonb;serializer:json"`
-}
-
-type ListRunnerSlotsResponse struct {
-	Slots []*RunnerSlot `json:"slots"`
-}
+func (t Runtime) String() string { return string(t) }
 
 // RunnerSystemConfigRequest represents system configuration updates sent to runners
 // Currently supports global HF token, but designed to extend for per-org/per-user tokens

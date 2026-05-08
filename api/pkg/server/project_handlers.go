@@ -140,7 +140,7 @@ func (s *HelixAPIServer) getProject(_ http.ResponseWriter, r *http.Request) (*ty
 	// Prune stale sandbox entries from DockerCacheStatus (lazy cleanup on read).
 	// Remove entries for sandboxes that no longer exist in the database.
 	if project.Metadata.DockerCacheStatus != nil && len(project.Metadata.DockerCacheStatus.Sandboxes) > 0 {
-		sandboxes, sbErr := s.Store.ListSandboxes(r.Context())
+		sandboxes, sbErr := s.Store.ListSandboxInstances(r.Context())
 		if sbErr == nil {
 			knownIDs := make(map[string]bool, len(sandboxes))
 			for _, sb := range sandboxes {
@@ -1406,10 +1406,19 @@ func (s *HelixAPIServer) startExploratorySession(_ http.ResponseWriter, r *http.
 				DesktopType:         desktopType,
 			}
 
-			// Add user's API token for git operations
-			if err := s.addUserAPITokenToAgent(r.Context(), zedAgent, user.ID); err != nil {
-				log.Error().Err(err).Str("user_id", user.ID).Msg("Failed to add user API token for restart")
-				return nil, system.NewHTTPError500(fmt.Sprintf("failed to get user API keys: %v", err))
+			// Inject project secrets as environment variables (matching spec task behavior)
+			projectSecrets, err := s.GetProjectSecretsAsEnvVars(r.Context(), projectID)
+			if err != nil {
+				log.Warn().Err(err).Str("project_id", projectID).Msg("Failed to get project secrets for exploratory restart, continuing without them")
+			} else if len(projectSecrets) > 0 {
+				zedAgent.Env = append(zedAgent.Env, projectSecrets...)
+				log.Info().Int("secret_count", len(projectSecrets)).Str("project_id", projectID).Msg("Injected project secrets into exploratory desktop env (restart)")
+			}
+
+			// Add user's API token inside session lock via OnBeforeCreate hook
+			userID := user.ID
+			zedAgent.OnBeforeCreate = func(hookCtx context.Context, a *types.DesktopAgent) error {
+				return s.addUserAPITokenToAgent(hookCtx, a, userID)
 			}
 
 			agentResp, err := s.externalAgentExecutor.StartDesktop(r.Context(), zedAgent)
@@ -1466,6 +1475,7 @@ func (s *HelixAPIServer) startExploratorySession(_ http.ResponseWriter, r *http.
 		LoraDir:        "",
 		Owner:          user.ID,
 		OrganizationID: project.OrganizationID, // Inherit org from project
+		ProjectID:      projectID,              // Required for RBAC authorization on shared projects
 		OwnerType:      types.OwnerTypeUser,
 		Metadata:       sessionMetadata,
 	}
@@ -1561,10 +1571,19 @@ func (s *HelixAPIServer) startExploratorySession(_ http.ResponseWriter, r *http.
 		DesktopType:         desktopType,
 	}
 
-	// Add user's API token for git operations (RBAC enforced)
-	if err := s.addUserAPITokenToAgent(r.Context(), zedAgent, user.ID); err != nil {
-		log.Error().Err(err).Str("user_id", user.ID).Msg("Failed to add user API token")
-		return nil, system.NewHTTPError500(fmt.Sprintf("failed to get user API keys: %v", err))
+	// Inject project secrets as environment variables (matching spec task behavior)
+	projectSecrets, err := s.GetProjectSecretsAsEnvVars(r.Context(), projectID)
+	if err != nil {
+		log.Warn().Err(err).Str("project_id", projectID).Msg("Failed to get project secrets for exploratory session, continuing without them")
+	} else if len(projectSecrets) > 0 {
+		zedAgent.Env = append(zedAgent.Env, projectSecrets...)
+		log.Info().Int("secret_count", len(projectSecrets)).Str("project_id", projectID).Msg("Injected project secrets into exploratory desktop env")
+	}
+
+	// Add user's API token inside session lock via OnBeforeCreate hook
+	exploratoryUserID := user.ID
+	zedAgent.OnBeforeCreate = func(hookCtx context.Context, a *types.DesktopAgent) error {
+		return s.addUserAPITokenToAgent(hookCtx, a, exploratoryUserID)
 	}
 
 	// Start the desktop agent
@@ -2290,7 +2309,7 @@ func (s *HelixAPIServer) deleteDockerCache(_ http.ResponseWriter, r *http.Reques
 	}
 
 	// Send delete to all online sandboxes
-	sandboxes, err := s.Store.ListSandboxes(r.Context())
+	sandboxes, err := s.Store.ListSandboxInstances(r.Context())
 	if err != nil {
 		return nil, system.NewHTTPError500(fmt.Sprintf("failed to list sandboxes: %v", err))
 	}
@@ -2350,7 +2369,7 @@ func (s *HelixAPIServer) getDockerCacheZFSTree(_ http.ResponseWriter, r *http.Re
 		return nil, system.NewHTTPError403(err.Error())
 	}
 
-	sandboxes, err := s.Store.ListSandboxes(r.Context())
+	sandboxes, err := s.Store.ListSandboxInstances(r.Context())
 	if err != nil {
 		return nil, system.NewHTTPError500(fmt.Sprintf("failed to list sandboxes: %v", err))
 	}

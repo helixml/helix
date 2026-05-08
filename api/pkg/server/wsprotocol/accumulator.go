@@ -1,6 +1,58 @@
 package wsprotocol
 
-import "strings"
+import (
+	"encoding/json"
+	"strings"
+
+	"github.com/helixml/helix/api/pkg/util/sanitize"
+	"gorm.io/datatypes"
+)
+
+// RestoreAccumulator rebuilds an accumulator from persisted DB state.
+// If structured response_entries are available, it restores the full
+// message_id→content map with correct types. Otherwise falls back to
+// the legacy Content/LastMessageID/Offset restore which loses structure.
+func RestoreAccumulator(content string, lastMessageID string, offset int, responseEntries datatypes.JSON) *MessageAccumulator {
+	// Try structured restore from response_entries
+	if len(responseEntries) > 0 {
+		var entries []ResponseEntry
+		if err := json.Unmarshal(responseEntries, &entries); err == nil && len(entries) > 0 {
+			acc := &MessageAccumulator{
+				Content:        content,
+				LastMessageID:  lastMessageID,
+				Offset:         offset,
+				contentDirty:   false,
+				messageOrder:   make([]string, 0, len(entries)),
+				messageContent: make(map[string]string, len(entries)),
+				messageType:    make(map[string]string, len(entries)),
+				messageToolName:   make(map[string]string),
+				messageToolStatus: make(map[string]string),
+			}
+			for _, entry := range entries {
+				id := entry.MessageID
+				if id == "" {
+					continue
+				}
+				acc.messageOrder = append(acc.messageOrder, id)
+				acc.messageContent[id] = entry.Content
+				acc.messageType[id] = entry.Type
+				if entry.ToolName != "" {
+					acc.messageToolName[id] = entry.ToolName
+				}
+				if entry.ToolStatus != "" {
+					acc.messageToolStatus[id] = entry.ToolStatus
+				}
+			}
+			if lastMessageID == "" && len(acc.messageOrder) > 0 {
+				acc.LastMessageID = acc.messageOrder[len(acc.messageOrder)-1]
+			}
+			return acc
+		}
+	}
+
+	// No structured entries — start fresh.
+	return &MessageAccumulator{}
+}
 
 // ResponseEntry represents a single typed entry in the response.
 // Used to preserve the structural boundary between assistant text and tool calls.
@@ -36,6 +88,11 @@ type MessageAccumulator struct {
 	LastMessageID string
 	Offset        int // kept for DB backward compat; not used in new logic
 
+	// contentDirty tracks whether Content/Offset need rebuilding.
+	// rebuild() is deferred until Content is actually needed (DB write or
+	// completion) to avoid joining 17 MB of strings on every message.
+	contentDirty bool
+
 	// Ordered list of message IDs (insertion order)
 	messageOrder []string
 	// Map from message_id to its content
@@ -45,6 +102,25 @@ type MessageAccumulator struct {
 	// Map from message_id to tool metadata (name, status) for tool_call entries
 	messageToolName   map[string]string
 	messageToolStatus map[string]string
+
+	// priorMessageContent holds (message_id → content) snapshots of entries
+	// from earlier completed interactions in the same session. Zed's
+	// flush_streaming_throttle replays ALL ACP thread entries on every event,
+	// so on a follow-up turn the new accumulator keeps receiving message_added
+	// events for the previous turn's entries. Without filtering those entries
+	// leak into the new interaction's response_entries — the failure mode
+	// caught by the e2e RESPONSE ENTRIES ISOLATION VALIDATION step.
+	//
+	// Filtering by message_id ALONE was too aggressive: when the wrapper
+	// restarts inside Zed, message_ids reset and are reused for legitimately
+	// new content; dropping them produces an empty interaction that bounces
+	// with "Agent returned empty response" (incident on
+	// ses_01kq8cnnkmww35bacpscbrehn0 / int_01kqjsrhndcpwb9zv068dn7mv9 on
+	// 2026-05-01 — see design/2026-04-30-queue-and-other-stuck-state-bugs.md).
+	// We now also compare content: a replay of a prior entry has identical
+	// content; a renumbered new entry has different content. Drop only on
+	// exact content match.
+	priorMessageContent map[string]string
 }
 
 // AddMessage processes a new content update from Zed.
@@ -63,8 +139,64 @@ func (a *MessageAccumulator) AddMessageWithType(messageID, content, entryType st
 	a.AddMessageWithToolInfo(messageID, content, entryType, "", "")
 }
 
+// SetPriorEntries records (message_id → content) snapshots from earlier
+// interactions in the same session. AddMessage* calls whose (id, content)
+// pair exactly matches a prior entry are dropped as wrapper replays.
+// Idempotent and additive: calling it multiple times unions the maps; later
+// calls for the same id win (last-writer).
+func (a *MessageAccumulator) SetPriorEntries(entries []ResponseEntry) {
+	if len(entries) == 0 {
+		return
+	}
+	if a.priorMessageContent == nil {
+		a.priorMessageContent = make(map[string]string, len(entries))
+	}
+	for _, e := range entries {
+		if e.MessageID == "" {
+			continue
+		}
+		a.priorMessageContent[e.MessageID] = e.Content
+	}
+}
+
+// SetPriorMessageIDs is kept for backwards compat with callers that only had
+// id-level information. New callers should use SetPriorEntries which can also
+// distinguish wrapper replays (same id+content) from wrapper-restart-renumbered
+// new content (same id, different content). When called via this id-only path,
+// we conservatively store an empty string for content — matching only when
+// Zed's replay also happens to be empty content (unusual). Most callers should
+// migrate to SetPriorEntries.
+func (a *MessageAccumulator) SetPriorMessageIDs(ids []string) {
+	if len(ids) == 0 {
+		return
+	}
+	if a.priorMessageContent == nil {
+		a.priorMessageContent = make(map[string]string, len(ids))
+	}
+	for _, id := range ids {
+		if id == "" {
+			continue
+		}
+		if _, exists := a.priorMessageContent[id]; !exists {
+			a.priorMessageContent[id] = ""
+		}
+	}
+}
+
 // AddMessageWithToolInfo processes a new content update with full tool metadata.
 func (a *MessageAccumulator) AddMessageWithToolInfo(messageID, content, entryType, toolName, toolStatus string) {
+	if priorContent, isPrior := a.priorMessageContent[messageID]; isPrior && priorContent == content {
+		// Same (id, content) as an earlier interaction's entry — Zed's
+		// flush_streaming_throttle replayed it. Drop silently. Different
+		// content under the same id means the wrapper restarted and renumbered;
+		// accept it as new content for this interaction.
+		return
+	}
+
+	// Sanitize content to prevent PostgreSQL errors from null bytes in
+	// terminal output or binary data that Zed captures from tool calls.
+	content = sanitize.ForPostgres(content)
+
 	if a.messageContent == nil {
 		a.messageContent = make(map[string]string)
 	}
@@ -76,23 +208,6 @@ func (a *MessageAccumulator) AddMessageWithToolInfo(messageID, content, entryTyp
 	}
 	if a.messageToolStatus == nil {
 		a.messageToolStatus = make(map[string]string)
-	}
-
-	// Migrate legacy state: if we have Content but no messageOrder, this
-	// accumulator was restored from DB (only LastMessageID/Offset persisted).
-	// Treat the existing Content as belonging to LastMessageID so we don't
-	// lose it. This only runs once on first AddMessage after restore.
-	if len(a.messageOrder) == 0 && a.Content != "" && a.LastMessageID != "" {
-		a.messageOrder = []string{a.LastMessageID}
-		a.messageContent[a.LastMessageID] = a.Content[a.Offset:]
-		if a.Offset > 2 {
-			// There was a prefix before this message. We can't recover individual
-			// message_ids for the prefix, so store it under a synthetic key that
-			// sorts before any real message_id.
-			const prefixKey = "\x00__prefix__"
-			a.messageOrder = append([]string{prefixKey}, a.messageOrder...)
-			a.messageContent[prefixKey] = a.Content[:a.Offset-2] // subtract "\n\n"
-		}
 	}
 
 	if _, exists := a.messageContent[messageID]; exists {
@@ -124,7 +239,7 @@ func (a *MessageAccumulator) AddMessageWithToolInfo(messageID, content, entryTyp
 	}
 
 	a.LastMessageID = messageID
-	a.rebuild()
+	a.contentDirty = true
 }
 
 // Entries returns the structured response entries in insertion order,
@@ -155,6 +270,17 @@ func (a *MessageAccumulator) Entries() []ResponseEntry {
 		})
 	}
 	return entries
+}
+
+// Rebuild reconstructs Content and Offset from the accumulated messages.
+// Call this before reading Content (e.g. before a DB write or completion).
+// No-op if content hasn't changed since the last rebuild.
+func (a *MessageAccumulator) Rebuild() {
+	if !a.contentDirty {
+		return
+	}
+	a.rebuild()
+	a.contentDirty = false
 }
 
 // rebuild reconstructs Content by joining all messages in insertion order.

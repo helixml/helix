@@ -41,7 +41,7 @@ func (apiServer *HelixAPIServer) registerSandbox(rw http.ResponseWriter, req *ht
 	}
 	instance.LastSeen = time.Now()
 
-	if err := apiServer.Store.RegisterSandbox(req.Context(), &instance); err != nil {
+	if err := apiServer.Store.RegisterSandboxInstance(req.Context(), &instance); err != nil {
 		log.Error().Err(err).Str("sandbox_id", instance.ID).Msg("Failed to register sandbox")
 		http.Error(rw, "Failed to register sandbox", http.StatusInternalServerError)
 		return
@@ -98,6 +98,11 @@ func (apiServer *HelixAPIServer) sandboxHeartbeat(rw http.ResponseWriter, req *h
 		return
 	}
 
+	// Sandbox-absorbs-runner pivot: if the heartbeat carries inference
+	// fields (GPUs, ProfileStatus, etc.), push the latest state into the
+	// in-memory inference router so /v1/chat/completions can find it.
+	apiServer.refreshInferenceRouterFromHeartbeat(req.Context(), sandboxID, &heartbeat)
+
 	// Store disk usage history for alerting and trends
 	for _, diskMetric := range heartbeat.DiskUsage {
 		history := &types.DiskUsageHistory{
@@ -126,7 +131,7 @@ func (apiServer *HelixAPIServer) sandboxHeartbeat(rw http.ResponseWriter, req *h
 // @Success 200 {array} types.SandboxInstance
 // @Router /api/v1/sandboxes [get]
 func (apiServer *HelixAPIServer) listSandboxes(rw http.ResponseWriter, req *http.Request) {
-	instances, err := apiServer.Store.ListSandboxes(req.Context())
+	instances, err := apiServer.Store.ListSandboxInstances(req.Context())
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to list sandboxes")
 		http.Error(rw, "Failed to list sandboxes", http.StatusInternalServerError)
@@ -148,7 +153,7 @@ func (apiServer *HelixAPIServer) deregisterSandbox(rw http.ResponseWriter, req *
 	vars := mux.Vars(req)
 	sandboxID := vars["id"]
 
-	if err := apiServer.Store.DeregisterSandbox(req.Context(), sandboxID); err != nil {
+	if err := apiServer.Store.DeregisterSandboxInstance(req.Context(), sandboxID); err != nil {
 		log.Error().Err(err).Str("sandbox_id", sandboxID).Msg("Failed to deregister sandbox")
 		http.Error(rw, "Failed to deregister sandbox", http.StatusInternalServerError)
 		return

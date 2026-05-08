@@ -1,0 +1,78 @@
+# Helix runner profile: 8x AMD Instinct MI300X 192GB — DeepSeek-V4-Pro flagship
+#
+# GPU compatibility (operator-declared, stored alongside this YAML):
+#   vendor:        amd
+#   architectures: [cdna3]
+#   model_match:   MI300X
+#   min_vram:      206158430208   # 192 GiB per GPU
+#
+# 8x MI300X 192GB = 1.5 TiB total VRAM. The flagship-model AMD layout:
+# runs DeepSeek-V4-Pro (862B params, FP8) tensor-parallel-8 across all 8
+# MI300X cards via vLLM-on-ROCm.
+#
+# **No desktops on this node.** MI300X is a CDNA-3 compute chip — it has
+# no display engine, no NVENC/VCN-equivalent, and Mesa's `radeonsi` driver
+# refuses to create a graphics context on it (verified live in run #5 of
+# the cloud GPU validation campaign — see
+# helix/design/2026-04-28-cloud-gpu-smoke-results.md). All 8 GPUs are
+# therefore claimed for inference; Hydra will reject any desktop spawn
+# attempt that targets this sandbox (compatibility check returns 422).
+#
+# GPU layout:
+#   GPUs 0-7 — DeepSeek-V4-Pro 862B FP8, tensor-parallel-8
+#               (~108 GB per GPU, leaves ~84 GB per GPU for KV cache + activations)
+#
+# Model choice rationale: DeepSeek-V4-Pro is the current (April 2026)
+# flagship open-weights chat/reasoning model, sized perfectly for an
+# 8-MI300X box. GLM-5.1-FP8 (754B) is an alternative — comment one in,
+# comment the other out as the model registry evolves.
+#
+# Image: `rocm/vllm:latest` ships ROCm-built vLLM. Note its docker
+# entrypoint is `/bin/bash` (unlike `vllm/vllm-openai:latest` which has
+# `vllm serve` as entrypoint), so the compose service needs an explicit
+# `entrypoint: ["vllm", "serve"]` and the model name as the first arg in
+# `command` rather than `--model X` — verified live on Hot Aisle run #5.
+
+services:
+  deepseek-v4-pro:
+    image: rocm/vllm:latest
+    container_name: vllm-deepseek-v4-pro
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - /prod/models:/root/.cache/huggingface
+    environment:
+      - HUGGING_FACE_HUB_TOKEN
+    shm_size: 16g
+    ipc: host
+    devices:
+      - /dev/kfd
+      - /dev/dri/renderD128
+      - /dev/dri/renderD129
+      - /dev/dri/renderD130
+      - /dev/dri/renderD131
+      - /dev/dri/renderD132
+      - /dev/dri/renderD133
+      - /dev/dri/renderD134
+      - /dev/dri/renderD135
+    group_add:
+      - video
+    security_opt:
+      - seccomp:unconfined
+    entrypoint: ["vllm", "serve"]
+    command:
+      - deepseek-ai/DeepSeek-V4-Pro
+      - --trust-remote-code
+      - --served-model-name
+      - deepseek-v4-pro
+      - --tensor-parallel-size
+      - "8"
+      - --max-model-len
+      - "131072"
+      - --gpu-memory-utilization
+      - "0.85"
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - hermes
+      - --reasoning-parser
+      - deepseek_v4

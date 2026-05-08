@@ -3,10 +3,12 @@ import { Dialog, DialogProps, styled } from '@mui/material';
 
 const StyledDarkDialog = styled(Dialog)(({ theme }) => ({
   '& .MuiPaper-root': {
-    background: '#181A20',
-    color: '#F1F1F1',
+    background: theme.palette.mode === 'light' ? '#ffffff' : '#181A20',
+    color: theme.palette.mode === 'light' ? '#333' : '#F1F1F1',
     borderRadius: 16,
-    boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+    boxShadow: theme.palette.mode === 'light'
+      ? '0 8px 32px rgba(0,0,0,0.15)'
+      : '0 8px 32px rgba(0,0,0,0.5)',
     transition: 'all 0.2s ease-in-out',
   },
   '&.MuiDialog-root': {

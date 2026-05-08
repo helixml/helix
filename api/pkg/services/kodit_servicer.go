@@ -30,6 +30,7 @@ type KoditFileResult struct {
 	Path     string  `json:"path"`
 	Language string  `json:"language"`
 	Lines    string  `json:"lines,omitempty"`
+	Page     int     `json:"page,omitempty"` // 1-based page number (for document/vision results)
 	Score    float64 `json:"score"`
 	Preview  string  `json:"preview"`
 	Content  string  `json:"content"` // Full enrichment content (not truncated)
@@ -128,6 +129,7 @@ type KoditServicer interface {
 	SearchSnippets(ctx context.Context, koditRepoID int64, query string, limit int) ([]enrichment.Enrichment, error)
 	GetRepositoryStatus(ctx context.Context, koditRepoID int64) (tracking.RepositoryStatusSummary, error)
 	RescanCommit(ctx context.Context, koditRepoID int64, commitSHA string) error
+	RescanAllRepositories(ctx context.Context) error
 	DeleteRepository(ctx context.Context, koditRepoID int64) error
 
 	// MCP documentation for agent prompts
@@ -147,10 +149,14 @@ type KoditServicer interface {
 
 	// Search tools (mirrors MCP server capabilities)
 	SemanticSearch(ctx context.Context, koditRepoID int64, query string, limit int, language string) ([]KoditFileResult, error)
+	VisualSearch(ctx context.Context, koditRepoID int64, query string, limit int) ([]KoditFileResult, error)
 	KeywordSearch(ctx context.Context, koditRepoID int64, keywords string, limit int, language string) ([]KoditFileResult, error)
 	GrepSearch(ctx context.Context, koditRepoID int64, pattern string, glob string, limit int) ([]KoditGrepResult, error)
 	ListFiles(ctx context.Context, koditRepoID int64, pattern string) ([]KoditFileEntry, error)
 	ReadFile(ctx context.Context, koditRepoID int64, filePath string, startLine, endLine int) (*KoditFileContent, error)
+
+	// Page image rendering
+	RenderPageImage(ctx context.Context, koditRepoID int64, filePath string, page int) ([]byte, error)
 
 	// Chunking configuration
 	UpdateChunkingConfig(ctx context.Context, koditRepoID int64, chunkSize, chunkOverlap, minChunkSize int) error
@@ -188,6 +194,9 @@ func (d *disabledKoditService) GetRepositoryStatus(context.Context, int64) (trac
 func (d *disabledKoditService) RescanCommit(context.Context, int64, string) error {
 	return errors.New("kodit service not enabled")
 }
+func (d *disabledKoditService) RescanAllRepositories(context.Context) error {
+	return errors.New("kodit service not enabled")
+}
 func (d *disabledKoditService) DeleteRepository(context.Context, int64) error {
 	return errors.New("kodit service not enabled")
 }
@@ -218,6 +227,9 @@ func (d *disabledKoditService) GetWikiPage(context.Context, int64, string) (*Kod
 func (d *disabledKoditService) SemanticSearch(context.Context, int64, string, int, string) ([]KoditFileResult, error) {
 	return nil, errors.New("kodit service not enabled")
 }
+func (d *disabledKoditService) VisualSearch(context.Context, int64, string, int) ([]KoditFileResult, error) {
+	return nil, errors.New("kodit service not enabled")
+}
 func (d *disabledKoditService) KeywordSearch(context.Context, int64, string, int, string) ([]KoditFileResult, error) {
 	return nil, errors.New("kodit service not enabled")
 }
@@ -234,6 +246,9 @@ func (d *disabledKoditService) ListAllTasks(context.Context, int, int) ([]KoditP
 	return nil, 0, errors.New("kodit service not enabled")
 }
 func (d *disabledKoditService) ActiveTasks(context.Context) ([]KoditActiveTask, error) {
+	return nil, errors.New("kodit service not enabled")
+}
+func (d *disabledKoditService) RenderPageImage(context.Context, int64, string, int) ([]byte, error) {
 	return nil, errors.New("kodit service not enabled")
 }
 func (d *disabledKoditService) UpdateChunkingConfig(context.Context, int64, int, int, int) error {

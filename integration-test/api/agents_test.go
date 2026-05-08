@@ -181,6 +181,12 @@ func (suite *AgentTestSuite) TestAgent_CurrencyExchange() {
 	suite.Require().Equal(1, len(apiKeys))
 
 	resp, err := chatCompletions(suite.T(), apiKeys[0].Key, &openai.ChatCompletionRequest{
+		// Model must be set explicitly: empty model on the helix default
+		// provider gets resolved to "llama3:instruct" by ProcessModelName,
+		// which then fails the assertProviderServesModel fence in
+		// controller.getClient. The agent code uses the assistant's
+		// GenerationModel internally; this only satisfies the routing fence.
+		Model: "openai/gpt-4o-mini",
 		Messages: []openai.ChatCompletionMessage{
 			{
 				Role:    "user",
@@ -266,6 +272,8 @@ func (suite *AgentTestSuite) TestAgent_BasicKnowledge() {
 	suite.Require().Equal(1, len(apiKeys))
 
 	resp, err := chatCompletions(suite.T(), apiKeys[0].Key, &openai.ChatCompletionRequest{
+		// See note in TestAgent_CurrencyExchange about why Model must be set.
+		Model: "openai/gpt-4o-mini",
 		Messages: []openai.ChatCompletionMessage{
 			{
 				Role:    "user",

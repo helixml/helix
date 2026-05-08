@@ -407,6 +407,7 @@ func (s *HelixAPIServer) fetchRepositoriesWithPAT(ctx context.Context, req types
 				Description:   repo.GetDescription(),
 				Private:       repo.GetPrivate(),
 				DefaultBranch: repo.GetDefaultBranch(),
+				CanWrite:      github.HasWriteAccess(repo),
 			})
 		}
 
@@ -428,6 +429,7 @@ func (s *HelixAPIServer) fetchRepositoriesWithPAT(ctx context.Context, req types
 				Description:   project.Description,
 				Private:       project.Visibility != "public",
 				DefaultBranch: project.DefaultBranch,
+				CanWrite:      true, // GitLab permission introspection not yet wired up; preserve prior behaviour
 			})
 		}
 
@@ -466,6 +468,7 @@ func (s *HelixAPIServer) fetchRepositoriesWithPAT(ctx context.Context, req types
 				HTMLURL:       htmlURL,
 				Private:       true,
 				DefaultBranch: defaultBranch,
+				CanWrite:      true, // ADO permission introspection not yet wired up; preserve prior behaviour
 			})
 		}
 
@@ -487,6 +490,7 @@ func (s *HelixAPIServer) fetchRepositoriesWithPAT(ctx context.Context, req types
 				Description:   repo.Description,
 				Private:       repo.IsPrivate,
 				DefaultBranch: repo.MainBranch,
+				CanWrite:      true, // Bitbucket permission introspection not yet wired up; preserve prior behaviour
 			})
 		}
 

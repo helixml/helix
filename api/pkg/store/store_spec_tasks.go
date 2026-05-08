@@ -142,6 +142,70 @@ func (s *PostgresStore) UpdateSpecTask(ctx context.Context, task *types.SpecTask
 	return nil
 }
 
+// TransitionSpecTaskStatus atomically updates a spec task's status, but only if its
+// current status is in fromStatuses. Returns true if the row was updated (this caller
+// won the race), false if no row matched (another caller already transitioned).
+//
+// This collapses the read-check-write pattern (GetSpecTask → check status →
+// UpdateSpecTask) into a single SQL statement, eliminating the TOCTOU race window.
+// extraFields lets callers set additional columns in the same UPDATE; status,
+// status_updated_at, and updated_at are always set.
+func (s *PostgresStore) TransitionSpecTaskStatus(
+	ctx context.Context,
+	taskID string,
+	fromStatuses []types.SpecTaskStatus,
+	newStatus types.SpecTaskStatus,
+	extraFields map[string]any,
+) (bool, error) {
+	if taskID == "" {
+		return false, fmt.Errorf("task ID is required")
+	}
+	if len(fromStatuses) == 0 {
+		return false, fmt.Errorf("at least one from-status is required")
+	}
+
+	now := time.Now()
+	updates := map[string]any{
+		"status":            newStatus,
+		"status_updated_at": now,
+		"updated_at":        now,
+	}
+	for k, v := range extraFields {
+		updates[k] = v
+	}
+
+	fromStrs := make([]string, len(fromStatuses))
+	for i, st := range fromStatuses {
+		fromStrs[i] = string(st)
+	}
+
+	result := s.gdb.WithContext(ctx).
+		Model(&types.SpecTask{}).
+		Where("id = ? AND status IN ?", taskID, fromStrs).
+		Updates(updates)
+
+	if result.Error != nil {
+		return false, fmt.Errorf("failed to transition spec task status: %w", result.Error)
+	}
+	if result.RowsAffected == 0 {
+		return false, nil
+	}
+
+	updated, err := s.GetSpecTask(ctx, taskID)
+	if err != nil {
+		log.Warn().Err(err).Str("task_id", taskID).Msg("Transitioned spec task but failed to re-fetch for notification")
+		return true, nil
+	}
+
+	log.Info().
+		Str("task_id", taskID).
+		Str("new_status", string(newStatus)).
+		Msg("Atomically transitioned spec task status")
+
+	_ = s.notifyTaskUpdates(ctx, StoreEventOperationUpdated, updated)
+	return true, nil
+}
+
 func syncSpecTaskDependsOn(ctx context.Context, tx *gorm.DB, task *types.SpecTask) error {
 	if task.DependsOn == nil {
 		return nil

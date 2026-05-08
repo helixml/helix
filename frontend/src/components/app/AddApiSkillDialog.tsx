@@ -37,7 +37,7 @@ import DarkDialog from '../dialog/DarkDialog';
 import useLightTheme from '../../hooks/useLightTheme'
 import useApi from '../../hooks/useApi';
 import useAccount from '../../hooks/useAccount';
-import yaml from 'js-yaml';
+import { parse as yamlParse } from 'yaml';
 import { PROVIDER_ICONS, PROVIDER_COLORS } from '../icons/ProviderIcons';
 
 // Example skills
@@ -133,7 +133,7 @@ const parseActionsFromSchema = (schema: string): IToolApiAction[] => {
   } catch (jsonError) {
     // If JSON parsing fails, try parsing as YAML
     try {
-      parsedSchema = yaml.load(schema);
+      parsedSchema = yamlParse(schema);
     } catch (yamlError) {
       console.error('Failed to parse schema as JSON or YAML:', jsonError, yamlError);
       return [];
@@ -382,7 +382,7 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
         // loaded yaml schema should have several properties:
         // - key "paths" should have at least one element
         // - it should have "openapi" with a version number      
-        const yamlSchema = yaml.load(schema) as { paths?: any; openapi?: string };
+        const yamlSchema = yamlParse(schema) as { paths?: any; openapi?: string };
         if (!yamlSchema.paths || !yamlSchema.openapi) {
           setSchemaError('Schema must be valid OpenAPI 3.0.0');
           return false;
@@ -682,7 +682,7 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
               onClose={handleMenuClose}
               PaperProps={{
                 sx: {
-                  bgcolor: '#23262F',
+                  bgcolor: lightTheme.highlightColor,
                   color: '#F1F1F1',
                   '& .MuiMenuItem-root': {
                     '&:hover': {
@@ -1101,7 +1101,7 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
           </Typography>
           <List>
             {skill.apiSkill.requiredParameters.map((param, index) => (
-              <ListItem key={index} alignItems="flex-start" sx={{ background: '#181A20', borderRadius: 2, mb: 1 }}>
+              <ListItem key={index} alignItems="flex-start" sx={{ background: lightTheme.panelColor, borderRadius: 2, mb: 1 }}>
                 <Box sx={{ flex: 1, mb: 2 }}>
                   <Typography variant="subtitle2" sx={{ mb: 0.5, color: '#F1F1F1' }}>
                     {param.name}
@@ -1161,7 +1161,7 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
           <Typography variant="subtitle2" sx={{ color: '#A0AEC0', mb: 1 }}>
             Server URL:
           </Typography>
-          <Typography variant="body1" sx={{ color: '#F1F1F1', fontFamily: 'monospace', bgcolor: '#23262F', p: 1, borderRadius: 1 }}>
+          <Typography variant="body1" sx={{ color: '#F1F1F1', fontFamily: 'monospace', bgcolor: lightTheme.highlightColor, p: 1, borderRadius: 1 }}>
             {skill.apiSkill.url}
           </Typography>
         </Box>
@@ -1192,8 +1192,8 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
           overflow: 'hidden'
         }}>
           <Box sx={{ 
-            bgcolor: '#23262F', 
-            p: 2, 
+            bgcolor: lightTheme.highlightColor,
+            p: 2,
             borderBottom: '1px solid #353945',
             display: 'flex',
             alignItems: 'center',
@@ -1209,7 +1209,7 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
           
           <Box sx={{ maxHeight: '400px', overflow: 'auto' }}>
             <Box component="table" sx={{ width: '100%', borderCollapse: 'collapse' }}>
-              <Box component="thead" sx={{ bgcolor: '#181A20' }}>
+              <Box component="thead" sx={{ bgcolor: lightTheme.panelColor }}>
                 <Box component="tr">
                   <Box component="th" sx={{ 
                     p: 2, 
@@ -1250,7 +1250,7 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
                     title={action.description || ''}
                   >
                     <Box component="tr" sx={{ 
-                      '&:hover': { bgcolor: '#23262F' },
+                      '&:hover': { bgcolor: lightTheme.highlightColor },
                       borderBottom: index < parsedActions.length - 1 ? '1px solid #353945' : 'none'
                     }}>
                       <Box component="td" sx={{ p: 2, verticalAlign: 'top' }}>
@@ -1380,7 +1380,7 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
           </Box>
         </Box>
       </DialogContent>
-      <DialogActions sx={{ background: '#181A20', borderTop: '1px solid #23262F', flexDirection: 'column', alignItems: 'stretch' }}>
+      <DialogActions sx={{ background: lightTheme.panelColor, borderTop: lightTheme.border, flexDirection: 'column', alignItems: 'stretch' }}>
         {error && (
           <Box sx={{ width: '100%', pl: 2, pr: 2, mb: 3 }}>
             <Alert variant="outlined" severity="error" sx={{ width: '100%' }}>

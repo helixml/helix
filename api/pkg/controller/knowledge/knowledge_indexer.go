@@ -14,6 +14,7 @@ import (
 	"github.com/rs/zerolog/log"
 	"gopkg.in/yaml.v3"
 
+	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/data"
 	"github.com/helixml/helix/api/pkg/dataprep/text"
 	"github.com/helixml/helix/api/pkg/filestore"
@@ -87,8 +88,7 @@ func (r *Reconciler) index(ctx context.Context) error {
 						Size:            k.Size,
 						State:           types.KnowledgeStatePending,
 						Message:         "waiting for files to be uploaded",
-						EmbeddingsModel: r.config.RAG.PGVector.EmbeddingsModel,
-						Provider:        string(r.config.RAG.DefaultRagProvider),
+						Provider:        config.RAGProviderName,
 					})
 					return
 				}
@@ -104,8 +104,7 @@ func (r *Reconciler) index(ctx context.Context) error {
 					Size:            k.Size,
 					State:           types.KnowledgeStateError,
 					Message:         err.Error(),
-					EmbeddingsModel: r.config.RAG.PGVector.EmbeddingsModel,
-					Provider:        string(r.config.RAG.DefaultRagProvider),
+					Provider:        config.RAGProviderName,
 				})
 				return
 			}
@@ -207,8 +206,7 @@ func (r *Reconciler) indexKnowledge(ctx context.Context, k *types.Knowledge, ver
 			State:           types.KnowledgeStateError,
 			Message:         err.Error(),
 			CrawledSources:  k.CrawledSources,
-			EmbeddingsModel: r.config.RAG.PGVector.EmbeddingsModel,
-			Provider:        string(r.config.RAG.DefaultRagProvider),
+			Provider:        config.RAGProviderName,
 		})
 
 		return fmt.Errorf("indexing failed, error: %w", err)
@@ -243,8 +241,7 @@ func (r *Reconciler) indexKnowledge(ctx context.Context, k *types.Knowledge, ver
 		Size:            k.Size,
 		State:           types.KnowledgeStateReady,
 		CrawledSources:  k.CrawledSources,
-		EmbeddingsModel: r.config.RAG.PGVector.EmbeddingsModel,
-		Provider:        string(r.config.RAG.DefaultRagProvider),
+		Provider:        config.RAGProviderName,
 	})
 	if err != nil {
 		log.Warn().
@@ -302,10 +299,11 @@ func (r *Reconciler) indexKnowledgeWithKodit(ctx context.Context, ki rag.KoditIn
 		return fmt.Errorf("failed to update progress: %v", err)
 	}
 
-	dataEntityID := types.GetDataEntityID(k.ID, version)
+	dataEntityID := types.GetDataEntityID(k.ID)
 	log.Info().
 		Str("knowledge_id", k.ID).
 		Str("data_entity_id", dataEntityID).
+		Str("version", version).
 		Str("local_path", localPath).
 		Msg("indexing knowledge with kodit directory mode")
 
@@ -318,7 +316,7 @@ func (r *Reconciler) indexKnowledgeWithKodit(ctx context.Context, ki rag.KoditIn
 			Version:     version,
 			State:       types.KnowledgeStateError,
 			Message:     err.Error(),
-			Provider:    string(r.config.RAG.DefaultRagProvider),
+			Provider:    config.RAGProviderName,
 		})
 		return fmt.Errorf("kodit directory registration failed: %w", err)
 	}
@@ -378,7 +376,7 @@ func (r *Reconciler) indexKnowledgeWithKodit(ctx context.Context, ki rag.KoditIn
 		KnowledgeID: k.ID,
 		Version:     version,
 		State:       types.KnowledgeStateIndexing,
-		Provider:    string(r.config.RAG.DefaultRagProvider),
+		Provider:    config.RAGProviderName,
 	})
 	if err != nil {
 		log.Warn().Err(err).Str("knowledge_id", k.ID).Msg("failed to create kodit knowledge version")
@@ -451,23 +449,15 @@ func (r *Reconciler) deleteOldVersions(ctx context.Context, k *types.Knowledge) 
 	return nil
 }
 
-// deleteKnowledgeVersion deletes the knowledge data from the vector DB and the version record from the
-// postgres database
-func (r *Reconciler) deleteKnowledgeVersion(ctx context.Context, k *types.Knowledge, v *types.KnowledgeVersion) error {
-	ragClient := r.getRagClient(k)
-
-	err := ragClient.Delete(ctx, &types.DeleteIndexRequest{
-		DataEntityID: v.GetDataEntityID(),
-	})
-	if err != nil {
-		return fmt.Errorf("failed to delete knowledge version from vector DB, error: %w", err)
-	}
-
-	err = r.store.DeleteKnowledgeVersion(ctx, v.ID)
-	if err != nil {
+// deleteKnowledgeVersion removes an old knowledge_version row. Versions are
+// just a history log of scan runs; the live RAG state (kodit repository,
+// filestore contents, embeddings) belongs to the per-knowledge data_entity
+// and must NOT be touched by version pruning — doing so would tear down
+// state that newer versions still depend on.
+func (r *Reconciler) deleteKnowledgeVersion(ctx context.Context, _ *types.Knowledge, v *types.KnowledgeVersion) error {
+	if err := r.store.DeleteKnowledgeVersion(ctx, v.ID); err != nil {
 		return fmt.Errorf("failed to delete knowledge version, error: %w", err)
 	}
-
 	return nil
 }
 
@@ -535,7 +525,7 @@ func (r *Reconciler) indexDataDirectly(ctx context.Context, k *types.Knowledge, 
 		}
 
 		err := ragClient.Index(ctx, &types.SessionRAGIndexChunk{
-			DataEntityID:    types.GetDataEntityID(k.ID, version),
+			DataEntityID:    types.GetDataEntityID(k.ID),
 			Filename:        d.Source,
 			Source:          d.Source,
 			DocumentID:      getDocumentID(d.Data),
@@ -656,7 +646,7 @@ func convertChunksIntoBatches(chunks []*text.DataPrepTextSplitterChunk, batchSiz
 	return batches
 }
 
-// convertTextSplitterChunks converts the haystack chunks to RAG index chunks
+// convertTextSplitterChunks converts the text splitter chunks to RAG index chunks
 func (r *Reconciler) convertTextSplitterChunks(ctx context.Context, k *types.Knowledge, version string, chunks []*text.DataPrepTextSplitterChunk) []*types.SessionRAGIndexChunk {
 	indexChunks := make([]*types.SessionRAGIndexChunk, 0, len(chunks))
 
@@ -727,7 +717,7 @@ func (r *Reconciler) convertTextSplitterChunks(ctx context.Context, k *types.Kno
 		}
 
 		indexChunks = append(indexChunks, &types.SessionRAGIndexChunk{
-			DataEntityID:    types.GetDataEntityID(k.ID, version),
+			DataEntityID:    types.GetDataEntityID(k.ID),
 			Filename:        chunk.Filename,
 			Source:          chunk.Filename, // For backwards compatibility
 			DocumentID:      chunk.DocumentID,

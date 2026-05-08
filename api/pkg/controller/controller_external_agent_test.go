@@ -70,7 +70,6 @@ func TestRunExternalAgentBlocking(t *testing.T) {
 	mu := &sync.Mutex{}
 	channelsByRequestID := map[string]testExternalAgentChannels{}
 	cleanupCalled := false
-	var waitingSessionID string
 	var waitingInteractionID string
 	var mappedRequestID string
 	var mappedSessionID string
@@ -106,8 +105,7 @@ func TestRunExternalAgentBlocking(t *testing.T) {
 		CleanupResponseChannel: func(_ string, _ string) {
 			cleanupCalled = true
 		},
-		SetWaitingInteraction: func(sessionID, interactionID string) {
-			waitingSessionID = sessionID
+		SetRequestInteractionMapping: func(requestID, interactionID string) {
 			waitingInteractionID = interactionID
 		},
 		SetRequestSessionMapping: func(requestID, sessionID string) {
@@ -133,7 +131,6 @@ func TestRunExternalAgentBlocking(t *testing.T) {
 	require.NotNil(t, result)
 	assert.Equal(t, "full response from db", result.FullResponse)
 	assert.NotEmpty(t, result.RequestID)
-	assert.Equal(t, "session-1", waitingSessionID)
 	assert.Equal(t, "interaction-1", waitingInteractionID)
 	assert.Equal(t, "session-1", mappedSessionID)
 	assert.Equal(t, result.RequestID, mappedRequestID)
@@ -216,7 +213,7 @@ func TestRunExternalAgentStreaming(t *testing.T) {
 			mu.Unlock()
 		},
 		CleanupResponseChannel:   func(_ string, _ string) {},
-		SetWaitingInteraction:    func(_, _ string) {},
+		SetRequestInteractionMapping:    func(_, _ string) {},
 		SetRequestSessionMapping: func(_, _ string) {},
 	})
 
@@ -288,7 +285,7 @@ func TestRunExternalAgentErrorPaths(t *testing.T) {
 			SendCommand:               func(_ string, _ types.ExternalAgentCommand) error { return nil },
 			StoreResponseChannel:      func(_ string, _ string, _ chan string, _ chan bool, _ chan error) {},
 			CleanupResponseChannel:    func(_ string, _ string) {},
-			SetWaitingInteraction:     func(_, _ string) {},
+			SetRequestInteractionMapping:     func(_, _ string) {},
 			SetRequestSessionMapping:  func(_, _ string) {},
 		})
 
@@ -342,7 +339,7 @@ func TestRunExternalAgentErrorPaths(t *testing.T) {
 			},
 			StoreResponseChannel:   func(_ string, _ string, _ chan string, _ chan bool, _ chan error) {},
 			CleanupResponseChannel: func(_ string, _ string) {},
-			SetWaitingInteraction:  func(_, _ string) {},
+			SetRequestInteractionMapping:  func(_, _ string) {},
 			SetRequestSessionMapping: func(_, _ string) {
 			},
 		})

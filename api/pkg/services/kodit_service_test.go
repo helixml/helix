@@ -50,31 +50,10 @@ func TestDisabledServiceMethods(t *testing.T) {
 	}
 }
 
-func TestInputValidation(t *testing.T) {
-	svc := &KoditService{enabled: true}
-	ctx := t.Context()
-
-	for _, tc := range []struct {
-		name string
-		fn   func() error
-	}{
-		{"GetEnrichment empty ID", func() error { _, e := svc.GetEnrichment(ctx, ""); return e }},
-		{"GetEnrichment non-numeric ID", func() error { _, e := svc.GetEnrichment(ctx, "not-a-number"); return e }},
-		{"RescanCommit empty SHA", func() error { return svc.RescanCommit(ctx, 1, "") }},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			if tc.fn() == nil {
-				t.Error("expected error")
-			}
-		})
-	}
-
-	// SearchSnippets with empty query returns nil, nil (not an error).
-	results, err := svc.SearchSnippets(ctx, 1, "", 20)
-	if err != nil || results != nil {
-		t.Errorf("SearchSnippets empty query: want (nil, nil), got (%v, %v)", results, err)
-	}
-}
+// Input-validation tests that previously forced enabled=true without a real
+// client are gone: the service now derives enabled state from the presence of
+// the underlying *kodit.Client, so exercising validation paths requires a
+// live client (covered by integration tests).
 
 func TestEnrichmentFiltering(t *testing.T) {
 	all := []enrichment.Enrichment{
