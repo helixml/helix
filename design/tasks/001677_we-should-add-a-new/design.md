@@ -3,9 +3,13 @@
 ## Overview
 
 Three improvements to the notification system:
-1. A new `pr_opened` attention event type, triggered when Helix creates a PR, with a click action that opens the external PR URL in a new tab.
+1. PR-opened notification: emit `pr_ready` *immediately* when Helix creates a PR (instead of waiting for the orchestrator polling loop to detect it), and make clicking a `pr_ready` notification jump straight to the external PR URL in a new tab.
 2. Auto-acknowledging notifications when a user clicks a browser/desktop notification to navigate within Helix.
-3. Fix missing `specs_pushed` notifications: the two real code paths that transition a task to SpecReview never send a notification; the function that does (`HandleSpecGenerationComplete`) is dead code.
+3. Fix missing `specs_pushed` notifications on the orchestrator-driven SpecReview transition (the git-push path was already correct).
+
+### Why no new `pr_opened` event type
+
+We initially added a separate `pr_opened` type, but it duplicated `pr_ready` — same metadata, near-identical title/description, same trigger semantics ("a PR exists for this task"). When Helix creates a PR, both would fire (the orchestrator picks it up later regardless), giving the user two notifications for one event. Reverted to a single `pr_ready` and just made it fire earlier + link externally. Idempotency on PR ID means the orchestrator's later emission collapses with the workflow handler's immediate one.
 
 ---
 
