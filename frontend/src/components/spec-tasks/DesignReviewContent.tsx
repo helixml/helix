@@ -261,9 +261,6 @@ export default function DesignReviewContent({
 
   const ALL_TABS: DocumentType[] = ["requirements", "technical_design", "implementation_plan"];
   const allTabsViewed = ALL_TABS.every((t) => viewedTabs.has(t));
-  const unviewedTabNames = ALL_TABS
-    .filter((t) => !viewedTabs.has(t))
-    .map((t) => DOCUMENT_LABELS[t]);
 
   // Memoize document content
   const documentContent = useMemo(() => {
@@ -308,17 +305,24 @@ export default function DesignReviewContent({
     }
   }, [review]);
 
-  // Invalidate viewed tabs when content changes
+  // Invalidate viewed tabs when content changes. The active tab is exempt:
+  // the user is currently looking at it, so we refresh its snapshot in place
+  // rather than flagging it unread.
   useEffect(() => {
     if (!review) return;
     const tabs: DocumentType[] = ["requirements", "technical_design", "implementation_plan"];
     const invalidated: DocumentType[] = [];
     for (const tab of tabs) {
       const snapshot = viewedContentRef.current.get(tab);
-      if (snapshot !== undefined && snapshot !== getTabContent(tab)) {
-        invalidated.push(tab);
-        viewedContentRef.current.delete(tab);
+      if (snapshot === undefined) continue;
+      if (snapshot === getTabContent(tab)) continue;
+
+      if (tab === activeTab) {
+        viewedContentRef.current.set(tab, getTabContent(tab));
+        continue;
       }
+      invalidated.push(tab);
+      viewedContentRef.current.delete(tab);
     }
     if (invalidated.length > 0) {
       setViewedTabs((prev) => {
@@ -327,7 +331,7 @@ export default function DesignReviewContent({
         return next;
       });
     }
-  }, [review?.requirements_spec, review?.technical_design, review?.implementation_plan]);
+  }, [review?.requirements_spec, review?.technical_design, review?.implementation_plan, activeTab]);
 
   // Handle tab change
   const handleTabChange = (newTab: DocumentType) => {
@@ -336,6 +340,18 @@ export default function DesignReviewContent({
     viewedContentRef.current.set(newTab, getTabContent(newTab));
     if (documentRef.current) {
       documentRef.current.scrollTop = 0;
+    }
+  };
+
+  // Jump to the next unread tab in canonical order, wrapping past the end.
+  const handleNextDocument = () => {
+    const startIdx = ALL_TABS.indexOf(activeTab);
+    for (let i = 1; i <= ALL_TABS.length; i++) {
+      const candidate = ALL_TABS[(startIdx + i) % ALL_TABS.length];
+      if (!viewedTabs.has(candidate)) {
+        handleTabChange(candidate);
+        return;
+      }
     }
   };
 
@@ -1577,7 +1593,8 @@ export default function DesignReviewContent({
             setShowSubmitDialog(true);
           }}
           allTabsViewed={allTabsViewed}
-          unviewedTabNames={unviewedTabNames}
+          hasNextDocument={!allTabsViewed}
+          onNextDocument={handleNextDocument}
           onReject={() => setShowRejectDialog(true)}
           onStartImplementation={handleStartImplementation}
         />
