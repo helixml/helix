@@ -29,8 +29,7 @@ config.ContextServers["chrome-devtools"] = ContextServerConfig{
     Command: "npx",
     Args: []string{
         "chrome-devtools-mcp@latest",
-        "--viewport", "1920x1080",
-        "--headless",
+        "--viewport", "1600x1080",
     },
     Env: map[string]string{
         "CHROME_PATH": "/usr/bin/google-chrome-stable",
@@ -38,7 +37,9 @@ config.ContextServers["chrome-devtools"] = ContextServerConfig{
 }
 ```
 
-Note: `CHROME_PATH` stays as an env var — Puppeteer reads it to locate the Chrome binary.
+Notes:
+- `CHROME_PATH` stays as an env var — Puppeteer reads it to locate the Chrome binary
+- Do NOT add `--headless` — Helix Desktop is a visible environment where the user watches the browser. Chrome should remain visible so the user can see what the AI agent is doing. The old `CHROME_DEVTOOLS_MCP_HEADLESS=true` env var was never actually read, so Chrome has always been launching visible (the correct behavior)
 
 ## Key Findings
 
@@ -47,3 +48,9 @@ Note: `CHROME_PATH` stays as an env var — Puppeteer reads it to locate the Chr
 - `--headless` adds `--screen-info={3840x2160}` to Chrome's args (for large headless canvas)
 - `CHROME_PATH` IS read by Puppeteer internally, so it remains as an env var
 - The `CHROME_DEVTOOLS_MCP_VIEWPORT` and `CHROME_DEVTOOLS_MCP_HEADLESS` env vars are currently set system-wide but have no effect
+
+## Implementation Notes
+
+- Used 1600x1080 instead of 1920x1080 so Zed remains visible behind Chrome on a 1920x1080 screen
+- Tested `resize_page` (same underlying `page.resize()` API as `--viewport`) on the GNOME desktop — confirmed it works without needing GNOME window manager interaction
+- Default Chrome viewport without `--viewport` was 921x896 (too narrow for most desktop-view sites)

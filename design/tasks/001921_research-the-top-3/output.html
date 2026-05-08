@@ -1,0 +1,31 @@
+<h2>Top 3 Emerging Trends in MLOps — Q2 2026</h2>
+
+<p>Q2 2026 marks a clear inflection point: MLOps is no longer about shipping models, it is about shipping <strong>governed, multi-model agent systems</strong> that hold up under production traffic and regulator scrutiny. Three trends stand out this quarter.</p>
+
+<h3>1. Governance-first enterprise agent platforms</h3>
+
+<p>The basic agent loop — model, tools, reasoning, action — is now considered table stakes. The hard problem in Q2 2026 is wrapping that loop in <strong>identity, audit, and access control</strong> so it can be deployed against real enterprise data. Databricks' <em>Agent Bricks</em>, announced in April, exemplifies the pattern: a single platform unifying multi-model routing, Unity Catalog–backed governance, and the Unity AI Gateway as a control plane for both data and external tools. Notably, 63% of Databricks customers now route tasks across <em>two or more</em> model families, confirming that the era of vendor lock-in to a single foundation model is ending. Expect every major MLOps vendor to ship a comparable governed-agent layer this quarter.</p>
+
+<ul>
+  <li>Source: <a href="https://www.databricks.com/blog/agent-bricks-governed-enterprise-agent-platform">Agent Bricks: The Governed Enterprise Agent Platform — Databricks Blog</a></li>
+</ul>
+
+<h3>2. Compositional agent evaluation and failure-mode benchmarks</h3>
+
+<p>As agents move into production, leaderboard-style accuracy scores are giving way to <strong>stage-wise failure analysis</strong>: where exactly in the trace did the agent break? IBM Research's <em>VAKRA</em> benchmark, published on the Hugging Face blog in April 2026, is the most cited example. It decomposes agent runs into tool selection, argument specification, argument values, and response synthesis, and isolates failures at each stage across API chaining, multi-hop reasoning, and policy-constrained tasks. The headline finding — that frontier models still degrade sharply on multi-hop tasks with policy constraints — is reshaping how teams write evals. Expect <em>execution-trace evaluation</em> to become the new default in MLOps tooling, replacing single-shot scoring.</p>
+
+<ul>
+  <li>Source: <a href="https://huggingface.co/blog/ibm-research/vakra-benchmark-analysis">Inside VAKRA: Reasoning, Tool Use, and Failure Modes of Agents — Hugging Face Blog (IBM Research)</a></li>
+</ul>
+
+<h3>3. Renewed Model Risk Management for AI in regulated industries</h3>
+
+<p>Q2 2026 brings the <strong>revised interagency Model Risk Management (MRM) guidance</strong> for U.S. banking, the first major update in over a decade. The new guidance explicitly extends validation, ongoing monitoring, and model-inventory requirements to <em>generative and agentic AI systems</em> — closing a gap that fintech and bank ML teams had been operating in informally. The practical effect is that MLOps platforms now need first-class support for prompt and tool inventories, lineage from training data through deployed agent behavior, and continuous evidence collection for examiners. This is rapidly becoming a buying criterion across financial services, insurance, and healthcare.</p>
+
+<ul>
+  <li>Source: <a href="https://www.databricks.com/blog/model-risk-management-2026-bankers-guide-revised-interagency-guidance">Model Risk Management in 2026: A Banker's Guide to the Revised Interagency Guidance — Databricks Blog</a></li>
+</ul>
+
+<h3>What to watch next</h3>
+
+<p>The common thread across all three trends is <strong>operational maturity</strong>: governed control planes, trace-level evaluation, and regulator-ready evidence. Teams still treating LLMs and agents as a separate, lighter-weight track from classical ML are about to feel the squeeze.</p>

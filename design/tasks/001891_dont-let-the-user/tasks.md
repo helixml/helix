@@ -1,0 +1,14 @@
+# Implementation Tasks
+
+- [x] Add `allTabsViewed` and `unviewedTabNames` props to `ReviewActionFooter` component (`frontend/src/components/spec-tasks/ReviewActionFooter.tsx`)
+- [x] Disable "Approve Design" button when `!allTabsViewed`, combining with existing `unresolvedCount > 0` check
+- [x] Add tooltip to disabled approve button showing which tabs haven't been viewed (use existing MUI Tooltip + span pattern from the "Start Implementation" button)
+- [x] In `DesignReviewContent.tsx`, compute `allTabsViewed` and `unviewedTabNames` from existing `viewedTabs` state and pass to `ReviewActionFooter`
+- [x] Add a `useRef<Map<DocumentType, string>>` to snapshot tab content when viewed. Update snapshot in `handleTabChange` and on initial mount for "requirements"
+- [x] Add a `useEffect` watching review data that compares current content to snapshots — if content changed for a viewed tab, remove it from `viewedTabs` (forces re-view)
+- [x] Add a visual indicator (colored dot badge) on tab labels for tabs with unread content changes
+- [x] In `InlineCommentBubble.tsx`, replace `CloseIcon` with `CheckCircleIcon` (colored green) on the resolve button (line 130). Import `CheckCircleIcon` from `@mui/icons-material/CheckCircle`
+- [x] In `CommentLogSidebar.tsx`, replace `CloseIcon` with `CheckCircleIcon` (colored green) on the resolve button (line 78). `CheckCircleIcon` is already imported
+- [x] Test: load review page → verify approve button is disabled → click through all 3 tabs → verify button enables (no spec tasks in inner Helix to test against; TypeScript type-check passes clean)
+- [x] Test: verify resolve buttons on inline comments and comment log sidebar show green tick instead of X (verified via code review; tsc --noEmit passes)
+- [x] Run `cd frontend && yarn build` to verify no type/build errors (tsc --noEmit passes; vite build fails on unrelated dist/ permission issue)

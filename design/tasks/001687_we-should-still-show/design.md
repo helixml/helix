@@ -33,3 +33,11 @@ No other changes are needed. The PR data (`repo_pull_requests`) is already persi
 ## Pattern Note
 
 `SpecTaskActionButtons` is a shared component used in both the full task detail page (`SpecTaskDetailContent.tsx`) and inline card views. The single status check fix propagates to both automatically.
+
+## Implementation Notes
+
+- Made the one-line change at `frontend/src/components/tasks/SpecTaskActionButtons.tsx:616`.
+- Verified with `npx tsc --noEmit` — passes cleanly.
+- `yarn build` failed on a write-permission issue under `frontend/dist/external-libs` (pre-existing env constraint, not a code issue). 21,406 modules transformed cleanly before the dist write step. Per CLAUDE.md the dev container at port 8081 hot-reloads `frontend/src/`, so no rebuild is needed for live testing.
+- The dev environment was not running during implementation (no docker containers up), so live UI testing was not performed in this session. The change is a one-line condition extension with no behavior change for the existing `pull_request` status path; risk is minimal.
+- The error-alert branch at line 606 (`task.status === "pull_request" && !hasAnyPR && task.metadata?.error`) is intentionally NOT extended — that error message is only meaningful while PR creation is being attempted, not after the task is done.

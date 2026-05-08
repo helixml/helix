@@ -1,0 +1,23 @@
+=== Manual end-to-end test: fake NVIDIA provider returning 401 with plain-text body ===
+
+Setup:
+  - Started a Python HTTP server on port 9878 returning HTTP 401 with body
+    "Unauthorized: Invalid API Key" (Content-Type: text/plain)
+  - Registered a Helix user (test@helix.ml)
+  - Created a provider endpoint named "fake-nvidia-401" pointing at the fake server
+
+Request:
+  GET /v1/models?provider=fake-nvidia-401
+  Authorization: Bearer <token>
+
+Response BEFORE this fix (reproduced from user's bug report):
+  Internal server error: ... json: invalid character 'U' looking for beginning of value
+
+Response AFTER this fix (observed today):
+  Internal server error: failed to get models from
+  'http://host.docker.internal:9878/models' provider: 401 Unauthorized -
+  Unauthorized: Invalid API Key
+
+The user now sees the HTTP status (401) AND the upstream body text
+("Unauthorized: Invalid API Key"), which is enough to self-diagnose a bad
+API key without reading server logs.

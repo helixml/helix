@@ -2,54 +2,68 @@
 
 ## Root Cause
 
-The `AttentionEvent` struct (Go: `api/pkg/types/attention_event.go`, TS: `useAttentionEvents.ts`) does not carry the task's original prompt. When events are created in `attention_service.go`, only `SpecTaskName` is denormalized from the task — `OriginalPrompt` is not.
+The `AttentionEvent` struct (Go: `api/pkg/types/attention_event.go`, TS: `useAttentionEvents.ts`) does not carry the task's prompt. When events are created in `attention_service.go`, only `SpecTaskName` is denormalized from the task. The tooltip in `GlobalNotifications.tsx:236-246` therefore renders `event.spec_task_name` (the short task name), giving users no new information beyond what's already visible.
 
-The tooltip in `GlobalNotifications.tsx:236-246` renders `event.spec_task_name` (which is the short task name, not the prompt), giving users no new information beyond what's already visible.
+## Which Field Holds the Latest Prompt?
+
+Investigation of `SpecTask` (`api/pkg/types/simple_spec_task.go`):
+
+| Field | Mutable | Persistent | Notes |
+|-------|---------|-----------|-------|
+| `OriginalPrompt` | No (never reassigned) | Yes | Immutable first request — **stale after any edit** |
+| `Description` | **Yes** | Yes | **Updated on every user edit** (`spec_driven_task_handlers.go:879-882`) |
+| `LastPromptContent` | Yes | No (`gorm:"-"`) | Runtime session state, not in DB |
+
+We use `Description` exclusively. `OriginalPrompt` is deliberately avoided — it would silently show outdated prompt text whenever a user has edited their task.
 
 ## Fix
 
-### 1. Backend — Add `original_prompt` to `AttentionEvent`
+### 1. Backend — Add prompt field to `AttentionEvent`
 
-**`api/pkg/types/attention_event.go`** — add field:
+**`api/pkg/types/attention_event.go`** — add denormalized field (no migration; same pattern as `SpecTaskName`/`ProjectName`):
 ```go
-OriginalPrompt string `json:"original_prompt" gorm:"-"`
+SpecTaskDescription string `json:"spec_task_description" gorm:"-"`
 ```
-Use `gorm:"-"` (no DB column needed) since it's denormalized at query time, same pattern as `SpecTaskName` and `ProjectName`.
 
-**`api/pkg/services/attention_service.go`** — populate in `EmitEvent()` (around line 86 where `SpecTaskName` is set):
+**`api/pkg/services/attention_service.go`** — populate in `EmitEvent()` (alongside the existing `event.SpecTaskName = task.Name` assignment around line 86):
 ```go
-event.OriginalPrompt = task.OriginalPrompt
+event.SpecTaskDescription = task.Description
 ```
+
+Because this is denormalized at emit time, the value reflects whatever the description was when the event fired — i.e. the latest edit at that moment.
 
 ### 2. Frontend — Update tooltip content
 
-**`frontend/src/hooks/useAttentionEvents.ts`** — add field to interface:
+**`frontend/src/hooks/useAttentionEvents.ts`** — extend interface:
 ```ts
-original_prompt?: string
+spec_task_description?: string
 ```
 
 **`frontend/src/components/system/GlobalNotifications.tsx:237-242`** — change tooltip `title`:
 ```tsx
 title={
   <span style={{ whiteSpace: 'pre-wrap' }}>
-    {event.original_prompt || event.spec_task_name || event.spec_task_id || ''}
+    {event.spec_task_description || event.spec_task_name || event.spec_task_id || ''}
     {'\n'}
     {groupedWith ? 'Spec ready & agent finished' : event.title}
   </span>
 }
 ```
 
+Fallback chain stops at `spec_task_name` — we do not fall back to `original_prompt` because stale text is worse than a short name.
+
 ## Key Decisions
 
-- **`gorm:"-"` for new field**: Consistent with existing denormalized fields (`SpecTaskName`, `ProjectName`). No migration needed.
-- **Frontend fallback chain**: `original_prompt → spec_task_name → spec_task_id` preserves existing behavior when prompt is absent.
-- **Keep event title in tooltip**: Useful secondary context (what happened, e.g. "Spec ready").
+- **Use `Description`, not `OriginalPrompt`**: `Description` is the live, user-editable prompt and reflects edits. `OriginalPrompt` is immutable and would be stale after any user edit. Showing stale prompt text is worse than showing the task name.
+- **Snapshot at emit time**: the description is denormalized into the event record when the event is emitted. If the user edits the prompt *after* an event fires, that older event keeps its older snapshot. This is correct: each notification refers to a moment in time. The next notification will pick up the new text.
+- **`gorm:"-"` for new field**: consistent with existing denormalized fields. No schema migration required.
+- **Field naming `spec_task_description`**: follows the existing `spec_task_name` / `spec_task_id` pattern. Avoids colliding with `AttentionEvent.Description` (the event's own description field).
 
 ## Files Changed
 
 | File | Change |
 |------|--------|
-| `api/pkg/types/attention_event.go` | Add `OriginalPrompt` field |
-| `api/pkg/services/attention_service.go` | Populate `OriginalPrompt` from `task.OriginalPrompt` in `EmitEvent()` |
-| `frontend/src/hooks/useAttentionEvents.ts` | Add `original_prompt?: string` to interface |
-| `frontend/src/components/system/GlobalNotifications.tsx` | Update tooltip `title` to prefer `original_prompt` |
+| `api/pkg/types/attention_event.go` | Add `SpecTaskDescription` field |
+| `api/pkg/services/attention_service.go` | Populate it from `task.Description` in `EmitEvent()` |
+| `frontend/src/hooks/useAttentionEvents.ts` | Add `spec_task_description?: string` to interface |
+| `frontend/src/components/system/GlobalNotifications.tsx` | Update tooltip `title` to render `spec_task_description` first |

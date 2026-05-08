@@ -77,6 +77,17 @@ Execution:
 
 Prefix comments with `[Helix]` (consistent with ADO tool behaviour).
 
+## Implementation Notes
+
+- The design doc originally said `AssistantToolConfig` but the actual struct is `ToolConfig` (line 1397 in types.go)
+- There are TWO parallel type hierarchies for tool config: `ToolConfig` (for the Tool entity) and `AssistantConfig`/`AssistantSkills` (for the assistant/app). Both need GitHub additions.
+- The flat state (`IAppFlatState`) maps `azureDevOpsTool` ↔ `assistant.azure_devops`. Added `gitHubTool` ↔ `assistant.github` following the same pattern.
+- Four frontend files need wiring for a new tool type: `types.ts` (import + field), `utils/app.ts` (flatten), `hooks/useApp.ts` (unflatten), `pages/ProjectSettings.tsx` (project-level skills)
+- The `api.ts` frontend client is auto-generated. Run `swag init` then `npx swagger-typescript-api` to regenerate. The Go struct names map to TypeScript as `Types{StructName}`.
+- `go build ./pkg/...` fails with pre-existing ollama dependency errors. Build specific packages instead: `go build ./pkg/types/ ./pkg/agent/... ./pkg/controller/ ./pkg/server/ ./pkg/trigger/...`
+- The github skill package is already named `github` (same as `go-github/v57/github`), but Go handles this fine — within the package, `github.X` unambiguously refers to the imported package.
+- `yarn build` requires `yarn install` first in the environment (vite not found without it).
+
 ## Codebase Patterns Learned
 
 - All Go agent skills live in `api/pkg/agent/skill/<provider>/` with a constructor `New*Skill()` returning `agent.Skill`
