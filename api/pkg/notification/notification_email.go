@@ -163,7 +163,7 @@ func (e *Email) getEmailMessage(n *Notification) (title, message string, err err
 
 		err = cronTriggerCompleteTmpl.Execute(&buf, &templateData{
 			Message:     template.HTML(n.Message),
-			SessionURL:  fmt.Sprintf("%s/session/%s", e.cfg.AppURL, n.Session.ID),
+			SessionURL:  fmt.Sprintf("%s/orgs/%s/session/%s", e.cfg.AppURL, n.Session.OrganizationID, n.Session.ID),
 			SessionName: n.Session.Name,
 		})
 		if err != nil {
@@ -176,7 +176,7 @@ func (e *Email) getEmailMessage(n *Notification) (title, message string, err err
 
 		err = cronTriggerFailedTmpl.Execute(&buf, &templateData{
 			Message:      template.HTML(n.Message),
-			SessionURL:   fmt.Sprintf("%s/session/%s", e.cfg.AppURL, n.Session.ID),
+			SessionURL:   fmt.Sprintf("%s/orgs/%s/session/%s", e.cfg.AppURL, n.Session.OrganizationID, n.Session.ID),
 			SessionName:  n.Session.Name,
 			ErrorMessage: n.Message,
 		})

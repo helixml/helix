@@ -62,6 +62,9 @@ import {
 import useSnackbar from "../../hooks/useSnackbar";
 import useApi from "../../hooks/useApi";
 import useAccount from "../../hooks/useAccount";
+import { useOAuthFlow } from "../../hooks/useOAuthFlow";
+import { useListOAuthProviders } from "../../services/oauthProvidersService";
+import { findOAuthProviderForType } from "../../utils/oauthProviders";
 import InlineCommentBubble from "./InlineCommentBubble";
 import InlineCommentForm from "./InlineCommentForm";
 import CommentLogSidebar from "./CommentLogSidebar";
@@ -126,6 +129,7 @@ export default function DesignReviewContent({
   const [viewedTabs, setViewedTabs] = useState<Set<DocumentType>>(
     new Set(["requirements"]),
   );
+  const viewedContentRef = useRef<Map<DocumentType, string>>(new Map());
   const [showRejectDialog, setShowRejectDialog] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
   const [shareLinkCopied, setShareLinkCopied] = useState(false);
@@ -190,6 +194,13 @@ export default function DesignReviewContent({
   const createCommentMutation = useCreateComment(specTaskId, reviewId);
   const resolveCommentMutation = useResolveComment(specTaskId, reviewId);
 
+  // OAuth flow is needed when an approver without GitHub OAuth tries to
+  // approve — the backend returns 422 with error=oauth_required, and we
+  // redirect them through the GitHub connection flow before they retry.
+  const { startOAuthFlow } = useOAuthFlow();
+  const { data: oauthProviders } = useListOAuthProviders();
+  const gitHubProvider = findOAuthProviderForType(oauthProviders, "github");
+
   // Get queue status for streaming
   // Enable polling immediately when we create a comment (awaitingCommentResponse)
   // OR when we detect awaiting comments from the comments query (hasAwaitingComments)
@@ -248,6 +259,9 @@ export default function DesignReviewContent({
   );
   const unresolvedCount = getUnresolvedCount(allComments);
 
+  const ALL_TABS: DocumentType[] = ["requirements", "technical_design", "implementation_plan"];
+  const allTabsViewed = ALL_TABS.every((t) => viewedTabs.has(t));
+
   // Memoize document content
   const documentContent = useMemo(() => {
     if (!review) return "";
@@ -272,12 +286,72 @@ export default function DesignReviewContent({
       .length;
   };
 
+  const getTabContent = (tab: DocumentType): string => {
+    if (!review) return "";
+    switch (tab) {
+      case "requirements":
+        return review.requirements_spec || "";
+      case "technical_design":
+        return review.technical_design || "";
+      case "implementation_plan":
+        return review.implementation_plan || "";
+    }
+  };
+
+  // Snapshot content on initial mount for the default tab
+  useEffect(() => {
+    if (review && !viewedContentRef.current.has("requirements")) {
+      viewedContentRef.current.set("requirements", getTabContent("requirements"));
+    }
+  }, [review]);
+
+  // Invalidate viewed tabs when content changes. The active tab is exempt:
+  // the user is currently looking at it, so we refresh its snapshot in place
+  // rather than flagging it unread.
+  useEffect(() => {
+    if (!review) return;
+    const tabs: DocumentType[] = ["requirements", "technical_design", "implementation_plan"];
+    const invalidated: DocumentType[] = [];
+    for (const tab of tabs) {
+      const snapshot = viewedContentRef.current.get(tab);
+      if (snapshot === undefined) continue;
+      if (snapshot === getTabContent(tab)) continue;
+
+      if (tab === activeTab) {
+        viewedContentRef.current.set(tab, getTabContent(tab));
+        continue;
+      }
+      invalidated.push(tab);
+      viewedContentRef.current.delete(tab);
+    }
+    if (invalidated.length > 0) {
+      setViewedTabs((prev) => {
+        const next = new Set(prev);
+        for (const tab of invalidated) next.delete(tab);
+        return next;
+      });
+    }
+  }, [review?.requirements_spec, review?.technical_design, review?.implementation_plan, activeTab]);
+
   // Handle tab change
   const handleTabChange = (newTab: DocumentType) => {
     setActiveTab(newTab);
     setViewedTabs((prev) => new Set(prev).add(newTab));
+    viewedContentRef.current.set(newTab, getTabContent(newTab));
     if (documentRef.current) {
       documentRef.current.scrollTop = 0;
+    }
+  };
+
+  // Jump to the next unread tab in canonical order, wrapping past the end.
+  const handleNextDocument = () => {
+    const startIdx = ALL_TABS.indexOf(activeTab);
+    for (let i = 1; i <= ALL_TABS.length; i++) {
+      const candidate = ALL_TABS[(startIdx + i) % ALL_TABS.length];
+      if (!viewedTabs.has(candidate)) {
+        handleTabChange(candidate);
+        return;
+      }
     }
   };
 
@@ -924,6 +998,36 @@ export default function DesignReviewContent({
         onClose();
       }
     } catch (error: any) {
+      // Backend returns 422 with error=oauth_required when the approver has
+      // no GitHub OAuth connection. Drop into the connect-GitHub flow rather
+      // than showing a generic failure — the user can retry once connected.
+      const respData = error?.response?.data;
+      if (respData?.error === "oauth_required") {
+        setShowSubmitDialog(false);
+        if (gitHubProvider?.id) {
+          snackbar.info("Connect GitHub to approve this design.");
+          startOAuthFlow({
+            providerId: gitHubProvider.id,
+            scopes: ["repo"],
+            onSuccess: () => {
+              snackbar.success(
+                "GitHub connected. Click Approve again to submit.",
+              );
+            },
+            onError: (oauthError) => {
+              snackbar.error(`GitHub connection failed: ${oauthError}`);
+            },
+          });
+        } else {
+          // No GitHub provider is configured system-wide. The backend's
+          // error message is PR-centric and actionless for this user, so
+          // override it with admin-direction guidance.
+          snackbar.error(
+            "GitHub OAuth is not configured on this Helix instance. Ask your administrator to set it up before approving designs.",
+          );
+        }
+        return;
+      }
       snackbar.error(`Failed to submit review: ${error.message}`);
     }
   };
@@ -1090,69 +1194,41 @@ export default function DesignReviewContent({
                 },
               }}
             >
-              <Tab
-                label={
-                  <Box display="flex" alignItems="center" gap={0.5}>
-                    Requirements
-                    {getCommentCount("requirements") > 0 && (
-                      <Chip
-                        label={getCommentCount("requirements")}
-                        size="small"
-                        color="warning"
-                        sx={{
-                          height: 16,
-                          minWidth: 16,
-                          fontSize: "0.65rem",
-                          "& .MuiChip-label": { px: 0.5 },
-                        }}
-                      />
-                    )}
-                  </Box>
-                }
-                value="requirements"
-              />
-              <Tab
-                label={
-                  <Box display="flex" alignItems="center" gap={0.5}>
-                    Technical Design
-                    {getCommentCount("technical_design") > 0 && (
-                      <Chip
-                        label={getCommentCount("technical_design")}
-                        size="small"
-                        color="warning"
-                        sx={{
-                          height: 16,
-                          minWidth: 16,
-                          fontSize: "0.65rem",
-                          "& .MuiChip-label": { px: 0.5 },
-                        }}
-                      />
-                    )}
-                  </Box>
-                }
-                value="technical_design"
-              />
-              <Tab
-                label={
-                  <Box display="flex" alignItems="center" gap={0.5}>
-                    Implementation Plan
-                    {getCommentCount("implementation_plan") > 0 && (
-                      <Chip
-                        label={getCommentCount("implementation_plan")}
-                        size="small"
-                        color="warning"
-                        sx={{
-                          height: 16,
-                          minWidth: 16,
-                          fontSize: "0.65rem",
-                          "& .MuiChip-label": { px: 0.5 },
-                        }}
-                      />
-                    )}
-                  </Box>
-                }
-                value="implementation_plan"
-              />
+              {ALL_TABS.map((tab) => (
+                <Tab
+                  key={tab}
+                  label={
+                    <Box display="flex" alignItems="center" gap={0.5}>
+                      {DOCUMENT_LABELS[tab]}
+                      {!viewedTabs.has(tab) && (
+                        <Box
+                          sx={{
+                            width: 8,
+                            height: 8,
+                            borderRadius: "50%",
+                            bgcolor: "warning.main",
+                            flexShrink: 0,
+                          }}
+                        />
+                      )}
+                      {getCommentCount(tab) > 0 && (
+                        <Chip
+                          label={getCommentCount(tab)}
+                          size="small"
+                          color="warning"
+                          sx={{
+                            height: 16,
+                            minWidth: 16,
+                            fontSize: "0.65rem",
+                            "& .MuiChip-label": { px: 0.5 },
+                          }}
+                        />
+                      )}
+                    </Box>
+                  }
+                  value={tab}
+                />
+              ))}
             </Tabs>
 
             {/* Git info and actions on the right */}
@@ -1359,6 +1435,16 @@ export default function DesignReviewContent({
                     color: "#000",
                   },
                   cursor: "text",
+                  "& a": {
+                    color: "#00d5ff",
+                    textDecoration: "none",
+                    "&:hover": {
+                      textDecoration: "underline",
+                    },
+                    "&:visited": {
+                      color: "#00d5ff",
+                    },
+                  },
                   "& p, & li, & h1, & h2, & h3, & h4": {
                     cursor: "text",
                     transition: "background-color 0.15s ease",
@@ -1506,6 +1592,9 @@ export default function DesignReviewContent({
             setSubmitDecision("request_changes");
             setShowSubmitDialog(true);
           }}
+          allTabsViewed={allTabsViewed}
+          hasNextDocument={!allTabsViewed}
+          onNextDocument={handleNextDocument}
           onReject={() => setShowRejectDialog(true)}
           onStartImplementation={handleStartImplementation}
         />

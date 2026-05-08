@@ -32,6 +32,14 @@ const (
 	// so only used space is allocated. 500G is generous ceiling.
 	zvolDefaultSize = "500G"
 
+	// zvolBlockSize is the volblocksize for new zvols. The inner XFS uses
+	// 4K blocks; the ZFS default of 16K means each XFS metadata write
+	// triggers a 4K → 16K read-modify-write at the zvol layer (4× write
+	// amplification). 8K halves that amplification while keeping lz4
+	// compression effective. Immutable after zvol creation, so this only
+	// affects newly-created zvols.
+	zvolBlockSize = "8K"
+
 	// zvolMountBase is where cloned zvols are mounted.
 	zvolMountBase = "/container-docker/zvol-mounts"
 )
@@ -488,6 +496,16 @@ func SetupGoldenClone(projectID, sessionID string) (string, error) {
 }
 
 // CleanupSessionZvol unmounts and destroys a session's cloned zvol.
+//
+// Uses `zfs destroy -r` so any descendant snapshots (e.g. ones an operator
+// created out-of-band like `@pre-repo-cleanup-...`) are torn down with the
+// zvol. Without `-r`, ZFS refuses to destroy a dataset that has children and
+// the orphan accumulates forever, polluting GC logs.
+//
+// Note: `-r` (lowercase) does NOT cascade into clones of those snapshots —
+// if someone has manually cloned a child snapshot into another dataset, the
+// destroy still fails with "dataset is busy", which is the right answer (we
+// don't silently nuke unrelated work). The caller's GC loop logs and moves on.
 func CleanupSessionZvol(sessionID string) error {
 	cloneName := sessionZvolName(sessionID)
 	mountPath := sessionZvolMountPath(sessionID)
@@ -506,8 +524,8 @@ func CleanupSessionZvol(sessionID string) error {
 		}
 	}
 
-	// Destroy the clone
-	if err := runCmd("zfs", "destroy", cloneName); err != nil {
+	// Destroy the clone (recursive: takes any descendant snapshots with it)
+	if err := runCmd("zfs", "destroy", "-r", cloneName); err != nil {
 		return fmt.Errorf("failed to destroy clone %s: %w", cloneName, err)
 	}
 
@@ -657,6 +675,7 @@ func CreateGoldenZvol(projectID string) (string, error) {
 	// Create thin-provisioned zvol with dedup=off. Block sharing comes from
 	// ZFS clones (free, no DDT involvement), so dedup adds only overhead here.
 	if err := runCmd("zfs", "create", "-V", zvolDefaultSize, "-s",
+		"-o", "volblocksize="+zvolBlockSize,
 		"-o", "dedup=off", "-o", "compression=lz4",
 		zvolName); err != nil {
 		return "", fmt.Errorf("zfs create %s failed: %w", zvolName, err)
@@ -711,6 +730,7 @@ func CreateSessionZvol(sessionID string) (string, error) {
 
 	// Create thin-provisioned zvol with dedup=off (same rationale as golden zvols).
 	if err := runCmd("zfs", "create", "-V", zvolDefaultSize, "-s",
+		"-o", "volblocksize="+zvolBlockSize,
 		"-o", "dedup=off", "-o", "compression=lz4",
 		zvolName); err != nil {
 		return "", fmt.Errorf("zfs create %s failed: %w", zvolName, err)
@@ -909,6 +929,7 @@ func MigrateGoldenToZvol(projectID string) error {
 	}
 
 	if err := runCmd("zfs", "create", "-V", zvolDefaultSize, "-s",
+		"-o", "volblocksize="+zvolBlockSize,
 		"-o", "dedup=off", "-o", "compression=lz4",
 		goldenName); err != nil {
 		return fmt.Errorf("zfs create %s failed: %w", goldenName, err)

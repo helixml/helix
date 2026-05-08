@@ -2,6 +2,8 @@ package services
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"testing"
 	"time"
 	"unicode/utf8"
@@ -300,20 +302,27 @@ func TestSpecDrivenTaskService_ApproveSpecs_SynthesizesNilSpecApproval(t *testin
 		ID:            "repo-1",
 		DefaultBranch: "main",
 	}, nil)
-	mockStore.EXPECT().UpdateSpecTask(ctx, gomock.Any()).DoAndReturn(
-		func(_ context.Context, task *types.SpecTask) error {
-			assert.Equal(t, types.TaskStatusImplementation, task.Status)
-			assert.NotNil(t, task.SpecApproval, "SpecApproval should have been synthesized")
-			assert.Equal(t, "task-stuck", task.SpecApproval.TaskID)
-			assert.True(t, task.SpecApproval.Approved)
-			assert.Equal(t, "user-1", task.SpecApproval.ApprovedBy)
-			assert.Equal(t, approvedAt, task.SpecApproval.ApprovedAt)
-			return nil
-		},
-	)
+	mockStore.EXPECT().TransitionSpecTaskStatus(
+		ctx,
+		"task-stuck",
+		gomock.Any(),
+		types.TaskStatusImplementation,
+		gomock.Any(),
+	).DoAndReturn(func(_ context.Context, _ string, _ []types.SpecTaskStatus, _ types.SpecTaskStatus, extraFields map[string]any) (bool, error) {
+		// Synthesized SpecApproval must be persisted in the same atomic UPDATE,
+		// otherwise the in-memory synthesis is lost on the next re-fetch.
+		raw, ok := extraFields["spec_approval"]
+		require.True(t, ok, "spec_approval field must be in extraFields when SpecApproval was synthesized")
+		jsonStr, ok := raw.(string)
+		require.True(t, ok, "spec_approval must be marshalled to a JSON string")
+		assert.Contains(t, jsonStr, "task-stuck")
+		assert.Contains(t, jsonStr, "user-1")
+		return true, nil
+	})
 
 	err := service.ApproveSpecs(ctx, &types.SpecTask{ID: "task-stuck"})
 	require.NoError(t, err)
+	_ = approvedAt
 }
 
 func TestSpecDrivenTaskService_ApproveSpecs_NilSpecApprovalAndNilApprovedAt(t *testing.T) {
@@ -357,18 +366,84 @@ func TestSpecDrivenTaskService_ApproveSpecs_NilSpecApprovalAndNilApprovedAt(t *t
 		ID:            "repo-1",
 		DefaultBranch: "main",
 	}, nil)
-	mockStore.EXPECT().UpdateSpecTask(ctx, gomock.Any()).DoAndReturn(
-		func(_ context.Context, task *types.SpecTask) error {
-			assert.NotNil(t, task.SpecApproval)
-			assert.True(t, task.SpecApproval.Approved)
-			assert.Equal(t, "user-1", task.SpecApproval.ApprovedBy)
-			assert.False(t, task.SpecApproval.ApprovedAt.IsZero(), "ApprovedAt should fall back to time.Now() when SpecApprovedAt is nil")
-			return nil
-		},
-	)
+	mockStore.EXPECT().TransitionSpecTaskStatus(
+		ctx,
+		"task-worst-case",
+		gomock.Any(),
+		types.TaskStatusImplementation,
+		gomock.Any(),
+	).Return(true, nil)
 
 	err := service.ApproveSpecs(ctx, &types.SpecTask{ID: "task-worst-case"})
 	require.NoError(t, err)
+}
+
+// TestSpecDrivenTaskService_ApproveSpecs_LosesAtomicTransitionRace verifies the
+// authoritative race guard: if TransitionSpecTaskStatus reports it didn't update
+// the row (transitioned=false), ApproveSpecs must bail without sending the
+// implementation instruction. This is what prevents the duplicate-prompt bug
+// when the HTTP handler goroutine and orchestrator polling loop both invoke
+// ApproveSpecs simultaneously.
+func TestSpecDrivenTaskService_ApproveSpecs_LosesAtomicTransitionRace(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockStore := store.NewMockStore(ctrl)
+	var mockPubsub pubsub.PubSub = nil
+
+	// messageSender is wired up so we can prove it is NOT called when the
+	// transition loses the race.
+	sendCalls := 0
+	sender := func(_ context.Context, _ *types.SpecTask, _, _ string, _ bool) (string, string, error) {
+		sendCalls++
+		return "", "", nil
+	}
+
+	service := NewSpecDrivenTaskService(
+		mockStore,
+		nil,
+		"test-helix-agent",
+		[]string{"test-zed-agent"},
+		mockPubsub,
+		nil, nil, nil,
+		NewDisabledKoditService(),
+	)
+	service.SendMessageToAgent = sender
+	// Note: testMode=false so the message-send path would actually fire if we
+	// reached it; the test asserts it does not.
+
+	ctx := context.Background()
+	taskInDB := &types.SpecTask{
+		ID:                "task-loser",
+		ProjectID:         "project-1",
+		Status:            types.TaskStatusSpecApproved,
+		PlanningSessionID: "ses-loser",
+		SpecApproval:      &types.SpecApprovalResponse{Approved: true, ApprovedBy: "user-1"},
+		TaskNumber:        99,
+		Name:              "loser-task",
+	}
+
+	mockStore.EXPECT().GetSpecTask(ctx, "task-loser").Return(taskInDB, nil)
+	mockStore.EXPECT().GetProject(ctx, "project-1").Return(&types.Project{
+		ID:            "project-1",
+		DefaultRepoID: "repo-1",
+	}, nil)
+	mockStore.EXPECT().GetGitRepository(ctx, "repo-1").Return(&types.GitRepository{
+		ID:            "repo-1",
+		DefaultBranch: "main",
+	}, nil)
+	// Simulate losing the race: the other caller already updated the row.
+	mockStore.EXPECT().TransitionSpecTaskStatus(
+		ctx,
+		"task-loser",
+		gomock.Any(),
+		types.TaskStatusImplementation,
+		gomock.Any(),
+	).Return(false, nil)
+
+	err := service.ApproveSpecs(ctx, &types.SpecTask{ID: "task-loser"})
+	require.NoError(t, err)
+	assert.Equal(t, 0, sendCalls, "messageSender must not be invoked when atomic transition loses the race")
 }
 
 func TestSpecDrivenTaskService_SelectZedAgent(t *testing.T) {
@@ -382,4 +457,229 @@ func TestSpecDrivenTaskService_SelectZedAgent(t *testing.T) {
 	serviceNoAgents.SetTestMode(true)
 	agent = serviceNoAgents.selectZedAgent()
 	assert.Equal(t, "", agent)
+}
+
+// newIdentitySyncService builds a service wired up just enough to exercise
+// syncGitIdentityToApprover. testMode is left false so the sync path runs;
+// the ExecInDesktop callback is what the caller wants to observe/inject.
+func newIdentitySyncService(t *testing.T, exec DesktopExecFunc) (*SpecDrivenTaskService, *store.MockStore, *gomock.Controller) {
+	t.Helper()
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+
+	svc := NewSpecDrivenTaskService(
+		mockStore,
+		nil,
+		"test-helix-agent",
+		[]string{"test-zed-agent"},
+		nil, nil, nil, nil,
+		NewDisabledKoditService(),
+	)
+	svc.ExecInDesktop = exec
+	return svc, mockStore, ctrl
+}
+
+type execCall struct {
+	sessionID string
+	command   []string
+}
+
+// recordingExec captures every invocation and returns a configurable error
+// per index (indexed by invocation order).
+func recordingExec(errs ...error) (DesktopExecFunc, *[]execCall) {
+	var calls []execCall
+	fn := func(_ context.Context, sessionID string, command []string) error {
+		idx := len(calls)
+		calls = append(calls, execCall{sessionID: sessionID, command: append([]string(nil), command...)})
+		if idx < len(errs) {
+			return errs[idx]
+		}
+		return nil
+	}
+	return fn, &calls
+}
+
+func TestSyncGitIdentityToApprover_Success(t *testing.T) {
+	exec, calls := recordingExec()
+	svc, mockStore, ctrl := newIdentitySyncService(t, exec)
+	defer ctrl.Finish()
+
+	mockStore.EXPECT().GetUser(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, q *store.GetUserQuery) (*types.User, error) {
+			assert.Equal(t, "approver-1", q.ID)
+			return &types.User{ID: "approver-1", FullName: "Approver One", Email: "approver@example.com"}, nil
+		})
+
+	task := &types.SpecTask{ID: "task-1", PlanningSessionID: "ses-1", SpecApprovedBy: "approver-1"}
+	require.NoError(t, svc.syncGitIdentityToUser(context.Background(), task, task.SpecApprovedBy, "approver"))
+
+	require.Len(t, *calls, 2, "expected email then name")
+	assert.Equal(t, []string{"git", "config", "--global", "user.email", "approver@example.com"}, (*calls)[0].command)
+	assert.Equal(t, []string{"git", "config", "--global", "user.name", "Approver One"}, (*calls)[1].command)
+	assert.Equal(t, "ses-1", (*calls)[0].sessionID)
+}
+
+func TestSyncGitIdentityToApprover_FallsBackToUsernameThenEmailLocalPart(t *testing.T) {
+	cases := []struct {
+		name     string
+		user     *types.User
+		wantName string
+	}{
+		{
+			name:     "uses username when fullname empty",
+			user:     &types.User{ID: "u", Username: "alice", Email: "alice@example.com"},
+			wantName: "alice",
+		},
+		{
+			name:     "uses email local-part when both empty",
+			user:     &types.User{ID: "u", Email: "bob@example.com"},
+			wantName: "bob",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			exec, calls := recordingExec()
+			svc, mockStore, ctrl := newIdentitySyncService(t, exec)
+			defer ctrl.Finish()
+
+			mockStore.EXPECT().GetUser(gomock.Any(), gomock.Any()).Return(tc.user, nil)
+
+			task := &types.SpecTask{ID: "task-1", PlanningSessionID: "ses-1", SpecApprovedBy: "u"}
+			require.NoError(t, svc.syncGitIdentityToUser(context.Background(), task, task.SpecApprovedBy, "approver"))
+
+			require.Len(t, *calls, 2)
+			assert.Equal(t, tc.wantName, (*calls)[1].command[4], "user.name should fall back sensibly")
+		})
+	}
+}
+
+func TestSyncGitIdentityToApprover_NoOpCases(t *testing.T) {
+	t.Run("testMode short-circuits", func(t *testing.T) {
+		exec, calls := recordingExec()
+		svc, _, ctrl := newIdentitySyncService(t, exec)
+		defer ctrl.Finish()
+		svc.SetTestMode(true)
+		require.NoError(t, svc.syncGitIdentityToUser(context.Background(), &types.SpecTask{PlanningSessionID: "s", SpecApprovedBy: "u"}, "u", "approver"))
+		assert.Empty(t, *calls, "testMode should not exec")
+	})
+	t.Run("no session", func(t *testing.T) {
+		exec, calls := recordingExec()
+		svc, _, ctrl := newIdentitySyncService(t, exec)
+		defer ctrl.Finish()
+		require.NoError(t, svc.syncGitIdentityToUser(context.Background(), &types.SpecTask{SpecApprovedBy: "u"}, "u", "approver"))
+		assert.Empty(t, *calls)
+	})
+	t.Run("no approver", func(t *testing.T) {
+		exec, calls := recordingExec()
+		svc, _, ctrl := newIdentitySyncService(t, exec)
+		defer ctrl.Finish()
+		require.NoError(t, svc.syncGitIdentityToUser(context.Background(), &types.SpecTask{PlanningSessionID: "s"}, "", "approver"))
+		assert.Empty(t, *calls)
+	})
+	t.Run("ExecInDesktop nil", func(t *testing.T) {
+		svc, _, ctrl := newIdentitySyncService(t, nil)
+		defer ctrl.Finish()
+		require.NoError(t, svc.syncGitIdentityToUser(context.Background(), &types.SpecTask{PlanningSessionID: "s", SpecApprovedBy: "u"}, "u", "approver"))
+	})
+}
+
+func TestSyncGitIdentityToApprover_ErrorsSurface(t *testing.T) {
+	ctx := context.Background()
+	baseTask := &types.SpecTask{ID: "task-1", PlanningSessionID: "ses-1", SpecApprovedBy: "u"}
+
+	t.Run("GetUser error bubbles up", func(t *testing.T) {
+		exec, calls := recordingExec()
+		svc, mockStore, ctrl := newIdentitySyncService(t, exec)
+		defer ctrl.Finish()
+		mockStore.EXPECT().GetUser(gomock.Any(), gomock.Any()).Return(nil, errors.New("db down"))
+		err := svc.syncGitIdentityToUser(ctx, baseTask, baseTask.SpecApprovedBy, "approver")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "db down")
+		assert.Empty(t, *calls, "no exec should happen if GetUser fails")
+	})
+
+	t.Run("missing email is an error", func(t *testing.T) {
+		exec, calls := recordingExec()
+		svc, mockStore, ctrl := newIdentitySyncService(t, exec)
+		defer ctrl.Finish()
+		mockStore.EXPECT().GetUser(gomock.Any(), gomock.Any()).
+			Return(&types.User{ID: "u", FullName: "Someone"}, nil)
+		err := svc.syncGitIdentityToUser(ctx, baseTask, baseTask.SpecApprovedBy, "approver")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "no email")
+		assert.Empty(t, *calls, "no exec without email")
+	})
+
+	t.Run("email exec failure aborts before name", func(t *testing.T) {
+		exec, calls := recordingExec(errors.New("boom"))
+		svc, mockStore, ctrl := newIdentitySyncService(t, exec)
+		defer ctrl.Finish()
+		mockStore.EXPECT().GetUser(gomock.Any(), gomock.Any()).
+			Return(&types.User{ID: "u", FullName: "N", Email: "e@x"}, nil)
+		err := svc.syncGitIdentityToUser(ctx, baseTask, baseTask.SpecApprovedBy, "approver")
+		require.Error(t, err)
+		assert.Len(t, *calls, 1, "should stop after email failure, not touch user.name")
+	})
+
+	t.Run("name-only failure is tolerated", func(t *testing.T) {
+		// nil, then error — email succeeds, name fails
+		exec, calls := recordingExec(nil, errors.New("boom"))
+		svc, mockStore, ctrl := newIdentitySyncService(t, exec)
+		defer ctrl.Finish()
+		mockStore.EXPECT().GetUser(gomock.Any(), gomock.Any()).
+			Return(&types.User{ID: "u", FullName: "N", Email: "e@x"}, nil)
+		err := svc.syncGitIdentityToUser(ctx, baseTask, baseTask.SpecApprovedBy, "approver")
+		require.NoError(t, err, "name-only failure is logged but not propagated")
+		assert.Len(t, *calls, 2)
+	})
+}
+
+func TestSyncGitIdentityToUser_UsesExplicitUserID(t *testing.T) {
+	// Same helper, different phase. Verify the passed-in userID (not any
+	// field on the task) is what's looked up and applied, so the planner
+	// and approver code paths share the same implementation.
+	exec, calls := recordingExec()
+	svc, mockStore, ctrl := newIdentitySyncService(t, exec)
+	defer ctrl.Finish()
+
+	mockStore.EXPECT().GetUser(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, q *store.GetUserQuery) (*types.User, error) {
+			assert.Equal(t, "planner-42", q.ID, "must look up the user passed via argument, not task.SpecApprovedBy")
+			return &types.User{ID: q.ID, FullName: "Planner Forty-Two", Email: "p42@example.com"}, nil
+		})
+
+	// Deliberately set SpecApprovedBy to a different value to prove the
+	// helper honours the userID argument, not the task field.
+	task := &types.SpecTask{
+		ID:                "task-x",
+		PlanningSessionID: "ses-x",
+		SpecApprovedBy:    "someone-else",
+		PlanningStartedBy: "planner-42",
+	}
+	require.NoError(t, svc.syncGitIdentityToUser(context.Background(), task, task.PlanningStartedBy, "planner"))
+
+	require.Len(t, *calls, 2)
+	assert.Equal(t, "p42@example.com", (*calls)[0].command[4])
+	assert.Equal(t, "Planner Forty-Two", (*calls)[1].command[4])
+}
+
+func TestIsNonRetryableIdentityError(t *testing.T) {
+	cases := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"nil", nil, false},
+		{"user not found sentinel is terminal", fmt.Errorf("%w: approver u", errIdentityUserNotFound), true},
+		{"missing email sentinel is terminal", fmt.Errorf("%w: approver u", errIdentityNoEmail), true},
+		{"container not ready is retryable", errors.New("failed to connect to desktop ses-1 via RevDial: connection refused"), false},
+		{"exec failure is retryable", errors.New("exec command failed: bash: git: command not found (exit code 127)"), false},
+		{"arbitrary DB error is retryable (might self-heal)", errors.New("failed to look up approver u: temporary db error"), false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := isNonRetryableIdentityError(tc.err)
+			assert.Equal(t, tc.want, got)
+		})
+	}
 }

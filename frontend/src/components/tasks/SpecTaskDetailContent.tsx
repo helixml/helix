@@ -63,6 +63,9 @@ import useSnackbar from "../../hooks/useSnackbar";
 import useAccount from "../../hooks/useAccount";
 import useApi from "../../hooks/useApi";
 import useRouter from "../../hooks/useRouter";
+import { useOAuthFlow } from "../../hooks/useOAuthFlow";
+import { useListOAuthProviders } from "../../services/oauthProvidersService";
+import { findOAuthProviderForType } from "../../utils/oauthProviders";
 import { getBrowserLocale } from "../../hooks/useBrowserLocale";
 import useApps from "../../hooks/useApps";
 import { useStreaming } from "../../contexts/streaming";
@@ -87,11 +90,13 @@ import {
   useGetProjectRepositories,
 } from "../../services/projectService";
 import { useMoveToBacklog } from "../../services/specTaskWorkflowService";
+import { getUserById } from "../../services/userService";
 import CloneTaskDialog from "../specTask/CloneTaskDialog";
 import AgentDropdown from "../agent/AgentDropdown";
 import CloneGroupProgressFull from "../specTask/CloneGroupProgress";
 import ArchiveConfirmDialog from "./ArchiveConfirmDialog";
 import RobustPromptInput from "../common/RobustPromptInput";
+import { optimisticallyMarkSessionStarting } from "../../utils/optimisticSessionStarting";
 import EmbeddedSessionView, {
   EmbeddedSessionViewHandle,
 } from "../session/EmbeddedSessionView";
@@ -152,6 +157,14 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   const moveToBacklogMutation = useMoveToBacklog(taskId);
   const queryClient = useQueryClient();
   const router = useRouter();
+
+  // OAuth flow is needed when a user without GitHub OAuth tries to start
+  // planning — the backend returns 422 with error=oauth_required, and we
+  // drop them into the GitHub connect flow before they retry.
+  const { startOAuthFlow } = useOAuthFlow();
+  const { data: oauthProviders } = useListOAuthProviders();
+  const gitHubProvider = findOAuthProviderForType(oauthProviders, "github");
+
   // Use md breakpoint (900px) to enable split view on tablets
   const isBigScreen = useIsBigScreen({ breakpoint: "md" });
 
@@ -165,6 +178,13 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     withDependsOn: true,
     enabled: !!task?.project_id,
   });
+
+  const { data: taskAuthor } = getUserById(task?.created_by || "", !!task?.created_by);
+  const authorDisplay =
+    taskAuthor?.full_name ||
+    taskAuthor?.username ||
+    taskAuthor?.email ||
+    task?.created_by;
 
   // Label state
   const { data: projectLabels = [] } = useProjectLabels(
@@ -532,6 +552,15 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     }
   }, [activeSessionId, isChatVisible]);
 
+  // Optimistic UI hook fired the moment the user hits Send: flips the cached
+  // session config to external_agent_status="starting" so a paused desktop
+  // shows the spinner immediately instead of waiting up to 3s for the next
+  // session poll. Polling reconciles to the authoritative backend value.
+  const handleWillSend = useCallback(() => {
+    if (!activeSessionId) return;
+    optimisticallyMarkSessionStarting(queryClient, activeSessionId);
+  }, [queryClient, activeSessionId]);
+
   // Default to appropriate view based on session state and screen size
   useEffect(() => {
     if (activeSessionId && currentView === "details") {
@@ -626,6 +655,37 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
       });
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
+        // Backend returns 422 + oauth_required when the planner has no
+        // GitHub OAuth connection. Drop into the connect flow so the user
+        // can retry without hitting a dead-end error.
+        if (
+          response.status === 422 &&
+          errorData?.error === "oauth_required"
+        ) {
+          if (gitHubProvider?.id) {
+            snackbar.info("Connect GitHub to start planning this task.");
+            startOAuthFlow({
+              providerId: gitHubProvider.id,
+              scopes: ["repo"],
+              onSuccess: () => {
+                snackbar.success(
+                  "GitHub connected. Click Start Planning again to continue.",
+                );
+              },
+              onError: (oauthError) => {
+                snackbar.error(`GitHub connection failed: ${oauthError}`);
+              },
+            });
+          } else {
+            // No GitHub provider is configured system-wide. The backend's
+            // error message is PR-centric and actionless for this user, so
+            // override it with admin-direction guidance.
+            snackbar.error(
+              "GitHub OAuth is not configured on this Helix instance. Ask your administrator to set it up before starting planning.",
+            );
+          }
+          return;
+        }
         throw new Error(
           errorData.error ||
             errorData.message ||
@@ -1332,7 +1392,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
       <Box sx={{ mt: 3 }}>
         {task?.created_by && (
           <Typography variant="caption" color="text.secondary" display="block">
-            Author: {task.created_by}
+            Author: {authorDisplay}
           </Typography>
         )}
         <Typography variant="caption" color="text.secondary" display="block">
@@ -1898,6 +1958,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                         interrupt: interrupt ?? true,
                       });
                     }}
+                    onWillSend={handleWillSend}
                     onHeightChange={() =>
                       sessionViewRef.current?.scrollToBottom()
                     }
@@ -2696,6 +2757,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                           interrupt: interrupt ?? true,
                         });
                       }}
+                      onWillSend={handleWillSend}
                       onHeightChange={() =>
                         sessionViewRef.current?.scrollToBottom()
                       }

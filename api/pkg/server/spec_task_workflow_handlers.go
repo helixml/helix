@@ -198,7 +198,7 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 		go func() {
 			defer s.wg.Done()
 
-			message, err := prompts.ImplementationApprovedPushInstruction(specTask.BranchName, repo.Name, nonPrimaryRepoNames)
+			message, err := prompts.ImplementationApprovedPushInstruction(specTask.BranchName, repo.Name, repo.DefaultBranch, nonPrimaryRepoNames)
 			if err != nil {
 				log.Error().
 					Err(err).
@@ -208,7 +208,9 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 				return
 			}
 
-			_, _, err = s.sendMessageToSpecTaskAgent(context.Background(), specTask, message, "")
+			// interrupt=false: post-merge push instruction is a system-driven follow-up, not
+			// reactive feedback — let it queue behind any in-flight agent turn.
+			_, _, err = s.sendMessageToSpecTaskAgent(context.Background(), specTask, message, "", false)
 			if err != nil {
 				log.Error().
 					Err(err).
@@ -260,18 +262,35 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 	// Try fast-forward merge of feature branch to main
 	_, mergeErr := services.MergeBranchFastForward(ctx, repo.LocalPath, specTask.BranchName, repo.DefaultBranch)
 	if mergeErr != nil {
-		// Merge failed (not a fast-forward) - tell agent to rebase/merge main
+		// Idempotency: if we already asked the agent to rebase and it hasn't pushed
+		// since, do not re-send the prompt. Repeated Accept clicks while the agent
+		// is mid-rebase used to queue duplicate instructions and confuse the agent.
+		rebasePending := isRebasePending(specTask)
+
 		log.Warn().
 			Err(mergeErr).
 			Str("task_id", specTask.ID).
 			Str("source_branch", specTask.BranchName).
 			Str("target_branch", repo.DefaultBranch).
-			Msg("Fast-forward merge failed - asking agent to rebase")
+			Bool("rebase_pending", rebasePending).
+			Msg("Fast-forward merge failed - branch has diverged")
 
-		// Don't record approval yet - user needs to review after rebase
-		// Keep in implementation_review status so agent stays alive
+		if rebasePending {
+			// Agent already has the rebase request and hasn't pushed yet. Just
+			// return the existing state — the auto-retry in handleFeatureBranchPush
+			// will pick it up when the rebase push lands.
+			writeResponse(w, specTask, http.StatusOK)
+			return
+		}
+
+		// First time we've hit divergence (or agent has pushed since last request).
+		// Stamp RebaseRequestedAt so subsequent clicks short-circuit above, and
+		// record the approving user so the auto-retry on the agent's rebase push
+		// can attribute the merge correctly.
 		specTask.Status = types.TaskStatusImplementationReview
 		specTask.StatusUpdatedAt = &now
+		specTask.RebaseRequestedAt = &now
+		specTask.ImplementationApprovedBy = user.ID
 		if err := s.Store.UpdateSpecTask(ctx, specTask); err != nil {
 			http.Error(w, fmt.Sprintf("Failed to update spec task: %s", err.Error()), http.StatusInternalServerError)
 			return
@@ -291,7 +310,8 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 				return
 			}
 
-			_, _, err = s.sendMessageToSpecTaskAgent(context.Background(), specTask, message, "")
+			// interrupt=false: post-merge-failure rebase instruction is system-driven follow-up.
+			_, _, err = s.sendMessageToSpecTaskAgent(context.Background(), specTask, message, "", false)
 			if err != nil {
 				log.Error().
 					Err(err).
@@ -376,13 +396,23 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 	writeResponse(w, specTask, http.StatusOK)
 }
 
-// branchHasCommitsAhead checks if a feature branch has commits ahead of the default branch
-func (s *HelixAPIServer) branchHasCommitsAhead(ctx context.Context, repoPath, featureBranch, defaultBranch string) (bool, error) {
-	ahead, _, err := services.GetDivergence(ctx, repoPath, featureBranch, defaultBranch)
-	if err != nil {
-		return false, err
+// isRebasePending reports whether the agent has already been asked to rebase
+// for this approval cycle and hasn't pushed since. The handler uses it to avoid
+// re-sending the rebase prompt on every Accept click; the FE uses an equivalent
+// check to disable the Accept button while the rebase is outstanding.
+//
+// "Has the agent pushed since the rebase was requested?" is encoded as
+// LastPushAt > RebaseRequestedAt. We use !After (rather than Before) so equal
+// timestamps still count as pending — protects against the very-fast first
+// click where both stamps land in the same wall-clock instant.
+func isRebasePending(task *types.SpecTask) bool {
+	if task == nil || task.RebaseRequestedAt == nil {
+		return false
 	}
-	return ahead > 0, nil
+	if task.LastPushAt == nil {
+		return true
+	}
+	return !task.LastPushAt.After(*task.RebaseRequestedAt)
 }
 
 // getPullRequestContentForTask reads pull_request.md from helix-specs branch for a task.
@@ -772,38 +802,6 @@ func (s *HelixAPIServer) ensurePullRequestsForAllRepos(ctx context.Context, task
 	return nil
 }
 
-// ensurePullRequestForTask creates a PR for a spec task if one doesn't exist (backward compat wrapper)
-// DEPRECATED: Use ensurePullRequestsForAllRepos for multi-repo support
-func (s *HelixAPIServer) ensurePullRequestForTask(ctx context.Context, repo *types.GitRepository, task *types.SpecTask) error {
-	repoPR, err := s.ensurePullRequestForRepo(ctx, repo, task, repo.LocalPath, "")
-	if err != nil {
-		return err
-	}
-
-	if repoPR != nil {
-		task.UpdatedAt = time.Now()
-
-		// Update RepoPullRequests if not already present
-		found := false
-		for i, pr := range task.RepoPullRequests {
-			if pr.RepositoryID == repo.ID {
-				task.RepoPullRequests[i] = *repoPR
-				found = true
-				break
-			}
-		}
-		if !found {
-			task.RepoPullRequests = append(task.RepoPullRequests, *repoPR)
-		}
-
-		if err := s.Store.UpdateSpecTask(ctx, task); err != nil {
-			log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to update task with PR")
-		}
-	}
-
-	return nil
-}
-
 func (s *HelixAPIServer) shouldOpenPullRequest(repo *types.GitRepository) bool {
 	switch {
 	case repo.ExternalType == types.ExternalRepositoryTypeGitHub && repo.OAuthConnectionID != "":
@@ -819,6 +817,12 @@ func (s *HelixAPIServer) shouldOpenPullRequest(repo *types.GitRepository) bool {
 		}
 
 		// Github PRs implemented
+		return true
+	case repo.ExternalType == types.ExternalRepositoryTypeGitLab:
+		// GitLab MRs implemented (createGitLabMergeRequest in
+		// git_repository_service_pull_requests.go); auth resolution
+		// (OAuth -> repo.GitLab.PersonalAccessToken -> repo.Password)
+		// happens inside getGitLabClient, matching the GitHub branch.
 		return true
 	case repo.AzureDevOps != nil:
 		// ADO PRs implemented

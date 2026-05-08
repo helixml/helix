@@ -1,8 +1,28 @@
 # Changelog
 
-## [Unreleased]
+## [2.11.0-rc2]
+
+### Fixed
+- Removed the Bitnami PostgreSQL subchart dependency that was inadvertently still being rendered. `helm upgrade` deletes the orphaned Bitnami `postgresql` StatefulSet. See [UPGRADE.md](UPGRADE.md) for the optional PVC cleanup.
+
+## [2.9.0] - 2026-03-13
+
+### Changed
+- **BREAKING: Replaced Bitnami PostgreSQL with official postgres image**. See [UPGRADE.md](UPGRADE.md) for migration instructions.
+  - Removed Bitnami `postgresql` and `common` chart dependencies
+  - PostgreSQL now uses `postgres:17-alpine` via a self-managed Deployment
+  - Service name changed from `{release}-postgresql` to `{release}-helix-controlplane-postgres`
+  - PVC name changed from `data-{release}-postgresql-0` to `{release}-helix-controlplane-postgres-pvc`
+  - Removed `postgresql.image.registry`, `postgresql.auth.postgresPassword`, `postgresql.architecture` values
+  - Added `postgresql.persistence.*` values (previously managed by Bitnami subchart)
+  - Added `postgresql.resources` to configure requests/limits on the bundled PostgreSQL container
+- Updated `values-example.yaml` to document the new structured license key configuration
+- Deprecated using `secretEnvVars` for common configurations like LICENSE_KEY in favor of structured configuration
 
 ### Added
+- Migration script (`scripts/migrate-from-bitnami.sh`) for preserving data during upgrade
+- PostgreSQL readiness probe using `pg_isready`
+- `helix-controlplane.tplvalues.render`, `helix-controlplane.storage.class`, and `helix-controlplane.postgres-image` template helpers (replacing Bitnami common library)
 - **Structured License Key Configuration**: Added explicit structured configuration parameters for the Helix license key in the controlplane helm chart
   - `controlplane.licenseKey`: Direct license key value
   - `controlplane.licenseKeyExistingSecret`: Reference to existing Kubernetes secret containing the license key
@@ -10,6 +30,5 @@
   - This replaces the need to use `secretEnvVars` for license key configuration
   - Follows the same pattern as other credentials (runner token, Keycloak, provider API keys)
 
-### Changed
-- Updated `values-example.yaml` to document the new structured license key configuration
-- Deprecated using `secretEnvVars` for common configurations like LICENSE_KEY in favor of structured configuration 
+### Removed
+- Keycloak installation from `kind_helm_install.sh`

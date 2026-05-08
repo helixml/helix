@@ -90,6 +90,9 @@ import {
 } from "../../api/api";
 import { useGetProject, useUpdateProject } from "../../services/projectService";
 import useSnackbar from "../../hooks/useSnackbar";
+import { useOAuthFlow } from "../../hooks/useOAuthFlow";
+import { useListOAuthProviders } from "../../services/oauthProvidersService";
+import { findOAuthProviderForType } from "../../utils/oauthProviders";
 import BacklogTableView from "./BacklogTableView";
 import { useCreateSampleRepository } from "../../services/gitRepositoryService";
 import { useSampleTypes } from "../../hooks/useSampleTypes";
@@ -248,7 +251,6 @@ interface SpecTaskKanbanBoardProps {
   showArchived?: boolean; // Show archived tasks instead of active tasks
   showMetrics?: boolean; // Show metrics in task cards
   showMerged?: boolean; // Show merged column
-  searchFilter?: string; // Filter tasks by name, description, or implementation_plan
 }
 
 const DroppableColumn: React.FC<{
@@ -626,7 +628,6 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
   showArchived: showArchivedProp = false,
   showMetrics: showMetricsProp,
   showMerged: showMergedProp = true,
-  searchFilter: searchFilterProp = "",
 }) => {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("md"));
@@ -634,6 +635,14 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
   const account = useAccount();
   const snackbar = useSnackbar();
   const queryClient = useQueryClient();
+  const router = useRouter();
+
+  // OAuth flow — if the planner has no GitHub OAuth, the start-planning
+  // endpoint returns 422 with error=oauth_required. Drop into the connect
+  // flow rather than surfacing the raw error string.
+  const { startOAuthFlow } = useOAuthFlow();
+  const { data: oauthProviders } = useListOAuthProviders();
+  const gitHubProvider = findOAuthProviderForType(oauthProviders, "github");
 
   // Track initial load to avoid showing loading spinner on refreshes
   const hasLoadedOnceRef = React.useRef(false);
@@ -655,8 +664,30 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
     useState<string[] | null>(null);
   const [archivingTaskId, setArchivingTaskId] = useState<string | null>(null);
 
-  // Local search filter state (use prop as initial value, but manage locally)
-  const [searchFilter, setSearchFilter] = useState(searchFilterProp);
+  // Search filter — persisted in the URL (?search=...) so Back / refresh
+  // restore the filtered view. We keep a local controlled-input value for
+  // snappy typing and debounce the URL write to avoid history churn.
+  const urlSearch = (router.params.search as string | undefined) || "";
+  const [searchFilter, setSearchFilter] = useState(urlSearch);
+  useEffect(() => {
+    if (searchFilter === urlSearch) return;
+    const handle = setTimeout(() => {
+      if (searchFilter) {
+        router.mergeParams({ search: searchFilter });
+      } else {
+        // Drop the param entirely when empty so the URL stays clean.
+        // replaceParams replaces the full param set in replace mode.
+        const next: Record<string, string> = {};
+        for (const k of Object.keys(router.params)) {
+          if (k === "search") continue;
+          next[k] = router.params[k] as string;
+        }
+        router.replaceParams(next);
+      }
+    }, 250);
+    return () => clearTimeout(handle);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchFilter, urlSearch]);
 
   // Label filter state — persisted to localStorage per project
   const labelStorageKey = projectId ? `helix-label-filter-${projectId}` : null;
@@ -1230,6 +1261,36 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
       });
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
+        // 422 + oauth_required → the planner has no GitHub OAuth. Open the
+        // connect flow instead of throwing the raw error string.
+        if (
+          response.status === 422 &&
+          errorData?.error === "oauth_required"
+        ) {
+          if (gitHubProvider?.id) {
+            snackbar.info("Connect GitHub to start planning this task.");
+            startOAuthFlow({
+              providerId: gitHubProvider.id,
+              scopes: ["repo"],
+              onSuccess: () => {
+                snackbar.success(
+                  "GitHub connected. Click Start Planning again to continue.",
+                );
+              },
+              onError: (oauthError) => {
+                snackbar.error(`GitHub connection failed: ${oauthError}`);
+              },
+            });
+          } else {
+            // No GitHub provider is configured system-wide. The backend's
+            // error message is PR-centric and actionless for this user, so
+            // override it with admin-direction guidance.
+            snackbar.error(
+              "GitHub OAuth is not configured on this Helix instance. Ask your administrator to set it up before starting planning.",
+            );
+          }
+          return;
+        }
         throw new Error(
           errorData.error ||
             errorData.message ||

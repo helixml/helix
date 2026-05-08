@@ -140,7 +140,7 @@ func (s *HelixAPIServer) getProject(_ http.ResponseWriter, r *http.Request) (*ty
 	// Prune stale sandbox entries from DockerCacheStatus (lazy cleanup on read).
 	// Remove entries for sandboxes that no longer exist in the database.
 	if project.Metadata.DockerCacheStatus != nil && len(project.Metadata.DockerCacheStatus.Sandboxes) > 0 {
-		sandboxes, sbErr := s.Store.ListSandboxes(r.Context())
+		sandboxes, sbErr := s.Store.ListSandboxInstances(r.Context())
 		if sbErr == nil {
 			knownIDs := make(map[string]bool, len(sandboxes))
 			for _, sb := range sandboxes {
@@ -2309,7 +2309,7 @@ func (s *HelixAPIServer) deleteDockerCache(_ http.ResponseWriter, r *http.Reques
 	}
 
 	// Send delete to all online sandboxes
-	sandboxes, err := s.Store.ListSandboxes(r.Context())
+	sandboxes, err := s.Store.ListSandboxInstances(r.Context())
 	if err != nil {
 		return nil, system.NewHTTPError500(fmt.Sprintf("failed to list sandboxes: %v", err))
 	}
@@ -2369,7 +2369,7 @@ func (s *HelixAPIServer) getDockerCacheZFSTree(_ http.ResponseWriter, r *http.Re
 		return nil, system.NewHTTPError403(err.Error())
 	}
 
-	sandboxes, err := s.Store.ListSandboxes(r.Context())
+	sandboxes, err := s.Store.ListSandboxInstances(r.Context())
 	if err != nil {
 		return nil, system.NewHTTPError500(fmt.Sprintf("failed to list sandboxes: %v", err))
 	}

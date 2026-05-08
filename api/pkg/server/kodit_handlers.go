@@ -1112,16 +1112,16 @@ func (apiServer *HelixAPIServer) pageImageRepository(w http.ResponseWriter, r *h
 		return
 	}
 
-	pngBytes, err := apiServer.koditService.RenderPageImage(r.Context(), koditRepoID, filePath, page)
+	imgBytes, err := apiServer.koditService.RenderPageImage(r.Context(), koditRepoID, filePath, page)
 	if err != nil {
 		handleKoditError(w, err, "Failed to render page image")
 		return
 	}
 
-	w.Header().Set("Content-Type", "image/png")
+	w.Header().Set("Content-Type", "image/jpeg")
 	w.Header().Set("Cache-Control", "public, max-age=3600")
 	w.WriteHeader(http.StatusOK)
-	w.Write(pngBytes)
+	w.Write(imgBytes)
 }
 
 // grepRepository runs git grep against a repository
