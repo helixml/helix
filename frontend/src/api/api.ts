@@ -9,13 +9,6 @@
  * ---------------------------------------------------------------
  */
 
-export interface ControllerMemoryEstimationResponse {
-  cached?: boolean;
-  error?: string;
-  estimate?: MemoryMemoryEstimate;
-  model_id?: string;
-}
-
 export interface FilestoreConfig {
   folders?: FilestoreFolder[];
   /**
@@ -114,20 +107,47 @@ export interface HydraGPUInfo {
   vendor?: string;
 }
 
-export interface KoditRepositoryStatusSummaryAttributes {
-  /** Message Error message if failed */
-  message?: string;
-  /** Status Overall indexing status */
-  status?: string;
-  /** UpdatedAt Most recent activity timestamp */
-  updated_at?: string;
+export interface HydraListSandboxCommandsResponse {
+  commands?: HydraSandboxCommandResponse[];
 }
 
-export interface KoditRepositoryStatusSummaryData {
-  /** Attributes Attributes for repository status summary. */
-  attributes?: KoditRepositoryStatusSummaryAttributes;
+export interface HydraListSandboxFilesResponse {
+  entries?: HydraSandboxFileEntry[];
+  path?: string;
+}
+
+export interface HydraSandboxCommandResponse {
+  args?: string[];
+  cmd?: string;
+  cwd?: string;
+  detached?: boolean;
+  exit_code?: number;
+  finished_at?: string;
   id?: string;
-  type?: string;
+  sandbox_id?: string;
+  started_at?: string;
+  status?: string;
+  stderr?: string;
+  stdout?: string;
+  sudo?: boolean;
+}
+
+export interface HydraSandboxFileEntry {
+  is_dir?: boolean;
+  mod_time?: string;
+  mode?: string;
+  name?: string;
+  path?: string;
+  size?: number;
+}
+
+export interface McpIcon {
+  /** Optional MIME type (e.g., "image/png", "image/svg+xml") */
+  mimeType?: string;
+  /** Optional size specifications (e.g., ["48x48"], ["any"] for SVG) */
+  sizes?: string[];
+  /** URI pointing to the icon resource (HTTPS URL or data URI) */
+  src?: string;
 }
 
 export interface McpMeta {
@@ -147,17 +167,31 @@ export interface McpMeta {
   progressToken?: any;
 }
 
+export enum McpTaskSupport {
+  TaskSupportForbidden = "forbidden",
+  TaskSupportOptional = "optional",
+  TaskSupportRequired = "required",
+}
+
 export interface McpTool {
   /** Meta is a metadata object that is reserved by MCP for storing additional information. */
   _meta?: McpMeta;
   /** Optional properties describing tool behavior */
   annotations?: McpToolAnnotation;
+  /** Support for deferred loading */
+  defer_loading?: boolean;
   /** A human-readable description of the tool. */
   description?: string;
+  /** Execution describes execution behavior for the tool */
+  execution?: McpToolExecution;
+  /** Icons provides visual identifiers for the tool */
+  icons?: McpIcon[];
   /** A JSON Schema object defining the expected parameters for the tool. */
   inputSchema?: McpToolInputSchema;
   /** The name of the tool. */
   name?: string;
+  /** A JSON Schema object defining the expected output returned by the tool . */
+  outputSchema?: McpToolOutputSchema;
 }
 
 export interface McpToolAnnotation {
@@ -173,92 +207,25 @@ export interface McpToolAnnotation {
   title?: string;
 }
 
+export interface McpToolExecution {
+  /** TaskSupport indicates whether the tool supports task augmentation. */
+  taskSupport?: McpTaskSupport;
+}
+
 export interface McpToolInputSchema {
   $defs?: Record<string, any>;
+  additionalProperties?: any;
   properties?: Record<string, any>;
   required?: string[];
   type?: string;
 }
 
-export interface MemoryEstimateOptions {
-  /** Advanced options */
-  flash_attention?: boolean;
-  /** "f16", "q8_0", "q4_0" */
-  kv_cache_type?: string;
-  /** Batch size */
-  num_batch?: number;
-  /** Context size */
-  num_ctx?: number;
-  /**
-   * ⚠️  CRITICAL CONFUSION WARNING ⚠️
-   * NumGPU is NOT the number of GPUs in your hardware configuration!
-   * NumGPU is the number of MODEL LAYERS to offload to GPU (-1 for auto-detect all that fit)
-   *
-   * Examples:
-   * - NumGPU = -1: Auto-detect max layers that fit (RECOMMENDED - gives full model memory)
-   * - NumGPU = 1:  Only offload 1 layer to GPU (gives tiny memory estimate)
-   * - NumGPU = 0:  CPU only (no GPU layers)
-   *
-   * To estimate for different GPU hardware configs (1 GPU vs 4 GPUs),
-   * you pass different GPU configuration arrays to the estimation function,
-   * NOT different NumGPU values!
-   */
-  num_gpu?: number;
-  /** Number of parallel sequences */
-  num_parallel?: number;
-}
-
-export interface MemoryGPUInfo {
-  compute?: string;
-  dependency_path?: string[];
-  driver_major?: number;
-  driver_minor?: number;
-  env_workarounds?: string[][];
-  free_memory?: number;
-  id?: string;
-  index?: number;
-  /** "cuda", "rocm", "metal", "cpu" */
-  library?: string;
-  minimum_memory?: number;
-  name?: string;
-  total_memory?: number;
-  unreliable_free_memory?: boolean;
-  /** Additional fields for compatibility with Ollama's estimation */
-  variant?: string;
-}
-
-export interface MemoryMemoryEstimate {
-  /** Metadata */
-  architecture?: string;
-  estimated_at?: string;
-  /** Whether all layers fit on GPU */
-  fully_loaded?: boolean;
-  /** Memory allocation per GPU */
-  gpu_sizes?: number[];
-  gpus?: MemoryGPUInfo[];
-  /** Graph memory requirement */
-  graph?: number;
-  /** Graph computation memory */
-  graph_mem?: number;
-  /** Breakdown for analysis */
-  kv_cache?: number;
-  /** Core results */
-  layers?: number;
-  model_path?: string;
-  /** Configuration used for estimation */
-  options?: MemoryEstimateOptions;
-  /** Projector weights (for multimodal) */
-  projectors?: number;
-  /** Whether CPU fallback is needed */
-  requires_fallback?: boolean;
-  /** Layers per GPU for tensor parallel */
-  tensor_split?: number[];
-  /** Total memory requirement */
-  total_size?: number;
-  /** Total VRAM usage */
-  vram_size?: number;
-  /** Model weights memory */
-  weights?: number;
+export interface McpToolOutputSchema {
+  $defs?: Record<string, any>;
+  additionalProperties?: any;
+  properties?: Record<string, any>;
+  required?: string[];
+  type?: string;
 }
 
 export interface OpenaiChatCompletionChoice {
@@ -289,6 +256,13 @@ export interface OpenaiChatCompletionMessage {
    * - https://github.com/openai/openai-cookbook/blob/main/examples/How_to_count_tokens_with_tiktoken.ipynb
    */
   name?: string;
+  /**
+   * This property is used for the "reasoning" feature supported by deepseek-reasoner
+   * which is not in the official documentation.
+   * the doc from deepseek:
+   * - https://api-docs.deepseek.com/api/create-chat-completion#responses
+   */
+  reasoning_content?: string;
   refusal?: string;
   role?: string;
   /** For Role=tool prompts this should be set to the ID given in the assistant's prior request to call a tool. */
@@ -298,11 +272,26 @@ export interface OpenaiChatCompletionMessage {
 }
 
 export interface OpenaiChatCompletionRequest {
+  /**
+   * ChatTemplateKwargs provides a way to add non-standard parameters to the request body.
+   * Additional kwargs to pass to the template renderer. Will be accessible by the chat template.
+   * Such as think mode for qwen3. "chat_template_kwargs": {"enable_thinking": false}
+   * https://qwen.readthedocs.io/en/latest/deployment/vllm.html#thinking-non-thinking-modes
+   */
+  chat_template_kwargs?: Record<string, any>;
   frequency_penalty?: number;
   /** Deprecated: use ToolChoice instead. */
   function_call?: any;
   /** Deprecated: use Tools instead. */
   functions?: OpenaiFunctionDefinition[];
+  /**
+   * GuidedChoice is a vLLM-specific extension that restricts the model's output
+   * to one of the predefined string choices provided in this field. This feature
+   * is used to constrain the model's responses to a controlled set of options,
+   * ensuring predictable and consistent outputs in scenarios where specific
+   * choices are required.
+   */
+  guided_choice?: string[];
   /**
    * LogitBias is must be a token id string (specified by their token ID in the tokenizer), not a word string.
    * incorrect: `"logit_bias":{"You": 6}`, correct: `"logit_bias":{"1639": 6}`
@@ -323,7 +312,7 @@ export interface OpenaiChatCompletionRequest {
   /**
    * MaxTokens The maximum number of tokens that can be generated in the chat completion.
    * This value can be used to control costs for text generated via API.
-   * This value is now deprecated in favor of max_completion_tokens, and is not compatible with o1 series models.
+   * Deprecated: use MaxCompletionTokens. Not compatible with o1-series models.
    * refs: https://platform.openai.com/docs/api-reference/chat/create#chat-create-max_tokens
    */
   max_tokens?: number;
@@ -334,11 +323,22 @@ export interface OpenaiChatCompletionRequest {
   n?: number;
   /** Disable the default behavior of parallel tool calls by setting it: false. */
   parallel_tool_calls?: any;
+  /** Configuration for a predicted output. */
+  prediction?: OpenaiPrediction;
   presence_penalty?: number;
   /** Controls effort on reasoning for reasoning models. It can be set to "low", "medium", or "high". */
   reasoning_effort?: string;
   response_format?: OpenaiChatCompletionResponseFormat;
+  /**
+   * A stable identifier used to help detect users of your application that may be violating OpenAI's usage policies.
+   * The IDs should be a string that uniquely identifies each user.
+   * We recommend hashing their username or email address, in order to avoid sending us any identifying information.
+   * https://platform.openai.com/docs/api-reference/chat/create#chat_create-safety_identifier
+   */
+  safety_identifier?: string;
   seed?: number;
+  /** Specifies the latency tier to use for processing the request. */
+  service_tier?: OpenaiServiceTier;
   stop?: string[];
   /**
    * Store can be set to true to store the output of this completion request for use in distillations and evals.
@@ -360,6 +360,14 @@ export interface OpenaiChatCompletionRequest {
   top_logprobs?: number;
   top_p?: number;
   user?: string;
+  /**
+   * Verbosity determines how many output tokens are generated. Lowering the number of
+   * tokens reduces overall latency. It can be set to "low", "medium", or "high".
+   * Note: This field is only confirmed to work with gpt-5, gpt-5-mini and gpt-5-nano.
+   * Also, it is not in the API reference of chat completion at the time of writing,
+   * though it is supported by the API.
+   */
+  verbosity?: string;
 }
 
 export interface OpenaiChatCompletionResponse {
@@ -369,6 +377,7 @@ export interface OpenaiChatCompletionResponse {
   model?: string;
   object?: string;
   prompt_filter_results?: OpenaiPromptFilterResult[];
+  service_tier?: OpenaiServiceTier;
   system_fingerprint?: string;
   usage?: OpenaiUsage;
 }
@@ -408,8 +417,10 @@ export enum OpenaiChatMessagePartType {
 }
 
 export interface OpenaiCompletionTokensDetails {
+  accepted_prediction_tokens?: number;
   audio_tokens?: number;
   reasoning_tokens?: number;
+  rejected_prediction_tokens?: number;
 }
 
 export interface OpenaiContentFilterResults {
@@ -483,6 +494,11 @@ export interface OpenaiLogProbs {
   content?: OpenaiLogProb[];
 }
 
+export interface OpenaiPrediction {
+  content?: string;
+  type?: string;
+}
+
 export interface OpenaiProfanity {
   detected?: boolean;
   filtered?: boolean;
@@ -501,6 +517,13 @@ export interface OpenaiPromptTokensDetails {
 export interface OpenaiSelfHarm {
   filtered?: boolean;
   severity?: string;
+}
+
+export enum OpenaiServiceTier {
+  ServiceTierAuto = "auto",
+  ServiceTierDefault = "default",
+  ServiceTierFlex = "flex",
+  ServiceTierPriority = "priority",
 }
 
 export interface OpenaiSexual {
@@ -583,10 +606,15 @@ export interface ServerBatchTaskProgressResponse {
   tasks?: Record<string, ServerTaskProgressResponse>;
 }
 
+export interface ServerBatchTaskUsageMetric {
+  date?: string;
+  total_tokens?: number;
+}
+
 export interface ServerBatchTaskUsageResponse {
   project_id?: string;
   /** keyed by task_id */
-  tasks?: Record<string, TypesAggregatedUsageMetric[]>;
+  tasks?: Record<string, ServerBatchTaskUsageMetric[]>;
 }
 
 export interface ServerClaudeLoginSessionResponse {
@@ -603,6 +631,8 @@ export interface ServerClaudePollLoginResponse {
   /** Raw credentials JSON */
   credentials?: string;
   found?: boolean;
+  /** OAuth URL for native browser */
+  url?: string;
 }
 
 export interface ServerClientBufferStats {
@@ -626,17 +656,6 @@ export interface ServerConfigurePendingSessionRequest {
 export interface ServerCreateTopUpRequest {
   amount?: number;
   org_id?: string;
-}
-
-export interface ServerDesignDocsResponse {
-  documents?: ServerDesignDocument[];
-  task_id?: string;
-}
-
-export interface ServerDesignDocument {
-  content?: string;
-  filename?: string;
-  path?: string;
 }
 
 export interface ServerDevContainerWithClients {
@@ -741,6 +760,329 @@ export interface ServerInteractionWithContext {
   turn?: number;
 }
 
+export interface ServerKoditAdminActiveTaskDTO {
+  current?: number;
+  message?: string;
+  operation?: string;
+  repo_name?: string;
+  repository_id?: number;
+  state?: string;
+  total?: number;
+  updated_at?: string;
+}
+
+export interface ServerKoditAdminBatchRequest {
+  ids?: number[];
+}
+
+export interface ServerKoditAdminBatchResponse {
+  failed?: ServerKoditBatchError[];
+  succeeded?: number[];
+}
+
+export interface ServerKoditAdminPaginationMeta {
+  page?: number;
+  per_page?: number;
+  total?: number;
+  total_pages?: number;
+}
+
+export interface ServerKoditAdminPendingTaskDTO {
+  created_at?: string;
+  id?: number;
+  operation?: string;
+  priority?: number;
+}
+
+export interface ServerKoditAdminQueueListResponse {
+  active_tasks?: ServerKoditAdminActiveTaskDTO[];
+  data?: ServerKoditAdminQueueTaskDTO[];
+  meta?: ServerKoditAdminPaginationMeta;
+  stats?: ServerKoditAdminQueueStats;
+}
+
+export interface ServerKoditAdminQueueStats {
+  by_operation?: Record<string, number>;
+  by_priority_level?: Record<string, number>;
+  newest_task_time?: string;
+  oldest_task_age?: string;
+  oldest_task_time?: string;
+  total?: number;
+}
+
+export interface ServerKoditAdminQueueTaskDTO {
+  created_at?: string;
+  id?: number;
+  operation?: string;
+  priority?: number;
+  repo_name?: string;
+  repository_id?: number;
+}
+
+export interface ServerKoditAdminRepoAttributes {
+  created_at?: string;
+  helix_org_id?: string;
+  helix_repo_id?: string;
+  helix_repo_name?: string;
+  remote_url?: string;
+  status?: string;
+  status_message?: string;
+  updated_at?: string;
+}
+
+export interface ServerKoditAdminRepoDTO {
+  attributes?: ServerKoditAdminRepoAttributes;
+  id?: string;
+  type?: string;
+}
+
+export interface ServerKoditAdminRepoDetailAttributes {
+  branch_count?: number;
+  commit_count?: number;
+  created_at?: string;
+  default_branch?: string;
+  enrichment_count?: number;
+  helix_org_id?: string;
+  helix_org_name?: string;
+  helix_repo_id?: string;
+  helix_repo_name?: string;
+  /** Last time Kodit scanned this repository */
+  last_scanned_at?: string;
+  latest_commit_author?: string;
+  latest_commit_date?: string;
+  latest_commit_message?: string;
+  /** Latest commit tracked by Kodit */
+  latest_commit_sha?: string;
+  remote_url?: string;
+  status?: string;
+  status_message?: string;
+  tag_count?: number;
+  updated_at?: string;
+}
+
+export interface ServerKoditAdminRepoDetailDTO {
+  attributes?: ServerKoditAdminRepoDetailAttributes;
+  id?: string;
+  type?: string;
+}
+
+export interface ServerKoditAdminRepoDetailResponse {
+  data?: ServerKoditAdminRepoDetailDTO;
+}
+
+export interface ServerKoditAdminRepoListResponse {
+  data?: ServerKoditAdminRepoDTO[];
+  meta?: ServerKoditAdminPaginationMeta;
+}
+
+export interface ServerKoditAdminRepositoryTasksResponse {
+  pending_tasks?: ServerKoditAdminPendingTaskDTO[];
+  statuses?: ServerKoditAdminTaskStatusDTO[];
+}
+
+export interface ServerKoditAdminStatsResponse {
+  commits?: number;
+  enrichments?: number;
+  pending_tasks?: number;
+  repositories?: number;
+}
+
+export interface ServerKoditAdminTaskStatusDTO {
+  current?: number;
+  error?: string;
+  message?: string;
+  operation?: string;
+  state?: string;
+  total?: number;
+  updated_at?: string;
+}
+
+export interface ServerKoditAdminUpdatePriorityRequest {
+  priority?: number;
+}
+
+export interface ServerKoditBatchError {
+  id?: number;
+  message?: string;
+}
+
+export interface ServerKoditCommitAttributes {
+  authored_at?: string;
+  committed_at?: string;
+  message?: string;
+  sha?: string;
+}
+
+export interface ServerKoditCommitDTO {
+  attributes?: ServerKoditCommitAttributes;
+  id?: string;
+  type?: string;
+}
+
+export interface ServerKoditEnrichmentAttributes {
+  content?: string;
+  created_at?: string;
+  subtype?: string;
+  type?: string;
+  updated_at?: string;
+}
+
+export interface ServerKoditEnrichmentDTO {
+  attributes?: ServerKoditEnrichmentAttributes;
+  commit_sha?: string;
+  id?: string;
+  type?: string;
+}
+
+export interface ServerKoditEnrichmentListResponse {
+  data?: ServerKoditEnrichmentDTO[];
+}
+
+export interface ServerKoditEnrichmentsMeta {
+  commit_sha?: string;
+  count?: number;
+  enrichment_type?: string;
+  kodit_repo_id?: number;
+  page?: number;
+  per_page?: number;
+  total?: number;
+  total_pages?: number;
+}
+
+export interface ServerKoditFileContentDTO {
+  commit_sha?: string;
+  content?: string;
+  path?: string;
+}
+
+export interface ServerKoditFileContentResponse {
+  data?: ServerKoditFileContentDTO;
+  links?: Record<string, string>;
+}
+
+export interface ServerKoditFileEntryDTO {
+  links?: Record<string, string>;
+  path?: string;
+  size?: number;
+}
+
+export interface ServerKoditFileResultDTO {
+  language?: string;
+  lines?: string;
+  links?: Record<string, string>;
+  page?: number;
+  path?: string;
+  preview?: string;
+  score?: number;
+}
+
+export interface ServerKoditFilesMeta {
+  count?: number;
+  pattern?: string;
+}
+
+export interface ServerKoditFilesResponse {
+  data?: ServerKoditFileEntryDTO[];
+  links?: Record<string, string>;
+  meta?: ServerKoditFilesMeta;
+}
+
+export interface ServerKoditGrepMatchDTO {
+  content?: string;
+  line?: number;
+}
+
+export interface ServerKoditGrepMeta {
+  count?: number;
+  glob?: string;
+  limit?: number;
+  pattern?: string;
+}
+
+export interface ServerKoditGrepResponse {
+  data?: ServerKoditGrepResultDTO[];
+  links?: Record<string, string>;
+  meta?: ServerKoditGrepMeta;
+}
+
+export interface ServerKoditGrepResultDTO {
+  language?: string;
+  links?: Record<string, string>;
+  matches?: ServerKoditGrepMatchDTO[];
+  path?: string;
+}
+
+export interface ServerKoditIndexingStatusAttributes {
+  message?: string;
+  status?: string;
+  tasks_active?: number;
+  tasks_completed?: number;
+  tasks_failed?: number;
+  tasks_pending?: number;
+  tasks_total?: number;
+  updated_at?: string;
+}
+
+export interface ServerKoditIndexingStatusDTO {
+  data?: ServerKoditIndexingStatusData;
+}
+
+export interface ServerKoditIndexingStatusData {
+  attributes?: ServerKoditIndexingStatusAttributes;
+  id?: string;
+  type?: string;
+}
+
+export interface ServerKoditRepoEnrichmentsResponse {
+  data?: ServerKoditEnrichmentDTO[];
+  links?: Record<string, string>;
+  meta?: ServerKoditEnrichmentsMeta;
+}
+
+export interface ServerKoditSearchMeta {
+  count?: number;
+  language?: string;
+  limit?: number;
+  query?: string;
+}
+
+export interface ServerKoditSearchResponse {
+  data?: ServerKoditFileResultDTO[];
+  links?: Record<string, string>;
+  meta?: ServerKoditSearchMeta;
+}
+
+export interface ServerKoditSearchResultDTO {
+  content?: string;
+  id?: string;
+  language?: string;
+  type?: string;
+}
+
+export interface ServerKoditWikiPageDTO {
+  content?: string;
+  slug?: string;
+  title?: string;
+}
+
+export interface ServerKoditWikiPageResponse {
+  data?: ServerKoditWikiPageDTO;
+  links?: Record<string, string>;
+}
+
+export interface ServerKoditWikiTreeNodeDTO {
+  children?: ServerKoditWikiTreeNodeDTO[];
+  links?: Record<string, string>;
+  path?: string;
+  slug?: string;
+  title?: string;
+}
+
+export interface ServerKoditWikiTreeResponse {
+  data?: ServerKoditWikiTreeNodeDTO[];
+  links?: Record<string, string>;
+}
+
 export interface ServerLicenseKeyRequest {
   license_key?: string;
 }
@@ -748,15 +1090,6 @@ export interface ServerLicenseKeyRequest {
 export interface ServerListExposedPortsResponse {
   exposed_ports?: ServerExposedPort[];
   session_id?: string;
-}
-
-export interface ServerLogsSummary {
-  active_instances?: number;
-  error_retention_hours?: number;
-  instances_with_errors?: number;
-  max_lines_per_buffer?: number;
-  recent_errors?: number;
-  slots?: ServerSlotLogSummary[];
 }
 
 export interface ServerModelSubstitution {
@@ -781,6 +1114,10 @@ export interface ServerPhaseProgress {
   session_id?: string;
   started_at?: string;
   status?: string;
+}
+
+export interface ServerPinnedProjectsResponse {
+  pinned_project_ids?: string[];
 }
 
 export interface ServerPromptPinRequest {
@@ -873,11 +1210,47 @@ export interface ServerSampleTypesResponse {
   sample_types?: ServerSampleType[];
 }
 
+export interface ServerSandboxBillingResponse {
+  enabled?: boolean;
+  pending_credits?: number;
+  price_credits_per_second?: number;
+  runtime?: string;
+  total_credits_charged?: number;
+  vcpus?: number;
+}
+
 export interface ServerSandboxInstanceInfo {
+  /**
+   * Inference profile state — populated from the heartbeat. Empty for
+   * pure-agent sandboxes with no profile assigned.
+   */
+  active_profile_id?: string;
   container_id?: string;
   id?: string;
+  profile_error?: string;
+  profile_progress?: Record<string, TypesServiceDownloadProgress>;
+  profile_status?: string;
+  service_health?: Record<string, string>;
   session_id?: string;
   status?: string;
+}
+
+export interface ServerSandboxTerminalSession {
+  attached?: boolean;
+  created?: number;
+  name?: string;
+  windows?: number;
+}
+
+export interface ServerSandboxTerminalSessionsResponse {
+  sessions?: ServerSandboxTerminalSession[];
+}
+
+export interface ServerSessionClaudeCredentialsResponse {
+  /** "oauth" or "setup_token" */
+  credential_type?: string;
+  oauth_credentials?: TypesClaudeOAuthCredentials;
+  setup_token?: string;
 }
 
 export interface ServerSessionSandboxStateResponse {
@@ -965,13 +1338,6 @@ export interface ServerSimpleSampleProject {
   technologies?: string[];
 }
 
-export interface ServerSlotLogSummary {
-  has_logs?: boolean;
-  id?: string;
-  model?: string;
-  runner_id?: string;
-}
-
 export interface ServerTaskProgressResponse {
   /** Progress from tasks.md */
   checklist?: TypesChecklistProgress;
@@ -1002,38 +1368,34 @@ export interface ServerVideoStreamingStats {
   gop_buffer_size?: number;
 }
 
-export interface ServicesKoditEnrichmentAttributes {
-  content?: string;
-  created_at?: string;
-  subtype?: string;
-  type?: string;
-  updated_at?: string;
+export interface ServerAddLabelRequest {
+  label?: string;
 }
 
-export interface ServicesKoditEnrichmentData {
-  attributes?: ServicesKoditEnrichmentAttributes;
-  /** Added for frontend */
-  commit_sha?: string;
+export interface ServerOpenaiModelEntry {
+  created?: number;
   id?: string;
-  type?: string;
+  object?: string;
+  owned_by?: string;
 }
 
-export interface ServicesKoditEnrichmentListResponse {
-  data?: ServicesKoditEnrichmentData[];
+export interface ServerOpenaiModelsResponse {
+  data?: ServerOpenaiModelEntry[];
+  object?: string;
 }
 
-export interface ServicesKoditIndexingStatus {
-  /** Data Data for repository status summary response. */
-  data?: KoditRepositoryStatusSummaryData;
+export interface ServerRunnerProfileAssignRequest {
+  profile_id?: string;
 }
 
-export interface ServicesKoditSearchResult {
-  content?: string;
-  /** File path from DerivesFrom */
-  file_path?: string;
-  id?: string;
-  language?: string;
-  type?: string;
+export interface ServerRunnerProfileSaveRequest {
+  architectures?: string[];
+  compose_yaml?: string;
+  description?: string;
+  min_vram_bytes?: number;
+  model_match?: string;
+  name?: string;
+  vendor?: TypesGPUVendor;
 }
 
 export interface ServicesSampleProjectCode {
@@ -1164,6 +1526,10 @@ export enum TypesAgentWorkState {
 }
 
 export interface TypesAggregatedUsageMetric {
+  cache_read_cost?: number;
+  cache_read_tokens?: number;
+  cache_write_cost?: number;
+  cache_write_tokens?: number;
   completion_cost?: number;
   completion_tokens?: number;
   /** ID    string    `json:"id" gorm:"primaryKey"` */
@@ -1173,32 +1539,11 @@ export interface TypesAggregatedUsageMetric {
   prompt_tokens?: number;
   request_size_bytes?: number;
   response_size_bytes?: number;
-  /** Total cost of the call (prompt and completion tokens) */
+  sandbox_cost?: number;
+  /** Prompt + completion + cache read + cache write */
   total_cost?: number;
   total_requests?: number;
   total_tokens?: number;
-}
-
-export interface TypesAllocationPlanView {
-  cost?: number;
-  /** Slot IDs */
-  evictions_needed?: string[];
-  gpu_count?: number;
-  gpus?: number[];
-  id?: string;
-  is_multi_gpu?: boolean;
-  is_valid?: boolean;
-  memory_per_gpu?: number;
-  requires_eviction?: boolean;
-  /** GPU index -> total memory */
-  runner_capacity?: Record<string, number>;
-  runner_id?: string;
-  /** GPU index -> allocated memory */
-  runner_memory_state?: Record<string, number>;
-  runtime?: GithubComHelixmlHelixApiPkgTypesRuntime;
-  tensor_parallel_size?: number;
-  total_memory_required?: number;
-  validation_error?: string;
 }
 
 export interface TypesApiKey {
@@ -1306,8 +1651,6 @@ export interface TypesAssistantCalculator {
 }
 
 export interface TypesAssistantConfig {
-  /** AgentMode triggers the use of the agent loop (deprecated - use AgentType instead) */
-  agent_mode?: boolean;
   /** AgentType specifies the type of agent to use */
   agent_type?: TypesAgentType;
   apis?: TypesAssistantAPI[];
@@ -1503,6 +1846,42 @@ export interface TypesAssistantZapier {
   name?: string;
 }
 
+export interface TypesAttentionEvent {
+  acknowledged_at?: string;
+  created_at?: string;
+  description?: string;
+  dismissed_at?: string;
+  event_type?: TypesAttentionEventType;
+  id?: string;
+  idempotency_key?: string;
+  metadata?: number[];
+  organization_id?: string;
+  project_id?: string;
+  /** Denormalized for display without joins */
+  project_name?: string;
+  snoozed_until?: string;
+  spec_task_id?: string;
+  spec_task_name?: string;
+  title?: string;
+  user_id?: string;
+}
+
+export enum TypesAttentionEventType {
+  AttentionEventSpecsPushed = "specs_pushed",
+  AttentionEventAgentInteractionCompleted = "agent_interaction_completed",
+  AttentionEventSpecFailed = "spec_failed",
+  AttentionEventImplementationFailed = "implementation_failed",
+  AttentionEventPRReady = "pr_ready",
+  AttentionEventCIPassed = "ci_passed",
+  AttentionEventCIFailed = "ci_failed",
+}
+
+export interface TypesAttentionEventUpdateRequest {
+  acknowledge?: boolean;
+  dismiss?: boolean;
+  snoozed_until?: string;
+}
+
 export enum TypesAuditEventType {
   AuditEventTaskCreated = "task_created",
   AuditEventTaskCloned = "task_cloned",
@@ -1547,8 +1926,7 @@ export interface TypesAuditMetadata {
   /** Project information */
   project_name?: string;
   /** Pull request information */
-  pull_request_id?: string;
-  pull_request_url?: string;
+  pull_requests?: TypesRepoPR[];
   /** Hash of requirements spec content */
   requirements_spec_hash?: string;
   /** Helix session/interaction linking */
@@ -1698,6 +2076,8 @@ export interface TypesClaudeSubscription {
   access_token_expires_at?: string;
   created?: string;
   created_by?: string;
+  /** "oauth" or "setup_token" */
+  credential_type?: string;
   id?: string;
   last_error?: string;
   last_refreshed_at?: string;
@@ -1925,6 +2305,8 @@ export interface TypesCreateClaudeSubscriptionRequest {
   owner_id?: string;
   /** "user" or "org" */
   owner_type?: TypesOwnerType;
+  /** From `claude setup-token` (alternative to credentials) */
+  setup_token?: string;
 }
 
 export interface TypesCreatePullRequestRequest {
@@ -1949,6 +2331,41 @@ export interface TypesCreateSampleRepositoryRequest {
   sample_type?: string;
 }
 
+export interface TypesCreateSandboxRequest {
+  display_fps?: number;
+  display_height?: number;
+  display_width?: number;
+  env?: Record<string, string>;
+  /**
+   * Image is an optional explicit Docker image override. Only honoured
+   * when the operator has set HELIX_SANDBOX_ALLOW_CUSTOM_IMAGE=true.
+   * Mutually exclusive with Runtime.
+   */
+  image?: string;
+  memory_mb?: number;
+  name?: string;
+  /**
+   * Persistent makes the sandbox keep a workspace mount across container
+   * restarts. Files written under /home/retro/work survive teardown until
+   * the sandbox is explicitly deleted.
+   */
+  persistent?: boolean;
+  /**
+   * ProjectID optionally associates the sandbox with a project the caller
+   * belongs to. Empty means org-scoped only.
+   */
+  project_id?: string;
+  /**
+   * Runtime selects one of the operator-configured runtimes
+   * (e.g. "headless-ubuntu", "node22", "ubuntu-desktop"). Mutually
+   * exclusive with Image.
+   */
+  runtime?: TypesSandboxRuntime;
+  tags?: Record<string, string>;
+  timeout_seconds?: number;
+  vcpus?: number;
+}
+
 export interface TypesCreateSecretRequest {
   app_id?: string;
   name?: string;
@@ -1960,6 +2377,10 @@ export interface TypesCreateSecretRequest {
 export interface TypesCreateTaskRequest {
   /** Optional: Helix agent to use for spec generation */
   app_id?: string;
+  /** Optional: team member assigned to the task */
+  assignee_id?: string;
+  /** Optional: Skip backlog and start immediately, regardless of project auto-start setting */
+  auto_start?: boolean;
   /** For new mode: branch to create from (defaults to repo default) */
   base_branch?: string;
   /** Branch configuration */
@@ -2006,39 +2427,20 @@ export interface TypesCrispTrigger {
 }
 
 export interface TypesCronTrigger {
+  /** "session" (default) or "spec_task" */
+  action?: string;
+  /** "helix" (default) or "zed_external" */
+  agent_type?: string;
+  /** Webhook URL to POST on completion */
+  callback_url?: string;
+  emails?: string[];
   enabled?: boolean;
   input?: string;
+  /** File path in helix-specs worktree to use as prompt (overrides Input) */
+  input_file?: string;
+  /** Target project for spec_task action */
+  project_id?: string;
   schedule?: string;
-}
-
-export interface TypesDashboardData {
-  global_allocation_decisions?: TypesGlobalAllocationDecision[];
-  queue?: TypesWorkloadSummary[];
-  runners?: TypesDashboardRunner[];
-  scheduling_decisions?: TypesSchedulingDecision[];
-}
-
-export interface TypesDashboardRunner {
-  allocated_memory?: number;
-  created?: string;
-  free_memory?: number;
-  /** Number of GPUs detected */
-  gpu_count?: number;
-  /** GPU memory stabilization statistics */
-  gpu_memory_stats?: TypesGPUMemoryStats;
-  /** Per-GPU memory status */
-  gpus?: TypesGPUStatus[];
-  id?: string;
-  labels?: Record<string, string>;
-  memory_string?: string;
-  models?: TypesRunnerModelStatus[];
-  /** Process tracking and cleanup statistics */
-  process_stats?: any;
-  slots?: TypesRunnerSlot[];
-  total_memory?: number;
-  updated?: string;
-  used_memory?: number;
-  version?: string;
 }
 
 export interface TypesDiscordTrigger {
@@ -2084,6 +2486,96 @@ export interface TypesDynamicModelInfo {
 export enum TypesEffect {
   EffectAllow = "allow",
   EffectDeny = "deny",
+}
+
+export interface TypesEvaluationAssertion {
+  /** Custom prompt for LLM judge mode */
+  llm_judge_prompt?: string;
+  type?: TypesEvaluationAssertionType;
+  /** Expected string, regex pattern, or skill name */
+  value?: string;
+}
+
+export interface TypesEvaluationAssertionResult {
+  assertion_type?: TypesEvaluationAssertionType;
+  assertion_value?: string;
+  /** e.g. LLM judge reasoning */
+  details?: string;
+  passed?: boolean;
+}
+
+export enum TypesEvaluationAssertionType {
+  EvaluationAssertionTypeContains = "contains",
+  EvaluationAssertionTypeNotContains = "not_contains",
+  EvaluationAssertionTypeRegex = "regex",
+  EvaluationAssertionTypeLLMJudge = "llm_judge",
+  EvaluationAssertionTypeSkillUsed = "skill_used",
+}
+
+export interface TypesEvaluationQuestion {
+  assertions?: TypesEvaluationAssertion[];
+  id?: string;
+  question?: string;
+}
+
+export interface TypesEvaluationQuestionResult {
+  assertion_results?: TypesEvaluationAssertionResult[];
+  cost?: number;
+  duration_ms?: number;
+  error?: string;
+  interaction_id?: string;
+  passed?: boolean;
+  question?: string;
+  question_id?: string;
+  response?: string;
+  session_id?: string;
+  skills_used?: string[];
+  tokens_used?: TypesUsage;
+}
+
+export interface TypesEvaluationRun {
+  app_config_snapshot?: TypesAppConfig;
+  app_id?: string;
+  created?: string;
+  error?: string;
+  id?: string;
+  organization_id?: string;
+  results?: TypesEvaluationQuestionResult[];
+  status?: TypesEvaluationRunStatus;
+  suite_id?: string;
+  summary?: TypesEvaluationRunSummary;
+  updated?: string;
+  user_id?: string;
+}
+
+export enum TypesEvaluationRunStatus {
+  EvaluationRunStatusPending = "pending",
+  EvaluationRunStatusRunning = "running",
+  EvaluationRunStatusCompleted = "completed",
+  EvaluationRunStatusFailed = "failed",
+  EvaluationRunStatusCancelled = "cancelled",
+}
+
+export interface TypesEvaluationRunSummary {
+  failed?: number;
+  passed?: number;
+  skills_used?: string[];
+  total_cost?: number;
+  total_duration_ms?: number;
+  total_questions?: number;
+  total_tokens?: number;
+}
+
+export interface TypesEvaluationSuite {
+  app_id?: string;
+  created?: string;
+  description?: string;
+  id?: string;
+  name?: string;
+  organization_id?: string;
+  questions?: TypesEvaluationQuestion[];
+  updated?: string;
+  user_id?: string;
 }
 
 export interface TypesExecuteQuestionSetRequest {
@@ -2238,73 +2730,11 @@ export interface TypesFrontendLicenseInfo {
   valid_until?: string;
 }
 
-export interface TypesGPUMemoryDataPoint {
-  /** Actual free memory (from nvidia-smi) */
-  actual_free_mb?: number;
-  /** Total GPU memory */
-  actual_total_mb?: number;
-  /** Actual memory used (from nvidia-smi) */
-  actual_used_mb?: number;
-  /** Memory allocated by Helix scheduler */
-  allocated_mb?: number;
-  gpu_index?: number;
-  timestamp?: string;
-}
-
-export interface TypesGPUMemoryReading {
-  delta_mb?: number;
-  is_stable?: boolean;
-  memory_mb?: number;
-  poll_number?: number;
-  stable_count?: number;
-}
-
-export interface TypesGPUMemoryStabilizationEvent {
-  /** "startup" or "deletion" */
-  context?: string;
-  error_message?: string;
-  memory_delta_threshold_mb?: number;
-  memory_readings?: TypesGPUMemoryReading[];
-  poll_interval_ms?: number;
-  polls_taken?: number;
-  required_stable_polls?: number;
-  runtime?: string;
-  slot_id?: string;
-  stabilized_memory_mb?: number;
-  success?: boolean;
-  timeout_seconds?: number;
-  timestamp?: string;
-  total_wait_seconds?: number;
-}
-
-export interface TypesGPUMemoryStats {
-  average_wait_time_seconds?: number;
-  failed_stabilizations?: number;
-  last_stabilization?: string;
-  max_wait_time_seconds?: number;
-  /** Last 10 minutes of memory data */
-  memory_time_series?: TypesGPUMemoryDataPoint[];
-  min_wait_time_seconds?: number;
-  /** Last 20 events */
-  recent_events?: TypesGPUMemoryStabilizationEvent[];
-  /** Last 10 minutes of scheduling events */
-  scheduling_events?: TypesSchedulingEvent[];
-  successful_stabilizations?: number;
-  total_stabilizations?: number;
-}
-
-export interface TypesGPUState {
-  /** Slot IDs using this GPU */
-  active_slots?: string[];
-  allocated_memory?: number;
-  free_memory?: number;
-  index?: number;
-  total_memory?: number;
-  /** 0.0 - 1.0 */
-  utilization?: number;
-}
-
 export interface TypesGPUStatus {
+  /** canonical arch from gpuarch (e.g. "hopper") */
+  architecture?: string;
+  /** NVIDIA only — raw "9.0" / "8.6" etc. */
+  compute_capability?: string;
   /** GPU driver version (NVIDIA or AMD) */
   driver_version?: string;
   /** Free memory in bytes */
@@ -2319,6 +2749,17 @@ export interface TypesGPUStatus {
   total_memory?: number;
   /** Used memory in bytes */
   used_memory?: number;
+  /**
+   * Sandbox-absorbs-runner pivot fields (AC2 in requirements.md).
+   * Populated by the worker on its periodic status report; consumed by
+   * the API server's profile-compatibility check.
+   */
+  vendor?: TypesGPUVendor;
+}
+
+export enum TypesGPUVendor {
+  GPUVendorNVIDIA = "nvidia",
+  GPUVendorAMD = "amd",
 }
 
 export interface TypesGitHub {
@@ -2393,6 +2834,11 @@ export interface TypesGitRepository {
   external_type?: TypesExternalRepositoryType;
   /** Full URL to external repo (e.g., https://github.com/org/repo) */
   external_url?: string;
+  /**
+   * GitProviderConnectionID - references a GitProviderConnection (saved PAT) for authentication
+   * When set, the encrypted token is decrypted and used for clone/push operations
+   */
+  git_provider_connection_id?: string;
   github?: TypesGitHub;
   gitlab?: TypesGitLab;
   id?: string;
@@ -2416,12 +2862,6 @@ export interface TypesGitRepository {
   owner_id?: string;
   /** Password for the repository */
   password?: string;
-  /**
-   * Deprecated: ProjectID is maintained for backward compatibility only.
-   * Use the project_repositories junction table for many-to-many project-repo relationships.
-   * This column is kept in the database for rollback compatibility but reads should use the junction table.
-   */
-  project_id?: string;
   repo_type?: TypesGitRepositoryType;
   status?: TypesGitRepositoryStatus;
   updated_at?: string;
@@ -2439,6 +2879,8 @@ export interface TypesGitRepositoryCreateRequest {
   external_type?: TypesExternalRepositoryType;
   /** Full URL to external repo (e.g., https://github.com/org/repo) */
   external_url?: string;
+  /** GitProviderConnectionID - references a saved PAT connection for authentication */
+  git_provider_connection_id?: string;
   github?: TypesGitHub;
   gitlab?: TypesGitLab;
   initial_files?: Record<string, string>;
@@ -2504,34 +2946,6 @@ export interface TypesGitRepositoryUpdateRequest {
   username?: string;
 }
 
-export interface TypesGlobalAllocationDecision {
-  after_state?: Record<string, TypesRunnerStateView>;
-  /** Global state snapshots */
-  before_state?: Record<string, TypesRunnerStateView>;
-  /** All plans considered */
-  considered_plans?: TypesAllocationPlanView[];
-  created?: string;
-  error_message?: string;
-  execution_time_ms?: number;
-  id?: string;
-  model_name?: string;
-  /** How optimal the final decision was */
-  optimization_score?: number;
-  /** Timing information */
-  planning_time_ms?: number;
-  reason?: string;
-  runtime?: GithubComHelixmlHelixApiPkgTypesRuntime;
-  selected_plan?: TypesAllocationPlanView;
-  session_id?: string;
-  /** Decision outcome */
-  success?: boolean;
-  total_plans_generated?: number;
-  /** Decision metadata */
-  total_runners_evaluated?: number;
-  total_time_ms?: number;
-  workload_id?: string;
-}
-
 export interface TypesGuidelinesHistory {
   /** Optional description of what changed */
   change_note?: string;
@@ -2561,6 +2975,14 @@ export enum TypesImageURLDetail {
 
 export interface TypesInteraction {
   app_id?: string;
+  /**
+   * AutoWakeCount tracks how many times the auto-wake worker has sent a
+   * follow-up "continue" prompt to unstick this interaction. Zero means
+   * this is a normal user-initiated interaction; non-zero on an
+   * auto-wake interaction itself records which retry attempt it is.
+   * See design/2026-04-25-zed-claude-async-event-flush-on-user-input.md.
+   */
+  auto_wake_count?: number;
   completed?: string;
   created?: string;
   /** if this is defined, the UI will always display it instead of the message (so we can augment the internal prompt with RAG context) */
@@ -2582,12 +3004,36 @@ export interface TypesInteraction {
    * different ID = new distinct message (append). Persisted in DB for restart resilience.
    */
   last_zed_message_id?: string;
+  /**
+   * LastZedMessageOffset is the byte offset in ResponseMessage where the current
+   * message_id's content begins. Used by the accumulator to replace only the
+   * current message's portion during streaming updates, preserving earlier messages.
+   */
+  last_zed_message_offset?: number;
   mode?: TypesSessionMode;
+  /**
+   * PromptID links this interaction back to the prompt_history_entry that
+   * created it (when the interaction was dispatched by the queue, as opposed
+   * to being initiated by Zed when the user types in the IDE). Empty for
+   * Zed-initiated interactions. Used by handleMessageAdded /
+   * handleMessageCompleted to mark the originating prompt as 'sent' without
+   * relying on an in-memory map that doesn't survive API restarts. See
+   * design/2026-04-30-queue-and-other-stuck-state-bugs.md.
+   */
+  prompt_id?: string;
   /** User prompt (text) */
   prompt_message?: string;
   /** User prompt (multi-part) */
   prompt_message_content?: TypesMessageContent;
   rag_results?: TypesSessionRAGResult[];
+  /**
+   * ResponseEntries holds the structured response as an ordered list of typed entries.
+   * Each entry is either "text" (assistant prose) or "tool_call" (tool invocation),
+   * preserving the ordering and boundaries that Zed's internal Vec<AgentThreadEntry> has.
+   * This is populated on completion alongside ResponseMessage (flat string, backward compat).
+   * The frontend uses this to render entries with the correct component in the correct order.
+   */
+  response_entries?: number[];
   /** e.g. json */
   response_format?: TypesResponseFormat;
   /** e.g. json */
@@ -2789,6 +3235,12 @@ export interface TypesKnowledgeVersion {
 
 export interface TypesLLMCall {
   app_id?: string;
+  cache_read_cost?: number;
+  /** prompt tokens served from provider cache (subset of PromptTokens) */
+  cache_read_tokens?: number;
+  cache_write_cost?: number;
+  /** prompt tokens written to provider cache (Anthropic only; subset of PromptTokens) */
+  cache_write_tokens?: number;
   completion_cost?: number;
   completion_tokens?: number;
   created?: string;
@@ -2809,7 +3261,7 @@ export interface TypesLLMCall {
   spec_task_id?: string;
   step?: TypesLLMCallStep;
   stream?: boolean;
-  /** Total cost of the call (prompt and completion tokens) */
+  /** Prompt + completion + cache read + cache write */
   total_cost?: number;
   total_tokens?: number;
   updated?: string;
@@ -3149,11 +3601,15 @@ export interface TypesOrganization {
   /** Incremented on each update */
   guidelines_version?: number;
   id?: string;
+  /** Whether the current user is a member of the organization */
+  member?: boolean;
   /** Memberships in the organization */
   memberships?: TypesOrganizationMembership[];
   name?: string;
   /** Who created the org */
   owner?: string;
+  /** Number of projects in the organization */
+  project_count?: number;
   /** Roles in the organization */
   roles?: TypesRole[];
   /** Teams in the organization */
@@ -3234,10 +3690,36 @@ export interface TypesPricing {
   audio?: string;
   completion?: string;
   image?: string;
+  /** price per cached input token read (hit) */
+  input_cache_read?: string;
+  /** price per cached input token written (cache creation) */
+  input_cache_write?: string;
   internal_reasoning?: string;
   prompt?: string;
   request?: string;
   web_search?: string;
+}
+
+export interface TypesProfileGPURequirement {
+  /** optional whitelist (canonical strings from gpuarch) */
+  architectures?: string[];
+  /** derived from compose: union of device_ids */
+  count?: number;
+  /** optional, per-GPU minimum */
+  min_vram_bytes?: number;
+  /** optional regex against GPU marketing name */
+  model_match?: string;
+  /** optional */
+  vendor?: TypesGPUVendor;
+}
+
+export interface TypesProfileModel {
+  /** service.container_name (or service key if absent) */
+  container_name?: string;
+  /** first published or exposed port */
+  internal_port?: number;
+  /** --served-model-name (preferred) or --model basename */
+  name?: string;
 }
 
 export interface TypesProject {
@@ -3271,6 +3753,7 @@ export interface TypesProject {
   /** Incremented on each update */
   guidelines_version?: number;
   id?: string;
+  kodit_enabled?: boolean;
   metadata?: TypesProjectMetadata;
   /** Indexed for search prefix matching */
   name?: string;
@@ -3288,8 +3771,26 @@ export interface TypesProject {
    * Useful for project-specific tools like CI integration (e.g., drone-ci-mcp)
    */
   skills?: TypesAssistantSkills;
+  /**
+   * Startup commands from declarative project YAML (persisted) - DEPRECATED
+   * Use StartupScriptYAML instead. Kept for backward compatibility.
+   */
+  startup_install?: string;
   /** Transient field - loaded from primary code repo's .helix/startup.sh, never persisted to database */
   startup_script?: string;
+  /**
+   * StartupScriptFromYAML indicates the startup script was set via project YAML
+   * When true, the UI should show the script as read-only
+   */
+  startup_script_from_yaml?: boolean;
+  /**
+   * StartupScriptYAML is the startup script content from project YAML (persisted)
+   * This is the source of truth when StartupScriptFromYAML is true.
+   * At runtime, helix-specs/.helix/startup.sh takes precedence if it exists,
+   * otherwise this field is used as fallback.
+   */
+  startup_script_yaml?: string;
+  startup_start?: string;
   /** Computed */
   stats?: TypesProjectStats;
   /** "active", "archived", "completed" */
@@ -3297,6 +3798,44 @@ export interface TypesProject {
   technologies?: string[];
   updated_at?: string;
   user_id?: string;
+}
+
+export interface TypesProjectAgentDisplay {
+  /** Desktop environment: "ubuntu" (default GNOME) or "sway" */
+  desktop_type?: string;
+  /** Display refresh rate in Hz (default 60) */
+  fps?: number;
+  /** Resolution preset: "1080p" (default), "4k", or "5k" */
+  resolution?: string;
+}
+
+export interface TypesProjectAgentSpec {
+  credentials?: string;
+  display?: TypesProjectAgentDisplay;
+  model?: string;
+  name?: string;
+  provider?: string;
+  runtime?: string;
+  tools?: TypesProjectAgentTools;
+}
+
+export interface TypesProjectAgentTools {
+  browser?: boolean;
+  calculator?: boolean;
+  web_search?: boolean;
+}
+
+export interface TypesProjectApplyRequest {
+  name?: string;
+  organization_id?: string;
+  spec?: TypesProjectSpec;
+}
+
+export interface TypesProjectApplyResponse {
+  agent_app_id?: string;
+  /** true if created, false if updated */
+  created?: boolean;
+  project_id?: string;
 }
 
 export interface TypesProjectAuditLog {
@@ -3335,10 +3874,47 @@ export interface TypesProjectCreateRequest {
   technologies?: string[];
 }
 
+export interface TypesProjectKanban {
+  wip_limits?: TypesProjectWIPLimits;
+}
+
 export interface TypesProjectMetadata {
   auto_warm_docker_cache?: boolean;
   board_settings?: TypesBoardSettings;
   docker_cache_status?: TypesDockerCacheState;
+}
+
+export interface TypesProjectRepositorySpec {
+  default_branch?: string;
+  primary?: boolean;
+  url?: string;
+}
+
+export interface TypesProjectSpec {
+  agent?: TypesProjectAgentSpec;
+  auto_start_backlog_tasks?: boolean;
+  description?: string;
+  guidelines?: string;
+  kanban?: TypesProjectKanban;
+  name?: string;
+  /** Multi-repo list */
+  repositories?: TypesProjectRepositorySpec[];
+  /** Singular shorthand */
+  repository?: TypesProjectRepositorySpec;
+  startup?: TypesProjectStartup;
+  tasks?: TypesProjectTaskSpec[];
+  technologies?: string[];
+}
+
+export interface TypesProjectStartup {
+  /**
+   * Install and Start are deprecated - use Script instead
+   * Kept for backward compatibility with existing YAML files
+   */
+  install?: string;
+  /** Script is the unified startup script content (preferred) */
+  script?: string;
+  start?: string;
 }
 
 export interface TypesProjectStats {
@@ -3352,6 +3928,11 @@ export interface TypesProjectStats {
   total_tasks?: number;
 }
 
+export interface TypesProjectTaskSpec {
+  description?: string;
+  title?: string;
+}
+
 export interface TypesProjectUpdateRequest {
   auto_start_backlog_tasks?: boolean;
   default_branch?: string;
@@ -3362,6 +3943,8 @@ export interface TypesProjectUpdateRequest {
   github_repo_url?: string;
   /** Project-specific AI agent guidelines */
   guidelines?: string;
+  /** Whether Kodit code intelligence is enabled */
+  kodit_enabled?: boolean;
   metadata?: TypesProjectMetadata;
   name?: string;
   /** Project manager agent */
@@ -3377,16 +3960,27 @@ export interface TypesProjectUpdateRequest {
   technologies?: string[];
 }
 
+export interface TypesProjectWIPLimits {
+  implementation?: number;
+  planning?: number;
+  review?: number;
+}
+
 export interface TypesPromptHistoryEntry {
   /** Content */
   content?: string;
   /** Timestamps */
   created_at?: string;
+  /** Soft-delete: non-nil means user removed from queue */
+  deleted_at?: string;
+  /** Last failure reason (server-side error string), shown in UI under "Failed - retrying" */
+  error_message?: string;
   /** Composite primary key: ID is globally unique, but we also index by user+spec_task */
   id?: string;
   /**
    * Interrupt indicates this message should interrupt the current conversation
    * When false, message waits until current conversation completes
+   * Default is false: queue mode is the default, interrupt is explicit
    */
   interrupt?: boolean;
   /** Saved as a reusable template */
@@ -3497,6 +4091,12 @@ export interface TypesProviderEndpoint {
   /** If we can't fetch models */
   status?: TypesProviderEndpointStatus;
   updated?: string;
+  vertex_credentials_file?: string;
+  /** Service account JSON string; takes precedence over file */
+  vertex_credentials_json?: string;
+  /** Google Vertex AI fields — when VertexProjectID is set, this endpoint routes through Vertex */
+  vertex_project_id?: string;
+  vertex_region?: string;
 }
 
 export enum TypesProviderEndpointStatus {
@@ -3517,6 +4117,13 @@ export interface TypesPullRequest {
   author?: string;
   created_at?: string;
   description?: string;
+  /**
+   * HeadSHA is the commit SHA at the tip of the PR's source branch.
+   * Used by the CI status poller to detect new pushes and to query the
+   * provider's CI/build APIs for the right commit. Empty if the
+   * provider response did not include it.
+   */
+  head_sha?: string;
   id?: string;
   number?: number;
   source_branch?: string;
@@ -3604,7 +4211,17 @@ export enum TypesQuestionSetExecutionStatus {
 
 export interface TypesQuotaResponse {
   active_concurrent_desktops?: number;
+  /**
+   * Sandbox API concurrency. Distinct from ActiveConcurrentDesktops above —
+   * that one counts external_agent sessions (the spec-task desktop stack),
+   * while these count rows in the sandboxes table by runtime category.
+   * "Active" = pending|running|stopping (matches ensureSandboxLimits).
+   */
+  active_desktop_sandboxes?: number;
+  active_headless_sandboxes?: number;
   max_concurrent_desktops?: number;
+  max_desktop_sandboxes?: number;
+  max_headless_sandboxes?: number;
   max_projects?: number;
   max_repositories?: number;
   max_spec_tasks?: number;
@@ -3643,11 +4260,6 @@ export interface TypesRAGSettings {
   text_splitter?: TypesTextSplitterType;
   /** this is the threshold for a "good" answer - will default to 0.2 */
   threshold?: number;
-  typesense?: {
-    api_key?: string;
-    collection?: string;
-    url?: string;
-  };
 }
 
 export interface TypesRegisterRequest {
@@ -3655,6 +4267,28 @@ export interface TypesRegisterRequest {
   full_name?: string;
   password?: string;
   password_confirm?: string;
+}
+
+export interface TypesRepoPR {
+  ci_head_sha?: string;
+  /**
+   * CI status, populated by the spec task orchestrator's PR poll loop.
+   * CIStatus is one of: "" (not yet evaluated), "running", "passed",
+   * "failed", "none" (CI not configured for the PR's head SHA).
+   * CIHeadSHA is the head commit we last evaluated; it lets the poller
+   * detect a new push and reset CIStatus so a stale "passed" doesn't
+   * suppress a fresh notification when the next commit fails.
+   */
+  ci_status?: string;
+  ci_updated_at?: string;
+  ci_url?: string;
+  pr_id?: string;
+  pr_number?: number;
+  /** "open", "closed", "merged" */
+  pr_state?: string;
+  pr_url?: string;
+  repository_id?: string;
+  repository_name?: string;
 }
 
 export interface TypesRepositoryAccessCheck {
@@ -3670,6 +4304,12 @@ export interface TypesRepositoryAccessCheck {
 }
 
 export interface TypesRepositoryInfo {
+  /**
+   * CanWrite is true when the authenticated user has push or admin access to the repo.
+   * Helix needs write access to push branches and open pull requests, so read-only
+   * repos can be listed but cannot be linked as a project repo.
+   */
+  can_write?: boolean;
   /** HTTPS clone URL */
   clone_url?: string;
   default_branch?: string;
@@ -3761,49 +4401,81 @@ export interface TypesRunAPIActionResponse {
   response?: string;
 }
 
-export interface TypesRunnerModelStatus {
-  download_in_progress?: boolean;
-  download_percent?: number;
-  error?: string;
-  /** Memory requirement in bytes */
-  memory?: number;
-  model_id?: string;
-  runtime?: GithubComHelixmlHelixApiPkgTypesRuntime;
+export interface TypesRunSandboxCommandRequest {
+  args?: string[];
+  cmd?: string;
+  cwd?: string;
+  detached?: boolean;
+  env?: Record<string, string>;
+  sudo?: boolean;
+  /** TimeoutSeconds is per-command timeout. Defaults to 60s if 0 and !detached. */
+  timeout_seconds?: number;
 }
 
-export interface TypesRunnerSlot {
-  active?: boolean;
-  active_requests?: number;
-  command_line?: string;
-  context_length?: number;
-  created?: string;
-  gpu_allocation_data?: Record<string, any>;
-  gpu_index?: number;
-  gpu_indices?: number[];
+export interface TypesRunnerAssignment {
+  assigned_at?: string;
+  /** user ID for audit */
+  assigned_by?: string;
+  profile_id?: string;
+  runner_id?: string;
+}
+
+export interface TypesRunnerProfile {
+  compose_yaml?: string;
+  created_at?: string;
+  description?: string;
+  gpu_requirement?: TypesProfileGPURequirement;
   id?: string;
-  max_concurrency?: number;
-  memory_estimation_meta?: Record<string, any>;
-  model?: string;
-  model_memory_requirement?: number;
-  ready?: boolean;
-  runner_id?: string;
-  runtime?: GithubComHelixmlHelixApiPkgTypesRuntime;
-  runtime_args?: Record<string, any>;
-  status?: string;
-  tensor_parallel_size?: number;
-  updated?: string;
-  version?: string;
-  workload_data?: Record<string, any>;
+  models?: TypesProfileModel[];
+  name?: string;
+  updated_at?: string;
 }
 
-export interface TypesRunnerStateView {
-  active_slots?: number;
-  /** GPU index -> state */
-  gpu_states?: Record<string, TypesGPUState>;
-  is_connected?: boolean;
-  runner_id?: string;
-  total_slots?: number;
-  warm_slots?: number;
+export interface TypesSandbox {
+  billing_last_charged_at?: string;
+  container_id?: string;
+  created_at?: string;
+  deleted_at?: string;
+  display_fps?: number;
+  display_height?: number;
+  /** Display fields apply to desktop runtimes. */
+  display_width?: number;
+  env?: number[];
+  expires_at?: string;
+  /**
+   * HostDeviceID is the RevDial device ID of the hydra host that runs the
+   * underlying container. Empty until the controller schedules it.
+   */
+  host_device_id?: string;
+  id?: string;
+  image?: string;
+  memory_mb?: number;
+  name?: string;
+  organization_id?: string;
+  owner?: string;
+  /**
+   * Persistent indicates that the sandbox should mount a persistent
+   * workspace volume (so files survive across reboots/restarts of the
+   * underlying container). Non-persistent sandboxes use the container's
+   * ephemeral filesystem only.
+   */
+  persistent?: boolean;
+  /**
+   * ProjectID is optional. When set, the sandbox is associated with a
+   * specific project for organisational/UI grouping purposes; nothing in the
+   * lifecycle path branches on it. Empty means org-scoped only.
+   */
+  project_id?: string;
+  runtime?: TypesSandboxRuntime;
+  started_at?: string;
+  status?: TypesSandboxStatus;
+  status_message?: string;
+  stopped_at?: string;
+  tags?: number[];
+  /** TimeoutSeconds is the lifetime in seconds; ExpiresAt = CreatedAt + TimeoutSeconds. */
+  timeout_seconds?: number;
+  updated_at?: string;
+  vcpus?: number;
 }
 
 export interface TypesSandboxCacheState {
@@ -3837,13 +4509,45 @@ export interface TypesSandboxHeartbeatRequest {
   disk_usage?: TypesDiskUsageMetric[];
   /** GPU configuration */
   gpu_vendor?: string;
+  /**
+   * GPUs is the per-GPU inventory used by the API server's profile
+   * compatibility check. Empty for sandboxes that don't host inference.
+   */
+  gpus?: TypesGPUStatus[];
+  /** Helix version running on this sandbox (git commit hash or release version) */
+  helix_version?: string;
   /** Privileged mode (host Docker access for development) */
   privileged_mode_enabled?: boolean;
+  /** ProfileError carries the failure detail when ProfileStatus="failed". */
+  profile_error?: string;
+  /**
+   * ProfileProgress is per-service model-weights download progress,
+   * surfaced when ProfileStatus="starting". Empty once all services
+   * finish downloading.
+   */
+  profile_progress?: Record<string, TypesServiceDownloadProgress>;
+  /**
+   * ProfileStatus reports the compose stack lifecycle. Empty when no
+   * profile is assigned. Allowed values: "assigning" | "pulling" |
+   * "starting" | "running" | "failed".
+   */
+  profile_status?: string;
   /** /dev/dri/renderD128 or SOFTWARE */
   render_node?: string;
+  /**
+   * ServiceHealth maps compose service name -> health string.
+   * "healthy" | "starting" | "failed" | "unknown".
+   */
+  service_health?: Record<string, string>;
 }
 
 export interface TypesSandboxInstance {
+  /**
+   * ActiveProfileID is the ID of the runner profile this sandbox is
+   * currently running (or attempting to run). Empty for pure-agent
+   * sandboxes with no profile assigned.
+   */
+  active_profile_id?: string;
   /** Sandbox capacity */
   active_sandboxes?: number;
   created?: string;
@@ -3854,6 +4558,16 @@ export interface TypesSandboxInstance {
   desktop_versions?: Record<string, string>;
   /** GPU configuration */
   gpu_vendor?: string;
+  /**
+   * GPUs is the per-GPU inventory the sandbox reports for inference
+   * scheduling. Vendor / Architecture / ComputeCapability on each
+   * entry are the load-bearing fields for profile compatibility.
+   * Explicit column tag because GORM's default snake_case derivation
+   * turns `GPUs` into `gp_us`.
+   */
+  gpus?: object[];
+  /** Helix version running on this sandbox (git commit hash or release version) */
+  helix_version?: string;
   /** Hostname for DNS resolution */
   hostname?: string;
   id?: string;
@@ -3864,55 +4578,50 @@ export interface TypesSandboxInstance {
   /** Maximum allowed containers */
   max_sandboxes?: number;
   privileged_mode?: boolean;
+  /** ProfileError carries the failure detail when ProfileStatus="failed". */
+  profile_error?: string;
+  /**
+   * ProfileProgress is per-service download progress for model weights,
+   * surfaced when ProfileStatus="starting" and a vLLM container is
+   * pulling weights from Hugging Face Hub. Empty once all services are
+   * healthy. Map key is compose service name.
+   */
+  profile_progress?: Record<string, object>;
+  /**
+   * ProfileStatus tracks the compose stack lifecycle:
+   * "" | "assigning" | "pulling" | "starting" | "running" | "failed".
+   */
+  profile_status?: string;
   /** /dev/dri/renderD128 or SOFTWARE */
   render_node?: string;
+  /**
+   * ServiceHealth maps compose service name -> health string
+   * ("healthy" | "starting" | "failed" | "unknown"). Reported by
+   * compose-manager polling each container's /v1/models endpoint
+   * (or vendor-specific health endpoint).
+   */
+  service_health?: Record<string, string>;
   /** "online", "offline", "degraded" */
   status?: string;
   updated?: string;
 }
 
-export interface TypesSchedulingDecision {
-  available_runners?: string[];
-  created?: string;
-  decision_type?: TypesSchedulingDecisionType;
-  id?: string;
-  memory_available?: number;
-  memory_required?: number;
-  mode?: TypesSessionMode;
-  model_name?: string;
-  processing_time_ms?: number;
-  queue_position?: number;
-  reason?: string;
-  repeat_count?: number;
-  runner_id?: string;
-  session_id?: string;
-  slot_id?: string;
-  success?: boolean;
-  total_slot_count?: number;
-  warm_slot_count?: number;
-  workload_id?: string;
+export interface TypesSandboxListResponse {
+  sandboxes?: TypesSandbox[];
+  total?: number;
 }
 
-export enum TypesSchedulingDecisionType {
-  SchedulingDecisionTypeQueued = "queued",
-  SchedulingDecisionTypeReuseWarmSlot = "reuse_warm_slot",
-  SchedulingDecisionTypeCreateNewSlot = "create_new_slot",
-  SchedulingDecisionTypeEvictStaleSlot = "evict_stale_slot",
-  SchedulingDecisionTypeRejected = "rejected",
-  SchedulingDecisionTypeError = "error",
-  SchedulingDecisionTypeUnschedulable = "unschedulable",
+export enum TypesSandboxRuntime {
+  SandboxRuntimeUbuntuDesktop = "ubuntu-desktop",
+  SandboxRuntimeHeadlessUbuntu = "headless-ubuntu",
 }
 
-export interface TypesSchedulingEvent {
-  description?: string;
-  /** "slot_created", "slot_deleted", "eviction", "stabilization_start", "stabilization_end" */
-  event_type?: string;
-  gpu_indices?: number[];
-  memory_mb?: number;
-  model_name?: string;
-  runtime?: string;
-  slot_id?: string;
-  timestamp?: string;
+export enum TypesSandboxStatus {
+  SandboxStatusPending = "pending",
+  SandboxStatusRunning = "running",
+  SandboxStatusStopping = "stopping",
+  SandboxStatusStopped = "stopped",
+  SandboxStatusFailed = "failed",
 }
 
 export interface TypesSecret {
@@ -3935,6 +4644,12 @@ export interface TypesServerConfigForFrontend {
   auth_provider?: TypesAuthProvider;
   /** Charging for usage */
   billing_enabled?: boolean;
+  /**
+   * DefaultChatSystemPrompt is the system prompt the platform applies to
+   * direct model chats when the user has not customised one. Surfaced to
+   * the frontend so the chat-settings page can prefill the textbox.
+   */
+  default_chat_system_prompt?: string;
   deployment_id?: string;
   disable_llm_call_logging?: boolean;
   /** "mac-desktop", "server", "cloud", etc. */
@@ -3942,6 +4657,8 @@ export interface TypesServerConfigForFrontend {
   eval_user_id?: string;
   filestore_prefix?: string;
   google_analytics_frontend?: string;
+  /** Whether any global AI provider with enabled chat models exists */
+  has_providers?: boolean;
   latest_version?: string;
   license?: TypesFrontendLicenseInfo;
   max_concurrent_desktops?: number;
@@ -3956,6 +4673,8 @@ export interface TypesServerConfigForFrontend {
    * can be the prefix to the bucket
    */
   registration_enabled?: boolean;
+  /** Require an active subscription before allowing to use the product */
+  require_active_subscription?: boolean;
   rudderstack_data_plane_url?: string;
   rudderstack_write_key?: string;
   sentry_dsn_frontend?: string;
@@ -4026,6 +4745,27 @@ export interface TypesServiceConnectionUpdateRequest {
   name?: string;
 }
 
+export interface TypesServiceDownloadProgress {
+  /**
+   * Current and Total are the raw N/M from the progress line (e.g.
+   * shards 12 of 47). Useful when Percent is computed.
+   */
+  current?: number;
+  /**
+   * ETA is the rendered remaining-time string from the source line
+   * (e.g. "27:18"). Verbatim — not parsed into a duration.
+   */
+  eta?: string;
+  /** Percent is 0-100. Zero means "no progress line parsed yet". */
+  percent?: number;
+  /**
+   * Stage is a short tag for what's downloading: "shards", "files",
+   * "weights" or "" if unknown. Drives UI labelling.
+   */
+  stage?: string;
+  total?: number;
+}
+
 export interface TypesSession {
   /** named config for backward compat */
   config?: TypesSessionMetadata;
@@ -4091,6 +4831,8 @@ export interface TypesSessionChatRequest {
   app_id?: string;
   /** Which assistant are we speaking to? */
   assistant_id?: string;
+  /** Webhook URL to POST on session completion */
+  callback_url?: string;
   /** Configuration for external agents */
   external_agent_config?: TypesExternalAgentConfig;
   /** If empty, we will start a new interaction */
@@ -4110,6 +4852,8 @@ export interface TypesSessionChatRequest {
   regenerate?: boolean;
   /** If empty, we will start a new session */
   session_id?: string;
+  /** e.g. "job" — categorizes sessions for filtering */
+  session_role?: string;
   /** If true, we will stream the response */
   stream?: boolean;
   /** System message, only applicable when starting a new session */
@@ -4143,6 +4887,8 @@ export interface TypesSessionMetadata {
   /** which assistant are we talking to? */
   assistant_id?: string;
   avatar?: string;
+  /** Webhook URL to POST on session completion */
+  callback_url?: string;
   /** Which code agent runtime is used (zed_agent, qwen_code, claude_code, etc.) */
   code_agent_runtime?: TypesCodeAgentRuntime;
   /** Docker container ID */
@@ -4151,8 +4897,6 @@ export interface TypesSessionMetadata {
   container_ip?: string;
   /** Container fields (Hydra executor) */
   container_name?: string;
-  /** "running" = should be running, "stopped" = can terminate */
-  desired_state?: string;
   /** Dev container ID for streaming */
   dev_container_id?: string;
   document_group_id?: string;
@@ -4225,6 +4969,8 @@ export interface TypesSessionMetadata {
   uploaded_data_entity_id?: string;
   /** ID of associated WorkSession */
   work_session_id?: string;
+  /** Agent name used when thread was created (e.g., "zed-agent", "claude", "qwen") */
+  zed_agent_name?: string;
   /** Associated Zed instance ID */
   zed_instance_id?: string;
   /** Associated Zed thread ID */
@@ -4236,6 +4982,15 @@ export enum TypesSessionMode {
   SessionModeInference = "inference",
   SessionModeFinetune = "finetune",
   SessionModeAction = "action",
+}
+
+export interface TypesSessionOutputResponse {
+  duration_ms?: number;
+  /** Last interaction's response text */
+  output?: string;
+  session_id?: string;
+  /** "waiting", "complete", "error" */
+  status?: string;
 }
 
 export interface TypesSessionRAGResult {
@@ -4292,6 +5047,8 @@ export interface TypesSkillDefinition {
   icon?: TypesSkillIcon;
   id?: string;
   loadedAt?: string;
+  /** MCP configuration (present when this skill is MCP-backed rather than API-backed) */
+  mcp?: TypesSkillMCPSpec;
   name?: string;
   /** OAuth configuration */
   oauthProvider?: string;
@@ -4317,6 +5074,13 @@ export interface TypesSkillIcon {
   name?: string;
   /** e.g., "material-ui", "custom" */
   type?: string;
+}
+
+export interface TypesSkillMCPSpec {
+  /** if true, URL+auth are generated server-side */
+  autoProvision?: boolean;
+  /** "http" or "sse" */
+  transport?: string;
 }
 
 export interface TypesSkillRequiredParameter {
@@ -4358,6 +5122,8 @@ export interface TypesSpecTask {
   agent_work_state?: TypesAgentWorkState;
   /** Archive to hide from main view */
   archived?: boolean;
+  /** Team member assigned to work on this task */
+  assignee_id?: string;
   /** The base branch this was created from */
   base_branch?: string;
   /** "new" or "existing" */
@@ -4395,6 +5161,8 @@ export interface TypesSpecTask {
   implementation_plan?: string;
   /** Skip spec planning, go straight to implementation */
   just_do_it_mode?: boolean;
+  /** Keep alive — prevent auto-idle-shutdown of desktop container */
+  keep_alive?: boolean;
   labels?: string[];
   /** Last prompt sent to agent (for continue functionality) */
   last_prompt_content?: string;
@@ -4422,17 +5190,24 @@ export interface TypesSpecTask {
    */
   planning_session_id?: string;
   planning_started_at?: string;
+  /** User who kicked off planning (may differ from CreatedBy) */
+  planning_started_by?: string;
   /** "low", "medium", "high", "critical" */
   priority?: TypesSpecTaskPriority;
   project_id?: string;
   project_path?: string;
   /** Public sharing */
   public_design_docs?: boolean;
-  pull_request_id?: string;
-  /** Computed field, not stored */
-  pull_request_url?: string;
+  /** Set when approveImplementation hits a divergent branch and asks the agent to rebase. Used to make the approve handler idempotent (no duplicate prompts) and to gate the Accept button until the agent's next push. */
+  rebase_requested_at?: string;
+  /** Multi-repo PR tracking: list of PRs across all project repositories */
+  repo_pull_requests?: TypesRepoPR[];
   /** User stories + EARS acceptance criteria (markdown) */
   requirements_spec?: string;
+  /** "absent", "running", "starting" — derived from session config in listTasks */
+  sandbox_state?: string;
+  /** Transient startup message e.g. "Unpacking build cache" */
+  sandbox_status_message?: string;
   /** Agent activity tracking (computed from session/activity data, not stored) */
   session_updated_at?: string;
   /**
@@ -4449,6 +5224,8 @@ export interface TypesSpecTask {
   started_at?: string;
   /** Spec-driven workflow statuses - see constants below */
   status?: TypesSpecTaskStatus;
+  /** When status last changed (for Kanban column sorting) */
+  status_updated_at?: string;
   /**
    * Human-readable directory naming for design docs in helix-specs branch
    * TaskNumber is auto-assigned from project.NextTaskNumber when task starts
@@ -4501,6 +5278,8 @@ export interface TypesSpecTaskDesignReviewComment {
   agent_response?: string;
   /** When agent responded */
   agent_response_at?: string;
+  /** Agent's structured entries (for tool call rendering) */
+  agent_response_entries?: number[];
   /** The actual comment */
   comment_text?: string;
   /** Made optional - simplified to single type */
@@ -4624,6 +5403,8 @@ export enum TypesSpecTaskStatus {
 }
 
 export interface TypesSpecTaskUpdateRequest {
+  /** Pointer to allow clearing (set to empty string to unassign) */
+  assignee_id?: string;
   /** IDs of tasks this task depends on */
   depends_on?: string[];
   description?: string;
@@ -4631,6 +5412,8 @@ export interface TypesSpecTaskUpdateRequest {
   helix_app_id?: string;
   /** Pointer to allow explicit false */
   just_do_it_mode?: boolean;
+  /** Pointer to allow explicit false — prevent auto-idle-shutdown */
+  keep_alive?: boolean;
   name?: string;
   priority?: TypesSpecTaskPriority;
   /** Pointer to allow explicit false */
@@ -4645,6 +5428,8 @@ export interface TypesSpecTaskWithProject {
   agent_work_state?: TypesAgentWorkState;
   /** Archive to hide from main view */
   archived?: boolean;
+  /** Team member assigned to work on this task */
+  assignee_id?: string;
   /** The base branch this was created from */
   base_branch?: string;
   /** "new" or "existing" */
@@ -4682,6 +5467,8 @@ export interface TypesSpecTaskWithProject {
   implementation_plan?: string;
   /** Skip spec planning, go straight to implementation */
   just_do_it_mode?: boolean;
+  /** Keep alive — prevent auto-idle-shutdown of desktop container */
+  keep_alive?: boolean;
   labels?: string[];
   /** Last prompt sent to agent (for continue functionality) */
   last_prompt_content?: string;
@@ -4709,6 +5496,8 @@ export interface TypesSpecTaskWithProject {
    */
   planning_session_id?: string;
   planning_started_at?: string;
+  /** User who kicked off planning (may differ from CreatedBy) */
+  planning_started_by?: string;
   /** "low", "medium", "high", "critical" */
   priority?: TypesSpecTaskPriority;
   project_id?: string;
@@ -4716,11 +5505,16 @@ export interface TypesSpecTaskWithProject {
   project_path?: string;
   /** Public sharing */
   public_design_docs?: boolean;
-  pull_request_id?: string;
-  /** Computed field, not stored */
-  pull_request_url?: string;
+  /** Set when approveImplementation hits a divergent branch and asks the agent to rebase. Used to make the approve handler idempotent (no duplicate prompts) and to gate the Accept button until the agent's next push. */
+  rebase_requested_at?: string;
+  /** Multi-repo PR tracking: list of PRs across all project repositories */
+  repo_pull_requests?: TypesRepoPR[];
   /** User stories + EARS acceptance criteria (markdown) */
   requirements_spec?: string;
+  /** "absent", "running", "starting" — derived from session config in listTasks */
+  sandbox_state?: string;
+  /** Transient startup message e.g. "Unpacking build cache" */
+  sandbox_status_message?: string;
   /** Agent activity tracking (computed from session/activity data, not stored) */
   session_updated_at?: string;
   /**
@@ -4737,6 +5531,8 @@ export interface TypesSpecTaskWithProject {
   started_at?: string;
   /** Spec-driven workflow statuses - see constants below */
   status?: TypesSpecTaskStatus;
+  /** When status last changed (for Kanban column sorting) */
+  status_updated_at?: string;
   /**
    * Human-readable directory naming for design docs in helix-specs branch
    * TaskNumber is auto-assigned from project.NextTaskNumber when task starts
@@ -4876,8 +5672,29 @@ export interface TypesSystemSettingsRequest {
   kodit_enrichment_model?: string;
   /** Kodit enrichment model configuration */
   kodit_enrichment_provider?: string;
+  kodit_text_embedding_model?: string;
+  /** Kodit text embedding model configuration */
+  kodit_text_embedding_provider?: string;
+  kodit_vision_embedding_model?: string;
+  /** Kodit vision embedding model configuration */
+  kodit_vision_embedding_provider?: string;
+  max_concurrent_desktop_sandboxes?: number;
   max_concurrent_desktops?: number;
+  max_concurrent_headless_sandboxes?: number;
+  optimus_generation_model?: string;
+  optimus_generation_model_provider?: string;
+  optimus_reasoning_model?: string;
+  optimus_reasoning_model_effort?: string;
+  optimus_reasoning_model_provider?: string;
+  optimus_small_generation_model?: string;
+  optimus_small_generation_model_provider?: string;
+  optimus_small_reasoning_model?: string;
+  optimus_small_reasoning_model_effort?: string;
+  optimus_small_reasoning_model_provider?: string;
   providers_management_enabled?: boolean;
+  sandbox_billing_enabled?: boolean;
+  sandbox_desktop_price_credits_per_second?: number;
+  sandbox_headless_price_credits_per_second?: number;
 }
 
 export interface TypesSystemSettingsResponse {
@@ -4893,9 +5710,33 @@ export interface TypesSystemSettingsResponse {
   kodit_enrichment_model_set?: boolean;
   /** Kodit enrichment model configuration (not sensitive, returned as-is) */
   kodit_enrichment_provider?: string;
+  kodit_text_embedding_model?: string;
+  kodit_text_embedding_model_set?: boolean;
+  /** Kodit text embedding model configuration */
+  kodit_text_embedding_provider?: string;
+  kodit_vision_embedding_model?: string;
+  kodit_vision_embedding_model_set?: boolean;
+  /** Kodit vision embedding model configuration */
+  kodit_vision_embedding_provider?: string;
+  max_concurrent_desktop_sandboxes?: number;
   /** Per user */
   max_concurrent_desktops?: number;
+  max_concurrent_headless_sandboxes?: number;
+  optimus_generation_model?: string;
+  optimus_generation_model_provider?: string;
+  optimus_reasoning_model?: string;
+  optimus_reasoning_model_effort?: string;
+  /** Optimus configuration */
+  optimus_reasoning_model_provider?: string;
+  optimus_small_generation_model?: string;
+  optimus_small_generation_model_provider?: string;
+  optimus_small_reasoning_model?: string;
+  optimus_small_reasoning_model_effort?: string;
+  optimus_small_reasoning_model_provider?: string;
   providers_management_enabled?: boolean;
+  sandbox_billing_enabled?: boolean;
+  sandbox_desktop_price_credits_per_second?: number;
+  sandbox_headless_price_credits_per_second?: number;
   updated?: string;
 }
 
@@ -5241,6 +6082,17 @@ export interface TypesUpdateProviderEndpoint {
   headers?: Record<string, string>;
   models?: string[];
   name?: string;
+  vertex_credentials_file?: string;
+  vertex_credentials_json?: string;
+  /** Google Vertex AI fields */
+  vertex_project_id?: string;
+  vertex_region?: string;
+}
+
+export interface TypesUpdateSandboxRequest {
+  name?: string;
+  tags?: Record<string, string>;
+  timeout_seconds?: number;
 }
 
 export interface TypesUpdateTeamRequest {
@@ -5271,14 +6123,17 @@ export interface TypesUser {
   email?: string;
   full_name?: string;
   id?: string;
+  /**
+   * LastSeenAt is the most recent time the user authenticated against the API.
+   * Updated (throttled) from auth middleware so the column isn't hammered on every request.
+   */
+  last_seen_at?: string;
   /** if the user must change their password */
   must_change_password?: boolean;
   onboarding_completed?: boolean;
   onboarding_completed_at?: string;
   /** Organization this API key is scoped to (ephemeral keys) */
   organization_id?: string;
-  /** bcrypt hash of the password */
-  password_hash?: number[];
   /** When running in Helix Code sandbox */
   project_id?: string;
   sb?: boolean;
@@ -5307,11 +6162,41 @@ export interface TypesUserAppAccessResponse {
   is_admin?: boolean;
 }
 
+export interface TypesUserChatSettings {
+  frequency_penalty?: number;
+  max_tokens?: number;
+  presence_penalty?: number;
+  system_prompt?: string;
+  /**
+   * SystemPromptEnabled toggles whether any system prompt at all is sent
+   * to the model. Pointer so nil means "not set" and we fall back to the
+   * default-on behaviour. When explicitly false, no system prompt is sent
+   * regardless of SystemPrompt.
+   */
+  system_prompt_enabled?: boolean;
+  temperature?: number;
+  top_p?: number;
+}
+
 export interface TypesUserGuidelinesResponse {
   guidelines?: string;
   guidelines_updated_at?: string;
   guidelines_updated_by?: string;
   guidelines_version?: number;
+}
+
+export interface TypesUserModelUsage {
+  cache_read_tokens?: number;
+  cache_write_tokens?: number;
+  completion_tokens?: number;
+  first_used?: string;
+  last_used?: string;
+  model?: string;
+  prompt_tokens?: number;
+  provider?: string;
+  total_cost?: number;
+  total_requests?: number;
+  total_tokens?: number;
 }
 
 export interface TypesUserResponse {
@@ -5329,6 +6214,14 @@ export interface TypesUserSearchResponse {
   offset?: number;
   total_count?: number;
   users?: TypesUser[];
+}
+
+export interface TypesUserStatsResponse {
+  last_active_at?: string;
+  models?: TypesUserModelUsage[];
+  projects_count?: number;
+  spec_tasks_count?: number;
+  user?: TypesUser;
 }
 
 export interface TypesUserTokenUsageResponse {
@@ -5358,6 +6251,7 @@ export interface TypesWallet {
   org_id?: string;
   stripe_customer_id?: string;
   stripe_subscription_id?: string;
+  subscription_cancel_at_period_end?: boolean;
   subscription_created?: number;
   subscription_current_period_end?: number;
   subscription_current_period_start?: number;
@@ -5377,15 +6271,21 @@ export interface TypesWebsiteCrawler {
   user_agent?: string;
 }
 
-export interface TypesWorkloadSummary {
-  created?: string;
-  id?: string;
-  lora_dir?: string;
-  mode?: string;
-  model_name?: string;
-  runtime?: string;
-  summary?: string;
-  updated?: string;
+export interface TypesZFSTree {
+  available?: boolean;
+  golden?: TypesZFSTreeNode;
+  orphans?: TypesZFSTreeNode[];
+  pool_root?: string;
+}
+
+export interface TypesZFSTreeNode {
+  children?: TypesZFSTreeNode[];
+  mounted?: boolean;
+  name?: string;
+  refer?: string;
+  session_id?: string;
+  type?: string;
+  used?: string;
 }
 
 export interface TypesZedConfigResponse {
@@ -5611,6 +6511,250 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description List all pending tasks across all repositories with pagination. Admin only.
+     *
+     * @tags admin
+     * @name V1AdminKoditQueueList
+     * @summary List Kodit task queue (admin)
+     * @request GET:/api/v1/admin/kodit/queue
+     * @secure
+     */
+    v1AdminKoditQueueList: (
+      query?: {
+        /** Page number (default 1) */
+        page?: number;
+        /** Items per page (default 25, max 100) */
+        per_page?: number;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<ServerKoditAdminQueueListResponse, TypesAPIError>({
+        path: `/api/v1/admin/kodit/queue`,
+        method: "GET",
+        query: query,
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Delete a specific task from the Kodit task queue by ID. Admin only.
+     *
+     * @tags admin
+     * @name V1AdminKoditQueueDelete
+     * @summary Delete Kodit queue task (admin)
+     * @request DELETE:/api/v1/admin/kodit/queue/{taskId}
+     * @secure
+     */
+    v1AdminKoditQueueDelete: (taskId: number, params: RequestParams = {}) =>
+      this.request<Record<string, string>, TypesAPIError>({
+        path: `/api/v1/admin/kodit/queue/${taskId}`,
+        method: "DELETE",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Update the priority of a specific task in the Kodit task queue. Admin only.
+     *
+     * @tags admin
+     * @name V1AdminKoditQueuePriorityPartialUpdate
+     * @summary Update Kodit queue task priority (admin)
+     * @request PATCH:/api/v1/admin/kodit/queue/{taskId}/priority
+     * @secure
+     */
+    v1AdminKoditQueuePriorityPartialUpdate: (
+      taskId: number,
+      body: ServerKoditAdminUpdatePriorityRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<Record<string, string>, TypesAPIError>({
+        path: `/api/v1/admin/kodit/queue/${taskId}/priority`,
+        method: "PATCH",
+        body: body,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description List all Kodit-indexed repositories with pagination. Admin only.
+     *
+     * @tags admin
+     * @name V1AdminKoditRepositoriesList
+     * @summary List Kodit repositories (admin)
+     * @request GET:/api/v1/admin/kodit/repositories
+     * @secure
+     */
+    v1AdminKoditRepositoriesList: (
+      query?: {
+        /** Page number (default 1) */
+        page?: number;
+        /** Items per page (default 25, max 100) */
+        per_page?: number;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<ServerKoditAdminRepoListResponse, TypesAPIError>({
+        path: `/api/v1/admin/kodit/repositories`,
+        method: "GET",
+        query: query,
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Queue a Kodit repository for deletion. Admin only.
+     *
+     * @tags admin
+     * @name V1AdminKoditRepositoriesDelete
+     * @summary Delete Kodit repository (admin)
+     * @request DELETE:/api/v1/admin/kodit/repositories/{koditRepoId}
+     * @secure
+     */
+    v1AdminKoditRepositoriesDelete: (koditRepoId: number, params: RequestParams = {}) =>
+      this.request<Record<string, string>, TypesAPIError>({
+        path: `/api/v1/admin/kodit/repositories/${koditRepoId}`,
+        method: "DELETE",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Get detailed information about a Kodit repository including summary stats. Admin only.
+     *
+     * @tags admin
+     * @name V1AdminKoditRepositoriesDetail
+     * @summary Get Kodit repository detail (admin)
+     * @request GET:/api/v1/admin/kodit/repositories/{koditRepoId}
+     * @secure
+     */
+    v1AdminKoditRepositoriesDetail: (koditRepoId: number, params: RequestParams = {}) =>
+      this.request<ServerKoditAdminRepoDetailResponse, TypesAPIError>({
+        path: `/api/v1/admin/kodit/repositories/${koditRepoId}`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Trigger a rescan of the HEAD commit for a Kodit repository. Admin only.
+     *
+     * @tags admin
+     * @name V1AdminKoditRepositoriesRescanCreate
+     * @summary Rescan Kodit repository HEAD (admin)
+     * @request POST:/api/v1/admin/kodit/repositories/{koditRepoId}/rescan
+     * @secure
+     */
+    v1AdminKoditRepositoriesRescanCreate: (koditRepoId: number, params: RequestParams = {}) =>
+      this.request<Record<string, string>, TypesAPIError>({
+        path: `/api/v1/admin/kodit/repositories/${koditRepoId}/rescan`,
+        method: "POST",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Trigger a full sync (git fetch + branch scan + re-index) for a Kodit repository. Admin only.
+     *
+     * @tags admin
+     * @name V1AdminKoditRepositoriesSyncCreate
+     * @summary Sync Kodit repository (admin)
+     * @request POST:/api/v1/admin/kodit/repositories/{koditRepoId}/sync
+     * @secure
+     */
+    v1AdminKoditRepositoriesSyncCreate: (koditRepoId: number, params: RequestParams = {}) =>
+      this.request<Record<string, string>, TypesAPIError>({
+        path: `/api/v1/admin/kodit/repositories/${koditRepoId}/sync`,
+        method: "POST",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Returns tracking statuses and pending queue tasks for a Kodit repository. Admin only.
+     *
+     * @tags admin
+     * @name V1AdminKoditRepositoriesTasksDetail
+     * @summary Get Kodit repository tasks (admin)
+     * @request GET:/api/v1/admin/kodit/repositories/{koditRepoId}/tasks
+     * @secure
+     */
+    v1AdminKoditRepositoriesTasksDetail: (koditRepoId: number, params: RequestParams = {}) =>
+      this.request<ServerKoditAdminRepositoryTasksResponse, TypesAPIError>({
+        path: `/api/v1/admin/kodit/repositories/${koditRepoId}/tasks`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Queue multiple Kodit repositories for deletion. Admin only.
+     *
+     * @tags admin
+     * @name V1AdminKoditRepositoriesBatchDeleteCreate
+     * @summary Batch delete Kodit repositories (admin)
+     * @request POST:/api/v1/admin/kodit/repositories/batch/delete
+     * @secure
+     */
+    v1AdminKoditRepositoriesBatchDeleteCreate: (body: ServerKoditAdminBatchRequest, params: RequestParams = {}) =>
+      this.request<ServerKoditAdminBatchResponse, TypesAPIError>({
+        path: `/api/v1/admin/kodit/repositories/batch/delete`,
+        method: "POST",
+        body: body,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Trigger a HEAD commit rescan for multiple Kodit repositories. Admin only.
+     *
+     * @tags admin
+     * @name V1AdminKoditRepositoriesBatchRescanCreate
+     * @summary Batch rescan Kodit repositories (admin)
+     * @request POST:/api/v1/admin/kodit/repositories/batch/rescan
+     * @secure
+     */
+    v1AdminKoditRepositoriesBatchRescanCreate: (body: ServerKoditAdminBatchRequest, params: RequestParams = {}) =>
+      this.request<ServerKoditAdminBatchResponse, TypesAPIError>({
+        path: `/api/v1/admin/kodit/repositories/batch/rescan`,
+        method: "POST",
+        body: body,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Returns aggregate counts: repositories, enrichments, commits, pending tasks. Admin only.
+     *
+     * @tags admin
+     * @name V1AdminKoditStatsList
+     * @summary Get Kodit system stats (admin)
+     * @request GET:/api/v1/admin/kodit/stats
+     * @secure
+     */
+    v1AdminKoditStatsList: (params: RequestParams = {}) =>
+      this.request<ServerKoditAdminStatsResponse, TypesAPIError>({
+        path: `/api/v1/admin/kodit/stats`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description List all organizations that have auto-join domains configured
      *
      * @tags organizations
@@ -5803,6 +6947,178 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         body: request,
         secure: true,
         type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * @description Delete an evaluation run
+     *
+     * @tags evaluations
+     * @name V1AppsEvaluationRunsDelete
+     * @summary Delete an evaluation run
+     * @request DELETE:/api/v1/apps/{app_id}/evaluation-runs/{run_id}
+     * @secure
+     */
+    v1AppsEvaluationRunsDelete: (appId: string, runId: string, params: RequestParams = {}) =>
+      this.request<Record<string, string>, SystemHTTPError>({
+        path: `/api/v1/apps/${appId}/evaluation-runs/${runId}`,
+        method: "DELETE",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Get evaluation run details
+     *
+     * @tags evaluations
+     * @name V1AppsEvaluationRunsDetail
+     * @summary Get an evaluation run
+     * @request GET:/api/v1/apps/{app_id}/evaluation-runs/{run_id}
+     * @secure
+     */
+    v1AppsEvaluationRunsDetail: (appId: string, runId: string, params: RequestParams = {}) =>
+      this.request<TypesEvaluationRun, SystemHTTPError>({
+        path: `/api/v1/apps/${appId}/evaluation-runs/${runId}`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description List all evaluation suites for an app
+     *
+     * @tags evaluations
+     * @name V1AppsEvaluationSuitesDetail
+     * @summary List evaluation suites for an app
+     * @request GET:/api/v1/apps/{app_id}/evaluation-suites
+     * @secure
+     */
+    v1AppsEvaluationSuitesDetail: (appId: string, params: RequestParams = {}) =>
+      this.request<TypesEvaluationSuite[], SystemHTTPError>({
+        path: `/api/v1/apps/${appId}/evaluation-suites`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Create a new evaluation suite for an agent
+     *
+     * @tags evaluations
+     * @name V1AppsEvaluationSuitesCreate
+     * @summary Create an evaluation suite
+     * @request POST:/api/v1/apps/{app_id}/evaluation-suites
+     * @secure
+     */
+    v1AppsEvaluationSuitesCreate: (appId: string, suite: TypesEvaluationSuite, params: RequestParams = {}) =>
+      this.request<TypesEvaluationSuite, SystemHTTPError>({
+        path: `/api/v1/apps/${appId}/evaluation-suites`,
+        method: "POST",
+        body: suite,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Delete an evaluation suite
+     *
+     * @tags evaluations
+     * @name V1AppsEvaluationSuitesDelete
+     * @summary Delete an evaluation suite
+     * @request DELETE:/api/v1/apps/{app_id}/evaluation-suites/{id}
+     * @secure
+     */
+    v1AppsEvaluationSuitesDelete: (appId: string, id: string, params: RequestParams = {}) =>
+      this.request<Record<string, string>, SystemHTTPError>({
+        path: `/api/v1/apps/${appId}/evaluation-suites/${id}`,
+        method: "DELETE",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Get an evaluation suite by ID
+     *
+     * @tags evaluations
+     * @name V1AppsEvaluationSuitesDetail2
+     * @summary Get an evaluation suite
+     * @request GET:/api/v1/apps/{app_id}/evaluation-suites/{id}
+     * @originalName v1AppsEvaluationSuitesDetail
+     * @duplicate
+     * @secure
+     */
+    v1AppsEvaluationSuitesDetail2: (appId: string, id: string, params: RequestParams = {}) =>
+      this.request<TypesEvaluationSuite, SystemHTTPError>({
+        path: `/api/v1/apps/${appId}/evaluation-suites/${id}`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Update an evaluation suite
+     *
+     * @tags evaluations
+     * @name V1AppsEvaluationSuitesUpdate
+     * @summary Update an evaluation suite
+     * @request PUT:/api/v1/apps/{app_id}/evaluation-suites/{id}
+     * @secure
+     */
+    v1AppsEvaluationSuitesUpdate: (
+      appId: string,
+      id: string,
+      suite: TypesEvaluationSuite,
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesEvaluationSuite, SystemHTTPError>({
+        path: `/api/v1/apps/${appId}/evaluation-suites/${id}`,
+        method: "PUT",
+        body: suite,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description List evaluation runs for a suite
+     *
+     * @tags evaluations
+     * @name V1AppsEvaluationSuitesRunsDetail
+     * @summary List evaluation runs
+     * @request GET:/api/v1/apps/{app_id}/evaluation-suites/{id}/runs
+     * @secure
+     */
+    v1AppsEvaluationSuitesRunsDetail: (appId: string, id: string, params: RequestParams = {}) =>
+      this.request<TypesEvaluationRun[], SystemHTTPError>({
+        path: `/api/v1/apps/${appId}/evaluation-suites/${id}/runs`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Start running an evaluation suite against an agent
+     *
+     * @tags evaluations
+     * @name V1AppsEvaluationSuitesRunsCreate
+     * @summary Start an evaluation run
+     * @request POST:/api/v1/apps/{app_id}/evaluation-suites/{id}/runs
+     * @secure
+     */
+    v1AppsEvaluationSuitesRunsCreate: (appId: string, id: string, params: RequestParams = {}) =>
+      this.request<TypesEvaluationRun, SystemHTTPError>({
+        path: `/api/v1/apps/${appId}/evaluation-suites/${id}/runs`,
+        method: "POST",
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
         ...params,
       }),
 
@@ -6133,6 +7449,23 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Enable a marketplace skill on an app. For autoProvision MCP skills the server generates URL and auth automatically.
+     *
+     * @tags skills
+     * @name V1AppsSkillsEnableCreate
+     * @summary Enable a marketplace skill on an app
+     * @request POST:/api/v1/apps/{id}/skills/{skill}/enable
+     * @secure
+     */
+    v1AppsSkillsEnableCreate: (id: string, skill: string, params: RequestParams = {}) =>
+      this.request<TypesApp, any>({
+        path: `/api/v1/apps/${id}/skills/${skill}/enable`,
+        method: "POST",
+        secure: true,
+        ...params,
+      }),
+
+    /**
      * @description List step info for a specific app and interaction ID, used to build the timeline of events
      *
      * @tags step_info
@@ -6225,6 +7558,67 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         query: query,
         secure: true,
         type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Returns attention events that need human action for the current user. Only returns events that have not been dismissed and are not currently snoozed.
+     *
+     * @tags attention-events
+     * @name V1AttentionEventsList
+     * @summary List active attention events
+     * @request GET:/api/v1/attention-events
+     */
+    v1AttentionEventsList: (
+      query?: {
+        /** Filter to active (non-dismissed, non-snoozed) events only (default: true) */
+        active?: boolean;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesAttentionEvent[], string>({
+        path: `/api/v1/attention-events`,
+        method: "GET",
+        query: query,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Acknowledge, dismiss, or snooze an attention event.
+     *
+     * @tags attention-events
+     * @name V1AttentionEventsPartialUpdate
+     * @summary Update an attention event
+     * @request PATCH:/api/v1/attention-events/{id}
+     */
+    v1AttentionEventsPartialUpdate: (
+      id: string,
+      request: TypesAttentionEventUpdateRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<Record<string, string>, string>({
+        path: `/api/v1/attention-events/${id}`,
+        method: "PATCH",
+        body: request,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Bulk-dismiss all active (non-dismissed) attention events for the current user.
+     *
+     * @tags attention-events
+     * @name V1AttentionEventsDismissAllCreate
+     * @summary Dismiss all active attention events
+     * @request POST:/api/v1/attention-events/dismiss-all
+     */
+    v1AttentionEventsDismissAllCreate: (params: RequestParams = {}) =>
+      this.request<Record<string, any>, string>({
+        path: `/api/v1/attention-events/dismiss-all`,
+        method: "POST",
         format: "json",
         ...params,
       }),
@@ -6641,21 +8035,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/context-menu`,
         method: "GET",
         query: query,
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
-     * @name V1DashboardList
-     * @request GET:/api/v1/dashboard
-     * @secure
-     */
-    v1DashboardList: (params: RequestParams = {}) =>
-      this.request<TypesDashboardData, any>({
-        path: `/api/v1/dashboard`,
-        method: "GET",
-        secure: true,
         ...params,
       }),
 
@@ -7505,7 +8884,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       },
       params: RequestParams = {},
     ) =>
-      this.request<ServicesKoditEnrichmentListResponse, TypesAPIError>({
+      this.request<ServerKoditEnrichmentListResponse, TypesAPIError>({
         path: `/api/v1/git/repositories/${id}/enrichments`,
         method: "GET",
         query: query,
@@ -7526,9 +8905,125 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1GitRepositoriesEnrichmentsDetail2: (id: string, enrichmentId: string, params: RequestParams = {}) =>
-      this.request<ServicesKoditEnrichmentData, TypesAPIError>({
+      this.request<ServerKoditEnrichmentDTO, TypesAPIError>({
         path: `/api/v1/git/repositories/${id}/enrichments/${enrichmentId}`,
         method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Read the content of a file from the repository, optionally with line range filtering
+     *
+     * @tags git-repositories
+     * @name V1GitRepositoriesFileContentDetail
+     * @summary Read repository file
+     * @request GET:/api/v1/git/repositories/{id}/file-content
+     * @secure
+     */
+    v1GitRepositoriesFileContentDetail: (
+      id: string,
+      query: {
+        /** File path within the repository */
+        path: string;
+        /** Start line (1-indexed, inclusive) */
+        start_line?: number;
+        /** End line (1-indexed, inclusive) */
+        end_line?: number;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<ServerKoditFileContentResponse, TypesAPIError>({
+        path: `/api/v1/git/repositories/${id}/file-content`,
+        method: "GET",
+        query: query,
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description List files in a repository matching a glob pattern
+     *
+     * @tags git-repositories
+     * @name V1GitRepositoriesFilesDetail
+     * @summary List repository files
+     * @request GET:/api/v1/git/repositories/{id}/files
+     * @secure
+     */
+    v1GitRepositoriesFilesDetail: (
+      id: string,
+      query?: {
+        /** Glob pattern to filter files */
+        pattern?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<ServerKoditFilesResponse, TypesAPIError>({
+        path: `/api/v1/git/repositories/${id}/files`,
+        method: "GET",
+        query: query,
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Run pattern matching (grep) against repository files
+     *
+     * @tags git-repositories
+     * @name V1GitRepositoriesGrepDetail
+     * @summary Grep repository
+     * @request GET:/api/v1/git/repositories/{id}/grep
+     * @secure
+     */
+    v1GitRepositoriesGrepDetail: (
+      id: string,
+      query: {
+        /** Search pattern (regex) */
+        pattern: string;
+        /** Glob pattern to filter files (e.g. *.go) */
+        glob?: string;
+        /** Maximum results (default 50, max 200) */
+        limit?: number;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<ServerKoditGrepResponse, TypesAPIError>({
+        path: `/api/v1/git/repositories/${id}/grep`,
+        method: "GET",
+        query: query,
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Search repository code using BM25 keyword matching
+     *
+     * @tags git-repositories
+     * @name V1GitRepositoriesKeywordSearchDetail
+     * @summary Keyword search repository
+     * @request GET:/api/v1/git/repositories/{id}/keyword-search
+     * @secure
+     */
+    v1GitRepositoriesKeywordSearchDetail: (
+      id: string,
+      query: {
+        /** Keywords to search for */
+        keywords: string;
+        /** Maximum results (default 10, max 100) */
+        limit?: number;
+        /** Filter by language extension (e.g. .go, .ts) */
+        language?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<ServerKoditSearchResponse, TypesAPIError>({
+        path: `/api/v1/git/repositories/${id}/keyword-search`,
+        method: "GET",
+        query: query,
         secure: true,
         format: "json",
         ...params,
@@ -7551,7 +9046,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       },
       params: RequestParams = {},
     ) =>
-      this.request<Record<string, any>[], TypesAPIError>({
+      this.request<ServerKoditCommitDTO[], TypesAPIError>({
         path: `/api/v1/git/repositories/${id}/kodit-commits`,
         method: "GET",
         query: query,
@@ -7596,11 +9091,39 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1GitRepositoriesKoditStatusDetail: (id: string, params: RequestParams = {}) =>
-      this.request<ServicesKoditIndexingStatus, TypesAPIError>({
+      this.request<ServerKoditIndexingStatusDTO, TypesAPIError>({
         path: `/api/v1/git/repositories/${id}/kodit-status`,
         method: "GET",
         secure: true,
         format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Rasterizes a document page (PDF, etc.) and returns it as a PNG image
+     *
+     * @tags git-repositories
+     * @name V1GitRepositoriesPageImageDetail
+     * @summary Render document page image
+     * @request GET:/api/v1/git/repositories/{id}/page-image
+     * @secure
+     */
+    v1GitRepositoriesPageImageDetail: (
+      id: string,
+      query: {
+        /** File path within the repository */
+        path: string;
+        /** 1-based page number */
+        page: number;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<File, TypesAPIError>({
+        path: `/api/v1/git/repositories/${id}/page-image`,
+        method: "GET",
+        query: query,
+        secure: true,
+        format: "blob",
         ...params,
       }),
 
@@ -7738,13 +9261,41 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         query: string;
         /** Limit number of results (default 20) */
         limit?: number;
-        /** Filter by commit SHA */
-        commit_sha?: string;
       },
       params: RequestParams = {},
     ) =>
-      this.request<ServicesKoditSearchResult[], TypesAPIError>({
+      this.request<ServerKoditSearchResultDTO[], TypesAPIError>({
         path: `/api/v1/git/repositories/${id}/search-snippets`,
+        method: "GET",
+        query: query,
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Search repository code using vector similarity (semantic meaning)
+     *
+     * @tags git-repositories
+     * @name V1GitRepositoriesSemanticSearchDetail
+     * @summary Semantic search repository
+     * @request GET:/api/v1/git/repositories/{id}/semantic-search
+     * @secure
+     */
+    v1GitRepositoriesSemanticSearchDetail: (
+      id: string,
+      query: {
+        /** Natural language search query */
+        query: string;
+        /** Maximum results (default 10, max 100) */
+        limit?: number;
+        /** Filter by language extension (e.g. .go, .ts) */
+        language?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<ServerKoditSearchResponse, TypesAPIError>({
+        path: `/api/v1/git/repositories/${id}/semantic-search`,
         method: "GET",
         query: query,
         secure: true,
@@ -7799,6 +9350,78 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
     ) =>
       this.request<TypesGitRepositoryTreeResponse, TypesAPIError>({
         path: `/api/v1/git/repositories/${id}/tree`,
+        method: "GET",
+        query: query,
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Search document pages (PDFs, etc.) using cross-modal visual similarity
+     *
+     * @tags git-repositories
+     * @name V1GitRepositoriesVisualSearchDetail
+     * @summary Visual search repository
+     * @request GET:/api/v1/git/repositories/{id}/visual-search
+     * @secure
+     */
+    v1GitRepositoriesVisualSearchDetail: (
+      id: string,
+      query: {
+        /** Natural language search query */
+        query: string;
+        /** Maximum results (default 10, max 100) */
+        limit?: number;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<ServerKoditSearchResponse, TypesAPIError>({
+        path: `/api/v1/git/repositories/${id}/visual-search`,
+        method: "GET",
+        query: query,
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Get the wiki navigation tree (titles and paths, no content) for a repository. Each node includes a link to fetch the full page content.
+     *
+     * @tags git-repositories
+     * @name V1GitRepositoriesWikiDetail
+     * @summary Get repository wiki tree
+     * @request GET:/api/v1/git/repositories/{id}/wiki
+     * @secure
+     */
+    v1GitRepositoriesWikiDetail: (id: string, params: RequestParams = {}) =>
+      this.request<ServerKoditWikiTreeResponse, TypesAPIError>({
+        path: `/api/v1/git/repositories/${id}/wiki`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Get a wiki page by hierarchical path as markdown content
+     *
+     * @tags git-repositories
+     * @name V1GitRepositoriesWikiPageDetail
+     * @summary Get wiki page
+     * @request GET:/api/v1/git/repositories/{id}/wiki-page
+     * @secure
+     */
+    v1GitRepositoriesWikiPageDetail: (
+      id: string,
+      query: {
+        /** Wiki page path (e.g. architecture/database-layer.md) */
+        path: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<ServerKoditWikiPageResponse, TypesAPIError>({
+        path: `/api/v1/git/repositories/${id}/wiki-page`,
         method: "GET",
         query: query,
         secure: true,
@@ -7886,64 +9509,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         body: request,
         secure: true,
         type: ContentType.Json,
-        ...params,
-      }),
-
-    /**
-     * @description Estimate memory requirements for a model on different GPU configurations
-     *
-     * @tags models
-     * @name V1HelixModelsMemoryEstimateList
-     * @summary Estimate model memory requirements
-     * @request GET:/api/v1/helix-models/memory-estimate
-     * @secure
-     */
-    v1HelixModelsMemoryEstimateList: (
-      query: {
-        /** Model ID */
-        model_id: string;
-        /** Number of GPUs (default: auto-detect) */
-        gpu_count?: number;
-        /** Context length (default: model default) */
-        context_length?: number;
-        /** Batch size (default: 512) */
-        batch_size?: number;
-        /** Number of parallel sequences/concurrent requests (default: 2) */
-        num_parallel?: number;
-      },
-      params: RequestParams = {},
-    ) =>
-      this.request<ControllerMemoryEstimationResponse, string>({
-        path: `/api/v1/helix-models/memory-estimate`,
-        method: "GET",
-        query: query,
-        secure: true,
-        ...params,
-      }),
-
-    /**
-     * @description Get memory estimates for multiple models with different GPU configurations
-     *
-     * @tags models
-     * @name V1HelixModelsMemoryEstimatesList
-     * @summary List memory estimates for multiple models
-     * @request GET:/api/v1/helix-models/memory-estimates
-     * @secure
-     */
-    v1HelixModelsMemoryEstimatesList: (
-      query?: {
-        /** Comma-separated list of model IDs */
-        model_ids?: string;
-        /** Number of GPUs (default: auto-detect) */
-        gpu_count?: number;
-      },
-      params: RequestParams = {},
-    ) =>
-      this.request<ControllerMemoryEstimationResponse[], string>({
-        path: `/api/v1/helix-models/memory-estimates`,
-        method: "GET",
-        query: query,
-        secure: true,
         ...params,
       }),
 
@@ -8061,6 +9626,34 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Fetch code intelligence enrichments for any Kodit repository (git or knowledge-backed).
+     *
+     * @tags kodit
+     * @name V1KoditRepositoriesEnrichmentsDetail
+     * @summary Get enrichments by Kodit repo ID
+     * @request GET:/api/v1/kodit/repositories/{koditRepoId}/enrichments
+     * @secure
+     */
+    v1KoditRepositoriesEnrichmentsDetail: (
+      koditRepoId: number,
+      query?: {
+        /** Filter by enrichment type */
+        enrichment_type?: string;
+        /** Filter by commit SHA */
+        commit_sha?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<ServerKoditRepoEnrichmentsResponse, TypesAPIError>({
+        path: `/api/v1/kodit/repositories/${koditRepoId}/enrichments`,
+        method: "GET",
+        query: query,
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Get the license key for the current user
      *
      * @name V1LicenseList
@@ -8120,36 +9713,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
     ) =>
       this.request<TypesPaginatedLLMCalls, any>({
         path: `/api/v1/llm_calls`,
-        method: "GET",
-        query: query,
-        secure: true,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Retrieve logs for a specific slot by proxying the request to the runner
-     *
-     * @tags logs
-     * @name V1LogsDetail
-     * @summary Get logs for a specific slot
-     * @request GET:/api/v1/logs/{slot_id}
-     * @secure
-     */
-    v1LogsDetail: (
-      slotId: string,
-      query?: {
-        /** Maximum number of lines to return (default: 500) */
-        lines?: number;
-        /** Return logs since this timestamp (RFC3339 format) */
-        since?: string;
-        /** Filter by log level (ERROR, WARN, INFO, DEBUG) */
-        level?: string;
-      },
-      params: RequestParams = {},
-    ) =>
-      this.request<Record<string, any>, string>({
-        path: `/api/v1/logs/${slotId}`,
         method: "GET",
         query: query,
         secure: true,
@@ -8495,6 +10058,59 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description List API keys for an organization. Owners see all keys, members see only their own.
+     *
+     * @tags organizations
+     * @name V1OrganizationsApiKeysDetail
+     * @summary List organization API keys
+     * @request GET:/api/v1/organizations/{id}/api_keys
+     * @secure
+     */
+    v1OrganizationsApiKeysDetail: (id: string, params: RequestParams = {}) =>
+      this.request<TypesApiKey[], any>({
+        path: `/api/v1/organizations/${id}/api_keys`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Create a new API key scoped to the organization. Any member can create keys.
+     *
+     * @tags organizations
+     * @name V1OrganizationsApiKeysCreate
+     * @summary Create an organization API key
+     * @request POST:/api/v1/organizations/{id}/api_keys
+     * @secure
+     */
+    v1OrganizationsApiKeysCreate: (id: string, request: object, params: RequestParams = {}) =>
+      this.request<TypesApiKey, any>({
+        path: `/api/v1/organizations/${id}/api_keys`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * @description Delete an API key. Owners can delete any org key, members only their own.
+     *
+     * @tags organizations
+     * @name V1OrganizationsApiKeysDelete
+     * @summary Delete an organization API key
+     * @request DELETE:/api/v1/organizations/{id}/api_keys/{key}
+     * @secure
+     */
+    v1OrganizationsApiKeysDelete: (id: string, key: string, params: RequestParams = {}) =>
+      this.request<string, any>({
+        path: `/api/v1/organizations/${id}/api_keys/${key}`,
+        method: "DELETE",
+        secure: true,
+        ...params,
+      }),
+
+    /**
      * @description Get the version history of guidelines for an organization
      *
      * @tags Organizations
@@ -8728,6 +10344,422 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         body: request,
         secure: true,
         type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description List sandboxes belonging to an organization
+     *
+     * @tags Sandboxes
+     * @name V1OrganizationsSandboxesDetail
+     * @summary List sandboxes
+     * @request GET:/api/v1/organizations/{org_id}/sandboxes
+     * @secure
+     */
+    v1OrganizationsSandboxesDetail: (orgId: string, params: RequestParams = {}) =>
+      this.request<TypesSandboxListResponse, SystemHTTPError>({
+        path: `/api/v1/organizations/${orgId}/sandboxes`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Create a new sandbox in an organization
+     *
+     * @tags Sandboxes
+     * @name V1OrganizationsSandboxesCreate
+     * @summary Create sandbox
+     * @request POST:/api/v1/organizations/{org_id}/sandboxes
+     * @secure
+     */
+    v1OrganizationsSandboxesCreate: (orgId: string, payload: TypesCreateSandboxRequest, params: RequestParams = {}) =>
+      this.request<TypesSandbox, SystemHTTPError>({
+        path: `/api/v1/organizations/${orgId}/sandboxes`,
+        method: "POST",
+        body: payload,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Sandboxes
+     * @name V1OrganizationsSandboxesDelete
+     * @summary Delete sandbox
+     * @request DELETE:/api/v1/organizations/{org_id}/sandboxes/{id}
+     * @secure
+     */
+    v1OrganizationsSandboxesDelete: (orgId: string, id: string, params: RequestParams = {}) =>
+      this.request<void, any>({
+        path: `/api/v1/organizations/${orgId}/sandboxes/${id}`,
+        method: "DELETE",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Sandboxes
+     * @name V1OrganizationsSandboxesDetail2
+     * @summary Get sandbox
+     * @request GET:/api/v1/organizations/{org_id}/sandboxes/{id}
+     * @originalName v1OrganizationsSandboxesDetail
+     * @duplicate
+     * @secure
+     */
+    v1OrganizationsSandboxesDetail2: (orgId: string, id: string, params: RequestParams = {}) =>
+      this.request<TypesSandbox, any>({
+        path: `/api/v1/organizations/${orgId}/sandboxes/${id}`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Sandboxes
+     * @name V1OrganizationsSandboxesPartialUpdate
+     * @summary Update sandbox
+     * @request PATCH:/api/v1/organizations/{org_id}/sandboxes/{id}
+     * @secure
+     */
+    v1OrganizationsSandboxesPartialUpdate: (
+      orgId: string,
+      id: string,
+      payload: TypesUpdateSandboxRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesSandbox, any>({
+        path: `/api/v1/organizations/${orgId}/sandboxes/${id}`,
+        method: "PATCH",
+        body: payload,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Sandboxes
+     * @name V1OrganizationsSandboxesBillingDetail
+     * @summary Sandbox billing summary
+     * @request GET:/api/v1/organizations/{org_id}/sandboxes/{id}/billing
+     * @secure
+     */
+    v1OrganizationsSandboxesBillingDetail: (orgId: string, id: string, params: RequestParams = {}) =>
+      this.request<ServerSandboxBillingResponse, any>({
+        path: `/api/v1/organizations/${orgId}/sandboxes/${id}/billing`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Sandboxes
+     * @name V1OrganizationsSandboxesCommandsDetail
+     * @summary List sandbox commands
+     * @request GET:/api/v1/organizations/{org_id}/sandboxes/{id}/commands
+     * @secure
+     */
+    v1OrganizationsSandboxesCommandsDetail: (orgId: string, id: string, params: RequestParams = {}) =>
+      this.request<HydraListSandboxCommandsResponse, any>({
+        path: `/api/v1/organizations/${orgId}/sandboxes/${id}/commands`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Sandboxes
+     * @name V1OrganizationsSandboxesCommandsCreate
+     * @summary Run a command in a sandbox
+     * @request POST:/api/v1/organizations/{org_id}/sandboxes/{id}/commands
+     * @secure
+     */
+    v1OrganizationsSandboxesCommandsCreate: (
+      orgId: string,
+      id: string,
+      payload: TypesRunSandboxCommandRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<HydraSandboxCommandResponse, any>({
+        path: `/api/v1/organizations/${orgId}/sandboxes/${id}/commands`,
+        method: "POST",
+        body: payload,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Sandboxes
+     * @name V1OrganizationsSandboxesCommandsDetail2
+     * @summary Get a sandbox command
+     * @request GET:/api/v1/organizations/{org_id}/sandboxes/{id}/commands/{cmd_id}
+     * @originalName v1OrganizationsSandboxesCommandsDetail
+     * @duplicate
+     * @secure
+     */
+    v1OrganizationsSandboxesCommandsDetail2: (orgId: string, id: string, cmdId: string, params: RequestParams = {}) =>
+      this.request<HydraSandboxCommandResponse, any>({
+        path: `/api/v1/organizations/${orgId}/sandboxes/${id}/commands/${cmdId}`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Sandboxes
+     * @name V1OrganizationsSandboxesCommandsKillCreate
+     * @summary Kill a sandbox command
+     * @request POST:/api/v1/organizations/{org_id}/sandboxes/{id}/commands/{cmd_id}/kill
+     * @secure
+     */
+    v1OrganizationsSandboxesCommandsKillCreate: (
+      orgId: string,
+      id: string,
+      cmdId: string,
+      query?: {
+        /** Signal name (default TERM) */
+        signal?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<void, any>({
+        path: `/api/v1/organizations/${orgId}/sandboxes/${id}/commands/${cmdId}/kill`,
+        method: "POST",
+        query: query,
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Sandboxes
+     * @name V1OrganizationsSandboxesCommandsLogsDetail
+     * @summary Stream sandbox command logs
+     * @request GET:/api/v1/organizations/{org_id}/sandboxes/{id}/commands/{cmd_id}/logs
+     * @secure
+     */
+    v1OrganizationsSandboxesCommandsLogsDetail: (
+      orgId: string,
+      id: string,
+      cmdId: string,
+      query?: {
+        /** stdout|stderr|both */
+        stream?: string;
+        /** 1 to follow */
+        follow?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<any, any>({
+        path: `/api/v1/organizations/${orgId}/sandboxes/${id}/commands/${cmdId}/logs`,
+        method: "GET",
+        query: query,
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Sandboxes
+     * @name V1OrganizationsSandboxesFilesDelete
+     * @summary Read/write/delete sandbox file
+     * @request DELETE:/api/v1/organizations/{org_id}/sandboxes/{id}/files
+     * @secure
+     */
+    v1OrganizationsSandboxesFilesDelete: (
+      orgId: string,
+      id: string,
+      query: {
+        /** Absolute path inside the sandbox */
+        path: string;
+        /** Octal permission for write */
+        mode?: string;
+        /** 1 to delete recursively */
+        recursive?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<any, any>({
+        path: `/api/v1/organizations/${orgId}/sandboxes/${id}/files`,
+        method: "DELETE",
+        query: query,
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Sandboxes
+     * @name V1OrganizationsSandboxesFilesDetail
+     * @summary Read/write/delete sandbox file
+     * @request GET:/api/v1/organizations/{org_id}/sandboxes/{id}/files
+     * @secure
+     */
+    v1OrganizationsSandboxesFilesDetail: (
+      orgId: string,
+      id: string,
+      query: {
+        /** Absolute path inside the sandbox */
+        path: string;
+        /** Octal permission for write */
+        mode?: string;
+        /** 1 to delete recursively */
+        recursive?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<any, any>({
+        path: `/api/v1/organizations/${orgId}/sandboxes/${id}/files`,
+        method: "GET",
+        query: query,
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Sandboxes
+     * @name V1OrganizationsSandboxesFilesUpdate
+     * @summary Read/write/delete sandbox file
+     * @request PUT:/api/v1/organizations/{org_id}/sandboxes/{id}/files
+     * @secure
+     */
+    v1OrganizationsSandboxesFilesUpdate: (
+      orgId: string,
+      id: string,
+      query: {
+        /** Absolute path inside the sandbox */
+        path: string;
+        /** Octal permission for write */
+        mode?: string;
+        /** 1 to delete recursively */
+        recursive?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<any, any>({
+        path: `/api/v1/organizations/${orgId}/sandboxes/${id}/files`,
+        method: "PUT",
+        query: query,
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Sandboxes
+     * @name V1OrganizationsSandboxesFilesListDetail
+     * @summary List directory in sandbox
+     * @request GET:/api/v1/organizations/{org_id}/sandboxes/{id}/files/list
+     * @secure
+     */
+    v1OrganizationsSandboxesFilesListDetail: (
+      orgId: string,
+      id: string,
+      query?: {
+        /** Directory path (default /root) */
+        path?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<HydraListSandboxFilesResponse, any>({
+        path: `/api/v1/organizations/${orgId}/sandboxes/${id}/files/list`,
+        method: "GET",
+        query: query,
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Sandboxes
+     * @name V1OrganizationsSandboxesScreenshotDetail
+     * @summary Get a sandbox screenshot
+     * @request GET:/api/v1/organizations/{org_id}/sandboxes/{id}/screenshot
+     * @secure
+     */
+    v1OrganizationsSandboxesScreenshotDetail: (
+      orgId: string,
+      id: string,
+      query?: {
+        /** JPEG quality (1-100, default 60) */
+        quality?: number;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<string, string>({
+        path: `/api/v1/organizations/${orgId}/sandboxes/${id}/screenshot`,
+        method: "GET",
+        query: query,
+        secure: true,
+        format: "blob",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Sandboxes
+     * @name V1OrganizationsSandboxesTerminalDetail
+     * @summary Sandbox terminal websocket
+     * @request GET:/api/v1/organizations/{org_id}/sandboxes/{id}/terminal
+     * @secure
+     */
+    v1OrganizationsSandboxesTerminalDetail: (orgId: string, id: string, params: RequestParams = {}) =>
+      this.request<any, any>({
+        path: `/api/v1/organizations/${orgId}/sandboxes/${id}/terminal`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Sandboxes
+     * @name V1OrganizationsSandboxesTerminalSessionsDetail
+     * @summary List sandbox tmux sessions
+     * @request GET:/api/v1/organizations/{org_id}/sandboxes/{id}/terminal/sessions
+     * @secure
+     */
+    v1OrganizationsSandboxesTerminalSessionsDetail: (orgId: string, id: string, params: RequestParams = {}) =>
+      this.request<ServerSandboxTerminalSessionsResponse, any>({
+        path: `/api/v1/organizations/${orgId}/sandboxes/${id}/terminal/sessions`,
+        method: "GET",
+        secure: true,
         format: "json",
         ...params,
       }),
@@ -8968,6 +11000,24 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Returns the ZFS snapshot and clone tree showing golden cache, snapshots, and active session clones.
+     *
+     * @tags projects
+     * @name V1ProjectsDockerCacheZfsTreeDetail
+     * @summary Get ZFS snapshot/clone tree for project's Docker cache
+     * @request GET:/api/v1/projects/{id}/docker-cache/zfs-tree
+     * @secure
+     */
+    v1ProjectsDockerCacheZfsTreeDetail: (id: string, params: RequestParams = {}) =>
+      this.request<TypesZFSTree, any>({
+        path: `/api/v1/projects/${id}/docker-cache/zfs-tree`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Stop the running exploratory session for a project (stops sandbox container, keeps session record)
      *
      * @tags Projects
@@ -9074,6 +11124,44 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/projects/${id}/move/preview`,
         method: "POST",
         body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Remove a project from the current user's pinned projects
+     *
+     * @tags Projects
+     * @name V1ProjectsPinDelete
+     * @summary Unpin a project
+     * @request DELETE:/api/v1/projects/{id}/pin
+     * @secure
+     */
+    v1ProjectsPinDelete: (id: string, params: RequestParams = {}) =>
+      this.request<ServerPinnedProjectsResponse, SystemHTTPError>({
+        path: `/api/v1/projects/${id}/pin`,
+        method: "DELETE",
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Pin a project for the current user so it appears at the top of the projects board
+     *
+     * @tags Projects
+     * @name V1ProjectsPinCreate
+     * @summary Pin a project
+     * @request POST:/api/v1/projects/{id}/pin
+     * @secure
+     */
+    v1ProjectsPinCreate: (id: string, params: RequestParams = {}) =>
+      this.request<ServerPinnedProjectsResponse, SystemHTTPError>({
+        path: `/api/v1/projects/${id}/pin`,
+        method: "POST",
         secure: true,
         type: ContentType.Json,
         format: "json",
@@ -9287,6 +11375,42 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Returns a sorted list of unique labels across all spec tasks in a project
+     *
+     * @tags spec-driven-tasks
+     * @name V1ProjectsLabelsDetail
+     * @summary List all labels used in a project
+     * @request GET:/api/v1/projects/{projectId}/labels
+     */
+    v1ProjectsLabelsDetail: (projectId: string, params: RequestParams = {}) =>
+      this.request<string[], TypesAPIError>({
+        path: `/api/v1/projects/${projectId}/labels`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Idempotent upsert of a project from a declarative YAML spec
+     *
+     * @tags Projects
+     * @name V1ProjectsApplyUpdate
+     * @summary Apply a project YAML
+     * @request PUT:/api/v1/projects/apply
+     * @secure
+     */
+    v1ProjectsApplyUpdate: (request: TypesProjectApplyRequest, params: RequestParams = {}) =>
+      this.request<TypesProjectApplyResponse, SystemHTTPError>({
+        path: `/api/v1/projects/apply`,
+        method: "PUT",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Create a minimal project for a repository that doesn't have one
      *
      * @tags Projects
@@ -9336,6 +11460,24 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         query: query,
         secure: true,
         type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Soft-deletes a prompt history entry so it is removed from the queue and no longer synced to clients
+     *
+     * @tags PromptHistory
+     * @name V1PromptHistoryDelete
+     * @summary Delete a prompt history entry
+     * @request DELETE:/api/v1/prompt-history/{id}
+     * @secure
+     */
+    v1PromptHistoryDelete: (id: string, params: RequestParams = {}) =>
+      this.request<Record<string, boolean>, SystemHTTPError>({
+        path: `/api/v1/prompt-history/${id}`,
+        method: "DELETE",
+        secure: true,
         format: "json",
         ...params,
       }),
@@ -9866,6 +12008,167 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Return all compose-based runner profiles, ordered by name.
+     *
+     * @tags runner_profiles
+     * @name V1RunnerProfilesList
+     * @summary List runner profiles
+     * @request GET:/api/v1/runner-profiles
+     * @secure
+     */
+    v1RunnerProfilesList: (params: RequestParams = {}) =>
+      this.request<TypesRunnerProfile[], any>({
+        path: `/api/v1/runner-profiles`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags runner_profiles
+     * @name V1RunnerProfilesCreate
+     * @summary Create a runner profile
+     * @request POST:/api/v1/runner-profiles
+     * @secure
+     */
+    v1RunnerProfilesCreate: (body: ServerRunnerProfileSaveRequest, params: RequestParams = {}) =>
+      this.request<TypesRunnerProfile, string>({
+        path: `/api/v1/runner-profiles`,
+        method: "POST",
+        body: body,
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags runner_profiles
+     * @name V1RunnerProfilesDelete
+     * @summary Delete a runner profile
+     * @request DELETE:/api/v1/runner-profiles/{id}
+     * @secure
+     */
+    v1RunnerProfilesDelete: (id: string, params: RequestParams = {}) =>
+      this.request<string, string>({
+        path: `/api/v1/runner-profiles/${id}`,
+        method: "DELETE",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags runner_profiles
+     * @name V1RunnerProfilesDetail
+     * @summary Get a runner profile by ID
+     * @request GET:/api/v1/runner-profiles/{id}
+     * @secure
+     */
+    v1RunnerProfilesDetail: (id: string, params: RequestParams = {}) =>
+      this.request<TypesRunnerProfile, string>({
+        path: `/api/v1/runner-profiles/${id}`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags runner_profiles
+     * @name V1RunnerProfilesUpdate
+     * @summary Update a runner profile (full replace)
+     * @request PUT:/api/v1/runner-profiles/{id}
+     * @secure
+     */
+    v1RunnerProfilesUpdate: (id: string, body: ServerRunnerProfileSaveRequest, params: RequestParams = {}) =>
+      this.request<TypesRunnerProfile, string>({
+        path: `/api/v1/runner-profiles/${id}`,
+        method: "PUT",
+        body: body,
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Validates GPU compatibility, persists the assignment, and notifies the runner over NATS to apply the profile.
+     *
+     * @tags runner_profiles
+     * @name V1RunnersAssignProfileCreate
+     * @summary Assign a profile to a runner
+     * @request POST:/api/v1/runners/{runner_id}/assign-profile
+     * @secure
+     */
+    v1RunnersAssignProfileCreate: (
+      runnerId: string,
+      body: ServerRunnerProfileAssignRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesRunnerAssignment, string>({
+        path: `/api/v1/runners/${runnerId}/assign-profile`,
+        method: "POST",
+        body: body,
+        secure: true,
+        type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags runner_profiles
+     * @name V1RunnersAssignmentDetail
+     * @summary Get a runner's current profile assignment
+     * @request GET:/api/v1/runners/{runner_id}/assignment
+     * @secure
+     */
+    v1RunnersAssignmentDetail: (runnerId: string, params: RequestParams = {}) =>
+      this.request<TypesRunnerAssignment, string>({
+        path: `/api/v1/runners/${runnerId}/assignment`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Deletes the runner-to-profile assignment and tells the runner to tear down any active compose stack. Idempotent.
+     *
+     * @tags runner_profiles
+     * @name V1RunnersClearProfileCreate
+     * @summary Clear a runner's profile assignment
+     * @request POST:/api/v1/runners/{runner_id}/clear-profile
+     * @secure
+     */
+    v1RunnersClearProfileCreate: (runnerId: string, params: RequestParams = {}) =>
+      this.request<string, any>({
+        path: `/api/v1/runners/${runnerId}/clear-profile`,
+        method: "POST",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Returns the subset of profiles whose GPU compatibility specification is satisfied by the runner's reported hardware inventory.
+     *
+     * @tags runner_profiles
+     * @name V1RunnersCompatibleProfilesDetail
+     * @summary List runner profiles compatible with the given runner
+     * @request GET:/api/v1/runners/{runner_id}/compatible-profiles
+     * @secure
+     */
+    v1RunnersCompatibleProfilesDetail: (runnerId: string, params: RequestParams = {}) =>
+      this.request<TypesRunnerProfile[], any>({
+        path: `/api/v1/runners/${runnerId}/compatible-profiles`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
      * @description Get a list of all available sample projects that users can fork and use
      *
      * @tags sample-projects
@@ -10070,6 +12373,24 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description List the sandbox runtimes available on this server
+     *
+     * @tags Sandboxes
+     * @name V1SandboxRuntimesList
+     * @summary List sandbox runtimes
+     * @request GET:/api/v1/sandbox-runtimes
+     * @secure
+     */
+    v1SandboxRuntimesList: (params: RequestParams = {}) =>
+      this.request<Record<string, string[]>, any>({
+        path: `/api/v1/sandbox-runtimes`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Get all registered sandboxes
      *
      * @tags sandbox
@@ -10173,23 +12494,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         body: sandbox,
         type: ContentType.Json,
         format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Get the health status of all scheduler goroutines
-     *
-     * @tags dashboard
-     * @name V1SchedulerHeartbeatsList
-     * @summary Get scheduler goroutine heartbeat status
-     * @request GET:/api/v1/scheduler/heartbeats
-     * @secure
-     */
-    v1SchedulerHeartbeatsList: (params: RequestParams = {}) =>
-      this.request<Record<string, any>, any>({
-        path: `/api/v1/scheduler/heartbeats`,
-        method: "GET",
-        secure: true,
         ...params,
       }),
 
@@ -10445,6 +12749,8 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         search?: string;
         /** Project ID */
         project_id?: string;
+        /** Filter by session role (e.g. job) */
+        session_role?: string;
       },
       params: RequestParams = {},
     ) =>
@@ -10482,10 +12788,18 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/sessions/{id}
      * @secure
      */
-    v1SessionsDetail: (id: string, params: RequestParams = {}) =>
+    v1SessionsDetail: (
+      id: string,
+      query?: {
+        /** Set to '1' to omit interactions from the response */
+        skipInteractions?: string;
+      },
+      params: RequestParams = {},
+    ) =>
       this.request<TypesSession, any>({
         path: `/api/v1/sessions/${id}`,
         method: "GET",
+        query: query,
         secure: true,
         ...params,
       }),
@@ -10519,7 +12833,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1SessionsClaudeCredentialsDetail: (id: string, params: RequestParams = {}) =>
-      this.request<TypesClaudeOAuthCredentials, SystemHTTPError>({
+      this.request<ServerSessionClaudeCredentialsResponse, SystemHTTPError>({
         path: `/api/v1/sessions/${id}/claude-credentials`,
         method: "GET",
         secure: true,
@@ -10598,7 +12912,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description List interactions for a session
+     * @description List interactions for a session with pagination
      *
      * @tags interactions
      * @name V1SessionsInteractionsDetail
@@ -10609,14 +12923,16 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
     v1SessionsInteractionsDetail: (
       id: string,
       query?: {
-        /** Page number */
+        /** Page number (0-indexed) */
         page?: number;
-        /** Page size */
-        page_size?: number;
+        /** Page size (default 100) */
+        per_page?: number;
+        /** Sort order: 'asc' (oldest first, default) or 'desc' (newest first) */
+        order?: string;
       },
       params: RequestParams = {},
     ) =>
-      this.request<TypesInteraction[], any>({
+      this.request<TypesPaginatedInteractions, any>({
         path: `/api/v1/sessions/${id}/interactions`,
         method: "GET",
         query: query,
@@ -10671,6 +12987,24 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Returns the last interaction's response for a session
+     *
+     * @tags Sessions
+     * @name V1SessionsOutputDetail
+     * @summary Get session output
+     * @request GET:/api/v1/sessions/{id}/output
+     * @secure
+     */
+    v1SessionsOutputDetail: (id: string, params: RequestParams = {}) =>
+      this.request<TypesSessionOutputResponse, SystemHTTPError>({
+        path: `/api/v1/sessions/${id}/output`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Get streaming connection details for accessing a session
      *
      * @tags sessions
@@ -10684,6 +13018,24 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/sessions/${id}/rdp-connection`,
         method: "GET",
         secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Clears the dead acp_thread_id on the session and resets crashed prompts (those marked by MarkPromptAsCrashed when the Claude Agent process exited) back to pending. The next dispatch sends with empty acp_thread_id, causing Zed to create a fresh thread + Claude Agent process. Requires the session to be an external Zed agent. Returns the count of prompts that were reset.
+     *
+     * @tags Sessions
+     * @name V1SessionsRestartAgentCreate
+     * @summary Restart Zed thread after a Claude Agent crash
+     * @request POST:/api/v1/sessions/{id}/restart-agent
+     * @secure
+     */
+    v1SessionsRestartAgentCreate: (id: string, params: RequestParams = {}) =>
+      this.request<Record<string, any>, SystemHTTPError>({
+        path: `/api/v1/sessions/${id}/restart-agent`,
+        method: "POST",
+        secure: true,
+        format: "json",
         ...params,
       }),
 
@@ -10863,11 +13215,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Get merged Helix + user Zed settings for a session
+     * @description Returns the union of helix-managed and user-side MCP context_servers, for the session "MCP Tools" panel in the UI. Other Zed settings (agent.*, language_models, theme) are owned by the daemon — anything that needs the full Zed view goes through the settings-sync-daemon on /zed-config + a local merge.
      *
      * @tags Zed
      * @name V1SessionsZedSettingsDetail
-     * @summary Get merged Zed settings
+     * @summary Get merged Zed MCP context_servers for a session
      * @request GET:/api/v1/sessions/{id}/zed-settings
      * @secure
      */
@@ -10978,23 +13330,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Delete a slot from the scheduler's desired state, allowing reconciliation to clean it up from the runner
-     *
-     * @tags dashboard
-     * @name V1SlotsDelete
-     * @summary Delete a slot from scheduler state
-     * @request DELETE:/api/v1/slots/{slot_id}
-     * @secure
-     */
-    v1SlotsDelete: (slotId: string, params: RequestParams = {}) =>
-      this.request<Record<string, any>, any>({
-        path: `/api/v1/slots/${slotId}`,
-        method: "DELETE",
-        secure: true,
-        ...params,
-      }),
-
-    /**
      * @description List spec-driven tasks with optional filtering by project, status, or user
      *
      * @tags spec-driven-tasks
@@ -11020,6 +13355,8 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
          * @default false
          */
         with_depends_on?: boolean;
+        /** Filter by labels (comma-separated, AND semantics) */
+        labels?: string;
         /**
          * Limit number of results
          * @default 50
@@ -11037,24 +13374,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/spec-tasks`,
         method: "GET",
         query: query,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Get the design documents from helix-specs worktree
-     *
-     * @tags SpecTasks
-     * @name V1SpecTasksDesignDocsDetail
-     * @summary Get design docs for SpecTask
-     * @request GET:/api/v1/spec-tasks/{id}/design-docs
-     * @secure
-     */
-    v1SpecTasksDesignDocsDetail: (id: string, params: RequestParams = {}) =>
-      this.request<ServerDesignDocsResponse, SystemHTTPError>({
-        path: `/api/v1/spec-tasks/${id}/design-docs`,
-        method: "GET",
-        secure: true,
         format: "json",
         ...params,
       }),
@@ -11384,6 +13703,40 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Adds a label to a spec task (idempotent - no error if label already exists)
+     *
+     * @tags spec-driven-tasks
+     * @name V1SpecTasksLabelsCreate
+     * @summary Add a label to a spec task
+     * @request POST:/api/v1/spec-tasks/{taskId}/labels
+     */
+    v1SpecTasksLabelsCreate: (taskId: string, request: ServerAddLabelRequest, params: RequestParams = {}) =>
+      this.request<TypesSpecTask, TypesAPIError>({
+        path: `/api/v1/spec-tasks/${taskId}/labels`,
+        method: "POST",
+        body: request,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Removes a label from a spec task (no-op if label does not exist)
+     *
+     * @tags spec-driven-tasks
+     * @name V1SpecTasksLabelsDelete
+     * @summary Remove a label from a spec task
+     * @request DELETE:/api/v1/spec-tasks/{taskId}/labels/{label}
+     */
+    v1SpecTasksLabelsDelete: (taskId: string, label: string, params: RequestParams = {}) =>
+      this.request<TypesSpecTask, TypesAPIError>({
+        path: `/api/v1/spec-tasks/${taskId}/labels/${label}`,
+        method: "DELETE",
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Get detailed progress information for a spec-driven task including specification and implementation phases
      *
      * @tags spec-driven-tasks
@@ -11641,6 +13994,8 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       query?: {
         /** Organization ID */
         org_id?: string;
+        /** Custom return URL path (e.g. /onboarding) */
+        return_url?: string;
       },
       params: RequestParams = {},
     ) =>
@@ -11884,7 +14239,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description List users with pagination support and optional filtering by email domain or username. Supports ILIKE matching for email domains (e.g., "hotmail.com" will find all users with @hotmail.com emails) and partial username matching.
+     * @description List users with pagination support and optional filtering by email domain or username. Supports ILIKE matching for email domains (e.g., "hotmail.com" will find all users with @hotmail.com emails) and partial username matching. Pass `query` to match across email, username, and full_name in one go.
      *
      * @tags users
      * @name V1UsersList
@@ -11898,6 +14253,8 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         page?: number;
         /** Number of users per page (max: 200, default: 50) */
         per_page?: number;
+        /** Free-text search across email, username, and full_name (ILIKE) */
+        query?: string;
         /** Filter by email domain (e.g., 'hotmail.com') or exact email */
         email?: string;
         /** Filter by username (partial match) */
@@ -11955,6 +14312,63 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/users/${id}`,
         method: "GET",
         secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Returns an overview of a user's activity: projects owned, spec tasks created, per-model inference usage, and an effective last-active timestamp combining tracked auth activity with usage-metric data.
+     *
+     * @tags users
+     * @name V1UsersStatsDetail
+     * @summary Get user stats (admin only)
+     * @request GET:/api/v1/users/{id}/stats
+     * @secure
+     */
+    v1UsersStatsDetail: (id: string, params: RequestParams = {}) =>
+      this.request<TypesUserStatsResponse, any>({
+        path: `/api/v1/users/${id}/stats`,
+        method: "GET",
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Get the current user's default chat settings (applied when chatting without an app)
+     *
+     * @tags Users
+     * @name V1UsersMeChatSettingsList
+     * @summary Get user chat settings
+     * @request GET:/api/v1/users/me/chat-settings
+     * @secure
+     */
+    v1UsersMeChatSettingsList: (params: RequestParams = {}) =>
+      this.request<TypesUserChatSettings, SystemHTTPError>({
+        path: `/api/v1/users/me/chat-settings`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Update the current user's default chat settings (system prompt + LLM parameters used when chatting without an app)
+     *
+     * @tags Users
+     * @name V1UsersMeChatSettingsUpdate
+     * @summary Update user chat settings
+     * @request PUT:/api/v1/users/me/chat-settings
+     * @secure
+     */
+    v1UsersMeChatSettingsUpdate: (request: TypesUserChatSettings, params: RequestParams = {}) =>
+      this.request<TypesUserChatSettings, SystemHTTPError>({
+        path: `/api/v1/users/me/chat-settings`,
+        method: "PUT",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
         ...params,
       }),
 
@@ -12027,6 +14441,24 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       this.request<TypesUser, SystemHTTPError>({
         path: `/api/v1/users/me/onboarding`,
         method: "POST",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Get the list of project IDs pinned by the current user
+     *
+     * @tags Users
+     * @name V1UsersMePinnedProjectsList
+     * @summary Get pinned project IDs
+     * @request GET:/api/v1/users/me/pinned-projects
+     * @secure
+     */
+    v1UsersMePinnedProjectsList: (params: RequestParams = {}) =>
+      this.request<ServerPinnedProjectsResponse, SystemHTTPError>({
+        path: `/api/v1/users/me/pinned-projects`,
+        method: "GET",
         secure: true,
         format: "json",
         ...params,
@@ -12252,9 +14684,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * No description
+     * @description List models from a specific provider, or aggregate from all providers if none specified. If the request includes an anthropic-version header, proxies to the upstream Anthropic provider.
      *
+     * @tags models
      * @name ModelsList
+     * @summary List models
      * @request GET:/v1/models
      * @secure
      */

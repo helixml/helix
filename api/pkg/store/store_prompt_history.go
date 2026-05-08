@@ -20,8 +20,8 @@ func (s *PostgresStore) SyncPromptHistory(ctx context.Context, userID string, re
 		// Convert timestamp from milliseconds to time.Time
 		createdAt := time.UnixMilli(entry.Timestamp)
 
-		// Default interrupt to true if not specified
-		interrupt := true
+		// Default interrupt to false if not specified (queue mode is the safe default)
+		interrupt := false
 		if entry.Interrupt != nil {
 			interrupt = *entry.Interrupt
 		}
@@ -68,6 +68,7 @@ func (s *PostgresStore) SyncPromptHistory(ctx context.Context, userID string, re
 			updateFields := map[string]interface{}{
 				"interrupt":      interrupt,
 				"queue_position": entry.QueuePosition,
+				"content":        entry.Content,
 				"updated_at":     time.Now(),
 			}
 
@@ -81,10 +82,10 @@ func (s *PostgresStore) SyncPromptHistory(ctx context.Context, userID string, re
 		}
 	}
 
-	// Return all entries for this user+spec_task so client can merge
+	// Return all non-deleted entries for this user+spec_task so client can merge
 	var allEntries []types.PromptHistoryEntry
 	err := s.gdb.WithContext(ctx).
-		Where("user_id = ? AND spec_task_id = ?", userID, req.SpecTaskID).
+		Where("user_id = ? AND spec_task_id = ? AND deleted_at IS NULL", userID, req.SpecTaskID).
 		Order("created_at DESC").
 		Limit(100). // Reasonable limit
 		Find(&allEntries).Error
@@ -119,21 +120,27 @@ func (s *PostgresStore) GetPromptHistoryEntry(ctx context.Context, id string) (*
 func (s *PostgresStore) GetNextPendingPrompt(ctx context.Context, sessionID string) (*types.PromptHistoryEntry, error) {
 	var entry types.PromptHistoryEntry
 
-	// Find the oldest pending or ready-to-retry prompt for this session with interrupt=false
-	// Order by queue_position (if set) then by created_at
-	// Failed prompts only included if next_retry_at has passed (or is NULL for legacy entries)
+	// Atomically claim the next pending prompt by setting status='sending' in a single query.
+	// This prevents race conditions where two concurrent callers both read the same prompt.
 	now := time.Now()
-	result := s.gdb.WithContext(ctx).
-		Where("session_id = ? AND interrupt = ?", sessionID, false).
-		Where("(status = ? OR (status = ? AND (next_retry_at IS NULL OR next_retry_at <= ?)))", "pending", "failed", now).
-		Order("COALESCE(queue_position, 999999) ASC, created_at ASC").
-		First(&entry)
+	result := s.gdb.WithContext(ctx).Raw(`
+		UPDATE prompt_history_entries SET status = 'sending', updated_at = NOW()
+		WHERE id = (
+			SELECT id FROM prompt_history_entries
+			WHERE session_id = ? AND interrupt = false AND deleted_at IS NULL
+			AND (status = 'pending' OR (status = 'failed' AND (next_retry_at IS NULL OR next_retry_at <= ?)))
+			ORDER BY COALESCE(queue_position, 999999) ASC, created_at ASC
+			LIMIT 1
+			FOR UPDATE SKIP LOCKED
+		)
+		RETURNING *
+	`, sessionID, now).Scan(&entry)
 
 	if result.Error != nil {
-		if result.Error.Error() == "record not found" {
-			return nil, nil // No pending prompts
-		}
 		return nil, result.Error
+	}
+	if result.RowsAffected == 0 {
+		return nil, nil // No pending prompts
 	}
 
 	return &entry, nil
@@ -145,21 +152,26 @@ func (s *PostgresStore) GetNextPendingPrompt(ctx context.Context, sessionID stri
 func (s *PostgresStore) GetAnyPendingPrompt(ctx context.Context, sessionID string) (*types.PromptHistoryEntry, error) {
 	var entry types.PromptHistoryEntry
 
-	// Find the oldest pending or ready-to-retry prompt for this session
-	// Order: interrupt first (DESC so true=1 comes before false=0), then queue_position, then created_at
-	// Failed prompts only included if next_retry_at has passed (or is NULL for legacy entries)
+	// Atomically claim the next prompt (same pattern as GetNextPendingPrompt)
 	now := time.Now()
-	result := s.gdb.WithContext(ctx).
-		Where("session_id = ?", sessionID).
-		Where("(status = ? OR (status = ? AND (next_retry_at IS NULL OR next_retry_at <= ?)))", "pending", "failed", now).
-		Order("interrupt DESC, COALESCE(queue_position, 999999) ASC, created_at ASC").
-		First(&entry)
+	result := s.gdb.WithContext(ctx).Raw(`
+		UPDATE prompt_history_entries SET status = 'sending', updated_at = NOW()
+		WHERE id = (
+			SELECT id FROM prompt_history_entries
+			WHERE session_id = ? AND deleted_at IS NULL
+			AND (status = 'pending' OR (status = 'failed' AND (next_retry_at IS NULL OR next_retry_at <= ?)))
+			ORDER BY interrupt DESC, COALESCE(queue_position, 999999) ASC, created_at ASC
+			LIMIT 1
+			FOR UPDATE SKIP LOCKED
+		)
+		RETURNING *
+	`, sessionID, now).Scan(&entry)
 
 	if result.Error != nil {
-		if result.Error.Error() == "record not found" {
-			return nil, nil // No pending prompts
-		}
 		return nil, result.Error
+	}
+	if result.RowsAffected == 0 {
+		return nil, nil
 	}
 
 	return &entry, nil
@@ -171,32 +183,37 @@ func (s *PostgresStore) GetAnyPendingPrompt(ctx context.Context, sessionID strin
 func (s *PostgresStore) GetNextInterruptPrompt(ctx context.Context, sessionID string) (*types.PromptHistoryEntry, error) {
 	var entry types.PromptHistoryEntry
 
-	// Find the oldest pending or ready-to-retry interrupt prompt for this session
-	// Only get interrupt=true prompts - queue prompts wait for message_completed
-	// Failed prompts only included if next_retry_at has passed (or is NULL for legacy entries)
+	// Atomically claim the next interrupt prompt (same pattern as GetNextPendingPrompt)
 	now := time.Now()
-	result := s.gdb.WithContext(ctx).
-		Where("session_id = ? AND interrupt = ?", sessionID, true).
-		Where("(status = ? OR (status = ? AND (next_retry_at IS NULL OR next_retry_at <= ?)))", "pending", "failed", now).
-		Order("COALESCE(queue_position, 999999) ASC, created_at ASC").
-		First(&entry)
+	result := s.gdb.WithContext(ctx).Raw(`
+		UPDATE prompt_history_entries SET status = 'sending', updated_at = NOW()
+		WHERE id = (
+			SELECT id FROM prompt_history_entries
+			WHERE session_id = ? AND interrupt = true AND deleted_at IS NULL
+			AND (status = 'pending' OR (status = 'failed' AND (next_retry_at IS NULL OR next_retry_at <= ?)))
+			ORDER BY COALESCE(queue_position, 999999) ASC, created_at ASC
+			LIMIT 1
+			FOR UPDATE SKIP LOCKED
+		)
+		RETURNING *
+	`, sessionID, now).Scan(&entry)
 
 	if result.Error != nil {
-		if result.Error.Error() == "record not found" {
-			return nil, nil // No pending interrupt prompts
-		}
 		return nil, result.Error
+	}
+	if result.RowsAffected == 0 {
+		return nil, nil
 	}
 
 	return &entry, nil
 }
 
-// ListPromptHistoryBySpecTask returns all prompt history entries for a spec task
+// ListPromptHistoryBySpecTask returns all non-deleted prompt history entries for a spec task
 // Used by the queue processor to find pending prompts across all sessions
 func (s *PostgresStore) ListPromptHistoryBySpecTask(ctx context.Context, specTaskID string) ([]*types.PromptHistoryEntry, error) {
 	var entries []*types.PromptHistoryEntry
 	err := s.gdb.WithContext(ctx).
-		Where("spec_task_id = ?", specTaskID).
+		Where("spec_task_id = ? AND deleted_at IS NULL", specTaskID).
 		Order("created_at ASC").
 		Find(&entries).Error
 
@@ -225,8 +242,57 @@ func (s *PostgresStore) MarkPromptAsSent(ctx context.Context, promptID string) e
 		Error
 }
 
-// MarkPromptAsFailed marks a prompt as failed with exponential backoff retry
-func (s *PostgresStore) MarkPromptAsFailed(ctx context.Context, promptID string) error {
+// ClaimPromptForSending atomically transitions a prompt from pending/failed to "sending".
+// Returns true if this caller won the race (rows affected > 0).
+// If false is returned, another goroutine already claimed the prompt and the caller must not send it.
+func (s *PostgresStore) ClaimPromptForSending(ctx context.Context, promptID string) (bool, error) {
+	result := s.gdb.WithContext(ctx).
+		Model(&types.PromptHistoryEntry{}).
+		Where("id = ? AND status IN ('pending', 'failed')", promptID).
+		Update("status", "sending")
+	if result.Error != nil {
+		return false, result.Error
+	}
+	return result.RowsAffected > 0, nil
+}
+
+// RequeueBouncedPrompt finds the most recent in-flight prompt for a session
+// (status 'sent' or 'sending') and marks it as "failed" so the retry mechanism
+// picks it up.
+//
+// Both statuses are considered: under the deferred-mark-sent flow, dispatched
+// prompts stay in 'sending' until Zed actually starts streaming. A bounce
+// before Zed's first message_added arrives leaves the prompt 'sending'. Older
+// flows marked sent on dispatch, leaving bounced prompts 'sent'. Either way,
+// the most recent in-flight prompt for the session is the one to requeue.
+func (s *PostgresStore) RequeueBouncedPrompt(ctx context.Context, sessionID string) error {
+	var prompt types.PromptHistoryEntry
+	err := s.gdb.WithContext(ctx).
+		Where("session_id = ? AND status IN ('sent', 'sending')", sessionID).
+		Order("created_at DESC").
+		First(&prompt).Error
+	if err != nil {
+		return err // no matching prompt found (e.g. Zed user message, not from queue)
+	}
+	return s.MarkPromptAsFailed(ctx, prompt.ID, "agent returned an empty response (bounce); requeueing for retry")
+}
+
+// promptErrorMessageMaxLen caps the persisted error string. The UI renders it
+// inline; longer messages produce a wall-of-text in the queue list. Server
+// logs still carry the full error for debugging.
+const promptErrorMessageMaxLen = 500
+
+// crashedPromptRetrySentinel is the next_retry_at value used by
+// MarkPromptAsCrashed to suppress auto-retry. Picked far enough in the future
+// that the queue's exponential-backoff selector will never match it, but a
+// fixed timestamp (not max time.Time) so it serialises cleanly through GORM
+// and Postgres timestamptz. ResetCrashedPromptsForSession identifies crashed
+// rows by matching exactly this value.
+var crashedPromptRetrySentinel = time.Date(9999, 1, 1, 0, 0, 0, 0, time.UTC)
+
+// MarkPromptAsFailed marks a prompt as failed with exponential backoff retry,
+// recording the failure reason for display in the UI.
+func (s *PostgresStore) MarkPromptAsFailed(ctx context.Context, promptID string, errorMsg string) error {
 	// First get the current prompt to read retry count
 	var prompt types.PromptHistoryEntry
 	if err := s.gdb.WithContext(ctx).Where("id = ?", promptID).First(&prompt).Error; err != nil {
@@ -241,6 +307,10 @@ func (s *PostgresStore) MarkPromptAsFailed(ctx context.Context, promptID string)
 	}
 	nextRetry := time.Now().Add(time.Duration(backoffSeconds) * time.Second)
 
+	if len(errorMsg) > promptErrorMessageMaxLen {
+		errorMsg = errorMsg[:promptErrorMessageMaxLen]
+	}
+
 	return s.gdb.WithContext(ctx).
 		Model(&types.PromptHistoryEntry{}).
 		Where("id = ?", promptID).
@@ -248,8 +318,133 @@ func (s *PostgresStore) MarkPromptAsFailed(ctx context.Context, promptID string)
 			"status":        "failed",
 			"retry_count":   newRetryCount,
 			"next_retry_at": nextRetry,
+			"error_message": errorMsg,
 		}).
 		Error
+}
+
+// MarkPromptAsCrashed marks a prompt as failed but pins next_retry_at to a
+// far-future sentinel so the queue's auto-retry never picks it back up. Used
+// for terminal failures (the Claude Agent process inside Zed exited and Helix
+// can't respawn it without a fresh thread). The user must explicitly click
+// Restart to recover, which calls ResetCrashedPromptsForSession.
+//
+// We don't introduce a separate 'crashed' status because GetNextPendingPrompt
+// only selects 'pending' and 'failed' — pinning next_retry_at to year 9999
+// keeps the row out of the selector while still letting existing failed-state
+// UI render naturally with the error message.
+func (s *PostgresStore) MarkPromptAsCrashed(ctx context.Context, promptID string, errorMsg string) error {
+	if len(errorMsg) > promptErrorMessageMaxLen {
+		errorMsg = errorMsg[:promptErrorMessageMaxLen]
+	}
+
+	return s.gdb.WithContext(ctx).
+		Model(&types.PromptHistoryEntry{}).
+		Where("id = ?", promptID).
+		Updates(map[string]interface{}{
+			"status":        "failed",
+			"next_retry_at": crashedPromptRetrySentinel,
+			"error_message": errorMsg,
+		}).
+		Error
+}
+
+// ReconcileStuckSendingPrompts catches up prompt_history_entries that were
+// orphaned by the old in-memory interactionToPromptMapping pre-2026-04-30:
+// the dispatched interaction reached state='complete' (Zed responded) but the
+// in-memory map was lost (API restart, dispatch-failure path, etc.) before
+// MarkPromptAsSent could fire, so the prompt sat in 'sending' indefinitely
+// while the response was already in the chat. New code path persists the link
+// on Interaction.PromptID so this only matters for legacy rows + the brief
+// window where new code hasn't shipped to all instances. Idempotent and safe
+// to re-run; the WHERE clause is the no-op gate.
+//
+// Two queries cover both cases:
+//
+//  1. New rows where interactions.prompt_id is set — precise join, mark sent
+//     when the linked interaction is complete.
+//  2. Legacy rows where prompt_id is NULL — heuristic match on session_id +
+//     timing. Only matches prompts older than 5 minutes (skip live work) whose
+//     session has at least one Complete interaction since the prompt was
+//     created.
+func (s *PostgresStore) ReconcileStuckSendingPrompts(ctx context.Context) (int, error) {
+	var total int
+
+	// Path 1: precise — the new PromptID column links the interaction back.
+	{
+		result := s.gdb.WithContext(ctx).Exec(`
+			UPDATE prompt_history_entries
+			SET status = 'sent', updated_at = NOW()
+			WHERE id IN (
+				SELECT p.id
+				FROM prompt_history_entries p
+				JOIN interactions i ON i.prompt_id = p.id
+				WHERE p.status = 'sending'
+				  AND p.deleted_at IS NULL
+				  AND i.state = 'complete'
+			)
+		`)
+		if result.Error != nil {
+			return total, result.Error
+		}
+		total += int(result.RowsAffected)
+	}
+
+	// Path 2: legacy heuristic — the prompt predates the PromptID column, so
+	// rely on session_id + the existence of any Complete interaction created
+	// after the prompt as evidence the agent processed it. The 5-minute floor
+	// avoids racing newly-dispatched prompts that just haven't reached Zed yet.
+	{
+		result := s.gdb.WithContext(ctx).Exec(`
+			UPDATE prompt_history_entries
+			SET status = 'sent', updated_at = NOW()
+			WHERE id IN (
+				SELECT p.id
+				FROM prompt_history_entries p
+				WHERE p.status = 'sending'
+				  AND p.deleted_at IS NULL
+				  AND p.created_at < NOW() - INTERVAL '5 minutes'
+				  AND EXISTS (
+					SELECT 1 FROM interactions i
+					WHERE i.session_id = p.session_id
+					  AND i.state = 'complete'
+					  AND i.created >= p.created_at
+				  )
+			)
+		`)
+		if result.Error != nil {
+			return total, result.Error
+		}
+		total += int(result.RowsAffected)
+	}
+
+	return total, nil
+}
+
+// ResetCrashedPromptsForSession resets every prompt for sessionID that was
+// marked crashed by MarkPromptAsCrashed: status becomes 'pending', retry_count
+// is zeroed, next_retry_at and error_message are cleared. The auto-retry
+// selector picks the prompts up on the next idle tick. Returns the number of
+// prompts reset.
+//
+// Identifies crashed rows by next_retry_at = the sentinel; that's a tighter
+// match than checking the error_message text and survives error-message
+// rewording.
+func (s *PostgresStore) ResetCrashedPromptsForSession(ctx context.Context, sessionID string) (int, error) {
+	result := s.gdb.WithContext(ctx).
+		Model(&types.PromptHistoryEntry{}).
+		Where("session_id = ? AND status = ? AND next_retry_at = ? AND deleted_at IS NULL",
+			sessionID, "failed", crashedPromptRetrySentinel).
+		Updates(map[string]interface{}{
+			"status":        "pending",
+			"retry_count":   0,
+			"next_retry_at": nil,
+			"error_message": "",
+		})
+	if result.Error != nil {
+		return 0, result.Error
+	}
+	return int(result.RowsAffected), nil
 }
 
 // ListPromptHistory returns prompt history entries for a user
@@ -355,6 +550,17 @@ func (s *PostgresStore) IncrementPromptUsage(ctx context.Context, promptID strin
 			"usage_count":  s.gdb.Raw("usage_count + 1"),
 			"last_used_at": now,
 		}).
+		Error
+}
+
+// DeletePromptHistoryEntry soft-deletes a prompt history entry by setting deleted_at.
+// Deleted entries are excluded from queue processing and sync responses.
+func (s *PostgresStore) DeletePromptHistoryEntry(ctx context.Context, id string) error {
+	now := time.Now()
+	return s.gdb.WithContext(ctx).
+		Model(&types.PromptHistoryEntry{}).
+		Where("id = ?", id).
+		Update("deleted_at", now).
 		Error
 }
 

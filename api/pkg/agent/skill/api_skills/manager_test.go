@@ -53,6 +53,23 @@ func TestGetSkillsByProvider(t *testing.T) {
 	assert.True(t, skillNames["google-calendar"], "Should include Google Calendar skill")
 }
 
+func TestCodeIntelligenceSkill(t *testing.T) {
+	manager := NewManager()
+	err := manager.LoadSkills(context.Background())
+	require.NoError(t, err)
+
+	skill, err := manager.GetSkill("code-intelligence")
+	require.NoError(t, err)
+
+	assert.Equal(t, "code-intelligence", skill.ID)
+	assert.Equal(t, "Code Intelligence", skill.DisplayName)
+	assert.Equal(t, "kodit", skill.Provider)
+	assert.Equal(t, "Development", skill.Category)
+	require.NotNil(t, skill.MCP, "Code Intelligence skill should have an MCP spec")
+	assert.True(t, skill.MCP.AutoProvision, "Code Intelligence skill should have AutoProvision=true")
+	assert.Equal(t, "http", skill.MCP.Transport)
+}
+
 func TestSkillSchemaValidation(t *testing.T) {
 	manager := NewManager()
 	err := manager.LoadSkills(context.Background())

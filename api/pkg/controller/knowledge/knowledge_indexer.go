@@ -5,15 +5,19 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/dustin/go-humanize"
 	"github.com/rs/zerolog/log"
 	"gopkg.in/yaml.v3"
 
+	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/data"
 	"github.com/helixml/helix/api/pkg/dataprep/text"
+	"github.com/helixml/helix/api/pkg/filestore"
 	"github.com/helixml/helix/api/pkg/rag"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
@@ -84,8 +88,7 @@ func (r *Reconciler) index(ctx context.Context) error {
 						Size:            k.Size,
 						State:           types.KnowledgeStatePending,
 						Message:         "waiting for files to be uploaded",
-						EmbeddingsModel: r.config.RAG.PGVector.EmbeddingsModel,
-						Provider:        string(r.config.RAG.DefaultRagProvider),
+						Provider:        config.RAGProviderName,
 					})
 					return
 				}
@@ -101,8 +104,7 @@ func (r *Reconciler) index(ctx context.Context) error {
 					Size:            k.Size,
 					State:           types.KnowledgeStateError,
 					Message:         err.Error(),
-					EmbeddingsModel: r.config.RAG.PGVector.EmbeddingsModel,
-					Provider:        string(r.config.RAG.DefaultRagProvider),
+					Provider:        config.RAGProviderName,
 				})
 				return
 			}
@@ -123,6 +125,12 @@ func (r *Reconciler) indexKnowledge(ctx context.Context, k *types.Knowledge, ver
 			return fmt.Errorf("failed to update knowledge, error: %w", err)
 		}
 		return nil
+	}
+
+	// If the RAG client supports kodit directory indexing and the source is a
+	// local filestore, hand off to kodit instead of the normal extraction pipeline.
+	if ki, ok := r.ragClient.(rag.KoditIndexer); ok && k.Source.Filestore != nil {
+		return r.indexKnowledgeWithKodit(ctx, ki, k, version)
 	}
 
 	start := time.Now()
@@ -198,8 +206,7 @@ func (r *Reconciler) indexKnowledge(ctx context.Context, k *types.Knowledge, ver
 			State:           types.KnowledgeStateError,
 			Message:         err.Error(),
 			CrawledSources:  k.CrawledSources,
-			EmbeddingsModel: r.config.RAG.PGVector.EmbeddingsModel,
-			Provider:        string(r.config.RAG.DefaultRagProvider),
+			Provider:        config.RAGProviderName,
 		})
 
 		return fmt.Errorf("indexing failed, error: %w", err)
@@ -234,8 +241,7 @@ func (r *Reconciler) indexKnowledge(ctx context.Context, k *types.Knowledge, ver
 		Size:            k.Size,
 		State:           types.KnowledgeStateReady,
 		CrawledSources:  k.CrawledSources,
-		EmbeddingsModel: r.config.RAG.PGVector.EmbeddingsModel,
-		Provider:        string(r.config.RAG.DefaultRagProvider),
+		Provider:        config.RAGProviderName,
 	})
 	if err != nil {
 		log.Warn().
@@ -266,6 +272,140 @@ func (r *Reconciler) indexKnowledge(ctx context.Context, k *types.Knowledge, ver
 	}
 
 	return nil
+}
+
+// indexKnowledgeWithKodit handles indexing for RAG providers that implement KoditIndexer.
+// Instead of the normal extract → chunk → embed pipeline, it registers the local filestore
+// directory with kodit (which handles conversion and embedding natively). The knowledge
+// remains in "indexing" state because kodit processes files asynchronously; the
+// kodit status checker loop will transition it to "ready" once kodit finishes.
+func (r *Reconciler) indexKnowledgeWithKodit(ctx context.Context, ki rag.KoditIndexer, k *types.Knowledge, version string) error {
+	if r.config.FileStore.Type != "fs" {
+		return fmt.Errorf("kodit RAG provider requires a local filesystem filestore (FILESTORE_TYPE=fs), got: %s", r.config.FileStore.Type)
+	}
+
+	localPath, err := r.getLocalFilestorePath(k)
+	if err != nil {
+		k.State = types.KnowledgeStateError
+		k.Message = fmt.Sprintf("failed to resolve local filestore path: %v", err)
+		_, _ = r.store.UpdateKnowledge(ctx, k)
+		return fmt.Errorf("failed to resolve local filestore path: %w", err)
+	}
+
+	if err := r.updateProgress(k, types.KnowledgeStateIndexing, "registering directory with kodit"); err != nil {
+		k.State = types.KnowledgeStateError
+		k.Message = fmt.Sprintf("failed to update progress: %v", err)
+		_, _ = r.store.UpdateKnowledge(ctx, k)
+		return fmt.Errorf("failed to update progress: %v", err)
+	}
+
+	dataEntityID := types.GetDataEntityID(k.ID)
+	log.Info().
+		Str("knowledge_id", k.ID).
+		Str("data_entity_id", dataEntityID).
+		Str("version", version).
+		Str("local_path", localPath).
+		Msg("indexing knowledge with kodit directory mode")
+
+	if err := ki.RegisterDirectory(ctx, dataEntityID, localPath, k.Owner, string(k.OwnerType)); err != nil {
+		k.State = types.KnowledgeStateError
+		k.Message = fmt.Sprintf("kodit indexing failed: %v", err)
+		_, _ = r.store.UpdateKnowledge(ctx, k)
+		_, _ = r.store.CreateKnowledgeVersion(ctx, &types.KnowledgeVersion{
+			KnowledgeID: k.ID,
+			Version:     version,
+			State:       types.KnowledgeStateError,
+			Message:     err.Error(),
+			Provider:    config.RAGProviderName,
+		})
+		return fmt.Errorf("kodit directory registration failed: %w", err)
+	}
+
+	// Apply app-level chunk settings to the kodit repository.
+	if r.koditService != nil {
+		entity, err := r.store.GetDataEntity(ctx, dataEntityID)
+		if err != nil {
+			log.Warn().Err(err).Str("data_entity_id", dataEntityID).Msg("failed to get data entity for chunking config")
+		} else if entity.KoditRepositoryID == nil {
+			log.Warn().Str("data_entity_id", dataEntityID).Msg("data entity has no kodit repo ID, skipping chunking config")
+		} else {
+			chunkSize := k.RAGSettings.ChunkSize
+			if chunkSize <= 0 {
+				chunkSize = 1500 // kodit default
+			}
+			chunkOverlap := k.RAGSettings.ChunkOverflow
+			if chunkOverlap <= 0 {
+				chunkOverlap = 200 // kodit default
+			}
+			minChunkSize := 50 // kodit default, not exposed in Helix RAGSettings
+
+			log.Info().
+				Str("knowledge_id", k.ID).
+				Int64("kodit_repo_id", *entity.KoditRepositoryID).
+				Int("chunk_size", chunkSize).
+				Int("chunk_overlap", chunkOverlap).
+				Int("min_chunk_size", minChunkSize).
+				Msg("applying chunking config to kodit repository")
+
+			if err := r.koditService.UpdateChunkingConfig(ctx, *entity.KoditRepositoryID, chunkSize, chunkOverlap, minChunkSize); err != nil {
+				log.Warn().Err(err).
+					Str("knowledge_id", k.ID).
+					Int64("kodit_repo_id", *entity.KoditRepositoryID).
+					Msg("failed to update kodit chunking config, using defaults")
+			}
+		}
+	} else {
+		log.Warn().Msg("kodit service is nil, skipping chunking config")
+	}
+
+	r.resetKnowledgeProgress(k.ID)
+
+	// Kodit indexes asynchronously after registration. Keep the knowledge in
+	// "indexing" state — the kodit status checker loop will poll Kodit's
+	// summary status and transition to "ready" when indexing completes.
+	k.State = types.KnowledgeStateIndexing
+	k.Version = version
+	k.Message = "kodit is indexing"
+
+	_, err = r.store.UpdateKnowledge(ctx, k)
+	if err != nil {
+		return fmt.Errorf("failed to update knowledge after kodit registration: %w", err)
+	}
+
+	_, err = r.store.CreateKnowledgeVersion(ctx, &types.KnowledgeVersion{
+		KnowledgeID: k.ID,
+		Version:     version,
+		State:       types.KnowledgeStateIndexing,
+		Provider:    config.RAGProviderName,
+	})
+	if err != nil {
+		log.Warn().Err(err).Str("knowledge_id", k.ID).Msg("failed to create kodit knowledge version")
+	}
+
+	return nil
+}
+
+// getLocalFilestorePath resolves the full local filesystem path for a knowledge source.
+// This mirrors the path logic in extractDataFromHelixFilestore.
+func (r *Reconciler) getLocalFilestorePath(k *types.Knowledge) (string, error) {
+	if k.Source.Filestore == nil {
+		return "", fmt.Errorf("knowledge has no filestore source")
+	}
+	if k.AppID == "" {
+		return "", fmt.Errorf("knowledge must be associated with an app")
+	}
+
+	var logicalPath string
+	appPrefix := filestore.GetAppPrefix(r.config.Controller.FilePrefixGlobal, k.AppID)
+
+	if strings.HasPrefix(k.Source.Filestore.Path, fmt.Sprintf("apps/%s/", k.AppID)) {
+		relativePath := strings.TrimPrefix(k.Source.Filestore.Path, fmt.Sprintf("apps/%s/", k.AppID))
+		logicalPath = filepath.Join(appPrefix, relativePath)
+	} else {
+		logicalPath = filepath.Join(appPrefix, k.Source.Filestore.Path)
+	}
+
+	return filepath.Join(r.config.FileStore.LocalFSPath, logicalPath), nil
 }
 
 func (r *Reconciler) deleteOldVersions(ctx context.Context, k *types.Knowledge) error {
@@ -309,23 +449,15 @@ func (r *Reconciler) deleteOldVersions(ctx context.Context, k *types.Knowledge) 
 	return nil
 }
 
-// deleteKnowledgeVersion deletes the knowledge data from the vector DB and the version record from the
-// postgres database
-func (r *Reconciler) deleteKnowledgeVersion(ctx context.Context, k *types.Knowledge, v *types.KnowledgeVersion) error {
-	ragClient := r.getRagClient(k)
-
-	err := ragClient.Delete(ctx, &types.DeleteIndexRequest{
-		DataEntityID: v.GetDataEntityID(),
-	})
-	if err != nil {
-		return fmt.Errorf("failed to delete knowledge version from vector DB, error: %w", err)
-	}
-
-	err = r.store.DeleteKnowledgeVersion(ctx, v.ID)
-	if err != nil {
+// deleteKnowledgeVersion removes an old knowledge_version row. Versions are
+// just a history log of scan runs; the live RAG state (kodit repository,
+// filestore contents, embeddings) belongs to the per-knowledge data_entity
+// and must NOT be touched by version pruning — doing so would tear down
+// state that newer versions still depend on.
+func (r *Reconciler) deleteKnowledgeVersion(ctx context.Context, _ *types.Knowledge, v *types.KnowledgeVersion) error {
+	if err := r.store.DeleteKnowledgeVersion(ctx, v.ID); err != nil {
 		return fmt.Errorf("failed to delete knowledge version, error: %w", err)
 	}
-
 	return nil
 }
 
@@ -393,7 +525,7 @@ func (r *Reconciler) indexDataDirectly(ctx context.Context, k *types.Knowledge, 
 		}
 
 		err := ragClient.Index(ctx, &types.SessionRAGIndexChunk{
-			DataEntityID:    types.GetDataEntityID(k.ID, version),
+			DataEntityID:    types.GetDataEntityID(k.ID),
 			Filename:        d.Source,
 			Source:          d.Source,
 			DocumentID:      getDocumentID(d.Data),
@@ -514,7 +646,7 @@ func convertChunksIntoBatches(chunks []*text.DataPrepTextSplitterChunk, batchSiz
 	return batches
 }
 
-// convertTextSplitterChunks converts the haystack chunks to RAG index chunks
+// convertTextSplitterChunks converts the text splitter chunks to RAG index chunks
 func (r *Reconciler) convertTextSplitterChunks(ctx context.Context, k *types.Knowledge, version string, chunks []*text.DataPrepTextSplitterChunk) []*types.SessionRAGIndexChunk {
 	indexChunks := make([]*types.SessionRAGIndexChunk, 0, len(chunks))
 
@@ -585,7 +717,7 @@ func (r *Reconciler) convertTextSplitterChunks(ctx context.Context, k *types.Kno
 		}
 
 		indexChunks = append(indexChunks, &types.SessionRAGIndexChunk{
-			DataEntityID:    types.GetDataEntityID(k.ID, version),
+			DataEntityID:    types.GetDataEntityID(k.ID),
 			Filename:        chunk.Filename,
 			Source:          chunk.Filename, // For backwards compatibility
 			DocumentID:      chunk.DocumentID,

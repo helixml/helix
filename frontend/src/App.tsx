@@ -7,20 +7,28 @@ import {
   QueryClient,
   QueryClientProvider,
 } from '@tanstack/react-query'
+import useAnalyticsInit from './hooks/useAnalyticsInit'
 
 // Create a client
 const queryClient = new QueryClient()
 
-export default function App() {
+function AppInner() {
+  useAnalyticsInit()
   return (
-    <QueryClientProvider client={queryClient}>
-      <RouterProvider router={router}>
+    <RouterProvider router={router}>
       <AllContextProvider>
         <Layout>
           <RenderPage />
-          </Layout>
-        </AllContextProvider>
-      </RouterProvider>
+        </Layout>
+      </AllContextProvider>
+    </RouterProvider>
+  )
+}
+
+export default function App() {
+  return (
+    <QueryClientProvider client={queryClient}>
+      <AppInner />
     </QueryClientProvider>
   )
 }

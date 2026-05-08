@@ -16,8 +16,9 @@ type ClaudeSubscription struct {
 	OwnerID              string         `json:"owner_id" gorm:"not null;index"`
 	OwnerType            OwnerType      `json:"owner_type" gorm:"not null"` // "user" or "org"
 	Name                 string         `json:"name"`
-	EncryptedCredentials string         `json:"-" gorm:"type:text;not null"` // AES-256-GCM encrypted ClaudeOAuthCredentials JSON
-	SubscriptionType     string         `json:"subscription_type"`           // "max", "pro"
+	EncryptedCredentials string         `json:"-" gorm:"type:text;not null"` // AES-256-GCM encrypted credentials JSON
+	CredentialType       string         `json:"credential_type" gorm:"default:'oauth'"` // "oauth" or "setup_token"
+	SubscriptionType     string         `json:"subscription_type"`                       // "max", "pro"
 	RateLimitTier        string         `json:"rate_limit_tier"`
 	Scopes               pq.StringArray `json:"scopes" gorm:"type:text[]"`
 	AccessTokenExpiresAt time.Time      `json:"access_token_expires_at"`
@@ -38,11 +39,18 @@ type ClaudeOAuthCredentials struct {
 	RateLimitTier    string   `json:"rateLimitTier"`
 }
 
+// ClaudeSetupTokenCredentials stores a token from `claude setup-token`.
+// This is an opaque long-lived OAuth token injected as CLAUDE_CODE_OAUTH_TOKEN.
+type ClaudeSetupTokenCredentials struct {
+	SetupToken string `json:"setupToken"`
+}
+
 // CreateClaudeSubscriptionRequest is the request body for creating a Claude subscription.
 type CreateClaudeSubscriptionRequest struct {
 	Name        string    `json:"name"`
 	OwnerType   OwnerType `json:"owner_type"`              // "user" or "org"
 	OwnerID     string    `json:"owner_id,omitempty"`       // Required for org-level, auto-set for user
+	SetupToken  string    `json:"setup_token,omitempty"`    // From `claude setup-token` (alternative to credentials)
 	Credentials struct {
 		ClaudeAiOauth ClaudeOAuthCredentials `json:"claudeAiOauth"`
 	} `json:"credentials"`

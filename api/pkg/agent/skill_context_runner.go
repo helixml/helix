@@ -286,7 +286,13 @@ func (a *Agent) SkillContextRunner(ctx context.Context, meta Meta, messageHistor
 	}, nil
 }
 
-func (a *Agent) SkillDirectRunner(ctx context.Context, meta Meta, skill *Skill, toolCall openai.ToolCall) (*openai.ChatCompletionMessage, error) {
+// DirectRunnerResult holds the tool message and any images produced by a direct skill.
+type DirectRunnerResult struct {
+	Message *openai.ChatCompletionMessage
+	Images  []openai.ChatMessagePart
+}
+
+func (a *Agent) SkillDirectRunner(ctx context.Context, meta Meta, skill *Skill, toolCall openai.ToolCall) (*DirectRunnerResult, error) {
 	if len(skill.Tools) == 0 {
 		return nil, fmt.Errorf("skill %s has no tools", skill.Name)
 	}
@@ -304,16 +310,24 @@ func (a *Agent) SkillDirectRunner(ctx context.Context, meta Meta, skill *Skill, 
 	err := json.Unmarshal([]byte(toolCall.Function.Arguments), &arguments)
 	if err != nil {
 		log.Error().Err(err).Msg("Error unmarshaling tool arguments")
-		return &openai.ChatCompletionMessage{
+		return &DirectRunnerResult{Message: &openai.ChatCompletionMessage{
 			Role:       openai.ChatMessageRoleTool,
 			Content:    fmt.Sprintf("Error: failed to unmarshal tool arguments: %s", err.Error()),
 			ToolCallID: toolCall.ID,
-		}, nil
+		}}, nil
 	}
 
 	startTime := time.Now()
 
-	output, err := tool.Execute(ctx, meta, arguments)
+	var output string
+	var images []openai.ChatMessagePart
+
+	// If the tool supports returning images alongside text, use that path.
+	if richTool, ok := tool.(ToolWithImages); ok {
+		output, images, err = richTool.ExecuteWithImages(ctx, meta, arguments)
+	} else {
+		output, err = tool.Execute(ctx, meta, arguments)
+	}
 
 	stepInfo := &types.StepInfo{
 		Created:    startTime,
@@ -334,12 +348,16 @@ func (a *Agent) SkillDirectRunner(ctx context.Context, meta Meta, skill *Skill, 
 	_ = a.emitter.EmitStepInfo(ctx, stepInfo)
 
 	if err != nil {
-		return MessageWhenToolError(err.Error(), toolCall.ID), nil
+		return &DirectRunnerResult{Message: MessageWhenToolError(err.Error(), toolCall.ID)}, nil
 	}
 
-	return &openai.ChatCompletionMessage{
-		Role:       openai.ChatMessageRoleTool,
-		Content:    output,
-		ToolCallID: toolCall.ID,
+	return &DirectRunnerResult{
+		Message: &openai.ChatCompletionMessage{
+			Role:       openai.ChatMessageRoleTool,
+			Content:    output,
+			ToolCallID: toolCall.ID,
+		},
+		Images: images,
 	}, nil
 }
+

@@ -144,12 +144,12 @@ const UnifiedSearchBar: FC<UnifiedSearchBarProps> = ({
         // For knowledge, navigate to the app if available
         const appId = result.metadata?.appId
         if (appId) {
-          account.orgNavigate('app', { app_id: appId })
+          account.orgNavigate('agent', { app_id: appId })
         }
       } else if (result.type === 'repository') {
         account.orgNavigate('git-repo-detail', { repoId: result.id })
       } else if (result.type === 'agent') {
-        account.orgNavigate('app', { app_id: result.id })
+        account.orgNavigate('agent', { app_id: result.id })
       } else if (result.type === 'prompt') {
         // For prompts, navigate to the task in the project kanban
         const taskId = result.metadata?.taskId
@@ -307,15 +307,13 @@ const UnifiedSearchBar: FC<UnifiedSearchBarProps> = ({
           open={open}
           anchorEl={anchorRef.current}
           placement="bottom-start"
-          transition
           style={{
             width: compact ? 'min(400px, 90vw)' : anchorRef.current?.offsetWidth,
             minWidth: compact ? 300 : undefined,
             zIndex: 1300
           }}
         >
-          {({ TransitionProps }) => (
-            <Fade {...TransitionProps} timeout={200}>
+          <Fade in={open} timeout={200}>
               <Paper
                 elevation={8}
                 sx={{
@@ -487,7 +485,6 @@ const UnifiedSearchBar: FC<UnifiedSearchBarProps> = ({
                 )}
               </Paper>
             </Fade>
-          )}
         </Popper>
       </Box>
     </ClickAwayListener>

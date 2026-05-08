@@ -13,16 +13,11 @@ const SidebarContextHeader: React.FC = () => {
   const lightTheme = useLightTheme()
 
   const org = account.organizationTools.organization
-  const isOrgContext = Boolean(org)
-  const displayName = isOrgContext
-    ? org?.display_name || org?.name
-    : account.user?.name || 'Personal'
+  const displayName = org?.display_name || org?.name || ''
 
   const handleNameClick = () => {
-    if (isOrgContext && org) {
+    if (org) {
       router.navigate('org_projects', { org_id: org.name })
-    } else {
-      router.navigate('projects')
     }
   }
 

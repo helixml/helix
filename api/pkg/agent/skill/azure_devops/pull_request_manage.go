@@ -62,6 +62,28 @@ func (c *AzureDevOpsClient) ListPullRequests(ctx context.Context, repositoryName
 	return *prs, nil
 }
 
+func (c *AzureDevOpsClient) UpdatePullRequest(ctx context.Context, repositoryName, project string, id int, title, description string) (*git.GitPullRequest, error) {
+	gitClient, err := git.NewClient(ctx, c.connection)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create Azure DevOps client: %w", err)
+	}
+
+	pr, err := gitClient.UpdatePullRequest(ctx, git.UpdatePullRequestArgs{
+		RepositoryId:  &repositoryName,
+		Project:       &project,
+		PullRequestId: &id,
+		GitPullRequestToUpdate: &git.GitPullRequest{
+			Title:       &title,
+			Description: &description,
+		},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to update pull request: %w", err)
+	}
+
+	return pr, nil
+}
+
 func (c *AzureDevOpsClient) GetPullRequest(ctx context.Context, repositoryName, project string, id int) (*git.GitPullRequest, error) {
 	gitClient, err := git.NewClient(ctx, c.connection)
 	if err != nil {

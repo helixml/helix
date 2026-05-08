@@ -8,6 +8,7 @@
 import React from 'react';
 import { Box } from '@mui/material';
 import { CursorImageData } from '../../lib/helix-stream/stream/websocket-stream';
+import { isMobileOrTablet } from '../../utils/isMobileOrTablet';
 
 const STANDARD_CURSOR_SIZE = 24;
 
@@ -363,9 +364,12 @@ const CursorRenderer: React.FC<CursorRendererProps> = ({
   showDebugDot = false,
   zIndexOffset = 0,
 }) => {
-  const glowFilter = userColor
-    ? `drop-shadow(0 0 3px ${userColor}) drop-shadow(0 0 6px ${userColor}80)`
-    : 'drop-shadow(0 0 2px rgba(255,255,255,0.8))';
+  // Drop-shadow filters create GPU compositing layers — skip on mobile to reduce memory
+  const glowFilter = isMobileOrTablet()
+    ? 'none'
+    : userColor
+      ? `drop-shadow(0 0 3px ${userColor}) drop-shadow(0 0 6px ${userColor}80)`
+      : 'drop-shadow(0 0 2px rgba(255,255,255,0.8))';
 
   // Render bitmap cursor if available
   if (cursorImage?.imageUrl) {

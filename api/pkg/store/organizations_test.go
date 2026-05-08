@@ -144,6 +144,63 @@ func (suite *OrganizationsTestSuite) TestDeleteOrganization() {
 	suite.NoError(err) // Should not return error as delete is idempotent
 }
 
+func (suite *OrganizationsTestSuite) TestDeleteOrganization_RemovesProjectsAndRepositories() {
+	orgID := system.GenerateOrganizationID()
+	org := &types.Organization{
+		ID:    orgID,
+		Name:  "Test Organization " + orgID,
+		Owner: "test-user",
+	}
+
+	createdOrg, err := suite.db.CreateOrganization(suite.ctx, org)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(createdOrg)
+
+	project := &types.Project{
+		ID:             "project-" + system.GenerateUUID(),
+		Name:           "Project for org delete test",
+		UserID:         "test-user",
+		OrganizationID: createdOrg.ID,
+	}
+
+	createdProject, err := suite.db.CreateProject(suite.ctx, project)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(createdProject)
+
+	repo := &types.GitRepository{
+		ID:             "repo-" + system.GenerateUUID(),
+		Name:           "Repo for org delete test",
+		Description:    "Repo under org that should be deleted with organization",
+		OwnerID:        "test-user",
+		OrganizationID: createdOrg.ID,
+		RepoType:       types.GitRepositoryTypeCode,
+		Status:         types.GitRepositoryStatusActive,
+		CloneURL:       "http://localhost/git/test",
+	}
+
+	err = suite.db.CreateGitRepository(suite.ctx, repo)
+	suite.Require().NoError(err)
+
+	err = suite.db.DeleteOrganization(suite.ctx, createdOrg.ID)
+	suite.Require().NoError(err)
+
+	_, err = suite.db.GetOrganization(suite.ctx, &GetOrganizationQuery{ID: createdOrg.ID})
+	suite.Error(err)
+	suite.Equal(ErrNotFound, err)
+
+	projects, err := suite.db.ListProjects(suite.ctx, &ListProjectsQuery{
+		OrganizationID: createdOrg.ID,
+	})
+	suite.Require().NoError(err)
+	suite.Empty(projects)
+
+	repositories, err := suite.db.ListGitRepositories(suite.ctx, &types.ListGitRepositoriesRequest{
+		OrganizationID: createdOrg.ID,
+	})
+	suite.Require().NoError(err)
+	suite.Empty(repositories)
+}
+
 func (suite *OrganizationsTestSuite) TestListOrganizations() {
 	// Create multiple test organizations
 	owner1 := "test-user-1"

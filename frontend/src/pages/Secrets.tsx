@@ -92,8 +92,8 @@ const SecretsContent: React.FC = () => {
        <Page
         breadcrumbs={[
           {
-            title: 'Apps',
-            routeName: 'apps'
+            title: 'Agents',
+            routeName: 'agents'
           },
           {
             title: 'Secrets',

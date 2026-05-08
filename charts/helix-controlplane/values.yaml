@@ -7,17 +7,23 @@ global:
   imagePullSecrets: []
   storageClass: ""
   serverUrl: http://localhost:8080
+  # Extra environment variables applied to all components (controlplane, chrome, searxng).
+  # Useful for proxy configuration in environments where all outbound traffic must go through a proxy.
+  # Example:
+  #   extraEnv:
+  #     - name: HTTPS_PROXY
+  #       value: "http://proxy:8080"
+  #     - name: HTTP_PROXY
+  #       value: "http://proxy:8080"
+  #     - name: NO_PROXY
+  #       value: "localhost,127.0.0.1,.svc,.cluster.local"
+  extraEnv: []
 
 image:
-  repository: registry.helixml.tech/helix/controlplane
+  repository: ghcr.io/helixml/controlplane
   pullPolicy: Always
-  tag: "latest"
-
-tika:
-  enabled: false
-  image:
-    repository: apache/tika
-    tag: "2.9.2.1"
+  # Overrides the image tag whose default is the chart appVersion.
+  tag: ""
 
 searxng:
   enabled: true
@@ -30,58 +36,16 @@ chrome:
   image:
     repository: ghcr.io/go-rod/rod
     tag: "v0.115.0"
-
-typesense:
-  enabled: false
-  apiKey: typesense
-  image:
-    repository: registry.helixml.tech/helix/typesense
-  persistence:
-    enabled: true
-    storageClass: ""
-    annotations: {}
-    accessModes:
-      - ReadWriteOnce
-    size: 8Gi
-    existingClaim: ""
-    selector: {}
-    dataSource: {}
-
-pgvector:
-  enabled: true
-  auth:
-    username: "postgres"
-    password: "pgvector"
-    database: "postgres"
-    existingSecret: ""
-    usernameKey: ""
-    passwordKey: ""
-    databaseKey: ""
-  external:
-    host: "localhost"
-    port: 5432
-    database: "postgres"
-    user: "postgres"
-    password: "pgvector"
-    existingSecret: ""
-    existingSecretHostKey: ""
-    existingSecretPortKey: ""
-    existingSecretUserKey: ""
-    existingSecretDatabaseKey: ""
-    existingSecretPasswordKey: ""
-    annotations: {}
-  persistence:
-    enabled: true
-    storageClass: ""
-    annotations: {}
-    accessModes:
-      - ReadWriteOnce
-    size: 8Gi
-    existingClaim: ""
-    selector: {}
-    dataSource: {}
+  # Extra environment variables for the Chrome container (in addition to global.extraEnv)
+  extraEnv: []
 
 controlplane:
+  # Wait for PostgreSQL to be ready before starting the controlplane.
+  # Prevents race conditions where the controlplane starts before the
+  # database is fully initialized, causing migrations to fail silently.
+  waitForPostgres: true
+  # Timeout in seconds for waiting for PostgreSQL to be ready.
+  waitForPostgresTimeout: 300
   logLevel: "INFO"
   runnerToken: ""
   runnerTokenExistingSecret: ""
@@ -130,14 +94,6 @@ controlplane:
       - "-c"
     args:
       - 'echo "Hello World"'
-  haystack:
-    enabled: false
-    image:
-      repository: registry.helixml.tech/helix/haystack
-    embeddingsModel: "MrLight/dse-qwen2-2b-mrl-v1"
-    embeddingsDim: "1536"
-    chunkSize: "1000"
-    chunkOverlap: "50"
   providers:
     vllm:
       baseUrl: ""
@@ -154,6 +110,11 @@ controlplane:
       apiKey: ""
       existingSecret: ""
       existingSecretApiKeyKey: ""
+      vertexProjectID: ""
+      vertexRegion: "global"
+      vertexCredentialsJSON: "" # service account JSON string; takes precedence over vertexCredentialsSecret
+      vertexCredentialsSecret: "" # k8s secret name containing service-account.json
+      vertexCredentialsSecretKey: "key" # key within the secret
     togetherai:
       baseUrl: ""
       apiKey: ""
@@ -251,21 +212,35 @@ affinity: {}
 postgresql:
   enabled: true
   image:
-    registry: docker.io
-    repository: bitnamilegacy/postgresql
-    tag: "latest"
+    repository: postgres
+    tag: "17-alpine"
     pullPolicy: IfNotPresent
   auth:
-    postgresPassword: ""
     username: helix
     password: "oh-hallo-insecure-password"
     database: helix
     existingSecret: ""
-    postgresPasswordKey: "postgres-password"
     usernameKey: ""
     passwordKey: ""
     databaseKey: ""
-  architecture: standalone
+  persistence:
+    enabled: true
+    size: 8Gi
+    storageClass: ""
+    annotations: {}
+    accessModes:
+      - ReadWriteOnce
+    existingClaim: ""
+    selector: {}
+    dataSource: {}
+  # Resource requests and limits for the bundled PostgreSQL container.
+  # Empty by default; set this for production use.
+  resources: {}
+  #   requests:
+  #     cpu: 100m
+  #     memory: 256Mi
+  #   limits:
+  #     memory: 1Gi
   external:
     host: ""
     port: 5432
@@ -278,18 +253,12 @@ postgresql:
     existingSecretUserKey: ""
     existingSecretDatabaseKey: ""
     existingSecretPasswordKey: ""
-    annotations: {}
 
 # Kodit configuration - Code indexing service
-# Kodit provides code search and analysis capabilities for Helix
+# Kodit is compiled into the controlplane binary as a Go library (not a separate container).
+# It still requires a Vectorchord (PostgreSQL + pgvector) database for storing embeddings.
 kodit:
   enabled: true
-
-  # Kodit application image
-  image:
-    repository: registry.helixml.tech/helix/kodit
-    tag: "1.0.0"
-    pullPolicy: IfNotPresent
 
   # Database authentication (for kodit's vectorchord database)
   auth:
@@ -302,7 +271,8 @@ kodit:
     passwordKey: "" # defaults to "password"
     databaseKey: "" # defaults to "database"
 
-  # Enrichment endpoint configuration (Kodit uses Helix as LLM proxy)
+  # Enrichment endpoint configuration
+  # Kodit uses the controlplane's own API as an LLM proxy for code enrichment
   enrichment:
     # Base URL for enrichment API (defaults to Helix controlplane)
     baseUrl: "" # Defaults to http://<fullname>:80/v1
@@ -314,18 +284,6 @@ kodit:
     # Option: Use existing secret for API key (recommended - use runner token secret)
     existingSecret: ""
     existingSecretKey: "" # defaults to "api-token"
-
-  # Persistence for kodit data
-  persistence:
-    enabled: true
-    size: "10Gi"
-    storageClass: ""
-    annotations: {}
-    accessModes:
-      - ReadWriteOnce
-    existingClaim: ""
-    selector: {}
-    dataSource: {}
 
   # Vectorchord (PostgreSQL + pgvector) configuration for kodit
   vectorchord:

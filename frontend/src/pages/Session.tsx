@@ -49,11 +49,14 @@ import { getAssistant } from '../utils/apps'
 import useApps from '../hooks/useApps'
 import useMediaQuery from '@mui/material/useMediaQuery'
 import useLightTheme from '../hooks/useLightTheme'
+import useSubscriptionGate from '../hooks/useSubscriptionGate'
+import Paywall from '../components/subscription/Paywall'
 import AdvancedModelPicker from '../components/create/AdvancedModelPicker'
 import { useListSessionSteps } from '../services/sessionService'
 import PlayArrow from '@mui/icons-material/PlayArrow'
 import CircularProgress from '@mui/material/CircularProgress'
 import StopIcon from '@mui/icons-material/Stop'
+import { useGetConfig } from '../services/userService'
 
 // Hook to track sandbox/desktop state for external agent sessions
 const useSandboxState = (sessionId: string) => {
@@ -232,6 +235,9 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
   const api = useApi()
   const router = useRouter()
   const account = useAccount()
+  const { paywallActive, navigateToBilling } = useSubscriptionGate()
+  const { data: serverConfigData } = useGetConfig()
+  const isCloud = serverConfigData?.edition === 'cloud'
 
   let sessionID = router.params.session_id
 
@@ -268,15 +274,36 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
   const [selectedImage, setSelectedImage] = useState<string | null>(null)
   const [selectedImageName, setSelectedImageName] = useState<string | null>(null)
 
+  const attachImageFile = (file: File) => {
+    const reader = new FileReader()
+    reader.onloadend = () => {
+      setSelectedImage(reader.result as string)
+      setSelectedImageName(file.name || `pasted-image-${Date.now()}.png`)
+    }
+    reader.readAsDataURL(file)
+  }
+
   const handleImageFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
     if (file) {
-      const reader = new FileReader()
-      reader.onloadend = () => {
-        setSelectedImage(reader.result as string)
-        setSelectedImageName(file.name)
-      }
-      reader.readAsDataURL(file)
+      attachImageFile(file)
+    }
+  }
+
+  // Cmd+V / Ctrl+V image paste — attach the clipboard image directly. Text
+  // pastes fall through (we only preventDefault when an image is attached).
+  const handleSessionPaste = (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const items = event.clipboardData?.items
+    if (!items || items.length === 0) return
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i]
+      if (item.kind !== 'file') continue
+      if (!item.type.startsWith('image/')) continue
+      const file = item.getAsFile()
+      if (!file) continue
+      event.preventDefault()
+      attachImageFile(file)
+      return
     }
   }
 
@@ -1352,6 +1379,7 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
   if (!session?.data) return null
 
   return (
+    <Paywall active={paywallActive} onBillingClick={navigateToBilling}>
     <Box
       sx={{
         width: '100%',
@@ -1453,6 +1481,7 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
                             value={inputValue}
                             onChange={handleTextareaChange}
                             onKeyDown={handleKeyDown as any}
+                            onPaste={handleSessionPaste}
                             rows={1}
                             style={{
                               width: '100%',
@@ -1503,10 +1532,61 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
                               <AttachFileIcon sx={{ color: 'rgba(255, 255, 255, 0.7)', fontSize: '20px' }} />
                             </Box>
                           </Tooltip>
-                          {selectedImageName && (
-                            <Typography sx={{ color: 'rgba(255, 255, 255, 0.7)', fontSize: '0.8rem', ml: 0.5, maxWidth: '100px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                              {selectedImageName}
-                            </Typography>
+                          {selectedImage && (
+                            <Box
+                              sx={{
+                                position: 'relative',
+                                ml: 0.5,
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 0.75,
+                              }}
+                            >
+                              <Tooltip title={selectedImageName || 'Attached image'} placement="top">
+                                <Box
+                                  component="img"
+                                  src={selectedImage}
+                                  alt={selectedImageName || 'Attached image'}
+                                  sx={{
+                                    width: 36,
+                                    height: 36,
+                                    objectFit: 'cover',
+                                    borderRadius: '6px',
+                                    border: '1px solid rgba(255, 255, 255, 0.2)',
+                                  }}
+                                />
+                              </Tooltip>
+                              <Typography sx={{ color: 'rgba(255, 255, 255, 0.7)', fontSize: '0.8rem', maxWidth: '120px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                {selectedImageName}
+                              </Typography>
+                              <Box
+                                role="button"
+                                aria-label="Remove attached image"
+                                onClick={() => {
+                                  setSelectedImage(null)
+                                  setSelectedImageName(null)
+                                  if (imageInputRef.current) imageInputRef.current.value = ''
+                                }}
+                                sx={{
+                                  width: 18,
+                                  height: 18,
+                                  borderRadius: '50%',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  cursor: 'pointer',
+                                  fontSize: '12px',
+                                  color: 'rgba(255, 255, 255, 0.7)',
+                                  border: '1px solid rgba(255, 255, 255, 0.3)',
+                                  '&:hover': {
+                                    color: 'rgba(255, 255, 255, 1)',
+                                    borderColor: 'rgba(255, 255, 255, 0.6)',
+                                  },
+                                }}
+                              >
+                                ×
+                              </Box>
+                            </Box>
                           )}
                           <input
                             type="file"
@@ -1621,7 +1701,7 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
           submitTitle="Login / Register"
         >
           <Typography gutterBottom>
-            You can login with your Google account or your organization's SSO provider.
+            {isCloud ? 'Sign in to your Helix account to continue.' : "You can login with your Google account or your organization's SSO provider."}
           </Typography>
           <Typography>
             This session will be cloned into your account and you can continue from there.
@@ -1711,8 +1791,9 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
             )}
           </Box>
         </Window>
-      )}    
+      )}
     </Box>
+    </Paywall>
   )
 }
 

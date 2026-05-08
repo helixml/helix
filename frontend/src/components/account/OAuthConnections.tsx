@@ -31,6 +31,7 @@ import useApi from '../../hooks/useApi'
 import useSnackbar from '../../hooks/useSnackbar'
 import useAccount from '../../hooks/useAccount'
 import useRouter from '../../hooks/useRouter'
+import { useSettingsDialog } from '../../contexts/settingsDialog'
 import { formatDate } from '../../utils/format'
 import { 
   PROVIDER_ICONS,
@@ -77,6 +78,7 @@ const OAuthConnections: React.FC<{}> = () => {
   const api = useApi()
   const account = useAccount()
   const router = useRouter()
+  const settingsDialog = useSettingsDialog()
   
   // React Query hooks
   const { 
@@ -697,7 +699,7 @@ const OAuthConnections: React.FC<{}> = () => {
               This service is not yet configured.{' '}
               {account.user?.admin ? (
                 <span
-                  onClick={() => router.navigate('dashboard', { tab: 'oauth_providers' })}
+                  onClick={() => settingsDialog.openDialog('admin', { tab: 'oauth_providers' })}
                   style={{ cursor: 'pointer', textDecoration: 'underline' }}
                 >
                   Configure it in the dashboard.
@@ -800,7 +802,7 @@ const OAuthConnections: React.FC<{}> = () => {
                   No available services to connect.{' '}
                   {account.user?.admin ? (
                     <span
-                      onClick={() => router.navigate('dashboard', { tab: 'oauth_providers' })}
+                      onClick={() => settingsDialog.openDialog('admin', { tab: 'oauth_providers' })}
                       style={{ cursor: 'pointer', textDecoration: 'underline' }}
                     >
                       Configure OAuth providers in the dashboard.

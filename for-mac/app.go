@@ -12,6 +12,7 @@ import (
 	"os/user"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -140,6 +141,12 @@ func (a *App) startup(ctx context.Context) {
 func (a *App) shutdown(ctx context.Context) {
 	log.Println("Helix Desktop shutting down...")
 
+	// Kill QEMU first, before anything else that might block.
+	// tray.Stop() dispatches to the macOS main thread which can deadlock when
+	// called from the Wails shutdown callback (already on the main thread).
+	// QEMU must be dead before any potentially-blocking cleanup runs.
+	a.vm.ForceStop()
+
 	// Stop system tray
 	if a.tray != nil {
 		a.tray.Stop()
@@ -158,11 +165,6 @@ func (a *App) shutdown(ctx context.Context) {
 	// Stop scanout collector
 	if a.scanoutCollector != nil {
 		a.scanoutCollector.Stop()
-	}
-
-	// Stop VM if running
-	if a.vm.GetStatus().State == VMStateRunning {
-		a.vm.Stop()
 	}
 }
 
@@ -626,8 +628,6 @@ func (a *App) GetZFSStats() ZFSStats {
 	return a.zfsCollector.GetStats()
 }
 
-
-
 // DesktopQuota represents active and max concurrent desktop sessions
 type DesktopQuota struct {
 	Active int `json:"active"`
@@ -782,6 +782,23 @@ func getMacOSUserFullName() string {
 	return u.Username
 }
 
+// UserIdentity holds the user's name and email for support chat identification.
+type UserIdentity struct {
+	Name  string `json:"name"`
+	Email string `json:"email"`
+}
+
+// GetUserIdentity returns the macOS user's display name and licensee email (if available).
+func (a *App) GetUserIdentity() UserIdentity {
+	id := UserIdentity{
+		Name: getMacOSUserFullName(),
+	}
+	if a.licenseValidator != nil {
+		id.Email = a.licenseValidator.GetLicenseeEmail(a.settings.Get())
+	}
+	return id
+}
+
 // GetAppVersion returns the current app version string.
 func (a *App) GetAppVersion() string {
 	return Version
@@ -806,7 +823,7 @@ func (a *App) CheckForUpdate() (UpdateInfo, error) {
 
 // ApplyAppUpdate downloads the new DMG, replaces the app, and restarts.
 func (a *App) ApplyAppUpdate() error {
-	return a.updater.ApplyAppUpdate(a.ctx)
+	return a.updater.ApplyAppUpdate(a.ctx, a.downloader)
 }
 
 // DownloadVMUpdate downloads the new VM disk image in the background.
@@ -852,7 +869,7 @@ func (a *App) ApplyCombinedUpdate() error {
 	if !IsVMUpdateStaged() {
 		return fmt.Errorf("VM update not staged — cannot apply combined update")
 	}
-	return a.updater.ApplyAppUpdate(a.ctx)
+	return a.updater.ApplyAppUpdate(a.ctx, a.downloader)
 }
 
 // CancelUpdate cancels any in-progress update download.
@@ -1047,6 +1064,107 @@ func (a *App) RedownloadVMImage() error {
 	}()
 
 	return nil
+}
+
+// DiagnosticReport holds collected diagnostic information for bug reports.
+type DiagnosticReport struct {
+	SystemInfo    string `json:"system_info"`
+	AppVersion    string `json:"app_version"`
+	VMVersion     string `json:"vm_version"`
+	VMState       string `json:"vm_state"`
+	ConsoleLogs   string `json:"console_logs"`
+	SSHLogs       string `json:"ssh_logs"`
+	ContainerLogs string `json:"container_logs"`
+}
+
+// collectSystemInfo gathers Mac hardware and OS details via shell commands.
+func collectSystemInfo() string {
+	run := func(args ...string) string {
+		out, err := exec.Command(args[0], args[1:]...).Output()
+		if err != nil {
+			return "unknown"
+		}
+		return strings.TrimSpace(string(out))
+	}
+
+	macOSVersion := run("sw_vers", "-productVersion")
+	arch := runtime.GOARCH
+	cpus := fmt.Sprintf("%d", runtime.NumCPU())
+
+	// RAM in GB via sysctl
+	ramBytes := run("sysctl", "-n", "hw.memsize")
+	ramGB := "unknown"
+	if b, err := strconv.ParseInt(ramBytes, 10, 64); err == nil {
+		ramGB = fmt.Sprintf("%d GB", b/1024/1024/1024)
+	}
+
+	return fmt.Sprintf("macOS Version: %s\nArchitecture: %s\nCPU Cores: %s\nRAM: %s",
+		macOSVersion, arch, cpus, ramGB)
+}
+
+// lastNLines returns the last n lines of s, truncating individual lines to maxLineLen chars.
+func lastNLines(s string, n int) string {
+	const maxLineLen = 500
+	lines := strings.Split(s, "\n")
+	if len(lines) > n {
+		lines = lines[len(lines)-n:]
+	}
+	for i, line := range lines {
+		if len(line) > maxLineLen {
+			lines[i] = line[:maxLineLen] + "..."
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+// CollectDiagnostics gathers system info, app/VM info, logs, and container logs
+// for inclusion in a bug report. Container logs are fetched via SSH with a 10s timeout.
+func (a *App) CollectDiagnostics() (DiagnosticReport, error) {
+	settings := a.settings.Get()
+	status := a.vm.GetStatus()
+
+	report := DiagnosticReport{
+		SystemInfo: collectSystemInfo(),
+		AppVersion: Version,
+		VMVersion:  settings.InstalledVMVersion,
+		VMState:    string(status.State),
+		ConsoleLogs: lastNLines(a.vm.GetConsoleOutput(), 200),
+		SSHLogs:     lastNLines(a.vm.GetLogsOutput(), 200),
+	}
+
+	// Fetch container logs if VM is running
+	if status.State == VMStateRunning {
+		type result struct {
+			out string
+			err error
+		}
+		ch := make(chan result, 1)
+		composeFile := a.vm.composeFile
+		if composeFile == "" {
+			composeFile = "docker-compose.dev.yaml"
+		}
+		script := fmt.Sprintf(
+			`cd ~/helix 2>/dev/null && (docker compose -f %s logs api --tail 100 2>&1 | sed 's/^/[api] /'; docker compose -f %s logs worker --tail 100 2>&1 | sed 's/^/[worker] /')`,
+			composeFile, composeFile)
+		go func() {
+			out, err := a.vm.runSSH("Diagnostics: container logs", script)
+			ch <- result{out, err}
+		}()
+		select {
+		case r := <-ch:
+			if r.err != nil {
+				report.ContainerLogs = fmt.Sprintf("(error fetching container logs: %v)", r.err)
+			} else {
+				report.ContainerLogs = r.out
+			}
+		case <-time.After(10 * time.Second):
+			report.ContainerLogs = "(timed out fetching container logs)"
+		}
+	} else {
+		report.ContainerLogs = fmt.Sprintf("(VM not running — state: %s)", status.State)
+	}
+
+	return report, nil
 }
 
 // openBrowser opens a URL in the default browser

@@ -28,6 +28,7 @@ import Row from '../widgets/Row'
 import Cell from '../widgets/Cell'
 
 import useAccount from '../../hooks/useAccount'
+import { useSettingsDialog } from '../../contexts/settingsDialog'
 import useRouter from '../../hooks/useRouter'
 
 
@@ -50,7 +51,7 @@ const CHAT_FEATURE: IFeature = {
     title: 'Docs',
     color: 'primary',
     variant: 'text',
-    handler: () => window.open("https://docs.helixml.tech/helix/using-helix/text-inference/"),
+    handler: () => window.open("https://helix.ml/docs"),
   }]
 }
 
@@ -69,7 +70,7 @@ const IMAGE_GEN_FEATURE: IFeature = {
     title: 'Docs',
     color: 'primary',
     variant: 'text',
-    handler: () => window.open("https://docs.helixml.tech/helix/using-helix/image-inference/"),
+    handler: () => window.open("https://helix.ml/docs"),
   }]
 }
 
@@ -108,7 +109,7 @@ const FINETUNE_TEXT_FEATURE: IFeature = {
     title: 'Docs',
     color: 'primary',
     variant: 'text',
-    handler: () => window.open("https://docs.helixml.tech/helix/using-helix/text-finetuning/"),
+    handler: () => window.open("https://helix.ml/docs"),
   }]
 }
 
@@ -131,7 +132,7 @@ const FINETUNE_IMAGES_FEATURE: IFeature = {
     title: 'Docs',
     color: 'primary',
     variant: 'text',
-    handler: () => window.open("https://docs.helixml.tech/helix/using-helix/image-finetuning/"),
+    handler: () => window.open("https://helix.ml/docs"),
   }]
 }
 
@@ -147,18 +148,18 @@ const JS_APP_FEATURE: IFeature = {
   icon: <WebIcon sx={{color: '#ef2ec6'}} />,
   // image: '/img/servers.png',
   actions: [{
-    title: 'Apps',
+    title: 'Agents',
     color: 'secondary',
     variant: 'outlined',
-    handler: (navigate) => {navigate('apps')},
-    id: 'apps-button'
+    handler: (navigate) => {navigate('agents')},
+    id: 'agents-button'
     
     
   }, {
     title: 'Docs',
     color: 'primary',
     variant: 'text',
-    handler: () => window.open("https://docs.helixml.tech/helix/develop/getting-started/"),
+    handler: () => window.open("https://helix.ml/docs"),
   }]
 }
 
@@ -171,12 +172,12 @@ const API_FEATURE: IFeature = {
     title: 'API Tools',
     color: 'secondary',
     variant: 'outlined',
-    handler: (navigate) => {navigate('apps')},
+    handler: (navigate) => {navigate('agents')},
   }, {
     title: 'Docs (coming soon)',
     color: 'primary',
     variant: 'text',
-    handler: () => window.open("https://docs.helixml.tech/helix/develop/apps/"),
+    handler: () => window.open("https://helix.ml/docs"),
   }]
 }
 
@@ -189,12 +190,12 @@ const GPTSCRIPT_FEATURE: IFeature = {
     title: 'GPTScript Tools',
     color: 'secondary',
     variant: 'outlined',
-    handler: (navigate) => {navigate('apps')},
+    handler: (navigate) => {navigate('agents')},
   }, {
     title: 'Docs',
     color: 'primary',
     variant: 'text',
-    handler: () => window.open("https://docs.helixml.tech/helix/develop/apps/"),
+    handler: () => window.open("https://helix.ml/docs"),
   }]
 }
 
@@ -207,12 +208,12 @@ const DASHBOARD_FEATURE: IFeature = {
     title: 'Dashboard',
     color: 'secondary',
     variant: 'outlined',
-    handler: (navigate) => {navigate('dashboard')},
+    handler: (_navigate, openAdminDialog) => { if (openAdminDialog) openAdminDialog() },
   }, {
     title: 'Docs',
     color: 'primary',
     variant: 'text',
-    handler: () => window.open("https://docs.helixml.tech/helix/private-deployment/"),
+    handler: () => window.open("https://helix.ml/docs"),
   }]
 }
 
@@ -245,7 +246,7 @@ const SETTINGS_FEATURE: IFeature = {
     title: 'Settings',
     color: 'secondary',
     variant: 'outlined',
-    handler: () => window.open("https://docs.helixml.tech/helix/private-deployment/environment-variables/"),
+    handler: () => window.open("https://helix.ml/docs"),
   }]
 }
 
@@ -255,12 +256,14 @@ const HomeFeatureCard: FC<{
   feature,
 }) => {
   const router = useRouter()
+  const settingsDialog = useSettingsDialog()
+  const openAdminDialog = () => settingsDialog.openDialog('admin')
   return (
     <Card>
       <CardActionArea
         disabled={feature.disabled}
         onClick={() => {
-          feature.actions[0].handler(router.navigate)
+          feature.actions[0].handler(router.navigate, openAdminDialog)
         }}
       >
         {
@@ -326,7 +329,7 @@ const HomeFeatureCard: FC<{
                   size="small"
                   variant={ action.variant }
                   color={ action.color }
-                  onClick={ () => action.handler(router.navigate) }
+                  onClick={ () => action.handler(router.navigate, openAdminDialog) }
                   disabled={ feature.disabled } 
                  >
                   { action.title }

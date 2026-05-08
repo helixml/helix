@@ -3,6 +3,7 @@
 # It should be run by config/default
 resources:
 - bases/app.aispec.org_aiapps.yaml
+- bases/app.aispec.org_projects.yaml
 # +kubebuilder:scaffold:crdkustomizeresource
 
 patches:

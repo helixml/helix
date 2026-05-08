@@ -3,7 +3,13 @@ package app
 import (
 	"context"
 	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"strings"
 	"time"
+
+	"gopkg.in/yaml.v3"
 
 	"github.com/helixml/helix/api/pkg/apps"
 	"github.com/helixml/helix/api/pkg/cli"
@@ -80,14 +86,47 @@ var applyCmd = &cobra.Command{
 			return err
 		}
 
-		// Read and parse the YAML file
-		appConfig, err := apps.NewLocalApp(yamlFile)
+		// Detect kind from YAML before full parsing.
+		// Supports: local file path, "-" for stdin, or http(s):// URL.
+		rawYAML, err := readYAMLInput(yamlFile)
 		if err != nil {
-			return err
+			return fmt.Errorf("failed to read file: %w", err)
+		}
+		var kindDetect struct {
+			Kind string `yaml:"kind"`
+		}
+		if err := yaml.Unmarshal(rawYAML, &kindDetect); err != nil {
+			return fmt.Errorf("failed to parse YAML: %w", err)
 		}
 
 		// Create API client
 		apiClient, err := client.NewClientFromEnv()
+		if err != nil {
+			return err
+		}
+
+		if kindDetect.Kind == "Project" {
+			return runApplyProject(cmd.Context(), apiClient, rawYAML, organization)
+		}
+
+		// For non-Project kinds, apps.NewLocalApp needs a real file path.
+		// If the input came from a URL or stdin, write it to a temp file first.
+		localYAMLFile := yamlFile
+		if yamlFile == "-" || strings.HasPrefix(yamlFile, "http://") || strings.HasPrefix(yamlFile, "https://") {
+			tmp, err := os.CreateTemp("", "helix-apply-*.yaml")
+			if err != nil {
+				return fmt.Errorf("failed to create temp file: %w", err)
+			}
+			defer os.Remove(tmp.Name())
+			if _, err := tmp.Write(rawYAML); err != nil {
+				return fmt.Errorf("failed to write temp file: %w", err)
+			}
+			tmp.Close()
+			localYAMLFile = tmp.Name()
+		}
+
+		// Read and parse the YAML file
+		appConfig, err := apps.NewLocalApp(localYAMLFile)
 		if err != nil {
 			return err
 		}
@@ -202,6 +241,71 @@ func updateApp(ctx context.Context, apiClient client.Client, app *types.App, app
 	return nil
 }
 
+// runApplyProject handles `helix apply -f project.yaml` for kind: Project.
+func runApplyProject(ctx context.Context, apiClient client.Client, rawYAML []byte, orgRef string) error {
+	var crd types.ProjectCRD
+	if err := yaml.Unmarshal(rawYAML, &crd); err != nil {
+		return fmt.Errorf("failed to parse project YAML: %w", err)
+	}
+
+	name := crd.Metadata.Name
+	if name == "" {
+		name = crd.Spec.Name
+	}
+	if name == "" {
+		return fmt.Errorf("project name is required (set metadata.name or spec.name)")
+	}
+
+	// Resolve organization: explicit flag, auto-select if one org, or prompt if many.
+	resolvedOrgID, err := cli.ResolveOrganizationInteractive(ctx, apiClient, orgRef)
+	if err != nil {
+		return fmt.Errorf("failed to resolve organization: %w", err)
+	}
+
+	req := &types.ProjectApplyRequest{
+		OrganizationID: resolvedOrgID,
+		Name:           name,
+		Spec:           crd.Spec,
+	}
+
+	resp, err := apiClient.ApplyProject(ctx, req)
+	if err != nil {
+		return fmt.Errorf("failed to apply project: %w", err)
+	}
+
+	action := "updated"
+	if resp.Created {
+		action = "created"
+	}
+	fmt.Printf("Project %s (%s)\n", action, resp.ProjectID)
+	if resp.AgentAppID != "" {
+		fmt.Printf("Agent app: %s\n", resp.AgentAppID)
+	}
+	return nil
+}
+
+// readYAMLInput reads YAML bytes from:
+//   - "-"         → stdin
+//   - http(s):// → HTTP GET download
+//   - otherwise  → local file
+func readYAMLInput(source string) ([]byte, error) {
+	if source == "-" {
+		return io.ReadAll(os.Stdin)
+	}
+	if strings.HasPrefix(source, "http://") || strings.HasPrefix(source, "https://") {
+		resp, err := http.Get(source) //nolint:noctx
+		if err != nil {
+			return nil, fmt.Errorf("failed to download %s: %w", source, err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			return nil, fmt.Errorf("failed to download %s: HTTP %d", source, resp.StatusCode)
+		}
+		return io.ReadAll(resp.Body)
+	}
+	return os.ReadFile(source)
+}
+
 func createApp(ctx context.Context, apiClient client.Client, orgID string, appConfig *types.AppHelixConfig, global bool) (string, error) {
 	app := &types.App{
 		Global: global,
@@ -211,16 +315,16 @@ func createApp(ctx context.Context, apiClient client.Client, orgID string, appCo
 		},
 	}
 
-	// Only set OrganizationID if an organization is provided
-	if orgID != "" {
-		org, err := cli.LookupOrganization(ctx, apiClient, orgID)
-		if err != nil {
-			return "", err
-		}
-		app.OrganizationID = org.ID
+	// Resolve organization: explicit flag or default to first org
+	resolvedOrgID, err := cli.ResolveOrganization(ctx, apiClient, orgID)
+	if err != nil {
+		return "", err
+	}
+	if resolvedOrgID != "" {
+		app.OrganizationID = resolvedOrgID
 	}
 
-	app, err := apiClient.CreateApp(ctx, app)
+	app, err = apiClient.CreateApp(ctx, app)
 	if err != nil {
 		return "", err
 	}

@@ -40,6 +40,9 @@ type Organization struct {
 	Memberships []OrganizationMembership `json:"memberships" gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE"` // Memberships in the organization
 	Roles       []Role                   `json:"roles" gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE"`       // Roles in the organization
 
+	Member       bool `json:"member" gorm:"-"`        // Whether the current user is a member of the organization
+	ProjectCount int  `json:"project_count" gorm:"-"` // Number of projects in the organization
+
 	// AutoJoinDomain - if set, users logging in via OIDC with this email domain are automatically added as members
 	// Note: Uniqueness is enforced in application code (updateOrganization handler) rather than DB constraint
 	// because empty strings would conflict with each other in a unique index
@@ -158,7 +161,7 @@ type User struct {
 	AuthProvider AuthProvider `json:"auth_provider"`
 
 	Password           string `json:"-" gorm:"-"`           // Temporary field for password input, not persisted
-	PasswordHash       []byte `json:"password_hash"`        // bcrypt hash of the password
+	PasswordHash       []byte `json:"-"`                    // bcrypt hash of the password
 	MustChangePassword bool   `json:"must_change_password"` // if the user must change their password
 
 	SB          bool `json:"sb"`
@@ -168,6 +171,10 @@ type User struct {
 	OnboardingCompletedAt time.Time `json:"onboarding_completed_at"`
 
 	Waitlisted bool `json:"waitlisted"`
+
+	// LastSeenAt is the most recent time the user authenticated against the API.
+	// Updated (throttled) from auth middleware so the column isn't hammered on every request.
+	LastSeenAt *time.Time `json:"last_seen_at,omitempty"`
 }
 
 type UserSearchResponse struct {
@@ -228,6 +235,69 @@ type UserMeta struct {
 	GuidelinesVersion   int       `json:"guidelines_version" gorm:"default:0"`            // Incremented on each update
 	GuidelinesUpdatedAt time.Time `json:"guidelines_updated_at"`                          // When guidelines were last updated
 	GuidelinesUpdatedBy string    `json:"guidelines_updated_by" gorm:"type:varchar(255)"` // User ID who last updated guidelines
+
+	// User-defined defaults applied when chatting directly with a model (no app/agent).
+	// Per-app assistants override these with their own settings.
+	ChatSettings UserChatSettings `json:"chat_settings" gorm:"type:jsonb;serializer:json"`
+}
+
+// DefaultChatSystemPrompt is the system prompt applied when a user chats
+// directly with a model and has not customised one in their chat settings.
+// Apps and agents always use their own prompts and ignore this default.
+const DefaultChatSystemPrompt = "You are a helpful assistant."
+
+// UserChatSettings overrides the default LLM call parameters when a user is
+// chatting directly with a model (i.e. there is no app/assistant in the loop).
+// Numeric fields are pointers so that an explicit zero (e.g. temperature=0)
+// can be distinguished from "unset".
+type UserChatSettings struct {
+	// SystemPromptEnabled toggles whether any system prompt at all is sent
+	// to the model. Pointer so nil means "not set" and we fall back to the
+	// default-on behaviour. When explicitly false, no system prompt is sent
+	// regardless of SystemPrompt.
+	SystemPromptEnabled *bool    `json:"system_prompt_enabled,omitempty"`
+	SystemPrompt        string   `json:"system_prompt,omitempty"`
+	Temperature         *float32 `json:"temperature,omitempty"`
+	TopP                *float32 `json:"top_p,omitempty"`
+	MaxTokens           *int     `json:"max_tokens,omitempty"`
+	FrequencyPenalty    *float32 `json:"frequency_penalty,omitempty"`
+	PresencePenalty     *float32 `json:"presence_penalty,omitempty"`
+}
+
+// ApplyToAssistantConfig copies any set chat-settings values onto the given
+// assistant config. Used when there is no app, to drive inference parameters
+// from the user's stored defaults via the existing assistant code path.
+//
+// System-prompt resolution:
+//   - If SystemPromptEnabled is explicitly false, the system prompt is cleared.
+//   - Else if SystemPrompt is non-empty, it overrides whatever cfg currently has.
+//   - Else cfg.SystemPrompt is left untouched (caller is expected to have
+//     pre-populated it with DefaultChatSystemPrompt).
+func (s UserChatSettings) ApplyToAssistantConfig(cfg *AssistantConfig) {
+	if cfg == nil {
+		return
+	}
+	switch {
+	case s.SystemPromptEnabled != nil && !*s.SystemPromptEnabled:
+		cfg.SystemPrompt = ""
+	case s.SystemPrompt != "":
+		cfg.SystemPrompt = s.SystemPrompt
+	}
+	if s.Temperature != nil {
+		cfg.Temperature = *s.Temperature
+	}
+	if s.TopP != nil {
+		cfg.TopP = *s.TopP
+	}
+	if s.MaxTokens != nil {
+		cfg.MaxTokens = *s.MaxTokens
+	}
+	if s.FrequencyPenalty != nil {
+		cfg.FrequencyPenalty = *s.FrequencyPenalty
+	}
+	if s.PresencePenalty != nil {
+		cfg.PresencePenalty = *s.PresencePenalty
+	}
 }
 
 // UpdateUserGuidelinesRequest is the request body for updating user guidelines
@@ -244,9 +314,10 @@ type UserGuidelinesResponse struct {
 }
 
 type UserConfig struct {
-	StripeSubscriptionActive bool   `json:"stripe_subscription_active"`
-	StripeCustomerID         string `json:"stripe_customer_id"`
-	StripeSubscriptionID     string `json:"stripe_subscription_id"`
+	StripeSubscriptionActive bool     `json:"stripe_subscription_active"`
+	StripeCustomerID         string   `json:"stripe_customer_id"`
+	StripeSubscriptionID     string   `json:"stripe_subscription_id"`
+	PinnedProjectIDs         []string `json:"pinned_project_ids,omitempty"`
 }
 
 func (u UserConfig) Value() (driver.Value, error) {

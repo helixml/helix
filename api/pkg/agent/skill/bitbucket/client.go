@@ -1,6 +1,7 @@
 package bitbucket
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -635,6 +636,35 @@ func (c *Client) listServerPullRequests(ctx context.Context, projectKey, repoSlu
 }
 
 // GetPullRequest gets a specific pull request by ID
+func (c *Client) UpdatePullRequest(ctx context.Context, workspace, repoSlug string, prID int, title, description string) error {
+	apiURL := c.getAPIURL(fmt.Sprintf("/repositories/%s/%s/pullrequests/%d", workspace, repoSlug, prID))
+	if c.isServer {
+		apiURL = c.getAPIURL(fmt.Sprintf("/projects/%s/repos/%s/pull-requests/%d", workspace, repoSlug, prID))
+	}
+
+	bodyMap := map[string]interface{}{
+		"title":       title,
+		"description": description,
+	}
+	bodyBytes, err := json.Marshal(bodyMap)
+	if err != nil {
+		return fmt.Errorf("failed to marshal request body: %w", err)
+	}
+
+	resp, err := c.doRequest(ctx, "PUT", apiURL, bytes.NewReader(bodyBytes))
+	if err != nil {
+		return fmt.Errorf("failed to update pull request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("failed to update pull request: status %d, body: %s", resp.StatusCode, string(respBody))
+	}
+
+	return nil
+}
+
 func (c *Client) GetPullRequest(ctx context.Context, workspace, repoSlug string, prID int) (*PullRequest, error) {
 	if c.isServer {
 		return c.getServerPullRequest(ctx, workspace, repoSlug, prID)
@@ -801,4 +831,20 @@ func (r *Repository) ToRepositoryInfo() types.RepositoryInfo {
 		Private:       r.IsPrivate,
 		DefaultBranch: r.MainBranch,
 	}
+}
+
+// CIStatusResult is the normalized verdict for a head SHA.
+// TODO(v2): wire up Bitbucket Pipelines (Cloud) and Bitbucket build status
+// (Server). Until then, this method always reports "no CI configured" so the
+// frontend renders nothing for Bitbucket-attached repos.
+type CIStatusResult struct {
+	Status string
+	URL    string
+}
+
+// GetCIStatus is a v1 stub for Bitbucket. It returns nil (treated as
+// "none" by the caller) so we don't break the Kanban card view for
+// Bitbucket users.
+func (c *Client) GetCIStatus(_ context.Context, _, _, _ string) (*CIStatusResult, error) {
+	return nil, nil
 }

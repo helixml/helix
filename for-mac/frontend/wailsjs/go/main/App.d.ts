@@ -14,6 +14,8 @@ export function CancelUpdate():Promise<void>;
 
 export function CheckForUpdate():Promise<main.UpdateInfo>;
 
+export function CollectDiagnostics():Promise<main.DiagnosticReport>;
+
 export function DownloadVMImages():Promise<void>;
 
 export function DownloadVMUpdate():Promise<void>;
@@ -51,6 +53,8 @@ export function GetSettings():Promise<main.AppSettings>;
 export function GetSystemInfo():Promise<Record<string, any>>;
 
 export function GetUpdateInfo():Promise<main.UpdateInfo>;
+
+export function GetUserIdentity():Promise<main.UserIdentity>;
 
 export function GetVMConfig():Promise<main.VMConfig>;
 

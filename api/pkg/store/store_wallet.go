@@ -150,6 +150,7 @@ func (s *PostgresStore) UpdateWallet(ctx context.Context, wallet *types.Wallet) 
 			"subscription_status":               wallet.SubscriptionStatus,
 			"subscription_current_period_start": wallet.SubscriptionCurrentPeriodStart,
 			"subscription_current_period_end":   wallet.SubscriptionCurrentPeriodEnd,
+			"subscription_cancel_at_period_end": wallet.SubscriptionCancelAtPeriodEnd,
 			"subscription_created":              wallet.SubscriptionCreated,
 		},
 	).Error
@@ -210,17 +211,20 @@ func (s *PostgresStore) UpdateWalletBalance(ctx context.Context, walletID string
 		}
 
 		transaction := &types.Transaction{
-			ID:            system.GenerateTransactionID(),
-			CreatedAt:     time.Now(),
-			UpdatedAt:     time.Now(),
-			WalletID:      walletID,
-			Amount:        amount,
-			BalanceBefore: currentBalance,
-			BalanceAfter:  currentBalance + amount,
-			Type:          meta.TransactionType,
-			InteractionID: meta.InteractionID,
-			LLMCallID:     meta.LLMCallID,
-			TopUpID:       meta.TopUpID,
+			ID:                 system.GenerateTransactionID(),
+			CreatedAt:          time.Now(),
+			UpdatedAt:          time.Now(),
+			WalletID:           walletID,
+			Amount:             amount,
+			BalanceBefore:      currentBalance,
+			BalanceAfter:       currentBalance + amount,
+			Type:               meta.TransactionType,
+			InteractionID:      meta.InteractionID,
+			LLMCallID:          meta.LLMCallID,
+			SandboxID:          meta.SandboxID,
+			SandboxRuntime:     meta.SandboxRuntime,
+			SandboxPricingType: meta.SandboxPricingType,
+			TopUpID:            meta.TopUpID,
 		}
 
 		if err := tx.Create(transaction).Error; err != nil {

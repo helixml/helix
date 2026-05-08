@@ -19,15 +19,30 @@ type Wallet struct {
 	SubscriptionCurrentPeriodStart int64                     `json:"subscription_current_period_start"`
 	SubscriptionCurrentPeriodEnd   int64                     `json:"subscription_current_period_end"`
 	SubscriptionCreated            int64                     `json:"subscription_created"`
+	SubscriptionCancelAtPeriodEnd  bool                      `json:"subscription_cancel_at_period_end"`
 
 	UserID  string  `json:"user_id" gorm:"index"`
 	OrgID   string  `json:"org_id" gorm:"index"` // If belongs to an organization
 	Balance float64 `json:"balance"`
 }
 
+func (w *Wallet) IsSubscriptionActive() bool {
+	switch w.SubscriptionStatus {
+	case stripe.SubscriptionStatusActive:
+		return true
+	case stripe.SubscriptionStatusTrialing:
+		return true
+
+	}
+	return false
+}
+
 type TransactionMetadata struct {
 	InteractionID         string          `json:"interaction_id"`
 	LLMCallID             string          `json:"llm_call_id"`
+	SandboxID             string          `json:"sandbox_id"`
+	SandboxRuntime        SandboxRuntime  `json:"sandbox_runtime"`
+	SandboxPricingType    string          `json:"sandbox_pricing_type"`
 	TopUpID               string          `json:"top_up_id"`
 	StripePaymentIntentID string          `json:"stripe_payment_intent_id"`
 	TransactionType       TransactionType `json:"transaction_type"`
@@ -54,8 +69,11 @@ type Transaction struct {
 
 	Type TransactionType `json:"type" gorm:"index"`
 
-	InteractionID string `json:"interaction_id"` // For usage
-	LLMCallID     string `json:"llm_call_id"`    // For usage
+	InteractionID      string         `json:"interaction_id"`          // For usage
+	LLMCallID          string         `json:"llm_call_id"`             // For usage
+	SandboxID          string         `json:"sandbox_id" gorm:"index"` // For sandbox runtime usage
+	SandboxRuntime     SandboxRuntime `json:"sandbox_runtime"`
+	SandboxPricingType string         `json:"sandbox_pricing_type"`
 
 	TopUpID string `json:"top_up_id"` // For top-ups
 }

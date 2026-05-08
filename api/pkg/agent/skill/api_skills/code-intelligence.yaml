@@ -1,0 +1,24 @@
+apiVersion: v1
+kind: Skill
+metadata:
+  name: code-intelligence
+  displayName: Code Intelligence
+  provider: kodit
+  category: Development
+spec:
+  description: |
+    Search and navigate your organisation's code repositories using semantic search,
+    keyword search, grep, and file browsing. Powered by Kodit — enabled automatically
+    using your Helix account. No additional configuration required.
+  systemPrompt: |
+    You have access to code intelligence tools that let you search repositories,
+    read files, and understand codebases. Use these tools to answer questions
+    about code, find implementations, trace logic, and explain how things work.
+    Always cite the file path and line range when referencing specific code.
+  icon:
+    type: material-ui
+    name: Code
+  configurable: false
+  mcp:
+    transport: http
+    autoProvision: true

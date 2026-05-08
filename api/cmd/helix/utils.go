@@ -4,66 +4,13 @@ import (
 	"fmt"
 	"os"
 	"reflect"
-	"strconv"
 	"strings"
 
-	"errors"
-
-	"github.com/helixml/helix/api/pkg/config"
-	"github.com/helixml/helix/api/pkg/openai"
-	"github.com/helixml/helix/api/pkg/types"
-	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 )
 
 func getCommandLineExecutable() string {
 	return os.Args[0]
-}
-
-func getDefaultServeOptionString(envName string, defaultValue string) string {
-	envValue := os.Getenv(envName)
-	if envValue != "" {
-		return envValue
-	}
-	return defaultValue
-}
-
-func getDefaultServeOptionBool(envName string, defaultValue bool) bool {
-	envValue := os.Getenv(envName)
-	if envValue != "" {
-		return true
-	}
-	return defaultValue
-}
-
-func getDefaultServeOptionInt(envName string, defaultValue int) int {
-	envValue := os.Getenv(envName)
-	if envValue != "" {
-		i, err := strconv.Atoi(envValue)
-		if err == nil {
-			return i
-		}
-	}
-	return defaultValue
-}
-
-// comma separated key=value pairs e.g. LABELS="name=apples,height=10"
-func getDefaultServeOptionMap(envName string, defaultValue map[string]string) map[string]string {
-	envValue := os.Getenv(envName)
-	if envValue != "" {
-		parts := strings.Split(envValue, ",")
-		data := make(map[string]string)
-		for _, part := range parts {
-			kv := strings.Split(part, "=")
-			if len(kv) == 2 {
-				data[kv[0]] = kv[1]
-			} else {
-				log.Warn().Msgf("invalid key=value pair: %s", part)
-			}
-		}
-		return data
-	}
-	return defaultValue
 }
 
 func FatalErrorHandler(cmd *cobra.Command, msg string, code int) {
@@ -104,45 +51,4 @@ func generateEnvHelpText(cfg interface{}, prefix string) string {
 	}
 
 	return helpTextBuilder.String()
-}
-
-func createDataPrepOpenAIClient(cfg *config.ServerConfig, helixInference openai.Client) (openai.Client, error) {
-	switch cfg.FineTuning.Provider {
-	case types.ProviderOpenAI:
-		if cfg.Providers.OpenAI.APIKey == "" {
-			return nil, errors.New("OpenAI API key (OPENAI_API_KEY) is required")
-		}
-		log.Info().
-			Str("base_url", cfg.Providers.OpenAI.BaseURL).
-			Msg("using OpenAI provider for controller inference")
-
-		return openai.New(
-			cfg.Providers.OpenAI.APIKey,
-			cfg.Providers.OpenAI.BaseURL,
-			cfg.Stripe.BillingEnabled,
-		), nil
-
-	case types.ProviderTogetherAI:
-		if cfg.Providers.TogetherAI.APIKey == "" {
-			// Fallback to Helix if no TogetherAI key
-			log.Warn().Msg("TogetherAI API key not set, falling back to Helix for fine-tuning")
-			return helixInference, nil
-		}
-		log.Info().
-			Str("base_url", cfg.Providers.TogetherAI.BaseURL).
-			Msg("using TogetherAI provider for controller inference")
-
-		return openai.New(
-			cfg.Providers.TogetherAI.APIKey,
-			cfg.Providers.TogetherAI.BaseURL,
-			cfg.Stripe.BillingEnabled,
-		), nil
-
-	case types.ProviderHelix:
-		log.Info().Msg("using Helix provider for inference")
-		return helixInference, nil
-
-	default:
-		return nil, errors.New("unknown inference provider")
-	}
 }

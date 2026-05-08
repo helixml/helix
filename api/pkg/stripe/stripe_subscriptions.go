@@ -22,6 +22,7 @@ type SubscriptionSessionParams struct {
 	OrgName          string // Used for redirect URL (for example 'acme-org' for 'orgs/acme-org/billing')
 	UserID           string
 	Amount           float64
+	ReturnURL        string // Optional custom return URL (overrides default success/cancel URLs)
 }
 
 func (s *Stripe) GetCheckoutSessionURL(
@@ -51,14 +52,22 @@ func (s *Stripe) GetCheckoutSessionURL(
 		return "", fmt.Errorf("price not found")
 	}
 
-	successURL := s.cfg.AppURL + "/account?success=true&session_id={CHECKOUT_SESSION_ID}"
-	if params.OrgID != "" {
-		successURL = s.cfg.AppURL + "/orgs/" + params.OrgName + "/billing?success=true&session_id={CHECKOUT_SESSION_ID}"
-	}
+	var successURL, cancelURL string
+	if params.ReturnURL != "" {
+		// Use custom return URL if provided
+		successURL = s.cfg.AppURL + params.ReturnURL + "?success=true&session_id={CHECKOUT_SESSION_ID}"
+		cancelURL = s.cfg.AppURL + params.ReturnURL + "?canceled=true"
+	} else {
+		// Use default return URLs
+		successURL = s.cfg.AppURL + "/account?success=true&session_id={CHECKOUT_SESSION_ID}"
+		if params.OrgID != "" {
+			successURL = s.cfg.AppURL + "/orgs/" + params.OrgName + "/billing?success=true&session_id={CHECKOUT_SESSION_ID}"
+		}
 
-	cancelURL := s.cfg.AppURL + "/account?canceled=true"
-	if params.OrgID != "" {
-		cancelURL = s.cfg.AppURL + "/orgs/" + params.OrgName + "/billing?canceled=true"
+		cancelURL = s.cfg.AppURL + "/account?canceled=true"
+		if params.OrgID != "" {
+			cancelURL = s.cfg.AppURL + "/orgs/" + params.OrgName + "/billing?canceled=true"
+		}
 	}
 
 	checkoutParams := &stripe.CheckoutSessionParams{
@@ -148,6 +157,7 @@ func (s *Stripe) handleSubscriptionEvent(event stripe.Event) error {
 	wallet.SubscriptionCurrentPeriodStart = subscription.CurrentPeriodStart
 	wallet.SubscriptionCurrentPeriodEnd = subscription.CurrentPeriodEnd
 	wallet.SubscriptionCreated = subscription.Created
+	wallet.SubscriptionCancelAtPeriodEnd = subscription.CancelAtPeriodEnd
 
 	if eventType == types.SubscriptionEventTypeDeleted {
 		wallet.SubscriptionStatus = stripe.SubscriptionStatusCanceled
@@ -159,63 +169,6 @@ func (s *Stripe) handleSubscriptionEvent(event stripe.Event) error {
 	if err != nil {
 		return fmt.Errorf("failed to update wallet: %w", err)
 	}
-
-	// Create topup for subscription created events
-	if eventType == types.SubscriptionEventTypeCreated && subscription.Status == stripe.SubscriptionStatusActive {
-		err = s.createSubscriptionTopup(ctx, wallet, &subscription, "subscription_created")
-		if err != nil {
-			log.Error().
-				Str("wallet_id", wallet.ID).
-				Str("subscription_id", subscription.ID).
-				Err(err).
-				Msg("failed to create topup for subscription creation")
-			// Don't fail the entire webhook processing, just log the error
-		}
-	}
-
-	return nil
-}
-
-// createSubscriptionTopup creates a topup record for subscription events
-func (s *Stripe) createSubscriptionTopup(ctx context.Context, wallet *types.Wallet, subscription *stripe.Subscription, reason string) error {
-	// Get the subscription price amount
-	if len(subscription.Items.Data) == 0 {
-		return fmt.Errorf("no subscription items found")
-	}
-
-	if subscription.Items.Data[0].Price == nil {
-		log.Error().
-			Str("wallet_id", wallet.ID).
-			Str("subscription_id", subscription.ID).
-			Str("subscription_item_id", subscription.Items.Data[0].ID).
-			Any("subscription", subscription).
-			Msg("no price found for subscription item")
-		return fmt.Errorf("no price found for subscription item")
-	}
-
-	// Get the first subscription item (assuming single product subscription)
-	subscriptionItem := subscription.Items.Data[0]
-
-	// Calculate the amount in dollars (Stripe amounts are in cents)
-	amount := float64(subscriptionItem.Price.UnitAmount) / 100.0
-
-	// Adjust balance
-	meta := types.TransactionMetadata{
-		TransactionType: types.TransactionTypeSubscription,
-	}
-	_, err := s.store.UpdateWalletBalance(ctx, wallet.ID, amount, meta)
-	if err != nil {
-		return fmt.Errorf("failed to update wallet balance: %w", err)
-	}
-
-	log.Info().
-		Str("wallet_id", wallet.ID).
-		Str("user_id", wallet.UserID).
-		Str("org_id", wallet.OrgID).
-		Float64("amount", amount).
-		Str("subscription_id", subscription.ID).
-		Str("reason", reason).
-		Msg("subscription topup created successfully")
 
 	return nil
 }

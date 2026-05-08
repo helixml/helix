@@ -9,6 +9,8 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/agent"
 	"github.com/helixml/helix/api/pkg/agent/skill/mcp"
+	"github.com/helixml/helix/api/pkg/store"
+	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
@@ -189,4 +191,104 @@ func (s *HelixAPIServer) handleValidateMcpSkill(_ http.ResponseWriter, r *http.R
 	}
 
 	return resp, err
+}
+
+// handleEnableSkill enables a marketplace skill on an app. For autoProvision MCP skills
+// (like code-intelligence) the Kodit MCP URL and auth token are derived server-side —
+// no user input is required.
+//
+// enableSkill godoc
+// @Summary Enable a marketplace skill on an app
+// @Description Enable a marketplace skill on an app. For autoProvision MCP skills the server generates URL and auth automatically.
+// @Tags    skills
+// @Param   id   path string true "App ID"
+// @Param   skill path string true "Skill name (e.g. code-intelligence)"
+// @Success 200 {object} types.App
+// @Router /api/v1/apps/{id}/skills/{skill}/enable [post]
+// @Security BearerAuth
+func (s *HelixAPIServer) handleEnableSkill(_ http.ResponseWriter, r *http.Request) (*types.App, *system.HTTPError) {
+	user := getRequestUser(r)
+	if user == nil {
+		return nil, system.NewHTTPError401("unauthorized")
+	}
+
+	vars := mux.Vars(r)
+	appID := vars["id"]
+	skillName := vars["skill"]
+
+	// Fetch the app and authorize.
+	app, err := s.Store.GetApp(r.Context(), appID)
+	if err != nil {
+		return nil, system.NewHTTPError404(fmt.Sprintf("app not found: %s", err))
+	}
+	if authErr := s.authorizeUserToApp(r.Context(), user, app, types.ActionUpdate); authErr != nil {
+		return nil, system.NewHTTPError403(authErr.Error())
+	}
+
+	// Look up the skill definition.
+	skillDef, err := s.skillManager.GetSkill(skillName)
+	if err != nil {
+		return nil, system.NewHTTPError404(fmt.Sprintf("skill not found: %s", err))
+	}
+
+	// Only autoProvision MCP skills are supported by this endpoint.
+	if skillDef.MCP == nil || !skillDef.MCP.AutoProvision {
+		return nil, system.NewHTTPError400(fmt.Sprintf("skill %q does not support auto-provisioning via this endpoint", skillName))
+	}
+
+	// Get the user's API key (used as the bearer token for Kodit).
+	// ListAPIKeys returns keys ordered by creation date; we use the first (oldest)
+	// to provide a stable, predictable choice when the user has multiple keys.
+	keys, err := s.Store.ListAPIKeys(r.Context(), &store.ListAPIKeysQuery{
+		Owner:     user.ID,
+		OwnerType: user.Type,
+		Type:      types.APIkeytypeAPI,
+	})
+	if err != nil {
+		return nil, system.NewHTTPError500(fmt.Sprintf("failed to list API keys: %s", err))
+	}
+	if len(keys) == 0 {
+		return nil, system.NewHTTPError500("no API key found for user — create one first")
+	}
+	apiKey := keys[0].Key
+
+	// Build the Kodit MCP URL from the server's own base URL.
+	koditURL := s.Cfg.WebServer.URL + "/api/v1/mcp/kodit"
+
+	mcpEntry := types.AssistantMCP{
+		Name:      skillDef.DisplayName,
+		Transport: skillDef.MCP.Transport,
+		URL:       koditURL,
+		Headers: map[string]string{
+			"Authorization": "Bearer " + apiKey,
+		},
+	}
+
+	// Ensure there is at least one assistant.
+	if len(app.Config.Helix.Assistants) == 0 {
+		app.Config.Helix.Assistants = []types.AssistantConfig{{}}
+	}
+
+	// Idempotency: skip if the skill is already configured (same display name).
+	for _, existing := range app.Config.Helix.Assistants[0].MCPs {
+		if existing.Name == mcpEntry.Name {
+			return app, nil
+		}
+	}
+
+	app.Config.Helix.Assistants[0].MCPs = append(app.Config.Helix.Assistants[0].MCPs, mcpEntry)
+
+	updated, err := s.Store.UpdateApp(r.Context(), app)
+	if err != nil {
+		return nil, system.NewHTTPError500(fmt.Sprintf("failed to update app: %s", err))
+	}
+
+	log.Info().
+		Str("user_id", user.ID).
+		Str("app_id", appID).
+		Str("skill", skillName).
+		Str("kodit_url", koditURL).
+		Msg("Enabled skill on app")
+
+	return updated, nil
 }

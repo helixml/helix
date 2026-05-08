@@ -52,6 +52,9 @@ import useApi from "../hooks/useApi";
 import useSnackbar from "../hooks/useSnackbar";
 import useRouter from "../hooks/useRouter";
 import useApps from "../hooks/useApps";
+import useSubscriptionGate from "../hooks/useSubscriptionGate";
+import { useSettingsDialog } from "../contexts/settingsDialog";
+import Paywall from "../components/subscription/Paywall";
 import EditIcon from "@mui/icons-material/Edit";
 import {
   useGetProject,
@@ -81,6 +84,8 @@ const SpecTasksPage: FC = () => {
   const apps = useApps();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("md"));
+  const { paywallActive, navigateToBilling } = useSubscriptionGate();
+  const { openDialog } = useSettingsDialog();
 
   // Get project ID from URL if in project context
   const projectId = router.params.id as string | undefined;
@@ -279,14 +284,16 @@ const SpecTasksPage: FC = () => {
   const defaultRepoId = project?.default_repo_id;
 
   // Check if the default repo is an external repo (e.g., GitHub, Azure DevOps)
-  const hasExternalRepo = useMemo(() => {
-    const defaultRepo = projectRepositories.find((r) => r.id === defaultRepoId);
-    return !!(
-      defaultRepo?.is_external ||
-      defaultRepo?.azure_devops ||
-      defaultRepo?.external_type
-    );
-  }, [projectRepositories, defaultRepoId]);
+  const defaultRepo = useMemo(
+    () => projectRepositories.find((r) => r.id === defaultRepoId),
+    [projectRepositories, defaultRepoId],
+  );
+  const hasExternalRepo = !!(
+    defaultRepo?.is_external ||
+    defaultRepo?.azure_devops ||
+    defaultRepo?.external_type
+  );
+  const externalRepoType = defaultRepo?.external_type;
 
   const boardWipLimits = useMemo(() => {
     const limits = project?.metadata?.board_settings?.wip_limits;
@@ -350,6 +357,7 @@ const SpecTasksPage: FC = () => {
       return null;
     const sub = claudeSubscriptions?.[0];
     if (!sub) return null;
+    if (sub.credential_type === 'setup_token') return null; // Setup tokens don't expire
     return getTokenExpiryStatus(sub.access_token_expires_at);
   }, [project?.default_helix_app_id, apps.apps, claudeSubscriptions]);
 
@@ -486,7 +494,7 @@ const SpecTasksPage: FC = () => {
 
   // Fetch last 5 sessions for this project (filtered by project manager app)
   const { data: projectSessionsData } = useListSessions(
-    undefined,
+    project?.organization_id,
     undefined,
     undefined,
     projectId,
@@ -660,37 +668,9 @@ const SpecTasksPage: FC = () => {
       orgBreadcrumbs={true}
       showDrawerButton={true}
       disableContentScroll={true}
-      topbarContent={
-        <Stack
-          direction="row"
-          spacing={2}
-          sx={{
-            justifyContent: "flex-end",
-            width: "100%",
-            minWidth: 0,
-            alignItems: "center",
-          }}
-        >
-          {/* Invite / Share button */}
-          <Box
-            sx={{ display: { xs: "none", md: "flex" }, alignItems: "center" }}
-          >
-            <ProjectMembersBar
-              currentUser={account.user}
-              projectOwnerId={project?.user_id}
-              projectId={projectId || ""}
-              organizationId={project?.organization_id}
-              accessGrants={accessGrants}
-              inviteOpen={inviteOpen}
-              onOpenInvite={handleOpenInvite}
-              onCloseInvite={handleCloseInvite}
-              onCreateGrant={handleCreateAccessGrant}
-              onDeleteGrant={handleDeleteAccessGrant}
-            />
-          </Box>
-
-          {/* View mode toggle: Board vs Workspace vs Audit Trail */}
-          <Stack direction="row" spacing={0.5} sx={{ borderRadius: 1, p: 0.5 }}>
+      topbarLeftContent={
+        /* View mode toggle: Board vs Workspace vs Audit Trail */
+        <Stack direction="row" spacing={0.5} sx={{ borderRadius: 1.5, pl: 1.5, pr: 0.5, py: 0.5, bgcolor: 'rgba(255,255,255,0.06)' }}>
             <Tooltip
               title={
                 <Box sx={{ p: 0.5 }}>
@@ -828,6 +808,30 @@ const SpecTasksPage: FC = () => {
               </IconButton>
             </Tooltip>
           </Stack>
+      }
+      topbarContent={
+        <Stack
+          direction="row"
+          spacing={2}
+          sx={{ justifyContent: "flex-end", minWidth: 0, alignItems: "center" }}
+        >
+          {/* Invite / Share button */}
+          <Box
+            sx={{ display: { xs: "none", md: "flex" }, alignItems: "center" }}
+          >
+            <ProjectMembersBar
+              currentUser={account.user}
+              projectOwnerId={project?.user_id}
+              projectId={projectId || ""}
+              organizationId={project?.organization_id}
+              accessGrants={accessGrants}
+              inviteOpen={inviteOpen}
+              onOpenInvite={handleOpenInvite}
+              onCloseInvite={handleCloseInvite}
+              onCreateGrant={handleCreateAccessGrant}
+              onDeleteGrant={handleDeleteAccessGrant}
+            />
+          </Box>
 
           {/* Hide these buttons on mobile - they'll be in the floating menu */}
           <Box
@@ -925,13 +929,33 @@ const SpecTasksPage: FC = () => {
             </Tooltip>
           </Box>
           {/* Hide menu button on mobile - it will be in the bottom nav */}
-          <Box sx={{ display: { xs: "none", md: "block" } }}>
-            <IconButton
-              size="small"
-              onClick={(e) => setViewMenuAnchorEl(e.currentTarget)}
-            >
-              <MoreHorizontal size={18} />
-            </IconButton>
+          <Box
+            sx={{
+              display: { xs: "none", md: "flex" },
+              alignItems: "center",
+              gap: 0.5,
+            }}
+          >
+            {projectId && (
+              <Tooltip title="Project settings">
+                <IconButton
+                  size="small"
+                  onClick={() => openDialog("project-settings", { projectId })}
+                  aria-label="Project settings"
+                >
+                  <Settings size={18} />
+                </IconButton>
+              </Tooltip>
+            )}
+            <Tooltip title="More options">
+              <IconButton
+                size="small"
+                onClick={(e) => setViewMenuAnchorEl(e.currentTarget)}
+                aria-label="More options"
+              >
+                <MoreHorizontal size={18} />
+              </IconButton>
+            </Tooltip>
           </Box>
           <Menu
             anchorEl={viewMenuAnchorEl}
@@ -961,17 +985,6 @@ const SpecTasksPage: FC = () => {
                   style={{ marginRight: 12, width: 20, height: 20 }}
                 />
                 Files
-              </MenuItem>
-            )}
-            {projectId && (
-              <MenuItem
-                onClick={() => {
-                  account.orgNavigate("project-settings", { id: projectId });
-                  setViewMenuAnchorEl(null);
-                }}
-              >
-                <Settings style={{ marginRight: 12, width: 20, height: 20 }} />
-                Settings
               </MenuItem>
             )}
             <MenuItem
@@ -1053,7 +1066,7 @@ const SpecTasksPage: FC = () => {
                   size="small"
                   variant="outlined"
                   onClick={() =>
-                    account.orgNavigate("project-settings", { id: projectId })
+                    openDialog('project-settings', { projectId })
                   }
                 >
                   Go to Settings
@@ -1077,7 +1090,7 @@ const SpecTasksPage: FC = () => {
                     size="small"
                     variant="outlined"
                     onClick={() =>
-                      account.orgNavigate("project-settings", { id: projectId })
+                      openDialog('project-settings', { projectId })
                     }
                   >
                     Configure Startup Script
@@ -1110,6 +1123,7 @@ const SpecTasksPage: FC = () => {
             )}
 
           {/* Main Content: Kanban Board, Tabs View, or Audit Trail */}
+          <Paywall active={paywallActive} onBillingClick={navigateToBilling}>
           <Box
             sx={{
               flex: 1,
@@ -1141,6 +1155,7 @@ const SpecTasksPage: FC = () => {
                 refreshTrigger={refreshTrigger}
                 focusTaskId={focusTaskId}
                 hasExternalRepo={hasExternalRepo}
+                externalRepoType={externalRepoType}
                 showArchived={showArchived}
                 showMetrics={showMetrics}
                 showMerged={showMerged}
@@ -1171,6 +1186,7 @@ const SpecTasksPage: FC = () => {
               />
             )}
           </Box>
+          </Paywall>
         </Box>
 
         {/* RIGHT PANEL: New Spec Task - slides in from right, full screen on mobile */}

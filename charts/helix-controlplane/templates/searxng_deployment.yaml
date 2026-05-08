@@ -53,6 +53,9 @@ spec:
               value: "4"
             - name: UWSGI_THREADS
               value: "4"
+            {{- with .Values.global.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
           volumeMounts:
             - name: searxng-config
               mountPath: /etc/searxng/settings.yml

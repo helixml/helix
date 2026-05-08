@@ -294,8 +294,8 @@ function build-runner-image() {
   # Use 'latest-small' for production builds that need full base image
   local BASE_TAG="${2:-latest-empty}"
 
-  echo "  Output: registry.helixml.tech/helix/runner:$IMAGE_TAG"
-  echo "  Base: registry.helixml.tech/helix/runner-base:$BASE_TAG"
+  echo "  Output: ghcr.io/helixml/runner:$IMAGE_TAG"
+  echo "  Base: ghcr.io/helixml/runner-base:$BASE_TAG"
   echo "  Version: $APP_VERSION"
   echo "  Note: ROCm vLLM build takes ~10 minutes"
   echo ""
@@ -304,8 +304,21 @@ function build-runner-image() {
     -f Dockerfile.runner \
     --build-arg TAG="$BASE_TAG" \
     --build-arg APP_VERSION="$APP_VERSION" \
-    -t "registry.helixml.tech/helix/runner:$IMAGE_TAG" \
+    -t "ghcr.io/helixml/runner:$IMAGE_TAG" \
     .
+}
+
+# Background helper used by build-zed (and other long Rust builds) to keep
+# the helix-api container and sandbox-nvidia streaming pipeline responsive
+# when the host is under CPU contention. Watches for compiler/linker
+# processes spawned inside BuildKit's runc containers and renices them down.
+# Renice is idempotent, so re-running on already-niced PIDs is harmless.
+_nice_rust_workers() {
+  while true; do
+    sudo pgrep -f 'rustc|cc1plus|cc1|lld|mold' 2>/dev/null \
+      | xargs -r sudo renice -n 19 -p >/dev/null 2>&1
+    sleep 2
+  done
 }
 
 function build-zed() {
@@ -380,6 +393,11 @@ EIGNORE
 
   echo "🚀 Starting Docker build (cached after first run)..."
 
+  # Background-nice rustc/cc1/lld so helix-api and sandbox-nvidia stay
+  # responsive while this build saturates the host. See _nice_rust_workers.
+  _nice_rust_workers &
+  local _NICE_PID=$!
+
   # Build using Dockerfile.zed-build with the Zed source as context
   # --output extracts just the binary from the scratch final stage
   # --build-arg passes the build type (dev or release)
@@ -392,6 +410,9 @@ EIGNORE
     "$ZED_SOURCE_DIR"
 
   local BUILD_EXIT=$?
+
+  kill $_NICE_PID 2>/dev/null || true
+  wait $_NICE_PID 2>/dev/null || true
 
   # Clean up temporary .dockerignore (unless it existed before)
   if [ "$DOCKERIGNORE_EXISTED" = "false" ]; then
@@ -500,10 +521,11 @@ function _start_services() {
   # Setup sandbox profile based on GPU detection
   setup_sandbox_profile
 
-  # Stop sandbox if running to ensure fresh start
-  docker compose -f docker-compose.dev.yaml stop "$SANDBOX_SERVICE" 2>/dev/null || true
-
   # Start services based on enabled profiles
+  # NOTE: do NOT stop the sandbox before `up -d` — `docker compose up -d` already
+  # recreates the container when the image changes, and an explicit stop causes a
+  # race with the NVIDIA driver that leaves the container in an unstoppable state
+  # (especially when build-sandbox just started it moments before).
   if [[ -n "$WITH_RUNNER" ]]; then
     if [[ -n "$WITH_DEMOS" ]]; then
       # Both runner and demos
@@ -568,7 +590,7 @@ function start-tmux() {
   tmux split-window -t "$TMUX_SESSION" -v -d
   tmux split-window -t "$TMUX_SESSION" -v -d
 
-  # Split the top row into 3 columns (Frontend, API, Haystack)
+  # Split the top row into 3 columns (Frontend, API, free slot)
   tmux select-pane -t "$TMUX_SESSION:0.0"
   tmux split-window -t "$TMUX_SESSION" -h -d
   tmux select-pane -t "$TMUX_SESSION:0.1"
@@ -583,15 +605,15 @@ function start-tmux() {
   # Bottom pane (6) stays full-width for hacking terminal
 
   # Set pane titles and start processes in 3x2 + full-width layout
-  # Top row (0-2): Frontend, API, Haystack
+  # Top row (0-2): Frontend, API, Postgres
   tmux select-pane -t "$TMUX_SESSION:0.0" -T "Frontend Logs"
   tmux send-keys -t "$TMUX_SESSION:0.0" 'docker compose -f docker-compose.dev.yaml logs -f frontend' C-m
 
   tmux select-pane -t "$TMUX_SESSION:0.1" -T "API Logs"
   tmux send-keys -t "$TMUX_SESSION:0.1" 'docker compose -f docker-compose.dev.yaml logs -f api' C-m
 
-  tmux select-pane -t "$TMUX_SESSION:0.2" -T "Haystack Logs"
-  tmux send-keys -t "$TMUX_SESSION:0.2" 'docker compose -f docker-compose.dev.yaml logs -f haystack' C-m
+  tmux select-pane -t "$TMUX_SESSION:0.2" -T "Postgres Logs"
+  tmux send-keys -t "$TMUX_SESSION:0.2" 'docker compose -f docker-compose.dev.yaml logs -f postgres' C-m
 
   # Determine sandbox logs command based on Helix-in-Helix mode
   local SANDBOX_LOGS_CMD
@@ -1038,15 +1060,15 @@ function build-desktop() {
   _dt_elapsed "✅ ${DESKTOP_NAME} container built successfully"
   echo "📦 Image hash: ${IMAGE_HASH_FULL} (tag: ${IMAGE_TAG})"
 
-  # Always write version file (even if image unchanged, fixes stale version files)
-  mkdir -p sandbox-images
-  echo "${IMAGE_TAG}" > "sandbox-images/${IMAGE_NAME}.version"
-  echo "📦 Version file: ${IMAGE_TAG}"
-
   # Log whether image changed (transfer function handles dedup via sandbox tag check)
   if [ -n "$IMAGE_HASH_BEFORE" ] && [ "$IMAGE_HASH_BEFORE" = "$IMAGE_HASH_AFTER" ]; then
     echo "ℹ️  Image unchanged (layers cached)"
   fi
+
+  # Always write version file (even if image unchanged, fixes stale version files)
+  mkdir -p sandbox-images
+  echo "${IMAGE_TAG}" > "sandbox-images/${IMAGE_NAME}.version"
+  echo "📦 Version file: ${IMAGE_TAG}"
 
   # Transfer to running sandbox via local registry
   # Skip if SKIP_DESKTOP_TRANSFER is set (called from build-sandbox)
@@ -1156,20 +1178,56 @@ function transfer-desktop-to-sandbox() {
     return 1
   fi
 
-  # Pull from registry inside sandbox
+  # Pull from registry inside sandbox (with retry)
   _tx_elapsed "📥 Sandbox pulling from registry..."
-  if ! sandbox_docker exec "$SANDBOX_CONTAINER_NAME" docker pull "$SANDBOX_REGISTRY_TAG" 2>&1 | grep -v "^$"; then
-    echo "❌ Failed to pull from registry inside sandbox"
+  local PULL_OK=false
+  for attempt in 1 2 3; do
+    if sandbox_docker exec "$SANDBOX_CONTAINER_NAME" docker pull "$SANDBOX_REGISTRY_TAG" 2>&1 | grep -v "^$"; then
+      PULL_OK=true
+      break
+    fi
+    echo "⚠️  Pull attempt $attempt failed, retrying in 3s..."
+    sleep 3
+  done
+  if [ "$PULL_OK" = false ]; then
+    echo "❌ Failed to pull from registry inside sandbox after 3 attempts"
     return 1
   fi
 
   # Tag with the expected names inside sandbox (Hydra uses helix-${desktop}:${tag})
-  sandbox_docker exec "$SANDBOX_CONTAINER_NAME" docker tag "$SANDBOX_REGISTRY_TAG" "${IMAGE_NAME}:${IMAGE_TAG}"
-  sandbox_docker exec "$SANDBOX_CONTAINER_NAME" docker tag "$SANDBOX_REGISTRY_TAG" "${IMAGE_NAME}:latest"
+  # Retry tagging — Docker daemon may be briefly busy after pull
+  local TAG_OK=false
+  for attempt in 1 2 3; do
+    if sandbox_docker exec "$SANDBOX_CONTAINER_NAME" docker tag "$SANDBOX_REGISTRY_TAG" "${IMAGE_NAME}:${IMAGE_TAG}" 2>&1 && \
+       sandbox_docker exec "$SANDBOX_CONTAINER_NAME" docker tag "$SANDBOX_REGISTRY_TAG" "${IMAGE_NAME}:latest" 2>&1; then
+      TAG_OK=true
+      break
+    fi
+    echo "⚠️  Tag attempt $attempt failed, retrying in 2s..."
+    sleep 2
+  done
+  if [ "$TAG_OK" = false ]; then
+    echo "❌ Failed to tag image inside sandbox after 3 attempts"
+    return 1
+  fi
 
-  # Remove the registry-prefixed tag to allow proper cleanup later
-  # (layers are shared, so this just removes the tag, not the data)
+  # Verify the non-registry tags exist before removing the registry tag
+  if ! sandbox_docker exec "$SANDBOX_CONTAINER_NAME" docker inspect "${IMAGE_NAME}:${IMAGE_TAG}" >/dev/null 2>&1; then
+    echo "❌ CRITICAL: ${IMAGE_NAME}:${IMAGE_TAG} not found after tagging — aborting (keeping registry tag)"
+    return 1
+  fi
+
+  # Remove the registry-prefixed tag (layers shared, just removes the tag)
   sandbox_docker exec "$SANDBOX_CONTAINER_NAME" docker rmi "$SANDBOX_REGISTRY_TAG" 2>/dev/null || true
+
+  # Post-rmi verification — if removing the registry tag also removed the image, re-pull and re-tag
+  if ! sandbox_docker exec "$SANDBOX_CONTAINER_NAME" docker inspect "${IMAGE_NAME}:${IMAGE_TAG}" >/dev/null 2>&1; then
+    echo "⚠️  Image disappeared after rmi — re-pulling and re-tagging..."
+    sandbox_docker exec "$SANDBOX_CONTAINER_NAME" docker pull "$SANDBOX_REGISTRY_TAG" 2>&1 | grep -v "^$" || true
+    sandbox_docker exec "$SANDBOX_CONTAINER_NAME" docker tag "$SANDBOX_REGISTRY_TAG" "${IMAGE_NAME}:${IMAGE_TAG}" 2>/dev/null || true
+    sandbox_docker exec "$SANDBOX_CONTAINER_NAME" docker tag "$SANDBOX_REGISTRY_TAG" "${IMAGE_NAME}:latest" 2>/dev/null || true
+    # Don't rmi the registry tag this time — leave it as a safety net
+  fi
 
   _tx_elapsed "✅ ${IMAGE_NAME}:${IMAGE_TAG} transferred via registry"
 
@@ -1198,6 +1256,21 @@ function transfer-desktop-to-sandbox() {
 
   # Prune dangling images in sandbox
   sandbox_docker exec "$SANDBOX_CONTAINER_NAME" docker image prune -f 2>/dev/null || true
+
+  # Final verification — if the image is gone after cleanup, re-pull as last resort
+  if ! sandbox_docker exec "$SANDBOX_CONTAINER_NAME" docker inspect "${IMAGE_NAME}:${IMAGE_TAG}" >/dev/null 2>&1; then
+    echo "❌ Image disappeared after cleanup! Re-pulling as last resort..."
+    sandbox_docker exec "$SANDBOX_CONTAINER_NAME" docker pull "$SANDBOX_REGISTRY_TAG" 2>&1 | grep -v "^$" || true
+    sandbox_docker exec "$SANDBOX_CONTAINER_NAME" docker tag "$SANDBOX_REGISTRY_TAG" "${IMAGE_NAME}:${IMAGE_TAG}" 2>/dev/null || true
+    sandbox_docker exec "$SANDBOX_CONTAINER_NAME" docker tag "$SANDBOX_REGISTRY_TAG" "${IMAGE_NAME}:latest" 2>/dev/null || true
+    if ! sandbox_docker exec "$SANDBOX_CONTAINER_NAME" docker inspect "${IMAGE_NAME}:${IMAGE_TAG}" >/dev/null 2>&1; then
+      echo "❌ CRITICAL: ${IMAGE_NAME}:${IMAGE_TAG} still missing after re-pull. Transfer failed."
+      return 1
+    fi
+    echo "✅ Recovered: ${IMAGE_NAME}:${IMAGE_TAG} restored after re-pull"
+  else
+    echo "✅ VERIFIED: ${IMAGE_NAME}:${IMAGE_TAG} exists in sandbox"
+  fi
 
   # Registry cleanup
   # Clean up old registry-tagged images on host
@@ -2010,8 +2083,8 @@ function test() {
     exit 1
   fi
 
-  # Ensure postgres, tika, typesense and chrome are running
-  docker compose -f docker-compose.dev.yaml up -d postgres tika typesense chrome pgvector
+  # Ensure postgres and chrome are running
+  docker compose -f docker-compose.dev.yaml up -d postgres chrome
 
   # Database config (running in a sidecar)
   export POSTGRES_USER=postgres
@@ -2019,15 +2092,6 @@ function test() {
   export POSTGRES_DATABASE=postgres
   export POSTGRES_HOST=localhost
 
-  export PGVECTOR_USER=postgres
-  export PGVECTOR_PASSWORD=postgres
-  export PGVECTOR_DATABASE=postgres
-  export PGVECTOR_HOST=localhost
-  export PGVECTOR_PORT=5433
-
-  export TYPESENSE_URL=http://localhost:8108
-  export TYPESENSE_API_KEY=typesense
-  export TEXT_EXTRACTION_TIKA_URL=http://localhost:9998
   export RAG_CRAWLER_LAUNCHER_URL=http://localhost:7317
 
   # To debug test hangs, try this:

@@ -48,8 +48,34 @@ func (n *NotificationsProvider) Notify(ctx context.Context, notification *Notifi
 		return nil
 	}
 
+	// Send webhook if callback URL is configured
+	if notification.CallbackURL != "" {
+		if err := sendWebhook(ctx, notification.CallbackURL, notification); err != nil {
+			log.Error().Err(err).Str("callback_url", notification.CallbackURL).Msg("failed to send webhook notification")
+		}
+	}
+
 	if !n.email.Enabled() {
 		log.Debug().Str("notification", notification.Event.String()).Msg("email not enabled")
+		return nil
+	}
+
+	// If multiple emails are specified, send to each one
+	if len(notification.Emails) > 0 {
+		for _, email := range notification.Emails {
+			perRecipient := &Notification{
+				Event:          notification.Event,
+				Session:        notification.Session,
+				Message:        notification.Message,
+				RenderMarkdown: notification.RenderMarkdown,
+				Email:          email,
+			}
+			log.Debug().
+				Str("email", email).Str("notification", perRecipient.Event.String()).Msg("sending notification")
+			if err := n.email.Notify(ctx, perRecipient); err != nil {
+				log.Error().Err(err).Str("email", email).Msg("failed to send notification")
+			}
+		}
 		return nil
 	}
 

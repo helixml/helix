@@ -1,15 +1,4 @@
 definitions:
-  controller.MemoryEstimationResponse:
-    properties:
-      cached:
-        type: boolean
-      error:
-        type: string
-      estimate:
-        $ref: '#/definitions/memory.MemoryEstimate'
-      model_id:
-        type: string
-    type: object
   filestore.Config:
     properties:
       folders:
@@ -167,27 +156,80 @@ definitions:
         description: '"nvidia", "amd", "intel"'
         type: string
     type: object
-  kodit.RepositoryStatusSummaryAttributes:
+  hydra.ListSandboxCommandsResponse:
     properties:
-      message:
-        description: Message Error message if failed
-        type: string
-      status:
-        description: Status Overall indexing status
-        type: string
-      updated_at:
-        description: UpdatedAt Most recent activity timestamp
+      commands:
+        items:
+          $ref: '#/definitions/hydra.SandboxCommandResponse'
+        type: array
+    type: object
+  hydra.ListSandboxFilesResponse:
+    properties:
+      entries:
+        items:
+          $ref: '#/definitions/hydra.SandboxFileEntry'
+        type: array
+      path:
         type: string
     type: object
-  kodit.RepositoryStatusSummaryData:
+  hydra.SandboxCommandResponse:
     properties:
-      attributes:
-        allOf:
-        - $ref: '#/definitions/kodit.RepositoryStatusSummaryAttributes'
-        description: Attributes Attributes for repository status summary.
+      args:
+        items:
+          type: string
+        type: array
+      cmd:
+        type: string
+      cwd:
+        type: string
+      detached:
+        type: boolean
+      exit_code:
+        type: integer
+      finished_at:
+        type: string
       id:
         type: string
-      type:
+      sandbox_id:
+        type: string
+      started_at:
+        type: string
+      status:
+        type: string
+      stderr:
+        type: string
+      stdout:
+        type: string
+      sudo:
+        type: boolean
+    type: object
+  hydra.SandboxFileEntry:
+    properties:
+      is_dir:
+        type: boolean
+      mod_time:
+        type: string
+      mode:
+        type: string
+      name:
+        type: string
+      path:
+        type: string
+      size:
+        type: integer
+    type: object
+  mcp.Icon:
+    properties:
+      mimeType:
+        description: Optional MIME type (e.g., "image/png", "image/svg+xml")
+        type: string
+      sizes:
+        description: Optional size specifications (e.g., ["48x48"], ["any"] for SVG)
+        items:
+          type: string
+        type: array
+      src:
+        description: URI pointing to the icon resource (HTTPS URL or data URI)
         type: string
     type: object
   mcp.Meta:
@@ -207,6 +249,16 @@ definitions:
           notifications. The receiver is not obligated to provide these
           notifications.
     type: object
+  mcp.TaskSupport:
+    enum:
+    - forbidden
+    - optional
+    - required
+    type: string
+    x-enum-varnames:
+    - TaskSupportForbidden
+    - TaskSupportOptional
+    - TaskSupportRequired
   mcp.Tool:
     properties:
       _meta:
@@ -218,9 +270,21 @@ definitions:
         allOf:
         - $ref: '#/definitions/mcp.ToolAnnotation'
         description: Optional properties describing tool behavior
+      defer_loading:
+        description: Support for deferred loading
+        type: boolean
       description:
         description: A human-readable description of the tool.
         type: string
+      execution:
+        allOf:
+        - $ref: '#/definitions/mcp.ToolExecution'
+        description: Execution describes execution behavior for the tool
+      icons:
+        description: Icons provides visual identifiers for the tool
+        items:
+          $ref: '#/definitions/mcp.Icon'
+        type: array
       inputSchema:
         allOf:
         - $ref: '#/definitions/mcp.ToolInputSchema'
@@ -229,6 +293,11 @@ definitions:
       name:
         description: The name of the tool.
         type: string
+      outputSchema:
+        allOf:
+        - $ref: '#/definitions/mcp.ToolOutputSchema'
+        description: A JSON Schema object defining the expected output returned by
+          the tool .
     type: object
   mcp.ToolAnnotation:
     properties:
@@ -248,11 +317,19 @@ definitions:
         description: Human-readable title for the tool
         type: string
     type: object
+  mcp.ToolExecution:
+    properties:
+      taskSupport:
+        allOf:
+        - $ref: '#/definitions/mcp.TaskSupport'
+        description: TaskSupport indicates whether the tool supports task augmentation.
+    type: object
   mcp.ToolInputSchema:
     properties:
       $defs:
         additionalProperties: {}
         type: object
+      additionalProperties: {}
       properties:
         additionalProperties: {}
         type: object
@@ -263,135 +340,21 @@ definitions:
       type:
         type: string
     type: object
-  memory.EstimateOptions:
+  mcp.ToolOutputSchema:
     properties:
-      flash_attention:
-        description: Advanced options
-        type: boolean
-      kv_cache_type:
-        description: '"f16", "q8_0", "q4_0"'
-        type: string
-      num_batch:
-        description: Batch size
-        type: integer
-      num_ctx:
-        description: Context size
-        type: integer
-      num_gpu:
-        description: |-
-          ⚠️  CRITICAL CONFUSION WARNING ⚠️
-          NumGPU is NOT the number of GPUs in your hardware configuration!
-          NumGPU is the number of MODEL LAYERS to offload to GPU (-1 for auto-detect all that fit)
-
-          Examples:
-          - NumGPU = -1: Auto-detect max layers that fit (RECOMMENDED - gives full model memory)
-          - NumGPU = 1:  Only offload 1 layer to GPU (gives tiny memory estimate)
-          - NumGPU = 0:  CPU only (no GPU layers)
-
-          To estimate for different GPU hardware configs (1 GPU vs 4 GPUs),
-          you pass different GPU configuration arrays to the estimation function,
-          NOT different NumGPU values!
-        type: integer
-      num_parallel:
-        description: Number of parallel sequences
-        type: integer
-    type: object
-  memory.GPUInfo:
-    properties:
-      compute:
-        type: string
-      dependency_path:
+      $defs:
+        additionalProperties: {}
+        type: object
+      additionalProperties: {}
+      properties:
+        additionalProperties: {}
+        type: object
+      required:
         items:
           type: string
         type: array
-      driver_major:
-        type: integer
-      driver_minor:
-        type: integer
-      env_workarounds:
-        items:
-          items:
-            type: string
-          type: array
-        type: array
-      free_memory:
-        type: integer
-      id:
+      type:
         type: string
-      index:
-        type: integer
-      library:
-        description: '"cuda", "rocm", "metal", "cpu"'
-        type: string
-      minimum_memory:
-        type: integer
-      name:
-        type: string
-      total_memory:
-        type: integer
-      unreliable_free_memory:
-        type: boolean
-      variant:
-        description: Additional fields for compatibility with Ollama's estimation
-        type: string
-    type: object
-  memory.MemoryEstimate:
-    properties:
-      architecture:
-        description: Metadata
-        type: string
-      estimated_at:
-        type: string
-      fully_loaded:
-        description: Whether all layers fit on GPU
-        type: boolean
-      gpu_sizes:
-        description: Memory allocation per GPU
-        items:
-          type: integer
-        type: array
-      gpus:
-        items:
-          $ref: '#/definitions/memory.GPUInfo'
-        type: array
-      graph:
-        description: Graph memory requirement
-        type: integer
-      graph_mem:
-        description: Graph computation memory
-        type: integer
-      kv_cache:
-        description: Breakdown for analysis
-        type: integer
-      layers:
-        description: Core results
-        type: integer
-      model_path:
-        type: string
-      options:
-        allOf:
-        - $ref: '#/definitions/memory.EstimateOptions'
-        description: Configuration used for estimation
-      projectors:
-        description: Projector weights (for multimodal)
-        type: integer
-      requires_fallback:
-        description: Whether CPU fallback is needed
-        type: boolean
-      tensor_split:
-        description: Layers per GPU for tensor parallel
-        items:
-          type: integer
-        type: array
-      total_size:
-        description: Total memory requirement
-        type: integer
-      vram_size:
-        description: Total VRAM usage
-        type: integer
-      weights:
-        description: Model weights memory
-        type: integer
     type: object
   openai.ChatCompletionChoice:
     properties:
@@ -432,6 +395,13 @@ definitions:
           - https://github.com/openai/openai-python/blob/main/chatml.md
           - https://github.com/openai/openai-cookbook/blob/main/examples/How_to_count_tokens_with_tiktoken.ipynb
         type: string
+      reasoning_content:
+        description: |-
+          This property is used for the "reasoning" feature supported by deepseek-reasoner
+          which is not in the official documentation.
+          the doc from deepseek:
+          - https://api-docs.deepseek.com/api/create-chat-completion#responses
+        type: string
       refusal:
         type: string
       role:
@@ -449,6 +419,14 @@ definitions:
     type: object
   openai.ChatCompletionRequest:
     properties:
+      chat_template_kwargs:
+        additionalProperties: {}
+        description: |-
+          ChatTemplateKwargs provides a way to add non-standard parameters to the request body.
+          Additional kwargs to pass to the template renderer. Will be accessible by the chat template.
+          Such as think mode for qwen3. "chat_template_kwargs": {"enable_thinking": false}
+          https://qwen.readthedocs.io/en/latest/deployment/vllm.html#thinking-non-thinking-modes
+        type: object
       frequency_penalty:
         type: number
       function_call:
@@ -457,6 +435,16 @@ definitions:
         description: 'Deprecated: use Tools instead.'
         items:
           $ref: '#/definitions/openai.FunctionDefinition'
+        type: array
+      guided_choice:
+        description: |-
+          GuidedChoice is a vLLM-specific extension that restricts the model's output
+          to one of the predefined string choices provided in this field. This feature
+          is used to constrain the model's responses to a controlled set of options,
+          ensuring predictable and consistent outputs in scenarios where specific
+          choices are required.
+        items:
+          type: string
         type: array
       logit_bias:
         additionalProperties:
@@ -481,7 +469,7 @@ definitions:
         description: |-
           MaxTokens The maximum number of tokens that can be generated in the chat completion.
           This value can be used to control costs for text generated via API.
-          This value is now deprecated in favor of max_completion_tokens, and is not compatible with o1 series models.
+          Deprecated: use MaxCompletionTokens. Not compatible with o1-series models.
           refs: https://platform.openai.com/docs/api-reference/chat/create#chat-create-max_tokens
         type: integer
       messages:
@@ -500,6 +488,10 @@ definitions:
       parallel_tool_calls:
         description: 'Disable the default behavior of parallel tool calls by setting
           it: false.'
+      prediction:
+        allOf:
+        - $ref: '#/definitions/openai.Prediction'
+        description: Configuration for a predicted output.
       presence_penalty:
         type: number
       reasoning_effort:
@@ -508,8 +500,19 @@ definitions:
         type: string
       response_format:
         $ref: '#/definitions/openai.ChatCompletionResponseFormat'
+      safety_identifier:
+        description: |-
+          A stable identifier used to help detect users of your application that may be violating OpenAI's usage policies.
+          The IDs should be a string that uniquely identifies each user.
+          We recommend hashing their username or email address, in order to avoid sending us any identifying information.
+          https://platform.openai.com/docs/api-reference/chat/create#chat_create-safety_identifier
+        type: string
       seed:
         type: integer
+      service_tier:
+        allOf:
+        - $ref: '#/definitions/openai.ServiceTier'
+        description: Specifies the latency tier to use for processing the request.
       stop:
         items:
           type: string
@@ -544,6 +547,14 @@ definitions:
         type: number
       user:
         type: string
+      verbosity:
+        description: |-
+          Verbosity determines how many output tokens are generated. Lowering the number of
+          tokens reduces overall latency. It can be set to "low", "medium", or "high".
+          Note: This field is only confirmed to work with gpt-5, gpt-5-mini and gpt-5-nano.
+          Also, it is not in the API reference of chat completion at the time of writing,
+          though it is supported by the API.
+        type: string
     type: object
   openai.ChatCompletionResponse:
     properties:
@@ -563,6 +574,8 @@ definitions:
         items:
           $ref: '#/definitions/openai.PromptFilterResult'
         type: array
+      service_tier:
+        $ref: '#/definitions/openai.ServiceTier'
       system_fingerprint:
         type: string
       usage:
@@ -621,9 +634,13 @@ definitions:
     - ChatMessagePartTypeImageURL
   openai.CompletionTokensDetails:
     properties:
+      accepted_prediction_tokens:
+        type: integer
       audio_tokens:
         type: integer
       reasoning_tokens:
+        type: integer
+      rejected_prediction_tokens:
         type: integer
     type: object
   openai.ContentFilterResults:
@@ -733,6 +750,13 @@ definitions:
           $ref: '#/definitions/openai.LogProb'
         type: array
     type: object
+  openai.Prediction:
+    properties:
+      content:
+        type: string
+      type:
+        type: string
+    type: object
   openai.Profanity:
     properties:
       detected:
@@ -761,6 +785,18 @@ definitions:
       severity:
         type: string
     type: object
+  openai.ServiceTier:
+    enum:
+    - auto
+    - default
+    - flex
+    - priority
+    type: string
+    x-enum-varnames:
+    - ServiceTierAuto
+    - ServiceTierDefault
+    - ServiceTierFlex
+    - ServiceTierPriority
   openai.Sexual:
     properties:
       filtered:
@@ -891,6 +927,13 @@ definitions:
         description: keyed by task_id
         type: object
     type: object
+  server.BatchTaskUsageMetric:
+    properties:
+      date:
+        type: string
+      total_tokens:
+        type: integer
+    type: object
   server.BatchTaskUsageResponse:
     properties:
       project_id:
@@ -898,7 +941,7 @@ definitions:
       tasks:
         additionalProperties:
           items:
-            $ref: '#/definitions/types.AggregatedUsageMetric'
+            $ref: '#/definitions/server.BatchTaskUsageMetric'
           type: array
         description: keyed by task_id
         type: object
@@ -924,6 +967,9 @@ definitions:
         type: string
       found:
         type: boolean
+      url:
+        description: OAuth URL for native browser
+        type: string
     type: object
   server.ClientBufferStats:
     properties:
@@ -957,24 +1003,6 @@ definitions:
       amount:
         type: number
       org_id:
-        type: string
-    type: object
-  server.DesignDocsResponse:
-    properties:
-      documents:
-        items:
-          $ref: '#/definitions/server.DesignDocument'
-        type: array
-      task_id:
-        type: string
-    type: object
-  server.DesignDocument:
-    properties:
-      content:
-        type: string
-      filename:
-        type: string
-      path:
         type: string
     type: object
   server.DevContainerWithClients:
@@ -1151,6 +1179,570 @@ definitions:
       turn:
         type: integer
     type: object
+  server.KoditAdminActiveTaskDTO:
+    properties:
+      current:
+        type: integer
+      message:
+        type: string
+      operation:
+        type: string
+      repo_name:
+        type: string
+      repository_id:
+        type: integer
+      state:
+        type: string
+      total:
+        type: integer
+      updated_at:
+        type: string
+    type: object
+  server.KoditAdminBatchRequest:
+    properties:
+      ids:
+        items:
+          type: integer
+        type: array
+    type: object
+  server.KoditAdminBatchResponse:
+    properties:
+      failed:
+        items:
+          $ref: '#/definitions/server.KoditBatchError'
+        type: array
+      succeeded:
+        items:
+          type: integer
+        type: array
+    type: object
+  server.KoditAdminPaginationMeta:
+    properties:
+      page:
+        type: integer
+      per_page:
+        type: integer
+      total:
+        type: integer
+      total_pages:
+        type: integer
+    type: object
+  server.KoditAdminPendingTaskDTO:
+    properties:
+      created_at:
+        type: string
+      id:
+        type: integer
+      operation:
+        type: string
+      priority:
+        type: integer
+    type: object
+  server.KoditAdminQueueListResponse:
+    properties:
+      active_tasks:
+        items:
+          $ref: '#/definitions/server.KoditAdminActiveTaskDTO'
+        type: array
+      data:
+        items:
+          $ref: '#/definitions/server.KoditAdminQueueTaskDTO'
+        type: array
+      meta:
+        $ref: '#/definitions/server.KoditAdminPaginationMeta'
+      stats:
+        $ref: '#/definitions/server.KoditAdminQueueStats'
+    type: object
+  server.KoditAdminQueueStats:
+    properties:
+      by_operation:
+        additionalProperties:
+          type: integer
+        type: object
+      by_priority_level:
+        additionalProperties:
+          type: integer
+        type: object
+      newest_task_time:
+        type: string
+      oldest_task_age:
+        type: string
+      oldest_task_time:
+        type: string
+      total:
+        type: integer
+    type: object
+  server.KoditAdminQueueTaskDTO:
+    properties:
+      created_at:
+        type: string
+      id:
+        type: integer
+      operation:
+        type: string
+      priority:
+        type: integer
+      repo_name:
+        type: string
+      repository_id:
+        type: integer
+    type: object
+  server.KoditAdminRepoAttributes:
+    properties:
+      created_at:
+        type: string
+      helix_org_id:
+        type: string
+      helix_repo_id:
+        type: string
+      helix_repo_name:
+        type: string
+      remote_url:
+        type: string
+      status:
+        type: string
+      status_message:
+        type: string
+      updated_at:
+        type: string
+    type: object
+  server.KoditAdminRepoDTO:
+    properties:
+      attributes:
+        $ref: '#/definitions/server.KoditAdminRepoAttributes'
+      id:
+        type: string
+      type:
+        type: string
+    type: object
+  server.KoditAdminRepoDetailAttributes:
+    properties:
+      branch_count:
+        type: integer
+      commit_count:
+        type: integer
+      created_at:
+        type: string
+      default_branch:
+        type: string
+      enrichment_count:
+        type: integer
+      helix_org_id:
+        type: string
+      helix_org_name:
+        type: string
+      helix_repo_id:
+        type: string
+      helix_repo_name:
+        type: string
+      last_scanned_at:
+        description: Last time Kodit scanned this repository
+        type: string
+      latest_commit_author:
+        type: string
+      latest_commit_date:
+        type: string
+      latest_commit_message:
+        type: string
+      latest_commit_sha:
+        description: Latest commit tracked by Kodit
+        type: string
+      remote_url:
+        type: string
+      status:
+        type: string
+      status_message:
+        type: string
+      tag_count:
+        type: integer
+      updated_at:
+        type: string
+    type: object
+  server.KoditAdminRepoDetailDTO:
+    properties:
+      attributes:
+        $ref: '#/definitions/server.KoditAdminRepoDetailAttributes'
+      id:
+        type: string
+      type:
+        type: string
+    type: object
+  server.KoditAdminRepoDetailResponse:
+    properties:
+      data:
+        $ref: '#/definitions/server.KoditAdminRepoDetailDTO'
+    type: object
+  server.KoditAdminRepoListResponse:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/server.KoditAdminRepoDTO'
+        type: array
+      meta:
+        $ref: '#/definitions/server.KoditAdminPaginationMeta'
+    type: object
+  server.KoditAdminRepositoryTasksResponse:
+    properties:
+      pending_tasks:
+        items:
+          $ref: '#/definitions/server.KoditAdminPendingTaskDTO'
+        type: array
+      statuses:
+        items:
+          $ref: '#/definitions/server.KoditAdminTaskStatusDTO'
+        type: array
+    type: object
+  server.KoditAdminStatsResponse:
+    properties:
+      commits:
+        type: integer
+      enrichments:
+        type: integer
+      pending_tasks:
+        type: integer
+      repositories:
+        type: integer
+    type: object
+  server.KoditAdminTaskStatusDTO:
+    properties:
+      current:
+        type: integer
+      error:
+        type: string
+      message:
+        type: string
+      operation:
+        type: string
+      state:
+        type: string
+      total:
+        type: integer
+      updated_at:
+        type: string
+    type: object
+  server.KoditAdminUpdatePriorityRequest:
+    properties:
+      priority:
+        type: integer
+    type: object
+  server.KoditBatchError:
+    properties:
+      id:
+        type: integer
+      message:
+        type: string
+    type: object
+  server.KoditCommitAttributes:
+    properties:
+      authored_at:
+        type: string
+      committed_at:
+        type: string
+      message:
+        type: string
+      sha:
+        type: string
+    type: object
+  server.KoditCommitDTO:
+    properties:
+      attributes:
+        $ref: '#/definitions/server.KoditCommitAttributes'
+      id:
+        type: string
+      type:
+        type: string
+    type: object
+  server.KoditEnrichmentAttributes:
+    properties:
+      content:
+        type: string
+      created_at:
+        type: string
+      subtype:
+        type: string
+      type:
+        type: string
+      updated_at:
+        type: string
+    type: object
+  server.KoditEnrichmentDTO:
+    properties:
+      attributes:
+        $ref: '#/definitions/server.KoditEnrichmentAttributes'
+      commit_sha:
+        type: string
+      id:
+        type: string
+      type:
+        type: string
+    type: object
+  server.KoditEnrichmentListResponse:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/server.KoditEnrichmentDTO'
+        type: array
+    type: object
+  server.KoditEnrichmentsMeta:
+    properties:
+      commit_sha:
+        type: string
+      count:
+        type: integer
+      enrichment_type:
+        type: string
+      kodit_repo_id:
+        type: integer
+      page:
+        type: integer
+      per_page:
+        type: integer
+      total:
+        type: integer
+      total_pages:
+        type: integer
+    type: object
+  server.KoditFileContentDTO:
+    properties:
+      commit_sha:
+        type: string
+      content:
+        type: string
+      path:
+        type: string
+    type: object
+  server.KoditFileContentResponse:
+    properties:
+      data:
+        $ref: '#/definitions/server.KoditFileContentDTO'
+      links:
+        additionalProperties:
+          type: string
+        type: object
+    type: object
+  server.KoditFileEntryDTO:
+    properties:
+      links:
+        additionalProperties:
+          type: string
+        type: object
+      path:
+        type: string
+      size:
+        type: integer
+    type: object
+  server.KoditFileResultDTO:
+    properties:
+      language:
+        type: string
+      lines:
+        type: string
+      links:
+        additionalProperties:
+          type: string
+        type: object
+      page:
+        type: integer
+      path:
+        type: string
+      preview:
+        type: string
+      score:
+        type: number
+    type: object
+  server.KoditFilesMeta:
+    properties:
+      count:
+        type: integer
+      pattern:
+        type: string
+    type: object
+  server.KoditFilesResponse:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/server.KoditFileEntryDTO'
+        type: array
+      links:
+        additionalProperties:
+          type: string
+        type: object
+      meta:
+        $ref: '#/definitions/server.KoditFilesMeta'
+    type: object
+  server.KoditGrepMatchDTO:
+    properties:
+      content:
+        type: string
+      line:
+        type: integer
+    type: object
+  server.KoditGrepMeta:
+    properties:
+      count:
+        type: integer
+      glob:
+        type: string
+      limit:
+        type: integer
+      pattern:
+        type: string
+    type: object
+  server.KoditGrepResponse:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/server.KoditGrepResultDTO'
+        type: array
+      links:
+        additionalProperties:
+          type: string
+        type: object
+      meta:
+        $ref: '#/definitions/server.KoditGrepMeta'
+    type: object
+  server.KoditGrepResultDTO:
+    properties:
+      language:
+        type: string
+      links:
+        additionalProperties:
+          type: string
+        type: object
+      matches:
+        items:
+          $ref: '#/definitions/server.KoditGrepMatchDTO'
+        type: array
+      path:
+        type: string
+    type: object
+  server.KoditIndexingStatusAttributes:
+    properties:
+      message:
+        type: string
+      status:
+        type: string
+      tasks_active:
+        type: integer
+      tasks_completed:
+        type: integer
+      tasks_failed:
+        type: integer
+      tasks_pending:
+        type: integer
+      tasks_total:
+        type: integer
+      updated_at:
+        type: string
+    type: object
+  server.KoditIndexingStatusDTO:
+    properties:
+      data:
+        $ref: '#/definitions/server.KoditIndexingStatusData'
+    type: object
+  server.KoditIndexingStatusData:
+    properties:
+      attributes:
+        $ref: '#/definitions/server.KoditIndexingStatusAttributes'
+      id:
+        type: string
+      type:
+        type: string
+    type: object
+  server.KoditRepoEnrichmentsResponse:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/server.KoditEnrichmentDTO'
+        type: array
+      links:
+        additionalProperties:
+          type: string
+        type: object
+      meta:
+        $ref: '#/definitions/server.KoditEnrichmentsMeta'
+    type: object
+  server.KoditSearchMeta:
+    properties:
+      count:
+        type: integer
+      language:
+        type: string
+      limit:
+        type: integer
+      query:
+        type: string
+    type: object
+  server.KoditSearchResponse:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/server.KoditFileResultDTO'
+        type: array
+      links:
+        additionalProperties:
+          type: string
+        type: object
+      meta:
+        $ref: '#/definitions/server.KoditSearchMeta'
+    type: object
+  server.KoditSearchResultDTO:
+    properties:
+      content:
+        type: string
+      id:
+        type: string
+      language:
+        type: string
+      type:
+        type: string
+    type: object
+  server.KoditWikiPageDTO:
+    properties:
+      content:
+        type: string
+      slug:
+        type: string
+      title:
+        type: string
+    type: object
+  server.KoditWikiPageResponse:
+    properties:
+      data:
+        $ref: '#/definitions/server.KoditWikiPageDTO'
+      links:
+        additionalProperties:
+          type: string
+        type: object
+    type: object
+  server.KoditWikiTreeNodeDTO:
+    properties:
+      children:
+        items:
+          $ref: '#/definitions/server.KoditWikiTreeNodeDTO'
+        type: array
+      links:
+        additionalProperties:
+          type: string
+        type: object
+      path:
+        type: string
+      slug:
+        type: string
+      title:
+        type: string
+    type: object
+  server.KoditWikiTreeResponse:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/server.KoditWikiTreeNodeDTO'
+        type: array
+      links:
+        additionalProperties:
+          type: string
+        type: object
+    type: object
   server.LicenseKeyRequest:
     properties:
       license_key:
@@ -1164,23 +1756,6 @@ definitions:
         type: array
       session_id:
         type: string
-    type: object
-  server.LogsSummary:
-    properties:
-      active_instances:
-        type: integer
-      error_retention_hours:
-        type: integer
-      instances_with_errors:
-        type: integer
-      max_lines_per_buffer:
-        type: integer
-      recent_errors:
-        type: integer
-      slots:
-        items:
-          $ref: '#/definitions/server.SlotLogSummary'
-        type: array
     type: object
   server.ModelSubstitution:
     properties:
@@ -1220,6 +1795,13 @@ definitions:
         type: string
       status:
         type: string
+    type: object
+  server.PinnedProjectsResponse:
+    properties:
+      pinned_project_ids:
+        items:
+          type: string
+        type: array
     type: object
   server.PromptPinRequest:
     properties:
@@ -1372,15 +1954,75 @@ definitions:
           $ref: '#/definitions/server.SampleType'
         type: array
     type: object
+  server.SandboxBillingResponse:
+    properties:
+      enabled:
+        type: boolean
+      pending_credits:
+        type: number
+      price_credits_per_second:
+        type: number
+      runtime:
+        type: string
+      total_credits_charged:
+        type: number
+      vcpus:
+        type: integer
+    type: object
   server.SandboxInstanceInfo:
     properties:
+      active_profile_id:
+        description: |-
+          Inference profile state — populated from the heartbeat. Empty for
+          pure-agent sandboxes with no profile assigned.
+        type: string
       container_id:
         type: string
       id:
         type: string
+      profile_error:
+        type: string
+      profile_progress:
+        additionalProperties:
+          $ref: '#/definitions/types.ServiceDownloadProgress'
+        type: object
+      profile_status:
+        type: string
+      service_health:
+        additionalProperties:
+          type: string
+        type: object
       session_id:
         type: string
       status:
+        type: string
+    type: object
+  server.SandboxTerminalSession:
+    properties:
+      attached:
+        type: boolean
+      created:
+        type: integer
+      name:
+        type: string
+      windows:
+        type: integer
+    type: object
+  server.SandboxTerminalSessionsResponse:
+    properties:
+      sessions:
+        items:
+          $ref: '#/definitions/server.SandboxTerminalSession'
+        type: array
+    type: object
+  server.SessionClaudeCredentialsResponse:
+    properties:
+      credential_type:
+        description: '"oauth" or "setup_token"'
+        type: string
+      oauth_credentials:
+        $ref: '#/definitions/types.ClaudeOAuthCredentials'
+      setup_token:
         type: string
     type: object
   server.SessionSandboxStateResponse:
@@ -1512,17 +2154,6 @@ definitions:
           type: string
         type: array
     type: object
-  server.SlotLogSummary:
-    properties:
-      has_logs:
-        type: boolean
-      id:
-        type: string
-      model:
-        type: string
-      runner_id:
-        type: string
-    type: object
   server.TaskProgressResponse:
     properties:
       checklist:
@@ -1576,58 +2207,54 @@ definitions:
       gop_buffer_size:
         type: integer
     type: object
-  services.KoditEnrichmentAttributes:
+  server.addLabelRequest:
     properties:
-      content:
-        type: string
-      created_at:
-        type: string
-      subtype:
-        type: string
-      type:
-        type: string
-      updated_at:
+      label:
         type: string
     type: object
-  services.KoditEnrichmentData:
+  server.openaiModelEntry:
     properties:
-      attributes:
-        $ref: '#/definitions/services.KoditEnrichmentAttributes'
-      commit_sha:
-        description: Added for frontend
-        type: string
+      created:
+        type: integer
       id:
         type: string
-      type:
+      object:
+        type: string
+      owned_by:
         type: string
     type: object
-  services.KoditEnrichmentListResponse:
+  server.openaiModelsResponse:
     properties:
       data:
         items:
-          $ref: '#/definitions/services.KoditEnrichmentData'
+          $ref: '#/definitions/server.openaiModelEntry'
         type: array
+      object:
+        type: string
     type: object
-  services.KoditIndexingStatus:
+  server.runnerProfileAssignRequest:
     properties:
-      data:
-        allOf:
-        - $ref: '#/definitions/kodit.RepositoryStatusSummaryData'
-        description: Data Data for repository status summary response.
+      profile_id:
+        type: string
     type: object
-  services.KoditSearchResult:
+  server.runnerProfileSaveRequest:
     properties:
-      content:
+      architectures:
+        items:
+          type: string
+        type: array
+      compose_yaml:
         type: string
-      file_path:
-        description: File path from DerivesFrom
+      description:
         type: string
-      id:
+      min_vram_bytes:
+        type: integer
+      model_match:
         type: string
-      language:
+      name:
         type: string
-      type:
-        type: string
+      vendor:
+        $ref: '#/definitions/types.GPUVendor'
     type: object
   services.SampleProjectCode:
     properties:
@@ -1845,6 +2472,14 @@ definitions:
     - AgentWorkStateDone
   types.AggregatedUsageMetric:
     properties:
+      cache_read_cost:
+        type: number
+      cache_read_tokens:
+        type: integer
+      cache_write_cost:
+        type: number
+      cache_write_tokens:
+        type: integer
       completion_cost:
         type: number
       completion_tokens:
@@ -1862,59 +2497,15 @@ definitions:
         type: integer
       response_size_bytes:
         type: integer
+      sandbox_cost:
+        type: number
       total_cost:
-        description: Total cost of the call (prompt and completion tokens)
+        description: Prompt + completion + cache read + cache write
         type: number
       total_requests:
         type: integer
       total_tokens:
         type: integer
-    type: object
-  types.AllocationPlanView:
-    properties:
-      cost:
-        type: integer
-      evictions_needed:
-        description: Slot IDs
-        items:
-          type: string
-        type: array
-      gpu_count:
-        type: integer
-      gpus:
-        items:
-          type: integer
-        type: array
-      id:
-        type: string
-      is_multi_gpu:
-        type: boolean
-      is_valid:
-        type: boolean
-      memory_per_gpu:
-        type: integer
-      requires_eviction:
-        type: boolean
-      runner_capacity:
-        additionalProperties:
-          type: integer
-        description: GPU index -> total memory
-        type: object
-      runner_id:
-        type: string
-      runner_memory_state:
-        additionalProperties:
-          type: integer
-        description: GPU index -> allocated memory
-        type: object
-      runtime:
-        $ref: '#/definitions/github_com_helixml_helix_api_pkg_types.Runtime'
-      tensor_parallel_size:
-        type: integer
-      total_memory_required:
-        type: integer
-      validation_error:
-        type: string
     type: object
   types.ApiKey:
     properties:
@@ -2100,10 +2691,6 @@ definitions:
     type: object
   types.AssistantConfig:
     properties:
-      agent_mode:
-        description: AgentMode triggers the use of the agent loop (deprecated - use
-          AgentType instead)
-        type: boolean
       agent_type:
         allOf:
         - $ref: '#/definitions/types.AgentType'
@@ -2408,6 +2995,71 @@ definitions:
       name:
         type: string
     type: object
+  types.AttentionEvent:
+    properties:
+      acknowledged_at:
+        type: string
+      created_at:
+        type: string
+      description:
+        type: string
+      dismissed_at:
+        type: string
+      event_type:
+        $ref: '#/definitions/types.AttentionEventType'
+      id:
+        type: string
+      idempotency_key:
+        type: string
+      metadata:
+        items:
+          type: integer
+        type: array
+      organization_id:
+        type: string
+      project_id:
+        type: string
+      project_name:
+        description: Denormalized for display without joins
+        type: string
+      snoozed_until:
+        type: string
+      spec_task_id:
+        type: string
+      spec_task_name:
+        type: string
+      title:
+        type: string
+      user_id:
+        type: string
+    type: object
+  types.AttentionEventType:
+    enum:
+    - specs_pushed
+    - agent_interaction_completed
+    - spec_failed
+    - implementation_failed
+    - pr_ready
+    - ci_passed
+    - ci_failed
+    type: string
+    x-enum-varnames:
+    - AttentionEventSpecsPushed
+    - AttentionEventAgentInteractionCompleted
+    - AttentionEventSpecFailed
+    - AttentionEventImplementationFailed
+    - AttentionEventPRReady
+    - AttentionEventCIPassed
+    - AttentionEventCIFailed
+  types.AttentionEventUpdateRequest:
+    properties:
+      acknowledge:
+        type: boolean
+      dismiss:
+        type: boolean
+      snoozed_until:
+        type: string
+    type: object
   types.AuditEventType:
     enum:
     - task_created
@@ -2500,11 +3152,11 @@ definitions:
       project_name:
         description: Project information
         type: string
-      pull_request_id:
+      pull_requests:
         description: Pull request information
-        type: string
-      pull_request_url:
-        type: string
+        items:
+          $ref: '#/definitions/types.RepoPR'
+        type: array
       requirements_spec_hash:
         description: Hash of requirements spec content
         type: string
@@ -2742,6 +3394,9 @@ definitions:
       created:
         type: string
       created_by:
+        type: string
+      credential_type:
+        description: '"oauth" or "setup_token"'
         type: string
       id:
         type: string
@@ -3112,6 +3767,9 @@ definitions:
         allOf:
         - $ref: '#/definitions/types.OwnerType'
         description: '"user" or "org"'
+      setup_token:
+        description: From `claude setup-token` (alternative to credentials)
+        type: string
     type: object
   types.CreatePullRequestRequest:
     properties:
@@ -3147,6 +3805,55 @@ definitions:
       sample_type:
         type: string
     type: object
+  types.CreateSandboxRequest:
+    properties:
+      display_fps:
+        type: integer
+      display_height:
+        type: integer
+      display_width:
+        type: integer
+      env:
+        additionalProperties:
+          type: string
+        type: object
+      image:
+        description: |-
+          Image is an optional explicit Docker image override. Only honoured
+          when the operator has set HELIX_SANDBOX_ALLOW_CUSTOM_IMAGE=true.
+          Mutually exclusive with Runtime.
+        type: string
+      memory_mb:
+        type: integer
+      name:
+        type: string
+      persistent:
+        description: |-
+          Persistent makes the sandbox keep a workspace mount across container
+          restarts. Files written under /home/retro/work survive teardown until
+          the sandbox is explicitly deleted.
+        type: boolean
+      project_id:
+        description: |-
+          ProjectID optionally associates the sandbox with a project the caller
+          belongs to. Empty means org-scoped only.
+        type: string
+      runtime:
+        allOf:
+        - $ref: '#/definitions/types.SandboxRuntime'
+        description: |-
+          Runtime selects one of the operator-configured runtimes
+          (e.g. "headless-ubuntu", "node22", "ubuntu-desktop"). Mutually
+          exclusive with Image.
+      tags:
+        additionalProperties:
+          type: string
+        type: object
+      timeout_seconds:
+        type: integer
+      vcpus:
+        type: integer
+    type: object
   types.CreateSecretRequest:
     properties:
       app_id:
@@ -3165,6 +3872,13 @@ definitions:
       app_id:
         description: 'Optional: Helix agent to use for spec generation'
         type: string
+      assignee_id:
+        description: 'Optional: team member assigned to the task'
+        type: string
+      auto_start:
+        description: 'Optional: Skip backlog and start immediately, regardless of
+          project auto-start setting'
+        type: boolean
       base_branch:
         description: 'For new mode: branch to create from (defaults to repo default)'
         type: string
@@ -3238,77 +3952,31 @@ definitions:
     type: object
   types.CronTrigger:
     properties:
+      action:
+        description: '"session" (default) or "spec_task"'
+        type: string
+      agent_type:
+        description: '"helix" (default) or "zed_external"'
+        type: string
+      callback_url:
+        description: Webhook URL to POST on completion
+        type: string
+      emails:
+        items:
+          type: string
+        type: array
       enabled:
         type: boolean
       input:
         type: string
+      input_file:
+        description: File path in helix-specs worktree to use as prompt (overrides
+          Input)
+        type: string
+      project_id:
+        description: Target project for spec_task action
+        type: string
       schedule:
-        type: string
-    type: object
-  types.DashboardData:
-    properties:
-      global_allocation_decisions:
-        items:
-          $ref: '#/definitions/types.GlobalAllocationDecision'
-        type: array
-      queue:
-        items:
-          $ref: '#/definitions/types.WorkloadSummary'
-        type: array
-      runners:
-        items:
-          $ref: '#/definitions/types.DashboardRunner'
-        type: array
-      scheduling_decisions:
-        items:
-          $ref: '#/definitions/types.SchedulingDecision'
-        type: array
-    type: object
-  types.DashboardRunner:
-    properties:
-      allocated_memory:
-        type: integer
-      created:
-        type: string
-      free_memory:
-        type: integer
-      gpu_count:
-        description: Number of GPUs detected
-        type: integer
-      gpu_memory_stats:
-        allOf:
-        - $ref: '#/definitions/types.GPUMemoryStats'
-        description: GPU memory stabilization statistics
-      gpus:
-        description: Per-GPU memory status
-        items:
-          $ref: '#/definitions/types.GPUStatus'
-        type: array
-      id:
-        type: string
-      labels:
-        additionalProperties:
-          type: string
-        type: object
-      memory_string:
-        type: string
-      models:
-        items:
-          $ref: '#/definitions/types.RunnerModelStatus'
-        type: array
-      process_stats:
-        description: Process tracking and cleanup statistics
-      slots:
-        items:
-          $ref: '#/definitions/types.RunnerSlot'
-        type: array
-      total_memory:
-        type: integer
-      updated:
-        type: string
-      used_memory:
-        type: integer
-      version:
         type: string
     type: object
   types.DiscordTrigger:
@@ -3383,6 +4051,170 @@ definitions:
     x-enum-varnames:
     - EffectAllow
     - EffectDeny
+  types.EvaluationAssertion:
+    properties:
+      llm_judge_prompt:
+        description: Custom prompt for LLM judge mode
+        type: string
+      type:
+        $ref: '#/definitions/types.EvaluationAssertionType'
+      value:
+        description: Expected string, regex pattern, or skill name
+        type: string
+    type: object
+  types.EvaluationAssertionResult:
+    properties:
+      assertion_type:
+        $ref: '#/definitions/types.EvaluationAssertionType'
+      assertion_value:
+        type: string
+      details:
+        description: e.g. LLM judge reasoning
+        type: string
+      passed:
+        type: boolean
+    type: object
+  types.EvaluationAssertionType:
+    enum:
+    - contains
+    - not_contains
+    - regex
+    - llm_judge
+    - skill_used
+    type: string
+    x-enum-varnames:
+    - EvaluationAssertionTypeContains
+    - EvaluationAssertionTypeNotContains
+    - EvaluationAssertionTypeRegex
+    - EvaluationAssertionTypeLLMJudge
+    - EvaluationAssertionTypeSkillUsed
+  types.EvaluationQuestion:
+    properties:
+      assertions:
+        items:
+          $ref: '#/definitions/types.EvaluationAssertion'
+        type: array
+      id:
+        type: string
+      question:
+        type: string
+    type: object
+  types.EvaluationQuestionResult:
+    properties:
+      assertion_results:
+        items:
+          $ref: '#/definitions/types.EvaluationAssertionResult'
+        type: array
+      cost:
+        type: number
+      duration_ms:
+        type: integer
+      error:
+        type: string
+      interaction_id:
+        type: string
+      passed:
+        type: boolean
+      question:
+        type: string
+      question_id:
+        type: string
+      response:
+        type: string
+      session_id:
+        type: string
+      skills_used:
+        items:
+          type: string
+        type: array
+      tokens_used:
+        $ref: '#/definitions/types.Usage'
+    type: object
+  types.EvaluationRun:
+    properties:
+      app_config_snapshot:
+        $ref: '#/definitions/types.AppConfig'
+      app_id:
+        type: string
+      created:
+        type: string
+      error:
+        type: string
+      id:
+        type: string
+      organization_id:
+        type: string
+      results:
+        items:
+          $ref: '#/definitions/types.EvaluationQuestionResult'
+        type: array
+      status:
+        $ref: '#/definitions/types.EvaluationRunStatus'
+      suite_id:
+        type: string
+      summary:
+        $ref: '#/definitions/types.EvaluationRunSummary'
+      updated:
+        type: string
+      user_id:
+        type: string
+    type: object
+  types.EvaluationRunStatus:
+    enum:
+    - pending
+    - running
+    - completed
+    - failed
+    - cancelled
+    type: string
+    x-enum-varnames:
+    - EvaluationRunStatusPending
+    - EvaluationRunStatusRunning
+    - EvaluationRunStatusCompleted
+    - EvaluationRunStatusFailed
+    - EvaluationRunStatusCancelled
+  types.EvaluationRunSummary:
+    properties:
+      failed:
+        type: integer
+      passed:
+        type: integer
+      skills_used:
+        items:
+          type: string
+        type: array
+      total_cost:
+        type: number
+      total_duration_ms:
+        type: integer
+      total_questions:
+        type: integer
+      total_tokens:
+        type: integer
+    type: object
+  types.EvaluationSuite:
+    properties:
+      app_id:
+        type: string
+      created:
+        type: string
+      description:
+        type: string
+      id:
+        type: string
+      name:
+        type: string
+      organization_id:
+        type: string
+      questions:
+        items:
+          $ref: '#/definitions/types.EvaluationQuestion'
+        type: array
+      updated:
+        type: string
+      user_id:
+        type: string
+    type: object
   types.ExecuteQuestionSetRequest:
     properties:
       app_id:
@@ -3621,125 +4453,14 @@ definitions:
       valid_until:
         type: string
     type: object
-  types.GPUMemoryDataPoint:
-    properties:
-      actual_free_mb:
-        description: Actual free memory (from nvidia-smi)
-        type: integer
-      actual_total_mb:
-        description: Total GPU memory
-        type: integer
-      actual_used_mb:
-        description: Actual memory used (from nvidia-smi)
-        type: integer
-      allocated_mb:
-        description: Memory allocated by Helix scheduler
-        type: integer
-      gpu_index:
-        type: integer
-      timestamp:
-        type: string
-    type: object
-  types.GPUMemoryReading:
-    properties:
-      delta_mb:
-        type: integer
-      is_stable:
-        type: boolean
-      memory_mb:
-        type: integer
-      poll_number:
-        type: integer
-      stable_count:
-        type: integer
-    type: object
-  types.GPUMemoryStabilizationEvent:
-    properties:
-      context:
-        description: '"startup" or "deletion"'
-        type: string
-      error_message:
-        type: string
-      memory_delta_threshold_mb:
-        type: integer
-      memory_readings:
-        items:
-          $ref: '#/definitions/types.GPUMemoryReading'
-        type: array
-      poll_interval_ms:
-        type: integer
-      polls_taken:
-        type: integer
-      required_stable_polls:
-        type: integer
-      runtime:
-        type: string
-      slot_id:
-        type: string
-      stabilized_memory_mb:
-        type: integer
-      success:
-        type: boolean
-      timeout_seconds:
-        type: integer
-      timestamp:
-        type: string
-      total_wait_seconds:
-        type: integer
-    type: object
-  types.GPUMemoryStats:
-    properties:
-      average_wait_time_seconds:
-        type: number
-      failed_stabilizations:
-        type: integer
-      last_stabilization:
-        type: string
-      max_wait_time_seconds:
-        type: integer
-      memory_time_series:
-        description: Last 10 minutes of memory data
-        items:
-          $ref: '#/definitions/types.GPUMemoryDataPoint'
-        type: array
-      min_wait_time_seconds:
-        type: integer
-      recent_events:
-        description: Last 20 events
-        items:
-          $ref: '#/definitions/types.GPUMemoryStabilizationEvent'
-        type: array
-      scheduling_events:
-        description: Last 10 minutes of scheduling events
-        items:
-          $ref: '#/definitions/types.SchedulingEvent'
-        type: array
-      successful_stabilizations:
-        type: integer
-      total_stabilizations:
-        type: integer
-    type: object
-  types.GPUState:
-    properties:
-      active_slots:
-        description: Slot IDs using this GPU
-        items:
-          type: string
-        type: array
-      allocated_memory:
-        type: integer
-      free_memory:
-        type: integer
-      index:
-        type: integer
-      total_memory:
-        type: integer
-      utilization:
-        description: 0.0 - 1.0
-        type: number
-    type: object
   types.GPUStatus:
     properties:
+      architecture:
+        description: canonical arch from gpuarch (e.g. "hopper")
+        type: string
+      compute_capability:
+        description: NVIDIA only — raw "9.0" / "8.6" etc.
+        type: string
       driver_version:
         description: GPU driver version (NVIDIA or AMD)
         type: string
@@ -3762,7 +4483,22 @@ definitions:
       used_memory:
         description: Used memory in bytes
         type: integer
+      vendor:
+        allOf:
+        - $ref: '#/definitions/types.GPUVendor'
+        description: |-
+          Sandbox-absorbs-runner pivot fields (AC2 in requirements.md).
+          Populated by the worker on its periodic status report; consumed by
+          the API server's profile-compatibility check.
     type: object
+  types.GPUVendor:
+    enum:
+    - nvidia
+    - amd
+    type: string
+    x-enum-varnames:
+    - GPUVendorNVIDIA
+    - GPUVendorAMD
   types.GitHub:
     properties:
       app_id:
@@ -3879,6 +4615,11 @@ definitions:
       external_url:
         description: Full URL to external repo (e.g., https://github.com/org/repo)
         type: string
+      git_provider_connection_id:
+        description: |-
+          GitProviderConnectionID - references a GitProviderConnection (saved PAT) for authentication
+          When set, the encrypted token is decrypted and used for clone/push operations
+        type: string
       github:
         $ref: '#/definitions/types.GitHub'
       gitlab:
@@ -3915,12 +4656,6 @@ definitions:
       password:
         description: Password for the repository
         type: string
-      project_id:
-        description: |-
-          Deprecated: ProjectID is maintained for backward compatibility only.
-          Use the project_repositories junction table for many-to-many project-repo relationships.
-          This column is kept in the database for rollback compatibility but reads should use the junction table.
-        type: string
       repo_type:
         $ref: '#/definitions/types.GitRepositoryType'
       status:
@@ -3949,6 +4684,10 @@ definitions:
         description: '"github", "gitlab", "ado", "bitbucket", etc.'
       external_url:
         description: Full URL to external repo (e.g., https://github.com/org/repo)
+        type: string
+      git_provider_connection_id:
+        description: GitProviderConnectionID - references a saved PAT connection for
+          authentication
         type: string
       github:
         $ref: '#/definitions/types.GitHub'
@@ -4069,59 +4808,6 @@ definitions:
       username:
         type: string
     type: object
-  types.GlobalAllocationDecision:
-    properties:
-      after_state:
-        additionalProperties:
-          $ref: '#/definitions/types.RunnerStateView'
-        type: object
-      before_state:
-        additionalProperties:
-          $ref: '#/definitions/types.RunnerStateView'
-        description: Global state snapshots
-        type: object
-      considered_plans:
-        description: All plans considered
-        items:
-          $ref: '#/definitions/types.AllocationPlanView'
-        type: array
-      created:
-        type: string
-      error_message:
-        type: string
-      execution_time_ms:
-        type: integer
-      id:
-        type: string
-      model_name:
-        type: string
-      optimization_score:
-        description: How optimal the final decision was
-        type: number
-      planning_time_ms:
-        description: Timing information
-        type: integer
-      reason:
-        type: string
-      runtime:
-        $ref: '#/definitions/github_com_helixml_helix_api_pkg_types.Runtime'
-      selected_plan:
-        $ref: '#/definitions/types.AllocationPlanView'
-      session_id:
-        type: string
-      success:
-        description: Decision outcome
-        type: boolean
-      total_plans_generated:
-        type: integer
-      total_runners_evaluated:
-        description: Decision metadata
-        type: integer
-      total_time_ms:
-        type: integer
-      workload_id:
-        type: string
-    type: object
   types.GuidelinesHistory:
     properties:
       change_note:
@@ -4168,6 +4854,14 @@ definitions:
     properties:
       app_id:
         type: string
+      auto_wake_count:
+        description: |-
+          AutoWakeCount tracks how many times the auto-wake worker has sent a
+          follow-up "continue" prompt to unstick this interaction. Zero means
+          this is a normal user-initiated interaction; non-zero on an
+          auto-wake interaction itself records which retry attempt it is.
+          See design/2026-04-25-zed-claude-async-event-flush-on-user-input.md.
+        type: integer
       completed:
         type: string
       created:
@@ -4198,8 +4892,24 @@ definitions:
           Used to detect multi-message responses: same ID = streaming update (overwrite),
           different ID = new distinct message (append). Persisted in DB for restart resilience.
         type: string
+      last_zed_message_offset:
+        description: |-
+          LastZedMessageOffset is the byte offset in ResponseMessage where the current
+          message_id's content begins. Used by the accumulator to replace only the
+          current message's portion during streaming updates, preserving earlier messages.
+        type: integer
       mode:
         $ref: '#/definitions/types.SessionMode'
+      prompt_id:
+        description: |-
+          PromptID links this interaction back to the prompt_history_entry that
+          created it (when the interaction was dispatched by the queue, as opposed
+          to being initiated by Zed when the user types in the IDE). Empty for
+          Zed-initiated interactions. Used by handleMessageAdded /
+          handleMessageCompleted to mark the originating prompt as 'sent' without
+          relying on an in-memory map that doesn't survive API restarts. See
+          design/2026-04-30-queue-and-other-stuck-state-bugs.md.
+        type: string
       prompt_message:
         description: User prompt (text)
         type: string
@@ -4210,6 +4920,16 @@ definitions:
       rag_results:
         items:
           $ref: '#/definitions/types.SessionRAGResult'
+        type: array
+      response_entries:
+        description: |-
+          ResponseEntries holds the structured response as an ordered list of typed entries.
+          Each entry is either "text" (assistant prose) or "tool_call" (tool invocation),
+          preserving the ordering and boundaries that Zed's internal Vec<AgentThreadEntry> has.
+          This is populated on completion alongside ResponseMessage (flat string, backward compat).
+          The frontend uses this to render entries with the correct component in the correct order.
+        items:
+          type: integer
         type: array
       response_format:
         allOf:
@@ -4535,6 +5255,17 @@ definitions:
     properties:
       app_id:
         type: string
+      cache_read_cost:
+        type: number
+      cache_read_tokens:
+        description: prompt tokens served from provider cache (subset of PromptTokens)
+        type: integer
+      cache_write_cost:
+        type: number
+      cache_write_tokens:
+        description: prompt tokens written to provider cache (Anthropic only; subset
+          of PromptTokens)
+        type: integer
       completion_cost:
         type: number
       completion_tokens:
@@ -4582,7 +5313,7 @@ definitions:
       stream:
         type: boolean
       total_cost:
-        description: Total cost of the call (prompt and completion tokens)
+        description: Prompt + completion + cache read + cache write
         type: number
       total_tokens:
         type: integer
@@ -5157,6 +5888,9 @@ definitions:
         type: integer
       id:
         type: string
+      member:
+        description: Whether the current user is a member of the organization
+        type: boolean
       memberships:
         description: Memberships in the organization
         items:
@@ -5167,6 +5901,9 @@ definitions:
       owner:
         description: Who created the org
         type: string
+      project_count:
+        description: Number of projects in the organization
+        type: integer
       roles:
         description: Roles in the organization
         items:
@@ -5309,6 +6046,12 @@ definitions:
         type: string
       image:
         type: string
+      input_cache_read:
+        description: price per cached input token read (hit)
+        type: string
+      input_cache_write:
+        description: price per cached input token written (cache creation)
+        type: string
       internal_reasoning:
         type: string
       prompt:
@@ -5316,6 +6059,39 @@ definitions:
       request:
         type: string
       web_search:
+        type: string
+    type: object
+  types.ProfileGPURequirement:
+    properties:
+      architectures:
+        description: optional whitelist (canonical strings from gpuarch)
+        items:
+          type: string
+        type: array
+      count:
+        description: 'derived from compose: union of device_ids'
+        type: integer
+      min_vram_bytes:
+        description: optional, per-GPU minimum
+        type: integer
+      model_match:
+        description: optional regex against GPU marketing name
+        type: string
+      vendor:
+        allOf:
+        - $ref: '#/definitions/types.GPUVendor'
+        description: optional
+    type: object
+  types.ProfileModel:
+    properties:
+      container_name:
+        description: service.container_name (or service key if absent)
+        type: string
+      internal_port:
+        description: first published or exposed port
+        type: integer
+      name:
+        description: --served-model-name (preferred) or --model basename
         type: string
     type: object
   types.Project:
@@ -5361,6 +6137,8 @@ definitions:
         type: integer
       id:
         type: string
+      kodit_enabled:
+        type: boolean
       metadata:
         $ref: '#/definitions/types.ProjectMetadata'
       name:
@@ -5385,9 +6163,28 @@ definitions:
         description: |-
           Project-level skills - these overlay on top of agent skills
           Useful for project-specific tools like CI integration (e.g., drone-ci-mcp)
+      startup_install:
+        description: |-
+          Startup commands from declarative project YAML (persisted) - DEPRECATED
+          Use StartupScriptYAML instead. Kept for backward compatibility.
+        type: string
       startup_script:
         description: Transient field - loaded from primary code repo's .helix/startup.sh,
           never persisted to database
+        type: string
+      startup_script_from_yaml:
+        description: |-
+          StartupScriptFromYAML indicates the startup script was set via project YAML
+          When true, the UI should show the script as read-only
+        type: boolean
+      startup_script_yaml:
+        description: |-
+          StartupScriptYAML is the startup script content from project YAML (persisted)
+          This is the source of truth when StartupScriptFromYAML is true.
+          At runtime, helix-specs/.helix/startup.sh takes precedence if it exists,
+          otherwise this field is used as fallback.
+        type: string
+      startup_start:
         type: string
       stats:
         allOf:
@@ -5403,6 +6200,63 @@ definitions:
       updated_at:
         type: string
       user_id:
+        type: string
+    type: object
+  types.ProjectAgentDisplay:
+    properties:
+      desktop_type:
+        description: 'Desktop environment: "ubuntu" (default GNOME) or "sway"'
+        type: string
+      fps:
+        description: Display refresh rate in Hz (default 60)
+        type: integer
+      resolution:
+        description: 'Resolution preset: "1080p" (default), "4k", or "5k"'
+        type: string
+    type: object
+  types.ProjectAgentSpec:
+    properties:
+      credentials:
+        type: string
+      display:
+        $ref: '#/definitions/types.ProjectAgentDisplay'
+      model:
+        type: string
+      name:
+        type: string
+      provider:
+        type: string
+      runtime:
+        type: string
+      tools:
+        $ref: '#/definitions/types.ProjectAgentTools'
+    type: object
+  types.ProjectAgentTools:
+    properties:
+      browser:
+        type: boolean
+      calculator:
+        type: boolean
+      web_search:
+        type: boolean
+    type: object
+  types.ProjectApplyRequest:
+    properties:
+      name:
+        type: string
+      organization_id:
+        type: string
+      spec:
+        $ref: '#/definitions/types.ProjectSpec'
+    type: object
+  types.ProjectApplyResponse:
+    properties:
+      agent_app_id:
+        type: string
+      created:
+        description: true if created, false if updated
+        type: boolean
+      project_id:
         type: string
     type: object
   types.ProjectAuditLog:
@@ -5470,6 +6324,11 @@ definitions:
           type: string
         type: array
     type: object
+  types.ProjectKanban:
+    properties:
+      wip_limits:
+        $ref: '#/definitions/types.ProjectWIPLimits'
+    type: object
   types.ProjectMetadata:
     properties:
       auto_warm_docker_cache:
@@ -5478,6 +6337,62 @@ definitions:
         $ref: '#/definitions/types.BoardSettings'
       docker_cache_status:
         $ref: '#/definitions/types.DockerCacheState'
+    type: object
+  types.ProjectRepositorySpec:
+    properties:
+      default_branch:
+        type: string
+      primary:
+        type: boolean
+      url:
+        type: string
+    type: object
+  types.ProjectSpec:
+    properties:
+      agent:
+        $ref: '#/definitions/types.ProjectAgentSpec'
+      auto_start_backlog_tasks:
+        type: boolean
+      description:
+        type: string
+      guidelines:
+        type: string
+      kanban:
+        $ref: '#/definitions/types.ProjectKanban'
+      name:
+        type: string
+      repositories:
+        description: Multi-repo list
+        items:
+          $ref: '#/definitions/types.ProjectRepositorySpec'
+        type: array
+      repository:
+        allOf:
+        - $ref: '#/definitions/types.ProjectRepositorySpec'
+        description: Singular shorthand
+      startup:
+        $ref: '#/definitions/types.ProjectStartup'
+      tasks:
+        items:
+          $ref: '#/definitions/types.ProjectTaskSpec'
+        type: array
+      technologies:
+        items:
+          type: string
+        type: array
+    type: object
+  types.ProjectStartup:
+    properties:
+      install:
+        description: |-
+          Install and Start are deprecated - use Script instead
+          Kept for backward compatibility with existing YAML files
+        type: string
+      script:
+        description: Script is the unified startup script content (preferred)
+        type: string
+      start:
+        type: string
     type: object
   types.ProjectStats:
     properties:
@@ -5498,6 +6413,13 @@ definitions:
       total_tasks:
         type: integer
     type: object
+  types.ProjectTaskSpec:
+    properties:
+      description:
+        type: string
+      title:
+        type: string
+    type: object
   types.ProjectUpdateRequest:
     properties:
       auto_start_backlog_tasks:
@@ -5516,6 +6438,9 @@ definitions:
       guidelines:
         description: Project-specific AI agent guidelines
         type: string
+      kodit_enabled:
+        description: Whether Kodit code intelligence is enabled
+        type: boolean
       metadata:
         $ref: '#/definitions/types.ProjectMetadata'
       name:
@@ -5542,6 +6467,15 @@ definitions:
           type: string
         type: array
     type: object
+  types.ProjectWIPLimits:
+    properties:
+      implementation:
+        type: integer
+      planning:
+        type: integer
+      review:
+        type: integer
+    type: object
   types.PromptHistoryEntry:
     properties:
       content:
@@ -5549,6 +6483,13 @@ definitions:
         type: string
       created_at:
         description: Timestamps
+        type: string
+      deleted_at:
+        description: 'Soft-delete: non-nil means user removed from queue'
+        type: string
+      error_message:
+        description: Last failure reason (server-side error string), shown in UI under
+          "Failed - retrying"
         type: string
       id:
         description: 'Composite primary key: ID is globally unique, but we also index
@@ -5558,6 +6499,7 @@ definitions:
         description: |-
           Interrupt indicates this message should interrupt the current conversation
           When false, message waits until current conversation completes
+          Default is false: queue mode is the default, interrupt is explicit
         type: boolean
       is_template:
         description: Saved as a reusable template
@@ -5737,6 +6679,17 @@ definitions:
         description: If we can't fetch models
       updated:
         type: string
+      vertex_credentials_file:
+        type: string
+      vertex_credentials_json:
+        description: Service account JSON string; takes precedence over file
+        type: string
+      vertex_project_id:
+        description: Google Vertex AI fields — when VertexProjectID is set, this endpoint
+          routes through Vertex
+        type: string
+      vertex_region:
+        type: string
     type: object
   types.ProviderEndpointStatus:
     enum:
@@ -5769,6 +6722,13 @@ definitions:
       created_at:
         type: string
       description:
+        type: string
+      head_sha:
+        description: |-
+          HeadSHA is the commit SHA at the tip of the PR's source branch.
+          Used by the CI status poller to detect new pushes and to query the
+          provider's CI/build APIs for the right commit. Empty if the
+          provider response did not include it.
         type: string
       id:
         type: string
@@ -5915,7 +6875,20 @@ definitions:
     properties:
       active_concurrent_desktops:
         type: integer
+      active_desktop_sandboxes:
+        description: |-
+          Sandbox API concurrency. Distinct from ActiveConcurrentDesktops above —
+          that one counts external_agent sessions (the spec-task desktop stack),
+          while these count rows in the sandboxes table by runtime category.
+          "Active" = pending|running|stopping (matches ensureSandboxLimits).
+        type: integer
+      active_headless_sandboxes:
+        type: integer
       max_concurrent_desktops:
+        type: integer
+      max_desktop_sandboxes:
+        type: integer
+      max_headless_sandboxes:
         type: integer
       max_projects:
         type: integer
@@ -5984,15 +6957,6 @@ definitions:
       threshold:
         description: this is the threshold for a "good" answer - will default to 0.2
         type: number
-      typesense:
-        properties:
-          api_key:
-            type: string
-          collection:
-            type: string
-          url:
-            type: string
-        type: object
     type: object
   types.RegisterRequest:
     properties:
@@ -6003,6 +6967,37 @@ definitions:
       password:
         type: string
       password_confirm:
+        type: string
+    type: object
+  types.RepoPR:
+    properties:
+      ci_head_sha:
+        type: string
+      ci_status:
+        description: |-
+          CI status, populated by the spec task orchestrator's PR poll loop.
+          CIStatus is one of: "" (not yet evaluated), "running", "passed",
+          "failed", "none" (CI not configured for the PR's head SHA).
+          CIHeadSHA is the head commit we last evaluated; it lets the poller
+          detect a new push and reset CIStatus so a stale "passed" doesn't
+          suppress a fresh notification when the next commit fails.
+        type: string
+      ci_updated_at:
+        type: string
+      ci_url:
+        type: string
+      pr_id:
+        type: string
+      pr_number:
+        type: integer
+      pr_state:
+        description: '"open", "closed", "merged"'
+        type: string
+      pr_url:
+        type: string
+      repository_id:
+        type: string
+      repository_name:
         type: string
     type: object
   types.RepositoryAccessCheck:
@@ -6027,6 +7022,12 @@ definitions:
     type: object
   types.RepositoryInfo:
     properties:
+      can_write:
+        description: |-
+          CanWrite is true when the authenticated user has push or admin access to the repo.
+          Helix needs write access to push branches and open pull requests, so read-only
+          repos can be listed but cannot be linked as a project repo.
+        type: boolean
       clone_url:
         description: HTTPS clone URL
         type: string
@@ -6183,91 +7184,136 @@ definitions:
         description: Raw response from the API
         type: string
     type: object
-  types.RunnerModelStatus:
+  types.RunSandboxCommandRequest:
     properties:
-      download_in_progress:
+      args:
+        items:
+          type: string
+        type: array
+      cmd:
+        type: string
+      cwd:
+        type: string
+      detached:
         type: boolean
-      download_percent:
-        type: integer
-      error:
-        type: string
-      memory:
-        description: Memory requirement in bytes
-        type: integer
-      model_id:
-        type: string
-      runtime:
-        $ref: '#/definitions/github_com_helixml_helix_api_pkg_types.Runtime'
-    type: object
-  types.RunnerSlot:
-    properties:
-      active:
-        type: boolean
-      active_requests:
-        type: integer
-      command_line:
-        type: string
-      context_length:
-        type: integer
-      created:
-        type: string
-      gpu_allocation_data:
-        additionalProperties: {}
+      env:
+        additionalProperties:
+          type: string
         type: object
-      gpu_index:
+      sudo:
+        type: boolean
+      timeout_seconds:
+        description: TimeoutSeconds is per-command timeout. Defaults to 60s if 0 and
+          !detached.
         type: integer
-      gpu_indices:
+    type: object
+  types.RunnerAssignment:
+    properties:
+      assigned_at:
+        type: string
+      assigned_by:
+        description: user ID for audit
+        type: string
+      profile_id:
+        type: string
+      runner_id:
+        type: string
+    type: object
+  types.RunnerProfile:
+    properties:
+      compose_yaml:
+        type: string
+      created_at:
+        type: string
+      description:
+        type: string
+      gpu_requirement:
+        $ref: '#/definitions/types.ProfileGPURequirement'
+      id:
+        type: string
+      models:
+        items:
+          $ref: '#/definitions/types.ProfileModel'
+        type: array
+      name:
+        type: string
+      updated_at:
+        type: string
+    type: object
+  types.Sandbox:
+    properties:
+      billing_last_charged_at:
+        type: string
+      container_id:
+        type: string
+      created_at:
+        type: string
+      deleted_at:
+        type: string
+      display_fps:
+        type: integer
+      display_height:
+        type: integer
+      display_width:
+        description: Display fields apply to desktop runtimes.
+        type: integer
+      env:
         items:
           type: integer
         type: array
+      expires_at:
+        type: string
+      host_device_id:
+        description: |-
+          HostDeviceID is the RevDial device ID of the hydra host that runs the
+          underlying container. Empty until the controller schedules it.
+        type: string
       id:
         type: string
-      max_concurrency:
-        type: integer
-      memory_estimation_meta:
-        additionalProperties: {}
-        type: object
-      model:
+      image:
         type: string
-      model_memory_requirement:
+      memory_mb:
         type: integer
-      ready:
+      name:
+        type: string
+      organization_id:
+        type: string
+      owner:
+        type: string
+      persistent:
+        description: |-
+          Persistent indicates that the sandbox should mount a persistent
+          workspace volume (so files survive across reboots/restarts of the
+          underlying container). Non-persistent sandboxes use the container's
+          ephemeral filesystem only.
         type: boolean
-      runner_id:
+      project_id:
+        description: |-
+          ProjectID is optional. When set, the sandbox is associated with a
+          specific project for organisational/UI grouping purposes; nothing in the
+          lifecycle path branches on it. Empty means org-scoped only.
         type: string
       runtime:
-        $ref: '#/definitions/github_com_helixml_helix_api_pkg_types.Runtime'
-      runtime_args:
-        additionalProperties: {}
-        type: object
+        $ref: '#/definitions/types.SandboxRuntime'
+      started_at:
+        type: string
       status:
+        $ref: '#/definitions/types.SandboxStatus'
+      status_message:
         type: string
-      tensor_parallel_size:
+      stopped_at:
+        type: string
+      tags:
+        items:
+          type: integer
+        type: array
+      timeout_seconds:
+        description: TimeoutSeconds is the lifetime in seconds; ExpiresAt = CreatedAt
+          + TimeoutSeconds.
         type: integer
-      updated:
+      updated_at:
         type: string
-      version:
-        type: string
-      workload_data:
-        additionalProperties: {}
-        type: object
-    type: object
-  types.RunnerStateView:
-    properties:
-      active_slots:
-        type: integer
-      gpu_states:
-        additionalProperties:
-          $ref: '#/definitions/types.GPUState'
-        description: GPU index -> state
-        type: object
-      is_connected:
-        type: boolean
-      runner_id:
-        type: string
-      total_slots:
-        type: integer
-      warm_slots:
+      vcpus:
         type: integer
     type: object
   types.SandboxCacheState:
@@ -6320,15 +7366,56 @@ definitions:
       gpu_vendor:
         description: GPU configuration
         type: string
+      gpus:
+        description: |-
+          GPUs is the per-GPU inventory used by the API server's profile
+          compatibility check. Empty for sandboxes that don't host inference.
+        items:
+          $ref: '#/definitions/types.GPUStatus'
+        type: array
+      helix_version:
+        description: Helix version running on this sandbox (git commit hash or release
+          version)
+        type: string
       privileged_mode_enabled:
         description: Privileged mode (host Docker access for development)
         type: boolean
+      profile_error:
+        description: ProfileError carries the failure detail when ProfileStatus="failed".
+        type: string
+      profile_progress:
+        additionalProperties:
+          $ref: '#/definitions/types.ServiceDownloadProgress'
+        description: |-
+          ProfileProgress is per-service model-weights download progress,
+          surfaced when ProfileStatus="starting". Empty once all services
+          finish downloading.
+        type: object
+      profile_status:
+        description: |-
+          ProfileStatus reports the compose stack lifecycle. Empty when no
+          profile is assigned. Allowed values: "assigning" | "pulling" |
+          "starting" | "running" | "failed".
+        type: string
       render_node:
         description: /dev/dri/renderD128 or SOFTWARE
         type: string
+      service_health:
+        additionalProperties:
+          type: string
+        description: |-
+          ServiceHealth maps compose service name -> health string.
+          "healthy" | "starting" | "failed" | "unknown".
+        type: object
     type: object
   types.SandboxInstance:
     properties:
+      active_profile_id:
+        description: |-
+          ActiveProfileID is the ID of the runner profile this sandbox is
+          currently running (or attempting to run). Empty for pure-agent
+          sandboxes with no profile assigned.
+        type: string
       active_sandboxes:
         description: Sandbox capacity
         type: integer
@@ -6343,6 +7430,20 @@ definitions:
         type: object
       gpu_vendor:
         description: GPU configuration
+        type: string
+      gpus:
+        description: |-
+          GPUs is the per-GPU inventory the sandbox reports for inference
+          scheduling. Vendor / Architecture / ComputeCapability on each
+          entry are the load-bearing fields for profile compatibility.
+          Explicit column tag because GORM's default snake_case derivation
+          turns `GPUs` into `gp_us`.
+        items:
+          type: object
+        type: array
+      helix_version:
+        description: Helix version running on this sandbox (git commit hash or release
+          version)
         type: string
       hostname:
         description: Hostname for DNS resolution
@@ -6360,107 +7461,72 @@ definitions:
         type: integer
       privileged_mode:
         type: boolean
+      profile_error:
+        description: ProfileError carries the failure detail when ProfileStatus="failed".
+        type: string
+      profile_progress:
+        additionalProperties:
+          type: object
+        description: |-
+          ProfileProgress is per-service download progress for model weights,
+          surfaced when ProfileStatus="starting" and a vLLM container is
+          pulling weights from Hugging Face Hub. Empty once all services are
+          healthy. Map key is compose service name.
+        type: object
+      profile_status:
+        description: |-
+          ProfileStatus tracks the compose stack lifecycle:
+          "" | "assigning" | "pulling" | "starting" | "running" | "failed".
+        type: string
       render_node:
         description: /dev/dri/renderD128 or SOFTWARE
         type: string
+      service_health:
+        additionalProperties:
+          type: string
+        description: |-
+          ServiceHealth maps compose service name -> health string
+          ("healthy" | "starting" | "failed" | "unknown"). Reported by
+          compose-manager polling each container's /v1/models endpoint
+          (or vendor-specific health endpoint).
+        type: object
       status:
         description: '"online", "offline", "degraded"'
         type: string
       updated:
         type: string
     type: object
-  types.SchedulingDecision:
+  types.SandboxListResponse:
     properties:
-      available_runners:
+      sandboxes:
         items:
-          type: string
+          $ref: '#/definitions/types.Sandbox'
         type: array
-      created:
-        type: string
-      decision_type:
-        $ref: '#/definitions/types.SchedulingDecisionType'
-      id:
-        type: string
-      memory_available:
+      total:
         type: integer
-      memory_required:
-        type: integer
-      mode:
-        $ref: '#/definitions/types.SessionMode'
-      model_name:
-        type: string
-      processing_time_ms:
-        type: integer
-      queue_position:
-        type: integer
-      reason:
-        type: string
-      repeat_count:
-        type: integer
-      runner_id:
-        type: string
-      session_id:
-        type: string
-      slot_id:
-        type: string
-      success:
-        type: boolean
-      total_slot_count:
-        type: integer
-      warm_slot_count:
-        type: integer
-      workload_id:
-        type: string
     type: object
-  types.SchedulingDecisionType:
+  types.SandboxRuntime:
     enum:
-    - queued
-    - reuse_warm_slot
-    - create_new_slot
-    - evict_stale_slot
-    - rejected
-    - error
-    - unschedulable
+    - ubuntu-desktop
+    - headless-ubuntu
     type: string
-    x-enum-comments:
-      SchedulingDecisionTypeCreateNewSlot: Started new model instance
-      SchedulingDecisionTypeError: Error during scheduling
-      SchedulingDecisionTypeEvictStaleSlot: Evicted stale slot to free memory
-      SchedulingDecisionTypeQueued: Added to queue
-      SchedulingDecisionTypeRejected: Rejected (insufficient resources, etc.)
-      SchedulingDecisionTypeReuseWarmSlot: Reused existing warm model instance
-      SchedulingDecisionTypeUnschedulable: Cannot be scheduled (no warm slots available)
     x-enum-varnames:
-    - SchedulingDecisionTypeQueued
-    - SchedulingDecisionTypeReuseWarmSlot
-    - SchedulingDecisionTypeCreateNewSlot
-    - SchedulingDecisionTypeEvictStaleSlot
-    - SchedulingDecisionTypeRejected
-    - SchedulingDecisionTypeError
-    - SchedulingDecisionTypeUnschedulable
-  types.SchedulingEvent:
-    properties:
-      description:
-        type: string
-      event_type:
-        description: '"slot_created", "slot_deleted", "eviction", "stabilization_start",
-          "stabilization_end"'
-        type: string
-      gpu_indices:
-        items:
-          type: integer
-        type: array
-      memory_mb:
-        type: integer
-      model_name:
-        type: string
-      runtime:
-        type: string
-      slot_id:
-        type: string
-      timestamp:
-        type: string
-    type: object
+    - SandboxRuntimeUbuntuDesktop
+    - SandboxRuntimeHeadlessUbuntu
+  types.SandboxStatus:
+    enum:
+    - pending
+    - running
+    - stopping
+    - stopped
+    - failed
+    type: string
+    x-enum-varnames:
+    - SandboxStatusPending
+    - SandboxStatusRunning
+    - SandboxStatusStopping
+    - SandboxStatusStopped
+    - SandboxStatusFailed
   types.Secret:
     properties:
       app_id:
@@ -6499,6 +7565,12 @@ definitions:
       billing_enabled:
         description: Charging for usage
         type: boolean
+      default_chat_system_prompt:
+        description: |-
+          DefaultChatSystemPrompt is the system prompt the platform applies to
+          direct model chats when the user has not customised one. Surfaced to
+          the frontend so the chat-settings page can prefill the textbox.
+        type: string
       deployment_id:
         type: string
       disable_llm_call_logging:
@@ -6512,6 +7584,9 @@ definitions:
         type: string
       google_analytics_frontend:
         type: string
+      has_providers:
+        description: Whether any global AI provider with enabled chat models exists
+        type: boolean
       latest_version:
         type: string
       license:
@@ -6530,6 +7605,9 @@ definitions:
           it's a low level filestore path
           if we are using an object storage thing - then this URL
           can be the prefix to the bucket
+        type: boolean
+      require_active_subscription:
+        description: Require an active subscription before allowing to use the product
         type: boolean
       rudderstack_data_plane_url:
         type: string
@@ -6648,6 +7726,29 @@ definitions:
       name:
         type: string
     type: object
+  types.ServiceDownloadProgress:
+    properties:
+      current:
+        description: |-
+          Current and Total are the raw N/M from the progress line (e.g.
+          shards 12 of 47). Useful when Percent is computed.
+        type: integer
+      eta:
+        description: |-
+          ETA is the rendered remaining-time string from the source line
+          (e.g. "27:18"). Verbatim — not parsed into a duration.
+        type: string
+      percent:
+        description: Percent is 0-100. Zero means "no progress line parsed yet".
+        type: integer
+      stage:
+        description: |-
+          Stage is a short tag for what's downloading: "shards", "files",
+          "weights" or "" if unknown. Drives UI labelling.
+        type: string
+      total:
+        type: integer
+    type: object
   types.Session:
     properties:
       config:
@@ -6743,6 +7844,9 @@ definitions:
       assistant_id:
         description: Which assistant are we speaking to?
         type: string
+      callback_url:
+        description: Webhook URL to POST on session completion
+        type: string
       external_agent_config:
         allOf:
         - $ref: '#/definitions/types.ExternalAgentConfig'
@@ -6775,6 +7879,9 @@ definitions:
         type: boolean
       session_id:
         description: If empty, we will start a new session
+        type: string
+      session_role:
+        description: e.g. "job" — categorizes sessions for filtering
         type: string
       stream:
         description: If true, we will stream the response
@@ -6833,6 +7940,9 @@ definitions:
         type: string
       avatar:
         type: string
+      callback_url:
+        description: Webhook URL to POST on session completion
+        type: string
       code_agent_runtime:
         allOf:
         - $ref: '#/definitions/types.CodeAgentRuntime'
@@ -6846,9 +7956,6 @@ definitions:
         type: string
       container_name:
         description: Container fields (Hydra executor)
-        type: string
-      desired_state:
-        description: '"running" = should be running, "stopped" = can terminate'
         type: string
       dev_container_id:
         description: Dev container ID for streaming
@@ -6970,6 +8077,10 @@ definitions:
       work_session_id:
         description: ID of associated WorkSession
         type: string
+      zed_agent_name:
+        description: Agent name used when thread was created (e.g., "zed-agent", "claude",
+          "qwen")
+        type: string
       zed_instance_id:
         description: Associated Zed instance ID
         type: string
@@ -6991,6 +8102,19 @@ definitions:
     - SessionModeInference
     - SessionModeFinetune
     - SessionModeAction
+  types.SessionOutputResponse:
+    properties:
+      duration_ms:
+        type: integer
+      output:
+        description: Last interaction's response text
+        type: string
+      session_id:
+        type: string
+      status:
+        description: '"waiting", "complete", "error"'
+        type: string
+    type: object
   types.SessionRAGResult:
     properties:
       content:
@@ -7090,6 +8214,11 @@ definitions:
         type: string
       loadedAt:
         type: string
+      mcp:
+        allOf:
+        - $ref: '#/definitions/types.SkillMCPSpec'
+        description: MCP configuration (present when this skill is MCP-backed rather
+          than API-backed)
       name:
         type: string
       oauthProvider:
@@ -7127,6 +8256,15 @@ definitions:
         type: string
       type:
         description: e.g., "material-ui", "custom"
+        type: string
+    type: object
+  types.SkillMCPSpec:
+    properties:
+      autoProvision:
+        description: if true, URL+auth are generated server-side
+        type: boolean
+      transport:
+        description: '"http" or "sse"'
         type: string
     type: object
   types.SkillRequiredParameter:
@@ -7196,6 +8334,9 @@ definitions:
       archived:
         description: Archive to hide from main view
         type: boolean
+      assignee_id:
+        description: Team member assigned to work on this task
+        type: string
       base_branch:
         description: The base branch this was created from
         type: string
@@ -7259,6 +8400,9 @@ definitions:
       just_do_it_mode:
         description: Skip spec planning, go straight to implementation
         type: boolean
+      keep_alive:
+        description: Keep alive — prevent auto-idle-shutdown of desktop container
+        type: boolean
       labels:
         items:
           type: string
@@ -7302,6 +8446,9 @@ definitions:
         type: string
       planning_started_at:
         type: string
+      planning_started_by:
+        description: User who kicked off planning (may differ from CreatedBy)
+        type: string
       priority:
         allOf:
         - $ref: '#/definitions/types.SpecTaskPriority'
@@ -7313,13 +8460,25 @@ definitions:
       public_design_docs:
         description: Public sharing
         type: boolean
-      pull_request_id:
+      rebase_requested_at:
+        description: Set when approveImplementation hits a divergent branch and asks
+          the agent to rebase. Used to make the approve handler idempotent (no duplicate
+          prompts) and to gate the Accept button until the agent's next push.
         type: string
-      pull_request_url:
-        description: Computed field, not stored
-        type: string
+      repo_pull_requests:
+        description: 'Multi-repo PR tracking: list of PRs across all project repositories'
+        items:
+          $ref: '#/definitions/types.RepoPR'
+        type: array
       requirements_spec:
         description: User stories + EARS acceptance criteria (markdown)
+        type: string
+      sandbox_state:
+        description: '"absent", "running", "starting" — derived from session config
+          in listTasks'
+        type: string
+      sandbox_status_message:
+        description: Transient startup message e.g. "Unpacking build cache"
         type: string
       session_updated_at:
         description: Agent activity tracking (computed from session/activity data,
@@ -7346,6 +8505,9 @@ definitions:
         allOf:
         - $ref: '#/definitions/types.SpecTaskStatus'
         description: Spec-driven workflow statuses - see constants below
+      status_updated_at:
+        description: When status last changed (for Kanban column sorting)
+        type: string
       task_number:
         description: |-
           Human-readable directory naming for design docs in helix-specs branch
@@ -7425,6 +8587,11 @@ definitions:
       agent_response_at:
         description: When agent responded
         type: string
+      agent_response_entries:
+        description: Agent's structured entries (for tool call rendering)
+        items:
+          type: integer
+        type: array
       comment_text:
         description: The actual comment
         type: string
@@ -7672,6 +8839,9 @@ definitions:
     - TaskStatusImplementationFailed
   types.SpecTaskUpdateRequest:
     properties:
+      assignee_id:
+        description: Pointer to allow clearing (set to empty string to unassign)
+        type: string
       depends_on:
         description: IDs of tasks this task depends on
         items:
@@ -7684,6 +8854,9 @@ definitions:
         type: string
       just_do_it_mode:
         description: Pointer to allow explicit false
+        type: boolean
+      keep_alive:
+        description: Pointer to allow explicit false — prevent auto-idle-shutdown
         type: boolean
       name:
         type: string
@@ -7708,6 +8881,9 @@ definitions:
       archived:
         description: Archive to hide from main view
         type: boolean
+      assignee_id:
+        description: Team member assigned to work on this task
+        type: string
       base_branch:
         description: The base branch this was created from
         type: string
@@ -7771,6 +8947,9 @@ definitions:
       just_do_it_mode:
         description: Skip spec planning, go straight to implementation
         type: boolean
+      keep_alive:
+        description: Keep alive — prevent auto-idle-shutdown of desktop container
+        type: boolean
       labels:
         items:
           type: string
@@ -7814,6 +8993,9 @@ definitions:
         type: string
       planning_started_at:
         type: string
+      planning_started_by:
+        description: User who kicked off planning (may differ from CreatedBy)
+        type: string
       priority:
         allOf:
         - $ref: '#/definitions/types.SpecTaskPriority'
@@ -7827,13 +9009,25 @@ definitions:
       public_design_docs:
         description: Public sharing
         type: boolean
-      pull_request_id:
+      rebase_requested_at:
+        description: Set when approveImplementation hits a divergent branch and asks
+          the agent to rebase. Used to make the approve handler idempotent (no duplicate
+          prompts) and to gate the Accept button until the agent's next push.
         type: string
-      pull_request_url:
-        description: Computed field, not stored
-        type: string
+      repo_pull_requests:
+        description: 'Multi-repo PR tracking: list of PRs across all project repositories'
+        items:
+          $ref: '#/definitions/types.RepoPR'
+        type: array
       requirements_spec:
         description: User stories + EARS acceptance criteria (markdown)
+        type: string
+      sandbox_state:
+        description: '"absent", "running", "starting" — derived from session config
+          in listTasks'
+        type: string
+      sandbox_status_message:
+        description: Transient startup message e.g. "Unpacking build cache"
         type: string
       session_updated_at:
         description: Agent activity tracking (computed from session/activity data,
@@ -7860,6 +9054,9 @@ definitions:
         allOf:
         - $ref: '#/definitions/types.SpecTaskStatus'
         description: Spec-driven workflow statuses - see constants below
+      status_updated_at:
+        description: When status last changed (for Kanban column sorting)
+        type: string
       task_number:
         description: |-
           Human-readable directory naming for design docs in helix-specs branch
@@ -8089,10 +9286,50 @@ definitions:
       kodit_enrichment_provider:
         description: Kodit enrichment model configuration
         type: string
+      kodit_text_embedding_model:
+        type: string
+      kodit_text_embedding_provider:
+        description: Kodit text embedding model configuration
+        type: string
+      kodit_vision_embedding_model:
+        type: string
+      kodit_vision_embedding_provider:
+        description: Kodit vision embedding model configuration
+        type: string
+      max_concurrent_desktop_sandboxes:
+        type: integer
       max_concurrent_desktops:
         type: integer
+      max_concurrent_headless_sandboxes:
+        type: integer
+      optimus_generation_model:
+        type: string
+      optimus_generation_model_provider:
+        type: string
+      optimus_reasoning_model:
+        type: string
+      optimus_reasoning_model_effort:
+        type: string
+      optimus_reasoning_model_provider:
+        type: string
+      optimus_small_generation_model:
+        type: string
+      optimus_small_generation_model_provider:
+        type: string
+      optimus_small_reasoning_model:
+        type: string
+      optimus_small_reasoning_model_effort:
+        type: string
+      optimus_small_reasoning_model_provider:
+        type: string
       providers_management_enabled:
         type: boolean
+      sandbox_billing_enabled:
+        type: boolean
+      sandbox_desktop_price_credits_per_second:
+        type: number
+      sandbox_headless_price_credits_per_second:
+        type: number
     type: object
   types.SystemSettingsResponse:
     properties:
@@ -8117,11 +9354,56 @@ definitions:
         description: Kodit enrichment model configuration (not sensitive, returned
           as-is)
         type: string
+      kodit_text_embedding_model:
+        type: string
+      kodit_text_embedding_model_set:
+        type: boolean
+      kodit_text_embedding_provider:
+        description: Kodit text embedding model configuration
+        type: string
+      kodit_vision_embedding_model:
+        type: string
+      kodit_vision_embedding_model_set:
+        type: boolean
+      kodit_vision_embedding_provider:
+        description: Kodit vision embedding model configuration
+        type: string
+      max_concurrent_desktop_sandboxes:
+        type: integer
       max_concurrent_desktops:
         description: Per user
         type: integer
+      max_concurrent_headless_sandboxes:
+        type: integer
+      optimus_generation_model:
+        type: string
+      optimus_generation_model_provider:
+        type: string
+      optimus_reasoning_model:
+        type: string
+      optimus_reasoning_model_effort:
+        type: string
+      optimus_reasoning_model_provider:
+        description: Optimus configuration
+        type: string
+      optimus_small_generation_model:
+        type: string
+      optimus_small_generation_model_provider:
+        type: string
+      optimus_small_reasoning_model:
+        type: string
+      optimus_small_reasoning_model_effort:
+        type: string
+      optimus_small_reasoning_model_provider:
+        type: string
       providers_management_enabled:
         type: boolean
+      sandbox_billing_enabled:
+        type: boolean
+      sandbox_desktop_price_credits_per_second:
+        type: number
+      sandbox_headless_price_credits_per_second:
+        type: number
       updated:
         type: string
     type: object
@@ -8689,6 +9971,26 @@ definitions:
         type: array
       name:
         type: string
+      vertex_credentials_file:
+        type: string
+      vertex_credentials_json:
+        type: string
+      vertex_project_id:
+        description: Google Vertex AI fields
+        type: string
+      vertex_region:
+        type: string
+    type: object
+  types.UpdateSandboxRequest:
+    properties:
+      name:
+        type: string
+      tags:
+        additionalProperties:
+          type: string
+        type: object
+      timeout_seconds:
+        type: integer
     type: object
   types.UpdateTeamRequest:
     properties:
@@ -8734,6 +10036,11 @@ definitions:
         type: string
       id:
         type: string
+      last_seen_at:
+        description: |-
+          LastSeenAt is the most recent time the user authenticated against the API.
+          Updated (throttled) from auth middleware so the column isn't hammered on every request.
+        type: string
       must_change_password:
         description: if the user must change their password
         type: boolean
@@ -8744,11 +10051,6 @@ definitions:
       organization_id:
         description: Organization this API key is scoped to (ephemeral keys)
         type: string
-      password_hash:
-        description: bcrypt hash of the password
-        items:
-          type: integer
-        type: array
       project_id:
         description: When running in Helix Code sandbox
         type: string
@@ -8790,6 +10092,28 @@ definitions:
       is_admin:
         type: boolean
     type: object
+  types.UserChatSettings:
+    properties:
+      frequency_penalty:
+        type: number
+      max_tokens:
+        type: integer
+      presence_penalty:
+        type: number
+      system_prompt:
+        type: string
+      system_prompt_enabled:
+        description: |-
+          SystemPromptEnabled toggles whether any system prompt at all is sent
+          to the model. Pointer so nil means "not set" and we fall back to the
+          default-on behaviour. When explicitly false, no system prompt is sent
+          regardless of SystemPrompt.
+        type: boolean
+      temperature:
+        type: number
+      top_p:
+        type: number
+    type: object
   types.UserGuidelinesResponse:
     properties:
       guidelines:
@@ -8799,6 +10123,31 @@ definitions:
       guidelines_updated_by:
         type: string
       guidelines_version:
+        type: integer
+    type: object
+  types.UserModelUsage:
+    properties:
+      cache_read_tokens:
+        type: integer
+      cache_write_tokens:
+        type: integer
+      completion_tokens:
+        type: integer
+      first_used:
+        type: string
+      last_used:
+        type: string
+      model:
+        type: string
+      prompt_tokens:
+        type: integer
+      provider:
+        type: string
+      total_cost:
+        type: number
+      total_requests:
+        type: integer
+      total_tokens:
         type: integer
     type: object
   types.UserResponse:
@@ -8830,6 +10179,21 @@ definitions:
         items:
           $ref: '#/definitions/types.User'
         type: array
+    type: object
+  types.UserStatsResponse:
+    properties:
+      last_active_at:
+        type: string
+      models:
+        items:
+          $ref: '#/definitions/types.UserModelUsage'
+        type: array
+      projects_count:
+        type: integer
+      spec_tasks_count:
+        type: integer
+      user:
+        $ref: '#/definitions/types.User'
     type: object
   types.UserTokenUsageResponse:
     properties:
@@ -8877,6 +10241,8 @@ definitions:
         type: string
       stripe_subscription_id:
         type: string
+      subscription_cancel_at_period_end:
+        type: boolean
       subscription_created:
         type: integer
       subscription_current_period_end:
@@ -8907,23 +10273,36 @@ definitions:
       user_agent:
         type: string
     type: object
-  types.WorkloadSummary:
+  types.ZFSTree:
     properties:
-      created:
+      available:
+        type: boolean
+      golden:
+        $ref: '#/definitions/types.ZFSTreeNode'
+      orphans:
+        items:
+          $ref: '#/definitions/types.ZFSTreeNode'
+        type: array
+      pool_root:
         type: string
-      id:
+    type: object
+  types.ZFSTreeNode:
+    properties:
+      children:
+        items:
+          $ref: '#/definitions/types.ZFSTreeNode'
+        type: array
+      mounted:
+        type: boolean
+      name:
         type: string
-      lora_dir:
+      refer:
         type: string
-      mode:
+      session_id:
         type: string
-      model_name:
+      type:
         type: string
-      runtime:
-        type: string
-      summary:
-        type: string
-      updated:
+      used:
         type: string
     type: object
   types.ZedConfigResponse:
@@ -9059,6 +10438,381 @@ paths:
       summary: Get sandbox real-time events (SSE)
       tags:
       - Admin
+  /api/v1/admin/kodit/queue:
+    get:
+      description: List all pending tasks across all repositories with pagination.
+        Admin only.
+      parameters:
+      - description: Page number (default 1)
+        in: query
+        name: page
+        type: integer
+      - description: Items per page (default 25, max 100)
+        in: query
+        name: per_page
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.KoditAdminQueueListResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: List Kodit task queue (admin)
+      tags:
+      - admin
+  /api/v1/admin/kodit/queue/{taskId}:
+    delete:
+      description: Delete a specific task from the Kodit task queue by ID. Admin only.
+      parameters:
+      - description: Task ID
+        in: path
+        name: taskId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Delete Kodit queue task (admin)
+      tags:
+      - admin
+  /api/v1/admin/kodit/queue/{taskId}/priority:
+    patch:
+      consumes:
+      - application/json
+      description: Update the priority of a specific task in the Kodit task queue.
+        Admin only.
+      parameters:
+      - description: Task ID
+        in: path
+        name: taskId
+        required: true
+        type: integer
+      - description: New priority
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/server.KoditAdminUpdatePriorityRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Update Kodit queue task priority (admin)
+      tags:
+      - admin
+  /api/v1/admin/kodit/repositories:
+    get:
+      description: List all Kodit-indexed repositories with pagination. Admin only.
+      parameters:
+      - description: Page number (default 1)
+        in: query
+        name: page
+        type: integer
+      - description: Items per page (default 25, max 100)
+        in: query
+        name: per_page
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.KoditAdminRepoListResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: List Kodit repositories (admin)
+      tags:
+      - admin
+  /api/v1/admin/kodit/repositories/{koditRepoId}:
+    delete:
+      description: Queue a Kodit repository for deletion. Admin only.
+      parameters:
+      - description: Kodit Repository ID
+        in: path
+        name: koditRepoId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Delete Kodit repository (admin)
+      tags:
+      - admin
+    get:
+      description: Get detailed information about a Kodit repository including summary
+        stats. Admin only.
+      parameters:
+      - description: Kodit Repository ID
+        in: path
+        name: koditRepoId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.KoditAdminRepoDetailResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Get Kodit repository detail (admin)
+      tags:
+      - admin
+  /api/v1/admin/kodit/repositories/{koditRepoId}/rescan:
+    post:
+      description: Trigger a rescan of the HEAD commit for a Kodit repository. Admin
+        only.
+      parameters:
+      - description: Kodit Repository ID
+        in: path
+        name: koditRepoId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Rescan Kodit repository HEAD (admin)
+      tags:
+      - admin
+  /api/v1/admin/kodit/repositories/{koditRepoId}/sync:
+    post:
+      description: Trigger a full sync (git fetch + branch scan + re-index) for a
+        Kodit repository. Admin only.
+      parameters:
+      - description: Kodit Repository ID
+        in: path
+        name: koditRepoId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Sync Kodit repository (admin)
+      tags:
+      - admin
+  /api/v1/admin/kodit/repositories/{koditRepoId}/tasks:
+    get:
+      description: Returns tracking statuses and pending queue tasks for a Kodit repository.
+        Admin only.
+      parameters:
+      - description: Kodit Repository ID
+        in: path
+        name: koditRepoId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.KoditAdminRepositoryTasksResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Get Kodit repository tasks (admin)
+      tags:
+      - admin
+  /api/v1/admin/kodit/repositories/batch/delete:
+    post:
+      consumes:
+      - application/json
+      description: Queue multiple Kodit repositories for deletion. Admin only.
+      parameters:
+      - description: Repository IDs to delete
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/server.KoditAdminBatchRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.KoditAdminBatchResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Batch delete Kodit repositories (admin)
+      tags:
+      - admin
+  /api/v1/admin/kodit/repositories/batch/rescan:
+    post:
+      consumes:
+      - application/json
+      description: Trigger a HEAD commit rescan for multiple Kodit repositories. Admin
+        only.
+      parameters:
+      - description: Repository IDs to rescan
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/server.KoditAdminBatchRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.KoditAdminBatchResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Batch rescan Kodit repositories (admin)
+      tags:
+      - admin
+  /api/v1/admin/kodit/stats:
+    get:
+      description: 'Returns aggregate counts: repositories, enrichments, commits,
+        pending tasks. Admin only.'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.KoditAdminStatsResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Get Kodit system stats (admin)
+      tags:
+      - admin
   /api/v1/admin/organization-domains:
     get:
       description: List all organizations that have auto-join domains configured
@@ -9295,6 +11049,319 @@ paths:
             $ref: '#/definitions/server.AppCreateResponse'
       security:
       - BearerAuth: []
+  /api/v1/apps/{app_id}/evaluation-runs/{run_id}:
+    delete:
+      description: Delete an evaluation run
+      parameters:
+      - description: App ID
+        in: path
+        name: app_id
+        required: true
+        type: string
+      - description: Run ID
+        in: path
+        name: run_id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Delete an evaluation run
+      tags:
+      - evaluations
+    get:
+      description: Get evaluation run details
+      parameters:
+      - description: App ID
+        in: path
+        name: app_id
+        required: true
+        type: string
+      - description: Run ID
+        in: path
+        name: run_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.EvaluationRun'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Get an evaluation run
+      tags:
+      - evaluations
+  /api/v1/apps/{app_id}/evaluation-suites:
+    get:
+      description: List all evaluation suites for an app
+      parameters:
+      - description: App ID
+        in: path
+        name: app_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.EvaluationSuite'
+            type: array
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: List evaluation suites for an app
+      tags:
+      - evaluations
+    post:
+      consumes:
+      - application/json
+      description: Create a new evaluation suite for an agent
+      parameters:
+      - description: App ID
+        in: path
+        name: app_id
+        required: true
+        type: string
+      - description: Evaluation suite to create
+        in: body
+        name: suite
+        required: true
+        schema:
+          $ref: '#/definitions/types.EvaluationSuite'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/types.EvaluationSuite'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Create an evaluation suite
+      tags:
+      - evaluations
+  /api/v1/apps/{app_id}/evaluation-suites/{id}:
+    delete:
+      description: Delete an evaluation suite
+      parameters:
+      - description: App ID
+        in: path
+        name: app_id
+        required: true
+        type: string
+      - description: Suite ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Delete an evaluation suite
+      tags:
+      - evaluations
+    get:
+      description: Get an evaluation suite by ID
+      parameters:
+      - description: App ID
+        in: path
+        name: app_id
+        required: true
+        type: string
+      - description: Suite ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.EvaluationSuite'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Get an evaluation suite
+      tags:
+      - evaluations
+    put:
+      consumes:
+      - application/json
+      description: Update an evaluation suite
+      parameters:
+      - description: App ID
+        in: path
+        name: app_id
+        required: true
+        type: string
+      - description: Suite ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Updated suite
+        in: body
+        name: suite
+        required: true
+        schema:
+          $ref: '#/definitions/types.EvaluationSuite'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.EvaluationSuite'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Update an evaluation suite
+      tags:
+      - evaluations
+  /api/v1/apps/{app_id}/evaluation-suites/{id}/runs:
+    get:
+      description: List evaluation runs for a suite
+      parameters:
+      - description: App ID
+        in: path
+        name: app_id
+        required: true
+        type: string
+      - description: Suite ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.EvaluationRun'
+            type: array
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: List evaluation runs
+      tags:
+      - evaluations
+    post:
+      consumes:
+      - application/json
+      description: Start running an evaluation suite against an agent
+      parameters:
+      - description: App ID
+        in: path
+        name: app_id
+        required: true
+        type: string
+      - description: Suite ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.EvaluationRun'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Start an evaluation run
+      tags:
+      - evaluations
   /api/v1/apps/{app_id}/triggers:
     get:
       description: List triggers for the app
@@ -9703,6 +11770,31 @@ paths:
       summary: Delete app memory
       tags:
       - memories
+  /api/v1/apps/{id}/skills/{skill}/enable:
+    post:
+      description: Enable a marketplace skill on an app. For autoProvision MCP skills
+        the server generates URL and auth automatically.
+      parameters:
+      - description: App ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Skill name (e.g. code-intelligence)
+        in: path
+        name: skill
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.App'
+      security:
+      - BearerAuth: []
+      summary: Enable a marketplace skill on an app
+      tags:
+      - skills
   /api/v1/apps/{id}/step-info:
     get:
       description: List step info for a specific app and interaction ID, used to build
@@ -9814,6 +11906,105 @@ paths:
       summary: Get app users daily usage
       tags:
       - apps
+  /api/v1/attention-events:
+    get:
+      description: Returns attention events that need human action for the current
+        user. Only returns events that have not been dismissed and are not currently
+        snoozed.
+      parameters:
+      - description: 'Filter to active (non-dismissed, non-snoozed) events only (default:
+          true)'
+        in: query
+        name: active
+        type: boolean
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.AttentionEvent'
+            type: array
+        "401":
+          description: unauthorized
+          schema:
+            type: string
+        "500":
+          description: internal server error
+          schema:
+            type: string
+      summary: List active attention events
+      tags:
+      - attention-events
+  /api/v1/attention-events/{id}:
+    patch:
+      consumes:
+      - application/json
+      description: Acknowledge, dismiss, or snooze an attention event.
+      parameters:
+      - description: Attention event ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Update request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.AttentionEventUpdateRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: bad request
+          schema:
+            type: string
+        "401":
+          description: unauthorized
+          schema:
+            type: string
+        "404":
+          description: not found
+          schema:
+            type: string
+        "500":
+          description: internal server error
+          schema:
+            type: string
+      summary: Update an attention event
+      tags:
+      - attention-events
+  /api/v1/attention-events/dismiss-all:
+    post:
+      description: Bulk-dismiss all active (non-dismissed) attention events for the
+        current user.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: unauthorized
+          schema:
+            type: string
+        "500":
+          description: internal server error
+          schema:
+            type: string
+      summary: Dismiss all active attention events
+      tags:
+      - attention-events
   /api/v1/auth/authenticated:
     get:
       description: Check if the user is authenticated
@@ -10284,15 +12475,6 @@ paths:
       summary: contextMenuHandler
       tags:
       - ui
-  /api/v1/dashboard:
-    get:
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/types.DashboardData'
-      security:
-      - BearerAuth: []
   /api/v1/external-agents/{sessionID}/clipboard:
     get:
       description: Fetch current clipboard content from remote desktop
@@ -11522,7 +13704,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/services.KoditEnrichmentListResponse'
+            $ref: '#/definitions/server.KoditEnrichmentListResponse'
         "400":
           description: Bad Request
           schema:
@@ -11533,10 +13715,6 @@ paths:
             $ref: '#/definitions/types.APIError'
         "500":
           description: Internal Server Error
-          schema:
-            $ref: '#/definitions/types.APIError'
-        "502":
-          description: Bad Gateway
           schema:
             $ref: '#/definitions/types.APIError'
       security:
@@ -11564,7 +13742,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/services.KoditEnrichmentData'
+            $ref: '#/definitions/server.KoditEnrichmentDTO'
         "400":
           description: Bad Request
           schema:
@@ -11577,13 +13755,185 @@ paths:
           description: Internal Server Error
           schema:
             $ref: '#/definitions/types.APIError'
-        "502":
-          description: Bad Gateway
+      security:
+      - BearerAuth: []
+      summary: Get enrichment by ID
+      tags:
+      - git-repositories
+  /api/v1/git/repositories/{id}/file-content:
+    get:
+      description: Read the content of a file from the repository, optionally with
+        line range filtering
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: File path within the repository
+        in: query
+        name: path
+        required: true
+        type: string
+      - description: Start line (1-indexed, inclusive)
+        in: query
+        name: start_line
+        type: integer
+      - description: End line (1-indexed, inclusive)
+        in: query
+        name: end_line
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.KoditFileContentResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
           schema:
             $ref: '#/definitions/types.APIError'
       security:
       - BearerAuth: []
-      summary: Get enrichment by ID
+      summary: Read repository file
+      tags:
+      - git-repositories
+  /api/v1/git/repositories/{id}/files:
+    get:
+      description: List files in a repository matching a glob pattern
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Glob pattern to filter files
+        in: query
+        name: pattern
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.KoditFilesResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: List repository files
+      tags:
+      - git-repositories
+  /api/v1/git/repositories/{id}/grep:
+    get:
+      description: Run pattern matching (grep) against repository files
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Search pattern (regex)
+        in: query
+        name: pattern
+        required: true
+        type: string
+      - description: Glob pattern to filter files (e.g. *.go)
+        in: query
+        name: glob
+        type: string
+      - description: Maximum results (default 50, max 200)
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.KoditGrepResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Grep repository
+      tags:
+      - git-repositories
+  /api/v1/git/repositories/{id}/keyword-search:
+    get:
+      description: Search repository code using BM25 keyword matching
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Keywords to search for
+        in: query
+        name: keywords
+        required: true
+        type: string
+      - description: Maximum results (default 10, max 100)
+        in: query
+        name: limit
+        type: integer
+      - description: Filter by language extension (e.g. .go, .ts)
+        in: query
+        name: language
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.KoditSearchResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Keyword search repository
       tags:
       - git-repositories
   /api/v1/git/repositories/{id}/kodit-commits:
@@ -11606,8 +13956,7 @@ paths:
           description: OK
           schema:
             items:
-              additionalProperties: true
-              type: object
+              $ref: '#/definitions/server.KoditCommitDTO'
             type: array
         "400":
           description: Bad Request
@@ -11619,10 +13968,6 @@ paths:
             $ref: '#/definitions/types.APIError'
         "500":
           description: Internal Server Error
-          schema:
-            $ref: '#/definitions/types.APIError'
-        "502":
-          description: Bad Gateway
           schema:
             $ref: '#/definitions/types.APIError'
       security:
@@ -11666,10 +14011,6 @@ paths:
           description: Internal Server Error
           schema:
             $ref: '#/definitions/types.APIError'
-        "502":
-          description: Bad Gateway
-          schema:
-            $ref: '#/definitions/types.APIError'
       security:
       - BearerAuth: []
       summary: Rescan repository commit
@@ -11690,7 +14031,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/services.KoditIndexingStatus'
+            $ref: '#/definitions/server.KoditIndexingStatusDTO'
         "400":
           description: Bad Request
           schema:
@@ -11703,13 +14044,53 @@ paths:
           description: Internal Server Error
           schema:
             $ref: '#/definitions/types.APIError'
-        "502":
-          description: Bad Gateway
+      security:
+      - BearerAuth: []
+      summary: Get repository indexing status
+      tags:
+      - git-repositories
+  /api/v1/git/repositories/{id}/page-image:
+    get:
+      description: Rasterizes a document page (PDF, etc.) and returns it as a PNG
+        image
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: File path within the repository
+        in: query
+        name: path
+        required: true
+        type: string
+      - description: 1-based page number
+        in: query
+        name: page
+        required: true
+        type: integer
+      produces:
+      - image/png
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: file
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
           schema:
             $ref: '#/definitions/types.APIError'
       security:
       - BearerAuth: []
-      summary: Get repository indexing status
+      summary: Render document page image
       tags:
       - git-repositories
   /api/v1/git/repositories/{id}/pull:
@@ -11929,10 +14310,6 @@ paths:
         in: query
         name: limit
         type: integer
-      - description: Filter by commit SHA
-        in: query
-        name: commit_sha
-        type: string
       produces:
       - application/json
       responses:
@@ -11940,7 +14317,7 @@ paths:
           description: OK
           schema:
             items:
-              $ref: '#/definitions/services.KoditSearchResult'
+              $ref: '#/definitions/server.KoditSearchResultDTO'
             type: array
         "400":
           description: Bad Request
@@ -11954,13 +14331,55 @@ paths:
           description: Internal Server Error
           schema:
             $ref: '#/definitions/types.APIError'
-        "502":
-          description: Bad Gateway
+      security:
+      - BearerAuth: []
+      summary: Search repository snippets
+      tags:
+      - git-repositories
+  /api/v1/git/repositories/{id}/semantic-search:
+    get:
+      description: Search repository code using vector similarity (semantic meaning)
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Natural language search query
+        in: query
+        name: query
+        required: true
+        type: string
+      - description: Maximum results (default 10, max 100)
+        in: query
+        name: limit
+        type: integer
+      - description: Filter by language extension (e.g. .go, .ts)
+        in: query
+        name: language
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.KoditSearchResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
           schema:
             $ref: '#/definitions/types.APIError'
       security:
       - BearerAuth: []
-      summary: Search repository snippets
+      summary: Semantic search repository
       tags:
       - git-repositories
   /api/v1/git/repositories/{id}/sync-all:
@@ -12038,6 +14457,120 @@ paths:
       security:
       - BearerAuth: []
       summary: Browse repository tree
+      tags:
+      - git-repositories
+  /api/v1/git/repositories/{id}/visual-search:
+    get:
+      description: Search document pages (PDFs, etc.) using cross-modal visual similarity
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Natural language search query
+        in: query
+        name: query
+        required: true
+        type: string
+      - description: Maximum results (default 10, max 100)
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.KoditSearchResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Visual search repository
+      tags:
+      - git-repositories
+  /api/v1/git/repositories/{id}/wiki:
+    get:
+      description: Get the wiki navigation tree (titles and paths, no content) for
+        a repository. Each node includes a link to fetch the full page content.
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.KoditWikiTreeResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Get repository wiki tree
+      tags:
+      - git-repositories
+  /api/v1/git/repositories/{id}/wiki-page:
+    get:
+      description: Get a wiki page by hierarchical path as markdown content
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Wiki page path (e.g. architecture/database-layer.md)
+        in: query
+        name: path
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.KoditWikiPageResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Get wiki page
       tags:
       - git-repositories
   /api/v1/helix-models:
@@ -12171,85 +14704,6 @@ paths:
       summary: Update an existing Helix model
       tags:
       - models
-  /api/v1/helix-models/memory-estimate:
-    get:
-      description: Estimate memory requirements for a model on different GPU configurations
-      parameters:
-      - description: Model ID
-        in: query
-        name: model_id
-        required: true
-        type: string
-      - description: 'Number of GPUs (default: auto-detect)'
-        in: query
-        name: gpu_count
-        type: integer
-      - description: 'Context length (default: model default)'
-        in: query
-        name: context_length
-        type: integer
-      - description: 'Batch size (default: 512)'
-        in: query
-        name: batch_size
-        type: integer
-      - description: 'Number of parallel sequences/concurrent requests (default: 2)'
-        in: query
-        name: num_parallel
-        type: integer
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/controller.MemoryEstimationResponse'
-        "400":
-          description: Invalid request parameters
-          schema:
-            type: string
-        "404":
-          description: Model not found
-          schema:
-            type: string
-        "500":
-          description: Internal server error
-          schema:
-            type: string
-      security:
-      - BearerAuth: []
-      summary: Estimate model memory requirements
-      tags:
-      - models
-  /api/v1/helix-models/memory-estimates:
-    get:
-      description: Get memory estimates for multiple models with different GPU configurations
-      parameters:
-      - description: Comma-separated list of model IDs
-        in: query
-        name: model_ids
-        type: string
-      - description: 'Number of GPUs (default: auto-detect)'
-        in: query
-        name: gpu_count
-        type: integer
-      responses:
-        "200":
-          description: OK
-          schema:
-            items:
-              $ref: '#/definitions/controller.MemoryEstimationResponse'
-            type: array
-        "400":
-          description: Invalid request parameters
-          schema:
-            type: string
-        "500":
-          description: Internal server error
-          schema:
-            type: string
-      security:
-      - BearerAuth: []
-      summary: List memory estimates for multiple models
-      tags:
-      - models
   /api/v1/knowledge:
     get:
       responses:
@@ -12336,6 +14790,40 @@ paths:
       summary: List knowledge versions
       tags:
       - knowledge
+  /api/v1/kodit/repositories/{koditRepoId}/enrichments:
+    get:
+      description: Fetch code intelligence enrichments for any Kodit repository (git
+        or knowledge-backed).
+      parameters:
+      - description: Kodit Repository ID
+        in: path
+        name: koditRepoId
+        required: true
+        type: integer
+      - description: Filter by enrichment type
+        in: query
+        name: enrichment_type
+        type: string
+      - description: Filter by commit SHA
+        in: query
+        name: commit_sha
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.KoditRepoEnrichmentsResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Get enrichments by Kodit repo ID
+      tags:
+      - kodit
   /api/v1/license:
     get:
       consumes:
@@ -12397,53 +14885,6 @@ paths:
       summary: List LLM calls
       tags:
       - llm_calls
-  /api/v1/logs/{slot_id}:
-    get:
-      description: Retrieve logs for a specific slot by proxying the request to the
-        runner
-      parameters:
-      - description: Slot ID
-        in: path
-        name: slot_id
-        required: true
-        type: string
-      - description: 'Maximum number of lines to return (default: 500)'
-        in: query
-        name: lines
-        type: integer
-      - description: Return logs since this timestamp (RFC3339 format)
-        in: query
-        name: since
-        type: string
-      - description: Filter by log level (ERROR, WARN, INFO, DEBUG)
-        in: query
-        name: level
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            additionalProperties: true
-            type: object
-        "400":
-          description: Bad Request
-          schema:
-            type: string
-        "404":
-          description: Not Found
-          schema:
-            type: string
-        "500":
-          description: Internal Server Error
-          schema:
-            type: string
-      security:
-      - BearerAuth: []
-      summary: Get logs for a specific slot
-      tags:
-      - logs
   /api/v1/model-info:
     get:
       description: List all dynamic model infos. Requires admin privileges.
@@ -12846,6 +15287,78 @@ paths:
       summary: Update an organization
       tags:
       - organizations
+  /api/v1/organizations/{id}/api_keys:
+    get:
+      description: List API keys for an organization. Owners see all keys, members
+        see only their own.
+      parameters:
+      - description: Organization ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.ApiKey'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: List organization API keys
+      tags:
+      - organizations
+    post:
+      description: Create a new API key scoped to the organization. Any member can
+        create keys.
+      parameters:
+      - description: Organization ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Request body with name
+        in: body
+        name: request
+        required: true
+        schema:
+          type: object
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.ApiKey'
+      security:
+      - BearerAuth: []
+      summary: Create an organization API key
+      tags:
+      - organizations
+  /api/v1/organizations/{id}/api_keys/{key}:
+    delete:
+      description: Delete an API key. Owners can delete any org key, members only
+        their own.
+      parameters:
+      - description: Organization ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: API key to delete
+        in: path
+        name: key
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Delete an organization API key
+      tags:
+      - organizations
   /api/v1/organizations/{id}/guidelines-history:
     get:
       consumes:
@@ -13077,6 +15590,528 @@ paths:
       summary: Add a new member to a team
       tags:
       - organizations
+  /api/v1/organizations/{org_id}/sandboxes:
+    get:
+      description: List sandboxes belonging to an organization
+      parameters:
+      - description: Organization ID
+        in: path
+        name: org_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.SandboxListResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - ApiKeyAuth: []
+      summary: List sandboxes
+      tags:
+      - Sandboxes
+    post:
+      consumes:
+      - application/json
+      description: Create a new sandbox in an organization
+      parameters:
+      - description: Organization ID
+        in: path
+        name: org_id
+        required: true
+        type: string
+      - description: Sandbox spec
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/types.CreateSandboxRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/types.Sandbox'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - ApiKeyAuth: []
+      summary: Create sandbox
+      tags:
+      - Sandboxes
+  /api/v1/organizations/{org_id}/sandboxes/{id}:
+    delete:
+      parameters:
+      - description: Organization ID
+        in: path
+        name: org_id
+        required: true
+        type: string
+      - description: Sandbox ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+      security:
+      - ApiKeyAuth: []
+      summary: Delete sandbox
+      tags:
+      - Sandboxes
+    get:
+      parameters:
+      - description: Organization ID
+        in: path
+        name: org_id
+        required: true
+        type: string
+      - description: Sandbox ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.Sandbox'
+      security:
+      - ApiKeyAuth: []
+      summary: Get sandbox
+      tags:
+      - Sandboxes
+    patch:
+      consumes:
+      - application/json
+      parameters:
+      - description: Organization ID
+        in: path
+        name: org_id
+        required: true
+        type: string
+      - description: Sandbox ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Patch
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/types.UpdateSandboxRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.Sandbox'
+      security:
+      - ApiKeyAuth: []
+      summary: Update sandbox
+      tags:
+      - Sandboxes
+  /api/v1/organizations/{org_id}/sandboxes/{id}/billing:
+    get:
+      parameters:
+      - description: Organization ID
+        in: path
+        name: org_id
+        required: true
+        type: string
+      - description: Sandbox ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.SandboxBillingResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: Sandbox billing summary
+      tags:
+      - Sandboxes
+  /api/v1/organizations/{org_id}/sandboxes/{id}/commands:
+    get:
+      parameters:
+      - description: Organization ID
+        in: path
+        name: org_id
+        required: true
+        type: string
+      - description: Sandbox ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/hydra.ListSandboxCommandsResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: List sandbox commands
+      tags:
+      - Sandboxes
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Organization ID
+        in: path
+        name: org_id
+        required: true
+        type: string
+      - description: Sandbox ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Command spec
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/types.RunSandboxCommandRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/hydra.SandboxCommandResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: Run a command in a sandbox
+      tags:
+      - Sandboxes
+  /api/v1/organizations/{org_id}/sandboxes/{id}/commands/{cmd_id}:
+    get:
+      parameters:
+      - description: Organization ID
+        in: path
+        name: org_id
+        required: true
+        type: string
+      - description: Sandbox ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Command ID
+        in: path
+        name: cmd_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/hydra.SandboxCommandResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: Get a sandbox command
+      tags:
+      - Sandboxes
+  /api/v1/organizations/{org_id}/sandboxes/{id}/commands/{cmd_id}/kill:
+    post:
+      parameters:
+      - description: Organization ID
+        in: path
+        name: org_id
+        required: true
+        type: string
+      - description: Sandbox ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Command ID
+        in: path
+        name: cmd_id
+        required: true
+        type: string
+      - description: Signal name (default TERM)
+        in: query
+        name: signal
+        type: string
+      responses:
+        "204":
+          description: No Content
+      security:
+      - ApiKeyAuth: []
+      summary: Kill a sandbox command
+      tags:
+      - Sandboxes
+  /api/v1/organizations/{org_id}/sandboxes/{id}/commands/{cmd_id}/logs:
+    get:
+      parameters:
+      - description: Organization ID
+        in: path
+        name: org_id
+        required: true
+        type: string
+      - description: Sandbox ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Command ID
+        in: path
+        name: cmd_id
+        required: true
+        type: string
+      - description: stdout|stderr|both
+        in: query
+        name: stream
+        type: string
+      - description: 1 to follow
+        in: query
+        name: follow
+        type: string
+      produces:
+      - text/event-stream
+      responses: {}
+      security:
+      - ApiKeyAuth: []
+      summary: Stream sandbox command logs
+      tags:
+      - Sandboxes
+  /api/v1/organizations/{org_id}/sandboxes/{id}/files:
+    delete:
+      parameters:
+      - description: Organization ID
+        in: path
+        name: org_id
+        required: true
+        type: string
+      - description: Sandbox ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Absolute path inside the sandbox
+        in: query
+        name: path
+        required: true
+        type: string
+      - description: Octal permission for write
+        in: query
+        name: mode
+        type: string
+      - description: 1 to delete recursively
+        in: query
+        name: recursive
+        type: string
+      responses: {}
+      security:
+      - ApiKeyAuth: []
+      summary: Read/write/delete sandbox file
+      tags:
+      - Sandboxes
+    get:
+      parameters:
+      - description: Organization ID
+        in: path
+        name: org_id
+        required: true
+        type: string
+      - description: Sandbox ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Absolute path inside the sandbox
+        in: query
+        name: path
+        required: true
+        type: string
+      - description: Octal permission for write
+        in: query
+        name: mode
+        type: string
+      - description: 1 to delete recursively
+        in: query
+        name: recursive
+        type: string
+      responses: {}
+      security:
+      - ApiKeyAuth: []
+      summary: Read/write/delete sandbox file
+      tags:
+      - Sandboxes
+    put:
+      parameters:
+      - description: Organization ID
+        in: path
+        name: org_id
+        required: true
+        type: string
+      - description: Sandbox ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Absolute path inside the sandbox
+        in: query
+        name: path
+        required: true
+        type: string
+      - description: Octal permission for write
+        in: query
+        name: mode
+        type: string
+      - description: 1 to delete recursively
+        in: query
+        name: recursive
+        type: string
+      responses: {}
+      security:
+      - ApiKeyAuth: []
+      summary: Read/write/delete sandbox file
+      tags:
+      - Sandboxes
+  /api/v1/organizations/{org_id}/sandboxes/{id}/files/list:
+    get:
+      parameters:
+      - description: Organization ID
+        in: path
+        name: org_id
+        required: true
+        type: string
+      - description: Sandbox ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Directory path (default /root)
+        in: query
+        name: path
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/hydra.ListSandboxFilesResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: List directory in sandbox
+      tags:
+      - Sandboxes
+  /api/v1/organizations/{org_id}/sandboxes/{id}/screenshot:
+    get:
+      parameters:
+      - description: Organization ID
+        in: path
+        name: org_id
+        required: true
+        type: string
+      - description: Sandbox ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: JPEG quality (1-100, default 60)
+        in: query
+        name: quality
+        type: integer
+      produces:
+      - image/jpeg
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: string
+        "503":
+          description: Desktop bridge not connected
+          schema:
+            type: string
+      security:
+      - ApiKeyAuth: []
+      summary: Get a sandbox screenshot
+      tags:
+      - Sandboxes
+  /api/v1/organizations/{org_id}/sandboxes/{id}/terminal:
+    get:
+      parameters:
+      - description: Organization ID
+        in: path
+        name: org_id
+        required: true
+        type: string
+      - description: Sandbox ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses: {}
+      security:
+      - ApiKeyAuth: []
+      summary: Sandbox terminal websocket
+      tags:
+      - Sandboxes
+  /api/v1/organizations/{org_id}/sandboxes/{id}/terminal/sessions:
+    get:
+      parameters:
+      - description: Organization ID
+        in: path
+        name: org_id
+        required: true
+        type: string
+      - description: Sandbox ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.SandboxTerminalSessionsResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: List sandbox tmux sessions
+      tags:
+      - Sandboxes
   /api/v1/projects:
     get:
       consumes:
@@ -13471,6 +16506,28 @@ paths:
       summary: Cancel running golden Docker cache builds
       tags:
       - Projects
+  /api/v1/projects/{id}/docker-cache/zfs-tree:
+    get:
+      description: Returns the ZFS snapshot and clone tree showing golden cache, snapshots,
+        and active session clones.
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.ZFSTree'
+      security:
+      - BearerAuth: []
+      summary: Get ZFS snapshot/clone tree for project's Docker cache
+      tags:
+      - projects
   /api/v1/projects/{id}/exploratory-session:
     delete:
       description: Stop the running exploratory session for a project (stops sandbox
@@ -13691,6 +16748,72 @@ paths:
       security:
       - BearerAuth: []
       summary: Preview moving a project to an organization
+      tags:
+      - Projects
+  /api/v1/projects/{id}/pin:
+    delete:
+      consumes:
+      - application/json
+      description: Remove a project from the current user's pinned projects
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.PinnedProjectsResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Unpin a project
+      tags:
+      - Projects
+    post:
+      consumes:
+      - application/json
+      description: Pin a project for the current user so it appears at the top of
+        the projects board
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.PinnedProjectsResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Pin a project
       tags:
       - Projects
   /api/v1/projects/{id}/repositories:
@@ -14037,6 +17160,76 @@ paths:
       summary: Get project token usage
       tags:
       - Projects
+  /api/v1/projects/{projectId}/labels:
+    get:
+      description: Returns a sorted list of unique labels across all spec tasks in
+        a project
+      parameters:
+      - description: Project ID
+        in: path
+        name: projectId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              type: string
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      summary: List all labels used in a project
+      tags:
+      - spec-driven-tasks
+  /api/v1/projects/apply:
+    put:
+      consumes:
+      - application/json
+      description: Idempotent upsert of a project from a declarative YAML spec
+      parameters:
+      - description: Project apply request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.ProjectApplyRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.ProjectApplyResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Apply a project YAML
+      tags:
+      - Projects
   /api/v1/projects/quick-create:
     post:
       consumes:
@@ -14114,6 +17307,50 @@ paths:
       security:
       - ApiKeyAuth: []
       summary: List prompt history
+      tags:
+      - PromptHistory
+  /api/v1/prompt-history/{id}:
+    delete:
+      description: Soft-deletes a prompt history entry so it is removed from the queue
+        and no longer synced to clients
+      parameters:
+      - description: Prompt ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: boolean
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - ApiKeyAuth: []
+      summary: Delete a prompt history entry
       tags:
       - PromptHistory
   /api/v1/prompt-history/{id}/pin:
@@ -14835,6 +18072,210 @@ paths:
       summary: Search across resources
       tags:
       - search
+  /api/v1/runner-profiles:
+    get:
+      description: Return all compose-based runner profiles, ordered by name.
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.RunnerProfile'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: List runner profiles
+      tags:
+      - runner_profiles
+    post:
+      parameters:
+      - description: Profile fields
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/server.runnerProfileSaveRequest'
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/types.RunnerProfile'
+        "400":
+          description: invalid request
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Create a runner profile
+      tags:
+      - runner_profiles
+  /api/v1/runner-profiles/{id}:
+    delete:
+      parameters:
+      - description: Profile ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: no content
+          schema:
+            type: string
+        "404":
+          description: not found
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Delete a runner profile
+      tags:
+      - runner_profiles
+    get:
+      parameters:
+      - description: Profile ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.RunnerProfile'
+        "404":
+          description: not found
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Get a runner profile by ID
+      tags:
+      - runner_profiles
+    put:
+      parameters:
+      - description: Profile ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Profile fields
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/server.runnerProfileSaveRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.RunnerProfile'
+        "404":
+          description: not found
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Update a runner profile (full replace)
+      tags:
+      - runner_profiles
+  /api/v1/runners/{runner_id}/assign-profile:
+    post:
+      description: |-
+        Validates GPU compatibility, persists the assignment, and notifies
+        the runner over NATS to apply the profile.
+      parameters:
+      - description: Runner ID
+        in: path
+        name: runner_id
+        required: true
+        type: string
+      - description: Profile ID
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/server.runnerProfileAssignRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.RunnerAssignment'
+        "422":
+          description: 'incompatible: <constraint> — <detail>'
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Assign a profile to a runner
+      tags:
+      - runner_profiles
+  /api/v1/runners/{runner_id}/assignment:
+    get:
+      parameters:
+      - description: Runner ID
+        in: path
+        name: runner_id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.RunnerAssignment'
+        "404":
+          description: no assignment
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Get a runner's current profile assignment
+      tags:
+      - runner_profiles
+  /api/v1/runners/{runner_id}/clear-profile:
+    post:
+      description: |-
+        Deletes the runner-to-profile assignment and tells the runner
+        to tear down any active compose stack. Idempotent.
+      parameters:
+      - description: Runner ID
+        in: path
+        name: runner_id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: no content
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Clear a runner's profile assignment
+      tags:
+      - runner_profiles
+  /api/v1/runners/{runner_id}/compatible-profiles:
+    get:
+      description: |-
+        Returns the subset of profiles whose GPU compatibility specification
+        is satisfied by the runner's reported hardware inventory.
+      parameters:
+      - description: Runner ID
+        in: path
+        name: runner_id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.RunnerProfile'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: List runner profiles compatible with the given runner
+      tags:
+      - runner_profiles
   /api/v1/sample-projects:
     get:
       description: Get a list of all available sample projects that users can fork
@@ -15124,6 +18565,25 @@ paths:
       summary: Create sample repository
       tags:
       - samples
+  /api/v1/sandbox-runtimes:
+    get:
+      description: List the sandbox runtimes available on this server
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              items:
+                type: string
+              type: array
+            type: object
+      security:
+      - ApiKeyAuth: []
+      summary: List sandbox runtimes
+      tags:
+      - Sandboxes
   /api/v1/sandboxes:
     get:
       description: Get all registered sandboxes
@@ -15259,20 +18719,6 @@ paths:
       summary: Register a sandbox instance
       tags:
       - sandbox
-  /api/v1/scheduler/heartbeats:
-    get:
-      description: Get the health status of all scheduler goroutines
-      responses:
-        "200":
-          description: OK
-          schema:
-            additionalProperties: true
-            type: object
-      security:
-      - BearerAuth: []
-      summary: Get scheduler goroutine heartbeat status
-      tags:
-      - dashboard
   /api/v1/search:
     get:
       consumes:
@@ -15660,6 +19106,10 @@ paths:
         in: query
         name: project_id
         type: string
+      - description: Filter by session role (e.g. job)
+        in: query
+        name: session_role
+        type: string
       responses:
         "200":
           description: OK
@@ -15696,6 +19146,10 @@ paths:
         in: path
         name: id
         required: true
+        type: string
+      - description: Set to '1' to omit interactions from the response
+        in: query
+        name: skipInteractions
         type: string
       responses:
         "200":
@@ -15748,7 +19202,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/types.ClaudeOAuthCredentials'
+            $ref: '#/definitions/server.SessionClaudeCredentialsResponse'
         "401":
           description: Unauthorized
           schema:
@@ -15920,30 +19374,33 @@ paths:
       - sessions
   /api/v1/sessions/{id}/interactions:
     get:
-      description: List interactions for a session
+      description: List interactions for a session with pagination
       parameters:
       - description: Session ID
         in: path
         name: id
         required: true
         type: string
-      - description: Page number
+      - description: Page number (0-indexed)
         in: query
         name: page
         type: integer
-      - description: Page size
+      - description: Page size (default 100)
         in: query
-        name: page_size
+        name: per_page
         type: integer
+      - description: 'Sort order: ''asc'' (oldest first, default) or ''desc'' (newest
+          first)'
+        in: query
+        name: order
+        type: string
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            items:
-              $ref: '#/definitions/types.Interaction'
-            type: array
+            $ref: '#/definitions/types.PaginatedInteractions'
       security:
       - BearerAuth: []
       summary: List interactions for a session
@@ -16007,6 +19464,35 @@ paths:
       summary: Provide feedback for an interaction
       tags:
       - interactions
+  /api/v1/sessions/{id}/output:
+    get:
+      description: Returns the last interaction's response for a session
+      parameters:
+      - description: Session ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.SessionOutputResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Get session output
+      tags:
+      - Sessions
   /api/v1/sessions/{id}/rdp-connection:
     get:
       description: Get streaming connection details for accessing a session
@@ -16027,6 +19513,53 @@ paths:
       summary: Get streaming connection info for a session
       tags:
       - sessions
+  /api/v1/sessions/{id}/restart-agent:
+    post:
+      description: |-
+        Clears the dead acp_thread_id on the session and resets crashed prompts
+        (those marked by MarkPromptAsCrashed when the Claude Agent process exited)
+        back to pending. The next dispatch sends with empty acp_thread_id, causing
+        Zed to create a fresh thread + Claude Agent process. Requires the session
+        to be an external Zed agent. Returns the count of prompts that were reset.
+      parameters:
+      - description: Session ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Restart Zed thread after a Claude Agent crash
+      tags:
+      - Sessions
   /api/v1/sessions/{id}/resume:
     post:
       description: Restarts the external agent container for a session that has been
@@ -16349,7 +19882,12 @@ paths:
     get:
       consumes:
       - application/json
-      description: Get merged Helix + user Zed settings for a session
+      description: |-
+        Returns the union of helix-managed and user-side MCP context_servers,
+        for the session "MCP Tools" panel in the UI. Other Zed settings
+        (agent.*, language_models, theme) are owned by the daemon — anything
+        that needs the full Zed view goes through the settings-sync-daemon
+        on /zed-config + a local merge.
       parameters:
       - description: Session ID
         in: path
@@ -16378,7 +19916,7 @@ paths:
             $ref: '#/definitions/system.HTTPError'
       security:
       - ApiKeyAuth: []
-      summary: Get merged Zed settings
+      summary: Get merged Zed MCP context_servers for a session
       tags:
       - Zed
   /api/v1/sessions/chat:
@@ -16473,27 +20011,6 @@ paths:
       summary: Validate MCP skill configuration
       tags:
       - skills
-  /api/v1/slots/{slot_id}:
-    delete:
-      description: Delete a slot from the scheduler's desired state, allowing reconciliation
-        to clean it up from the runner
-      parameters:
-      - description: Slot ID
-        in: path
-        name: slot_id
-        required: true
-        type: string
-      responses:
-        "200":
-          description: OK
-          schema:
-            additionalProperties: true
-            type: object
-      security:
-      - BearerAuth: []
-      summary: Delete a slot from scheduler state
-      tags:
-      - dashboard
   /api/v1/spec-tasks:
     get:
       description: List spec-driven tasks with optional filtering by project, status,
@@ -16522,6 +20039,10 @@ paths:
         in: query
         name: with_depends_on
         type: boolean
+      - description: Filter by labels (comma-separated, AND semantics)
+        in: query
+        name: labels
+        type: string
       - default: 50
         description: Limit number of results
         in: query
@@ -16548,35 +20069,6 @@ paths:
       summary: List spec-driven tasks
       tags:
       - spec-driven-tasks
-  /api/v1/spec-tasks/{id}/design-docs:
-    get:
-      description: Get the design documents from helix-specs worktree
-      parameters:
-      - description: SpecTask ID
-        in: path
-        name: id
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/server.DesignDocsResponse'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-      security:
-      - ApiKeyAuth: []
-      summary: Get design docs for SpecTask
-      tags:
-      - SpecTasks
   /api/v1/spec-tasks/{spec_task_id}/approve-implementation:
     post:
       description: Approve the implementation and instruct agent to merge to main
@@ -17137,6 +20629,90 @@ paths:
       summary: List clone groups for a task
       tags:
       - SpecTasks
+  /api/v1/spec-tasks/{taskId}/labels:
+    post:
+      consumes:
+      - application/json
+      description: Adds a label to a spec task (idempotent - no error if label already
+        exists)
+      parameters:
+      - description: Task ID
+        in: path
+        name: taskId
+        required: true
+        type: string
+      - description: Label to add
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/server.addLabelRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.SpecTask'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      summary: Add a label to a spec task
+      tags:
+      - spec-driven-tasks
+  /api/v1/spec-tasks/{taskId}/labels/{label}:
+    delete:
+      description: Removes a label from a spec task (no-op if label does not exist)
+      parameters:
+      - description: Task ID
+        in: path
+        name: taskId
+        required: true
+        type: string
+      - description: Label to remove
+        in: path
+        name: label
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.SpecTask'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      summary: Remove a label from a spec task
+      tags:
+      - spec-driven-tasks
   /api/v1/spec-tasks/{taskId}/progress:
     get:
       description: Get detailed progress information for a spec-driven task including
@@ -17499,6 +21075,10 @@ paths:
         in: query
         name: org_id
         type: string
+      - description: Custom return URL path (e.g. /onboarding)
+        in: query
+        name: return_url
+        type: string
       responses:
         "200":
           description: Subscription session URL
@@ -17813,6 +21393,7 @@ paths:
       description: List users with pagination support and optional filtering by email
         domain or username. Supports ILIKE matching for email domains (e.g., "hotmail.com"
         will find all users with @hotmail.com emails) and partial username matching.
+        Pass `query` to match across email, username, and full_name in one go.
       parameters:
       - description: 'Page number (default: 1)'
         in: query
@@ -17822,6 +21403,10 @@ paths:
         in: query
         name: per_page
         type: integer
+      - description: Free-text search across email, username, and full_name (ILIKE)
+        in: query
+        name: query
+        type: string
       - description: Filter by email domain (e.g., 'hotmail.com') or exact email
         in: query
         name: email
@@ -17897,6 +21482,83 @@ paths:
       summary: Get user details
       tags:
       - users
+  /api/v1/users/{id}/stats:
+    get:
+      consumes:
+      - application/json
+      description: 'Returns an overview of a user''s activity: projects owned, spec
+        tasks created, per-model inference usage, and an effective last-active timestamp
+        combining tracked auth activity with usage-metric data.'
+      parameters:
+      - description: User ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.UserStatsResponse'
+      security:
+      - BearerAuth: []
+      summary: Get user stats (admin only)
+      tags:
+      - users
+  /api/v1/users/me/chat-settings:
+    get:
+      description: Get the current user's default chat settings (applied when chatting
+        without an app)
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.UserChatSettings'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Get user chat settings
+      tags:
+      - Users
+    put:
+      consumes:
+      - application/json
+      description: Update the current user's default chat settings (system prompt
+        + LLM parameters used when chatting without an app)
+      parameters:
+      - description: Chat settings to persist
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.UserChatSettings'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.UserChatSettings'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Update user chat settings
+      tags:
+      - Users
   /api/v1/users/me/guidelines:
     get:
       description: Get the current user's personal workspace guidelines
@@ -17990,6 +21652,29 @@ paths:
       security:
       - BearerAuth: []
       summary: Complete onboarding
+      tags:
+      - Users
+  /api/v1/users/me/pinned-projects:
+    get:
+      description: Get the list of project IDs pinned by the current user
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.PinnedProjectsResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Get pinned project IDs
       tags:
       - Users
   /api/v1/users/search:
@@ -18304,6 +21989,9 @@ paths:
       - embeddings
   /v1/models:
     get:
+      description: List models from a specific provider, or aggregate from all providers
+        if none specified. If the request includes an anthropic-version header, proxies
+        to the upstream Anthropic provider.
       parameters:
       - description: Provider
         in: query
@@ -18318,6 +22006,9 @@ paths:
             type: array
       security:
       - BearerAuth: []
+      summary: List models
+      tags:
+      - models
 schemes:
 - https
 securityDefinitions:

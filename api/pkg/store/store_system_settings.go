@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"time"
 
@@ -70,6 +71,18 @@ func (s *PostgresStore) UpdateSystemSettings(ctx context.Context, req *types.Sys
 	if req.KoditEnrichmentModel != nil {
 		settings.KoditEnrichmentModel = *req.KoditEnrichmentModel
 	}
+	if req.KoditTextEmbeddingProvider != nil {
+		settings.KoditTextEmbeddingProvider = *req.KoditTextEmbeddingProvider
+	}
+	if req.KoditTextEmbeddingModel != nil {
+		settings.KoditTextEmbeddingModel = *req.KoditTextEmbeddingModel
+	}
+	if req.KoditVisionEmbeddingProvider != nil {
+		settings.KoditVisionEmbeddingProvider = *req.KoditVisionEmbeddingProvider
+	}
+	if req.KoditVisionEmbeddingModel != nil {
+		settings.KoditVisionEmbeddingModel = *req.KoditVisionEmbeddingModel
+	}
 	if req.MaxConcurrentDesktops != nil {
 		settings.MaxConcurrentDesktops = *req.MaxConcurrentDesktops
 	}
@@ -78,6 +91,63 @@ func (s *PostgresStore) UpdateSystemSettings(ctx context.Context, req *types.Sys
 	}
 	if req.EnforceQuotas != nil {
 		settings.EnforceQuotas = *req.EnforceQuotas
+	}
+	if req.SandboxBillingEnabled != nil {
+		settings.SandboxBillingEnabled = *req.SandboxBillingEnabled
+	}
+	if req.SandboxHeadlessPriceCreditsPerSecond != nil {
+		if *req.SandboxHeadlessPriceCreditsPerSecond < 0 {
+			return nil, fmt.Errorf("sandbox headless price must be non-negative")
+		}
+		settings.SandboxHeadlessPriceCreditsPerSecond = *req.SandboxHeadlessPriceCreditsPerSecond
+	}
+	if req.SandboxDesktopPriceCreditsPerSecond != nil {
+		if *req.SandboxDesktopPriceCreditsPerSecond < 0 {
+			return nil, fmt.Errorf("sandbox desktop price must be non-negative")
+		}
+		settings.SandboxDesktopPriceCreditsPerSecond = *req.SandboxDesktopPriceCreditsPerSecond
+	}
+	if req.MaxConcurrentHeadlessSandboxes != nil {
+		if *req.MaxConcurrentHeadlessSandboxes <= 0 {
+			return nil, fmt.Errorf("max concurrent headless sandboxes must be positive")
+		}
+		settings.MaxConcurrentHeadlessSandboxes = *req.MaxConcurrentHeadlessSandboxes
+	}
+	if req.MaxConcurrentDesktopSandboxes != nil {
+		if *req.MaxConcurrentDesktopSandboxes <= 0 {
+			return nil, fmt.Errorf("max concurrent desktop sandboxes must be positive")
+		}
+		settings.MaxConcurrentDesktopSandboxes = *req.MaxConcurrentDesktopSandboxes
+	}
+	if req.OptimusReasoningModelProvider != nil {
+		settings.OptimusReasoningModelProvider = *req.OptimusReasoningModelProvider
+	}
+	if req.OptimusReasoningModel != nil {
+		settings.OptimusReasoningModel = *req.OptimusReasoningModel
+	}
+	if req.OptimusReasoningModelEffort != nil {
+		settings.OptimusReasoningModelEffort = *req.OptimusReasoningModelEffort
+	}
+	if req.OptimusGenerationModelProvider != nil {
+		settings.OptimusGenerationModelProvider = *req.OptimusGenerationModelProvider
+	}
+	if req.OptimusGenerationModel != nil {
+		settings.OptimusGenerationModel = *req.OptimusGenerationModel
+	}
+	if req.OptimusSmallReasoningModelProvider != nil {
+		settings.OptimusSmallReasoningModelProvider = *req.OptimusSmallReasoningModelProvider
+	}
+	if req.OptimusSmallReasoningModel != nil {
+		settings.OptimusSmallReasoningModel = *req.OptimusSmallReasoningModel
+	}
+	if req.OptimusSmallReasoningModelEffort != nil {
+		settings.OptimusSmallReasoningModelEffort = *req.OptimusSmallReasoningModelEffort
+	}
+	if req.OptimusSmallGenerationModelProvider != nil {
+		settings.OptimusSmallGenerationModelProvider = *req.OptimusSmallGenerationModelProvider
+	}
+	if req.OptimusSmallGenerationModel != nil {
+		settings.OptimusSmallGenerationModel = *req.OptimusSmallGenerationModel
 	}
 
 	settings.Updated = time.Now()

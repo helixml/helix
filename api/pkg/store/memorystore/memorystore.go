@@ -103,9 +103,19 @@ func (m *MemoryStore) CreateSession(_ context.Context, session types.Session) (*
 func (m *MemoryStore) UpdateSession(_ context.Context, session types.Session) (*types.Session, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	session.Updated = time.Now()
 	cp := session
 	m.sessions[session.ID] = &cp
 	return &cp, nil
+}
+
+func (m *MemoryStore) TouchSession(_ context.Context, sessionID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if s, ok := m.sessions[sessionID]; ok {
+		s.Updated = time.Now()
+	}
+	return nil
 }
 
 func (m *MemoryStore) ListSessions(_ context.Context, query store.ListSessionsQuery) ([]*types.Session, int64, error) {
@@ -129,6 +139,24 @@ func (m *MemoryStore) ListSessions(_ context.Context, query store.ListSessionsQu
 
 // --- Interaction methods ---
 
+func (m *MemoryStore) ListStuckWaitingInteractions(_ context.Context, _ time.Time, _ int) ([]*types.Interaction, error) {
+	return nil, nil
+}
+
+func (m *MemoryStore) CountAutoWakeAttemptsSince(_ context.Context, _ string, _ time.Time) (int64, error) {
+	return 0, nil
+}
+
+func (m *MemoryStore) IncrementInteractionAutoWakeCount(_ context.Context, id string) (int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if i, ok := m.interactions[id]; ok {
+		i.AutoWakeCount++
+		return i.AutoWakeCount, nil
+	}
+	return 0, store.ErrNotFound
+}
+
 func (m *MemoryStore) GetInteraction(_ context.Context, id string) (*types.Interaction, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -138,6 +166,26 @@ func (m *MemoryStore) GetInteraction(_ context.Context, id string) (*types.Inter
 	}
 	cp := *i
 	return &cp, nil
+}
+
+func (m *MemoryStore) GetInteractionsSummary(_ context.Context, sessionID string, generationID int) (int64, time.Time, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	var count int64
+	var maxUpdated time.Time
+	for _, i := range m.interactions {
+		if i.SessionID != sessionID {
+			continue
+		}
+		if generationID > 0 && i.GenerationID != generationID {
+			continue
+		}
+		count++
+		if i.Updated.After(maxUpdated) {
+			maxUpdated = i.Updated
+		}
+	}
+	return count, maxUpdated, nil
 }
 
 func (m *MemoryStore) CreateInteraction(_ context.Context, interaction *types.Interaction) (*types.Interaction, error) {
@@ -243,13 +291,33 @@ func (m *MemoryStore) GetNextInterruptPrompt(_ context.Context, _ string) (*type
 	return nil, nil
 }
 
-func (m *MemoryStore) MarkPromptAsPending(_ context.Context, _ string) error { return nil }
-func (m *MemoryStore) MarkPromptAsSent(_ context.Context, _ string) error    { return nil }
-func (m *MemoryStore) MarkPromptAsFailed(_ context.Context, _ string) error  { return nil }
+func (m *MemoryStore) MarkPromptAsPending(_ context.Context, _ string) error    { return nil }
+func (m *MemoryStore) MarkPromptAsSent(_ context.Context, _ string) error       { return nil }
+func (m *MemoryStore) MarkPromptAsFailed(_ context.Context, _ string, _ string) error {
+	return nil
+}
+func (m *MemoryStore) MarkPromptAsCrashed(_ context.Context, _ string, _ string) error {
+	return nil
+}
+func (m *MemoryStore) ResetCrashedPromptsForSession(_ context.Context, _ string) (int, error) {
+	return 0, nil
+}
+func (m *MemoryStore) ReconcileStuckSendingPrompts(_ context.Context) (int, error) {
+	return 0, nil
+}
+func (m *MemoryStore) RequeueBouncedPrompt(_ context.Context, _ string) error     { return nil }
+func (m *MemoryStore) DeletePromptHistoryEntry(_ context.Context, _ string) error { return nil }
+func (m *MemoryStore) ClaimPromptForSending(_ context.Context, _ string) (bool, error) {
+	return true, nil // In-memory: always succeed (no concurrency in tests)
+}
 
 // SpecTask methods — always return "not found" (no spectasks in test)
 func (m *MemoryStore) GetSpecTask(_ context.Context, _ string) (*types.SpecTask, error) {
 	return nil, store.ErrNotFound
+}
+
+func (m *MemoryStore) TransitionSpecTaskStatus(_ context.Context, _ string, _ []types.SpecTaskStatus, _ types.SpecTaskStatus, _ map[string]any) (bool, error) {
+	return false, nil
 }
 
 func (m *MemoryStore) GetSpecTaskZedThreadByZedThreadID(_ context.Context, _ string) (*types.SpecTaskZedThread, error) {

@@ -30,10 +30,10 @@ import {
   BugReport as DebugIcon,
   Download as DownloadIcon
 } from '@mui/icons-material'
-import { TypesDashboardRunner } from '../../api/api'
 import { useSlotLogs, LogEntry, LogMetadata } from '../../services/logsService'
+import { DashboardRunner } from '../../types/dashboard'
 
-const ModelInstanceLogs: FC<{ runner: TypesDashboardRunner }> = ({ runner }) => {
+const ModelInstanceLogs: FC<{ runner: DashboardRunner }> = ({ runner }) => {
   const [selectedSlot, setSelectedSlot] = useState<string>('')
   const [logLevel, setLogLevel] = useState<string>('all')
   const [maxLines, setMaxLines] = useState<number>(100)
@@ -249,7 +249,7 @@ const ModelInstanceLogs: FC<{ runner: TypesDashboardRunner }> = ({ runner }) => 
             {/* Logs Display */}
             {selectedSlot && (
               <Paper sx={{ maxHeight: 400, overflow: 'auto', backgroundColor: 'rgba(0, 0, 0, 0.9)' }}>
-                {logs.length === 0 && !loading ? (
+                {logs.length === 0 && !isLoading ? (
                   <Box sx={{ p: 2, textAlign: 'center', color: 'rgba(255, 255, 255, 0.6)' }}>
                     No logs available for this slot
                   </Box>

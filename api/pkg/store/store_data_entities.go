@@ -77,6 +77,30 @@ func (s *PostgresStore) ListDataEntities(ctx context.Context, q *ListDataEntitie
 	return entities, nil
 }
 
+// ListDataEntitiesWithKoditRepo returns all data entities that have a kodit repository ID.
+func (s *PostgresStore) ListDataEntitiesWithKoditRepo(ctx context.Context) ([]*types.DataEntity, error) {
+	var entities []*types.DataEntity
+	err := s.gdb.WithContext(ctx).Where("kodit_repository_id IS NOT NULL").Find(&entities).Error
+	if err != nil {
+		return nil, err
+	}
+	return entities, nil
+}
+
+// ListDataEntitiesByKoditRepositoryID returns all data entities that reference
+// the given kodit repository ID. Used by KoditRAG.Delete to detect when a
+// kodit repo is still referenced by other knowledge versions before tearing
+// it down (multiple versions of the same knowledge source share a single
+// kodit repo for the live filestore directory).
+func (s *PostgresStore) ListDataEntitiesByKoditRepositoryID(ctx context.Context, koditRepositoryID int64) ([]*types.DataEntity, error) {
+	var entities []*types.DataEntity
+	err := s.gdb.WithContext(ctx).Where("kodit_repository_id = ?", koditRepositoryID).Find(&entities).Error
+	if err != nil {
+		return nil, err
+	}
+	return entities, nil
+}
+
 func (s *PostgresStore) DeleteDataEntity(ctx context.Context, id string) error {
 	if id == "" {
 		return fmt.Errorf("id not specified")

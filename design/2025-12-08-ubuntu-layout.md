@@ -4,6 +4,12 @@
 **Branch:** feature/ubuntu-desktop
 **Status:** In Progress
 
+> **⚠️ PARTIALLY OUTDATED (2026-02-21):**
+> The architecture diagram below mentions `devilspie2 - window positioning` but this is **no longer used**.
+> devilspie2 was never installed in the Ubuntu image and the config directory was removed.
+> Window management is now handled by GNOME Shell extension (`helix-cursor@helix.ml`) when needed.
+> See task #001329 for details.
+
 ## Overview
 
 This document covers the implementation of Ubuntu GNOME desktop containers for Wolf streaming, including clipboard synchronization, window tiling, and desktop appearance fixes.
@@ -25,7 +31,7 @@ Wolf/Gamescope Compositor (sandbox container)
 Ubuntu GNOME Container (helix-ubuntu)
     ├── GNOME Shell on Xwayland (DISPLAY=:9)
     ├── screenshot-server (port 9876) - handles clipboard + screenshots
-    ├── devilspie2 - window positioning
+    ├── ~~devilspie2 - window positioning~~ (REMOVED - never actually used)
     └── settings-sync-daemon - Zed settings sync
 ```
 

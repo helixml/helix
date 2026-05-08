@@ -95,6 +95,17 @@ func (c *Client) CreateMergeRequest(ctx context.Context, projectID int, title, d
 }
 
 // GetMergeRequest gets a merge request by IID
+func (c *Client) UpdateMergeRequest(ctx context.Context, projectID, mrIID int, title, description string) (*gitlab.MergeRequest, error) {
+	mr, _, err := c.client.MergeRequests.UpdateMergeRequest(projectID, mrIID, &gitlab.UpdateMergeRequestOptions{
+		Title:       &title,
+		Description: &description,
+	}, gitlab.WithContext(ctx))
+	if err != nil {
+		return nil, fmt.Errorf("failed to update merge request: %w", err)
+	}
+	return mr, nil
+}
+
 func (c *Client) GetMergeRequest(ctx context.Context, projectID, mrIID int) (*gitlab.MergeRequest, error) {
 	mr, _, err := c.client.MergeRequests.GetMergeRequest(projectID, mrIID, nil, gitlab.WithContext(ctx))
 	if err != nil {
@@ -125,6 +136,36 @@ func (c *Client) ListMergeRequests(ctx context.Context, projectID int) ([]*gitla
 	}
 
 	return allMRs, nil
+}
+
+// CIStatusResult is the normalized verdict for a head SHA. Status is the
+// raw GitLab pipeline status (e.g. "success", "running", "failed"); the
+// caller normalises via services.NormalizeCIStatus("gitlab", ...).
+type CIStatusResult struct {
+	Status string
+	URL    string // Pipeline web URL — directly clickable.
+}
+
+// GetCIStatus fetches the most recent pipeline for the given SHA on the
+// project and returns its raw status + web URL. Returns nil result with a
+// nil error if no pipeline exists for the SHA — callers should treat that
+// as "none".
+func (c *Client) GetCIStatus(ctx context.Context, projectID int, sha string) (*CIStatusResult, error) {
+	opt := &gitlab.ListProjectPipelinesOptions{
+		SHA:         gitlab.Ptr(sha),
+		OrderBy:     gitlab.Ptr("id"),
+		Sort:        gitlab.Ptr("desc"),
+		ListOptions: gitlab.ListOptions{PerPage: 1, Page: 1},
+	}
+	pipelines, _, err := c.client.Pipelines.ListProjectPipelines(projectID, opt, gitlab.WithContext(ctx))
+	if err != nil {
+		return nil, fmt.Errorf("failed to list project pipelines: %w", err)
+	}
+	if len(pipelines) == 0 {
+		return nil, nil
+	}
+	p := pipelines[0]
+	return &CIStatusResult{Status: p.Status, URL: p.WebURL}, nil
 }
 
 // GetProject gets a project by ID

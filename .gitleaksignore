@@ -22,6 +22,11 @@ design/2025-12-07-wolf-wayland-socket-leak.md:curl-auth-header:102
 design/2026-02-04-test-session-results.md:generic-api-key:74
 design/2026-02-06-overnight-summary.md:generic-api-key:231
 
+# Org API key handler tests - fake test key (not a real secret)
+api/pkg/server/org_apikey_handlers_test.go:generic-api-key:282
+api/pkg/server/org_apikey_handlers_test.go:generic-api-key:320
+api/pkg/server/org_apikey_handlers_test.go:generic-api-key:356
+
 # Integration test - test API key (not a real secret)
 integration-test/zed-websocket/enhanced_source_of_truth_test.go:generic-api-key:22
 
@@ -35,3 +40,10 @@ wolf/key.pem:private-key:1
 docker-compose.keycloak.yaml:generic-api-key:25
 keycloak/docker-compose.dev.yaml:generic-api-key:25
 keycloak/docker-compose.prod.yaml:generic-api-key:26
+
+# Jobs page - example curl commands with placeholder API key
+frontend/src/pages/Jobs.tsx:curl-auth-header:492
+frontend/src/pages/Jobs.tsx:curl-auth-header:516
+frontend/src/pages/Jobs.tsx:curl-auth-header:527
+frontend/src/pages/Jobs.tsx:curl-auth-header:530
+frontend/src/pages/Jobs.tsx:curl-auth-header:533

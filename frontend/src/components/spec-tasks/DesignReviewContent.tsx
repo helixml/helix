@@ -28,12 +28,18 @@ import {
   Tooltip,
   Badge,
   useMediaQuery,
+  ToggleButtonGroup,
+  ToggleButton,
+  GlobalStyles,
 } from "@mui/material";
 import { useTheme } from "@mui/material/styles";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import EditIcon from "@mui/icons-material/Edit";
+import ArrowBackIcon from "@mui/icons-material/ArrowBack";
+import Description from "@mui/icons-material/Description";
 import { GitBranch } from "lucide-react";
 import CommentIcon from "@mui/icons-material/Comment";
+import AddCommentIcon from "@mui/icons-material/AddComment";
 import ShareIcon from "@mui/icons-material/Share";
 import CheckIcon from "@mui/icons-material/Check";
 import ReactMarkdown from "react-markdown";
@@ -42,6 +48,7 @@ import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneLight } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { useQueryClient } from "@tanstack/react-query";
 import ReconnectingWebSocket from "reconnecting-websocket";
+import { applyPatch } from "../../utils/patchUtils";
 import {
   useDesignReview,
   useDesignReviewComments,
@@ -55,6 +62,9 @@ import {
 import useSnackbar from "../../hooks/useSnackbar";
 import useApi from "../../hooks/useApi";
 import useAccount from "../../hooks/useAccount";
+import { useOAuthFlow } from "../../hooks/useOAuthFlow";
+import { useListOAuthProviders } from "../../services/oauthProvidersService";
+import { findOAuthProviderForType } from "../../utils/oauthProviders";
 import InlineCommentBubble from "./InlineCommentBubble";
 import InlineCommentForm from "./InlineCommentForm";
 import CommentLogSidebar from "./CommentLogSidebar";
@@ -74,6 +84,8 @@ interface DesignReviewContentProps {
   initialTab?: DocumentType;
   /** Hide the title in header - use when embedded in a page with its own breadcrumbs */
   hideTitle?: boolean;
+  /** If provided, renders a "← Back to task" tab as the first tab in the tab strip */
+  onBack?: () => void;
 }
 
 const DOCUMENT_LABELS = {
@@ -89,6 +101,7 @@ export default function DesignReviewContent({
   onImplementationStarted,
   initialTab = "requirements",
   hideTitle = false,
+  onBack,
 }: DesignReviewContentProps) {
   const snackbar = useSnackbar();
   const api = useApi();
@@ -116,6 +129,7 @@ export default function DesignReviewContent({
   const [viewedTabs, setViewedTabs] = useState<Set<DocumentType>>(
     new Set(["requirements"]),
   );
+  const viewedContentRef = useRef<Map<DocumentType, string>>(new Map());
   const [showRejectDialog, setShowRejectDialog] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
   const [shareLinkCopied, setShareLinkCopied] = useState(false);
@@ -130,6 +144,16 @@ export default function DesignReviewContent({
   const markdownRef = useRef<HTMLDivElement>(null);
   const commentRefs = useRef<Map<string, HTMLDivElement>>(new Map());
 
+  // Refs and state for highlight preservation and hover button
+  const savedRangeRef = useRef<Range | null>(null);
+  const savedHighlightRangeRef = useRef<Range | null>(null);
+  const hoveredElementRef = useRef<Element | null>(null);
+  const [hoverButtonPosition, setHoverButtonPosition] = useState<{
+    x: number;
+    y: number;
+    elementText: string;
+  } | null>(null);
+
   const { data: task } = useSpecTask(specTaskId, {
     enabled: !!specTaskId,
   });
@@ -138,7 +162,7 @@ export default function DesignReviewContent({
     return dependencies.filter((dependency) => {
       const dependencyStatus = dependency.status || "";
       const isCompleted =
-        dependencyStatus === "done" || dependencyStatus === "completed";
+        (dependencyStatus as string) === "done" || (dependencyStatus as string) === "completed";
       return !dependency.archived && !isCompleted;
     });
   }, [task?.depends_on]);
@@ -170,6 +194,13 @@ export default function DesignReviewContent({
   const createCommentMutation = useCreateComment(specTaskId, reviewId);
   const resolveCommentMutation = useResolveComment(specTaskId, reviewId);
 
+  // OAuth flow is needed when an approver without GitHub OAuth tries to
+  // approve — the backend returns 422 with error=oauth_required, and we
+  // redirect them through the GitHub connection flow before they retry.
+  const { startOAuthFlow } = useOAuthFlow();
+  const { data: oauthProviders } = useListOAuthProviders();
+  const gitHubProvider = findOAuthProviderForType(oauthProviders, "github");
+
   // Get queue status for streaming
   // Enable polling immediately when we create a comment (awaitingCommentResponse)
   // OR when we detect awaiting comments from the comments query (hasAwaitingComments)
@@ -187,10 +218,21 @@ export default function DesignReviewContent({
     }
   }, [awaitingCommentResponse, hasAwaitingComments, commentsData]);
 
+  // Apply DOM highlight when comment form opens, to preserve the visual selection
+  // (browser clears native selection when the form's TextField auto-focuses)
+  useEffect(() => {
+    if (showCommentForm && savedRangeRef.current) {
+      applyHighlight(savedRangeRef.current);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showCommentForm]);
+
   // Track streaming agent response
   const [streamingResponse, setStreamingResponse] = useState<{
     commentId: string;
     content: string;
+    entries: Array<{ type: 'text' | 'tool_call'; content: string; message_id: string; tool_name?: string; tool_status?: string }>;
+    isComplete?: boolean; // true = done streaming, keep content visible until cache refreshes
   } | null>(null);
   const account = useAccount();
   const queryClient = useQueryClient();
@@ -210,11 +252,15 @@ export default function DesignReviewContent({
 
   // Get planning session ID from spec task (more reliable than waiting for queue status)
   const planningSessionId = task?.planning_session_id;
+
   const activeDocComments = useMemo(
     () => allComments.filter((c) => c.document_type === activeTab),
     [allComments, activeTab],
   );
   const unresolvedCount = getUnresolvedCount(allComments);
+
+  const ALL_TABS: DocumentType[] = ["requirements", "technical_design", "implementation_plan"];
+  const allTabsViewed = ALL_TABS.every((t) => viewedTabs.has(t));
 
   // Memoize document content
   const documentContent = useMemo(() => {
@@ -240,12 +286,72 @@ export default function DesignReviewContent({
       .length;
   };
 
+  const getTabContent = (tab: DocumentType): string => {
+    if (!review) return "";
+    switch (tab) {
+      case "requirements":
+        return review.requirements_spec || "";
+      case "technical_design":
+        return review.technical_design || "";
+      case "implementation_plan":
+        return review.implementation_plan || "";
+    }
+  };
+
+  // Snapshot content on initial mount for the default tab
+  useEffect(() => {
+    if (review && !viewedContentRef.current.has("requirements")) {
+      viewedContentRef.current.set("requirements", getTabContent("requirements"));
+    }
+  }, [review]);
+
+  // Invalidate viewed tabs when content changes. The active tab is exempt:
+  // the user is currently looking at it, so we refresh its snapshot in place
+  // rather than flagging it unread.
+  useEffect(() => {
+    if (!review) return;
+    const tabs: DocumentType[] = ["requirements", "technical_design", "implementation_plan"];
+    const invalidated: DocumentType[] = [];
+    for (const tab of tabs) {
+      const snapshot = viewedContentRef.current.get(tab);
+      if (snapshot === undefined) continue;
+      if (snapshot === getTabContent(tab)) continue;
+
+      if (tab === activeTab) {
+        viewedContentRef.current.set(tab, getTabContent(tab));
+        continue;
+      }
+      invalidated.push(tab);
+      viewedContentRef.current.delete(tab);
+    }
+    if (invalidated.length > 0) {
+      setViewedTabs((prev) => {
+        const next = new Set(prev);
+        for (const tab of invalidated) next.delete(tab);
+        return next;
+      });
+    }
+  }, [review?.requirements_spec, review?.technical_design, review?.implementation_plan, activeTab]);
+
   // Handle tab change
   const handleTabChange = (newTab: DocumentType) => {
     setActiveTab(newTab);
     setViewedTabs((prev) => new Set(prev).add(newTab));
+    viewedContentRef.current.set(newTab, getTabContent(newTab));
     if (documentRef.current) {
       documentRef.current.scrollTop = 0;
+    }
+  };
+
+  // Jump to the next unread tab in canonical order, wrapping past the end.
+  const handleNextDocument = () => {
+    const startIdx = ALL_TABS.indexOf(activeTab);
+    for (let i = 1; i <= ALL_TABS.length; i++) {
+      const candidate = ALL_TABS[(startIdx + i) % ALL_TABS.length];
+      if (!viewedTabs.has(candidate)) {
+        handleTabChange(candidate);
+        return;
+      }
     }
   };
 
@@ -303,6 +409,9 @@ export default function DesignReviewContent({
     });
 
     let accumulatedResponse = "";
+    // Track per-entry streaming content with type metadata
+    type StreamEntry = { type: 'text' | 'tool_call'; content: string; message_id: string; tool_name?: string; tool_status?: string };
+    let streamEntries: StreamEntry[] = [];
 
     const messageHandler = (event: MessageEvent) => {
       try {
@@ -313,6 +422,72 @@ export default function DesignReviewContent({
           parsedData.type,
         );
 
+        // Handle interaction_patch events (entry-based streaming from Go server)
+        if (
+          parsedData.type === "interaction_patch" &&
+          parsedData.entry_patches
+        ) {
+          const entryPatches = parsedData.entry_patches as Array<{
+            index: number;
+            patch: string;
+            patch_offset: number;
+            total_length: number;
+            type?: string;
+            tool_name?: string;
+            tool_status?: string;
+          }>;
+          const entryCount = parsedData.entry_count as number;
+
+          // Grow array if new entries appeared
+          while (streamEntries.length < entryCount) {
+            streamEntries.push({ type: 'text', content: '', message_id: String(streamEntries.length) });
+          }
+          // Apply per-entry patches and capture type metadata
+          for (const ep of entryPatches) {
+            if (ep.index < streamEntries.length) {
+              streamEntries[ep.index].content = applyPatch(
+                streamEntries[ep.index].content,
+                ep.patch_offset,
+                ep.patch,
+                ep.total_length,
+              );
+              if (ep.type) streamEntries[ep.index].type = ep.type as 'text' | 'tool_call';
+              if (ep.tool_name) streamEntries[ep.index].tool_name = ep.tool_name;
+              if (ep.tool_status) streamEntries[ep.index].tool_status = ep.tool_status;
+            }
+          }
+          // Join text entries for flat content fallback
+          accumulatedResponse = streamEntries.filter(e => e.content).map(e => e.content).join("\n\n");
+
+          console.log(
+            "[DRWS-DEBUG] interaction_patch received, entry_count:",
+            entryCount,
+            "reconstructed length:",
+            accumulatedResponse.length,
+          );
+
+          // Find the comment that's currently being processed
+          const currentQueueStatus = queueStatusRef.current;
+          const currentComments = allCommentsRef.current;
+
+          const targetCommentId =
+            currentQueueStatus?.current_comment_id ||
+            currentComments.find((c) => c.request_id && !c.agent_response)
+              ?.id ||
+            [...currentComments]
+              .reverse()
+              .find((c) => !c.agent_response && !c.resolved)?.id;
+
+          if (targetCommentId) {
+            setStreamingResponse({
+              commentId: targetCommentId,
+              content: accumulatedResponse,
+              entries: [...streamEntries],
+            });
+          }
+        }
+
+        // Handle session_update events (full interaction updates)
         if (
           parsedData.type === "session_update" &&
           parsedData.session?.interactions
@@ -373,6 +548,7 @@ export default function DesignReviewContent({
               setStreamingResponse({
                 commentId: targetCommentId,
                 content: accumulatedResponse,
+                entries: [...streamEntries],
               });
             } else {
               console.warn(
@@ -382,7 +558,7 @@ export default function DesignReviewContent({
 
             if (lastInteraction.state === "complete") {
               console.log(
-                "[DRWS-DEBUG] Interaction complete - invalidating queries and clearing state",
+                "[DRWS-DEBUG] Interaction complete - invalidating queries and marking stream complete",
               );
               // Invalidate both comments AND review detail (which contains the design doc content)
               // The agent may have updated the design doc via git push in response to the comment
@@ -392,13 +568,70 @@ export default function DesignReviewContent({
               queryClient.invalidateQueries({
                 queryKey: designReviewKeys.detail(specTaskId, reviewId),
               });
-              setStreamingResponse(null);
+              // Mark as complete rather than clearing immediately — keeps the response content
+              // visible on comment 1 while the React Query cache refreshes. The next comment's
+              // streaming events will naturally overwrite this with the new comment's data.
+              setStreamingResponse(prev => prev ? { ...prev, isComplete: true } : null);
+              // Reset entry tracking for next streaming response
+              streamEntries = [];
             }
           }
-        } else {
-          console.log(
-            "[DRWS-DEBUG] Ignoring message - not a session_update with interactions",
-          );
+        }
+
+        // Handle interaction_update events (sent on completion)
+        if (
+          parsedData.type === "interaction_update" &&
+          parsedData.interaction
+        ) {
+          const interaction = parsedData.interaction;
+          console.log("[DRWS-DEBUG] interaction_update received:", {
+            state: interaction.state,
+            responseLength: interaction.response_message?.length,
+          });
+
+          if (interaction.response_message) {
+            accumulatedResponse = interaction.response_message;
+            // Use structured entries from the wire if available, else flat text entry
+            if (interaction.response_entries?.length) {
+              streamEntries = interaction.response_entries;
+            } else {
+              streamEntries = [{ type: 'text', content: interaction.response_message, message_id: '0' }];
+            }
+
+            const currentQueueStatus = queueStatusRef.current;
+            const currentComments = allCommentsRef.current;
+
+            const targetCommentId =
+              currentQueueStatus?.current_comment_id ||
+              currentComments.find((c) => c.request_id && !c.agent_response)
+                ?.id ||
+              [...currentComments]
+                .reverse()
+                .find((c) => !c.agent_response && !c.resolved)?.id;
+
+            if (targetCommentId) {
+              setStreamingResponse({
+                commentId: targetCommentId,
+                content: accumulatedResponse,
+                entries: [...streamEntries],
+              });
+            }
+          }
+
+          if (interaction.state === "complete") {
+            console.log(
+              "[DRWS-DEBUG] interaction_update complete - invalidating queries",
+            );
+            queryClient.invalidateQueries({
+              queryKey: designReviewKeys.comments(specTaskId, reviewId),
+            });
+            queryClient.invalidateQueries({
+              queryKey: designReviewKeys.detail(specTaskId, reviewId),
+            });
+            // Mark as complete rather than clearing immediately (see session_update handler above)
+            setStreamingResponse(prev => prev ? { ...prev, isComplete: true } : null);
+            streamEntries = [];
+          }
         }
       } catch (error) {
         console.error("[DRWS-DEBUG] Error parsing WebSocket message:", error);
@@ -412,7 +645,7 @@ export default function DesignReviewContent({
       rws.removeEventListener("message", messageHandler);
       rws.close();
     };
-  }, [planningSessionId, specTaskId, reviewId]);
+  }, [planningSessionId, specTaskId, reviewId, account.user]);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -424,11 +657,14 @@ export default function DesignReviewContent({
 
       switch (e.key.toLowerCase()) {
         case "c":
-          setShowCommentForm((prev) => !prev);
-          e.preventDefault();
+          if (!e.ctrlKey && !e.metaKey) {
+            setShowCommentForm((prev) => !prev);
+            e.preventDefault();
+          }
           break;
         case "escape":
           if (showCommentForm) {
+            removeHighlight();
             setShowCommentForm(false);
             e.preventDefault();
           } else if (showSubmitDialog) {
@@ -640,6 +876,28 @@ export default function DesignReviewContent({
     return null;
   };
 
+  const applyHighlight = (range: Range) => {
+    try {
+      // Clear any existing highlight
+      CSS.highlights.delete("comment-highlight");
+
+      // Create highlight from the range - no DOM modification
+      const highlight = new Highlight(range);
+      CSS.highlights.set("comment-highlight", highlight);
+
+      // Store range for cleanup (not a DOM node)
+      savedHighlightRangeRef.current = range;
+    } catch {
+      // Fallback: skip visual highlight, comment form still opens
+      savedHighlightRangeRef.current = null;
+    }
+  };
+
+  const removeHighlight = () => {
+    CSS.highlights.delete("comment-highlight");
+    savedHighlightRangeRef.current = null;
+  };
+
   const handleTextSelection = (isTouch: boolean = false) => {
     const processSelection = () => {
       const selection = window.getSelection();
@@ -669,6 +927,7 @@ export default function DesignReviewContent({
           const scrollTop = documentRef.current?.scrollTop || 0;
           const yPosition = rect.top - containerRect.top + scrollTop;
 
+          savedRangeRef.current = range.cloneRange();
           setSelectedText(text);
           setCommentFormPosition({ x: 0, y: yPosition });
           setShowCommentForm(true);
@@ -699,6 +958,7 @@ export default function DesignReviewContent({
       });
 
       snackbar.success("Comment added successfully");
+      removeHighlight();
       setCommentText("");
       setSelectedText("");
       setShowCommentForm(false);
@@ -724,12 +984,6 @@ export default function DesignReviewContent({
       });
 
       if (submitDecision === "approve") {
-        const apiClient = api.getApiClient();
-        await apiClient.v1SpecTasksApproveSpecsCreate(specTaskId, {
-          approved: true,
-          comments: overallComment || "Design approved",
-        });
-
         snackbar.success("Design approved! Agent starting implementation...");
         setShowSubmitDialog(false);
 
@@ -744,6 +998,36 @@ export default function DesignReviewContent({
         onClose();
       }
     } catch (error: any) {
+      // Backend returns 422 with error=oauth_required when the approver has
+      // no GitHub OAuth connection. Drop into the connect-GitHub flow rather
+      // than showing a generic failure — the user can retry once connected.
+      const respData = error?.response?.data;
+      if (respData?.error === "oauth_required") {
+        setShowSubmitDialog(false);
+        if (gitHubProvider?.id) {
+          snackbar.info("Connect GitHub to approve this design.");
+          startOAuthFlow({
+            providerId: gitHubProvider.id,
+            scopes: ["repo"],
+            onSuccess: () => {
+              snackbar.success(
+                "GitHub connected. Click Approve again to submit.",
+              );
+            },
+            onError: (oauthError) => {
+              snackbar.error(`GitHub connection failed: ${oauthError}`);
+            },
+          });
+        } else {
+          // No GitHub provider is configured system-wide. The backend's
+          // error message is PR-centric and actionless for this user, so
+          // override it with admin-direction guidance.
+          snackbar.error(
+            "GitHub OAuth is not configured on this Helix instance. Ask your administrator to set it up before approving designs.",
+          );
+        }
+        return;
+      }
       snackbar.error(`Failed to submit review: ${error.message}`);
     }
   };
@@ -768,8 +1052,8 @@ export default function DesignReviewContent({
     try {
       const apiClient = api.getApiClient();
       const response =
-        await apiClient.v1SpecTasksStartImplementationCreate(specTaskId);
-      const data = response.data;
+        await apiClient.v1SpecTasksApproveImplementationCreate(specTaskId);
+      const data = response.data as any;
 
       snackbar.success(`Implementation started on branch: ${data.branch_name}`);
 
@@ -829,6 +1113,7 @@ export default function DesignReviewContent({
 
   return (
     <Box sx={{ display: "flex", flexDirection: "column", height: "100%" }}>
+      <GlobalStyles styles={{ "::highlight(comment-highlight)": { backgroundColor: "#b3d7ff", color: "#000" } }} />
       {/* Main Content Area */}
       <Box display="flex" flex={1} overflow="hidden">
         {/* Document Viewer */}
@@ -846,9 +1131,57 @@ export default function DesignReviewContent({
             }}
           >
             {/* Tabs on the left */}
+            {onBack && (
+              <>
+                {/* Desktop: Chat/Spec toggle matching the issue detail view */}
+                <ToggleButtonGroup
+                  value="spec"
+                  exclusive
+                  onChange={(_, val) => { if (val === "chat") onBack(); }}
+                  size="small"
+                  sx={{
+                    display: { xs: 'none', sm: 'flex' },
+                    flexShrink: 0,
+                    alignSelf: 'center',
+                    ml: 3,
+                    mr: 1,
+                    "& .MuiToggleButton-root": {
+                      px: 1.25,
+                      py: 0.25,
+                      fontSize: "0.8rem",
+                      fontWeight: 500,
+                      textTransform: "none",
+                      border: "1px solid",
+                      borderColor: "divider",
+                      color: "text.secondary",
+                      "&.Mui-selected": {
+                        color: "text.primary",
+                        backgroundColor: "action.selected",
+                      },
+                    },
+                  }}
+                >
+                  <ToggleButton value="chat">Chat</ToggleButton>
+                  <ToggleButton value="spec">
+                    <Description sx={{ fontSize: 14, mr: 0.5 }} />
+                    Spec
+                  </ToggleButton>
+                </ToggleButtonGroup>
+                {/* Mobile: just an arrow icon */}
+                <IconButton
+                  onClick={onBack}
+                  size="small"
+                  sx={{ display: { xs: 'flex', sm: 'none' }, ml: 0.5, mr: 0.5 }}
+                >
+                  <ArrowBackIcon sx={{ fontSize: 18 }} />
+                </IconButton>
+              </>
+            )}
             <Tabs
               value={activeTab}
               onChange={(_, value) => handleTabChange(value)}
+              variant="scrollable"
+              scrollButtons="auto"
               sx={{
                 minHeight: 48,
                 "& .MuiTab-root": {
@@ -861,86 +1194,60 @@ export default function DesignReviewContent({
                 },
               }}
             >
-              <Tab
-                label={
-                  <Box display="flex" alignItems="center" gap={0.5}>
-                    Requirements
-                    {getCommentCount("requirements") > 0 && (
-                      <Chip
-                        label={getCommentCount("requirements")}
-                        size="small"
-                        color="warning"
-                        sx={{
-                          height: 16,
-                          minWidth: 16,
-                          fontSize: "0.65rem",
-                          "& .MuiChip-label": { px: 0.5 },
-                        }}
-                      />
-                    )}
-                  </Box>
-                }
-                value="requirements"
-              />
-              <Tab
-                label={
-                  <Box display="flex" alignItems="center" gap={0.5}>
-                    Technical Design
-                    {getCommentCount("technical_design") > 0 && (
-                      <Chip
-                        label={getCommentCount("technical_design")}
-                        size="small"
-                        color="warning"
-                        sx={{
-                          height: 16,
-                          minWidth: 16,
-                          fontSize: "0.65rem",
-                          "& .MuiChip-label": { px: 0.5 },
-                        }}
-                      />
-                    )}
-                  </Box>
-                }
-                value="technical_design"
-              />
-              <Tab
-                label={
-                  <Box display="flex" alignItems="center" gap={0.5}>
-                    Implementation Plan
-                    {getCommentCount("implementation_plan") > 0 && (
-                      <Chip
-                        label={getCommentCount("implementation_plan")}
-                        size="small"
-                        color="warning"
-                        sx={{
-                          height: 16,
-                          minWidth: 16,
-                          fontSize: "0.65rem",
-                          "& .MuiChip-label": { px: 0.5 },
-                        }}
-                      />
-                    )}
-                  </Box>
-                }
-                value="implementation_plan"
-              />
+              {ALL_TABS.map((tab) => (
+                <Tab
+                  key={tab}
+                  label={
+                    <Box display="flex" alignItems="center" gap={0.5}>
+                      {DOCUMENT_LABELS[tab]}
+                      {!viewedTabs.has(tab) && (
+                        <Box
+                          sx={{
+                            width: 8,
+                            height: 8,
+                            borderRadius: "50%",
+                            bgcolor: "warning.main",
+                            flexShrink: 0,
+                          }}
+                        />
+                      )}
+                      {getCommentCount(tab) > 0 && (
+                        <Chip
+                          label={getCommentCount(tab)}
+                          size="small"
+                          color="warning"
+                          sx={{
+                            height: 16,
+                            minWidth: 16,
+                            fontSize: "0.65rem",
+                            "& .MuiChip-label": { px: 0.5 },
+                          }}
+                        />
+                      )}
+                    </Box>
+                  }
+                  value={tab}
+                />
+              ))}
             </Tabs>
 
             {/* Git info and actions on the right */}
             <Box display="flex" alignItems="center" gap={1.5} pr={2}>
-              <Tooltip title={`Commit: ${review.git_commit_hash}`}>
-                <Chip
-                  icon={<GitBranch size={14} />}
-                  label={`${review.git_branch} @ ${review.git_commit_hash.substring(0, 7)}`}
-                  size="small"
-                  variant="outlined"
-                  sx={{ height: 24, fontSize: "0.7rem" }}
-                />
-              </Tooltip>
+              <Box sx={{ display: { xs: "none", sm: "flex" } }}>
+                <Tooltip title={`Commit: ${review.git_commit_hash}`}>
+                  <Chip
+                    icon={<GitBranch size={14} />}
+                    label={`${review.git_branch} @ ${review.git_commit_hash.substring(0, 7)}`}
+                    size="small"
+                    variant="outlined"
+                    sx={{ height: 24, fontSize: "0.7rem" }}
+                  />
+                </Tooltip>
+              </Box>
               <Typography
                 variant="caption"
                 color="text.secondary"
-                sx={{ whiteSpace: "nowrap" }}
+                sx={{ whiteSpace: "nowrap", display: { xs: "none", sm: "block" } }}
               >
                 {new Date(review.git_pushed_at).toLocaleString()}
               </Typography>
@@ -983,15 +1290,70 @@ export default function DesignReviewContent({
             flex={1}
             overflow="auto"
             p={2}
+            onMouseLeave={() => {
+              hoveredElementRef.current = null;
+              setHoverButtonPosition(null);
+            }}
             sx={{
               bgcolor: "background.default",
               position: "relative",
             }}
           >
+            {/* Hover button for adding comment without text selection */}
+            {hoverButtonPosition && !showCommentForm && !isNarrowViewport && (
+              <Tooltip title="Add comment" placement="top">
+                <IconButton
+                  size="small"
+                  onClick={() => {
+                    setSelectedText(hoverButtonPosition.elementText);
+                    setCommentFormPosition({ x: 0, y: hoverButtonPosition.y });
+                    setHoverButtonPosition(null);
+                    setShowCommentForm(true);
+                  }}
+                  sx={{
+                    position: "absolute",
+                    top: hoverButtonPosition.y,
+                    left: "calc(50% + 400px + 4px)",
+                    zIndex: 15,
+                    bgcolor: "#1976d2",
+                    color: "#fff",
+                    width: 28,
+                    height: 28,
+                    "&:hover": { bgcolor: "#1565c0" },
+                  }}
+                >
+                  <AddCommentIcon sx={{ fontSize: 14 }} />
+                </IconButton>
+              </Tooltip>
+            )}
+
             {/* Document content */}
             <Box
+              onMouseDown={() => { if (!showCommentForm) removeHighlight(); }}
               onMouseUp={() => handleTextSelection(false)}
               onTouchEnd={() => handleTextSelection(true)}
+              onMouseMove={(e) => {
+                if (showCommentForm || isNarrowViewport) return;
+                const target = e.target as Node;
+                const blockTags = new Set(["P", "LI", "H1", "H2", "H3", "H4", "BLOCKQUOTE", "PRE"]);
+                let node: Node | null = target;
+                while (node && node !== markdownRef.current) {
+                  if (node.nodeType === Node.ELEMENT_NODE && blockTags.has((node as Element).tagName)) {
+                    const el = node as Element;
+                    if (el === hoveredElementRef.current) return;
+                    hoveredElementRef.current = el;
+                    const rect = el.getBoundingClientRect();
+                    const containerRect = documentRef.current?.getBoundingClientRect();
+                    if (containerRect) {
+                      const scrollTop = documentRef.current?.scrollTop || 0;
+                      const y = rect.top - containerRect.top + scrollTop;
+                      setHoverButtonPosition({ x: 0, y, elementText: (el as HTMLElement).innerText.trim() });
+                    }
+                    return;
+                  }
+                  node = node.parentNode;
+                }
+              }}
               sx={{
                 maxWidth: "800px",
                 minWidth: "400px",
@@ -1073,6 +1435,16 @@ export default function DesignReviewContent({
                     color: "#000",
                   },
                   cursor: "text",
+                  "& a": {
+                    color: "#00d5ff",
+                    textDecoration: "none",
+                    "&:hover": {
+                      textDecoration: "underline",
+                    },
+                    "&:visited": {
+                      color: "#00d5ff",
+                    },
+                  },
                   "& p, & li, & h1, & h2, & h3, & h4": {
                     cursor: "text",
                     transition: "background-color 0.15s ease",
@@ -1087,7 +1459,7 @@ export default function DesignReviewContent({
                 <ReactMarkdown
                   remarkPlugins={[remarkGfm]}
                   components={{
-                    code({ node, inline, className, children, ...props }: any) {
+                    code({ node, inline, className, children, ref, ...props }: any) {
                       const match = /language-(\w+)/.exec(className || "");
                       return !inline && match ? (
                         <SyntaxHighlighter
@@ -1139,6 +1511,16 @@ export default function DesignReviewContent({
                         ? streamingResponse.content
                         : undefined
                     }
+                    streamingEntries={
+                      isCurrentlyStreaming
+                        ? streamingResponse.entries
+                        : undefined
+                    }
+                    isStreamingComplete={
+                      isCurrentlyStreaming
+                        ? !!streamingResponse.isComplete
+                        : undefined
+                    }
                     commentRef={(el) => {
                       if (el) {
                         commentRefs.current.set(comment.id!, el);
@@ -1160,11 +1542,13 @@ export default function DesignReviewContent({
                 onCommentChange={setCommentText}
                 onCreate={handleCreateComment}
                 onCancel={() => {
+                  removeHighlight();
                   setShowCommentForm(false);
                   setCommentText("");
                   setSelectedText("");
                 }}
                 isNarrowViewport={isNarrowViewport}
+                isSubmitting={createCommentMutation.isPending}
               />
             </Box>
           </Box>
@@ -1175,6 +1559,7 @@ export default function DesignReviewContent({
           show={showCommentLog}
           comments={activeDocComments}
           onResolveComment={handleResolveComment}
+          streamingResponse={streamingResponse}
         />
       </Box>
 
@@ -1207,6 +1592,9 @@ export default function DesignReviewContent({
             setSubmitDecision("request_changes");
             setShowSubmitDialog(true);
           }}
+          allTabsViewed={allTabsViewed}
+          hasNextDocument={!allTabsViewed}
+          onNextDocument={handleNextDocument}
           onReject={() => setShowRejectDialog(true)}
           onStartImplementation={handleStartImplementation}
         />

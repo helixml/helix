@@ -69,7 +69,7 @@ const AgentDropdown: FC<AgentDropdownProps> = ({
                   size="small"
                   onClick={(e) => {
                     e.stopPropagation()
-                    account.orgNavigate('app', { app_id: app.id })
+                    account.orgNavigate('agent', { app_id: app.id })
                   }}
                   sx={{ ml: 'auto' }}
                 >

@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -133,7 +134,7 @@ func imageTag(image string) string {
 
 // resolveRegistryImage checks if a registry-based image ref exists for the given image.
 // When sandbox pulls images from registry, it writes .runtime-ref files containing
-// the full registry path (e.g., "registry.helixml.tech/helix/helix-sway:v1.2.3").
+// the full registry path (e.g., "ghcr.io/helixml/helix-sway:v1.2.3").
 // This function returns the registry ref if available, otherwise returns the original image.
 func resolveRegistryImage(image string) string {
 	return resolveRegistryImageWithBase(image, "/opt/images")
@@ -188,15 +189,93 @@ func resolveRegistryImageWithBase(image string, baseDir string) string {
 	return ref
 }
 
+// tryRecoverImage attempts to pull a missing desktop image from available registries.
+// It tries the production registry (.ref file), then the local shared registry.
+// Returns true if the image was recovered and is available for container creation.
+func (dm *DevContainerManager) tryRecoverImage(ctx context.Context, dockerClient *client.Client, resolvedImage, originalImage string) bool {
+	log.Warn().
+		Str("resolved_image", resolvedImage).
+		Str("original_image", originalImage).
+		Msg("Image missing from Docker — attempting recovery")
+
+	// Extract image name without tag for looking up registry sources
+	imageName := originalImage
+	if idx := strings.LastIndex(originalImage, ":"); idx != -1 {
+		imageName = originalImage[:idx]
+	}
+
+	// Build list of registry sources to try, in priority order:
+	// 1. Production registry ref (.ref file, e.g., ghcr.io/helixml/helix-ubuntu:VERSION)
+	// 2. Local shared registry (registry:5000/IMAGE:TAG)
+	var pullSources []string
+
+	// Check for production registry ref
+	refFile := filepath.Join("/opt/images", imageName+".ref")
+	if refData, err := os.ReadFile(refFile); err == nil {
+		ref := strings.TrimSpace(string(refData))
+		if ref != "" {
+			// Replace the tag with the requested version
+			tag := imageTag(originalImage)
+			if baseRef := strings.LastIndex(ref, ":"); baseRef != -1 && tag != "" {
+				ref = ref[:baseRef] + ":" + tag
+			}
+			pullSources = append(pullSources, ref)
+		}
+	}
+
+	// Try the local shared registry
+	registryHost := GetRegistryHost()
+	if registryHost != "" {
+		pullSources = append(pullSources, registryHost+"/"+originalImage)
+	}
+	// Also try the DNS name (works when registry is on the same Docker network)
+	pullSources = append(pullSources, "registry:5000/"+originalImage)
+
+	for _, source := range pullSources {
+		log.Info().Str("source", source).Msg("Trying recovery pull")
+		pullOut, pullErr := dockerClient.ImagePull(ctx, source, dockertypes.ImagePullOptions{})
+		if pullErr != nil {
+			log.Debug().Err(pullErr).Str("source", source).Msg("Recovery pull failed, trying next source")
+			continue
+		}
+		// Drain the pull output to completion
+		_, _ = io.Copy(io.Discard, pullOut)
+		pullOut.Close()
+
+		// Tag as the expected local name so the container creation succeeds
+		if source != resolvedImage {
+			_ = dockerClient.ImageTag(ctx, source, resolvedImage)
+		}
+		if source != originalImage {
+			_ = dockerClient.ImageTag(ctx, source, originalImage)
+		}
+		log.Info().
+			Str("image", resolvedImage).
+			Str("source", source).
+			Msg("Image recovered successfully")
+		return true
+	}
+
+	log.Error().
+		Str("image", resolvedImage).
+		Strs("sources_tried", pullSources).
+		Msg("Failed to recover image from any registry source")
+	return false
+}
+
 // CreateDevContainer creates and starts a dev container
 func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *CreateDevContainerRequest) (*DevContainerResponse, error) {
-	// Validate that image has a specific version tag - never accept :latest
-	if err := validateImageVersion(req.Image); err != nil {
-		return nil, err
+	// Validate that image has a specific version tag - never accept :latest.
+	// SkipImageValidation lets callers (Sandboxes API headless runtime) use
+	// plain Docker images like "ubuntu:22.04".
+	if !req.SkipImageValidation {
+		if err := validateImageVersion(req.Image); err != nil {
+			return nil, err
+		}
 	}
 
 	// Resolve registry-based image ref if available
-	// This maps "helix-sway:abc123" to "registry.helixml.tech/helix/helix-sway:abc123"
+	// This maps "helix-sway:abc123" to "ghcr.io/helixml/helix-sway:abc123"
 	// when the sandbox has pulled images from registry
 	resolvedImage := resolveRegistryImage(req.Image)
 
@@ -235,12 +314,21 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 		Hostname: req.Hostname,
 		Env:      dm.buildEnv(req),
 	}
+	if len(req.Entrypoint) > 0 {
+		containerConfig.Entrypoint = req.Entrypoint
+	}
+	if len(req.Cmd) > 0 {
+		containerConfig.Cmd = req.Cmd
+	}
 
-	// Build host configuration
-	hostConfig := dm.buildHostConfig(req)
+	// Build host configuration (includes ZFS clone/mount for Docker data dir)
+	hostConfig, err := dm.buildHostConfig(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build host config: %w", err)
+	}
 
 	// Configure GPU passthrough
-	dm.configureGPU(hostConfig, req.GPUVendor)
+	dm.configureGPU(hostConfig, req.GPUVendor, req.GPUIndex)
 
 	// Network configuration is nil for host network mode
 	// (host network mode shares the sandbox's network namespace, so no separate network config needed)
@@ -267,11 +355,19 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 		}
 	}
 
+	// Apply a timeout for the Docker operations that follow. This is separate
+	// from the golden cache copy (which can take minutes for 50+ GB) — that
+	// copy happens during buildHostConfig/buildMounts above and is allowed to
+	// run without a deadline as long as it reports progress. The timeout here
+	// only covers Docker API calls (inspect, create, start).
+	dockerCtx, dockerCancel := context.WithTimeout(ctx, 120*time.Second)
+	defer dockerCancel()
+
 	// Check if container with this name already exists
 	// This handles cases where:
 	// 1. API restarted but container is still running
 	// 2. Previous start request failed after container creation but before DB update
-	existingContainer, err := dockerClient.ContainerInspect(ctx, req.ContainerName)
+	existingContainer, err := dockerClient.ContainerInspect(dockerCtx, req.ContainerName)
 	if err == nil {
 		// Container exists - check its state
 		if existingContainer.State.Running {
@@ -326,15 +422,15 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 			Str("state", existingContainer.State.Status).
 			Msg("Container exists but stopped, starting it")
 
-		if err := dockerClient.ContainerStart(ctx, existingContainer.ID, container.StartOptions{}); err != nil {
+		if err := dockerClient.ContainerStart(dockerCtx, existingContainer.ID, container.StartOptions{}); err != nil {
 			// Failed to start - remove and create new
 			log.Warn().Err(err).
 				Str("container_id", existingContainer.ID).
 				Msg("Failed to start existing container, removing and creating new")
-			dockerClient.ContainerRemove(ctx, existingContainer.ID, container.RemoveOptions{Force: true})
+			dockerClient.ContainerRemove(dockerCtx, existingContainer.ID, container.RemoveOptions{Force: true})
 		} else {
 			// Started successfully - get updated info and return
-			inspect, err := dockerClient.ContainerInspect(ctx, existingContainer.ID)
+			inspect, err := dockerClient.ContainerInspect(dockerCtx, existingContainer.ID)
 			if err != nil {
 				return nil, fmt.Errorf("failed to inspect started container: %w", err)
 			}
@@ -382,8 +478,49 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 	}
 	// Container doesn't exist (or was removed above) - create new one
 
+	// For Sandboxes-API runtimes (SkipImageValidation==true), the image is
+	// usually a public image like ubuntu:22.04 or node:22-bookworm-slim that
+	// the sandbox host hasn't seen before. Pull it proactively from Docker
+	// Hub so ContainerCreate doesn't fail with "No such image". For desktop
+	// runtimes the image is preloaded by the install pipeline so we skip
+	// this path.
+	if req.SkipImageValidation {
+		if _, _, inspectErr := dockerClient.ImageInspectWithRaw(dockerCtx, resolvedImage); inspectErr != nil {
+			log.Info().Str("image", resolvedImage).Msg("Pulling sandbox runtime image")
+			pullOut, pullErr := dockerClient.ImagePull(dockerCtx, resolvedImage, dockertypes.ImagePullOptions{})
+			if pullErr != nil {
+				return nil, fmt.Errorf("pull image %s: %w", resolvedImage, pullErr)
+			}
+			if _, copyErr := io.Copy(io.Discard, pullOut); copyErr != nil {
+				pullOut.Close()
+				return nil, fmt.Errorf("drain image pull output for %s: %w", resolvedImage, copyErr)
+			}
+			pullOut.Close()
+		}
+		// Build (or reuse cached) overlay that adds tmux + ca-certificates so
+		// the user-facing terminal can persist sessions without an in-container
+		// apt-get install. The overlay runs in the sandbox host's network
+		// namespace, which has working outbound connectivity to apt mirrors —
+		// this is the key reason it succeeds where the in-container install
+		// has been failing for some users. Cached locally per base image so
+		// subsequent sandboxes start instantly. containerConfig.Image needs
+		// to track resolvedImage since it was built earlier from the original
+		// value.
+		resolvedImage = EnsureSandboxRuntimeImage(dockerCtx, dockerClient, resolvedImage)
+		containerConfig.Image = resolvedImage
+	}
+
 	// Create container
-	resp, err := dockerClient.ContainerCreate(ctx, containerConfig, hostConfig, networkConfig, nil, req.ContainerName)
+	resp, err := dockerClient.ContainerCreate(dockerCtx, containerConfig, hostConfig, networkConfig, nil, req.ContainerName)
+	if err != nil && strings.Contains(err.Error(), "No such image") {
+		// Image disappeared from Docker (possible containerd GC or Docker daemon issue).
+		// Try to recover by pulling from whatever registry source is available.
+		recovered := dm.tryRecoverImage(dockerCtx, dockerClient, resolvedImage, req.Image)
+		if recovered {
+			// Retry container creation with the recovered image
+			resp, err = dockerClient.ContainerCreate(dockerCtx, containerConfig, hostConfig, networkConfig, nil, req.ContainerName)
+		}
+	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to create container: %w", err)
 	}
@@ -395,14 +532,14 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 		Msg("Container created, starting...")
 
 	// Start container
-	if err := dockerClient.ContainerStart(ctx, resp.ID, container.StartOptions{}); err != nil {
+	if err := dockerClient.ContainerStart(dockerCtx, resp.ID, container.StartOptions{}); err != nil {
 		// Cleanup on failure
-		dockerClient.ContainerRemove(ctx, resp.ID, container.RemoveOptions{Force: true})
+		dockerClient.ContainerRemove(dockerCtx, resp.ID, container.RemoveOptions{Force: true})
 		return nil, fmt.Errorf("failed to start container: %w", err)
 	}
 
 	// Get container IP from inspection
-	inspect, err := dockerClient.ContainerInspect(ctx, resp.ID)
+	inspect, err := dockerClient.ContainerInspect(dockerCtx, resp.ID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to inspect container: %w", err)
 	}
@@ -460,9 +597,8 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 	// Uses context.Background() so streaming continues after API request completes.
 	go dm.streamContainerLogs(context.Background(), resp.ID, req.ContainerName, req.DockerSocket)
 
-	// For golden builds, set the build lock and monitor the container
+	// For golden builds, monitor the container for completion
 	if req.GoldenBuild {
-		_ = SetGoldenBuildRunning(req.ProjectID, true)
 		go dm.monitorGoldenBuild(dc)
 	}
 
@@ -533,11 +669,48 @@ func (dm *DevContainerManager) buildEnv(req *CreateDevContainerRequest) []string
 			}
 		}
 		if !hasVisibleDevices {
-			env = append(env, "NVIDIA_VISIBLE_DEVICES=all")
+			// Decision 15: per-session GPU pinning on multi-GPU hosts.
+			// If the request specifies GPUIndex, expose only that GPU.
+			// Otherwise default to "all" (legacy behaviour).
+			//
+			// IMPORTANT: in nested-DinD setups (sandbox -> inner dockerd
+			// -> desktop container) the cgroup-level device restriction
+			// from NVIDIA_VISIBLE_DEVICES does NOT actually take effect
+			// because the outer sandbox container was launched with
+			// `--gpus all` so all /dev/nvidia* nodes are inherited.
+			// Verified live on a 2x Blackwell box: nvidia-smi inside
+			// pin-0 still saw GPU 1. The DRM device pinning (PCI walk)
+			// IS effective (Mutter+GStreamer get the right card), but
+			// CUDA visibility leaks. We set both NVIDIA_VISIBLE_DEVICES
+			// AND CUDA_VISIBLE_DEVICES to the index so CUDA workloads
+			// inside the desktop respect the pin even if /dev/nvidia*
+			// nodes leak. Real cgroup-level restriction in nested DinD
+			// is a separate problem documented in Decision 15 follow-ups.
+			if req.GPUIndex != nil {
+				env = append(env, fmt.Sprintf("NVIDIA_VISIBLE_DEVICES=%d", *req.GPUIndex))
+				env = append(env, fmt.Sprintf("CUDA_VISIBLE_DEVICES=%d", *req.GPUIndex))
+			} else {
+				env = append(env, "NVIDIA_VISIBLE_DEVICES=all")
+			}
 		}
 		if !hasDriverCaps {
 			// Use explicit capabilities instead of "all" for GKE/cloud compatibility
 			env = append(env, "NVIDIA_DRIVER_CAPABILITIES=compute,utility,video,graphics,display")
+		}
+	}
+
+	// Decision 15: tell detect-render-node.sh which GPU to pick. This drives
+	// Mutter via udev tags + the GStreamer encoder via HELIX_RENDER_NODE.
+	// Set for all vendors so AMD/Intel paths also pin via the script's
+	// PCI walk fast-path. Live-tested on 2x Blackwell box: each desktop
+	// correctly picked its assigned card via PCI BDF (not by index suffix).
+	if req.GPUIndex != nil {
+		env = append(env, fmt.Sprintf("HELIX_GPU_INDEX=%d", *req.GPUIndex))
+		// AMD equivalent of CUDA_VISIBLE_DEVICES — ROCm honours this for
+		// HIP workloads even when /dev/dri leaks (same nested-DinD caveat).
+		if req.GPUVendor == "amd" {
+			env = append(env, fmt.Sprintf("HIP_VISIBLE_DEVICES=%d", *req.GPUIndex))
+			env = append(env, fmt.Sprintf("ROCR_VISIBLE_DEVICES=%d", *req.GPUIndex))
 		}
 	}
 
@@ -631,7 +804,7 @@ func overrideEnvVar(env []string, key, value string) []string {
 }
 
 // buildHostConfig builds the host configuration for the container
-func (dm *DevContainerManager) buildHostConfig(req *CreateDevContainerRequest) *container.HostConfig {
+func (dm *DevContainerManager) buildHostConfig(req *CreateDevContainerRequest) (*container.HostConfig, error) {
 	// Use the network from the request if specified, otherwise default to bridge.
 	// Previously we used host network mode which caused port conflicts when running
 	// multiple desktop containers (they all shared ports 9876/9877).
@@ -641,17 +814,26 @@ func (dm *DevContainerManager) buildHostConfig(req *CreateDevContainerRequest) *
 		networkMode = "bridge"
 	}
 
+	resources := container.Resources{
+		DeviceCgroupRules: dm.getDeviceCgroupRules(),
+		Ulimits: []*units.Ulimit{
+			{Name: "nofile", Soft: 65536, Hard: 65536},
+		},
+	}
+	// Apply CPU and memory limits when requested. NanoCPUs uses 10^9 units per CPU.
+	if req.VCPUs > 0 {
+		resources.NanoCPUs = int64(req.VCPUs) * 1_000_000_000
+	}
+	if req.MemoryMB > 0 {
+		resources.Memory = int64(req.MemoryMB) * 1024 * 1024
+	}
+
 	hostConfig := &container.HostConfig{
 		NetworkMode: networkMode,
 		IpcMode:     "host",
 		Privileged:  req.Privileged,
 		SecurityOpt: []string{"seccomp=unconfined", "apparmor=unconfined"},
-		Resources: container.Resources{
-			DeviceCgroupRules: dm.getDeviceCgroupRules(),
-			Ulimits: []*units.Ulimit{
-				{Name: "nofile", Soft: 65536, Hard: 65536},
-			},
-		},
+		Resources:   resources,
 	}
 
 	// Only add explicit capabilities when not in privileged mode
@@ -667,13 +849,166 @@ func (dm *DevContainerManager) buildHostConfig(req *CreateDevContainerRequest) *
 	hostConfig.ExtraHosts = dm.buildExtraHosts()
 
 	// Build mounts
-	hostConfig.Mounts = dm.buildMounts(req)
+	mounts, err := dm.buildMounts(req)
+	if err != nil {
+		return nil, err
+	}
+	hostConfig.Mounts = mounts
 
-	return hostConfig
+	return hostConfig, nil
+}
+
+// resolveDockerDataDir determines the host path for a session's /var/lib/docker mount.
+// It tries ZFS zvol clone first (O(1)), then falls back to file-copy golden cache,
+// then plain empty directory. Returns ("", nil) if it should remain a named volume.
+// Returns ("", error) if ZFS is available but the operation failed — caller should
+// fail the container creation rather than silently starting with no cache.
+func (dm *DevContainerManager) resolveDockerDataDir(req *CreateDevContainerRequest, volumeName string) (string, error) {
+	sessionID := strings.TrimPrefix(volumeName, "docker-data-")
+
+	// Strategy 1: ZFS zvol clone (instant)
+	// When ZFS is available, we ALWAYS use it — never fall back to file-copy.
+	// If a ZFS operation fails, return an error so the session creation fails
+	// with a clear message instead of silently starting with no cache.
+	if ZFSAvailable() {
+		if GoldenZvolExists(req.ProjectID) {
+			dockerDir, err := SetupGoldenClone(req.ProjectID, sessionID)
+			if err != nil {
+				return "", fmt.Errorf("ZFS golden clone failed for project %s: %w", req.ProjectID, err)
+			}
+			log.Info().
+				Str("project_id", req.ProjectID).
+				Str("session_id", sessionID).
+				Str("mount", dockerDir).
+				Msg("Using ZFS zvol clone for inner dockerd (instant golden cache)")
+			return dockerDir, nil
+		} else if req.GoldenBuild {
+			dockerDir, err := CreateSessionZvol(sessionID)
+			if err != nil {
+				return "", fmt.Errorf("failed to create session zvol for golden build: %w", err)
+			}
+			if GoldenExists(req.ProjectID) {
+				log.Info().
+					Str("project_id", req.ProjectID).
+					Str("session_id", sessionID).
+					Msg("Seeding new zvol from existing golden dir (one-time migration)")
+				if err := seedZvolFromGoldenDir(req.ProjectID, dockerDir); err != nil {
+					log.Warn().Err(err).Msg("Failed to seed zvol from golden dir, golden build starts cold")
+				}
+			}
+			log.Info().
+				Str("session_id", sessionID).
+				Str("mount", dockerDir).
+				Msg("Using ZFS zvol for golden build")
+			return dockerDir, nil
+		} else if GoldenExists(req.ProjectID) {
+			if err := MigrateGoldenToZvol(req.ProjectID); err != nil {
+				return "", fmt.Errorf("failed to migrate golden to zvol for project %s: %w", req.ProjectID, err)
+			}
+			dockerDir, err := SetupGoldenClone(req.ProjectID, sessionID)
+			if err != nil {
+				return "", fmt.Errorf("ZFS clone after migration failed for project %s: %w", req.ProjectID, err)
+			}
+			log.Info().
+				Str("project_id", req.ProjectID).
+				Str("session_id", sessionID).
+				Str("mount", dockerDir).
+				Msg("Using ZFS clone after inline golden migration")
+			return dockerDir, nil
+		} else {
+			// No golden anywhere. Before creating a fresh zvol, acquire a read lock
+			// to wait for any in-progress golden promotion (issue #7 from ZFS deployment).
+			// PromoteSessionToGoldenZvol holds the write lock while renaming/snapshotting,
+			// so if we race we block here until promotion finishes, then re-check.
+			lock := getGoldenLock(req.ProjectID)
+			lock.RLock()
+			goldenNowExists := GoldenZvolExists(req.ProjectID)
+			lock.RUnlock()
+
+			if goldenNowExists {
+				// Promotion finished while we waited — clone from the new golden instead.
+				log.Info().
+					Str("project_id", req.ProjectID).
+					Str("session_id", sessionID).
+					Msg("Golden zvol appeared during lock wait — using clone instead of fresh zvol")
+				dockerDir, err := SetupGoldenClone(req.ProjectID, sessionID)
+				if err != nil {
+					return "", fmt.Errorf("ZFS golden clone (post-promotion) failed for project %s: %w", req.ProjectID, err)
+				}
+				return dockerDir, nil
+			}
+
+			dockerDir, err := CreateSessionZvol(sessionID)
+			if err != nil {
+				return "", fmt.Errorf("failed to create session zvol: %w", err)
+			}
+			log.Info().
+				Str("session_id", sessionID).
+				Str("mount", dockerDir).
+				Msg("Using fresh ZFS zvol for session (no golden cache exists)")
+			return dockerDir, nil
+		}
+	}
+
+	// Strategy 2: File-copy golden cache (reflinks when available)
+	sessionDir := filepath.Join("/container-docker/sessions", volumeName, "docker")
+
+	// Reuse existing session dir on restart (skip re-copy)
+	if !req.GoldenBuild {
+		if info, err := os.Stat(sessionDir); err == nil && info.IsDir() {
+			if IsGoldenCopyComplete(volumeName) {
+				log.Info().
+					Str("session_dir", sessionDir).
+					Str("volume", volumeName).
+					Msg("Reusing existing session Docker data dir (skipping golden copy)")
+				return sessionDir, nil
+			}
+			log.Warn().
+				Str("session_dir", sessionDir).
+				Str("volume", volumeName).
+				Msg("Found incomplete golden cache copy (missing completion marker), removing partial copy")
+			if err := os.RemoveAll(filepath.Dir(sessionDir)); err != nil {
+				log.Error().Err(err).Str("path", filepath.Dir(sessionDir)).
+					Msg("Failed to remove incomplete golden copy dir")
+			}
+		}
+	}
+
+	if GoldenExists(req.ProjectID) {
+		onProgress := func(copied, total int64) {
+			dm.setGoldenCopyProgress(req.ProjectID, copied, total, false)
+		}
+		dockerDir, err := SetupGoldenCopy(req.ProjectID, volumeName, onProgress)
+		dm.setGoldenCopyProgress(req.ProjectID, 0, 0, true)
+		if err != nil {
+			log.Warn().Err(err).
+				Str("project_id", req.ProjectID).
+				Str("volume", volumeName).
+				Msg("Failed to copy golden cache, falling back to empty dir")
+			if mkErr := os.MkdirAll(sessionDir, 0755); mkErr == nil {
+				return sessionDir, nil
+			}
+			return "", nil
+		}
+		log.Info().
+			Str("project_id", req.ProjectID).
+			Str("docker_dir", dockerDir).
+			Msg("Using golden cache copy for inner dockerd")
+		return dockerDir, nil
+	}
+
+	// Strategy 3: Plain bind mount (no golden cache)
+	if err := os.MkdirAll(sessionDir, 0755); err != nil {
+		log.Warn().Err(err).Str("path", sessionDir).
+			Msg("Failed to create container-docker session dir, falling back to named volume")
+		return "", nil
+	}
+	log.Debug().Str("source", sessionDir).Msg("Using ZFS-backed bind mount for inner dockerd")
+	return sessionDir, nil
 }
 
 // buildMounts builds the mount configuration
-func (dm *DevContainerManager) buildMounts(req *CreateDevContainerRequest) []mount.Mount {
+func (dm *DevContainerManager) buildMounts(req *CreateDevContainerRequest) ([]mount.Mount, error) {
 	var mounts []mount.Mount
 
 	// CONTAINER_DOCKER_PATH: if set, per-session inner dockerd data uses bind mounts
@@ -697,64 +1032,14 @@ func (dm *DevContainerManager) buildMounts(req *CreateDevContainerRequest) []mou
 		// with cached images so builds start warm instead of cold.
 		if containerDockerPath != "" && m.Destination == "/var/lib/docker" && m.Type == "volume" {
 			volumeName := m.Source // e.g. "docker-data-{sessionID}"
-			sessionDir := filepath.Join("/container-docker/sessions", volumeName, "docker")
 
-			// Check if this session already has a Docker data directory from a
-			// previous run (e.g. session restart). If so, reuse it — copying
-			// 30+ GB of golden cache on every restart is wasteful (~28s) and
-			// overwrites any Docker state changes made during the session.
-			// Golden builds are excluded: they need the latest golden snapshot
-			// for incremental rebuilds.
-			sessionDirExists := false
-			if !req.GoldenBuild {
-				if info, err := os.Stat(sessionDir); err == nil && info.IsDir() {
-					sessionDirExists = true
-				}
+			dockerDir, err := dm.resolveDockerDataDir(req, volumeName)
+			if err != nil {
+				return nil, fmt.Errorf("failed to resolve Docker data dir for session %s: %w", req.SessionID, err)
 			}
-
-			if sessionDirExists {
+			if dockerDir != "" {
 				mountType = mount.TypeBind
-				m.Source = sessionDir
-				log.Info().
-					Str("session_dir", sessionDir).
-					Str("volume", volumeName).
-					Msg("Reusing existing session Docker data dir (skipping golden copy)")
-			} else if GoldenExists(req.ProjectID) {
-				// Golden cache available — copy to session dir (works for both
-				// normal sessions AND golden builds; golden builds start from the
-				// previous golden for incremental rebuilds)
-				onProgress := func(copied, total int64) {
-					dm.setGoldenCopyProgress(req.ProjectID, copied, total, false)
-				}
-				dockerDir, err := SetupGoldenCopy(req.ProjectID, volumeName, onProgress)
-				dm.setGoldenCopyProgress(req.ProjectID, 0, 0, true) // clear progress
-				if err != nil {
-					log.Warn().Err(err).
-						Str("project_id", req.ProjectID).
-						Str("volume", volumeName).
-						Msg("Failed to copy golden cache, falling back to empty dir")
-					// Fall back to plain directory
-					if mkErr := os.MkdirAll(sessionDir, 0755); mkErr == nil {
-						mountType = mount.TypeBind
-						m.Source = sessionDir
-					}
-				} else {
-					mountType = mount.TypeBind
-					m.Source = dockerDir
-					log.Info().
-						Str("project_id", req.ProjectID).
-						Str("docker_dir", dockerDir).
-						Msg("Using golden cache copy for inner dockerd")
-				}
-			} else {
-				// No golden — plain bind mount (existing behavior)
-				if err := os.MkdirAll(sessionDir, 0755); err != nil {
-					log.Warn().Err(err).Str("path", sessionDir).Msg("Failed to create container-docker session dir, falling back to named volume")
-				} else {
-					mountType = mount.TypeBind
-					m.Source = sessionDir
-					log.Debug().Str("source", sessionDir).Msg("Using ZFS-backed bind mount for inner dockerd")
-				}
+				m.Source = dockerDir
 			}
 		}
 
@@ -779,7 +1064,7 @@ func (dm *DevContainerManager) buildMounts(req *CreateDevContainerRequest) []mou
 		log.Debug().Str("source", buildkitCacheDir).Msg("Added shared BuildKit cache mount")
 	}
 
-	return mounts
+	return mounts, nil
 }
 
 // buildExtraHosts returns Docker ExtraHosts entries (format: "hostname:ip")
@@ -813,22 +1098,174 @@ func (dm *DevContainerManager) buildExtraHosts() []string {
 	return extraHosts
 }
 
-// configureGPU adds GPU-specific Docker configuration
-func (dm *DevContainerManager) configureGPU(hostConfig *container.HostConfig, vendor string) {
+// drmDevice describes one GPU's host DRM nodes. Pairing render nodes
+// with card devices by PCI BDF (rather than by index suffix) is what
+// lets us pin correctly on hosts where the device numbering doesn't
+// line up — e.g. Azure spawns instances with virtio-gpu at card0/
+// renderD128 and the real NVIDIA at card1/renderD129, but other hosts
+// can have card0=NVIDIA + virtio-gpu at card2 with NO render node.
+type drmDevice struct {
+	renderNode string // e.g. /dev/dri/renderD129
+	cardDevice string // e.g. /dev/dri/card1 (may not be index-aligned with renderNode)
+	pciAddr    string // e.g. 0000:01:00.0
+	driver     string // kernel driver: "nvidia", "amdgpu", "i915", "virtio_gpu", etc.
+}
+
+// enumerateDRMDevices returns all GPU DRM devices on the host, sorted
+// by PCI BDF for stable ordering across reboots. If targetDriver is
+// non-empty, only devices owned by that kernel driver are returned.
+//
+// Stable PCI-BDF ordering is the contract for `gpu_index` on
+// multi-GPU hosts: index 0 is the first matching device by BDF
+// (smallest), index 1 the second, etc. — so "the operator's idea of
+// GPU 1" stays the same across container restarts and host reboots.
+func enumerateDRMDevices(targetDriver string) []drmDevice {
+	return enumerateDRMDevicesIn("/dev", "/sys", targetDriver)
+}
+
+// enumerateDRMDevicesIn is the test-injectable form of
+// enumerateDRMDevices — it parameterises the dev and sysfs roots so
+// tests can stand up a synthetic /sys/class/drm tree.
+//
+// This is the function with the actual PCI walk:
+//   1. Glob `<devRoot>/dri/renderD*` to find render nodes (compute path).
+//   2. For each render node, look up `<sysfsRoot>/class/drm/<base>/device`
+//      to get the PCI BDF and driver name.
+//   3. Filter to targetDriver if set.
+//   4. For each matching render node, find the sibling card device by
+//      walking `<sysfsRoot>/class/drm/card*/device` and matching BDF.
+//   5. Sort the resulting list by PCI BDF.
+//
+// A render node with no sibling card device is still returned (cards
+// are display-only nodes; some headless compute GPUs have no card device).
+func enumerateDRMDevicesIn(devRoot, sysfsRoot, targetDriver string) []drmDevice {
+	var devs []drmDevice
+
+	renderNodes, _ := filepath.Glob(filepath.Join(devRoot, "dri", "renderD*"))
+	for _, rn := range renderNodes {
+		base := filepath.Base(rn)
+		pciAddr, driver, ok := readDRMSysfs(sysfsRoot, base)
+		if !ok {
+			continue
+		}
+		if targetDriver != "" && driver != targetDriver {
+			continue
+		}
+		card := findCardForPCI(devRoot, sysfsRoot, pciAddr)
+		devs = append(devs, drmDevice{
+			renderNode: rn,
+			cardDevice: card,
+			pciAddr:    pciAddr,
+			driver:     driver,
+		})
+	}
+
+	sort.Slice(devs, func(i, j int) bool {
+		return devs[i].pciAddr < devs[j].pciAddr
+	})
+	return devs
+}
+
+// readDRMSysfs reads /sys/class/drm/<name>/device — returns the PCI BDF
+// (basename of the resolved device symlink, e.g. "0000:01:00.0") and
+// the driver name (basename of the device/driver symlink). ok is false
+// if either symlink is missing.
+func readDRMSysfs(sysfsRoot, name string) (pciAddr, driver string, ok bool) {
+	devLink := filepath.Join(sysfsRoot, "class", "drm", name, "device")
+	pciTarget, err := filepath.EvalSymlinks(devLink)
+	if err != nil {
+		return "", "", false
+	}
+	pciAddr = filepath.Base(pciTarget)
+	drvLink := filepath.Join(devLink, "driver")
+	drvTarget, err := filepath.EvalSymlinks(drvLink)
+	if err != nil {
+		// device with no driver bound — still count it but driver is unknown
+		return pciAddr, "", true
+	}
+	driver = filepath.Base(drvTarget)
+	return pciAddr, driver, true
+}
+
+// findCardForPCI walks card* devices in sysfs and returns the dev path
+// of the one whose PCI BDF matches. Returns "" if no card device for
+// that PCI device (e.g. compute-only headless cards with no display).
+func findCardForPCI(devRoot, sysfsRoot, targetPCI string) string {
+	cards, _ := filepath.Glob(filepath.Join(devRoot, "dri", "card*"))
+	for _, c := range cards {
+		base := filepath.Base(c)
+		pci, _, ok := readDRMSysfs(sysfsRoot, base)
+		if ok && pci == targetPCI {
+			return c
+		}
+	}
+	return ""
+}
+
+// gpuDevicePaths returns the host device paths to expose to a
+// container for a given vendor. If gpuIndex is nil, all matching GPUs
+// are returned (legacy behaviour). Otherwise only the Nth-by-PCI-BDF
+// device's render and card paths are returned.
+//
+// `vendor` must be one of "amd", "intel", or "" (any). NVIDIA goes
+// through the nvidia-container-runtime DeviceRequests path, not raw
+// device mounts, so it's not handled here.
+func gpuDevicePaths(vendor string, gpuIndex *int) []string {
+	var driver string
+	switch vendor {
+	case "amd":
+		driver = "amdgpu"
+	case "intel":
+		driver = "i915"
+	}
+	devs := enumerateDRMDevices(driver)
+	if gpuIndex != nil {
+		idx := *gpuIndex
+		if idx < 0 || idx >= len(devs) {
+			return nil
+		}
+		devs = devs[idx : idx+1]
+	}
+	var out []string
+	for _, d := range devs {
+		out = append(out, d.renderNode)
+		if d.cardDevice != "" {
+			out = append(out, d.cardDevice)
+		}
+	}
+	return out
+}
+
+// configureGPU adds GPU-specific Docker configuration. If gpuIndex is
+// non-nil, the dev container is pinned to that specific GPU (Decision 15
+// in the sandbox-absorbs-runner design): NVIDIA uses
+// `--gpus device=<n>`, AMD/Intel mount only the matching renderD<128+n>
+// + cardN. nil means "expose all GPUs" (legacy behaviour).
+func (dm *DevContainerManager) configureGPU(hostConfig *container.HostConfig, vendor string, gpuIndex *int) {
 	switch vendor {
 	case "nvidia":
 		// NVIDIA: use nvidia-container-runtime
 		hostConfig.Runtime = "nvidia"
+		deviceIDs := []string{"all"}
+		if gpuIndex != nil {
+			deviceIDs = []string{strconv.Itoa(*gpuIndex)}
+		}
 		hostConfig.DeviceRequests = []container.DeviceRequest{
 			{
-				DeviceIDs:    []string{"all"},
+				DeviceIDs:    deviceIDs,
 				Capabilities: [][]string{{"gpu"}},
 			},
 		}
-		log.Debug().Msg("Configured NVIDIA GPU passthrough")
+		log.Debug().Strs("device_ids", deviceIDs).Msg("Configured NVIDIA GPU passthrough")
 
 	case "amd":
-		// AMD: mount /dev/kfd and /dev/dri/* for VA-API encoding
+		// AMD: mount /dev/kfd (shared across all AMD GPUs — always
+		// mounted regardless of pinning) plus the matching render+card
+		// pair for the requested GPU. gpuDevicePaths walks PCI sysfs to
+		// find the right render+card pair: critical on hosts where
+		// device numbering doesn't line up (Azure spawns instances with
+		// virtio-gpu at card0/renderD128 and the real GPU at card1/
+		// renderD129; a naive cardN-by-index would pin to virtio).
 		hostConfig.Devices = append(hostConfig.Devices,
 			container.DeviceMapping{
 				PathOnHost:        "/dev/kfd",
@@ -836,9 +1273,8 @@ func (dm *DevContainerManager) configureGPU(hostConfig *container.HostConfig, ve
 				CgroupPermissions: "rwm",
 			},
 		)
-		// Also mount all DRI render nodes for VA-API
-		driDevices, _ := filepath.Glob("/dev/dri/renderD*")
-		for _, dev := range driDevices {
+		paths := gpuDevicePaths("amd", gpuIndex)
+		for _, dev := range paths {
 			hostConfig.Devices = append(hostConfig.Devices,
 				container.DeviceMapping{
 					PathOnHost:        dev,
@@ -847,23 +1283,13 @@ func (dm *DevContainerManager) configureGPU(hostConfig *container.HostConfig, ve
 				},
 			)
 		}
-		// Also mount card devices for display
-		cardDevices, _ := filepath.Glob("/dev/dri/card*")
-		for _, dev := range cardDevices {
-			hostConfig.Devices = append(hostConfig.Devices,
-				container.DeviceMapping{
-					PathOnHost:        dev,
-					PathInContainer:   dev,
-					CgroupPermissions: "rwm",
-				},
-			)
-		}
-		log.Debug().Int("render_devices", len(driDevices)).Int("card_devices", len(cardDevices)).Msg("Configured AMD GPU passthrough")
+		log.Debug().Strs("paths", paths).Interface("gpu_index", gpuIndex).Msg("Configured AMD GPU passthrough")
 
 	case "intel":
-		// Intel: mount /dev/dri/* for VA-API encoding (same as AMD, minus /dev/kfd)
-		driDevices, _ := filepath.Glob("/dev/dri/renderD*")
-		for _, dev := range driDevices {
+		// Intel: same approach as AMD (PCI walk picks the right card),
+		// minus /dev/kfd which is AMD-specific.
+		paths := gpuDevicePaths("intel", gpuIndex)
+		for _, dev := range paths {
 			hostConfig.Devices = append(hostConfig.Devices,
 				container.DeviceMapping{
 					PathOnHost:        dev,
@@ -872,17 +1298,7 @@ func (dm *DevContainerManager) configureGPU(hostConfig *container.HostConfig, ve
 				},
 			)
 		}
-		cardDevices, _ := filepath.Glob("/dev/dri/card*")
-		for _, dev := range cardDevices {
-			hostConfig.Devices = append(hostConfig.Devices,
-				container.DeviceMapping{
-					PathOnHost:        dev,
-					PathInContainer:   dev,
-					CgroupPermissions: "rwm",
-				},
-			)
-		}
-		log.Debug().Int("render_devices", len(driDevices)).Int("card_devices", len(cardDevices)).Msg("Configured Intel GPU passthrough")
+		log.Debug().Strs("paths", paths).Interface("gpu_index", gpuIndex).Msg("Configured Intel GPU passthrough")
 
 	default:
 		// Unknown/virtio GPU: mount /dev/dri/* if available (e.g., virtio-gpu on macOS/UTM)
@@ -999,6 +1415,9 @@ func (dm *DevContainerManager) DeleteDevContainer(ctx context.Context, sessionID
 	}
 	defer dockerClient.Close()
 
+	// Auto-commit helix-specs changes before destroying the container
+	dm.autoCommitHelixSpecs(ctx, dockerClient, dc)
+
 	// Stop container with short timeout - these are disposable dev containers
 	// that can be killed immediately; no need to wait for graceful shutdown
 	timeout := 2
@@ -1032,16 +1451,23 @@ func (dm *DevContainerManager) DeleteDevContainer(ctx context.Context, sessionID
 	// session dirs that no longer have a running container.
 	if os.Getenv("CONTAINER_DOCKER_PATH") != "" {
 		if dc.IsGoldenBuild && dc.ProjectID != "" {
-			_ = SetGoldenBuildRunning(dc.ProjectID, false)
 			log.Info().
 				Str("project_id", dc.ProjectID).
 				Str("session_id", sessionID).
-				Msg("Golden build session stopped, lock released (monitorGoldenBuild handles cleanup)")
+				Msg("Golden build session stopped (monitorGoldenBuild handles cleanup)")
 		} else {
 			// Write a timestamp so GC knows when this session was last active.
 			// Directory mtime doesn't update when files deep inside are modified,
 			// so we use an explicit marker file.
+			// Write to both possible locations (zvol mount and file-copy dir).
+			if ZFSAvailable() {
+				zvolMount := sessionZvolMountPath(sessionID)
+				if isMounted(zvolMount) {
+					TouchSessionLastActive(zvolMount)
+				}
+			}
 			sessionDir := filepath.Join("/container-docker/sessions", dockerDataVolume)
+			_ = os.MkdirAll(sessionDir, 0755)
 			TouchSessionLastActive(sessionDir)
 			log.Info().
 				Str("session_id", sessionID).
@@ -1068,6 +1494,56 @@ func (dm *DevContainerManager) DeleteDevContainer(ctx context.Context, sessionID
 		Status:        DevContainerStatusStopped,
 		ContainerType: dc.ContainerType,
 	}, nil
+}
+
+// autoCommitHelixSpecs execs into the container and commits+pushes any changes
+// in the helix-specs worktree. This preserves job state files between runs.
+// Best-effort — failures are logged but don't prevent container shutdown.
+func (dm *DevContainerManager) autoCommitHelixSpecs(ctx context.Context, dockerClient *client.Client, dc *DevContainer) {
+	commitCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	script := `cd ~/work/helix-specs 2>/dev/null && git add -A && git diff --cached --quiet || (git commit -m "Auto-commit job state" && git push origin helix-specs)`
+
+	execConfig := dockertypes.ExecConfig{
+		Cmd:          []string{"bash", "-c", script},
+		AttachStdout: true,
+		AttachStderr: true,
+		User:         "user",
+	}
+
+	execID, err := dockerClient.ContainerExecCreate(commitCtx, dc.ContainerID, execConfig)
+	if err != nil {
+		log.Debug().Err(err).Str("session_id", dc.SessionID).Msg("Failed to create exec for helix-specs auto-commit")
+		return
+	}
+
+	resp, err := dockerClient.ContainerExecAttach(commitCtx, execID.ID, dockertypes.ExecStartCheck{})
+	if err != nil {
+		log.Debug().Err(err).Str("session_id", dc.SessionID).Msg("Failed to attach exec for helix-specs auto-commit")
+		return
+	}
+	defer resp.Close()
+
+	// Read output to completion
+	output, _ := io.ReadAll(resp.Reader)
+
+	// Check exec exit code
+	inspect, err := dockerClient.ContainerExecInspect(commitCtx, execID.ID)
+	if err != nil {
+		log.Debug().Err(err).Str("session_id", dc.SessionID).Msg("Failed to inspect exec for helix-specs auto-commit")
+		return
+	}
+
+	if inspect.ExitCode == 0 {
+		log.Info().Str("session_id", dc.SessionID).Msg("Auto-committed helix-specs changes")
+	} else {
+		log.Debug().
+			Str("session_id", dc.SessionID).
+			Int("exit_code", inspect.ExitCode).
+			Str("output", string(output)).
+			Msg("helix-specs auto-commit returned non-zero (may have no changes)")
+	}
 }
 
 // GCOrphanedSessions removes session Docker data directories that don't have
@@ -1103,6 +1579,25 @@ func (dm *DevContainerManager) GCOrphanedSessions() {
 	}
 	if goldenCleaned > 0 {
 		log.Info().Int("removed", goldenCleaned).Int64("freed_bytes", goldenFreed).Msg("Golden GC completed")
+	}
+
+	// GC orphaned ZFS zvols (sessions that no longer have running containers)
+	// and clean up old file-based golden dirs that have been migrated to zvols
+	if ZFSAvailable() {
+		zvolsCleaned, err := GCOrphanedZvols(active)
+		if err != nil {
+			log.Warn().Err(err).Msg("Failed to GC orphaned zvols")
+		}
+		if zvolsCleaned > 0 {
+			log.Info().Int("removed", zvolsCleaned).Msg("Orphaned zvol GC completed")
+		}
+
+		GCMigratedGoldenDirs()
+
+		snapsCleaned := GCStaleSnapshots()
+		if snapsCleaned > 0 {
+			log.Info().Int("removed", snapsCleaned).Msg("Stale snapshot GC completed")
+		}
 	}
 }
 
@@ -1412,7 +1907,12 @@ func (dm *DevContainerManager) monitorGoldenBuild(dc *DevContainer) {
 	defer cancel()
 
 	dockerDataVolume := fmt.Sprintf("docker-data-%s", dc.SessionID)
-	resultFile := filepath.Join(sessionsBaseDir, dockerDataVolume, "docker", ".golden-build-result")
+
+	// Check both possible locations for the result file:
+	// - ZFS zvol mount: /container-docker/zvol-mounts/{sessionID}/.golden-build-result
+	// - File-copy path: /container-docker/sessions/docker-data-{sessionID}/docker/.golden-build-result
+	zvolResultFile := filepath.Join(zvolMountBase, dc.SessionID, ".golden-build-result")
+	fileCopyResultFile := filepath.Join(sessionsBaseDir, dockerDataVolume, "docker", ".golden-build-result")
 
 	// Poll for the result file. The workspace-setup script writes this after
 	// the startup script completes and dockerd is stopped.
@@ -1436,7 +1936,11 @@ func (dm *DevContainerManager) monitorGoldenBuild(dc *DevContainer) {
 			return
 
 		case <-ticker.C:
-			data, err := os.ReadFile(resultFile)
+			// Try ZFS zvol path first, then file-copy path
+			data, err := os.ReadFile(zvolResultFile)
+			if err != nil {
+				data, err = os.ReadFile(fileCopyResultFile)
+			}
 			if err != nil {
 				continue // File doesn't exist yet — build still running
 			}
@@ -1463,18 +1967,41 @@ done:
 			Str("project_id", dc.ProjectID).
 			Msg("Golden build completed successfully, promoting Docker data")
 
-		if err := PromoteSessionToGolden(dc.ProjectID, dockerDataVolume); err != nil {
-			log.Error().Err(err).
+		var promoteErr error
+		if ZFSAvailable() && zfsDatasetExists(sessionZvolName(dc.SessionID)) {
+			// Session was on a ZFS zvol — promote via ZFS rename+snapshot (instant)
+			promoteErr = PromoteSessionToGoldenZvol(dc.ProjectID, dc.SessionID)
+		} else if ZFSAvailable() {
+			// Session was on file-copy path but ZFS is available.
+			// Promote to file-based golden first, then migrate to zvol
+			// so subsequent sessions get instant clones.
+			promoteErr = PromoteSessionToGolden(dc.ProjectID, dockerDataVolume, dc.SessionID)
+			if promoteErr == nil {
+				if err := MigrateGoldenToZvol(dc.ProjectID); err != nil {
+					log.Warn().Err(err).
+						Str("project_id", dc.ProjectID).
+						Msg("Golden promoted to file dir but failed to migrate to zvol (will retry on next session)")
+				}
+			}
+		} else {
+			// No ZFS — file-copy promotion only
+			promoteErr = PromoteSessionToGolden(dc.ProjectID, dockerDataVolume, dc.SessionID)
+		}
+		if promoteErr != nil {
+			log.Error().Err(promoteErr).
 				Str("project_id", dc.ProjectID).
 				Msg("Golden build: failed to promote session data")
 		} else {
 			// Purge container metadata from the golden cache to prevent
 			// workspace corruption on new sessions (containers have bind mounts
 			// to workspace paths that don't exist in new sessions).
-			if err := PurgeContainersFromGolden(dc.ProjectID); err != nil {
-				log.Warn().Err(err).
-					Str("project_id", dc.ProjectID).
-					Msg("Golden build: failed to purge containers from golden")
+			// (ZFS path handles purge internally in PromoteSessionToGoldenZvol)
+			if !ZFSAvailable() || !zfsDatasetExists(goldenZvolName(dc.ProjectID)) {
+				if err := PurgeContainersFromGolden(dc.ProjectID); err != nil {
+					log.Warn().Err(err).
+						Str("project_id", dc.ProjectID).
+						Msg("Golden build: failed to purge containers from golden")
+				}
 			}
 			cacheSizeBytes = GetGoldenSize(dc.ProjectID)
 			log.Info().
@@ -1489,7 +2016,11 @@ done:
 			Dur("build_duration", buildDuration).
 			Msg("Golden build failed, not promoting")
 		// Clean up the failed session's Docker data
-		_ = CleanupSessionDockerDir(dockerDataVolume)
+		if ZFSAvailable() && zfsDatasetExists(sessionZvolName(dc.SessionID)) {
+			_ = CleanupSessionZvol(dc.SessionID)
+		} else {
+			_ = CleanupSessionDockerDir(dockerDataVolume)
+		}
 	}
 
 	// Store the result so the API can query it after the container is gone.

@@ -14,14 +14,10 @@ import {
   Typography,
   Divider,
   Alert,
-  ToggleButtonGroup,
-  ToggleButton,
   CircularProgress,
   IconButton,
   Tooltip,
-  Accordion,
-  AccordionSummary,
-  AccordionDetails,
+  Paper,
   List,
   ListItem,
   ListItemButton,
@@ -31,7 +27,6 @@ import {
   Chip,
   InputAdornment,
 } from '@mui/material'
-import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import GitHubIcon from '@mui/icons-material/GitHub'
 import LockIcon from '@mui/icons-material/Lock'
 import { FolderGit2, Link as LinkIcon, Plus, Bot, RefreshCw, Search } from 'lucide-react'
@@ -48,33 +43,13 @@ import useApi from '../../hooks/useApi'
 import { AppsContext, CodeAgentRuntime, generateAgentName } from '../../contexts/apps'
 import { IApp, AGENT_TYPE_ZED_EXTERNAL } from '../../types'
 import { findOAuthConnectionForProvider, findOAuthProviderForType, hasRequiredScopes, PROVIDER_TYPES } from '../../utils/oauthProviders'
-import { useClaudeSubscriptions } from '../account/ClaudeSubscriptionConnect'
-import { useListProviders } from '../../services/providersService'
-import { TypesProviderEndpointType } from '../../api/api'
+import { RECOMMENDED_CODING_MODELS } from '../../constants/models'
 import CodingAgentForm from '../agent/CodingAgentForm'
 import type { CodingAgentFormHandle } from '../agent/CodingAgentForm'
 
-// Recommended models for zed_external agents (state-of-the-art coding models)
-const RECOMMENDED_MODELS = [
-  // Anthropic
-  'claude-opus-4-5-20251101',
-  'claude-sonnet-4-5-20250929',
-  'claude-haiku-4-5-20251001',
-  // OpenAI
-  'openai/gpt-5.1-codex',
-  'openai/gpt-oss-120b',
-  // Google Gemini
-  'gemini-2.5-pro',
-  'gemini-2.5-flash',
-  // Zhipu GLM
-  'glm-4.6',
-  // Qwen (Coder + Large)
-  'Qwen/Qwen3-Coder-480B-A35B-Instruct',
-  'Qwen/Qwen3-Coder-30B-A3B-Instruct',
-  'Qwen/Qwen3-235B-A22B-fp8-tput',
-]
 
-type RepoMode = 'auto' | 'select' | 'create' | 'link'
+
+type RepoMode = 'select' | 'create' | 'link'
 
 interface CreateProjectDialogProps {
   open: boolean
@@ -108,19 +83,6 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
   const { apps, loadApps } = useContext(AppsContext)
   const createProjectMutation = useCreateProject()
 
-  // Claude subscription + provider state
-  const { data: claudeSubscriptions } = useClaudeSubscriptions()
-  const hasClaudeSubscription = (claudeSubscriptions?.length ?? 0) > 0
-  const { data: providerEndpoints } = useListProviders({ loadModels: false })
-  const hasAnthropicProvider = useMemo(() => {
-    if (!providerEndpoints) return false
-    return providerEndpoints.some(p => p.endpoint_type === TypesProviderEndpointType.ProviderEndpointTypeUser && p.name === 'anthropic')
-  }, [providerEndpoints])
-  const userProviderCount = useMemo(() => {
-    if (!providerEndpoints) return 0
-    return providerEndpoints.filter(p => p.endpoint_type === TypesProviderEndpointType.ProviderEndpointTypeUser).length
-  }, [providerEndpoints])
-
   // OAuth connections for GitHub browse
   const { data: oauthConnections } = useListOAuthConnections()
   const { data: oauthProviders } = useListOAuthProviders()
@@ -130,8 +92,7 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [selectedRepoId, setSelectedRepoId] = useState('')
-  const [repoMode, setRepoMode] = useState<RepoMode>('auto')
-  const [advancedExpanded, setAdvancedExpanded] = useState(false)
+  const [repoMode, setRepoMode] = useState<RepoMode>('create')
 
   // New repo creation fields
   const [newRepoName, setNewRepoName] = useState('')
@@ -170,7 +131,7 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
   }, [oauthProviders])
 
   // Fetch GitHub repos when connected with repo scope
-  const { data: githubReposData, isLoading: githubReposLoading, error: githubReposError } =
+  const { data: githubReposData, isLoading: githubReposLoading, isFetching: githubReposFetching, error: githubReposError } =
     useListOAuthConnectionRepositories(
       githubHasRepoScope && externalType === TypesExternalRepositoryType.ExternalRepositoryTypeGitHub
         ? (githubConnection?.id || '')
@@ -252,21 +213,14 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
   }, [name, userModifiedRepoName, repoMode])
 
   // Sort apps: zed_external first, then others
+  // Only show external agents — helix_agent types don't support project workflows
   const sortedApps = useMemo(() => {
     if (!apps) return []
-    const zedExternalApps: IApp[] = []
-    const otherApps: IApp[] = []
-    apps.forEach((app) => {
-      const hasZedExternal = app.config?.helix?.assistants?.some(
+    return apps.filter((app) =>
+      app.config?.helix?.assistants?.some(
         (assistant) => assistant.agent_type === AGENT_TYPE_ZED_EXTERNAL
       ) || app.config?.helix?.default_agent_type === AGENT_TYPE_ZED_EXTERNAL
-      if (hasZedExternal) {
-        zedExternalApps.push(app)
-      } else {
-        otherApps.push(app)
-      }
-    })
-    return [...zedExternalApps, ...otherApps]
+    )
   }, [apps])
 
   // Filter out internal repos - they're deprecated
@@ -285,8 +239,7 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
       setName('')
       setDescription('')
       setSelectedRepoId('')
-      setRepoMode('auto')
-      setAdvancedExpanded(false)
+      setRepoMode('create')
       setNewRepoName('')
       setNewRepoDescription('')
       setUserModifiedRepoName(false)
@@ -315,7 +268,6 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
       // When opening with a preselected repo, switch to select mode
       setRepoMode('select')
       setSelectedRepoId(preselectedRepoId)
-      setAdvancedExpanded(true)
     }
   }, [open, preselectedRepoId])
 
@@ -337,14 +289,6 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
       }
     }
   }, [open, apps, sortedApps, selectedAgentId])
-
-  // Auto-default to Claude Code when it's the only available AI provider
-  useEffect(() => {
-    if (hasClaudeSubscription && !hasAnthropicProvider && userProviderCount === 0) {
-      setCodeAgentRuntime('claude_code')
-      setClaudeCodeMode('subscription')
-    }
-  }, [hasClaudeSubscription, hasAnthropicProvider, userProviderCount])
 
   // Detect OAuth popup closure and refresh connections
   useEffect(() => {
@@ -377,34 +321,7 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
     let repoIdToUse = ''
     setRepoError('')
 
-    if (repoMode === 'auto') {
-      // Auto mode: create a repo with the same name as the project
-      if (!onCreateRepo) {
-        setRepoError('Repository creation not available')
-        return
-      }
-
-      const autoRepoName = toRepoName(name)
-      if (!autoRepoName) {
-        setRepoError('Please enter a valid project name')
-        return
-      }
-
-      setCreatingRepo(true)
-      try {
-        const newRepo = await onCreateRepo(autoRepoName, description || `Files for ${name}`)
-        if (!newRepo?.id) {
-          setRepoError('Failed to create repository')
-          return
-        }
-        repoIdToUse = newRepo.id
-      } catch (err) {
-        setRepoError(err instanceof Error ? err.message : 'Failed to create repository')
-        return
-      } finally {
-        setCreatingRepo(false)
-      }
-    } else if (repoMode === 'select') {
+    if (repoMode === 'select') {
       if (!selectedRepoId) {
         setRepoError('Please select a repository')
         return
@@ -540,7 +457,6 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
     : !!selectedAgentId
 
   const isSubmitDisabled = createProjectMutation.isPending || creatingRepo || creatingAgent || !name.trim() || !agentValid || (
-    repoMode === 'auto' ? false : // Auto mode only needs project name
     repoMode === 'select' ? !selectedRepoId :
     repoMode === 'create' ? !newRepoName.trim() :
     !externalUrl.trim() || (externalType === TypesExternalRepositoryType.ExternalRepositoryTypeADO && (!externalOrgUrl.trim() || !externalToken.trim()))
@@ -580,71 +496,84 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
             placeholder="What is this project about?"
           />
 
-          {/* Advanced: Git Repository Options */}
-          <Accordion
-            expanded={advancedExpanded || !!preselectedRepoId}
-            onChange={(_, expanded) => {
-              if (!preselectedRepoId) {
-                setAdvancedExpanded(expanded)
-                // When expanding, default to 'create' mode if currently 'auto'
-                if (expanded && repoMode === 'auto') {
-                  setRepoMode('create')
-                }
-                // When collapsing, reset to 'auto' mode
-                if (!expanded) {
-                  setRepoMode('auto')
-                }
-              }
-            }}
-            sx={{
-              boxShadow: 'none',
-              border: (theme) => `1px solid ${theme.palette.divider}`,
-              '&:before': { display: 'none' },
-              borderRadius: 1,
-            }}
-          >
-            <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                <FolderGit2 size={18} />
-                <Typography variant="body2">
-                  {advancedExpanded || preselectedRepoId
-                    ? 'Git Repository'
-                    : 'Connect a Git repository (optional)'}
-                </Typography>
-              </Box>
-            </AccordionSummary>
-            <AccordionDetails>
-              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                <Typography variant="body2" color="text.secondary">
-                  Connect an existing Git repository or create a new one with a custom name.
-                  {!advancedExpanded && ' Leave collapsed to auto-create storage for your project.'}
-                </Typography>
+          {/* Git Repository picker */}
+          <Box>
+            <Typography variant="subtitle2" sx={{ mb: 0.25 }}>
+              Git Repository
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+              Every project needs a repo. Pick one.
+            </Typography>
 
-                <ToggleButtonGroup
-                  value={repoMode}
-                  exclusive
-                  onChange={(_, v) => {
-                    if (v && !preselectedRepoId && v !== 'auto') {
-                      setRepoMode(v)
-                    }
-                  }}
-                  size="small"
-                  fullWidth
-                  disabled={!!preselectedRepoId}
-                >
-                  <ToggleButton value="create">
-                    <Plus size={16} style={{ marginRight: 4 }} />
-                    New
-                  </ToggleButton>
-                  <ToggleButton value="select">
-                    <FolderGit2 size={16} style={{ marginRight: 4 }} />
-                    Existing
-                  </ToggleButton>
-                  <ToggleButton value="link">
-                    <LinkIcon size={16} style={{ marginRight: 4 }} />
-                    External
-                  </ToggleButton>
-                </ToggleButtonGroup>
+            <Box
+              sx={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(3, 1fr)',
+                gap: 1,
+                mb: 2,
+              }}
+            >
+              {([
+                {
+                  mode: 'create' as const,
+                  icon: <Plus size={18} />,
+                  title: 'New Helix repo',
+                  desc: "We'll create and host a fresh repo for you.",
+                },
+                {
+                  mode: 'select' as const,
+                  icon: <FolderGit2 size={18} />,
+                  title: 'Use existing',
+                  desc: 'Reuse a repo already in this organisation.',
+                },
+                {
+                  mode: 'link' as const,
+                  icon: <LinkIcon size={18} />,
+                  title: 'Link external',
+                  desc: 'Connect GitHub, GitLab, or Azure DevOps.',
+                },
+              ]).map((tile) => {
+                const isSelected = repoMode === tile.mode
+                const isDisabled = !!preselectedRepoId && tile.mode !== 'select'
+                return (
+                  <Paper
+                    key={tile.mode}
+                    variant="outlined"
+                    onClick={() => {
+                      if (!preselectedRepoId) setRepoMode(tile.mode)
+                    }}
+                    sx={(theme) => ({
+                      p: 1.5,
+                      cursor: preselectedRepoId ? 'default' : 'pointer',
+                      borderColor: isSelected ? theme.palette.secondary.main : theme.palette.divider,
+                      borderWidth: isSelected ? 2 : 1,
+                      bgcolor: isSelected ? 'action.selected' : 'transparent',
+                      opacity: isDisabled ? 0.5 : 1,
+                      transition: 'border-color 0.15s, background-color 0.15s',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 0.5,
+                      minHeight: 104,
+                      '&:hover': preselectedRepoId
+                        ? {}
+                        : { borderColor: isSelected ? theme.palette.secondary.main : theme.palette.text.secondary },
+                    })}
+                  >
+                    <Box sx={{ color: isSelected ? 'secondary.main' : 'text.secondary' }}>
+                      {tile.icon}
+                    </Box>
+                    <Typography variant="body2" fontWeight={600}>
+                      {tile.title}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary" sx={{ lineHeight: 1.35 }}>
+                      {tile.desc}
+                    </Typography>
+                  </Paper>
+                )
+              })}
+            </Box>
+
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
 
                 {repoMode === 'select' && (
                   <FormControl fullWidth size="small">
@@ -711,21 +640,33 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
                     {/* CASE 1: GitHub + OAuth with repo scope - Inline repo browser */}
                     {externalType === TypesExternalRepositoryType.ExternalRepositoryTypeGitHub && githubHasRepoScope && (
                       <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                        {/* Search field */}
-                        <TextField
-                          fullWidth
-                          size="small"
-                          placeholder="Search your repositories..."
-                          value={repoSearchQuery}
-                          onChange={(e) => setRepoSearchQuery(e.target.value)}
-                          InputProps={{
-                            startAdornment: (
-                              <InputAdornment position="start">
-                                <Search size={18} />
-                              </InputAdornment>
-                            ),
-                          }}
-                        />
+                        {/* Search field with refresh */}
+                        <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                          <TextField
+                            fullWidth
+                            size="small"
+                            placeholder="Search your repositories..."
+                            value={repoSearchQuery}
+                            onChange={(e) => setRepoSearchQuery(e.target.value)}
+                            InputProps={{
+                              startAdornment: (
+                                <InputAdornment position="start">
+                                  <Search size={18} />
+                                </InputAdornment>
+                              ),
+                            }}
+                          />
+                          <Tooltip title="Refresh repository list">
+                            <IconButton
+                              size="small"
+                              onClick={() => queryClient.invalidateQueries({ queryKey: ["oauth-connection-repositories"] })}
+                              disabled={githubReposFetching}
+                              sx={githubReposFetching ? { animation: 'spin 1s linear infinite', '@keyframes spin': { '100%': { transform: 'rotate(360deg)' } } } : {}}
+                            >
+                              <RefreshCw size={18} />
+                            </IconButton>
+                          </Tooltip>
+                        </Box>
 
                         {/* Error state */}
                         {githubReposError && (
@@ -759,10 +700,10 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
                             dense
                           >
                             {filteredGithubRepos.map((repo, index) => {
-                              const isSelected = selectedOAuthRepo?.full_name === repo.full_name ||
-                                selectedOAuthRepo?.id === repo.id
+                              const isSelected = selectedOAuthRepo?.full_name === repo.full_name
+
                               return (
-                                <ListItem key={repo.id || repo.full_name || index} disablePadding>
+                                <ListItem key={repo.full_name || index} disablePadding>
                                   <ListItemButton
                                     selected={isSelected}
                                     onClick={() => handleSelectGitHubRepo(repo)}
@@ -1016,9 +957,8 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
                     )}
                   </Box>
                 )}
-              </Box>
-            </AccordionDetails>
-          </Accordion>
+            </Box>
+          </Box>
 
           {repoError && (
             <Alert severity="error" sx={{ mt: 1 }}>
@@ -1058,7 +998,7 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
                             size="small"
                             onClick={(e) => {
                               e.stopPropagation()
-                              account.orgNavigate('app', { app_id: app.id })
+                              account.orgNavigate('agent', { app_id: app.id })
                             }}
                             sx={{ ml: 'auto' }}
                           >
@@ -1105,9 +1045,7 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
                   setNewAgentName(nextValue.agentName)
                 }}
                 disabled={creatingAgent || createProjectMutation.isPending || creatingRepo}
-                hasClaudeSubscription={hasClaudeSubscription}
-                hasAnthropicProvider={hasAnthropicProvider}
-                recommendedModels={RECOMMENDED_MODELS}
+                recommendedModels={RECOMMENDED_CODING_MODELS}
                 createAgentDescription="Code development agent for spec tasks"
                 onCreateStateChange={setCreatingAgent}
                 onAgentCreated={(app) => {

@@ -12,6 +12,7 @@ package desktop
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"strconv"
 	"sync"
@@ -34,6 +35,19 @@ const (
 	DefaultGracePeriod = 60 * time.Second  // Wait before stopping pipeline when all clients disconnect
 	MinGracePeriod     = 5 * time.Second   // Minimum allowed grace period
 	MaxGracePeriod     = 300 * time.Second // Maximum allowed grace period (5 minutes)
+)
+
+// Circuit breaker constants for pipeline creation
+const (
+	// maxConsecutiveFailures is the number of consecutive pipeline start failures
+	// before the circuit breaker opens. After this, new pipeline creation is blocked
+	// until the cooldown expires.
+	maxConsecutiveFailures = 5
+
+	// circuitBreakerCooldown is how long to wait after the circuit breaker opens
+	// before allowing another pipeline creation attempt. This gives the GPU time
+	// to recover (e.g., other sessions may stop and free VRAM).
+	circuitBreakerCooldown = 30 * time.Second
 )
 
 // FrameSource is an abstraction over video frame producers.
@@ -116,7 +130,19 @@ type sharedVideoClient struct {
 	// Catchup goroutine drains this to frameCh after GOP replay
 	pendingMu sync.Mutex
 	pending   []VideoFrame
+
+	// Tracks consecutive frames where the channel was full (client too slow).
+	// Only accessed from the single broadcast goroutine, no synchronization needed.
+	// Client is disconnected after slowClientThreshold consecutive slow frames.
+	consecutiveSlowFrames int
 }
+
+// slowClientThreshold is the number of consecutive buffer-full frames before
+// disconnecting a slow client. The effective tolerance is much larger than this
+// threshold alone: the client's channel buffer (default 120 frames / ~2s at
+// 60fps) must fill first, then 30 more consecutive sends must fail (~0.5s).
+// Total tolerance: ~2.5 seconds of sustained slowness at 60fps.
+const slowClientThreshold = 30
 
 // pendingStop represents a deferred pipeline shutdown during the grace period.
 // When all clients disconnect, we don't immediately stop the pipeline - instead we
@@ -144,6 +170,14 @@ type SharedVideoSourceRegistry struct {
 
 	gracePeriod time.Duration // how long to wait before stopping pipeline
 
+	// Circuit breaker: tracks consecutive pipeline start failures per node.
+	// When a pipeline fails to start (e.g., GPU OOM), rapid frontend reconnects
+	// would create hundreds of new pipelines, each leaking GPU memory during
+	// the failed initialization. The circuit breaker stops creating new pipelines
+	// after maxConsecutiveFailures and requires a cooldown before retrying.
+	failureCounts   map[uint32]int       // consecutive failures per node
+	failureCooldown map[uint32]time.Time // when to allow retry per node
+
 	// Metrics
 	cancelledStops atomic.Uint64 // stops cancelled by client reconnect
 	completedStops atomic.Uint64 // stops that completed after grace period
@@ -170,9 +204,11 @@ func GetSharedVideoRegistry() *SharedVideoSourceRegistry {
 			}
 		}
 		sharedVideoRegistry = &SharedVideoSourceRegistry{
-			sources:      make(map[uint32]*SharedVideoSource),
-			pendingStops: make(map[uint32]*pendingStop),
-			gracePeriod:  gracePeriod,
+			sources:         make(map[uint32]*SharedVideoSource),
+			pendingStops:    make(map[uint32]*pendingStop),
+			gracePeriod:     gracePeriod,
+			failureCounts:   make(map[uint32]int),
+			failureCooldown: make(map[uint32]time.Time),
 		}
 		fmt.Printf("[SHARED_VIDEO] Registry initialized with grace period %v\n", gracePeriod)
 	})
@@ -436,6 +472,46 @@ func (r *SharedVideoSourceRegistry) Remove(nodeID uint32) {
 	}
 }
 
+// recordPipelineFailure records a pipeline start failure for the circuit breaker.
+// Must be called with r.mu held.
+func (r *SharedVideoSourceRegistry) recordPipelineFailure(nodeID uint32) {
+	r.failureCounts[nodeID]++
+	count := r.failureCounts[nodeID]
+	if count >= maxConsecutiveFailures {
+		cooldownUntil := time.Now().Add(circuitBreakerCooldown)
+		r.failureCooldown[nodeID] = cooldownUntil
+		fmt.Printf("[SHARED_VIDEO] Circuit breaker OPEN for node %d after %d failures (cooldown until %s)\n",
+			nodeID, count, cooldownUntil.Format(time.RFC3339))
+	}
+}
+
+// recordPipelineSuccess resets the circuit breaker for a node after successful start.
+// Must be called with r.mu held.
+func (r *SharedVideoSourceRegistry) recordPipelineSuccess(nodeID uint32) {
+	if r.failureCounts[nodeID] > 0 {
+		fmt.Printf("[SHARED_VIDEO] Circuit breaker RESET for node %d (pipeline started successfully)\n", nodeID)
+	}
+	delete(r.failureCounts, nodeID)
+	delete(r.failureCooldown, nodeID)
+}
+
+// isCircuitBreakerOpen returns true if the circuit breaker is open (too many failures)
+// and the cooldown hasn't expired yet. Must be called with r.mu held.
+func (r *SharedVideoSourceRegistry) isCircuitBreakerOpen(nodeID uint32) bool {
+	cooldownUntil, exists := r.failureCooldown[nodeID]
+	if !exists {
+		return false
+	}
+	if time.Now().After(cooldownUntil) {
+		// Cooldown expired, allow one retry
+		delete(r.failureCooldown, nodeID)
+		r.failureCounts[nodeID] = maxConsecutiveFailures - 1 // allow one attempt
+		fmt.Printf("[SHARED_VIDEO] Circuit breaker cooldown expired for node %d, allowing retry\n", nodeID)
+		return false
+	}
+	return true
+}
+
 // SourceStats contains statistics for a single shared video source
 type SourceStats struct {
 	NodeID         uint32              `json:"node_id"`
@@ -587,6 +663,19 @@ func (s *SharedVideoSource) Subscribe() (<-chan VideoFrame, <-chan error, uint64
 
 	// Start pipeline on first client (only if not already running)
 	if existingClients == 0 && !pipelineAlreadyRunning {
+		// Check circuit breaker before attempting pipeline creation.
+		// This prevents rapid reconnect loops from creating hundreds of
+		// pipelines that each leak GPU memory when they fail to start.
+		registry := GetSharedVideoRegistry()
+		registry.mu.Lock()
+		if registry.isCircuitBreakerOpen(s.nodeID) {
+			registry.mu.Unlock()
+			close(client.frameCh)
+			close(client.errorCh)
+			return nil, nil, 0, fmt.Errorf("pipeline creation blocked: too many consecutive failures for node %d (cooldown active)", s.nodeID)
+		}
+		registry.mu.Unlock()
+
 		// First client - add to map, start pipeline, no catchup needed (no GOP yet)
 		// Set state to live directly since there's nothing to catch up on
 		client.state.Store(clientStateLive)
@@ -603,8 +692,19 @@ func (s *SharedVideoSource) Subscribe() (<-chan VideoFrame, <-chan error, uint64
 			s.clientsMu.Unlock()
 			close(client.frameCh)
 			close(client.errorCh)
+
+			// Record failure for circuit breaker
+			registry.mu.Lock()
+			registry.recordPipelineFailure(s.nodeID)
+			registry.mu.Unlock()
+
 			return nil, nil, 0, fmt.Errorf("start pipeline: %w", err)
 		}
+
+		// Pipeline started successfully — reset circuit breaker
+		registry.mu.Lock()
+		registry.recordPipelineSuccess(s.nodeID)
+		registry.mu.Unlock()
 	} else {
 		// Subsequent client - needs catchup
 		// Check if pipeline had a start error
@@ -829,6 +929,11 @@ func (s *SharedVideoSource) start() error {
 			}
 
 			if err = s.pipeline.Start(s.ctx); err != nil {
+				// Clean up the pipeline that was created but failed to start.
+				// Without this, the CUDA context and NVENC session allocated during
+				// NewGstPipelineWithOptions would leak GPU memory.
+				s.pipeline.Stop()
+				s.pipeline = nil
 				startErr = fmt.Errorf("start pipeline: %w", err)
 				return
 			}
@@ -889,6 +994,8 @@ func (s *SharedVideoSource) restartPipeline() (*GstPipeline, error) {
 	}
 
 	if err = newPipeline.Start(s.ctx); err != nil {
+		// Clean up pipeline that was created but failed to start
+		newPipeline.Stop()
 		return nil, fmt.Errorf("start pipeline: %w", err)
 	}
 
@@ -1132,10 +1239,13 @@ func (s *SharedVideoSource) broadcastFrames() {
 						}()
 						select {
 						case client.frameCh <- frame:
-							// Frame sent successfully
+							client.consecutiveSlowFrames = 0
 						default:
-							// Buffer full - client is too slow, mark for disconnection
-							slowClients = append(slowClients, client.id)
+							// Buffer full - tolerate transient slowness before disconnecting
+							client.consecutiveSlowFrames++
+							if client.consecutiveSlowFrames >= slowClientThreshold {
+								slowClients = append(slowClients, client.id)
+							}
 						}
 					}()
 				}
@@ -1145,7 +1255,7 @@ func (s *SharedVideoSource) broadcastFrames() {
 
 			// Disconnect slow/overflow clients (outside of RLock to avoid deadlock)
 			for _, clientID := range slowClients {
-				fmt.Printf("[SHARED_VIDEO] Disconnecting slow client %d (channel buffer full)\n", clientID)
+				slog.Warn("[SHARED_VIDEO] Disconnecting slow client", "client_id", clientID, "consecutive_frames_dropped", slowClientThreshold)
 				s.disconnectClient(clientID)
 			}
 			for _, clientID := range pendingOverflow {

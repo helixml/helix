@@ -147,6 +147,7 @@ const Home: FC = () => {
   const [selectedImageName, setSelectedImageName] = useState<string | null>(null)
   const [showExamples, setShowExamples] = useState(false)
   const [isFirstLoginToday, setIsFirstLoginToday] = useState(false)
+  const [greeting, setGreeting] = useState('')
 
   const { data: triggers, isLoading, refetch } = useListUserCronTriggers(
     account.organizationTools.organization?.id || ''
@@ -201,6 +202,7 @@ const Home: FC = () => {
     if (account.user) {
       const firstLogin = checkFirstLoginToday()
       setIsFirstLoginToday(firstLogin)
+      setGreeting(getTimeBasedGreeting(account.user.name, firstLogin))
     }
   }, [account.user])
 
@@ -245,6 +247,14 @@ const Home: FC = () => {
     account.orgNavigate('new', { app_id: appId });
   }
 
+  const handleNewAgent = async () => {
+    if (!account.user) {
+      account.setShowLoginWindow(true)
+      return
+    }
+    await createBlankAgent()
+  }
+
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
@@ -267,15 +277,37 @@ const Home: FC = () => {
     handleAttachmentMenuClose()
   }
 
+  const attachImageFile = (file: File) => {
+    const reader = new FileReader()
+    reader.onloadend = () => {
+      setSelectedImage(reader.result as string)
+      setSelectedImageName(file.name || `pasted-image-${Date.now()}.png`)
+    }
+    reader.readAsDataURL(file)
+  }
+
   const handleImageFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
     if (file) {
-      const reader = new FileReader()
-      reader.onloadend = () => {
-        setSelectedImage(reader.result as string)
-        setSelectedImageName(file.name)
-      }
-      reader.readAsDataURL(file)
+      attachImageFile(file)
+    }
+  }
+
+  // Cmd+V / Ctrl+V image paste — same path as the file picker. Text pastes
+  // fall through unchanged (we only preventDefault when we actually attach).
+  const handlePromptPaste = (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const items = event.clipboardData?.items
+    if (!items || items.length === 0) return
+
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i]
+      if (item.kind !== 'file') continue
+      if (!item.type.startsWith('image/')) continue
+      const file = item.getAsFile()
+      if (!file) continue
+      event.preventDefault()
+      attachImageFile(file)
+      return
     }
   }
 
@@ -338,7 +370,7 @@ const Home: FC = () => {
                       mb: 2,
                     }}
                   >
-                    {getTimeBasedGreeting(account.user?.name, isFirstLoginToday)}
+                    {greeting}
                   </Typography>
                 </Row>
                 <Row>
@@ -365,6 +397,7 @@ const Home: FC = () => {
                         value={currentPrompt}
                         onChange={(e) => setCurrentPrompt(e.target.value)}
                         onKeyDown={handleKeyDown}
+                        onPaste={handlePromptPaste}
                         rows={2}
                         style={{
                           width: '100%',
@@ -481,10 +514,61 @@ const Home: FC = () => {
                                 )}
                               </Box>
                             </Tooltip>
-                            {selectedImageName && (
-                              <Typography sx={{ color: 'rgba(255, 255, 255, 0.7)', fontSize: '0.8rem', ml: 0.5, maxWidth: '100px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                {selectedImageName}
-                              </Typography>
+                            {selectedImage && (
+                              <Box
+                                sx={{
+                                  position: 'relative',
+                                  ml: 0.5,
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: 0.75,
+                                }}
+                              >
+                                <Tooltip title={selectedImageName || 'Attached image'} placement="top">
+                                  <Box
+                                    component="img"
+                                    src={selectedImage}
+                                    alt={selectedImageName || 'Attached image'}
+                                    sx={{
+                                      width: 36,
+                                      height: 36,
+                                      objectFit: 'cover',
+                                      borderRadius: '6px',
+                                      border: '1px solid rgba(255, 255, 255, 0.2)',
+                                    }}
+                                  />
+                                </Tooltip>
+                                <Typography sx={{ color: 'rgba(255, 255, 255, 0.7)', fontSize: '0.8rem', maxWidth: '120px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                  {selectedImageName}
+                                </Typography>
+                                <Box
+                                  role="button"
+                                  aria-label="Remove attached image"
+                                  onClick={() => {
+                                    setSelectedImage(null)
+                                    setSelectedImageName(null)
+                                    if (imageInputRef.current) imageInputRef.current.value = ''
+                                  }}
+                                  sx={{
+                                    width: 18,
+                                    height: 18,
+                                    borderRadius: '50%',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    cursor: 'pointer',
+                                    fontSize: '12px',
+                                    color: 'rgba(255, 255, 255, 0.7)',
+                                    border: '1px solid rgba(255, 255, 255, 0.3)',
+                                    '&:hover': {
+                                      color: 'rgba(255, 255, 255, 1)',
+                                      borderColor: 'rgba(255, 255, 255, 0.6)',
+                                    },
+                                  }}
+                                >
+                                  ×
+                                </Box>
+                              </Box>
                             )}
                             <Menu
                               anchorEl={attachmentMenuAnchorEl}
@@ -963,7 +1047,7 @@ const Home: FC = () => {
                           textDecoration: 'underline',
                         },
                       }}
-                      onClick={() => account.orgNavigate('apps')}
+                      onClick={() => account.orgNavigate('agents')}
                     >
                       Agents
                     </Typography>
@@ -1080,7 +1164,7 @@ const Home: FC = () => {
                           alignItems: 'flex-start',
                           gap: 1,
                         }}
-                        onClick={createBlankAgent}
+                        onClick={handleNewAgent}
                       >
                         <Box
                           sx={{

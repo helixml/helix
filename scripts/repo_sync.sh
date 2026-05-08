@@ -5,6 +5,9 @@ set -e
 REPO_URL="https://charts.helixml.tech"
 
 function gen_packages() {
+  # Render Chart.yaml files from Chart.yaml.tmpl, stamping version from DRONE_TAG / TAG_NAME.
+  sh scripts/render-charts.sh
+
   echo "Packaging charts from source code"
   mkdir -p temp
   for d in charts/*

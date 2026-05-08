@@ -32,7 +32,31 @@ func (s *HelixAPIServer) anthropicAPIProxyHandler(w http.ResponseWriter, r *http
 	if err != nil {
 		log.Error().Err(err).Msg("failed to get provider endpoint")
 
-		http.Error(w, "Failed to get provider endpoint: "+err.Error(), http.StatusInternalServerError)
+		http.Error(w, "Failed to get provider endpoint: "+err.Error()+
+			". Note: /v1/messages only supports Anthropic-compatible providers. "+
+			"For OpenAI-compatible providers (Ollama, OpenRouter, etc.), use /v1/chat/completions instead.",
+			http.StatusBadRequest)
+		return
+	}
+
+	// Guard: reject non-Anthropic providers early with a clear error.
+	// The /v1/messages endpoint uses Anthropic API format which is incompatible
+	// with OpenAI-compatible providers (Ollama, OpenRouter, etc.).
+	// Agent tasks with non-Anthropic providers should route through /v1/chat/completions
+	// via the Zed config (see mapHelixToZedProvider in zed_config.go).
+	if !isAnthropicCompatible(endpoint) {
+		log.Warn().
+			Str("provider", endpoint.Name).
+			Str("base_url", endpoint.BaseURL).
+			Str("user_id", user.ID).
+			Msg("non-Anthropic provider hit /v1/messages — rejecting")
+
+		http.Error(w,
+			fmt.Sprintf("Provider %q is not Anthropic-compatible. "+
+				"The /v1/messages endpoint only supports Anthropic API format. "+
+				"Use /v1/chat/completions for OpenAI-compatible providers (Ollama, OpenRouter, etc.).",
+				endpoint.Name),
+			http.StatusBadRequest)
 		return
 	}
 
@@ -107,6 +131,23 @@ func (s *HelixAPIServer) anthropicAPIProxyHandler(w http.ResponseWriter, r *http
 	logger.Info().Msg("has enough balance, proxying request")
 
 	s.anthropicProxy.ServeHTTP(w, r)
+}
+
+// isAnthropicCompatible checks whether a provider endpoint speaks the Anthropic
+// /v1/messages API format. Currently only the built-in "anthropic" provider and
+// endpoints whose base URL points to Anthropic's API (or a Vertex AI proxy) qualify.
+func isAnthropicCompatible(ep *types.ProviderEndpoint) bool {
+	if ep.Name == string(types.ProviderAnthropic) {
+		return true
+	}
+	// Vertex AI endpoints proxy Anthropic format
+	if ep.VertexProjectID != "" {
+		return true
+	}
+	// Check base URL for known Anthropic-compatible hosts
+	baseURL := strings.ToLower(ep.BaseURL)
+	return strings.Contains(baseURL, "anthropic.com") ||
+		strings.Contains(baseURL, "anthropic.googleapis.com")
 }
 
 func parseAnthropicRequestModel(body []byte) (string, bool) {
@@ -241,21 +282,70 @@ func (s *HelixAPIServer) getProviderEndpoint(ctx context.Context, user *types.Us
 
 	// Fall back to built-in Anthropic provider from environment variables
 	// This allows ANTHROPIC_API_KEY to work without database configuration
-	return s.getBuiltInProviderEndpoint(provider)
+	return s.getBuiltInProviderEndpoint(ctx, provider)
 }
 
-// getBuiltInProviderEndpoint returns a ProviderEndpoint for the built-in Anthropic provider
-// configured via environment variables (ANTHROPIC_API_KEY or ANTHROPIC_API_KEY_FILE).
-// This allows the Anthropic proxy to work without requiring database configuration.
+// getBuiltInProviderEndpoint returns a ProviderEndpoint for built-in (env-baked)
+// providers.
 //
-// To enable usage tracking/billing for this built-in provider, set PROVIDERS_BILLING_ENABLED=true.
-// This is separate from STRIPE_BILLING_ENABLED which controls the platform-level Stripe integration.
-func (s *HelixAPIServer) getBuiltInProviderEndpoint(provider string) (*types.ProviderEndpoint, error) {
+// Anthropic gets the rich path because /v1/messages actually proxies through here:
+// when ANTHROPIC_VERTEX_PROJECT_ID is set, Vertex AI wins unconditionally and
+// ANTHROPIC_API_KEY is only used for model listing; otherwise ANTHROPIC_API_KEY
+// (or ANTHROPIC_API_KEY_FILE) is required. Set PROVIDERS_BILLING_ENABLED=true to
+// track usage on this built-in (separate from STRIPE_BILLING_ENABLED).
+//
+// Other env-baked globals (openai, togetherai, helix, ...) are returned as
+// Name-only synthetics from MultiClientManager.globalClients. We don't need
+// their full BaseURL/APIKey here because /v1/messages will reject them via
+// isAnthropicCompatible with the actionable "use /v1/chat/completions" message
+// — and the synthetic carries enough (Name, EndpointType=Global) to drive that
+// branch instead of the cryptic "provider %q not found" error.
+func (s *HelixAPIServer) getBuiltInProviderEndpoint(ctx context.Context, provider string) (*types.ProviderEndpoint, error) {
 	if provider != string(types.ProviderAnthropic) {
+		// Resolve env-baked globals (openai etc.) from the provider manager so
+		// callers get a real endpoint they can interrogate, not a "not found".
+		if s.providerManager != nil {
+			globals, err := s.providerManager.ListProviderEndpoints(ctx, "")
+			if err == nil {
+				for _, ep := range globals {
+					if strings.EqualFold(ep.Name, provider) {
+						return ep, nil
+					}
+				}
+			}
+		}
 		return nil, fmt.Errorf("provider %q not found", provider)
 	}
 
-	// Get API key from env var or file
+	// Vertex AI mode: Vertex wins unconditionally when configured
+	if s.Cfg.Providers.Anthropic.VertexProjectID != "" {
+		// API key is optional in Vertex mode — only used for model listing
+		apiKey := s.Cfg.Providers.Anthropic.APIKey
+		if apiKey == "" && s.Cfg.Providers.Anthropic.APIKeyFromFile != "" {
+			data, err := os.ReadFile(s.Cfg.Providers.Anthropic.APIKeyFromFile)
+			if err == nil {
+				apiKey = strings.TrimSpace(string(data))
+			}
+		}
+
+		return &types.ProviderEndpoint{
+			ID:                    string(types.ProviderAnthropic),
+			Name:                  string(types.ProviderAnthropic),
+			Description:           "Built-in Anthropic provider (via Google Vertex AI)",
+			BaseURL:               s.Cfg.Providers.Anthropic.BaseURL,
+			APIKey:                apiKey,
+			EndpointType:          types.ProviderEndpointTypeGlobal,
+			Owner:                 string(types.OwnerTypeSystem),
+			OwnerType:             types.OwnerTypeSystem,
+			BillingEnabled:        s.Cfg.Providers.BillingEnabled,
+			VertexProjectID:       s.Cfg.Providers.Anthropic.VertexProjectID,
+			VertexRegion:          s.Cfg.Providers.Anthropic.VertexRegion,
+			VertexCredentialsJSON: s.Cfg.Providers.Anthropic.VertexCredentialsJSON,
+			VertexCredentialsFile: s.Cfg.Providers.Anthropic.VertexCredentialsFile,
+		}, nil
+	}
+
+	// Direct Anthropic API mode: API key is required
 	apiKey := s.Cfg.Providers.Anthropic.APIKey
 	if apiKey == "" && s.Cfg.Providers.Anthropic.APIKeyFromFile != "" {
 		data, err := os.ReadFile(s.Cfg.Providers.Anthropic.APIKeyFromFile)
@@ -266,7 +356,7 @@ func (s *HelixAPIServer) getBuiltInProviderEndpoint(provider string) (*types.Pro
 	}
 
 	if apiKey == "" {
-		return nil, fmt.Errorf("anthropic provider not configured: ANTHROPIC_API_KEY or ANTHROPIC_API_KEY_FILE not set")
+		return nil, fmt.Errorf("anthropic provider not configured: set ANTHROPIC_VERTEX_PROJECT_ID for Vertex AI, or ANTHROPIC_API_KEY / ANTHROPIC_API_KEY_FILE for direct API access")
 	}
 
 	return &types.ProviderEndpoint{
@@ -278,6 +368,6 @@ func (s *HelixAPIServer) getBuiltInProviderEndpoint(provider string) (*types.Pro
 		EndpointType:   types.ProviderEndpointTypeGlobal,
 		Owner:          string(types.OwnerTypeSystem),
 		OwnerType:      types.OwnerTypeSystem,
-		BillingEnabled: s.Cfg.Providers.BillingEnabled, // Controlled by PROVIDERS_BILLING_ENABLED env var
+		BillingEnabled: s.Cfg.Providers.BillingEnabled,
 	}, nil
 }

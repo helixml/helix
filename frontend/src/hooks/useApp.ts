@@ -1,6 +1,5 @@
 import { useMemo, useState, useEffect, useCallback, useRef } from 'react'
 import { stringify as stringifyYaml } from 'yaml'
-import bluebird from 'bluebird'
 import {
   IApp,
   IAppFlatState,
@@ -8,15 +7,13 @@ import {
   IAssistantConfig,
   IKnowledgeSearchResult,
   IAssistantGPTScript,
-  IAssistantApi,
-  IAssistantZapier,
   IAccessGrant,
   CreateAccessGrantRequest,
   SESSION_TYPE_TEXT,
   WEBSOCKET_EVENT_TYPE_SESSION_UPDATE,
 } from '../types'
 
-import { TypesSession, TypesAssistantMCP } from '../api/api'
+import { TypesSession, TypesAssistantMCP, TypesAssistantAPI, TypesAssistantZapier } from '../api/api'
 
 import {
   removeEmptyValues,
@@ -116,7 +113,7 @@ export const useApp = (appId: string) => {
       system_prompt: '',
       type: 'text',
       agent_mode: false,
-      agent_type: 'helix_basic',
+      agent_type: 'helix_agent',
       knowledge: [],
       apis: [],
       zapier: [],
@@ -257,7 +254,7 @@ export const useApp = (appId: string) => {
    * @param updates - The updates to apply
    * @returns The updated app
    */
-  const mergeFlatStateIntoApp = useCallback((existing: IApp, updates: IAppFlatState): IApp => {
+  const mergeFlatStateIntoApp = useCallback((existing: IApp, updates: Partial<IAppFlatState>): IApp => {
     // Create new app object with updated config
     // we do this with JSON.parse because then it copes with deep values not having the same reference
     const updatedApp = JSON.parse(JSON.stringify(existing)) as IApp
@@ -555,7 +552,7 @@ export const useApp = (appId: string) => {
    * @param updates - The updates to apply
    * @param opts - Options for the save operation
    */
-  const saveFlatApp = useCallback(async (updates: IAppFlatState, opts: { quiet?: boolean, forceSave?: boolean } = {}) => {
+  const saveFlatApp = useCallback(async (updates: Partial<IAppFlatState>, opts: { quiet?: boolean, forceSave?: boolean } = {}) => {
     if (!app) return
     
     // If forceSave isn't explicitly set and it's not safe to save, log warning and return
@@ -592,7 +589,7 @@ export const useApp = (appId: string) => {
    * 
    * 
    */   
-  const onSaveApiTool = useCallback((tool: IAssistantApi, index?: number) => {
+  const onSaveApiTool = useCallback((tool: TypesAssistantAPI, index?: number) => {
     if(!flatApp) return
     let newTools = flatApp.apiTools || []
     if(typeof index !== 'number') {
@@ -603,7 +600,7 @@ export const useApp = (appId: string) => {
     saveFlatApp({apiTools: newTools})
   }, [saveFlatApp, flatApp])
   
-  const onSaveZapierTool = useCallback((tool: IAssistantZapier, index?: number) => {
+  const onSaveZapierTool = useCallback((tool: TypesAssistantZapier, index?: number) => {
     if(!flatApp) return
     let newTools = flatApp.zapierTools || []
     if(typeof index !== 'number') {
@@ -868,7 +865,7 @@ export const useApp = (appId: string) => {
         showLoading: true,
       })
       
-      await bluebird.all([
+      await Promise.all([
         loadServerKnowledge(),
         // Load other data that doesn't depend on the app's organization status
         // endpointProviders.loadData(),

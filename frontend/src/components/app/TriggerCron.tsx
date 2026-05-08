@@ -9,6 +9,7 @@ import FormControl from '@mui/material/FormControl'
 import InputLabel from '@mui/material/InputLabel'
 import Select from '@mui/material/Select'
 import MenuItem from '@mui/material/MenuItem'
+import Chip from '@mui/material/Chip'
 import ScheduleIcon from '@mui/icons-material/Schedule'
 import Alert from '@mui/material/Alert'
 import { TypesTrigger } from '../../api/api'
@@ -90,6 +91,10 @@ const TriggerCron: FC<TriggerCronProps> = ({
   const [scheduleInput, setScheduleInput] = useState<string>(
     cronTrigger?.input || ''
   )
+  const [emails, setEmails] = useState<string[]>(
+    cronTrigger?.emails || []
+  )
+  const [emailInput, setEmailInput] = useState<string>('')
 
   // Update state when triggers change
   useEffect(() => {
@@ -106,6 +111,7 @@ const TriggerCron: FC<TriggerCronProps> = ({
         setSelectedTimezone(parseCronTimezone(cronTrigger.schedule || ''))
       }
       setScheduleInput(cronTrigger.input || '')
+      setEmails(cronTrigger.emails || [])
     }
   }, [cronTrigger])
 
@@ -120,7 +126,7 @@ const TriggerCron: FC<TriggerCronProps> = ({
       } else {
         schedule = `CRON_TZ=${userTz} ${selectedMinute} ${selectedHour} * * ${selectedDays.join(',')}`
       }
-      const newTriggers = [{ cron: { enabled: true, schedule, input: '' } }]
+      const newTriggers = [{ cron: { enabled: true, schedule, input: '', emails: [] } }]
       onUpdate(newTriggers)
     }
   }, [defaultEnabled, hasCronTrigger, triggers.length, scheduleMode, selectedInterval, selectedDays, selectedHour, selectedMinute, selectedTimezone, onUpdate])
@@ -131,12 +137,13 @@ const TriggerCron: FC<TriggerCronProps> = ({
       const currentCronTrigger = triggers.find(t => t.cron)?.cron
       if (currentCronTrigger) {
         // Preserve existing configuration but set enabled to true
-        const newTriggers = [...triggers.filter(t => !t.cron), { 
-          cron: { 
-            enabled: true, 
-            schedule: currentCronTrigger.schedule || '', 
-            input: currentCronTrigger.input || '' 
-          } 
+        const newTriggers = [...triggers.filter(t => !t.cron), {
+          cron: {
+            enabled: true,
+            schedule: currentCronTrigger.schedule || '',
+            input: currentCronTrigger.input || '',
+            emails: currentCronTrigger.emails || [],
+          }
         }]
         onUpdate(newTriggers)
       } else {
@@ -148,19 +155,20 @@ const TriggerCron: FC<TriggerCronProps> = ({
         } else {
           schedule = `CRON_TZ=${userTz} 0 9 * * 1`
         }
-        const newTriggers = [...triggers.filter(t => !t.cron), { cron: { enabled: true, schedule, input: '' } }]
+        const newTriggers = [...triggers.filter(t => !t.cron), { cron: { enabled: true, schedule, input: '', emails: [] } }]
         onUpdate(newTriggers)
       }
     } else {
       // Keep the cron trigger but set enabled to false, preserving schedule and input
       const currentCronTrigger = triggers.find(t => t.cron)?.cron
       if (currentCronTrigger) {
-        const updatedTriggers = [...triggers.filter(t => !t.cron), { 
-          cron: { 
-            enabled: false, 
-            schedule: currentCronTrigger.schedule || '', 
-            input: currentCronTrigger.input || '' 
-          } 
+        const updatedTriggers = [...triggers.filter(t => !t.cron), {
+          cron: {
+            enabled: false,
+            schedule: currentCronTrigger.schedule || '',
+            input: currentCronTrigger.input || '',
+            emails: currentCronTrigger.emails || [],
+          }
         }]
         onUpdate(updatedTriggers)
       } else {
@@ -176,13 +184,13 @@ const TriggerCron: FC<TriggerCronProps> = ({
     if (mode === 'intervals') {
       // Switch to interval mode - create interval cron expression
       const schedule = `*/${selectedInterval} * * * *`
-      const newTriggers = [...triggers.filter(t => !t.cron), { cron: { enabled: true, schedule, input: scheduleInput } }]
+      const newTriggers = [...triggers.filter(t => !t.cron), { cron: { enabled: true, schedule, input: scheduleInput, emails } }]
       onUpdate(newTriggers)
     } else {
       // Switch to specific time mode - create specific time cron expression
       const userTz = getUserTimezone()
       const schedule = `CRON_TZ=${userTz} ${selectedMinute} ${selectedHour} * * ${selectedDays.join(',')}`
-      const newTriggers = [...triggers.filter(t => !t.cron), { cron: { enabled: true, schedule, input: scheduleInput } }]
+      const newTriggers = [...triggers.filter(t => !t.cron), { cron: { enabled: true, schedule, input: scheduleInput, emails } }]
       onUpdate(newTriggers)
     }
   }
@@ -225,17 +233,46 @@ const TriggerCron: FC<TriggerCronProps> = ({
     }
   }
 
-  const updateCronTrigger = (days: number[], hour: number, minute: number, timezone: string, input: string) => {
+  const handleAddEmail = () => {
+    const trimmed = emailInput.trim()
+    if (!trimmed) return
+    // Basic email validation
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) return
+    if (emails.includes(trimmed)) {
+      setEmailInput('')
+      return
+    }
+    const updatedEmails = [...emails, trimmed]
+    setEmails(updatedEmails)
+    setEmailInput('')
+    if (scheduleMode === 'intervals') {
+      updateIntervalCronTrigger(selectedInterval, scheduleInput, updatedEmails)
+    } else {
+      updateCronTrigger(selectedDays, selectedHour, selectedMinute, selectedTimezone, scheduleInput, updatedEmails)
+    }
+  }
+
+  const handleRemoveEmail = (email: string) => {
+    const updatedEmails = emails.filter(e => e !== email)
+    setEmails(updatedEmails)
+    if (scheduleMode === 'intervals') {
+      updateIntervalCronTrigger(selectedInterval, scheduleInput, updatedEmails)
+    } else {
+      updateCronTrigger(selectedDays, selectedHour, selectedMinute, selectedTimezone, scheduleInput, updatedEmails)
+    }
+  }
+
+  const updateCronTrigger = (days: number[], hour: number, minute: number, timezone: string, input: string, updatedEmails?: string[]) => {
     if (days.length === 0) return
-    
+
     const cronExpression = `CRON_TZ=${timezone} ${minute} ${hour} * * ${days.join(',')}`
-    const newTriggers = [...triggers.filter(t => !t.cron), { cron: { enabled: true, schedule: cronExpression, input } }]
+    const newTriggers = [...triggers.filter(t => !t.cron), { cron: { enabled: true, schedule: cronExpression, input, emails: updatedEmails ?? emails } }]
     onUpdate(newTriggers)
   }
 
-  const updateIntervalCronTrigger = (interval: number, input: string) => {
+  const updateIntervalCronTrigger = (interval: number, input: string, updatedEmails?: string[]) => {
     const cronExpression = `*/${interval} * * * *`
-    const newTriggers = [...triggers.filter(t => !t.cron), { cron: { enabled: true, schedule: cronExpression, input } }]
+    const newTriggers = [...triggers.filter(t => !t.cron), { cron: { enabled: true, schedule: cronExpression, input, emails: updatedEmails ?? emails } }]
     onUpdate(newTriggers)
   }
 
@@ -412,6 +449,49 @@ const TriggerCron: FC<TriggerCronProps> = ({
               onChange={(e) => handleInputChange(e.target.value)}
               disabled={readOnly || !hasCronTrigger}
             />
+          </Box>
+
+          {/* Email recipients */}
+          <Box sx={{ mb: 2 }}>
+            <Typography variant="body2" color="text.secondary" gutterBottom>
+              Email recipients (leave empty to notify the app owner)
+            </Typography>
+            <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', mb: 1 }}>
+              <TextField
+                size="small"
+                placeholder="email@example.com"
+                value={emailInput}
+                onChange={(e) => setEmailInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault()
+                    handleAddEmail()
+                  }
+                }}
+                disabled={readOnly || !hasCronTrigger}
+                sx={{ flex: 1 }}
+              />
+              <Button
+                variant="outlined"
+                size="small"
+                onClick={handleAddEmail}
+                disabled={readOnly || !hasCronTrigger || !emailInput.trim()}
+              >
+                Add
+              </Button>
+            </Box>
+            {emails.length > 0 && (
+              <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
+                {emails.map((email) => (
+                  <Chip
+                    key={email}
+                    label={email}
+                    size="small"
+                    onDelete={readOnly ? undefined : () => handleRemoveEmail(email)}
+                  />
+                ))}
+              </Box>
+            )}
           </Box>
 
           {/* Schedule summary */}

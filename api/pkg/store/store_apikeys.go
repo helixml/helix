@@ -50,8 +50,9 @@ func (s *PostgresStore) GetAPIKey(ctx context.Context, query *types.ApiKey) (*ty
 func (s *PostgresStore) ListAPIKeys(ctx context.Context, q *ListAPIKeysQuery) ([]*types.ApiKey, error) {
 	var apiKeys []*types.ApiKey
 	queryAPIKey := &types.ApiKey{
-		Owner:     q.Owner,
-		OwnerType: q.OwnerType,
+		Owner:          q.Owner,
+		OwnerType:      q.OwnerType,
+		OrganizationID: q.OrganizationID,
 	}
 
 	if q.Type != "" {

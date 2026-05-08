@@ -199,6 +199,21 @@ func (s *PostgresStore) DeleteOrganization(ctx context.Context, id string) error
 			return err
 		}
 
+		// Delete all projects
+		if err := tx.Where("organization_id = ?", id).Delete(&types.Project{}).Error; err != nil {
+			return err
+		}
+
+		// Delete all repositories
+		if err := tx.Where("organization_id = ?", id).Delete(&types.GitRepository{}).Error; err != nil {
+			return err
+		}
+
+		// Delete all spec tasks
+		if err := tx.Where("organization_id = ?", id).Delete(&types.SpecTask{}).Error; err != nil {
+			return err
+		}
+
 		// Finally delete the organization
 		return tx.Unscoped().Delete(&types.Organization{ID: id}).Error
 	})

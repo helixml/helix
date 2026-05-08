@@ -35,7 +35,7 @@ func (apiServer *HelixAPIServer) startUserWebSocketServer(
 		user, err := apiServer.authMiddleware.getUserFromSession(r.Context(), r)
 		if err != nil {
 			// Session auth failed, fall back to token-based auth (API keys, runner tokens)
-			log.Debug().Err(err).Str("path", path).Msg("WebSocket session auth failed, trying token auth")
+			log.Trace().Err(err).Str("path", path).Msg("WebSocket session auth failed, trying token auth")
 			user, err = apiServer.authMiddleware.getUserFromToken(r.Context(), getRequestToken(r))
 			if err != nil {
 				log.Error().Err(err).Msg("WebSocket auth failed")
@@ -55,6 +55,15 @@ func (apiServer *HelixAPIServer) startUserWebSocketServer(
 			log.Error().Msgf("No session_id supplied")
 			http.Error(w, "No session_id supplied", http.StatusInternalServerError)
 			return
+		}
+
+		// Look up the session owner so we subscribe to the correct NATS topic.
+		// The API always publishes to the session owner's queue, so a reviewer
+		// (different user ID) viewing someone else's session must subscribe using
+		// the owner's ID, not their own.
+		ownerID := user.ID
+		if session, err := apiServer.Store.GetSession(r.Context(), sessionID); err == nil && session != nil && session.Owner != "" {
+			ownerID = session.Owner
 		}
 
 		conn, err := userWebsocketUpgrader.Upgrade(w, r, nil)
@@ -91,7 +100,7 @@ func (apiServer *HelixAPIServer) startUserWebSocketServer(
 			}
 		}()
 
-		sub, err := apiServer.pubsub.Subscribe(r.Context(), pubsub.GetSessionQueue(user.ID, sessionID), func(payload []byte) error {
+		sub, err := apiServer.pubsub.Subscribe(r.Context(), pubsub.GetSessionQueue(ownerID, sessionID), func(payload []byte) error {
 			wsMu.Lock()
 			writeErr := conn.WriteMessage(websocket.TextMessage, payload)
 			wsMu.Unlock()
@@ -111,6 +120,40 @@ func (apiServer *HelixAPIServer) startUserWebSocketServer(
 				log.Error().Msgf("failed to unsubscribe: %v", err)
 			}
 		}()
+
+		// Late-joiner catch-up: if the agent is currently streaming for this session,
+		// send a full-state snapshot so the client has a correct baseline for subsequent
+		// delta patches. The subscription is established first (above) to avoid missing
+		// any patches published between reading the snapshot and starting the read loop.
+		apiServer.streamingContextsMu.RLock()
+		sctx := apiServer.streamingContexts[sessionID]
+		apiServer.streamingContextsMu.RUnlock()
+
+		if sctx != nil {
+			sctx.mu.Lock()
+			var catchUpPayload []byte
+			if sctx.accumulator != nil {
+				entries := sctx.accumulator.Entries()
+				interactionID := sctx.interaction.ID
+				owner := sctx.session.Owner
+				sctx.mu.Unlock()
+				var buildErr error
+				catchUpPayload, buildErr = buildFullStatePatchEvent(sessionID, owner, interactionID, entries)
+				if buildErr != nil {
+					log.Warn().Err(buildErr).Str("session_id", sessionID).Msg("Failed to build late-joiner catch-up event")
+				}
+			} else {
+				sctx.mu.Unlock()
+			}
+			if len(catchUpPayload) > 0 {
+				wsMu.Lock()
+				if writeErr := conn.WriteMessage(websocket.TextMessage, catchUpPayload); writeErr != nil {
+					log.Warn().Err(writeErr).Str("session_id", sessionID).Msg("Failed to send late-joiner catch-up event")
+				}
+				wsMu.Unlock()
+				log.Debug().Str("session_id", sessionID).Msg("Sent late-joiner catch-up snapshot")
+			}
+		}
 
 		log.Trace().
 			Str("user_id", user.ID).

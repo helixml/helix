@@ -68,7 +68,7 @@ func (s *Slack) reconcile(ctx context.Context) error {
 	slackApps := make(map[string]*types.SlackTrigger)
 	for _, app := range apps {
 		for _, trigger := range app.Config.Helix.Triggers {
-			if trigger.Slack != nil && trigger.Slack.BotToken != "" {
+			if trigger.Slack != nil && trigger.Slack.Enabled && trigger.Slack.BotToken != "" {
 				slackApps[app.ID] = trigger.Slack
 				break
 			}
@@ -145,7 +145,8 @@ func (s *Slack) triggerConfigEqual(a, b *types.SlackTrigger) bool {
 		return false
 	}
 
-	return a.AppToken == b.AppToken &&
+	return a.Enabled == b.Enabled &&
+		a.AppToken == b.AppToken &&
 		a.BotToken == b.BotToken &&
 		slicesEqual(a.Channels, b.Channels)
 }

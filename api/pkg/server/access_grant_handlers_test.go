@@ -175,21 +175,27 @@ func (suite *AppAccessGrantSuite) TestListAppAccessGrants_OrgMember_NoAccess() {
 		Role:           types.OrganizationRoleMember,
 	}
 
+	// GetOrganizationMembership is called by both authorizeUserToAppAccessGrants
+	// and the fallback authorizeUserToApp
 	suite.store.EXPECT().GetOrganizationMembership(gomock.Any(), &store.GetOrganizationMembershipQuery{
 		OrganizationID: app.OrganizationID,
 		UserID:         suite.userID,
-	}).Return(orgMembership, nil)
+	}).Return(orgMembership, nil).AnyTimes()
 
+	// No teams for the user
 	suite.store.EXPECT().ListTeams(gomock.Any(), &store.ListTeamsQuery{
 		OrganizationID: app.OrganizationID,
 		UserID:         suite.userID,
-	}).Return([]*types.Team{}, nil) // No teams
+	}).Return([]*types.Team{}, nil).AnyTimes()
 
-	suite.store.EXPECT().ListAccessGrants(gomock.Any(), &store.ListAccessGrantsQuery{
+	// No direct access grants (checked for both AccessGrants resource and Application resource)
+	suite.store.EXPECT().ListAccessGrants(gomock.Any(), gomock.Any()).
+		Return([]*types.AccessGrant{}, nil).AnyTimes()
+
+	// Fallback: no projects reference this app
+	suite.store.EXPECT().ListProjects(gomock.Any(), &store.ListProjectsQuery{
 		OrganizationID: app.OrganizationID,
-		UserID:         suite.userID,
-		ResourceID:     app.ID,
-	}).Return([]*types.AccessGrant{}, nil) // No direct access grants
+	}).Return([]*types.Project{}, nil)
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest("GET", "/api/v1/apps/app_id_test/access-grants", http.NoBody)

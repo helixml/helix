@@ -4,16 +4,19 @@ import "sync"
 
 type ExternalAgentRequestContextMappings struct {
 	ContextMappingsMutex        *sync.RWMutex
-	SessionToWaitingInteraction *map[string]string
 	RequestToSessionMapping     *map[string]string
+	RequestToInteractionMapping *map[string]string
 }
 
-func (m *ExternalAgentRequestContextMappings) SetWaitingInteraction(sessionID, interactionID string) {
+// SetRequestInteractionMapping maps requestID → interactionID so that
+// handleMessageAdded/handleMessageCompleted can route responses to the
+// correct interaction.
+func (m *ExternalAgentRequestContextMappings) SetRequestInteractionMapping(requestID, interactionID string) {
 	m.ContextMappingsMutex.Lock()
-	if *m.SessionToWaitingInteraction == nil {
-		*m.SessionToWaitingInteraction = make(map[string]string)
+	if *m.RequestToInteractionMapping == nil {
+		*m.RequestToInteractionMapping = make(map[string]string)
 	}
-	(*m.SessionToWaitingInteraction)[sessionID] = interactionID
+	(*m.RequestToInteractionMapping)[requestID] = interactionID
 	m.ContextMappingsMutex.Unlock()
 }
 

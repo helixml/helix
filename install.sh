@@ -79,11 +79,11 @@
 #     Result: Auto-enable --cli and --controlplane (--code is a controlplane feature)
 #     Note: Simplest way to install controlplane with Code features
 #
-# 14. Ubuntu + NVIDIA GPU + --runner --code --haystack (without --runner-token)
-#     Result: Auto-enable --cli and --controlplane, install controlplane+runner+code+haystack
-#     Note: --code/--haystack auto-enable controlplane, --runner (no token) adds local runner
+# 14. Ubuntu + NVIDIA GPU + --runner --code (without --runner-token)
+#     Result: Auto-enable --cli and --controlplane, install controlplane+runner+code
+#     Note: --code auto-enables controlplane, --runner (no token) adds local runner
 #
-# 15. Ubuntu + NVIDIA GPU + --runner (without --runner-token or --code/--haystack/--controlplane)
+# 15. Ubuntu + NVIDIA GPU + --runner (without --runner-token or --code/--controlplane)
 #     Result: ERROR - must specify --runner-token OR --controlplane OR controlplane features
 #     Note: Prevents ambiguity - user must explicitly choose remote or local installation
 #
@@ -116,7 +116,6 @@ CONTROLPLANE=false
 RUNNER=false
 SANDBOX=false
 LARGE=false
-HAYSTACK=""
 CODE=""
 API_HOST=""
 RUNNER_TOKEN=""
@@ -242,7 +241,6 @@ Options:
   --runner                 Install the runner (single container with runner.sh script to start it in $INSTALL_DIR)
   --sandbox                Install sandbox node (RevDial client with direct WebSocket streaming for remote machine)
   --large                  Install the large version of the runner (includes all models, 100GB+ download, otherwise uses small one)
-  --haystack               Enable the haystack and vectorchord/postgres based RAG service (downloads tens of gigabytes of python but provides better RAG quality than default typesense/tika stack), also uses GPU-accelerated embeddings in helix runners
   --code                   Enable Helix Code features (External Agents, PDEs with Zed, direct WebSocket streaming). Requires GPU (Intel/AMD/NVIDIA) with drivers installed and --api-host parameter.
   --api-host <host>        Specify the API host for the API to serve on and/or the runner/sandbox to connect to, e.g. http://localhost:8080 or https://my-controlplane.com. Will install and configure Caddy if HTTPS and running on Ubuntu.
   --runner-token <token>   Specify the runner token when connecting a runner or sandbox to an existing controlplane
@@ -297,8 +295,8 @@ Examples:
 11. Install with Helix Code (auto-enables --cli --controlplane):
     ./install.sh --code --api-host https://helix.mycompany.com
 
-12. Install everything locally on a GPU machine (controlplane + runner + code + haystack):
-    ./install.sh --runner --code --haystack --api-host https://helix.mycompany.com
+12. Install everything locally on a GPU machine (controlplane + runner + code):
+    ./install.sh --runner --code --api-host https://helix.mycompany.com
 
 13. Install runner with GPUs split across 4 containers (for 8 GPUs = 2 GPUs per container):
     ./install.sh --runner --api-host https://helix.mycompany.com --runner-token YOUR_RUNNER_TOKEN --split-runners 4
@@ -373,10 +371,6 @@ while [[ $# -gt 0 ]]; do
             ;;
         --large)
             LARGE=true
-            shift
-            ;;
-        --haystack)
-            HAYSTACK=true
             shift
             ;;
         --code)
@@ -1053,9 +1047,9 @@ if [ "$AUTO" = true ]; then
     fi
 fi
 
-# Auto-enable controlplane if --code or --haystack specified (they're controlplane features)
-if [ "$CONTROLPLANE" = false ] && [[ -n "$CODE" || -n "$HAYSTACK" ]]; then
-    echo "Note: --code or --haystack specified (controlplane features)."
+# Auto-enable controlplane if --code specified (controlplane feature)
+if [ "$CONTROLPLANE" = false ] && [[ -n "$CODE" ]]; then
+    echo "Note: --code specified (controlplane feature)."
     echo "      Auto-enabling: --cli --controlplane"
     CONTROLPLANE=true
     CLI=true
@@ -1102,7 +1096,7 @@ fi
 if [ "$RUNNER" = true ] && [ "$CONTROLPLANE" = false ]; then
     # Three cases:
     # 1. --runner WITH --runner-token = remote runner (needs API_HOST)
-    # 2. --runner WITHOUT token but controlplane already enabled by --code/--haystack = local installation
+    # 2. --runner WITHOUT token but controlplane already enabled by --code = local installation
     # 3. --runner WITHOUT token and no controlplane features = ERROR (missing token)
 
     if [ -n "$RUNNER_TOKEN" ]; then
@@ -1120,7 +1114,7 @@ if [ "$RUNNER" = true ] && [ "$CONTROLPLANE" = false ]; then
         # Case 2: --runner without token = ERROR (need either token or controlplane)
         echo "Error: --runner requires either:"
         echo "  1. --runner-token (for remote runner connecting to external controlplane)"
-        echo "  2. --controlplane or controlplane features like --code/--haystack (for local installation)"
+        echo "  2. --controlplane or controlplane features like --code (for local installation)"
         echo
         echo "Examples:"
         echo "  Remote runner:  ./install.sh --runner --api-host HOST --runner-token TOKEN"
@@ -1412,13 +1406,13 @@ fi
 # Create installation directories (platform-specific)
 if [ "$ENVIRONMENT" = "gitbash" ]; then
     mkdir -p "$INSTALL_DIR"
-    mkdir -p "$INSTALL_DIR/data/helix-"{postgres,filestore,pgvector}
+    mkdir -p "$INSTALL_DIR/data/helix-"{postgres,filestore}
     mkdir -p "$INSTALL_DIR/scripts/postgres/"
 else
     sudo mkdir -p $INSTALL_DIR
     # Change the owner of the installation directory to the current user
     sudo chown -R $(id -un):$(id -gn) $INSTALL_DIR
-    mkdir -p $INSTALL_DIR/data/helix-{postgres,filestore,pgvector}
+    mkdir -p $INSTALL_DIR/data/helix-{postgres,filestore}
     mkdir -p $INSTALL_DIR/scripts/postgres/
 fi
 
@@ -1470,11 +1464,11 @@ generate_encryption_key() {
 # Function to clean up old Helix Docker images that are no longer needed
 # This helps reclaim disk space after upgrades by removing old image versions
 # Parameters:
-#   $1 - image_prefix: Prefix pattern for images to clean (e.g., "registry.helixml.tech/helix/")
+#   $1 - image_prefix: Prefix pattern for images to clean (e.g., "ghcr.io/helixml/")
 #   $2 - keep_version: Version tag to keep (e.g., "1.5.0") - all other versions are removed
 #   $3 - image_filter: Optional filter pattern (e.g., "controlplane" or "runner")
 cleanup_old_helix_images() {
-    local image_prefix="${1:-registry.helixml.tech/helix/}"
+    local image_prefix="${1:-ghcr.io/helixml/}"
     local keep_version="${2:-}"
     local image_filter="${3:-}"
 
@@ -1689,15 +1683,6 @@ EOF
     # Note: Sandbox profiles (code-nvidia, code-amd-intel) are NOT set here because
     # production sandboxes are managed by sandbox.sh, not docker-compose
     COMPOSE_PROFILES=""
-    if [[ -n "$HAYSTACK" ]]; then
-        COMPOSE_PROFILES="haystack"
-    fi
-
-    # Set RAG provider
-    RAG_DEFAULT_PROVIDER=""
-    if [[ -n "$HAYSTACK" ]]; then
-        RAG_DEFAULT_PROVIDER="haystack"
-    fi
 
     # Generate .env content
     cat << EOF > "$ENV_TARGET"
@@ -1724,10 +1709,6 @@ COMPOSE_PROFILES=$COMPOSE_PROFILES
 # GPU vendor (nvidia, amd, intel, or empty)
 GPU_VENDOR=${GPU_VENDOR:-}
 
-# Haystack features
-RAG_HAYSTACK_ENABLED=${HAYSTACK:-false}
-RAG_DEFAULT_PROVIDER=$RAG_DEFAULT_PROVIDER
-
 # Storage
 # Uncomment the lines below and create the directories if you want to persist
 # direct to disk rather than a docker volume. You may need to set up the
@@ -1735,7 +1716,6 @@ RAG_DEFAULT_PROVIDER=$RAG_DEFAULT_PROVIDER
 # file.
 #POSTGRES_DATA=$INSTALL_DIR/data/helix-postgres
 #FILESTORE_DATA=$INSTALL_DIR/data/helix-filestore
-#PGVECTOR_DATA=$INSTALL_DIR/data/helix-pgvector
 
 # Optional integrations:
 
@@ -1822,9 +1802,11 @@ EOF
 HF_TOKEN=$HF_TOKEN
 EOF
     fi
-    # Add embeddings provider configuration
+    # Add embeddings provider configuration (default provider for direct
+    # /v1/embeddings calls with raw model names — placeholder-model requests
+    # resolve the provider from SystemSettings).
     cat << EOF >> "$ENV_TARGET"
-RAG_PGVECTOR_PROVIDER=$EMBEDDINGS_PROVIDER
+RAG_EMBEDDINGS_PROVIDER=$EMBEDDINGS_PROVIDER
 EOF
 
     # Add providers management configuration
@@ -1856,7 +1838,7 @@ EOF
 # Sandbox streaming configuration
 # GPU vendor for video pipeline configuration: nvidia, amd, intel, none (software rendering)
 GPU_VENDOR=${GPU_VENDOR}
-ZED_IMAGE=registry.helixml.tech/helix/zed-agent:${LATEST_RELEASE}
+ZED_IMAGE=ghcr.io/helixml/zed-agent:${LATEST_RELEASE}
 HELIX_HOST_HOME=${INSTALL_DIR}
 
 # Helix hostname (displayed in browser to distinguish between servers)
@@ -2032,7 +2014,7 @@ CADDYEOF"
             docker compose up -d --remove-orphans
         fi
         # Clean up old controlplane Docker images to free disk space
-        cleanup_old_helix_images "registry.helixml.tech/helix/" "$LATEST_RELEASE"
+        cleanup_old_helix_images "ghcr.io/helixml/" "$LATEST_RELEASE"
         if [ "$CADDY" = true ]; then
             echo "Restarting Caddy reverse proxy..."
             sudo systemctl restart caddy
@@ -2085,7 +2067,7 @@ GPU_VENDOR="${GPU_VENDOR}"  # Set by install.sh: "nvidia" or "amd"
 HF_TOKEN_PARAM=""
 
 # Check if api-1 container is running
-if docker ps --format '{{.Image}}' | grep 'registry.helixml.tech/helix/controlplane'; then
+if docker ps --format '{{.Image}}' | grep -E '(registry\.helixml\.tech/helix|ghcr\.io/helixml)/controlplane'; then
     API_HOST="http://api:8080"
     echo "Detected controlplane container running. Setting API_HOST to \${API_HOST}"
 fi
@@ -2286,7 +2268,7 @@ for i in \$(seq 1 \$SPLIT_RUNNERS); do
         --name \$CONTAINER_NAME --ipc=host --ulimit memlock=-1 \\
         --ulimit stack=67108864 \\
         --network="helix_default" \\
-        registry.helixml.tech/helix/runner:\${RUNNER_TAG} \\
+        ghcr.io/helixml/runner:\${RUNNER_TAG} \\
         --api-host \${API_HOST} --api-token \${RUNNER_TOKEN} \\
         --runner-id \$RUNNER_ID
 done
@@ -2302,7 +2284,7 @@ if [ -z "\$RUNNER_TAG" ]; then
     echo "   Skipping cleanup: no version specified to keep"
 else
     # Get all runner images
-    ALL_RUNNER_IMAGES=\$(docker images --format '{{.Repository}}:{{.Tag}}' | grep "registry.helixml.tech/helix/runner" | sort -u)
+    ALL_RUNNER_IMAGES=\$(docker images --format '{{.Repository}}:{{.Tag}}' | grep -E "(registry\.helixml\.tech/helix|ghcr\.io/helixml)/runner" | sort -u)
 
     REMOVED_COUNT=0
     KEPT_COUNT=0
@@ -2421,7 +2403,7 @@ HELIX_HOSTNAME="${HELIX_HOSTNAME}"
 PRIVILEGED_DOCKER="${PRIVILEGED_DOCKER}"
 
 # Check if controlplane container is running locally - if so, use Docker network hostname
-if docker ps --format '{{.Image}}' | grep -q 'registry.helixml.tech/helix/controlplane'; then
+if docker ps --format '{{.Image}}' | grep -qE '(registry\.helixml\.tech/helix|ghcr\.io/helixml)/controlplane'; then
     HELIX_API_URL="http://api:8080"
     echo "Detected controlplane container running. Setting HELIX_API_URL to ${HELIX_API_URL}"
 fi
@@ -2560,7 +2542,7 @@ docker run $GPU_FLAGS $GPU_ENV_FLAGS $PRIVILEGED_DOCKER_FLAGS $VIRTIO_FLAGS \
     --device /dev/uhid \
     --device-cgroup-rule='c 13:* rmw' \
     --device-cgroup-rule='c 226:* rmw' \
-    registry.helixml.tech/helix/helix-sandbox:${SANDBOX_TAG}
+    ghcr.io/helixml/helix-sandbox:${SANDBOX_TAG}
 
 if [ $? -eq 0 ]; then
     echo "✅ Helix Sandbox container started successfully"
@@ -2574,7 +2556,7 @@ if [ $? -eq 0 ]; then
         echo "   Skipping cleanup: no version specified to keep"
     else
         # Get all sandbox images
-        ALL_SANDBOX_IMAGES=$(docker images --format '{{.Repository}}:{{.Tag}}' | grep "registry.helixml.tech/helix/helix-sandbox" | sort -u)
+        ALL_SANDBOX_IMAGES=$(docker images --format '{{.Repository}}:{{.Tag}}' | grep -E "(registry\.helixml\.tech/helix|ghcr\.io/helixml)/helix-sandbox" | sort -u)
 
         REMOVED_COUNT=0
         KEPT_COUNT=0
@@ -2676,7 +2658,7 @@ EOF
             docker compose up -d --remove-orphans
         fi
         # Clean up old controlplane Docker images to free disk space
-        cleanup_old_helix_images "registry.helixml.tech/helix/" "$LATEST_RELEASE"
+        cleanup_old_helix_images "ghcr.io/helixml/" "$LATEST_RELEASE"
         # Restart Caddy if it was installed (for HTTPS reverse proxy)
         if [ "$CADDY" = true ]; then
             echo "Restarting Caddy reverse proxy..."

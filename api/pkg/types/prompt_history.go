@@ -25,12 +25,14 @@ type PromptHistoryEntry struct {
 	Status string `json:"status" gorm:"size:50;not null;default:sent"`
 
 	// Retry tracking for failed prompts
-	RetryCount  int        `json:"retry_count" gorm:"not null;default:0"` // Number of retry attempts
-	NextRetryAt *time.Time `json:"next_retry_at,omitempty" gorm:"index"`  // When to retry (for exponential backoff)
+	RetryCount   int        `json:"retry_count" gorm:"not null;default:0"`     // Number of retry attempts
+	NextRetryAt  *time.Time `json:"next_retry_at,omitempty" gorm:"index"`      // When to retry (for exponential backoff)
+	ErrorMessage string     `json:"error_message,omitempty" gorm:"type:text"`  // Last failure reason (server-side error string), shown in UI under "Failed - retrying"
 
 	// Interrupt indicates this message should interrupt the current conversation
 	// When false, message waits until current conversation completes
-	Interrupt bool `json:"interrupt" gorm:"not null;default:true"`
+	// Default is false: queue mode is the default, interrupt is explicit
+	Interrupt bool `json:"interrupt" gorm:"not null;default:false"`
 
 	// QueuePosition tracks ordering for drag-and-drop reordering
 	// Lower values = earlier in queue. Null for sent messages.
@@ -44,8 +46,9 @@ type PromptHistoryEntry struct {
 	IsTemplate bool       `json:"is_template" gorm:"not null;default:false;index"` // Saved as a reusable template
 
 	// Timestamps
-	CreatedAt time.Time `json:"created_at" gorm:"not null;index"`
-	UpdatedAt time.Time `json:"updated_at" gorm:"not null"`
+	CreatedAt time.Time  `json:"created_at" gorm:"not null;index"`
+	UpdatedAt time.Time  `json:"updated_at" gorm:"not null"`
+	DeletedAt *time.Time `json:"deleted_at,omitempty" gorm:"index"` // Soft-delete: non-nil means user removed from queue
 }
 
 // BeforeCreate sets up the entry before creation

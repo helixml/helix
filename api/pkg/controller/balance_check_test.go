@@ -10,6 +10,7 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/stripe/stripe-go/v76"
 	"go.uber.org/mock/gomock"
 )
 
@@ -20,6 +21,20 @@ func testControllerForBalanceCheck(mockStore *store.MockStore, billingEnabled bo
 				Stripe: config.Stripe{
 					BillingEnabled:          billingEnabled,
 					MinimumInferenceBalance: minimumInferenceBalance,
+				},
+			},
+			Store: mockStore,
+		},
+	}
+}
+
+func testControllerWithSubscriptionCheck(mockStore *store.MockStore, requireActive bool) *Controller {
+	return &Controller{
+		Options: Options{
+			Config: &config.ServerConfig{
+				Stripe: config.Stripe{
+					BillingEnabled:            true,
+					RequireActiveSubscription: requireActive,
 				},
 			},
 			Store: mockStore,
@@ -160,6 +175,103 @@ func TestHasEnoughBalance(t *testing.T) {
 			ID:        "user-1",
 			TokenType: types.TokenTypeSession,
 		}, "org-1", true)
+		require.NoError(t, err)
+		assert.True(t, ok)
+	})
+
+	t.Run("require active subscription allows active subscription", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		mockStore := store.NewMockStore(ctrl)
+		c := testControllerWithSubscriptionCheck(mockStore, true)
+		mockStore.EXPECT().GetWalletByOrg(gomock.Any(), "org-1").Return(&types.Wallet{
+			OrgID:              "org-1",
+			SubscriptionStatus: stripe.SubscriptionStatusActive,
+		}, nil)
+
+		ok, err := c.HasEnoughBalance(context.Background(), &types.User{
+			ID:        "user-1",
+			TokenType: types.TokenTypeSession,
+		}, "org-1", false)
+		require.NoError(t, err)
+		assert.True(t, ok)
+	})
+
+	t.Run("require active subscription allows trialing subscription", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		mockStore := store.NewMockStore(ctrl)
+		c := testControllerWithSubscriptionCheck(mockStore, true)
+		mockStore.EXPECT().GetWalletByOrg(gomock.Any(), "org-1").Return(&types.Wallet{
+			OrgID:              "org-1",
+			SubscriptionStatus: stripe.SubscriptionStatusTrialing,
+		}, nil)
+
+		ok, err := c.HasEnoughBalance(context.Background(), &types.User{
+			ID:        "user-1",
+			TokenType: types.TokenTypeSession,
+		}, "org-1", false)
+		require.NoError(t, err)
+		assert.True(t, ok)
+	})
+
+	t.Run("require active subscription rejects inactive subscription", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		mockStore := store.NewMockStore(ctrl)
+		c := testControllerWithSubscriptionCheck(mockStore, true)
+		mockStore.EXPECT().GetWalletByOrg(gomock.Any(), "org-1").Return(&types.Wallet{
+			OrgID:              "org-1",
+			SubscriptionStatus: stripe.SubscriptionStatusCanceled,
+		}, nil)
+
+		ok, err := c.HasEnoughBalance(context.Background(), &types.User{
+			ID:        "user-1",
+			TokenType: types.TokenTypeSession,
+		}, "org-1", false)
+		require.Error(t, err)
+		assert.EqualError(t, err, "organization 'org-1' does not have an active subscription")
+		assert.False(t, ok)
+	})
+
+	t.Run("require active subscription rejects when no subscription status set", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		mockStore := store.NewMockStore(ctrl)
+		c := testControllerWithSubscriptionCheck(mockStore, true)
+		mockStore.EXPECT().GetWalletByOrg(gomock.Any(), "org-1").Return(&types.Wallet{
+			OrgID: "org-1",
+		}, nil)
+
+		ok, err := c.HasEnoughBalance(context.Background(), &types.User{
+			ID:        "user-1",
+			TokenType: types.TokenTypeSession,
+		}, "org-1", false)
+		require.Error(t, err)
+		assert.EqualError(t, err, "organization 'org-1' does not have an active subscription")
+		assert.False(t, ok)
+	})
+
+	t.Run("require active subscription returns error when store fails", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		mockStore := store.NewMockStore(ctrl)
+		c := testControllerWithSubscriptionCheck(mockStore, true)
+		mockStore.EXPECT().GetWalletByOrg(gomock.Any(), "org-1").Return(nil, errors.New("db down"))
+
+		ok, err := c.HasEnoughBalance(context.Background(), &types.User{
+			ID:        "user-1",
+			TokenType: types.TokenTypeSession,
+		}, "org-1", false)
+		require.Error(t, err)
+		assert.EqualError(t, err, "failed to get subscription: db down")
+		assert.False(t, ok)
+	})
+
+	t.Run("require active subscription disabled skips check", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		mockStore := store.NewMockStore(ctrl)
+		c := testControllerWithSubscriptionCheck(mockStore, false)
+
+		ok, err := c.HasEnoughBalance(context.Background(), &types.User{
+			ID:        "user-1",
+			TokenType: types.TokenTypeSession,
+		}, "org-1", false)
 		require.NoError(t, err)
 		assert.True(t, ok)
 	})

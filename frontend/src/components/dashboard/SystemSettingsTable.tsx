@@ -50,6 +50,14 @@ const SystemSettingsTable: FC = () => {
   const [showToken, setShowToken] = useState(false)
   const [editingMaxDesktops, setEditingMaxDesktops] = useState(false)
   const [maxDesktopsValue, setMaxDesktopsValue] = useState('')
+  const [editingSandboxHeadlessPrice, setEditingSandboxHeadlessPrice] = useState(false)
+  const [sandboxHeadlessPriceValue, setSandboxHeadlessPriceValue] = useState('')
+  const [editingSandboxDesktopPrice, setEditingSandboxDesktopPrice] = useState(false)
+  const [sandboxDesktopPriceValue, setSandboxDesktopPriceValue] = useState('')
+  const [editingSandboxHeadlessLimit, setEditingSandboxHeadlessLimit] = useState(false)
+  const [sandboxHeadlessLimitValue, setSandboxHeadlessLimitValue] = useState('')
+  const [editingSandboxDesktopLimit, setEditingSandboxDesktopLimit] = useState(false)
+  const [sandboxDesktopLimitValue, setSandboxDesktopLimitValue] = useState('')
 
   const saving = updateSettings.isPending
 
@@ -153,6 +161,79 @@ const SystemSettingsTable: FC = () => {
     }
   }
 
+  const handleToggleSandboxBilling = async (enabled: boolean) => {
+    try {
+      await updateSettings.mutateAsync({
+        sandbox_billing_enabled: enabled,
+      })
+      snackbar.success(`Sandbox billing ${enabled ? 'enabled' : 'disabled'}`)
+    } catch (err: any) {
+      if (err.response?.status === 403) {
+        snackbar.error('Access denied: Admin privileges required')
+      } else {
+        snackbar.error(`Failed to update settings: ${err.message}`)
+      }
+    }
+  }
+
+  const handleSaveSandboxPrice = async (kind: 'headless' | 'desktop') => {
+    const rawValue = kind === 'headless' ? sandboxHeadlessPriceValue : sandboxDesktopPriceValue
+    const value = parseFloat(rawValue)
+    if (Number.isNaN(value) || value < 0) {
+      snackbar.error('Please enter a valid non-negative price')
+      return
+    }
+
+    try {
+      await updateSettings.mutateAsync(
+        kind === 'headless'
+          ? { sandbox_headless_price_credits_per_second: value }
+          : { sandbox_desktop_price_credits_per_second: value },
+      )
+      if (kind === 'headless') {
+        setEditingSandboxHeadlessPrice(false)
+      } else {
+        setEditingSandboxDesktopPrice(false)
+      }
+      snackbar.success(`${kind === 'headless' ? 'Headless' : 'Desktop'} sandbox price updated`)
+    } catch (err: any) {
+      if (err.response?.status === 403) {
+        snackbar.error('Access denied: Admin privileges required')
+      } else {
+        snackbar.error(`Failed to update settings: ${err.message}`)
+      }
+    }
+  }
+
+  const handleSaveSandboxLimit = async (kind: 'headless' | 'desktop') => {
+    const rawValue = kind === 'headless' ? sandboxHeadlessLimitValue : sandboxDesktopLimitValue
+    const value = parseInt(rawValue, 10)
+    if (Number.isNaN(value) || value <= 0) {
+      snackbar.error('Please enter a valid positive limit')
+      return
+    }
+
+    try {
+      await updateSettings.mutateAsync(
+        kind === 'headless'
+          ? { max_concurrent_headless_sandboxes: value }
+          : { max_concurrent_desktop_sandboxes: value },
+      )
+      if (kind === 'headless') {
+        setEditingSandboxHeadlessLimit(false)
+      } else {
+        setEditingSandboxDesktopLimit(false)
+      }
+      snackbar.success(`${kind === 'headless' ? 'Headless' : 'Desktop'} sandbox limit updated`)
+    } catch (err: any) {
+      if (err.response?.status === 403) {
+        snackbar.error('Access denied: Admin privileges required')
+      } else {
+        snackbar.error(`Failed to update settings: ${err.message}`)
+      }
+    }
+  }
+
   const handleClearKoditSettings = async () => {
     try {
       await updateSettings.mutateAsync({
@@ -160,6 +241,175 @@ const SystemSettingsTable: FC = () => {
         kodit_enrichment_model: '',
       })
       snackbar.success('Code Intelligence model configuration cleared')
+    } catch (err: any) {
+      snackbar.error(`Failed to clear settings: ${err.message}`)
+    }
+  }
+
+  const handleSelectKoditTextEmbeddingModel = async (provider: string, model: string) => {
+    try {
+      await updateSettings.mutateAsync({
+        kodit_text_embedding_provider: provider,
+        kodit_text_embedding_model: model,
+      })
+      snackbar.success(`Code Intelligence Text Embedding model set to ${provider}/${model}. Kodit is re-initialising; repositories will be re-indexed automatically in the background.`)
+    } catch (err: any) {
+      if (err.response?.status === 403) {
+        snackbar.error('Access denied: Admin privileges required')
+      } else {
+        snackbar.error(`Failed to update settings: ${err.message}`)
+      }
+    }
+  }
+
+  const handleClearKoditTextEmbeddingSettings = async () => {
+    try {
+      await updateSettings.mutateAsync({
+        kodit_text_embedding_provider: '',
+        kodit_text_embedding_model: '',
+      })
+      snackbar.success('Code Intelligence Text Embedding configuration cleared. Kodit is re-initialising on the built-in local model; repositories will be re-indexed automatically in the background.')
+    } catch (err: any) {
+      snackbar.error(`Failed to clear settings: ${err.message}`)
+    }
+  }
+
+  const handleSelectKoditVisionEmbeddingModel = async (provider: string, model: string) => {
+    try {
+      await updateSettings.mutateAsync({
+        kodit_vision_embedding_provider: provider,
+        kodit_vision_embedding_model: model,
+      })
+      snackbar.success(`Code Intelligence Vision Embedding model set to ${provider}/${model}. Kodit is re-initialising; repositories will be re-indexed automatically in the background.`)
+    } catch (err: any) {
+      if (err.response?.status === 403) {
+        snackbar.error('Access denied: Admin privileges required')
+      } else {
+        snackbar.error(`Failed to update settings: ${err.message}`)
+      }
+    }
+  }
+
+  const handleClearKoditVisionEmbeddingSettings = async () => {
+    try {
+      await updateSettings.mutateAsync({
+        kodit_vision_embedding_provider: '',
+        kodit_vision_embedding_model: '',
+      })
+      snackbar.success('Code Intelligence Vision Embedding configuration cleared. Kodit is re-initialising on the built-in local model; repositories will be re-indexed automatically in the background.')
+    } catch (err: any) {
+      snackbar.error(`Failed to clear settings: ${err.message}`)
+    }
+  }
+
+  // Optimus model handlers
+  const handleSelectOptimusReasoningModel = async (provider: string, model: string) => {
+    try {
+      await updateSettings.mutateAsync({
+        optimus_reasoning_model_provider: provider,
+        optimus_reasoning_model: model,
+      })
+      snackbar.success(`Optimus Reasoning model set to ${provider}/${model}`)
+    } catch (err: any) {
+      if (err.response?.status === 403) {
+        snackbar.error('Access denied: Admin privileges required')
+      } else {
+        snackbar.error(`Failed to update settings: ${err.message}`)
+      }
+    }
+  }
+
+  const handleClearOptimusReasoningModel = async () => {
+    try {
+      await updateSettings.mutateAsync({
+        optimus_reasoning_model_provider: '',
+        optimus_reasoning_model: '',
+      })
+      snackbar.success('Optimus Reasoning model configuration cleared')
+    } catch (err: any) {
+      snackbar.error(`Failed to clear settings: ${err.message}`)
+    }
+  }
+
+  const handleSelectOptimusGenerationModel = async (provider: string, model: string) => {
+    try {
+      await updateSettings.mutateAsync({
+        optimus_generation_model_provider: provider,
+        optimus_generation_model: model,
+      })
+      snackbar.success(`Optimus Generation model set to ${provider}/${model}`)
+    } catch (err: any) {
+      if (err.response?.status === 403) {
+        snackbar.error('Access denied: Admin privileges required')
+      } else {
+        snackbar.error(`Failed to update settings: ${err.message}`)
+      }
+    }
+  }
+
+  const handleClearOptimusGenerationModel = async () => {
+    try {
+      await updateSettings.mutateAsync({
+        optimus_generation_model_provider: '',
+        optimus_generation_model: '',
+      })
+      snackbar.success('Optimus Generation model configuration cleared')
+    } catch (err: any) {
+      snackbar.error(`Failed to clear settings: ${err.message}`)
+    }
+  }
+
+  const handleSelectOptimusSmallReasoningModel = async (provider: string, model: string) => {
+    try {
+      await updateSettings.mutateAsync({
+        optimus_small_reasoning_model_provider: provider,
+        optimus_small_reasoning_model: model,
+      })
+      snackbar.success(`Optimus Small Reasoning model set to ${provider}/${model}`)
+    } catch (err: any) {
+      if (err.response?.status === 403) {
+        snackbar.error('Access denied: Admin privileges required')
+      } else {
+        snackbar.error(`Failed to update settings: ${err.message}`)
+      }
+    }
+  }
+
+  const handleClearOptimusSmallReasoningModel = async () => {
+    try {
+      await updateSettings.mutateAsync({
+        optimus_small_reasoning_model_provider: '',
+        optimus_small_reasoning_model: '',
+      })
+      snackbar.success('Optimus Small Reasoning model configuration cleared')
+    } catch (err: any) {
+      snackbar.error(`Failed to clear settings: ${err.message}`)
+    }
+  }
+
+  const handleSelectOptimusSmallGenerationModel = async (provider: string, model: string) => {
+    try {
+      await updateSettings.mutateAsync({
+        optimus_small_generation_model_provider: provider,
+        optimus_small_generation_model: model,
+      })
+      snackbar.success(`Optimus Small Generation model set to ${provider}/${model}`)
+    } catch (err: any) {
+      if (err.response?.status === 403) {
+        snackbar.error('Access denied: Admin privileges required')
+      } else {
+        snackbar.error(`Failed to update settings: ${err.message}`)
+      }
+    }
+  }
+
+  const handleClearOptimusSmallGenerationModel = async () => {
+    try {
+      await updateSettings.mutateAsync({
+        optimus_small_generation_model_provider: '',
+        optimus_small_generation_model: '',
+      })
+      snackbar.success('Optimus Small Generation model configuration cleared')
     } catch (err: any) {
       snackbar.error(`Failed to clear settings: ${err.message}`)
     }
@@ -348,6 +598,132 @@ const SystemSettingsTable: FC = () => {
                   </TableCell>
                 </TableRow>
 
+                {/* Code Intelligence Text Embedding Model Row */}
+                <TableRow>
+                  <TableCell>
+                    <Typography variant="body2" fontWeight="medium">
+                      Code Intelligence Text Embedding
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary" display="block">
+                      Embedding model used by Kodit for indexing code and text snippets.
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary" display="block" mt={0.5}>
+                      Leave unset to use the built-in local ONNX model — it works out of the box but configuring a dedicated embedding model is recommended for better quality. Changing this reinitialises Kodit and triggers a full re-index in the background.
+                    </Typography>
+                  </TableCell>
+                  <TableCell>
+                    <Chip
+                      label={settings?.kodit_text_embedding_model_set ? 'Configured' : 'Not Set'}
+                      color={settings?.kodit_text_embedding_model_set ? 'success' : 'default'}
+                      size="small"
+                    />
+                  </TableCell>
+                  <TableCell>
+                    {settings?.kodit_text_embedding_model_set ? (
+                      <>
+                        <Typography variant="body2" fontFamily="monospace">
+                          {settings.kodit_text_embedding_provider}/{settings.kodit_text_embedding_model}
+                        </Typography>
+                        <Typography variant="caption" display="block" color="text.secondary" mt={0.5}>
+                          Provider: {settings.kodit_text_embedding_provider}
+                        </Typography>
+                      </>
+                    ) : (
+                      <Typography variant="caption" color="text.secondary">
+                        Not configured - falls back to local ONNX model
+                      </Typography>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    <Box display="flex" gap={1} alignItems="center">
+                      <AdvancedModelPicker
+                        selectedProvider={settings?.kodit_text_embedding_provider}
+                        selectedModelId={settings?.kodit_text_embedding_model}
+                        onSelectModel={handleSelectKoditTextEmbeddingModel}
+                        currentType="embed"
+                        buttonVariant="outlined"
+                        disabled={saving}
+                        hint="Select the text embedding model Kodit will use for code and text snippet indexing."
+                        autoSelectFirst={false}
+                      />
+                      {settings?.kodit_text_embedding_model_set && (
+                        <Button
+                          startIcon={<ClearIcon />}
+                          onClick={handleClearKoditTextEmbeddingSettings}
+                          size="small"
+                          color="warning"
+                          disabled={saving}
+                        >
+                          Clear
+                        </Button>
+                      )}
+                    </Box>
+                  </TableCell>
+                </TableRow>
+
+                {/* Code Intelligence Vision Embedding Model Row */}
+                <TableRow>
+                  <TableCell>
+                    <Typography variant="body2" fontWeight="medium">
+                      Code Intelligence Vision Embedding
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary" display="block">
+                      Vision embedding model used by Kodit for indexing document pages and images.
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary" display="block" mt={0.5}>
+                      Leave unset to use the built-in local SigLIP2 model — it works out of the box but configuring a dedicated vision embedding model is recommended for better quality. Changing this reinitialises Kodit and triggers a full re-index in the background.
+                    </Typography>
+                  </TableCell>
+                  <TableCell>
+                    <Chip
+                      label={settings?.kodit_vision_embedding_model_set ? 'Configured' : 'Not Set'}
+                      color={settings?.kodit_vision_embedding_model_set ? 'success' : 'default'}
+                      size="small"
+                    />
+                  </TableCell>
+                  <TableCell>
+                    {settings?.kodit_vision_embedding_model_set ? (
+                      <>
+                        <Typography variant="body2" fontFamily="monospace">
+                          {settings.kodit_vision_embedding_provider}/{settings.kodit_vision_embedding_model}
+                        </Typography>
+                        <Typography variant="caption" display="block" color="text.secondary" mt={0.5}>
+                          Provider: {settings.kodit_vision_embedding_provider}
+                        </Typography>
+                      </>
+                    ) : (
+                      <Typography variant="caption" color="text.secondary">
+                        Not configured - falls back to local SigLIP2 model
+                      </Typography>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    <Box display="flex" gap={1} alignItems="center">
+                      <AdvancedModelPicker
+                        selectedProvider={settings?.kodit_vision_embedding_provider}
+                        selectedModelId={settings?.kodit_vision_embedding_model}
+                        onSelectModel={handleSelectKoditVisionEmbeddingModel}
+                        currentType="embed"
+                        buttonVariant="outlined"
+                        disabled={saving}
+                        hint="Select the vision embedding model Kodit will use for document pages and image indexing (e.g. Qwen3-VL-Embedding)."
+                        autoSelectFirst={false}
+                      />
+                      {settings?.kodit_vision_embedding_model_set && (
+                        <Button
+                          startIcon={<ClearIcon />}
+                          onClick={handleClearKoditVisionEmbeddingSettings}
+                          size="small"
+                          color="warning"
+                          disabled={saving}
+                        >
+                          Clear
+                        </Button>
+                      )}
+                    </Box>
+                  </TableCell>
+                </TableRow>
+
                 {/* Max Concurrent Desktops Row */}
                 <TableRow>
                   <TableCell>
@@ -474,6 +850,552 @@ const SystemSettingsTable: FC = () => {
                       onChange={(e) => handleToggleEnforceQuotas(e.target.checked)}
                       disabled={saving}
                     />
+                  </TableCell>
+                </TableRow>
+
+                <TableRow>
+                  <TableCell>
+                    <Typography variant="body2" fontWeight="medium">
+                      Sandbox Billing
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Charge org credits for running Sandboxes API containers
+                    </Typography>
+                  </TableCell>
+                  <TableCell>
+                    <Chip
+                      label={settings?.sandbox_billing_enabled ? 'Enabled' : 'Disabled'}
+                      color={settings?.sandbox_billing_enabled ? 'success' : 'default'}
+                      size="small"
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <Typography variant="body2">
+                      {settings?.sandbox_billing_enabled ? 'Enabled' : 'Disabled'}
+                    </Typography>
+                  </TableCell>
+                  <TableCell>
+                    <Switch
+                      checked={settings?.sandbox_billing_enabled ?? false}
+                      onChange={(e) => handleToggleSandboxBilling(e.target.checked)}
+                      disabled={saving}
+                    />
+                  </TableCell>
+                </TableRow>
+
+                <TableRow>
+                  <TableCell>
+                    <Typography variant="body2" fontWeight="medium">
+                      Headless Sandbox Price
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Credits charged per core-second for headless and custom-image sandboxes
+                    </Typography>
+                  </TableCell>
+                  <TableCell>
+                    <Chip
+                      label={`${settings?.sandbox_headless_price_credits_per_second ?? 0} credits/core-sec`}
+                      color={(settings?.sandbox_headless_price_credits_per_second ?? 0) > 0 ? 'primary' : 'default'}
+                      size="small"
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <Typography variant="body2" fontFamily="monospace">
+                      {settings?.sandbox_headless_price_credits_per_second ?? 0}
+                    </Typography>
+                  </TableCell>
+                  <TableCell>
+                    <Box display="flex" gap={1} alignItems="center">
+                      {editingSandboxHeadlessPrice ? (
+                        <>
+                          <TextField
+                            size="small"
+                            value={sandboxHeadlessPriceValue}
+                            onChange={(e) => setSandboxHeadlessPriceValue(e.target.value)}
+                            sx={{ width: 130 }}
+                          />
+                          <Button
+                            startIcon={saving ? <CircularProgress size={16} /> : <SaveIcon />}
+                            onClick={() => handleSaveSandboxPrice('headless')}
+                            size="small"
+                            variant="contained"
+                            disabled={saving}
+                          >
+                            Save
+                          </Button>
+                          <Button
+                            onClick={() => setEditingSandboxHeadlessPrice(false)}
+                            size="small"
+                            disabled={saving}
+                          >
+                            Cancel
+                          </Button>
+                        </>
+                      ) : (
+                        <Button
+                          startIcon={<EditIcon />}
+                          onClick={() => {
+                            setSandboxHeadlessPriceValue(String(settings?.sandbox_headless_price_credits_per_second ?? 0))
+                            setEditingSandboxHeadlessPrice(true)
+                          }}
+                          size="small"
+                        >
+                          Edit
+                        </Button>
+                      )}
+                    </Box>
+                  </TableCell>
+                </TableRow>
+
+                <TableRow>
+                  <TableCell>
+                    <Typography variant="body2" fontWeight="medium">
+                      Desktop Sandbox Price
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Credits charged per core-second for ubuntu-desktop sandboxes
+                    </Typography>
+                  </TableCell>
+                  <TableCell>
+                    <Chip
+                      label={`${settings?.sandbox_desktop_price_credits_per_second ?? 0} credits/core-sec`}
+                      color={(settings?.sandbox_desktop_price_credits_per_second ?? 0) > 0 ? 'primary' : 'default'}
+                      size="small"
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <Typography variant="body2" fontFamily="monospace">
+                      {settings?.sandbox_desktop_price_credits_per_second ?? 0}
+                    </Typography>
+                  </TableCell>
+                  <TableCell>
+                    <Box display="flex" gap={1} alignItems="center">
+                      {editingSandboxDesktopPrice ? (
+                        <>
+                          <TextField
+                            size="small"
+                            value={sandboxDesktopPriceValue}
+                            onChange={(e) => setSandboxDesktopPriceValue(e.target.value)}
+                            sx={{ width: 130 }}
+                          />
+                          <Button
+                            startIcon={saving ? <CircularProgress size={16} /> : <SaveIcon />}
+                            onClick={() => handleSaveSandboxPrice('desktop')}
+                            size="small"
+                            variant="contained"
+                            disabled={saving}
+                          >
+                            Save
+                          </Button>
+                          <Button
+                            onClick={() => setEditingSandboxDesktopPrice(false)}
+                            size="small"
+                            disabled={saving}
+                          >
+                            Cancel
+                          </Button>
+                        </>
+                      ) : (
+                        <Button
+                          startIcon={<EditIcon />}
+                          onClick={() => {
+                            setSandboxDesktopPriceValue(String(settings?.sandbox_desktop_price_credits_per_second ?? 0))
+                            setEditingSandboxDesktopPrice(true)
+                          }}
+                          size="small"
+                        >
+                          Edit
+                        </Button>
+                      )}
+                    </Box>
+                  </TableCell>
+                </TableRow>
+
+                <TableRow>
+                  <TableCell>
+                    <Typography variant="body2" fontWeight="medium">
+                      Headless Sandbox Limit
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Maximum concurrent headless and custom-image sandboxes per organization
+                    </Typography>
+                  </TableCell>
+                  <TableCell>
+                    <Chip
+                      label={`${settings?.max_concurrent_headless_sandboxes ?? 10} concurrent`}
+                      color="primary"
+                      size="small"
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <Typography variant="body2" fontFamily="monospace">
+                      {settings?.max_concurrent_headless_sandboxes ?? 10}
+                    </Typography>
+                  </TableCell>
+                  <TableCell>
+                    <Box display="flex" gap={1} alignItems="center">
+                      {editingSandboxHeadlessLimit ? (
+                        <>
+                          <TextField
+                            size="small"
+                            value={sandboxHeadlessLimitValue}
+                            onChange={(e) => setSandboxHeadlessLimitValue(e.target.value)}
+                            sx={{ width: 130 }}
+                          />
+                          <Button
+                            startIcon={saving ? <CircularProgress size={16} /> : <SaveIcon />}
+                            onClick={() => handleSaveSandboxLimit('headless')}
+                            size="small"
+                            variant="contained"
+                            disabled={saving}
+                          >
+                            Save
+                          </Button>
+                          <Button
+                            onClick={() => setEditingSandboxHeadlessLimit(false)}
+                            size="small"
+                            disabled={saving}
+                          >
+                            Cancel
+                          </Button>
+                        </>
+                      ) : (
+                        <Button
+                          startIcon={<EditIcon />}
+                          onClick={() => {
+                            setSandboxHeadlessLimitValue(String(settings?.max_concurrent_headless_sandboxes ?? 10))
+                            setEditingSandboxHeadlessLimit(true)
+                          }}
+                          size="small"
+                        >
+                          Edit
+                        </Button>
+                      )}
+                    </Box>
+                  </TableCell>
+                </TableRow>
+
+                <TableRow>
+                  <TableCell>
+                    <Typography variant="body2" fontWeight="medium">
+                      Desktop Sandbox Limit
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Maximum concurrent ubuntu-desktop sandboxes per organization
+                    </Typography>
+                  </TableCell>
+                  <TableCell>
+                    <Chip
+                      label={`${settings?.max_concurrent_desktop_sandboxes ?? 10} concurrent`}
+                      color="primary"
+                      size="small"
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <Typography variant="body2" fontFamily="monospace">
+                      {settings?.max_concurrent_desktop_sandboxes ?? 10}
+                    </Typography>
+                  </TableCell>
+                  <TableCell>
+                    <Box display="flex" gap={1} alignItems="center">
+                      {editingSandboxDesktopLimit ? (
+                        <>
+                          <TextField
+                            size="small"
+                            value={sandboxDesktopLimitValue}
+                            onChange={(e) => setSandboxDesktopLimitValue(e.target.value)}
+                            sx={{ width: 130 }}
+                          />
+                          <Button
+                            startIcon={saving ? <CircularProgress size={16} /> : <SaveIcon />}
+                            onClick={() => handleSaveSandboxLimit('desktop')}
+                            size="small"
+                            variant="contained"
+                            disabled={saving}
+                          >
+                            Save
+                          </Button>
+                          <Button
+                            onClick={() => setEditingSandboxDesktopLimit(false)}
+                            size="small"
+                            disabled={saving}
+                          >
+                            Cancel
+                          </Button>
+                        </>
+                      ) : (
+                        <Button
+                          startIcon={<EditIcon />}
+                          onClick={() => {
+                            setSandboxDesktopLimitValue(String(settings?.max_concurrent_desktop_sandboxes ?? 10))
+                            setEditingSandboxDesktopLimit(true)
+                          }}
+                          size="small"
+                        >
+                          Edit
+                        </Button>
+                      )}
+                    </Box>
+                  </TableCell>
+                </TableRow>
+              </TableBody>
+            </Table>
+          </TableContainer>
+        </CardContent>
+      </Card>
+
+      {/* Optimus (Project Manager) Settings Card */}
+      <Card sx={{ mt: 3 }}>
+        <CardHeader title="Optimus (Project Manager) Settings" />
+        <CardContent>
+          <TableContainer>
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell>Setting</TableCell>
+                  <TableCell>Status</TableCell>
+                  <TableCell>Source</TableCell>
+                  <TableCell>Actions</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {/* Optimus Reasoning Model Row */}
+                <TableRow>
+                  <TableCell>
+                    <Typography variant="body2" fontWeight="medium">
+                      Optimus Reasoning Model
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Main reasoning model for tool calling and complex tasks
+                    </Typography>
+                  </TableCell>
+                  <TableCell>
+                    <Chip
+                      label={(settings?.optimus_reasoning_model_provider && settings?.optimus_reasoning_model) ? 'Configured' : 'Not Set'}
+                      color={(settings?.optimus_reasoning_model_provider && settings?.optimus_reasoning_model) ? 'success' : 'default'}
+                      size="small"
+                    />
+                  </TableCell>
+                  <TableCell>
+                    {(settings?.optimus_reasoning_model_provider && settings?.optimus_reasoning_model) ? (
+                      <>
+                        <Typography variant="body2" fontFamily="monospace">
+                          {settings.optimus_reasoning_model_provider}/{settings.optimus_reasoning_model}
+                        </Typography>
+                        <Typography variant="caption" display="block" color="text.secondary" mt={0.5}>
+                          Provider: {settings.optimus_reasoning_model_provider}
+                        </Typography>
+                      </>
+                    ) : (
+                      <Typography variant="caption" color="text.secondary">
+                        Not configured
+                      </Typography>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    <Box display="flex" gap={1} alignItems="center">
+                      <AdvancedModelPicker
+                        selectedProvider={settings?.optimus_reasoning_model_provider}
+                        selectedModelId={settings?.optimus_reasoning_model}
+                        onSelectModel={handleSelectOptimusReasoningModel}
+                        currentType="chat"
+                        buttonVariant="outlined"
+                        disabled={saving}
+                        hint="Select the main reasoning model for Optimus (requires tool use support)"
+                        autoSelectFirst={false}
+                      />
+                      {(settings?.optimus_reasoning_model_provider && settings?.optimus_reasoning_model) && (
+                        <Button
+                          startIcon={<ClearIcon />}
+                          onClick={handleClearOptimusReasoningModel}
+                          size="small"
+                          color="warning"
+                          disabled={saving}
+                        >
+                          Clear
+                        </Button>
+                      )}
+                    </Box>
+                  </TableCell>
+                </TableRow>
+
+                {/* Optimus Generation Model Row */}
+                <TableRow>
+                  <TableCell>
+                    <Typography variant="body2" fontWeight="medium">
+                      Optimus Generation Model
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Model for planning next actions and generating responses
+                    </Typography>
+                  </TableCell>
+                  <TableCell>
+                    <Chip
+                      label={(settings?.optimus_generation_model_provider && settings?.optimus_generation_model) ? 'Configured' : 'Not Set'}
+                      color={(settings?.optimus_generation_model_provider && settings?.optimus_generation_model) ? 'success' : 'default'}
+                      size="small"
+                    />
+                  </TableCell>
+                  <TableCell>
+                    {(settings?.optimus_generation_model_provider && settings?.optimus_generation_model) ? (
+                      <>
+                        <Typography variant="body2" fontFamily="monospace">
+                          {settings.optimus_generation_model_provider}/{settings.optimus_generation_model}
+                        </Typography>
+                        <Typography variant="caption" display="block" color="text.secondary" mt={0.5}>
+                          Provider: {settings.optimus_generation_model_provider}
+                        </Typography>
+                      </>
+                    ) : (
+                      <Typography variant="caption" color="text.secondary">
+                        Not configured
+                      </Typography>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    <Box display="flex" gap={1} alignItems="center">
+                      <AdvancedModelPicker
+                        selectedProvider={settings?.optimus_generation_model_provider}
+                        selectedModelId={settings?.optimus_generation_model}
+                        onSelectModel={handleSelectOptimusGenerationModel}
+                        currentType="chat"
+                        buttonVariant="outlined"
+                        disabled={saving}
+                        hint="Select the generation model for Optimus (requires tool use support)"
+                        autoSelectFirst={false}
+                      />
+                      {(settings?.optimus_generation_model_provider && settings?.optimus_generation_model) && (
+                        <Button
+                          startIcon={<ClearIcon />}
+                          onClick={handleClearOptimusGenerationModel}
+                          size="small"
+                          color="warning"
+                          disabled={saving}
+                        >
+                          Clear
+                        </Button>
+                      )}
+                    </Box>
+                  </TableCell>
+                </TableRow>
+
+                {/* Optimus Small Reasoning Model Row */}
+                <TableRow>
+                  <TableCell>
+                    <Typography variant="body2" fontWeight="medium">
+                      Optimus Small Reasoning Model
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Smaller model for quick reasoning tasks and tool results interpretation
+                    </Typography>
+                  </TableCell>
+                  <TableCell>
+                    <Chip
+                      label={(settings?.optimus_small_reasoning_model_provider && settings?.optimus_small_reasoning_model) ? 'Configured' : 'Not Set'}
+                      color={(settings?.optimus_small_reasoning_model_provider && settings?.optimus_small_reasoning_model) ? 'success' : 'default'}
+                      size="small"
+                    />
+                  </TableCell>
+                  <TableCell>
+                    {(settings?.optimus_small_reasoning_model_provider && settings?.optimus_small_reasoning_model) ? (
+                      <>
+                        <Typography variant="body2" fontFamily="monospace">
+                          {settings.optimus_small_reasoning_model_provider}/{settings.optimus_small_reasoning_model}
+                        </Typography>
+                        <Typography variant="caption" display="block" color="text.secondary" mt={0.5}>
+                          Provider: {settings.optimus_small_reasoning_model_provider}
+                        </Typography>
+                      </>
+                    ) : (
+                      <Typography variant="caption" color="text.secondary">
+                        Not configured
+                      </Typography>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    <Box display="flex" gap={1} alignItems="center">
+                      <AdvancedModelPicker
+                        selectedProvider={settings?.optimus_small_reasoning_model_provider}
+                        selectedModelId={settings?.optimus_small_reasoning_model}
+                        onSelectModel={handleSelectOptimusSmallReasoningModel}
+                        currentType="chat"
+                        buttonVariant="outlined"
+                        disabled={saving}
+                        hint="Select a smaller reasoning model for Optimus (tool use recommended but not required)"
+                        autoSelectFirst={false}
+                      />
+                      {(settings?.optimus_small_reasoning_model_provider && settings?.optimus_small_reasoning_model) && (
+                        <Button
+                          startIcon={<ClearIcon />}
+                          onClick={handleClearOptimusSmallReasoningModel}
+                          size="small"
+                          color="warning"
+                          disabled={saving}
+                        >
+                          Clear
+                        </Button>
+                      )}
+                    </Box>
+                  </TableCell>
+                </TableRow>
+
+                {/* Optimus Small Generation Model Row */}
+                <TableRow>
+                  <TableCell>
+                    <Typography variant="body2" fontWeight="medium">
+                      Optimus Small Generation Model
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Smaller model for quick response generation
+                    </Typography>
+                  </TableCell>
+                  <TableCell>
+                    <Chip
+                      label={(settings?.optimus_small_generation_model_provider && settings?.optimus_small_generation_model) ? 'Configured' : 'Not Set'}
+                      color={(settings?.optimus_small_generation_model_provider && settings?.optimus_small_generation_model) ? 'success' : 'default'}
+                      size="small"
+                    />
+                  </TableCell>
+                  <TableCell>
+                    {(settings?.optimus_small_generation_model_provider && settings?.optimus_small_generation_model) ? (
+                      <>
+                        <Typography variant="body2" fontFamily="monospace">
+                          {settings.optimus_small_generation_model_provider}/{settings.optimus_small_generation_model}
+                        </Typography>
+                        <Typography variant="caption" display="block" color="text.secondary" mt={0.5}>
+                          Provider: {settings.optimus_small_generation_model_provider}
+                        </Typography>
+                      </>
+                    ) : (
+                      <Typography variant="caption" color="text.secondary">
+                        Not configured
+                      </Typography>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    <Box display="flex" gap={1} alignItems="center">
+                      <AdvancedModelPicker
+                        selectedProvider={settings?.optimus_small_generation_model_provider}
+                        selectedModelId={settings?.optimus_small_generation_model}
+                        onSelectModel={handleSelectOptimusSmallGenerationModel}
+                        currentType="chat"
+                        buttonVariant="outlined"
+                        disabled={saving}
+                        hint="Select a smaller generation model for Optimus"
+                        autoSelectFirst={false}
+                      />
+                      {(settings?.optimus_small_generation_model_provider && settings?.optimus_small_generation_model) && (
+                        <Button
+                          startIcon={<ClearIcon />}
+                          onClick={handleClearOptimusSmallGenerationModel}
+                          size="small"
+                          color="warning"
+                          disabled={saving}
+                        >
+                          Clear
+                        </Button>
+                      )}
+                    </Box>
                   </TableCell>
                 </TableRow>
               </TableBody>

@@ -87,6 +87,7 @@ func (apiServer *HelixAPIServer) getConfig(ctx context.Context) (types.ServerCon
 
 	config := types.ServerConfigForFrontend{
 		RegistrationEnabled:                    apiServer.Cfg.Auth.RegistrationEnabled,
+		RequireActiveSubscription:              apiServer.Cfg.Stripe.RequireActiveSubscription,
 		AuthProvider:                           apiServer.Cfg.Auth.Provider,
 		FilestorePrefix:                        filestorePrefix,
 		StripeEnabled:                          apiServer.Stripe.Enabled(),
@@ -105,6 +106,7 @@ func (apiServer *HelixAPIServer) getConfig(ctx context.Context) (types.ServerCon
 		License:                                licenseInfo,
 		OrganizationsCreateEnabledForNonAdmins: apiServer.Cfg.Organizations.CreateEnabledForNonAdmins,
 		Edition:                                apiServer.Cfg.Edition,
+		DefaultChatSystemPrompt:                types.DefaultChatSystemPrompt,
 	}
 
 	systemSettings, err := apiServer.Store.GetSystemSettings(ctx)
@@ -120,6 +122,17 @@ func (apiServer *HelixAPIServer) getConfig(ctx context.Context) (types.ServerCon
 		config.MaxConcurrentDesktops = apiServer.Cfg.SubscriptionQuotas.Projects.Free.MaxConcurrentDesktops
 	}
 
+	// Check if any global AI providers are configured on this deployment
+	globalProviders, err := apiServer.Store.ListProviderEndpoints(ctx, &store.ListProviderEndpointsQuery{
+		Owner:      string(types.OwnerTypeSystem),
+		WithGlobal: true,
+	})
+	if err != nil {
+		log.Warn().Err(err).Msg("failed to check for global providers")
+	} else {
+		config.HasProviders = len(globalProviders) > 0
+	}
+
 	// Active session count (from in-memory session tracker)
 	if apiServer.externalAgentExecutor != nil {
 		config.ActiveConcurrentDesktops = len(apiServer.externalAgentExecutor.ListSessions())
@@ -132,38 +145,6 @@ func (apiServer *HelixAPIServer) config(_ http.ResponseWriter, req *http.Request
 	return apiServer.getConfig(req.Context())
 }
 
-// prints the config values as JavaScript values so we can block the rest of the frontend on
-// initializing until we have these values (useful for things like Sentry without having to burn keys into frontend code)
-func (apiServer *HelixAPIServer) configJS(res http.ResponseWriter, req *http.Request) {
-	config, err := apiServer.getConfig(req.Context())
-	if err != nil {
-		http.Error(res, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	res.Header().Set("Content-Type", "application/javascript")
-	content := fmt.Sprintf(`
-window.DISABLE_LLM_CALL_LOGGING = %t
-window.HELIX_SENTRY_DSN = "%s"
-window.HELIX_GOOGLE_ANALYTICS = "%s"
-window.RUDDERSTACK_WRITE_KEY = "%s"
-window.RUDDERSTACK_DATA_PLANE_URL = "%s"
-window.HELIX_VERSION = "%s"
-window.HELIX_LATEST_VERSION = "%s"
-window.ORGANIZATIONS_CREATE_ENABLED_FOR_NON_ADMINS = %t
-`,
-		config.DisableLLMCallLogging,
-		config.SentryDSNFrontend,
-		config.GoogleAnalyticsFrontend,
-		config.RudderStackWriteKey,
-		config.RudderStackDataPlaneURL,
-		config.Version,
-		config.LatestVersion,
-		config.OrganizationsCreateEnabledForNonAdmins,
-	)
-	if _, err := res.Write([]byte(content)); err != nil {
-		log.Error().Msgf("Failed to write response: %v", err)
-	}
-}
 
 func (apiServer *HelixAPIServer) status(_ http.ResponseWriter, req *http.Request) (types.UserStatus, error) {
 	user := getRequestUser(req)
@@ -712,31 +693,19 @@ func (apiServer *HelixAPIServer) isAdmin(req *http.Request) bool {
 	return apiServer.authMiddleware.isAdminWithContext(req.Context(), user.ID)
 }
 
-// dashboard godoc
-// @Summary Get dashboard data
-// @Description Get dashboard data
-// @Tags    dashboard
-
-// @Success 200 {object} types.DashboardData
-// @Router /api/v1/dashboard [get]
-// @Security BearerAuth
-func (apiServer *HelixAPIServer) dashboard(_ http.ResponseWriter, req *http.Request) (*types.DashboardData, error) {
-	data, err := apiServer.Controller.GetDashboardData(req.Context())
-	if err != nil {
-		return nil, err
-	}
-
-	return data, nil
-}
+// Sandbox-absorbs-runner pivot: the legacy /api/v1/dashboard endpoint is
+// gone. The admin UI now reads SandboxInstance + RunnerProfile + the
+// inference router's available-models list directly via their own routes.
 
 // usersList godoc
 // @Summary List users with pagination and filtering
-// @Description List users with pagination support and optional filtering by email domain or username. Supports ILIKE matching for email domains (e.g., "hotmail.com" will find all users with @hotmail.com emails) and partial username matching.
+// @Description List users with pagination support and optional filtering by email domain or username. Supports ILIKE matching for email domains (e.g., "hotmail.com" will find all users with @hotmail.com emails) and partial username matching. Pass `query` to match across email, username, and full_name in one go.
 // @Tags    users
 // @Accept  json
 // @Produce json
 // @Param page query int false "Page number (default: 1)"
 // @Param per_page query int false "Number of users per page (max: 200, default: 50)"
+// @Param query query string false "Free-text search across email, username, and full_name (ILIKE)"
 // @Param email query string false "Filter by email domain (e.g., 'hotmail.com') or exact email"
 // @Param username query string false "Filter by username (partial match)"
 // @Param admin query bool false "Filter by admin status"
@@ -777,6 +746,9 @@ func (apiServer *HelixAPIServer) usersList(_ http.ResponseWriter, req *http.Requ
 	}
 
 	// Add filters
+	if q := req.URL.Query().Get("query"); q != "" {
+		query.Query = q
+	}
 	if email := req.URL.Query().Get("email"); email != "" {
 		query.Email = email
 	}
@@ -1083,49 +1055,8 @@ func (apiServer *HelixAPIServer) adminApproveUser(_ http.ResponseWriter, req *ht
 	return updatedUser, nil
 }
 
-// getSchedulerHeartbeats godoc
-// @Summary Get scheduler goroutine heartbeat status
-// @Description Get the health status of all scheduler goroutines
-// @Tags    dashboard
-// @Success 200 {object} map[string]interface{}
-// @Router /api/v1/scheduler/heartbeats [get]
-// @Security BearerAuth
-func (apiServer *HelixAPIServer) getSchedulerHeartbeats(_ http.ResponseWriter, req *http.Request) (interface{}, error) {
-	return apiServer.Controller.GetSchedulerHeartbeats(req.Context())
-}
-
-// deleteSlot godoc
-// @Summary Delete a slot from scheduler state
-// @Description Delete a slot from the scheduler's desired state, allowing reconciliation to clean it up from the runner
-// @Tags    dashboard
-// @Param   slot_id path string true "Slot ID"
-// @Success 200 {object} map[string]interface{}
-// @Router /api/v1/slots/{slot_id} [delete]
-// @Security BearerAuth
-func (apiServer *HelixAPIServer) deleteSlot(_ http.ResponseWriter, req *http.Request) (interface{}, error) {
-	vars := mux.Vars(req)
-	slotID := vars["slot_id"]
-
-	if slotID == "" {
-		return nil, fmt.Errorf("slot_id is required")
-	}
-
-	// Parse slot ID as UUID
-	slotUUID, err := uuid.Parse(slotID)
-	if err != nil {
-		return nil, fmt.Errorf("invalid slot_id format: %w", err)
-	}
-	// Delete the slot from scheduler's desired state
-	err = apiServer.Controller.DeleteSlotFromScheduler(req.Context(), slotUUID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to delete slot: %w", err)
-	}
-
-	return map[string]interface{}{
-		"success": true,
-		"message": fmt.Sprintf("Slot %s deleted from scheduler state", slotID),
-	}, nil
-}
+// Sandbox-absorbs-runner pivot: getSchedulerHeartbeats and deleteSlot
+// removed — there's no scheduler and no slots any more.
 
 // createAPIKey godoc
 // @Summary Create a new API key

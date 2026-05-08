@@ -22,6 +22,12 @@ func (s *PostgresStore) CreateSpecTask(ctx context.Context, task *types.SpecTask
 		return fmt.Errorf("project ID is required")
 	}
 
+	// Set StatusUpdatedAt to CreatedAt so new tasks appear at top of their column in Kanban
+	if task.StatusUpdatedAt == nil {
+		now := time.Now()
+		task.StatusUpdatedAt = &now
+	}
+
 	err := s.gdb.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		result := tx.Omit("DependsOn").Create(task)
 		if result.Error != nil {
@@ -134,6 +140,70 @@ func (s *PostgresStore) UpdateSpecTask(ctx context.Context, task *types.SpecTask
 	_ = s.notifyTaskUpdates(ctx, StoreEventOperationUpdated, task)
 
 	return nil
+}
+
+// TransitionSpecTaskStatus atomically updates a spec task's status, but only if its
+// current status is in fromStatuses. Returns true if the row was updated (this caller
+// won the race), false if no row matched (another caller already transitioned).
+//
+// This collapses the read-check-write pattern (GetSpecTask → check status →
+// UpdateSpecTask) into a single SQL statement, eliminating the TOCTOU race window.
+// extraFields lets callers set additional columns in the same UPDATE; status,
+// status_updated_at, and updated_at are always set.
+func (s *PostgresStore) TransitionSpecTaskStatus(
+	ctx context.Context,
+	taskID string,
+	fromStatuses []types.SpecTaskStatus,
+	newStatus types.SpecTaskStatus,
+	extraFields map[string]any,
+) (bool, error) {
+	if taskID == "" {
+		return false, fmt.Errorf("task ID is required")
+	}
+	if len(fromStatuses) == 0 {
+		return false, fmt.Errorf("at least one from-status is required")
+	}
+
+	now := time.Now()
+	updates := map[string]any{
+		"status":            newStatus,
+		"status_updated_at": now,
+		"updated_at":        now,
+	}
+	for k, v := range extraFields {
+		updates[k] = v
+	}
+
+	fromStrs := make([]string, len(fromStatuses))
+	for i, st := range fromStatuses {
+		fromStrs[i] = string(st)
+	}
+
+	result := s.gdb.WithContext(ctx).
+		Model(&types.SpecTask{}).
+		Where("id = ? AND status IN ?", taskID, fromStrs).
+		Updates(updates)
+
+	if result.Error != nil {
+		return false, fmt.Errorf("failed to transition spec task status: %w", result.Error)
+	}
+	if result.RowsAffected == 0 {
+		return false, nil
+	}
+
+	updated, err := s.GetSpecTask(ctx, taskID)
+	if err != nil {
+		log.Warn().Err(err).Str("task_id", taskID).Msg("Transitioned spec task but failed to re-fetch for notification")
+		return true, nil
+	}
+
+	log.Info().
+		Str("task_id", taskID).
+		Str("new_status", string(newStatus)).
+		Msg("Atomically transitioned spec task status")
+
+	_ = s.notifyTaskUpdates(ctx, StoreEventOperationUpdated, updated)
+	return true, nil
 }
 
 func syncSpecTaskDependsOn(ctx context.Context, tx *gorm.DB, task *types.SpecTask) error {
@@ -343,6 +413,11 @@ func (s *PostgresStore) ListSpecTasks(ctx context.Context, filters *types.SpecTa
 	if filters.PlanningSessionID != "" {
 		db = db.Where("planning_session_id = ?", filters.PlanningSessionID)
 	}
+	// Labels filter - tasks must have ALL specified labels (AND semantics via JSONB containment)
+	for _, label := range filters.Labels {
+		labelJSON := `["` + label + `"]`
+		db = db.Where("labels @> ?::jsonb", labelJSON)
+	}
 
 	if filters.Limit > 0 {
 		db = db.Limit(filters.Limit)
@@ -351,7 +426,9 @@ func (s *PostgresStore) ListSpecTasks(ctx context.Context, filters *types.SpecTa
 		db = db.Offset(filters.Offset)
 	}
 
-	err := db.Order("created_at DESC").Find(&tasks).Error
+	// Sort by status_updated_at first (so recently-moved tasks appear at top of their column),
+	// then by created_at for tasks without status_updated_at set
+	err := db.Order("status_updated_at DESC NULLS LAST, created_at DESC").Find(&tasks).Error
 	if err != nil {
 		return nil, fmt.Errorf("failed to list spec tasks: %w", err)
 	}
@@ -411,4 +488,79 @@ func (f *SpecTaskSubscriptionFilter) Matches(task *types.SpecTask) bool {
 
 type SpecTaskSubscription interface {
 	Unsubscribe()
+}
+
+// ListProjectLabels returns all unique labels used across spec tasks in a project, sorted alphabetically.
+func (s *PostgresStore) ListProjectLabels(ctx context.Context, projectID string) ([]string, error) {
+	if projectID == "" {
+		return nil, fmt.Errorf("project ID is required")
+	}
+
+	var labels []string
+	err := s.gdb.WithContext(ctx).Raw(`
+		SELECT DISTINCT jsonb_array_elements_text(labels) AS label
+		FROM spec_tasks
+		WHERE project_id = ? AND (archived = false OR archived IS NULL)
+		ORDER BY label
+	`, projectID).Scan(&labels).Error
+	if err != nil {
+		return nil, fmt.Errorf("failed to list project labels: %w", err)
+	}
+	if labels == nil {
+		labels = []string{}
+	}
+	return labels, nil
+}
+
+// AddSpecTaskLabel adds a label to a spec task. No-op if the label already exists.
+func (s *PostgresStore) AddSpecTaskLabel(ctx context.Context, taskID string, label string) error {
+	if taskID == "" {
+		return fmt.Errorf("task ID is required")
+	}
+	if label == "" {
+		return fmt.Errorf("label is required")
+	}
+
+	task, err := s.GetSpecTask(ctx, taskID)
+	if err != nil {
+		return err
+	}
+
+	for _, l := range task.Labels {
+		if l == label {
+			return nil // already present
+		}
+	}
+
+	task.Labels = append(task.Labels, label)
+	return s.UpdateSpecTask(ctx, task)
+}
+
+// RemoveSpecTaskLabel removes a label from a spec task. No-op if the label does not exist.
+func (s *PostgresStore) RemoveSpecTaskLabel(ctx context.Context, taskID string, label string) error {
+	if taskID == "" {
+		return fmt.Errorf("task ID is required")
+	}
+	if label == "" {
+		return fmt.Errorf("label is required")
+	}
+
+	task, err := s.GetSpecTask(ctx, taskID)
+	if err != nil {
+		return err
+	}
+
+	filtered := task.Labels[:0]
+	for _, l := range task.Labels {
+		if l != label {
+			filtered = append(filtered, l)
+		}
+	}
+
+	if len(filtered) == len(task.Labels) {
+		return nil // label not found, no-op
+	}
+
+	task.Labels = filtered
+	return s.UpdateSpecTask(ctx, task)
 }

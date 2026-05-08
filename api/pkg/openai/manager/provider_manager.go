@@ -37,6 +37,13 @@ type ProviderManager interface {
 	GetClient(ctx context.Context, req *GetClientRequest) (openai.Client, error)
 	// ListProviders returns a list of providers that are available
 	ListProviders(ctx context.Context, owner string) ([]types.Provider, error)
+	// ListProviderEndpoints returns the full provider records visible to the
+	// owner: synthetic entries for env-baked global providers (ID="",
+	// Name=canonical) plus DB-backed user/org provider records. Used by
+	// agent-config code paths that need to resolve an agent's stored
+	// provider reference (an immutable ID for DB-backed, the canonical name
+	// for globals) to the current canonical name.
+	ListProviderEndpoints(ctx context.Context, owner string) ([]*types.ProviderEndpoint, error)
 	// SetRunnerController sets the runner controller for checking runner availability
 	SetRunnerController(controller RunnerControllerStatus)
 }
@@ -54,7 +61,6 @@ type MultiClientManager struct {
 	globalClients     map[types.Provider]*providerClient
 	globalClientsMu   *sync.RWMutex
 	wg                sync.WaitGroup
-	runnerController  RunnerControllerStatus
 	mu                sync.RWMutex
 }
 
@@ -118,12 +124,24 @@ func NewProviderManager(cfg *config.ServerConfig, store store.Store, helixInfere
 			Str("base_url", cfg.Providers.Anthropic.BaseURL).
 			Msg("using Anthropic provider for controller inference")
 
+		// The go-openai client sends chat completions to {baseURL}/chat/completions.
+		// ANTHROPIC_BASE_URL is typically set without /v1 (e.g., "https://api.anthropic.com"
+		// or "http://outer-helix:8081") because the Anthropic SDK appends /v1/messages itself.
+		// For the go-openai client path (used by agents), we need /v1 in the base URL.
+		anthropicBaseURL := cfg.Providers.Anthropic.BaseURL
+		if anthropicBaseURL != "" && !strings.HasSuffix(anthropicBaseURL, "/v1") {
+			anthropicBaseURL = strings.TrimSuffix(anthropicBaseURL, "/") + "/v1"
+		}
+
 		anthropicClient := openai.NewWithOptions(
 			cfg.Providers.Anthropic.APIKey,
-			cfg.Providers.Anthropic.BaseURL,
+			anthropicBaseURL,
 			cfg.Stripe.BillingEnabled,
 			tlsOpts,
 			cfg.Providers.Anthropic.Models...)
+
+		// Mark as Anthropic provider so ListModels uses the correct API format
+		anthropicClient.SetIsAnthropic(true)
 
 		loggedClient := logger.Wrap(cfg, types.ProviderAnthropic, anthropicClient, modelInfoProvider, billingLogger, logStores...)
 
@@ -277,9 +295,13 @@ func (m *MultiClientManager) updateClientAPIKeyFromFile(provider types.Provider,
 	return nil
 }
 
-// SetRunnerController implements ProviderManager.SetRunnerController
-func (m *MultiClientManager) SetRunnerController(controller RunnerControllerStatus) {
-	m.runnerController = controller
+// SetRunnerController implements ProviderManager.SetRunnerController.
+// Sandbox-absorbs-runner pivot: this is now a no-op. Runner availability
+// is checked by the inferencerouter at request-routing time, not at
+// provider-listing time. The helix provider is always listed; individual
+// model availability flows via /v1/models from the router.
+func (m *MultiClientManager) SetRunnerController(_ RunnerControllerStatus) {
+	// no-op
 }
 
 func (m *MultiClientManager) ListProviders(ctx context.Context, owner string) ([]types.Provider, error) {
@@ -288,15 +310,6 @@ func (m *MultiClientManager) ListProviders(ctx context.Context, owner string) ([
 
 	providers := make([]types.Provider, 0, len(m.globalClients))
 	for provider := range m.globalClients {
-		// Skip the Helix provider if there are no runners
-		if provider == types.ProviderHelix && m.runnerController != nil {
-			runnerIDs := m.runnerController.RunnerIDs()
-			if len(runnerIDs) == 0 {
-				// No runners available, skip adding Helix provider
-				continue
-			}
-		}
-
 		providers = append(providers, provider)
 	}
 
@@ -319,6 +332,43 @@ func (m *MultiClientManager) ListProviders(ctx context.Context, owner string) ([
 	}
 
 	return providers, nil
+}
+
+// ListProviderEndpoints returns full provider records visible to the owner.
+// Env-baked globals are returned as synthetic *ProviderEndpoint values with
+// ID="" and Name=canonical; DB-backed user/org providers are returned with
+// their real ID and current admin-set Name. Use this when callers need to
+// resolve an agent's stored provider reference to its current canonical name
+// — the agent record stores the immutable ID, settings.json carries the
+// current name. Renames flow into running sessions on the next sync poll.
+func (m *MultiClientManager) ListProviderEndpoints(ctx context.Context, owner string) ([]*types.ProviderEndpoint, error) {
+	// Always list global providers including Helix — runner availability is
+	// checked by the inferencerouter at request-routing time post sandbox-
+	// absorbs-runner pivot, not at provider-listing time. Matches
+	// ListProviders and the SetRunnerController no-op contract.
+	m.globalClientsMu.RLock()
+	endpoints := make([]*types.ProviderEndpoint, 0, len(m.globalClients))
+	for provider := range m.globalClients {
+		endpoints = append(endpoints, &types.ProviderEndpoint{
+			Name:         string(provider),
+			EndpointType: types.ProviderEndpointTypeGlobal,
+		})
+	}
+	m.globalClientsMu.RUnlock()
+
+	if owner == "" {
+		return endpoints, nil
+	}
+
+	userProviders, err := m.store.ListProviderEndpoints(ctx, &store.ListProviderEndpointsQuery{
+		Owner:      owner,
+		WithGlobal: true,
+	})
+	if err != nil {
+		return nil, err
+	}
+	endpoints = append(endpoints, userProviders...)
+	return endpoints, nil
 }
 
 func (m *MultiClientManager) GetClient(_ context.Context, req *GetClientRequest) (openai.Client, error) {
@@ -382,7 +432,7 @@ func (m *MultiClientManager) initializeClient(endpoint *types.ProviderEndpoint) 
 
 	// Log TLS configuration for database-configured providers (user/org endpoints)
 	// This helps debug enterprise TLS issues with providers configured via web UI
-	log.Info().
+	log.Trace().
 		Str("provider_id", endpoint.ID).
 		Str("provider_name", endpoint.Name).
 		Str("base_url", endpoint.BaseURL).

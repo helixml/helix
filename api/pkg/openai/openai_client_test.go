@@ -13,6 +13,8 @@ import (
 	openai "github.com/sashabaranov/go-openai"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/helixml/helix/api/pkg/types"
 )
 
 func TestRetry(t *testing.T) {
@@ -469,6 +471,99 @@ func TestTrailingSlashStripped(t *testing.T) {
 	})
 }
 
+// TestListModels_GPTFilterKeepsEmbeddingModels verifies that when the OpenAI
+// model list contains GPT models (triggering the GPT filter), text-embedding-*
+// models are kept with type "embed", GPT/o-series models get type "chat", and
+// unrelated models (like dall-e) are filtered out.
+func TestListModels_GPTFilterKeepsEmbeddingModels(t *testing.T) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"data": []map[string]string{
+				{"id": "gpt-4o"},
+				{"id": "gpt-4.1-mini"},
+				{"id": "o3-mini"},
+				{"id": "text-embedding-3-small"},
+				{"id": "text-embedding-3-large"},
+				{"id": "text-embedding-ada-002"},
+				{"id": "dall-e-3"},
+				{"id": "tts-1"},
+				{"id": "whisper-1"},
+			},
+		})
+	})
+
+	ts := httptest.NewServer(handler)
+	defer ts.Close()
+
+	client := New("test-api-key", ts.URL, false)
+	models, err := client.ListModels(context.Background())
+	require.NoError(t, err)
+
+	// Build a map of model ID -> type for easy assertions
+	modelTypes := make(map[string]string)
+	for _, m := range models {
+		modelTypes[m.ID] = m.Type
+	}
+
+	// GPT and o-series models should be present with type "chat"
+	assert.Equal(t, "chat", modelTypes["gpt-4o"], "gpt-4o should have type chat")
+	assert.Equal(t, "chat", modelTypes["gpt-4.1-mini"], "gpt-4.1-mini should have type chat")
+	assert.Equal(t, "chat", modelTypes["o3-mini"], "o3-mini should have type chat")
+
+	// text-embedding models should be present with type "embed"
+	assert.Equal(t, "embed", modelTypes["text-embedding-3-small"], "text-embedding-3-small should have type embed")
+	assert.Equal(t, "embed", modelTypes["text-embedding-3-large"], "text-embedding-3-large should have type embed")
+	assert.Equal(t, "embed", modelTypes["text-embedding-ada-002"], "text-embedding-ada-002 should have type embed")
+
+	// Unrelated models should be filtered out
+	_, hasDallE := modelTypes["dall-e-3"]
+	assert.False(t, hasDallE, "dall-e-3 should be filtered out")
+
+	// tts and whisper are filtered by filterUnsupportedModels before the GPT filter
+	_, hasTTS := modelTypes["tts-1"]
+	assert.False(t, hasTTS, "tts-1 should be filtered out")
+	_, hasWhisper := modelTypes["whisper-1"]
+	assert.False(t, hasWhisper, "whisper-1 should be filtered out")
+
+	// Total count: 3 GPT/o-series + 3 embedding = 6
+	assert.Equal(t, 6, len(models), "should have exactly 6 models after filtering")
+}
+
+// TestListModels_NoGPTModels_NoFiltering verifies that when there are NO GPT
+// models in the list, the GPT filter does not apply and all models pass through
+// (this is the together.ai / non-OpenAI provider path).
+func TestListModels_NoGPTModels_NoFiltering(t *testing.T) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"data": []map[string]string{
+				{"id": "meta-llama/Llama-3.3-70B-Instruct-Turbo"},
+				{"id": "mistralai/Mixtral-8x7B-Instruct-v0.1"},
+				{"id": "text-embedding-3-small"},
+			},
+		})
+	})
+
+	ts := httptest.NewServer(handler)
+	defer ts.Close()
+
+	client := New("test-api-key", ts.URL, false)
+	models, err := client.ListModels(context.Background())
+	require.NoError(t, err)
+
+	// Without GPT models, all models should pass through unfiltered
+	assert.Equal(t, 3, len(models), "all models should be present when no GPT models exist")
+
+	modelIDs := make(map[string]bool)
+	for _, m := range models {
+		modelIDs[m.ID] = true
+	}
+	assert.True(t, modelIDs["meta-llama/Llama-3.3-70B-Instruct-Turbo"])
+	assert.True(t, modelIDs["mistralai/Mixtral-8x7B-Instruct-v0.1"])
+	assert.True(t, modelIDs["text-embedding-3-small"])
+}
+
 // TestTLSSkipVerify_ChatCompletion tests TLS skip verify for chat completions
 func TestTLSSkipVerify_ChatCompletion(t *testing.T) {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -521,4 +616,194 @@ func TestTLSSkipVerify_ChatCompletion(t *testing.T) {
 		require.NoError(t, err, "Should succeed with TLSSkipVerify=true")
 		assert.Equal(t, "test-model", resp.Model)
 	})
+}
+
+func TestCreateFlexibleEmbeddings_URLPath(t *testing.T) {
+	// Verifies the request hits /embeddings (not /v1/embeddings, which would
+	// double the /v1 prefix since baseURL already includes it)
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "/embeddings", r.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(types.FlexibleEmbeddingResponse{
+			Object: "list",
+			Data: []struct {
+				Object    string    `json:"object"`
+				Index     int       `json:"index"`
+				Embedding []float32 `json:"embedding"`
+			}{
+				{Object: "embedding", Index: 0, Embedding: []float32{0.1, 0.2}},
+			},
+			Model: "text-embedding-3-small",
+		})
+	}))
+	defer ts.Close()
+
+	client := New("test-key", ts.URL, true)
+	_, err := client.CreateFlexibleEmbeddings(context.Background(), types.FlexibleEmbeddingRequest{
+		Model: "text-embedding-3-small",
+		Input: "test",
+	})
+	require.NoError(t, err)
+}
+
+func TestCreateFlexibleEmbeddings_DefaultsEncodingFormatToFloat(t *testing.T) {
+	// When encoding_format is not set, the client must default to "float"
+	// so that the response contains []float32 (not base64 strings)
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		var req types.FlexibleEmbeddingRequest
+		require.NoError(t, json.Unmarshal(body, &req))
+		assert.Equal(t, "float", req.EncodingFormat, "encoding_format must default to float")
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(types.FlexibleEmbeddingResponse{
+			Object: "list",
+			Data: []struct {
+				Object    string    `json:"object"`
+				Index     int       `json:"index"`
+				Embedding []float32 `json:"embedding"`
+			}{
+				{Object: "embedding", Index: 0, Embedding: []float32{0.1, 0.2}},
+			},
+			Model: "text-embedding-3-small",
+		})
+	}))
+	defer ts.Close()
+
+	client := New("test-key", ts.URL, true)
+	resp, err := client.CreateFlexibleEmbeddings(context.Background(), types.FlexibleEmbeddingRequest{
+		Model: "text-embedding-3-small",
+		Input: "test",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "text-embedding-3-small", resp.Model)
+	assert.Len(t, resp.Data, 1)
+	assert.Equal(t, []float32{0.1, 0.2}, resp.Data[0].Embedding)
+}
+
+func TestCreateFlexibleEmbeddings_PreservesExplicitEncodingFormat(t *testing.T) {
+	// If the caller explicitly sets encoding_format, it should not be overridden.
+	// Note: base64 encoding is NOT actually supported by FlexibleEmbeddingResponse
+	// (Embedding is []float32), so callers should only use "float" in practice.
+	// This test verifies the client doesn't silently override explicit values.
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		var req types.FlexibleEmbeddingRequest
+		require.NoError(t, json.Unmarshal(body, &req))
+		assert.Equal(t, "base64", req.EncodingFormat, "explicit encoding_format should be preserved")
+
+		w.Header().Set("Content-Type", "application/json")
+		// Return a minimal valid response (in practice base64 would be strings,
+		// but we're just testing the request was sent correctly)
+		json.NewEncoder(w).Encode(types.FlexibleEmbeddingResponse{
+			Object: "list",
+			Model:  "text-embedding-3-small",
+		})
+	}))
+	defer ts.Close()
+
+	client := New("test-key", ts.URL, true)
+	_, err := client.CreateFlexibleEmbeddings(context.Background(), types.FlexibleEmbeddingRequest{
+		Model:          "text-embedding-3-small",
+		Input:          "test",
+		EncodingFormat: "base64",
+	})
+	require.NoError(t, err)
+}
+
+// TestInterceptor_NonJSON401BodyPassesThrough verifies that when an upstream
+// inference provider (e.g. NVIDIA) returns a 401 with a non-JSON body like
+// "Unauthorized", the interceptor does NOT wrap the body in
+// reasoningFieldMapper. Wrapping caused a JSON parse error
+// ("invalid character 'U' looking for beginning of value") that hid the real
+// upstream message from the user.
+func TestInterceptor_NonJSON401BodyPassesThrough(t *testing.T) {
+	const upstreamBody = "Unauthorized: Invalid API Key"
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(upstreamBody))
+	}))
+	defer ts.Close()
+
+	interceptor := &openAIClientInterceptor{
+		Client:  *http.DefaultClient,
+		baseURL: ts.URL,
+	}
+
+	req, err := http.NewRequest(http.MethodGet, ts.URL+"/v1/models", nil)
+	require.NoError(t, err)
+
+	resp, err := interceptor.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	require.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+
+	// The body must be the raw upstream bytes — not wrapped, not mutated, no
+	// extra newline appended by the line-buffered scanner.
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	assert.Equal(t, upstreamBody, string(body),
+		"non-JSON 4xx body must pass through unmodified; got %q", string(body))
+
+	// Confirm the body was NOT replaced with the reasoning mapper wrapper.
+	_, wrapped := resp.Body.(*reasoningFieldMapper)
+	assert.False(t, wrapped, "non-2xx response body should not be wrapped in reasoningFieldMapper")
+}
+
+// TestListModels_NonJSON401_IncludesUpstreamBody verifies that when a
+// provider's /models endpoint returns a non-200 with a non-JSON body (e.g.
+// NVIDIA returning "Unauthorized" plain text on a bad API key), the resulting
+// error message includes the upstream body text. Without this, users see only
+// "401 Unauthorized" with no clue that their API key was rejected.
+func TestListModels_NonJSON401_IncludesUpstreamBody(t *testing.T) {
+	const upstreamBody = "Unauthorized: Invalid API Key"
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(upstreamBody))
+	}))
+	defer ts.Close()
+
+	client := New("bad-key", ts.URL, false)
+	_, err := client.ListModels(context.Background())
+	require.Error(t, err)
+
+	errMsg := err.Error()
+	assert.Contains(t, errMsg, "401",
+		"error must include the HTTP status code")
+	assert.Contains(t, errMsg, upstreamBody,
+		"error must include upstream body so the user can self-diagnose; got: %s", errMsg)
+	assert.NotContains(t, errMsg, "invalid character 'U'",
+		"the JSON-parse-on-non-JSON crash must not appear; got: %s", errMsg)
+}
+
+// TestInterceptor_2xxBodyIsWrapped verifies the wrapper is still applied to
+// successful responses so reasoning-field renaming continues to work for
+// providers like Together AI.
+func TestInterceptor_2xxBodyIsWrapped(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"choices":[{"index":0,"delta":{"reasoning":"hi"}}]}` + "\n"))
+	}))
+	defer ts.Close()
+
+	interceptor := &openAIClientInterceptor{
+		Client:  *http.DefaultClient,
+		baseURL: ts.URL,
+	}
+
+	req, err := http.NewRequest(http.MethodGet, ts.URL+"/v1/chat/completions", nil)
+	require.NoError(t, err)
+
+	resp, err := interceptor.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	_, wrapped := resp.Body.(*reasoningFieldMapper)
+	assert.True(t, wrapped, "2xx response body should be wrapped in reasoningFieldMapper")
 }

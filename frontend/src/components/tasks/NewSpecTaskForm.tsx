@@ -7,6 +7,7 @@ import React, {
 } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  Avatar,
   Box,
   Button,
   Typography,
@@ -25,7 +26,9 @@ import {
   IconButton,
 } from "@mui/material";
 import { Add as AddIcon, Close as CloseIcon } from "@mui/icons-material";
-import { X } from "lucide-react";
+import { ChevronDown, UserCircle2, X } from "lucide-react";
+import AssigneeSelector from "./AssigneeSelector";
+import { RECOMMENDED_CODING_MODELS } from "../../constants/models";
 
 import { CodeAgentRuntime, generateAgentName } from "../../contexts/apps";
 import { AGENT_TYPE_ZED_EXTERNAL, IApp } from "../../types";
@@ -34,41 +37,23 @@ import {
   TypesBranchMode,
   TypesSpecTask,
   TypesSpecTaskStatus,
+  TypesUser,
 } from "../../api/api";
 import AgentDropdown from "../agent/AgentDropdown";
 import CodingAgentForm, {
   CodingAgentFormHandle,
 } from "../agent/CodingAgentForm";
-import { useClaudeSubscriptions } from "../account/ClaudeSubscriptionConnect";
-import { useListProviders } from "../../services/providersService";
-import { TypesProviderEndpointType } from "../../api/api";
-
 import useAccount from "../../hooks/useAccount";
 import useApi from "../../hooks/useApi";
 import useSnackbar from "../../hooks/useSnackbar";
 import useApps from "../../hooks/useApps";
 import { useGetProject, useGetProjectRepositories } from "../../services";
-import { useSpecTasks } from "../../services/specTaskService";
+import { useSpecTasks, useProjectLabels, useAddLabel } from "../../services/specTaskService";
 
-// Recommended models for zed_external agents (state-of-the-art coding models)
-const RECOMMENDED_MODELS = [
-  // Anthropic
-  "claude-opus-4-5-20251101",
-  "claude-sonnet-4-5-20250929",
-  "claude-haiku-4-5-20251001",
-  // OpenAI
-  "openai/gpt-5.1-codex",
-  "openai/gpt-oss-120b",
-  // Google Gemini
-  "gemini-2.5-pro",
-  "gemini-2.5-flash",
-  // Zhipu GLM
-  "glm-4.6",
-  // Qwen (Coder + Large)
-  "Qwen/Qwen3-Coder-480B-A35B-Instruct",
-  "Qwen/Qwen3-Coder-30B-A3B-Instruct",
-  "Qwen/Qwen3-235B-A22B-fp8-tput",
-];
+const LAST_LABELS_KEY = "helix_last_task_labels";
+const DRAFT_KEY_PREFIX = "helix_new_spectask_draft_";
+
+
 
 interface NewSpecTaskFormProps {
   projectId: string;
@@ -103,15 +88,76 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
     enabled: !!projectId,
   });
 
+  const { data: projectLabels = [] } = useProjectLabels(projectId);
+  const addLabelMutation = useAddLabel();
+
+  const draftKey = `${DRAFT_KEY_PREFIX}${projectId}`;
+
   // Form state
-  const [taskPrompt, setTaskPrompt] = useState("");
+  const [taskPrompt, setTaskPrompt] = useState<string>(() => {
+    try {
+      const raw = localStorage.getItem(`${DRAFT_KEY_PREFIX}${projectId}`);
+      if (!raw) return "";
+      const { content } = JSON.parse(raw);
+      return content || "";
+    } catch {
+      return "";
+    }
+  });
+  const draftTimer = useRef<ReturnType<typeof setTimeout>>();
   const [taskPriority, setTaskPriority] = useState("medium");
+  const [taskLabels, setTaskLabels] = useState<string[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem(LAST_LABELS_KEY) || "[]");
+    } catch {
+      return [];
+    }
+  });
   const [selectedDependencyTaskIds, setSelectedDependencyTaskIds] = useState<
     string[]
   >([]);
   const [selectedHelixAgent, setSelectedHelixAgent] = useState("");
   const [justDoItMode, setJustDoItMode] = useState(false);
+  const [autoStart, setAutoStart] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
+
+  // Empty string = "Unassigned". Pre-filled with the current user below.
+  const [assigneeId, setAssigneeId] = useState<string>("");
+  const [assigneeTouched, setAssigneeTouched] = useState(false);
+  const [assigneeAnchorEl, setAssigneeAnchorEl] =
+    useState<HTMLElement | null>(null);
+
+  const orgMembers =
+    account.organizationTools.organization?.memberships || [];
+  const currentUserId = account.user?.id;
+
+  // Pre-fill with current user once known. Don't overwrite a user choice
+  // (including an explicit "Unassigned"), tracked via assigneeTouched.
+  useEffect(() => {
+    if (!assigneeTouched && currentUserId) {
+      setAssigneeId(currentUserId);
+    }
+  }, [currentUserId, assigneeTouched]);
+
+  const assignedUser = useMemo(() => {
+    if (!assigneeId) return undefined;
+    const member = orgMembers.find((m) => m.user_id === assigneeId);
+    return member?.user as TypesUser | undefined;
+  }, [assigneeId, orgMembers]);
+
+  const getAssigneeDisplayName = (user: TypesUser | undefined): string => {
+    if (!user) return "Unknown user";
+    return user.full_name || user.username || user.email || "Unknown user";
+  };
+  const getAssigneeInitials = (user: TypesUser | undefined): string => {
+    if (!user) return "?";
+    const name = user.full_name || user.username || user.email || "";
+    const parts = name.split(" ");
+    if (parts.length >= 2) {
+      return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+    }
+    return name.slice(0, 2).toUpperCase();
+  };
 
   // Branch configuration state
   const [branchMode, setBranchMode] = useState<TypesBranchMode>(
@@ -183,26 +229,6 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
   const [userModifiedName, setUserModifiedName] = useState(false);
   const [creatingAgent, setCreatingAgent] = useState(false);
   const codingAgentFormRef = useRef<CodingAgentFormHandle>(null);
-  const { data: claudeSubscriptions } = useClaudeSubscriptions();
-  const hasClaudeSubscription = (claudeSubscriptions?.length ?? 0) > 0;
-  const { data: providerEndpoints } = useListProviders({ loadModels: false });
-  const hasAnthropicProvider = useMemo(() => {
-    if (!providerEndpoints) return false;
-    return providerEndpoints.some(
-      (p) =>
-        p.endpoint_type ===
-          TypesProviderEndpointType.ProviderEndpointTypeUser &&
-        p.name === "anthropic",
-    );
-  }, [providerEndpoints]);
-  const userProviderCount = useMemo(() => {
-    if (!providerEndpoints) return 0;
-    return providerEndpoints.filter(
-      (p) =>
-        p.endpoint_type === TypesProviderEndpointType.ProviderEndpointTypeUser,
-    ).length;
-  }, [providerEndpoints]);
-
   // Ref for task prompt text field
   const taskPromptRef = useRef<HTMLTextAreaElement>(null);
 
@@ -230,6 +256,16 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
       }
     });
 
+    // Sort zed_external agents by model quality (opus > sonnet > haiku > other)
+    const modelPriority = (app: IApp): number => {
+      const name = (app.config?.helix?.name || "").toLowerCase();
+      if (name.includes("opus")) return 0;
+      if (name.includes("sonnet")) return 1;
+      if (name.includes("haiku")) return 3;
+      return 2; // unknown models between sonnet and haiku
+    };
+    zedExternalApps.sort((a, b) => modelPriority(a) - modelPriority(b));
+
     const result: IApp[] = [];
     if (defaultApp) result.push(defaultApp);
     result.push(...zedExternalApps, ...otherApps);
@@ -242,17 +278,6 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
       setNewAgentName(generateAgentName(selectedModel, codeAgentRuntime));
     }
   }, [selectedModel, codeAgentRuntime, userModifiedName, showCreateAgentForm]);
-
-  useEffect(() => {
-    if (
-      hasClaudeSubscription &&
-      !hasAnthropicProvider &&
-      userProviderCount === 0
-    ) {
-      setCodeAgentRuntime("claude_code");
-      setClaudeCodeMode("subscription");
-    }
-  }, [hasClaudeSubscription, hasAnthropicProvider, userProviderCount]);
 
   // Load apps on mount
   useEffect(() => {
@@ -282,14 +307,24 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
     }, 0);
   }, []);
 
+  // Clear debounce timer on unmount to prevent post-unmount writes
+  useEffect(() => {
+    return () => {
+      clearTimeout(draftTimer.current);
+    };
+  }, []);
+
   // Handle inline agent creation
   // Reset form
   const resetForm = useCallback(() => {
     setTaskPrompt("");
+    localStorage.removeItem(draftKey);
     setTaskPriority("medium");
+    // Labels intentionally kept — they persist to the next task via localStorage
     setSelectedDependencyTaskIds([]);
     setSelectedHelixAgent("");
     setJustDoItMode(false);
+    setAutoStart(false);
     setBranchMode(TypesBranchMode.BranchModeNew);
     setBaseBranch(defaultBranchName);
     setBranchPrefix("");
@@ -302,7 +337,9 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
     setSelectedModel("");
     setNewAgentName("-");
     setUserModifiedName(false);
-  }, [defaultBranchName]);
+    setAssigneeId(currentUserId || "");
+    setAssigneeTouched(false);
+  }, [defaultBranchName, currentUserId]);
 
   // Handle task creation
   const handleCreateTask = async () => {
@@ -337,7 +374,9 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
         priority: taskPriority as TypesSpecTaskPriority,
         project_id: projectId,
         app_id: agentId || undefined,
+        assignee_id: assigneeId || undefined,
         just_do_it_mode: justDoItMode,
+        auto_start: autoStart,
         depends_on: selectedDependencyTasks
           .map((task) => task.id || "")
           .filter((taskId) => !!taskId),
@@ -359,6 +398,20 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
         .v1SpecTasksFromPromptCreate(createTaskRequest);
 
       if (response.data) {
+        // Invalidate immediately so the task appears in the list without waiting for polling
+        queryClient.invalidateQueries({ queryKey: ["spec-tasks"] });
+
+        // Persist labels to localStorage for next task
+        localStorage.setItem(LAST_LABELS_KEY, JSON.stringify(taskLabels));
+
+        // Add labels to the newly created task
+        const taskId = response.data.id;
+        if (taskId && taskLabels.length > 0) {
+          for (const label of taskLabels) {
+            await addLabelMutation.mutateAsync({ taskId, label });
+          }
+        }
+
         snackbar.success(
           "SpecTask created! Planning agent will generate specifications.",
         );
@@ -453,6 +506,120 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
             </Select>
           </FormControl>
 
+          {/* Assignee Selector */}
+          <Button
+            variant="outlined"
+            fullWidth
+            onClick={(e) => setAssigneeAnchorEl(e.currentTarget)}
+            endIcon={<ChevronDown size={16} />}
+            sx={{
+              justifyContent: "space-between",
+              textTransform: "none",
+              color: "text.primary",
+              borderColor: "rgba(255,255,255,0.23)",
+              px: 1.5,
+              py: 1,
+              "&:hover": { borderColor: "text.primary" },
+            }}
+          >
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1, minWidth: 0 }}>
+              {assignedUser ? (
+                <Avatar sx={{ width: 24, height: 24, fontSize: "0.7rem" }}>
+                  {getAssigneeInitials(assignedUser)}
+                </Avatar>
+              ) : (
+                <UserCircle2 size={20} style={{ opacity: 0.5 }} />
+              )}
+              <Typography variant="body2" sx={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {assignedUser
+                  ? `Assignee: ${getAssigneeDisplayName(assignedUser)}`
+                  : "Assignee: Unassigned"}
+              </Typography>
+            </Box>
+          </Button>
+          <AssigneeSelector
+            assigneeId={assigneeId || undefined}
+            members={orgMembers}
+            currentUserId={currentUserId}
+            onAssigneeChange={(userId) => {
+              setAssigneeId(userId || "");
+              setAssigneeTouched(true);
+            }}
+            anchorEl={assigneeAnchorEl}
+            onClose={() => setAssigneeAnchorEl(null)}
+          />
+
+          {/* Labels */}
+          <Autocomplete
+            multiple
+            freeSolo
+            options={projectLabels.filter((l) => !taskLabels.includes(l))}
+            value={taskLabels}
+            filterOptions={(options, params) => {
+              const filtered = options.filter((o) =>
+                o.toLowerCase().includes(params.inputValue.toLowerCase()),
+              );
+              const trimmed = params.inputValue.trim();
+              if (
+                trimmed &&
+                !taskLabels.some(
+                  (l) => l.toLowerCase() === trimmed.toLowerCase(),
+                ) &&
+                !options.some(
+                  (o) => o.toLowerCase() === trimmed.toLowerCase(),
+                )
+              ) {
+                filtered.push(`__create__:${trimmed}`);
+              }
+              return filtered;
+            }}
+            onChange={(_, newValue) => {
+              const resolved = (newValue as string[]).map((v) =>
+                v.startsWith("__create__:") ? v.slice("__create__:".length) : v,
+              );
+              setTaskLabels(resolved);
+            }}
+            getOptionLabel={(option) =>
+              option.startsWith("__create__:")
+                ? option.slice("__create__:".length)
+                : option
+            }
+            renderOption={(props, option) => {
+              if (option.startsWith("__create__:")) {
+                const label = option.slice("__create__:".length);
+                return (
+                  <li {...props} key="__create__">
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                      <Typography variant="body2" color="primary">
+                        + Create &ldquo;{label}&rdquo;
+                      </Typography>
+                    </Box>
+                  </li>
+                );
+              }
+              return <li {...props} key={option}>{option}</li>;
+            }}
+            renderTags={(value, getTagProps) =>
+              value.map((label, index) => (
+                <Chip
+                  key={label}
+                  label={label}
+                  size="small"
+                  {...getTagProps({ index })}
+                />
+              ))
+            }
+            renderInput={(params) => (
+              <TextField
+                {...params}
+                label="Labels"
+                placeholder={taskLabels.length === 0 ? "Add label..." : ""}
+                size="small"
+                helperText="Optional: labels are remembered for your next task"
+              />
+            )}
+          />
+
           {/* Single text box for everything */}
           <TextField
             label="Describe what you want to get done"
@@ -461,7 +628,18 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
             multiline
             rows={embedded ? 6 : 9}
             value={taskPrompt}
-            onChange={(e) => setTaskPrompt(e.target.value)}
+            onChange={(e) => {
+              const value = e.target.value;
+              setTaskPrompt(value);
+              clearTimeout(draftTimer.current);
+              draftTimer.current = setTimeout(() => {
+                if (value) {
+                  localStorage.setItem(draftKey, JSON.stringify({ content: value }));
+                } else {
+                  localStorage.removeItem(draftKey);
+                }
+              }, 300);
+            }}
             onKeyDown={(e) => {
               // If user presses Enter in empty text box, close panel
               if (
@@ -482,7 +660,7 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
             }
             helperText={
               justDoItMode
-                ? "Agent will start working immediately"
+                ? "Planning will be skipped — agent starts implementation immediately"
                 : "Planning agent extracts task name, description, and generates specifications"
             }
             inputRef={taskPromptRef}
@@ -644,7 +822,10 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
                             onChange={(e) => setBaseBranch(e.target.value)}
                             label="Base branch"
                           >
-                            {branchesData?.map((branch: string) => (
+                            {branchesData
+                              ?.slice()
+                              .sort((a: string, b: string) => a.localeCompare(b, undefined, { sensitivity: 'base' }))
+                              .map((branch: string) => (
                               <MenuItem key={branch} value={branch}>
                                 {branch}
                                 {branch === defaultBranchName && (
@@ -708,6 +889,7 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
                   >
                     {branchesData
                       ?.filter((branch: string) => branch !== defaultBranchName)
+                      .sort((a: string, b: string) => a.localeCompare(b, undefined, { sensitivity: 'base' }))
                       .map((branch: string) => (
                         <MenuItem key={branch} value={branch}>
                           {branch}
@@ -769,9 +951,7 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
                     setNewAgentName(nextValue.agentName);
                   }}
                   disabled={creatingAgent || isCreating}
-                  hasClaudeSubscription={hasClaudeSubscription}
-                  hasAnthropicProvider={hasAnthropicProvider}
-                  recommendedModels={RECOMMENDED_MODELS}
+                  recommendedModels={RECOMMENDED_CODING_MODELS}
                   createAgentDescription="Code development agent for spec tasks"
                   onCreateStateChange={setCreatingAgent}
                   onAgentCreated={(app) => {
@@ -797,10 +977,10 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
             )}
           </Box>
 
-          {/* Just Do It Mode Checkbox */}
+          {/* Skip Spec Checkbox */}
           <FormControl fullWidth>
             <Tooltip
-              title={`Skip writing a spec and just get the agent to immediately start doing what you ask (${navigator.platform.includes("Mac") ? "⌘J" : "Ctrl+J"})`}
+              title={`Skip planning and go straight to implementation (${navigator.platform.includes("Mac") ? "⌘J" : "Ctrl+J"})`}
               placement="top"
             >
               <FormControlLabel
@@ -815,7 +995,7 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
                   <Box>
                     <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
                       <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                        Just Do It
+                        Skip planning
                       </Typography>
                       <Box
                         component="span"
@@ -833,8 +1013,35 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
                       </Box>
                     </Box>
                     <Typography variant="caption" color="text.secondary">
-                      Skip spec planning — useful for tasks that don't require
-                      planning code changes
+                      Skip planning — go straight to implementation
+                    </Typography>
+                  </Box>
+                }
+              />
+            </Tooltip>
+          </FormControl>
+
+          {/* Start Immediately Checkbox */}
+          <FormControl fullWidth>
+            <Tooltip
+              title="Start the task immediately on creation, regardless of the project's auto-start setting"
+              placement="top"
+            >
+              <FormControlLabel
+                control={
+                  <Checkbox
+                    checked={autoStart}
+                    onChange={(e) => setAutoStart(e.target.checked)}
+                    color="primary"
+                  />
+                }
+                label={
+                  <Box>
+                    <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                      Start immediately
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Skip the backlog — start as soon as the task is created
                     </Typography>
                   </Box>
                 }

@@ -45,6 +45,9 @@ import {
   GitPullRequest,
   Kanban,
   Plus,
+  BookOpen,
+  Search as SearchIcon,
+  Plug,
 } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 
@@ -80,14 +83,15 @@ import {
 } from '../services/koditService'
 import MonacoEditor from '../components/widgets/MonacoEditor'
 import CodeTab from '../components/git/CodeTab'
-import CodeIntelligenceTab from '../components/git/CodeIntelligenceTab'
+import CodeIntelligenceTab, { WikiSubTab, SearchSubTab, ChangelogSubTab, ConnectSubTab } from '../components/git/CodeIntelligenceTab'
+import KoditStatusPill from '../components/git/KoditStatusPill'
 import CommitsTab from '../components/git/CommitsTab'
 import SettingsTab from '../components/git/SettingsTab'
 import PullRequests from '../components/git/PullRequests'
 import CreateProjectDialog from '../components/project/CreateProjectDialog'
 import { TypesExternalRepositoryType, TypesAzureDevOps, TypesGitRepository } from '../api/api'
 
-const TAB_NAMES = ['code', 'code-intelligence', 'settings', 'access', 'commits', 'pull-requests'] as const
+const TAB_NAMES = ['code', 'wiki', 'search', 'changelog', 'connect', 'settings', 'access', 'commits', 'pull-requests'] as const
 type TabName = typeof TAB_NAMES[number]
 
 const getTabName = (name: string | undefined): TabName => {
@@ -162,13 +166,14 @@ const GitRepoDetail: FC = () => {
 
   // Kodit code intelligence status and enrichments
   // Get indexing status to determine polling frequency
-  const { data: koditStatus } = useKoditStatus(repoId || '', {
+  const { data: koditStatusData, isLoading: koditStatusLoading, error: koditStatusError } = useKoditStatus(repoId || '', {
     enabled: !isLoading && repository !== undefined && repository !== null && repository?.kodit_indexing
   })
+  const koditStatus = koditStatusData
 
   // Poll more frequently (3s) when actively indexing to show enrichments flowing in
   // Otherwise use default (30s for latest, no polling for specific commits)
-  const isActivelyIndexing = koditStatus?.status === 'indexing' || koditStatus?.status === 'in_progress'
+  const isActivelyIndexing = koditStatus?.data?.attributes?.status === 'indexing' || koditStatus?.data?.attributes?.status === 'in_progress'
   const enrichmentsRefetchInterval = isActivelyIndexing ? 3000 : undefined
 
   const { data: enrichmentsData } = useKoditEnrichments(repoId || '', commitFromQuery, {
@@ -413,7 +418,7 @@ const GitRepoDetail: FC = () => {
   }
 
   const handleViewEnrichments = (commitSha: string) => {
-    router.mergeParams({ tab: 'code-intelligence', commit: commitSha })
+    router.mergeParams({ tab: 'changelog', commit: commitSha })
   }
 
   const handlePushPull = async (force = false) => {
@@ -703,6 +708,16 @@ const GitRepoDetail: FC = () => {
 
               {/* Chips and Sync Button */}
               <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center' }}>
+                {!isExternal && (
+                  <Button
+                    variant="outlined"
+                    size="small"
+                    startIcon={<Copy size={14} />}
+                    onClick={() => setCloneDialogOpen(true)}
+                  >
+                    Clone
+                  </Button>
+                )}
                 {isExternal && (
                   <Chip
                     icon={<Link size={12} />}
@@ -711,18 +726,12 @@ const GitRepoDetail: FC = () => {
                   />
                 )}
                 {repository.kodit_indexing && (
-                  <Chip
-                    icon={<Brain size={12} />}
-                    label="Code Intelligence"
-                    size="small"
-                    color="success"
+                  <KoditStatusPill
+                    data={koditStatusData}
+                    isLoading={koditStatusLoading}
+                    error={koditStatusError}
                   />
                 )}
-                <Chip
-                  label={repository.repo_type || 'project'}
-                  size="small"
-                  variant="outlined"
-                />
               </Box>
             </Box>
 
@@ -770,24 +779,17 @@ const GitRepoDetail: FC = () => {
           </Box>
 
           {/* Navigation tabs */}
-          <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
+          <Box sx={{ borderBottom: 1, borderColor: 'divider', display: 'flex', alignItems: 'stretch' }}>
             <Tabs value={currentTab} onChange={(_, newValue) => {
               const tabName = newValue as TabName
               setCurrentTab(tabName)
               router.mergeParams({ tab: tabName })
-            }}>              
+            }}>
               <Tab
                 value="code"
                 icon={<CodeIcon size={16} />}
                 iconPosition="start"
                 label="Code"
-                sx={{ textTransform: 'none', minHeight: 48 }}
-              />
-              <Tab
-                value="code-intelligence"
-                icon={<Brain size={16} />}
-                iconPosition="start"
-                label="Code Intelligence"
                 sx={{ textTransform: 'none', minHeight: 48 }}
               />
               <Tab
@@ -818,20 +820,89 @@ const GitRepoDetail: FC = () => {
                 label="Access"
                 sx={{ textTransform: 'none', minHeight: 48 }}
               />
+              {repository.kodit_indexing && (
+                <Tab
+                  disabled
+                  title="Helix Code Intelligence"
+                  icon={<Brain size={14} />}
+                  sx={{
+                    minHeight: 48,
+                    minWidth: 'auto',
+                    px: 1,
+                    ml: 1,
+                    opacity: 0.5,
+                    cursor: 'default',
+                    '&.Mui-disabled': { opacity: 0.5 },
+                    borderLeft: '1px solid',
+                    borderColor: 'divider',
+                  }}
+                  aria-hidden="true"
+                />
+              )}
+              {repository.kodit_indexing && (
+                <Tab
+                  value="wiki"
+                  title="Auto-generated documentation"
+                  icon={<BookOpen size={16} />}
+                  iconPosition="start"
+                  label="Wiki"
+                  sx={{ textTransform: 'none', minHeight: 48 }}
+                />
+              )}
+              {repository.kodit_indexing && (
+                <Tab
+                  value="search"
+                  title="Semantic and keyword code search"
+                  icon={<SearchIcon size={16} />}
+                  iconPosition="start"
+                  label="Search"
+                  sx={{ textTransform: 'none', minHeight: 48 }}
+                />
+              )}
+              {repository.kodit_indexing && (
+                <Tab
+                  value="changelog"
+                  title="AI-generated commit descriptions"
+                  icon={<GitCommit size={16} />}
+                  iconPosition="start"
+                  label="Changelog"
+                  sx={{ textTransform: 'none', minHeight: 48 }}
+                />
+              )}
+              {repository.kodit_indexing && (
+                <Tab
+                  value="connect"
+                  title="Connect external MCP clients"
+                  icon={<Plug size={16} />}
+                  iconPosition="start"
+                  label="Connect"
+                  sx={{ textTransform: 'none', minHeight: 48 }}
+                />
+              )}
             </Tabs>
           </Box>
         </Box>
 
         {/* Tab panels */}
         <Box sx={{ mt: 3 }}>
-          {/* Code Intelligence Tab */}
-          {currentTab === 'code-intelligence' && (
-            <CodeIntelligenceTab
-              repository={repository}
-              enrichments={enrichments}
-              repoId={repoId || ''}
-              commitSha={commitFromQuery}
-            />
+          {/* Wiki Tab */}
+          {currentTab === 'wiki' && repository.kodit_indexing && (
+            <WikiSubTab repoId={repoId || ''} enabled={!!repoId && repository.kodit_indexing} />
+          )}
+
+          {/* Search Tab */}
+          {currentTab === 'search' && repository.kodit_indexing && (
+            <SearchSubTab repoId={repoId || ''} enabled={!!repoId && repository.kodit_indexing} repository={repository} />
+          )}
+
+          {/* Changelog Tab */}
+          {currentTab === 'changelog' && repository.kodit_indexing && (
+            <ChangelogSubTab enrichments={enrichments} />
+          )}
+
+          {/* Connect Tab */}
+          {currentTab === 'connect' && repository.kodit_indexing && (
+            <ConnectSubTab />
           )}
 
           {/* Code Tab */}
@@ -984,70 +1055,60 @@ const GitRepoDetail: FC = () => {
           <DialogTitle>Clone Repository</DialogTitle>
           <DialogContent>
             <Stack spacing={2} sx={{ mt: 1 }}>
-              {isExternal && repository.metadata?.external_url ? (
-                <>
-                  <Typography variant="body2" color="text.secondary">
-                    This is an external repository. Use the URL below to clone it:
-                  </Typography>
-                  <Box sx={{ display: 'flex', gap: 1 }}>
-                    <TextField
-                      fullWidth
-                      value={repository.metadata?.external_url || ''}
-                      InputProps={{
-                        readOnly: true,
-                        sx: { fontFamily: 'monospace', fontSize: '0.875rem' }
-                      }}
-                    />
-                    <Tooltip title={copiedClone ? 'Copied!' : 'Copy'}>
-                      <IconButton
-                        onClick={() => handleCopyCloneCommand(repository.metadata?.external_url || '')}
-                        color={copiedClone ? 'success' : 'default'}
-                      >
-                        <Copy size={18} />
-                      </IconButton>
-                    </Tooltip>
-                  </Box>
-                  <Button
-                    variant="outlined"
-                    fullWidth
-                    startIcon={<ExternalLink size={16} />}
-                    onClick={() => window.open(repository.metadata?.external_url || '', '_blank')}
+              <Typography variant="body2" color="text.secondary">
+                Run this command on your machine to clone the repository:
+              </Typography>
+              <Box sx={{ display: 'flex', gap: 1 }}>
+                <TextField
+                  fullWidth
+                  value={`git clone ${cloneUrl}`}
+                  InputProps={{
+                    readOnly: true,
+                    sx: { fontFamily: 'monospace', fontSize: '0.875rem' }
+                  }}
+                />
+                <Tooltip title={copiedClone ? 'Copied!' : 'Copy'}>
+                  <IconButton
+                    onClick={() => handleCopyCloneCommand(`git clone ${cloneUrl}`)}
+                    color={copiedClone ? 'success' : 'default'}
                   >
-                    Open in {repository.metadata?.external_type || 'Browser'}
-                  </Button>
-                </>
-              ) : isExternal ? (
-                <Alert severity="warning">
-                  This external repository does not have a clone URL configured.
-                </Alert>
-              ) : (
-                <>
-                  <Alert severity="info">
-                    This is a Helix-hosted repository. It is automatically cloned by agents when working on spec tasks.
-                  </Alert>
-                  <Typography variant="body2" color="text.secondary">
-                    Clone command (for reference):
-                  </Typography>
-                  <Box sx={{ display: 'flex', gap: 1 }}>
-                    <TextField
-                      fullWidth
-                      value={cloneUrl}
-                      InputProps={{
-                        readOnly: true,
-                        sx: { fontFamily: 'monospace', fontSize: '0.875rem' }
-                      }}
-                    />
-                    <Tooltip title={copiedClone ? 'Copied!' : 'Copy'}>
-                      <IconButton
-                        onClick={() => handleCopyCloneCommand(cloneUrl)}
-                        color={copiedClone ? 'success' : 'default'}
-                      >
-                        <Copy size={18} />
-                      </IconButton>
-                    </Tooltip>
+                    <Copy size={18} />
+                  </IconButton>
+                </Tooltip>
+              </Box>
+
+              <Box>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                  When prompted, authenticate with:
+                </Typography>
+                <Paper variant="outlined" sx={{ p: 1.5 }}>
+                  <Box sx={{ display: 'grid', gridTemplateColumns: 'auto 1fr', columnGap: 2, rowGap: 0.5, alignItems: 'center' }}>
+                    <Typography variant="body2" color="text.secondary">Username</Typography>
+                    <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>helix</Typography>
+                    <Typography variant="body2" color="text.secondary">Password</Typography>
+                    <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>your API key</Typography>
                   </Box>
-                </>
-              )}
+                </Paper>
+              </Box>
+
+              <Alert
+                severity="info"
+                action={
+                  account.organizationTools.organization?.id ? (
+                    <Button
+                      size="small"
+                      onClick={() => {
+                        setCloneDialogOpen(false)
+                        account.orgNavigate('org_api_keys')
+                      }}
+                    >
+                      Manage keys
+                    </Button>
+                  ) : undefined
+                }
+              >
+                Need an API key? Create one under Organization Settings → API Keys.
+              </Alert>
             </Stack>
           </DialogContent>
           <DialogActions>

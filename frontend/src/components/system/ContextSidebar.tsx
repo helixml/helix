@@ -27,25 +27,28 @@ interface ContextSidebarProps {
   menuType: string
   sections: ContextSidebarSection[]
   header?: ReactNode
+  density?: 'default' | 'compact'
 }
 
 const ContextSidebar: FC<ContextSidebarProps> = ({ 
   menuType, 
   sections, 
-  header
+  header,
+  density = 'default',
 }) => {
   const lightTheme = useLightTheme()
+  const isCompact = density === 'compact'
 
   const renderSection = (section: ContextSidebarSection, index: number) => {
     return (
       <Box key={`section-${index}`}>
         {section.title && (
-          <ListItem sx={{ pb: 0.5, pt: 1 }}>
+          <ListItem sx={{ pb: isCompact ? 0.25 : 0.5, pt: isCompact ? 0.75 : 1 }}>
             <Typography
               variant="subtitle2"
               sx={{
                 color: lightTheme.textColorFaded,
-                fontSize: '0.7em',
+                fontSize: isCompact ? '0.65em' : '0.7em',
                 textTransform: 'uppercase',
                 letterSpacing: '0.5px',
                 fontWeight: 500,
@@ -75,9 +78,9 @@ const ContextSidebar: FC<ContextSidebarProps> = ({
               onClick={item.onClick}
               sx={{
                 borderRadius: '12px',
-                py: 1.25,
-                px: 2,
-                minHeight: 48,
+                py: isCompact ? 0.875 : 1.25,
+                px: isCompact ? 1.5 : 2,
+                minHeight: isCompact ? 40 : 48,
                 '&.Mui-selected': {
                   backgroundColor: 'rgba(255, 255, 255, 0.08)',
                   '&:hover': {
@@ -91,9 +94,14 @@ const ContextSidebar: FC<ContextSidebarProps> = ({
             >
               <ListItemIcon
                 sx={{
-                  minWidth: 40,
+                  minWidth: isCompact ? 34 : 40,
                   color: item.isActive ? '#00E5FF' : lightTheme.textColorFaded,
                   transition: 'color 0.2s ease-in-out',
+                  '& svg': {
+                    fontSize: isCompact ? 18 : 22,
+                    width: isCompact ? 18 : 22,
+                    height: isCompact ? 18 : 22,
+                  },
                 }}
               >
                 {item.icon}
@@ -106,7 +114,7 @@ const ContextSidebar: FC<ContextSidebarProps> = ({
                   }
                 }}
                 primaryTypographyProps={{
-                  fontSize: '0.85rem',
+                  fontSize: isCompact ? '0.78rem' : '0.85rem',
                   fontWeight: item.isActive ? 600 : 500,
                   color: item.isActive ? '#fff' : lightTheme.textColorFaded,
                 }}
