@@ -87,3 +87,50 @@ PR titles come from `pull_request.md` first line. These should remain descriptiv
 - **Agent prompts in `agent_instruction_service.go`** use template variables like `{{.TaskDirName}}` and are sent by the helix backend during planning/implementation phases
 - **helix-specs is a git worktree** of the helix-4 repo (not a standalone repo)
 - **PR intercept** reads `pull_request.md` via `git show helix-specs:{path}` — it's purely about PR metadata
+
+## Implementation Notes
+
+### Files Changed
+
+1. **`/home/retro/work/helix/CLAUDE.md`** (lines 29–35)
+   - Added conventional commit rule with type list, scope guidance, examples
+   - Notes that the `commit-msg` hook enforces it
+
+2. **`/home/retro/work/helix/desktop/shared/helix-git-hooks.sh`** (`install_code_repo_hook`)
+   - Added validation block before existing Spec-Ref logic
+   - Regex: `^(feat|fix|refactor|chore|docs|test|style|perf|ci|build|revert)(\([a-z0-9._/-]+\))?!?: .+`
+   - Skips merge/revert/fixup/squash/amend commits (git generates these)
+   - Subject length warning at >72 chars (warn, not fail)
+   - Helpful error with format hint and examples on failure
+
+3. **`/home/retro/work/helix/api/pkg/services/agent_instruction_service.go`**
+   - Added bullet 5 to "CRITICAL RULES" section explaining conventional commit format
+   - Updated 4 example commit messages to conventional format:
+     - `"Progress update"` → `"chore(specs): update progress"`
+     - `"Add PR descriptions"` → `"docs(specs): add PR descriptions"`
+     - `"Add PR description"` → `"docs(specs): add PR description"`
+     - `"Address feedback"` → `"docs(specs): address feedback"`
+
+### Discovery Learnings
+
+- **The hook source-of-truth is `desktop/shared/helix-git-hooks.sh`**, not `.git/hooks/commit-msg`. The latter is generated when `install_helix_git_hooks` runs at startup. To make hook changes persistent, edit the shared script. To test in the current session, also update the local `.git/hooks/commit-msg`.
+- **The hook is shared across all code repos** (helix, zed, qwen-code, docs) via `install_code_repo_hook`. Validation is centralized — one change covers all of them.
+- **There is a separate `install_helix_specs_hook`** for the helix-specs worktree — it adds a `Code-Ref:` trailer. We did NOT add validation here since spec commits are agent-driven progress notes, but the agent prompt now uses conventional format examples for these too (`docs(specs): ...`).
+- **The hook must skip git-generated messages** (Merge, Revert, fixup!, squash!, amend!) or rebases and merges break.
+
+### Testing
+
+7 hook tests passed:
+1. `chore: bump deps` (no scope) — accepted
+2. `feat(api/v2): new endpoint` (slash in scope) — accepted
+3. `feat!: breaking change` (breaking marker) — accepted
+4. Multi-line message with body — accepted
+5. `Just a random message` — rejected with clear error
+6. `WIP` — rejected with clear error
+7. Long subject (>72 chars) — accepted with warning
+
+Go build passed: `go build ./api/pkg/services/`
+
+### PR Title vs Commit Format
+
+PR titles still come from `pull_request.md` first line (set by task 001320). They remain descriptive prose, not conventional commit format. PRs summarize a body of work; conventional commits describe atomic changes. This is intentional — see Layer 4 of "Proposed Solution" above.
