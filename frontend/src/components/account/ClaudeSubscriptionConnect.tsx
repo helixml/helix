@@ -25,7 +25,7 @@ import MenuItem from '@mui/material/MenuItem'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import useApi from '../../hooks/useApi'
 import useSnackbar from '../../hooks/useSnackbar'
-import useThemeConfig from '../../hooks/useThemeConfig'
+import useLightTheme from '../../hooks/useLightTheme'
 import useAccount from '../../hooks/useAccount'
 import { getTokenExpiryStatus } from './claudeSubscriptionUtils'
 
@@ -63,6 +63,25 @@ interface ClaudeSubscriptionConnectProps {
 
 const SETUP_TOKEN_COMMAND = 'claude setup-token'
 
+function validateSetupToken(token: string): string | null {
+  const trimmed = token.trim()
+  if (!trimmed) return null
+
+  if (trimmed.startsWith('sk-ant-api')) {
+    return 'This looks like an Anthropic API key, not a Claude Code setup token. Run `claude setup-token` in your terminal to generate the correct token.'
+  }
+
+  if (!trimmed.startsWith('sk-ant-oat')) {
+    return "This doesn't look like a valid Claude Code setup token. Run `claude setup-token` to generate one."
+  }
+
+  if (trimmed.length < 50) {
+    return 'This token appears to be incomplete. Make sure you copied the full token.'
+  }
+
+  return null
+}
+
 const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
   variant = 'button',
   onConnected,
@@ -71,7 +90,7 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
   const api = useApi()
   const snackbar = useSnackbar()
   const queryClient = useQueryClient()
-  const themeConfig = useThemeConfig()
+  const lightTheme = useLightTheme()
   const account = useAccount()
 
   const organizations = account.organizationTools.organizations || []
@@ -156,6 +175,8 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
     }
   }
 
+  const tokenValidationError = validateSetupToken(tokenValue)
+
   const firstSub = subscriptions?.[0]
   const isSetupToken = firstSub?.credential_type === 'setup_token'
   const expiry = firstSub && !isSetupToken ? getTokenExpiryStatus(firstSub.access_token_expires_at) : null
@@ -192,8 +213,8 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
           autoFocus
           fullWidth
           type="password"
-          label="Your Token"
-          placeholder="Paste your token here..."
+          label="Claude Code Setup Token"
+          placeholder="Paste your Claude Code setup token here..."
           value={tokenValue}
           onChange={(e) => setTokenValue(e.target.value)}
           variant="outlined"
@@ -202,6 +223,12 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
           }}
           sx={{ mb: 1 }}
         />
+
+        {tokenValidationError && (
+          <Alert severity="error" sx={{ mb: 1 }}>
+            {tokenValidationError}
+          </Alert>
+        )}
 
         {submitError && (
           <Alert severity="error" sx={{ mb: 1 }}>
@@ -223,7 +250,7 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
         <Button
           onClick={handleSubmitToken}
           variant="contained"
-          disabled={submitting || !tokenValue.trim()}
+          disabled={submitting || !tokenValue.trim() || !!tokenValidationError}
         >
           {submitting ? <><CircularProgress size={14} sx={{ mr: 0.5 }} /> Connecting...</> : 'Connect'}
         </Button>
@@ -259,7 +286,7 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
   if (variant === 'account') {
     return (
       <>
-        <Grid container spacing={2} sx={{ mt: 2, backgroundColor: themeConfig.darkPanel, p: 2, borderRadius: 2 }}>
+        <Grid container spacing={2} sx={{ mt: 2, backgroundColor: lightTheme.panelColor, p: 2, borderRadius: 2 }}>
           <Grid item xs={12}>
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
               <Box>

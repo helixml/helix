@@ -1,5 +1,7 @@
 import ClearIcon from "@mui/icons-material/Clear";
 import StorageIcon from "@mui/icons-material/Storage";
+import WarningAmberIcon from "@mui/icons-material/WarningAmber";
+import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
 import Container from "@mui/material/Container";
 import Divider from "@mui/material/Divider";
@@ -18,7 +20,6 @@ import React, { FC, useCallback, useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import LLMCallsTable from "../components/dashboard/LLMCallsTable";
 import Interaction from "../components/session/Interaction";
-import RunnerSummary from "../components/session/RunnerSummary";
 import SessionBadgeKey from "../components/session/SessionBadgeKey";
 import SessionToolbar from "../components/session/SessionToolbar";
 import SessionSummary from "../components/session/SessionSummary";
@@ -27,7 +28,6 @@ import JsonWindowLink from "../components/widgets/JsonWindowLink";
 import Window from "../components/widgets/Window";
 import useAccount from "../hooks/useAccount";
 import useApi from "../hooks/useApi";
-import { useGetDashboardData } from "../services/dashboardService";
 import { ISessionSummary } from "../types";
 import {
     TypesInteraction,
@@ -35,27 +35,24 @@ import {
     TypesSessionSummary,
 } from "../api/api";
 
-import { TypesWorkloadSummary, TypesDashboardRunner } from "../api/api";
 import ProviderEndpointsTable from "../components/dashboard/ProviderEndpointsTable";
 import OAuthProvidersTable from "../components/dashboard/OAuthProvidersTable";
 import HelixModelsTable from "../components/dashboard/HelixModelsTable";
+import RunnerProfilesTable from "../components/dashboard/RunnerProfilesTable";
 import PricingTable from "../components/dashboard/PricingTable";
-import SchedulingDecisionsTable from "../components/dashboard/SchedulingDecisionsTable";
-import GlobalSchedulingVisualization from "../components/dashboard/GlobalSchedulingVisualization";
 import SystemSettingsTable from "../components/dashboard/SystemSettingsTable";
 import ServiceConnectionsTable from "../components/dashboard/ServiceConnectionsTable";
 import AgentSandboxes from "../components/admin/AgentSandboxes";
 import AdminOrgsTable from "../components/dashboard/AdminOrgsTable";
 import UsersTable from "../components/dashboard/UsersTable";
+import UserDetailPanel from "../components/dashboard/UserDetailPanel";
 import KoditAdminTable from "../components/dashboard/KoditAdminTable";
 import KoditAdminRepoDetail from "../components/dashboard/KoditAdminRepoDetail";
 import KoditAdminQueue from "../components/dashboard/KoditAdminQueue";
 import Chip from "@mui/material/Chip";
-import { useFloatingRunnerState } from "../contexts/floatingRunnerState";
 import LaunchIcon from "@mui/icons-material/Launch";
 import Button from "@mui/material/Button";
 import Tooltip from "@mui/material/Tooltip";
-import SchedulerHealthIndicators from "../components/dashboard/SchedulerHealthIndicators";
 
 const START_ACTIVE = true;
 
@@ -66,7 +63,6 @@ interface DashboardProps {
 const Dashboard: FC<DashboardProps> = ({ tab = "llm_calls" }) => {
     const account = useAccount();
     const api = useApi();
-    const floatingRunnerState = useFloatingRunnerState();
 
     const activeRef = useRef(START_ACTIVE);
 
@@ -76,6 +72,7 @@ const Dashboard: FC<DashboardProps> = ({ tab = "llm_calls" }) => {
     const [selectedSandboxId, setSelectedSandboxId] = useState<string>("");
     const [sessionIdParam, setSessionIdParam] = useState<string>("");
     const [repoId, setRepoId] = useState<string>("");
+    const [selectedUserId, setSelectedUserId] = useState<string>("");
     const apiClient = api.getApiClient();
 
     const session_id = sessionIdParam;
@@ -115,8 +112,7 @@ const Dashboard: FC<DashboardProps> = ({ tab = "llm_calls" }) => {
         loadSession();
     }, [account.user, session_id]);
 
-    const { data: dashboardData, isLoading: isLoadingDashboardData } =
-        useGetDashboardData();
+    const isLoadingDashboardData = false; // Sandbox-absorbs-runner: dashboardData removed
 
     const handleFilterChange = (event: React.ChangeEvent<HTMLInputElement>) => {
         setSessionFilter(event.target.value);
@@ -240,389 +236,19 @@ const Dashboard: FC<DashboardProps> = ({ tab = "llm_calls" }) => {
                 )}
 
                 {tab === "runners" && (
-                    <Box
-                        sx={{
-                            width: "100%",
-                            display: "flex",
-                            flexDirection: "column",
-                            alignItems: "flex-start",
-                            justifyContent: "flex-start",
-                        }}
-                    >
-                        {/* Controls for entire Runners tab */}
-                        <Box
-                            sx={{
-                                width: "100%",
-                                display: "flex",
-                                flexDirection: "row",
-                                alignItems: "center",
-                                justifyContent: "space-between",
-                                mb: 3,
-                                px: 2,
-                            }}
-                        >
-                            <Box
-                                sx={{
-                                    display: "flex",
-                                    alignItems: "center",
-                                    gap: 2,
-                                }}
-                            >
-                                <FormGroup>
-                                    <FormControlLabel
-                                        control={
-                                            <Switch
-                                                checked={active}
-                                                onChange={(
-                                                    event: React.ChangeEvent<HTMLInputElement>,
-                                                ) => {
-                                                    activeRef.current =
-                                                        event.target.checked;
-                                                    setActive(
-                                                        event.target.checked,
-                                                    );
-                                                }}
-                                            />
-                                        }
-                                        label="Live Updates?"
-                                    />
-                                </FormGroup>
-
-                                {account.admin && (
-                                    <Tooltip
-                                        title="Toggle floating runner state view (Ctrl/Cmd+Shift+S)"
-                                        arrow
-                                    >
-                                        <Button
-                                            variant="outlined"
-                                            size="small"
-                                            startIcon={<LaunchIcon />}
-                                            onClick={(e) => {
-                                                const rect =
-                                                    e.currentTarget.getBoundingClientRect();
-                                                const clickPosition = {
-                                                    x: rect.left - 100, // Position floating window to the left of button
-                                                    y: rect.top - 50, // Position slightly above the button
-                                                };
-                                                floatingRunnerState.toggleFloatingRunnerState(
-                                                    clickPosition,
-                                                );
-                                            }}
-                                            sx={{
-                                                borderColor:
-                                                    "rgba(0, 200, 255, 0.3)",
-                                                color: floatingRunnerState.isVisible
-                                                    ? "#00c8ff"
-                                                    : "rgba(255, 255, 255, 0.7)",
-                                                backgroundColor:
-                                                    floatingRunnerState.isVisible
-                                                        ? "rgba(0, 200, 255, 0.1)"
-                                                        : "transparent",
-                                                "&:hover": {
-                                                    borderColor:
-                                                        "rgba(0, 200, 255, 0.5)",
-                                                    backgroundColor:
-                                                        "rgba(0, 200, 255, 0.1)",
-                                                },
-                                            }}
-                                        >
-                                            {floatingRunnerState.isVisible
-                                                ? "Hide"
-                                                : "Show"}{" "}
-                                            Floating View
-                                        </Button>
-                                    </Tooltip>
-                                )}
-                            </Box>
-
-                            <JsonWindowLink data={dashboardData}>
-                                view data
-                            </JsonWindowLink>
-                        </Box>
-
-                        <Box
-                            sx={{
-                                width: "100%",
-                                display: "flex",
-                                flexDirection: "row",
-                                alignItems: "flex-start",
-                                justifyContent: "flex-start",
-                            }}
-                        >
-                            {/* Queue Section */}
-                            <Box
-                                sx={{
-                                    p: 3,
-                                    flexGrow: 0,
-                                    width: "480px",
-                                    minWidth: "480px",
-                                    overflowY: "auto",
-                                    display: { xs: "none", md: "block" },
-                                    borderRight:
-                                        "1px solid rgba(255, 255, 255, 0.08)",
-                                }}
-                            >
-                                {/* Queue Section Header */}
-                                <Box
-                                    sx={{
-                                        mb: 3,
-                                        pb: 1,
-                                        borderBottom:
-                                            "1px solid rgba(255, 255, 255, 0.1)",
-                                    }}
-                                >
-                                    <Typography
-                                        variant="h5"
-                                        sx={{
-                                            color: "rgba(255, 255, 255, 0.95)",
-                                            fontWeight: 600,
-                                            display: "flex",
-                                            alignItems: "center",
-                                            gap: 2,
-                                        }}
-                                    >
-                                        Queue
-                                        {dashboardData &&
-                                            dashboardData.queue &&
-                                            dashboardData.queue.length > 0 && (
-                                                <Chip
-                                                    size="small"
-                                                    label={
-                                                        dashboardData.queue
-                                                            .length
-                                                    }
-                                                    sx={{
-                                                        height: 22,
-                                                        minWidth: 20,
-                                                        backgroundColor:
-                                                            "rgba(128, 90, 213, 0.15)",
-                                                        color: "rgba(255, 255, 255, 0.7)",
-                                                        border: "1px solid rgba(128, 90, 213, 0.3)",
-                                                        "& .MuiChip-label": {
-                                                            px: 1,
-                                                            fontSize: "0.7rem",
-                                                            fontWeight: 600,
-                                                        },
-                                                    }}
-                                                />
-                                            )}
-                                    </Typography>
-                                </Box>
-
-                                {dashboardData &&
-                                    dashboardData?.queue?.length === 0 && (
-                                        <Box
-                                            sx={{
-                                                py: 4,
-                                                textAlign: "center",
-                                                backgroundColor:
-                                                    "rgba(25, 25, 28, 0.3)",
-                                                borderRadius: "3px",
-                                            }}
-                                        >
-                                            <Typography
-                                                variant="body2"
-                                                sx={{
-                                                    color: "rgba(255, 255, 255, 0.5)",
-                                                }}
-                                            >
-                                                No jobs in queue
-                                            </Typography>
-                                        </Box>
-                                    )}
-
-                                {dashboardData &&
-                                    dashboardData?.queue?.map(
-                                        (item: TypesWorkloadSummary) => {
-                                            return (
-                                                <SessionSummary
-                                                    key={item.id}
-                                                    session={
-                                                        {
-                                                            session_id: item.id,
-                                                            created:
-                                                                item.created,
-                                                            updated:
-                                                                item.updated,
-                                                            model_name:
-                                                                item.model_name,
-                                                            mode: item.mode,
-                                                            type: item.runtime,
-                                                            owner: "todo",
-                                                            lora_dir:
-                                                                item.lora_dir,
-                                                            summary:
-                                                                item.summary,
-                                                            app_id: "todo",
-                                                        } as ISessionSummary
-                                                    }
-                                                    onViewSession={
-                                                        onViewSession
-                                                    }
-                                                    hideViewButton={true}
-                                                />
-                                            );
-                                        },
-                                    )}
-                            </Box>
-
-                            {/* Runners Section */}
-                            <Box
-                                sx={{
-                                    flexGrow: 1,
-                                    p: 3,
-                                    height: "100%",
-                                    width: "100%",
-                                    overflowY: "auto",
-                                }}
-                            >
-                                {/* Runners Section Header */}
-                                <Box
-                                    sx={{
-                                        display: "flex",
-                                        alignItems: "center",
-                                        justifyContent: "space-between",
-                                        mb: 4,
-                                    }}
-                                >
-                                    <Typography
-                                        variant="h5"
-                                        sx={{
-                                            color: "rgba(255, 255, 255, 0.95)",
-                                            fontWeight: 600,
-                                        }}
-                                    >
-                                        Runner State
-                                    </Typography>
-                                    <Box
-                                        sx={{
-                                            display: "flex",
-                                            alignItems: "center",
-                                            gap: 2,
-                                        }}
-                                    >
-                                        <Typography
-                                            variant="caption"
-                                            sx={{
-                                                color: "rgba(255, 255, 255, 0.7)",
-                                                fontSize: "0.75rem",
-                                            }}
-                                        >
-                                            Scheduler Health:
-                                        </Typography>
-                                        <SchedulerHealthIndicators runnerId="" />
-                                    </Box>
-                                </Box>
-                                <Box
-                                    sx={{
-                                        borderBottom:
-                                            "1px solid rgba(255, 255, 255, 0.1)",
-                                        mb: 4,
-                                    }}
-                                />
-
-                                <Grid
-                                    container
-                                    sx={{
-                                        width: "100%",
-                                        overflow: "auto",
-                                    }}
-                                    spacing={3}
-                                >
-                                    {dashboardData &&
-                                        dashboardData?.runners?.length ===
-                                            0 && (
-                                            <Grid item xs={12}>
-                                                <Box
-                                                    sx={{
-                                                        py: 4,
-                                                        textAlign: "center",
-                                                        backgroundColor:
-                                                            "rgba(25, 25, 28, 0.3)",
-                                                        borderRadius: "3px",
-                                                    }}
-                                                >
-                                                    <Typography
-                                                        variant="body2"
-                                                        sx={{
-                                                            color: "rgba(255, 255, 255, 0.5)",
-                                                        }}
-                                                    >
-                                                        No active runners
-                                                    </Typography>
-                                                </Box>
-                                            </Grid>
-                                        )}
-
-                                    {dashboardData &&
-                                        dashboardData?.runners?.map(
-                                            (runner: TypesDashboardRunner) => {
-                                                return (
-                                                    <Grid
-                                                        item
-                                                        xs={12}
-                                                        key={runner.id}
-                                                    >
-                                                        <RunnerSummary
-                                                            runner={runner}
-                                                            onViewSession={
-                                                                onViewSession
-                                                            }
-                                                        />
-                                                    </Grid>
-                                                );
-                                            },
-                                        )}
-                                </Grid>
-
-                                {/* Global Scheduling Visualization Section */}
-                                <Box sx={{ mt: 4 }}>
-                                    <GlobalSchedulingVisualization
-                                        decisions={
-                                            (dashboardData as any)
-                                                ?.global_allocation_decisions ||
-                                            []
-                                        }
-                                    />
-                                </Box>
-
-                                {/* Scheduling Decisions Section */}
-                                <Box sx={{ mt: 4 }}>
-                                    <Typography
-                                        variant="h5"
-                                        sx={{
-                                            mb: 3,
-                                            color: "rgba(255, 255, 255, 0.95)",
-                                            fontWeight: 600,
-                                            borderBottom:
-                                                "1px solid rgba(255, 255, 255, 0.1)",
-                                            pb: 1,
-                                        }}
-                                    >
-                                        Recent Scheduling Decisions
-                                    </Typography>
-
-                                    <Box
-                                        sx={{
-                                            mb: 2,
-                                            color: "rgba(255, 255, 255, 0.6)",
-                                            fontSize: "0.875rem",
-                                        }}
-                                    >
-                                        Live log of decisions made by the
-                                        central scheduler when assigning
-                                        workloads to runners
-                                    </Box>
-
-                                    <SchedulingDecisionsTable
-                                        decisions={
-                                            dashboardData?.scheduling_decisions ||
-                                            []
-                                        }
-                                    />
-                                </Box>
-                            </Box>
-                        </Box>
+                    <Box sx={{ width: "100%", p: 3 }}>
+                        <Typography variant="h5" gutterBottom>GPU Runners</Typography>
+                        <Typography variant="body1" color="text.secondary" paragraph>
+                            The legacy runner / scheduler / slot dashboard has been retired in
+                            the sandbox-absorbs-runner pivot. What you used to see here now
+                            lives in:
+                        </Typography>
+                        <ul>
+                            <li><strong>Agent Sandboxes</strong> — connected sandboxes with their
+                            GPU inventory, active profile, and per-service health.</li>
+                            <li><strong>Runner Profiles</strong> — define and assign compose-based
+                            profiles to sandboxes.</li>
+                        </ul>
                     </Box>
                 )}
 
@@ -633,6 +259,12 @@ const Dashboard: FC<DashboardProps> = ({ tab = "llm_calls" }) => {
                         }}
                     >
                         <HelixModelsTable />
+                    </Box>
+                )}
+
+                {tab === "runner_profiles" && account.admin && (
+                    <Box sx={{ width: "100%", p: 2 }}>
+                        <RunnerProfilesTable />
                     </Box>
                 )}
 
@@ -659,6 +291,41 @@ const Dashboard: FC<DashboardProps> = ({ tab = "llm_calls" }) => {
 
                 {tab === "agent_sandboxes" && account.admin && (
                     <Box sx={{ width: "100%" }}>
+                        {/* Version Mismatch Alert - skip for dev builds (SHA1 hashes or unknown) */}
+                        {(() => {
+                            const controlPlaneVersion = account.serverConfig?.version;
+                            if (!controlPlaneVersion || !sandboxInstances) return null;
+                            
+                            // Skip alert for dev builds: <unknown> or SHA1 hash (40 hex chars)
+                            if (controlPlaneVersion === "<unknown>") return null;
+                            const isSha1Hash = /^[a-f0-9]{40}$/i.test(controlPlaneVersion);
+                            if (isSha1Hash) return null;
+                            
+                            const mismatchedSandboxes = sandboxInstances.filter(
+                                (s) => s.helix_version && s.status === "online" && s.helix_version !== controlPlaneVersion
+                            );
+                            
+                            if (mismatchedSandboxes.length === 0) return null;
+                            
+                            const formatVersion = (v: string) => v.length > 7 ? v.substring(0, 7) : v;
+                            
+                            return (
+                                <Alert 
+                                    severity="warning" 
+                                    icon={<WarningAmberIcon />}
+                                    sx={{ mb: 2 }}
+                                >
+                                    <strong>Version Mismatch:</strong> {mismatchedSandboxes.length} sandbox{mismatchedSandboxes.length > 1 ? "es" : ""} running different version than control plane (v{formatVersion(controlPlaneVersion)}):
+                                    {" "}
+                                    {mismatchedSandboxes.map((s, i) => (
+                                        <span key={s.id}>
+                                            {i > 0 && ", "}
+                                            <strong>{s.hostname || s.id}</strong> (v{formatVersion(s.helix_version || "unknown")})
+                                        </span>
+                                    ))}
+                                </Alert>
+                            );
+                        })()}
                         {/* Sandbox Selector */}
                         <Box sx={{ mb: 3, display: "flex", alignItems: "center", gap: 2, flexWrap: "wrap" }}>
                             <FormControl size="small" sx={{ minWidth: 400 }}>
@@ -674,12 +341,18 @@ const Dashboard: FC<DashboardProps> = ({ tab = "llm_calls" }) => {
                                     <MenuItem value="">
                                         <em>All Sandboxes</em>
                                     </MenuItem>
-                                    {sandboxInstances?.map((instance) => (
-                                        <MenuItem key={instance.id} value={instance.id}>
-                                            {instance.gpu_vendor ? "🖥️" : "💻"}{" "}
-                                            {instance.hostname || instance.id} ({instance.active_sandboxes || 0}/{instance.max_sandboxes || 10} sessions)
-                                        </MenuItem>
-                                    ))}
+                                    {sandboxInstances?.map((instance) => {
+                                        const version = instance.helix_version;
+                                        const shortVersion = version && version.length > 7 ? version.substring(0, 7) : version;
+                                        return (
+                                            <MenuItem key={instance.id} value={instance.id}>
+                                                {instance.gpu_vendor ? "🖥️" : "💻"}{" "}
+                                                {instance.hostname || instance.id}
+                                                {shortVersion && ` (v${shortVersion})`}
+                                                {" "}- {instance.active_sandboxes || 0}/{instance.max_sandboxes || 10} sessions
+                                            </MenuItem>
+                                        );
+                                    })}
                                 </Select>
                             </FormControl>
                             {sandboxInstances && sandboxInstances.length > 0 && (
@@ -697,14 +370,28 @@ const Dashboard: FC<DashboardProps> = ({ tab = "llm_calls" }) => {
                     </Box>
                 )}
 
-                {tab === "users" && account.admin && (
+                {tab === "users" && account.admin && !selectedUserId && (
                     <Box
                         sx={{
                             width: "100%",
                             p: 2,
                         }}
                     >
-                        <UsersTable />
+                        <UsersTable onSelectUser={(id) => setSelectedUserId(id)} />
+                    </Box>
+                )}
+
+                {tab === "users" && account.admin && selectedUserId && (
+                    <Box
+                        sx={{
+                            width: "100%",
+                            p: 2,
+                        }}
+                    >
+                        <UserDetailPanel
+                            userId={selectedUserId}
+                            onBack={() => setSelectedUserId("")}
+                        />
                     </Box>
                 )}
 

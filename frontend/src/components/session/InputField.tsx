@@ -5,6 +5,7 @@ import IconButton from '@mui/material/IconButton'
 import SendIcon from '@mui/icons-material/Send'
 import Avatar from '@mui/material/Avatar'
 import ContextMenuModal from '../widgets/ContextMenuModal'
+import useLightTheme from '../../hooks/useLightTheme'
 
 interface InputFieldProps {
   initialValue: string;
@@ -35,6 +36,8 @@ const InputField: FC<InputFieldProps> = React.memo(({
   appID,
   onInsertText,
 }) => {
+  const lightTheme = useLightTheme()
+
   // Use completely internal state - don't propagate changes back up to parent
   const [localValue, setLocalValue] = useState(initialValue);
   const [showContextMenu, setShowContextMenu] = useState(false);
@@ -148,7 +151,7 @@ const InputField: FC<InputFieldProps> = React.memo(({
                   onSubmit(currentValue);
                 }}
                 sx={{
-                  color: theme.palette.mode === 'light' ? themeConfig.lightIcon : themeConfig.darkIcon,
+                  color: lightTheme.icon,
                 }}
               >
                 <SendIcon />

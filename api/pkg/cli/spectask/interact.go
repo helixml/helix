@@ -500,14 +500,6 @@ func displayWatchStatus(apiURL, token, sessionID string) {
 	fmt.Printf("\n⏰ Last refresh: %s\n", time.Now().Format("15:04:05"))
 }
 
-// LiveStream represents a combined live view with video + chat
-type LiveStream struct {
-	apiURL    string
-	token     string
-	sessionID string
-	wsConn    *websocket.Conn
-}
-
 func newLiveCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "live <session-id>",

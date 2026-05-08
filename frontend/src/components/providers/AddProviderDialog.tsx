@@ -33,7 +33,8 @@ interface AddProviderDialogProps {
     description: string;
     base_url: string;
     configurable_base_url?: boolean;
-    optional_api_key?: boolean; // If provider doesn't need an API key 
+    optional_api_key?: boolean; // If provider doesn't need an API key
+    is_custom?: boolean; // If true, the user picks the endpoint name
     setup_instructions: string;
   };
   // Only set if we are editing an existing provider
@@ -75,10 +76,13 @@ const AddProviderDialog: React.FC<AddProviderDialogProps> = ({
 
   const [apiKey, setApiKey] = useState('');
   const [baseUrl, setBaseUrl] = useState('');
+  const [customName, setCustomName] = useState('');
+  const [customNameError, setCustomNameError] = useState<string | null>(null);
+  const [modelName, setModelName] = useState('');
   const [showApiKey, setShowApiKey] = useState(false);
   const [isFieldFocused, setIsFieldFocused] = useState(false);
   const { mutateAsync: createProviderEndpoint, isPending: isCreating } = useCreateProviderEndpoint();
-  const { mutateAsync: updateProviderEndpoint, isPending: isUpdating } = useUpdateProviderEndpoint(existingProvider?.id || '');
+  const { mutateAsync: updateProviderEndpoint, isPending: isUpdating } = useUpdateProviderEndpoint();
   const { mutateAsync: deleteProviderEndpoint, isPending: isDeleting } = useDeleteProviderEndpoint();
 
   const { success: snackbarSuccess } = useSnackbar();
@@ -87,8 +91,11 @@ const AddProviderDialog: React.FC<AddProviderDialogProps> = ({
   const isPending = isCreating || isUpdating || isDeleting;
 
   useEffect(() => {
-    setBaseUrl(provider.base_url)
-  }, [provider])
+    setBaseUrl(existingProvider?.base_url ?? provider.base_url)
+    setCustomName(existingProvider?.name ?? '')
+    setCustomNameError(null)
+    setModelName(existingProvider?.models?.[0] ?? '')
+  }, [provider, existingProvider])
 
   // Generate masked API key for display
   const getMaskedApiKey = () => {
@@ -108,6 +115,10 @@ const AddProviderDialog: React.FC<AddProviderDialogProps> = ({
 
   const handleClose = () => {
     setApiKey('');
+    setCustomName('');
+    setCustomNameError(null);
+    setBaseUrlError(null);
+    setModelName('');
     setError(null);
     setIsFieldFocused(false);
     onClose();
@@ -127,10 +138,12 @@ const AddProviderDialog: React.FC<AddProviderDialogProps> = ({
   const handleSubmit = async () => {
     try {
       setError(null);
-      
+      setBaseUrlError(null);
+      setCustomNameError(null);
+
       // For editing, if no new API key is provided, use the existing one
       const apiKeyToUse = isEditing && !apiKey.trim() ? existingProvider?.api_key || '' : apiKey;
-      
+
       if (!apiKeyToUse.trim() && !provider.optional_api_key) {
         setError('API key is required');
         return;
@@ -139,21 +152,50 @@ const AddProviderDialog: React.FC<AddProviderDialogProps> = ({
       if (!baseUrl.trim()) {
         setBaseUrlError('Base URL is required');
         return;
-      }      
+      }
 
-      if (isEditing && existingProvider) {
+      // For brand-new custom providers the user picks the endpoint name.
+      // Existing custom providers keep their name (edits to the name aren't exposed here).
+      let endpointName = provider.id;
+      if (provider.is_custom) {
+        if (isEditing && existingProvider?.name) {
+          endpointName = existingProvider.name;
+        } else {
+          const trimmed = customName.trim();
+          if (!trimmed) {
+            setCustomNameError('Name is required');
+            return;
+          }
+          if (!/^[a-zA-Z0-9._\-/]+$/.test(trimmed)) {
+            setCustomNameError('Use only letters, numbers, and . _ - / characters');
+            return;
+          }
+          endpointName = trimmed;
+        }
+      }
+
+      // Custom providers can pin a single preset model. When set, this is the
+      // only model the endpoint exposes (no /v1/models lookup needed upstream).
+      const trimmedModel = modelName.trim();
+      const presetModels = provider.is_custom && trimmedModel ? [trimmedModel] : undefined;
+
+      if (isEditing && existingProvider?.id) {
         // Update existing provider
         await updateProviderEndpoint({
-          base_url: baseUrl,
-          api_key: apiKeyToUse,
-          endpoint_type: TypesProviderEndpointType.ProviderEndpointTypeUser,
-          description: provider.description,
+          id: existingProvider.id,
+          body: {
+            base_url: baseUrl,
+            api_key: apiKeyToUse,
+            endpoint_type: TypesProviderEndpointType.ProviderEndpointTypeUser,
+            description: provider.description,
+            ...(provider.is_custom ? { models: presetModels ?? [] } : {}),
+          },
         });
         snackbarSuccess('Provider updated successfully');
       } else {
         // Create new provider
         await createProviderEndpoint({
-          name: provider.id,
+          name: endpointName,
           base_url: baseUrl,
           api_key: apiKey,
           endpoint_type: TypesProviderEndpointType.ProviderEndpointTypeUser,
@@ -161,6 +203,7 @@ const AddProviderDialog: React.FC<AddProviderDialogProps> = ({
           // If we are in an org context, set the owner to the org
           owner: orgId || '',
           owner_type: orgId ? TypesOwnerType.OwnerTypeOrg : TypesOwnerType.OwnerTypeUser,
+          ...(presetModels ? { models: presetModels } : {}),
         });
         snackbarSuccess('Provider connected successfully');
       }
@@ -193,6 +236,10 @@ const AddProviderDialog: React.FC<AddProviderDialogProps> = ({
       TransitionProps={{
         onExited: () => {
           setApiKey('');
+          setCustomName('');
+          setCustomNameError(null);
+          setBaseUrlError(null);
+          setModelName('');
           setError(null);
           setIsFieldFocused(false);
           onClosed?.();
@@ -209,6 +256,24 @@ const AddProviderDialog: React.FC<AddProviderDialogProps> = ({
           </DescriptionTypography>
 
           <SectionCard>
+            { provider.is_custom && !isEditing ? (
+            <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+              <Typography variant="body2" sx={{ minWidth: 80, mr: 2, color: 'text.primary', fontWeight: 500 }}>
+                Name
+              </Typography>
+              <TextField
+                fullWidth
+                value={customName}
+                onChange={(e) => setCustomName(e.target.value)}
+                placeholder="my-provider"
+                type="text"
+                autoComplete="off"
+                error={!!customNameError}
+                helperText={customNameError || 'A unique identifier for this provider (letters, numbers, . _ - /).'}
+                sx={{ flex: 1 }}
+              />
+            </Box>
+            ) : null}
             { provider.configurable_base_url ? ( <>
             <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
               <Typography variant="body2" sx={{ minWidth: 80, mr: 2, color: 'text.primary', fontWeight: 500 }}>
@@ -218,7 +283,8 @@ const AddProviderDialog: React.FC<AddProviderDialogProps> = ({
                 fullWidth
                 value={baseUrl}
                 onChange={(e) => setBaseUrl(e.target.value)}
-                type="test"
+                placeholder="https://api.example.com/v1"
+                type="text"
                 autoComplete="base-url"
                 error={!!baseUrlError}
                 helperText={baseUrlError}
@@ -226,6 +292,23 @@ const AddProviderDialog: React.FC<AddProviderDialogProps> = ({
               />
             </Box>
             </>) : (<></>)}
+            { provider.is_custom ? (
+            <Box sx={{ display: 'flex', alignItems: 'flex-start', mb: 2 }}>
+              <Typography variant="body2" sx={{ minWidth: 80, mr: 2, mt: 1, color: 'text.primary', fontWeight: 500 }}>
+                Model
+              </Typography>
+              <TextField
+                fullWidth
+                value={modelName}
+                onChange={(e) => setModelName(e.target.value)}
+                placeholder="hermes-agent"
+                type="text"
+                autoComplete="off"
+                helperText="Optional. If your endpoint doesn't list models at /v1/models, set the model name here so it shows up in the picker and can be called via the API."
+                sx={{ flex: 1 }}
+              />
+            </Box>
+            ) : null}
             <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
               <Typography variant="body2" sx={{ minWidth: 80, mr: 2, color: 'text.primary', fontWeight: 500 }}>
                 API Key
@@ -277,7 +360,7 @@ const AddProviderDialog: React.FC<AddProviderDialogProps> = ({
           </SectionCard>
         </Box>
       </DialogContent>
-      <DialogActions sx={{ background: '#181A20', borderTop: '1px solid #23262F', flexDirection: 'column', alignItems: 'stretch' }}>
+      <DialogActions sx={{ background: lightTheme.panelColor, borderTop: lightTheme.border, flexDirection: 'column', alignItems: 'stretch' }}>
         {error && (
           <Box sx={{ width: '100%', pl: 2, pr: 2, mb: 3 }}>
             <Alert variant="outlined" severity="error" sx={{ width: '100%' }}>

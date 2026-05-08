@@ -1,12 +1,14 @@
 package spa
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/rs/zerolog/log"
 )
@@ -91,11 +93,53 @@ func NewSPAReverseProxyServer(frontend string) *ReverseProxyServer {
 		}
 	}
 
+	// Log upstream errors (connection failures, upstream error responses)
+	reverseProxy.ErrorHandler = func(w http.ResponseWriter, req *http.Request, err error) {
+		log.Error().
+			Err(err).
+			Str("path", req.URL.Path).
+			Str("method", req.Method).
+			Msg("spa reverse proxy: upstream error")
+		w.WriteHeader(http.StatusBadGateway)
+	}
+
+	// Log every response from the upstream, capturing status code and duration
+	reverseProxy.ModifyResponse = func(resp *http.Response) error {
+		if resp.StatusCode >= 400 {
+			log.Warn().
+				Int("status", resp.StatusCode).
+				Str("path", resp.Request.URL.Path).
+				Str("upstream", fmt.Sprintf("%s://%s", u.Scheme, u.Host)).
+				Msg("spa reverse proxy: upstream returned error status")
+		}
+		return nil
+	}
+
 	return &ReverseProxyServer{
 		reverseProxy: reverseProxy,
 	}
 }
 
 func (s *ReverseProxyServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	s.reverseProxy.ServeHTTP(w, r)
+	start := time.Now()
+	rw := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+	s.reverseProxy.ServeHTTP(rw, r)
+	if rw.status >= 400 {
+		log.Warn().
+			Int("status", rw.status).
+			Str("path", r.URL.Path).
+			Dur("duration", time.Since(start)).
+			Msg("spa reverse proxy: non-2xx response to client")
+	}
+}
+
+// statusRecorder wraps ResponseWriter to capture the written status code
+type statusRecorder struct {
+	http.ResponseWriter
+	status int
+}
+
+func (r *statusRecorder) WriteHeader(code int) {
+	r.status = code
+	r.ResponseWriter.WriteHeader(code)
 }

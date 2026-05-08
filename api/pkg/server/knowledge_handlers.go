@@ -149,46 +149,24 @@ func (s *HelixAPIServer) deleteKnowledge(_ http.ResponseWriter, r *http.Request)
 func (s *HelixAPIServer) deleteKnowledgeAndVersions(k *types.Knowledge) error {
 	ctx := context.Background()
 
-	versions, err := s.Store.ListKnowledgeVersions(ctx, &store.ListKnowledgeVersionQuery{
-		KnowledgeID: k.ID,
-	})
-	if err != nil {
-		return err
-	}
-
-	// Get rag client
+	// All versions of this knowledge share the same data_entity, so a single
+	// RAG Delete tears down the kodit repo + data_entity row in one go.
 	ragClient, err := s.Controller.GetRagClient(ctx, k)
 	if err != nil {
 		log.Error().Err(err).Msg("error getting rag client")
 	} else {
-		err = ragClient.Delete(ctx, &types.DeleteIndexRequest{
+		if err := ragClient.Delete(ctx, &types.DeleteIndexRequest{
 			DataEntityID: k.GetDataEntityID(),
-		})
-		if err != nil {
+		}); err != nil {
 			log.Warn().
 				Err(err).
 				Str("knowledge_id", k.ID).
 				Str("data_entity_id", k.GetDataEntityID()).
-				Msg("error deleting knowledge")
+				Msg("error deleting knowledge rag state")
 		}
 	}
 
-	// Delete all versions from the store
-	for _, version := range versions {
-		err = ragClient.Delete(ctx, &types.DeleteIndexRequest{
-			DataEntityID: version.GetDataEntityID(),
-		})
-		if err != nil {
-			log.Warn().
-				Err(err).
-				Str("knowledge_id", k.ID).
-				Str("data_entity_id", k.GetDataEntityID()).
-				Msg("error deleting knowledge version")
-		}
-	}
-
-	err = s.Store.DeleteKnowledge(ctx, k.ID)
-	if err != nil {
+	if err := s.Store.DeleteKnowledge(ctx, k.ID); err != nil {
 		return err
 	}
 

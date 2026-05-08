@@ -1,4 +1,4 @@
-import React, { FC, useState, useCallback, useMemo } from 'react'
+import React, { FC, useCallback, useMemo } from 'react'
 import {
   Box,
   Typography,
@@ -7,7 +7,6 @@ import {
   CircularProgress,
   Paper,
   Grid,
-  TextField,
   Card,
   CardContent,
   Divider,
@@ -35,11 +34,8 @@ import {
   useAdminKoditRepositoryTasks,
   useAdminSyncKoditRepository,
   useAdminRescanKoditRepository,
+  useAdminKoditRepoEnrichments,
 } from '../../services/koditAdminService'
-import {
-  useKoditSearch,
-  useKoditEnrichments,
-} from '../../services/koditService'
 
 const statusColor: Record<string, 'success' | 'warning' | 'error' | 'default' | 'info'> = {
   cloned: 'success',
@@ -92,9 +88,6 @@ interface KoditAdminRepoDetailProps {
 const KoditAdminRepoDetail: FC<KoditAdminRepoDetailProps> = ({ koditRepoId, onBack }) => {
   const account = useAccount()
   const snackbar = useSnackbar()
-  const [searchQuery, setSearchQuery] = useState('')
-  const [activeSearch, setActiveSearch] = useState('')
-
   const { data, isLoading, error } = useAdminKoditRepositoryDetail(koditRepoId)
   const { data: tasksData } = useAdminKoditRepositoryTasks(koditRepoId)
   const syncMutation = useAdminSyncKoditRepository()
@@ -103,16 +96,9 @@ const KoditAdminRepoDetail: FC<KoditAdminRepoDetailProps> = ({ koditRepoId, onBa
   const attrs = data?.data?.attributes
   const helixRepoId = attrs?.helix_repo_id || ''
 
-  // Enrichments for this repo (if we have a Helix repo ID to cross-reference)
-  const enrichmentsQuery = useKoditEnrichments(helixRepoId, undefined, {
-    enabled: !!helixRepoId,
-    refetchInterval: false,
-  })
-
-  // Search (if we have a Helix repo ID)
-  const searchResults = useKoditSearch(helixRepoId, activeSearch, undefined, undefined, {
-    enabled: !!helixRepoId && !!activeSearch,
-  })
+  // Enrichments use admin endpoints keyed by kodit repo ID
+  // (works for both git repos and knowledge-based repos)
+  const enrichmentsQuery = useAdminKoditRepoEnrichments(koditRepoId)
 
   const handleBack = useCallback(() => {
     if (onBack) {
@@ -133,10 +119,6 @@ const KoditAdminRepoDetail: FC<KoditAdminRepoDetailProps> = ({ koditRepoId, onBa
       onError: (err) => snackbar.error(`Rescan failed: ${err.message}`),
     })
   }, [koditRepoId, rescanMutation, snackbar])
-
-  const handleSearch = useCallback(() => {
-    setActiveSearch(searchQuery)
-  }, [searchQuery])
 
   const taskSummary = useMemo(() => {
     const statuses = tasksData?.statuses || []
@@ -253,8 +235,13 @@ const KoditAdminRepoDetail: FC<KoditAdminRepoDetailProps> = ({ koditRepoId, onBa
             <Typography variant="body2">{attrs.default_branch || '-'}</Typography>
           </Grid>
           <Grid item xs={6}>
-            <Typography variant="caption" color="text.secondary">Helix Repository</Typography>
-            <Typography variant="body2">{attrs.helix_repo_name || '-'}</Typography>
+            <Typography variant="caption" color="text.secondary">Organization</Typography>
+            <Typography variant="body2">{attrs.helix_org_name || '-'}</Typography>
+            {attrs.helix_org_id && (
+              <Typography variant="caption" color="text.secondary" sx={{ fontFamily: 'monospace' }}>
+                {attrs.helix_org_id}
+              </Typography>
+            )}
           </Grid>
           <Grid item xs={6}>
             <Typography variant="caption" color="text.secondary">Helix Repository ID</Typography>
@@ -441,57 +428,8 @@ const KoditAdminRepoDetail: FC<KoditAdminRepoDetailProps> = ({ koditRepoId, onBa
         </Accordion>
       )}
 
-      {/* Search Test Panel */}
-      {helixRepoId && (
-        <Box sx={{ mb: 3 }}>
-          <Typography variant="subtitle1" gutterBottom>Search Test</Typography>
-          <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
-            <TextField
-              size="small"
-              placeholder="Search code snippets..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-              sx={{ flex: 1 }}
-            />
-            <Button variant="contained" onClick={handleSearch} disabled={!searchQuery}>
-              Search
-            </Button>
-          </Box>
-          {searchResults.isLoading && <CircularProgress size={20} />}
-          {searchResults.data && Array.isArray(searchResults.data) && searchResults.data.length > 0 && (
-            <Paper variant="outlined" sx={{ maxHeight: 400, overflow: 'auto' }}>
-              {searchResults.data.map((result: any, i: number) => (
-                <Box key={result.id || i} sx={{ p: 2, borderBottom: '1px solid', borderColor: 'divider' }}>
-                  <Box sx={{ display: 'flex', gap: 1, mb: 1 }}>
-                    <Chip label={result.type} size="small" />
-                    {result.language && <Chip label={result.language} size="small" variant="outlined" />}
-                  </Box>
-                  <Typography
-                    variant="body2"
-                    component="pre"
-                    sx={{
-                      whiteSpace: 'pre-wrap',
-                      fontFamily: 'monospace',
-                      fontSize: '0.75rem',
-                      maxHeight: 200,
-                      overflow: 'auto',
-                    }}
-                  >
-                    {result.content}
-                  </Typography>
-                </Box>
-              ))}
-            </Paper>
-          )}
-          {searchResults.data && Array.isArray(searchResults.data) && searchResults.data.length === 0 && activeSearch && (
-            <Typography variant="body2" color="text.secondary">No results found</Typography>
-          )}
-        </Box>
-      )}
-
       {/* Enrichments Preview */}
-      {helixRepoId && enrichmentsQuery.data && (
+      {koditRepoId && enrichmentsQuery.data && (
         <Box>
           <Typography variant="subtitle1" gutterBottom>
             Enrichments Preview ({(enrichmentsQuery.data as any)?.data?.length || 0})

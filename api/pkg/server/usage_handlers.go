@@ -80,9 +80,14 @@ func (s *HelixAPIServer) getUsage(_ http.ResponseWriter, r *http.Request) ([]*ty
 		}
 	}
 
+	usageUserID := user.ID
+	if orgID != "" {
+		usageUserID = ""
+	}
+
 	metrics, err := s.Store.GetAggregatedUsageMetrics(r.Context(), &store.GetAggregatedUsageMetricsQuery{
 		AggregationLevel: aggregationLevel,
-		UserID:           user.ID,
+		UserID:           usageUserID,
 		OrganizationID:   orgID,
 		ProjectID:        projectID,
 		SpecTaskID:       specTaskID,
@@ -92,8 +97,42 @@ func (s *HelixAPIServer) getUsage(_ http.ResponseWriter, r *http.Request) ([]*ty
 	if err != nil {
 		return nil, system.NewHTTPError500(err.Error())
 	}
+	if orgID != "" && projectID == "" && specTaskID == "" {
+		sandboxMetrics, err := s.Store.GetSandboxUsageMetrics(r.Context(), &store.GetAggregatedUsageMetricsQuery{
+			AggregationLevel: aggregationLevel,
+			OrganizationID:   orgID,
+			From:             from,
+			To:               to,
+		})
+		if err != nil {
+			return nil, system.NewHTTPError500(err.Error())
+		}
+		mergeSandboxUsageCosts(metrics, sandboxMetrics)
+	}
 
 	return metrics, nil
+}
+
+func mergeSandboxUsageCosts(metrics []*types.AggregatedUsageMetric, sandboxMetrics []*types.AggregatedUsageMetric) {
+	byDate := make(map[time.Time]*types.AggregatedUsageMetric, len(metrics))
+	for _, metric := range metrics {
+		if metric == nil {
+			continue
+		}
+		byDate[metric.Date] = metric
+	}
+	for _, sandboxMetric := range sandboxMetrics {
+		if sandboxMetric == nil || sandboxMetric.SandboxCost == 0 {
+			continue
+		}
+		metric, ok := byDate[sandboxMetric.Date]
+		if !ok {
+			continue
+		}
+		metric.SandboxCost += sandboxMetric.SandboxCost
+		metric.TotalCost += sandboxMetric.SandboxCost
+		metric.TotalRequests += sandboxMetric.TotalRequests
+	}
 }
 
 // getSpecTaskUsage godoc
@@ -217,7 +256,7 @@ type BatchTaskUsageMetric struct {
 }
 
 type BatchTaskUsageResponse struct {
-	ProjectID string                          `json:"project_id"`
+	ProjectID string                            `json:"project_id"`
 	Tasks     map[string][]BatchTaskUsageMetric `json:"tasks"` // keyed by task_id
 }
 
@@ -306,7 +345,7 @@ func (s *HelixAPIServer) getBatchTaskUsage(w http.ResponseWriter, r *http.Reques
 			to := time.Now()
 
 			metrics, err := s.Store.GetAggregatedUsageMetrics(ctx, &store.GetAggregatedUsageMetricsQuery{
-				AggregationLevel: store.AggregationLevelDaily,
+				AggregationLevel: store.AggregationLevelHourly,
 				UserID:           user.ID,
 				ProjectID:        projectID,
 				SpecTaskID:       t.ID,

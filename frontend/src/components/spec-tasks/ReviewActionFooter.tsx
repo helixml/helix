@@ -9,10 +9,13 @@ interface ReviewActionFooterProps {
   implementationStarted: boolean // True if task is already in implementation phase
   isBlockedByDependencies?: boolean
   blockedReason?: string
+  allTabsViewed?: boolean
+  hasNextDocument?: boolean
   onApprove: () => void
   onRequestChanges: () => void
   onReject: () => void
   onStartImplementation: () => void
+  onNextDocument?: () => void
 }
 
 export default function ReviewActionFooter({
@@ -22,10 +25,13 @@ export default function ReviewActionFooter({
   implementationStarted,
   isBlockedByDependencies = false,
   blockedReason = '',
+  allTabsViewed = true,
+  hasNextDocument = false,
   onApprove,
   onRequestChanges,
   onReject,
   onStartImplementation,
+  onNextDocument,
 }: ReviewActionFooterProps) {
   return (
     <Box
@@ -89,14 +95,24 @@ export default function ReviewActionFooter({
           >
             Request Changes
           </Button>
-          <Button
-            variant="contained"
-            color="success"
-            onClick={onApprove}
-            disabled={unresolvedCount > 0}
-          >
-            Approve Design
-          </Button>
+          {hasNextDocument && unresolvedCount === 0 ? (
+            <Button
+              variant="contained"
+              color="primary"
+              onClick={onNextDocument}
+            >
+              Next Document
+            </Button>
+          ) : (
+            <Button
+              variant="contained"
+              color="success"
+              onClick={onApprove}
+              disabled={unresolvedCount > 0 || !allTabsViewed}
+            >
+              Approve Design
+            </Button>
+          )}
         </>
       ) : (
         <Alert severity="info" sx={{ flex: 1 }}>

@@ -50,6 +50,8 @@ import LinkIcon from "@mui/icons-material/Link";
 import ArchiveIcon from "@mui/icons-material/Archive";
 import AccountTree from "@mui/icons-material/AccountTree";
 import UndoIcon from "@mui/icons-material/Undo";
+import LockIcon from "@mui/icons-material/Lock";
+import LockOpenIcon from "@mui/icons-material/LockOpen";
 import { TypesSpecTaskPriority, TypesSpecTaskStatus } from "../../api/api";
 import ExternalAgentDesktopViewer, {
   useSandboxState,
@@ -61,6 +63,9 @@ import useSnackbar from "../../hooks/useSnackbar";
 import useAccount from "../../hooks/useAccount";
 import useApi from "../../hooks/useApi";
 import useRouter from "../../hooks/useRouter";
+import { useOAuthFlow } from "../../hooks/useOAuthFlow";
+import { useListOAuthProviders } from "../../services/oauthProvidersService";
+import { findOAuthProviderForType } from "../../utils/oauthProviders";
 import { getBrowserLocale } from "../../hooks/useBrowserLocale";
 import useApps from "../../hooks/useApps";
 import { useStreaming } from "../../contexts/streaming";
@@ -85,11 +90,13 @@ import {
   useGetProjectRepositories,
 } from "../../services/projectService";
 import { useMoveToBacklog } from "../../services/specTaskWorkflowService";
+import { getUserById } from "../../services/userService";
 import CloneTaskDialog from "../specTask/CloneTaskDialog";
 import AgentDropdown from "../agent/AgentDropdown";
 import CloneGroupProgressFull from "../specTask/CloneGroupProgress";
 import ArchiveConfirmDialog from "./ArchiveConfirmDialog";
 import RobustPromptInput from "../common/RobustPromptInput";
+import { optimisticallyMarkSessionStarting } from "../../utils/optimisticSessionStarting";
 import EmbeddedSessionView, {
   EmbeddedSessionViewHandle,
 } from "../session/EmbeddedSessionView";
@@ -99,6 +106,7 @@ import {
   Separator as PanelResizeHandle,
 } from "react-resizable-panels";
 import useIsBigScreen from "../../hooks/useIsBigScreen";
+import useLightTheme from "../../hooks/useLightTheme";
 import { useClaudeSubscriptions } from "../account/ClaudeSubscriptionConnect";
 import ClaudeSubscriptionConnect from "../account/ClaudeSubscriptionConnect";
 import { getTokenExpiryStatus } from "../account/claudeSubscriptionUtils";
@@ -158,8 +166,17 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   const moveToBacklogMutation = useMoveToBacklog(taskId);
   const queryClient = useQueryClient();
   const router = useRouter();
+
+  // OAuth flow is needed when a user without GitHub OAuth tries to start
+  // planning — the backend returns 422 with error=oauth_required, and we
+  // drop them into the GitHub connect flow before they retry.
+  const { startOAuthFlow } = useOAuthFlow();
+  const { data: oauthProviders } = useListOAuthProviders();
+  const gitHubProvider = findOAuthProviderForType(oauthProviders, "github");
+
   // Use md breakpoint (900px) to enable split view on tablets
   const isBigScreen = useIsBigScreen({ breakpoint: "md" });
+  const lightTheme = useLightTheme();
 
   // Fetch task data
   const { data: task } = useSpecTask(taskId, {
@@ -171,6 +188,13 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     withDependsOn: true,
     enabled: !!task?.project_id,
   });
+
+  const { data: taskAuthor } = getUserById(task?.created_by || "", !!task?.created_by);
+  const authorDisplay =
+    taskAuthor?.full_name ||
+    taskAuthor?.username ||
+    taskAuthor?.email ||
+    task?.created_by;
 
   // Label state
   const { data: projectLabels = [] } = useProjectLabels(
@@ -312,7 +336,11 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     ) {
       return viewParam;
     }
-    return "desktop";
+    // On mobile (below md breakpoint / 900px), default to chat view
+    // since the desktop stream is less useful on small screens.
+    // This matches the breakpoint used for split-view switching (isBigScreen).
+    const isMobile = window.matchMedia("(max-width: 899.95px)").matches;
+    return isMobile ? "chat" : "desktop";
   };
   const [currentView, setCurrentView] = useState<
     "chat" | "desktop" | "changes" | "details"
@@ -521,6 +549,13 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     isStarting: isDesktopStarting,
   } = useSandboxState(activeSessionId || "");
 
+  // When the task is queued for planning, the backend hasn't created the session yet (or the
+  // planning_session_id still points to a previously-stopped session). In either case, suppress
+  // the "paused/stopped" UI and treat the desktop as starting so the user sees "Starting Desktop"
+  // immediately after clicking "Start Planning" rather than a confusing flash of the stopped state.
+  const isQueuedForPlanning = task?.status === "queued_spec_generation";
+  const effectiveIsDesktopPaused = isDesktopPaused && !isQueuedForPlanning;
+
   // Subscribe to WebSocket updates for the active session when chat is visible
   // On big screens: chat is visible unless collapsed
   // On mobile: chat is visible when currentView === 'chat'
@@ -534,6 +569,15 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
       streaming.setCurrentSessionId(null);
     }
   }, [activeSessionId, isChatVisible]);
+
+  // Optimistic UI hook fired the moment the user hits Send: flips the cached
+  // session config to external_agent_status="starting" so a paused desktop
+  // shows the spinner immediately instead of waiting up to 3s for the next
+  // session poll. Polling reconciles to the authoritative backend value.
+  const handleWillSend = useCallback(() => {
+    if (!activeSessionId) return;
+    optimisticallyMarkSessionStarting(queryClient, activeSessionId);
+  }, [queryClient, activeSessionId]);
 
   // Default to appropriate view based on session state and screen size
   useEffect(() => {
@@ -633,6 +677,37 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
       });
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
+        // Backend returns 422 + oauth_required when the planner has no
+        // GitHub OAuth connection. Drop into the connect flow so the user
+        // can retry without hitting a dead-end error.
+        if (
+          response.status === 422 &&
+          errorData?.error === "oauth_required"
+        ) {
+          if (gitHubProvider?.id) {
+            snackbar.info("Connect GitHub to start planning this task.");
+            startOAuthFlow({
+              providerId: gitHubProvider.id,
+              scopes: ["repo"],
+              onSuccess: () => {
+                snackbar.success(
+                  "GitHub connected. Click Start Planning again to continue.",
+                );
+              },
+              onError: (oauthError) => {
+                snackbar.error(`GitHub connection failed: ${oauthError}`);
+              },
+            });
+          } else {
+            // No GitHub provider is configured system-wide. The backend's
+            // error message is PR-centric and actionless for this user, so
+            // override it with admin-direction guidance.
+            snackbar.error(
+              "GitHub OAuth is not configured on this Helix instance. Ask your administrator to set it up before starting planning.",
+            );
+          }
+          return;
+        }
         throw new Error(
           errorData.error ||
             errorData.message ||
@@ -723,6 +798,27 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
       setIsStarting(false);
     }
   }, [activeSessionId, isStarting, api, snackbar, queryClient]);
+
+  // Toggle keep alive (prevent auto-idle-shutdown)
+  const handleToggleKeepAlive = useCallback(async () => {
+    if (!task?.id) return;
+
+    const newValue = !task.keep_alive;
+    try {
+      await updateSpecTask.mutateAsync({
+        taskId: task.id,
+        updates: { keep_alive: newValue },
+      });
+      snackbar.success(
+        newValue
+          ? "Keep Alive enabled — container won't auto-sleep"
+          : "Keep Alive disabled — container will auto-sleep when idle",
+      );
+    } catch (err) {
+      console.error("Failed to toggle Keep Alive:", err);
+      snackbar.error("Failed to toggle Keep Alive");
+    }
+  }, [task?.id, task?.keep_alive, updateSpecTask, snackbar]);
 
   // Toggle Just Do It mode
   const handleToggleJustDoIt = useCallback(async () => {
@@ -1318,7 +1414,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
       <Box sx={{ mt: 3 }}>
         {task?.created_by && (
           <Typography variant="caption" color="text.secondary" display="block">
-            Author: {task.created_by}
+            Author: {authorDisplay}
           </Typography>
         )}
         <Typography variant="caption" color="text.secondary" display="block">
@@ -1441,10 +1537,10 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
 
       {/* Debug Info */}
       <Divider sx={{ my: 2 }} />
-      <Box sx={{ mt: 2, p: 2, bgcolor: "grey.900", borderRadius: 1 }}>
+      <Box sx={{ mt: 2, p: 2, bgcolor: lightTheme.isLight ? "grey.100" : "grey.900", borderRadius: 1 }}>
         <Typography
           variant="caption"
-          color="grey.400"
+          color={lightTheme.isLight ? "grey.700" : "grey.400"}
           display="block"
           gutterBottom
         >
@@ -1452,14 +1548,14 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
         </Typography>
         <Typography
           variant="caption"
-          color="grey.300"
+          color={lightTheme.isLight ? "grey.800" : "grey.300"}
           sx={{ fontFamily: "monospace", display: "block" }}
         >
           Task ID: {task?.id || "N/A"}
         </Typography>
         <Typography
           variant="caption"
-          color="grey.300"
+          color={lightTheme.isLight ? "grey.800" : "grey.300"}
           sx={{ fontFamily: "monospace", display: "block" }}
         >
           Task #:{" "}
@@ -1471,7 +1567,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
           <Tooltip title="Spectask branches push changes to upstream repository">
             <Typography
               variant="caption"
-              color="grey.300"
+              color={lightTheme.isLight ? "grey.800" : "grey.300"}
               sx={{ fontFamily: "monospace", display: "block" }}
             >
               Branch: {task.branch_name}{" "}
@@ -1485,7 +1581,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
           <Tooltip title="Base branch pulls updates from upstream repository">
             <Typography
               variant="caption"
-              color="grey.300"
+              color={lightTheme.isLight ? "grey.800" : "grey.300"}
               sx={{ fontFamily: "monospace", display: "block" }}
             >
               Base: {task.base_branch}{" "}
@@ -1497,7 +1593,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
         )}
         <Typography
           variant="caption"
-          color="grey.300"
+          color={lightTheme.isLight ? "grey.800" : "grey.300"}
           sx={{ fontFamily: "monospace", display: "block" }}
         >
           Specs Folder: {task?.design_doc_path || "N/A"}
@@ -1505,7 +1601,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
         {activeSessionId && (
           <Typography
             variant="caption"
-            color="grey.300"
+            color={lightTheme.isLight ? "grey.800" : "grey.300"}
             sx={{ fontFamily: "monospace", display: "block" }}
           >
             Session ID: {activeSessionId}
@@ -1514,7 +1610,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
         {sessionData?.config?.sway_version && (
           <Typography
             variant="caption"
-            color="grey.300"
+            color={lightTheme.isLight ? "grey.800" : "grey.300"}
             sx={{ fontFamily: "monospace", display: "block" }}
           >
             Desktop: {sessionData.config.sway_version}
@@ -1523,7 +1619,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
         {sessionData?.config?.gpu_vendor && (
           <Typography
             variant="caption"
-            color="grey.300"
+            color={lightTheme.isLight ? "grey.800" : "grey.300"}
             sx={{ fontFamily: "monospace", display: "block" }}
           >
             GPU: {sessionData.config.gpu_vendor.toUpperCase()}
@@ -1532,7 +1628,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
         {sessionData?.config?.render_node && (
           <Typography
             variant="caption"
-            color="grey.300"
+            color={lightTheme.isLight ? "grey.800" : "grey.300"}
             sx={{ fontFamily: "monospace", display: "block" }}
           >
             Render: {sessionData.config.render_node}
@@ -1884,6 +1980,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                         interrupt: interrupt ?? true,
                       });
                     }}
+                    onWillSend={handleWillSend}
                     onHeightChange={() =>
                       sessionViewRef.current?.scrollToBottom()
                     }
@@ -1897,7 +1994,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
             <PanelResizeHandle
               style={{
                 width: 6,
-                background: "rgba(255, 255, 255, 0.08)",
+                background: lightTheme.isLight ? 'rgba(0, 0, 0, 0.06)' : 'rgba(255, 255, 255, 0.08)',
                 cursor: "col-resize",
                 transition: "background 0.15s",
               }}
@@ -1907,7 +2004,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                   width: 2,
                   height: "100%",
                   margin: "0 auto",
-                  background: "rgba(255, 255, 255, 0.12)",
+                  background: lightTheme.isLight ? 'rgba(0, 0, 0, 0.12)' : 'rgba(255, 255, 255, 0.12)',
                   borderRadius: 1,
                 }}
               />
@@ -2015,6 +2112,8 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                       archived: task.archived,
                       just_do_it_mode: justDoItMode,
                       planning_session_id: task.planning_session_id,
+                      metadata: task.metadata as { error?: string },
+                      last_push_at: task.last_push_at,
                     }}
                     variant="inline"
                     onStartPlanning={handleStartPlanning}
@@ -2029,6 +2128,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                     hasExternalRepo={projectRepositories.some(
                       (r) => r.is_external || r.external_type || r.external_url,
                     )}
+                    externalRepoType={projectRepositories.find((r) => r.external_type)?.external_type}
                     isStartingPlanning={isStartingPlanning}
                     isArchiving={isArchiving}
                   />
@@ -2095,7 +2195,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                           </Tooltip>
                         )}
                         {/* Show Start button when desktop is paused */}
-                        {isDesktopPaused && (
+                        {effectiveIsDesktopPaused && (
                           <Tooltip title="Start desktop">
                             <IconButton
                               size="small"
@@ -2145,6 +2245,33 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                             </IconButton>
                           </Tooltip>
                         )}
+                        {/* Show Keep Alive toggle when desktop is running */}
+                        {isDesktopRunning && (
+                          <Tooltip
+                            title={
+                              task.keep_alive
+                                ? "Keep Alive ON — won't auto-sleep"
+                                : "Keep Alive OFF — will auto-sleep when idle"
+                            }
+                          >
+                            <IconButton
+                              size="small"
+                              onClick={handleToggleKeepAlive}
+                              disabled={updateSpecTask.isPending}
+                              sx={{
+                                color: task.keep_alive
+                                  ? "success.main"
+                                  : "text.secondary",
+                              }}
+                            >
+                              {task.keep_alive ? (
+                                <LockIcon sx={{ fontSize: 18 }} />
+                              ) : (
+                                <LockOpenIcon sx={{ fontSize: 18 }} />
+                              )}
+                            </IconButton>
+                          </Tooltip>
+                        )}
                         {/* Show Upload button only when desktop is running */}
                         {isDesktopRunning && (
                           <Tooltip title="Upload files to sandbox">
@@ -2172,7 +2299,9 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                   </Box>
                 </Box>
 
-                {currentView === "desktop" &&
+                {/* In split-view layout, "chat" falls through to desktop since chat
+                    is already visible in the left panel */}
+                {(currentView === "desktop" || currentView === "chat") &&
                   (isTaskCompleted && isDesktopPaused ? (
                     <Box
                       sx={{
@@ -2246,6 +2375,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                       displayHeight={displaySettings.height}
                       displayFps={displaySettings.fps}
                       startupErrorMessage={taskMetadataError}
+                      initialSandboxState={isQueuedForPlanning ? "starting" : undefined}
                     />
                   ))}
                 {currentView === "changes" && (
@@ -2393,6 +2523,8 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                   archived: task.archived,
                   just_do_it_mode: justDoItMode,
                   planning_session_id: task.planning_session_id,
+                  metadata: task.metadata as { error?: string },
+                  last_push_at: task.last_push_at,
                 }}
                 variant="inline"
                 onStartPlanning={handleStartPlanning}
@@ -2407,6 +2539,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                 hasExternalRepo={projectRepositories.some(
                   (r) => r.is_external || r.external_type || r.external_url,
                 )}
+                externalRepoType={projectRepositories.find((r) => r.external_type)?.external_type}
                 isStartingPlanning={isStartingPlanning}
                 isArchiving={isArchiving}
               />
@@ -2477,7 +2610,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                       </Tooltip>
                     )}
                     {/* Show Start button when desktop is paused */}
-                    {activeSessionId && isDesktopPaused && (
+                    {activeSessionId && effectiveIsDesktopPaused && (
                       <Tooltip title="Start desktop">
                         <IconButton
                           size="small"
@@ -2646,6 +2779,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                           interrupt: interrupt ?? true,
                         });
                       }}
+                      onWillSend={handleWillSend}
                       onHeightChange={() =>
                         sessionViewRef.current?.scrollToBottom()
                       }
@@ -2733,6 +2867,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                     displayHeight={displaySettings.height}
                     displayFps={displaySettings.fps}
                     startupErrorMessage={taskMetadataError}
+                    initialSandboxState={isQueuedForPlanning ? "starting" : undefined}
                   />
                 )}
               </Box>

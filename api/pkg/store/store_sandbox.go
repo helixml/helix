@@ -9,8 +9,8 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 )
 
-// RegisterSandbox registers a new sandbox instance or updates an existing one
-func (s *PostgresStore) RegisterSandbox(ctx context.Context, instance *types.SandboxInstance) error {
+// RegisterSandboxInstance registers a new sandbox instance or updates an existing one
+func (s *PostgresStore) RegisterSandboxInstance(ctx context.Context, instance *types.SandboxInstance) error {
 	// Use upsert to handle reconnecting sandboxes
 	return s.gdb.WithContext(ctx).Save(instance).Error
 }
@@ -25,9 +25,43 @@ func (s *PostgresStore) UpdateSandboxHeartbeat(ctx context.Context, id string, r
 		"privileged_mode": req.PrivilegedModeEnabled,
 	}
 
+	// Store helix version if provided
+	if req.HelixVersion != "" {
+		updates["helix_version"] = req.HelixVersion
+	}
+
 	// Store desktop versions as JSON if provided
 	if len(req.DesktopVersions) > 0 {
 		updates["desktop_versions"] = req.DesktopVersions
+	}
+
+	// Sandbox-absorbs-runner: persist GPU inventory and inference subsystem
+	// state from the heartbeat. GPUs is a jsonb column carrying the rich
+	// per-GPU info (vendor, arch, VRAM) that the inference router uses
+	// for the profile-compatibility check.
+	if len(req.GPUs) > 0 {
+		gpusJSON, err := json.Marshal(req.GPUs)
+		if err == nil {
+			updates["gpus"] = gpusJSON
+		}
+	}
+	if req.ProfileStatus != "" {
+		updates["profile_status"] = req.ProfileStatus
+	}
+	if req.ProfileError != "" {
+		updates["profile_error"] = req.ProfileError
+	}
+	if len(req.ServiceHealth) > 0 {
+		shJSON, err := json.Marshal(req.ServiceHealth)
+		if err == nil {
+			updates["service_health"] = shJSON
+		}
+	}
+	// Always overwrite ProfileProgress (including with empty) so the
+	// progress bar disappears once a download completes — otherwise stale
+	// "downloading 95%" lingers forever in the admin UI.
+	if pgJSON, err := json.Marshal(req.ProfileProgress); err == nil {
+		updates["profile_progress"] = pgJSON
 	}
 
 	return s.gdb.WithContext(ctx).
@@ -36,8 +70,8 @@ func (s *PostgresStore) UpdateSandboxHeartbeat(ctx context.Context, id string, r
 		Updates(updates).Error
 }
 
-// GetSandbox retrieves a sandbox by ID
-func (s *PostgresStore) GetSandbox(ctx context.Context, id string) (*types.SandboxInstance, error) {
+// GetSandboxInstance retrieves a sandbox host registration by ID.
+func (s *PostgresStore) GetSandboxInstance(ctx context.Context, id string) (*types.SandboxInstance, error) {
 	var instance types.SandboxInstance
 	err := s.gdb.WithContext(ctx).Where("id = ?", id).First(&instance).Error
 	if err != nil {
@@ -46,8 +80,8 @@ func (s *PostgresStore) GetSandbox(ctx context.Context, id string) (*types.Sandb
 	return &instance, nil
 }
 
-// ListSandboxes returns all registered sandbox instances
-func (s *PostgresStore) ListSandboxes(ctx context.Context) ([]*types.SandboxInstance, error) {
+// ListSandboxInstances returns all registered sandbox host instances.
+func (s *PostgresStore) ListSandboxInstances(ctx context.Context) ([]*types.SandboxInstance, error) {
 	var instances []*types.SandboxInstance
 	err := s.gdb.WithContext(ctx).Order("created DESC").Find(&instances).Error
 	if err != nil {
@@ -56,13 +90,13 @@ func (s *PostgresStore) ListSandboxes(ctx context.Context) ([]*types.SandboxInst
 	return instances, nil
 }
 
-// DeregisterSandbox removes a sandbox instance
-func (s *PostgresStore) DeregisterSandbox(ctx context.Context, id string) error {
+// DeregisterSandboxInstance removes a sandbox host instance row.
+func (s *PostgresStore) DeregisterSandboxInstance(ctx context.Context, id string) error {
 	return s.gdb.WithContext(ctx).Delete(&types.SandboxInstance{}, "id = ?", id).Error
 }
 
-// UpdateSandboxStatus updates only the status field of a sandbox
-func (s *PostgresStore) UpdateSandboxStatus(ctx context.Context, id string, status string) error {
+// UpdateSandboxInstanceStatus updates only the status field of a sandbox host.
+func (s *PostgresStore) UpdateSandboxInstanceStatus(ctx context.Context, id string, status string) error {
 	return s.gdb.WithContext(ctx).
 		Model(&types.SandboxInstance{}).
 		Where("id = ?", id).
@@ -97,8 +131,8 @@ func (s *PostgresStore) ResetSandboxOnReconnect(ctx context.Context, id string) 
 		}).Error
 }
 
-// GetSandboxesOlderThanHeartbeat returns sandboxes that haven't sent a heartbeat recently
-func (s *PostgresStore) GetSandboxesOlderThanHeartbeat(ctx context.Context, olderThan time.Time) ([]*types.SandboxInstance, error) {
+// GetSandboxInstancesOlderThanHeartbeat returns sandbox hosts that haven't sent a heartbeat recently.
+func (s *PostgresStore) GetSandboxInstancesOlderThanHeartbeat(ctx context.Context, olderThan time.Time) ([]*types.SandboxInstance, error) {
 	var instances []*types.SandboxInstance
 	err := s.gdb.WithContext(ctx).
 		Where("last_seen < ?", olderThan).
@@ -109,9 +143,9 @@ func (s *PostgresStore) GetSandboxesOlderThanHeartbeat(ctx context.Context, olde
 	return instances, nil
 }
 
-// FindAvailableSandbox finds a sandbox that is online, has recent heartbeat, and has the required desktop version.
-// Returns nil if no suitable sandbox is found.
-func (s *PostgresStore) FindAvailableSandbox(ctx context.Context, desktopType string) (*types.SandboxInstance, error) {
+// FindAvailableSandboxInstance finds a sandbox host that is online, has recent heartbeat, and has the required desktop version.
+// Returns nil if no suitable sandbox host is found.
+func (s *PostgresStore) FindAvailableSandboxInstance(ctx context.Context, desktopType string) (*types.SandboxInstance, error) {
 	// Get sandboxes that are online and have sent heartbeat in the last 2 minutes
 	staleThreshold := time.Now().Add(-2 * time.Minute)
 	var instances []*types.SandboxInstance

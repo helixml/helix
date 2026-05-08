@@ -20,12 +20,14 @@ const AppBar: React.FC<{
   height?: number,
   px?: number,
   title?: string | React.ReactNode,
+  leftContent?: React.ReactNode,
   onOpenDrawer?: () => void,
   children?: React.ReactNode,
 }> = ({
   height = TOOLBAR_HEIGHT,
   px = 3,
   title,
+  leftContent,
   onOpenDrawer,
   children,
 }) => {
@@ -95,6 +97,13 @@ const AppBar: React.FC<{
                 >
                   { title }
                 </Typography>
+              </Cell>
+            )
+          }
+          {
+            leftContent && (
+              <Cell sx={{ flexShrink: 0, ml: 1 }}>
+                { leftContent }
               </Cell>
             )
           }

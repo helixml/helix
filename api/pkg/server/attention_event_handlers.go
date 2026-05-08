@@ -30,7 +30,11 @@ func (s *HelixAPIServer) listAttentionEvents(w http.ResponseWriter, r *http.Requ
 
 	organizationID := user.OrganizationID
 
-	events, err := s.Store.ListAttentionEvents(r.Context(), user.ID, organizationID)
+	filters := types.AttentionEventFilters{
+		MineOnly: r.URL.Query().Get("filter") == "mine",
+	}
+
+	events, err := s.Store.ListAttentionEvents(r.Context(), user.ID, organizationID, filters)
 	if err != nil {
 		log.Error().Err(err).Str("user_id", user.ID).Msg("Failed to list attention events")
 		http.Error(w, "failed to list attention events", http.StatusInternalServerError)
