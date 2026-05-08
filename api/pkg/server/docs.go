@@ -22459,14 +22459,18 @@ const docTemplate = `{
                 "agent_interaction_completed",
                 "spec_failed",
                 "implementation_failed",
-                "pr_ready"
+                "pr_ready",
+                "ci_passed",
+                "ci_failed"
             ],
             "x-enum-varnames": [
                 "AttentionEventSpecsPushed",
                 "AttentionEventAgentInteractionCompleted",
                 "AttentionEventSpecFailed",
                 "AttentionEventImplementationFailed",
-                "AttentionEventPRReady"
+                "AttentionEventPRReady",
+                "AttentionEventCIPassed",
+                "AttentionEventCIFailed"
             ]
         },
         "types.AttentionEventUpdateRequest": {
@@ -23627,6 +23631,10 @@ const docTemplate = `{
                 "assignee_id": {
                     "description": "Optional: team member assigned to the task",
                     "type": "string"
+                },
+                "auto_start": {
+                    "description": "Optional: Skip backlog and start immediately, regardless of project auto-start setting",
+                    "type": "boolean"
                 },
                 "base_branch": {
                     "description": "For new mode: branch to create from (defaults to repo default)",
@@ -27639,6 +27647,10 @@ const docTemplate = `{
                 "description": {
                     "type": "string"
                 },
+                "head_sha": {
+                    "description": "HeadSHA is the commit SHA at the tip of the PR's source branch.\nUsed by the CI status poller to detect new pushes and to query the\nprovider's CI/build APIs for the right commit. Empty if the\nprovider response did not include it.",
+                    "type": "string"
+                },
                 "id": {
                     "type": "string"
                 },
@@ -27974,6 +27986,19 @@ const docTemplate = `{
         "types.RepoPR": {
             "type": "object",
             "properties": {
+                "ci_head_sha": {
+                    "type": "string"
+                },
+                "ci_status": {
+                    "description": "CI status, populated by the spec task orchestrator's PR poll loop.\nCIStatus is one of: \"\" (not yet evaluated), \"running\", \"passed\",\n\"failed\", \"none\" (CI not configured for the PR's head SHA).\nCIHeadSHA is the head commit we last evaluated; it lets the poller\ndetect a new push and reset CIStatus so a stale \"passed\" doesn't\nsuppress a fresh notification when the next commit fails.",
+                    "type": "string"
+                },
+                "ci_updated_at": {
+                    "type": "string"
+                },
+                "ci_url": {
+                    "type": "string"
+                },
                 "pr_id": {
                     "type": "string"
                 },
@@ -29969,6 +29994,10 @@ const docTemplate = `{
                     "description": "Public sharing",
                     "type": "boolean"
                 },
+                "rebase_requested_at": {
+                    "description": "Set when approveImplementation hits a divergent branch and asks the agent to rebase. Used to make the approve handler idempotent (no duplicate prompts) and to gate the Accept button until the agent's next push.",
+                    "type": "string"
+                },
                 "repo_pull_requests": {
                     "description": "Multi-repo PR tracking: list of PRs across all project repositories",
                     "type": "array",
@@ -30698,6 +30727,10 @@ const docTemplate = `{
                 "public_design_docs": {
                     "description": "Public sharing",
                     "type": "boolean"
+                },
+                "rebase_requested_at": {
+                    "description": "Set when approveImplementation hits a divergent branch and asks the agent to rebase. Used to make the approve handler idempotent (no duplicate prompts) and to gate the Accept button until the agent's next push.",
+                    "type": "string"
                 },
                 "repo_pull_requests": {
                     "description": "Multi-repo PR tracking: list of PRs across all project repositories",

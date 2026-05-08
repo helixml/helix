@@ -32,6 +32,17 @@ type RepoPR struct {
 	PRNumber       int    `json:"pr_number"`
 	PRURL          string `json:"pr_url"`
 	PRState        string `json:"pr_state"` // "open", "closed", "merged"
+
+	// CI status, populated by the spec task orchestrator's PR poll loop.
+	// CIStatus is one of: "" (not yet evaluated), "running", "passed",
+	// "failed", "none" (CI not configured for the PR's head SHA).
+	// CIHeadSHA is the head commit we last evaluated; it lets the poller
+	// detect a new push and reset CIStatus so a stale "passed" doesn't
+	// suppress a fresh notification when the next commit fails.
+	CIStatus    string    `json:"ci_status,omitempty"`
+	CIURL       string    `json:"ci_url,omitempty"`
+	CIUpdatedAt time.Time `json:"ci_updated_at,omitempty"`
+	CIHeadSHA   string    `json:"ci_head_sha,omitempty"`
 }
 
 // GetFirstOpenPR returns the first open PR from RepoPullRequests, or nil if none.
@@ -79,6 +90,7 @@ type CreateTaskRequest struct {
 	UserEmail    string           `json:"user_email,omitempty"` // Optional: User email for audit trail
 	AppID        string           `json:"app_id"`               // Optional: Helix agent to use for spec generation
 	JustDoItMode bool             `json:"just_do_it_mode"`      // Optional: Skip spec planning, go straight to implementation
+	AutoStart    bool             `json:"auto_start"`           // Optional: Skip backlog and start immediately, regardless of project auto-start setting
 	DependsOn    []string         `json:"depends_on"`           // Optional: IDs of tasks this task depends on
 	AssigneeID   string           `json:"assignee_id,omitempty"` // Optional: team member assigned to the task
 
@@ -169,6 +181,7 @@ type SpecTask struct {
 	// Implementation tracking
 	ImplementationApprovedBy string     `json:"implementation_approved_by,omitempty"` // User who approved implementation
 	ImplementationApprovedAt *time.Time `json:"implementation_approved_at,omitempty"`
+	RebaseRequestedAt        *time.Time `json:"rebase_requested_at,omitempty"` // Set when approveImplementation hits a divergent branch and asks the agent to rebase. Used to make the approve handler idempotent (no duplicate prompts) and to gate the Accept button until the agent's next push.
 
 	// Git tracking
 	LastPushCommitHash string     `json:"last_push_commit_hash,omitempty"`     // Last commit hash pushed to feature branch

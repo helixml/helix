@@ -80,33 +80,6 @@ func newAuthMiddleware(
 	}
 }
 
-type tokenAcct struct {
-	jwt    *jwt.Token
-	userID string
-}
-
-type account struct {
-	userID string
-	token  *tokenAcct
-}
-
-type accountType string
-
-const (
-	accountTypeUser    accountType = "user"
-	accountTypeToken   accountType = "token"
-	accountTypeInvalid accountType = "invalid"
-)
-
-func (a *account) Type() accountType {
-	switch {
-	case a.userID != "":
-		return accountTypeUser
-	case a.token != nil:
-		return accountTypeToken
-	}
-	return accountTypeInvalid
-}
 
 // looksLikeHelixJWT checks if a token appears to be a Helix-issued JWT
 // by parsing the token without verification and checking the issuer claim.

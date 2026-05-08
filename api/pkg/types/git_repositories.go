@@ -300,6 +300,21 @@ type PullRequest struct {
 	CreatedAt    time.Time        `json:"created_at"`
 	UpdatedAt    time.Time        `json:"updated_at"`
 	URL          string           `json:"url,omitempty"`
+	// HeadSHA is the commit SHA at the tip of the PR's source branch.
+	// Used by the CI status poller to detect new pushes and to query the
+	// provider's CI/build APIs for the right commit. Empty if the
+	// provider response did not include it.
+	HeadSHA string `json:"head_sha,omitempty"`
+}
+
+// CIStatus is the normalized CI verdict returned by GitRepositoryService.
+// State is one of services.CIStatus* values: "running", "passed",
+// "failed", "none". URL is a clickable link to the provider's CI/build
+// page. HeadSHA echoes the SHA queried.
+type CIStatus struct {
+	State   string `json:"state"`
+	URL     string `json:"url,omitempty"`
+	HeadSHA string `json:"head_sha,omitempty"`
 }
 
 type PullRequestState string
