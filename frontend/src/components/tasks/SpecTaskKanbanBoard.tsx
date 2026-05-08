@@ -251,7 +251,6 @@ interface SpecTaskKanbanBoardProps {
   showArchived?: boolean; // Show archived tasks instead of active tasks
   showMetrics?: boolean; // Show metrics in task cards
   showMerged?: boolean; // Show merged column
-  searchFilter?: string; // Filter tasks by name, description, or implementation_plan
 }
 
 const DroppableColumn: React.FC<{
@@ -629,7 +628,6 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
   showArchived: showArchivedProp = false,
   showMetrics: showMetricsProp,
   showMerged: showMergedProp = true,
-  searchFilter: searchFilterProp = "",
 }) => {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("md"));
@@ -637,6 +635,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
   const account = useAccount();
   const snackbar = useSnackbar();
   const queryClient = useQueryClient();
+  const router = useRouter();
 
   // OAuth flow — if the planner has no GitHub OAuth, the start-planning
   // endpoint returns 422 with error=oauth_required. Drop into the connect
@@ -665,8 +664,30 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
     useState<string[] | null>(null);
   const [archivingTaskId, setArchivingTaskId] = useState<string | null>(null);
 
-  // Local search filter state (use prop as initial value, but manage locally)
-  const [searchFilter, setSearchFilter] = useState(searchFilterProp);
+  // Search filter — persisted in the URL (?search=...) so Back / refresh
+  // restore the filtered view. We keep a local controlled-input value for
+  // snappy typing and debounce the URL write to avoid history churn.
+  const urlSearch = (router.params.search as string | undefined) || "";
+  const [searchFilter, setSearchFilter] = useState(urlSearch);
+  useEffect(() => {
+    if (searchFilter === urlSearch) return;
+    const handle = setTimeout(() => {
+      if (searchFilter) {
+        router.mergeParams({ search: searchFilter });
+      } else {
+        // Drop the param entirely when empty so the URL stays clean.
+        // replaceParams replaces the full param set in replace mode.
+        const next: Record<string, string> = {};
+        for (const k of Object.keys(router.params)) {
+          if (k === "search") continue;
+          next[k] = router.params[k] as string;
+        }
+        router.replaceParams(next);
+      }
+    }, 250);
+    return () => clearTimeout(handle);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchFilter, urlSearch]);
 
   // Label filter state — persisted to localStorage per project
   const labelStorageKey = projectId ? `helix-label-filter-${projectId}` : null;

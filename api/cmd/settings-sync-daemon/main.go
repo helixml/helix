@@ -249,15 +249,6 @@ func (d *SettingsDaemon) rewriteLocalhostURL(originalURL string) string {
 	return rewritten
 }
 
-// rewriteLocalhostURLsInExternalSync rewrites any localhost URLs in the external_sync config
-func (d *SettingsDaemon) rewriteLocalhostURLsInExternalSync(externalSync map[string]interface{}) {
-	if wsSync, ok := externalSync["websocket_sync"].(map[string]interface{}); ok {
-		if extURL, ok := wsSync["external_url"].(string); ok {
-			wsSync["external_url"] = d.rewriteLocalhostURL(extURL)
-		}
-	}
-}
-
 // injectAvailableModels adds the configured model to the provider's available_models list.
 // Zed only recognizes models that are either built-in (gpt-4, claude-3, etc.) or listed
 // in available_models. Without this, custom models like "helix/qwen3:8b" are rejected.

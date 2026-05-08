@@ -265,11 +265,21 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({
           return;
         }
 
+        // useGetSession suffixes its query key with 'full' (interactions
+        // included) or 'skip' (interactions omitted; EmbeddedSessionView
+        // path). setQueryData/getQueryData require an exact key match —
+        // unlike invalidateQueries, which prefix-matches — so we must use
+        // the suffixed keys to actually reach the queries that consumers
+        // read. Read from 'full' (the only variant that carries
+        // interactions for the stale-update count check); write to both.
+        const fullKey = [...GET_SESSION_QUERY_KEY(currentSessionId), 'full'];
+        const skipKey = [...GET_SESSION_QUERY_KEY(currentSessionId), 'skip'];
+
         // Get current session data to compare interaction counts
         // NOTE: React Query cache stores { data: TypesSession } (Axios response format)
-        const cachedResponse = queryClient.getQueryData(
-          GET_SESSION_QUERY_KEY(currentSessionId),
-        ) as { data?: TypesSession } | undefined;
+        const cachedResponse = queryClient.getQueryData(fullKey) as
+          | { data?: TypesSession }
+          | undefined;
         const currentSessionData = cachedResponse?.data;
         if (currentSessionData && currentSessionData.interactions) {
           const currentInteractionCount =
@@ -298,19 +308,23 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({
         // reconnection flicker. The session_update WebSocket message may carry a stale
         // external_agent_status (e.g. "starting" when it's actually "running"), which
         // would cause useSandboxState to briefly flip isRunning and flash "Reconnecting...".
-        queryClient.setQueryData(
-          GET_SESSION_QUERY_KEY(currentSessionId),
-          (oldData: { data?: TypesSession } | undefined) => {
-            const existingConfig = oldData?.data?.config;
-            const updatedSession = {
-              ...parsedData.session,
-              // Keep the existing config (polled by useSandboxState) if we have it,
-              // so chat updates don't stomp sandbox state
-              ...(existingConfig ? { config: existingConfig } : {}),
-            };
-            return { data: updatedSession };
-          },
-        );
+        const writeMerged = (
+          stripInteractions: boolean,
+        ) => (oldData: { data?: TypesSession } | undefined) => {
+          const existingConfig = oldData?.data?.config;
+          const merged: TypesSession = {
+            ...parsedData.session,
+            ...(existingConfig ? { config: existingConfig } : {}),
+          };
+          if (stripInteractions) {
+            // The 'skip' variant fetches without interactions; never seed
+            // it with interactions or it'll override the paginated source.
+            delete (merged as Partial<TypesSession>).interactions;
+          }
+          return { data: merged };
+        };
+        queryClient.setQueryData(fullKey, writeMerged(false));
+        queryClient.setQueryData(skipKey, writeMerged(true));
 
         // Update currentResponses with the latest interaction state
         // This ensures useLiveInteraction will receive the updated state

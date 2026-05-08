@@ -1872,6 +1872,8 @@ export enum TypesAttentionEventType {
   AttentionEventSpecFailed = "spec_failed",
   AttentionEventImplementationFailed = "implementation_failed",
   AttentionEventPRReady = "pr_ready",
+  AttentionEventCIPassed = "ci_passed",
+  AttentionEventCIFailed = "ci_failed",
 }
 
 export interface TypesAttentionEventUpdateRequest {
@@ -2377,6 +2379,8 @@ export interface TypesCreateTaskRequest {
   app_id?: string;
   /** Optional: team member assigned to the task */
   assignee_id?: string;
+  /** Optional: Skip backlog and start immediately, regardless of project auto-start setting */
+  auto_start?: boolean;
   /** For new mode: branch to create from (defaults to repo default) */
   base_branch?: string;
   /** Branch configuration */
@@ -4113,6 +4117,13 @@ export interface TypesPullRequest {
   author?: string;
   created_at?: string;
   description?: string;
+  /**
+   * HeadSHA is the commit SHA at the tip of the PR's source branch.
+   * Used by the CI status poller to detect new pushes and to query the
+   * provider's CI/build APIs for the right commit. Empty if the
+   * provider response did not include it.
+   */
+  head_sha?: string;
   id?: string;
   number?: number;
   source_branch?: string;
@@ -4259,6 +4270,18 @@ export interface TypesRegisterRequest {
 }
 
 export interface TypesRepoPR {
+  ci_head_sha?: string;
+  /**
+   * CI status, populated by the spec task orchestrator's PR poll loop.
+   * CIStatus is one of: "" (not yet evaluated), "running", "passed",
+   * "failed", "none" (CI not configured for the PR's head SHA).
+   * CIHeadSHA is the head commit we last evaluated; it lets the poller
+   * detect a new push and reset CIStatus so a stale "passed" doesn't
+   * suppress a fresh notification when the next commit fails.
+   */
+  ci_status?: string;
+  ci_updated_at?: string;
+  ci_url?: string;
   pr_id?: string;
   pr_number?: number;
   /** "open", "closed", "merged" */
@@ -5175,6 +5198,8 @@ export interface TypesSpecTask {
   project_path?: string;
   /** Public sharing */
   public_design_docs?: boolean;
+  /** Set when approveImplementation hits a divergent branch and asks the agent to rebase. Used to make the approve handler idempotent (no duplicate prompts) and to gate the Accept button until the agent's next push. */
+  rebase_requested_at?: string;
   /** Multi-repo PR tracking: list of PRs across all project repositories */
   repo_pull_requests?: TypesRepoPR[];
   /** User stories + EARS acceptance criteria (markdown) */
@@ -5480,6 +5505,8 @@ export interface TypesSpecTaskWithProject {
   project_path?: string;
   /** Public sharing */
   public_design_docs?: boolean;
+  /** Set when approveImplementation hits a divergent branch and asks the agent to rebase. Used to make the approve handler idempotent (no duplicate prompts) and to gate the Accept button until the agent's next push. */
+  rebase_requested_at?: string;
   /** Multi-repo PR tracking: list of PRs across all project repositories */
   repo_pull_requests?: TypesRepoPR[];
   /** User stories + EARS acceptance criteria (markdown) */
