@@ -98,12 +98,13 @@ func TestTryAutoMergeAfterRebase_InternalRepoSuccess(t *testing.T) {
 		RebaseRequestedAt: ptrTime("2026-05-08T08:13:00Z"),
 	}
 
+	mockStore.EXPECT().GetSpecTask(gomock.Any(), "spt_test").Return(task, nil)
 	mockStore.EXPECT().GetProject(gomock.Any(), "prj_test").Return(project, nil)
 	mockStore.EXPECT().GetGitRepository(gomock.Any(), "repo_test").Return(gitRepo, nil)
 	mockStore.EXPECT().UpdateSpecTask(gomock.Any(), task).Return(nil)
 
 	srv := &GitHTTPServer{store: mockStore}
-	srv.tryAutoMergeAfterRebase(ctx, task)
+	srv.tryAutoMergeAfterRebase(ctx, "spt_test")
 
 	require.Equal(t, types.TaskStatusDone, task.Status, "task should be marked done after successful auto-merge")
 	require.True(t, task.MergedToMain, "MergedToMain should be set")
@@ -163,15 +164,45 @@ func TestTryAutoMergeAfterRebase_StillDivergentLeavesInReview(t *testing.T) {
 		RebaseRequestedAt: ptrTime("2026-05-08T08:13:00Z"),
 	}
 
+	mockStore.EXPECT().GetSpecTask(gomock.Any(), "spt_test").Return(task, nil)
 	mockStore.EXPECT().GetProject(gomock.Any(), "prj_test").Return(project, nil)
 	mockStore.EXPECT().GetGitRepository(gomock.Any(), "repo_test").Return(gitRepo, nil)
 	// No UpdateSpecTask expected — failure path leaves the row untouched.
 
 	srv := &GitHTTPServer{store: mockStore}
-	srv.tryAutoMergeAfterRebase(ctx, task)
+	srv.tryAutoMergeAfterRebase(ctx, "spt_test")
 
 	require.Equal(t, types.TaskStatusImplementationReview, task.Status, "task should stay in implementation_review when FF still fails")
 	require.False(t, task.MergedToMain, "MergedToMain must remain unset")
+}
+
+// TestTryAutoMergeAfterRebase_SkipsIfStatusChanged covers the status guard:
+// if the task is no longer in implementation_review by the time the goroutine
+// runs (user moved it to backlog, archived it, another path already merged it),
+// the helper must do nothing — no GetProject, no GetGitRepository, no
+// UpdateSpecTask. Without this guard, the auto-merge would resurrect the task
+// as `done` and overwrite the user's deliberate intervention.
+func TestTryAutoMergeAfterRebase_SkipsIfStatusChanged(t *testing.T) {
+	ctx := context.Background()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockStore := store.NewMockStore(ctrl)
+	task := &types.SpecTask{
+		ID:                "spt_test",
+		ProjectID:         "prj_test",
+		Status:            types.TaskStatusBacklog, // no longer implementation_review
+		BranchName:        "feature/x",
+		RebaseRequestedAt: ptrTime("2026-05-08T08:13:00Z"),
+	}
+
+	// Only GetSpecTask is expected — the status guard short-circuits everything else.
+	mockStore.EXPECT().GetSpecTask(gomock.Any(), "spt_test").Return(task, nil)
+
+	srv := &GitHTTPServer{store: mockStore}
+	srv.tryAutoMergeAfterRebase(ctx, "spt_test")
+
+	require.Equal(t, types.TaskStatusBacklog, task.Status, "task status must not change once moved away from implementation_review")
 }
 
 func trimNewline(s string) string {

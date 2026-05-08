@@ -1004,10 +1004,10 @@ func (s *GitHTTPServer) handleFeatureBranchPush(ctx context.Context, repo *types
 				continue
 			}
 			s.wg.Add(1)
-			go func(t *types.SpecTask) {
+			go func(taskID string) {
 				defer s.wg.Done()
-				s.tryAutoMergeAfterRebase(context.Background(), t)
-			}(task)
+				s.tryAutoMergeAfterRebase(context.Background(), taskID)
+			}(task.ID)
 		case types.TaskStatusPullRequest:
 			s.wg.Add(1)
 			go func(t *types.SpecTask, r *types.GitRepository, commit string) {
@@ -1039,7 +1039,29 @@ func (s *GitHTTPServer) handleFeatureBranchPush(ctx context.Context, repo *types
 // here because the same flow that calls this also recorded the push, so the next
 // user-driven Accept will see LastPushAt > RebaseRequestedAt and re-issue the
 // rebase request only if needed.
-func (s *GitHTTPServer) tryAutoMergeAfterRebase(ctx context.Context, task *types.SpecTask) {
+//
+// Re-fetches the task by ID rather than operating on a pointer passed from the
+// caller — between the push hook firing and this goroutine running, the row may
+// have been mutated by the orchestrator or by a user action (move-to-backlog,
+// archive, etc). Operating on a stale pointer would silently overwrite those
+// changes.
+func (s *GitHTTPServer) tryAutoMergeAfterRebase(ctx context.Context, taskID string) {
+	task, err := s.store.GetSpecTask(ctx, taskID)
+	if err != nil {
+		log.Error().Err(err).Str("task_id", taskID).Msg("auto-merge: get task failed")
+		return
+	}
+	// Status guard: if the user moved the task elsewhere (backlog, archived) or
+	// it already reached `done` via another path, do nothing. Without this guard
+	// the goroutine would resurrect the task as `done` and overwrite the user's
+	// deliberate intervention.
+	if task.Status != types.TaskStatusImplementationReview {
+		log.Debug().
+			Str("task_id", taskID).
+			Str("status", string(task.Status)).
+			Msg("auto-merge: task no longer in implementation_review, skipping")
+		return
+	}
 	project, err := s.store.GetProject(ctx, task.ProjectID)
 	if err != nil {
 		log.Error().Err(err).Str("task_id", task.ID).Msg("auto-merge: get project failed")
