@@ -51,6 +51,7 @@ export interface SpecTaskForActions {
   metadata?: { error?: string };
   repo_pull_requests?: RepoPR[];
   last_push_at?: string;
+  rebase_requested_at?: string;
 }
 
 interface SpecTaskActionButtonsProps {
