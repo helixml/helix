@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"net/http"
 	"strconv"
 	"strings"
 
@@ -181,7 +182,11 @@ func renderPageImages(ctx context.Context, renderer rag.PageImageRenderer, dataE
 				Msg("failed to render page image, skipping")
 			continue
 		}
-		dataURI := "data:image/jpeg;base64," + base64.StdEncoding.EncodeToString(imgBytes)
+		// Detect the actual media type from the image bytes; the page renderer
+		// may return PNG, JPEG, WebP or GIF, and Anthropic 400s if the declared
+		// type doesn't match the magic bytes.
+		mediaType := http.DetectContentType(imgBytes)
+		dataURI := fmt.Sprintf("data:%s;base64,%s", mediaType, base64.StdEncoding.EncodeToString(imgBytes))
 		parts = append(parts, openai.ChatMessagePart{
 			Type: openai.ChatMessagePartTypeText,
 			Text: fmt.Sprintf("Page %d of %s (document_id: %s):", page, result.Source, result.DocumentID),

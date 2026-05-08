@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -64,11 +65,29 @@ func (apiServer *HelixAPIServer) updateSystemSettings(rw http.ResponseWriter, r 
 		return
 	}
 
+	wasSandboxBillingEnabled := false
+	if req.SandboxBillingEnabled != nil {
+		currentSettings, err := apiServer.Store.GetSystemSettings(r.Context())
+		if err != nil {
+			log.Error().Err(err).Msg("error getting current system settings")
+			http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		wasSandboxBillingEnabled = currentSettings.SandboxBillingEnabled
+	}
+
 	settings, err := apiServer.Store.UpdateSystemSettings(r.Context(), &req)
 	if err != nil {
 		log.Error().Err(err).Msg("error updating system settings")
 		http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)
 		return
+	}
+	if req.SandboxBillingEnabled != nil && *req.SandboxBillingEnabled && !wasSandboxBillingEnabled {
+		if err := apiServer.Store.SetRunningSandboxesBillingLastChargedAt(r.Context(), time.Now()); err != nil {
+			log.Error().Err(err).Msg("error initializing running sandbox billing windows")
+			http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
 	}
 
 	log.Info().
@@ -80,17 +99,10 @@ func (apiServer *HelixAPIServer) updateSystemSettings(rw http.ResponseWriter, r 
 		Bool("enforce_quotas_updated", req.EnforceQuotas != nil).
 		Msg("system settings updated by admin")
 
-	// Push updated settings to all connected runners
-	if apiServer.scheduler != nil {
-		runnerController := apiServer.scheduler.GetRunnerController()
-		if runnerController != nil {
-			go func() {
-				// Run in goroutine to avoid blocking the API response
-				runnerController.SyncSystemSettingsToAllRunners(r.Context())
-				log.Info().Msg("initiated system settings sync to all runners")
-			}()
-		}
-	}
+	// Sandbox-absorbs-runner pivot: the old "push system settings to runners
+	// over NATS" mechanism is gone with the scheduler. Sandboxes pick up
+	// changes (notably HuggingFace token) via env var on next restart, or
+	// in future via a dedicated /api/v1/runner/{id}/system-config poll.
 
 	// If the admin changed a kodit embedding setting, reinitialise the kodit
 	// client in-process so the new provider takes effect without a restart.

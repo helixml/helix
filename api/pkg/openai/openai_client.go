@@ -455,7 +455,11 @@ func (c *RetryableClient) listOpenAIModels(ctx context.Context) ([]types.OpenAIM
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to get models from '%s' provider: %s", url, resp.Status)
+		// Include the response body in the error message so users see what the
+		// provider actually said (e.g. "Invalid API Key"). Matches the pattern
+		// used in listAnthropicModels.
+		errBody, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("failed to get models from '%s' provider: %s - %s", url, resp.Status, string(errBody))
 	}
 
 	body, err := io.ReadAll(resp.Body)
@@ -718,7 +722,14 @@ func (c *openAIClientInterceptor) Do(req *http.Request) (*http.Response, error) 
 	// "reasoning_content" (DeepSeek's convention). Rewrite on the fly so the
 	// field deserializes correctly regardless of which convention the upstream
 	// provider uses.
-	if resp != nil && resp.Body != nil {
+	//
+	// Only wrap successful (2xx) responses. Error bodies are often non-JSON
+	// (e.g. NVIDIA returns plain text "Unauthorized" on 401), and routing them
+	// through the line-buffered scanner hides the real upstream message behind
+	// a JSON parse error like "invalid character 'U' looking for beginning of
+	// value". Letting error bodies pass through unmodified preserves the raw
+	// status text so go-openai can surface it to the caller.
+	if resp != nil && resp.Body != nil && resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		resp.Body = &reasoningFieldMapper{ReadCloser: resp.Body}
 	}
 

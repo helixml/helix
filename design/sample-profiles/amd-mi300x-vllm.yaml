@@ -1,0 +1,46 @@
+# Helix runner profile: amd-mi300x-vllm
+#
+# GPU compatibility (operator-declared, stored alongside this YAML):
+#   vendor:        amd
+#   architectures: [cdna3]
+#   model_match:   MI300X
+#   min_vram:      0
+#
+# Demonstrates the AMD path. Uses ROCm-targeted vLLM image and the AMD-style
+# device passthrough (no `deploy.resources.reservations.devices`; instead
+# top-level `devices: [/dev/kfd, /dev/dri/...]` plus `group_add`).
+#
+# Note: the compose parser counts AMD GPUs by counting distinct
+# /dev/dri/renderD* entries. /dev/kfd is shared and not counted.
+
+services:
+  qwen-mi300x:
+    image: rocm/vllm:latest
+    container_name: vllm-qwen-mi300x
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - /models:/root/.cache/huggingface
+    environment:
+      - HUGGING_FACE_HUB_TOKEN
+      - HF_HUB_OFFLINE=1
+    shm_size: 1g
+    ipc: host
+    devices:
+      - /dev/kfd
+      - /dev/dri/renderD128
+    group_add:
+      - video
+      - render
+    command:
+      - --model
+      - Qwen/Qwen2.5-72B-Instruct
+      - --served-model-name
+      - qwen2.5-72b
+      - --max-model-len
+      - "16384"
+      - --gpu-memory-utilization
+      - "0.90"
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - hermes

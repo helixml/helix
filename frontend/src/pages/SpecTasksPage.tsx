@@ -964,13 +964,33 @@ const SpecTasksPage: FC = () => {
             </Tooltip>
           </Box>
           {/* Hide menu button on mobile - it will be in the bottom nav */}
-          <Box sx={{ display: { xs: "none", md: "block" } }}>
-            <IconButton
-              size="small"
-              onClick={(e) => setViewMenuAnchorEl(e.currentTarget)}
-            >
-              <MoreHorizontal size={18} />
-            </IconButton>
+          <Box
+            sx={{
+              display: { xs: "none", md: "flex" },
+              alignItems: "center",
+              gap: 0.5,
+            }}
+          >
+            {projectId && (
+              <Tooltip title="Project settings">
+                <IconButton
+                  size="small"
+                  onClick={() => openDialog("project-settings", { projectId })}
+                  aria-label="Project settings"
+                >
+                  <Settings size={18} />
+                </IconButton>
+              </Tooltip>
+            )}
+            <Tooltip title="More options">
+              <IconButton
+                size="small"
+                onClick={(e) => setViewMenuAnchorEl(e.currentTarget)}
+                aria-label="More options"
+              >
+                <MoreHorizontal size={18} />
+              </IconButton>
+            </Tooltip>
           </Box>
           <Menu
             anchorEl={viewMenuAnchorEl}
@@ -1000,17 +1020,6 @@ const SpecTasksPage: FC = () => {
                   style={{ marginRight: 12, width: 20, height: 20 }}
                 />
                 Files
-              </MenuItem>
-            )}
-            {projectId && (
-              <MenuItem
-                onClick={() => {
-                  openDialog('project-settings', { projectId });
-                  setViewMenuAnchorEl(null);
-                }}
-              >
-                <Settings style={{ marginRight: 12, width: 20, height: 20 }} />
-                Settings
               </MenuItem>
             )}
             <MenuItem

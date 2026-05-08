@@ -4,11 +4,9 @@ import {
   Box,
   Button,
   CircularProgress,
-  FormControlLabel,
   Menu,
   MenuItem,
   ListItemText,
-  Switch,
   Tooltip,
   Typography,
 } from "@mui/material";
@@ -53,6 +51,7 @@ export interface SpecTaskForActions {
   metadata?: { error?: string };
   repo_pull_requests?: RepoPR[];
   last_push_at?: string;
+  rebase_requested_at?: string;
 }
 
 interface SpecTaskActionButtonsProps {
@@ -244,6 +243,16 @@ export default function SpecTaskActionButtons({
 
   const hasPushed = !!task.last_push_at;
 
+  // Rebase-pending: backend asked the agent to rebase and the agent hasn't
+  // pushed since. Disable Accept and tell the user so they don't sit clicking.
+  // The auto-retry on agent push transitions the task to done, so manual
+  // re-clicking is unnecessary in this state.
+  const rebasePending =
+    task.status === "implementation_review" &&
+    !!task.rebase_requested_at &&
+    (!task.last_push_at ||
+      new Date(task.last_push_at).getTime() <= new Date(task.rebase_requested_at).getTime());
+
   // Button size based on variant
   const buttonSize = "small";
   const buttonSx = isInline
@@ -276,41 +285,46 @@ export default function SpecTaskActionButtons({
               ? "Start Implementation"
               : "Start Planning";
 
-    const skipSpecToggle = (
-      <Tooltip title="Skip planning and go straight to implementation" placement="top">
-        <FormControlLabel
-          control={
-            <Switch
-              size="small"
-              checked={!!task.just_do_it_mode}
-              onChange={(e) => {
-                e.stopPropagation();
-                updateSpecTaskMutation.mutate({
-                  taskId: task.id,
-                  updates: { just_do_it_mode: e.target.checked },
-                });
-              }}
-              disabled={isArchived || updateSpecTaskMutation.isPending}
-            />
-          }
-          label={
-            <Typography variant="caption" sx={{ whiteSpace: "nowrap" }}>
-              Skip planning
-            </Typography>
-          }
-          sx={{ mr: 0 }}
-          onClick={(e) => e.stopPropagation()}
-        />
-      </Tooltip>
+    const skipLabel = "or skip to implementation";
+
+    const handleSkipToImplementation = async (e: React.MouseEvent) => {
+      e.stopPropagation();
+      await updateSpecTaskMutation.mutateAsync({
+        taskId: task.id,
+        updates: { just_do_it_mode: true },
+      });
+      onStartPlanning?.();
+    };
+
+    const skipDisabled =
+      isStartDisabled || updateSpecTaskMutation.isPending || !!task.just_do_it_mode;
+
+    const skipLink = (
+      <Typography
+        variant="caption"
+        onClick={skipDisabled ? undefined : handleSkipToImplementation}
+        sx={{
+          whiteSpace: "nowrap",
+          cursor: skipDisabled ? "default" : "pointer",
+          color: skipDisabled ? "text.disabled" : "text.secondary",
+          "&:hover": skipDisabled
+            ? {}
+            : {
+                color: "primary.main",
+                textDecoration: "underline",
+              },
+        }}
+      >
+        {updateSpecTaskMutation.isPending ? "Starting..." : skipLabel}
+      </Typography>
     );
 
     if (isInline) {
       return (
         <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
-          {skipSpecToggle}
           <CompactActionButton
             tooltip={startTooltip}
-            color={task.just_do_it_mode ? "success" : "warning"}
+            color="warning"
             icon={
               isQueued || isStartingPlanning ? (
                 <CircularProgress size={18} color="inherit" />
@@ -325,6 +339,7 @@ export default function SpecTaskActionButtons({
             }}
             disabled={isStartDisabled}
           />
+          {!task.just_do_it_mode && skipLink}
         </Box>
       );
     }
@@ -337,7 +352,7 @@ export default function SpecTaskActionButtons({
               ref={startPlanningButtonRef}
               size={buttonSize}
               variant="contained"
-              color={task.just_do_it_mode ? "success" : "warning"}
+              color="warning"
               startIcon={
                 isQueued || isStartingPlanning ? (
                   <CircularProgress size={16} color="inherit" />
@@ -357,26 +372,25 @@ export default function SpecTaskActionButtons({
             </Button>
           </span>
         </Tooltip>
-        <Box sx={{ mt: 0.5, display: "flex", justifyContent: "center" }}>
-          {skipSpecToggle}
-        </Box>
+        {!task.just_do_it_mode && (
+          <Box sx={{ mt: 0.5, display: "flex", justifyContent: "center" }}>
+            {skipLink}
+          </Box>
+        )}
       </Box>
     );
   }
 
-  // Spec generation phase: Skip Spec button
-  if (task.status === "spec_generation") {
+  // Spec generation phase: recovery Skip Planning button for stuck tasks.
+  // Only shown in the detail page (inline variant) to keep kanban cards uncluttered.
+  if (task.status === "spec_generation" && isInline) {
     const isSkipping = skipSpecMutation.isPending;
     return (
-      <Box
-        sx={{
-          display: "flex",
-          flexDirection: isInline ? "row" : "column",
-          gap: 1,
-          width: isInline ? "auto" : "100%",
-        }}
-      >
-        <Tooltip title={isArchived ? "Task is archived" : "Skip planning and start implementation"}>
+      <Box sx={{ display: "flex", gap: 1 }}>
+        <Tooltip
+          title={isArchived ? "Task is archived" : "Skip planning and start implementation"}
+          placement="top"
+        >
           <span>
             <Button
               variant="outlined"
@@ -394,7 +408,6 @@ export default function SpecTaskActionButtons({
                 skipSpecMutation.mutate();
               }}
               disabled={isArchived || isSkipping}
-              fullWidth={!isInline}
               sx={buttonSx}
             >
               {isSkipping ? "Skipping..." : "Skip Planning"}
@@ -551,12 +564,20 @@ export default function SpecTaskActionButtons({
             }}
           />
           <CompactActionButton
-            tooltip={isArchived ? "Task is archived" : !hasPushed ? "Waiting for agent to push code..." : ""}
+            tooltip={
+              isArchived
+                ? "Task is archived"
+                : rebasePending
+                  ? "Branch has diverged. Agent is rebasing — merge will complete automatically."
+                  : !hasPushed
+                    ? "Waiting for agent to push code..."
+                    : ""
+            }
             variant="contained"
             color="success"
-            disabled={isArchived || approveImplementationMutation.isPending || !hasPushed}
+            disabled={isArchived || approveImplementationMutation.isPending || !hasPushed || rebasePending}
             icon={
-              approveImplementationMutation.isPending ? (
+              approveImplementationMutation.isPending || rebasePending ? (
                 <CircularProgress size={16} color="inherit" />
               ) : (
                 <ApproveIcon sx={{ fontSize: 18 }} />
@@ -567,9 +588,11 @@ export default function SpecTaskActionButtons({
                 ? isDirectPush
                   ? "Merging..."
                   : "Opening PR..."
-                : isDirectPush
-                  ? "Accept"
-                  : "Open PR"
+                : rebasePending
+                  ? "Rebasing..."
+                  : isDirectPush
+                    ? "Accept"
+                    : "Open PR"
             }
             onClick={handleOpenPR}
           />
@@ -627,21 +650,32 @@ export default function SpecTaskActionButtons({
             </span>
           </Tooltip>
 
-          <Tooltip title={isArchived ? "Task is archived" : !hasPushed ? "Waiting for agent to push code..." : ""} placement="top">
+          <Tooltip
+            title={
+              isArchived
+                ? "Task is archived"
+                : rebasePending
+                  ? "Branch has diverged. Agent is rebasing — merge will complete automatically."
+                  : !hasPushed
+                    ? "Waiting for agent to push code..."
+                    : ""
+            }
+            placement="top"
+          >
             <span style={{ flex: 1 }}>
               <Button
                 size={buttonSize}
                 variant="contained"
                 color="success"
                 startIcon={
-                  approveImplementationMutation.isPending ? (
+                  approveImplementationMutation.isPending || rebasePending ? (
                     <CircularProgress size={14} color="inherit" />
                   ) : (
                     <ApproveIcon />
                   )
                 }
                 onClick={handleOpenPR}
-                disabled={isArchived || approveImplementationMutation.isPending || !hasPushed}
+                disabled={isArchived || approveImplementationMutation.isPending || !hasPushed || rebasePending}
                 fullWidth
                 sx={buttonSx}
               >
@@ -649,9 +683,11 @@ export default function SpecTaskActionButtons({
                   ? isDirectPush
                     ? "Merging..."
                     : "Opening PR..."
-                  : isDirectPush
-                    ? "Accept"
-                    : "Open PR"}
+                  : rebasePending
+                    ? "Rebasing..."
+                    : isDirectPush
+                      ? "Accept"
+                      : "Open PR"}
               </Button>
             </span>
           </Tooltip>

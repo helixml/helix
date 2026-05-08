@@ -1,5 +1,5 @@
 # Production docker-compose.yaml for HelixML
-# See https://docs.helixml.tech/helix/private-deployment/controlplane/
+# See https://helix.ml/docs
 
 services:
   api:
@@ -80,11 +80,6 @@ services:
       - POSTGRES_DB=postgres
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=${POSTGRES_ADMIN_PASSWORD-postgres}
-  tika:
-    image: apache/tika:2.9.2.1
-    restart: always
-    # ports:
-    #   - 9998:9998
   searxng:
     image: searxng/searxng:2025.7.24-84c3a83
     # ports:
@@ -121,8 +116,6 @@ services:
       - POSTGRES_PASSWORD=${PGVECTOR_PASSWORD-pgvector}
     volumes:
       - ${VECTORCHORD_DATA:-helix-vectorchord-kodit}:/var/lib/postgresql/data
-    ports:
-      - "5432"
     restart: unless-stopped
 
   # NOTE: Sandbox services are NOT defined here - they are configured by install.sh

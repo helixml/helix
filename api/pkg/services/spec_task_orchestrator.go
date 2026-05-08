@@ -15,6 +15,13 @@ import (
 
 //go:generate mockgen -source $GOFILE -destination spec_task_orchestrator_mocks.go -package $GOPACKAGE
 
+// isDeletedProjectError returns true for GORM "record not found" errors that
+// indicate a task references a deleted project. Used to suppress expected noise
+// in orchestrator loops. Must NOT match domain errors like "spec approval not found".
+func isDeletedProjectError(err error) bool {
+	return strings.Contains(err.Error(), "record not found")
+}
+
 // SpecTaskOrchestrator orchestrates SpecTasks through the complete workflow
 // Pushes agents through design → approval → implementation
 // Manages agent lifecycle and reuses sessions across Helix interactions
@@ -30,6 +37,7 @@ type SpecTaskOrchestrator struct {
 	containerExecutor     ContainerExecutor // Executor for external agent containers
 	goldenBuildService    *GoldenBuildService
 	attentionService      *AttentionService
+	ciNotifier            CINotifier    // Delivers ci_passed / ci_failed messages to running agents
 	ensurePRs             EnsurePRsFunc // Callback to create missing PRs (set by server)
 	stopChan              chan struct{}
 	wg                    sync.WaitGroup
@@ -84,6 +92,13 @@ func (o *SpecTaskOrchestrator) SetGoldenBuildService(svc *GoldenBuildService) {
 // SetAttentionService sets the attention service for emitting human-needed events.
 func (o *SpecTaskOrchestrator) SetAttentionService(svc *AttentionService) {
 	o.attentionService = svc
+}
+
+// SetCINotifier sets the notifier used to deliver CI result messages to a
+// running agent. When nil, the orchestrator still tracks CI status on the
+// task but skips agent-side messaging (human attention events still fire).
+func (o *SpecTaskOrchestrator) SetCINotifier(n CINotifier) {
+	o.ciNotifier = n
 }
 
 // Start begins the orchestration loop
@@ -248,7 +263,7 @@ func (o *SpecTaskOrchestrator) processTasks(ctx context.Context) {
 		err := o.processTask(ctx, task)
 		if err != nil {
 			// Tasks with deleted projects are expected - don't spam logs
-			if strings.Contains(err.Error(), "record not found") || strings.Contains(err.Error(), "not found") {
+			if isDeletedProjectError(err) {
 				log.Trace().
 					Err(err).
 					Str("task_id", task.ID).
@@ -743,6 +758,12 @@ func (o *SpecTaskOrchestrator) processExternalPullRequestStatus(ctx context.Cont
 			updated = true
 		}
 
+		// CI status: poll the provider for the PR's head SHA, fire
+		// transition notifications, persist if anything changed.
+		if o.pollCIStatusForPR(ctx, task, &task.RepoPullRequests[i], pr) {
+			updated = true
+		}
+
 		switch pr.State {
 		case types.PullRequestStateOpen:
 			anyOpen = true
@@ -895,7 +916,7 @@ func (o *SpecTaskOrchestrator) pollPullRequests(ctx context.Context) {
 		err := o.handlePullRequest(ctx, task)
 		if err != nil {
 			// Tasks with deleted projects are expected - don't spam logs
-			if strings.Contains(err.Error(), "record not found") || strings.Contains(err.Error(), "not found") {
+			if isDeletedProjectError(err) {
 				log.Trace().
 					Err(err).
 					Str("task_id", task.ID).
@@ -958,7 +979,7 @@ func (o *SpecTaskOrchestrator) detectExternalPRActivity(ctx context.Context) {
 		err := o.checkTaskForExternalPRActivity(ctx, task)
 		if err != nil {
 			// Don't spam logs for deleted projects
-			if strings.Contains(err.Error(), "record not found") || strings.Contains(err.Error(), "not found") {
+			if isDeletedProjectError(err) {
 				log.Trace().
 					Err(err).
 					Str("task_id", task.ID).
@@ -1203,7 +1224,13 @@ func (o *SpecTaskOrchestrator) buildPlanningPrompt(task *types.SpecTask, app *ty
 }
 
 func (o *SpecTaskOrchestrator) handleDone(ctx context.Context, task *types.SpecTask) error {
-	// Terminate the desktop
+	if task.KeepAlive {
+		log.Info().
+			Str("task_id", task.ID).
+			Msg("Task in done status but keep_alive is set - leaving desktop running")
+		return nil
+	}
+
 	err := o.containerExecutor.StopDesktop(ctx, task.PlanningSessionID)
 	if err != nil {
 		return fmt.Errorf("failed to stop desktop: %w", err)

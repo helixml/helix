@@ -52,7 +52,11 @@ func (s *PostgresStore) GetAppDailyUsageMetrics(ctx context.Context, appID strin
 			SUM(prompt_tokens) as prompt_tokens,
 			SUM(completion_tokens) as completion_tokens,
 			SUM(total_tokens) as total_tokens,
+			SUM(cache_read_tokens) as cache_read_tokens,
+			SUM(cache_write_tokens) as cache_write_tokens,
 			SUM(total_cost) as total_cost,
+			SUM(cache_read_cost) as cache_read_cost,
+			SUM(cache_write_cost) as cache_write_cost,
 			AVG(duration_ms) as duration_ms,
 			SUM(request_size_bytes) as request_size_bytes,
 			SUM(response_size_bytes) as response_size_bytes,
@@ -82,8 +86,12 @@ func (s *PostgresStore) GetProviderDailyUsageMetrics(ctx context.Context, provid
 			SUM(prompt_tokens) as prompt_tokens,
 			SUM(completion_tokens) as completion_tokens,
 			SUM(total_tokens) as total_tokens,
+			SUM(cache_read_tokens) as cache_read_tokens,
+			SUM(cache_write_tokens) as cache_write_tokens,
 			SUM(prompt_cost) as prompt_cost,
 			SUM(completion_cost) as completion_cost,
+			SUM(cache_read_cost) as cache_read_cost,
+			SUM(cache_write_cost) as cache_write_cost,
 			SUM(total_cost) as total_cost,
 			AVG(duration_ms) as duration_ms,
 			SUM(request_size_bytes) as request_size_bytes,
@@ -115,8 +123,12 @@ func (s *PostgresStore) GetUsersAggregatedUsageMetrics(ctx context.Context, prov
 		PromptTokens      int       `gorm:"column:prompt_tokens"`
 		CompletionTokens  int       `gorm:"column:completion_tokens"`
 		TotalTokens       int       `gorm:"column:total_tokens"`
+		CacheReadTokens   int       `gorm:"column:cache_read_tokens"`
+		CacheWriteTokens  int       `gorm:"column:cache_write_tokens"`
 		PromptCost        float64   `gorm:"column:prompt_cost"`
 		CompletionCost    float64   `gorm:"column:completion_cost"`
+		CacheReadCost     float64   `gorm:"column:cache_read_cost"`
+		CacheWriteCost    float64   `gorm:"column:cache_write_cost"`
 		TotalCost         float64   `gorm:"column:total_cost"`
 		DurationMs        float64   `gorm:"column:duration_ms"`
 		RequestSizeBytes  int       `gorm:"column:request_size_bytes"`
@@ -132,8 +144,12 @@ func (s *PostgresStore) GetUsersAggregatedUsageMetrics(ctx context.Context, prov
 			SUM(prompt_tokens) as prompt_tokens,
 			SUM(completion_tokens) as completion_tokens,
 			SUM(total_tokens) as total_tokens,
+			SUM(cache_read_tokens) as cache_read_tokens,
+			SUM(cache_write_tokens) as cache_write_tokens,
 			SUM(prompt_cost) as prompt_cost,
 			SUM(completion_cost) as completion_cost,
+			SUM(cache_read_cost) as cache_read_cost,
+			SUM(cache_write_cost) as cache_write_cost,
 			SUM(total_cost) as total_cost,
 			AVG(duration_ms) as duration_ms,
 			SUM(request_size_bytes) as request_size_bytes,
@@ -160,6 +176,12 @@ func (s *PostgresStore) GetUsersAggregatedUsageMetrics(ctx context.Context, prov
 			PromptTokens:      m.PromptTokens,
 			CompletionTokens:  m.CompletionTokens,
 			TotalTokens:       m.TotalTokens,
+			CacheReadTokens:   m.CacheReadTokens,
+			CacheWriteTokens:  m.CacheWriteTokens,
+			PromptCost:        m.PromptCost,
+			CompletionCost:    m.CompletionCost,
+			CacheReadCost:     m.CacheReadCost,
+			CacheWriteCost:    m.CacheWriteCost,
 			TotalCost:         m.TotalCost,
 			LatencyMs:         m.DurationMs,
 			RequestSizeBytes:  m.RequestSizeBytes,
@@ -284,6 +306,64 @@ func (s *PostgresStore) GetAggregatedUsageMetrics(ctx context.Context, q *GetAgg
 	return completeMetrics, nil
 }
 
+func (s *PostgresStore) GetSandboxUsageMetrics(ctx context.Context, q *GetAggregatedUsageMetricsQuery) ([]*types.AggregatedUsageMetric, error) {
+	metrics := []*types.AggregatedUsageMetric{}
+	if q == nil {
+		return metrics, nil
+	}
+	if q.OrganizationID == "" {
+		return fillInMissingDates(metrics, q.From, q.To), nil
+	}
+
+	aggregationLevel := q.AggregationLevel
+	if aggregationLevel == "" {
+		aggregationLevel = AggregationLevelDaily
+	}
+
+	var dateExpr string
+	var groupBy string
+	switch aggregationLevel {
+	case AggregationLevel5Min:
+		dateExpr = "date_trunc('hour', transactions.created_at) + INTERVAL '5 min' * FLOOR(EXTRACT(MINUTE FROM transactions.created_at) / 5) as date"
+		groupBy = "date_trunc('hour', transactions.created_at) + INTERVAL '5 min' * FLOOR(EXTRACT(MINUTE FROM transactions.created_at) / 5)"
+	case AggregationLevelHourly:
+		dateExpr = "date_trunc('hour', transactions.created_at) as date"
+		groupBy = "date_trunc('hour', transactions.created_at)"
+	default:
+		dateExpr = "date_trunc('day', transactions.created_at) as date"
+		groupBy = "date_trunc('day', transactions.created_at)"
+	}
+
+	err := s.gdb.WithContext(ctx).
+		Model(&types.Transaction{}).
+		Joins("JOIN wallets ON wallets.id = transactions.wallet_id").
+		Select(`
+			`+dateExpr+`,
+			COALESCE(SUM(-transactions.amount), 0) as sandbox_cost,
+			COALESCE(SUM(-transactions.amount), 0) as total_cost,
+			COUNT(DISTINCT transactions.id) as total_requests
+		`).
+		Where("wallets.org_id = ?", q.OrganizationID).
+		Where("transactions.type = ?", types.TransactionTypeUsage).
+		Where("transactions.sandbox_id <> ''").
+		Where("transactions.created_at >= ? AND transactions.created_at <= ?", q.From, q.To).
+		Group(groupBy).
+		Order("date ASC").
+		Find(&metrics).Error
+	if err != nil {
+		return nil, err
+	}
+
+	switch aggregationLevel {
+	case AggregationLevel5Min:
+		return fillInMissing5Minutes(metrics, q.From, q.To), nil
+	case AggregationLevelHourly:
+		return fillInMissingHours(metrics, q.From, q.To), nil
+	default:
+		return fillInMissingDates(metrics, q.From, q.To), nil
+	}
+}
+
 func (s *PostgresStore) GetAppUsersAggregatedUsageMetrics(ctx context.Context, appID string, from time.Time, to time.Time) ([]*types.UsersAggregatedUsageMetric, error) {
 	metrics := []*types.UsersAggregatedUsageMetric{}
 
@@ -294,8 +374,12 @@ func (s *PostgresStore) GetAppUsersAggregatedUsageMetrics(ctx context.Context, a
 		PromptTokens      int       `gorm:"column:prompt_tokens"`
 		CompletionTokens  int       `gorm:"column:completion_tokens"`
 		TotalTokens       int       `gorm:"column:total_tokens"`
+		CacheReadTokens   int       `gorm:"column:cache_read_tokens"`
+		CacheWriteTokens  int       `gorm:"column:cache_write_tokens"`
 		PromptCost        float64   `gorm:"column:prompt_cost"`
 		CompletionCost    float64   `gorm:"column:completion_cost"`
+		CacheReadCost     float64   `gorm:"column:cache_read_cost"`
+		CacheWriteCost    float64   `gorm:"column:cache_write_cost"`
 		TotalCost         float64   `gorm:"column:total_cost"`
 		DurationMs        float64   `gorm:"column:duration_ms"`
 		RequestSizeBytes  int       `gorm:"column:request_size_bytes"`
@@ -311,8 +395,12 @@ func (s *PostgresStore) GetAppUsersAggregatedUsageMetrics(ctx context.Context, a
 			SUM(prompt_tokens) as prompt_tokens,
 			SUM(completion_tokens) as completion_tokens,
 			SUM(total_tokens) as total_tokens,
+			SUM(cache_read_tokens) as cache_read_tokens,
+			SUM(cache_write_tokens) as cache_write_tokens,
 			SUM(prompt_cost) as prompt_cost,
 			SUM(completion_cost) as completion_cost,
+			SUM(cache_read_cost) as cache_read_cost,
+			SUM(cache_write_cost) as cache_write_cost,
 			SUM(total_cost) as total_cost,
 			AVG(duration_ms) as duration_ms,
 			SUM(request_size_bytes) as request_size_bytes,
@@ -339,9 +427,13 @@ func (s *PostgresStore) GetAppUsersAggregatedUsageMetrics(ctx context.Context, a
 			PromptTokens:      m.PromptTokens,
 			CompletionTokens:  m.CompletionTokens,
 			TotalTokens:       m.TotalTokens,
+			CacheReadTokens:   m.CacheReadTokens,
+			CacheWriteTokens:  m.CacheWriteTokens,
 			TotalCost:         m.TotalCost,
 			PromptCost:        m.PromptCost,
 			CompletionCost:    m.CompletionCost,
+			CacheReadCost:     m.CacheReadCost,
+			CacheWriteCost:    m.CacheWriteCost,
 			LatencyMs:         m.DurationMs,
 			RequestSizeBytes:  m.RequestSizeBytes,
 			ResponseSizeBytes: m.ResponseSizeBytes,
@@ -530,6 +622,62 @@ func (s *PostgresStore) DeleteUsageMetrics(ctx context.Context, appID string) er
 	}
 
 	return s.gdb.WithContext(ctx).Where("app_id = ?", appID).Delete(&types.UsageMetric{}).Error
+}
+
+// GetUserModelUsage returns per-(provider, model) aggregates for everything
+// the given user has consumed. The result is ordered by total requests desc.
+func (s *PostgresStore) GetUserModelUsage(ctx context.Context, userID string) ([]*types.UserModelUsage, error) {
+	if userID == "" {
+		return nil, errors.New("user_id is required")
+	}
+
+	var rows []*types.UserModelUsage
+	err := s.gdb.WithContext(ctx).
+		Model(&types.UsageMetric{}).
+		Select(`
+			provider,
+			model,
+			COUNT(DISTINCT id) as total_requests,
+			COALESCE(SUM(total_tokens), 0) as total_tokens,
+			COALESCE(SUM(prompt_tokens), 0) as prompt_tokens,
+			COALESCE(SUM(completion_tokens), 0) as completion_tokens,
+			COALESCE(SUM(cache_read_tokens), 0) as cache_read_tokens,
+			COALESCE(SUM(cache_write_tokens), 0) as cache_write_tokens,
+			COALESCE(SUM(total_cost), 0) as total_cost,
+			MIN(created) as first_used,
+			MAX(created) as last_used
+		`).
+		Where("user_id = ?", userID).
+		Group("provider, model").
+		Order("total_requests DESC").
+		Find(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
+
+// GetUserLastUsage returns the most recent UsageMetric.created for a user, or
+// zero time if the user has never triggered an inference request.
+func (s *PostgresStore) GetUserLastUsage(ctx context.Context, userID string) (time.Time, error) {
+	if userID == "" {
+		return time.Time{}, errors.New("user_id is required")
+	}
+	var result struct {
+		LastUsed *time.Time `gorm:"column:last_used"`
+	}
+	err := s.gdb.WithContext(ctx).
+		Model(&types.UsageMetric{}).
+		Select("MAX(created) as last_used").
+		Where("user_id = ?", userID).
+		Scan(&result).Error
+	if err != nil {
+		return time.Time{}, err
+	}
+	if result.LastUsed == nil {
+		return time.Time{}, nil
+	}
+	return *result.LastUsed, nil
 }
 
 // GetUserMonthlyTokenUsage returns the total tokens used by a user in the current month

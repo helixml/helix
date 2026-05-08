@@ -1,6 +1,5 @@
 import React from 'react'
 import { Box, Typography, Paper, Chip, IconButton } from '@mui/material'
-import CloseIcon from '@mui/icons-material/Close'
 import CheckCircleIcon from '@mui/icons-material/CheckCircle'
 import { MessageWithToolCalls, ResponseEntry } from '../session/InteractionInference'
 import { DesignReviewComment } from '../../services/designReviewService'
@@ -74,8 +73,8 @@ export default function CommentLogSidebar({
                     color={comment.quoted_text ? "primary" : "default"}
                   />
                   {!comment.resolved && (
-                    <IconButton size="small" onClick={() => onResolveComment(comment.id!)}>
-                      <CloseIcon fontSize="small" />
+                    <IconButton size="small" onClick={() => onResolveComment(comment.id!)} sx={{ color: 'success.main' }}>
+                      <CheckCircleIcon fontSize="small" />
                     </IconButton>
                   )}
                 </Box>

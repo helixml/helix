@@ -662,7 +662,7 @@ This means:
 
 ## References
 
-- [Kodit Configuration Documentation](https://docs.helixml.tech/kodit/reference/configuration/)
-- [Kodit Enrichment Endpoints](https://docs.helixml.tech/kodit/reference/configuration/#enrichment-endpoints)
+- [Kodit Configuration Documentation](https://helix.ml/docs)
+- [Kodit Enrichment Endpoints](https://helix.ml/docs)
 - Helix SystemSettings: `api/pkg/types/system_settings.go`
 - Helix OpenAI Handlers: `api/pkg/server/openai_chat_handlers.go`

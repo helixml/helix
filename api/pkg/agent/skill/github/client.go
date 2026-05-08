@@ -8,6 +8,7 @@ import (
 
 	"github.com/bradleyfalzon/ghinstallation/v2"
 	"github.com/google/go-github/v57/github"
+	"github.com/rs/zerolog/log"
 	"golang.org/x/oauth2"
 )
 
@@ -106,7 +107,13 @@ func NewClientWithGitHubApp(appID, installationID int64, privateKey, baseURL str
 // including personal repos, collaborator repos, and organization repos (both public and private).
 //
 // GitHub's GET /user/repos with affiliation=organization_member may not return
-// public org repos, so we supplement with per-org repo listing.
+// public org repos, so we supplement with per-org repo listing. We discover orgs
+// from two sources because each misses cases the other catches:
+//   - GET /user/orgs returns orgs the user is a *member* of, but not orgs where
+//     the user is only an outside collaborator on individual repos.
+//   - The owners of repos returned by /user/repos surface those collaborator orgs,
+//     but only if the user has access to at least one repo in them.
+// Unioning both gives us every org we can plausibly enumerate public repos for.
 func (c *Client) ListRepositories(ctx context.Context) ([]*github.Repository, error) {
 	// Step 1: Get user repos (personal, collaborator, org-member)
 	var allRepos []*github.Repository
@@ -129,24 +136,90 @@ func (c *Client) ListRepositories(ctx context.Context) ([]*github.Repository, er
 		opt.Page = resp.NextPage
 	}
 
-	// Step 2: List user's organizations
-	orgs, err := c.listUserOrganizations(ctx)
-	if err != nil {
-		// Non-fatal: return what we have from Step 1
-		return allRepos, nil
+	log.Info().Int("user_repos_count", len(allRepos)).Msg("Step 1: fetched user repos")
+
+	// Collect orgs from owners of org-owned repos in Step 1. This catches orgs
+	// where the user is an outside collaborator and so doesn't appear in /user/orgs.
+	orgsFromRepos := make(map[string]bool)
+	for _, repo := range allRepos {
+		owner := repo.GetOwner()
+		if owner == nil {
+			continue
+		}
+		if owner.GetType() == "Organization" {
+			orgsFromRepos[owner.GetLogin()] = true
+		}
 	}
 
-	// Step 3: For each org, list all visible repos (includes public ones)
-	for _, org := range orgs {
-		orgRepos, err := c.listOrgRepositories(ctx, org.GetLogin())
-		if err != nil {
-			continue // Skip orgs we can't list, return what we can
+	// Step 2: List user's organizations (orgs the user is a member of).
+	// May fail if read:org scope is missing — in that case we still proceed
+	// using only the orgs derived from Step 1.
+	memberOrgs, err := c.listUserOrganizations(ctx)
+	if err != nil {
+		log.Warn().Err(err).Msg("Failed to list user organizations (needs read:org scope) — falling back to orgs derived from user repos")
+	}
+
+	allOrgs := make(map[string]bool, len(orgsFromRepos)+len(memberOrgs))
+	for org := range orgsFromRepos {
+		allOrgs[org] = true
+	}
+	for _, org := range memberOrgs {
+		allOrgs[org.GetLogin()] = true
+	}
+
+	memberOrgNames := make([]string, len(memberOrgs))
+	for i, org := range memberOrgs {
+		memberOrgNames[i] = org.GetLogin()
+	}
+	collaboratorOnlyOrgs := make([]string, 0)
+	for org := range orgsFromRepos {
+		if _, isMember := lookupOrgInList(memberOrgs, org); !isMember {
+			collaboratorOnlyOrgs = append(collaboratorOnlyOrgs, org)
 		}
+	}
+	log.Info().
+		Strs("member_orgs", memberOrgNames).
+		Strs("collaborator_only_orgs", collaboratorOnlyOrgs).
+		Int("total_orgs_to_query", len(allOrgs)).
+		Msg("Step 2: assembled org list (members + collaborator-only)")
+
+	// Step 3: For each org, list all visible repos (includes public ones)
+	for orgLogin := range allOrgs {
+		orgRepos, err := c.listOrgRepositories(ctx, orgLogin)
+		if err != nil {
+			log.Warn().Err(err).Str("org", orgLogin).Msg("Step 3: failed to list org repos, skipping")
+			continue
+		}
+		log.Info().Str("org", orgLogin).Int("repo_count", len(orgRepos)).Msg("Step 3: fetched org repos")
 		allRepos = append(allRepos, orgRepos...)
 	}
 
 	// Step 4: Deduplicate by repo ID
-	return deduplicateRepos(allRepos), nil
+	deduped := deduplicateRepos(allRepos)
+	log.Info().Int("total_before_dedup", len(allRepos)).Int("total_after_dedup", len(deduped)).Msg("Step 4: deduplicated repos")
+	return deduped, nil
+}
+
+// HasWriteAccess returns true when the authenticated user can push to the repo.
+// GitHub populates Permissions on /user/repos and /orgs/{org}/repos for authenticated
+// requests, so a missing map is unusual; we treat it as write access to avoid
+// over-blocking the link UI in edge cases (e.g. GitHub App contexts).
+func HasWriteAccess(repo *github.Repository) bool {
+	perms := repo.GetPermissions()
+	if perms == nil {
+		return true
+	}
+	return perms["admin"] || perms["maintain"] || perms["push"]
+}
+
+// lookupOrgInList returns the matching org and true if login appears in orgs.
+func lookupOrgInList(orgs []*github.Organization, login string) (*github.Organization, bool) {
+	for _, o := range orgs {
+		if o.GetLogin() == login {
+			return o, true
+		}
+	}
+	return nil, false
 }
 
 // listUserOrganizations returns all organizations the authenticated user belongs to.
@@ -266,6 +339,110 @@ func (c *Client) ListPullRequests(ctx context.Context, owner, repo string) ([]*g
 	}
 
 	return allPRs, nil
+}
+
+// CIStatusResult is the normalized verdict for a head SHA, aggregated
+// across the legacy combined status and the modern check runs APIs.
+// Status is the worst of any individual status/check found:
+// "failed" > "running" > "passed" > "none". Status is the lower-cased
+// raw value — callers normalise via services.NormalizeCIStatus(...).
+// URL points at the GitHub PR's "Checks" tab (computed by the caller from
+// PR data, since this method takes only owner/repo/sha).
+type CIStatusResult struct {
+	// Status is the raw worst-state string. Empty when no statuses or
+	// check runs exist for the SHA. Callers normalise into the canonical
+	// services.CIStatus* values.
+	Status string
+	// HeadSHA echoes the SHA queried; useful when callers chain calls.
+	HeadSHA string
+}
+
+// GetCIStatus fetches the combined commit status AND the check runs for a
+// SHA, then returns the worst raw verdict. We query both because GitHub
+// has two overlapping CI surfaces: the legacy Statuses API (used by
+// many third-party CI services) and the Checks API (used by GitHub
+// Actions). A repo can use one, the other, or both.
+func (c *Client) GetCIStatus(ctx context.Context, owner, repo, sha string) (*CIStatusResult, error) {
+	const (
+		// Severity ordering for "worst-state wins" aggregation.
+		// Higher number = worse / more attention-demanding.
+		sevPassed  = 1
+		sevRunning = 2
+		sevFailed  = 3
+	)
+
+	verdict := func(state string) int {
+		switch strings.ToLower(strings.TrimSpace(state)) {
+		case "success", "neutral", "skipped":
+			return sevPassed
+		case "pending", "queued", "in_progress":
+			return sevRunning
+		case "":
+			return 0
+		default:
+			// failure, error, cancelled, timed_out, action_required, stale, ...
+			return sevFailed
+		}
+	}
+
+	worstSev := 0
+	worstRaw := ""
+	consider := func(state string) {
+		if state == "" {
+			return
+		}
+		s := verdict(state)
+		if s > worstSev {
+			worstSev = s
+			worstRaw = strings.ToLower(strings.TrimSpace(state))
+		}
+	}
+
+	combined, _, err := c.client.Repositories.GetCombinedStatus(ctx, owner, repo, sha, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get combined status: %w", err)
+	}
+	if combined != nil {
+		// Walk individual statuses (rather than the aggregate State) so
+		// we use the same "worst-state wins" rule across both surfaces.
+		for _, s := range combined.Statuses {
+			if s != nil && s.State != nil {
+				consider(*s.State)
+			}
+		}
+	}
+
+	checkOpts := &github.ListCheckRunsOptions{
+		ListOptions: github.ListOptions{PerPage: 100},
+	}
+	for {
+		runs, resp, err := c.client.Checks.ListCheckRunsForRef(ctx, owner, repo, sha, checkOpts)
+		if err != nil {
+			return nil, fmt.Errorf("failed to list check runs: %w", err)
+		}
+		if runs != nil {
+			for _, r := range runs.CheckRuns {
+				if r == nil {
+					continue
+				}
+				// Status is "queued" | "in_progress" | "completed".
+				// When completed, Conclusion holds the verdict.
+				if r.Status != nil && *r.Status != "completed" {
+					consider(*r.Status)
+					continue
+				}
+				if r.Conclusion != nil {
+					consider(*r.Conclusion)
+				}
+			}
+		}
+		if resp == nil || resp.NextPage == 0 {
+			break
+		}
+		checkOpts.Page = resp.NextPage
+	}
+
+	return &CIStatusResult{Status: worstRaw, HeadSHA: sha}, nil
 }
 
 // GetRepository gets a repository by owner and name
