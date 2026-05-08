@@ -1,6 +1,6 @@
 # Implementation Tasks
 
-- [ ] In `GlobalNotifications.tsx`, after computing `groups`, add a helper `isGroupUnread(group)` that returns true if any event in the group lacks `acknowledged_at`
+- [~] In `GlobalNotifications.tsx`, after computing `groups`, add a helper `isGroupUnread(group)` that returns true if any event in the group lacks `acknowledged_at`
 - [ ] Derive `deduplicatedTotalCount`, `deduplicatedUnreadCount`, `deduplicatedHasNew` from the de-duplicated `groups` array
 - [ ] Replace `hasNew ? unreadCount : totalCount` and related `hasNew` references in the `<Badge>` with the new de-duplicated values
 - [ ] Verify that acknowledging a grouped notification still marks both primary and secondary events (should be no change needed — existing behavior is correct)
