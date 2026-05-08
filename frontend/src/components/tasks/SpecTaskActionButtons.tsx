@@ -613,7 +613,7 @@ export default function SpecTaskActionButtons({
     );
   }
 
-  if (task.status === "pull_request" && hasAnyPR) {
+  if ((task.status === "pull_request" || task.status === "done") && hasAnyPR) {
     // Single PR case
     if (pullRequests.length === 1) {
       const prUrl = pullRequests[0].pr_url;
