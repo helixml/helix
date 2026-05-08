@@ -18,6 +18,7 @@ import ScreenshotViewer from "./ScreenshotViewer";
 import SandboxDropZone from "./SandboxDropZone";
 import EmbeddedSessionView from "../session/EmbeddedSessionView";
 import RobustPromptInput from "../common/RobustPromptInput";
+import { optimisticallyMarkSessionStarting } from "../../utils/optimisticSessionStarting";
 import useApi from "../../hooks/useApi";
 import useSnackbar from "../../hooks/useSnackbar";
 import { useStreaming } from "../../contexts/streaming";
@@ -277,6 +278,15 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
       wasNotPausedRef.current = false;
     }
   }, [isPaused]);
+
+  // Optimistic UI hook fired the moment the user hits Send. Flips the cached
+  // session config to external_agent_status="starting" so a paused desktop
+  // shows the spinner immediately, before the backend auto-start path
+  // (no-WS dispatch → goroutine → StartDesktop → DB write) catches up. The
+  // helper also kicks the next session poll via invalidateQueries.
+  const handleWillSend = useCallback(() => {
+    optimisticallyMarkSessionStarting(queryClient, sessionId);
+  }, [queryClient, sessionId]);
 
   // Handler for sending messages from the session panel
   // IMPORTANT: This hook must be before any early returns to satisfy React's rules of hooks
@@ -736,6 +746,7 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
                 projectId={projectId}
                 apiClient={apiClient}
                 onSend={handleSendMessage}
+                onWillSend={handleWillSend}
                 placeholder="Send message to agent..."
                 appendText={uploadedFilePath}
                 onImagePaste={handleImagePaste}

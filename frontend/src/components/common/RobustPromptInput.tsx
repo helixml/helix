@@ -109,6 +109,13 @@ interface RobustPromptInputProps {
   onFileUpload?: (file: File) => Promise<string | null>
   // Deprecated: use onFileUpload instead
   onImagePaste?: (file: File) => Promise<string | null>
+  // Fires synchronously inside handleSend the moment the user submits a
+  // prompt, before the local queue persist or the backend sync POST. The
+  // parent uses this hook to do optimistic UI updates (e.g. flip the cached
+  // session.config.external_agent_status to "starting" so the desktop
+  // viewer shows the spinner without waiting for the next 3s poll).
+  // Must be cheap and synchronous — runs in the user's click handler.
+  onWillSend?: () => void
 }
 
 // Props for sortable queue item
@@ -518,6 +525,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
   appendText,
   onFileUpload,
   onImagePaste,
+  onWillSend,
 }) => {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const editTextareaRef = useRef<HTMLTextAreaElement>(null)
@@ -672,6 +680,18 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
       ? (content ? `${attachmentPaths} ${content}` : attachmentPaths)
       : content
 
+    // Optimistic UI hook: fires synchronously before the queue persist /
+    // backend sync POST so the parent can flip a paused desktop's cached
+    // status to "starting" and render the spinner without waiting for the
+    // 3s session poll. Errors here must not block the send.
+    if (onWillSend) {
+      try {
+        onWillSend()
+      } catch (e) {
+        console.warn('[RobustPromptInput] onWillSend threw:', e)
+      }
+    }
+
     // Add to queue with pending status, passing interrupt mode
     saveToHistory(fullContent, interruptMode)
     clearDraft()
@@ -685,7 +705,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
       return []
     })
     // Backend handles processing after sync - no need to call processQueue
-  }, [draft, disabled, attachments, saveToHistory, clearDraft, interruptMode])
+  }, [draft, disabled, attachments, saveToHistory, clearDraft, interruptMode, onWillSend])
 
   // Remove from queue: tombstone locally first (instant UI update, prevents
   // re-import on sync), then fire backend DELETE (best effort).
