@@ -6,7 +6,7 @@ import Badge from '@mui/material/Badge'
 import Typography from '@mui/material/Typography'
 import Button from '@mui/material/Button'
 import Tooltip from '@mui/material/Tooltip'
-import { Bell, X, BellOff, BellRing, Sparkles, Hand, AlertCircle, GitMerge } from 'lucide-react'
+import { Bell, X, BellOff, BellRing, Sparkles, Hand, AlertCircle, GitMerge, ExternalLink } from 'lucide-react'
 
 import useAccount from '../../hooks/useAccount'
 import useApi from '../../hooks/useApi'
@@ -308,6 +308,20 @@ const AttentionEventItem: React.FC<{
       <Typography variant="caption" sx={{ color: lightTheme.textColorFaded, fontSize: '0.65rem', whiteSpace: 'nowrap', flexShrink: 0 }}>
         {timeAgo(event.created_at)}
       </Typography>
+      {event.event_type === 'pr_ready' && extractExternalPRURL(event) && (
+        <Tooltip title="Open pull request">
+          <IconButton
+            size="small"
+            onClick={(e) => {
+              e.stopPropagation()
+              window.open(extractExternalPRURL(event), '_blank', 'noopener,noreferrer')
+            }}
+            sx={{ p: 0.25, flexShrink: 0, color: lightTheme.textColorFaded, '&:hover': { color: lightTheme.textColor } }}
+          >
+            <ExternalLink size={12} />
+          </IconButton>
+        </Tooltip>
+      )}
       <Tooltip title="Dismiss">
         <IconButton
           size="small"
@@ -407,15 +421,6 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
           `${event.spec_task_name || ''} · ${event.project_name || ''}`,
           () => {
             acknowledge(event.id)
-            // pr_ready carries the external URL in metadata — open it in a new
-            // tab rather than navigating to the task page within Helix.
-            if (event.event_type === 'pr_ready') {
-              const prURL = extractExternalPRURL(event)
-              if (prURL) {
-                window.open(prURL, '_blank', 'noopener,noreferrer')
-                return
-              }
-            }
             account.orgNavigate('project-task-detail', {
               id: event.project_id,
               taskId: event.spec_task_id,
@@ -440,16 +445,6 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
   const handleNavigate = useCallback(async (event: AttentionEvent) => {
     // Mark as read on explicit click
     acknowledge(event.id)
-
-    // pr_ready carries the external URL in metadata — open it in a new tab
-    // rather than navigating to the task page within Helix.
-    if (event.event_type === 'pr_ready') {
-      const prURL = extractExternalPRURL(event)
-      if (prURL) {
-        window.open(prURL, '_blank', 'noopener,noreferrer')
-        return
-      }
-    }
 
     // Don't close the panel — user wants to keep it open while working
     if (event.event_type === 'specs_pushed') {
