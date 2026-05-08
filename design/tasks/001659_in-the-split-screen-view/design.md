@@ -65,3 +65,27 @@ Search for where `SpecTaskDetailContent` is rendered inside `TabsView.tsx`. It w
 ## No Other State Sharing
 
 The `activeTabId` per panel in `rootNode` is already local to each panel — only the URL sync causes the cross-panel bleed. No other shared state changes are needed.
+
+## Implementation Notes
+
+**Files modified:**
+- `frontend/src/components/tasks/SpecTaskDetailContent.tsx`
+  - Added `syncViewWithUrl?: boolean` prop (default `true`).
+  - `getInitialView()`: returns `"desktop"` immediately when `syncViewWithUrl` is false (does not read `router.params.view`).
+  - URL-watching `useEffect`: early-return when `syncViewWithUrl` is false; included `syncViewWithUrl` in deps.
+  - `handleViewChange`: only calls `router.mergeParams({ view })` when `syncViewWithUrl` is true.
+  - "Default to appropriate view" `useEffect` (around old line 522): both branches now guard `router.mergeParams` with `syncViewWithUrl`.
+- `frontend/src/components/tasks/TabsView.tsx`
+  - Pass `syncViewWithUrl={false}` to `SpecTaskDetailContent` rendered inside a panel.
+
+**Verification:**
+- Frontend type-check (`npx tsc --noEmit`) passes with no errors.
+- Vite transformed 21400 modules with no TS/lint errors (final write to `dist/` failed only due to bind-mount permissions in this environment, unrelated to the change).
+- Code-path analysis:
+  - Split-screen (`syncViewWithUrl={false}`): every code path that touches the URL param is gated; each `SpecTaskDetailContent` instance owns `currentView` purely locally → panels are independent.
+  - Single-panel (`SpecTaskDetailPage` keeps default `syncViewWithUrl=true`): all original behaviour preserved (URL init, URL watcher, URL writes on change).
+- Live browser verification was not possible in this session — the inner Helix stack containers were not running (Docker reports no containers; startup script still mid-build).
+
+**Gotchas:**
+- The 'Default to appropriate view' effect can still trigger a setCurrentView in split-screen (e.g. when `activeSessionId` toggles); only the URL write is suppressed. This is the desired behaviour.
+- Do NOT remove the `setCurrentView(...)` calls when guarding — only the `router.mergeParams` calls.
