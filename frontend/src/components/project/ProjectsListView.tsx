@@ -20,7 +20,7 @@ import { Kanban } from 'lucide-react'
 
 import CreateProjectButton from './CreateProjectButton'
 import { TypesProject } from '../../services'
-import type { ServerSampleProject } from '../../api/api'
+import type { ServerSimpleSampleProject } from '../../api/api'
 import { useGetProjectUsage } from '../../services/projectService'
 import UsageSparkline, { formatNumber } from '../usage/UsageSparkline'
 
@@ -38,7 +38,7 @@ interface ProjectsListViewProps {
   onNavigateToSettings: (projectId: string) => void
   onCreateEmpty: () => void
   onCreateFromSample: (sampleId: string, sampleName: string) => Promise<void>
-  sampleProjects: ServerSampleProject[]
+  sampleProjects: ServerSimpleSampleProject[]
   isCreating: boolean
   appNamesMap?: Record<string, string>
   pinnedProjectIds?: string[]
