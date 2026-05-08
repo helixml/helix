@@ -1,7 +1,7 @@
 # Implementation Tasks
 
-- [ ] Check if branch `feature/001661-occasionally-when-i` (commit `776bc2ad4`) has already been merged to `main`. Run: `git log origin/main -- frontend/src/lib/specTaskAutoOpen.ts`. If the file exists on main, skip the "Extract sessionStorage helpers" and "Mark task as auto-opened on review page mount" steps below — they're already done.
-- [ ] **Extract sessionStorage helpers** to a new file `frontend/src/lib/specTaskAutoOpen.ts` exporting `AUTO_OPENED_KEY`, `getAutoOpenedSpecTasks()`, and `addAutoOpenedSpecTask(id)` (matches commit `776bc2ad4` exactly).
+- [x] Check if branch `feature/001661-occasionally-when-i` (commit `776bc2ad4`) has already been merged to `main`. **Result: not merged — `frontend/src/lib/specTaskAutoOpen.ts` does not exist on main, so all 4 sub-fixes need to be done in this PR.**
+- [~] **Extract sessionStorage helpers** to a new file `frontend/src/lib/specTaskAutoOpen.ts` exporting `AUTO_OPENED_KEY`, `getAutoOpenedSpecTasks()`, and `addAutoOpenedSpecTask(id)` (matches commit `776bc2ad4` exactly).
 - [ ] **Update `frontend/src/components/tasks/SpecTaskDetailContent.tsx`** to import `getAutoOpenedSpecTasks` and `addAutoOpenedSpecTask` from `../../lib/specTaskAutoOpen` and delete the inline copies (lines 119–129).
 - [ ] **Mark task as auto-opened on review page mount**: in `frontend/src/pages/SpecTaskReviewPage.tsx`, import `addAutoOpenedSpecTask` and add a `useEffect(() => { if (taskId) addAutoOpenedSpecTask(taskId) }, [taskId])`.
 - [ ] **Defence-in-depth check**: in the auto-open `useEffect` in `SpecTaskDetailContent.tsx` (currently lines 921–932), add `!task?.spec_approved_at` to the condition and add `task?.spec_approved_at` to the dependency array.
