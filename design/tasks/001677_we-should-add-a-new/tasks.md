@@ -5,10 +5,11 @@
 - [x] Emit `AttentionEventPRReady` immediately from `ensurePullRequestForRepo` after `CreatePullRequest` succeeds, with `prID` as the idempotency qualifier and `pr_url`/`pr_id` in metadata
 - [x] Confirmed: orchestrator's later emission collapses with this one (same idempotency key); no duplicate notifications
 
-## Frontend: Open external PR URL in new tab
+## Frontend: Add external-PR-link button to pr_ready items (body click stays in-app)
 
-- [x] In `GlobalNotifications.tsx` `handleNavigate()`, when the clicked event is `pr_ready` and metadata carries a `pr_url`, `window.open(prURL, '_blank', 'noopener,noreferrer')` instead of in-app navigation
-- [x] Apply the same external-link behaviour in the browser-notification `onClick` callback
+- [x] In `AttentionEventItem`, render an `ExternalLink` icon button next to the dismiss X for `pr_ready` events that carry `metadata.pr_url`. Click `stopPropagation()` + `window.open(prURL, '_blank', 'noopener,noreferrer')`
+- [x] Body click on the notification still navigates to the in-app task detail page (original behaviour — overloading the body as an external link removed the "inspect task in Helix" affordance)
+- [x] Browser notification click also navigates in-app (a desktop alert can only carry one action)
 
 ## Frontend: Auto-acknowledge on browser notification click
 

@@ -3,7 +3,7 @@
 ## Overview
 
 Three improvements to the notification system:
-1. PR-opened notification: emit `pr_ready` *immediately* when Helix creates a PR (instead of waiting for the orchestrator polling loop to detect it), and make clicking a `pr_ready` notification jump straight to the external PR URL in a new tab.
+1. PR-opened notification: emit `pr_ready` *immediately* when Helix creates a PR (instead of waiting for the orchestrator polling loop to detect it), and add a small `ExternalLink` button to the panel item that opens the external PR in a new tab. Body click still navigates to the in-app task page so users can inspect the task without leaving Helix.
 2. Auto-acknowledging notifications when a user clicks a browser/desktop notification to navigate within Helix.
 3. Fix missing `specs_pushed` notifications on the orchestrator-driven SpecReview transition (the git-push path was already correct).
 
