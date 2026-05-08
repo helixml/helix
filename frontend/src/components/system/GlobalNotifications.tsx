@@ -256,7 +256,7 @@ const AttentionEventItem: React.FC<{
       <Tooltip
         title={
           <span style={{ whiteSpace: 'pre-wrap' }}>
-            {event.spec_task_name || event.spec_task_id || ''}
+            {event.spec_task_description || event.spec_task_name || event.spec_task_id || ''}
             {'\n'}
             {groupedWith ? 'Spec ready & agent finished' : event.title}
           </span>

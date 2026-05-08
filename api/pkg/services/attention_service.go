@@ -72,18 +72,19 @@ func (s *AttentionService) EmitEvent(
 	}
 
 	event := &types.AttentionEvent{
-		ID:             system.GenerateAttentionEventID(),
-		UserID:         userID,
-		OrganizationID: project.OrganizationID,
-		ProjectID:      task.ProjectID,
-		SpecTaskID:     task.ID,
-		EventType:      eventType,
-		Title:          title,
-		Description:    description,
-		CreatedAt:      time.Now(),
-		IdempotencyKey: types.BuildAttentionEventIdempotencyKey(task.ID, eventType, qualifier),
-		ProjectName:    project.Name,
-		SpecTaskName:   task.Name,
+		ID:                  system.GenerateAttentionEventID(),
+		UserID:              userID,
+		OrganizationID:      project.OrganizationID,
+		ProjectID:           task.ProjectID,
+		SpecTaskID:          task.ID,
+		EventType:           eventType,
+		Title:               title,
+		Description:         description,
+		CreatedAt:           time.Now(),
+		IdempotencyKey:      types.BuildAttentionEventIdempotencyKey(task.ID, eventType, qualifier),
+		ProjectName:         project.Name,
+		SpecTaskName:        task.Name,
+		SpecTaskDescription: task.Description,
 	}
 	if metadataJSON != nil {
 		event.Metadata = metadataJSON

@@ -19,6 +19,7 @@ export interface AttentionEvent {
   metadata?: Record<string, unknown>
   project_name?: string
   spec_task_name?: string
+  spec_task_description?: string
 }
 
 export type AttentionEventType =
