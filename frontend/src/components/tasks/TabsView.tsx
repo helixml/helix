@@ -1468,6 +1468,7 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
                 onOpenReview(taskId, reviewId, reviewTitle, panel.id)
               }
               onTaskArchived={onTaskArchived}
+              syncViewWithUrl={false}
             />
           )
         ) : (

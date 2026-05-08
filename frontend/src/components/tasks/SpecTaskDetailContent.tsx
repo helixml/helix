@@ -133,6 +133,13 @@ interface SpecTaskDetailContentProps {
   ) => void;
   /** Called when task is archived - parent should close all tabs showing this task */
   onTaskArchived?: (taskId: string) => void;
+  /**
+   * Whether to sync the active view (chat/desktop/changes/details) with the URL `view` query param.
+   * Defaults to true. Set to false when this component is rendered inside a multi-panel container
+   * (e.g. TabsView split-screen) where each panel must own its view independently — otherwise all
+   * visible instances mirror the same URL param.
+   */
+  syncViewWithUrl?: boolean;
 }
 
 const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
@@ -140,6 +147,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   onClose,
   onOpenReview,
   onTaskArchived,
+  syncViewWithUrl = true,
 }) => {
   const api = useApi();
   const snackbar = useSnackbar();
@@ -290,8 +298,11 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   }, []);
 
   // On mobile, 'chat' is a separate tab; on desktop, chat is always visible
-  // Initialize from URL query param 'view' if present
+  // Initialize from URL query param 'view' if present (only when syncing with URL)
   const getInitialView = (): "chat" | "desktop" | "changes" | "details" => {
+    if (!syncViewWithUrl) {
+      return "desktop";
+    }
     const viewParam = router.params.view;
     if (
       viewParam === "chat" ||
@@ -308,8 +319,11 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   >(getInitialView);
   const [clientUniqueId, setClientUniqueId] = useState<string>("");
 
-  // Sync currentView with URL query param
+  // Sync currentView with URL query param (only when syncing with URL).
+  // When rendered inside a multi-panel container (split-screen), this sync is
+  // disabled so each panel owns its own view independently.
   useEffect(() => {
+    if (!syncViewWithUrl) return;
     const viewParam = router.params.view;
     if (
       viewParam &&
@@ -322,17 +336,19 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
         setCurrentView(viewParam);
       }
     }
-  }, [router.params.view]);
+  }, [router.params.view, syncViewWithUrl]);
 
-  // Update URL when view changes
+  // Update URL when view changes (only when syncing with URL)
   const handleViewChange = useCallback(
     (newView: "chat" | "desktop" | "changes" | "details" | null) => {
       if (newView && newView !== currentView) {
         setCurrentView(newView);
-        router.mergeParams({ view: newView });
+        if (syncViewWithUrl) {
+          router.mergeParams({ view: newView });
+        }
       }
     },
-    [currentView, router],
+    [currentView, router, syncViewWithUrl],
   );
 
   // Ref for EmbeddedSessionView to trigger scroll on height changes
@@ -526,11 +542,15 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
       // On mobile, default to chat; on desktop, default to desktop (chat is always visible)
       const newView = isBigScreen ? "desktop" : "chat";
       setCurrentView(newView);
-      router.mergeParams({ view: newView });
+      if (syncViewWithUrl) {
+        router.mergeParams({ view: newView });
+      }
     } else if (!activeSessionId && currentView !== "details") {
       // If no active session, switch to details view
       setCurrentView("details");
-      router.mergeParams({ view: "details" });
+      if (syncViewWithUrl) {
+        router.mergeParams({ view: "details" });
+      }
     }
   }, [activeSessionId, isBigScreen]);
 
