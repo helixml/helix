@@ -27,6 +27,12 @@
 - Use `mv` to temp location instead of `rm` when uncertain
 
 ### Commits & Debugging
+- **Use conventional commit format**: `type(scope): description`
+  - Types: `feat`, `fix`, `refactor`, `chore`, `docs`, `test`, `style`, `perf`, `ci`, `build`, `revert`
+  - Scope is optional but encouraged (e.g., `api`, `frontend`, `specs`, `zed`)
+  - Subject ≤ 72 chars, imperative mood, no trailing period
+  - Examples: `feat(api): add PR content reading from helix-specs`, `fix(frontend): handle empty task list`, `chore(specs): update progress`
+  - The `commit-msg` hook enforces this — non-conforming commits are rejected
 - Commit and push frequently, keep commits atomic, update design docs
 - No unsubstantiated claims about code severity/importance without evidence
 - Ask user to verify UI changes; when stuck, use `git bisect`
