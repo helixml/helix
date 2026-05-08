@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -53,6 +54,7 @@ type KoditAdminRepoAttributes struct {
 	UpdatedAt     time.Time `json:"updated_at"`
 	HelixRepoID   string    `json:"helix_repo_id,omitempty"`
 	HelixRepoName string    `json:"helix_repo_name,omitempty"`
+	HelixOrgID    string    `json:"helix_org_id,omitempty"`
 }
 
 // KoditAdminRepoDetailResponse is the detail view for a single repository.
@@ -82,6 +84,8 @@ type KoditAdminRepoDetailAttributes struct {
 	EnrichmentCount int64     `json:"enrichment_count"`
 	HelixRepoID     string    `json:"helix_repo_id,omitempty"`
 	HelixRepoName   string    `json:"helix_repo_name,omitempty"`
+	HelixOrgID      string    `json:"helix_org_id,omitempty"`
+	HelixOrgName    string    `json:"helix_org_name,omitempty"`
 
 	// Latest commit tracked by Kodit
 	LatestCommitSHA    string `json:"latest_commit_sha,omitempty"`
@@ -194,8 +198,9 @@ type KoditBatchError struct {
 
 // helixRepoRef is a lightweight cross-reference to a Helix GitRepository.
 type helixRepoRef struct {
-	id   string
-	name string
+	id    string
+	name  string
+	orgID string
 }
 
 // helixRepoIndex provides bidirectional lookup between Kodit and Helix repositories.
@@ -222,9 +227,51 @@ func newHelixRepoIndex(helixRepos []*types.GitRepository) helixRepoIndex {
 		if koditID == 0 {
 			continue
 		}
-		idx.byKoditID[koditID] = helixRepoRef{id: r.ID, name: r.Name}
+		idx.byKoditID[koditID] = helixRepoRef{id: r.ID, name: r.Name, orgID: r.OrganizationID}
 	}
 	return idx
+}
+
+// addKnowledgeRefs enriches the index with knowledge-based kodit repos
+// (registered via file:// URIs through the RAG pipeline). For each data entity
+// with a kodit_repository_id that isn't already matched to a git repo, it
+// looks up the knowledge and its app to resolve the org.
+func (idx helixRepoIndex) addKnowledgeRefs(ctx context.Context, entities []*types.DataEntity, db store.Store) {
+	for _, de := range entities {
+		if de.KoditRepositoryID == nil {
+			continue
+		}
+		koditID := *de.KoditRepositoryID
+		if _, exists := idx.byKoditID[koditID]; exists {
+			continue
+		}
+
+		// Extract knowledge ID from data entity ID (format: kno_xxx-YYYY-MM-DD_HH-MM-SS)
+		knowledgeID := de.ID
+		if i := strings.Index(de.ID, "-20"); i > 0 {
+			knowledgeID = de.ID[:i]
+		}
+
+		knowledge, err := db.GetKnowledge(ctx, knowledgeID)
+		if err != nil {
+			continue // deleted knowledge, skip silently
+		}
+
+		ref := helixRepoRef{
+			id:    knowledgeID,
+			name:  knowledge.Name,
+			orgID: knowledge.OrganizationID,
+		}
+
+		// App's org is more authoritative than knowledge's
+		if knowledge.AppID != "" {
+			if app, err := db.GetApp(ctx, knowledge.AppID); err == nil {
+				ref.orgID = app.OrganizationID
+			}
+		}
+
+		idx.byKoditID[koditID] = ref
+	}
 }
 
 // lookup returns the Helix repo ref for a Kodit repo ID, falling back to
@@ -259,7 +306,7 @@ func (idx helixRepoIndex) lookup(koditRepoID int64, remoteURL string, db store.S
 			Msg("Linked Kodit repo to Helix repo via URL match")
 	}
 
-	ref := helixRepoRef{id: helixRepo.ID, name: helixRepo.Name}
+	ref := helixRepoRef{id: helixRepo.ID, name: helixRepo.Name, orgID: helixRepo.OrganizationID}
 	idx.byKoditID[koditRepoID] = ref
 	return ref
 }
@@ -276,6 +323,24 @@ func extractHelixRepoIDFromKoditURL(rawURL string) string {
 		return segments[1]
 	}
 	return ""
+}
+
+// resolveOrgNames collects unique org IDs from the index and resolves them to display names.
+func resolveOrgNames(ctx context.Context, idx helixRepoIndex, db store.Store) map[string]string {
+	orgIDs := make(map[string]struct{})
+	for _, ref := range idx.byKoditID {
+		if ref.orgID != "" {
+			orgIDs[ref.orgID] = struct{}{}
+		}
+	}
+	names := make(map[string]string, len(orgIDs))
+	for id := range orgIDs {
+		org, err := db.GetOrganization(ctx, &store.GetOrganizationQuery{ID: id})
+		if err == nil {
+			names[id] = org.Name
+		}
+	}
+	return names
 }
 
 // sanitizeRemoteURL strips credentials from a URL for safe display.
@@ -331,6 +396,14 @@ func (apiServer *HelixAPIServer) adminListKoditRepositories(w http.ResponseWrite
 	}
 	idx := newHelixRepoIndex(helixRepos)
 
+	// Also resolve knowledge-based kodit repos (file:// URIs from RAG pipeline)
+	if deEntities, err := apiServer.Store.ListDataEntitiesWithKoditRepo(r.Context()); err == nil {
+		idx.addKnowledgeRefs(r.Context(), deEntities, apiServer.Store)
+	}
+
+	// Resolve org IDs to names
+	orgNames := resolveOrgNames(r.Context(), idx, apiServer.Store)
+
 	// Fetch real tracking status from Kodit for each repo
 	data := make([]KoditAdminRepoDTO, 0, len(repos))
 	for _, repo := range repos {
@@ -345,6 +418,11 @@ func (apiServer *HelixAPIServer) adminListKoditRepositories(w http.ResponseWrite
 			statusMessage = trackingStatus.Message()
 		}
 
+		orgDisplay := orgNames[ref.orgID]
+		if orgDisplay == "" {
+			orgDisplay = ref.orgID
+		}
+
 		data = append(data, KoditAdminRepoDTO{
 			ID:   strconv.FormatInt(repo.ID(), 10),
 			Type: "kodit_repository",
@@ -356,6 +434,7 @@ func (apiServer *HelixAPIServer) adminListKoditRepositories(w http.ResponseWrite
 				UpdatedAt:     repo.UpdatedAt(),
 				HelixRepoID:   ref.id,
 				HelixRepoName: ref.name,
+				HelixOrgID:    orgDisplay,
 			},
 		})
 	}
@@ -441,7 +520,15 @@ func (apiServer *HelixAPIServer) adminGetKoditRepository(w http.ResponseWriter, 
 	// Cross-reference
 	helixRepos, _ := apiServer.Store.ListGitRepositories(r.Context(), &types.ListGitRepositoriesRequest{})
 	idx := newHelixRepoIndex(helixRepos)
+	if deEntities, deErr := apiServer.Store.ListDataEntitiesWithKoditRepo(r.Context()); deErr == nil {
+		idx.addKnowledgeRefs(r.Context(), deEntities, apiServer.Store)
+	}
 	ref := idx.lookup(koditRepoID, repo.RemoteURL(), apiServer.Store, r)
+	orgNames := resolveOrgNames(r.Context(), idx, apiServer.Store)
+	orgDisplay := orgNames[ref.orgID]
+	if orgDisplay == "" {
+		orgDisplay = ref.orgID
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(KoditAdminRepoDetailResponse{
@@ -461,6 +548,8 @@ func (apiServer *HelixAPIServer) adminGetKoditRepository(w http.ResponseWriter, 
 				EnrichmentCount:    enrichmentCount,
 				HelixRepoID:        ref.id,
 				HelixRepoName:      ref.name,
+				HelixOrgID:         ref.orgID,
+				HelixOrgName:       orgDisplay,
 				LatestCommitSHA:    latestSHA,
 				LatestCommitMsg:    latestMsg,
 				LatestCommitAuthor: latestAuthor,

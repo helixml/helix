@@ -3,7 +3,7 @@
 # Debian is required for CGo (hugot tokenizers link against glibc)
 # Pin to specific digest for stable layer caching.
 # Update digest when intentionally upgrading Go version.
-FROM golang:1.25-bookworm AS api-base
+FROM golang:1.25-bookworm@sha256:29e59af995c51a5bf63d072eca973b918e0e7af4db0e4667aa73f1b8da1a6d8c AS api-base
 WORKDIR /app
 # Install build dependencies for CGo (hugot/tokenizers)
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -23,6 +23,9 @@ COPY --from=ghcr.io/astral-sh/uv:debian-slim /usr/local/bin/uv /usr/local/bin/uv
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     go run github.com/helixml/kodit/cmd/download-model /build/models/flax-sentence-embeddings_st-codesearch-distilroberta-base
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    go run github.com/helixml/kodit/cmd/download-siglip2 /build/models/google_siglip2-base-patch16-512
 
 ### Tokenizers library ###
 #-------------------------
@@ -30,7 +33,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 FROM api-base AS tokenizers-lib
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
-    ORT_VERSION=1.24.1 go run github.com/helixml/kodit/tools/download-ort
+    go run github.com/helixml/kodit/tools/download-ort
 
 ### API Development ###
 #----------------------
@@ -43,6 +46,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 # - Copy tokenizers library for CGo
 COPY --from=tokenizers-lib /app/lib/libtokenizers.a /usr/lib/
+COPY --from=tokenizers-lib /app/lib/libonnxruntime.so /usr/lib/
+# Tell kodit where to find the ORT library (see production stage comment for details)
+ENV ORT_LIB_DIR=/usr/lib
 # - Copy embedding models for kodit code intelligence
 COPY --from=embedding-model /build/models/ /kodit-models/
 # - Copy the files and run a build to make startup faster
@@ -52,9 +58,9 @@ WORKDIR /app/api
 # Cache Go modules and build artifacts for offline builds
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
-    CGO_ENABLED=1 go build -ldflags "-s -w" -o /helix
+    CGO_ENABLED=1 go build -tags ORT -ldflags "-s -w" -o /helix
 # - Entrypoint is the air command
-ENTRYPOINT ["air", "--build.bin", "/helix", "--build.cmd", "CGO_ENABLED=1 go build -ldflags \"-s -w\" -o /helix", "--build.stop_on_error", "true", "--"]
+ENTRYPOINT ["air", "--build.bin", "/helix", "--build.cmd", "CGO_ENABLED=1 go build -tags ORT -ldflags \"-s -w\" -o /helix", "--build.stop_on_error", "true", "--"]
 CMD ["serve"]
 
 
@@ -65,6 +71,7 @@ FROM api-base AS api-build-env
 COPY .git /app/.git
 # Copy tokenizers library for CGo
 COPY --from=tokenizers-lib /app/lib/libtokenizers.a /usr/lib/
+COPY --from=tokenizers-lib /app/lib/libonnxruntime.so /usr/lib/
 COPY api /app/api
 WORKDIR /app/api
 # - main.version is a variable required by Sentry and is set in .drone.yaml
@@ -72,13 +79,13 @@ ARG APP_VERSION="v0.0.0+unknown"
 # Cache Go modules and build artifacts for offline builds
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
-    CGO_ENABLED=1 go build -buildvcs=true -ldflags "-s -w -X main.version=$APP_VERSION -X github.com/helixml/helix/api/pkg/data.Version=$APP_VERSION" -o /helix
+    CGO_ENABLED=1 go build -tags ORT -buildvcs=true -ldflags "-s -w -X main.version=$APP_VERSION -X github.com/helixml/helix/api/pkg/data.Version=$APP_VERSION" -o /helix
 
 ### Frontend Base ###
 #--------------------
 # Pin to specific digest for stable layer caching.
 # Update digest when intentionally upgrading Node version.
-FROM node:23-alpine AS ui-base
+FROM node:23-alpine@sha256:a34e14ef1df25b58258956049ab5a71ea7f0d498e41d0b514f4b8de09af09456 AS ui-base
 WORKDIR /app
 # - Install dependencies
 COPY ./frontend/*.json /app/
@@ -108,7 +115,7 @@ RUN yarn build
 #-----------------------
 # Pin to specific digest for stable layer caching.
 # Update digest when intentionally upgrading Debian version.
-FROM debian:bookworm-slim
+FROM debian:bookworm-slim@sha256:4724b8cc51e33e398f0e2e15e18d5ec2851ff0c2280647e1310bc1642182655d
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates git git-daemon-sysvinit \
     && rm -rf /var/lib/apt/lists/*
@@ -117,6 +124,12 @@ COPY --from=api-build-env /helix /helix
 COPY --from=ui-build-env /app/dist /www
 # Embedding model files for kodit code intelligence
 COPY --from=embedding-model /build/models/ /kodit-models/
+# ONNX Runtime library required by kodit's Hugot embedding provider (built with -tags ORT)
+COPY --from=tokenizers-lib /app/lib/libonnxruntime.so /usr/lib/
+# Tell kodit where to find the ORT library. Without this, kodit's auto-detection
+# resolves to /lib (because the binary is at /helix → filepath.Dir = /) which
+# may fail depending on usrmerge symlink state and library availability.
+ENV ORT_LIB_DIR=/usr/lib
 
 ENV FRONTEND_URL=/www
 

@@ -691,8 +691,6 @@ if ! step_done "fix_arm64_images"; then
     if [ -z "$COMPOSE_IMAGES" ]; then
         # Fallback: known images
         COMPOSE_IMAGES="ghcr.io/helixml/controlplane:${HELIX_VERSION}
-ghcr.io/helixml/typesense:${HELIX_VERSION}
-ghcr.io/helixml/haystack:${HELIX_VERSION}
 ghcr.io/helixml/helix-sandbox:${HELIX_VERSION}"
     fi
 
@@ -740,8 +738,8 @@ if ! step_done "prime_stack"; then
     run_ssh "sudo systemctl start docker" || true
 
     # Pull compose images individually to work around multi-arch manifest failures.
-    # docker compose pull aborts ALL pulls if any single image fails (e.g. typesense
-    # missing multi-arch manifest), so we pull each service separately.
+    # docker compose pull aborts ALL pulls if any single image fails, so we pull
+    # each service separately.
     log "Pulling compose images..."
     COMPOSE_SERVICES=$(run_ssh "cd ~/helix && docker compose config --services 2>/dev/null" 2>/dev/null || echo "")
     for svc in $COMPOSE_SERVICES; do

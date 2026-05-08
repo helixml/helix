@@ -221,13 +221,13 @@ export default function DesignDocPage() {
               backgroundColor: 'action.hover',
             },
             '& a': {
-              color: '#00D5FF',
+              color: '#00d5ff',
               textDecoration: 'none',
               '&:hover': {
                 textDecoration: 'underline',
               },
               '&:visited': {
-                color: '#00D5FF',
+                color: '#00d5ff',
               },
             },
           }}

@@ -1,4 +1,5 @@
 import React, { useRef, useEffect, useState, useCallback } from "react";
+import { v4 as uuidv4 } from "uuid";
 import {
   Box,
   Typography,
@@ -57,6 +58,7 @@ import RemoteCursorsOverlay from "./RemoteCursorsOverlay";
 import AgentCursorOverlay from "./AgentCursorOverlay";
 import CursorRenderer from "./CursorRenderer";
 import InsecureContextWarning from "./InsecureContextWarning";
+import { isMobileOrTablet } from "../../utils/isMobileOrTablet";
 
 /**
  * Clipboard helpers: WKWebView (macOS Wails app) blocks navigator.clipboard
@@ -111,7 +113,7 @@ function getOrCreateStreamUUID(sessionId: string): string {
   const storageKey = `helix-stream-uuid-${sessionId}`;
   let id = sessionStorage.getItem(storageKey);
   if (!id) {
-    id = crypto.randomUUID();
+    id = uuidv4();
     sessionStorage.setItem(storageKey, id);
   }
   return id;
@@ -1301,6 +1303,22 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     // Check current fullscreen state (including iOS custom fullscreen)
     const currentlyFullscreen = isFullscreen || isIOSFullscreen;
 
+    // When this component is rendered inside a cross-origin iframe (e.g.
+    // the Gatewaze admin embedding /embed/task/:id), the fullscreen API
+    // behaves differently than in a standalone tab. Calling
+    // requestFullscreen() on a deeply-nested `position: relative` div
+    // makes Chrome on macOS try to enter window-level fullscreen and
+    // immediately bounce back — leaving the iframe's content thinking
+    // it's fullscreen but the iframe element still constrained to its
+    // original rect. The reliable pattern (used by YouTube, Vimeo) is
+    // to call requestFullscreen on the iframe document's ROOT element
+    // (the iframe's <html>): the browser then fullscreens the iframe
+    // element itself, the iframe expands to viewport size, and the
+    // root element fills the iframe. The :fullscreen pseudo-class on
+    // the body (added below) makes our content fill the new viewport.
+    const inIframe = window.self !== window.top;
+    const fullscreenTarget = inIframe ? document.documentElement : elem;
+
     if (!currentlyFullscreen) {
       // On iOS, use custom CSS-based fullscreen that maintains full interactivity
       // Native video fullscreen (webkitEnterFullscreen) doesn't allow touch/keyboard input
@@ -1317,8 +1335,8 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
 
       // Try all fullscreen APIs in order of preference
       // Standard API (Chrome, Firefox, Edge, Safari 16.4+)
-      if (elem.requestFullscreen) {
-        elem.requestFullscreen().catch(() => {
+      if (fullscreenTarget.requestFullscreen) {
+        fullscreenTarget.requestFullscreen().catch(() => {
           // Fallback to iOS-style CSS fullscreen if native fails
           console.log(
             "[Fullscreen] Native fullscreen failed, using CSS fallback",
@@ -1328,20 +1346,20 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         });
       }
       // Webkit (Safari, iOS Safari, iOS Chrome - all use WebKit)
-      else if (elem.webkitRequestFullscreen) {
-        elem.webkitRequestFullscreen();
+      else if ((fullscreenTarget as any).webkitRequestFullscreen) {
+        (fullscreenTarget as any).webkitRequestFullscreen();
       }
       // Webkit with capital S (older Android Chrome)
-      else if (elem.webkitRequestFullScreen) {
-        elem.webkitRequestFullScreen();
+      else if ((fullscreenTarget as any).webkitRequestFullScreen) {
+        (fullscreenTarget as any).webkitRequestFullScreen();
       }
       // Mozilla (older Firefox)
-      else if (elem.mozRequestFullScreen) {
-        elem.mozRequestFullScreen();
+      else if ((fullscreenTarget as any).mozRequestFullScreen) {
+        (fullscreenTarget as any).mozRequestFullScreen();
       }
       // MS (old IE/Edge)
-      else if (elem.msRequestFullscreen) {
-        elem.msRequestFullscreen();
+      else if ((fullscreenTarget as any).msRequestFullscreen) {
+        (fullscreenTarget as any).msRequestFullscreen();
       }
       // Last resort: CSS fullscreen
       else {
@@ -1899,34 +1917,22 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
 
   // iOS Safari fix: Force reconnect when page becomes visible
   // iOS Safari can suspend WebSockets without properly closing them, leaving the stream black
-  useEffect(() => {
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === "visible" && isConnected) {
-        console.log(
-          "[DesktopStreamViewer] Page became visible, checking stream health...",
-        );
-        // Check if the stream is still healthy by looking at the WebSocket state
-        const stream = streamRef.current;
-        if (stream) {
-          const ws = (stream as any).ws as WebSocket | undefined;
-          if (
-            ws &&
-            (ws.readyState === WebSocket.CLOSED ||
-              ws.readyState === WebSocket.CLOSING)
-          ) {
-            console.log(
-              "[DesktopStreamViewer] WebSocket was closed while page was hidden, forcing reconnect",
-            );
-            reconnect(500, "Reconnecting after page visibility change...");
-          }
-        }
-      }
-    };
-
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-    return () =>
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
-  }, [isConnected, reconnect]);
+  // NOTE: Uses reconnectRef to avoid re-registering this listener every time the reconnect
+  // function changes (which happens on bitrate/connect changes). Without this, each
+  // reconnect function change would remove+add the listener, and on iPad the rapid
+  // re-registration caused reconnect storms.
+  // NOTE: We previously had a visibility change handler here that checked
+  // ws.readyState === CLOSED when the page became visible and forced a reconnect.
+  // This was REMOVED because it caused reconnect loops:
+  //
+  // WebSocketStream already handles page visibility changes internally:
+  //   1. Its heartbeat resets lastMessageTime on visibility change (line 2119)
+  //   2. Its onClose handler auto-reconnects with exponential backoff
+  //   3. iOS Safari JS suspension is handled by skipping stale detection when hidden
+  //
+  // The component-level visibility check would see a CLOSED WebSocket during
+  // WebSocketStream's internal reconnect backoff, create a brand new stream,
+  // and cancel the pending backoff — causing a reconnect loop.
 
   // iOS Safari frame stall detection
   // iOS Safari can silently break the VideoDecoder without triggering error callbacks,
@@ -1936,6 +1942,10 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   const FRAME_STALL_CHECK_INTERVAL_MS = 3000; // Check every 3 seconds
   const DECODER_CRASH_RECONNECT_COOLDOWN_MS = 10000; // Don't reconnect more than once per 10 seconds
   const lastDecoderCrashReconnectRef = useRef<number>(0);
+  // Frame health check: monitors WebSocket data flow and decoder state.
+  // Uses reconnectRef to avoid restarting the interval every time the reconnect
+  // function changes. Without this, bitrate changes would clear+restart the interval,
+  // creating parallel health check timers that all trigger reconnects independently.
   useEffect(() => {
     // Only run health check in video mode when connected
     if (!isConnected || qualityMode === "screenshot" || isConnecting) {
@@ -1946,19 +1956,21 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       const stream = streamRef.current;
       if (!stream || !(stream instanceof WebSocketStream)) return;
 
-      // Check WebSocket state first (belt and suspenders with visibility handler)
-      const ws = (stream as any).ws as WebSocket | undefined;
-      if (
-        ws &&
-        (ws.readyState === WebSocket.CLOSED ||
-          ws.readyState === WebSocket.CLOSING)
-      ) {
-        console.log(
-          "[DesktopStreamViewer] Frame health check: WebSocket closed, forcing reconnect",
-        );
-        reconnect(500, "Reconnecting (connection lost)...");
-        return;
-      }
+      // NOTE: We intentionally do NOT check ws.readyState === CLOSED here.
+      // WebSocketStream has its own onClose handler with exponential backoff
+      // reconnection (1s, 2s, 4s, 8s... up to 30s, max 10 attempts).
+      // If we detect CLOSED here and call reconnect(), we create a BRAND NEW
+      // WebSocketStream, which:
+      //   1. Kills the pending internal reconnect (stream.close() cancels it)
+      //   2. Resets the backoff counter to 0
+      //   3. Creates a new pipeline on the backend
+      // This causes the reconnect loop: health check fires every 3s, sees CLOSED
+      // during backoff wait, creates new stream, repeat. Each cycle leaks GPU memory.
+      //
+      // Instead, this health check ONLY detects:
+      //   - Decoder crash (state=closed) — needs full reconnect
+      //   - Stale connection (WS appears OPEN but no data) — WebSocketStream's
+      //     10s heartbeat might be too slow, so we catch it at 5s
 
       // Check decoder health
       const stats = stream.getStats();
@@ -1982,7 +1994,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         console.log(`[DesktopStreamViewer] ${crashMsg}, forcing reconnect`);
         addConnectionLog(crashMsg);
         lastDecoderCrashReconnectRef.current = now;
-        reconnect(500, "Reconnecting (decoder crashed)...");
+        reconnectRef.current(500, "Reconnecting (decoder crashed)...");
         return;
       }
 
@@ -2010,7 +2022,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         console.log(`[DesktopStreamViewer] ${stallMsg}, forcing reconnect`);
         addConnectionLog(stallMsg);
         lastDecoderCrashReconnectRef.current = now;
-        reconnect(500, "Reconnecting (connection stalled)...");
+        reconnectRef.current(500, "Reconnecting (connection stalled)...");
         return;
       }
     };
@@ -2020,7 +2032,8 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       FRAME_STALL_CHECK_INTERVAL_MS,
     );
     return () => clearInterval(intervalId);
-  }, [isConnected, qualityMode, isConnecting, reconnect]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isConnected, qualityMode, isConnecting]);
 
   // NOTE: We intentionally do NOT auto-focus the container when stream connects.
   // Auto-focusing steals focus from wherever the user was (e.g., typing in a text field)
@@ -2950,17 +2963,24 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   const handleMouseDown = useCallback(
     (event: React.MouseEvent) => {
       event.preventDefault();
+      // In trackpad mode, ignore synthetic mouse events generated by the browser
+      // from touch input. Without this, a tap fires both the trackpad tap handler
+      // (which sends a click at the virtual cursor) AND a synthetic mousedown/up
+      // pair (which sends a second click), resulting in a double-click.
+      // See handleMouseMove for the same guard.
+      if (touchMode === "trackpad" && Date.now() - lastTouchEndTimeRef.current < 500) return;
       getInputHandler()?.onMouseDown(event.nativeEvent, getStreamRect());
     },
-    [getStreamRect, getInputHandler],
+    [getStreamRect, getInputHandler, touchMode],
   );
 
   const handleMouseUp = useCallback(
     (event: React.MouseEvent) => {
       event.preventDefault();
+      if (touchMode === "trackpad" && Date.now() - lastTouchEndTimeRef.current < 500) return;
       getInputHandler()?.onMouseUp(event.nativeEvent);
     },
-    [getInputHandler],
+    [getInputHandler, touchMode],
   );
 
   const handleMouseMove = useCallback(
@@ -3109,8 +3129,13 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         }
       }
 
-      // Delegate to StreamInput for actual input handling
-      handler.onTouchStart(event.nativeEvent, rect);
+      // Delegate to StreamInput for actual input handling.
+      // In trackpad mode we handle gestures locally and never call handler.onTouchEnd,
+      // so we must skip onTouchStart too — otherwise StreamInput accumulates stale
+      // primaryTouch and touchTracker entries that are never cleared.
+      if (touchMode !== "trackpad") {
+        handler.onTouchStart(event.nativeEvent, rect);
+      }
     },
     [
       getStreamRect,
@@ -4431,6 +4456,9 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         userSelect: "none",
         // Clip zoomed content that extends beyond container bounds
         overflow: "hidden",
+        // Prevent Safari bounce/rubber-band scrolling on this container only
+        // This allows Chrome swipe navigation to work on other pages
+        overscrollBehavior: "none",
         // Cursor is hidden only on the canvas element, not the container
         // This ensures the cursor is visible in the black letterbox/pillarbox bars
         // Fallback height for iOS when dvh isn't supported
@@ -5090,7 +5118,13 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           // In screenshot mode: transparent but handles input (screenshot overlays on top)
           display: "block",
           // Transparent in screenshot mode so overlays are visible, but still captures input
-          opacity: qualityMode === "video" ? 1 : 0,
+          // On mobile, use visibility instead of opacity:0 to avoid allocating
+          // a GPU compositing layer for a fully transparent canvas
+          ...(qualityMode === "video"
+            ? { opacity: 1, visibility: "visible" as const }
+            : isMobileOrTablet()
+              ? { visibility: "hidden" as const }
+              : { opacity: 0 }),
           zIndex: 20,
           // Prevent browser from handling touch gestures (no scroll, pan, zoom)
           // This ensures all touch events go to our handlers
@@ -5162,7 +5196,8 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
               left: 0,
               top: 0,
               transform: `translate(${cursorPosition.x}px, ${cursorPosition.y}px)`,
-              willChange: "transform",
+              // willChange creates a GPU compositing layer — skip on mobile to reduce memory
+              ...(isMobileOrTablet() ? {} : { willChange: "transform" as const }),
               pointerEvents: "none",
               zIndex: 1000,
             }}

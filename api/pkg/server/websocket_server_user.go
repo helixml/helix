@@ -57,6 +57,15 @@ func (apiServer *HelixAPIServer) startUserWebSocketServer(
 			return
 		}
 
+		// Look up the session owner so we subscribe to the correct NATS topic.
+		// The API always publishes to the session owner's queue, so a reviewer
+		// (different user ID) viewing someone else's session must subscribe using
+		// the owner's ID, not their own.
+		ownerID := user.ID
+		if session, err := apiServer.Store.GetSession(r.Context(), sessionID); err == nil && session != nil && session.Owner != "" {
+			ownerID = session.Owner
+		}
+
 		conn, err := userWebsocketUpgrader.Upgrade(w, r, nil)
 		if err != nil {
 			log.Error().Msgf("Error upgrading websocket: %s", err.Error())
@@ -91,7 +100,7 @@ func (apiServer *HelixAPIServer) startUserWebSocketServer(
 			}
 		}()
 
-		sub, err := apiServer.pubsub.Subscribe(r.Context(), pubsub.GetSessionQueue(user.ID, sessionID), func(payload []byte) error {
+		sub, err := apiServer.pubsub.Subscribe(r.Context(), pubsub.GetSessionQueue(ownerID, sessionID), func(payload []byte) error {
 			wsMu.Lock()
 			writeErr := conn.WriteMessage(websocket.TextMessage, payload)
 			wsMu.Unlock()

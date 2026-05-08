@@ -51,7 +51,10 @@ func (suite *ActionTestSuite) SetupTest() {
 			cfg.Providers.TogetherAI.BaseURL,
 			cfg.Stripe.BillingEnabled,
 		)
-		cfg.Tools.Model = "openai/gpt-oss-20b"
+		// gpt-oss-20b became unreliable on TogetherAI (sustained 503s in May 2026
+		// CI runs even after credit/account issues were resolved); 120b sibling
+		// is healthy. Bump again if this one starts 503ing.
+		cfg.Tools.Model = "openai/gpt-oss-120b"
 	} else {
 		apiClient = openai.NewMockClient(suite.ctrl)
 	}

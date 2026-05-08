@@ -1,8 +1,7 @@
 import React, { FC, ReactNode } from 'react'
 import Dialog from '@mui/material/Dialog'
 import DialogContent from '@mui/material/DialogContent'
-import { useTheme } from '@mui/material/styles'
-import useThemeConfig from '../../hooks/useThemeConfig'
+import useLightTheme from '../../hooks/useLightTheme'
 
 export interface ExportDocumentProps {
   open: boolean
@@ -19,8 +18,7 @@ const ExportDocument: FC<ExportDocumentProps> = ({
   maxWidth = 'xl',
   fullWidth = true,
 }) => {
-  const theme = useTheme()
-  const themeConfig = useThemeConfig()
+  const lightTheme = useLightTheme()
 
   return (
     <Dialog
@@ -30,7 +28,7 @@ const ExportDocument: FC<ExportDocumentProps> = ({
       fullWidth={fullWidth}
       PaperProps={{
         sx: {
-          backgroundColor: theme.palette.mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkBackgroundColor,
+          backgroundColor: lightTheme.backgroundColor,
           height: '90vh',
           maxHeight: '90vh',
         },

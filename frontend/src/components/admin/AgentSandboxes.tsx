@@ -15,6 +15,11 @@ import {
   Avatar,
   AvatarGroup,
   LinearProgress,
+  Button,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
 } from '@mui/material'
 import RefreshIcon from '@mui/icons-material/Refresh'
 import CloseIcon from '@mui/icons-material/Close'
@@ -27,6 +32,11 @@ import VideocamIcon from '@mui/icons-material/Videocam'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAccount } from '../../contexts/account'
 import useApi from '../../hooks/useApi'
+import {
+  useAssignRunnerProfile,
+  useClearRunnerProfile,
+  useListCompatibleRunnerProfiles,
+} from '../../services/runnerProfilesService'
 
 // Types matching the backend response
 interface GPUInfo {
@@ -91,11 +101,24 @@ interface DevContainerWithClients {
   task_id?: string
 }
 
+interface ServiceDownloadProgress {
+  percent?: number
+  current?: number
+  total?: number
+  eta?: string
+  stage?: string
+}
+
 interface SandboxInstanceInfo {
   id: string
   session_id: string
   status: string
   container_id?: string
+  active_profile_id?: string
+  profile_status?: string
+  profile_error?: string
+  service_health?: Record<string, string>
+  profile_progress?: Record<string, ServiceDownloadProgress>
 }
 
 interface AgentSandboxesDebugResponse {
@@ -125,6 +148,197 @@ const getStatusColor = (status: string): 'success' | 'warning' | 'error' | 'defa
     default:
       return 'default'
   }
+}
+
+// Map of compose-manager profile lifecycle states to chip colors. Keep in
+// sync with composemgr.State.Status: assigning | pulling | starting |
+// running | failed.
+const getProfileStatusColor = (status: string): 'success' | 'warning' | 'error' | 'info' | 'default' => {
+  switch (status) {
+    case 'running':
+      return 'success'
+    case 'starting':
+    case 'pulling':
+    case 'assigning':
+      return 'info'
+    case 'failed':
+      return 'error'
+    default:
+      return 'default'
+  }
+}
+
+// SandboxProfileCard renders the inference-profile state for one sandbox:
+// status chip, error if any, per-service health, and a progress bar per
+// service that's actively downloading model weights from HF Hub. When no
+// profile is assigned, it shows the assignment controls (compatible-
+// profile dropdown + Assign button); when one is assigned, it shows a
+// Clear button alongside the status.
+const SandboxProfileCard: FC<{ sandbox: SandboxInstanceInfo }> = ({ sandbox }) => {
+  const status = sandbox.profile_status || ''
+  const profileID = sandbox.active_profile_id || ''
+  const services = Object.entries(sandbox.service_health || {})
+  const progressEntries = Object.entries(sandbox.profile_progress || {})
+
+  const [pickedProfileID, setPickedProfileID] = useState<string>('')
+  const [assignError, setAssignError] = useState<string | null>(null)
+
+  // Compatible-profiles list filters by GPU vendor/arch/VRAM/count
+  // server-side, so the dropdown only shows profiles that will actually
+  // fit on this sandbox's GPUs. Don't query for offline sandboxes — the
+  // endpoint would 404 since the runner state isn't in the router.
+  const isOnline = sandbox.status === 'online'
+  const { data: compatibleProfiles, isLoading: loadingProfiles } =
+    useListCompatibleRunnerProfiles(sandbox.id, isOnline)
+  const assignMutation = useAssignRunnerProfile()
+  const clearMutation = useClearRunnerProfile()
+
+  const handleAssign = () => {
+    if (!pickedProfileID) return
+    setAssignError(null)
+    assignMutation.mutate(
+      { runnerID: sandbox.id, profileID: pickedProfileID },
+      {
+        onError: (err: any) => {
+          setAssignError(
+            err?.response?.data?.error ||
+              err?.message ||
+              'Failed to assign profile',
+          )
+        },
+        onSuccess: () => {
+          setPickedProfileID('')
+        },
+      },
+    )
+  }
+  const handleClear = () => {
+    if (!window.confirm(`Clear the assigned profile from ${sandbox.id}? This stops the running compose stack.`)) return
+    setAssignError(null)
+    clearMutation.mutate(sandbox.id, {
+      onError: (err: any) => {
+        setAssignError(
+          err?.response?.data?.error || err?.message || 'Failed to clear profile',
+        )
+      },
+    })
+  }
+
+  const assignBusy = assignMutation.isPending || clearMutation.isPending
+
+  return (
+    <Paper sx={{ p: 2, backgroundColor: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.1)' }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+        <Typography variant="caption" color="text.secondary" sx={{ fontFamily: 'monospace' }}>
+          {sandbox.id}
+        </Typography>
+        <Chip label={status || 'idle'} size="small" color={getProfileStatusColor(status)} />
+        {!isOnline && (
+          <Chip label={sandbox.status} size="small" variant="outlined" color="default" />
+        )}
+      </Box>
+      {profileID && (
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+          <Typography variant="body2">
+            Profile: <span style={{ fontFamily: 'monospace' }}>{profileID}</span>
+          </Typography>
+          <Button
+            size="small"
+            variant="outlined"
+            color="warning"
+            onClick={handleClear}
+            disabled={assignBusy}
+          >
+            {clearMutation.isPending ? 'Clearing…' : 'Clear'}
+          </Button>
+        </Box>
+      )}
+      {sandbox.profile_error && (
+        <Alert severity="error" sx={{ my: 1, py: 0 }}>
+          {sandbox.profile_error}
+        </Alert>
+      )}
+      {assignError && (
+        <Alert severity="error" sx={{ my: 1, py: 0 }} onClose={() => setAssignError(null)}>
+          {assignError}
+        </Alert>
+      )}
+      {progressEntries.length > 0 && (
+        <Box sx={{ mt: 1 }}>
+          {progressEntries.map(([svc, p]) => (
+            <Box key={svc} sx={{ mb: 1.5 }}>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
+                <Typography variant="caption" color="text.secondary">
+                  {svc} — {p.stage || 'downloading'}
+                  {p.current && p.total ? ` (${p.current}/${p.total})` : ''}
+                </Typography>
+                <Typography variant="caption" fontWeight="bold">
+                  {p.percent ?? 0}%{p.eta ? ` · ETA ${p.eta}` : ''}
+                </Typography>
+              </Box>
+              <LinearProgress
+                variant="determinate"
+                value={p.percent ?? 0}
+                sx={{ height: 6, borderRadius: 3 }}
+              />
+            </Box>
+          ))}
+        </Box>
+      )}
+      {services.length > 0 && (
+        <Box sx={{ mt: 1, display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+          {services.map(([svc, health]) => (
+            <Chip
+              key={svc}
+              label={`${svc}: ${health}`}
+              size="small"
+              variant="outlined"
+              color={health === 'healthy' ? 'success' : health === 'failed' ? 'error' : 'warning'}
+            />
+          ))}
+        </Box>
+      )}
+
+      {/* Assignment controls. Only render when there's no active
+          profile — once assigned, the operator clears first then
+          assigns again. */}
+      {!profileID && isOnline && (
+        <Box sx={{ mt: 2, display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
+          <FormControl size="small" sx={{ minWidth: 220, flex: 1 }} disabled={assignBusy || loadingProfiles}>
+            <InputLabel>Assign profile</InputLabel>
+            <Select
+              label="Assign profile"
+              value={pickedProfileID}
+              onChange={(e) => setPickedProfileID(e.target.value)}
+            >
+              <MenuItem value="">
+                <em>{loadingProfiles ? 'Loading compatible profiles…' : '(pick one)'}</em>
+              </MenuItem>
+              {(compatibleProfiles || []).map((p) => (
+                <MenuItem key={p.id} value={p.id}>
+                  {p.name}
+                  {p.gpu_requirement?.count ? ` — ${p.gpu_requirement.count} GPU` : ''}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+          <Button
+            variant="contained"
+            size="small"
+            onClick={handleAssign}
+            disabled={!pickedProfileID || assignBusy}
+          >
+            {assignMutation.isPending ? 'Assigning…' : 'Assign'}
+          </Button>
+          {!loadingProfiles && (compatibleProfiles || []).length === 0 && (
+            <Typography variant="caption" color="text.secondary">
+              No profiles match this sandbox's GPUs.
+            </Typography>
+          )}
+        </Box>
+      )}
+    </Paper>
+  )
 }
 
 const getContainerTypeLabel = (type: string): string => {
@@ -606,6 +820,30 @@ const AgentSandboxes: FC<AgentSandboxesProps> = ({ selectedSandboxId }) => {
         {gpus.length > 0 && (
           <Grid item xs={12}>
             <GPUStatsCard gpus={gpus} />
+          </Grid>
+        )}
+
+        {/* Inference Profile state per sandbox. Always render one card per
+            sandbox so unassigned sandboxes show the assignment UI; assigned
+            ones show status + clear button + download progress. */}
+        {filteredSandboxes.length > 0 && (
+          <Grid item xs={12}>
+            <Card>
+              <CardHeader
+                avatar={<MemoryIcon />}
+                title="Inference Profiles"
+                subheader="Per-sandbox assignment, compose stack lifecycle, and model-weights download progress"
+              />
+              <CardContent>
+                <Grid container spacing={2}>
+                  {filteredSandboxes.map((sb) => (
+                    <Grid item xs={12} md={6} lg={4} key={sb.id}>
+                      <SandboxProfileCard sandbox={sb} />
+                    </Grid>
+                  ))}
+                </Grid>
+              </CardContent>
+            </Card>
           </Grid>
         )}
 

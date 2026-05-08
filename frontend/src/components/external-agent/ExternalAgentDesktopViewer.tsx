@@ -13,10 +13,12 @@ import ChatIcon from "@mui/icons-material/Chat";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 
 import DesktopStreamViewer from "./DesktopStreamViewer";
+import { isMobileOrTablet } from "../../utils/isMobileOrTablet";
 import ScreenshotViewer from "./ScreenshotViewer";
 import SandboxDropZone from "./SandboxDropZone";
 import EmbeddedSessionView from "../session/EmbeddedSessionView";
 import RobustPromptInput from "../common/RobustPromptInput";
+import { optimisticallyMarkSessionStarting } from "../../utils/optimisticSessionStarting";
 import useApi from "../../hooks/useApi";
 import useSnackbar from "../../hooks/useSnackbar";
 import { useStreaming } from "../../contexts/streaming";
@@ -102,6 +104,10 @@ interface ExternalAgentDesktopViewerProps {
   // Pre-computed sandbox state from the task list (avoids per-card session polling on Kanban)
   initialSandboxState?: string;
   initialSandboxStatusMessage?: string;
+  // Sandboxes reuse the desktop stream transport, but they are not Helix
+  // sessions. Hide session lifecycle/upload actions that would call
+  // /sessions endpoints with a sandbox id.
+  sandboxMode?: boolean;
 }
 
 const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
@@ -121,6 +127,7 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
   startupErrorMessage,
   initialSandboxState,
   initialSandboxStatusMessage,
+  sandboxMode = false,
 }) => {
   const api = useApi();
   const snackbar = useSnackbar();
@@ -175,6 +182,7 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
 
   const handleStopFromStarting = async (e?: React.MouseEvent) => {
     e?.stopPropagation();
+    if (sandboxMode) return;
     setIsStopping(true);
     try {
       await api.getApiClient().v1SessionsStopExternalAgentDelete(sessionId);
@@ -232,6 +240,7 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
 
   const handleResume = async (e?: React.MouseEvent) => {
     e?.stopPropagation(); // Prevent click from bubbling to parent (e.g., Kanban card navigation)
+    if (sandboxMode) return;
     setIsResuming(true);
     try {
       await api.getApiClient().v1SessionsResumeCreate(sessionId);
@@ -269,6 +278,15 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
       wasNotPausedRef.current = false;
     }
   }, [isPaused]);
+
+  // Optimistic UI hook fired the moment the user hits Send. Flips the cached
+  // session config to external_agent_status="starting" so a paused desktop
+  // shows the spinner immediately, before the backend auto-start path
+  // (no-WS dispatch → goroutine → StartDesktop → DB write) catches up. The
+  // helper also kicks the next session poll via invalidateQueries.
+  const handleWillSend = useCallback(() => {
+    optimisticallyMarkSessionStarting(queryClient, sessionId);
+  }, [queryClient, sessionId]);
 
   // Handler for sending messages from the session panel
   // IMPORTANT: This hook must be before any early returns to satisfy React's rules of hooks
@@ -330,15 +348,17 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
               <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.7)', fontWeight: 500 }}>
                 {startingTooLong ? "Desktop may have failed to start" : (statusMessage || "Starting Desktop...")}
               </Typography>
-              <Button
-                variant="outlined"
-                size="small"
-                onClick={handleStopFromStarting}
-                disabled={isStopping}
-                sx={{ color: 'rgba(255,255,255,0.6)', borderColor: 'rgba(255,255,255,0.3)', mt: 1 }}
-              >
-                {isStopping ? "Stopping..." : "Stop"}
-              </Button>
+              {!sandboxMode && (
+                <Button
+                  variant="outlined"
+                  size="small"
+                  onClick={handleStopFromStarting}
+                  disabled={isStopping}
+                  sx={{ color: 'rgba(255,255,255,0.6)', borderColor: 'rgba(255,255,255,0.3)', mt: 1 }}
+                >
+                  {isStopping ? "Stopping..." : "Stop"}
+                </Button>
+              )}
             </>
           )}
         </Box>
@@ -370,8 +390,10 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
               width: "100%",
               height: "100%",
               objectFit: "contain",
-              filter: "grayscale(0.5) brightness(0.7) blur(1px)",
-              opacity: 0.6,
+              // Triple CSS filter + opacity forces GPU compositing — simplify on mobile
+              ...(isMobileOrTablet()
+                ? { opacity: 0.4 }
+                : { filter: "grayscale(0.5) brightness(0.7) blur(1px)", opacity: 0.6 }),
             }}
             onError={(e: React.SyntheticEvent<HTMLImageElement>) => {
               e.currentTarget.style.display = "none";
@@ -396,20 +418,22 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
               variant="body1"
               sx={{ color: "rgba(255,255,255,0.9)", fontWeight: 500 }}
             >
-              Desktop Paused
+              {sandboxMode ? "Desktop Unavailable" : "Desktop Paused"}
             </Typography>
-            <Button
-              variant="contained"
-              color="primary"
-              size="large"
-              startIcon={
-                isResuming ? <CircularProgress size={20} /> : <PlayArrow />
-              }
-              onClick={handleResume}
-              disabled={isResuming}
-            >
-              {isResuming ? "Starting..." : "Start Desktop"}
-            </Button>
+            {!sandboxMode && (
+              <Button
+                variant="contained"
+                color="primary"
+                size="large"
+                startIcon={
+                  isResuming ? <CircularProgress size={20} /> : <PlayArrow />
+                }
+                onClick={handleResume}
+                disabled={isResuming}
+              >
+                {isResuming ? "Starting..." : "Start Desktop"}
+              </Button>
+            )}
           </Box>
         </Box>
       );
@@ -471,15 +495,17 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
             <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.7)', fontWeight: 500 }}>
               {startingTooLong ? "Desktop may have failed to start — click Stop to retry" : (statusMessage || "Starting Desktop...")}
             </Typography>
-            <Button
-              variant="outlined"
-              size="small"
-              onClick={handleStopFromStarting}
-              disabled={isStopping}
-              sx={{ color: 'rgba(255,255,255,0.6)', borderColor: 'rgba(255,255,255,0.3)', mt: 1 }}
-            >
-              {isStopping ? "Stopping..." : "Stop"}
-            </Button>
+            {!sandboxMode && (
+              <Button
+                variant="outlined"
+                size="small"
+                onClick={handleStopFromStarting}
+                disabled={isStopping}
+                sx={{ color: 'rgba(255,255,255,0.6)', borderColor: 'rgba(255,255,255,0.3)', mt: 1 }}
+              >
+                {isStopping ? "Stopping..." : "Stop"}
+              </Button>
+            )}
           </>
         )}
       </Box>
@@ -537,20 +563,22 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
             variant="body1"
             sx={{ color: "rgba(255,255,255,0.9)", fontWeight: 500 }}
           >
-            Desktop Paused
+            {sandboxMode ? "Desktop Unavailable" : "Desktop Paused"}
           </Typography>
-          <Button
-            variant="contained"
-            color="primary"
-            size="large"
-            startIcon={
-              isResuming ? <CircularProgress size={20} /> : <PlayArrow />
-            }
-            onClick={handleResume}
-            disabled={isResuming}
-          >
-            {isResuming ? "Starting..." : "Start Desktop"}
-          </Button>
+          {!sandboxMode && (
+            <Button
+              variant="contained"
+              color="primary"
+              size="large"
+              startIcon={
+                isResuming ? <CircularProgress size={20} /> : <PlayArrow />
+              }
+              onClick={handleResume}
+              disabled={isResuming}
+            >
+              {isResuming ? "Starting..." : "Start Desktop"}
+            </Button>
+          )}
         </Box>
       </Box>
     );
@@ -559,6 +587,7 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
   // Once running (or has ever been running) - ALWAYS keep DesktopStreamViewer mounted
   // Show overlays for state changes instead of unmounting (prevents fullscreen exit)
   const showReconnectingOverlay = !isRunning && hasEverBeenRunning;
+
 
   return (
     <Box
@@ -573,7 +602,7 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
       {/* Main desktop viewer */}
       <SandboxDropZone
         sessionId={sessionId}
-        disabled={!isRunning}
+        disabled={!isRunning || sandboxMode}
         onFileUploaded={handleFileUploaded}
       >
         <Box
@@ -623,9 +652,9 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
                 variant="body1"
                 sx={{ color: "rgba(255,255,255,0.9)", fontWeight: 500 }}
               >
-                {isPaused ? "Desktop Paused" : "Reconnecting..."}
+                {isPaused ? (sandboxMode ? "Desktop Unavailable" : "Desktop Paused") : "Reconnecting..."}
               </Typography>
-              {isPaused && (
+              {isPaused && !sandboxMode && (
                 <Button
                   variant="contained"
                   color="primary"
@@ -717,6 +746,7 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
                 projectId={projectId}
                 apiClient={apiClient}
                 onSend={handleSendMessage}
+                onWillSend={handleWillSend}
                 placeholder="Send message to agent..."
                 appendText={uploadedFilePath}
                 onImagePaste={handleImagePaste}

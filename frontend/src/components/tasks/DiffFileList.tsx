@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import { FileDiff } from "../../hooks/useLiveFileDiff";
 import useThemeConfig from "../../hooks/useThemeConfig";
+import useLightTheme from "../../hooks/useLightTheme";
 
 interface DiffFileListProps {
   files: FileDiff[];
@@ -51,6 +52,7 @@ const DiffFileList: FC<DiffFileListProps> = ({
   onSelectFile,
 }) => {
   const themeConfig = useThemeConfig();
+  const lightTheme = useLightTheme();
 
   const getStatusColor = (status: FileDiff["status"]): string => {
     switch (status) {
@@ -165,7 +167,7 @@ const DiffFileList: FC<DiffFileListProps> = ({
   if (files.length === 0) {
     return (
       <Box sx={{ p: 2, textAlign: "center" }}>
-        <Typography variant="body2" sx={{ color: themeConfig.darkTextFaded }}>
+        <Typography variant="body2" sx={{ color: lightTheme.textColorFaded }}>
           No file changes detected
         </Typography>
       </Box>
@@ -200,7 +202,7 @@ const DiffFileList: FC<DiffFileListProps> = ({
               "&:hover": {
                 bgcolor: isSelected
                   ? `${themeConfig.tealRoot}1F`
-                  : "rgba(255, 255, 255, 0.04)",
+                  : (lightTheme.isLight ? 'rgba(0, 0, 0, 0.04)' : 'rgba(255, 255, 255, 0.04)'),
               },
             }}
           >
@@ -222,8 +224,8 @@ const DiffFileList: FC<DiffFileListProps> = ({
                         file.status === "deleted" ? "line-through" : "none",
                       color:
                         file.status === "deleted"
-                          ? themeConfig.darkTextFaded
-                          : themeConfig.darkText,
+                          ? lightTheme.textColorFaded
+                          : lightTheme.textColor,
                     }}
                   >
                     {fileName}
@@ -236,9 +238,9 @@ const DiffFileList: FC<DiffFileListProps> = ({
                         height: 16,
                         fontSize: "0.6rem",
                         fontWeight: 600,
-                        bgcolor: "rgba(255, 255, 255, 0.08)",
-                        color: themeConfig.darkTextFaded,
-                        border: "1px solid rgba(255, 255, 255, 0.1)",
+                        bgcolor: lightTheme.isLight ? 'rgba(0, 0, 0, 0.06)' : 'rgba(255, 255, 255, 0.08)',
+                        color: lightTheme.textColorFaded,
+                        border: `1px solid ${lightTheme.isLight ? 'rgba(0, 0, 0, 0.12)' : 'rgba(255, 255, 255, 0.1)'}`,
                       }}
                     />
                   )}
