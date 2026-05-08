@@ -11,6 +11,7 @@ import (
 	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/server/wsprotocol"
+	"github.com/helixml/helix/api/pkg/services"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/stretchr/testify/suite"
@@ -953,6 +954,153 @@ func (s *WebSocketSyncSuite) TestMessageCompleted_WithCommentFinalization() {
 	s.NoError(err)
 
 	time.Sleep(100 * time.Millisecond)
+}
+
+// TestMessageCompleted_SkipsAttentionWhenUserActive verifies that the
+// agent_interaction_completed attention event is suppressed when a newer
+// waiting interaction already exists in the session — i.e. the user has
+// either interrupted the agent or sent a quick follow-up. In both cases the
+// user is clearly looking at the UI and an "agent finished" notification
+// would just be noise.
+func (s *WebSocketSyncSuite) TestMessageCompleted_SkipsAttentionWhenUserActive() {
+	s.server.contextMappings["thread-skip"] = "ses_skip"
+	s.server.requestToInteractionMapping["req-skip"] = "int-target-skip"
+	s.server.attentionService = services.NewAttentionService(s.store, s.server.Cfg)
+
+	session := &types.Session{
+		ID:    "ses_skip",
+		Owner: "user-1",
+		Metadata: types.SessionMetadata{
+			SpecTaskID: "task-skip",
+		},
+	}
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_skip").Return(session, nil).AnyTimes()
+
+	baseTime := time.Now().Add(-1 * time.Minute)
+	targetInteraction := &types.Interaction{
+		ID:              "int-target-skip",
+		SessionID:       "ses_skip",
+		State:           types.InteractionStateWaiting,
+		ResponseMessage: "AI response",
+		Created:         baseTime,
+	}
+	newerWaiting := &types.Interaction{
+		ID:        "int-newer-skip",
+		SessionID: "ses_skip",
+		State:     types.InteractionStateWaiting,
+		Created:   baseTime.Add(30 * time.Second),
+	}
+
+	s.store.EXPECT().GetInteraction(gomock.Any(), "int-target-skip").Return(targetInteraction, nil)
+	s.store.EXPECT().UpdateInteraction(gomock.Any(), gomock.Any()).Return(targetInteraction, nil)
+
+	// ListInteractions is called for both the suppression check (PerPage=1)
+	// and the final session publish (PerPage=1000). Both return the same
+	// list — newerWaiting at the end is what triggers suppression.
+	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(
+		[]*types.Interaction{targetInteraction, newerWaiting}, int64(2), nil,
+	).AnyTimes()
+
+	// updateSpecTaskZedThreadActivity goroutine — not a tracked thread
+	s.store.EXPECT().GetSpecTaskZedThreadByZedThreadID(gomock.Any(), "thread-skip").
+		Return(nil, fmt.Errorf("not found")).AnyTimes()
+
+	s.store.EXPECT().GetNextPendingPrompt(gomock.Any(), "ses_skip").Return(nil, nil).AnyTimes()
+	s.store.EXPECT().GetCommentByRequestID(gomock.Any(), "req-skip").
+		Return(nil, fmt.Errorf("not found")).AnyTimes()
+
+	// CRITICAL: GetSpecTask MUST NOT be called when the notification is suppressed.
+	// gomock's default strict mode will fail the test if it is called without an EXPECT.
+
+	syncMsg := &types.SyncMessage{
+		EventType: "message_completed",
+		Data: map[string]interface{}{
+			"acp_thread_id": "thread-skip",
+			"request_id":    "req-skip",
+		},
+	}
+
+	err := s.server.handleMessageCompleted("agent-1", syncMsg)
+	s.NoError(err)
+
+	// Give any goroutines (which we expect NOT to fire GetSpecTask) time to run
+	time.Sleep(150 * time.Millisecond)
+}
+
+// TestMessageCompleted_EmitsAttentionWhenNoFollowup verifies that the
+// agent_interaction_completed attention event IS emitted when there is no
+// newer waiting interaction — the normal completion case where the user is
+// not actively engaged.
+func (s *WebSocketSyncSuite) TestMessageCompleted_EmitsAttentionWhenNoFollowup() {
+	s.server.contextMappings["thread-emit"] = "ses_emit"
+	s.server.requestToInteractionMapping["req-emit"] = "int-target-emit"
+	s.server.attentionService = services.NewAttentionService(s.store, s.server.Cfg)
+
+	session := &types.Session{
+		ID:    "ses_emit",
+		Owner: "user-1",
+		Metadata: types.SessionMetadata{
+			SpecTaskID: "task-emit",
+		},
+	}
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_emit").Return(session, nil).AnyTimes()
+
+	baseTime := time.Now().Add(-1 * time.Minute)
+	targetInteraction := &types.Interaction{
+		ID:              "int-target-emit",
+		SessionID:       "ses_emit",
+		State:           types.InteractionStateWaiting,
+		ResponseMessage: "AI response",
+		Created:         baseTime,
+	}
+
+	s.store.EXPECT().GetInteraction(gomock.Any(), "int-target-emit").Return(targetInteraction, nil)
+	s.store.EXPECT().UpdateInteraction(gomock.Any(), gomock.Any()).Return(targetInteraction, nil)
+
+	// Only the target interaction exists — no newer waiting one. Suppression
+	// check sees Created.After(targetInteraction.Created) == false → emit.
+	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(
+		[]*types.Interaction{targetInteraction}, int64(1), nil,
+	).AnyTimes()
+
+	s.store.EXPECT().GetSpecTaskZedThreadByZedThreadID(gomock.Any(), "thread-emit").
+		Return(nil, fmt.Errorf("not found")).AnyTimes()
+
+	s.store.EXPECT().GetNextPendingPrompt(gomock.Any(), "ses_emit").Return(nil, nil).AnyTimes()
+	s.store.EXPECT().GetCommentByRequestID(gomock.Any(), "req-emit").
+		Return(nil, fmt.Errorf("not found")).AnyTimes()
+
+	// GetSpecTask MUST be called when the notification is not suppressed.
+	// We return an error to short-circuit before EmitEvent — the test only
+	// needs to verify the goroutine reached this point.
+	gotSpecTaskCall := make(chan struct{}, 1)
+	s.store.EXPECT().GetSpecTask(gomock.Any(), "task-emit").DoAndReturn(
+		func(_ context.Context, _ string) (*types.SpecTask, error) {
+			select {
+			case gotSpecTaskCall <- struct{}{}:
+			default:
+			}
+			return nil, fmt.Errorf("test stub: spectask not loaded")
+		},
+	).MinTimes(1)
+
+	syncMsg := &types.SyncMessage{
+		EventType: "message_completed",
+		Data: map[string]interface{}{
+			"acp_thread_id": "thread-emit",
+			"request_id":    "req-emit",
+		},
+	}
+
+	err := s.server.handleMessageCompleted("agent-1", syncMsg)
+	s.NoError(err)
+
+	select {
+	case <-gotSpecTaskCall:
+		// success — GetSpecTask was reached, meaning the goroutine fired
+	case <-time.After(500 * time.Millisecond):
+		s.Fail("GetSpecTask was not called within timeout — attention event goroutine did not fire")
+	}
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
