@@ -2195,12 +2195,16 @@ func (s *WebSocketSyncSuite) TestStreamingThrottle_DirtyFlushOnMessageCompleted(
 	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(
 		[]*types.Interaction{existingInteraction}, int64(1), nil,
 	).AnyTimes()
+	// GetInteraction is now called twice: once inside flushAndClearStreamingContext
+	// to refresh the State field (so concurrent state changes from handleTurnCancelled
+	// aren't clobbered), and once inside handleMessageCompleted to reload the latest
+	// response content from the DB.
 	s.store.EXPECT().GetInteraction(gomock.Any(), "int-flush").Return(&types.Interaction{
 		ID:              "int-flush",
 		SessionID:       "ses_flush",
 		State:           types.InteractionStateWaiting,
 		ResponseMessage: "dirty unflushed content", // DB was just flushed
-	}, nil)
+	}, nil).Times(2)
 
 	// Final UpdateInteraction to mark complete (must come after flush)
 	s.store.EXPECT().UpdateInteraction(gomock.Any(), gomock.Any()).DoAndReturn(
