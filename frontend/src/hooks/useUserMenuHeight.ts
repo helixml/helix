@@ -14,22 +14,23 @@ export const useUserMenuHeight = () => {
     const floatingMenus = document.querySelectorAll('[data-compact-user-menu]')
     let totalHeight = 0
     
-    // Find the parent container that's position: fixed
+    // Find the parent container that overlays the sidebar bottom.
+    // The floating user menu is rendered position: absolute on a `bottom: 0`
+    // container inside the LEFT rail, with `right: -312px` so it extends to
+    // overlay the secondary sidebar. (It's NOT position: fixed.)
     for (const menu of floatingMenus) {
       if (menu instanceof HTMLElement) {
         let parent = menu.parentElement
         while (parent) {
           const computedStyle = window.getComputedStyle(parent)
-          if (computedStyle.position === 'fixed' && 
-              computedStyle.bottom === '0px' && 
-              computedStyle.left === '0px') {
-            // Check if this floating menu is visible
-            const menuComputedStyle = window.getComputedStyle(parent)
-            const isVisible = menuComputedStyle.opacity === '1' && menuComputedStyle.pointerEvents === 'auto'
-            
-                         if (isVisible) {
-               totalHeight = Math.max(totalHeight, parent.offsetHeight)
-             }
+          const isOverlay =
+            (computedStyle.position === 'absolute' || computedStyle.position === 'fixed') &&
+            computedStyle.bottom === '0px'
+          if (isOverlay) {
+            const isVisible = computedStyle.opacity === '1' && computedStyle.pointerEvents === 'auto'
+            if (isVisible) {
+              totalHeight = Math.max(totalHeight, parent.offsetHeight)
+            }
             break
           }
           parent = parent.parentElement

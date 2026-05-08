@@ -1649,6 +1649,49 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
         </Box>
       </Box>
 
+      {/* Mobile search bar */}
+      <Box
+        sx={{
+          display: { xs: "flex", md: "none" },
+          flexShrink: 0,
+          px: 1,
+          pb: 1,
+          gap: 1,
+          alignItems: "center",
+        }}
+      >
+        <TextField
+          size="small"
+          placeholder="Search tasks..."
+          value={searchFilter}
+          onChange={(e) => setSearchFilter(e.target.value)}
+          fullWidth
+          sx={{
+            "& .MuiOutlinedInput-root": {
+              height: 36,
+            },
+          }}
+          InputProps={{
+            startAdornment: (
+              <InputAdornment position="start">
+                <SearchIcon sx={{ fontSize: 18, color: "text.secondary" }} />
+              </InputAdornment>
+            ),
+            endAdornment: searchFilter && (
+              <InputAdornment position="end">
+                <IconButton
+                  size="small"
+                  onClick={() => setSearchFilter("")}
+                  sx={{ padding: 0.25 }}
+                >
+                  <ClearIcon sx={{ fontSize: 16 }} />
+                </IconButton>
+              </InputAdornment>
+            ),
+          }}
+        />
+      </Box>
+
       {error && (
         <Alert
           severity="error"

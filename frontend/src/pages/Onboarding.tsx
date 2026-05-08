@@ -32,6 +32,7 @@ import { Bot, Server } from "lucide-react";
 
 import useAccount from "../hooks/useAccount";
 import useApi from "../hooks/useApi";
+import useLightTheme from "../hooks/useLightTheme";
 import useSnackbar from "../hooks/useSnackbar";
 import useRouter from "../hooks/useRouter";
 import { IApp, AGENT_TYPE_ZED_EXTERNAL } from "../types";
@@ -71,13 +72,47 @@ import { TypesProviderEndpointType } from "../api/api";
 
 const ACCENT = "#00e891";
 const ACCENT_DIM = "rgba(0, 232, 145, 0.08)";
-const BG = "#0d0d1a";
-const CARD_BG = "#0f0f1e";
-const CARD_BG_ACTIVE = "#101024";
-const CARD_BORDER = "rgba(255,255,255,0.04)";
+// Dark-mode defaults (used when isLight is false). Light-mode overrides are
+// produced by getOnboardingPalette() below.
+const BG_DARK = "#0d0d1a";
+const CARD_BG_DARK = "#0f0f1e";
+const CARD_BG_ACTIVE_DARK = "#101024";
+const CARD_BORDER_DARK = "rgba(255,255,255,0.04)";
 const CARD_BORDER_ACTIVE = "rgba(0, 232, 145, 0.25)";
 
-// Shared text field styling (uses InputProps, not slotProps)
+function getOnboardingPalette(isLight: boolean) {
+  // Cards always stay dark — the inner step content has thousands of inline
+  // hardcoded rgba(255,255,255,…) text colors that would each need touching
+  // to be theme-aware. Using dark cards on a light page is a common pattern
+  // and keeps existing styling correct.
+  return {
+    BG: isLight ? "#f5f5f7" : BG_DARK,
+    CARD_BG: CARD_BG_DARK,
+    CARD_BG_ACTIVE: CARD_BG_ACTIVE_DARK,
+    CARD_BORDER: isLight ? "rgba(0,0,0,0.08)" : CARD_BORDER_DARK,
+    TEXT_PRIMARY: isLight ? "#1a1a2e" : "#fff",
+    TEXT_SECONDARY: isLight ? "rgba(0,0,0,0.65)" : "rgba(255,255,255,0.6)",
+    TEXT_FADED: isLight ? "rgba(0,0,0,0.4)" : "rgba(255,255,255,0.4)",
+    TEXT_DIM: isLight ? "rgba(0,0,0,0.35)" : "rgba(255,255,255,0.25)",
+    inputSx: {
+      color: isLight ? "#1a1a2e" : "#fff",
+      fontSize: "0.82rem",
+      "& fieldset": { borderColor: isLight ? "rgba(0,0,0,0.2)" : "rgba(255,255,255,0.1)" },
+      "&:hover fieldset": { borderColor: isLight ? "rgba(0,0,0,0.4)" : "rgba(255,255,255,0.2)" },
+      "&.Mui-focused fieldset": { borderColor: ACCENT },
+    },
+    labelSx: { color: isLight ? "rgba(0,0,0,0.55)" : "rgba(255,255,255,0.4)", fontSize: "0.82rem" },
+    helperSx: { color: isLight ? "rgba(0,0,0,0.4)" : "rgba(255,255,255,0.25)", fontSize: "0.72rem" },
+  };
+}
+
+// Backwards-compat aliases used at module scope (e.g. by `btnSx` below).
+// These default to dark-mode values; the component's render path uses the
+// theme-aware palette returned by getOnboardingPalette() instead.
+const BG = BG_DARK;
+const CARD_BG = CARD_BG_DARK;
+const CARD_BG_ACTIVE = CARD_BG_ACTIVE_DARK;
+const CARD_BORDER = CARD_BORDER_DARK;
 const inputSx = {
   color: "#fff",
   fontSize: "0.82rem",
@@ -171,6 +206,8 @@ export default function Onboarding() {
   const api = useApi();
   const snackbar = useSnackbar();
   const router = useRouter();
+  const lightTheme = useLightTheme();
+  const palette = getOnboardingPalette(lightTheme.isLight);
 
   // Step tracking
   const [activeStep, setActiveStep] = useState(1);
@@ -1238,8 +1275,8 @@ export default function Onboarding() {
                 sx={{
                   p: 2.5,
                   borderRadius: 1.5,
-                  border: `1px solid ${CARD_BORDER}`,
-                  bgcolor: CARD_BG,
+                  border: `1px solid ${palette.CARD_BORDER}`,
+                  bgcolor: palette.CARD_BG,
                   mb: 2.5,
                 }}
               >
@@ -2292,7 +2329,8 @@ export default function Onboarding() {
       sx={{
         position: "fixed",
         inset: 0,
-        bgcolor: BG,
+        bgcolor: palette.BG,
+        color: palette.TEXT_PRIMARY,
         zIndex: 1300,
         display: "flex",
         justifyContent: "center",
@@ -2328,7 +2366,7 @@ export default function Onboarding() {
           <Box sx={{ mb: 5 }}>
             <Typography
               sx={{
-                color: "#fff",
+                color: palette.TEXT_PRIMARY,
                 fontWeight: 700,
                 mb: 0.5,
                 fontSize: { xs: "1.5rem", md: "1.8rem" },
@@ -2339,7 +2377,7 @@ export default function Onboarding() {
             </Typography>
             <Typography
               sx={{
-                color: "rgba(255,255,255,0.35)",
+                color: palette.TEXT_FADED,
                 fontSize: "0.88rem",
               }}
             >
@@ -2366,11 +2404,11 @@ export default function Onboarding() {
                     px: { xs: 2.5, md: 3 },
                     py: { xs: 2, md: 2.5 },
                     borderRadius: 2,
-                    border: `1px solid ${active ? CARD_BORDER_ACTIVE : CARD_BORDER}`,
+                    border: `1px solid ${active ? CARD_BORDER_ACTIVE : palette.CARD_BORDER}`,
                     bgcolor: active
-                      ? CARD_BG_ACTIVE
+                      ? palette.CARD_BG_ACTIVE
                       : completed
-                        ? CARD_BG
+                        ? palette.CARD_BG
                         : "transparent",
                     transition: "all 0.3s ease",
                     opacity: locked ? 0.35 : 1,
@@ -2384,10 +2422,12 @@ export default function Onboarding() {
                     <Box sx={{ flex: 1 }}>
                       <Typography
                         sx={{
+                          // Cards are dark in both modes (TEXT_PRIMARY=white on dark card),
+                          // inactive un-carded steps need theme-aware text on the page bg.
                           color:
                             completed || active
                               ? "#fff"
-                              : "rgba(255,255,255,0.35)",
+                              : palette.TEXT_FADED,
                           fontWeight: 600,
                           fontSize: "0.88rem",
                         }}
@@ -2396,7 +2436,7 @@ export default function Onboarding() {
                       </Typography>
                       <Typography
                         sx={{
-                          color: "rgba(255,255,255,0.28)",
+                          color: completed || active ? "rgba(255,255,255,0.6)" : palette.TEXT_DIM,
                           fontSize: "0.76rem",
                           mt: 0.2,
                         }}

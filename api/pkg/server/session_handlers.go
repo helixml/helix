@@ -2206,6 +2206,85 @@ func (s *HelixAPIServer) stopExternalAgentSession(_ http.ResponseWriter, r *http
 	}, nil
 }
 
+// SessionMessageRequest is the request body for POST /sessions/{id}/messages.
+type SessionMessageRequest struct {
+	Content      string `json:"content"`
+	Interrupt    bool   `json:"interrupt,omitempty"`
+	NotifyUserID string `json:"notify_user_id,omitempty"`
+}
+
+// SessionMessageResponse is returned from POST /sessions/{id}/messages.
+// interaction_id can be used to correlate streamed responses on /api/v1/ws/user.
+type SessionMessageResponse struct {
+	RequestID     string `json:"request_id"`
+	InteractionID string `json:"interaction_id"`
+}
+
+// sendSessionMessage godoc
+// @Summary Queue a message to a session's external agent
+// @Description Persists a Waiting interaction and dispatches it via the external-agent
+// @Description WebSocket. If no agent is connected the interaction is held until the
+// @Description agent reconnects, at which point pickupWaitingInteraction delivers it —
+// @Description callers do not need to manage WebSocket readiness or retries.
+// @Description Distinct from POST /sessions/chat (synchronous SSE chat); use this
+// @Description endpoint for fire-and-forget delivery to an external (e.g. desktop) agent.
+// @Tags    Sessions
+// @Accept  json
+// @Produce json
+// @Param   id path string true "Session ID"
+// @Param   request body SessionMessageRequest true "Message payload"
+// @Success 200 {object} SessionMessageResponse
+// @Failure 400 {object} system.HTTPError
+// @Failure 401 {object} system.HTTPError
+// @Failure 403 {object} system.HTTPError
+// @Failure 404 {object} system.HTTPError
+// @Failure 500 {object} system.HTTPError
+// @Security BearerAuth
+// @Router /api/v1/sessions/{id}/messages [post]
+func (s *HelixAPIServer) sendSessionMessage(_ http.ResponseWriter, r *http.Request) (*SessionMessageResponse, *system.HTTPError) {
+	ctx := r.Context()
+	user := getRequestUser(r)
+	if user == nil {
+		return nil, system.NewHTTPError401("user not found")
+	}
+
+	sessionID := mux.Vars(r)["id"]
+	if sessionID == "" {
+		return nil, system.NewHTTPError400("session id is required")
+	}
+
+	var body SessionMessageRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		return nil, system.NewHTTPError400("invalid request body")
+	}
+	if strings.TrimSpace(body.Content) == "" {
+		return nil, system.NewHTTPError400("content is required")
+	}
+
+	session, err := s.Store.GetSession(ctx, sessionID)
+	if err != nil {
+		return nil, system.NewHTTPError404("session not found")
+	}
+	if session == nil {
+		return nil, system.NewHTTPError404("session not found")
+	}
+
+	if err := s.authorizeUserToSession(ctx, user, session, types.ActionUpdate); err != nil {
+		return nil, system.NewHTTPError403(err.Error())
+	}
+
+	requestID, interactionID, err := s.sendMessageToSession(ctx, sessionID, body.Content, body.NotifyUserID, body.Interrupt)
+	if err != nil {
+		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to queue session message")
+		return nil, system.NewHTTPError500(fmt.Sprintf("failed to queue session message: %v", err))
+	}
+
+	return &SessionMessageResponse{
+		RequestID:     requestID,
+		InteractionID: interactionID,
+	}, nil
+}
+
 // restartCrashedAgentThread godoc
 // @Summary Restart Zed thread after a Claude Agent crash
 // @Description Clears the dead acp_thread_id on the session and resets crashed prompts

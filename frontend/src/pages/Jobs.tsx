@@ -249,10 +249,10 @@ const TabPanel: FC<TabPanelProps> = ({ children, value, index }) => (
   </Box>
 )
 
-const codeBlockSx = {
+const codeBlockSx = (theme: any) => ({
   p: 1.5,
-  bgcolor: 'grey.900',
-  color: 'grey.100',
+  bgcolor: theme.palette.mode === 'light' ? '#f6f8fa' : 'grey.900',
+  color: theme.palette.mode === 'light' ? 'grey.900' : 'grey.100',
   borderRadius: 1,
   overflow: 'auto',
   fontSize: '0.75rem',
@@ -260,7 +260,7 @@ const codeBlockSx = {
   whiteSpace: 'pre-wrap' as const,
   wordBreak: 'break-all' as const,
   maxHeight: 300,
-}
+})
 
 interface ApiCallBlockProps {
   label: string

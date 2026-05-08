@@ -13,6 +13,7 @@ import StopIcon from '@mui/icons-material/Stop'
 
 import SimpleTable from '../widgets/SimpleTable'
 
+import useLightTheme from '../../hooks/useLightTheme'
 import {
   useSandboxCommands,
   useRunSandboxCommand,
@@ -34,6 +35,7 @@ const statusColor: Record<string, 'default' | 'primary' | 'success' | 'warning' 
 }
 
 const SandboxCommandsTab: FC<Props> = ({ orgId, sandboxId, running }) => {
+  const lightTheme = useLightTheme()
   const [cmd, setCmd] = useState('')
   const [selectedCmdId, setSelectedCmdId] = useState<string | undefined>()
   const [logs, setLogs] = useState<string>('')
@@ -167,7 +169,7 @@ const SandboxCommandsTab: FC<Props> = ({ orgId, sandboxId, running }) => {
           />
         </Box>
 
-        <Paper sx={{ flex: 1, p: 2, minHeight: 320, maxHeight: 480, overflow: 'auto', bgcolor: '#0b0b0b' }}>
+        <Paper sx={{ flex: 1, p: 2, minHeight: 320, maxHeight: 480, overflow: 'auto', bgcolor: lightTheme.isLight ? 'grey.100' : '#0b0b0b' }}>
           <Typography variant="caption" color="text.secondary">
             {selectedCmdId ? `Logs for ${selectedCmdId}` : 'Select a command to view logs'}
           </Typography>
@@ -177,7 +179,7 @@ const SandboxCommandsTab: FC<Props> = ({ orgId, sandboxId, running }) => {
               fontFamily: 'monospace',
               fontSize: 12,
               whiteSpace: 'pre-wrap',
-              color: '#e5e5e5',
+              color: lightTheme.isLight ? 'grey.900' : '#e5e5e5',
               m: 0,
               mt: 1,
             }}

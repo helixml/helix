@@ -1112,26 +1112,6 @@ definitions:
       url:
         type: string
     type: object
-  server.ForkSampleProjectRequest:
-    properties:
-      description:
-        type: string
-      private:
-        type: boolean
-      project_name:
-        type: string
-      sample_project_id:
-        type: string
-    type: object
-  server.ForkSampleProjectResponse:
-    properties:
-      github_repo_url:
-        type: string
-      message:
-        type: string
-      project_id:
-        type: string
-    type: object
   server.InitializeSampleRepositoriesRequest:
     properties:
       organization_id:
@@ -1854,69 +1834,6 @@ definitions:
           If empty, uses the repo name
         type: string
     type: object
-  server.SampleProject:
-    properties:
-      category:
-        description: '"web", "api", "mobile", "data", "ai"'
-        type: string
-      default_branch:
-        type: string
-      demo_url:
-        type: string
-      description:
-        type: string
-      difficulty:
-        description: '"beginner", "intermediate", "advanced"'
-        type: string
-      github_repo:
-        type: string
-      id:
-        type: string
-      name:
-        type: string
-      readme_url:
-        type: string
-      sample_tasks:
-        items:
-          $ref: '#/definitions/server.SampleProjectTask'
-        type: array
-      technologies:
-        items:
-          type: string
-        type: array
-    type: object
-  server.SampleProjectTask:
-    properties:
-      acceptance_criteria:
-        items:
-          type: string
-        type: array
-      description:
-        type: string
-      estimated_hours:
-        type: integer
-      files_to_modify:
-        items:
-          type: string
-        type: array
-      labels:
-        items:
-          type: string
-        type: array
-      priority:
-        description: '"low", "medium", "high", "critical"'
-        type: string
-      status:
-        description: '"backlog", "ready", "in_progress", "review", "done"'
-        type: string
-      technical_notes:
-        type: string
-      title:
-        type: string
-      type:
-        description: '"feature", "bug", "task", "epic"'
-        type: string
-    type: object
   server.SampleTaskPrompt:
     properties:
       labels:
@@ -2023,6 +1940,22 @@ definitions:
       oauth_credentials:
         $ref: '#/definitions/types.ClaudeOAuthCredentials'
       setup_token:
+        type: string
+    type: object
+  server.SessionMessageRequest:
+    properties:
+      content:
+        type: string
+      interrupt:
+        type: boolean
+      notify_user_id:
+        type: string
+    type: object
+  server.SessionMessageResponse:
+    properties:
+      interaction_id:
+        type: string
+      request_id:
         type: string
     type: object
   server.SessionSandboxStateResponse:
@@ -2255,35 +2188,6 @@ definitions:
         type: string
       vendor:
         $ref: '#/definitions/types.GPUVendor'
-    type: object
-  services.SampleProjectCode:
-    properties:
-      description:
-        type: string
-      files:
-        additionalProperties:
-          type: string
-        description: filepath -> content
-        type: object
-      github_repo:
-        type: string
-      gitignore:
-        type: string
-      id:
-        type: string
-      language:
-        type: string
-      name:
-        type: string
-      readme_url:
-        type: string
-      startup_script:
-        description: Custom startup script for this project
-        type: string
-      technologies:
-        items:
-          type: string
-        type: array
     type: object
   services.StartupScriptVersion:
     properties:
@@ -9999,6 +9903,12 @@ definitions:
       name:
         type: string
     type: object
+  types.UpdateUserColorSchemeRequest:
+    properties:
+      color_scheme:
+        description: '"light", "dark", or "" (follow OS)'
+        type: string
+    type: object
   types.UpdateUserGuidelinesRequest:
     properties:
       guidelines:
@@ -10323,6 +10233,10 @@ definitions:
         allOf:
         - $ref: '#/definitions/types.CodeAgentConfig'
         description: Code agent configuration for Zed agentic coding
+      color_scheme:
+        description: 'Session owner''s UI color scheme: "light", "dark", or "" (follow
+          OS). Daemon applies via gsettings to GNOME.'
+        type: string
       context_servers:
         additionalProperties: true
         type: object
@@ -18278,119 +18192,6 @@ paths:
       summary: List runner profiles compatible with the given runner
       tags:
       - runner_profiles
-  /api/v1/sample-projects:
-    get:
-      description: Get a list of all available sample projects that users can fork
-        and use
-      responses:
-        "200":
-          description: OK
-          schema:
-            items:
-              $ref: '#/definitions/server.SampleProject'
-            type: array
-      security:
-      - BearerAuth: []
-      summary: List available sample projects
-      tags:
-      - sample-projects
-  /api/v1/sample-projects/{project_id}:
-    get:
-      description: Get details of a specific sample project by ID
-      parameters:
-      - description: Sample project ID
-        in: path
-        name: project_id
-        required: true
-        type: string
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/server.SampleProject'
-      security:
-      - BearerAuth: []
-      summary: Get a specific sample project
-      tags:
-      - sample-projects
-  /api/v1/sample-projects/{projectId}/archive:
-    get:
-      description: Get all files for a sample project as a flat map (for container
-        initialization)
-      parameters:
-      - description: Project ID
-        in: path
-        name: projectId
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/types.APIError'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/types.APIError'
-      summary: Get sample project code as archive
-      tags:
-      - sample-projects
-  /api/v1/sample-projects/{projectId}/code:
-    get:
-      description: Get the starter code and file structure for a sample project
-      parameters:
-      - description: Project ID
-        in: path
-        name: projectId
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/services.SampleProjectCode'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/types.APIError'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/types.APIError'
-      summary: Get sample project starter code
-      tags:
-      - sample-projects
-  /api/v1/sample-projects/fork:
-    post:
-      description: Fork a sample project to the user's GitHub account and create a
-        new Helix project
-      parameters:
-      - description: Fork request details
-        in: body
-        name: request
-        required: true
-        schema:
-          $ref: '#/definitions/server.ForkSampleProjectRequest'
-      responses:
-        "201":
-          description: Created
-          schema:
-            $ref: '#/definitions/server.ForkSampleProjectResponse'
-      security:
-      - BearerAuth: []
-      summary: Fork a sample project
-      tags:
-      - sample-projects
   /api/v1/sample-projects/simple:
     get:
       description: Get sample projects with natural language task prompts (Kiro-style)
@@ -19466,6 +19267,61 @@ paths:
       summary: Provide feedback for an interaction
       tags:
       - interactions
+  /api/v1/sessions/{id}/messages:
+    post:
+      consumes:
+      - application/json
+      description: |-
+        Persists a Waiting interaction and dispatches it via the external-agent
+        WebSocket. If no agent is connected the interaction is held until the
+        agent reconnects, at which point pickupWaitingInteraction delivers it —
+        callers do not need to manage WebSocket readiness or retries.
+        Distinct from POST /sessions/chat (synchronous SSE chat); use this
+        endpoint for fire-and-forget delivery to an external (e.g. desktop) agent.
+      parameters:
+      - description: Session ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Message payload
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/server.SessionMessageRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.SessionMessageResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Queue a message to a session's external agent
+      tags:
+      - Sessions
   /api/v1/sessions/{id}/output:
     get:
       description: Returns the last interaction's response for a session
@@ -21559,6 +21415,39 @@ paths:
       security:
       - BearerAuth: []
       summary: Update user chat settings
+      tags:
+      - Users
+  /api/v1/users/me/color-scheme:
+    put:
+      consumes:
+      - application/json
+      description: Set the user's UI color scheme. Propagates instantly to GNOME and
+        Zed in any spec-task sessions owned by this user.
+      parameters:
+      - description: Color scheme update request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.UpdateUserColorSchemeRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.UpdateUserColorSchemeRequest'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Update user color scheme preference
       tags:
       - Users
   /api/v1/users/me/guidelines:

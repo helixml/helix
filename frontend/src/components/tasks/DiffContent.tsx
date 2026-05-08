@@ -12,6 +12,7 @@ import {
 import { Copy, ArrowLeft } from "lucide-react";
 import { FileDiff } from "../../hooks/useLiveFileDiff";
 import useThemeConfig from "../../hooks/useThemeConfig";
+import useLightTheme from "../../hooks/useLightTheme";
 import { ITheme } from "../../themes";
 
 interface DiffContentProps {
@@ -96,7 +97,7 @@ function getLineBackground(
   }
 }
 
-function getLineColor(type: DiffLine["type"], themeConfig: ITheme): string {
+function getLineColor(type: DiffLine["type"], themeConfig: ITheme, textColor?: string): string {
   switch (type) {
     case "add":
       return themeConfig.greenRoot;
@@ -107,7 +108,7 @@ function getLineColor(type: DiffLine["type"], themeConfig: ITheme): string {
     case "header":
       return themeConfig.neutral400;
     default:
-      return themeConfig.darkText;
+      return textColor ?? "";
   }
 }
 
@@ -120,6 +121,7 @@ const DiffContent: FC<DiffContentProps> = ({
 }) => {
   const theme = useTheme();
   const themeConfig = useThemeConfig();
+  const lightTheme = useLightTheme();
   const monoFont = theme.typography.fontFamilyMono;
 
   const parsedDiff = useMemo(() => {
@@ -197,12 +199,12 @@ const DiffContent: FC<DiffContentProps> = ({
           elevation={0}
           sx={{
             p: 2.5,
-            bgcolor: "rgba(255, 255, 255, 0.02)",
+            bgcolor: lightTheme.isLight ? 'rgba(0, 0, 0, 0.02)' : 'rgba(255, 255, 255, 0.02)',
             borderRadius: 1,
-            border: "1px solid rgba(255, 255, 255, 0.06)",
+            border: `1px solid ${lightTheme.isLight ? 'rgba(0, 0, 0, 0.1)' : 'rgba(255, 255, 255, 0.06)'}`,
           }}
         >
-          <Typography variant="body2" sx={{ color: themeConfig.darkTextFaded }}>
+          <Typography variant="body2" sx={{ color: lightTheme.textColorFaded }}>
             Binary file changed
           </Typography>
           <Typography
@@ -242,7 +244,7 @@ const DiffContent: FC<DiffContentProps> = ({
             sx={{
               fontFamily: monoFont,
               flex: 1,
-              color: themeConfig.darkText,
+              color: lightTheme.textColor,
               overflow: "hidden",
               textOverflow: "ellipsis",
               whiteSpace: "nowrap",
@@ -272,12 +274,12 @@ const DiffContent: FC<DiffContentProps> = ({
           elevation={0}
           sx={{
             p: 2.5,
-            bgcolor: "rgba(255, 255, 255, 0.02)",
+            bgcolor: lightTheme.isLight ? 'rgba(0, 0, 0, 0.02)' : 'rgba(255, 255, 255, 0.02)',
             borderRadius: 1,
-            border: "1px solid rgba(255, 255, 255, 0.06)",
+            border: `1px solid ${lightTheme.isLight ? 'rgba(0, 0, 0, 0.1)' : 'rgba(255, 255, 255, 0.06)'}`,
           }}
         >
-          <Typography variant="body2" sx={{ color: themeConfig.darkTextFaded }}>
+          <Typography variant="body2" sx={{ color: lightTheme.textColorFaded }}>
             {file.status === "added" ? "New file" : "No diff content available"}
           </Typography>
           <Box sx={{ display: "flex", gap: 2, mt: 1.5 }}>
@@ -316,7 +318,7 @@ const DiffContent: FC<DiffContentProps> = ({
       sx={{
         height: "100%",
         overflow: "auto",
-        bgcolor: themeConfig.darkBackgroundColor,
+        bgcolor: lightTheme.backgroundColor,
       }}
     >
       <Box
@@ -326,8 +328,8 @@ const DiffContent: FC<DiffContentProps> = ({
           gap: isMobile ? 1 : 1.5,
           px: isMobile ? 1 : 2,
           py: 1.25,
-          borderBottom: "1px solid rgba(255, 255, 255, 0.06)",
-          bgcolor: "rgba(255, 255, 255, 0.02)",
+          borderBottom: `1px solid ${lightTheme.isLight ? 'rgba(0, 0, 0, 0.1)' : 'rgba(255, 255, 255, 0.06)'}`,
+          bgcolor: lightTheme.isLight ? 'rgba(0, 0, 0, 0.02)' : 'rgba(255, 255, 255, 0.02)',
           position: "sticky",
           top: 0,
           zIndex: 1,
@@ -360,7 +362,7 @@ const DiffContent: FC<DiffContentProps> = ({
             flex: 1,
             fontSize: isMobile ? "0.7rem" : "0.8rem",
             fontWeight: 500,
-            color: themeConfig.darkText,
+            color: lightTheme.textColor,
             overflow: "hidden",
             textOverflow: "ellipsis",
             whiteSpace: "nowrap",
@@ -444,7 +446,7 @@ const DiffContent: FC<DiffContentProps> = ({
               "&:hover": {
                 backgroundColor:
                   line.type === "context" || line.type === "empty"
-                    ? "rgba(255, 255, 255, 0.03)"
+                    ? (lightTheme.isLight ? 'rgba(0, 0, 0, 0.03)' : 'rgba(255, 255, 255, 0.03)')
                     : undefined,
               },
             }}
@@ -454,7 +456,7 @@ const DiffContent: FC<DiffContentProps> = ({
                 display: "flex",
                 flexShrink: 0,
                 userSelect: "none",
-                borderRight: "1px solid rgba(255, 255, 255, 0.06)",
+                borderRight: `1px solid ${lightTheme.isLight ? 'rgba(0, 0, 0, 0.1)' : 'rgba(255, 255, 255, 0.06)'}`,
               }}
             >
               {/* Old line number - hidden on mobile */}
@@ -494,7 +496,7 @@ const DiffContent: FC<DiffContentProps> = ({
               sx={{
                 width: isMobile ? 16 : 20,
                 textAlign: "center",
-                color: getLineColor(line.type, themeConfig),
+                color: getLineColor(line.type, themeConfig, lightTheme.textColor),
                 fontFamily: monoFont,
                 fontWeight: 600,
                 fontSize: isMobile ? "0.65rem" : "0.72rem",
@@ -511,7 +513,7 @@ const DiffContent: FC<DiffContentProps> = ({
                 minWidth: 0,
                 pl: isMobile ? 0.5 : 1,
                 pr: isMobile ? 1 : 2,
-                color: getLineColor(line.type, themeConfig),
+                color: getLineColor(line.type, themeConfig, lightTheme.textColor),
                 fontFamily: monoFont,
                 fontSize: isMobile ? "0.65rem" : "0.72rem",
                 whiteSpace: "pre-wrap",
