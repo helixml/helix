@@ -872,10 +872,21 @@ func (apiServer *HelixAPIServer) handleThreadCreated(sessionID string, syncMsg *
 	// Notify frontend immediately so the chat updates without waiting for poll
 	apiServer.publishInteractionUpdateToFrontend(createdSession.ID, createdSession.Owner, createdInteraction)
 
+	// Store request_id → interaction_id mapping so that cancel and completion
+	// handlers can look up the correct interaction.
+	if requestID != "" {
+		apiServer.contextMappingsMutex.Lock()
+		if apiServer.requestToInteractionMapping == nil {
+			apiServer.requestToInteractionMapping = make(map[string]string)
+		}
+		apiServer.requestToInteractionMapping[requestID] = createdInteraction.ID
+		apiServer.contextMappingsMutex.Unlock()
+	}
 
 	log.Info().
 		Str("helix_session_id", createdSession.ID).
 		Str("interaction_id", createdInteraction.ID).
+		Str("request_id", requestID).
 		Msg("✅ [HELIX] Created initial interaction and stored mapping")
 
 	// Check if this external agent belongs to a spectask session
@@ -1452,6 +1463,14 @@ func (apiServer *HelixAPIServer) flushAndClearStreamingContext(ctx context.Conte
 
 	if sctx.interaction != nil {
 		if sctx.dirty {
+			// Before flushing, refresh the State field from the store.
+			// Other handlers (e.g. handleTurnCancelled) may have changed
+			// the state while streaming was in progress. We must not
+			// overwrite those state transitions with our stale cached state.
+			freshInteraction, refreshErr := apiServer.Controller.Options.Store.GetInteraction(ctx, sctx.interaction.ID)
+			if refreshErr == nil {
+				sctx.interaction.State = freshInteraction.State
+			}
 			_, err := apiServer.Controller.Options.Store.UpdateInteraction(ctx, sctx.interaction)
 			if err != nil {
 				log.Error().Err(err).
@@ -2236,8 +2255,18 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 			Msg("⚠️ [HELIX] message_completed but response_message is EMPTY — content may have been lost during streaming flush")
 	}
 
-	// Mark the interaction as complete
-	targetInteraction.State = types.InteractionStateComplete
+	// Mark the interaction as complete — but don't overwrite "interrupted" state.
+	// When a turn is cancelled, handleTurnCancelled marks the interaction as
+	// interrupted. The message_completed event may arrive shortly after (the agent
+	// finishes its in-flight work), and we must not clobber the interrupted state.
+	if targetInteraction.State == types.InteractionStateInterrupted {
+		log.Info().
+			Str("helix_session_id", helixSessionID).
+			Str("interaction_id", targetInteraction.ID).
+			Msg("⏭️ [HELIX] Interaction already interrupted — skipping state transition to complete")
+	} else {
+		targetInteraction.State = types.InteractionStateComplete
+	}
 	targetInteraction.Completed = time.Now()
 	targetInteraction.Updated = time.Now()
 
