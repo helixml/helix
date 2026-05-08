@@ -52,11 +52,15 @@ This only triggers when `hoverButtonPosition` is set (button is visible) and cur
 
 **Update during implementation:** Discovery showed `helix` already migrated `applyHighlight` to use the **CSS Custom Highlight API** (`CSS.highlights` + `new Highlight(range)`) — see `DesignReviewContent.tsx:879-899` and the GlobalStyles rule at line 1116. This is non-destructive (no DOM mutation), so the original `extractContents` problem from `helix-4` doesn't apply here.
 
-**Confirmed root cause (verified in browser):** The `::highlight(comment-highlight)` rule was setting both `background-color: #b3d7ff` and `color: #000`. Inside Prism `oneLight`-themed code blocks, syntax tokens are emitted as `<span style="color: rgb(...)">` — inline styles which Chrome's Custom Highlight implementation does NOT override with `::highlight() { color: ... }`. The `background-color` was actually painting correctly across the code block all along, but the visual effect was confusing because the user was perceiving "truncation" — see `screenshots/02-highlight-after-fix.png` showing the corrected behaviour.
+**Investigated with the live page:** Both `background-color: #b3d7ff` and `color: #000` from the original `::highlight(comment-highlight)` rule were doing useful work. The background paints across the code block fine — the original "truncation" perception was just that the syntax-coloured tokens (Prism's inline `color: rgb(...)`) win over `::highlight() { color: ... }` in Chrome, so highlighted code text keeps its syntax colours rather than going black.
 
-**Fix:** Dropped the `color: #000` override from the `::highlight(comment-highlight)` rule (line 1116). This keeps syntax-token colours intact while still painting `background-color: #b3d7ff` across the entire selection including inside code blocks.
+**False-start fix (reverted):** Dropping `color: #000` made non-code paragraphs in dark mode render as white text on the light blue highlight (illegible), because the inherited dark-mode `color: rgb(255, 255, 255)` then showed through.
 
-**Verified in-browser:** Programmatically applied a Highlight spanning ~3 paragraphs across a TypeScript code block (`function example() { ... }`). Background colour paints uniformly across non-code paragraphs and code lines; syntax token colours remain visible (purple `function`/`const`/`return`, green numbers).
+**Final fix:** Keep both properties (`background-color: #b3d7ff` and `color: #000`). Result:
+- Normal paragraphs: black text on blue background — legible in both light and dark modes (since the highlight forces black text).
+- Code blocks: blue background paints on each text line; Prism inline `color` styles override the highlight's `color: #000`, so syntax token colours stay visible (purple `function`/`const`/`return`, etc.) — this is the desired behaviour.
+
+**Verified in dark mode** (`screenshots/09-actual-render-darkmode.png`): the highlight is legible across both normal paragraphs and the code block, with syntax colours preserved inside the code.
 
 ## 4. No hover button when cursor is over a comment panel
 

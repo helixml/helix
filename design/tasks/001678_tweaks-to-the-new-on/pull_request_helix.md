@@ -6,7 +6,7 @@ Four tweaks to the on-hover "Add comment" button and pseudo-highlight on the spe
 
 1. Clicking the hover button now applies the same blue pseudo-highlight to the paragraph that manual selection does, so users can see exactly which block the comment is attached to.
 2. The hover button now disappears when the cursor moves to the right past the button's right edge (previously it lingered until the cursor left the entire scroll container). Clicking the button is unaffected.
-3. Pseudo-highlights spanning a code block are now visible across the code: dropped the conflicting `color: #000` from the `::highlight()` rule that was hiding under Prism's inline syntax-token colours, leaving `background-color: #b3d7ff` to paint correctly.
+3. Pseudo-highlights spanning a code block: kept the existing `::highlight()` rule (`background-color: #b3d7ff` + `color: #000`). The background was already painting across code blocks fine — the original "truncation" report was perception only, since Prism's inline syntax-token colours win over `::highlight()` color (intentionally, so syntax colours stay visible under the highlight).
 4. The hover button no longer appears when the cursor is over an existing inline comment panel (`InlineCommentBubble`).
 
 All changes are in `frontend/src/components/spec-tasks/DesignReviewContent.tsx`.
@@ -16,7 +16,7 @@ All changes are in `frontend/src/components/spec-tasks/DesignReviewContent.tsx`.
 - `onClick` of the hover button now creates a `Range` over `hoveredElementRef.current` and assigns it to `savedRangeRef.current` so the existing `useEffect` applies the pseudo-highlight when the comment form opens.
 - Added an `onMouseMove` handler to the outer scroll container that clears `hoverButtonPosition` when the cursor x-position exceeds the button's right edge (`containerWidth/2 + 432px`).
 - Added an early-return in the inner Box's `onMouseMove` handler that clears the hover button when the cursor is inside any element tracked in `commentRefs.current`.
-- Dropped `color: #000` from the `::highlight(comment-highlight)` `GlobalStyles` rule — Prism's inline `color: rgb(...)` styles win regardless, and removing the override lets syntax colours show through under the highlight background.
+- (Highlight CSS rule unchanged — kept `color: #000` for dark-mode legibility, which Prism's inline syntax styles override inside code blocks anyway.)
 
 ## Screenshots
 
