@@ -2,6 +2,7 @@ import React, { useRef, useEffect, useState } from 'react';
 import * as monaco from 'monaco-editor';
 import { Box, BoxProps } from '@mui/material';
 import useThemeConfig from '../../hooks/useThemeConfig';
+import useLightTheme from '../../hooks/useLightTheme';
 
 interface MonacoEditorProps extends Omit<BoxProps, 'onChange'> {
   value: string;
@@ -12,7 +13,7 @@ interface MonacoEditorProps extends Omit<BoxProps, 'onChange'> {
   minHeight?: string | number;
   maxHeight?: string | number;
   autoHeight?: boolean;
-  theme?: 'vs-dark' | 'vs-light' | 'hc-black' | 'helix-dark';
+  theme?: 'vs-dark' | 'vs-light' | 'hc-black' | 'helix-dark' | 'helix-light';
   options?: monaco.editor.IStandaloneEditorConstructionOptions;
   onMount?: (editor: monaco.editor.IStandaloneCodeEditor) => void;
   onSave?: () => void; // Called when user presses Cmd+S / Ctrl+S
@@ -243,6 +244,60 @@ const createHelixTheme = (themeConfig: any) => ({
   },
 });
 
+const createHelixLightTheme = (themeConfig: any): monaco.editor.IStandaloneThemeData => ({
+  base: 'vs' as const,
+  inherit: true,
+  rules: [
+    { token: 'comment', foreground: '6a737d', fontStyle: 'italic' },
+    { token: 'keyword', foreground: '0550ae', fontStyle: 'bold' },
+    { token: 'string', foreground: '0a3069' },
+    { token: 'number', foreground: '0550ae' },
+    { token: 'type', foreground: '0550ae' },
+    { token: 'function', foreground: '6639ba' },
+    { token: 'variable', foreground: '24292f' },
+    { token: 'operator', foreground: '0550ae' },
+    { token: 'tag', foreground: '0550ae' },
+    { token: 'attribute.name', foreground: '0550ae' },
+    { token: 'attribute.value', foreground: '0a3069' },
+    { token: 'invalid', foreground: themeConfig.redRoot },
+  ],
+  colors: {
+    'editor.background': themeConfig.lightPanel,
+    'editor.foreground': themeConfig.lightText,
+    'editorLineNumber.foreground': '#8c959f',
+    'editorLineNumber.activeForeground': '#24292f',
+    'editor.selectionBackground': '#0550ae20',
+    'editorCursor.foreground': '#0550ae',
+    'editorWhitespace.foreground': '#d0d7de',
+    'editorIndentGuide.background': '#d0d7de',
+    'editorIndentGuide.activeBackground': '#8c959f',
+    'editorLineHighlight.background': '#f6f8fa',
+    'editorBracketMatch.background': '#0550ae15',
+    'editorBracketMatch.border': '#0550ae',
+    'editor.findMatchBackground': '#fff8c5',
+    'editor.findMatchHighlightBackground': '#fff8c580',
+    'editorGutter.background': themeConfig.lightPanel,
+    'editorGutter.modifiedBackground': themeConfig.yellowRoot,
+    'editorGutter.addedBackground': themeConfig.greenRoot,
+    'editorGutter.deletedBackground': themeConfig.redRoot,
+    'editorWidget.background': '#ffffff',
+    'editorWidget.border': '#d0d7de',
+    'editorWidget.foreground': themeConfig.lightText,
+    'editorSuggestWidget.background': '#ffffff',
+    'editorSuggestWidget.border': '#d0d7de',
+    'editorSuggestWidget.foreground': themeConfig.lightText,
+    'editorSuggestWidget.highlightForeground': '#0550ae',
+    'editorSuggestWidget.selectedBackground': '#0550ae15',
+    'editorHoverWidget.background': '#ffffff',
+    'editorHoverWidget.border': '#d0d7de',
+    'editorHoverWidget.foreground': themeConfig.lightText,
+    'editorError.foreground': themeConfig.redRoot,
+    'editorWarning.foreground': themeConfig.yellowRoot,
+    'editorInfo.foreground': '#0550ae',
+    'editorOverviewRuler.border': 'transparent',
+  },
+});
+
 const MonacoEditor: React.FC<MonacoEditorProps> = ({
   value,
   onChange,
@@ -264,6 +319,8 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({
   const editorInstanceRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
   const [isEditorReady, setIsEditorReady] = useState(false);
   const themeConfig = useThemeConfig();
+  const lightTheme = useLightTheme();
+  const effectiveTheme = theme === 'helix-dark' ? (lightTheme.isLight ? 'helix-light' : 'helix-dark') : theme;
 
   // Use refs to always call latest callbacks (avoids stale closures in Monaco commands)
   const onSaveRef = useRef(onSave);
@@ -279,17 +336,16 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({
   useEffect(() => {
     if (!editorRef.current) return;
 
-    // Register custom theme if it's the helix-dark theme
-    if (theme === 'helix-dark') {
-      const helixTheme = createHelixTheme(themeConfig);
-      monaco.editor.defineTheme('helix-dark', helixTheme);
-    }
+    const helixDarkTheme = createHelixTheme(themeConfig);
+    monaco.editor.defineTheme('helix-dark', helixDarkTheme);
+    const helixLightTheme = createHelixLightTheme(themeConfig);
+    monaco.editor.defineTheme('helix-light', helixLightTheme);
 
     // Create editor instance
     const editor = monaco.editor.create(editorRef.current, {
       value,
       language,
-      theme,
+      theme: effectiveTheme,
       readOnly,
       automaticLayout: true,
       scrollBeyondLastLine: false,
@@ -395,17 +451,16 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({
     };
   }, [autoHeight, minHeight, maxHeight, isEditorReady]);
 
-  // Update theme
+  // Update theme when mode changes
   useEffect(() => {
     if (editorInstanceRef.current) {
-      // Register custom theme if it's the helix-dark theme
-      if (theme === 'helix-dark') {
-        const helixTheme = createHelixTheme(themeConfig);
-        monaco.editor.defineTheme('helix-dark', helixTheme);
-      }
-      monaco.editor.setTheme(theme);
+      const helixDarkTheme = createHelixTheme(themeConfig);
+      monaco.editor.defineTheme('helix-dark', helixDarkTheme);
+      const helixLightTheme = createHelixLightTheme(themeConfig);
+      monaco.editor.defineTheme('helix-light', helixLightTheme);
+      monaco.editor.setTheme(effectiveTheme);
     }
-  }, [theme, themeConfig]);
+  }, [effectiveTheme, themeConfig]);
 
   return (
     <Box
@@ -415,7 +470,7 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({
         height: autoHeight ? 'auto' : height,
         minHeight: autoHeight ? minHeight : undefined,
         maxHeight: autoHeight ? maxHeight : undefined,
-        border: '1px solid #303047',
+        border: lightTheme.border,
         borderRadius: 1,
         overflow: 'hidden',
         '& .monaco-editor': {

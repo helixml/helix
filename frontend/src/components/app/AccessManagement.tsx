@@ -27,6 +27,7 @@ import GroupsIcon from '@mui/icons-material/Groups'
 import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings'
 import LockPersonIcon from '@mui/icons-material/LockPerson'
 import useAccount from '../../hooks/useAccount'
+import useLightTheme from '../../hooks/useLightTheme'
 import { TypesAccessGrant, TypesCreateAccessGrantRequest, TypesRole } from '../../api/api'
 import DeleteConfirmWindow from '../widgets/DeleteConfirmWindow'
 import useRouter from '../../hooks/useRouter'
@@ -59,6 +60,7 @@ const AccessManagement: React.FC<AccessManagementProps> = ({
   const organization = orgTools.organization;
   const router = useRouter();
   const theme = useTheme();
+  const lightTheme = useLightTheme();
 
   // Local state
   const [openTeamDialog, setOpenTeamDialog] = useState(false);
@@ -261,7 +263,7 @@ const AccessManagement: React.FC<AccessManagementProps> = ({
             }}>                            
               <Box sx={{ maxHeight: '400px', overflow: 'auto' }}>
                 <Box component="table" sx={{ width: '100%', borderCollapse: 'collapse' }}>
-                  <Box component="thead" sx={{ bgcolor: '#181A20' }}>
+                  <Box component="thead" sx={{ bgcolor: lightTheme.panelColor }}>
                     <Box component="tr">
                       <Box component="th" sx={{ 
                         p: 2, 
@@ -357,7 +359,7 @@ const AccessManagement: React.FC<AccessManagementProps> = ({
                       const user = (grant.user || {}) as any
                       return (
                         <Box component="tr" key={grant.id} sx={{ 
-                          '&:hover': { bgcolor: '#23262F' },
+                          '&:hover': { bgcolor: lightTheme.highlightColor },
                           borderBottom: index < userGrants.length - 1 ? '1px solid #353945' : 'none'
                         }}>
                           <Box component="td" sx={{ p: 2, verticalAlign: 'top' }}>
@@ -472,7 +474,7 @@ const AccessManagement: React.FC<AccessManagementProps> = ({
             }}>              
               <Box sx={{ maxHeight: '400px', overflow: 'auto' }}>
                 <Box component="table" sx={{ width: '100%', borderCollapse: 'collapse' }}>
-                  <Box component="thead" sx={{ bgcolor: '#181A20' }}>
+                  <Box component="thead" sx={{ bgcolor: lightTheme.panelColor }}>
                     <Box component="tr">
                       <Box component="th" sx={{ 
                         p: 2, 
@@ -516,7 +518,7 @@ const AccessManagement: React.FC<AccessManagementProps> = ({
                       const team = teams.find(t => t.id === teamId);
                       return (
                         <Box component="tr" key={grant.id} sx={{ 
-                          '&:hover': { bgcolor: '#23262F' },
+                          '&:hover': { bgcolor: lightTheme.highlightColor },
                           borderBottom: index < teamGrants.length - 1 ? '1px solid #353945' : 'none'
                         }}>
                           <Box component="td" sx={{ p: 2, verticalAlign: 'top' }}>

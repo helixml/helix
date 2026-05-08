@@ -463,8 +463,8 @@ const AddLocalMcpSkillDialog: React.FC<AddLocalMcpSkillDialogProps> = ({
       </DialogContent>
       <DialogActions
         sx={{
-          background: '#181A20',
-          borderTop: '1px solid #23262F',
+          background: lightTheme.panelColor,
+          borderTop: lightTheme.border,
           flexDirection: 'column',
           alignItems: 'stretch',
         }}
