@@ -1,6 +1,6 @@
 # Implementation Tasks
 
-- [ ] Add `DismissAttentionEventsForTask(ctx, specTaskID) (int64, error)` to the `Store` interface in `api/pkg/store/store.go` (next to the other Attention Event methods around line 598-604)
+- [~] Add `DismissAttentionEventsForTask(ctx, specTaskID) (int64, error)` to the `Store` interface in `api/pkg/store/store.go` (next to the other Attention Event methods around line 598-604)
 - [ ] Implement `DismissAttentionEventsForTask` in `api/pkg/store/store_attention_events.go` (mirror `BulkDismissAttentionEvents`, scoped by `spec_task_id` with `dismissed_at IS NULL` guard)
 - [ ] Regenerate / update `api/pkg/store/store_mocks.go` so gomock has the new method
 - [ ] Add a small helper (e.g. `dismissTaskNotifications(ctx, store, taskID)`) somewhere shared by `git_http_server.go` and `spec_task_orchestrator.go` — log-and-swallow errors, don't propagate
