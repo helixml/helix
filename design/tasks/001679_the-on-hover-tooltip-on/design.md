@@ -59,6 +59,12 @@ Fallback chain stops at `spec_task_name` — we do not fall back to `original_pr
 - **Persist as `gorm:"type:text"`**: existing denormalized fields (`SpecTaskName`, `ProjectName`) are *persisted at write time* with `gorm:"size:N"`, not computed at read time. The prompt can be long, so use `text` like the existing `Description` field. GORM auto-migrate adds the column on next API start.
 - **Field naming `spec_task_description`**: follows the existing `spec_task_name` / `spec_task_id` pattern. Avoids colliding with `AttentionEvent.Description` (the event's own description field).
 
+## Implementation Notes
+
+- **Discovery: `gorm:"-"` was wrong.** The original design said to use `gorm:"-"` for `SpecTaskDescription`. On reading `attention_event.go`, the existing denormalized fields `SpecTaskName` (`gorm:"size:500"`) and `ProjectName` (`gorm:"size:255"`) are *persisted at write time*, not computed at read time. To match that pattern, I used `gorm:"type:text"` (the prompt can be long, mirroring the existing `Description` column). GORM auto-migrate adds the column on next API start.
+- **Local builds clean** (`go build ./api/...`, `tsc --noEmit` on frontend).
+- **E2E test blocker (environment, not code).** Air rebuild inside `helix-api-1` fails on pre-existing `kodit_service.go` errors caused by a vendored-kodit version mismatch in the running container — present on `main` HEAD before any of my changes. The container's prior good binary is no longer serving, so curl to `:8080` returns 000. I couldn't run the in-browser hover test as required by acceptance criterion. The change itself is mechanical (one new field, one new tooltip token) and both compilers are happy with it.
+
 ## Files Changed
 
 | File | Change |
