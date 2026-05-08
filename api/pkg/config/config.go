@@ -54,6 +54,9 @@ func LoadServerConfig() (ServerConfig, error) {
 	if err != nil {
 		return ServerConfig{}, err
 	}
+	if cfg.Notifications.AppURL == "" {
+		cfg.Notifications.AppURL = cfg.WebServer.URL
+	}
 	return cfg, nil
 }
 
@@ -220,7 +223,9 @@ type OIDC struct {
 // Notifications is used for sending notifications to users when certain events happen
 // such as finetuning starting or completing.
 type Notifications struct {
-	AppURL string `envconfig:"APP_URL" default:"https://app.helix.ml"`
+	// AppURL is the public-facing base URL used in user-visible links (Slack/email/etc).
+	// When unset, falls back to WebServer.URL (SERVER_URL) — see LoadServerConfig.
+	AppURL string `envconfig:"APP_URL"`
 	Email  EmailConfig
 	// Agent progress notifications (Slack/Teams threads with screenshots)
 	AgentNotifications AgentNotificationsConfig
