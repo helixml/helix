@@ -13,7 +13,6 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/services"
-	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -1453,20 +1452,6 @@ func (s *HelixAPIServer) backfillDesignReviewFromGit(ctx context.Context, specTa
 		Msg("✅ Design review backfilled successfully from git")
 }
 
-// sanitizeBranchName sanitizes a string to be used as a git branch name
-func sanitizeBranchName(name string) string {
-	// Replace spaces with hyphens
-	name = strings.ReplaceAll(name, " ", "-")
-	// Remove special characters except hyphens and underscores
-	result := strings.Builder{}
-	for _, r := range name {
-		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' || r == '/' {
-			result.WriteRune(r)
-		}
-	}
-	return result.String()
-}
-
 // sendMessageToSpecTaskAgent is the unified helper for sending messages to spec task agents via WebSocket
 // It handles: finding connected session, generating request ID, setting up response routing, and sending
 // If no session is connected, it auto-starts the dev container and waits up to 90s for the agent to connect.
@@ -1537,126 +1522,3 @@ func (s *HelixAPIServer) sendMessageToSpecTaskAgent(
 	return requestID, interactionID, nil
 }
 
-// sendApprovalInstructionToAgent sends the detailed implementation instruction to the agent via WebSocket
-// This is called when a design review is approved
-func (s *HelixAPIServer) sendApprovalInstructionToAgent(
-	ctx context.Context,
-	specTask *types.SpecTask,
-	branchName string,
-	baseBranch string,
-	primaryRepoName string,
-) error {
-	// Fetch guidelines from project and organization
-	guidelines, project := s.getGuidelinesForSpecTask(ctx, specTask)
-	koditDoc := ""
-	if project != nil && project.KoditEnabled {
-		koditDoc = s.koditService.MCPDocumentation()
-	}
-
-	// Build repository section listing local + Kodit repos for the agent
-	repoSection := s.buildRepositorySectionForSpecTask(ctx, specTask, project)
-
-	// Gather non-primary repo names and find primary repo for screenshot URLs
-	var nonPrimaryRepoNames []string
-	var screenshotBaseURL string
-	taskDirName := services.GetTaskDirName(specTask)
-	if specTask.ProjectID != "" {
-		projectRepos, err := s.Store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
-			ProjectID: specTask.ProjectID,
-		})
-		if err == nil {
-			for _, repo := range projectRepos {
-				if repo.Name == primaryRepoName && repo.ExternalURL != "" {
-					screenshotBaseURL = services.GetRawScreenshotBaseURL(repo, taskDirName)
-				} else if repo.Name != primaryRepoName && repo.ExternalURL != "" {
-					nonPrimaryRepoNames = append(nonPrimaryRepoNames, repo.Name)
-				}
-			}
-		}
-	}
-
-	// Build the prompt using the shared function from services package
-	message := services.BuildApprovalInstructionPrompt(specTask, branchName, baseBranch, guidelines, primaryRepoName, koditDoc, repoSection, nonPrimaryRepoNames, screenshotBaseURL)
-
-	// interrupt=false: approval kickoff begins a new phase with an idle agent; respect the queue.
-	_, _, err := s.sendMessageToSpecTaskAgent(ctx, specTask, message, "", false)
-	if err != nil {
-		return err
-	}
-
-	log.Info().
-		Str("spec_task_id", specTask.ID).
-		Str("branch_name", branchName).
-		Msg("✅ Sent approval instruction to agent via WebSocket")
-
-	return nil
-}
-
-// getGuidelinesForSpecTask fetches concatenated organization + project guidelines
-func (s *HelixAPIServer) getGuidelinesForSpecTask(ctx context.Context, task *types.SpecTask) (string, *types.Project) {
-	if task.ProjectID == "" {
-		return "", nil
-	}
-
-	project, err := s.Store.GetProject(ctx, task.ProjectID)
-	if err != nil || project == nil {
-		return "", nil
-	}
-
-	guidelines := ""
-
-	// Get organization guidelines
-	if project.OrganizationID != "" {
-		org, err := s.Store.GetOrganization(ctx, &store.GetOrganizationQuery{ID: project.OrganizationID})
-		if err == nil && org != nil && org.Guidelines != "" {
-			guidelines = org.Guidelines
-		}
-	}
-
-	// Append project guidelines
-	if project.Guidelines != "" {
-		if guidelines != "" {
-			guidelines += "\n\n---\n\n"
-		}
-		guidelines += project.Guidelines
-	}
-
-	return guidelines, project
-}
-
-// buildRepositorySectionForSpecTask fetches project and org repos, then builds the repository section
-func (s *HelixAPIServer) buildRepositorySectionForSpecTask(ctx context.Context, task *types.SpecTask, project *types.Project) string {
-	if task.ProjectID == "" {
-		return ""
-	}
-
-	// Fetch project repos
-	projectRepos, err := s.Store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
-		ProjectID: task.ProjectID,
-	})
-	if err != nil {
-		return ""
-	}
-
-	// Fetch Kodit org repos if enabled
-	var koditOrgRepos []*types.GitRepository
-	if project != nil && project.KoditEnabled && project.OrganizationID != "" {
-		orgRepos, err := s.Store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
-			OrganizationID: project.OrganizationID,
-		})
-		if err == nil {
-			for _, repo := range orgRepos {
-				if repo.KoditIndexing {
-					koditOrgRepos = append(koditOrgRepos, repo)
-				}
-			}
-		}
-	}
-
-	primaryRepoID := ""
-	if project != nil {
-		primaryRepoID = project.DefaultRepoID
-	}
-
-	return services.BuildRepositorySection(projectRepos, koditOrgRepos, primaryRepoID)
-}
