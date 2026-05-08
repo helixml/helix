@@ -6,7 +6,7 @@ Four tweaks to the on-hover "Add comment" button and pseudo-highlight on the spe
 
 1. Clicking the hover button now applies the same blue pseudo-highlight to the paragraph that manual selection does, so users can see exactly which block the comment is attached to.
 2. The hover button now disappears when the cursor moves to the right past the button's right edge (previously it lingered until the cursor left the entire scroll container). Clicking the button is unaffected.
-3. Pseudo-highlights spanning a code block: kept the existing `::highlight()` rule (`background-color: #b3d7ff` + `color: #000`). The background was already painting across code blocks fine — the original "truncation" report was perception only, since Prism's inline syntax-token colours win over `::highlight()` color (intentionally, so syntax colours stay visible under the highlight).
+3. Pseudo-highlights spanning a code block AND dark-mode legibility: changed the `::highlight(comment-highlight)` rule from solid `#b3d7ff` + `color: #000` to translucent `rgba(25, 118, 210, 0.4)` with no `color` override. Chrome's Custom Highlight API does not reliably override inherited text color via `::highlight() { color: ... }`, so the previous rule rendered as white text on light blue in dark mode (illegible). The translucent blue tints the background and lets the theme's text colour show through legibly in both modes; syntax colours inside code blocks are also preserved.
 4. The hover button no longer appears when the cursor is over an existing inline comment panel (`InlineCommentBubble`).
 
 All changes are in `frontend/src/components/spec-tasks/DesignReviewContent.tsx`.
@@ -16,7 +16,7 @@ All changes are in `frontend/src/components/spec-tasks/DesignReviewContent.tsx`.
 - `onClick` of the hover button now creates a `Range` over `hoveredElementRef.current` and assigns it to `savedRangeRef.current` so the existing `useEffect` applies the pseudo-highlight when the comment form opens.
 - Added an `onMouseMove` handler to the outer scroll container that clears `hoverButtonPosition` when the cursor x-position exceeds the button's right edge (`containerWidth/2 + 432px`).
 - Added an early-return in the inner Box's `onMouseMove` handler that clears the hover button when the cursor is inside any element tracked in `commentRefs.current`.
-- (Highlight CSS rule unchanged — kept `color: #000` for dark-mode legibility, which Prism's inline syntax styles override inside code blocks anyway.)
+- Changed the `::highlight(comment-highlight)` `GlobalStyles` rule to `backgroundColor: "rgba(25, 118, 210, 0.4)"` (translucent saturated blue, no `color` override) — works in both light and dark modes since the theme's text colour shows through.
 
 ## Screenshots
 

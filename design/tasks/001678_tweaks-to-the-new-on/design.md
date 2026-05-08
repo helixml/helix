@@ -52,15 +52,18 @@ This only triggers when `hoverButtonPosition` is set (button is visible) and cur
 
 **Update during implementation:** Discovery showed `helix` already migrated `applyHighlight` to use the **CSS Custom Highlight API** (`CSS.highlights` + `new Highlight(range)`) — see `DesignReviewContent.tsx:879-899` and the GlobalStyles rule at line 1116. This is non-destructive (no DOM mutation), so the original `extractContents` problem from `helix-4` doesn't apply here.
 
-**Investigated with the live page:** Both `background-color: #b3d7ff` and `color: #000` from the original `::highlight(comment-highlight)` rule were doing useful work. The background paints across the code block fine — the original "truncation" perception was just that the syntax-coloured tokens (Prism's inline `color: rgb(...)`) win over `::highlight() { color: ... }` in Chrome, so highlighted code text keeps its syntax colours rather than going black.
+**Investigation outcome:** Chrome's CSS Custom Highlight API has a known limitation — `::highlight() { color: ... }` does NOT reliably override inherited text color. Pixel-level inspection (`screenshots/11-zoomed-highlight-text.png`) confirmed that text inside the highlight stayed white in dark mode despite the `color: #000` rule being present in the registered CSS rule.
 
-**False-start fix (reverted):** Dropping `color: #000` made non-code paragraphs in dark mode render as white text on the light blue highlight (illegible), because the inherited dark-mode `color: rgb(255, 255, 255)` then showed through.
+**False-start fixes (both reverted):**
+1. First attempt: dropped `color: #000` — broke dark mode (white text on light blue, illegible).
+2. Second attempt: restored `color: #000` — same dark-mode bug, because Chrome ignores the override.
 
-**Final fix:** Keep both properties (`background-color: #b3d7ff` and `color: #000`). Result:
-- Normal paragraphs: black text on blue background — legible in both light and dark modes (since the highlight forces black text).
-- Code blocks: blue background paints on each text line; Prism inline `color` styles override the highlight's `color: #000`, so syntax token colours stay visible (purple `function`/`const`/`return`, etc.) — this is the desired behaviour.
+**Final fix:** Use a translucent saturated blue (`rgba(25, 118, 210, 0.4)`) for the background and **no** `color` override. The translucency lets the underlying page colors show through, so:
+- Light mode (dark text on light Paper): highlight tints to a softer light blue; dark text remains legible.
+- Dark mode (white text on dark Paper): highlight tints to a darker blue; white text remains legible against it.
+- Code blocks: highlight paints across each text line; Prism syntax token colours show through unchanged.
 
-**Verified in dark mode** (`screenshots/09-actual-render-darkmode.png`): the highlight is legible across both normal paragraphs and the code block, with syntax colours preserved inside the code.
+**Verified** in both light (`screenshots/13-translucent-lightmode.png`, `14-translucent-codeblock-lightmode.png`) and dark (`screenshots/12-translucent-test.png`, `16-translucent-darkmode-actual.png`) modes — highlight visible and text legible across normal paragraphs and code blocks.
 
 ## 4. No hover button when cursor is over a comment panel
 
